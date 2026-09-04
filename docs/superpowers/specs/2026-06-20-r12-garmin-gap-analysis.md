@@ -1,5 +1,7 @@
 # R12 设计与开发准备(对比 Garmin / GolfLive)
 
+> **2026-07-16 AUTHORITY CORRECTION — HISTORICAL GAP ANALYSIS：**本文件不再是“当前完整设计”，也不保留旧实施授权。推荐杆不得自动成为实际杆（L07），Web 不做实时深编辑（D10/D11），GPS/电量/冲突/事件阈值由证据和工程 contract 决定。当前权威见[Watch 决策账本](../../reviews/2026-07-15-watch-decision-and-task-tracker.md)与[全仓 Owner-gate 审计](../../reviews/2026-07-16-repository-wide-owner-gate-authority-and-drift-audit.md)。
+
 > 2026-06-20。用户看完 TestFlight 0.1.0(31) 后的反馈 + 21 张参考截图(`~/claude-web-data/IMG_4878–4896` + `4917/4918`)。本文是**当前完整设计**,供用户与 Codex 审阅。未开始实现。
 
 ## 0. 定位与架构(本轮的核心转向)

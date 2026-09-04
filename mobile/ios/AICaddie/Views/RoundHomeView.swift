@@ -10,12 +10,18 @@ import SwiftUI
 public enum HubRoute: Hashable {
     case start
     case hole(Int)
+    case history
+    case roundReview(roundRef: String, courseName: String?, globalId: Int?, backGlobalId: Int?, nine: String?, teeBox: String?)
 }
 
 public struct RoundHomeView: View {
     public let package: LiveRoundPackage
     public let pendingEventCount: Int
     public let syncStatus: String
+    public let localEventUploadStatus: String
+    public let garminSyncStatus: String
+    public let lastGarminSyncAt: Date?
+    public let isGarminSyncing: Bool
     public let apiBaseURL: URL?
     public let adminToken: String?
     public let adminTokenConfigured: Bool
@@ -23,23 +29,47 @@ public struct RoundHomeView: View {
     public let sessionStore: GarminSessionStore?
     public let watchBridge: WatchEventBridge?
     public let liveRoundState: LiveRoundStateSnapshot?
+    public let pendingWatchRoundStart: WatchRoundStartPayload?
     public let courseOptions: [MobileCourseOption]
+    public let downloadedCourseOptions: [MobileCourseOption]
+    public let downloadedCourseKeys: Set<String>
+    public let prepCourseDownloads: [PrepCourseDownloadRecord]
+    public let prepCourseDownloadPresentation: PrepCourseDownloadPresentationState?
     public let startingNine: String?
     public let isPreparingRound: Bool
+    public let isFinishingRound: Bool
+    public let finishErrorMessage: String?
     public let onEvent: (LiveRoundEvent) -> Void
     public let onPrepareRound: (String) -> Void
     public let onPrepareCourseRound: (Int, String, String, String) -> Void
     public let onPrepareCompositeRound: (Int, Int, String, String) -> Void
+    public let onRememberCourseDisplayName: (Int, String) -> Void
     public let onChangeNine: (String) -> Void
-    public let onDiscard: () -> Void
+    public let onFinishRound: () async -> Bool
+    public let onDiscardRound: () -> Void
+    public let onSetActiveHole: (Int) -> Void
+    public let onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void
     public let onSync: () -> Void
+    public let onGarminSessionImported: () async -> Bool
+    public let onRefreshGarminSyncStatus: () async -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
     /// 拉取所选球场的可选发球台(供「开始一场」的选台器);仅转发给 StartRoundView。
     public let onLoadCourseTees: (Int) async -> [CourseTee]
+    /// Garmin 全库名称搜索；StartRoundView 只保留本次结果，选中后走现有单球场准备链。
+    public let onSearchCourses: (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch]
+    /// Garmin 全库坐标发现；StartRoundView 只保留本次结果。
+    public let onNearbyCourses: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
+    public let onDownloadPrepCourse: (MobileCourseOption) -> Void
+    public let onRetryPrepCourseDownload: (String) -> Void
+    /// Re-check a locally complete prep package against the current Garmin release before opening it.
+    /// A transport failure is handled by the model as a deferred check, so offline use remains valid.
+    public let onValidateReadyPrepCourse: (PrepCourseDownloadRecord) async -> Bool
     /// Set to a hole number right after a fresh round is prepared → auto-navigate into that hole.
     public let pendingLiveHole: Int?
     public let onConsumePendingLiveHole: () -> Void
+    public let onLiveHoleInitialLoadDidFinish: () -> Void
+    public let onLiveAppearanceChanged: (Bool) -> Void
 
     @State private var showSettings = false
     @State private var path: [HubRoute] = []
@@ -48,6 +78,10 @@ public struct RoundHomeView: View {
         package: LiveRoundPackage,
         pendingEventCount: Int = 0,
         syncStatus: String = "Offline ready",
+        localEventUploadStatus: String = "自动上传已开启",
+        garminSyncStatus: String = "尚未手动更新",
+        lastGarminSyncAt: Date? = nil,
+        isGarminSyncing: Bool = false,
         apiBaseURL: URL? = nil,
         adminToken: String? = nil,
         adminTokenConfigured: Bool = false,
@@ -55,25 +89,49 @@ public struct RoundHomeView: View {
         sessionStore: GarminSessionStore? = GarminSessionStore(),
         watchBridge: WatchEventBridge? = nil,
         liveRoundState: LiveRoundStateSnapshot? = nil,
+        pendingWatchRoundStart: WatchRoundStartPayload? = nil,
         courseOptions: [MobileCourseOption] = [],
+        downloadedCourseOptions: [MobileCourseOption] = [],
+        downloadedCourseKeys: Set<String> = [],
+        prepCourseDownloads: [PrepCourseDownloadRecord] = [],
+        prepCourseDownloadPresentation: PrepCourseDownloadPresentationState? = nil,
         startingNine: String? = nil,
         isPreparingRound: Bool = false,
+        isFinishingRound: Bool = false,
+        finishErrorMessage: String? = nil,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
+        onRememberCourseDisplayName: @escaping (Int, String) -> Void = { _, _ in },
         onChangeNine: @escaping (String) -> Void = { _ in },
-        onDiscard: @escaping () -> Void = {},
+        onFinishRound: @escaping () async -> Bool = { false },
+        onDiscardRound: @escaping () -> Void = {},
+        onSetActiveHole: @escaping (Int) -> Void = { _ in },
+        onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
         onSync: @escaping () -> Void = {},
+        onGarminSessionImported: @escaping () async -> Bool = { false },
+        onRefreshGarminSyncStatus: @escaping () async -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
+        onSearchCourses: @escaping (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _, _ in [] },
+        onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
+        onDownloadPrepCourse: @escaping (MobileCourseOption) -> Void = { _ in },
+        onRetryPrepCourseDownload: @escaping (String) -> Void = { _ in },
+        onValidateReadyPrepCourse: @escaping (PrepCourseDownloadRecord) async -> Bool = { _ in true },
         pendingLiveHole: Int? = nil,
-        onConsumePendingLiveHole: @escaping () -> Void = {}
+        onConsumePendingLiveHole: @escaping () -> Void = {},
+        onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
+        onLiveAppearanceChanged: @escaping (Bool) -> Void = { _ in }
     ) {
         self.package = package
         self.pendingEventCount = pendingEventCount
         self.syncStatus = syncStatus
+        self.localEventUploadStatus = localEventUploadStatus
+        self.garminSyncStatus = garminSyncStatus
+        self.lastGarminSyncAt = lastGarminSyncAt
+        self.isGarminSyncing = isGarminSyncing
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
         self.adminTokenConfigured = adminTokenConfigured
@@ -81,21 +139,59 @@ public struct RoundHomeView: View {
         self.sessionStore = sessionStore
         self.watchBridge = watchBridge
         self.liveRoundState = liveRoundState
+        self.pendingWatchRoundStart = pendingWatchRoundStart
         self.courseOptions = courseOptions
+        self.downloadedCourseOptions = downloadedCourseOptions
+        self.downloadedCourseKeys = downloadedCourseKeys
+        self.prepCourseDownloads = prepCourseDownloads
+        self.prepCourseDownloadPresentation = prepCourseDownloadPresentation
         self.startingNine = startingNine
         self.isPreparingRound = isPreparingRound
+        self.isFinishingRound = isFinishingRound
+        self.finishErrorMessage = finishErrorMessage
         self.onEvent = onEvent
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onPrepareCompositeRound = onPrepareCompositeRound
+        self.onRememberCourseDisplayName = onRememberCourseDisplayName
         self.onChangeNine = onChangeNine
-        self.onDiscard = onDiscard
+        self.onFinishRound = onFinishRound
+        self.onDiscardRound = onDiscardRound
+        self.onSetActiveHole = onSetActiveHole
+        self.onRetainReadyHolePrep = onRetainReadyHolePrep
         self.onSync = onSync
+        self.onGarminSessionImported = onGarminSessionImported
+        self.onRefreshGarminSyncStatus = onRefreshGarminSyncStatus
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
         self.onLoadCourseTees = onLoadCourseTees
+        self.onSearchCourses = onSearchCourses
+        self.onNearbyCourses = onNearbyCourses
+        self.onDownloadPrepCourse = onDownloadPrepCourse
+        self.onRetryPrepCourseDownload = onRetryPrepCourseDownload
+        self.onValidateReadyPrepCourse = onValidateReadyPrepCourse
         self.pendingLiveHole = pendingLiveHole
         self.onConsumePendingLiveHole = onConsumePendingLiveHole
+        self.onLiveHoleInitialLoadDidFinish = onLiveHoleInitialLoadDidFinish
+        self.onLiveAppearanceChanged = onLiveAppearanceChanged
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        if environment["UITEST_MODE"] == "1",
+           let roundRef = environment["UITEST_REVIEW_ROUND_REF"],
+           !roundRef.isEmpty {
+            self._path = State(initialValue: [
+                .history,
+                .roundReview(
+                    roundRef: roundRef,
+                    courseName: environment["UITEST_REVIEW_COURSE_NAME"],
+                    globalId: nil,
+                    backGlobalId: nil,
+                    nine: nil,
+                    teeBox: nil
+                ),
+            ])
+        }
+        #endif
     }
 
     /// Nameless, time-of-day greeting (早上好 / 中午好 / 下午好 / 晚上好) — the home's large title.
@@ -130,6 +226,23 @@ public struct RoundHomeView: View {
                     startRoundView
                 case .hole(let number):
                     currentHoleView(number)
+                case .history:
+                    RecentRoundReviewView(
+                        package: package,
+                        apiBaseURL: apiBaseURL,
+                        adminToken: adminToken
+                    )
+                case .roundReview(let roundRef, let courseName, let globalId, let backGlobalId, let nine, let teeBox):
+                    RoundReviewView(
+                        roundRef: roundRef,
+                        fallbackCourseName: courseName,
+                        apiBaseURL: apiBaseURL,
+                        adminToken: adminToken,
+                        globalId: globalId,
+                        backGlobalId: backGlobalId,
+                        nine: nine,
+                        teeBox: teeBox
+                    )
                 }
             }
             .toolbar {
@@ -149,12 +262,59 @@ public struct RoundHomeView: View {
                 await refreshRealClubBag(apiBaseURL: apiBaseURL, adminToken: adminToken)
             }
         }
+        // The NavigationStack owns the system status bar, so the immersive hole destination cannot
+        // hide it reliably from inside CurrentHoleView. Keep normal chrome on every non-live route.
+        .statusBarHidden(Self.isLiveHoleRoute(path.last))
         .onChange(of: pendingLiveHole) { _, hole in
-            // 开始记分后直接进实战屏:把刚开的洞设为唯一路径(替换掉「开始一场」),不弹回 Hub。
-            guard let hole else { return }
-            path = [.hole(hole)]
-            onConsumePendingLiveHole()
+            #if DEBUG
+            UITestEventLatencyTrace.record("round-home.pending-change hole=\(hole ?? -1)")
+            #endif
+            enterPendingLiveHole(hole)
         }
+        .onChange(of: liveRoundState?.roundId) { previousRoundId, currentRoundId in
+            if previousRoundId != nil, currentRoundId == nil {
+                path = []
+            }
+        }
+        .onChange(of: path) { _, routes in
+            onLiveAppearanceChanged(Self.isLiveHoleRoute(routes.last))
+        }
+        .onAppear {
+            #if DEBUG
+            UITestEventLatencyTrace.record(
+                "round-home.appear pending=\(pendingLiveHole ?? -1) course=\(package.course.globalId)"
+            )
+            #endif
+            // Replacing the home package can create this view with the pending hole already set.
+            // `onChange` does not fire for that initial value, so consume it here as well.
+            enterPendingLiveHole(pendingLiveHole)
+            onLiveAppearanceChanged(Self.isLiveHoleRoute(path.last))
+        }
+        .onDisappear {
+            onLiveAppearanceChanged(false)
+        }
+    }
+
+    private static func isLiveHoleRoute(_ route: HubRoute?) -> Bool {
+        guard case .hole = route else { return false }
+        return true
+    }
+
+    /// 开始记分后直接进实战屏:把刚开的洞设为唯一路径(替换掉「开始一场」),不弹回 Hub。
+    private func enterPendingLiveHole(_ hole: Int?) {
+        guard let hole else { return }
+        #if DEBUG
+        UITestEventLatencyTrace.record(
+            "round-home.enter.begin hole=\(hole) course=\(package.course.globalId)"
+        )
+        #endif
+        path = [.hole(hole)]
+        onConsumePendingLiveHole()
+        #if DEBUG
+        UITestEventLatencyTrace.record(
+            "round-home.enter.end hole=\(hole) course=\(package.course.globalId)"
+        )
+        #endif
     }
 
     @ViewBuilder private func currentHoleView(_ number: Int) -> some View {
@@ -165,18 +325,32 @@ public struct RoundHomeView: View {
                 package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken,
                 offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState,
                 courseOptions: courseOptions, startingNine: startingNine, isPreparingRound: isPreparingRound,
+                pendingEventCount: pendingEventCount, isFinishingRound: isFinishingRound,
+                finishErrorMessage: finishErrorMessage,
                 onChangeNine: onChangeNine, onPrepareCourseRound: onPrepareCourseRound,
-                onPrepareCompositeRound: onPrepareCompositeRound, onDiscard: onDiscard, onEvent: onEvent
+                onPrepareCompositeRound: onPrepareCompositeRound, onFinishRound: onFinishRound,
+                onDiscardRound: onDiscardRound,
+                onAdvanceHole: { next in
+                    onSetActiveHole(next)
+                    path = [.hole(next)]
+                },
+                onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish,
+                onRetainReadyHolePrep: onRetainReadyHolePrep,
+                onEvent: onEvent
             )
+            // A hole owns its score/club/map/GPS presentation state and scroll position. NavigationStack
+            // otherwise reuses the same destination view when `.hole(1)` becomes `.hole(2)`, carrying
+            // the prior hole's @State and scroll offset into the next hole. Explicit round+hole identity
+            // gives every ordered transition a fresh live surface; LocationProvider immediately republishes
+            // its injected fix in UI tests and resumes Core Location normally on a real device.
+            .id("\(package.roundId):\(hole.number)")
         }
     }
 
     private var startRoundView: some View {
         StartRoundView(
-            defaultRoundId: package.roundId,
-            defaultCourseGlobalId: package.course.globalId == 0 ? nil : package.course.globalId,
-            defaultTeeBox: package.course.teeBox,
             courseOptions: courseOptions,
+            downloadedCourseOptions: downloadedCourseOptions,
             syncStatus: syncStatus,
             isPreparing: isPreparingRound,
             apiBaseURL: apiBaseURL,
@@ -184,10 +358,13 @@ public struct RoundHomeView: View {
             onPrepareRound: onPrepareRound,
             onPrepareCourseRound: onPrepareCourseRound,
             onPrepareCompositeRound: onPrepareCompositeRound,
+            onRememberCourseDisplayName: onRememberCourseDisplayName,
             onSaveBackendConfiguration: onSaveBackendConfiguration,
             onClearBackendConfiguration: onClearBackendConfiguration,
             onConnectGarmin: { showSettings = true },
-            onLoadCourseTees: onLoadCourseTees
+            onLoadCourseTees: onLoadCourseTees,
+            onSearchCourses: onSearchCourses,
+            onNearbyCourses: onNearbyCourses
         )
     }
 
@@ -199,42 +376,80 @@ public struct RoundHomeView: View {
                 HubInProgressCard(
                     courseName: package.course.name,
                     activeHole: liveRoundState.activeHole,
-                    recorded: liveRoundState.holes.count,
+                    recorded: recordedScoreHoleCount,
                     total: package.holes.count
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("home-in-progress-round")
+        } else if let pendingWatchRoundStart {
+            HubPendingWatchCard(
+                courseName: pendingWatchRoundStart.courseName,
+                activeHole: pendingWatchRoundStart.activeHole
+            )
         }
-        // 打球 = the wide primary tile (was the full-width green button); opens 开始一场 (StartRoundView).
-        NavigationLink(value: HubRoute.start) {
+        // Do not offer a second start while the Watch-created round is waiting for its iPhone
+        // package. The status card above is the single continuation path; a second round here would
+        // make the phone appear to lose the wrist session that it is still activating.
+        if pendingWatchRoundStart == nil {
+            // 打球 = the wide primary tile (was the full-width green button); opens 开始一场 (StartRoundView).
+            NavigationLink(value: HubRoute.start) {
+                HubPlayTile()
+            }
+            .buttonStyle(.plain)
+        } else {
             HubPlayTile()
+                .opacity(0.45)
+                .accessibilityLabel("打球")
+                .accessibilityValue("等待手表球局同步")
         }
-        .buttonStyle(.plain)
     }
 
-    // MARK: - 备战 · 复盘 · 统计 磁贴(复盘=单场逐洞,统计=历史宏观,分开)
+    /// A restored snapshot contains one default state for every package hole, including holes the
+    /// player has not scored. Home progress therefore comes from the durable score events, matching
+    /// the in-round scorecard, rather than from `liveRoundState.holes.count`.
+    private var recordedScoreHoleCount: Int {
+        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return 0 }
+        let displayedHoles = Set(package.holes.map(\.number))
+        return Set<Int>(events.compactMap { event in
+            guard event.roundId == package.roundId,
+                  event.kind == .score,
+                  displayedHoles.contains(event.hole) else {
+                return nil
+            }
+            return event.hole
+        }).count
+    }
+
+    // MARK: - 备战 · 成绩（球局与统计统一入口）
 
     @ViewBuilder private var tilesRow: some View {
         HStack(spacing: 11) {
             if let apiBaseURL {
                 NavigationLink {
-                    // 备战先选球场,而不是锁死在当前球场。
-                    PrepCoursePickerView(courseOptions: courseOptions, apiBaseURL: apiBaseURL, adminToken: adminToken)
+                    // 备战者已有目的地：直接名称搜索，不走现场 GPS 选场。
+                    PrepCoursePickerView(
+                        courseOptions: courseOptions,
+                        downloadedCourseOptions: downloadedCourseOptions,
+                        downloadedCourseKeys: downloadedCourseKeys,
+                        downloads: prepCourseDownloads,
+                        downloadPresentation: prepCourseDownloadPresentation,
+                        apiBaseURL: apiBaseURL,
+                        adminToken: adminToken,
+                        offlineStore: offlineStore,
+                        onDownload: onDownloadPrepCourse,
+                        onRetryDownload: onRetryPrepCourseDownload,
+                        onValidateReadyDownload: onValidateReadyPrepCourse
+                    )
                 } label: {
-                    HubTile(icon: "scope", title: "备战", subtitle: "选场 · 球童试算")
+                    HubTile(icon: "scope", title: "备战", subtitle: "搜索 · 球童试算")
                 }
                 .buttonStyle(.plain)
             }
             NavigationLink {
-                RecentRoundReviewView(package: package, apiBaseURL: apiBaseURL, adminToken: adminToken)
+                ResultsView(apiBaseURL: apiBaseURL, adminToken: adminToken)
             } label: {
-                HubTile(icon: "clock.arrow.circlepath", title: "历史复盘", subtitle: "逐洞落点")
-            }
-            .buttonStyle(.plain)
-            NavigationLink {
-                StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken)
-            } label: {
-                HubTile(icon: "chart.bar.xaxis", title: "数据统计", subtitle: "均杆 · 趋势")
+                HubTile(icon: "chart.line.uptrend.xyaxis", title: "成绩", subtitle: "球局 · 统计")
             }
             .buttonStyle(.plain)
         }
@@ -246,10 +461,16 @@ public struct RoundHomeView: View {
         if let last = package.recentHistory.rounds.first {
             VStack(alignment: .leading, spacing: 9) {
                 HubSectionLabel("上一场")
-                NavigationLink {
-                    RoundReviewView(roundRef: last.roundId, fallbackCourseName: last.courseName,
-                                    apiBaseURL: apiBaseURL, adminToken: adminToken)
-                } label: {
+                NavigationLink(
+                    value: HubRoute.roundReview(
+                        roundRef: last.roundId,
+                        courseName: last.courseName,
+                        globalId: last.globalId ?? package.course.globalId,
+                        backGlobalId: package.holes.lazy.compactMap(\.sourceGlobalId).first { $0 != package.course.globalId },
+                        nine: package.nine,
+                        teeBox: package.course.teeBox
+                    )
+                ) {
                     HubLastRoundCard(
                         courseName: last.courseName,
                         date: last.date,
@@ -261,6 +482,7 @@ public struct RoundHomeView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("home-last-round")
             }
             .padding(.top, 6)
         }
@@ -283,38 +505,91 @@ public struct RoundHomeView: View {
         NavigationStack {
             List {
                 Section {
+                    HStack(spacing: 12) {
+                        Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(LiveHoleStyle.green)
+                        VStack(alignment: .leading, spacing: 3) {
+                            // The model owns the sync state. During an in-flight operation, prefer
+                            // the explicit loading label over the previous terminal result so a
+                            // SwiftUI update cannot briefly show “已更新” beside the spinner.
+                            Text(isGarminSyncing ? "正在同步 Garmin 数据…" : garminSyncStatus)
+                                .font(.subheadline.weight(.semibold))
+                            if let lastGarminSyncAt, !isGarminSyncing {
+                                Text("上次成功 · \(lastGarminSyncAt, format: .dateTime.month().day().hour().minute())")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        if isGarminSyncing {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+                    Button {
+                        onSync()
+                    } label: {
+                        Label(
+                            "立即同步 Garmin",
+                            systemImage: "arrow.clockwise"
+                        )
+                    }
+                    .foregroundStyle(LiveHoleStyle.green)
+                    .disabled(isGarminSyncing || apiBaseURL == nil)
+                    .accessibilityIdentifier("settings-sync-garmin")
+                } header: {
+                    Text("Garmin 数据")
+                }
+
+                Section {
+                    HStack(spacing: 12) {
+                        Image(systemName: pendingEventCount > 0 ? "tray.full.fill" : "checkmark.circle.fill")
+                            .foregroundStyle(pendingEventCount > 0 ? Color.orange : LiveHoleStyle.green)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(localEventUploadStatus)
+                                .font(.subheadline)
+                            Text("记分后自动上传")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if pendingEventCount > 0 {
+                            Text("\(pendingEventCount)")
+                                .font(.caption.bold())
+                                .monospacedDigit()
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.orange, in: Capsule())
+                        }
+                    }
+                } header: {
+                    Text("本机记分")
+                }
+
+                Section {
+                    NavigationLink {
+                        GarminSessionView(
+                            apiBaseURL: apiBaseURL,
+                            adminToken: adminToken,
+                            sessionStore: sessionStore,
+                            onSessionImported: onGarminSessionImported
+                        )
+                    } label: {
+                        Label("Garmin 账号", systemImage: "link")
+                    }
                     NavigationLink {
                         ClubSettingsView(clubProfiles: package.clubProfiles, apiBaseURL: apiBaseURL, adminToken: adminToken)
                     } label: {
                         Label("球杆设置", systemImage: "bag")
                     }
                 } header: {
-                    Text("球包")
-                } footer: {
-                    Text("默认就是你 Garmin 里在用的那套球杆(真实名字),可手动增减;实战选杆和球童建议只用这些。")
+                    Text("账号与球包")
                 }
-                Section {
-                    NavigationLink {
-                        GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken, sessionStore: sessionStore)
-                    } label: {
-                        Label("Garmin 账号", systemImage: "key")
-                    }
-                    Button {
-                        onSync()
-                    } label: {
-                        Label("同步", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .foregroundStyle(LiveHoleStyle.green)
-                    if pendingEventCount > 0 {
-                        Label("\(pendingEventCount) 条待同步", systemImage: "tray.full")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } header: {
-                    Text("数据")
-                } footer: {
-                    Text("记分时会自动同步到 Garmin / 后端;这里可手动触发或管理账号。")
-                }
+            }
+            .task {
+                await onRefreshGarminSyncStatus()
             }
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
@@ -372,6 +647,45 @@ struct HubInProgressCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(HubStyle.heroBorder, lineWidth: 1))
         .shadow(color: LiveHoleStyle.green.opacity(0.12), radius: 10, x: 0, y: 4)
+    }
+}
+
+/// Visible while a Watch round-start fact is durable but the iPhone has not received its full course
+/// package yet. It is informational only: no fake distance, score, or navigation destination is shown.
+struct HubPendingWatchCard: View {
+    let courseName: String
+    let activeHole: Int
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(LiveHoleStyle.green)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("手表已开始")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(LiveHoleStyle.green)
+                Text("\(courseName) · 第 \(activeHole) 洞")
+                    .font(.headline.weight(.semibold))
+                    .lineLimit(1)
+                Text("正在获取球场数据，完成后自动进入进行中球局")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(LiveHoleStyle.green.opacity(0.35), lineWidth: 1)
+        )
+        .accessibilityIdentifier("home-watch-round-pending")
     }
 }
 
@@ -434,23 +748,44 @@ struct HubLastRoundCard: View {
             if let topoURL {
                 thumbnail(topoURL)
             }
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(courseName).font(.title3.weight(.bold)).foregroundStyle(.primary)
-                    Text(aiCaddieShortDate(date)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    Spacer(minLength: 8)
-                    Text("\(score)").font(.system(size: 26, weight: .heavy)).monospacedDigit().foregroundStyle(.primary)
-                    Text(toParText)
-                        .font(.subheadline.weight(.bold))
-                        .monospacedDigit()
-                        .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(courseName)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .layoutPriority(1)
+                    Spacer(minLength: 4)
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text("\(score)")
+                            .font(.system(size: 26, weight: .heavy))
+                            .monospacedDigit()
+                            .foregroundStyle(.primary)
+                        Text(toParText)
+                            .font(.subheadline.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+                    }
+                    // A long CJK course name has a much larger ideal width than the card. Reserve
+                    // the score's intrinsic width first, then let the name wrap into its two lines;
+                    // otherwise SwiftUI may compress "98 / +26" into one digit per line.
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(2)
                 }
-                if let subtitle = holesParText {
-                    Text(subtitle).font(.caption2).foregroundStyle(.secondary)
-                }
+                Text(metadataText)
+                    .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             }
         }
         .hubCard()
+    }
+
+    private var metadataText: String {
+        [Optional(aiCaddieShortDate(date)), holesParText]
+            .compactMap { $0 }
+            .joined(separator: " · ")
     }
 
     /// 小尺寸圆角地形缩略图。加载中 / 加载失败 / CI 快照无网络 → 克制的绿调占位(map 图标),

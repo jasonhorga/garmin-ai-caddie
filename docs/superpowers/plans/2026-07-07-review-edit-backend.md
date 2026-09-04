@@ -1,5 +1,7 @@
 # 复盘编辑 — 后端 op 扩展 实现计划
 
+> **2026-07-16 AUTHORITY CORRECTION — HISTORICAL IMPLEMENTATION PLAN：**本计划不再是 domain contract 或实施授权。其 `addShot` 示例把同一个 `lie` 同时写入 `start.lie` 与 `endLie`，违反 L06“startLie 描述本杆起始球位、endLie 独立”；后续实现必须按当前 canonical contract 重写。现行裁决见[Watch 决策账本](../../reviews/2026-07-15-watch-decision-and-task-tracker.md)与[全仓 Owner-gate 审计](../../reviews/2026-07-16-repository-wide-owner-gate-authority-and-drift-audit.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 给已有的复盘 op-based 修改层补上「加杆 / 拖动改位置 / 手动重排」三个操作 + 像素↔世界坐标逆投影,让 iOS 满屏编辑有可用的后端(网页仍只读)。

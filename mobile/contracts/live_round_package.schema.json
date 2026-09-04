@@ -259,11 +259,29 @@
             "type": "string",
             "enum": ["ready", "partial", "missing"]
           },
+          "geometryRevision": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9a-f]{16}$"
+          },
+          "geometryAuthorityObservation": {
+            "type": "string",
+            "enum": ["current", "stale", "unknown"]
+          },
           "sourceGlobalId": {
             "type": ["integer", "null"]
           },
           "sourceLocalHole": {
             "type": ["integer", "null"]
+          },
+          "teeLatitude": {
+            "type": ["number", "null"],
+            "minimum": -90,
+            "maximum": 90
+          },
+          "teeLongitude": {
+            "type": ["number", "null"],
+            "minimum": -180,
+            "maximum": 180
           }
         }
       }
@@ -293,6 +311,14 @@
               "geometryCoverage": {
                 "type": "string",
                 "enum": ["ready", "partial", "missing"]
+              },
+              "geometryRevision": {
+                "type": ["string", "null"],
+                "pattern": "^[0-9a-f]{16}$"
+              },
+              "geometryAuthorityObservation": {
+                "type": "string",
+                "enum": ["current", "stale", "unknown"]
               },
               "candidateRoutes": {
                 "type": "array",
@@ -611,6 +637,10 @@
           }
         }
       }
+    },
+    "readinessState": {
+      "type": "string",
+      "enum": ["ready", "blocked", "error"]
     },
     "eventCursor": {
       "type": "object",

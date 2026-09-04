@@ -1,5 +1,7 @@
 # History Review v2 UI Design
 
+> **2026-07-16 AUTHORITY CORRECTION — HISTORICAL DESIGN：**§Open Questions 不再生成当前 Owner 队列：产品名已锁为 AI Caddie，原生 iOS 已成为正式产品面；score strip 细节与 AI 叙述密度由原型和最终规格审批处理。当前全仓分类见[Owner-gate 审计](../../reviews/2026-07-16-repository-wide-owner-gate-authority-and-drift-audit.md)。
+
 ## Goal
 
 Design the next AI Caddie history experience around a unified Garmin Pro visual

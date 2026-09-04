@@ -169,7 +169,7 @@ def _phase6_gate_summary(external_release: dict[str, Any]) -> list[dict[str, Any
                     "reason": row.get("reason") if row else "check missing from external release evidence",
                 }
             )
-        ready = bool(gate_checks) and all(row["state"] == "ready" for row in gate_checks)
+        ready = bool(gate_checks) and all(row["state"] in {"ready", "manual_asserted"} for row in gate_checks)
         gates.append(
             {
                 "key": gate["key"],

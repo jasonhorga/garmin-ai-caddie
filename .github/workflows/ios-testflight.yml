@@ -15,6 +15,20 @@ on:
         description: 'Optional public API base URL to bake into the TestFlight app'
         required: false
         default: ''
+      upload_to_testflight:
+        description: 'Upload the signed IPA to TestFlight (false builds an artifact only)'
+        type: boolean
+        required: true
+        default: false
+      test_environment_upload:
+        description: 'Owner-approved test-environment upload; permits degraded operational readiness only'
+        type: boolean
+        required: true
+        default: false
+      expected_backend_revision:
+        description: 'Expected deployed backend Git revision (40 hex characters)'
+        required: false
+        default: ''
 
 concurrency:
   group: ios-testflight
@@ -46,14 +60,43 @@ jobs:
       - name: Validate signing secrets
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
         run: |
-          for v in ASC_KEY_ID MATCH_GIT_URL MATCH_PASSWORD MATCH_GIT_PRIVATE_KEY; do
+          for v in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY MATCH_GIT_URL MATCH_PASSWORD MATCH_GIT_PRIVATE_KEY; do
             eval "val=\${$v}"
             test -n "$val" || { echo "❌ Missing secret: $v (run ios-signing-bootstrap first)"; exit 1; }
           done
+
+      - name: Validate upload origin
+        if: ${{ github.event.inputs.upload_to_testflight == 'true' }}
+        env:
+          API_ORIGIN: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || '' }}
+        run: |
+          python3 - "$API_ORIGIN" <<'PY'
+          import sys
+          import ipaddress
+          from urllib.parse import urlparse
+          p = urlparse(sys.argv[1])
+          host = (p.hostname or "").lower()
+          try:
+              ip = ipaddress.ip_address(host)
+              private = (
+                  ip.is_private
+                  or ip.is_loopback
+                  or ip.is_link_local
+                  or ip.is_reserved
+                  or ip.is_multicast
+                  or ip.is_unspecified
+              )
+          except ValueError:
+              private = host == "localhost" or host.endswith(".local")
+          if p.scheme != "https" or not host or private or p.username or p.password or p.query or p.fragment or p.path not in ("", "/"):
+              raise SystemExit("upload_to_testflight requires an origin-only public HTTPS API URL")
+          PY
 
       - name: fastlane beta -> TestFlight
         env:
@@ -63,11 +106,14 @@ jobs:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
-          AI_CADDIE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || '' }}
-          # Single private owner: bake the admin token so the app authenticates to the
-          # private backend with no manual entry. Every tester is the owner.
           AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+          EXPECTED_BACKEND_REVISION: ${{ github.event.inputs.expected_backend_revision || vars.AI_CADDIE_BACKEND_REVISION || '' }}
+          AI_CADDIE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || '' }}
+          UPLOAD_TO_TESTFLIGHT: ${{ github.event.inputs.upload_to_testflight || 'false' }}
+          ALLOW_TEST_ENVIRONMENT_UPLOAD: ${{ github.event.inputs.test_environment_upload || 'false' }}
           RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: bundle exec fastlane ios beta
 
       - name: Upload IPA artifact
@@ -75,5 +121,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AICaddie-ipa
-          path: build/ios/*.ipa
+          path: |
+            build/ios/*.ipa
+            build/ios/release-provenance.json
           if-no-files-found: ignore

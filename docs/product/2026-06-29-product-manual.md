@@ -1,5 +1,7 @@
 # AI Caddie — Product Manual & Design-Implementation Doc
 
+> **2026-07-16 AUTHORITY CORRECTION — HISTORICAL PRODUCT SNAPSHOT：**本文件描述 2026-06-29 当时的产品与差距，不再是当前功能/范围真源。成员 Garmin self-bind 已有 Owner-goal-directed Phase B 设计，Apple 自动注册限受控分发，Watch/Dynamic weather/AutoShot/expected-strokes 等以当前决策账本和全仓审计为准。见[Watch 决策账本](../reviews/2026-07-15-watch-decision-and-task-tracker.md)与[全仓 Owner-gate 审计](../reviews/2026-07-16-repository-wide-owner-gate-authority-and-drift-audit.md)。
+
 *2026-06-29. Covers the three surfaces (web dashboard, iOS phone app, Apple Watch app), the four user cases, every screen, what's implemented today, and a Garmin-comparison roadmap. Screens are captured reproducibly from the design-snapshot CI (iOS/Watch) and a new web screenshot harness (mock-data, ungated) — see "Test/screenshot environment" below.*
 
 ---

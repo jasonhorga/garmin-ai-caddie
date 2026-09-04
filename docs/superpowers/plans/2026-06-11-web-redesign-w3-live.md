@@ -1,5 +1,7 @@
 # Web Redesign W3 — 实战(web)Implementation Plan
 
+> **2026-07-16 AUTHORITY CORRECTION — HISTORICAL PLAN：**本计划中的手工风输入与风力决策沙盘违反 L18，不能继续作为现行 v1 实施依据；Web 的深编辑边界也以后续 D10 为准。保留文件仅用于追溯已实现来源，当前冲突见[全仓 Owner-gate 审计](../../reviews/2026-07-16-repository-wide-owner-gate-authority-and-drift-audit.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development. Checkbox steps for tracking.
 
 > **中文摘要:** 把「实战」从旧工程页(CaddiePage 仪表盘)升级为 spec §5.4 web 范围的产品页:**决策沙盘**(选球场/洞 → 在洞图上拖球摆位 → 设球位状态/风/稳博 → 出一条主建议)+ **最近回放**(最近球局逐洞回看)+ **完整工具**页签(旧 CaddiePage 原样保留,零功能丢失)。纯前端阶段,后端零新增端点。

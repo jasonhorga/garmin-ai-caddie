@@ -31,6 +31,7 @@ import type {
   RoundIngestResult,
   RoundsFilters,
   CourseGeometryCoverageResponse,
+  CourseInstallStatus,
   EffectiveClubBagResponse,
   GeometryEnsureResponse,
   GeometryEvidenceResponse,
@@ -55,6 +56,7 @@ import type {
   ReviewReportIndexResponse,
   ReviewReportResponse,
   RoundHoleShotMapResponse,
+  RoundCorrectionRequest,
   StatsWindow,
   SyncRunResponse,
   SyncStatusResponse,
@@ -95,9 +97,14 @@ function apiUrl(path: string): string {
 
 // The realistic-topo base bitmap for a course hole (design-system §九), rendered + cached
 // server-side. Used as the <img> base layer under the hole canvases' vector overlays. Public
-// (course geometry, no auth). 404s for a hole without CourseView geometry → client falls back.
-export function topoImageUrl(globalId: number, hole: number): string {
-  return apiUrl(`/api/v2/courses/${globalId}/holes/${hole}/topo.png`)
+// (course geometry, no auth). The query separates renderer styles; the response ETag additionally
+// binds Garmin's current geometry asset. 404s without CourseView geometry → client falls back.
+export function topoImageUrl(globalId: number, hole: number, geometryRevision?: string | null): string {
+  const revision = geometryRevision?.trim()
+  const query = revision
+    ? `v=topo-v8&r=${encodeURIComponent(revision)}`
+    : 'v=topo-v8'
+  return apiUrl(`/api/v2/courses/${globalId}/holes/${hole}/topo.png?${query}`)
 }
 
 // Fire-and-forget: ask the server to render + cache EVERY geometry-backed hole's topo bitmap for a
@@ -357,6 +364,9 @@ export function fetchHistoryRounds(
   if (filters?.course) params.set('course', filters.course)
   if (filters?.hasShots !== undefined) params.set('hasShots', String(filters.hasShots))
   if (filters?.hasReport !== undefined) params.set('hasReport', String(filters.hasReport))
+  if (filters?.period) params.set('period', filters.period)
+  if (filters?.scoreBand) params.set('scoreBand', filters.scoreBand)
+  if (filters?.query?.trim()) params.set('search', filters.query.trim())
   params.set('limit', String(limit))
   return getJson<HistoryRoundsResponse>(`/api/v2/history/rounds?${params.toString()}`, adminToken)
 }
@@ -371,6 +381,19 @@ export function fetchHistoryRoundDetail(roundRef: string, adminToken?: string): 
 export function fetchRoundHoleShotMap(roundRef: string, hole: number, adminToken?: string): Promise<RoundHoleShotMapResponse> {
   return getJson<RoundHoleShotMapResponse>(
     `/api/v2/history/rounds/${encodeURIComponent(roundRef)}/holes/${encodeURIComponent(String(hole))}/shotmap`,
+    adminToken,
+  )
+}
+
+/** Persist one approved whole-hole review draft. The server keeps this append-only and idempotent. */
+export function postRoundCorrection(
+  roundRef: string,
+  correction: RoundCorrectionRequest,
+  adminToken?: string,
+): Promise<{ schema: string; stored: Record<string, unknown> }> {
+  return postJson<{ schema: string; stored: Record<string, unknown> }>(
+    `/api/v2/history/rounds/${encodeURIComponent(roundRef)}/corrections`,
+    correction,
     adminToken,
   )
 }
@@ -403,8 +426,39 @@ export function ingestPlayerRound(
   return postJson<RoundIngestResult>(`/api/v2/players/${encodeURIComponent(playerId)}/rounds`, body, adminToken)
 }
 
-export function fetchCourseSearch(name: string, adminToken?: string): Promise<CourseSearchResponse> {
-  return getJson<CourseSearchResponse>(`/api/v2/courses/search?name=${encodeURIComponent(name)}`, adminToken)
+export function fetchCourseSearch(name: string, adminToken?: string, city?: string): Promise<CourseSearchResponse> {
+  const query = new URLSearchParams({ name })
+  if (city?.trim()) query.set('city', city.trim())
+  return getJson<CourseSearchResponse>(`/api/v2/courses/search?${query.toString()}`, adminToken)
+}
+
+export function fetchNearbyCourses(
+  latitude: number,
+  longitude: number,
+  radiusKm = 50,
+  adminToken?: string,
+): Promise<CourseSearchResponse> {
+  const query = new URLSearchParams({
+    latitude: String(latitude),
+    longitude: String(longitude),
+    radius_km: String(radiusKm),
+  })
+  return getJson<CourseSearchResponse>(`/api/v2/courses/nearby?${query.toString()}`, adminToken)
+}
+
+export function fetchCourseInstallStatus(
+  globalId: number,
+  params: { teeBox?: string; nine?: string } = {},
+  adminToken?: string,
+): Promise<CourseInstallStatus> {
+  const query = new URLSearchParams()
+  if (params.teeBox?.trim()) query.set('tee_box', params.teeBox.trim())
+  if (params.nine?.trim()) query.set('nine', params.nine.trim())
+  const suffix = query.toString()
+  return getJson<CourseInstallStatus>(
+    `/api/v2/courses/${encodeURIComponent(String(globalId))}/install/status${suffix ? `?${suffix}` : ''}`,
+    adminToken,
+  )
 }
 
 export function fetchHistoryDrilldown(sourceRef: string, adminToken?: string): Promise<HistoryDrilldownResponse> {
@@ -576,6 +630,8 @@ export function fetchMobileCoursePackage(
   appendParam(query, 'tee_box', params.teeBox)
   appendParam(query, 'captured_at', params.capturedAt)
   appendParam(query, 'ensure_geometry', params.ensureGeometry)
+  appendParam(query, 'background_geometry', params.backgroundGeometry)
+  appendParam(query, 'include_event_cursor', params.includeEventCursor)
   const suffix = query.toString()
   return getJson<LiveRoundPackageResponse>(
     `/api/v2/mobile/courses/${encodeURIComponent(String(globalId))}/package${suffix ? `?${suffix}` : ''}`,

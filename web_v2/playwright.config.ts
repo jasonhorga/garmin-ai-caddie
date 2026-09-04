@@ -13,9 +13,6 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:5174',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    // Record every e2e flow as a real screen video (the history-visual walk is the web demo). Written to
-    // test-results/<test>/video.webm; CI uploads them, and ffmpeg → mp4 for delivery.
-    video: 'on',
   },
   // Two dev servers: the default (:5174) is the owner/homeserver deployment
   // (no link gate); :5175 sets VITE_AI_CADDIE_REQUIRE_LINK so the multiplayer

@@ -1,0 +1,9 @@
+{
+  "value": {"z": 1, "a": "球场", "transportNote": "ignored"},
+  "canonicalValue": {"z": 1, "a": "球场"},
+  "canonicalUtf8Hex": "7b2261223a22e79083e59cba222c227a223a317d",
+  "typedIds": {
+    "CanonicalFixtureAlpha/v1": "a2fcc54ce2819d6ae58a7f40ffc9d6837ca3104c222eb391c8e7c204282309b3",
+    "CanonicalFixtureBeta/v1": "f65b7f4bfaf68ad4a2005ebfd6c4a163b351c39fc0c59efb8ec83aace6295b44"
+  }
+}

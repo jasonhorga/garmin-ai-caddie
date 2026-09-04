@@ -31,7 +31,7 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["score", "putt", "penalty", "club", "distance"]
+      "enum": ["score", "putt", "penalty", "club", "distance", "location"]
     },
     "value": {
       "type": "string",
@@ -132,6 +132,22 @@
           "contextClub": {
             "type": "string",
             "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": { "const": "location" }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "pattern": "^-?[0-9]+(\\.[0-9]+)?,-?[0-9]+(\\.[0-9]+)?,[0-9]+(\\.[0-9]+)?$"
           }
         }
       }

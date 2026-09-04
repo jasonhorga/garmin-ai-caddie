@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, datetime
+import hashlib
+from datetime import UTC, datetime, timedelta
 import io
 import ipaddress
 import json
@@ -22,7 +23,7 @@ if str(REPO_ROOT) not in sys.path:
 
 SCHEMA = "ai-caddie-phase6-external-readiness-v1"
 DEFAULT_REPO = "jasonhorga/garmin-ai-caddie"
-DEFAULT_BRANCH = "integration/v2"
+DEFAULT_BRANCH = "main"
 REQUIRED_SIGNING_SECRETS = (
     "ASC_KEY_ID",
     "ASC_ISSUER_ID",
@@ -36,6 +37,7 @@ REQUIRED_NATIVE_API_VARIABLE = "AI_CADDIE_API_BASE_URL"
 OPTIONAL_EXTERNAL_REVIEW_SECRET = "TESTFLIGHT_FEEDBACK_EMAIL"
 EXPECTED_HEALTH_SCHEMA = "ai-caddie-health-v2"
 EXPECTED_READINESS_SCHEMA = "ai-caddie-readiness-v1"
+RELEASE_PROVENANCE_SCHEMA = "ai-caddie-release-provenance-v1"
 TESTFLIGHT_TESTERS_WORKFLOW_NAME = "iOS TestFlight Testers"
 TESTFLIGHT_READY_EXTERNAL_STATE = "READY_FOR_BETA_SUBMISSION"
 TESTFLIGHT_ACTIONS_RUNS_PER_PAGE = 100
@@ -55,10 +57,41 @@ def _utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _normalized_build_number(raw: Any) -> str | None:
+    text = str(raw or "").strip()
+    if not re.fullmatch(r"[0-9]+", text):
+        return None
+    return str(int(text))
+
+
 def _state_from_checks(checks: list[dict[str, Any]]) -> str:
-    if all(check.get("state") == "ready" for check in checks):
+    if checks and all(check.get("state") in {"ready", "manual_asserted"} for check in checks):
         return "ready"
     return "incomplete"
+
+
+def _manual_state(asserted: bool, build_number: str | None) -> str:
+    """Manual evidence is deliberately distinct from automated readiness."""
+    return "manual_asserted" if asserted and build_number else "manual_required"
+
+
+def _assertion_state(asserted: bool, source: str | None, *, build_number: str | None = None, trusted: bool = False) -> str:
+    if not asserted:
+        return "manual_required"
+    # Review/tester/install attestations are human evidence.  A caller supplied
+    # source label, including a forged workflow-looking string, never promotes
+    # them to automated readiness.  They must also identify the candidate build.
+    if trusted and source and re.fullmatch(r"github_actions_log:\d+:.+", source):
+        return "ready"
+    return "manual_asserted" if build_number else "manual_required"
 
 
 def _bool_env(env: dict[str, str], key: str) -> bool:
@@ -112,6 +145,164 @@ def _configured_value_source(env: dict[str, str], *, value_key: str, source_key:
     return _safe_source_label(env.get(source_key), default="environment")
 
 
+def _release_provenance_check(
+    env: dict[str, str],
+    *,
+    api_host: str | None,
+    release_commit: str | None = None,
+    health_revision: str | None = None,
+) -> dict[str, Any]:
+    """Validate the sidecar without allowing local checkout state to prove an upload."""
+    raw_path = str(env.get("AI_CADDIE_RELEASE_PROVENANCE_PATH") or "").strip()
+    if not raw_path:
+        return {"label": "release_provenance", "state": "missing", "reason": "release provenance manifest is required"}
+    path = Path(raw_path)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"label": "release_provenance", "state": "degraded", "reason": "release provenance manifest is unreadable"}
+    if not isinstance(payload, dict):
+        return {"label": "release_provenance", "state": "degraded", "reason": "release provenance manifest is invalid"}
+
+    issues: list[str] = []
+    if payload.get("schema") != RELEASE_PROVENANCE_SCHEMA:
+        issues.append("schema_mismatch")
+    commit = str(payload.get("commit") or "").strip().lower()
+    if not commit:
+        issues.append("commit_missing")
+    elif not re.fullmatch(r"[0-9a-f]{40}", commit):
+        issues.append("commit_invalid")
+    created = str(payload.get("createdAt") or "")
+    try:
+        age = datetime.now(UTC) - datetime.fromisoformat(created.replace("Z", "+00:00"))
+        if age > timedelta(days=3):
+            issues.append("stale")
+    except (ValueError, TypeError):
+        issues.append("created_at_invalid")
+
+    expected_run = str(env.get("RELEASE_PROVENANCE_RUN_ID") or "").strip()
+    if expected_run and str(payload.get("workflowRun") or "") != expected_run:
+        issues.append("provenance_workflow_run_mismatch")
+    if not str(payload.get("workflowRun") or "").strip():
+        issues.append("workflow_run_missing")
+    if not str(payload.get("marketingVersion") or "").strip():
+        issues.append("marketing_version_missing")
+    if not str(payload.get("buildNumber") or "").strip():
+        issues.append("build_number_missing")
+
+    upload_flag = payload.get("uploadToTestflight")
+    if not isinstance(upload_flag, bool):
+        issues.append("upload_flag_invalid")
+    elif upload_flag is False:
+        # Artifact-only candidates are valid artifacts, but never a release gate.
+        issues.append("upload_flag_false")
+
+    api_origin_host = str(payload.get("apiOriginHost") or "").strip().lower()
+    backend_revision = str(payload.get("backendRevision") or "").strip().lower()
+    requested = payload.get("uploadRequested") is True
+    completed = payload.get("uploadCompleted") is True
+    legacy_uploaded = upload_flag is True
+    uploaded = completed or legacy_uploaded
+    if requested and not completed:
+        issues.append("upload_incomplete")
+    if completed != legacy_uploaded:
+        issues.append("upload_state_inconsistent")
+
+    github_sha = str(env.get("GITHUB_SHA") or "").strip().lower()
+    # Phase 6 may inspect an artifact produced by a different workflow run, so
+    # the validated artifact commit is authoritative.  The built-in
+    # GITHUB_SHA is only a fallback for direct, same-workflow invocations; the
+    # upload-producing Fastlane path enforces it separately in the writer.
+    fallback_commit = str(release_commit or env.get("AI_CADDIE_RELEASE_COMMIT") or "").strip().lower()
+    expected_commit = fallback_commit or github_sha
+    if uploaded:
+        if not expected_commit:
+            issues.append("release_commit_missing")
+        elif not re.fullmatch(r"[0-9a-f]{40}", expected_commit):
+            issues.append("release_commit_invalid")
+        elif commit != expected_commit:
+            issues.append("commit_mismatch")
+    elif expected_commit and re.fullmatch(r"[0-9a-f]{40}", expected_commit) and commit != expected_commit:
+        issues.append("commit_mismatch")
+
+    expected_build = _normalized_build_number(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER"))
+    manifest_build = _normalized_build_number(payload.get("buildNumber"))
+    if manifest_build is None:
+        issues.append("build_number_invalid")
+    if expected_build and manifest_build != expected_build:
+        issues.append("build_number_mismatch")
+    expected_marketing = str(env.get("AI_CADDIE_MARKETING_VERSION") or "").strip()
+    if expected_marketing and str(payload.get("marketingVersion") or "") != expected_marketing:
+        issues.append("marketing_version_mismatch")
+
+    if api_origin_host and api_host and api_origin_host != api_host.lower():
+        issues.append("api_origin_host_mismatch")
+    probed_health_revision = str(health_revision or "").strip().lower()
+    if uploaded:
+        if not api_origin_host:
+            issues.append("api_origin_host_missing")
+        elif not api_host:
+            issues.append("api_origin_host_unverified")
+        if not backend_revision:
+            issues.append("backend_revision_missing")
+        elif not re.fullmatch(r"[0-9a-f]{40}", backend_revision):
+            issues.append("backend_revision_invalid")
+        if not probed_health_revision:
+            issues.append("health_revision_missing")
+        elif not re.fullmatch(r"[0-9a-f]{40}", probed_health_revision):
+            issues.append("health_revision_invalid")
+        elif re.fullmatch(r"[0-9a-f]{40}", backend_revision) and backend_revision != probed_health_revision:
+            issues.append("backend_revision_mismatch")
+    elif backend_revision and backend_revision != "unknown" and not re.fullmatch(r"[0-9a-f]{40}", backend_revision):
+        issues.append("backend_revision_invalid")
+
+    ipa_sha = str(payload.get("ipaSha256") or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", ipa_sha):
+        issues.append("ipa_sha256_invalid")
+    ipa_path = str(env.get("AI_CADDIE_RELEASE_IPA_PATH") or "").strip()
+    if ipa_path:
+        candidate = Path(ipa_path)
+        if not candidate.is_file():
+            issues.append("ipa_missing")
+        elif _sha256(candidate) != ipa_sha:
+            issues.append("ipa_sha256_mismatch")
+
+    safe = {
+        key: payload.get(key)
+        for key in (
+            "schema", "commit", "workflowRun", "marketingVersion", "buildNumber",
+            "apiOriginHost", "backendRevision", "backendRevisionVerified", "ipaSha256",
+            "uploadToTestflight", "uploadRequested", "uploadCompleted", "createdAt",
+        )
+    }
+    safe.update(
+        {
+            "expectedCommit": expected_commit or None,
+            "githubSha": github_sha or None,
+            "healthRevision": probed_health_revision or None,
+            "commitMatchesExpected": bool(expected_commit)
+            and bool(re.fullmatch(r"[0-9a-f]{40}", expected_commit))
+            and commit == expected_commit,
+            "commitMatchesGithubSha": bool(github_sha)
+            and bool(re.fullmatch(r"[0-9a-f]{40}", github_sha))
+            and commit == github_sha,
+            "backendRevisionMatchesHealth": bool(probed_health_revision)
+            and bool(re.fullmatch(r"[0-9a-f]{40}", backend_revision))
+            and bool(re.fullmatch(r"[0-9a-f]{40}", probed_health_revision))
+            and backend_revision == probed_health_revision,
+            "apiOriginHostMatches": bool(api_host)
+            and bool(api_origin_host)
+            and api_origin_host == str(api_host).lower(),
+        }
+    )
+    return {
+        "label": "release_provenance",
+        "state": "ready" if not issues else "degraded",
+        "reason": None if not issues else "invalid release provenance manifest",
+        "evidence": {**safe, "issues": sorted(set(issues))},
+    }
+
+
 def _safe_host(raw_url: str) -> tuple[str | None, str | None]:
     parsed = parse.urlparse(raw_url.strip())
     if parsed.scheme != "https":
@@ -129,7 +320,7 @@ def _safe_host(raw_url: str) -> tuple[str | None, str | None]:
         ip = ipaddress.ip_address(host)
     except ValueError:
         return host, None
-    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
         return None, "host is not a public address"
     return host, None
 
@@ -211,6 +402,14 @@ def _github_log_message(line: str) -> str:
     return ANSI_ESCAPE_RE.sub("", without_timestamp).strip()
 
 
+def _recent_run(created_at: str, *, max_age: timedelta = timedelta(days=3)) -> bool:
+    try:
+        age = datetime.now(UTC) - datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False
+    return timedelta(0) <= age <= max_age
+
+
 def _testflight_log_summary(run: dict[str, Any], text: str) -> dict[str, Any] | None:
     run_id = str(run.get("id") or "").strip()
     if not run_id:
@@ -221,28 +420,36 @@ def _testflight_log_summary(run: dict[str, Any], text: str) -> dict[str, Any] | 
         "workflow": TESTFLIGHT_TESTERS_WORKFLOW_NAME,
         "runId": run_id,
         "runCreatedAt": str(run.get("created_at") or ""),
+        "runConclusion": str(run.get("conclusion") or ""),
+        "runBranch": str(run.get("head_branch") or ""),
+        "runHeadSha": str(run.get("head_sha") or ""),
+        "workflowName": str(run.get("name") or ""),
+        "workflowPath": str(run.get("path") or ""),
     }
     in_tester_group = False
     app_tester_count = 0
     for line in text.splitlines():
         message = _github_log_message(line)
         if (
-            f"externalState={TESTFLIGHT_READY_EXTERNAL_STATE}" in line
-            and "state=VALID" in line
-            and "betaReviewReady=true" in line
+            f"externalState={TESTFLIGHT_READY_EXTERNAL_STATE}" in message
+            and re.search(r"\bstate=VALID(?:\s|$)", message)
+            and re.search(r"\bbetaReviewReady=true(?:\s|$)", message)
         ):
-            build_match = re.search(r"-\s+([^\s]+)\s+\(([^)]+)\)", line)
-            summary.update(
-                {
-                    "build": f"{build_match.group(1)} ({build_match.group(2)})" if build_match else None,
-                    "processingState": _value_after("state", line),
-                    "externalState": _value_after("externalState", line),
-                    "betaReviewReady": _value_after("betaReviewReady", line) == "true",
-                    "usesNonExemptEncryption": _value_after("usesNonExemptEncryption", line) == "false",
-                    "readyForBetaSubmission": True,
-                    "source": f"{source_prefix}:{TESTFLIGHT_READY_EXTERNAL_STATE}",
-                }
-            )
+            build_match = re.search(r"-\s+([^\s]+)\s+\(([0-9]+)\)", message)
+            if build_match and "buildNumber" not in summary:
+                summary.update(
+                    {
+                        "marketingVersion": build_match.group(1),
+                        "buildNumber": _normalized_build_number(build_match.group(2)),
+                        "build": f"{build_match.group(1)} ({_normalized_build_number(build_match.group(2))})",
+                        "processingState": _value_after("state", line),
+                        "externalState": _value_after("externalState", line),
+                        "betaReviewReady": _value_after("betaReviewReady", line) == "true",
+                        "usesNonExemptEncryption": _value_after("usesNonExemptEncryption", line) == "false",
+                        "readyForBetaSubmission": True,
+                        "source": f"{source_prefix}:{TESTFLIGHT_READY_EXTERNAL_STATE}",
+                    }
+                )
 
         if (
             message == "Beta App test info already has description and feedback email."
@@ -301,11 +508,15 @@ def fetch_testflight_actions_summary(
     *,
     repo: str = DEFAULT_REPO,
     token: str,
+    branch: str = DEFAULT_BRANCH,
     timeout_s: float = 20.0,
+    expected_build: str | None = None,
+    expected_commit: str | None = None,
+    expected_marketing_version: str | None = None,
 ) -> dict[str, Any]:
     runs_payload = _github_api_get(
         repo,
-        f"/actions/runs?branch={parse.quote(DEFAULT_BRANCH)}&per_page={TESTFLIGHT_ACTIONS_RUNS_PER_PAGE}",
+        f"/actions/runs?{('branch=' + parse.quote(branch) + '&') if branch else ''}per_page={TESTFLIGHT_ACTIONS_RUNS_PER_PAGE}",
         token,
         timeout_s=timeout_s,
     )
@@ -317,18 +528,42 @@ def fetch_testflight_actions_summary(
         and run.get("conclusion") == "success"
         and str(run.get("logs_url") or "").strip()
     ]
+    expected_build = _normalized_build_number(expected_build)
+    expected_commit = str(expected_commit or "").strip().lower() or None
+    expected_marketing_version = str(expected_marketing_version or "").strip() or None
     aggregate: dict[str, Any] = {
         "available": bool(runs),
         "workflow": TESTFLIGHT_TESTERS_WORKFLOW_NAME,
         "readyForBetaSubmission": False,
     }
     for run in relevant_runs[:TESTFLIGHT_ACTIONS_LOG_SCAN_LIMIT]:
+        if expected_build or expected_commit:
+            created_at = str(run.get("created_at") or "")
+            try:
+                age = datetime.now(UTC) - datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                continue
+            if age < timedelta(0) or age > timedelta(days=3):
+                continue
+            if str(run.get("head_branch") or "") != branch or not branch:
+                continue
+            run_sha = str(run.get("head_sha") or "").lower()
+            if expected_commit and run_sha != expected_commit:
+                continue
+            if not run_sha:
+                continue
+            if str(run.get("path") or "") != ".github/workflows/ios-testflight-testers.yml":
+                continue
         try:
             logs = _github_api_get_bytes(str(run["logs_url"]), token, timeout_s=timeout_s)
             summary = _testflight_summary_from_log_zip(run, logs)
         except (OSError, error.URLError, TimeoutError, zipfile.BadZipFile):
             summary = None
         if summary is not None:
+            if expected_build and _normalized_build_number(summary.get("buildNumber")) != expected_build:
+                continue
+            if expected_marketing_version and str(summary.get("marketingVersion") or "") != expected_marketing_version:
+                continue
             if summary.get("readyForBetaSubmission") is True and aggregate.get("readyForBetaSubmission") is not True:
                 aggregate.update({
                     key: value
@@ -337,7 +572,14 @@ def fetch_testflight_actions_summary(
                     in {
                         "runId",
                         "runCreatedAt",
+                        "runConclusion",
                         "build",
+                        "buildNumber",
+                        "marketingVersion",
+                        "runBranch",
+                        "runHeadSha",
+                        "workflowName",
+                        "workflowPath",
                         "processingState",
                         "externalState",
                         "betaReviewReady",
@@ -375,7 +617,10 @@ def fetch_github_snapshot(
     *,
     repo: str = DEFAULT_REPO,
     token: str | None = None,
+    branch: str = DEFAULT_BRANCH,
     timeout_s: float = 20.0,
+    expected_commit: str | None = None,
+    expected_marketing_version: str | None = None,
 ) -> dict[str, Any]:
     token = (token or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or "").strip()
     if not token:
@@ -407,7 +652,17 @@ def fetch_github_snapshot(
         partial_reasons["variableNames"] = _github_error_reason("GitHub Actions variables metadata", exc)
 
     try:
-        testflight_actions = fetch_testflight_actions_summary(repo=repo, token=token, timeout_s=timeout_s)
+        testflight_actions = fetch_testflight_actions_summary(
+            repo=repo,
+            token=token,
+            branch=branch,
+            timeout_s=timeout_s,
+            expected_build=os.environ.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER"),
+            # GITHUB_SHA is the Phase 6 dispatch commit, not necessarily the
+            # iOS candidate. The workflow exports the candidate from provenance.
+            expected_commit=expected_commit or os.environ.get("AI_CADDIE_RELEASE_COMMIT"),
+            expected_marketing_version=expected_marketing_version or os.environ.get("AI_CADDIE_MARKETING_VERSION"),
+        )
     except (error.HTTPError, error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         testflight_actions = {
             "available": False,
@@ -420,6 +675,7 @@ def fetch_github_snapshot(
         "available": True,
         "repoPrivate": bool(repo_payload.get("private")),
         "defaultBranch": str(repo_payload.get("default_branch") or ""),
+        "branch": branch,
         "secretNames": secret_names,
         "secretNamesUnavailableReason": partial_reasons.get("secretNames"),
         "variableNames": variable_names,
@@ -455,17 +711,33 @@ def probe_backend_url(
             "reason": f"backend probe failed: {exc.__class__.__name__}",
             "healthStatus": None,
             "readinessStatus": None,
+            "healthRevision": None,
+            "revision": None,
         }
+    health_revision = str(health.get("revision") or "").strip().lower() or None
+    authenticated = bool(admin_token) and readiness.get("authenticated") is True
+    readiness_checks = readiness.get("checks")
+    liveness_stub = readiness.get("authenticated") is False and readiness.get("status") == "ok"
+    checks_valid = (
+        isinstance(readiness_checks, list)
+        and bool(readiness_checks)
+        and all(isinstance(row, dict) and str(row.get("label") or "").strip() and row.get("state") in {"ready", "degraded", "error", "unknown"} for row in readiness_checks)
+    )
+    readiness_status_valid = readiness.get("status") in {"ready", "degraded"}
     schemas_match = (
         health.get("schema") == EXPECTED_HEALTH_SCHEMA
         and readiness.get("schema") == EXPECTED_READINESS_SCHEMA
     )
-    ready = health_status == 200 and readiness_status == 200 and schemas_match
+    ready = health_status == 200 and readiness_status == 200 and schemas_match and authenticated and checks_valid and readiness_status_valid
     reason = None
     if not ready:
         reason = (
             "unexpected backend schema"
-            if health_status == 200 and readiness_status == 200
+            if health_status == 200 and readiness_status == 200 and not schemas_match
+            else "backend readiness is an owner-only liveness stub"
+            if liveness_stub
+            else "authenticated readiness evidence missing"
+            if not authenticated or not checks_valid or not readiness_status_valid
             else "unexpected backend status"
         )
     return {
@@ -473,10 +745,16 @@ def probe_backend_url(
         "reason": reason,
         "healthStatus": health_status,
         "healthSchema": health.get("schema"),
+        "healthRevision": health_revision,
+        "revision": health_revision,
         "readinessStatus": readiness_status,
         "readinessSchema": readiness.get("schema"),
         "readinessState": readiness.get("status"),
-        "adminTokenProvided": bool(admin_token),
+        "authenticated": authenticated,
+        "readinessChecks": readiness_checks if checks_valid else None,
+        "checksValid": checks_valid,
+        "livenessOnly": liveness_stub,
+        "schema": EXPECTED_READINESS_SCHEMA,
     }
 
 
@@ -495,6 +773,7 @@ def _github_checks(
     feedback_email_secret_source: str | None,
     feedback_email_filled: bool,
     feedback_email_source: str | None,
+    branch: str = DEFAULT_BRANCH,
 ) -> list[dict[str, Any]]:
     if not github_snapshot or not github_snapshot.get("available"):
         return [
@@ -521,7 +800,9 @@ def _github_checks(
         REQUIRED_NATIVE_API_VARIABLE in variable_names
         and native_api_variable_summary["validPublicHttps"] is True
     )
-    native_api_ready = repo_variable_ready or native_api_url_configured or native_runtime_api_configured
+    # Runtime Backend-screen confirmation is manual evidence only. It must not make
+    # the build-time API-origin gate appear automatically ready.
+    native_api_ready = repo_variable_ready or native_api_url_configured
     repo_feedback_secret_configured = (
         OPTIONAL_EXTERNAL_REVIEW_SECRET in secret_names or feedback_email_secret_configured
     )
@@ -541,6 +822,9 @@ def _github_checks(
     if native_api_ready:
         native_api_state = "ready"
         native_api_reason = None
+    elif native_runtime_api_configured:
+        native_api_state = "manual_required"
+        native_api_reason = "runtime Backend-screen configuration does not prove a build-time API origin"
     elif variable_names_unavailable_reason:
         native_api_state = "unknown"
         native_api_reason = variable_names_unavailable_reason
@@ -564,11 +848,11 @@ def _github_checks(
         {
             "label": "github_repo",
             "state": "ready"
-            if github_snapshot.get("repoPrivate") is False and github_snapshot.get("defaultBranch") == DEFAULT_BRANCH
+            if github_snapshot.get("repoPrivate") is False
             else "degraded",
             "reason": None
-            if github_snapshot.get("repoPrivate") is False and github_snapshot.get("defaultBranch") == DEFAULT_BRANCH
-            else "repo should be public with integration/v2 as default branch for current Actions assumptions",
+            if github_snapshot.get("repoPrivate") is False
+            else "repo should be public",
             "evidence": {
                 "public": github_snapshot.get("repoPrivate") is False,
                 "defaultBranch": github_snapshot.get("defaultBranch"),
@@ -668,12 +952,57 @@ def _github_testflight_tester_observations(github_snapshot: dict[str, Any] | Non
     }
 
 
+def _github_release_build_number(github_snapshot: dict[str, Any] | None) -> str:
+    """Extract the concrete build number from a successful TestFlight log summary."""
+    actions = (github_snapshot or {}).get("testflightActions")
+    if not isinstance(actions, dict):
+        return ""
+    value = str(actions.get("build") or "").strip()
+    match = re.search(r"\(([^)]+)\)", value)
+    return match.group(1).strip() if match else ""
+
+
+def _trusted_testflight_actions(
+    github_snapshot: dict[str, Any] | None,
+    env: dict[str, str],
+    *,
+    branch: str,
+) -> bool:
+    """Only workflow evidence bound to this candidate can promote readiness."""
+    actions = (github_snapshot or {}).get("testflightActions")
+    if not isinstance(actions, dict) or not (
+        actions.get("readyForBetaSubmission") is True or actions.get("betaReviewSubmitted") is True
+    ):
+        return False
+    build = _normalized_build_number(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER")) or _normalized_build_number(
+        _github_release_build_number(github_snapshot)
+    )
+    # Phase 6 may inspect a candidate artifact from a different dispatch
+    # commit; the validated release commit is authoritative for TestFlight log
+    # binding, with GITHUB_SHA as the direct-workflow fallback.
+    commit = str(env.get("AI_CADDIE_RELEASE_COMMIT") or env.get("GITHUB_SHA") or "").strip().lower()
+    return bool(
+        build
+        and commit
+        and _normalized_build_number(actions.get("buildNumber")) == build
+        and str(actions.get("marketingVersion") or "") == str(env.get("AI_CADDIE_MARKETING_VERSION") or "").strip()
+        and str(actions.get("runHeadSha") or "").lower() == commit
+        and str(actions.get("runBranch") or "") == branch
+        and str(actions.get("workflowName") or "") == TESTFLIGHT_TESTERS_WORKFLOW_NAME
+        and str(actions.get("workflowPath") or "") == ".github/workflows/ios-testflight-testers.yml"
+        and str(actions.get("runConclusion") or "") == "success"
+        and str(actions.get("runId") or "").isdigit()
+        and _recent_run(str(actions.get("runCreatedAt") or ""))
+    )
+
+
 def build_phase6_external_readiness(
     *,
     env: dict[str, str] | None = None,
     github_snapshot: dict[str, Any] | None = None,
     backend_probe: Callable[[str, str | None], dict[str, Any]] | None = None,
     created_at: str | None = None,
+    branch: str = DEFAULT_BRANCH,
 ) -> dict[str, Any]:
     env = dict(env or os.environ)
     raw_api_url, api_url_source = _configured_api_url(env)
@@ -713,11 +1042,22 @@ def build_phase6_external_readiness(
     )
     beta_review_ready = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY")
     beta_review_submitted = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED")
+    # A downloaded release artifact carries its own immutable commit. Prefer
+    # that value over the Phase 6 dispatch checkout SHA; direct invocations can
+    # still use GITHUB_SHA when no artifact authority was supplied.
+    release_commit = str(env.get("AI_CADDIE_RELEASE_COMMIT") or env.get("GITHUB_SHA") or "").strip()
+    release_build_number = str(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER") or "").strip()
+    if not release_build_number:
+        release_build_number = _github_release_build_number(github_snapshot)
     github_beta_review_ready, github_beta_review_ready_source = _github_beta_review_ready_source(github_snapshot)
     github_feedback_email_filled, github_feedback_email_source = _github_feedback_email_source(github_snapshot)
     github_beta_review_submitted, github_beta_review_submission_source = (
         _github_beta_review_submission_source(github_snapshot)
     )
+    github_evidence_trusted = _trusted_testflight_actions(github_snapshot, env, branch=branch)
+    if not github_evidence_trusted:
+        github_beta_review_ready = False
+        github_beta_review_submitted = False
     beta_review_ready_source = _confirmation_source(
         env,
         value_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY",
@@ -759,24 +1099,27 @@ def build_phase6_external_readiness(
         feedback_email_secret_source=feedback_email_secret_source,
         feedback_email_filled=feedback_email_filled,
         feedback_email_source=feedback_email_source,
+        branch=branch,
     )
+    candidate_build = _normalized_build_number(release_build_number)
     checks.append(
         {
             "label": "external_beta_review_submission_ready",
-            "state": "ready" if beta_review_ready or beta_review_submitted else "manual_required",
+            "state": _assertion_state(beta_review_ready or beta_review_submitted, beta_review_ready_source or beta_review_submission_source, build_number=candidate_build, trusted=github_beta_review_ready or github_beta_review_submitted),
             "reason": None
             if beta_review_ready or beta_review_submitted
             else "confirm App Store Connect shows READY_FOR_BETA_SUBMISSION before external Beta App Review",
             "evidence": {
                 "readyForSubmission": beta_review_ready or beta_review_submitted,
                 "source": beta_review_ready_source or beta_review_submission_source,
+                "buildNumber": candidate_build,
             },
         }
     )
     checks.append(
         {
             "label": "external_beta_review_submission",
-            "state": "ready" if beta_review_submitted else "manual_required",
+            "state": _assertion_state(beta_review_submitted, beta_review_submission_source, build_number=candidate_build, trusted=github_beta_review_submitted),
             "reason": None
             if beta_review_submitted
             else (
@@ -787,6 +1130,7 @@ def build_phase6_external_readiness(
             "evidence": {
                 "submittedOrExternallyReady": beta_review_submitted,
                 "source": beta_review_submission_source,
+                "buildNumber": candidate_build,
             },
         }
     )
@@ -813,6 +1157,7 @@ def build_phase6_external_readiness(
         }
     checks.append(api_check)
 
+    probed_health_revision: str | None = None
     if api_check["state"] != "ready":
         checks.append(
             {
@@ -841,6 +1186,9 @@ def build_phase6_external_readiness(
         )
     else:
         probe = backend_probe(raw_api_url, env.get("AI_CADDIE_ADMIN_TOKEN"))
+        probed_health_revision = str(
+            probe.get("healthRevision") or probe.get("revision") or ""
+        ).strip() or None
         checks.append(
             {
                 "label": "backend_probe",
@@ -850,9 +1198,13 @@ def build_phase6_external_readiness(
                     "host": api_summary["host"],
                     "healthStatus": probe.get("healthStatus"),
                     "healthSchema": probe.get("healthSchema"),
+                    "healthRevision": probed_health_revision,
                     "readinessStatus": probe.get("readinessStatus"),
                     "readinessSchema": probe.get("readinessSchema"),
                     "readinessState": probe.get("readinessState"),
+                    "authenticated": probe.get("authenticated") is True,
+                    "checksValid": probe.get("checksValid") is True,
+                    "readinessCheckCount": len(probe.get("readinessChecks") or []) if isinstance(probe.get("readinessChecks"), list) else 0,
                     "adminTokenProvided": bool(env.get("AI_CADDIE_ADMIN_TOKEN")),
                 },
             }
@@ -871,7 +1223,7 @@ def build_phase6_external_readiness(
     checks.append(
         {
             "label": "external_testers",
-            "state": "ready" if testers_ready else "manual_required",
+            "state": _manual_state(testers_ready, candidate_build),
             "reason": None
             if testers_ready
             else (
@@ -889,14 +1241,16 @@ def build_phase6_external_readiness(
                 "internalCoverageConfirmed": tester_coverage_confirmed,
                 "internalCoverageSource": tester_coverage_source,
                 **tester_observations,
+                "buildNumber": release_build_number or None,
             },
         }
     )
     install_verified = _bool_env(env, "AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED")
+    install_build = candidate_build or ""
     checks.append(
         {
             "label": "device_install",
-            "state": "ready" if install_verified else "manual_required",
+            "state": _manual_state(install_verified, install_build),
             "reason": None
             if install_verified
             else "install the TestFlight build on iPhone/watch and record verification",
@@ -907,9 +1261,25 @@ def build_phase6_external_readiness(
                     value_key="AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED",
                     source_key="AI_CADDIE_TESTFLIGHT_INSTALL_SOURCE",
                 ),
+                "buildNumber": install_build or None,
             },
         }
     )
+
+    provenance_check = _release_provenance_check(
+        env,
+        api_host=api_summary.get("host"),
+        release_commit=release_commit or None,
+        health_revision=probed_health_revision,
+    )
+    checks.append(provenance_check)
+    if provenance_check.get("state") == "ready" and provenance_check.get("evidence", {}).get("uploadToTestflight") is not True:
+        checks.append({
+            "label": "testflight_upload",
+            "state": "incomplete",
+            "reason": "artifact-only provenance is valid, but uploadToTestflight must be true before release readiness",
+            "evidence": {"uploadToTestflight": False, "candidate": True},
+        })
 
     missing_actions = [
         check["reason"]
@@ -941,8 +1311,10 @@ def _write_output(path: Path, payload: dict[str, Any]) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check AI Caddie Phase 6 external release readiness.")
     parser.add_argument("--repo", default=DEFAULT_REPO, help="GitHub owner/repo to inspect.")
+    parser.add_argument("--branch", default=DEFAULT_BRANCH, help="GitHub branch whose workflow runs should be inspected.")
     parser.add_argument("--api-base-url", help="Public deployed API URL to check without printing secrets.")
     parser.add_argument("--output", type=Path, help="Write the JSON evidence to this path after printing it.")
+    parser.add_argument("--release-provenance", type=Path, help="IPA sidecar provenance manifest to validate.")
     parser.add_argument(
         "--assigned-tester-count",
         type=int,
@@ -987,6 +1359,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     env = dict(os.environ)
+    if args.release_provenance:
+        env["AI_CADDIE_RELEASE_PROVENANCE_PATH"] = str(args.release_provenance)
     if args.api_base_url:
         env["PHASE6_API_BASE_URL"] = args.api_base_url
     assigned_tester_count = args.assigned_tester_count
@@ -1016,12 +1390,13 @@ def main(argv: list[str] | None = None) -> int:
         env["AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED"] = "1"
         env["AI_CADDIE_TESTFLIGHT_INSTALL_SOURCE"] = args.install_source or "cli_flag"
 
-    github_snapshot = None if args.no_github else fetch_github_snapshot(repo=args.repo)
+    github_snapshot = None if args.no_github else fetch_github_snapshot(repo=args.repo, branch=args.branch)
     backend_probe = probe_backend_url if args.probe_backend else None
     payload = build_phase6_external_readiness(
         env=env,
         github_snapshot=github_snapshot,
         backend_probe=backend_probe,
+        branch=args.branch,
     )
     _dump(payload)
     if args.output:

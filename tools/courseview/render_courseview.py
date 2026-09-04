@@ -18,19 +18,24 @@ ROOT = Path(__file__).resolve().parents[2]  # repo root: tools/<sub>/<file>.py i
 OUT = ROOT / "output" / "courseview"
 OUT.mkdir(parents=True, exist_ok=True)
 
-# Generate a stable distinct color for each ext_type code
-# Color assignments tuned by visual inspection of 黑骑士 31795.img:
-#   0x011407 (10 small 13-vert polys) = bunkers / greens
-#   0x01140e (9 ~71-vert polys) = fairways
-#   0x011409 (2 polys, 100+ vert) = water hazards
-#   others = course boundary, OB, etc
+# Research-only palette.  The labels below are the terminal cross-source
+# classifications from audit_dskimg_vector_semantics.py; the colors do not make
+# these coarse vectors authoritative for distance, lie or penalty decisions.
 TYPE_COLOR = {
-    0x011407: (255, 230, 130),  # sand/yellow — bunkers
-    0x01140e: (90, 180, 90),    # green — fairways
-    0x011409: (60, 130, 220),   # blue — water
-    0x011604: (60, 130, 220),
-    0x011405: (40, 100, 200),
-    0x010202: (50, 130, 50),    # darker — terrain/forest
+    0x010B01: (50, 110, 190),  # ocean context
+    0x010B08: (130, 130, 130),  # opaque mixed context; preserve, do not label
+    0x010D01: (75, 75, 75),  # course/complex boundary
+    0x011402: (70, 210, 210),  # tee area
+    0x011403: (80, 190, 90),  # fairway area
+    0x011404: (90, 240, 120),  # green area
+    0x011405: (235, 205, 120),  # bunker area
+    0x011407: (40, 115, 55),  # tree area
+    0x011409: (110, 110, 135),  # inner hole corridor
+    0x01140A: (45, 125, 220),  # stream/water area
+    0x01140B: (70, 180, 165),  # teebox surface
+    0x01140E: (80, 80, 105),  # outer hole domain
+    0x011604: (60, 130, 220),  # legacy parser-only type; no semantic claim
+    0x010202: (50, 130, 50),  # legacy parser-only type; no semantic claim
     0x010203: (50, 130, 50),
 }
 _PALETTE = [
@@ -96,9 +101,22 @@ def render(img_path: Path, out_path: Path, only_types: set | None = None) -> Non
 
     drawn = 0
     skipped_oob = skipped_huge = 0
-    # Sort so fairways (big) render first, then water, then small features on top
-    # Priority: terrain/large = bottom, fairway, water, small = top
-    LAYER_ORDER = {0x010202: 0, 0x010203: 0, 0x01140e: 1, 0x011409: 2, 0x011604: 2, 0x011405: 2, 0x011407: 3}
+    # Structural domains first, then broad surfaces, then small detail.
+    LAYER_ORDER = {
+        0x010D01: 0,
+        0x01140E: 0,
+        0x011409: 0,
+        0x010202: 0,
+        0x010203: 0,
+        0x011403: 1,
+        0x011407: 1,
+        0x01140A: 2,
+        0x011604: 2,
+        0x011402: 3,
+        0x011404: 3,
+        0x011405: 3,
+        0x01140B: 3,
+    }
     def sort_key(p):
         return (LAYER_ORDER.get(p.ext_type, 1), -len(p.lats))
     for poly in sorted(polys, key=sort_key):

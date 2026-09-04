@@ -1,6 +1,6 @@
 """Tests for the windowed-stats additions: windowed_history_data + handicap fields.
 
-``/api/v2/history/stats`` gains a window parameter (all|12m|last10) that must narrow
+``/api/v2/history/stats`` gains a window parameter (all|12m|last20|last10) that must narrow
 the round set BEFORE build_history_stats runs. The filter is pure (never mutates the
 input HistoryData) and deterministic: ``12m`` anchors on the newest round date in the
 data, never the wall clock. The summary additionally gains ``handicapEstimate`` /
@@ -10,8 +10,9 @@ data, never the wall clock. The summary additionally gains ``handicapEstimate`` 
 Round-id reality this locks in:
   - real shots carry ``scorecardId`` while fixture shots carry ``roundId`` — both keys
     must match;
-  - merged rounds (``id="merged_<a>_<b>"``) expose member ids via ``ids``; their shots
-    and raw_rounds reference the RAW member ids, so those must survive with the round;
+  - merged rounds (``id="merged_<a>_<b>"``) expose member ids via ``ids``; current
+    canonical shots reference the merged id while older/manually-built inputs may
+    still reference RAW member ids, so both shapes must survive with the round;
   - ids can be ints or strings — comparison is by string.
 
 unittest.TestCase on purpose: CI runs ``python -m unittest discover``, which ignores
@@ -104,6 +105,19 @@ class WindowedHistoryDataTests(unittest.TestCase):
         self.assertEqual(len(data.raw_rounds), 12)
         self.assertEqual(len(data.shots), 4)
 
+    def test_last20_keeps_newest_twenty_rounds(self) -> None:
+        rounds = [_round(f"r{i}", f"2026-01-{i:02d}") for i in range(1, 24)]
+        data = HistoryData(
+            raw_rounds=[dict(row) for row in rounds],
+            rounds=rounds,
+            shots=[_shot("r1"), _shot("r4"), _shot("r23")],
+        )
+
+        result = windowed_history_data(data, "last20")
+
+        self.assertEqual([row["id"] for row in result.rounds], [f"r{i}" for i in range(4, 24)])
+        self.assertEqual([shot["scorecardId"] for shot in result.shots], ["r4", "r23"])
+
     def test_windowed_shot_refs_stay_stable_for_corrections(self) -> None:
         # round-13 regression: a shot's ref is "{roundId}:{hole}:{index}" and is the KEY corrections
         # (club/lie) and mobile shot refs are stored under. Historically `index` was the enumerate
@@ -147,7 +161,8 @@ class WindowedHistoryDataTests(unittest.TestCase):
         kept_ids = {str(row["id"]) for row in result.rounds}
         self.assertNotIn("100", kept_ids)
         self.assertIn("merged_101_102", kept_ids)
-        # shots reference the raw member ids (ints) and must survive with the merged round
+        # Legacy/manually-built shots may reference raw member ids and must still
+        # survive with the merged round. Loaded production shots are canonical.
         self.assertEqual([s["scorecardId"] for s in result.shots], [101, 102])
         self.assertEqual(
             {str(row["id"]) for row in result.raw_rounds},

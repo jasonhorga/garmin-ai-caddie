@@ -3,9 +3,13 @@ services:
     name: ai-caddie-api
     runtime: python
     plan: starter
-    buildCommand: uv sync
-    startCommand: uv run uvicorn server_v2.main:app --host 0.0.0.0 --port $PORT
+    buildCommand: uv sync --frozen --no-dev
+    startCommand: sh ops/start_api.sh
     healthCheckPath: /api/v2/health
+    disk:
+      name: ai-caddie-private-data
+      mountPath: /var/data/ai-caddie
+      sizeGB: 5
     envVars:
       - key: PYTHON_VERSION
         value: "3.12"
@@ -13,9 +17,23 @@ services:
         value: private
       - key: AI_CADDIE_DATA_MODE
         value: local_or_fixture
+      - key: AI_CADDIE_PRIVATE_ROOT
+        value: /var/data/ai-caddie
+      - key: AI_CADDIE_TOPO_CACHE_DIR
+        value: /var/data/ai-caddie/topo_render_cache
+      - key: AI_CADDIE_DATABASE_URL
+        fromDatabase:
+          name: ai-caddie-db
+          property: connectionString
       - key: AI_CADDIE_ADMIN_TOKEN
         sync: false
       - key: AI_CADDIE_CORS_ORIGINS
         sync: false
       - key: AI_CADDIE_CORS_ORIGIN_REGEX
         sync: false
+
+databases:
+  - name: ai-caddie-db
+    plan: starter
+    databaseName: ai_caddie
+    user: ai_caddie

@@ -13,7 +13,7 @@ class SeasideHazardsTests(unittest.TestCase):
         self.assertEqual(FEATURES["Beach.drc"], "bunker")
 
     def test_cosmetic_stay_out_of_features(self):
-        for c in ("VfxOcean.drc", "PhysicsMesh.drc", "Cartpath.drc", "CliffUV2.drc"):
+        for c in ("VfxOcean.drc", "PhysicsMesh.drc", "Cartpath.drc", "CliffUV2.drc", "Bridge.drc"):
             self.assertNotIn(c, FEATURES)
             self.assertIn(c, KNOWN_NON_HAZARD)
 

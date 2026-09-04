@@ -9,7 +9,7 @@ from ai_caddie.reports.annotations import list_annotations
 from ai_caddie.caddie.decision import list_decision_audits
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
 from ai_caddie.history.history import HistoryData, OWNER_ID
-from ai_caddie.reports.reports import list_report_records
+from ai_caddie.reports.reports import iter_report_records
 from ai_caddie.llm.weather_context import list_weather_snapshots
 
 
@@ -450,12 +450,14 @@ def _detail_ref_set(detail: dict[str, Any]) -> list[str]:
 
 def _record_refs(record: dict[str, Any]) -> list[str]:
     refs: list[str] = []
+    seen: set[str] = set()
 
     def extend(value: Any) -> None:
         if isinstance(value, list):
             for item in value:
                 text = str(item or "").strip()
-                if text and text not in refs:
+                if text and text not in seen:
+                    seen.add(text)
                     refs.append(text)
 
     extend(record.get("sourceRefs"))
@@ -475,7 +477,9 @@ def _matching_reports(refs: set[str], reports_root: Path | str | None, *, player
     if not refs:
         return []
     rows: list[dict[str, Any]] = []
-    for record in list_report_records(root=reports_root, player_id=player_id):
+    for record in iter_report_records(root=reports_root, player_id=player_id):
+        if not isinstance(record, dict):
+            continue
         report = record.get("report") if isinstance(record.get("report"), dict) else {}
         subject_id = str(record.get("subjectId") or "")
         record_refs = set(_record_refs(record))

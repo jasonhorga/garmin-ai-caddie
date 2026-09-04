@@ -2,6 +2,16 @@ import XCTest
 @testable import AICaddieWatch
 
 final class WatchRoundStateTests: XCTestCase {
+    func testLegacyOrdinalHazardLabelsAreNotShownToPlayers() {
+        let bunker = WatchHazard(kind: "bunker", label: "沙坑 1", startM: 120)
+        let water = WatchHazard(kind: "water", label: "water #2", startM: 140)
+        let semantic = WatchHazard(kind: "bunker", label: "右侧球道沙坑", startM: 120)
+
+        XCTAssertEqual(bunker.displayLabel, "沙坑")
+        XCTAssertEqual(water.displayLabel, "水障碍")
+        XCTAssertEqual(semantic.displayLabel, "右侧球道沙坑")
+    }
+
     func testWatchRoundStateEncodesAndDecodes() throws {
         let state = WatchRoundState(
             roundId: "round-1",
@@ -20,9 +30,8 @@ final class WatchRoundStateTests: XCTestCase {
             lie: "fairway",
             offlineOptionId: "stock",
             decisionId: "decision-1",
-            holePlanSummary: "1D-3W-58 / 3 shots / leave -21m",
-            expectedStrokes: 3,
-            expectedRemainingM: -21,
+            holePlanSummary: "1D → 5I → 54 · 留 14 码",
+            expectedRemainingM: 13,
             score: 4,
             putts: 2,
             penaltyCount: 0,
@@ -39,9 +48,8 @@ final class WatchRoundStateTests: XCTestCase {
         XCTAssertEqual(decoded.availableClubNames, ["8I"])
         XCTAssertEqual(decoded.shotType, "approach")
         XCTAssertEqual(decoded.offlineOptionId, "stock")
-        XCTAssertEqual(decoded.holePlanSummary, "1D-3W-58 / 3 shots / leave -21m")
-        XCTAssertEqual(decoded.expectedStrokes, 3)
-        XCTAssertEqual(decoded.expectedRemainingM, -21)
+        XCTAssertEqual(decoded.holePlanSummary, "1D → 5I → 54 · 留 14 码")
+        XCTAssertEqual(decoded.expectedRemainingM, 13)
     }
 
     func testWatchRoundStatePreservesEvidenceAndMissingDataAcrossQuickInput() throws {
@@ -62,9 +70,8 @@ final class WatchRoundStateTests: XCTestCase {
             offlineOptionId: "stock",
             decisionId: "decision-1",
             nextShotPrompt: "8I / Stock / 142m",
-            holePlanSummary: "1D-3W-58 / 3 shots / leave -21m",
-            expectedStrokes: 3,
-            expectedRemainingM: -21,
+            holePlanSummary: "1D → 5I → 54 · 留 14 码",
+            expectedRemainingM: 13,
             evidenceSummary: "route: water left",
             missingDataSummary: "wind: not cached",
             score: 4,
@@ -87,9 +94,8 @@ final class WatchRoundStateTests: XCTestCase {
         XCTAssertEqual(updated.availableClubNames, ["8I", "7I"])
         XCTAssertEqual(updated.shotType, "approach")
         XCTAssertEqual(updated.offlineOptionId, "stock")
-        XCTAssertEqual(updated.holePlanSummary, "1D-3W-58 / 3 shots / leave -21m")
-        XCTAssertEqual(updated.expectedStrokes, 3)
-        XCTAssertEqual(updated.expectedRemainingM, -21)
+        XCTAssertEqual(updated.holePlanSummary, "1D → 5I → 54 · 留 14 码")
+        XCTAssertEqual(updated.expectedRemainingM, 13)
         XCTAssertEqual(updated.evidenceSummary, "route: water left")
         XCTAssertEqual(updated.missingDataSummary, "wind: not cached")
     }
@@ -115,6 +121,26 @@ final class WatchRoundStateTests: XCTestCase {
         XCTAssertEqual(decoded.schema, "ai-caddie-watch-round-state-v1")
         XCTAssertEqual(decoded.selectedClub, "8I")
         XCTAssertNil(decoded.offlineOptionId)
+    }
+
+    func testWatchCaddieOptionDecodesLegacyCacheWithoutMeasuredCarryRange() throws {
+        let legacy = """
+        {
+          "optionId": "stock",
+          "label": "推荐",
+          "clubName": "1W",
+          "carryM": 205,
+          "confidence": "offline"
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(WatchCaddieOption.self, from: legacy)
+
+        XCTAssertEqual(decoded.optionId, "stock")
+        XCTAssertEqual(decoded.carryM, 205)
+        XCTAssertNil(decoded.carryP10M)
+        XCTAssertNil(decoded.carryP90M)
+        XCTAssertNil(decoded.sampleSize)
     }
 
     func testWatchDistanceInputUpdatesLocalDistanceWithoutDroppingTarget() throws {

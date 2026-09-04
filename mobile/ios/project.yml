@@ -13,6 +13,54 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
 
 targets:
+  SwiftJCS:
+    type: library.static
+    platform: auto
+    supportedDestinations:
+      - iOS
+      - watchOS
+    sources:
+      - path: mobile/ios/AICaddieDomain/ThirdParty/SwiftJCS
+
+  AICaddieDomain:
+    type: framework
+    platform: auto
+    supportedDestinations:
+      - iOS
+      - watchOS
+    sources:
+      - path: mobile/ios/AICaddieDomain
+        excludes:
+          - ThirdParty/SwiftJCS
+    dependencies:
+      - target: SwiftJCS
+        link: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.domain
+        GENERATE_INFOPLIST_FILE: YES
+
+  AICaddieDomainTests:
+    type: bundle.unit-test
+    platform: auto
+    supportedDestinations:
+      - iOS
+      - watchOS
+    sources:
+      - path: mobile/ios/AICaddieDomainTests
+        excludes:
+          - Fixtures
+      - path: mobile/ios/AICaddieDomainTests/Fixtures
+        buildPhase: resources
+    dependencies:
+      - target: AICaddieDomain
+      - target: SwiftJCS
+        link: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.domain.tests
+        GENERATE_INFOPLIST_FILE: YES
+
   AICaddie:
     type: application
     platform: iOS
@@ -21,6 +69,7 @@ targets:
         excludes:
           - Info.plist
     dependencies:
+      - target: AICaddieDomain
       - target: AICaddieWatch
     info:
       path: AICaddie/Info.plist
@@ -31,7 +80,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile
         INFOPLIST_FILE: $(PROJECT_DIR)/AICaddie/Info.plist
         AI_CADDIE_API_BASE_URL: ""
-        AI_CADDIE_ADMIN_TOKEN: ""
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       configs:
         Release:
@@ -45,6 +93,10 @@ targets:
     platform: iOS
     sources:
       - path: mobile/ios/AICaddieTests
+        excludes:
+          - Fixtures
+      - path: mobile/ios/AICaddieTests/Fixtures
+        buildPhase: resources
     dependencies:
       - target: AICaddie
     settings:
@@ -72,13 +124,19 @@ targets:
       - path: mobile/ios/AICaddieWatch
         excludes:
           - Info.plist
+    dependencies:
+      - target: AICaddieDomain
+        embed: true
     info:
       path: AICaddieWatch/Info.plist
+    entitlements:
+      path: AICaddieWatch/AICaddieWatch.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.watchkitapp
         INFOPLIST_FILE: $(PROJECT_DIR)/AICaddieWatch/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        LD_RUNPATH_SEARCH_PATHS: $(inherited) @executable_path @executable_path/Frameworks
       configs:
         Release:
           CODE_SIGN_STYLE: Manual
@@ -98,28 +156,17 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.watchkitapp.tests
         GENERATE_INFOPLIST_FILE: YES
 
-  AICaddieWatchUITests:
-    type: bundle.ui-testing
-    platform: watchOS
-    sources:
-      - path: mobile/ios/AICaddieWatchUITests
-    dependencies:
-      - target: AICaddieWatch
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.watchkitapp.uitests
-        GENERATE_INFOPLIST_FILE: YES
-        TEST_TARGET_NAME: AICaddieWatch
-
 schemes:
   AICaddie:
     build:
       targets:
         AICaddie: all
         AICaddieWatch: all
+        AICaddieDomainTests: [test]
         AICaddieTests: [test]
     test:
       targets:
+        - AICaddieDomainTests
         - AICaddieTests
 
   AICaddieUITests:
@@ -140,12 +187,3 @@ schemes:
     test:
       targets:
         - AICaddieWatchTests
-
-  AICaddieWatchUITests:
-    build:
-      targets:
-        AICaddieWatch: all
-        AICaddieWatchUITests: [test]
-    test:
-      targets:
-        - AICaddieWatchUITests

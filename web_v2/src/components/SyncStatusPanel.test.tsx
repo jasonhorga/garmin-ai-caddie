@@ -129,6 +129,26 @@ describe('SyncStatusPanel', () => {
     expect(screen.getByLabelText('OAuth 探测就绪度')).toHaveTextContent('仅试运行')
   })
 
+  it('shows when a successful upstream pull returned no new rounds', () => {
+    render(
+      <SyncStatusPanel
+        status={{
+          ...baseStatus,
+          lastRun: {
+            ...baseStatus.lastRun!,
+            newRoundCount: 0,
+            remoteLatestRoundAt: '2026-08-14T17:59:40Z',
+          },
+        }}
+        onSync={vi.fn()}
+        syncState="idle"
+      />,
+    )
+
+    expect(screen.getByText('本次没有新球局')).toBeInTheDocument()
+    expect(screen.getByText('Garmin 最新球局 2026-08-14T17:59:40Z')).toBeInTheDocument()
+  })
+
   it('renders reauth required state', () => {
     render(
       <SyncStatusPanel

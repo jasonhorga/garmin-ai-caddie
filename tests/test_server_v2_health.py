@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -41,7 +42,8 @@ class ServerV2HealthTests(unittest.TestCase):
     def test_health_endpoint_returns_versioned_status(self) -> None:
         client = TestClient(app)
 
-        response = client.get("/api/v2/health")
+        with mock.patch.dict("os.environ", {"AI_CADDIE_BUILD_REVISION": "0123456789abcdef"}):
+            response = client.get("/api/v2/health")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -50,6 +52,7 @@ class ServerV2HealthTests(unittest.TestCase):
                 "schema": "ai-caddie-health-v2",
                 "status": "ok",
                 "service": "server_v2",
+                "revision": "0123456789abcdef",
             },
         )
 

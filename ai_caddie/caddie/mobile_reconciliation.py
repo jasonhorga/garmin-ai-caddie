@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 from ai_caddie.reports.annotations import add_annotation, list_annotations
-from ai_caddie.caddie.decision import audit_decision, store_decision_audit
+from ai_caddie.caddie.decision import audit_decision, latest_decision_record, store_decision_audit
+from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
 from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.caddie.mobile_live import mobile_event_log
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def _event_rows(round_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
@@ -20,20 +27,11 @@ def _event_rows(round_id: str, *, root: Path | str | None = None, player_id: str
     # itself, so pass player_id here (NOT a pre-resolved evidence_root, which would double-nest the
     # path to data/players/<id>/data/mobile_events/... and read empty).
     path = mobile_event_log(root, player_id=player_id)
-    if not path.exists():
-        return []
     rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue  # tolerate a torn final append; never 500 the read path
-        if str(row.get("roundId")) == str(round_id):
-            event = row.get("event")
-            if isinstance(event, dict):
-                rows.append({"serverSequence": row.get("serverSequence"), **event})
+    for row in open_mobile_event_store(path.parent).read_rows(round_id):
+        event = row.get("event")
+        if isinstance(event, dict):
+            rows.append({**event, "serverSequence": row.get("serverSequence")})
     return rows
 
 
@@ -52,7 +50,7 @@ def _round_row(round_id: str, data: HistoryData) -> dict[str, Any]:
 def _hole_scores(round_row: dict[str, Any]) -> dict[int, dict[str, Any]]:
     scores: dict[int, dict[str, Any]] = {}
     for index, hole in enumerate(round_row.get("holes") or [], start=1):
-        number = int(hole.get("number") or index)
+        number = _safe_int(hole.get("number")) or index
         scores[number] = {
             "strokes": hole.get("strokes"),
             "putts": hole.get("putts"),
@@ -71,7 +69,9 @@ def _shot_facts(round_id: str, data: HistoryData) -> list[dict[str, Any]]:
             shot_round_id = shot.get("scorecardId")
         if str(shot_round_id) != requested:
             continue
-        hole = int(shot.get("hole") or 0)
+        hole = _safe_int(shot.get("hole")) or 0
+        if hole <= 0:
+            continue
         per_hole[hole] = per_hole.get(hole, 0) + 1
         facts.append(
             {
@@ -211,13 +211,13 @@ def _annotation_suggestions(
     for row in garmin_only:
         if row.get("kind") != "club":
             continue
-        hole = int(row.get("hole") or 0)
+        hole = _safe_int(row.get("hole")) or 0
         garmin_shots_by_hole.setdefault(hole, []).append(row)
 
     for row in local_only:
         event_id = str(row.get("eventId") or "")
         kind = str(row.get("kind") or "")
-        hole = int(row.get("hole") or 0)
+        hole = _safe_int(row.get("hole")) or 0
         local_value = row.get("localValue")
         if not event_id:
             continue
@@ -356,7 +356,9 @@ def reconcile_mobile_round_events(
     for event in events:
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         kind = str(event.get("kind") or "")
-        hole = int(event.get("hole") or 0)
+        hole = _safe_int(event.get("hole")) or 0
+        if hole <= 0:
+            continue
         audit = _candidate_audit(event)
         if audit:
             candidate_audits.append(audit)
@@ -537,6 +539,7 @@ def apply_mobile_reconciliation_suggestions(
     root: Path | str | None = None,
     annotations_root: Path | str | None = None,
     decision_audit_root: Path | str | None = None,
+    decision_ledger_root: Path | str | None = None,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     reconciliation = reconcile_mobile_round_events(round_id, data, root=root, player_id=player_id)
@@ -572,6 +575,7 @@ def apply_mobile_reconciliation_suggestions(
             row,
             events_by_id=events_by_id,
             root=decision_audit_root,
+            decision_ledger_root=decision_ledger_root,
             player_id=player_id,
         )
         if audit_record:
@@ -595,6 +599,7 @@ def _store_caddie_feedback_audit(
     *,
     events_by_id: dict[str, dict[str, Any]],
     root: Path | str | None = None,
+    decision_ledger_root: Path | str | None = None,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any] | None:
     if suggestion.get("kind") != "caddie_feedback":
@@ -605,10 +610,23 @@ def _store_caddie_feedback_audit(
     if not isinstance(event_payload, dict):
         return None
     decision = event_payload.get("decision")
+    decision_id = str(payload.get("decisionId") or suggestion.get("targetId") or "")
     if not isinstance(decision, dict):
-        return None
+        record = latest_decision_record(
+            decision_id,
+            root=decision_ledger_root,
+            player_id=player_id,
+        )
+        decision = record.get("decision") if isinstance(record, dict) else None
+        if not isinstance(decision, dict):
+            return None
     actual_shot = payload.get("actualShot")
     if not isinstance(actual_shot, dict):
         actual_shot = event_payload.get("actualShot")
     audit = audit_decision(decision, actual_shot if isinstance(actual_shot, dict) else None)
-    return store_decision_audit(audit, decision_id=str(payload.get("decisionId") or suggestion.get("targetId") or ""), root=root, player_id=player_id)
+    return store_decision_audit(
+        audit,
+        decision_id=decision_id,
+        root=root,
+        player_id=player_id,
+    )

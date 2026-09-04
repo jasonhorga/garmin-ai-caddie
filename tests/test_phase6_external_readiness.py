@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -17,6 +18,8 @@ from ops.phase6_external_readiness import (
     REQUIRED_SIGNING_SECRETS,
     build_phase6_external_readiness,
     fetch_github_snapshot,
+    fetch_testflight_actions_summary,
+    _testflight_log_summary,
     main,
     probe_backend_url,
 )
@@ -49,7 +52,127 @@ def _zip_log(text: str) -> bytes:
     return output.getvalue()
 
 
+def _uploaded_manifest(
+    path: Path,
+    *,
+    commit: str = "a" * 40,
+    backend_revision: str = "b" * 40,
+    api_origin_host: str = "api.example.test",
+) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "ai-caddie-release-provenance-v1",
+                "createdAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                "commit": commit,
+                "workflowRun": "42",
+                "marketingVersion": "1.0",
+                "buildNumber": "17",
+                "apiOriginHost": api_origin_host,
+                "backendRevision": backend_revision,
+                "ipaSha256": "c" * 64,
+                "uploadToTestflight": True,
+                "uploadRequested": True,
+                "uploadCompleted": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 class Phase6ExternalReadinessTests(unittest.TestCase):
+    def test_testflight_parser_binds_numeric_build_and_keeps_first_matching_build(self) -> None:
+        summary = _testflight_log_summary(
+            {
+                "id": 123,
+                "name": "iOS TestFlight Testers",
+                "path": ".github/workflows/ios-testflight-testers.yml",
+                "conclusion": "success",
+                "head_branch": "main",
+                "head_sha": "a" * 40,
+                "created_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            },
+            """
+            - 0.1.0 (42) state=VALID betaReviewReady=true externalState=READY_FOR_BETA_SUBMISSION
+            - 0.1.0 (41) state=VALID betaReviewReady=true externalState=READY_FOR_BETA_SUBMISSION
+            """,
+        )
+        assert summary is not None
+        self.assertEqual(summary["marketingVersion"], "0.1.0")
+        self.assertEqual(summary["buildNumber"], "42")
+        self.assertEqual(summary["build"], "0.1.0 (42)")
+
+    def test_unbound_testflight_log_cannot_become_ready_without_candidate_build(self) -> None:
+        actions = {
+            "readyForBetaSubmission": True,
+            "source": "github_actions_log:123:READY_FOR_BETA_SUBMISSION",
+            "buildNumber": "42",
+            "runId": "123",
+            "runCreatedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "runBranch": "main",
+            "runHeadSha": "a" * 40,
+            "runConclusion": "success",
+            "workflowName": "iOS TestFlight Testers",
+            "workflowPath": ".github/workflows/ios-testflight-testers.yml",
+        }
+        payload = build_phase6_external_readiness(
+            env={"AI_CADDIE_RELEASE_COMMIT": "a" * 40},
+            github_snapshot=_github_snapshot(testflight_actions=actions),
+            branch="main",
+        )
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
+
+    def test_bound_testflight_log_promotes_readiness_for_candidate_build(self) -> None:
+        actions = {
+            "readyForBetaSubmission": True,
+            "source": "github_actions_log:123:READY_FOR_BETA_SUBMISSION",
+            "buildNumber": "42",
+            "runId": "123",
+            "runCreatedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "runBranch": "main",
+            "runHeadSha": "a" * 40,
+            "runConclusion": "success",
+            "workflowName": "iOS TestFlight Testers",
+            "workflowPath": ".github/workflows/ios-testflight-testers.yml",
+        }
+        payload = build_phase6_external_readiness(
+            env={"AI_CADDIE_RELEASE_COMMIT": "a" * 40, "AI_CADDIE_TESTFLIGHT_BUILD_NUMBER": "42"},
+            github_snapshot=_github_snapshot(testflight_actions=actions),
+            branch="main",
+        )
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+
+    def test_fetch_ignores_old_or_wrongly_bound_runs_and_accepts_matching_version(self) -> None:
+        now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        candidate_sha = "a" * 40
+        runs = [
+            {
+                "id": 1, "name": "iOS TestFlight Testers", "path": ".github/workflows/ios-testflight-testers.yml",
+                "conclusion": "success", "head_branch": "main", "head_sha": "b" * 40,
+                "created_at": now, "logs_url": "https://logs/old-sha",
+            },
+            {
+                "id": 2, "name": "iOS TestFlight Testers", "path": ".github/workflows/ios-testflight-testers.yml",
+                "conclusion": "success", "head_branch": "main", "head_sha": candidate_sha,
+                "created_at": now, "logs_url": "https://logs/candidate",
+            },
+        ]
+        log = _zip_log("- 1.2.3 (42) state=VALID betaReviewReady=true externalState=READY_FOR_BETA_SUBMISSION")
+        with (
+            patch("ops.phase6_external_readiness._github_api_get", return_value={"workflow_runs": runs}),
+            patch("ops.phase6_external_readiness._github_api_get_bytes", return_value=log),
+        ):
+            summary = fetch_testflight_actions_summary(
+                token="gh-token", branch="main", expected_build="42", expected_commit=candidate_sha,
+                expected_marketing_version="1.2.3",
+            )
+        self.assertTrue(summary["readyForBetaSubmission"])
+        self.assertEqual(summary["runId"], "2")
+        self.assertEqual(summary["buildNumber"], "42")
+        self.assertEqual(summary["marketingVersion"], "1.2.3")
+
     def test_backend_probe_degrades_when_backend_schema_does_not_match(self) -> None:
         class Response:
             def __init__(self, status: int, payload: dict[str, object]) -> None:
@@ -80,6 +203,47 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(payload["reason"], "unexpected backend schema")
         self.assertEqual(payload["healthSchema"], "wrong-health-schema")
         self.assertEqual(payload["readinessSchema"], "ai-caddie-readiness-v1")
+
+    def test_backend_probe_rejects_owner_only_liveness_stub(self) -> None:
+        class Response:
+            def __init__(self, status: int, payload: dict[str, object]) -> None:
+                self.status = status
+                self._payload = payload
+
+            def __enter__(self) -> "Response":
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps(self._payload).encode("utf-8")
+
+        def urlopen(req: object, timeout: float) -> Response:
+            url = getattr(req, "full_url")
+            if url.endswith("/api/v2/health"):
+                return Response(200, {"schema": "ai-caddie-health-v2", "status": "ok", "revision": "a" * 40})
+            if url.endswith("/api/v2/readiness"):
+                return Response(
+                    200,
+                    {
+                        "schema": "ai-caddie-readiness-v1",
+                        "status": "ok",
+                        "authenticated": False,
+                        "runtimeStatus": "unknown",
+                        "serviceStatus": "ready",
+                        "evidenceStatus": "unknown",
+                        "checks": [],
+                    },
+                )
+            raise AssertionError(f"unexpected URL: {url}")
+
+        with patch("ops.phase6_external_readiness.request.urlopen", side_effect=urlopen):
+            payload = probe_backend_url("https://api.example.test", "admin-secret")
+
+        self.assertEqual(payload["state"], "degraded")
+        self.assertEqual(payload["reason"], "backend readiness is an owner-only liveness stub")
+        self.assertTrue(payload["livenessOnly"])
 
     def test_ready_when_github_backend_review_testers_and_install_are_verified(self) -> None:
         calls: list[tuple[str, str | None]] = []
@@ -117,16 +281,16 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         )
 
         self.assertEqual(payload["schema"], "ai-caddie-phase6-external-readiness-v1")
-        self.assertEqual(payload["state"], "ready")
-        self.assertEqual(payload["missingExternalActions"], [])
+        self.assertEqual(payload["state"], "incomplete")
+        self.assertTrue(payload["missingExternalActions"])
         self.assertEqual(calls, [("https://api.example.test", "super-secret-admin-token")])
         checks = {row["label"]: row for row in payload["checks"]}
         self.assertEqual(checks["signing_secrets"]["state"], "ready")
         self.assertEqual(checks["signing_secrets"]["total"], 6)
         self.assertEqual(checks["signing_secrets"]["unusedConfigured"], ["MATCH_KEYCHAIN_PASSWORD"])
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
         self.assertTrue(checks["external_beta_review_submission_ready"]["evidence"]["readyForSubmission"])
-        self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
         self.assertTrue(checks["external_beta_review_submission"]["evidence"]["submittedOrExternallyReady"])
         self.assertEqual(checks["external_testers"]["evidence"]["configuredTesterCountSource"], "environment")
         self.assertEqual(checks["phone_reachable_backend_url"]["evidence"]["host"], "api.example.test")
@@ -244,11 +408,11 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
             checks["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailSource"],
             "environment",
         )
-        self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
         self.assertEqual(checks["external_beta_review_submission"]["evidence"]["source"], "environment")
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
         self.assertEqual(checks["external_beta_review_submission_ready"]["evidence"]["source"], "environment")
-        self.assertEqual(checks["external_testers"]["state"], "ready")
+        self.assertEqual(checks["external_testers"]["state"], "manual_required")
         self.assertTrue(checks["external_testers"]["evidence"]["internalCoverageConfirmed"])
         self.assertEqual(checks["external_testers"]["evidence"]["internalCoverageSource"], "environment")
         self.assertEqual(checks["backend_probe"]["state"], "manual_required")
@@ -312,7 +476,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertNotIn("owner@example.test", rendered_payload)
         checks = {row["label"]: row for row in payload["checks"]}
         self.assertEqual(checks["external_beta_review_feedback"]["state"], "missing")
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
         self.assertEqual(
             checks["external_beta_review_submission_ready"]["evidence"]["source"],
             "github_actions_log:27069928781:READY_FOR_BETA_SUBMISSION",
@@ -384,8 +548,8 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertNotIn("github_metadata", checks)
         self.assertEqual(checks["signing_secrets"]["state"], "unknown")
         self.assertEqual(checks["external_beta_review_feedback"]["state"], "unknown")
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
-        self.assertEqual(checks["external_testers"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
+        self.assertEqual(checks["external_testers"]["state"], "manual_asserted")
 
     def test_github_actions_log_scan_keeps_older_assignment_evidence(self) -> None:
         latest_list_log = """
@@ -458,7 +622,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         )
 
         checks = {row["label"]: row for row in payload["checks"]}
-        self.assertEqual(checks["external_testers"]["state"], "ready")
+        self.assertEqual(checks["external_testers"]["state"], "manual_asserted")
         self.assertEqual(
             checks["external_testers"]["evidence"]["privateTrialAssignedTesterSource"],
             "github_actions_log:27082080178:private_trial_assignment",
@@ -638,8 +802,8 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         )
 
         checks = {row["label"]: row for row in payload["checks"]}
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
-        self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
         self.assertEqual(
             checks["external_beta_review_submission"]["evidence"]["source"],
             "github_actions_log:27090000001:beta_review_submission",
@@ -694,7 +858,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         )
 
         checks = {row["label"]: row for row in payload["checks"]}
-        self.assertEqual(checks["external_testers"]["state"], "ready")
+        self.assertEqual(checks["external_testers"]["state"], "manual_required")
         self.assertEqual(checks["external_testers"]["evidence"]["privateTrialAssignedTesterCount"], 2)
         self.assertEqual(
             checks["external_testers"]["evidence"]["privateTrialAssignedTesterSource"],
@@ -747,6 +911,158 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
             checks["phone_reachable_backend_url"]["evidence"]["source"],
             "github_variable:AI_CADDIE_API_BASE_URL",
         )
+
+    def test_release_provenance_artifact_only_is_not_an_upload_gate(self) -> None:
+        with TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "release-provenance.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema": "ai-caddie-release-provenance-v1",
+                        "createdAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                        "commit": "a" * 40,
+                        "workflowRun": "42",
+                        "marketingVersion": "1.0",
+                        "buildNumber": "17",
+                        "apiOriginHost": None,
+                        "backendRevision": None,
+                        "ipaSha256": "b" * 64,
+                        "uploadToTestflight": False,
+                        "uploadRequested": False,
+                        "uploadCompleted": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = build_phase6_external_readiness(
+                env={
+                    "AI_CADDIE_RELEASE_PROVENANCE_PATH": manifest.as_posix(),
+                    "AI_CADDIE_RELEASE_COMMIT": "a" * 40,
+                },
+                github_snapshot=_github_snapshot(secrets=[*REQUIRED_SIGNING_SECRETS], variables=[]),
+                created_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            )
+
+        check = next(row for row in payload["checks"] if row["label"] == "release_provenance")
+        self.assertEqual(check["state"], "degraded")
+        self.assertIn("upload_flag_false", check["evidence"]["issues"])
+
+    def test_release_provenance_upload_accepts_distinct_matching_commit_and_backend_revisions(self) -> None:
+        with TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "release-provenance.json"
+            _uploaded_manifest(manifest)
+            payload = build_phase6_external_readiness(
+                env={
+                    "AI_CADDIE_RELEASE_PROVENANCE_PATH": manifest.as_posix(),
+                    "GITHUB_SHA": "a" * 40,
+                    "AI_CADDIE_API_BASE_URL": "https://api.example.test",
+                    "AI_CADDIE_ADMIN_TOKEN": "admin-secret",
+                },
+                github_snapshot=_github_snapshot(),
+                backend_probe=lambda _url, _token: {"state": "ready", "healthRevision": "b" * 40},
+            )
+
+        check = next(row for row in payload["checks"] if row["label"] == "release_provenance")
+        self.assertEqual(check["state"], "ready")
+        self.assertEqual(check["evidence"]["commit"], "a" * 40)
+        self.assertEqual(check["evidence"]["backendRevision"], "b" * 40)
+        self.assertTrue(check["evidence"]["commitMatchesGithubSha"])
+        self.assertTrue(check["evidence"]["backendRevisionMatchesHealth"])
+
+    def test_release_provenance_phase6_uses_downloaded_artifact_commit_authority(self) -> None:
+        with TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "release-provenance.json"
+            _uploaded_manifest(manifest)
+            payload = build_phase6_external_readiness(
+                env={
+                    "AI_CADDIE_RELEASE_PROVENANCE_PATH": manifest.as_posix(),
+                    # The Phase 6 dispatch checkout can be a different SHA.
+                    "GITHUB_SHA": "d" * 40,
+                    "AI_CADDIE_RELEASE_COMMIT": "a" * 40,
+                    "AI_CADDIE_API_BASE_URL": "https://api.example.test",
+                    "AI_CADDIE_ADMIN_TOKEN": "admin-secret",
+                },
+                github_snapshot=_github_snapshot(),
+                backend_probe=lambda _url, _token: {"state": "ready", "healthRevision": "b" * 40},
+            )
+
+        check = next(row for row in payload["checks"] if row["label"] == "release_provenance")
+        self.assertEqual(check["state"], "ready")
+        self.assertEqual(check["evidence"]["expectedCommit"], "a" * 40)
+        self.assertFalse(check["evidence"]["commitMatchesGithubSha"])
+
+    def test_release_provenance_upload_rejects_commit_mismatch_and_missing_authority(self) -> None:
+        with TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "release-provenance.json"
+            _uploaded_manifest(manifest)
+            mismatch = build_phase6_external_readiness(
+                env={
+                    "AI_CADDIE_RELEASE_PROVENANCE_PATH": manifest.as_posix(),
+                    "GITHUB_SHA": "c" * 40,
+                    "AI_CADDIE_API_BASE_URL": "https://api.example.test",
+                    "AI_CADDIE_ADMIN_TOKEN": "admin-secret",
+                },
+                github_snapshot=_github_snapshot(),
+                backend_probe=lambda _url, _token: {"state": "ready", "healthRevision": "b" * 40},
+            )
+            missing = build_phase6_external_readiness(
+                env={
+                    "AI_CADDIE_RELEASE_PROVENANCE_PATH": manifest.as_posix(),
+                    "AI_CADDIE_API_BASE_URL": "https://api.example.test",
+                    "AI_CADDIE_ADMIN_TOKEN": "admin-secret",
+                },
+                github_snapshot=_github_snapshot(),
+                backend_probe=lambda _url, _token: {"state": "ready", "healthRevision": "b" * 40},
+            )
+
+        mismatch_check = next(row for row in mismatch["checks"] if row["label"] == "release_provenance")
+        self.assertIn("commit_mismatch", mismatch_check["evidence"]["issues"])
+        missing_check = next(row for row in missing["checks"] if row["label"] == "release_provenance")
+        self.assertIn("release_commit_missing", missing_check["evidence"]["issues"])
+
+    def test_release_provenance_upload_rejects_backend_health_mismatch_and_missing_values(self) -> None:
+        with TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "release-provenance.json"
+            _uploaded_manifest(manifest)
+            mismatch = build_phase6_external_readiness(
+                env={
+                    "AI_CADDIE_RELEASE_PROVENANCE_PATH": manifest.as_posix(),
+                    "GITHUB_SHA": "a" * 40,
+                    "AI_CADDIE_API_BASE_URL": "https://api.example.test",
+                    "AI_CADDIE_ADMIN_TOKEN": "admin-secret",
+                },
+                github_snapshot=_github_snapshot(),
+                backend_probe=lambda _url, _token: {"state": "ready", "healthRevision": "c" * 40},
+            )
+            _uploaded_manifest(manifest, backend_revision="")
+            missing_manifest_value = build_phase6_external_readiness(
+                env={
+                    "AI_CADDIE_RELEASE_PROVENANCE_PATH": manifest.as_posix(),
+                    "GITHUB_SHA": "a" * 40,
+                    "AI_CADDIE_API_BASE_URL": "https://api.example.test",
+                    "AI_CADDIE_ADMIN_TOKEN": "admin-secret",
+                },
+                github_snapshot=_github_snapshot(),
+                backend_probe=lambda _url, _token: {"state": "ready", "healthRevision": "b" * 40},
+            )
+            _uploaded_manifest(manifest)
+            missing_health = build_phase6_external_readiness(
+                env={
+                    "AI_CADDIE_RELEASE_PROVENANCE_PATH": manifest.as_posix(),
+                    "GITHUB_SHA": "a" * 40,
+                    "AI_CADDIE_API_BASE_URL": "https://api.example.test",
+                    "AI_CADDIE_ADMIN_TOKEN": "admin-secret",
+                },
+                github_snapshot=_github_snapshot(),
+                backend_probe=lambda _url, _token: {"state": "ready", "healthRevision": None},
+            )
+
+        mismatch_check = next(row for row in mismatch["checks"] if row["label"] == "release_provenance")
+        self.assertIn("backend_revision_mismatch", mismatch_check["evidence"]["issues"])
+        missing_value_check = next(row for row in missing_manifest_value["checks"] if row["label"] == "release_provenance")
+        self.assertIn("backend_revision_missing", missing_value_check["evidence"]["issues"])
+        missing_health_check = next(row for row in missing_health["checks"] if row["label"] == "release_provenance")
+        self.assertIn("health_revision_missing", missing_health_check["evidence"]["issues"])
 
     def test_github_native_api_variable_name_without_valid_value_is_not_ready(self) -> None:
         payload = build_phase6_external_readiness(
@@ -882,7 +1198,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         )
 
         checks = {row["label"]: row for row in payload["checks"]}
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
         self.assertTrue(checks["external_beta_review_submission_ready"]["evidence"]["readyForSubmission"])
         self.assertEqual(
             checks["external_beta_review_submission_ready"]["evidence"]["source"],
@@ -995,23 +1311,23 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
             checks["external_testers"]["evidence"]["configuredTesterCountSource"],
             "app_store_connect_private_trial_group",
         )
-        self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
         self.assertEqual(
             checks["external_beta_review_submission"]["evidence"]["source"],
             "app_store_connect_beta_review_submitted",
         )
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
         self.assertEqual(
             checks["external_beta_review_submission_ready"]["evidence"]["source"],
             "github_actions_log:27069928781",
         )
-        self.assertEqual(checks["native_api_base_url_configuration"]["state"], "ready")
+        self.assertEqual(checks["native_api_base_url_configuration"]["state"], "manual_required")
         self.assertTrue(checks["native_api_base_url_configuration"]["evidence"]["runtimeBackendConfigured"])
         self.assertEqual(
             checks["native_api_base_url_configuration"]["evidence"]["runtimeBackendSource"],
             "testflight_backend_screen",
         )
-        self.assertEqual(checks["device_install"]["state"], "ready")
+        self.assertEqual(checks["device_install"]["state"], "manual_required")
         self.assertTrue(checks["device_install"]["evidence"]["installVerified"])
         self.assertEqual(
             checks["device_install"]["evidence"]["installVerificationSource"],
@@ -1079,7 +1395,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(code, 0)
         payload = json.loads(stdout.getvalue())
         checks = {row["label"]: row for row in payload["checks"]}
-        self.assertEqual(checks["external_testers"]["state"], "ready")
+        self.assertEqual(checks["external_testers"]["state"], "manual_required")
         self.assertEqual(checks["external_testers"]["evidence"]["configuredTesterCount"], 2)
         self.assertEqual(
             checks["external_testers"]["evidence"]["configuredTesterCountSource"],

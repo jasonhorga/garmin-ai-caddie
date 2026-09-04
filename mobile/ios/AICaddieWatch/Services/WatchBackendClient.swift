@@ -1,4 +1,5 @@
 import Foundation
+import AICaddieDomain
 
 /// round-12 P3 (Watch standalone): the Apple Watch talking to the AI Caddie backend DIRECTLY over
 /// HTTP, so a round can be recorded on the watch without the phone relaying. This is the network
@@ -10,16 +11,175 @@ import Foundation
 public struct WatchBackendEventResult: Equatable {
     public let accepted: Int
     public let duplicate: Bool
+    public let acceptedEventIds: [String]
+    public let duplicateEventIds: [String]
     public let serverSequence: Int
+
+    public var acknowledgedEventIds: [String] {
+        acceptedEventIds + duplicateEventIds
+    }
+}
+
+public struct WatchRoundFinishMetadata: Equatable {
+    public let courseName: String
+    public let holePars: [Int]
+    public let holesCompleted: Int
+    public let courseGlobalId: Int?
+
+    public init(
+        courseName: String,
+        holePars: [Int],
+        holesCompleted: Int,
+        courseGlobalId: Int?
+    ) {
+        self.courseName = courseName
+        self.holePars = holePars
+        self.holesCompleted = holesCompleted
+        self.courseGlobalId = courseGlobalId
+    }
+
+    fileprivate var jsonObject: [String: Any] {
+        var value: [String: Any] = [
+            "courseName": courseName,
+            "holePars": holePars,
+            "holesCompleted": holesCompleted,
+        ]
+        if let courseGlobalId {
+            value["courseGlobalId"] = courseGlobalId
+        }
+        return value
+    }
+}
+
+/// Public, player-scoped progress for the durable server-side course install journal.  These
+/// structures intentionally mirror the iPhone contract: the Watch can observe server progress,
+/// but the existing WatchCourseStore and WatchHoleImageStore remain the local install authority.
+public struct WatchCourseInstallHoleStatus: Codable, Equatable {
+    public let globalId: Int
+    public let localHole: Int
+    public let displayHole: Int
+    public let geometry: String
+    public let geometryRevision: String?
+    public let topo: String
+    public let topoRevision: String?
+    public let error: String?
+
+    public init(
+        globalId: Int,
+        localHole: Int,
+        displayHole: Int,
+        geometry: String,
+        topo: String,
+        geometryRevision: String? = nil,
+        topoRevision: String? = nil,
+        error: String? = nil
+    ) {
+        self.globalId = globalId
+        self.localHole = localHole
+        self.displayHole = displayHole
+        self.geometry = geometry
+        self.geometryRevision = geometryRevision
+        self.topo = topo
+        self.topoRevision = topoRevision
+        self.error = error
+    }
+}
+
+public struct WatchCourseInstallStatus: Codable, Equatable {
+    public let schema: String
+    public let jobId: String
+    public let globalId: Int
+    public let teeBox: String
+    public let nine: String
+    public let phase: String
+    public let stage: String
+    public let totalHoles: Int
+    public let geometryReady: Int
+    public let topoReady: Int
+    public let updatedAt: String?
+    public let error: String?
+    public let holes: [WatchCourseInstallHoleStatus]
+
+    public init(
+        schema: String,
+        jobId: String,
+        globalId: Int,
+        teeBox: String,
+        nine: String,
+        phase: String,
+        stage: String,
+        totalHoles: Int,
+        geometryReady: Int,
+        topoReady: Int,
+        updatedAt: String? = nil,
+        error: String? = nil,
+        holes: [WatchCourseInstallHoleStatus] = []
+    ) {
+        self.schema = schema
+        self.jobId = jobId
+        self.globalId = globalId
+        self.teeBox = teeBox
+        self.nine = nine
+        self.phase = phase
+        self.stage = stage
+        self.totalHoles = totalHoles
+        self.geometryReady = geometryReady
+        self.topoReady = topoReady
+        self.updatedAt = updatedAt
+        self.error = error
+        self.holes = holes
+    }
+}
+
+// Keep the cross-client contract discoverable under the iPhone's unprefixed names as well. The
+// Watch-prefixed structs remain the preferred spelling inside this target.
+public typealias CourseInstallHoleStatus = WatchCourseInstallHoleStatus
+public typealias CourseInstallStatus = WatchCourseInstallStatus
+
+public enum WatchBackendClientError: Error {
+    case invalidShotLocation
+    case coursePrepBatchTooLarge
+    case http(status: Int, body: String?)
+}
+
+extension WatchBackendClientError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .invalidShotLocation:
+            return "Invalid shot location"
+        case .coursePrepBatchTooLarge:
+            return "Course prep batch is too large"
+        case let .http(status, body):
+            let detail = body?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let detail, !detail.isEmpty {
+                return "HTTP \(status): \(detail)"
+            }
+            return "HTTP \(status)"
+        }
+    }
 }
 
 public final class WatchBackendClient {
+    /// Must match the phone renderer/cache version; the cross-target contract test locks equality.
+    public static let topoStyleVersion = "topo-v8"
+    /// Focused View Green pixels have their own cache contract so an improved context render does
+    /// not force every whole-hole topo to download again.
+    public static let greenDetailStyleVersion = "green-v3"
+    public static let greenDetailImageSize = 1280
+    static let maximumCoursePrepHolesPerRequest = 3
+    static let courseReleaseTimeoutInterval: TimeInterval = 180
+    static let coursePackageTimeoutInterval: TimeInterval = 180
+    static let courseReleaseMaximumAttempts = 3
+    static let nearbyDiscoveryTimeoutInterval: TimeInterval = 30
+    static let transientCourseReleaseHTTPStatuses: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
+
     private let baseURL: URL
     private let adminToken: String?
     private let sessionToken: String?
     private let sessionTokenExpiresAt: Date?
     private let clientId: String
-    private let session: URLSession
+    private let dataLoader: (URLRequest) async throws -> (Data, URLResponse)
+    private let retrySleep: (UInt64) async throws -> Void
 
     public init(
         baseURL: URL,
@@ -34,7 +194,26 @@ public final class WatchBackendClient {
         self.sessionToken = sessionToken
         self.sessionTokenExpiresAt = sessionTokenExpiresAt
         self.clientId = clientId
-        self.session = session
+        self.dataLoader = { try await session.data(for: $0) }
+        self.retrySleep = { try await Task.sleep(nanoseconds: $0) }
+    }
+
+    init(
+        baseURL: URL,
+        adminToken: String? = nil,
+        sessionToken: String? = nil,
+        sessionTokenExpiresAt: Date? = nil,
+        clientId: String = "apple-watch",
+        dataLoader: @escaping (URLRequest) async throws -> (Data, URLResponse),
+        retrySleep: @escaping (UInt64) async throws -> Void
+    ) {
+        self.baseURL = baseURL
+        self.adminToken = adminToken
+        self.sessionToken = sessionToken
+        self.sessionTokenExpiresAt = sessionTokenExpiresAt
+        self.clientId = clientId
+        self.dataLoader = dataLoader
+        self.retrySleep = retrySleep
     }
 
     // MARK: - WatchInputEvent → backend live-round-event wire dict
@@ -42,13 +221,16 @@ public final class WatchBackendClient {
     /// Mirror of the phone's `WatchEventBridge.mapWatchInputEvent`, but emits the JSON wire dict the
     /// `/events` endpoint accepts (stamped with this client's id). Keeping the mapping here lets the
     /// watch post on its own when the phone is unreachable.
-    public func backendEvent(from event: WatchInputEvent) -> [String: Any] {
+    public func backendEvent(from event: WatchInputEvent) throws -> [String: Any] {
         let kind: String
         var payload: [String: Any]
         switch event.kind {
         case .score:
             kind = "score"
             payload = ["strokes": Int(event.value) ?? 0]
+            if let fairway = normalizedFairway(event.fairwayResult) {
+                payload["fairway"] = fairway
+            }
         case .putt:
             kind = "putt"
             payload = ["putts": Int(event.value) ?? 0]
@@ -63,9 +245,17 @@ public final class WatchBackendClient {
             kind = "club"
             payload = clubPayload(for: event, clubName: event.contextClub ?? event.value)
             payload["distanceToPinM"] = Double(event.value) ?? 0
-        case .fairway:
-            kind = "fairway"
-            payload = ["result": event.value]
+        case .location:
+            guard let location = WatchShotLocationValue(encodedValue: event.value) else {
+                throw WatchBackendClientError.invalidShotLocation
+            }
+            kind = "location"
+            payload = [
+                "latitude": location.latitude,
+                "longitude": location.longitude,
+                "horizontalAccuracyM": location.horizontalAccuracyM,
+                "source": "apple_watch",
+            ]
         }
         return [
             "schema": "ai-caddie-live-round-event-v1",
@@ -90,7 +280,365 @@ public final class WatchBackendClient {
         return payload
     }
 
+    private func normalizedFairway(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return ["hit", "left", "right"].contains(normalized) ? normalized : nil
+    }
+
     // MARK: - Endpoints (mirror the phone SyncClient event surface)
+
+    public func makeCourseOptionsRequest() throws -> URLRequest {
+        var request = URLRequest(url: endpointURL("/api/v2/mobile/courses/options"))
+        applyAuth(&request)
+        return request
+    }
+
+    public func makeCourseSearchRequest(name: String) throws -> URLRequest {
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/search"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "name", value: name)]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = Self.nearbyDiscoveryTimeoutInterval
+        applyAuth(&request)
+        return request
+    }
+
+    public func makeNearbyCoursesRequest(
+        latitude: Double,
+        longitude: Double,
+        radiusKm: Int = 50
+    ) throws -> URLRequest {
+        guard latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude),
+              (1...200).contains(radiusKm),
+              var components = URLComponents(
+                  url: endpointURL("/api/v2/courses/nearby"),
+                  resolvingAgainstBaseURL: false
+              ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [
+            URLQueryItem(name: "latitude", value: String(latitude)),
+            URLQueryItem(name: "longitude", value: String(longitude)),
+            URLQueryItem(name: "radius_km", value: String(radiusKm)),
+        ]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = Self.nearbyDiscoveryTimeoutInterval
+        applyAuth(&request)
+        return request
+    }
+
+    public func makeCourseTeesRequest(globalId: Int) throws -> URLRequest {
+        var components = URLComponents(
+            url: endpointURL("/api/v2/courses/\(globalId)/tees"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [URLQueryItem(name: "ensure_release", value: "true")]
+        guard let url = components?.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        // A catalogue miss can make the backend fetch Garmin's small CourseView release before it
+        // can return the Tee list. That cold path legitimately exceeds URLSession's 60 s default.
+        request.timeoutInterval = Self.courseReleaseTimeoutInterval
+        applyAuth(&request)
+        return request
+    }
+
+    public func makeCoursePackageRequest(
+        globalId: Int,
+        roundId: String,
+        teeBox: String,
+        backGlobalId: Int? = nil,
+        ensureGeometry: Bool = false,
+        backgroundGeometry: Bool = false
+    ) throws -> URLRequest {
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        var queryItems = [
+            URLQueryItem(name: "round_id", value: roundId),
+            URLQueryItem(name: "tee_box", value: teeBox),
+            URLQueryItem(name: "nine", value: "all"),
+            URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "ensure_geometry", value: ensureGeometry ? "true" : "false"),
+            URLQueryItem(name: "background_geometry", value: backgroundGeometry ? "true" : "false"),
+        ]
+        if let backGlobalId {
+            queryItems.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId)))
+        }
+        components.queryItems = queryItems
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        // The Watch can start a never-downloaded course without the phone. Its first package has
+        // the same factual courseData cold path as iPhone, so it must not retain URLSession's 60 s
+        // default merely because ensureGeometry is false.
+        request.timeoutInterval = ensureGeometry ? 900 : Self.coursePackageTimeoutInterval
+        applyAuth(&request)
+        return request
+    }
+
+    public func makeCourseInstallStatusRequest(
+        globalId: Int,
+        teeBox: String,
+        nine: String = "all",
+        backGlobalId: Int? = nil
+    ) throws -> URLRequest {
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/\(globalId)/install/status"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        var queryItems = [
+            URLQueryItem(name: "tee_box", value: teeBox),
+            URLQueryItem(name: "nine", value: nine),
+        ]
+        if let backGlobalId, backGlobalId > 0 {
+            queryItems.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId)))
+        }
+        components.queryItems = queryItems
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        // Status is a best-effort scheduler hint. Keep it bounded so a missing/slow journal never
+        // blocks a Watch round or its existing local partial cache.
+        request.timeoutInterval = Self.nearbyDiscoveryTimeoutInterval
+        applyAuth(&request)
+        return request
+    }
+
+    public func makeCoursePrepRequest(globalId: Int, localHoles: [Int]) throws -> URLRequest {
+        guard localHoles.count <= Self.maximumCoursePrepHolesPerRequest else {
+            throw WatchBackendClientError.coursePrepBatchTooLarge
+        }
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/\(globalId)/prep"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = localHoles.map {
+            URLQueryItem(name: "holes", value: String($0))
+        } + [URLQueryItem(name: "render", value: "false")]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 900
+        applyAuth(&request)
+        return request
+    }
+
+    /// The same release-revalidated realistic-topo bitmap used by iPhone and Web. This endpoint is public
+    /// course knowledge, so the Watch does not attach member credentials to the image request.
+    public func makeCourseTopoRequest(
+        globalId: Int,
+        localHole: Int,
+        geometryRevision: String? = nil
+    ) throws -> URLRequest {
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/\(globalId)/holes/\(localHole)/topo.png"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        var queryItems = [URLQueryItem(name: "v", value: Self.topoStyleVersion)]
+        if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !revision.isEmpty {
+            queryItems.append(URLQueryItem(name: "r", value: revision))
+        }
+        components.queryItems = queryItems
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        // A first request may be the one that finishes a cold server-side topo render. Cypress hole
+        // 1 has exceeded URLSession's 60-second default in production, then become immediately
+        // available. Give that legitimate cold path the same bounded window as course release.
+        request.timeoutInterval = Self.courseReleaseTimeoutInterval
+        return request
+    }
+
+    public func makeCourseGreenDetailRequest(
+        globalId: Int,
+        localHole: Int,
+        crop: GreenDetailCrop,
+        size: Int = WatchBackendClient.greenDetailImageSize,
+        geometryRevision: String? = nil
+    ) throws -> URLRequest {
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("api/v2/courses/\(globalId)/holes/\(localHole)/green.png"),
+            resolvingAgainstBaseURL: false
+        ) else { throw URLError(.badURL) }
+        func number(_ value: Double) -> String {
+            String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), value)
+        }
+        var queryItems = [
+            URLQueryItem(name: "x", value: number(crop.x)),
+            URLQueryItem(name: "y", value: number(crop.y)),
+            URLQueryItem(name: "width", value: number(crop.width)),
+            URLQueryItem(name: "height", value: number(crop.height)),
+            URLQueryItem(name: "size", value: String(size)),
+            URLQueryItem(name: "v", value: Self.topoStyleVersion),
+            URLQueryItem(name: "g", value: Self.greenDetailStyleVersion),
+        ]
+        if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !revision.isEmpty {
+            queryItems.append(URLQueryItem(name: "r", value: revision))
+        }
+        components.queryItems = queryItems
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = Self.courseReleaseTimeoutInterval
+        return request
+    }
+
+    public func decodeCourseOptions(_ data: Data) throws -> [WatchCourseOption] {
+        try JSONDecoder().decode(WatchCourseOptionsEnvelope.self, from: data).courses
+    }
+
+    public func decodeCourseSearch(_ data: Data) throws -> [WatchCourseSearchMatch] {
+        try JSONDecoder().decode(WatchCourseSearchEnvelope.self, from: data).matches
+    }
+
+    public func decodeCourseTees(_ data: Data) throws -> [WatchCourseTee] {
+        try JSONDecoder().decode(WatchCourseTeesEnvelope.self, from: data).tees
+    }
+
+    public func decodeCoursePackage(_ data: Data) throws -> WatchCoursePackage {
+        try JSONDecoder().decode(WatchCoursePackage.self, from: data)
+    }
+
+    public func decodeCourseInstallStatus(_ data: Data) throws -> WatchCourseInstallStatus {
+        try JSONDecoder().decode(WatchCourseInstallStatus.self, from: data)
+    }
+
+    public func decodeCoursePrep(_ data: Data) throws -> WatchCoursePrepResponse {
+        try JSONDecoder().decode(WatchCoursePrepResponse.self, from: data)
+    }
+
+    public func fetchCourseOptions() async throws -> [WatchCourseOption] {
+        let request = try makeCourseOptionsRequest()
+        let data = try await sendForData(request)
+        return try decodeCourseOptions(data)
+    }
+
+    public func searchCourses(name: String) async throws -> [WatchCourseSearchMatch] {
+        let request = try makeCourseSearchRequest(name: name)
+        let data = try await sendForData(request, retryingTransientFailures: true)
+        return try decodeCourseSearch(data)
+    }
+
+    public func nearbyCourses(
+        latitude: Double,
+        longitude: Double,
+        radiusKm: Int = 50
+    ) async throws -> [WatchCourseSearchMatch] {
+        let request = try makeNearbyCoursesRequest(
+            latitude: latitude,
+            longitude: longitude,
+            radiusKm: radiusKm
+        )
+        let data = try await sendForData(request, retryingTransientFailures: true)
+        return try decodeCourseSearch(data)
+    }
+
+    public func fetchCourseTees(globalId: Int) async throws -> [WatchCourseTee] {
+        let request = try makeCourseTeesRequest(globalId: globalId)
+        let data = try await sendForData(request, retryingTransientFailures: true)
+        return try decodeCourseTees(data)
+    }
+
+    public func fetchCoursePackage(
+        globalId: Int,
+        roundId: String,
+        teeBox: String,
+        backGlobalId: Int? = nil,
+        ensureGeometry: Bool = false,
+        backgroundGeometry: Bool = false
+    ) async throws -> WatchCoursePackage {
+        let request = try makeCoursePackageRequest(
+            globalId: globalId,
+            roundId: roundId,
+            teeBox: teeBox,
+            backGlobalId: backGlobalId,
+            ensureGeometry: ensureGeometry,
+            backgroundGeometry: backgroundGeometry
+        )
+        let data = try await sendForData(request, retryingTransientFailures: true)
+        return try decodeCoursePackage(data)
+    }
+
+    /// Read the durable server preparation journal. A missing row is normal before the first
+    /// package enqueue, and older deployments may not expose this route at all; both cases return
+    /// nil so the Watch continues with its existing package/cache retry path.
+    public func fetchCourseInstallStatus(
+        globalId: Int,
+        teeBox: String,
+        nine: String = "all",
+        backGlobalId: Int? = nil
+    ) async throws -> WatchCourseInstallStatus? {
+        let request = try makeCourseInstallStatusRequest(
+            globalId: globalId,
+            teeBox: teeBox,
+            nine: nine,
+            backGlobalId: backGlobalId
+        )
+        do {
+            let data = try await sendForData(request, retryingTransientFailures: true)
+            return try decodeCourseInstallStatus(data)
+        } catch let error as WatchBackendClientError {
+            if case .http(status: 404, body: _) = error {
+                return nil
+            }
+            throw error
+        }
+    }
+
+    public func fetchCoursePrep(globalId: Int, localHoles: [Int]) async throws -> WatchCoursePrepResponse {
+        let request = try makeCoursePrepRequest(globalId: globalId, localHoles: localHoles)
+        let data = try await sendForData(request, retryingTransientFailures: true)
+        return try decodeCoursePrep(data)
+    }
+
+    public func fetchCourseTopo(
+        globalId: Int,
+        localHole: Int,
+        geometryRevision: String? = nil
+    ) async throws -> Data {
+        try await sendForData(
+            makeCourseTopoRequest(
+                globalId: globalId,
+                localHole: localHole,
+                geometryRevision: geometryRevision
+            ),
+            retryingTransientFailures: true
+        )
+    }
+
+    public func fetchGreenDetailImage(
+        globalId: Int,
+        localHole: Int,
+        crop: GreenDetailCrop,
+        size: Int = WatchBackendClient.greenDetailImageSize,
+        geometryRevision: String? = nil
+    ) async throws -> Data {
+        try await sendForData(
+            makeCourseGreenDetailRequest(
+                globalId: globalId,
+                localHole: localHole,
+                crop: crop,
+                size: size,
+                geometryRevision: geometryRevision
+            ),
+            retryingTransientFailures: true
+        )
+    }
 
     /// Build the POST /events request (headers + mapped batch body). Split out from `postEvents` so it
     /// can be unit-tested without a URLSession — watchOS makes URLProtocol stubbing of the live session
@@ -101,8 +649,20 @@ public final class WatchBackendClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
         applyAuth(&request)
-        let body: [String: Any] = ["roundId": roundId, "events": events.map { backendEvent(from: $0) }]
+        let body: [String: Any] = ["roundId": roundId, "events": try events.map { try backendEvent(from: $0) }]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    public func makeRoundFinishRequest(
+        roundId: String,
+        metadata: WatchRoundFinishMetadata
+    ) throws -> URLRequest {
+        var request = URLRequest(url: endpointURL("/api/v2/mobile/rounds/\(roundId)/finish"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["meta": metadata.jsonObject])
         return request
     }
 
@@ -111,6 +671,8 @@ public final class WatchBackendClient {
         return WatchBackendEventResult(
             accepted: json["accepted"] as? Int ?? 0,
             duplicate: json["duplicate"] as? Bool ?? false,
+            acceptedEventIds: json["acceptedEventIds"] as? [String] ?? [],
+            duplicateEventIds: json["duplicateEventIds"] as? [String] ?? [],
             serverSequence: json["serverSequence"] as? Int ?? 0
         )
     }
@@ -118,11 +680,19 @@ public final class WatchBackendClient {
     @discardableResult
     public func postEvents(_ events: [WatchInputEvent], roundId: String, idempotencyKey: String) async throws -> WatchBackendEventResult {
         let request = try makeEventBatchRequest(events, roundId: roundId, idempotencyKey: idempotencyKey)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await dataLoader(request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
         return parseEventResult(data)
+    }
+
+    public func finishRound(
+        roundId: String,
+        metadata: WatchRoundFinishMetadata
+    ) async throws {
+        let request = try makeRoundFinishRequest(roundId: roundId, metadata: metadata)
+        _ = try await sendForJSON(request)
     }
 
     /// Pull events authored by other clients (phone/web) so the watch round stays in sync.
@@ -194,12 +764,61 @@ public final class WatchBackendClient {
     }
 
     private func sendForJSON(_ request: URLRequest) async throws -> [String: Any] {
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-        guard (200..<300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
+        let data = try await sendForData(request)
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+    }
+
+    private func sendForData(
+        _ request: URLRequest,
+        retryingTransientFailures: Bool = false
+    ) async throws -> Data {
+        let maximumAttempts = retryingTransientFailures ? Self.courseReleaseMaximumAttempts : 1
+        var attempt = 1
+
+        while true {
+            try Task.checkCancellation()
+            do {
+                let (data, response) = try await dataLoader(request)
+                guard let http = response as? HTTPURLResponse else {
+                    throw URLError(.badServerResponse)
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    let body = String(data: data.prefix(1_024), encoding: .utf8)
+                    throw WatchBackendClientError.http(status: http.statusCode, body: body)
+                }
+                return data
+            } catch {
+                if Task.isCancelled || error is CancellationError {
+                    throw CancellationError()
+                }
+                guard attempt < maximumAttempts,
+                      Self.isTransientCourseReleaseError(error) else {
+                    throw error
+                }
+                try await retrySleep(Self.courseReleaseRetryDelayNanoseconds(afterAttempt: attempt))
+                attempt += 1
+            }
+        }
+    }
+
+    static func courseReleaseRetryDelayNanoseconds(afterAttempt attempt: Int) -> UInt64 {
+        UInt64(1 << max(0, min(attempt - 1, 4))) * 500_000_000
+    }
+
+    static func isTransientCourseReleaseError(_ error: Error) -> Bool {
+        if error is CancellationError { return false }
+        if let backendError = error as? WatchBackendClientError,
+           case let .http(status, _) = backendError {
+            return transientCourseReleaseHTTPStatuses.contains(status)
+        }
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .timedOut, .cannotFindHost, .cannotConnectToHost, .networkConnectionLost,
+             .dnsLookupFailed, .notConnectedToInternet, .secureConnectionFailed:
+            return true
+        default:
+            return false
+        }
     }
 
     private func endpointURL(_ endpoint: String) -> URL {

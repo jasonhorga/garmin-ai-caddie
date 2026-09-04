@@ -2,12 +2,14 @@ name: iOS TestFlight Testers
 
 # Manage TestFlight tester visibility after a binary has uploaded. This is
 # manual-only because tester emails and external distribution are user-specific.
+# Private distribution defaults to the existing internal group; external
+# tester/review/distribution operations require an explicit opt-in.
 
 on:
   workflow_dispatch:
     inputs:
       operation:
-        description: 'list, add, assign_existing, configure_review, submit_review, or distribute'
+        description: 'Manage testers or diagnose an uploaded IPA'
         required: true
         default: 'list'
         type: choice
@@ -18,14 +20,24 @@ on:
           - configure_review
           - submit_review
           - distribute
+          - diagnose_artifact
       tester_emails:
         description: 'Comma/newline-separated external tester emails for add'
         required: false
         default: ''
       groups:
-        description: 'Comma-separated TestFlight group names'
+        description: 'Comma-separated external TestFlight group names (external_distribution=true only)'
         required: false
         default: 'Private Trial'
+      internal_group:
+        description: 'Existing internal TestFlight group for private distribution'
+        required: false
+        default: "Jason's friends"
+      external_distribution:
+        description: 'Opt in to external tester, review, and distribution operations'
+        required: false
+        default: false
+        type: boolean
       app_version:
         description: 'Optional TestFlight app version to distribute'
         required: false
@@ -39,6 +51,19 @@ on:
         required: false
         default: false
         type: boolean
+      source_run_id:
+        description: 'Source TestFlight workflow run for diagnose_artifact'
+        required: false
+        default: ''
+      diagnose_bundles:
+        description: 'Print Apple-processed build bundle metadata for list'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  actions: read
+  contents: read
 
 concurrency:
   group: ios-testflight-testers
@@ -46,6 +71,7 @@ concurrency:
 
 jobs:
   testers:
+    if: ${{ github.event.inputs.operation != 'diagnose_artifact' }}
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -100,6 +126,7 @@ jobs:
           OPERATION: ${{ github.event.inputs.operation }}
           TESTER_EMAILS: ${{ github.event.inputs.tester_emails }}
           TESTFLIGHT_GROUPS: ${{ github.event.inputs.groups }}
+          INTERNAL_TESTFLIGHT_GROUP: ${{ github.event.inputs.internal_group }}
           APP_VERSION: ${{ github.event.inputs.app_version }}
           BUILD_NUMBER: ${{ github.event.inputs.build_number }}
           TESTFLIGHT_FEEDBACK_EMAIL: ${{ secrets.TESTFLIGHT_FEEDBACK_EMAIL }}
@@ -108,6 +135,8 @@ jobs:
           TESTFLIGHT_REVIEW_CONTACT_LAST_NAME: ${{ secrets.TESTFLIGHT_REVIEW_CONTACT_LAST_NAME }}
           TESTFLIGHT_REVIEW_CONTACT_PHONE: ${{ secrets.TESTFLIGHT_REVIEW_CONTACT_PHONE }}
           NOTIFY_EXTERNAL_TESTERS: ${{ github.event.inputs.notify_external_testers }}
+          EXTERNAL_DISTRIBUTION: ${{ github.event.inputs.external_distribution }}
+          DIAGNOSE_BUNDLES: ${{ github.event.inputs.diagnose_bundles }}
         run: |
           set -euo pipefail
           bundle exec ruby - <<'RUBY'
@@ -116,6 +145,8 @@ jobs:
           require "spaceship/connect_api/spaceship"
 
           APP_IDENTIFIER = "com.ai-caddie.mobile"
+          DEFAULT_INTERNAL_TESTFLIGHT_GROUP = "Jason's friends"
+          DEFAULT_EXTERNAL_TESTFLIGHT_GROUP = "Private Trial"
           DEFAULT_BETA_APP_DESCRIPTION = (
             "Private TestFlight build for validating AI Caddie golf history, " \
             "course prep, and iOS/watchOS trial flows."
@@ -130,9 +161,9 @@ jobs:
             stripped.empty? ? nil : stripped
           end
 
-          def parse_group_names(value)
+          def parse_group_names(value, default_name: DEFAULT_EXTERNAL_TESTFLIGHT_GROUP)
             names = value.to_s.split(",").map(&:strip).reject(&:empty?).uniq
-            names.empty? ? ["Private Trial"] : names
+            names.empty? ? [default_name] : names
           end
 
           def parse_tester_emails(value)
@@ -213,10 +244,36 @@ jobs:
                   "missingExportCompliance=#{safely { build.missing_export_compliance? }} " \
                   "#{beta_detail_state}"
                 )
+                print_build_bundles(build) if bool_input?(ENV["DIAGNOSE_BUNDLES"])
               end
             end
             puts "::endgroup::"
             builds
+          end
+
+          def print_build_bundles(build)
+            bundles = build.build_bundles || []
+            puts "::group::Apple-processed build bundles"
+            if bundles.empty?
+              puts "No build bundle metadata returned."
+            else
+              bundles.each do |bundle|
+                puts(
+                  "- bundleId=#{describe(bundle.bundle_id)} type=#{describe(bundle.bundle_type)} " \
+                  "sdkBuild=#{describe(bundle.sdk_build)} platformBuild=#{describe(bundle.platform_build)} " \
+                  "fileName=#{describe(bundle.file_name)} architectures=#{describe(bundle.supported_architectures)} " \
+                  "requiredCapabilities=#{describe(bundle.required_capabilities)} " \
+                  "deviceProtocols=#{describe(bundle.device_protocols)} " \
+                  "locationServices=#{describe(bundle.uses_location_services)} " \
+                  "prerenderedIcon=#{describe(bundle.has_prerendered_icon)}"
+                )
+                puts "  entitlements=#{describe(bundle.entitlements)}"
+              end
+            end
+            puts "::endgroup::"
+          rescue => e
+            puts "Build bundle metadata unavailable: #{e.class}"
+            puts "::endgroup::"
           end
 
           def print_groups(app)
@@ -226,9 +283,16 @@ jobs:
               puts "No TestFlight groups found."
             else
               groups.each do |group|
+                builds = safely { group.fetch_builds }
+                build_summary = if builds.is_a?(Array)
+                                  builds.map { |build| "#{safely { build.version }}:#{safely { build.id }}" }.join(",")
+                                else
+                                  builds.to_s
+                                end
                 puts(
                   "- #{group.name} id=#{group.id} internal=#{group.is_internal_group} " \
-                  "publicLinkEnabled=#{group.public_link_enabled} allBuilds=#{group.has_access_to_all_builds}"
+                  "publicLinkEnabled=#{group.public_link_enabled} allBuilds=#{group.has_access_to_all_builds} " \
+                  "builds=#{build_summary}"
                 )
               end
             end
@@ -245,7 +309,10 @@ jobs:
               testers.each do |tester|
                 puts(
                   "- #{redact_email(tester.email)} state=#{describe(tester.beta_tester_state)} " \
+                  "inviteType=#{describe(tester.invite_type)} deleted=#{describe(tester.is_deleted)} " \
                   "devices=#{describe(tester.number_of_installed_devices)} " \
+                  "installed=#{describe(tester.installed_cf_bundle_short_version_string)}" \
+                  "(#{describe(tester.installed_cf_bundle_version)}) " \
                   "latest=#{describe(tester.latest_expiring_cf_bundle_short_version_string)}" \
                   "(#{describe(tester.latest_expiring_cf_bundle_version_string)})"
                 )
@@ -369,22 +436,57 @@ jobs:
             end
           end
 
-          def ensure_testflight_groups(app, names)
+          def internal_testflight_group?(group)
+            group.is_internal_group == true
+          end
+
+          def ensure_testflight_groups(app, names, external:)
             existing = app.get_beta_groups
             names.map do |name|
               group = existing.find { |candidate| candidate.name == name }
               if group
-                puts "TestFlight group already exists: #{name}"
-              else
+                if external
+                  if internal_testflight_group?(group)
+                    raise(
+                      "External TestFlight operations require an external group; " \
+                      "#{name.inspect} is an internal group."
+                    )
+                  end
+                elsif !internal_testflight_group?(group)
+                  raise(
+                    "TestFlight group #{name.inspect} is external. " \
+                    "Set external_distribution=true to opt in to external distribution."
+                  )
+                end
+                puts(
+                  "TestFlight group already exists: #{name} " \
+                  "(internal=#{internal_testflight_group?(group)})"
+                )
+              elsif external
                 puts "Creating external TestFlight group: #{name}"
                 group = app.create_beta_group(group_name: name)
                 raise "Failed to create TestFlight group: #{name}" unless group
 
                 existing << group
+              else
+                raise(
+                  "Required internal TestFlight group #{name.inspect} was not found. " \
+                  "Refusing to create an external group; create the internal group in " \
+                  "App Store Connect first."
+                )
               end
 
               group
             end
+          end
+
+          def require_external_distribution!(enabled, operation)
+            return if enabled
+
+            raise(
+              "External TestFlight operation #{operation.inspect} is disabled by default. " \
+              "Re-run with external_distribution=true to opt in."
+            )
           end
 
           def select_distributable_build!(app, app_version, build_number)
@@ -556,7 +658,9 @@ jobs:
           end
 
           operation = ENV.fetch("OPERATION", "list")
-          group_names = parse_group_names(ENV.fetch("TESTFLIGHT_GROUPS", "Private Trial"))
+          external_distribution = bool_input?(ENV["EXTERNAL_DISTRIBUTION"])
+          internal_group_name = blank_to_nil(ENV["INTERNAL_TESTFLIGHT_GROUP"]) || DEFAULT_INTERNAL_TESTFLIGHT_GROUP
+          external_group_names = parse_group_names(ENV["TESTFLIGHT_GROUPS"], default_name: DEFAULT_EXTERNAL_TESTFLIGHT_GROUP)
           app_version = blank_to_nil(ENV["APP_VERSION"])
           build_number = blank_to_nil(ENV["BUILD_NUMBER"])
           feedback_email = blank_to_nil(ENV["TESTFLIGHT_FEEDBACK_EMAIL"])
@@ -574,21 +678,25 @@ jobs:
             print_beta_app_test_info(app)
             print_beta_app_review_detail(app)
           when "add"
+            require_external_distribution!(external_distribution, operation)
             emails = parse_tester_emails(ENV["TESTER_EMAILS"])
             raise "tester_emails is required for add" if emails.empty?
 
-            groups = ensure_testflight_groups(app, group_names)
+            groups = ensure_testflight_groups(app, external_group_names, external: true)
             create_tester_assignments!(groups, emails)
           when "assign_existing"
-            groups = ensure_testflight_groups(app, group_names)
+            require_external_distribution!(external_distribution, operation)
+            groups = ensure_testflight_groups(app, external_group_names, external: true)
             testers = app.get_beta_testers(limit: 200)
             assign_existing_testers_to_groups!(groups, testers)
           when "configure_review"
+            require_external_distribution!(external_distribution, operation)
             ensure_beta_app_test_info!(app, feedback_email)
             ensure_beta_app_review_detail!(app, feedback_email)
             print_beta_app_test_info(app)
             print_beta_app_review_detail(app)
           when "submit_review"
+            require_external_distribution!(external_distribution, operation)
             build = select_distributable_build!(app, app_version, build_number)
             puts "Selected build: #{safely { build.app_version }} (#{build.version}), id=#{build.id}."
             mark_export_compliance!(build)
@@ -596,20 +704,32 @@ jobs:
             ensure_beta_app_review_detail!(app, feedback_email)
             submit_beta_review_if_ready!(build, app)
           when "distribute"
-            groups = ensure_testflight_groups(app, group_names)
             build = select_distributable_build!(app, app_version, build_number)
             puts "Selected build: #{safely { build.app_version }} (#{build.version}), id=#{build.id}."
-            mark_export_compliance!(build)
-            set_auto_notify!(build, notify_external_testers)
-            ensure_beta_app_test_info!(app, feedback_email)
-            ensure_beta_app_review_detail!(app, feedback_email)
-            submit_beta_review_if_ready!(build, app)
+            if external_distribution
+              groups = ensure_testflight_groups(app, external_group_names, external: true)
+              mark_export_compliance!(build)
+              set_auto_notify!(build, notify_external_testers)
+              ensure_beta_app_test_info!(app, feedback_email)
+              ensure_beta_app_review_detail!(app, feedback_email)
+              submit_beta_review_if_ready!(build, app)
+            else
+              groups = ensure_testflight_groups(app, [internal_group_name], external: false)
+            end
             build.add_beta_groups(beta_groups: groups)
             puts(
               "Assigned build #{safely { build.app_version }} (#{build.version}) to " \
-              "group(s): #{groups.map(&:name).join(', ')}"
+              "#{external_distribution ? 'external' : 'existing internal'} group(s): " \
+              "#{groups.map(&:name).join(', ')}"
             )
           else
             raise "Unsupported operation: #{operation}"
           end
           RUBY
+
+  artifact_diagnostics:
+    if: ${{ github.event.inputs.operation == 'diagnose_artifact' }}
+    uses: ./.github/workflows/ios-testflight-artifact-diagnostics.yml
+    with:
+      source_run_id: ${{ github.event.inputs.source_run_id }}
+      artifact_name: AICaddie-ipa

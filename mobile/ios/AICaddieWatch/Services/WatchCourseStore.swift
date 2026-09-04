@@ -1,0 +1,656 @@
+import Foundation
+import AICaddieDomain
+
+public final class WatchCourseStore {
+    private let fileURL: URL
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
+
+    public init(directoryURL: URL? = nil) {
+        let directory = directoryURL
+            ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("watch-courses", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        fileURL = directory.appendingPathComponent("courses.json")
+    }
+
+    public func loadCourses() -> [WatchCourseTemplate] {
+        guard let data = try? Data(contentsOf: fileURL) else { return [] }
+        return (try? decoder.decode([WatchCourseTemplate].self, from: data)) ?? []
+    }
+
+    public func course(globalId: Int) -> WatchCourseTemplate? {
+        loadCourses().first { $0.option.globalId == globalId }
+    }
+
+    /// Resolve a cache by the complete setup the player selected. Exact front/back/Tee identity
+    /// wins. When the picker has no concrete Tee yet, an explicitly downloaded Tee for the same
+    /// loop pair is a safe fallback; the inverse is deliberately forbidden so a selected Tee can
+    /// never display another Tee's yardages or geometry.
+    public func course(selection: WatchCourseSelection) -> WatchCourseTemplate? {
+        let courses = loadCourses()
+        if let exact = courses.first(where: { $0.matches(selection) }) {
+            return exact
+        }
+        guard !selection.hasExplicitTee else { return nil }
+        return courses.last { template in
+            template.option.globalId == selection.front.globalId
+                && template.backOption?.globalId == selection.back?.globalId
+                && WatchCourseSelection.hasExplicitTee(template.teeBox)
+        }
+    }
+
+    /// Identity-only variant for round restoration, where the original course-option display
+    /// metadata is no longer available. The cache matcher intentionally uses only Garmin ids and Tee.
+    public func course(
+        frontGlobalId: Int,
+        backGlobalId: Int?,
+        teeBox: String?
+    ) -> WatchCourseTemplate? {
+        let front = WatchCourseOption(globalId: frontGlobalId, name: "", holes: 1)
+        let back = backGlobalId.map { WatchCourseOption(globalId: $0, name: "", holes: 1) }
+        return course(
+            selection: WatchCourseSelection(
+                front: front,
+                back: back,
+                teeBox: teeBox ?? "unknown"
+            )
+        )
+    }
+
+    /// A composite 18-hole cache is stored under its front option, while active holes 10–18 carry
+    /// the back option's Garmin globalId. Map recovery must resolve either authority without changing
+    /// the stricter front-selection lookup used when a player starts a course.
+    public func compositeCourse(containingGlobalId globalId: Int) -> WatchCourseTemplate? {
+        loadCourses().first {
+            $0.option.globalId == globalId || $0.backOption?.globalId == globalId
+        }
+    }
+
+    public func save(_ course: WatchCourseTemplate) throws {
+        var courses = loadCourses()
+        // Templates are immutable facts for one front/back/Tee setup. Replacing only the same
+        // composite key lets several nine-hole pairings and Tee choices coexist in one file.
+        if let index = courses.firstIndex(where: { $0.cacheKey == course.cacheKey }) {
+            courses[index] = course
+        } else {
+            courses.append(course)
+        }
+        try encoder.encode(courses).write(to: fileURL, options: .atomic)
+    }
+}
+
+public enum WatchCourseTemplateBuilderError: Error {
+    case emptyPackage
+}
+
+public enum WatchCourseTemplateBuilder {
+    /// Translate the optional first-hole seed embedded in a fast package into the source-loop keys
+    /// used by `/prep` and the Watch round state. Package holes carry both a display number and, for
+    /// composite rounds, the physical loop's global/local identity; the seed only carries the former
+    /// plus its owning package global id. Resolve source identity before grouping so hole 10 from a
+    /// back loop cannot accidentally become hole 10 of the front loop.
+    public static func seededPreps(
+        from package: WatchCoursePackage
+    ) -> [Int: WatchCoursePrepResponse] {
+        guard let seed = package.coursePrep, !seed.holes.isEmpty else { return [:] }
+
+        let packageHoles = package.holes.sorted { $0.number < $1.number }
+        var grouped: [Int: [Int: WatchCoursePrepHole]] = [:]
+
+        for prepHole in seed.holes {
+            // First use the strongest available authority: the prep package's global id plus its
+            // local hole number. This handles normal holes and repeated use of one physical loop.
+            var matches = packageHoles.filter { hole in
+                let sourceGlobalId = hole.sourceGlobalId ?? package.course.globalId
+                let sourceLocalHole = hole.sourceLocalHole ?? hole.number
+                return sourceGlobalId == seed.globalId && sourceLocalHole == prepHole.hole
+            }
+
+            // A nine-hole/back-loop fast seed can be numbered in display space (10...18), while
+            // its source local hole is 1...9. Fall back to that display identity when the exact
+            // source pair is not present in the payload.
+            if matches.isEmpty {
+                matches = packageHoles.filter { $0.number == prepHole.hole }
+            }
+
+            if matches.isEmpty {
+                // Keep malformed/older payloads useful when they contain a valid prep but no
+                // source metadata. The builder will still only consume this row if its resolved
+                // source key matches a package hole.
+                let fallbackGlobalId = seed.globalId > 0 ? seed.globalId : package.course.globalId
+                grouped[fallbackGlobalId, default: [:]][prepHole.hole] = prepHole
+                continue
+            }
+
+            for packageHole in matches {
+                let sourceGlobalId = packageHole.sourceGlobalId ?? package.course.globalId
+                let sourceLocalHole = packageHole.sourceLocalHole ?? packageHole.number
+                guard sourceGlobalId > 0, sourceLocalHole > 0 else { continue }
+                // The response is indexed by source local hole. Store a single row per local key;
+                // repeated display holes of the same physical loop intentionally share geometry.
+                grouped[sourceGlobalId, default: [:]][sourceLocalHole] = prepHole.renumbered(
+                    to: sourceLocalHole
+                )
+            }
+        }
+
+        return grouped.reduce(into: [:]) { result, entry in
+            let holes = entry.value.values.sorted { $0.hole < $1.hole }
+            guard !holes.isEmpty else { return }
+            result[entry.key] = WatchCoursePrepResponse(
+                globalId: entry.key,
+                clubs: seed.clubs,
+                holes: holes
+            )
+        }
+    }
+
+    public static func build(
+        option: WatchCourseOption,
+        backOption: WatchCourseOption? = nil,
+        package: WatchCoursePackage,
+        prepsByGlobalId: [Int: WatchCoursePrepResponse],
+        topoImagesByGlobalId: [Int: [Int: Data]] = [:],
+        selectedTee: String? = nil,
+        cachedAt: String
+    ) throws -> WatchCourseDownload {
+        guard !package.holes.isEmpty else { throw WatchCourseTemplateBuilderError.emptyPackage }
+
+        var images: [WatchCourseImage] = []
+        let states = package.holes.sorted { $0.number < $1.number }.map { hole -> WatchRoundState in
+            let globalId = hole.sourceGlobalId ?? package.course.globalId
+            let localHole = hole.sourceLocalHole ?? hole.number
+            let prepResponse = prepsByGlobalId[globalId]
+            let prep = prepResponse?.holes.first { $0.hole == localHole }
+            let geometryRevision = prep?.geometryRevision ?? hole.geometryRevision
+            let distanceM = hole.yards.map { Double($0) * 0.9144 }
+            let projection = watchProjection(prep?.holeImageProjection)
+            let overlay = prep.flatMap { prepOverlay($0, projection: projection) }
+            let holeMap = overlay.flatMap {
+                makeHoleMap(
+                    $0,
+                    landingM: prep?.landingM,
+                    greenOutline: prep?.greenOutline
+                )
+            }
+            let routeDistanceM = overlay?.route.last.flatMap { $0.count >= 3 ? $0[2] : nil }
+            let tee = packageTeeCoordinate(hole) ?? teeCoordinate(holeMap: holeMap, projection: projection)
+            let green = prep?.greenDistances?.available == true ? prep?.greenDistances : nil
+            let deltaM = prep?.playsLike?.available == true ? prep?.playsLike?.deltaM : nil
+            let clubs = (prepResponse?.clubs ?? []).map {
+                WatchClubOption(
+                    clubName: $0.name,
+                    token: $0.token,
+                    sampleSize: $0.sampleSize,
+                    medianM: $0.m,
+                    source: "course-prep",
+                    distanceSource: $0.distanceSource,
+                    confidence: $0.confidence
+                )
+            }
+            let preparedOptions = routeDistanceM.map {
+                preparedCaddieOptions(
+                    clubs: clubs,
+                    suggestedClub: prep?.teeClub,
+                    routeDistanceM: $0,
+                    landingM: prep?.landingM
+                )
+            } ?? []
+            let preparedNote = preparedTargetNote(
+                routeDistanceM: routeDistanceM,
+                landingM: prep?.landingM
+            )
+
+            let resolvedImageData: Data?
+            if let data = topoImagesByGlobalId[globalId]?[localHole],
+               WatchHoleImageStore.isValidImageData(data) {
+                resolvedImageData = data
+            } else if let image = prep?.map?.image,
+                      let data = imageData(from: image),
+                      WatchHoleImageStore.isValidImageData(data) {
+                resolvedImageData = data
+            } else {
+                resolvedImageData = nil
+            }
+            if let resolvedImageData {
+                images.append(WatchCourseImage(
+                    globalId: globalId,
+                    hole: hole.number,
+                    data: resolvedImageData,
+                    geometryRevision: geometryRevision
+                ))
+            }
+
+            let reportedCoverage = prep?.geometryCoverage ?? hole.geometryCoverage
+            // A server "ready" flag is not sufficient offline authority. Without both a decodable
+            // raster and projected route/map facts the Watch cannot construct the production hole
+            // geometry, so retain the honest fallback but keep recovery active.
+            let effectiveCoverage = reportedCoverage?.caseInsensitiveCompare("ready") == .orderedSame
+                && (resolvedImageData == nil || holeMap == nil)
+                ? "partial"
+                : reportedCoverage
+
+            return WatchRoundState(
+                roundId: package.roundId,
+                hole: hole.number,
+                par: hole.par,
+                distanceM: distanceM,
+                teeLatitude: tee?.latitude,
+                teeLongitude: tee?.longitude,
+                targetNote: preparedNote,
+                suggestedClub: prep?.teeClub,
+                selectedClub: nil,
+                availableClubs: clubs,
+                strategyMode: preparedOptions.isEmpty ? nil : "stock",
+                offlineOptionId: preparedOptions.isEmpty ? nil : "stock",
+                frontGreenM: green?.frontM,
+                centerGreenM: green?.middleM,
+                backGreenM: green?.backM,
+                frontGreenLat: green?.frontLat,
+                frontGreenLon: green?.frontLon,
+                centerGreenLat: green?.middleLat,
+                centerGreenLon: green?.middleLon,
+                backGreenLat: green?.backLat,
+                backGreenLon: green?.backLon,
+                holeImageProjection: projection,
+                globalId: globalId,
+                holeMap: holeMap,
+                playsLikeDistanceM: WatchUnits.playsLikeMetres(
+                    distanceMetres: distanceM,
+                    elevationDeltaMetres: deltaM
+                ),
+                elevationDeltaM: deltaM,
+                geometryCoverage: effectiveCoverage,
+                geometryRevision: effectiveCoverage?.caseInsensitiveCompare("ready") == .orderedSame
+                    ? geometryRevision
+                    : nil,
+                caddieOptions: preparedOptions,
+                // CourseView's fast package can omit hazards that precise prodgeometry later
+                // reveals.  Do not turn that provisional subset into a Watch hazard list.
+                hazards: effectiveCoverage?.caseInsensitiveCompare("ready") == .orderedSame
+                    ? watchHazards(prep?.hazards, route: overlay?.route)
+                    : [],
+                score: 0,
+                putts: 0,
+                penaltyCount: 0,
+                caddieConfidence: "offline"
+            )
+        }
+
+        let locatedOption = locatedCourseOption(option, from: states)
+        let locatedBackOption = backOption.map { locatedCourseOption($0, from: states) }
+        let template = WatchCourseTemplate(
+            option: locatedOption,
+            backOption: locatedBackOption,
+            courseName: resolvedCourseName(package: package, option: option),
+            teeBox: selectedTee ?? package.course.teeBox,
+            holeStates: states,
+            cachedAt: cachedAt
+        )
+        return WatchCourseDownload(template: template, images: images)
+    }
+
+    /// Build the available on-watch route choices from facts already downloaded for offline play.
+    /// A mode is emitted only when it has a distinct measured first club; a one-club bag therefore
+    /// produces one honest standard route instead of three labels for the same shot.
+    static func preparedCaddieOptions(
+        clubs: [WatchClubOption],
+        suggestedClub: String?,
+        routeDistanceM: Double,
+        landingM: Double?
+    ) -> [WatchCaddieOption] {
+        let measured = clubs
+            .filter { option in
+                guard let carry = option.medianM else { return false }
+                return carry.isFinite && carry > 0
+            }
+            .sorted { ($0.medianM ?? 0) > ($1.medianM ?? 0) }
+        var seenClubKeys = Set<String>()
+        let usable = measured.filter { option in
+            let key = strategyClubKey(option.clubName)
+            guard !seenClubKeys.contains(key) else { return false }
+            seenClubKeys.insert(key)
+            return true
+        }
+        guard routeDistanceM.isFinite, routeDistanceM > 0, !usable.isEmpty else { return [] }
+
+        let normalizedSuggestion = suggestedClub?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let preparedCarry = landingM.flatMap { value in
+            value.isFinite && value > 0 ? min(value, routeDistanceM) : nil
+        }
+        let suggestedIndex: Int?
+        if let normalizedSuggestion, !normalizedSuggestion.isEmpty {
+            suggestedIndex = usable.firstIndex { option in
+                option.clubName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    == normalizedSuggestion
+            }
+        } else {
+            suggestedIndex = nil
+        }
+        let targetCarry = preparedCarry ?? routeDistanceM * 0.55
+        let nearestIndex = usable.indices.min { lhs, rhs in
+            let lhsDelta = abs((usable[lhs].medianM ?? 0) - targetCarry)
+            let rhsDelta = abs((usable[rhs].medianM ?? 0) - targetCarry)
+            return lhsDelta < rhsDelta
+        }
+        let stockIndex = suggestedIndex ?? nearestIndex ?? usable.startIndex
+        var variants: [(id: String, label: String, first: WatchClubOption, bias: Double)] = []
+        // ``usable`` is longest-first.  The immediate shorter/longer clubs are the factual safe and
+        // attack alternatives around the standard recommendation.  At an edge, omit the missing
+        // tier instead of clamping it back to the same club.
+        if stockIndex + 1 < usable.endIndex {
+            variants.append(("safe", "稳妥", usable[stockIndex + 1], 0.84))
+        }
+        variants.append(("stock", "标准", usable[stockIndex], 0.92))
+        if stockIndex > usable.startIndex {
+            variants.append(("attack", "进攻", usable[stockIndex - 1], 1.05))
+        }
+
+        return variants.map { variant in
+            let plan = preparedPlan(
+                first: variant.first,
+                clubs: usable,
+                routeDistanceM: routeDistanceM,
+                completionBias: variant.bias
+            )
+            return WatchCaddieOption(
+                optionId: variant.id,
+                label: variant.label,
+                clubName: variant.first.clubName,
+                carryM: variant.first.medianM,
+                plan: plan,
+                confidence: "offline"
+            )
+        }
+    }
+
+    private static func strategyClubKey(_ raw: String) -> String {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let compact = value.lowercased().replacingOccurrences(of: " ", with: "")
+        if isDriver(value) { return "driver" }
+        return WatchClubDisplay.shortCode(value).lowercased() == compact
+            ? compact
+            : WatchClubDisplay.shortCode(value).lowercased()
+    }
+
+    private static func preparedPlan(
+        first: WatchClubOption,
+        clubs: [WatchClubOption],
+        routeDistanceM: Double,
+        completionBias: Double
+    ) -> [WatchCaddiePlanStep] {
+        var remaining = routeDistanceM
+        var selected = first
+        var plan: [WatchCaddiePlanStep] = []
+        // Driver is a Tee-shot choice, never a follow-up recommendation. Without this separate
+        // tail bag a long Par 5 could independently reconstruct 1W → 1W on Watch even though the
+        // server and iPhone had already excluded that impossible route.
+        let followUpClubs = clubs.filter { !isDriver($0.clubName) }
+
+        while remaining > 25, plan.count < 3, let carry = selected.medianM {
+            plan.append(WatchCaddiePlanStep(clubName: selected.clubName, carryM: carry))
+            remaining -= carry
+            guard remaining > 25, !followUpClubs.isEmpty else { break }
+            let target = remaining * completionBias
+            selected = followUpClubs.min {
+                abs(($0.medianM ?? 0) - target) < abs(($1.medianM ?? 0) - target)
+            } ?? selected
+        }
+        return plan
+    }
+
+    private static func isDriver(_ raw: String) -> Bool {
+        let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
+        return ["driver", "d", "dr", "1d", "1w", "一号木", "一号木杆"].contains(key)
+    }
+
+    private static func preparedTargetNote(
+        routeDistanceM: Double?,
+        landingM: Double?
+    ) -> String? {
+        guard let routeDistanceM, routeDistanceM.isFinite, routeDistanceM > 0,
+              let landingM, landingM.isFinite, landingM > 0 else { return nil }
+        let remainingM = max(routeDistanceM - min(landingM, routeDistanceM), 0)
+        guard remainingM > 25 else { return "攻果岭" }
+        return "推进 · 留\(WatchUnits.yards(remainingM))"
+    }
+
+    private static func locatedCourseOption(
+        _ option: WatchCourseOption,
+        from states: [WatchRoundState]
+    ) -> WatchCourseOption {
+        let tee = states.first {
+            $0.globalId == option.globalId && $0.teeLatitude != nil && $0.teeLongitude != nil
+        }
+        return option.withFallbackLocation(
+            latitude: tee?.teeLatitude,
+            longitude: tee?.teeLongitude
+        )
+    }
+
+    private static func resolvedCourseName(
+        package: WatchCoursePackage,
+        option: WatchCourseOption
+    ) -> String {
+        let packageName = package.course.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let genericName = "Course \(package.course.globalId)"
+        if packageName.caseInsensitiveCompare(genericName) == .orderedSame {
+            return option.name
+        }
+        return package.course.name
+    }
+
+    private static func watchProjection(_ value: WatchCoursePrepProjection?) -> WatchHoleImageProjection? {
+        guard let value, value.available, let refs = value.refs, refs.count >= 3 else { return nil }
+        return WatchHoleImageProjection(widthPx: value.widthPx, heightPx: value.heightPx, refs: refs)
+    }
+
+    private static func packageTeeCoordinate(
+        _ hole: WatchCoursePackageHole
+    ) -> (latitude: Double, longitude: Double)? {
+        guard let latitude = hole.teeLatitude,
+              let longitude = hole.teeLongitude,
+              latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude) else { return nil }
+        return (latitude, longitude)
+    }
+
+    private static func teeCoordinate(
+        holeMap: WatchHoleMap?,
+        projection: WatchHoleImageProjection?
+    ) -> (latitude: Double, longitude: Double)? {
+        guard let you = holeMap?.you, you.count >= 2,
+              let refs = projection?.refs, refs.count >= 3 else { return nil }
+        let o = refs[0], r1 = refs[1], r2 = refs[2]
+        let a = r1.px - o.px
+        let b = r2.px - o.px
+        let c = r1.py - o.py
+        let d = r2.py - o.py
+        let det = a * d - b * c
+        guard abs(det) > 1e-12 else { return nil }
+        let dx = you[0] - o.px
+        let dy = you[1] - o.py
+        let s = (dx * d - b * dy) / det
+        let t = (a * dy - dx * c) / det
+        let latitude = o.lat + s * (r1.lat - o.lat) + t * (r2.lat - o.lat)
+        let longitude = o.lon + s * (r1.lon - o.lon) + t * (r2.lon - o.lon)
+        guard latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude) else { return nil }
+        return (latitude, longitude)
+    }
+
+    private static func makeHoleMap(
+        _ overlay: WatchCoursePrepOverlay,
+        landingM: Double?,
+        greenOutline: WatchCoursePrepGreenOutline?
+    ) -> WatchHoleMap? {
+        let route = overlay.route
+        guard route.count >= 2,
+              let first = route.first, first.count >= 3,
+              let last = route.last, last.count >= 3,
+              last[2] > 0 else { return nil }
+        let total = last[2]
+        // Keep the legacy non-optional anchor decodable, but never treat the 60% fallback as advice.
+        // WatchRoundContainerView rebuilds every visible prepared target from an explicit option carry.
+        let landing = min(max(landingM ?? total * 0.6, 0), total)
+        return WatchHoleMap(
+            w: overlay.w,
+            h: overlay.h,
+            you: [first[0], first[1]],
+            pin: [last[0], last[1]],
+            layup: interpolate(route, atM: landing),
+            apex: interpolate(route, atM: landing * 0.5),
+            greenCtrl: interpolate(route, atM: landing + (total - landing) * 0.5),
+            route: route,
+            greenOutline: greenOutline?.available == true ? greenOutline?.pointsPx : nil
+        )
+    }
+
+    private static func prepOverlay(
+        _ prep: WatchCoursePrepHole,
+        projection: WatchHoleImageProjection?
+    ) -> WatchCoursePrepOverlay? {
+        if let overlay = prep.map?.overlay { return overlay }
+        guard let width = projection?.widthPx, width > 0,
+              let height = projection?.heightPx, height > 0,
+              let refs = projection?.refs, refs.count >= 3,
+              prep.route.count >= 2 else { return nil }
+
+        // The lightweight prep contract defines refs[0...2] as local (0,0), (120,0), and
+        // (0,120) metres in the exact affine frame shared by /topo.png. Reconstruct only the
+        // route pixels here; the expensive legacy JPEG is neither rendered nor downloaded.
+        let origin = refs[0]
+        let xRef = refs[1]
+        let yRef = refs[2]
+        var pixelRoute: [[Double]] = []
+        for row in prep.route {
+            guard row.count >= 3 else { return nil }
+            let localX = row[0]
+            let localY = row[1]
+            let cumulative = row[2]
+            let x = origin.px
+                + (localX / 120) * (xRef.px - origin.px)
+                + (localY / 120) * (yRef.px - origin.px)
+            let y = origin.py
+                + (localX / 120) * (xRef.py - origin.py)
+                + (localY / 120) * (yRef.py - origin.py)
+            guard x.isFinite, y.isFinite, cumulative.isFinite else { return nil }
+            pixelRoute.append([
+                (x * 10).rounded() / 10,
+                (y * 10).rounded() / 10,
+                cumulative,
+            ])
+        }
+        return WatchCoursePrepOverlay(w: width, h: height, route: pixelRoute)
+    }
+
+    private static func interpolate(_ route: [[Double]], atM: Double) -> [Double] {
+        guard let first = route.first, first.count >= 3 else { return [0, 0] }
+        if atM <= first[2] { return [first[0], first[1]] }
+        for index in 0..<(route.count - 1) {
+            let start = route[index]
+            let end = route[index + 1]
+            guard start.count >= 3, end.count >= 3 else { continue }
+            if atM <= end[2] {
+                let span = end[2] - start[2]
+                let fraction = span > 0 ? (atM - start[2]) / span : 0
+                return [
+                    start[0] + (end[0] - start[0]) * fraction,
+                    start[1] + (end[1] - start[1]) * fraction,
+                ]
+            }
+        }
+        guard let last = route.last, last.count >= 2 else { return [0, 0] }
+        return [last[0], last[1]]
+    }
+
+    private static func watchHazards(
+        _ value: WatchCoursePrepHazards?,
+        route: [[Double]]?
+    ) -> [WatchHazard] {
+        guard let value else { return [] }
+        var result: [WatchHazard] = []
+        let bunkerDetails = value.details
+            .filter { $0.kind == "bunker" }
+            .sorted { $0.frontRouteM < $1.frontRouteM }
+        if !bunkerDetails.isEmpty {
+            for detail in bunkerDetails {
+                result.append(WatchHazard(
+                    kind: "bunker",
+                    label: HazardDisplayNaming.label(
+                        kind: "bunker",
+                        frontRouteM: detail.frontRouteM,
+                        frontPx: detail.frontPx,
+                        sideM: detail.sideM,
+                        route: route
+                    ),
+                    startM: detail.frontRouteM,
+                    endM: detail.backRouteM,
+                    frontDistanceM: detail.frontM,
+                    backDistanceM: detail.backM,
+                    frontPx: detail.frontPx,
+                    backPx: detail.backPx
+                ))
+            }
+        } else {
+            let bunkers = value.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            for interval in bunkers {
+                result.append(WatchHazard(
+                    kind: "bunker",
+                    label: HazardDisplayNaming.legacyLabel(
+                        kind: "bunker", interval: interval, route: route
+                    ),
+                    startM: interval.first,
+                    sideM: interval.count >= 2 ? interval[1] : nil
+                ))
+            }
+        }
+        let waterDetails = value.details
+            .filter { $0.kind == "water" }
+            .sorted { $0.frontRouteM < $1.frontRouteM }
+        if !waterDetails.isEmpty {
+            for detail in waterDetails {
+                result.append(WatchHazard(
+                    kind: "water",
+                    label: HazardDisplayNaming.label(
+                        kind: "water",
+                        frontRouteM: detail.frontRouteM,
+                        frontPx: detail.frontPx,
+                        sideM: detail.sideM,
+                        route: route
+                    ),
+                    startM: detail.frontRouteM,
+                    endM: detail.backRouteM,
+                    frontDistanceM: detail.frontM,
+                    backDistanceM: detail.backM,
+                    frontPx: detail.frontPx,
+                    backPx: detail.backPx
+                ))
+            }
+        } else {
+            let water = value.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            for interval in water {
+                result.append(WatchHazard(
+                    kind: "water",
+                    label: HazardDisplayNaming.legacyLabel(
+                        kind: "water", interval: interval, route: route
+                    ),
+                    startM: interval.first,
+                    endM: interval.count >= 2 ? interval[1] : nil
+                ))
+            }
+        }
+        return result
+    }
+
+    private static func imageData(from dataURI: String) -> Data? {
+        let parts = dataURI.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0].contains(";base64") else { return nil }
+        return Data(base64Encoded: String(parts[1]), options: .ignoreUnknownCharacters)
+    }
+}

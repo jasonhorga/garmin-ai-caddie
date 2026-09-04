@@ -31,19 +31,14 @@ public struct WatchHoleSelectView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("选洞").font(.headline.weight(.bold))
-                Spacer()
-                Button(action: onBack) { Image(systemName: "xmark.circle.fill") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-            }
+            WatchInstrumentHeader("选洞", backLabel: "返回菜单", onBack: onBack)
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: 6) {
                     ForEach(row, id: \.self) { hole in
                         Button { onSelect(hole) } label: {
                             Text("\(hole)")
-                                .font(.caption.monospacedDigit().weight(.semibold))
-                                .frame(maxWidth: .infinity, minHeight: 30)
+                                .font(.system(size: 19, weight: .black, design: .rounded).monospacedDigit())
+                                .frame(maxWidth: .infinity, minHeight: 48)
                                 .background(hole == activeHole ? AICaddieDesignTokens.par : AICaddieDesignTokens.par.opacity(0.16))
                                 .foregroundStyle(hole == activeHole ? .white : .primary)
                                 .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))

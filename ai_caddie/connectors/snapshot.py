@@ -15,6 +15,8 @@ from ai_caddie.history.history import (
     course_key,
     merge_same_day_halves,
     millionths_to_deg,
+    normalize_scorecard_hole,
+    remap_shots_to_merged_rounds,
 )
 
 from .base import ConnectorState, SnapshotManifest
@@ -155,14 +157,15 @@ def _played_holes(scorecard: dict[str, Any], hole_pars: str) -> list[dict[str, A
         par = hole.get("par")
         if not isinstance(par, int):
             par = _par_from_hole_pars(hole_pars, number)
+        normalized = normalize_scorecard_hole(hole, number=number, par=par)
         holes.append(
             {
                 "number": number,
-                "strokes": hole.get("strokes"),
-                "par": par,
-                "putts": hole.get("putts"),
-                "gir": hole.get("gir"),
-                "fairway": hole.get("fairway"),
+                "strokes": normalized.get("strokes"),
+                "par": normalized.get("par"),
+                "putts": normalized.get("putts"),
+                "gir": normalized.get("gir"),
+                "fairway": normalized.get("fairway"),
             }
         )
     return holes
@@ -250,6 +253,7 @@ def _normalize_scorecard(
         "fr": stats.get("fairwaysRight"),
         "frec": stats.get("fairwaysRecorded"),
         "gir": stats.get("greensInRegulation"),
+        "grec": stats.get("greensRecorded"),
         "putts": stats.get("putts"),
         "ub": stats.get("holesUnderPar"),
         "pa": stats.get("holesPar"),
@@ -678,45 +682,6 @@ def _merge_provenance_for_round(
     return merged
 
 
-def _remap_shots_to_merged_rounds(shots: list[dict[str, Any]], rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    aliases: dict[str, dict[str, Any]] = {}
-    for row in rounds:
-        row_id = row.get("id")
-        ids = row.get("ids") if isinstance(row.get("ids"), list) else [row_id]
-        if row.get("merged") and len(ids) >= 2:
-            aliases[str(ids[0])] = {
-                "roundId": row_id,
-                "holeOffset": 0,
-                "globalId": row.get("frontNineGlobalCourseId") or row.get("globalId") or row.get("courseId"),
-            }
-            aliases[str(ids[1])] = {
-                "roundId": row_id,
-                "holeOffset": 9,
-                "globalId": row.get("backNineGlobalCourseId") or row.get("globalId") or row.get("courseId"),
-            }
-        elif row_id is not None:
-            aliases[str(row_id)] = {"roundId": row_id, "holeOffset": 0, "globalId": None}
-
-    remapped: list[dict[str, Any]] = []
-    for shot in shots:
-        row = dict(shot)
-        raw_round_id = str(row.get("scorecardId") or row.get("roundId") or "")
-        alias = aliases.get(raw_round_id)
-        if alias:
-            row["roundId"] = alias["roundId"]
-            try:
-                original_hole = int(row.get("hole") or 0)
-            except (TypeError, ValueError):
-                original_hole = 0
-            if original_hole:
-                row["hole"] = original_hole + int(alias["holeOffset"] or 0)
-                row["localHole"] = original_hole
-            if alias.get("globalId") is not None:
-                row["globalId"] = alias["globalId"]
-        remapped.append(row)
-    return remapped
-
-
 def build_snapshot_manifest(*, root: Path = ROOT, snapshot_id: str, data_dir: Path | None = None) -> SnapshotManifest:
     # ``data_dir`` defaults to ``root/data`` (owner, byte-for-byte). A member passes
     # their partition so the manifest counts THEIR scorecards/shots/summary while the
@@ -833,7 +798,7 @@ def build_normalized_snapshot_payload(*, root: Path = ROOT, manifest: SnapshotMa
         _merge_provenance_for_round(row, rounds_by_id, snapshot_id=manifest.snapshot_id, normalized_at=created_at)
         for row in merge_same_day_halves(raw_rounds)
     ]
-    shots = _remap_shots_to_merged_rounds(shots, rounds)
+    shots = remap_shots_to_merged_rounds(shots, rounds)
     return {
         "schema": "ai-caddie-normalized-history-v1",
         "snapshotId": manifest.snapshot_id,
@@ -1178,6 +1143,10 @@ def write_connector_status(
     snapshot_id: str | None,
     error_code: str | None = None,
     data_dir: Path | None = None,
+    remote_round_count: int | None = None,
+    remote_latest_round_id: str | None = None,
+    remote_latest_round_at: str | None = None,
+    new_round_count: int | None = None,
 ) -> Path:
     # The connector status lives WITH the data partition: ``data_dir/sync`` (defaults to
     # ``root/data/sync`` for the owner, byte-for-byte). A member passes their partition so
@@ -1195,6 +1164,16 @@ def write_connector_status(
         "errorCode": error_code,
         "updatedAt": _utc_now(),
     }
+    # These fields describe the upstream response rather than a durable snapshot. They let clients
+    # distinguish "the pull ran" from "Garmin returned a new round" without exposing credentials.
+    if remote_round_count is not None:
+        payload["remoteRoundCount"] = max(0, int(remote_round_count))
+    if remote_latest_round_id is not None:
+        payload["remoteLatestRoundId"] = str(remote_latest_round_id)
+    if remote_latest_round_at is not None:
+        payload["remoteLatestRoundAt"] = str(remote_latest_round_at)
+    if new_round_count is not None:
+        payload["newRoundCount"] = max(0, int(new_round_count))
     atomic_write_json(path, payload)
     return path
 

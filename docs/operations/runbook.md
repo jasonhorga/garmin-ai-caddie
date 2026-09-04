@@ -34,6 +34,19 @@ runtime directories from that root into `/app` before starting FastAPI. Use this
 for NAS/Fly/VPS deployments so downloaded Garmin data and session material are
 kept on persistent storage instead of inside the image.
 
+### Failure and restart behavior
+
+The Compose API uses a bounded `on-failure:3` policy and Postgres uses
+`on-failure:5`; neither service is allowed to retry forever. The API entrypoint
+waits for a PostgreSQL readiness probe before running migrations, serializes
+schema/identity initialization with a lock on the private volume, and applies a
+bounded migration timeout. This matters after a database outage or host reboot:
+starting a broken dependency must produce a stopped, inspectable container rather
+than a CPU/IO restart storm. The JSON log driver is capped at three 10 MiB files
+per container. Resource limits are environment-overridable for a larger host:
+`AI_CADDIE_API_MEMORY_LIMIT`, `AI_CADDIE_API_CPUS`,
+`AI_CADDIE_DB_MEMORY_LIMIT`, and `AI_CADDIE_DB_CPUS`.
+
 For a home-only NAS VM, use `docs/deployment/nas-vm-tunnel.md`: keep the API on
 `127.0.0.1:9000`, publish it through Cloudflare Tunnel or Tailscale Funnel, and
 set GitHub `AI_CADDIE_API_BASE_URL` to the public HTTPS origin.

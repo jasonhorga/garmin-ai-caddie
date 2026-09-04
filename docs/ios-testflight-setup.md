@@ -29,6 +29,15 @@ but does not create a new app record for this account.
 
 ## Shipping a build
 
+Candidate and production are separate gates. Every IPA is accompanied by
+`release-provenance.json` containing the 40-character commit, workflow run,
+marketing/build numbers, API origin host, backend revision, IPA SHA-256, and
+upload flag. Tester/install assertions must name the build number and remain
+manual evidence. An `upload=false` manifest is allowed for artifact-only
+builds, but it never satisfies the release gate.
+
+Current branch: `codex/release-hardening-20260827`.
+
 - Before uploading a connected build, run the external release preflight from
   `docs/deployment/private-trial.md` and keep the generated evidence file:
   ```bash
@@ -39,22 +48,33 @@ but does not create a new app record for this account.
   ```
   A fully connected external trial should not be considered ready until this
   reports `state=ready`.
-- Run the `iOS TestFlight (CD)` workflow manually from `integration/v2` with
+- Run the `iOS TestFlight (CD)` workflow manually from the intended release branch with
   optional release notes and optional origin-only `api_base_url`. It runs
   `xcodegen generate` → `fastlane ios beta` → archives the app (with embedded
   watch app) → uploads to TestFlight.
   If `api_base_url` is blank, the workflow falls back to repo variable
   `AI_CADDIE_API_BASE_URL`; if both are blank, the app keeps the offline/fixture fallback.
+  Upload mode requires the six signing secrets, an origin-only public HTTPS API
+  URL, an admin token for authenticated `/api/v2/health` + `/api/v2/readiness`
+  preflight, and a backend revision that matches the deployed host.
   The iPhone app also has a runtime Backend screen for an origin-only `https://`
   API URL and private admin token, so a tester can point an already uploaded
   TestFlight build at a deployed backend without another upload.
 - Run the `iOS TestFlight Testers` workflow manually:
   - `operation=list` shows uploaded builds, TestFlight groups, and currently visible testers.
-  - `operation=add` adds comma-separated external tester emails to the configured group
-    (default `Private Trial`).
-  - `operation=assign_existing` assigns currently visible app-level TestFlight testers
-    to the configured group without printing raw email addresses. Use this when the
-    testers already exist in App Store Connect and only group membership is missing.
+  - The default private `operation=distribute` path binds the selected build to the
+    existing internal group `Jason's friends` (or the explicitly supplied
+    `internal_group`). It does not create a group, submit Beta App Review, or notify
+    external testers.
+  - `operation=add` adds comma-separated external tester emails to `groups` (default
+    `Private Trial`). `operation=assign_existing` assigns currently visible app-level
+    external testers to those groups without printing raw email addresses. Both
+    operations require `external_distribution=true`.
+  - `operation=configure_review` and `operation=submit_review` are external-only and
+    also require `external_distribution=true`.
+  - To distribute a build to an external group, set `external_distribution=true` and
+    choose `groups` (default `Private Trial`). Only this explicit path may create a
+    missing external group.
   - For automated external Beta App Review submission, set the
     `TESTFLIGHT_FEEDBACK_EMAIL` repo secret. It is intentionally secret-only
     because this repo is public. If you fill the Beta App feedback email
@@ -74,9 +94,6 @@ but does not create a new app record for this account.
     info and Beta App Review details from configured secrets when needed, and
     submits the selected build for external Beta App Review without changing
     tester/group membership.
-  - `operation=distribute` assigns the latest or selected build to that external
-    TestFlight group. External distribution may require Beta App Review before testers
-    can install.
   This workflow calls fastlane's Spaceship/App Store Connect API directly instead of the
   `pilot builds/list/add/distribute` subcommands, because Apple's current API no longer
   accepts the legacy `buildDeliveries` relationship used by those listing paths.
@@ -118,3 +135,16 @@ screen, record the manual evidence with
 The archive/sign/upload path runs on the GitHub macOS runner, not in this Linux workspace.
 Run `iOS TestFlight (CD)` and use the Actions log as the source of truth for signing,
 archive, export, and App Store Connect upload status.
+
+Each build also emits `build/ios/release-provenance.json` beside the IPA. It binds
+the IPA SHA-256, app/backend 40-character revisions, workflow run, marketing
+version, build number, and API origin host. Phase 6 accepts this manifest only
+when it is fresh and marked `uploadToTestflight: true`; artifact-only (`false`)
+builds remain incomplete candidates. Manual review, tester, and install evidence
+must name the same TestFlight build number. The runtime Backend-screen checkbox
+is always a manual attestation and is never inferred from the build URL.
+
+Before an upload, Fastlane requires all six signing secrets, a public HTTPS
+origin, and an authenticated `/api/v2/health` plus `/api/v2/readiness` preflight
+with the expected backend revision. Tokens are passed to curl through the
+environment and are not written to logs or provenance.

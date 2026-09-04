@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import io
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Barrier, Event, Lock
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -15,10 +18,62 @@ from server_v2.main import app
 # locally (where output/prodgeometry is populated) and skip in CI. gid31795 h1 is the
 # design-system §九 reference hole (funnel /render-final.png).
 _HAVE_GEOMETRY = mesh_path(31795, 1).exists()
+_HAVE_CYPRESS_COAST = all(mesh_path(3881, hole).exists() for hole in (15, 16, 17))
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
+def _test_png() -> bytes:
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGBA", (2, 2), (20, 80, 40, 255)).save(buffer, "PNG")
+    return buffer.getvalue()
+
+
 class TopoRenderModuleTests(unittest.TestCase):
+    def test_green_v3_focuses_a_large_feathered_context_window(self) -> None:
+        from PIL import Image
+
+        self.assertEqual(topo_render.GREEN_DETAIL_STYLE_VERSION, "green-v3")
+        self.assertEqual(topo_render.GREEN_DETAIL_DEFAULT_SIZE, 1280)
+
+        source = Image.new("RGBA", (64, 64), (30, 180, 60, 255))
+        rendered = topo_render._feather_green_detail_edges(source)
+
+        self.assertEqual(rendered.mode, "RGBA")
+        self.assertEqual(rendered.getpixel((0, 32))[3], 0)
+        self.assertEqual(rendered.getpixel((32, 0))[3], 0)
+        self.assertEqual(rendered.getpixel((32, 32))[3], 255)
+        self.assertGreater(rendered.getpixel((4, 32))[3], 0)
+        self.assertLess(rendered.getpixel((4, 32))[3], 255)
+
+        # Existing factual transparency is never made opaque by the crop-edge blend.
+        source.putpixel((32, 32), (30, 180, 60, 0))
+        rendered = topo_render._feather_green_detail_edges(source)
+        self.assertEqual(rendered.getpixel((32, 32))[3], 0)
+
+    def test_topo_v8_starts_overlays_on_a_transparent_course_canvas(self) -> None:
+        from PIL import Image
+
+        self.assertEqual(topo_render.STYLE_VERSION, "topo-v8")
+        self.assertTrue(hasattr(topo_render, "_clip_to_transparent_canvas"))
+
+        source = Image.new("RGB", (2, 1), topo_render.PAL["bg"])
+        source.putpixel((1, 0), topo_render.PAL["Fairway"])
+        course_mask = Image.new("L", source.size, 0)
+        course_mask.putpixel((1, 0), 255)
+        rendered = topo_render._clip_to_transparent_canvas(source, course_mask)
+
+        self.assertEqual(rendered.mode, "RGBA")
+        self.assertEqual(rendered.getpixel((0, 0)), (0, 0, 0, 0))
+        self.assertEqual(rendered.getpixel((1, 0)), topo_render.PAL["Fairway"] + (255,))
+
+        # Tree shadows and canopies are applied after the course corridor is clipped. Starting that
+        # pass on transparency preserves their own alpha instead of baking them into a blue canvas.
+        shadow = Image.new("RGBA", source.size, (32, 54, 32, 92))
+        with_shadow = Image.alpha_composite(rendered, shadow)
+        self.assertEqual(with_shadow.getpixel((0, 0)), (32, 54, 32, 92))
+
     @unittest.skipUnless(_HAVE_GEOMETRY, "requires decoded prodgeometry meshes (absent in CI)")
     def test_renders_reference_hole_to_aligned_png(self) -> None:
         from ai_caddie.geometry import hole_render
@@ -31,6 +86,8 @@ class TopoRenderModuleTests(unittest.TestCase):
         # The topo base MUST share hole_render's overlay frame so the web/mobile vector overlays
         # (route/shots/ball) line up on it by construction.
         img = topo_render.render_hole_topo_image(31795, 1)
+        self.assertEqual(img.mode, "RGBA")
+        self.assertEqual(img.getpixel((0, 0))[3], 0)
         md, by = hole_render.load_mesh(31795, 1)
         route, route_len = course_prep.derive_route(md)
         _image, overlay = hole_render.render_hole(31795, 1, route, route_len)
@@ -50,6 +107,7 @@ class TopoRenderModuleTests(unittest.TestCase):
         mx, my, _cum = overlay["route"][len(overlay["route"]) // 2]
         px, py = int(round(mx)), int(round(my))
         self.assertTrue(0 <= px < overlay["w"] and 0 <= py < overlay["h"])
+        self.assertGreater(img.getpixel((px, py))[3], 0)
         self.assertGreater(int(np.abs(arr[py, px] - np.array(bg)).sum()), 40,
                            "mid-route point landed on the sky background, not the hole")
 
@@ -66,6 +124,34 @@ class TopoRenderModuleTests(unittest.TestCase):
         self.assertGreaterEqual(len(seen), 1)
         self.assertEqual(len(seen), len([h for h in (2, 3, 4) if mesh_path(31795, h).exists()]))
 
+    @unittest.skipUnless(_HAVE_CYPRESS_COAST, "requires decoded Cypress coast meshes")
+    def test_cypress_coast_renders_inside_canvas_without_losing_route(self) -> None:
+        import gc
+
+        from ai_caddie.geometry import hole_render
+        from ai_caddie.courses import course_prep
+
+        for hole in (15, 16, 17):
+            image = topo_render.render_hole_topo_image(3881, hole)
+            alpha = image.getchannel("A")
+            self.assertIsNotNone(alpha.getbbox())
+            self.assertEqual(alpha.crop((0, 0, image.width, 1)).getextrema()[1], 0)
+            self.assertEqual(alpha.crop((0, image.height - 1, image.width, image.height)).getextrema()[1], 0)
+            self.assertEqual(alpha.crop((0, 0, 1, image.height)).getextrema()[1], 0)
+            self.assertEqual(alpha.crop((image.width - 1, 0, image.width, image.height)).getextrema()[1], 0)
+
+            metadata, meshes = hole_render.load_mesh(3881, hole)
+            route, _length = course_prep.derive_route(metadata)
+            to_px = hole_render.overlay_projector(meshes, route)
+            for point in route:
+                x, y = to_px(point)
+                self.assertGreater(alpha.getpixel((round(x), round(y))), 0)
+            # A supersampled render uses several large numpy rasters.  This optional corpus test
+            # runs three real holes in one worker; release each before starting the next so a
+            # verification run cannot exhaust a small shared homeserver merely by retaining arenas.
+            del image, alpha, metadata, meshes, route, to_px
+            gc.collect()
+
     def test_missing_geometry_raises_unavailable_not_crash(self) -> None:
         with TemporaryDirectory() as tmp, patch("ai_caddie.core.data.MESH_DIR", Path(tmp)):
             with self.assertRaises(topo_render.TopoGeometryUnavailable):
@@ -74,37 +160,349 @@ class TopoRenderModuleTests(unittest.TestCase):
                 topo_render.render_hole_topo(999999, 1)
 
     def test_cache_renders_once_then_serves_from_disk(self) -> None:
-        canned = _PNG_MAGIC + b"cached-topo-bytes"
+        canned = _test_png()
         with TemporaryDirectory() as tmp, \
                 patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}), \
-                patch.object(topo_render, "render_hole_topo", return_value=canned) as render:
+                patch.object(topo_render, "render_hole_topo", return_value=canned) as render, \
+                patch.object(topo_render, "_release_cold_render_working_set") as release:
             first = topo_render.render_hole_topo_cached(31795, 1)
             second = topo_render.render_hole_topo_cached(31795, 1)
         self.assertEqual(first, canned)
         self.assertEqual(second, canned)
         render.assert_called_once()  # second hit served from the on-disk cache
+        release.assert_called_once()  # cold render releases arenas; the warm read does not
+
+    def test_corrupt_nonempty_cache_is_replaced_from_current_geometry(self) -> None:
+        canned = _test_png()
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}), \
+                patch.object(topo_render, "render_hole_topo", return_value=canned) as render, \
+                patch.object(topo_render, "_release_cold_render_working_set"):
+            path = topo_render.cache_path(31795, 1)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(_PNG_MAGIC + b"truncated-but-nonempty")
+
+            recovered = topo_render.render_hole_topo_cached(31795, 1)
+
+            self.assertEqual(recovered, canned)
+            self.assertEqual(path.read_bytes(), canned)
+        render.assert_called_once()
+
+    def test_failed_cold_render_also_releases_working_set(self) -> None:
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}), \
+                patch.object(
+                    topo_render,
+                    "render_hole_topo",
+                    side_effect=topo_render.TopoRenderError("broken mesh"),
+                ), \
+                patch.object(topo_render, "_release_cold_render_working_set") as release:
+            with self.assertRaises(topo_render.TopoRenderError):
+                topo_render.render_hole_topo_cached(31795, 1)
+        release.assert_called_once()
+
+    def test_concurrent_cold_requests_share_one_render(self) -> None:
+        canned = _test_png()
+        callers_ready = Barrier(2)
+        render_started = Event()
+        release_render = Event()
+
+        def slow_render(_gid: int, _hole: int) -> bytes:
+            render_started.set()
+            self.assertTrue(release_render.wait(timeout=2))
+            return canned
+
+        def request() -> bytes:
+            callers_ready.wait(timeout=2)
+            return topo_render.render_hole_topo_cached(31795, 1)
+
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}), \
+                patch.object(topo_render, "render_hole_topo", side_effect=slow_render) as render, \
+                ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(request)
+            second = pool.submit(request)
+            self.assertTrue(render_started.wait(timeout=2))
+            release_render.set()
+            self.assertEqual(first.result(timeout=2), canned)
+            self.assertEqual(second.result(timeout=2), canned)
+
+        render.assert_called_once()
+
+    def test_different_cold_holes_are_bounded_to_two_native_renders(self) -> None:
+        canned = _test_png()
+        callers_ready = Barrier(3)
+        two_started = Event()
+        third_overlap = Event()
+        release_render = Event()
+        state_lock = Lock()
+        active = 0
+        peak_active = 0
+
+        def memory_heavy_render(_gid: int, _hole: int) -> bytes:
+            nonlocal active, peak_active
+            with state_lock:
+                active += 1
+                peak_active = max(peak_active, active)
+                if active == 2:
+                    two_started.set()
+                if active > 2:
+                    third_overlap.set()
+            self.assertTrue(release_render.wait(timeout=2))
+            with state_lock:
+                active -= 1
+            return canned
+
+        def request(hole: int) -> bytes:
+            callers_ready.wait(timeout=2)
+            return topo_render.render_hole_topo_cached(31795, hole)
+
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}), \
+                patch.object(topo_render, "render_hole_topo", side_effect=memory_heavy_render) as render, \
+                ThreadPoolExecutor(max_workers=3) as pool:
+            first = pool.submit(request, 1)
+            second = pool.submit(request, 2)
+            third = pool.submit(request, 3)
+            self.assertTrue(two_started.wait(timeout=2))
+            self.assertFalse(
+                third_overlap.wait(timeout=0.2),
+                "more than two native-size cold renders multiplied the bounded memory peak",
+            )
+            release_render.set()
+            self.assertEqual(first.result(timeout=2), canned)
+            self.assertEqual(second.result(timeout=2), canned)
+            self.assertEqual(third.result(timeout=2), canned)
+
+        self.assertEqual(render.call_count, 3)
+        self.assertEqual(peak_active, 2)
+        self.assertFalse(third_overlap.is_set())
+
+    def test_cache_write_scratch_name_is_unique_per_writer(self) -> None:
+        """A fixed ``<name>.png.tmp`` is shared by every writer of the same hole, and the cache dir
+        is shared across processes (several API workers + the prerender tool), so two writers could
+        interleave into one scratch file and publish a corrupt PNG. Each writer must get its own."""
+        canned = _test_png()
+        scratch: list[Path] = []
+
+        def record(src, dst) -> None:  # type: ignore[no-untyped-def]
+            scratch.append(Path(src))
+            Path(src).unlink()
+
+        with TemporaryDirectory() as tmp, patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}):
+            path = topo_render.cache_path(31795, 1)
+            with patch("ai_caddie.geometry.topo_render.os.replace", side_effect=record):
+                topo_render._write_cached_topo(path, canned)
+                topo_render._write_cached_topo(path, canned)
+
+            self.assertEqual(len(scratch), 2)
+            self.assertNotEqual(scratch[0], scratch[1])
+            for candidate in scratch:
+                self.assertNotEqual(candidate, path.with_suffix(".png.tmp"))
+                # Same directory, so the publishing rename stays atomic (same filesystem).
+                self.assertEqual(candidate.parent, path.parent)
+                self.assertTrue(candidate.name.startswith(path.name))
+                self.assertTrue(candidate.name.endswith(".tmp"))
+
+    def test_concurrent_cache_writes_publish_one_intact_png_and_leave_no_scratch(self) -> None:
+        canned = _test_png()
+        writers = 4
+        ready = Barrier(writers)
+
+        with TemporaryDirectory() as tmp, patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}):
+            path = topo_render.cache_path(31795, 1)
+
+            def write() -> None:
+                ready.wait(timeout=2)
+                topo_render._write_cached_topo(path, canned)
+
+            with ThreadPoolExecutor(max_workers=writers) as pool:
+                for future in [pool.submit(write) for _ in range(writers)]:
+                    future.result(timeout=5)
+
+            self.assertEqual(path.read_bytes(), canned)
+            self.assertEqual(sorted(p.name for p in path.parent.iterdir()), [path.name])
+
+    def test_failed_cache_write_removes_its_scratch_file(self) -> None:
+        canned = _test_png()
+        with TemporaryDirectory() as tmp, patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}):
+            path = topo_render.cache_path(31795, 1)
+            with patch("ai_caddie.geometry.topo_render.os.replace", side_effect=OSError("no space left")):
+                with self.assertRaises(OSError):
+                    topo_render._write_cached_topo(path, canned)
+            self.assertEqual(list(path.parent.iterdir()), [])
+
+    def test_cached_render_leaves_no_scratch_file_behind(self) -> None:
+        canned = _test_png()
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}), \
+                patch.object(topo_render, "render_hole_topo", return_value=canned), \
+                patch.object(topo_render, "_release_cold_render_working_set"):
+            self.assertEqual(topo_render.render_hole_topo_cached(31795, 1), canned)
+            path = topo_render.cache_path(31795, 1)
+            self.assertEqual(sorted(p.name for p in path.parent.iterdir()), [path.name])
 
     def test_cache_key_includes_style_version(self) -> None:
         with patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": "/x/y"}):
             path = topo_render.cache_path(31795, 7)
-        self.assertEqual(path.name, "gid31795_h07.png")
+        self.assertTrue(path.name.startswith("gid31795_h07_topo-v8-"))
+        self.assertTrue(path.name.endswith(".png"))
         self.assertIn(topo_render.STYLE_VERSION, str(path))
+
+    def test_ground_envelope_prefers_continuous_physics_mesh(self) -> None:
+        from PIL import Image
+
+        physics = Image.new("L", (3, 1), 255)
+        fragmented_land = Image.new("L", (3, 1), 1)
+        masks = {"PhysicsMesh": physics}
+
+        selected = topo_render._ground_envelope(masks.get, fragmented_land)
+        self.assertIs(selected, physics)
+
+        selected_without_physics = topo_render._ground_envelope(
+            {}.get,
+            fragmented_land,
+        )
+        self.assertIs(selected_without_physics, fragmented_land)
+
+    def test_bounded_route_envelope_removes_edge_mesh_and_disconnected_spike(self) -> None:
+        from PIL import Image, ImageDraw
+
+        # The continuous authority deliberately reaches the arbitrary right canvas edge.  The main
+        # factual surface is route-connected; a detached neighbour fragment near that edge is not.
+        physics = Image.new("L", (120, 160), 0)
+        ImageDraw.Draw(physics).rectangle((12, 8, 119, 151), fill=255)
+        support = Image.new("L", physics.size, 0)
+        draw = ImageDraw.Draw(support)
+        draw.ellipse((20, 14, 80, 148), fill=255)
+        draw.rectangle((105, 60, 118, 92), fill=255)  # neighbouring-hole material spike
+
+        route = [(50.0, 140.0), (48.0, 82.0), (52.0, 24.0)]
+        bounded = topo_render._bounded_route_envelope(
+            physics,
+            support,
+            route,
+            1.0,
+            supersample=1,
+            padding_m=4.0,
+        )
+
+        self.assertEqual(max(bounded.getpixel((119, y)) for y in range(160)), 0)
+        self.assertEqual(bounded.getpixel((110, 76)), 0)
+        self.assertTrue(all(bounded.getpixel((int(x), int(y))) == 255 for x, y in route))
+        self.assertIsNotNone(bounded.getbbox())
+
+    def test_bounded_route_envelope_falls_back_when_support_is_absent(self) -> None:
+        from PIL import Image
+
+        current = Image.new("L", (8, 8), 255)
+        result = topo_render._bounded_route_envelope(
+            current,
+            Image.new("L", current.size, 0),
+            [(4.0, 7.0), (4.0, 1.0)],
+            1.0,
+            supersample=1,
+        )
+        self.assertEqual(result.tobytes(), current.tobytes())
+
+    def test_topo_v8_consumes_decoded_coast_and_ocean_layers(self) -> None:
+        self.assertEqual(topo_render.OCEAN_LAYERS, ("Ocean", "VfxOcean", "OceanSide"))
+        self.assertIn("Beach", topo_render.ORDER)
+        self.assertIn("Cliff", topo_render.ORDER)
+        self.assertNotIn("TreeArea", topo_render.ENVELOPE_SUPPORT_LAYERS)
+        self.assertNotIn("Beach", topo_render.ENVELOPE_SUPPORT_LAYERS)
+        self.assertNotIn("Cliff", topo_render.ENVELOPE_SUPPORT_LAYERS)
+
+    def test_combined_water_mask_keeps_multiple_lakes_and_ocean(self) -> None:
+        from PIL import Image
+
+        masks = {
+            "Lake": Image.new("L", (4, 1), 0),
+            "Ocean": Image.new("L", (4, 1), 0),
+        }
+        masks["Lake"].putpixel((0, 0), 255)
+        masks["Lake"].putpixel((2, 0), 255)  # a second disconnected Lake component
+        masks["Ocean"].putpixel((3, 0), 255)
+
+        combined = topo_render._combined_water_mask(masks.get)
+
+        self.assertIsNotNone(combined)
+        self.assertEqual(list(combined.tobytes()), [255, 0, 255, 255])
 
 
 class TopoEndpointTests(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
 
-    def test_endpoint_returns_png_with_immutable_cache_headers(self) -> None:
+    def test_endpoint_returns_png_with_release_revalidation_headers(self) -> None:
         canned = _PNG_MAGIC + b"endpoint-topo"
-        with patch.object(topo_render, "render_hole_topo_cached", return_value=canned):
+        with (
+            patch.object(topo_render, "render_hole_topo_cached", return_value=canned),
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "ready"},
+            ),
+        ):
             resp = self.client.get("/api/v2/courses/31795/holes/1/topo.png")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.headers["content-type"], "image/png")
-        self.assertIn("immutable", resp.headers["cache-control"])
-        self.assertIn("max-age=", resp.headers["cache-control"])
+        self.assertEqual(resp.headers["cache-control"], "public, no-cache")
         self.assertIn(topo_render.STYLE_VERSION, resp.headers.get("etag", ""))
         self.assertEqual(resp.content, canned)
+
+    def test_green_detail_endpoint_uses_v3_style_and_1280_default(self) -> None:
+        canned = _PNG_MAGIC + b"green-detail"
+        with (
+            patch.object(
+                topo_render,
+                "render_hole_green_detail_cached",
+                return_value=canned,
+            ) as render,
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "ready"},
+            ),
+        ):
+            response = self.client.get(
+                "/api/v2/courses/31795/holes/1/green.png"
+                "?x=100&y=200&width=420&height=420&g=green-v3"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "image/png")
+        self.assertIn("-green-", response.headers["etag"])
+        render.assert_called_once_with(31795, 1, (100.0, 200.0, 420.0, 420.0), size=1280)
+
+    def test_green_detail_endpoint_rejects_unknown_client_style(self) -> None:
+        with patch.object(topo_render, "render_hole_green_detail_cached") as render:
+            response = self.client.get(
+                "/api/v2/courses/31795/holes/1/green.png"
+                "?x=100&y=200&width=420&height=420&g=green-v99"
+            )
+
+        self.assertEqual(response.status_code, 409)
+        render.assert_not_called()
+
+    def test_endpoint_returns_304_for_current_geometry_etag(self) -> None:
+        canned = _PNG_MAGIC + b"endpoint-topo"
+        with (
+            patch.object(
+                topo_render, "render_hole_topo_cached", return_value=canned
+            ) as render,
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "ready"},
+            ),
+        ):
+            first = self.client.get("/api/v2/courses/31795/holes/1/topo.png")
+            second = self.client.get(
+                "/api/v2/courses/31795/holes/1/topo.png",
+                headers={"If-None-Match": first.headers["etag"]},
+            )
+        self.assertEqual(second.status_code, 304)
+        self.assertEqual(second.content, b"")
+        self.assertEqual(second.headers["etag"], first.headers["etag"])
+        render.assert_called_once_with(31795, 1)
 
     def test_endpoint_404s_when_geometry_missing(self) -> None:
         # Empty mesh dir + isolated (empty) cache -> render_hole_topo_cached raises
@@ -116,8 +514,17 @@ class TopoEndpointTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 404)
 
     def test_endpoint_404s_on_render_error(self) -> None:
-        with patch.object(topo_render, "render_hole_topo_cached",
-                          side_effect=topo_render.TopoRenderError("boom")):
+        with (
+            patch.object(
+                topo_render,
+                "render_hole_topo_cached",
+                side_effect=topo_render.TopoRenderError("boom"),
+            ),
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "ready"},
+            ),
+        ):
             resp = self.client.get("/api/v2/courses/31795/holes/1/topo.png")
         self.assertEqual(resp.status_code, 404)
 
@@ -129,10 +536,44 @@ class TopoEndpointTests(unittest.TestCase):
         # Pure course geometry (no source_ref) is public like /prep — the admin gate must not apply
         # even when an admin token is configured.
         canned = _PNG_MAGIC + b"public"
-        with patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}), \
-                patch.object(topo_render, "render_hole_topo_cached", return_value=canned):
+        with (
+            patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}),
+            patch.object(topo_render, "render_hole_topo_cached", return_value=canned),
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "ready"},
+            ),
+        ):
             resp = self.client.get("/api/v2/courses/31795/holes/1/topo.png")
         self.assertEqual(resp.status_code, 200)
+
+    def test_endpoint_404s_without_current_geometry_authority(self) -> None:
+        with (
+            patch.object(topo_render, "render_hole_topo_cached") as render,
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "partial"},
+            ),
+        ):
+            response = self.client.get("/api/v2/courses/31795/holes/1/topo.png")
+
+        self.assertEqual(response.status_code, 404)
+        render.assert_not_called()
+
+    def test_endpoint_rejects_pixels_when_requested_revision_is_no_longer_current(self) -> None:
+        with (
+            patch.object(topo_render, "render_hole_topo_cached") as render,
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "ready", "geometryRevision": "bbbbbbbbbbbbbbbb"},
+            ),
+        ):
+            response = self.client.get(
+                "/api/v2/courses/31795/holes/1/topo.png?r=aaaaaaaaaaaaaaaa"
+            )
+
+        self.assertEqual(response.status_code, 409)
+        render.assert_not_called()
 
 
 class TopoPrewarmEndpointTests(unittest.TestCase):

@@ -1,25 +1,74 @@
 import Foundation
 import SwiftUI
 
-/// 单场复盘:点一场历史球局进来,逐洞看「我这场怎么打的」—— 成绩条 + 逐洞记分卡(杆/推/
-/// 果岭/球道)+ 各环节小结。缺数据时优雅兜底(显示已有的 + 为什么缺),绝不空白白屏
+/// Closed Garmin fairway vocabulary. Unknown or absent values are not misses and
+/// must stay out of the FIR denominator.
+func roundReviewFairwayOutcome(_ raw: String?) -> Bool? {
+    guard let raw else { return nil }
+    switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "hit", "fairway", "center", "centre", "true", "1": return true
+    case "left", "right", "miss", "false", "0": return false
+    default: return nil
+    }
+}
+
+func roundReviewFairwayCounts(_ values: [String?]) -> (hit: Int, recorded: Int) {
+    let outcomes = values.compactMap(roundReviewFairwayOutcome)
+    return (outcomes.filter { $0 }.count, outcomes.count)
+}
+
+func roundReviewFairwayLabel(_ raw: String?) -> String {
+    switch roundReviewFairwayOutcome(raw) {
+    case .some(true): return "球道✓"
+    case .some(false):
+        switch raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "left": return "偏左"
+        case "right": return "偏右"
+        default: return "球道✗"
+        }
+    case .none: return "未记录"
+    }
+}
+
+/// 单场复盘:点一场历史球局进来,先看本场核心指标，再从紧凑的前九/后九网格点进任一
+/// 球洞查看落点。缺数据时优雅兜底(显示已有的 + 为什么缺),绝不空白白屏
 /// (用户痛点:"复盘点进去没数据")。数据来自 /api/v2/history/rounds/{ref}。
 public struct RoundReviewView: View {
     public let roundRef: String
     public let fallbackCourseName: String?
     public let apiBaseURL: URL?
     public let adminToken: String?
+    public let globalId: Int?
+    public let backGlobalId: Int?
+    public let nine: String?
+    public let teeBox: String?
 
     @State private var detail: RoundDetail?
     @State private var isLoading = true
     @State private var errorText: String?
     @State private var shotMapHole: ShotMapHole?
+    @StateObject private var shotMapRepository: RoundShotMapRepository
 
-    public init(roundRef: String, fallbackCourseName: String? = nil, apiBaseURL: URL? = nil, adminToken: String? = nil) {
+    public init(roundRef: String, fallbackCourseName: String? = nil, apiBaseURL: URL? = nil, adminToken: String? = nil, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil) {
         self.roundRef = roundRef
         self.fallbackCourseName = fallbackCourseName
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
+        self.globalId = globalId
+        self.backGlobalId = backGlobalId
+        self.nine = nine
+        self.teeBox = teeBox
+        _shotMapRepository = StateObject(
+            wrappedValue: RoundShotMapRepository(
+                roundRef: roundRef,
+                apiBaseURL: apiBaseURL,
+                adminToken: adminToken,
+                globalId: globalId,
+                backGlobalId: backGlobalId,
+                nine: nine,
+                teeBox: teeBox
+            )
+        )
     }
 
     public var body: some View {
@@ -31,30 +80,41 @@ public struct RoundReviewView: View {
                     RoundReviewContent(
                         detail: detail, isLoading: isLoading, errorText: errorText,
                         fallbackCourseName: fallbackCourseName,
-                        onSelectHole: { shotMapHole = ShotMapHole(hole: $0) }
+                        onSelectHole: { shotMapHole = ShotMapHole(hole: $0) },
+                        onRetry: { Task { await load() } }
                     )
                 }
             }
         }
         .background(HubStyle.grouped)
         .navigationTitle("单场复盘")
-        .task(id: roundRef) { await load() }
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: roundRef) {
+            await load()
+        }
         .sheet(item: $shotMapHole) { item in
             NavigationStack {
                 RoundShotMapPagerScreen(
                     roundRef: roundRef, holes: roundHoles, startHole: item.hole,
-                    apiBaseURL: apiBaseURL, adminToken: adminToken
+                    apiBaseURL: apiBaseURL, adminToken: adminToken,
+                    onClose: { shotMapHole = nil },
+                    mapRepository: shotMapRepository,
+                    globalId: globalId,
+                    backGlobalId: backGlobalId,
+                    nine: nine,
+                    teeBox: teeBox
                 )
-                // 关闭整张落点图放 LEADING;子屏的「编辑/完成」在 TRAILING —— 免得进编辑后两个「完成」并排。
-                .toolbar { ToolbarItem(placement: .topBarLeading) { Button("关闭") { shotMapHole = nil } } }
             }
         }
     }
 
-    /// The holes to page through in the shot-map (this round's scorecard holes; fallback 1–18).
+    /// Page and prefetch only holes that were actually scored. A 9-of-18 round keeps blank cells in
+    /// the backend scorecard for context; treating those blanks as played would fabricate maps and
+    /// waste nine requests.
     private var roundHoles: [Int] {
-        let holes = (detail?.scorecard ?? []).map(\.hole)
-        return holes.isEmpty ? Array(1...18) : holes
+        let scorecard = detail?.scorecard ?? []
+        let played = scorecard.filter { $0.score != nil }.map(\.hole)
+        return played.isEmpty ? scorecard.map(\.hole) : played
     }
 
     struct ShotMapHole: Identifiable {
@@ -69,12 +129,18 @@ public struct RoundReviewView: View {
             errorText = "未配置后端地址"
             return
         }
-        isLoading = true
+        if detail == nil, let cached = RoundReviewDiskCache.loadDetail(roundRef: roundRef) {
+            detail = cached
+            isLoading = false
+        }
+        isLoading = detail == nil
         errorText = nil
         do {
-            detail = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).fetchRoundDetail(roundRef: roundRef)
+            let fresh = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).fetchRoundDetail(roundRef: roundRef, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox)
+            detail = fresh
+            RoundReviewDiskCache.saveDetail(fresh, roundRef: roundRef)
         } catch {
-            errorText = "这场暂时取不到(网络或数据)"
+            if detail == nil { errorText = "这场暂时取不到(网络或数据)" }
         }
         isLoading = false
     }
@@ -87,19 +153,27 @@ struct RoundReviewContent: View {
     let errorText: String?
     let fallbackCourseName: String?
     var onSelectHole: (Int) -> Void = { _ in }
+    var onRetry: () -> Void = {}
+
+    private struct ReviewMetric: Identifiable {
+        let id: String
+        let title: String
+        let value: String
+        let detail: String?
+        let icon: String
+        var bad = false
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let detail, detail.found {
                 summaryCard(detail)
                 if !detail.scorecard.isEmpty {
-                    scoreStrip(detail.scorecard)
-                    HubSectionLabel("逐洞").padding(.top, 6)
-                    scorecardCard(detail.scorecard)
+                    scorecardGrid(detail.scorecard)
                 }
-                if !detail.phaseSummary.isEmpty {
-                    HubSectionLabel("各环节").padding(.top, 6)
-                    phaseCard(detail.phaseSummary)
+                let metrics = reviewMetrics(detail)
+                if !metrics.isEmpty {
+                    metricGrid(metrics)
                 }
                 if !detail.missingData.isEmpty {
                     missingCard(detail.missingData)
@@ -113,28 +187,73 @@ struct RoundReviewContent: View {
         .padding(16)
     }
 
-    // MARK: summary card (course · tee/holes + big score + derived stat row)
+    // MARK: summary card (course · date/holes + score)
 
     private func summaryCard(_ detail: RoundDetail) -> some View {
         let round = detail.round
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(round?.courseName ?? fallbackCourseName ?? "这一场")
-                    .font(.title3.weight(.bold)).foregroundStyle(.primary)
-                Text(summarySubtitle(round)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                Spacer(minLength: 8)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                summaryTitle(round)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if let score = round?.score {
-                    Text("\(score)").font(.system(size: 32, weight: .heavy)).monospacedDigit().foregroundStyle(.primary)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(score)")
+                            .font(.system(size: 34, weight: .heavy))
+                            .monospacedDigit()
+                            .foregroundStyle(.primary)
+                        if let toPar = round?.toPar {
+                            Text(toParText(toPar))
+                                .font(.caption.monospacedDigit().weight(.bold))
+                                .foregroundStyle(toPar > 0 ? HubStyle.warmBad : LiveHoleStyle.green)
+                        }
+                    }
                 }
             }
-            summaryStatRow(detail)
         }
         .hubCard()
+        // Keep the load-ready marker on the summary itself. Putting it on the outer
+        // RoundReviewContent VStack causes SwiftUI to replace every descendant's identifier,
+        // including the individually tappable `round-review-hole-N` rows.
+        .accessibilityIdentifier("round-review-content-ready")
+    }
+
+    /// Keep compact course names and metadata on one baseline, while allowing a real long name to
+    /// own its full line before the metadata flows below it. The score remains a stable trailing
+    /// anchor in both layouts.
+    private func summaryTitle(_ round: RoundDetailSummary?) -> some View {
+        let courseName = round?.courseName ?? fallbackCourseName ?? "这一场"
+        let subtitle = summarySubtitle(round)
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(courseName)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+            }
+            .fixedSize(horizontal: true, vertical: false)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(courseName)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(subtitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     /// tee/holes subtitle from what's present (date · 已打 N/M 洞 · Par); never fabricates a tee colour.
     private func summarySubtitle(_ round: RoundDetailSummary?) -> String {
         var parts: [String] = []
+        if let date = round?.date, !date.isEmpty {
+            parts.append(aiCaddieShortDate(date))
+        }
         if let course = round?.courseHoles, course > 0, course != (round?.holesScored ?? round?.holesCompleted) {
             let played = round?.holesScored ?? round?.holesCompleted ?? 0
             parts.append("已打 \(played)/\(course) 洞")
@@ -145,39 +264,101 @@ struct RoundReviewContent: View {
         return parts.joined(separator: " · ")
     }
 
-    /// 相对标准 / GIR / 推杆 / 球道 — derived from the per-hole scorecard already on screen; each cell
-    /// only appears when the underlying data exists (no fabricated 「—」noise).
-    private func summaryStatRow(_ detail: RoundDetail) -> some View {
+    // MARK: decision-first metrics
+
+    /// Prefer recorded per-hole facts; older rounds fall back to Garmin's round-level phase totals.
+    /// Missing coverage removes a tile instead of presenting a misleading 0%.
+    private func reviewMetrics(_ detail: RoundDetail) -> [ReviewMetric] {
         let holes = detail.scorecard
-        let toPar = detail.round?.toPar
-        let putts = holes.compactMap(\.putts).reduce(0, +)
+        var metrics: [ReviewMetric] = []
         let girHoles = holes.filter { $0.gir != nil }
         let girHit = girHoles.filter { $0.gir == true }.count
-        let fairwayHoles = holes.filter { ($0.fairway.map { !$0.isEmpty }) ?? false }
-        let fairwayHit = fairwayHoles.filter { isFairwayHit($0.fairway) }.count
-        return HStack(alignment: .top, spacing: 20) {
-            if let toPar {
-                summaryStat("相对标准", toParText(toPar), bad: toPar > 0)
-            }
-            if !girHoles.isEmpty {
-                summaryStat("GIR", "\(percent(girHit, girHoles.count))%")
-            }
-            if putts > 0 {
-                summaryStat("推杆", "\(putts)")
-            }
-            if !fairwayHoles.isEmpty {
-                summaryStat("球道", "\(percent(fairwayHit, fairwayHoles.count))%")
-            }
-            Spacer(minLength: 0)
+        let fairwayCounts = roundReviewFairwayCounts(holes.map(\.fairway))
+        if fairwayCounts.recorded > 0 {
+            metrics.append(ReviewMetric(
+                id: "fairway", title: "球道命中", value: "\(percent(fairwayCounts.hit, fairwayCounts.recorded))%",
+                detail: "\(fairwayCounts.hit)/\(fairwayCounts.recorded)", icon: "arrow.up.to.line.compact"
+            ))
+        } else if let tee = phaseMetrics("tee", in: detail),
+                  let hit = tee.fairwaysHit,
+                  let recorded = tee.fairwaysRecorded,
+                  recorded > 0 {
+            metrics.append(ReviewMetric(
+                id: "fairway", title: "球道命中", value: "\(percent(hit, recorded))%",
+                detail: "\(hit)/\(recorded)", icon: "arrow.up.to.line.compact"
+            ))
         }
+        if !girHoles.isEmpty {
+            metrics.append(ReviewMetric(
+                id: "gir", title: "GIR", value: "\(percent(girHit, girHoles.count))%",
+                detail: "\(girHit)/\(girHoles.count)", icon: "flag.fill"
+            ))
+        } else if let approach = phaseMetrics("approach", in: detail),
+                  let hit = approach.gir,
+                  let recorded = approach.girRecorded,
+                  recorded > 0 {
+            metrics.append(ReviewMetric(
+                id: "gir", title: "GIR", value: "\(percent(hit, recorded))%",
+                detail: "\(hit)/\(recorded)", icon: "flag.fill"
+            ))
+        }
+        let puttHoles = holes.compactMap(\.putts)
+        if !puttHoles.isEmpty {
+            let total = puttHoles.reduce(0, +)
+            metrics.append(ReviewMetric(
+                id: "putts", title: "推杆", value: "\(total)",
+                detail: String(format: "%.1f/洞", Double(total) / Double(puttHoles.count)),
+                icon: "circle.circle"
+            ))
+        } else if let total = phaseMetrics("putting", in: detail)?.totalPutts {
+            metrics.append(ReviewMetric(
+                id: "putts", title: "推杆", value: "\(total)", detail: nil,
+                icon: "circle.circle"
+            ))
+        }
+        let penaltyHoles = holes.compactMap(\.penalties)
+        if !penaltyHoles.isEmpty {
+            let total = penaltyHoles.reduce(0, +)
+            metrics.append(ReviewMetric(
+                id: "penalties", title: "罚杆", value: "\(total)",
+                detail: total == 0 ? "无罚杆" : nil, icon: "exclamationmark.triangle.fill", bad: total > 0
+            ))
+        } else if let total = phaseMetrics("penalty / damage", in: detail)?.totalPenalties {
+            metrics.append(ReviewMetric(
+                id: "penalties", title: "罚杆", value: "\(total)",
+                detail: total == 0 ? "无罚杆" : nil,
+                icon: "exclamationmark.triangle.fill", bad: total > 0
+            ))
+        }
+        return metrics
     }
 
-    private func summaryStat(_ key: String, _ value: String, bad: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(key).font(.caption2.weight(.bold)).foregroundStyle(.secondary)
-            Text(value)
-                .font(.callout.weight(.heavy)).monospacedDigit()
-                .foregroundStyle(bad ? HubStyle.warmBad : Color.primary)
+    private func phaseMetrics(_ phase: String, in detail: RoundDetail) -> RoundDetailPhaseMetrics? {
+        detail.phaseSummary.first { $0.phase.lowercased() == phase }?.metrics
+    }
+
+    private func metricGrid(_ metrics: [ReviewMetric]) -> some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2), spacing: 10) {
+            ForEach(metrics) { metric in
+                VStack(alignment: .leading, spacing: 7) {
+                    Label(metric.title, systemImage: metric.icon)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(metric.value)
+                            .font(.title2.monospacedDigit().weight(.heavy))
+                            .foregroundStyle(metric.bad ? HubStyle.warmBad : Color.primary)
+                        if let detail = metric.detail {
+                            Text(detail).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(13)
+                .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .shadow(color: Color.black.opacity(0.04), radius: 3, y: 1)
+            }
         }
     }
 
@@ -186,115 +367,121 @@ struct RoundReviewContent: View {
         return Int((Double(hit) / Double(total) * 100).rounded())
     }
 
-    private func isFairwayHit(_ fairway: String?) -> Bool {
-        switch (fairway ?? "").lowercased() {
-        case "hit", "fairway", "center", "centre", "true", "1": return true
-        default: return false
-        }
-    }
+    // MARK: Garmin-style front/back-nine scorecard (every score opens its shot map)
 
-    // MARK: score strip (one colored cell per hole)
-
-    private func scoreStrip(_ holes: [RoundDetailHole]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("成绩条").font(.caption).foregroundStyle(.secondary)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 9), spacing: 4) {
-                ForEach(holes) { hole in
-                    Text(hole.score.map(String.init) ?? "–")
-                        .font(.caption2.monospacedDigit().weight(.bold))
-                        .frame(maxWidth: .infinity, minHeight: 26)
-                        .background(scoreColor(hole).opacity(0.16))
-                        .foregroundStyle(scoreColor(hole))
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                }
-            }
-        }
-        .hubCard()
-    }
-
-    // MARK: per-hole scorecard (tap a hole → 落点图), shape-coded score chip per row
-
-    private func scorecardCard(_ holes: [RoundDetailHole]) -> some View {
-        VStack(spacing: 0) {
+    private func scorecardGrid(_ holes: [RoundDetailHole]) -> some View {
+        let played = holes.filter { $0.score != nil }
+        let sorted = (played.isEmpty ? holes : played).sorted { $0.hole < $1.hole }
+        let front = Array(sorted.prefix(9))
+        let back = Array(sorted.dropFirst(9))
+        return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("点一洞看落点图 →").font(.caption2).foregroundStyle(LiveHoleStyle.green)
+                Text("记分卡").font(.headline)
                 Spacer()
+                Text("点成绩看落点").font(.caption2.weight(.semibold)).foregroundStyle(LiveHoleStyle.green)
             }
-            .padding(.bottom, 6)
-            ForEach(holes) { hole in
-                Button {
-                    onSelectHole(hole.hole)
-                } label: {
-                    HStack(spacing: 12) {
-                        Text("\(hole.hole)")
-                            .font(.subheadline.monospacedDigit().weight(.bold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 22, alignment: .leading)
-                        Text(rowMeta(hole)).font(.subheadline).foregroundStyle(.secondary)
-                        Spacer(minLength: 8)
-                        Text(hole.par.map { "P\($0)" } ?? "")
-                            .font(.caption.weight(.semibold)).monospacedDigit()
-                            .foregroundStyle(.secondary)
-                        ScoreChip(score: hole.score, toPar: holeToPar(hole))
-                    }
-                    .padding(.vertical, 8)
-                    .contentShape(Rectangle())
-                    .overlay(alignment: .bottom) { Divider() }
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.primary)
+            scorecardNine(title: sorted.count > 9 ? "前九" : "本场", totalLabel: "Out", holes: front)
+            if !back.isEmpty {
+                Divider()
+                scorecardNine(title: "后九", totalLabel: "In", holes: back)
             }
-            totalRow(holes)
         }
         .hubCard()
     }
 
-    private func totalRow(_ holes: [RoundDetailHole]) -> some View {
-        let totalScore = holes.compactMap(\.score).reduce(0, +)
-        let totalPar = holes.compactMap(\.par).reduce(0, +)
-        let totalPutts = holes.compactMap(\.putts).reduce(0, +)
-        return HStack(spacing: 12) {
-            Text("合计").font(.subheadline.weight(.bold)).frame(width: 40, alignment: .leading)
-            if totalPutts > 0 {
-                Text("推 \(totalPutts)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+    private func scorecardNine(title: String, totalLabel: String, holes: [RoundDetailHole]) -> some View {
+        let scored = holes.filter { $0.score != nil }
+        let totalScore = scored.compactMap(\.score).reduce(0, +)
+        let totalPar = scored.compactMap(\.par).reduce(0, +)
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Grid(horizontalSpacing: 0, verticalSpacing: 6) {
+                GridRow {
+                    scorecardTextCell("")
+                    ForEach(holes) { hole in scorecardTextCell("\(hole.hole)") }
+                    scorecardTextCell(totalLabel)
+                }
+                GridRow {
+                    scorecardRowLabel("Par")
+                    ForEach(holes) { hole in scorecardTextCell(hole.par.map(String.init) ?? "–") }
+                    scorecardTextCell(totalPar > 0 ? "\(totalPar)" : "–")
+                }
+                GridRow {
+                    scorecardRowLabel("成绩")
+                    ForEach(holes) { hole in
+                        Button { onSelectHole(hole.hole) } label: { scoreToken(hole) }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(holeAccessibilityLabel(hole))
+                            .accessibilityHint("打开这一洞的逐杆落点")
+                            .accessibilityIdentifier("round-review-hole-\(hole.hole)")
+                    }
+                    scorecardTextCell(
+                        scored.isEmpty ? "–" : "\(totalScore)",
+                        color: .primary,
+                        weight: .semibold
+                    )
+                }
             }
-            Spacer(minLength: 8)
-            Text("Par \(totalPar)").font(.caption.weight(.semibold)).monospacedDigit().foregroundStyle(.secondary)
-            Text("\(totalScore)").font(.title3.monospacedDigit().weight(.heavy)).foregroundStyle(.primary)
         }
-        .padding(.top, 10)
     }
 
-    /// A compact per-hole metadata line (推 · 果岭 · 球道) built only from present fields.
-    private func rowMeta(_ hole: RoundDetailHole) -> String {
-        var parts: [String] = []
+    private func scorecardRowLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 31, alignment: .leading)
+    }
+
+    private func scorecardTextCell(
+        _ text: String,
+        color: Color = .secondary,
+        weight: Font.Weight = .regular
+    ) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: weight, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(color)
+            .frame(maxWidth: .infinity, minHeight: 22)
+    }
+
+    /// Familiar score notation keeps the table readable without restoring the old tinted tile wall:
+    /// circles are under par, squares are over par, and par stays plain.
+    private func scoreToken(_ hole: RoundDetailHole) -> some View {
+        let relative = hole.toPar ?? {
+            guard let score = hole.score, let par = hole.par else { return 0 }
+            return score - par
+        }()
+        let color = scoreColor(hole)
+        return ZStack {
+            if hole.score != nil, relative < 0 {
+                Circle().stroke(color, lineWidth: 1.3).padding(2)
+                if relative <= -2 { Circle().stroke(color, lineWidth: 1).padding(5) }
+            } else if hole.score != nil, relative > 0 {
+                RoundedRectangle(cornerRadius: 1.5).stroke(color, lineWidth: 1.3).padding(2)
+                if relative >= 2 {
+                    RoundedRectangle(cornerRadius: 1).stroke(color, lineWidth: 1).padding(5)
+                }
+            }
+            Text(hole.score.map(String.init) ?? "–")
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(hole.score == nil ? Color.secondary : Color.primary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 27)
+        .contentShape(Rectangle())
+    }
+
+    private func holeAccessibilityLabel(_ hole: RoundDetailHole) -> String {
+        var parts = ["第 \(hole.hole) 洞"]
+        if let par = hole.par { parts.append("标准杆 \(par)") }
+        if let score = hole.score { parts.append("成绩 \(score)") }
         if let putts = hole.putts { parts.append("推 \(putts)") }
+        if let penalties = hole.penalties { parts.append("罚 \(penalties)") }
         if let gir = hole.gir { parts.append(gir ? "果岭✓" : "果岭✗") }
         if let fairway = hole.fairway, !fairway.isEmpty { parts.append(zhFairway(fairway)) }
-        return parts.isEmpty ? "—" : parts.joined(separator: " · ")
-    }
-
-    private func holeToPar(_ hole: RoundDetailHole) -> Int? {
-        if let toPar = hole.toPar { return toPar }
-        if let score = hole.score, let par = hole.par { return score - par }
-        return nil
-    }
-
-    // MARK: phase summary
-
-    private func phaseCard(_ phases: [RoundDetailPhase]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(phases.enumerated()), id: \.element.id) { index, phase in
-                HStack {
-                    Text(zhPhase(phase.phase)).font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Text(phase.primary ?? "—").font(.subheadline.monospacedDigit()).foregroundStyle(phase.state == "missing" ? .secondary : .primary)
-                }
-                .padding(.vertical, 9)
-                if index < phases.count - 1 { Divider() }
-            }
-        }
-        .hubCard()
+        return parts.joined(separator: "，")
     }
 
     // MARK: missing-data (graceful, never blank)
@@ -312,9 +499,15 @@ struct RoundReviewContent: View {
     }
 
     private var emptyCard: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             Image(systemName: "doc.text.magnifyingglass").font(.title).foregroundStyle(.secondary)
             Text(errorText ?? "这场没有可显示的记录").font(.subheadline).foregroundStyle(.secondary)
+            if errorText != nil {
+                Button("重新载入", action: onRetry)
+                    .buttonStyle(.borderedProminent)
+                    .tint(LiveHoleStyle.green)
+                    .accessibilityIdentifier("round-review-retry")
+            }
         }
         .frame(maxWidth: .infinity).padding(.vertical, 40)
         .hubCard()
@@ -334,24 +527,7 @@ struct RoundReviewContent: View {
     }
 
     private func zhFairway(_ value: String) -> String {
-        switch value.lowercased() {
-        case "hit", "fairway", "center", "centre", "true", "1": return "球道✓"
-        case "left": return "偏左"
-        case "right": return "偏右"
-        case "miss", "false", "0": return "球道✗"
-        default: return value
-        }
-    }
-
-    private func zhPhase(_ phase: String) -> String {
-        switch phase.lowercased() {
-        case "tee": return "开球"
-        case "approach": return "攻果岭"
-        case "short game": return "短杆"
-        case "putting": return "推杆"
-        case "penalty / damage": return "失误/罚杆"
-        default: return phase
-        }
+        roundReviewFairwayLabel(value)
     }
 
     private func zhMissingLabel(_ label: String) -> String {

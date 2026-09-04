@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,7 +25,16 @@ from ai_caddie.history import history as _history
 
 SCHEMA = "ai-caddie-round-correction-v1"
 
-VALID_OPS = {"deleteShot", "restoreShot", "editField", "setHolePenalty", "addShot", "reorderShot"}
+VALID_OPS = {
+    "deleteShot",
+    "restoreShot",
+    "editField",
+    "setHolePenalty",
+    "addShot",
+    "reorderShot",
+    "replaceHoleShots",
+    "replaceHoleFacts",
+}
 # 只允许改这两样(球位纯描述、球杆展示用);其余字段不给编辑,守「不造假 + 极简」。
 EDITABLE_FIELDS = {"club", "lie", "position"}  # club/lie 走纯 apply;position 要几何,在 round_shot_map 生效
 _SAFE_REF = re.compile(r"[^A-Za-z0-9_.-]")
@@ -102,6 +112,76 @@ def _validate(event: dict[str, Any]) -> None:
         raise CorrectionError("reorderShot 需要 order 列表")
     if op == "addShot" and not (isinstance(event.get("px"), list) and len(event.get("px")) == 2):
         raise CorrectionError("addShot 需要 px=[x,y]")
+    if op == "replaceHoleShots":
+        hole = _int(event.get("hole"))
+        if hole is None or not 1 <= hole <= 36:
+            raise CorrectionError("replaceHoleShots 需要 1..36 的 hole")
+        shots = event.get("shots")
+        if not isinstance(shots, list) or len(shots) > 100:
+            raise CorrectionError("replaceHoleShots 需要不超过 100 杆的 shots 列表")
+        penalty = _int(event.get("manualPenalty"))
+        if penalty is None or not 0 <= penalty <= 100:
+            raise CorrectionError("replaceHoleShots 需要 0..100 的 manualPenalty")
+        seen_ids: set[str] = set()
+        for index, shot in enumerate(shots):
+            if not isinstance(shot, dict):
+                raise CorrectionError(f"replaceHoleShots shots[{index}] 必须是对象")
+            shot_id = str(shot.get("id") or "").strip()
+            if not shot_id or len(shot_id) > 200 or shot_id in seen_ids:
+                raise CorrectionError(f"replaceHoleShots shots[{index}] 的 id 缺失、过长或重复")
+            seen_ids.add(shot_id)
+            for field in ("start", "end"):
+                pair = shot.get(field)
+                if pair is None:
+                    continue
+                if not (
+                    isinstance(pair, list)
+                    and len(pair) == 2
+                    and all(
+                        isinstance(value, (int, float))
+                        and not isinstance(value, bool)
+                        and math.isfinite(float(value))
+                        for value in pair
+                    )
+                ):
+                    raise CorrectionError(
+                        f"replaceHoleShots shots[{index}].{field} 必须是有限像素 [x,y] 或 null"
+                    )
+    if op == "replaceHoleFacts":
+        hole = _int(event.get("hole"))
+        if hole is None or not 1 <= hole <= 36:
+            raise CorrectionError("replaceHoleFacts 需要 1..36 的 hole")
+        shots = event.get("shots")
+        if not isinstance(shots, list) or len(shots) > 100:
+            raise CorrectionError("replaceHoleFacts 需要不超过 100 杆的 shots 列表")
+        penalty = _int(event.get("manualPenalty"))
+        if penalty is None or not 0 <= penalty <= 100:
+            raise CorrectionError("replaceHoleFacts 需要 0..100 的 manualPenalty")
+        allowed = {"id", "club", "lie", "clubSource", "lieSource"}
+        seen_ids: set[str] = set()
+        for index, shot in enumerate(shots):
+            if not isinstance(shot, dict):
+                raise CorrectionError(f"replaceHoleFacts shots[{index}] 必须是对象")
+            extra = set(shot) - allowed
+            if extra:
+                raise CorrectionError(
+                    f"replaceHoleFacts shots[{index}] 含位置或未知字段 {sorted(extra)}"
+                )
+            shot_id = str(shot.get("id") or "").strip()
+            if not shot_id or len(shot_id) > 200 or shot_id in seen_ids:
+                raise CorrectionError(f"replaceHoleFacts shots[{index}] 的 id 缺失、过长或重复")
+            seen_ids.add(shot_id)
+            for field, limit in (("club", 200), ("lie", 64)):
+                value = shot.get(field)
+                if value is not None and (not isinstance(value, str) or len(value) > limit):
+                    raise CorrectionError(
+                        f"replaceHoleFacts shots[{index}].{field} 必须是字符串或 null"
+                    )
+            for field in ("clubSource", "lieSource"):
+                if shot.get(field) not in (None, "manual"):
+                    raise CorrectionError(
+                        f"replaceHoleFacts shots[{index}].{field} 只允许 manual 或 null"
+                    )
 
 
 def append_correction(
@@ -136,14 +216,60 @@ def _int(value: Any) -> int | None:
         return None
 
 
-def apply_corrections(shots: list[dict[str, Any]], events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def apply_corrections(
+    shots: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    *,
+    hole: int | None = None,
+) -> list[dict[str, Any]]:
     """删=去掉该 shotId;改=把 club→clubName / lie→start.lie 覆盖掉(带 provenance)。
     最后一次操作胜出(op 日志按序回放)。孤儿 shotId 对不上就跳过、不报错。"""
     if not events:
         return shots
+    requested_hole = _int(hole)
+    fact_snapshot = (
+        latest_hole_fact_snapshot(events, requested_hole)
+        if requested_hole is not None
+        else None
+    )
+    active_shots = list(shots)
+    active_events = events
+    if fact_snapshot is not None:
+        snapshot_index, snapshot = fact_snapshot
+        by_id = {mint_shot_id(shot): shot for shot in shots}
+        active_shots = []
+        snapshot_facts = snapshot.get("shots") or []
+        for fact in snapshot_facts:
+            if not isinstance(fact, dict):
+                continue
+            source = by_id.get(str(fact.get("id") or ""))
+            if source is None:
+                # A stable id that no longer exists is an orphan, not a licence to invent GPS.
+                continue
+            shot = dict(source)
+            source_start = source.get("start") if isinstance(source.get("start"), dict) else {}
+            shot["clubName"] = fact.get("club")
+            shot["start"] = {**source_start, "lie": fact.get("lie")}
+            if fact.get("clubSource") == "manual":
+                shot["clubSource"] = "manual"
+            else:
+                shot.pop("clubSource", None)
+            if fact.get("lieSource") == "manual":
+                shot["lieSource"] = "manual"
+            else:
+                shot.pop("lieSource", None)
+            active_shots.append(shot)
+        if snapshot_facts and not active_shots:
+            # A later Garmin resync can orphan every old hash id. Match granular-correction behaviour:
+            # keep the current source rows visible instead of turning an identity miss into deletion.
+            active_shots = list(shots)
+        # A whole-hole fact snapshot supersedes every older granular fact edit. Newer legacy clients
+        # may still append granular ops, so continue replaying only the tail after this snapshot.
+        active_events = events[snapshot_index + 1 :]
     deleted: dict[str, bool] = {}       # shotId -> 是否已删(restoreShot 可翻回来)
     edits: dict[str, dict[str, Any]] = {}  # shotId -> {field: value}
-    for e in events:
+    latest_order: list[str] | None = None
+    for e in active_events:
         op = e.get("op")
         sid = e.get("shotId")
         if op == "deleteShot" and sid:
@@ -152,9 +278,11 @@ def apply_corrections(shots: list[dict[str, Any]], events: list[dict[str, Any]])
             deleted[sid] = False
         elif op == "editField" and sid and e.get("field") in EDITABLE_FIELDS:
             edits.setdefault(sid, {})[e["field"]] = e.get("value")
+        elif op == "reorderShot" and isinstance(e.get("order"), list):
+            latest_order = [str(value) for value in e["order"]]
 
     out: list[dict[str, Any]] = []
-    for shot in shots:
+    for shot in active_shots:
         sid = mint_shot_id(shot)
         if deleted.get(sid):
             continue
@@ -168,6 +296,15 @@ def apply_corrections(shots: list[dict[str, Any]], events: list[dict[str, Any]])
                 shot["start"] = {**(shot.get("start") or {}), "lie": fields["lie"]}
                 shot["lieSource"] = "manual"
         out.append(shot)
+    if latest_order is not None:
+        positions = {shot_id: index for index, shot_id in enumerate(latest_order)}
+        out.sort(key=lambda shot: positions.get(mint_shot_id(shot), len(positions)))
+    for index, shot in enumerate(out):
+        # Derived display order lives only in this corrected copy. Garmin's original `order` and both
+        # WGS84 endpoints remain untouched, including for a fact-only reorder.
+        shot = dict(shot)
+        out[index] = shot
+        shot["_displayOrder"] = index + 1
     return out
 
 
@@ -176,11 +313,49 @@ def hole_penalty(events: list[dict[str, Any]], hole: int) -> int:
     val = 0
     h = _int(hole)
     for e in events:
-        if e.get("op") == "setHolePenalty" and _int(e.get("hole")) == h:
+        op = e.get("op")
+        if op == "setHolePenalty" and _int(e.get("hole")) == h:
             v = _int(e.get("value"))
             if v is not None:
                 val = v
+        elif op in {"replaceHoleShots", "replaceHoleFacts"} and _int(e.get("hole")) == h:
+            v = _int(e.get("manualPenalty"))
+            if v is not None:
+                val = v
     return val
+
+
+def latest_hole_shot_snapshot(events: list[dict[str, Any]], hole: int) -> tuple[int, dict[str, Any]] | None:
+    """Return the latest atomic whole-hole edit snapshot and its event index, if one exists."""
+    requested = _int(hole)
+    result: tuple[int, dict[str, Any]] | None = None
+    for index, event in enumerate(events):
+        if event.get("op") == "replaceHoleShots" and _int(event.get("hole")) == requested:
+            result = (index, event)
+    return result
+
+
+def latest_hole_fact_snapshot(events: list[dict[str, Any]], hole: int) -> tuple[int, dict[str, Any]] | None:
+    """Return the latest geometry-independent whole-hole fact snapshot for this hole."""
+    requested = _int(hole)
+    result: tuple[int, dict[str, Any]] | None = None
+    for index, event in enumerate(events):
+        if event.get("op") == "replaceHoleFacts" and _int(event.get("hole")) == requested:
+            result = (index, event)
+    return result
+
+
+def latest_hole_snapshot(events: list[dict[str, Any]], hole: int) -> tuple[int, dict[str, Any]] | None:
+    """Latest whole-hole snapshot of either kind; a newer fact snapshot overrides an old pixel one."""
+    requested = _int(hole)
+    result: tuple[int, dict[str, Any]] | None = None
+    for index, event in enumerate(events):
+        if (
+            event.get("op") in {"replaceHoleShots", "replaceHoleFacts"}
+            and _int(event.get("hole")) == requested
+        ):
+            result = (index, event)
+    return result
 
 
 def reorder_map(events: list[dict[str, Any]]) -> dict[str, int]:

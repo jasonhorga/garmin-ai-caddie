@@ -1,5 +1,9 @@
 # 代码库复查发现(Codex,2026-06-23)
 
+> [!WARNING]
+> **历史文档，已被取代。** 本文件保留用于追踪 2026-06-23 时点的审查和已完成修复；其中“无 blocker”等结论不再代表当前仓库或发布状态。当前权威审查请见：
+> [`reviews/2026-07-11-full-repository-review.md`](reviews/2026-07-11-full-repository-review.md)，以及后续的 [`reviews/2026-07-11-codex-claude-cross-review.md`](reviews/2026-07-11-codex-claude-cross-review.md)。
+
 > Codex(gpt-5.5)对整个 garmin-ai-caddie 代码库的工程复查结果 + 处置建议。
 > 复查为只读,未跑测试。**无 blocker**,以下为 high/medium 的真实问题。
 > 处置:本次已做「文档归位」+ 记录;代码 bug 与工具重组按下方分阶段计划安全执行(避免一次性大改破坏 CI)。

@@ -62,9 +62,15 @@ public struct RoundDetailHole: Codable, Equatable, Identifiable {
     /// eagle / birdie / par / bogey / double / missing — drives the score color.
     public let className: String?
     public let putts: Int?
+    public let penalties: Int?
     public let gir: Bool?
     public let fairway: String?
     public let status: String?
+    public let globalId: Int?
+    public let localHole: Int?
+    public let backGlobalId: Int?
+    public let sourceRef: String?
+    public let shotRefs: [String]
 
     public init(from decoder: Decoder) throws {
         // Tolerant: Garmin gir/fairway are sometimes null / odd types — never fail the whole round.
@@ -75,26 +81,40 @@ public struct RoundDetailHole: Codable, Equatable, Identifiable {
         toPar = try? c.decodeIfPresent(Int.self, forKey: .toPar)
         className = try? c.decodeIfPresent(String.self, forKey: .className)
         putts = try? c.decodeIfPresent(Int.self, forKey: .putts)
+        penalties = try? c.decodeIfPresent(Int.self, forKey: .penalties)
         gir = try? c.decodeIfPresent(Bool.self, forKey: .gir)
         fairway = try? c.decodeIfPresent(String.self, forKey: .fairway)
         status = try? c.decodeIfPresent(String.self, forKey: .status)
+        globalId = try? c.decodeIfPresent(Int.self, forKey: .globalId)
+        localHole = try? c.decodeIfPresent(Int.self, forKey: .localHole)
+        backGlobalId = try? c.decodeIfPresent(Int.self, forKey: .backGlobalId)
+        sourceRef = try? c.decodeIfPresent(String.self, forKey: .sourceRef)
+        shotRefs = (try? c.decodeIfPresent([String].self, forKey: .shotRefs)) ?? []
     }
 
     public init(hole: Int, par: Int? = nil, score: Int? = nil, toPar: Int? = nil, className: String? = nil,
-                putts: Int? = nil, gir: Bool? = nil, fairway: String? = nil, status: String? = nil) {
+                putts: Int? = nil, penalties: Int? = nil, gir: Bool? = nil, fairway: String? = nil,
+                status: String? = nil, globalId: Int? = nil, localHole: Int? = nil, backGlobalId: Int? = nil,
+                sourceRef: String? = nil, shotRefs: [String] = []) {
         self.hole = hole
         self.par = par
         self.score = score
         self.toPar = toPar
         self.className = className
         self.putts = putts
+        self.penalties = penalties
         self.gir = gir
         self.fairway = fairway
         self.status = status
+        self.globalId = globalId
+        self.localHole = localHole
+        self.backGlobalId = backGlobalId
+        self.sourceRef = sourceRef
+        self.shotRefs = shotRefs
     }
 
     private enum CodingKeys: String, CodingKey {
-        case hole, par, score, toPar, className, putts, gir, fairway, status
+        case hole, par, score, toPar, className, putts, penalties, gir, fairway, status, globalId, localHole, backGlobalId, sourceRef, shotRefs
     }
 }
 
@@ -103,6 +123,18 @@ public struct RoundDetailPhase: Codable, Equatable, Identifiable {
     public let phase: String
     public let state: String?
     public let primary: String?
+    public let metrics: RoundDetailPhaseMetrics?
+}
+
+/// Typed subset of phase metrics used by the compact round header. Older Garmin rounds often have
+/// only round-level aggregates, so these are the honest fallback when per-hole cells are absent.
+public struct RoundDetailPhaseMetrics: Codable, Equatable {
+    public let fairwaysHit: Int?
+    public let fairwaysRecorded: Int?
+    public let gir: Int?
+    public let girRecorded: Int?
+    public let totalPutts: Int?
+    public let totalPenalties: Int?
 }
 
 public struct RoundDetailMissing: Codable, Equatable, Identifiable {

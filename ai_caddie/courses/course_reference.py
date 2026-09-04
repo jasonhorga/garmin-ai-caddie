@@ -10,15 +10,19 @@ UI can show provenance and a course the user later plays auto-supersedes an esti
 """
 from __future__ import annotations
 
+import os
+import threading
+import time
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from ai_caddie.geometry.inspect_courseview_release import inspect_release, load_release_pb
-
 from ai_caddie.core.data import ROOT, read_json, write_json
+from ai_caddie.geometry.inspect_courseview_release import inspect_valid_release, load_release_pb
 
 COURSE_DIR = ROOT / "data" / "courses"
+COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S = 3600.0
+_RELEASE_LOCKS = tuple(threading.Lock() for _ in range(64))
 
 PAR_SOURCES = ("played", "courseview", "estimate")
 
@@ -242,25 +246,93 @@ def course_reference_coverage(*, root: Path = ROOT) -> dict[str, object]:
     }
 
 
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _release_lock(global_id: int, root: Path) -> threading.Lock:
+    key = (str(root.resolve()), int(global_id))
+    return _RELEASE_LOCKS[hash(key) % len(_RELEASE_LOCKS)]
+
+
+def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> dict | None:
+    """Decoded CourseView release with hourly refresh and offline stale fallback."""
+    gid = int(global_id)
+    with _release_lock(gid, root):
+        # Re-read inside the per-course lock: another package/topo request may just have refreshed
+        # the same release while this caller was waiting. This prevents 18 concurrent hole requests
+        # from issuing 18 Garmin fetches or sharing one temporary output path.
+        path = _courseview_dir(root) / f"{gid}_releases.pb"
+        cached_info: dict | None = None
+        stale = True
+        if path.exists():
+            try:
+                pb = path.read_bytes()
+                cached_info = inspect_valid_release(pb, expected_course_id=gid)
+                stale = time.time() - path.stat().st_mtime > COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S
+            except (OSError, ValueError):
+                stale = True
+        if allow_fetch and (stale or cached_info is None):
+            try:
+                candidate = load_release_pb(gid, True)  # live fetch (anonymous)
+                info = inspect_valid_release(candidate, expected_course_id=gid)
+            except Exception:
+                return cached_info  # offline: the last complete release remains usable
+            _atomic_write_bytes(path, candidate)
+            return info
+        return cached_info
+
+
+def courseview_release_info(
+    global_id: int,
+    *,
+    allow_fetch: bool = True,
+    root: Path = ROOT,
+) -> dict | None:
+    """Public cache-first CourseView release metadata for map-package consumers.
+
+    The lightweight ``courseData`` URL is versioned by the release's
+    ``release_version`` (Garmin's ``BuildId``).  Keeping that lookup here makes
+    release bytes, Tee names and lightweight maps share one cached authority
+    instead of each subsystem inventing its own catalogue state.
+    """
+    return _release_info(global_id, allow_fetch=allow_fetch, root=root)
+
+
 def _release_holes(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> list[dict] | None:
     """Per-hole records from the CourseView release protobuf (cache-first, then fetch+cache)."""
-    gid = int(global_id)
-    path = _courseview_dir(root) / f"{gid}_releases.pb"
-    if path.exists():
-        pb = path.read_bytes()
-    elif allow_fetch:
+    info = _release_info(global_id, allow_fetch=allow_fetch, root=root)
+    return (info or {}).get("holes") or None
+
+
+def courseview_tees(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> list[dict]:
+    """Garmin's real MEN tee rows, preserving each release ``index`` used by geometry ``sets``."""
+    info = _release_info(global_id, allow_fetch=allow_fetch, root=root)
+    rows = (info or {}).get("tees") or []
+    men = [row for row in rows if str(row.get("gender") or "").upper() == "MEN"]
+    selected = men or rows
+    result: list[dict] = []
+    for row in selected:
+        name = str(row.get("name") or "").strip()
         try:
-            pb = load_release_pb(gid, True)  # live fetch (anonymous)
-        except Exception:
-            return None
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(pb)
-    else:
-        return None
-    try:
-        return inspect_release(pb).get("holes") or None
-    except Exception:
-        return None
+            index = int(row.get("index"))
+        except (TypeError, ValueError):
+            continue
+        if name and index > 0:
+            result.append({
+                "name": name,
+                "gender": str(row.get("gender") or ""),
+                "index": index,
+                "slopeRating": row.get("slope_rating"),
+                "courseRating": row.get("course_rating"),
+            })
+    return sorted(result, key=lambda row: row["index"])
 
 
 def courseview_par(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> list[int] | None:

@@ -1,0 +1,909 @@
+name: Watch Runtime Visual Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      runtime_scope:
+        description: Runtime evidence scope
+        type: choice
+        required: true
+        default: full
+        options:
+          - full
+          - setup-visual
+          - real-course-visual
+          - recovery-only
+          - web-only
+      api_base_url:
+        description: Optional public API origin shared by Watch and Web evidence
+        type: string
+        required: false
+        default: ''
+      backend_revision:
+        description: Expected deployed backend Git revision (40 hex characters); falls back to protected AI_CADDIE_BACKEND_REVISION
+        type: string
+        required: false
+        default: ''
+      review_round_ref:
+        description: Optional exact Garmin round reference for deterministic Web review evidence
+        type: string
+        required: false
+        default: ''
+  # The workflow is new on this branch, so GitHub cannot dispatch it until it reaches the default
+  # branch. Keep the current implementation branch self-testing while the runtime check is built.
+  push:
+    branches:
+      - feature/lean-product-delivery
+    paths:
+      - '.github/workflows/watch-runtime.yml'
+      - '.github/scripts/preflight_live_course_catalogue.py'
+      - '.github/scripts/scan_artifacts_for_secrets.py'
+      - 'mobile/ios/AICaddieWatch/**'
+      - 'mobile/ios/AICaddieWatchTests/**'
+      - 'mobile/ios/project.yml'
+
+concurrency:
+  group: ai-caddie-watch-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  watch-runtime:
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.runtime_scope != 'web-only'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate native project
+        run: xcodegen generate --spec mobile/ios/project.yml --project-root .
+
+      - name: Resolve approved 45mm Watch simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          WATCH_NAME="Apple Watch Series 9 (45mm)"
+          WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
+            [.devices | to_entries[]
+              | .key as $runtime
+              | .value[]
+              | select(.isAvailable == true and .name == "Apple Watch Series 9 (45mm)")
+              | {
+                  udid: .udid,
+                  runtime: $runtime,
+                  version: ($runtime
+                    | capture("watchOS-(?<major>[0-9]+)-(?<minor>[0-9]+)")
+                    | [(.major | tonumber), (.minor | tonumber)])
+                }]
+            | sort_by(.version)
+            | first')
+
+          # GitHub's macOS image does not instantiate every supported device. Create the exact
+          # 396x484 Series 9 canvas used by the approved renders when only newer Watches are listed.
+          if [[ "$WATCH_DEVICE" == "null" ]]; then
+            WATCH_TYPE_ID=$(xcrun simctl list devicetypes -j | jq -er \
+              --arg name "$WATCH_NAME" \
+              '[.devicetypes[] | select(.name == $name) | .identifier] | first')
+            WATCH_RUNTIME=$(xcrun simctl list runtimes available -j | jq -er '
+              [.runtimes[]
+                | select(.isAvailable == true)
+                | select(.identifier | contains(".watchOS-"))
+                | {
+                    identifier: .identifier,
+                    version: (.version | split(".") | map(tonumber))
+                  }]
+              | sort_by(.version)
+              | first
+              | .identifier')
+            WATCH_UDID=$(xcrun simctl create "AI Caddie Visual 45mm" "$WATCH_TYPE_ID" "$WATCH_RUNTIME")
+            WATCH_DEVICE=$(jq -cn \
+              --arg udid "$WATCH_UDID" \
+              --arg runtime "$WATCH_RUNTIME" \
+              '{udid: $udid, runtime: $runtime}')
+          fi
+
+          test "$WATCH_DEVICE" != "null"
+          WATCH_UDID=$(jq -r .udid <<< "$WATCH_DEVICE")
+          WATCH_RUNTIME=$(jq -r .runtime <<< "$WATCH_DEVICE")
+          echo "WATCH_UDID=$WATCH_UDID" >> "$GITHUB_ENV"
+          echo "WATCH_RUNTIME=$WATCH_RUNTIME" >> "$GITHUB_ENV"
+          echo "Diagnostic device: $WATCH_RUNTIME / $WATCH_UDID"
+
+      - name: Boot resolved Watch simulator
+        run: |
+          set -euo pipefail
+          xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$WATCH_UDID" -b
+
+      - name: Test Watch app on the resolved simulator
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieWatch \
+            -destination "platform=watchOS Simulator,id=$WATCH_UDID"
+
+      - name: Collect Watch design snapshots
+        if: always()
+        run: |
+          mkdir -p watch-design-snapshots
+          find ~/Library/Developer/CoreSimulator \
+            -path "*Documents/watch-snapshots/*.png" \
+            -exec cp {} watch-design-snapshots/ \; 2>/dev/null || true
+          ls -la watch-design-snapshots
+
+      - name: Scan Watch design snapshots for secret bytes
+        id: scan_watch_design_snapshots
+        if: always()
+        env:
+          ARTIFACT_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
+        run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_PLAYER_TOKEN watch-design-snapshots
+
+      - name: Upload Watch design snapshots
+        if: always() && steps.scan_watch_design_snapshots.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: watch-design-snapshots
+          path: watch-design-snapshots/
+          if-no-files-found: warn
+
+      - name: Build Watch app for the resolved simulator
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieWatch \
+            -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/WatchDerivedData"
+
+      - name: Capture compact 41mm runtime boundaries
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/WatchDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
+          BID=com.ai-caddie.mobile.watchkitapp
+          test -d "$APP"
+
+          # ImageRenderer does not lay out ScrollView/List content on watchOS, so a generated PNG can
+          # be blank while its XCTest still passes. Exercise the longest normal copy in a real small
+          # Watch runtime instead; 41mm Series 7/8/9 all use the 352x430 physical screenshot canvas.
+          COMPACT_DEVICE=$(xcrun simctl list devices available -j | jq -r \
+            --arg runtime "$WATCH_RUNTIME" '
+              [.devices[$runtime][]?
+                | select(.isAvailable == true)
+                | select(.name == "Apple Watch Series 9 (41mm)"
+                    or .name == "Apple Watch Series 8 (41mm)"
+                    or .name == "Apple Watch Series 7 (41mm)")
+                | .udid]
+              | first // empty')
+          if [[ -z "$COMPACT_DEVICE" ]]; then
+            COMPACT_TYPE=$(xcrun simctl list devicetypes -j | jq -er '
+              [.devicetypes[]
+                | select(.name == "Apple Watch Series 9 (41mm)"
+                    or .name == "Apple Watch Series 8 (41mm)"
+                    or .name == "Apple Watch Series 7 (41mm)")]
+              | first
+              | .identifier')
+            COMPACT_DEVICE=$(xcrun simctl create \
+              "AI Caddie Compact 41mm" "$COMPACT_TYPE" "$WATCH_RUNTIME")
+          fi
+
+          xcrun simctl boot "$COMPACT_DEVICE" 2>/dev/null || true
+          xcrun simctl bootstatus "$COMPACT_DEVICE" -b
+          xcrun simctl uninstall "$COMPACT_DEVICE" "$BID" 2>/dev/null || true
+          xcrun simctl install "$COMPACT_DEVICE" "$APP"
+          mkdir -p watch-runtime-artifacts
+
+          capture_compact() {
+            local mode="$1"
+            local screenshot="$2"
+            xcrun simctl launch "$COMPACT_DEVICE" "$BID" -uitest-screen "$mode" \
+              | tee "watch-runtime-artifacts/launch-$mode-41mm.txt"
+            if [[ "$mode" == "standalone-course-seed" ]]; then
+              local app_container=""
+              for _ in $(seq 1 30); do
+                app_container=$(xcrun simctl get_app_container "$COMPACT_DEVICE" "$BID" data 2>/dev/null || true)
+                test -s "$app_container/Documents/watch-round/round.json" && break
+                sleep 1
+              done
+              test -s "$app_container/Documents/watch-round/round.json"
+              sleep 1
+            else
+              sleep 3
+            fi
+            xcrun simctl io "$COMPACT_DEVICE" screenshot \
+              "watch-runtime-artifacts/$screenshot"
+            test "$(sips -g pixelWidth "watch-runtime-artifacts/$screenshot" \
+              | awk '/pixelWidth/{print $2}')" = "352"
+            test "$(sips -g pixelHeight "watch-runtime-artifacts/$screenshot" \
+              | awk '/pixelHeight/{print $2}')" = "430"
+            # A successful terminate also proves that this long-copy surface remained alive.
+            xcrun simctl terminate "$COMPACT_DEVICE" "$BID"
+          }
+
+          capture_compact compact-holemap-long-copy compact-41mm-holemap-long-copy.png
+          capture_compact standalone-course-seed compact-41mm-hole-root.png
+          capture_compact standalone-course-near-green compact-41mm-near-green.png
+          capture_compact standalone-course-touch-target compact-41mm-touch-target.png
+          capture_compact standalone-course-view-green compact-41mm-view-green.png
+          capture_compact standalone-course-view-green-max compact-41mm-view-green-max.png
+          capture_compact standalone-course-view-green-moved compact-41mm-view-green-moved.png
+          if cmp -s watch-runtime-artifacts/compact-41mm-view-green.png \
+            watch-runtime-artifacts/compact-41mm-view-green-moved.png; then
+            echo "::error::41mm moved-flag evidence is identical to the canonical flag"
+            exit 1
+          fi
+          capture_compact standalone-course-view-green-rotated compact-41mm-view-green-rotated.png
+          capture_compact standalone-course-pin-root compact-41mm-pin-root.png
+          capture_compact standalone-course-pin-touch-target compact-41mm-pin-touch-target.png
+          capture_compact standalone-course-caddie compact-41mm-caddie.png
+          capture_compact standalone-course-hazards compact-41mm-hazard.png
+          capture_compact menu compact-41mm-menu.png
+          capture_compact compact-score-fairway compact-41mm-score-fairway.png
+          capture_compact compact-club-prompt compact-41mm-club-prompt.png
+          capture_compact compact-finish compact-41mm-finish.png
+          capture_compact finish-actions compact-41mm-finish-actions.png
+          capture_compact compact-home compact-41mm-home-long-course.png
+          xcrun simctl shutdown "$COMPACT_DEVICE"
+
+      - name: Capture Apple Watch Ultra 49mm lifecycle boundaries
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/WatchDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
+          BID=com.ai-caddie.mobile.watchkitapp
+          test -d "$APP"
+
+          ULTRA_DEVICE=$(xcrun simctl list devices available -j | jq -r \
+            --arg runtime "$WATCH_RUNTIME" '
+              [.devices[$runtime][]?
+                | select(.isAvailable == true)
+                | select(.name == "Apple Watch Ultra 2 (49mm)"
+                    or .name == "Apple Watch Ultra (49mm)")
+                | .udid]
+              | first // empty')
+          if [[ -z "$ULTRA_DEVICE" ]]; then
+            ULTRA_TYPE=$(xcrun simctl list devicetypes -j | jq -er '
+              [.devicetypes[]
+                | select(.name == "Apple Watch Ultra 2 (49mm)"
+                    or .name == "Apple Watch Ultra (49mm)")]
+              | first
+              | .identifier')
+            ULTRA_DEVICE=$(xcrun simctl create \
+              "AI Caddie Ultra 49mm" "$ULTRA_TYPE" "$WATCH_RUNTIME")
+          fi
+
+          xcrun simctl boot "$ULTRA_DEVICE" 2>/dev/null || true
+          xcrun simctl bootstatus "$ULTRA_DEVICE" -b
+          xcrun simctl uninstall "$ULTRA_DEVICE" "$BID" 2>/dev/null || true
+          xcrun simctl install "$ULTRA_DEVICE" "$APP"
+          mkdir -p watch-runtime-artifacts
+
+          capture_ultra() {
+            local mode="$1"
+            local screenshot="$2"
+            xcrun simctl launch "$ULTRA_DEVICE" "$BID" -uitest-screen "$mode" \
+              | tee "watch-runtime-artifacts/launch-$mode-ultra-49mm.txt"
+            if [[ "$mode" == "standalone-course-seed" ]]; then
+              local app_container=""
+              for _ in $(seq 1 30); do
+                app_container=$(xcrun simctl get_app_container "$ULTRA_DEVICE" "$BID" data 2>/dev/null || true)
+                test -s "$app_container/Documents/watch-round/round.json" && break
+                sleep 1
+              done
+              test -s "$app_container/Documents/watch-round/round.json"
+              sleep 1
+            else
+              sleep 3
+            fi
+            xcrun simctl io "$ULTRA_DEVICE" screenshot \
+              "watch-runtime-artifacts/$screenshot"
+            test "$(sips -g pixelWidth "watch-runtime-artifacts/$screenshot" \
+              | awk '/pixelWidth/{print $2}')" = "410"
+            test "$(sips -g pixelHeight "watch-runtime-artifacts/$screenshot" \
+              | awk '/pixelHeight/{print $2}')" = "502"
+            xcrun simctl terminate "$ULTRA_DEVICE" "$BID"
+          }
+
+          capture_ultra score-recommendation ultra-49mm-score-recommendation.png
+          capture_ultra score-penalty ultra-49mm-score-penalty.png
+          capture_ultra gps-acquiring ultra-49mm-gps-acquiring.png
+          capture_ultra compact-holemap-long-copy ultra-49mm-holemap.png
+          capture_ultra standalone-course-seed ultra-49mm-hole-root.png
+          capture_ultra standalone-course-near-green ultra-49mm-near-green.png
+          capture_ultra standalone-course-touch-target ultra-49mm-touch-target.png
+          capture_ultra standalone-course-view-green ultra-49mm-view-green.png
+          capture_ultra standalone-course-view-green-max ultra-49mm-view-green-max.png
+          capture_ultra standalone-course-view-green-moved ultra-49mm-view-green-moved.png
+          if cmp -s watch-runtime-artifacts/ultra-49mm-view-green.png \
+            watch-runtime-artifacts/ultra-49mm-view-green-moved.png; then
+            echo "::error::49mm moved-flag evidence is identical to the canonical flag"
+            exit 1
+          fi
+          capture_ultra standalone-course-view-green-rotated ultra-49mm-view-green-rotated.png
+          capture_ultra standalone-course-pin-root ultra-49mm-pin-root.png
+          capture_ultra standalone-course-pin-touch-target ultra-49mm-pin-touch-target.png
+          capture_ultra standalone-course-caddie ultra-49mm-caddie.png
+          capture_ultra standalone-course-hazards ultra-49mm-hazard.png
+          capture_ultra menu ultra-49mm-menu.png
+          capture_ultra finish-actions ultra-49mm-finish-actions.png
+          capture_ultra finish-confirmation ultra-49mm-finish-confirmation.png
+          capture_ultra resume-round ultra-49mm-resume-round.png
+          capture_ultra resume-round-fresh ultra-49mm-resume-round-fresh.png
+          capture_ultra abandon-confirmation ultra-49mm-abandon-confirmation.png
+          xcrun simctl shutdown "$ULTRA_DEVICE"
+
+      - name: Preflight live course discovery
+        if: >-
+          github.event_name != 'workflow_dispatch'
+          || (github.event.inputs.runtime_scope != 'setup-visual'
+              && github.event.inputs.runtime_scope != 'recovery-only')
+        env:
+          AI_CADDIE_PREFLIGHT_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          AI_CADDIE_PREFLIGHT_AUTH_MODE: bearer
+          AI_CADDIE_PREFLIGHT_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
+          AI_CADDIE_PREFLIGHT_SEARCH_NAME: Cypress Point
+          AI_CADDIE_PREFLIGHT_NEARBY_GID: '31793'
+          AI_CADDIE_PREFLIGHT_SEARCH_GID: '3881'
+          AI_CADDIE_PREFLIGHT_APP_REVISION: ${{ github.sha }}
+          AI_CADDIE_PREFLIGHT_EXPECTED_REVISION: ${{ github.event.inputs.backend_revision || vars.AI_CADDIE_BACKEND_REVISION || '' }}
+        run: python3 .github/scripts/preflight_live_course_catalogue.py
+
+      - name: Seed and restore a real Watch round
+        env:
+          REAL_COURSE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          REAL_COURSE_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
+          WATCH_RUNTIME_SCOPE: ${{ github.event.inputs.runtime_scope || 'full' }}
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/WatchDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
+          BID=com.ai-caddie.mobile.watchkitapp
+          test -d "$APP"
+          # Unit tests host the real app and can leave watchOS's location sheet open. Reset the
+          # simulator at this boundary so runtime screenshots start from a clean device.
+          xcrun simctl shutdown "$WATCH_UDID" 2>/dev/null || true
+          xcrun simctl erase "$WATCH_UDID"
+          xcrun simctl boot "$WATCH_UDID"
+          xcrun simctl bootstatus "$WATCH_UDID" -b
+          xcrun simctl uninstall "$WATCH_UDID" "$BID" 2>/dev/null || true
+          xcrun simctl install "$WATCH_UDID" "$APP"
+          # watchOS 11.5 can apply the location authorization successfully and still make
+          # `simctl privacy` return 1. Do not let that simulator-only exit code suppress the
+          # real runtime gates below; they still fail if the app cannot reach its GPS-backed state.
+          if ! xcrun simctl privacy "$WATCH_UDID" grant location "$BID"; then
+            echo "::warning::simctl privacy returned non-zero; continuing to the runtime GPS gate"
+          fi
+          mkdir -p watch-runtime-artifacts
+          JOURNEY_ROUND_ID=""
+
+          if [[ "$WATCH_RUNTIME_SCOPE" != "setup-visual" \
+                && "$WATCH_RUNTIME_SCOPE" != "recovery-only" ]]; then
+            test "${#REAL_COURSE_PLAYER_TOKEN}" -ge 32
+            test "$REAL_COURSE_PLAYER_TOKEN" != "-"
+          fi
+
+          launch_and_capture() {
+            local mode="$1"
+            local screenshot="$2"
+            local expected_hole="${3:-}"
+            local expected_scored="${4:-}"
+            local launch_output
+            local marker=""
+            local failed_marker=""
+            if [[ "$mode" == "real-course-download-seed" ]]; then
+              marker="real-course-download-ready"
+              failed_marker="real-course-download-failed"
+              test -n "$REAL_COURSE_PLAYER_TOKEN"
+              if ! launch_output=$(env \
+                SIMCTL_CHILD_UITEST_GPS_LAT=40.0454995 \
+                SIMCTL_CHILD_UITEST_GPS_LON=116.5461531 \
+                SIMCTL_CHILD_AI_CADDIE_API_BASE_URL="$REAL_COURSE_API_BASE_URL" \
+                SIMCTL_CHILD_AI_CADDIE_PLAYER_TOKEN="$REAL_COURSE_PLAYER_TOKEN" \
+                xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$mode" 2>&1); then
+                printf '%s\n' "$launch_output"
+                exit 1
+              fi
+            else
+              if [[ "$mode" == "real-course-download-restore" \
+                    || "$mode" == "real-course-download-caddie" \
+                    || "$mode" == "real-course-map-measured" \
+                    || "$mode" == "real-course-view-green" ]]; then
+                marker="real-course-offline-ready"
+                failed_marker="real-course-offline-failed"
+              elif [[ "$mode" == "real-course-hazard-map" ]]; then
+                marker="real-course-hazard-ready"
+                failed_marker="real-course-hazard-failed"
+              elif [[ "$mode" == "real-course-hazard-mid-map" ]]; then
+                marker="real-course-hazard-mid-ready"
+                failed_marker="real-course-hazard-mid-failed"
+              elif [[ "$mode" == real-course-journey-* ]]; then
+                marker="real-course-journey-ready"
+                failed_marker="real-course-journey-failed"
+              elif [[ "$mode" == "runtime-cancel-seed" || "$mode" == "runtime-cancel-recovery" ]]; then
+                marker="runtime-cancel-ready"
+                failed_marker="runtime-harness-failed"
+              elif [[ "$mode" == "runtime-abandon-seed" || "$mode" == "runtime-abandon-confirm" || "$mode" == "runtime-abandon-restore" ]]; then
+                marker="runtime-abandon-ready"
+                failed_marker="runtime-harness-failed"
+              fi
+              if [ -n "$marker" ]; then
+                local existing_container
+                existing_container=$(xcrun simctl get_app_container "$WATCH_UDID" "$BID" data)
+                rm -f \
+                  "$existing_container/Documents/$marker" \
+                  "$existing_container/Documents/$failed_marker"
+              fi
+              local -a launch_env=(
+                "SIMCTL_CHILD_UITEST_GPS_LAT=40.0454995"
+                "SIMCTL_CHILD_UITEST_GPS_LON=116.5461531"
+                "SIMCTL_CHILD_UITEST_JOURNEY_EXPECTED_HOLE=$expected_hole"
+                "SIMCTL_CHILD_UITEST_JOURNEY_EXPECTED_SCORED=$expected_scored"
+              )
+              if [[ "$mode" == "real-course-journey-finish-confirm" ]]; then
+                test -n "$REAL_COURSE_PLAYER_TOKEN"
+                launch_env+=(
+                  "SIMCTL_CHILD_AI_CADDIE_API_BASE_URL=$REAL_COURSE_API_BASE_URL"
+                  "SIMCTL_CHILD_AI_CADDIE_PLAYER_TOKEN=$REAL_COURSE_PLAYER_TOKEN"
+                )
+              fi
+              if ! launch_output=$(env "${launch_env[@]}" \
+                xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$mode" 2>&1); then
+                printf '%s\n' "$launch_output"
+                exit 1
+              fi
+            fi
+            if [ -z "$launch_output" ]; then
+              echo "Watch launch returned no output for $mode"
+            fi
+            if [ -n "$marker" ]; then
+              local app_container=""
+              for _ in $(seq 1 180); do
+                app_container=$(xcrun simctl get_app_container "$WATCH_UDID" "$BID" data 2>/dev/null || true)
+                if test -f "$app_container/Documents/$failed_marker"; then
+                  echo "real course runtime failed: $failed_marker"
+                  cat "$app_container/Documents/$failed_marker" || true
+                  exit 1
+                fi
+                if test -f "$app_container/Documents/$marker"; then
+                  break
+                fi
+                sleep 5
+              done
+              test -f "$app_container/Documents/$marker"
+              # The marker records that production state is ready; SwiftUI may still be committing
+              # the first frame (the focused hazard Canvas is the slowest surface). Give that frame
+              # a short settle window so a successful state transition cannot yield a black image.
+              sleep 2
+              if [[ "$mode" == real-course-journey-* ]]; then
+                local evidence_file="$app_container/Documents/$marker"
+                local actual_round_id actual_hole actual_scored
+                actual_round_id=$(sed -n 's/^round_id=//p' "$evidence_file")
+                actual_hole=$(sed -n 's/^active_hole=//p' "$evidence_file")
+                actual_scored=$(sed -n 's/^scored_holes=//p' "$evidence_file")
+                test -n "$actual_round_id"
+                test "$actual_hole" = "$expected_hole"
+                test "$actual_scored" = "$expected_scored"
+                grep -qx 'global_id=3881' "$evidence_file"
+                grep -qx 'hole_count=18' "$evidence_file"
+                grep -qx 'mapped_holes=18' "$evidence_file"
+                if [ -z "$JOURNEY_ROUND_ID" ]; then
+                  JOURNEY_ROUND_ID="$actual_round_id"
+                else
+                  test "$actual_round_id" = "$JOURNEY_ROUND_ID"
+                fi
+                cp "$evidence_file" \
+                  "watch-runtime-artifacts/${screenshot%.png}-evidence.txt"
+                if [[ "$mode" == "real-course-journey-finish-confirm" ]]; then
+                  grep -qx 'stage=finish-confirmed' "$evidence_file"
+                  grep -qx 'pending_uploads_before=57' "$evidence_file"
+                  grep -qx 'pending_uploads=0' "$evidence_file"
+                  grep -qx 'persisted_round_after=absent' "$evidence_file"
+                  grep -qx 'deferred_finishes_after=0' "$evidence_file"
+                  grep -qx 'closure_disposition=finished' "$evidence_file"
+                  grep -qx 'screen_after=home' "$evidence_file"
+                  grep -qx 'remote_finish=success' "$evidence_file"
+                  test ! -f "$app_container/Documents/watch-round/round.json"
+                  test ! -f "$app_container/Documents/watch-round/deferred-finishes.json"
+                fi
+              elif [[ "$mode" == "runtime-cancel-seed" ]]; then
+                grep -qx 'stage=seeded' "$app_container/Documents/$marker"
+                grep -qx 'round_id=ci-runtime-cancel-recovery-round' "$app_container/Documents/$marker"
+                grep -qx 'active_hole=1' "$app_container/Documents/$marker"
+                grep -qx 'persisted_round=present' "$app_container/Documents/$marker"
+              elif [[ "$mode" == "runtime-cancel-recovery" ]]; then
+                grep -qx 'stage=cancel-recovery' "$app_container/Documents/$marker"
+                grep -qx 'round_id=ci-runtime-cancel-recovery-round' "$app_container/Documents/$marker"
+                grep -qx 'active_hole=1' "$app_container/Documents/$marker"
+                grep -qx 'candidate_before_hole=2' "$app_container/Documents/$marker"
+                grep -qx 'candidate_before_from_hole=1' "$app_container/Documents/$marker"
+                grep -qx 'pending_shot_hole=1' "$app_container/Documents/$marker"
+                grep -qx 'candidate_from_hole=none' "$app_container/Documents/$marker"
+                grep -qx 'shot_type=recovery' "$app_container/Documents/$marker"
+                grep -qx 'screen_after=home' "$app_container/Documents/$marker"
+                grep -qx 'recovery_location_event=true' "$app_container/Documents/$marker"
+                grep -qx 'pending_shot_after=none' "$app_container/Documents/$marker"
+                grep -qx 'recovery=true' "$app_container/Documents/$marker"
+              elif [[ "$mode" == "runtime-abandon-seed" ]]; then
+                grep -qx 'stage=seeded' "$app_container/Documents/$marker"
+                grep -qx 'round_id=ci-runtime-abandon-recovery-round' "$app_container/Documents/$marker"
+                grep -qx 'active_hole=1' "$app_container/Documents/$marker"
+                grep -qx 'persisted_round=present' "$app_container/Documents/$marker"
+              elif [[ "$mode" == "runtime-abandon-confirm" ]]; then
+                grep -qx 'stage=abandon-confirmation' "$app_container/Documents/$marker"
+                grep -qx 'round_id=ci-runtime-abandon-recovery-round' "$app_container/Documents/$marker"
+                grep -qx 'persisted_round=present' "$app_container/Documents/$marker"
+                grep -qx 'screen_after=abandonConfirmation' "$app_container/Documents/$marker"
+              elif [[ "$mode" == "runtime-abandon-restore" ]]; then
+                grep -qx 'stage=abandon-confirmed-after-relaunch' "$app_container/Documents/$marker"
+                grep -qx 'round_id=ci-runtime-abandon-recovery-round' "$app_container/Documents/$marker"
+                grep -qx 'persisted_round_after=absent' "$app_container/Documents/$marker"
+                grep -qx 'deferred_finishes_after=0' "$app_container/Documents/$marker"
+                grep -qx 'closure_disposition=abandoned' "$app_container/Documents/$marker"
+                grep -qx 'screen_after=home' "$app_container/Documents/$marker"
+                test ! -f "$app_container/Documents/watch-round/round.json"
+                grep -qx 'stale_seed_rejected=true' "$app_container/Documents/$marker"
+              fi
+              if [[ "$mode" == runtime-cancel-* || "$mode" == runtime-abandon-* ]]; then
+                cp "$app_container/Documents/$marker" \
+                  "watch-runtime-artifacts/${screenshot%.png}-evidence.txt"
+              fi
+            else
+              sleep 5
+            fi
+            printf '%s\n' "$launch_output" | tee "watch-runtime-artifacts/launch-$mode.txt"
+            xcrun simctl io "$WATCH_UDID" screenshot "watch-runtime-artifacts/$screenshot"
+            # Visual approval is locked to the same 45mm canvas as the 396px-wide reference set.
+            # A compatible 42/46/49mm build may still pass tests, but cannot adjudicate pixel parity.
+            test "$(sips -g pixelWidth "watch-runtime-artifacts/$screenshot" | awk '/pixelWidth/{print $2}')" = "396"
+            test "$(sips -g pixelHeight "watch-runtime-artifacts/$screenshot" | awk '/pixelHeight/{print $2}')" = "484"
+            # A successful terminate proves the app was still running when the screenshot was taken.
+            xcrun simctl terminate "$WATCH_UDID" "$BID"
+          }
+
+          run_runtime_recovery() {
+            # Stateful W1 recovery gates on the authoritative 45mm simulator. Each mode is a separate
+            # process so the assertions cover persisted model/store state after relaunch.
+            # Deferred-finish network failure/retry remains unit-only: this workflow does not invent a
+            # fake network response or alter the production client configuration.
+            launch_and_capture runtime-cancel-seed watch-runtime-cancel-seeded.png
+            launch_and_capture runtime-cancel-recovery watch-runtime-cancel-recovered.png
+            launch_and_capture runtime-abandon-seed watch-runtime-abandon-seeded.png
+            launch_and_capture runtime-abandon-confirm watch-runtime-abandon-confirmation.png
+            launch_and_capture runtime-abandon-restore watch-runtime-abandon-recovered.png
+          }
+
+          launch_and_capture standalone-course-seed watch-standalone-course-seeded.png
+          # No reinstall, network, phone seed, or second course write: load the persisted round + map.
+          launch_and_capture standalone-course-restore watch-standalone-course-restored.png
+          launch_and_capture standalone-course-map-zoom watch-standalone-course-map-zoom.png
+          # The home hub must prefer the Watch's live center-green distance over static tee length.
+          launch_and_capture standalone-course-live-home watch-standalone-course-live-home.png
+          # Hole Root near the green remains a contextual fairway map; View Green is a separate flag tool.
+          launch_and_capture standalone-course-near-green watch-standalone-course-near-green.png
+          launch_and_capture standalone-course-touch-target watch-standalone-course-touch-target.png
+          launch_and_capture standalone-course-view-green watch-standalone-course-view-green.png
+          launch_and_capture standalone-course-view-green-max watch-standalone-course-view-green-max.png
+          launch_and_capture standalone-course-view-green-moved watch-standalone-course-view-green-moved.png
+          if cmp -s watch-runtime-artifacts/watch-standalone-course-view-green.png \
+            watch-runtime-artifacts/watch-standalone-course-view-green-moved.png; then
+            echo "::error::45mm moved-flag evidence is identical to the canonical flag"
+            exit 1
+          fi
+          launch_and_capture standalone-course-view-green-rotated watch-standalone-course-view-green-rotated.png
+          launch_and_capture standalone-course-pin-root watch-standalone-course-pin-root.png
+          launch_and_capture standalone-course-pin-touch-target watch-standalone-course-pin-touch-target.png
+          # The same persisted production hole state drives the shallow caddie and hazard surfaces.
+          launch_and_capture standalone-course-caddie watch-standalone-course-caddie.png
+          launch_and_capture standalone-course-hazards watch-standalone-course-hazards.png
+          # A recorded shot origin plus a later Watch fix drives the same live distance on both surfaces.
+          launch_and_capture standalone-course-last-shot watch-standalone-course-last-shot.png
+          launch_and_capture standalone-course-caddie-last-shot watch-standalone-course-caddie-last-shot.png
+          # The same persisted production course store must still advertise the course as downloaded.
+          launch_and_capture course-picker watch-course-picker.png
+          launch_and_capture course-setup watch-course-setup.png
+          # Full-catalogue discovery remains explicit; a selected remote result loads real tee rows.
+          launch_and_capture course-search-results watch-course-search-results.png
+          launch_and_capture course-remote-setup watch-course-remote-setup.png
+          # Missing wrist GPS must render the frozen acquiring state through the production container;
+          # prepared Tee distances are deliberately present in the seed but must remain hidden.
+          launch_and_capture interaction-gps-acquiring watch-gps-acquiring-runtime.png
+          launch_and_capture always-on-distance watch-always-on-distance-runtime.png
+          launch_and_capture distance-hero-big watch-distance-hero-big-runtime.png
+          launch_and_capture distance-hero-fallback watch-distance-hero-fallback-runtime.png
+          launch_and_capture menu watch-menu-shot-list.png
+          # The approved score surface is now the owner-confirmed recommendation-first sequence.
+          # Capture every visible step in a running Watch app instead of relying only on ImageRenderer.
+          launch_and_capture score-recommendation watch-score-recommendation-runtime.png
+          launch_and_capture score-next-tee-candidate watch-score-next-tee-candidate-runtime.png
+          launch_and_capture score-total watch-score-total-runtime.png
+          launch_and_capture score-putts watch-score-putts-runtime.png
+          launch_and_capture score-fairway watch-score-fairway-runtime.png
+          launch_and_capture score-penalty watch-score-penalty-runtime.png
+          launch_and_capture scorecard watch-scorecard-runtime.png
+          launch_and_capture hole-select watch-hole-select-runtime.png
+          launch_and_capture interaction-club-stats watch-club-stats-runtime.png
+          launch_and_capture interaction-settings watch-settings-runtime.png
+          launch_and_capture interaction-flag-direction watch-flag-direction-runtime.png
+          launch_and_capture finish watch-round-finish.png
+          # All lifecycle choices must remain visible without pushing the score through the rounded
+          # top edge. Keep a separate boundary capture so that regression is visible in artifacts.
+          launch_and_capture finish-actions watch-round-finish-actions.png
+          launch_and_capture finish-confirmation watch-finish-confirmation-runtime.png
+          if [[ "$WATCH_RUNTIME_SCOPE" == "setup-visual" ]]; then
+            # Production model + container evidence for the club prompt, without starting the
+            # credentialed real-course journey or writing a remote score.
+            launch_and_capture interaction-club-seed watch-club-prompt-runtime.png
+            swift mobile/ios/scripts/verify_watch_aod_geometry.swift \
+              watch-runtime-artifacts/watch-always-on-distance-runtime.png
+            echo "Setup and club-prompt visual evidence complete; skipping real-course and score-writing journey."
+            exit 0
+          fi
+          if [[ "$WATCH_RUNTIME_SCOPE" == "recovery-only" ]]; then
+            run_runtime_recovery
+            swift mobile/ios/scripts/verify_watch_aod_geometry.swift \
+              watch-runtime-artifacts/watch-always-on-distance-runtime.png
+            echo "Stateful recovery evidence complete; skipping credentialed real-course and score-writing journey."
+            exit 0
+          fi
+          swift mobile/ios/scripts/verify_watch_aod_geometry.swift \
+            watch-runtime-artifacts/watch-always-on-distance-runtime.png
+
+          # The isolated CI player must exercise the real prepared-caddie path, not the honest
+          # no-bag fallback. Resolve that player's own id from its bearer, then set an idempotent
+          # measured bag through the production player-scoped API. This never touches the owner.
+          seed_isolated_visual_player_bag() {
+            local overview bag_response
+            overview=$(curl --fail --silent --show-error --retry 3 --retry-all-errors \
+              -H "Authorization: Bearer $REAL_COURSE_PLAYER_TOKEN" \
+              "$REAL_COURSE_API_BASE_URL/api/v2/history/overview")
+            CI_PLAYER_ID=$(jq -er \
+              '.currentPlayer
+                | select(.isOwner == false)
+                | .id
+                | select(type == "string" and length > 0 and . != "me")' \
+              <<< "$overview")
+            [[ "$CI_PLAYER_ID" =~ ^[A-Za-z0-9._-]+$ ]]
+
+            bag_response=$(curl --fail --silent --show-error --retry 3 --retry-all-errors \
+              -X PUT \
+              -H "Authorization: Bearer $REAL_COURSE_PLAYER_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data-binary '{"clubs":[{"token":"driver","distanceM":220},{"token":"wood3","distanceM":200},{"token":"wood5","distanceM":185},{"token":"hybrid4","distanceM":170},{"token":"iron5","distanceM":155},{"token":"iron7","distanceM":140},{"token":"iron8","distanceM":125},{"token":"pw","distanceM":100}]}' \
+              "$REAL_COURSE_API_BASE_URL/api/v2/players/$CI_PLAYER_ID/clubs/bag")
+            jq -e '
+              .found == true and .source == "manual"
+              and ([.clubs[].token]
+                | index("driver") != null
+                and index("wood3") != null
+                and index("iron8") != null)
+            ' <<< "$bag_response" >/dev/null
+          }
+          seed_isolated_visual_player_bag
+
+          # Real production installer: search a new course, fetch its Tee metadata, download package +
+          # prep into the existing course/image store, then terminate before the offline-only restore.
+          launch_and_capture real-course-download-seed watch-real-course-download.png
+          launch_and_capture real-course-download-restore watch-real-course-offline.png
+          # The production-downloaded Cypress package must drive the approved three-plan caddie
+          # screen; a static/demo option list is not acceptable visual evidence for this state.
+          launch_and_capture real-course-download-caddie watch-real-course-caddie.png
+          launch_and_capture real-course-map-measured watch-real-course-map-measured.png
+          launch_and_capture real-course-view-green watch-real-course-view-green.png
+          # Reuse the same offline cache and select its first real hazard-bearing hole. This proves the
+          # map callouts are placed from retained production route data rather than a screenshot fixture.
+          launch_and_capture real-course-hazard-map watch-real-course-hazard-map.png
+          # Move the simulated wrist fix along that same retained route until the first real hazard is
+          # about 120 yards ahead, matching the approved mid-hole hazard-instrument state.
+          launch_and_capture real-course-hazard-mid-map watch-real-course-hazard-mid-map.png
+          if [[ "$WATCH_RUNTIME_SCOPE" == "real-course-visual" ]]; then
+            echo "Real-course visual evidence complete; skipping score-writing journey and Web evidence."
+            exit 0
+          fi
+
+          # One and only one real Cypress Point round now advances through every production-store hole.
+          # Each launch restores the prior round.json; only the start mode is allowed to seed a round.
+          launch_and_capture \
+            real-course-journey-start watch-journey-01-hole-root.png 1 0
+          for completed_hole in $(seq 1 9); do
+            rendered_hole=$((completed_hole + 1))
+            printf -v rendered_label '%02d' "$rendered_hole"
+            launch_and_capture \
+              real-course-journey-advance \
+              "watch-journey-${rendered_label}-hole-root.png" \
+              "$rendered_hole" "$completed_hole"
+          done
+          # This launch performs no mutation: hole 10 and its first nine scores must survive a kill.
+          launch_and_capture \
+            real-course-journey-restore watch-journey-10-restored-root.png 10 9
+          # Editing hole 1 must retain hole 10 as the live-play cursor and the same round identity.
+          launch_and_capture \
+            real-course-journey-history-edit watch-journey-10-after-history-edit.png 10 9
+          for completed_hole in $(seq 10 17); do
+            rendered_hole=$((completed_hole + 1))
+            printf -v rendered_label '%02d' "$rendered_hole"
+            launch_and_capture \
+              real-course-journey-advance \
+              "watch-journey-${rendered_label}-hole-root.png" \
+              "$rendered_hole" "$completed_hole"
+          done
+          launch_and_capture \
+            real-course-journey-advance watch-journey-18-scored-root.png 18 18
+          launch_and_capture \
+            real-course-journey-finish watch-journey-18-finish-summary.png 18 18
+          launch_and_capture \
+            real-course-journey-finish-confirmation \
+            watch-journey-18-finish-confirmation.png 18 18
+          launch_and_capture \
+            real-course-journey-finish-confirm watch-journey-18-finish-confirmed.png 18 18
+
+          # Relaunch without the DEBUG screenshot root. The production app root must now resolve to
+          # WatchStartView because the successfully finished round no longer exists on disk.
+          STANDARD_CONTAINER=$(xcrun simctl get_app_container "$WATCH_UDID" "$BID" data)
+          COURSE_CACHE="$STANDARD_CONTAINER/Documents/watch-courses/courses.json"
+          test -s "$COURSE_CACHE"
+          CYPRESS_LOCATION=$(jq -er '
+            map(select(.option.globalId == 3881))[0].option
+            | select((.latitude | type) == "number" and (.longitude | type) == "number")
+            | select(.latitude >= -90 and .latitude <= 90)
+            | select(.longitude >= -180 and .longitude <= 180)
+            | "\(.latitude)\t\(.longitude)"
+          ' "$COURSE_CACHE")
+          IFS=$'\t' read -r CYPRESS_LAT CYPRESS_LON <<< "$CYPRESS_LOCATION"
+          test -n "$CYPRESS_LAT"
+          test -n "$CYPRESS_LON"
+          printf 'global_id=3881\nlatitude=%s\nlongitude=%s\n' \
+            "$CYPRESS_LAT" "$CYPRESS_LON" \
+            > watch-runtime-artifacts/watch-journey-finished-home-location.txt
+          STANDARD_LAUNCH_OUTPUT=$(env \
+            SIMCTL_CHILD_UITEST_GPS_LAT="$CYPRESS_LAT" \
+            SIMCTL_CHILD_UITEST_GPS_LON="$CYPRESS_LON" \
+            xcrun simctl launch "$WATCH_UDID" "$BID" 2>&1)
+          printf '%s\n' "$STANDARD_LAUNCH_OUTPUT" \
+            | tee watch-runtime-artifacts/launch-watch-journey-finished-home.txt
+          sleep 5
+          test ! -f "$STANDARD_CONTAINER/Documents/watch-round/round.json"
+          xcrun simctl io "$WATCH_UDID" screenshot \
+            watch-runtime-artifacts/watch-journey-finished-home.png
+          xcrun simctl terminate "$WATCH_UDID" "$BID"
+
+          run_runtime_recovery
+
+          launch_and_capture milestone-seed watch-round-seeded.png
+          # Do not reinstall or reseed here: the second process must load the first launch's stored round.
+          launch_and_capture milestone-restore watch-round-resume-gate.png
+          launch_and_capture interaction-club-seed watch-interaction-club-seeded.png
+          launch_and_capture interaction-club-restore watch-interaction-club-resume-gate.png
+          launch_and_capture interaction-score-seed watch-interaction-score-seeded.png
+          launch_and_capture interaction-score-restore watch-interaction-score-resume-gate.png
+          launch_and_capture home watch-round-home.png
+          launch_and_capture caddie-options watch-caddie-options.png
+          launch_and_capture score-recommendation watch-score-recommendation.png
+          launch_and_capture score-total watch-score-total.png
+          launch_and_capture score-putts watch-score-putts.png
+          launch_and_capture score-next-tee-candidate watch-score-next-tee-candidate.png
+          launch_and_capture score-fairway watch-score-fairway.png
+          launch_and_capture score-penalty watch-score-penalty.png
+          launch_and_capture scorecard watch-scorecard.png
+          launch_and_capture hole-select watch-hole-select.png
+          launch_and_capture club-prompt watch-club-prompt.png
+          launch_and_capture autoshot-candidate watch-autoshot-candidate.png
+          launch_and_capture menu watch-menu-autoshot.png
+
+      - name: Collect Watch runtime diagnostics
+        if: always()
+        env:
+          REAL_COURSE_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
+        run: |
+          mkdir -p watch-runtime-artifacts/diagnostics
+          redact_stream() {
+            if [ -n "${REAL_COURSE_PLAYER_TOKEN:-}" ]; then
+              sed "s|$REAL_COURSE_PLAYER_TOKEN|[REDACTED]|g"
+            else
+              cat
+            fi
+          }
+          xcrun simctl list devices available \
+            > watch-runtime-artifacts/diagnostics/devices.txt 2>&1 || true
+          xcrun simctl list pairs \
+            > watch-runtime-artifacts/diagnostics/pairs.txt 2>&1 || true
+          if [ -n "${WATCH_UDID:-}" ]; then
+            xcrun simctl spawn "$WATCH_UDID" log show \
+              --last 10m \
+              --style compact \
+              --predicate 'process == "AICaddieWatch" OR eventMessage CONTAINS[c] "AICaddieWatch" OR eventMessage CONTAINS[c] "com.ai-caddie.mobile.watchkitapp"' \
+              2>&1 | redact_stream > watch-runtime-artifacts/diagnostics/watch.log || true
+            while IFS= read -r -d '' report; do
+              redact_stream < "$report" \
+                > "watch-runtime-artifacts/diagnostics/$(basename "$report")"
+            done < <(find "$HOME/Library/Developer/CoreSimulator/Devices/$WATCH_UDID/data/Library/Logs/CrashReporter" \
+              -type f -iname '*AICaddieWatch*' -print0 2>/dev/null)
+          fi
+          while IFS= read -r -d '' report; do
+            redact_stream < "$report" \
+              > "watch-runtime-artifacts/diagnostics/$(basename "$report")"
+          done < <(find "$HOME/Library/Logs/DiagnosticReports" \
+            -type f -iname '*AICaddieWatch*' -print0 2>/dev/null)
+          find watch-runtime-artifacts -maxdepth 2 -type f -print
+
+      - name: Scan Watch runtime evidence for secret bytes
+        id: scan_watch_runtime_evidence
+        if: always()
+        env:
+          ARTIFACT_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
+        run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_PLAYER_TOKEN watch-runtime-artifacts
+
+      - name: Upload Watch runtime evidence
+        if: always() && steps.scan_watch_runtime_evidence.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: watch-runtime-evidence
+          path: watch-runtime-artifacts/
+          if-no-files-found: error
+
+  web-live-evidence:
+    needs: watch-runtime
+    if: >-
+      always() &&
+      (
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.runtime_scope == 'web-only') ||
+        (
+          needs.watch-runtime.result == 'success' &&
+          (
+            github.event_name != 'workflow_dispatch' ||
+            (github.event.inputs.runtime_scope != 'setup-visual'
+              && github.event.inputs.runtime_scope != 'real-course-visual'
+              && github.event.inputs.runtime_scope != 'recovery-only')
+          )
+        )
+      )
+    runs-on: ubuntu-latest
+    env:
+      AI_CADDIE_CI_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
+      VITE_AI_CADDIE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+      VITE_AI_CADDIE_REQUIRE_LINK: 'true'
+      REVIEW_ROUND_REF: ${{ github.event.inputs.review_round_ref || '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web_v2/package-lock.json
+
+      - name: Install Web dependencies
+        working-directory: web_v2
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: web_v2
+        run: npx playwright install --with-deps chromium
+
+      - name: Capture real Web player evidence
+        working-directory: web_v2
+        run: |
+          set -euo pipefail
+          test -n "$AI_CADDIE_CI_PLAYER_TOKEN"
+          npx playwright test e2e/live-ci-player-evidence.spec.ts \
+            --config=playwright.live.config.ts \
+            --project=desktop-chromium \
+            --reporter=line
+
+      - name: Scan real Web evidence for secret bytes
+        id: scan_web_live_evidence
+        if: always()
+        env:
+          AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+        run: >-
+          python3 .github/scripts/scan_artifacts_for_secrets.py
+          --secret-env AI_CADDIE_CI_PLAYER_TOKEN
+          --secret-env AI_CADDIE_ADMIN_TOKEN
+          web_v2/web-live-evidence
+
+      - name: Upload real Web player evidence
+        if: always() && steps.scan_web_live_evidence.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-live-evidence
+          path: web_v2/web-live-evidence/
+          if-no-files-found: warn
+          retention-days: 7

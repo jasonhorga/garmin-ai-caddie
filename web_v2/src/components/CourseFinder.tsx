@@ -10,7 +10,8 @@ import type {
 // the 备战 entry state render the same finder with different heading copy.
 interface CourseFinderProps {
   courseOptions: MobileCourseOptionsResponse | null
-  onSearchCourses: (name: string) => Promise<CourseSearchResponse>
+  onSearchCourses: (name: string, city?: string) => Promise<CourseSearchResponse>
+  onNearbyCourses?: (latitude: number, longitude: number, radiusKm: number) => Promise<CourseSearchResponse>
   // name rides along so the prep header can show searched courses that have
   // no courseOptions row (never-played) instead of a bare 球场 {gid}.
   onSelectCourse: (globalId: number, name?: string) => void
@@ -85,11 +86,15 @@ function matchMeta(match: CourseSearchMatch): string {
 export function CourseFinder({
   courseOptions,
   onSearchCourses,
+  onNearbyCourses,
   onSelectCourse,
   heading = '想备哪场?',
   sub = '搜索球场,或从常打球场直接开备战。',
   ctaLabel = '去备战',
 }: CourseFinderProps) {
+  const [city, setCity] = useState('')
+  const [nearbyRadiusKm, setNearbyRadiusKm] = useState(50)
+  const [nearbyState, setNearbyState] = useState<'idle' | 'loading' | 'error'>('idle')
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState<SearchState>({ status: 'idle' })
   const searchSeq = useRef(0)
@@ -101,13 +106,36 @@ export function CourseFinder({
     const seq = ++searchSeq.current
     setSearch({ status: 'loading' })
     try {
-      const data = await onSearchCourses(name)
+      const data = city.trim() ? await onSearchCourses(name, city.trim()) : await onSearchCourses(name)
       if (searchSeq.current !== seq) return
       setSearch({ status: 'ready', matches: Array.isArray(data.matches) ? data.matches : [] })
     } catch (error: unknown) {
       if (searchSeq.current !== seq) return
       setSearch({ status: 'error', message: error instanceof Error ? error.message : '未知错误' })
     }
+  }
+
+  async function handleNearby() {
+    if (!onNearbyCourses || typeof navigator === 'undefined' || !navigator.geolocation) return
+    setNearbyState('loading')
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        void onNearbyCourses(position.coords.latitude, position.coords.longitude, nearbyRadiusKm)
+          .then((data) => {
+            setSearch({ status: 'ready', matches: Array.isArray(data.matches) ? data.matches : [] })
+            setNearbyState('idle')
+          })
+          .catch((error: unknown) => {
+            setNearbyState('error')
+            setSearch({ status: 'error', message: error instanceof Error ? error.message : '附近球场加载失败' })
+          })
+      },
+      () => {
+        setNearbyState('error')
+        setSearch({ status: 'error', message: '无法获取当前位置' })
+      },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
+    )
   }
 
   const frequents = frequentBaseCourses(courseOptions)
@@ -119,6 +147,13 @@ export function CourseFinder({
       <form className="home-search" onSubmit={(event) => void handleSearchSubmit(event)}>
         <input
           type="text"
+          aria-label="城市"
+          placeholder="城市（可选）"
+          value={city}
+          onChange={(event) => setCity(event.target.value)}
+        />
+        <input
+          type="text"
           aria-label="搜索球场"
           placeholder="球场名,如:观澜湖"
           value={query}
@@ -126,6 +161,18 @@ export function CourseFinder({
         />
         <button type="submit">搜索</button>
       </form>
+      {onNearbyCourses ? (
+        <div className="home-nearby-search">
+          <select aria-label="附近范围" value={nearbyRadiusKm} onChange={(event) => setNearbyRadiusKm(Number(event.target.value))}>
+            <option value={50}>附近 50 km</option>
+            <option value={100}>附近 100 km</option>
+            <option value={200}>附近 200 km</option>
+          </select>
+          <button type="button" onClick={() => void handleNearby()} disabled={nearbyState === 'loading'}>
+            {nearbyState === 'loading' ? '定位中…' : '查看附近球场'}
+          </button>
+        </div>
+      ) : null}
       {search.status === 'loading' ? <p className="home-search-state">搜索中…</p> : null}
       {search.status === 'error' ? <p className="home-search-state">搜索失败:{search.message}</p> : null}
       {search.status === 'ready' && search.matches.length === 0 ? <p className="home-search-state">没有找到球场</p> : null}

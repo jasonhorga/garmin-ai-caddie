@@ -8,10 +8,11 @@ runs `unittest discover`.
 from __future__ import annotations
 
 import unittest
+from unittest.mock import call, patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie.caddie.analysis import _normalize_tee_color, course_tee_options
+from ai_caddie.caddie.analysis import _normalize_tee_color, _selected_tee, course_tee_options
 from server_v2.main import app
 
 
@@ -25,6 +26,130 @@ def _geometry_with_tees(set_to_distance: dict[int, float]) -> dict:
 
 
 class CourseTeeOptionsTests(unittest.TestCase):
+    def test_default_path_uses_transient_tee_geometry_not_full_classification_cache(self) -> None:
+        per_hole = _geometry_with_tees({1: 300.0, 2: 280.0})
+        release_tees = [
+            {"name": "Black", "gender": "MEN", "index": 1},
+            {"name": "Blue", "gender": "MEN", "index": 2},
+        ]
+
+        with (
+            patch("ai_caddie.caddie.analysis.available_prep_holes", return_value=[1, 2]),
+            patch(
+                "ai_caddie.courses.course_reference.courseview_tees",
+                return_value=release_tees,
+            ),
+            patch(
+                "ai_caddie.caddie.analysis._load_tee_distance_geometry",
+                return_value=per_hole,
+            ) as tee_geometry,
+            patch("ai_caddie.caddie.analysis.load_geometry") as full_geometry,
+        ):
+            result = course_tee_options(41825)
+
+        self.assertEqual(tee_geometry.call_count, 2)
+        full_geometry.assert_not_called()
+        self.assertEqual(result["defaultTeeBox"], "blue")
+        self.assertEqual(result["tees"][0]["yards"], round(600.0 * 1.09361))
+
+    def test_release_tee_indices_drive_names_and_distances(self) -> None:
+        # Garmin's geometry ``sets`` are release tee indices, not fixed colour slots.
+        # Pebble Beach is Blue=1, Gold=2, White=3, Green=4, Red=5; treating set 1 as
+        # universally Black makes a selected Blue tee start from the wrong physical tee.
+        release_tees = [
+            {"name": "Blue", "gender": "MEN", "index": 1, "slopeRating": 144, "courseRating": 74.9},
+            {"name": "Gold", "gender": "MEN", "index": 2},
+            {"name": "White", "gender": "MEN", "index": 3},
+            {"name": "Green", "gender": "MEN", "index": 4},
+            {"name": "Red", "gender": "MEN", "index": 5},
+        ]
+        per_hole = _geometry_with_tees({1: 300.0, 2: 280.0, 3: 260.0, 4: 240.0, 5: 220.0})
+
+        result = course_tee_options(
+            10283,
+            tee_name_resolver=lambda gid: release_tees,
+            holes_resolver=lambda gid: [1, 2],
+            geometry_loader=lambda gid, hole: per_hole,
+        )
+
+        self.assertEqual(
+            [(tee["teeBox"], tee["name"], tee["set"]) for tee in result["tees"]],
+            [
+                ("blue", "Blue", 1),
+                ("gold", "Gold", 2),
+                ("white", "White", 3),
+                ("green", "Green", 4),
+                ("red", "Red", 5),
+            ],
+        )
+        self.assertEqual(result["tees"][0]["yards"], round(600.0 * 1.09361))
+        self.assertEqual(result["tees"][0]["slopeRating"], 144)
+        self.assertEqual(result["tees"][0]["courseRating"], 74.9)
+        self.assertEqual(result["defaultTeeBox"], "blue")
+
+    def test_selected_tee_resolves_colour_through_release_index(self) -> None:
+        geometry = {
+            "hazards": {
+                "globalId": 10283,
+                "tees": [
+                    {"tee_index": 1, "sets": [1], "position": [0.0, 0.0], "target_distance_m": 300.0},
+                    {"tee_index": 2, "sets": [2], "position": [1.0, 1.0], "target_distance_m": 280.0},
+                ],
+            }
+        }
+        release_tees = [
+            {"name": "Blue", "gender": "MEN", "index": 1},
+            {"name": "Gold", "gender": "MEN", "index": 2},
+        ]
+
+        with patch(
+            "ai_caddie.courses.course_reference.courseview_tees",
+            create=True,
+            return_value=release_tees,
+        ):
+            selected = _selected_tee(geometry, "blue")
+
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected["tee_index"], 1)
+
+    def test_unknown_tee_uses_published_course_default_without_losing_authority(self) -> None:
+        geometry = {
+            "hazards": {
+                "globalId": 10283,
+                "tees": [
+                    {"tee_index": 1, "sets": [1], "position": [0.0, 0.0], "target_distance_m": 320.0},
+                    {"tee_index": 2, "sets": [2], "position": [1.0, 1.0], "target_distance_m": 280.0},
+                ],
+            }
+        }
+        release_tees = [
+            {"name": "Gold", "gender": "MEN", "index": 1},
+            {"name": "Blue", "gender": "MEN", "index": 2},
+        ]
+
+        with patch(
+            "ai_caddie.courses.course_reference.courseview_tees",
+            create=True,
+            return_value=release_tees,
+        ):
+            selected = _selected_tee(geometry, "unknown")
+
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected["tee_index"], 2)
+
+    def test_unknown_tee_stays_unresolved_without_release_authority(self) -> None:
+        geometry = _geometry_with_tees({1: 320.0, 2: 280.0})
+        geometry["hazards"]["globalId"] = 10283
+
+        with patch(
+            "ai_caddie.courses.course_reference.courseview_tees",
+            create=True,
+            return_value=[],
+        ):
+            selected = _selected_tee(geometry, "unknown")
+
+        self.assertIsNone(selected)
+
     def test_yardage_summed_per_set_across_holes(self) -> None:
         # 2 holes, each with black(set1)=300m, blue(set2)=280m, red(set5)=250m.
         per_hole = _geometry_with_tees({1: 300.0, 2: 280.0, 5: 250.0})
@@ -142,6 +267,101 @@ class CourseTeesEndpointTests(unittest.TestCase):
             self.assertIn("default", tee)
         self.assertEqual(sum(1 for tee in body["tees"] if tee["default"]), 1)
         self.assertIn(body["defaultTeeBox"], {tee["teeBox"] for tee in body["tees"]})
+
+    @patch.dict(
+        "os.environ",
+        {"AI_CADDIE_ADMIN_TOKEN": "tee-test-token", "AI_CADDIE_SECURITY_PROFILE": "private"},
+    )
+    def test_ensure_release_requires_authentication(self) -> None:
+        response = TestClient(app).get("/api/v2/courses/10283/tees?ensure_release=true")
+        self.assertEqual(response.status_code, 401)
+
+    @patch.dict(
+        "os.environ",
+        {"AI_CADDIE_ADMIN_TOKEN": "tee-test-token", "AI_CADDIE_SECURITY_PROFILE": "private"},
+    )
+    def test_ensure_release_fetches_cold_tee_metadata_without_preparing_geometry(self) -> None:
+        release_tees = [
+            {"name": "Blue", "gender": "MEN", "index": 1},
+            {"name": "Gold", "gender": "MEN", "index": 2},
+        ]
+        expected_options = {
+            "defaultTeeBox": "blue",
+            "tees": [
+                {
+                    "teeBox": "blue",
+                    "name": "Blue",
+                    "set": 1,
+                    "yards": 6828,
+                    "holeCount": 18,
+                    "default": True,
+                }
+            ],
+        }
+        with (
+            patch(
+                "ai_caddie.courses.course_reference.courseview_tees",
+                side_effect=[[], release_tees],
+            ) as fetch_release,
+            patch("ai_caddie.caddie.mobile_live._ensure_geometry_for_course") as prepare_geometry,
+            patch("ai_caddie.caddie.analysis.course_tee_options", return_value=expected_options) as options,
+        ):
+            response = TestClient(app).get(
+                "/api/v2/courses/10283/tees?ensure_release=true",
+                headers={"x-ai-caddie-admin-token": "tee-test-token"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            fetch_release.call_args_list,
+            [call(10283, allow_fetch=False), call(10283, allow_fetch=True)],
+        )
+        prepare_geometry.assert_not_called()
+        options.assert_called_once()
+        self.assertEqual(response.json()["tees"], expected_options["tees"])
+
+    @patch.dict(
+        "os.environ",
+        {"AI_CADDIE_ADMIN_TOKEN": "tee-test-token", "AI_CADDIE_SECURITY_PROFILE": "private"},
+    )
+    def test_ensure_release_returns_cached_tees_before_background_refresh(self) -> None:
+        cached_tees = [{"name": "Blue", "gender": "MEN", "index": 1}]
+        expected_options = {
+            "defaultTeeBox": "blue",
+            "tees": [
+                {
+                    "teeBox": "blue",
+                    "name": "Blue",
+                    "set": 1,
+                    "yards": 6377,
+                    "holeCount": 18,
+                    "default": True,
+                }
+            ],
+        }
+        def release_lookup(global_id: int, *, allow_fetch: bool) -> list[dict]:
+            self.assertEqual(global_id, 31793)
+            return cached_tees
+
+        with (
+            patch(
+                "ai_caddie.courses.course_reference.courseview_tees",
+                side_effect=release_lookup,
+            ) as fetch_release,
+            patch("ai_caddie.caddie.analysis.course_tee_options", return_value=expected_options),
+        ):
+            with TestClient(app) as client:
+                response = client.get(
+                    "/api/v2/courses/31793/tees?ensure_release=true",
+                    headers={"x-ai-caddie-admin-token": "tee-test-token"},
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["tees"], expected_options["tees"])
+
+        self.assertEqual(
+            fetch_release.call_args_list,
+            [call(31793, allow_fetch=False), call(31793, allow_fetch=True)],
+        )
 
 
 if __name__ == "__main__":

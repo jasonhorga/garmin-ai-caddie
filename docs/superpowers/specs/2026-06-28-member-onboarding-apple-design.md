@@ -1,6 +1,6 @@
 # Member onboarding — Apple sign-in auto-register (Phase A) — design
 
-**Status:** design, owner-approved direction (chosen interactively). Branch `superpowers/member-onboarding-apple` off integration/v2 @ ce6d6e3 (post Phase 1+2). Part of the [multi-user / family redesign](2026-06-26-phase0-findings.md). This is the identity-onboarding slice; **per-member Garmin self-binding is a SEPARATE later phase (Phase B)**.
+**Status:** design, owner-approved direction (chosen interactively). Branch `superpowers/member-onboarding-apple` off integration/v2 @ ce6d6e3 (post Phase 1+2). Part of the [multi-user / family redesign](2026-06-13-multiplayer-foundation-design.md). This is the identity-onboarding slice; **per-member Garmin self-binding is a SEPARATE later phase (Phase B)**.
 
 ## Goal
 

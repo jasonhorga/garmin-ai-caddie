@@ -14,8 +14,11 @@ Native build and unit tests require macOS with Xcode:
 xcodegen generate --spec mobile/ios/project.yml --project-root .
 xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj -scheme AICaddie -destination "platform=iOS Simulator,name=iPhone 16,OS=latest"
 xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj -scheme AICaddieWatch -destination "platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest"
-python3 ops/write_native_build_evidence.py
+python3 ops/write_native_build_evidence.py --watch-status passed
 ```
+
+The evidence writer defaults the Watch status to `skipped`; pass `--watch-status passed`
+only after the Watch target test has actually run.
 
 The iOS app should cache a live round package before play, append local events while offline, and sync the event log when network access returns.
 
@@ -24,9 +27,16 @@ workflow `api_base_url` input or the repo variable `AI_CADDIE_API_BASE_URL`. The
 is baked into the iOS `Info.plist` as `AICaddieAPIBaseURL`; leaving it blank preserves
 the offline/fixture fallback.
 
-If the backend URL or private admin token is not known at build time, use the
-runtime Backend screen in the iPhone app. It accepts an origin-only `https://`
-API URL, rejects paths/query strings/URL credentials, saves the URL in
-UserDefaults, and the admin token is saved in Keychain. This lets a TestFlight
-tester point the same build at a newly deployed backend without another
-TestFlight upload.
+Candidate and production are separate gates. The candidate IPA is artifact-only
+and carries `release-provenance.json`; production upload additionally requires
+an origin-only public HTTPS API URL, authenticated backend preflight, and a
+backend revision match. Device installation and tester coverage are
+build-number-bound manual evidence, and an `upload=false` provenance manifest
+does not satisfy the release gate.
+
+Current branch: `codex/release-hardening-20260827`.
+
+TestFlight/Release builds never embed the owner admin token. They authenticate
+through Sign in with Apple and forward that scoped session to the Watch. The
+runtime Backend screen remains a DEBUG/CI aid for simulator verification; its
+admin-token fallback is not part of the Release credential path.

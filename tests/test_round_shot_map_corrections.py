@@ -26,7 +26,8 @@ class RoundShotMapCorrectionsTests(unittest.TestCase):
         for m in mocks:
             m.start()
         try:
-            return rsm.build_round_hole_shot_map(_data(shots or _shots()), "r1", hole, corrections=corrections)
+            source_shots = _shots() if shots is None else shots
+            return rsm.build_round_hole_shot_map(_data(source_shots), "r1", hole, corrections=corrections)
         finally:
             for m in mocks:
                 m.stop()
@@ -82,11 +83,35 @@ class RoundShotMapCorrectionsTests(unittest.TestCase):
         self.assertIn("五号铁", clubs)
         self.assertLess(clubs.index("五号铁"), clubs.index("七号铁"))
 
+    def test_add_shot_reconnects_the_following_shot_origin(self):
+        corr = [{"op": "addShot", "px": [360, 500], "club": "五号铁", "lie": "fairway",
+                 "insertAfterShotId": "s:r1:201"}]
+        out = self._build(corr)
+        added_index = next(i for i, shot in enumerate(out["shots"]) if shot.get("club") == "五号铁")
+        added = out["shots"][added_index]
+        following = out["shots"][added_index + 1]
+
+        self.assertEqual(following["start"], added["end"])
+
+    def test_add_shot_keeps_start_and_end_lie_independent(self):
+        corr = [{"op": "addShot", "px": [360, 500], "club": "五号铁", "lie": "rough", "insertAfterShotId": "s:r1:201"}]
+        out = self._build(corr)
+        added = next(shot for shot in out["shots"] if shot.get("club") == "五号铁")
+
+        self.assertEqual(added["lie"], "rough")
+        self.assertIsNone(added["endLie"], "startLie must not be copied into the independent endLie field")
+
     def test_add_shot_on_empty_hole_does_not_crash(self):
         # 永不变砖:空洞也能加回一杆。
-        corr = [{"op": "addShot", "px": [360, 500], "club": "五号铁", "lie": "fairway", "insertAfterShotId": None}]
+        corr = [{"op": "addShot", "hole": 1, "px": [360, 500], "club": "五号铁", "lie": "fairway", "insertAfterShotId": None}]
         out = self._build(corr, shots=[])
         self.assertTrue(any(s.get("club") == "五号铁" for s in out["shots"]))
+
+    def test_unscoped_legacy_add_without_an_anchor_does_not_leak_into_an_empty_hole(self):
+        corr = [{"op": "addShot", "px": [360, 500], "club": "幽灵杆", "insertAfterShotId": None}]
+        out = self._build(corr, shots=[], hole=7)
+
+        self.assertFalse(any(s.get("club") == "幽灵杆" for s in out["shots"]))
 
     def test_edit_position_moves_landing_to_tapped_pixel(self):
         shots = [{"id": 1, "scorecardId": "r1", "hole": 1, "order": 1, "clubName": "七号铁",
@@ -96,6 +121,126 @@ class RoundShotMapCorrectionsTests(unittest.TestCase):
         shot = next(s for s in out["shots"] if s.get("id") == "s:r1:1")
         # 拖到像素 (400,300):pixel_to_world → world → 再 project 回到 [400,300](在画框内)。
         self.assertEqual(shot["end"], [400, 300])
+
+    def test_edit_position_reconnects_next_shot_after_server_rebuild(self):
+        corr = [{"op": "editField", "shotId": "s:r1:201", "field": "position", "value": [400, 300]}]
+        out = self._build(corr)
+        first = next(s for s in out["shots"] if s.get("id") == "s:r1:201")
+        second = next(s for s in out["shots"] if s.get("id") == "s:r1:202")
+
+        self.assertEqual(first["end"], [400, 300])
+        self.assertEqual(second["start"], [400, 300])
+
+    def test_editing_last_landing_does_not_change_an_earlier_origin(self):
+        before = self._build([])
+        corr = [{"op": "editField", "shotId": "s:r1:202", "field": "position", "value": [410, 310]}]
+        after = self._build(corr)
+
+        self.assertEqual(after["shots"][0]["start"], before["shots"][0]["start"])
+        self.assertEqual(after["shots"][1]["end"], [410, 310])
+
+    def test_whole_hole_snapshot_replaces_order_deletes_and_penalty_atomically(self):
+        corr = [{
+            "op": "replaceHoleShots",
+            "hole": 1,
+            "geometryRevision": "0123456789abcdef",
+            "manualPenalty": 2,
+            "shots": [
+                {"id": "s:r1:202", "start": [300, 900], "end": [410, 420],
+                 "club": "七号铁", "lie": "teebox", "endLie": "rough", "order": 1,
+                 "synthetic": False},
+                {"id": "draft-new", "start": [410, 420], "end": [320, 230],
+                 "club": "SW", "lie": "rough", "endLie": "green", "order": 2,
+                 "synthetic": False},
+            ],
+        }]
+
+        out = self._build(corr)
+
+        self.assertEqual([shot["id"] for shot in out["shots"]], ["s:r1:202", "draft-new"])
+        self.assertEqual([shot["order"] for shot in out["shots"]], [1, 2])
+        self.assertEqual(out["shots"][0]["start"], [300, 900])
+        self.assertEqual(out["shots"][1]["start"], out["shots"][0]["end"])
+        self.assertEqual(out["manualPenalty"], 2)
+
+    def test_stale_whole_hole_snapshot_falls_back_to_current_source_geometry(self):
+        corr = [{
+            "op": "replaceHoleShots",
+            "hole": 1,
+            "geometryRevision": "obsolete-release",
+            "manualPenalty": 2,
+            "shots": [
+                {"id": "stale-pixel-shot", "start": [719, 1119], "end": [719, 1119]},
+            ],
+        }]
+
+        out = self._build(corr)
+
+        self.assertNotIn("stale-pixel-shot", [shot["id"] for shot in out["shots"]])
+        self.assertEqual([shot["id"] for shot in out["shots"]], ["s:r1:201", "s:r1:202"])
+        self.assertEqual(out["geometryRevision"], "0123456789abcdef")
+        self.assertEqual(out["manualPenalty"], 2, "geometry-independent penalty remains valid")
+        self.assertEqual(
+            out["missingData"],
+            [{"label": "geometry", "reason": "球场地图已更新，这一洞的手工修正需要重做"}],
+        )
+
+    def test_latest_snapshot_wins_only_for_its_hole(self):
+        corr = [
+            {"op": "replaceHoleShots", "hole": 1, "manualPenalty": 1,
+             "shots": [{"id": "hole-1-shot", "start": [300, 900], "end": [320, 400]}]},
+            {"op": "replaceHoleShots", "hole": 5, "manualPenalty": 3,
+             "shots": [{"id": "hole-5-shot", "start": [300, 900], "end": [500, 250]}]},
+            {"op": "replaceHoleShots", "hole": 1, "manualPenalty": 2,
+             "shots": [{"id": "hole-1-latest", "start": [300, 900], "end": [330, 300]}]},
+        ]
+
+        hole_one = self._build(corr, hole=1)
+        hole_five = self._build(corr, shots=[], hole=5)
+
+        self.assertEqual([shot["id"] for shot in hole_one["shots"]], ["hole-1-latest"])
+        self.assertEqual(hole_one["manualPenalty"], 2)
+        self.assertEqual([shot["id"] for shot in hole_five["shots"]], ["hole-5-shot"])
+        self.assertEqual(hole_five["manualPenalty"], 3)
+
+    def test_newer_fact_snapshot_overrides_old_pixel_snapshot_and_keeps_source_positions(self):
+        baseline = self._build([])
+        baseline_by_id = {shot["id"]: shot for shot in baseline["shots"]}
+        corr = [
+            {"op": "replaceHoleShots", "hole": 1, "manualPenalty": 1,
+             "geometryRevision": "0123456789abcdef",
+             "shots": [{"id": "old-pixel", "start": [1, 2], "end": [3, 4]}]},
+            {"op": "editField", "shotId": "s:r1:202", "field": "position", "value": [700, 700]},
+            {"op": "addShot", "hole": 1, "px": [600, 600], "club": "旧手工杆"},
+            {"op": "replaceHoleFacts", "hole": 1, "manualPenalty": 2,
+             "shots": [
+                 {"id": "s:r1:202", "club": "九号铁", "lie": "bunker",
+                  "clubSource": "manual", "lieSource": "manual"},
+                 {"id": "s:r1:201", "club": "一号木", "lie": "teebox"},
+             ]},
+        ]
+
+        out = self._build(corr)
+
+        self.assertEqual([shot["id"] for shot in out["shots"]], ["s:r1:202", "s:r1:201"])
+        self.assertNotIn("old-pixel", [shot["id"] for shot in out["shots"]])
+        self.assertEqual(out["shots"][0]["start"], baseline_by_id["s:r1:202"]["start"])
+        self.assertEqual(out["shots"][0]["end"], baseline_by_id["s:r1:202"]["end"])
+        self.assertEqual(out["shots"][0]["club"], "九号铁")
+        self.assertEqual(out["shots"][0]["lie"], "bunker")
+        self.assertEqual(out["manualPenalty"], 2)
+        self.assertFalse(any(item.get("label") == "geometry" for item in out["missingData"]))
+
+    def test_post_snapshot_granular_event_for_another_hole_cannot_pollute_it(self):
+        corr = [
+            {"op": "replaceHoleShots", "hole": 1, "manualPenalty": 0,
+             "shots": [{"id": "hole-1-shot", "start": [300, 900], "end": [320, 400]}]},
+            {"op": "addShot", "hole": 5, "px": [600, 500], "club": "幽灵杆"},
+        ]
+
+        out = self._build(corr, hole=1)
+
+        self.assertEqual([shot["id"] for shot in out["shots"]], ["hole-1-shot"])
 
 
 if __name__ == "__main__":

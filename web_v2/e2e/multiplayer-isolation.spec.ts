@@ -288,8 +288,9 @@ test.describe('player-facing deployment (link required)', () => {
     await expect(badge).toBeVisible()
     await expect(badge.locator('button, select, [role="combobox"], [role="listbox"]')).toHaveCount(0)
 
-    // The home view (round-review workbench) shows THIS player's last round…
-    await expect(page.getByRole('heading', { name: '梅花山 A' })).toBeVisible()
+    // The unified 成绩 landing shows THIS player's recent round…
+    const recentRounds = page.locator('section[aria-label="最近球局"]')
+    await expect(recentRounds.getByRole('button', { name: /梅花山 A/ })).toBeVisible()
     // …and never another player's identity or round id.
     await expect(page.getByText(OTHER_PLAYER_NAME)).toHaveCount(0)
     await expect(page.getByText(OTHER_PLAYER_ROUND)).toHaveCount(0)
@@ -309,7 +310,7 @@ test.describe('player-facing deployment (link required)', () => {
     expect(browserErrors).toEqual([])
   })
 
-  test('player history marks the manual round with a 手动 chip and leaves the garmin round unmarked', async ({ page }) => {
+  test('player history marks app-ingested rounds as AI Caddie and leaves Garmin rounds unmarked', async ({ page }) => {
     const browserErrors: string[] = []
     page.on('pageerror', (error) => browserErrors.push(error.message))
     page.on('console', (message) => {
@@ -318,18 +319,18 @@ test.describe('player-facing deployment (link required)', () => {
     await mockPlayerApi(page, PLAYER_A)
 
     await page.goto(`/p/${PLAYER_A.token}`)
-    // 球局 lives under 复盘 in the redesign (was 历史); scope the tab to the 辅助导航
-    // nav so it never collides with the home 看复盘 → / 强弱分析 → cards.
-    await page.getByRole('button', { name: '复盘', exact: true }).click()
-    await page.getByRole('navigation', { name: '辅助导航' }).getByRole('button', { name: '球局' }).click()
+    // The archive lives under the unified 成绩 destination. Scope the lookup so
+    // a same-named content link cannot satisfy the navigation journey.
+    await page.getByRole('navigation', { name: '辅助导航' }).getByRole('button', { name: '全部球局' }).click()
     await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
 
     // Both rounds list as cards (raw round-id refs are owner-diagnostics-only now); the
     // course name is the card heading (disambiguated from the filter <option> of the same text).
     await expect(page.getByRole('heading', { name: '梅花山 A' })).toBeVisible()
     await expect(page.getByRole('heading', { name: '观澜湖 B' })).toBeVisible()
-    // …but only the manual one carries the 手动 chip.
-    await expect(page.getByLabel('手动录入的球局')).toHaveCount(1)
+    // …but only the app-ingested one carries the AI Caddie provenance chip. The internal
+    // `manual` source also covers Watch/iPhone rounds, so the UI must not call all of them hand-entered.
+    await expect(page.getByLabel('AI Caddie 记录的球局')).toHaveCount(1)
     // and still no other player's round leaks into this player's history.
     await expect(page.getByText(OTHER_PLAYER_ROUND)).toHaveCount(0)
     expect(browserErrors).toEqual([])
@@ -346,8 +347,8 @@ test.describe('owner deployment (admin token)', () => {
     const { adminHeadersSeen } = await mockOwnerApi(page)
 
     await page.goto('/')
-    // The 复盘 landing (round-review workbench) loads with the owner's rounds.
-    await expect(page.locator('[aria-label="选择球局"]')).toBeVisible()
+    // The unified 成绩 landing loads with the owner's career and recent-round data.
+    await expect(page.locator('section[aria-label="成绩主页"]')).toBeVisible()
 
     await page.getByRole('button', { name: '设置' }).click()
     await expect(page.getByRole('heading', { name: '同步与数据健康', exact: true })).toBeVisible()
@@ -375,7 +376,7 @@ test.describe('owner deployment (admin token)', () => {
     for (const forbidden of ['成绩走势', '你最该练', '记分卡', '球道命中率', PLAYER_A_MANUAL_ROUND, OTHER_PLAYER_ROUND]) {
       await expect(page.getByText(forbidden, { exact: false })).toHaveCount(0)
     }
-    await expect(page.getByLabel('手动录入的球局')).toHaveCount(0)
+    await expect(page.getByLabel('AI Caddie 记录的球局')).toHaveCount(0)
 
     // Wire-level proof: the roster endpoint was called WITH the admin token, never anonymously.
     expect(adminHeadersSeen.length).toBeGreaterThan(0)

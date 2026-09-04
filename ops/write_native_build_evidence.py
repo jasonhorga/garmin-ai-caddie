@@ -9,6 +9,7 @@ from typing import Any
 
 
 SCHEMA = "ai-caddie-native-build-evidence-v1"
+FIXTURE_SCHEMA = "ai-caddie-native-build-evidence-ci-fixture-v1"
 DEFAULT_OUTPUT = Path("mobile/ios/native_build_evidence.json")
 DEFAULT_ARTIFACT_NAME = "native-build-evidence"
 IOS_SCHEME = "AICaddie"
@@ -95,8 +96,12 @@ def build_native_build_evidence(
     commit: str | None = None,
     workflow_run_id: str | None = None,
     artifact_name: str = DEFAULT_ARTIFACT_NAME,
-    ios_status: str = "passed",
-    watch_status: str = "passed",
+    data_mode: str = "live",
+    # Evidence must be explicitly attested by the producer; an omitted target is not a pass.
+    ios_status: str = "skipped",
+    # A caller must explicitly attest that the Watch target ran. This keeps a
+    # standalone evidence stamp from claiming a skipped target passed.
+    watch_status: str = "skipped",
     ios_destination: str | None = None,
     watch_destination: str | None = None,
     ios_configuration: str | None = None,
@@ -108,12 +113,22 @@ def build_native_build_evidence(
     ios_duration_seconds: float | str | None = None,
     watch_duration_seconds: float | str | None = None,
 ) -> dict[str, Any]:
+    if data_mode not in {"live", "ci_fixture"}:
+        raise ValueError("data_mode must be live or ci_fixture")
+    fixture = data_mode == "ci_fixture"
     return {
-        "schema": SCHEMA,
+        "schema": FIXTURE_SCHEMA if fixture else SCHEMA,
+        "dataMode": data_mode,
+        "source": "non_production" if fixture else "production",
+        "fixtureRevision": "ci-fixture-20260827-v1" if fixture else None,
         "createdAt": _validate_public_string("created_at", created_at) or _utc_now_stamp(),
         "commit": _validate_public_string("commit", commit),
         "workflowRunId": _validate_public_string("workflow_run_id", workflow_run_id),
-        "artifactName": _validate_public_string("artifact_name", artifact_name) or DEFAULT_ARTIFACT_NAME,
+        "artifactName": (
+            "native-build-evidence-ci-fixture"
+            if fixture and artifact_name == DEFAULT_ARTIFACT_NAME
+            else _validate_public_string("artifact_name", artifact_name) or DEFAULT_ARTIFACT_NAME
+        ),
         "ios": _scheme_evidence(
             scheme=IOS_SCHEME,
             status=ios_status,
@@ -154,8 +169,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--commit", default=_env("GITHUB_SHA"), help="Commit SHA; defaults to GITHUB_SHA")
     parser.add_argument("--workflow-run-id", default=_env("GITHUB_RUN_ID"), help="Workflow run id; defaults to GITHUB_RUN_ID")
     parser.add_argument("--artifact-name", default=DEFAULT_ARTIFACT_NAME, help="Uploaded artifact name")
-    parser.add_argument("--ios-status", default="passed", help="AICaddie xcodebuild status")
-    parser.add_argument("--watch-status", default="passed", help="AICaddieWatch xcodebuild status")
+    parser.add_argument("--data-mode", default="live", choices=("live", "ci_fixture"))
+    parser.add_argument("--ios-status", default="skipped", help="AICaddie xcodebuild status (must be attested)")
+    parser.add_argument(
+        "--watch-status",
+        default="skipped",
+        help="AICaddieWatch xcodebuild status (defaults to skipped unless execution is attested)",
+    )
     parser.add_argument("--ios-destination", default=_env("IOS_DESTINATION"), help="iOS simulator destination")
     parser.add_argument("--watch-destination", default=_env("WATCH_DESTINATION"), help="watchOS simulator destination")
     parser.add_argument("--ios-configuration", default=None, help="Optional iOS build configuration")
@@ -173,6 +193,7 @@ def main(argv: list[str] | None = None) -> int:
         commit=args.commit,
         workflow_run_id=args.workflow_run_id,
         artifact_name=args.artifact_name,
+        data_mode=args.data_mode,
         ios_status=args.ios_status,
         watch_status=args.watch_status,
         ios_destination=args.ios_destination,

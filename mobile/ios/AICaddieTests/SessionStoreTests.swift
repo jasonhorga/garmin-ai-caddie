@@ -64,4 +64,37 @@ final class SessionStoreTests: XCTestCase {
         store.save(AppSession(token: "soon", playerId: "me", expiresAt: Date().addingTimeInterval(-1)))
         XCTAssertNil(store.liveToken)  // an already-expired token never authenticates
     }
+
+    func testReloadPreservesSessionWhenKeychainReadIsTemporarilyUnavailable() {
+        let persisting = FlakySessionPersisting(AppSession(token: "live", playerId: "me"))
+        let store = SessionStore(persisting: persisting)
+        persisting.returnNilOnRead = true
+
+        store.reload()
+
+        XCTAssertEqual(store.currentSession?.token, "live")
+        XCTAssertEqual(store.liveToken, "live")
+        XCTAssertEqual(persisting.stored?.token, "live")
+    }
+}
+
+private final class FlakySessionPersisting: SessionPersisting {
+    var stored: AppSession?
+    var returnNilOnRead = false
+
+    init(_ stored: AppSession?) {
+        self.stored = stored
+    }
+
+    func read() -> AppSession? {
+        return returnNilOnRead ? nil : stored
+    }
+
+    func write(_ session: AppSession) {
+        stored = session
+    }
+
+    func clear() {
+        stored = nil
+    }
 }

@@ -11,6 +11,11 @@ function formatToPar(value: number | null) {
   return String(value)
 }
 
+function toParTone(value: number | null): string {
+  if (value === null || value === 0) return 'score-even'
+  return value < 0 ? 'score-under' : 'score-over'
+}
+
 function roundActionLabel(round: RoundCardType) {
   return `打开球局 ${cleanCourseName(round.courseName)}，${shortRoundDate(round.date)}，成绩 ${round.score ?? '-'}`
 }
@@ -23,35 +28,39 @@ interface RoundCardProps {
 
 export function RoundCard({ round, onSelectRef, onOpenRoundDetail }: RoundCardProps) {
   const diagnostics = useDiagnostics()
+  const canOpen = Boolean(onSelectRef || onOpenRoundDetail)
   return (
     <article className="round-card">
       <div className="round-card-head">
-        <div>
+        <div className="round-card-identity">
           <h3>{cleanCourseName(round.courseName)}</h3>
           <p>
             {shortRoundDate(round.date)} · {round.holesCompleted ?? '-'} 洞
           </p>
           {round.source === 'manual' ? (
-            <span className="quality-chip round-source-chip" aria-label="手动录入的球局">
-              手动
+            <span className="quality-chip round-source-chip" aria-label="AI Caddie 记录的球局">
+              AI Caddie
             </span>
           ) : null}
         </div>
-        <div className="round-score">
-          <strong>{round.score ?? '-'}</strong>
-          <span>{formatToPar(round.toPar)}</span>
+        <div className="round-card-outcome">
+          <div className="round-score" aria-label={`总杆 ${round.score ?? '-'}，对标准杆 ${formatToPar(round.toPar)}`}>
+            <span className="round-score-label">总杆</span>
+            <strong>{round.score ?? '-'}</strong>
+            <span className={toParTone(round.toPar)}>{formatToPar(round.toPar)}</span>
+          </div>
+          {canOpen ? (
+            <button
+              type="button"
+              className="round-card-action"
+              onClick={() => (onOpenRoundDetail ?? onSelectRef)?.(round.id)}
+              aria-label={roundActionLabel(round)}
+            >
+              查看逐洞 <span aria-hidden="true">→</span>
+            </button>
+          ) : null}
         </div>
       </div>
-      {onSelectRef || onOpenRoundDetail ? (
-        <button
-          type="button"
-          className="round-card-action"
-          onClick={() => (onOpenRoundDetail ?? onSelectRef)?.(round.id)}
-          aria-label={roundActionLabel(round)}
-        >
-          打开
-        </button>
-      ) : null}
       <ScoreStrip cells={round.scoreStrip} />
       {diagnostics ? (
         <div className="round-card-source">

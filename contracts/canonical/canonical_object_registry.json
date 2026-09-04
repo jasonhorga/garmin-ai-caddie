@@ -1,0 +1,19 @@
+{
+  "schema": "ai-caddie-canonical-object-registry-v1",
+  "canonicalization": "RFC8785+AI-Caddie-v1",
+  "typedIdAlgorithm": "lowercaseHex(SHA-256(ASCII(domainTag+'\\u0000')||canonicalBytes))",
+  "objects": {
+    "CanonicalFixtureAlpha": {
+      "domainTag": "CanonicalFixtureAlpha/v1",
+      "schemaRef": "contracts/canonical/canonical_fixture_v1.schema.json",
+      "includedFields": ["*"],
+      "excludedFields": ["transportNote"]
+    },
+    "CanonicalFixtureBeta": {
+      "domainTag": "CanonicalFixtureBeta/v1",
+      "schemaRef": "contracts/canonical/canonical_fixture_v1.schema.json",
+      "includedFields": ["*"],
+      "excludedFields": ["transportNote"]
+    }
+  }
+}

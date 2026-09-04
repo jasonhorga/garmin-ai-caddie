@@ -34,6 +34,9 @@ _KNOWN_PUBLIC = {
     # The realistic-topo base bitmap is pure course geometry (no source_ref, no owner data), public
     # exactly like /geometry/hole/.../map and /courses/{id}/prep — a hole with no geometry 404s.
     ("GET", "/api/v2/courses/{global_id}/holes/{hole}/topo.png"),
+    # Focused View Green imagery is still pure course geometry; the crop is bounded and contains no
+    # player/round data, so it shares the public policy of the whole-hole topo endpoint.
+    ("GET", "/api/v2/courses/{global_id}/holes/{hole}/green.png"),
     # The pre-round tee picker's list (colours + total yards + default) is pure course knowledge —
     # no player data, no source_ref — public exactly like /topo.png and /geometry/hole/{}/coverage.
     ("GET", "/api/v2/courses/{global_id}/tees"),
@@ -99,6 +102,11 @@ class RouteAuthPolicyTests(unittest.TestCase):
             "/api/v2/reports/hole/abc/3/generate",
         ):
             self.assertTrue(_requires_admin_token("POST", path, empty), path)
+
+    def test_mobile_round_finish_is_prebody_gated_and_player_scoped(self) -> None:
+        path = "/api/v2/mobile/rounds/live-round-1/finish"
+        self.assertTrue(_requires_admin_token("POST", path, QueryParams("")))
+        self.assertTrue(is_player_scoped_route("POST", path))
 
     def test_auth_apple_link_is_admin_gated(self) -> None:
         # /auth/apple/link is the owner-bootstrap endpoint (links an Apple sub to the owner user).

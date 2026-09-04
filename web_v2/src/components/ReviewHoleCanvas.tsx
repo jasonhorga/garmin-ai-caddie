@@ -1,8 +1,9 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, MouseEvent, PointerEvent, TouchEvent } from 'react'
+import { Fragment, useRef } from 'react'
 import type { RoundHoleShotMapResponse } from '../types'
 import { topoImageUrl } from '../api'
 import { HoleBaseImage } from './HoleBaseImage'
-import { buildTrajectory, dodgeLabels, shotLandingLabels } from './reviewShotMapLogic'
+import { buildTrajectory, dodgeLabels, isPuttShot, shotLandingLabels } from './reviewShotMapLogic'
 
 // The shot-map fetch state, resolved by the workbench: geometry may be missing
 // for a hole (no course mesh) even when the round itself is found.
@@ -17,6 +18,9 @@ interface ReviewHoleCanvasProps {
   par: number | null
   score: number | null
   state: ReviewShotMapState
+  editing?: boolean
+  onMapClick?: (px: [number, number]) => void
+  onShotMove?: (shotId: string, px: [number, number]) => void
 }
 
 function statusNote(state: ReviewShotMapState): { text: string; tone: 'muted' | 'error' } | null {
@@ -30,36 +34,114 @@ function statusNote(state: ReviewShotMapState): { text: string; tone: 'muted' | 
 // ACTUAL shots (yellow trajectory + landing dots) drawn over the caddie-recommended
 // playing line (faint white dashes = overlay.route). Distance chips float over each
 // full-shot landing. Geometry may be missing for a hole → a graceful placeholder.
-export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasProps): React.ReactElement {
+function clientPixel(clientX: number, clientY: number, rect: DOMRect, w: number, h: number): [number, number] {
+  if (rect.width <= 0 || rect.height <= 0) return [0, 0]
+  return [
+    Math.max(0, Math.min(w, ((clientX - rect.left) / rect.width) * w)),
+    Math.max(0, Math.min(h, ((clientY - rect.top) / rect.height) * h)),
+  ]
+}
+
+function eventPixel(event: PointerEvent<SVGSVGElement | SVGCircleElement> | MouseEvent<SVGSVGElement>, w: number, h: number): [number, number] {
+  const rect = (event.currentTarget.ownerSVGElement ?? event.currentTarget).getBoundingClientRect()
+  return clientPixel(event.clientX, event.clientY, rect, w, h)
+}
+
+function touchPixel(event: TouchEvent<SVGCircleElement>, w: number, h: number): [number, number] {
+  const touch = event.touches[0] ?? event.changedTouches[0]
+  const rect = (event.currentTarget.ownerSVGElement ?? event.currentTarget).getBoundingClientRect()
+  return touch ? clientPixel(touch.clientX, touch.clientY, rect, w, h) : [0, 0]
+}
+
+export function ReviewHoleCanvas({ hole, par, score, state, editing = false, onMapClick, onShotMove }: ReviewHoleCanvasProps): React.ReactElement {
+  // The editor is a single-pointer interaction; activeShotId remains stable when mobile pointer IDs do not.
+  const activeShotId = useRef<string | null>(null)
+  const suppressNextMapClick = useRef(false)
   const note = statusNote(state)
   const map = state.status === 'ready' ? state.data.map : null
   const shots = state.status === 'ready' ? state.data.shots : []
+  const manualPenalty = state.status === 'ready' ? state.data.manualPenalty ?? 0 : 0
+  // The overlay is authoritative for coordinate space. A fallback bitmap can be a
+  // placeholder (or have stale intrinsic dimensions), so allowing the image itself
+  // to size this frame stretches every route and landing marker out of alignment.
+  const frameStyle: CSSProperties | undefined = map
+    ? { aspectRatio: `${map.overlay.w} / ${map.overlay.h}` }
+    : undefined
   // Realistic topo base for this exact (physical gid, localHole) when geometry rendered; else the
   // legacy render (map.image). Both share the overlay frame, so the shot vectors align regardless.
   const topoData = state.status === 'ready' ? state.data : null
   const topoSrc =
     map && topoData?.globalId != null && topoData?.localHole != null
-      ? topoImageUrl(topoData.globalId, topoData.localHole)
+      ? topoImageUrl(topoData.globalId, topoData.localHole, topoData.geometryRevision)
       : undefined
 
   let svg: React.ReactElement | null = null
   let chips: React.ReactElement[] = []
   if (map) {
     const { w, h, route } = map.overlay
-    const geo = buildTrajectory(shots)
+    // Garmin Golf keeps putts as one green-side badge rather than drawing several tiny GPS
+    // segments. Keep the full-shot route clean, then attach the putt count to the green.
+    const fullShots = shots.filter((shot) => !isPuttShot(shot))
+    const putts = shots.filter(isPuttShot)
+    const geo = buildTrajectory(fullShots)
     const routePoints = route.map((p) => `${p[0]},${p[1]}`).join(' ')
     const trajPoints = geo.points.map((p) => `${p[0]},${p[1]}`).join(' ')
     // Spread pills off any near-coincident landings so two close shots stay legible.
-    const labels = dodgeLabels(shotLandingLabels(shots), { w, h })
+    const labelRows = shotLandingLabels(shots, map.overlay.ppm)
+    if (putts.length > 0) {
+      const green = [...putts].reverse().find((shot) => shot.end)?.end ?? route[route.length - 1]?.slice(0, 2) ?? null
+      if (green && green.length >= 2) labelRows.push({ x: green[0], y: green[1], text: `推杆 ×${putts.length}` })
+    }
+    const labels = dodgeLabels(labelRows, { w, h })
 
     svg = (
-      <svg viewBox={`0 0 ${w} ${h}`} className="review-canvas-svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <svg
+        viewBox={`0 0 ${w} ${h}`}
+        className={editing ? 'review-canvas-svg review-canvas-svg--editing' : 'review-canvas-svg'}
+        preserveAspectRatio="xMidYMid meet"
+        aria-hidden={!editing}
+        onPointerDown={(event) => {
+          if (!editing || !(event.target instanceof Element)) return
+          const marker = event.target.closest('circle[data-shot-id], circle[data-shot-hit-id]')
+          const shotId = marker?.getAttribute('data-shot-id') ?? marker?.getAttribute('data-shot-hit-id')
+          if (!shotId) return
+          event.stopPropagation()
+          activeShotId.current = shotId
+          event.currentTarget.setPointerCapture?.(event.pointerId)
+        }}
+        onPointerMove={(event) => {
+          const shotId = activeShotId.current
+          if (!editing || !shotId) return
+          event.stopPropagation()
+          onShotMove?.(shotId, eventPixel(event, w, h))
+        }}
+        onPointerUp={(event) => {
+          if (!activeShotId.current) return
+          event.stopPropagation()
+          activeShotId.current = null
+          suppressNextMapClick.current = true
+          event.currentTarget.releasePointerCapture?.(event.pointerId)
+        }}
+        onPointerCancel={(event) => {
+          if (!activeShotId.current) return
+          event.stopPropagation()
+          activeShotId.current = null
+          event.currentTarget.releasePointerCapture?.(event.pointerId)
+        }}
+        onClick={(event) => {
+          if (suppressNextMapClick.current) {
+            suppressNextMapClick.current = false
+            return
+          }
+          if (editing && event.target === event.currentTarget) onMapClick?.(eventPixel(event, w, h))
+        }}
+      >
         {/* Caddie-recommended line — the ideal playing route, faint + dashed. */}
         {route.length > 1 ? (
           <polyline points={routePoints} fill="none" stroke="#fff" strokeOpacity={0.55} strokeWidth={2.4} strokeDasharray="6 5" strokeLinejoin="round" />
         ) : null}
         {/* Actual shots — per-segment so a synthetic (推算) drive can render faded. */}
-        {shots.map((shot, index) =>
+        {fullShots.map((shot, index) =>
           shot.start && shot.end ? (
             <line
               key={`seg-${index}`}
@@ -77,9 +159,102 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
         )}
         {trajPoints ? <polyline points={trajPoints} fill="none" stroke="none" /> : null}
         {geo.tee ? <circle cx={geo.tee[0]} cy={geo.tee[1]} r={6} fill="#fff" stroke="#333" strokeWidth={2} /> : null}
-        {geo.landings.map((p, index) => (
-          <circle key={`dot-${index}`} cx={p[0]} cy={p[1]} r={7} fill="#ffd447" stroke="#7a5b00" strokeWidth={1.6} />
-        ))}
+        {shots.map((shot, index) => {
+          if (!shot.end) return null
+          const shotId = shot.id ?? null
+          const markerKey = `dot-${shotId ?? index}`
+          const onPointerDown = (event: PointerEvent<SVGCircleElement>) => {
+            if (!editing || !shotId) return
+            activeShotId.current = shotId
+            event.currentTarget.ownerSVGElement?.setPointerCapture?.(event.pointerId)
+          }
+          const onPointerMove = (event: PointerEvent<SVGCircleElement>) => {
+            if (!editing || !shotId || activeShotId.current !== shotId) return
+            event.stopPropagation()
+            onShotMove?.(shotId, eventPixel(event, w, h))
+          }
+          const onPointerUp = (event: PointerEvent<SVGCircleElement>) => {
+            event.stopPropagation()
+            if (activeShotId.current === shotId) {
+              activeShotId.current = null
+              suppressNextMapClick.current = true
+            }
+          }
+          const onPointerCancel = (event: PointerEvent<SVGCircleElement>) => {
+            event.stopPropagation()
+            if (activeShotId.current === shotId) activeShotId.current = null
+          }
+          const onTouchStart = (event: TouchEvent<SVGCircleElement>) => {
+            if (!editing || !shotId) return
+            event.preventDefault()
+            activeShotId.current = shotId
+          }
+          const onTouchMove = (event: TouchEvent<SVGCircleElement>) => {
+            if (!editing || !shotId || activeShotId.current !== shotId) return
+            event.preventDefault()
+            event.stopPropagation()
+            onShotMove?.(shotId, touchPixel(event, w, h))
+          }
+          const onTouchEnd = (event: TouchEvent<SVGCircleElement>) => {
+            event.preventDefault()
+            event.stopPropagation()
+            if (activeShotId.current === shotId) {
+              activeShotId.current = null
+              suppressNextMapClick.current = true
+            }
+          }
+          const onTouchCancel = (event: TouchEvent<SVGCircleElement>) => {
+            event.preventDefault()
+            event.stopPropagation()
+            if (activeShotId.current === shotId) activeShotId.current = null
+          }
+          return (
+            <Fragment key={markerKey}>
+              {editing && shotId ? (
+                <circle
+                  data-shot-hit-id={shotId}
+                  cx={shot.end[0]}
+                  cy={shot.end[1]}
+                  r={22}
+                  fill="transparent"
+                  stroke="none"
+                  pointerEvents="all"
+                  aria-hidden="true"
+                  onPointerDown={onPointerDown}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={onPointerUp}
+                  onPointerCancel={onPointerCancel}
+                  onTouchStart={onTouchStart}
+                  onTouchMove={onTouchMove}
+                  onTouchEnd={onTouchEnd}
+                  onTouchCancel={onTouchCancel}
+                />
+              ) : null}
+              <circle
+                data-shot-id={shotId ?? undefined}
+                cx={shot.end[0]}
+                cy={shot.end[1]}
+                r={editing ? 9 : 7}
+                fill="#ffd447"
+                stroke={editing ? '#fff2a6' : '#7a5b00'}
+                strokeWidth={editing ? 2.4 : 1.6}
+                className={editing ? 'review-shot-marker review-shot-marker--editable' : 'review-shot-marker'}
+                role={editing && shotId ? 'button' : undefined}
+                tabIndex={editing && shotId ? 0 : undefined}
+                aria-label={editing && shotId ? `第${shot.order ?? index + 1}杆落点` : undefined}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerCancel}
+                onTouchStart={onTouchStart}
+                onTouchMove={onTouchMove}
+                onTouchEnd={onTouchEnd}
+                onTouchCancel={onTouchCancel}
+                onClick={(event) => event.stopPropagation()}
+              />
+            </Fragment>
+          )
+        })}
         {geo.hole ? <circle cx={geo.hole[0]} cy={geo.hole[1]} r={6} fill="#e43a3a" stroke="#fff" strokeWidth={1.8} /> : null}
       </svg>
     )
@@ -96,7 +271,7 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
 
   return (
     <div className="review-canvas" aria-label={`第${hole}洞落点图`}>
-      <div className="review-canvas-frame">
+      <div className="review-canvas-frame" style={frameStyle}>
         {map ? (
           <HoleBaseImage className="review-canvas-img" topoSrc={topoSrc} fallbackSrc={map.image} alt={`第${hole}洞`} />
         ) : (
@@ -104,25 +279,12 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
         )}
         {svg}
         {chips}
+        <div className="review-map-hole-facts">
+          <strong>第 {hole} 洞 · Par {par ?? '—'}</strong>
+          {score !== null ? <span>本洞 {score} 杆</span> : null}
+        </div>
+        {manualPenalty > 0 ? <div className="review-map-penalty">罚杆 +{manualPenalty}</div> : null}
         {note ? <div className={note.tone === 'error' ? 'review-canvas-note error' : 'review-canvas-note'}>{note.text}</div> : null}
-      </div>
-      <div className="review-canvas-meta">
-        <span className="review-canvas-hole">
-          第 {hole} 洞 · Par {par ?? '—'}
-          {score !== null ? ` → ${score}` : ''}
-        </span>
-        {map ? (
-          <div className="review-canvas-legend">
-            <span>
-              <b className="review-legend-actual" />
-              实际打法
-            </span>
-            <span>
-              <b className="review-legend-plan" />
-              球童建议线
-            </span>
-          </div>
-        ) : null}
       </div>
     </div>
   )

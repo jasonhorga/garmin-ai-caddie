@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 import type { Plugin } from 'vite'
 import { loadEnv } from 'vite'
 import { configDefaults, defineConfig } from 'vitest/config'
-import { assertNoConsumerAdminToken } from './src/buildGuards'
+import { assertNoConsumerAdminToken } from './src/buildGuards.ts'
 
 // SECURITY: fail `vite build` if a consumer/public build (VITE_AI_CADDIE_REQUIRE_LINK=true)
 // would bake the owner admin token (VITE_AI_CADDIE_DEFAULT_ADMIN_TOKEN) into the shipped JS.

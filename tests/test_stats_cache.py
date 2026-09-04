@@ -15,12 +15,19 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from ai_caddie.caddie.decision import decision_audit_file
+from ai_caddie.core.data import evidence_root
 from ai_caddie.history import stats_cache
 from ai_caddie.history.history import HistoryData
+from ai_caddie.llm.weather_context import weather_snapshot_file
+from ai_caddie.reports.annotations import annotation_file
+from ai_caddie.reports.reports import report_store_file
 
 
 def _dummy_data() -> HistoryData:
@@ -115,6 +122,140 @@ class StatsCacheTests(unittest.TestCase):
             ann.write_text('[{"kind": "club_correction"}]')  # a manual correction
             stats_cache.cached_build_history_stats(data, data_mode="local")
             self.assertEqual(calls["n"], 2)
+
+    def test_unplayed_course_geometry_does_not_invalidate_player_stats(self) -> None:
+        calls = {"n": 0}
+        geometry = self.tmp / "geometry"
+        geometry.mkdir()
+        unrelated = geometry / "gid222_h01_meshes.json"
+        unrelated.write_text("{}")
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[{"id": "r1", "globalId": 111}],
+            shots=[],
+        )
+        with patch.object(stats_cache, "_build_history_stats", self._counting_build(calls)), \
+             patch.object(stats_cache, "_FINGERPRINT_DIRS", (self.scorecards,)), \
+             patch.object(stats_cache, "_GEOMETRY_DIRS", (geometry,)):
+            stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
+            unrelated.write_text('{"new": true}')
+            stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
+            self.assertEqual(calls["n"], 1, "installing an unplayed course must keep stats warm")
+
+            (geometry / "gid111_h01_meshes.json").write_text("{}")
+            stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
+            self.assertEqual(calls["n"], 2, "geometry used by a historical round must invalidate")
+
+    def test_owner_aux_paths_are_unchanged(self) -> None:
+        # The owner keeps the flat data/ layout: resolving through the player's evidence root must
+        # produce byte-identical paths to the plain *_file(root) calls the loaders make for "me".
+        root = self.tmp / "evidence"
+        self.assertEqual(
+            stats_cache._aux_files(
+                annotations_root=root, weather_root=root, reports_root=root, decision_audit_root=root
+            ),
+            [
+                annotation_file(root),
+                weather_snapshot_file(root),
+                report_store_file(root),
+                decision_audit_file(root),
+            ],
+        )
+
+    def test_member_evidence_write_invalidates_only_that_member(self) -> None:
+        # build_history_stats reads annotations/weather/reports/decision audits through
+        # evidence_root(player_id), i.e. data/players/<id>/ for a member. Fingerprinting the OWNER's
+        # flat files for every player meant a member's own note never invalidated their stats.
+        calls = {"n": 0}
+        root = self.tmp / "evidence"
+        root.mkdir()
+        roots = dict(
+            annotations_root=str(root), weather_root=str(root), reports_root=str(root), decision_audit_root=str(root)
+        )
+        member_note = annotation_file(evidence_root("p_member", root=root))
+        member_note.parent.mkdir(parents=True, exist_ok=True)
+        member_note.write_text("[]")
+
+        with patch.object(stats_cache, "_build_history_stats", self._counting_build(calls)), \
+             patch.object(stats_cache, "_FINGERPRINT_DIRS", (self.scorecards,)), \
+             patch.object(stats_cache, "_PLAYERS_DIR", self.tmp / "players"), \
+             patch.object(stats_cache, "_GEOMETRY_DIRS", ()):
+            data = _dummy_data()
+            stats_cache.cached_build_history_stats(data, data_mode="local", player_id="p_member", **roots)
+            self.assertEqual(calls["n"], 1)
+
+            stats_cache.cached_build_history_stats(data, data_mode="local", player_id="p_member", **roots)
+            self.assertEqual(calls["n"], 1, "unchanged inputs must stay warm")
+
+            member_note.write_text('[{"kind": "club_correction"}]')  # the member files a correction
+            stats_cache.cached_build_history_stats(data, data_mode="local", player_id="p_member", **roots)
+            self.assertEqual(calls["n"], 2, "a member's own evidence write must invalidate their stats")
+
+    def test_owner_evidence_write_does_not_invalidate_member_stats(self) -> None:
+        calls = {"n": 0}
+        root = self.tmp / "evidence"
+        root.mkdir()
+        roots = dict(
+            annotations_root=str(root), weather_root=str(root), reports_root=str(root), decision_audit_root=str(root)
+        )
+        owner_note = annotation_file(root)
+        owner_note.parent.mkdir(parents=True, exist_ok=True)
+        owner_note.write_text("[]")
+
+        with patch.object(stats_cache, "_build_history_stats", self._counting_build(calls)), \
+             patch.object(stats_cache, "_FINGERPRINT_DIRS", (self.scorecards,)), \
+             patch.object(stats_cache, "_PLAYERS_DIR", self.tmp / "players"), \
+             patch.object(stats_cache, "_GEOMETRY_DIRS", ()):
+            data = _dummy_data()
+            stats_cache.cached_build_history_stats(data, data_mode="local", player_id="p_member", **roots)
+            stats_cache.cached_build_history_stats(data, data_mode="local", **roots)  # owner
+            self.assertEqual(calls["n"], 2, "owner and member build separately")
+
+            owner_note.write_text('[{"kind": "club_correction"}]')  # the OWNER files a correction
+            stats_cache.cached_build_history_stats(data, data_mode="local", player_id="p_member", **roots)
+            self.assertEqual(calls["n"], 2, "an owner write must not evict a member's cached stats")
+
+            stats_cache.cached_build_history_stats(data, data_mode="local", **roots)
+            self.assertEqual(calls["n"], 3, "the owner's own write still invalidates the owner (unchanged)")
+
+    def test_concurrent_cold_callers_share_one_stats_build(self) -> None:
+        calls = {"n": 0}
+        entered = threading.Event()
+        release = threading.Event()
+        results: list[dict] = []
+        failures: list[BaseException] = []
+
+        def blocking_build(data, **kwargs):
+            calls["n"] += 1
+            entered.set()
+            self.assertTrue(release.wait(timeout=2))
+            return {"build_number": calls["n"]}
+
+        def invoke(data: HistoryData) -> None:
+            try:
+                results.append(stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots))
+            except BaseException as exc:
+                failures.append(exc)
+
+        with patch.object(stats_cache, "_build_history_stats", blocking_build), \
+             patch.object(stats_cache, "_FINGERPRINT_DIRS", (self.scorecards,)), \
+             patch.object(stats_cache, "_GEOMETRY_DIRS", ()):
+            data = _dummy_data()
+            first = threading.Thread(target=invoke, args=(data,))
+            second = threading.Thread(target=invoke, args=(data,))
+            first.start()
+            self.assertTrue(entered.wait(timeout=1))
+            second.start()
+            time.sleep(0.05)
+            self.assertEqual(calls["n"], 1)
+            release.set()
+            first.join(timeout=2)
+            second.join(timeout=2)
+
+        self.assertFalse(first.is_alive() or second.is_alive())
+        self.assertEqual(failures, [])
+        self.assertEqual(results, [{"build_number": 1}, {"build_number": 1}])
+        self.assertEqual(calls["n"], 1)
 
     def test_distinct_datasets_do_not_collide(self) -> None:
         # Two different in-memory datasets with the same size and the same (empty) file

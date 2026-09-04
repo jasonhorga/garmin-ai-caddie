@@ -98,6 +98,10 @@ export interface ClubReco {
   name: string
   yd: number
   on: boolean
+  token?: string | null
+  distanceSource?: string | null
+  sampleSize?: number | null
+  confidence?: string | null
 }
 
 // Up to 3 bag clubs bracketing the target yardage, nearest one marked
@@ -120,5 +124,13 @@ export function recosForTarget(clubs: CoursePrepClub[], targetYd: number): ClubR
   if (start > sorted.length - 3) start = Math.max(0, sorted.length - 3)
   const window = sorted.slice(start, start + 3)
   const recommended = sorted[nearest].name
-  return window.map((club) => ({ name: club.name, yd: club.yd, on: club.name === recommended }))
+  return window.map((club) => ({
+    name: club.name,
+    yd: club.yd,
+    on: club.name === recommended,
+    token: club.token,
+    distanceSource: club.distanceSource,
+    sampleSize: club.sampleSize,
+    confidence: club.confidence,
+  }))
 }

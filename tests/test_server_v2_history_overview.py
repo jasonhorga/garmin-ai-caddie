@@ -174,6 +174,7 @@ class ServerV2HistoryOverviewTests(unittest.TestCase):
         self.assertEqual(payload["metrics"]["average18"], 89.0)
         self.assertEqual(payload["metrics"]["bestScore"], 82)
         self.assertEqual(payload["metrics"]["recent10Average"], 89.0)
+        self.assertEqual(payload["metrics"]["recent20Average"], 89.0)
         self.assertEqual(payload["metrics"]["courseCount"], 2)
         self.assertEqual(payload["recentRounds"][0]["id"], "1")
         self.assertEqual(payload["recentRounds"][0]["scoreStrip"][0]["className"], "par")

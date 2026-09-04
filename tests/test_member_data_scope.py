@@ -115,7 +115,7 @@ class ShotsForHoleSourcesIsolationTests(unittest.TestCase):
 
 
 class EffectiveClubLadderMemberTests(unittest.TestCase):
-    """A member's ladder = their OWN measured median ?? manual typed ?? catalog default, isolated."""
+    """A member's ladder = manual typed ?? their OWN measured median ?? catalog default, isolated."""
 
     def test_owner_unchanged_uses_club_ladder(self):
         sentinel = [("7 Iron", 150)]
@@ -123,7 +123,7 @@ class EffectiveClubLadderMemberTests(unittest.TestCase):
             self.assertEqual(course_prep.effective_club_ladder("me"), sentinel)
         cl.assert_called_once()
 
-    def test_member_measured_wins_and_is_isolated_from_other_players(self):
+    def test_member_explicit_distance_wins_and_history_is_isolated_from_other_players(self):
         # SAME manual bag for both members (iron7 typed 140, driver no typed -> catalog default).
         bag = {"clubs": [{"token": "iron7", "distanceM": 140}, {"token": "driver"}]}
         sources = {
@@ -149,12 +149,12 @@ class EffectiveClubLadderMemberTests(unittest.TestCase):
             ladder_a = dict(course_prep.effective_club_ladder("memberA"))
             ladder_b = dict(course_prep.effective_club_ladder("memberB"))
 
-        # A: own measured 7-iron (150) WINS over the typed 140; driver falls back to catalog default
-        # (200) because A has no measured driver — and NEVER B's measured 240.
-        self.assertEqual(ladder_a["iron7"], 150)
+        # A: the player's explicit 7-iron value (140) wins over measured history (150); driver falls
+        # back to catalog default (200) because A has no measured driver — and NEVER B's measured 240.
+        self.assertEqual(ladder_a["iron7"], 140)
         self.assertEqual(ladder_a["driver"], 200)
-        # B: own measured driver (240); iron7 falls back to typed 140 (B has no measured iron),
-        # and NEVER A's measured 150.
+        # B: own measured driver (240) fills the club with no explicit value; iron7 stays at the
+        # player's explicit 140, and neither club can consume A's measured history.
         self.assertEqual(ladder_b["driver"], 240)
         self.assertEqual(ladder_b["iron7"], 140)
         # Same bag, different ladders -> each reflects only that member's own shots.

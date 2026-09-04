@@ -1,4 +1,18 @@
+import { readFileSync } from 'node:fs'
+
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
+
+const fullRoundPars = [4, 5, 3, 4, 4, 5, 4, 3, 4, 4, 4, 3, 5, 4, 4, 3, 5, 4]
+const fullRoundScores = [4, 4, 3, 5, 4, 5, 6, 3, 4, 5, 5, 3, 5, 4, 5, 3, 5, 5]
+
+function fullRoundClass(toPar: number) {
+  if (toPar <= -2) return 'eagle'
+  if (toPar === -1) return 'birdie'
+  if (toPar === 0) return 'par'
+  if (toPar === 1) return 'bogey'
+  if (toPar === 2) return 'double'
+  return 'triple'
+}
 
 const overviewPayload = {
   schema: 'ai-caddie-history-overview-v2',
@@ -24,17 +38,11 @@ const overviewPayload = {
       toPar: 6,
       primaryIssue: 'approach_short',
       badges: [{ label: 'shots', state: 'good', value: '100%', reason: 'all shot rows loaded' }],
-      scoreStrip: [
-        { hole: 1, par: 4, score: 4, toPar: 0, className: 'par' },
-        { hole: 2, par: 5, score: 4, toPar: -1, className: 'birdie' },
-        { hole: 3, par: 3, score: 3, toPar: 0, className: 'par' },
-        { hole: 4, par: 4, score: 5, toPar: 1, className: 'bogey' },
-        { hole: 5, par: 4, score: 4, toPar: 0, className: 'par' },
-        { hole: 6, par: 5, score: 5, toPar: 0, className: 'par' },
-        { hole: 7, par: 4, score: 6, toPar: 2, className: 'double' },
-        { hole: 8, par: 3, score: 3, toPar: 0, className: 'par' },
-        { hole: 9, par: 4, score: 4, toPar: 0, className: 'par' },
-      ],
+      scoreStrip: fullRoundScores.map((score, index) => {
+        const par = fullRoundPars[index] ?? 4
+        const toPar = score - par
+        return { hole: index + 1, par, score, toPar, className: fullRoundClass(toPar) }
+      }),
     },
   ],
   distribution: {
@@ -98,14 +106,19 @@ const statsPayload = {
     handicapTrend: -0.8,
   },
   time: {
-    byYear: [{ key: '2026', roundCount: 12, average18: 82.4, bestScore: 76, roundRefs: ['900001', '900002'] }],
-    byQuarter: [{ key: '2026-Q2', roundCount: 8, average18: 80.9, bestScore: 76, roundRefs: ['900001'] }],
+    byYear: [{ key: '2026', roundCount: 12, average18: 82.4, bestScore: 76, roundIds: ['900001', '900002'] }],
+    byQuarter: [{ key: '2026-Q2', roundCount: 8, average18: 80.9, bestScore: 76, roundIds: ['900001'] }],
     byMonth: [
-      { key: '2026-05', roundCount: 2, average18: 80.5, averageDifferential: 9.1, bestScore: 78, roundRefs: ['900001', '900002'] },
-      { key: '2026-04', roundCount: 3, average18: 82.0, averageDifferential: 10.4, bestScore: 79, roundRefs: ['900004'] },
-      { key: '2026-03', roundCount: 2, average18: 84.5, averageDifferential: 12.0, bestScore: 81, roundRefs: ['900005'] },
+      { key: '2026-05', roundCount: 2, average18: 80.5, averageDifferential: 9.1, bestScore: 78, roundIds: ['900001', '900002'] },
+      { key: '2026-04', roundCount: 3, average18: 82.0, averageDifferential: 10.4, bestScore: 79, roundIds: ['900004'] },
+      { key: '2026-03', roundCount: 2, average18: 84.5, averageDifferential: 12.0, bestScore: 81, roundIds: ['900005'] },
     ],
-    playFrequency: { roundsPerMonth: 3.2, activeMonths: 4 },
+    byDay: [
+      { key: '2026-05-20', roundCount: 1, average18: 78, bestScore: 78, roundIds: ['900001'] },
+      { key: '2026-05-03', roundCount: 1, average18: 83, bestScore: 83, roundIds: ['900002'] },
+      { key: '2026-04-16', roundCount: 1, average18: 79, bestScore: 79, roundIds: ['900004'] },
+    ],
+    playFrequency: { totalMonths: 4, roundsPerMonth: 3.2, mostActiveMonth: { key: '2026-05', roundCount: 4 } },
     improvement: {
       direction: 'improving',
       baselineAverage18: 85.2,
@@ -118,10 +131,17 @@ const statsPayload = {
       recentRoundRefs: ['900001', '900002'],
     },
   },
+  trend: {
+    points: [
+      { date: '2026-03-14', score: 85, toPar: 13, roundId: '900005' },
+      { date: '2026-04-16', score: 79, toPar: 7, roundId: '900004' },
+      { date: '2026-05-20', score: 78, toPar: 6, roundId: '900001' },
+    ],
+  },
   scoring: {
     scoreBands: [
-      { label: '70s', count: 3, roundRefs: ['900001'] },
-      { label: '80s', count: 7, roundRefs: ['900002'] },
+      { label: '70s', count: 3, roundIds: ['900001', '900004'] },
+      { label: '80s', count: 7, roundIds: ['900002', '900005'] },
     ],
     outcomes: { eagleOrBetter: 1, birdie: 14, par: 94, bogey: 76, doubleOrWorse: 31 },
     outcomeDistribution: [
@@ -133,14 +153,19 @@ const statsPayload = {
       { key: 'triple', label: 'Triple', count: 6, pct: 2.8 },
       { key: 'quadPlus', label: '+4 or worse', count: 3, pct: 1.4 },
     ],
+    byPar: [
+      { par: 3, holeCount: 40, averageToPar: 0.3, parOrBetter: 29, parOrBetterPct: 72.5 },
+      { par: 4, holeCount: 120, averageToPar: 0.7, parOrBetter: 61, parOrBetterPct: 50.8 },
+      { par: 5, holeCount: 56, averageToPar: 0.4, parOrBetter: 35, parOrBetterPct: 62.5 },
+    ],
     phaseStats: [
-      { phase: 'Tee', fairwaysHit: 6, sampleCount: 10, sourceRefs: ['900001:1'] },
-      { phase: 'Approach', girPct: 44, sampleCount: 18, sourceRefs: ['900001:7'] },
-      { phase: 'Putting', averagePutts: 1.9, sampleCount: 18, sourceRefs: ['900001:8'] },
+      { phase: 'Tee', fairwaysRecorded: 100, fairwaysHit: 57, fairwayMissLeft: 26, fairwayMissRight: 17 },
+      { phase: 'Approach', girRecorded: 216, gir: 91, missedGir: 125, girPct: 42.1 },
+      { phase: 'Putting', totalPutts: 397, holesWithPutts: 216, averagePutts: 1.84, threePutts: 5 },
     ],
     teeDirection: { hitPct: 57, leftPct: 26, rightPct: 12, otherPct: 5, recorded: 60, dominantMiss: 'left' },
     approachMiss: { girPct: 42, shortPct: 30, longPct: 12, leftPct: 10, rightPct: 24, recorded: 60, dominantMiss: 'short' },
-    putting: { averagePuttsPerRound: 33.1, averagePutts: 1.9, threePutts: 5, roundsWithPutts: 12 },
+    putting: { totalPutts: 397, averagePuttsPerRound: 33.1, averagePutts: 1.84, threePutts: 5, roundsWithPutts: 12 },
   },
   courseDistribution: [
     {
@@ -168,6 +193,15 @@ const statsPayload = {
       average18: 80.5,
       bestScore: 76,
       worstScore: 86,
+      recentRoundId: '900001',
+      nineBreakdown: [
+        { label: 'B/C', roundCount: 3, average: 80.3, bestScore: 76, recentRoundId: '900001' },
+        { label: 'A/B', roundCount: 2, average: 83.5, bestScore: 81, recentRoundId: '900004' },
+      ],
+      rounds: [
+        { roundId: '900001', date: '2026-05-20', score: 78, holesCompleted: 18, toPar: 6, nine: 'B/C' },
+        { roundId: '900002', date: '2026-05-03', score: 83, holesCompleted: 18, toPar: 11, nine: 'B/C' },
+      ],
       geometryCoverage: 'partial',
       roundRefs: ['900001', '900002'],
       recentForm: { direction: 'improving', recentAverage18: 79, deltaAverage18: -2.4 },
@@ -444,22 +478,25 @@ const annotationsPayload = {
 }
 
 // 备战 walk fixtures for globalId 31795 ('Black Knight B/C' in the mobile
-// course options above). Hole 1 carries a rendered map (real, valid 1x1 JPEG so
-// the browser raises no decode errors) plus a two-dot shot scatter; holes 2/7
-// degrade without geometry. Hole 7 matches the stats.holes black_knight row so
-// 关键洞 and the 逐洞速览 chip pick up 平均+1.1.
+// course options above). The package is installed (all requested holes carry
+// geometryCoverage=ready), so it can enter the full workbench gate. Hole 1
+// deliberately carries a 1x1 legacy fallback under the realistic Topo response
+// plus a two-dot shot scatter. Holes 2/7 carry authoritative route/par facts but
+// omit a rendered raster/projection, keeping the explicit no-map fallback covered
+// without pretending their geometry is missing. Hole 7 matches the
+// stats.holes black_knight row so 关键洞 and the 逐洞速览 chip pick up 平均+1.1.
 const tinyHoleJpeg =
   'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/yQALCAABAAEBAREA/8wABgAQEAX/2gAIAQEAAD8A0s8g/9k='
 
 const prepHoleOneOverlay = {
   w: 360,
-  h: 360,
+  h: 563,
   ppm: 0.85,
   ln: 393,
   route: [
-    [180, 330, 0],
-    [176, 150, 212],
-    [184, 40, 393],
+    [180, 528, 0],
+    [176, 260, 212],
+    [184, 68, 393],
   ],
 }
 
@@ -494,8 +531,8 @@ const coursePrepPayload = {
       hazards: { water_carry: [[120, 180]], bunkers: [[260, 8]] },
       map: { image: tinyHoleJpeg, overlay: prepHoleOneOverlay },
       yourShots: [
-        { x: 168, y: 150, club: '1D', shotType: 'TEE', roundId: '900001' },
-        { x: 188, y: 60, club: '8I', shotType: 'APPROACH', roundId: '900002' },
+        { x: 168, y: 260, club: '1D', shotType: 'TEE', roundId: '900001' },
+        { x: 188, y: 96, club: '8I', shotType: 'APPROACH', roundId: '900002' },
       ],
     },
     {
@@ -508,9 +545,9 @@ const coursePrepPayload = {
         [0, 0, 0],
         [0, 140, 165],
       ],
-      geometryCoverage: 'missing',
-      sourceRefs: [],
-      missingData: [{ label: 'geometry', reason: 'prodgeometry geometry is missing for this hole' }],
+      geometryCoverage: 'ready',
+      sourceRefs: ['course:31795', 'geometry:31795:2'],
+      missingData: [],
       candidateRoutes: [],
       carryTargets: [],
       steps: [{ club: null, note: '一杆上果岭,宁长勿短' }],
@@ -529,9 +566,9 @@ const coursePrepPayload = {
         [0, 0, 0],
         [0, 300, 375],
       ],
-      geometryCoverage: 'missing',
-      sourceRefs: [],
-      missingData: [{ label: 'geometry', reason: 'prodgeometry geometry is missing for this hole' }],
+      geometryCoverage: 'ready',
+      sourceRefs: ['course:31795', 'geometry:31795:7'],
+      missingData: [],
       candidateRoutes: [],
       carryTargets: [],
       steps: [{ club: '1D', note: '历史失分洞,稳住开球' }],
@@ -541,6 +578,24 @@ const coursePrepPayload = {
       hazards: { water_carry: [], bunkers: [] },
     },
   ],
+}
+
+// Prep now opens every selected course through the same mobile package used by
+// iOS/Watch before reading the web prep view. Keep the E2E package honest enough
+// to supply the provider's real local-hole identities; the prep payload below
+// remains the rendered map authority exercised by this visual walk.
+const mobileCoursePackagePayload = {
+  schema: 'ai-caddie-live-round-package-v1',
+  roundId: 'web-prep-31795',
+  dataMode: 'fixture',
+  holes: coursePrepPayload.holes.map((hole) => ({
+    number: hole.hole,
+    sourceGlobalId: 31795,
+    sourceLocalHole: hole.hole,
+    par: hole.par,
+    yards: hole.blue_yards,
+    geometryCoverage: hole.geometryCoverage,
+  })),
 }
 
 // basis carries the REAL backend machine keys (ai_caddie/prep_tips.py); the
@@ -659,36 +714,25 @@ const replayRoundDetailPayload = {
     confidence: 'high',
     coverage: { scorecard: 'full', shots: 'full', putts: 'full' },
   },
-  scorecard: [
-    {
-      hole: 1,
-      par: 4,
-      score: 4,
-      toPar: 0,
-      className: 'par',
-      putts: 2,
-      gir: true,
-      fairway: 'hit',
-      holeRef: '900001:1',
-      shotRefs: ['900001:1:0'],
-      sourceRefs: ['900001:1'],
+  scorecard: fullRoundScores.map((score, index) => {
+    const hole = index + 1
+    const par = fullRoundPars[index] ?? 4
+    const toPar = score - par
+    return {
+      hole,
+      par,
+      score,
+      toPar,
+      className: fullRoundClass(toPar),
+      putts: hole % 4 === 0 ? 3 : hole % 3 === 0 ? 1 : 2,
+      gir: toPar <= 0,
+      fairway: par === 3 ? null : hole % 5 === 0 ? 'left' : 'hit',
+      holeRef: `900001:${hole}`,
+      shotRefs: [`900001:${hole}:0`],
+      sourceRefs: [`900001:${hole}`],
       status: 'complete',
-    },
-    {
-      hole: 2,
-      par: 5,
-      score: 4,
-      toPar: -1,
-      className: 'birdie',
-      putts: 1,
-      gir: true,
-      fairway: 'hit',
-      holeRef: '900001:2',
-      shotRefs: ['900001:2:0'],
-      sourceRefs: ['900001:2'],
-      status: 'complete',
-    },
-  ],
+    }
+  }),
   phaseSummary: [],
   holeDetails: [],
   relatedRefs: { roundRefs: ['900001'], holeRefs: ['900001:1', '900001:2'], shotRefs: [], sourceRefs: [] },
@@ -706,6 +750,9 @@ const roundShotMapPayload = {
   roundRef: '900001',
   hole: 1,
   par: 4,
+  globalId: 31795,
+  localHole: 1,
+  geometryRevision: 'visual-fixture',
   map: {
     image: TRANSPARENT_PNG,
     overlay: { w: 300, h: 470, ppm: 1, ln: 400, route: [[150, 455, 0], [150, 72, 400]] },
@@ -733,83 +780,67 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   const { prepIncludeShots, caddieContextQueries, caddieDecisionBodies } = await mockApi(page)
 
   await page.goto('/?admin=screenshot-admin')
-  // 复盘 landing = the round-review workbench: round selector + shape-coded hole list
-  // + 逐洞落点图 + 杆序. The newest round auto-selects on its first hole.
-  await expect(page.getByText('球洞 · 成绩')).toBeVisible()
-  await expect(page.locator('[aria-label="选择球局"]')).toBeVisible()
-  await expect(page.getByText('Black Knight B', { exact: true })).toBeVisible()
-  await expect(page.locator('[aria-label="第1洞落点图"]')).toBeVisible()
+  // 成绩 is the one answer-first destination for career, trends, analysis and archive.
+  await expect(page.locator('section[aria-label="成绩主页"]')).toBeVisible()
+  await expect(page.locator('section[aria-label="生涯概览"]')).toContainText('82.4')
+  await expect(page.locator('section[aria-label="最近球局"]')).toContainText('Black Knight B')
   await assertNoViewportOverflow(page)
   await expect(page.getByText('历史数据不可用')).toHaveCount(0)
   await captureSmokeScreenshot(page, testInfo, 'overview')
 
-  // 统计 owns the trends landing in the redesign (was 历史). exact avoids the home
-  // 看历史 → button substring-matching the rail label.
-  await page.getByRole('button', { name: '统计', exact: true }).click()
-  // Scope subnav-tab clicks to the 辅助导航 nav so they never collide with page content.
+  // All archive, trend and analysis pages now live under the one 成绩 destination.
+  // Scope clicks to its subnav so same-named page links cannot satisfy the journey.
   const subnav = page.getByRole('navigation', { name: '辅助导航' })
 
-  // 趋势总览 = the P4 统计 dashboard: KPI tiles + strokes/dispersion/trend/course/composition
-  // panels, all wired to the compact window-aware mobile stats. Locate by [aria-label].
-  await subnav.getByRole('button', { name: '趋势总览' }).click()
-  await expect(page.locator('section[aria-label="统计仪表盘"]')).toBeVisible()
-  // KPI tiles from real summary/scoring fields.
-  await expect(page.locator('[aria-label="差点指数"]')).toContainText('14.2')
-  await expect(page.locator('[aria-label="平均杆"]')).toContainText('82.4')
-  await expect(page.locator('[aria-label="标准杆上果岭"]')).toContainText('42%')
-  await expect(page.locator('[aria-label="开球上球道"]')).toContainText('57%')
-  await expect(page.locator('[aria-label="平均推杆"]')).toContainText('33.1')
-  // 各环节失杆 from diagnosis.issueTrends grouped by phase (NOT fabricated strokes-gained).
-  await expect(page.locator('section[aria-label="各环节失杆"]')).toContainText('攻果岭')
-  // 差点趋势 + 失误倾向 render as real SVG charts.
-  await expect(page.getByRole('img', { name: '差点趋势图' })).toBeVisible()
-  await expect(page.getByRole('img', { name: '攻果岭失误分布图' })).toBeVisible()
-  // 成绩构成 4-bucket breakdown (○ 小鸟及以下 / 标准杆 / □ 柏忌 / ⊡ 双柏忌+).
-  const compPanel = page.locator('section[aria-label="成绩构成"]')
-  await expect(compPanel.getByText('标准杆', { exact: true })).toBeVisible()
-  await expect(compPanel.getByText('柏忌', { exact: true })).toBeVisible()
-  await expect(compPanel.getByText('双柏忌+', { exact: true })).toBeVisible()
-  // 按球场 table from stats.courses.
-  await expect(page.locator('section[aria-label="按球场"]')).toContainText('Black Knight B')
+  await subnav.getByRole('button', { name: '时间趋势' }).click()
+  await expect(page.getByRole('heading', { name: '时间趋势', exact: true })).toBeVisible()
+  await expect(page.getByRole('img', { name: '成绩时间趋势图' })).toBeVisible()
+  await expect(page.locator('section[aria-label="历年表现"]')).toContainText('2026 年')
+  await expect(page.locator('section[aria-label="打球频率"]')).toContainText('3 场')
+  await page.getByRole('group', { name: '统计范围' }).getByRole('button', { name: '近 12 月' }).click()
+  await expect(page.getByRole('group', { name: '汇总粒度' }).getByRole('button', { name: '月' })).toHaveAttribute('aria-pressed', 'true')
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'trends')
 
-  // 统计 owns the dashboard + course performance; walk both subnav tabs.
-  await subnav.getByRole('button', { name: '趋势总览' }).click()
-  await expect(page.locator('section[aria-label="统计仪表盘"]')).toBeVisible()
+  await subnav.getByRole('button', { name: '表现分析' }).click()
+  await expect(page.getByRole('heading', { name: '表现分析', exact: true })).toBeVisible()
+  const phases = page.locator('section[aria-label="四个环节"]')
+  await expect(phases).toContainText('开球')
+  await expect(phases).toContainText('57%')
+  await expect(phases).toContainText('攻果岭')
+  await expect(phases).toContainText('42%')
+  await expect(phases).toContainText('33.1')
+  await expect(phases).toContainText('当前历史统计未提供可靠分母')
+  await expect(page.locator('section[aria-label="成绩构成"]')).toContainText('双柏忌+')
+  await expect(page.locator('section[aria-label="按标准杆类型"]')).toContainText('Par 3')
   await assertNoViewportOverflow(page)
   await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
   await captureSmokeScreenshot(page, testInfo, 'trends-overview')
 
   await subnav.getByRole('button', { name: '球场' }).click()
   await expect(page.getByRole('heading', { name: '球场表现', exact: true, level: 1 })).toBeVisible()
+  await page.getByText('Black Knight B', { exact: true }).click()
+  await expect(page.getByRole('heading', { name: '九洞组合' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '球局证据' })).toBeVisible()
   await assertNoViewportOverflow(page)
   await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
   await captureSmokeScreenshot(page, testInfo, 'courses')
 
-  // …while 复盘 owns the rounds list + strengths analysis (split out of the old 历史).
-  await page.getByRole('button', { name: '复盘', exact: true }).click()
-  for (const [tab, heading, level, slug] of [
-    ['球局', '球局', 1, 'rounds'],
-    ['强弱分析', '你最该练', 1, 'strengths-list'],
-  ] as const) {
-    await subnav.getByRole('button', { name: tab }).click()
-    await expect(page.getByRole('heading', { name: heading, exact: true, level })).toBeVisible()
-    await assertNoViewportOverflow(page)
-    await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
-    await captureSmokeScreenshot(page, testInfo, slug)
-  }
-
-  await subnav.getByRole('button', { name: '强弱分析' }).click()
-  await expect(page.getByRole('heading', { name: '你最该练', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '按洞', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '按杆', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '问题', exact: true })).toBeVisible()
-  // 总体数字 from scoring.phaseStats: Tee fairwaysHit 6/10 → 60%
-  await expect(page.getByText('球道命中率')).toBeVisible()
-  await expect(page.getByText('60%', { exact: true })).toBeVisible()
+  await subnav.getByRole('button', { name: '表现分析' }).click()
+  await page.getByRole('button', { name: /球杆表现/ }).click()
+  await expect(page.getByRole('heading', { name: '球杆表现', exact: true })).toBeVisible()
+  await expect(page.getByText('227 码')).toBeVisible()
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'strengths')
+
+  await subnav.getByRole('button', { name: '全部球局' }).click()
+  await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
+  await expect(page.getByRole('button', { name: /打开球局 Black Knight B/ })).toBeVisible()
+  await assertNoViewportOverflow(page)
+  await page.getByRole('button', { name: /打开球局 Black Knight B/ }).click()
+  await expect(page.locator('[aria-label="第1洞落点图"]')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '球局回顾', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '记分卡', exact: true })).toBeVisible()
 
   // 球包 (bag rail) = the P5 club-distance gapping workbench: a shared-axis ladder
   // (carry marker + measured P10–P90 band) + a selected-club detail + the editable
@@ -876,33 +907,53 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByText('PAR 11 · 1020 码')).toBeVisible()
   await expect(page.getByText('你的战绩:打过 5 次 · 均杆 80.5')).toBeVisible()
 
-  // Left rail lists every hole; hole 7 (a played key hole, stats avg +1.1) is flagged.
-  const holeSeven = page.getByRole('button', { name: '第7洞 Par4 410码' })
-  await expect(holeSeven).toBeVisible()
-  await expect(holeSeven.getByText('平均+1.1')).toBeVisible()
-  await expect(holeSeven.getByText('关键')).toBeVisible()
+  // The compact picker replaces the old 18-row rail. Exercise a real hole switch so the option's
+  // yardage/history labels and the selected-hole summary are both covered without restoring a list.
+  const holePicker = page.getByRole('combobox', { name: '选择球洞' })
+  await expect(holePicker.locator('option[value="7"]')).toHaveText(/第 7 洞 · Par 4 · 410码 · 平均\+1\.1 · 关键/)
+  await holePicker.selectOption('7')
+  await expect(page.locator('.prep-active-hole-summary')).toContainText('平均+1.1')
+  await expect(page.locator('.prep-active-hole-summary')).toContainText('关键')
+  await holePicker.selectOption('1')
 
-  // Hole 1 is selected by default → its canvas (real geometry + shot scatter) drives the
-  // 球童试算 inspector; the caddie recommends the nearest club to the ~235 y tee-shot landing.
+  // Hole 1 is selected by default. Its real geometry, shot scatter and nearest-club recommendation
+  // now live on the map; the dock keeps only progressive strategy/personal detail.
   const prepInspector = page.getByRole('complementary', { name: '球童试算' })
-  await expect(page.getByRole('button', { name: '第1洞 Par4 430码' })).toHaveAttribute('aria-current', 'true')
-  await expect(page.locator('[aria-label="第1洞球道图"]')).toBeVisible()
-  await expect(page.getByText('你的落点:')).toBeVisible()
-  await expect(prepInspector.getByRole('heading', { name: '球童试算 · 第 1 洞' })).toBeVisible()
-  await expect(prepInspector.locator('.prep-club.on')).toContainText('1D')
-  await expect(prepInspector.getByText('水×1 · 沙×1')).toBeVisible()
+  await expect(holePicker).toHaveValue('1')
+  const prepCanvas = page.getByLabel('第1洞球道图')
+  await expect(prepCanvas).toBeVisible()
+  await expect(prepCanvas.getByLabel('地图推荐球杆')).toContainText('1D · 235码落点')
+  await expect(prepCanvas.locator('title').filter({ hasText: '1D · 900001' })).toHaveCount(1)
+  await expect(prepInspector.getByLabel('展开完整打法')).toBeVisible()
+  const prepCanvasBox = await prepCanvas.boundingBox()
+  const prepFrameBox = await prepCanvas.locator('.prep-canvas-frame').boundingBox()
+  const prepBaseBox = await prepCanvas.locator('.prep-canvas-img').boundingBox()
+  expect(prepCanvasBox).not.toBeNull()
+  expect(prepFrameBox).not.toBeNull()
+  expect(prepBaseBox).not.toBeNull()
+  expect(prepBaseBox?.width).toBeCloseTo(prepFrameBox?.width ?? 0, 0)
+  expect(prepBaseBox?.height).toBeCloseTo(prepFrameBox?.height ?? 0, 0)
+  expect((prepFrameBox?.y ?? 0) + (prepFrameBox?.height ?? 0)).toBeLessThanOrEqual(
+    (prepCanvasBox?.y ?? 0) + (prepCanvasBox?.height ?? 0),
+  )
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'prep-overview')
 
-  // Selecting hole 7 re-drives the inspector (no geometry → placeholder canvas, no scatter).
-  await holeSeven.click()
-  await expect(prepInspector.getByRole('heading', { name: '球童试算 · 第 7 洞' })).toBeVisible()
-  await expect(page.getByText('你的落点:')).toHaveCount(0)
+  // Selecting hole 7 re-drives the same map surface. This fixture has no rendered
+  // raster/projection for that hole, so the explicit placeholder remains visible
+  // and no recommendation point is fabricated.
+  await holePicker.selectOption('7')
+  await expect(holePicker).toHaveValue('7')
+  const holeSevenCanvas = page.getByLabel('第7洞球道图')
+  await expect(holeSevenCanvas).toBeVisible()
+  await expect(holeSevenCanvas.getByLabel('地图推荐球杆')).toHaveCount(0)
+  await expect(holeSevenCanvas.getByText('此洞暂无实景航图(示意图)', { exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'prep-holes')
 
   // 针对你 tips render in the inspector (no tab), machine basis keys mapped to zh 依据
   // lines (raw keys must never surface).
+  await prepInspector.getByText(/^\u9488对你 ·/).click()
   await expect(page.getByText('开球偏右(58%),第1洞、第7洞尤其要瞄球道左侧')).toBeVisible()
   await expect(page.getByText('三杆洞稳(平均+0.2),按部就班拿帕')).toBeVisible()
   await expect(page.getByText('依据:你在本场的开球倾向')).toBeVisible()
@@ -931,15 +982,16 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByRole('heading', { name: 'Black Knight B/C' })).toBeVisible()
 
   // Hole chips come from the prep payload (1/2/7); hole 1 is active by default
-  // and carries the rendered map. Hole 7 has no geometry, so switching there
-  // degrades to the manual 到果岭 input; back on hole 1 the readout shows the
-  // ball on the tee (距T 0 · 到果岭 = full route length 393m).
+  // and carries the rendered map. Hole 7 has no rendered overlay in this fixture,
+  // so switching there degrades to the manual 到果岭 input; back on hole 1 the
+  // map overlay shows the full tee-to-green distance for the blue player marker.
   await expect(page.getByRole('button', { name: '第1洞' })).toHaveAttribute('aria-current', 'true')
   await page.getByRole('button', { name: '第7洞' }).click()
   await expect(page.getByLabel('到果岭(码)')).toBeVisible()
   await page.getByRole('button', { name: '第1洞' }).click()
-  // 393m * 1.09361 = 430.09 → 430码
-  await expect(page.getByText('距T 0码 · 到果岭 430码')).toBeVisible()
+  // 393m * 1.09361 = 430.09 → 430码. The old text strip is deliberately gone;
+  // distance is now one Garmin-style map overlay.
+  await expect(page.locator('.live-sandbox-map-distance')).toContainText('430码')
   await assertNoViewportOverflow(page)
 
   // Tee shots take no lie; switching 击球类型 to 攻果岭 (ball still on the
@@ -1003,10 +1055,10 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   expect(sandboxPrepFetches.length).toBeGreaterThanOrEqual(1)
   expect(sandboxPrepFetches).toEqual(sandboxPrepFetches.map(() => null))
 
-  // Screenshot harness (not a contract test): surface stray 404s/errors as warnings,
-  // don't fail the run — every screen has already been captured above.
-  if (failedResponses.length) console.warn('failedResponses:', failedResponses)
-  if (browserErrors.length) console.warn('browserErrors:', browserErrors)
+  // A complete-looking screenshot is not valid evidence if its page emitted an
+  // unhandled response or browser error while being captured.
+  expect(failedResponses).toEqual([])
+  expect(browserErrors).toEqual([])
 })
 
 // Recorded shape of every POST /api/v2/caddie/decision body the sandbox sent.
@@ -1057,11 +1109,10 @@ const effectiveClubBagPayload = {
   ],
 }
 
-// 1x1 transparent PNG — a valid image body for the topo base stub (see the topo.png route below).
-const TOPO_PNG_STUB = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC',
-  'base64',
-)
+// Exercise an actual decoded bitmap, not a transparent success stub. A 1x1 transparent response
+// made every Topo request pass while the screenshots showed a near-black vector-only canvas, so
+// visual review could not catch cropping, object-fit, stacking, or overlay contrast regressions.
+const TOPO_PNG_STUB = readFileSync(new URL('../public/hole-sample.png', import.meta.url))
 
 async function mockApi(page: Page): Promise<MockApiRecords> {
   // Recorded ?include_shots values of every /prep request: the scatter walk is
@@ -1104,6 +1155,30 @@ async function mockApi(page: Page): Promise<MockApiRecords> {
     }
     if (path === '/api/v2/sync/status') return route.fulfill({ json: syncStatusPayload })
     if (path === '/api/v2/mobile/courses/options') return route.fulfill({ json: mobileCourseOptionsPayload })
+    if (path === '/api/v2/mobile/courses/31795/package') return route.fulfill({ json: mobileCoursePackagePayload })
+    if (path === '/api/v2/courses/31795/install/status') {
+      return route.fulfill({
+        json: {
+          schema: 'ai-caddie-course-install-v1',
+          jobId: 'visual-fixture-31795',
+          globalId: 31795,
+          teeBox: 'blue',
+          nine: 'all',
+          phase: 'ready',
+          stage: 'complete',
+          totalHoles: 3,
+          geometryReady: 3,
+          topoReady: 3,
+          holes: [1, 2, 7].map((hole) => ({
+            globalId: 31795,
+            localHole: hole,
+            displayHole: hole,
+            geometry: 'ready',
+            topo: 'ready',
+          })),
+        },
+      })
+    }
     if (path === '/api/v2/courses/search') return route.fulfill({ json: courseSearchPayload })
     // PrepPage course fetches carry the globalId in the path (and the prep
     // request a ?include_shots=true query), so match by prefix + suffix.
@@ -1148,6 +1223,41 @@ async function assertNoViewportOverflow(page: Page) {
 }
 
 async function captureSmokeScreenshot(page: Page, testInfo: TestInfo, name: string) {
+  // Interactions such as selectOption/click may scroll a control into view. A
+  // full-page capture preserves sticky elements at that scroll offset, yielding
+  // a misleading rail/header that starts halfway down the image. Always audit
+  // the canonical top-of-page composition.
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    document.documentElement.style.scrollBehavior = 'auto'
+    document.body.style.scrollBehavior = 'auto'
+    if (document.scrollingElement) document.scrollingElement.scrollTop = 0
+    window.scrollTo(0, 0)
+  })
+  await page.waitForFunction(
+    () => Math.abs(document.scrollingElement?.scrollTop ?? window.scrollY) <= 1,
+    undefined,
+    { timeout: 5_000 },
+  )
+  const paperTheme = await page.evaluate(() => {
+    const rootStyle = getComputedStyle(document.documentElement)
+    const shell = document.querySelector<HTMLElement>('.app-content .app-shell')
+    return {
+      background: rootStyle.getPropertyValue('--bg').trim().toLowerCase(),
+      panel: rootStyle.getPropertyValue('--panel').trim().toLowerCase(),
+      colorScheme: rootStyle.colorScheme,
+      contentMaxWidth: shell ? getComputedStyle(shell).maxWidth : null,
+    }
+  })
+  expect(
+    paperTheme,
+    `${name} must use the frozen light-paper Web theme and 1120 px content grid`,
+  ).toEqual({
+    background: '#f6f7f8',
+    panel: '#ffffff',
+    colorScheme: 'light',
+    contentMaxWidth: '1120px',
+  })
   await page.screenshot({
     path: testInfo.outputPath(`${name}.png`),
     fullPage: true,

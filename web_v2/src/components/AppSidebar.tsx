@@ -14,12 +14,12 @@ import { CurrentPlayerBadge } from './CurrentPlayerBadge'
 
 function SectionIcon({ section }: { section: ProductSection }): ReactElement {
   switch (section) {
-    case 'review':
-      // 复盘 — a replay / counter-clockwise history arrow.
+    case 'results':
+      // 成绩 — a compact performance trend.
       return (
         <svg className="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4.5 12a7.5 7.5 0 1 0 2.3-5.4" />
-          <polyline points="3.5 4 4.5 8 8.5 7" />
+          <polyline points="4 16 9 11 13 14 20 6" />
+          <line x1="4" y1="20" x2="20" y2="20" />
         </svg>
       )
     case 'prep':
@@ -29,16 +29,6 @@ function SectionIcon({ section }: { section: ProductSection }): ReactElement {
           <circle cx="12" cy="12" r="8" />
           <circle cx="12" cy="12" r="4" />
           <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
-        </svg>
-      )
-    case 'stats':
-      // 统计 — a bar chart.
-      return (
-        <svg className="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <line x1="4" y1="20" x2="20" y2="20" />
-          <line x1="7.5" y1="20" x2="7.5" y2="12" />
-          <line x1="12" y1="20" x2="12" y2="5.5" />
-          <line x1="16.5" y1="20" x2="16.5" y2="14.5" />
         </svg>
       )
     case 'bag':
@@ -90,7 +80,7 @@ interface AppSidebarProps {
 
 export function AppSidebar({ activePage, onNavigate, currentPlayer = null }: AppSidebarProps) {
   const activeSection = PAGE_TO_SECTION[activePage]
-  // An off-rail page (caddie sandbox / phone scorer) highlights its own secondary
+  // An off-rail page (single-round review / caddie sandbox / phone scorer) highlights its own secondary
   // entry, not the primary section it happens to belong to.
   const onOffRailPage = OFF_RAIL_PAGES.includes(activePage)
   const primarySections = SECTION_ORDER.filter((section) => section !== 'settings')

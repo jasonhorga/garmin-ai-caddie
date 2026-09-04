@@ -36,28 +36,29 @@ public struct WatchScorecardView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text("计分卡").font(.headline.weight(.bold))
+            HStack(spacing: 0) {
+                WatchInstrumentBackButton(accessibilityLabel: "返回", onBack: onBack)
+                Text("计分卡").font(.system(size: 20, weight: .black))
                 Spacer()
                 Text(totalToParText)
-                    .font(.caption.weight(.bold))
+                    .font(.system(size: 16, weight: .black, design: .rounded))
                     .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: totalToPar))
-                Button(action: onBack) { Image(systemName: "xmark.circle.fill") }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                Spacer(minLength: 46)
             }
+            .frame(height: 44)
             ForEach(holes) { row in
                 Button { onSelectHole(row.hole) } label: {
                     HStack(spacing: 6) {
-                        Text("\(row.hole)").font(.caption.monospacedDigit())
-                            .frame(width: 22, alignment: .leading).foregroundStyle(.secondary)
-                        Text("Par \(row.par)").font(.caption2).foregroundStyle(.secondary)
+                        Text("\(row.hole)").font(.system(size: 16, weight: .black, design: .rounded).monospacedDigit())
+                            .frame(width: 24, alignment: .leading).foregroundStyle(.secondary)
+                        Text("Par \(row.par)").font(.system(size: 14, weight: .bold)).foregroundStyle(.secondary)
                         Spacer()
                         Text(row.score > 0 ? "\(row.score)" : "—")
-                            .font(.body.monospacedDigit().weight(.semibold))
+                            .font(.system(size: 22, weight: .black, design: .rounded).monospacedDigit())
                             .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: row.score > 0 ? row.score - row.par : nil))
                     }
                     .contentShape(Rectangle())
+                    .frame(minHeight: 48)
                 }
                 .buttonStyle(.plain)
                 Divider()

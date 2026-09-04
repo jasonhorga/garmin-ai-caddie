@@ -56,6 +56,7 @@ import {
   updateAdminPlayer,
   rotateAdminPlayerToken,
   deleteAdminPlayer,
+  topoImageUrl,
 } from './api'
 import { readPlayerToken } from './playerContext'
 
@@ -80,6 +81,15 @@ const HISTORY_OVERVIEW_PAYLOAD = {
   dataQuality: [],
   emptyState: null,
 }
+
+describe('release-revalidated topo asset URL', () => {
+  it('includes the renderer style version so a new map cannot reuse a year-long old bitmap', () => {
+    expect(topoImageUrl(31793, 1)).toBe('/api/v2/courses/31793/holes/1/topo.png?v=topo-v8')
+    expect(topoImageUrl(31793, 1, 'abc123')).toBe(
+      '/api/v2/courses/31793/holes/1/topo.png?v=topo-v8&r=abc123',
+    )
+  })
+})
 
 describe('player bearer token injection', () => {
   afterEach(() => {
@@ -1935,12 +1945,19 @@ describe('mobile reconciliation API helpers', () => {
 
     const data = await fetchMobileCoursePackage(
       31795,
-      { roundId: 'live-black-knight', teeBox: 'blue', capturedAt: '2026-05-25T08:00:00Z', ensureGeometry: true },
+      {
+        roundId: 'live-black-knight',
+        teeBox: 'blue',
+        capturedAt: '2026-05-25T08:00:00Z',
+        ensureGeometry: true,
+        backgroundGeometry: true,
+        includeEventCursor: false,
+      },
       'admin-secret',
     )
 
     expect(fetch).toHaveBeenCalledWith(
-      '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&captured_at=2026-05-25T08%3A00%3A00Z&ensure_geometry=true',
+      '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&captured_at=2026-05-25T08%3A00%3A00Z&ensure_geometry=true&background_geometry=true&include_event_cursor=false',
       { headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' } },
     )
     expect(data.roundId).toBe('live-black-knight')
@@ -2450,7 +2467,7 @@ describe('fetchCourseSearch', () => {
 
     await fetchCourseSearch('black knight', 'admin-secret')
 
-    expect(fetch).toHaveBeenCalledWith(`/api/v2/courses/search?name=${encodeURIComponent('black knight')}`, {
+    expect(fetch).toHaveBeenCalledWith(`/api/v2/courses/search?${new URLSearchParams({ name: 'black knight' }).toString()}`, {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
   })

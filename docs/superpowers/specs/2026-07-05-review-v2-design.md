@@ -1,5 +1,7 @@
 # 复盘 v2 设计(经三模型对抗评审收敛,2026-07-05)
 
+> **2026-07-16 AUTHORITY CORRECTION — HISTORICAL REVIEW INPUT：**本文件不再定义当前三端编辑与恢复 contract。暂定球/OB/Mulligan 等恢复 UI 已被 L10/L11 排除；Web 后续编辑已被 D10 的“iOS 深编辑、Web 只读”取代；AutoShot 走 D05/E06。当前锁定语义与冲突索引见[Watch 决策账本](../../reviews/2026-07-15-watch-decision-and-task-tracker.md)和[全仓 Owner-gate 审计](../../reviews/2026-07-16-repository-wide-owner-gate-authority-and-drift-audit.md)。正文保留用于追溯。
+
 > 目标:复盘每杆做到「**什么杆 + 多远 + 落在/打进哪 + 罚没罚**」四要素**完整、可信、可修**。系统会漏记(没检测到挥杆)/错记(暂定球、练习挥) → 用户能增/改/删杆。**铁律:不造假**(拿不准留空、不重复计罚杆、推测绝不进统计)。范围:iOS + 网页;**手表门控**。
 >
 > **本设计由 3 个模型独立对抗评审后收敛**:Codex(gpt-5.5-xhigh)+ Gemini(3.1-pro)+ Fable。三家一致:草案「方向对(双层模型 + provenance 是正解),但不能直接实现,先修三处硬伤」。下方即修正后的设计。

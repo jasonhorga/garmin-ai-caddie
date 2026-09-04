@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { CurrentPlayerBadge } from './CurrentPlayerBadge'
 
@@ -42,5 +42,20 @@ describe('CurrentPlayerBadge', () => {
     expect(screen.getAllByText('我')).toHaveLength(1)
     expect(container.querySelector('.current-player-avatar')).toBeNull()
     expect(screen.getByLabelText('当前球员 我')).toBeInTheDocument()
+  })
+
+  it('falls back to the name initial when a remote avatar cannot load', () => {
+    const { container } = render(
+      <CurrentPlayerBadge
+        player={{ id: 'p_a1b2', name: '测试球员', isOwner: false, avatar: 'https://example.test/missing.png' }}
+      />,
+    )
+
+    const image = container.querySelector('img')
+    expect(image).not.toBeNull()
+    fireEvent.error(image!)
+
+    expect(container.querySelector('img')).toBeNull()
+    expect(screen.getByText('测')).toBeInTheDocument()
   })
 })

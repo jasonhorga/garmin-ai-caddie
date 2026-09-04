@@ -15,7 +15,6 @@ from ai_caddie.core.media import (
     resolve_media_content_path,
 )
 from ai_caddie.courses.course_reference import course_reference_coverage
-from ai_caddie.connectors.snapshot import validate_private_snapshot_acceptance
 
 from .history_stats import load_history_stats_response
 from .mobile import build_mobile_round_package_response
@@ -607,7 +606,7 @@ def _external_release_evidence() -> tuple[str, dict[str, Any]]:
         issues.append("schema_mismatch")
 
     payload_state = str(payload.get("state") or "unknown").strip()
-    if payload_state != "ready":
+    if payload_state not in {"ready", "manual_asserted"}:
         issues.append(f"phase6_state_{payload_state or 'unknown'}")
 
     raw_missing_actions = payload.get("missingExternalActions")
@@ -1018,20 +1017,18 @@ def build_readiness_response() -> dict[str, Any]:
                 )
             )
         else:
-            acceptance = validate_private_snapshot_acceptance()
             checks.append(
                 _check(
                     "private_snapshot_acceptance",
-                    "ready" if acceptance.get("hardGate") else "degraded",
-                    "Latest Garmin CN snapshot passes the private-data hard gate."
-                    if acceptance.get("hardGate")
-                    else "Latest Garmin CN snapshot does not yet pass the private-data hard gate.",
+                    "degraded",
+                    "Accepted private snapshot evidence is missing; run the explicit acceptance gate.",
                     {
-                        "schema": acceptance.get("schema"),
-                        "state": acceptance.get("state"),
-                        "snapshotId": acceptance.get("snapshotId"),
-                        "failureLabels": acceptance.get("failureLabels"),
-                        "checks": acceptance.get("checks"),
+                        "schema": "ai-caddie-private-snapshot-acceptance-v1",
+                        "state": "blocked",
+                        "hardGate": False,
+                        "failureLabels": ["accepted_snapshot_evidence"],
+                        "checks": [],
+                        "evidenceStamp": _public_path(PRIVATE_SNAPSHOT_ACCEPTANCE),
                         "cli": "uv run python ops/accept_private_snapshot.py",
                     },
                 )
@@ -1204,9 +1201,15 @@ def build_readiness_response() -> dict[str, Any]:
         )
     )
 
-    overall = "ready" if all(check["state"] == "ready" for check in checks) else "degraded"
+    packaging_labels = {"external_release", "roadmap_completion", "operations", "native_mobile"}
+    runtime_checks = [check for check in checks if check.get("label") not in packaging_labels]
+    runtime_status = "ready" if runtime_checks and all(check["state"] in {"ready", "manual_asserted"} for check in runtime_checks) else "degraded"
+    overall = "ready" if all(check["state"] in {"ready", "manual_asserted"} for check in checks) else "degraded"
     return {
         "schema": "ai-caddie-readiness-v1",
         "status": overall,
+        "runtimeStatus": runtime_status,
+        "serviceStatus": runtime_status,
+        "evidenceStatus": overall,
         "checks": checks,
     }

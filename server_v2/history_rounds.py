@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_caddie.history.history import OWNER_ID, HistoryData, average
-from ai_caddie.reports.reports import list_report_records
+from ai_caddie.reports.reports import iter_report_records
 
 from .data_source import load_history_data_for_mode
 from .history_overview import round_card_for_row
@@ -50,6 +50,32 @@ def _year_of(row: dict[str, Any]) -> str:
     return text[:4] if len(text) >= 4 and text[:4].isdigit() else ""
 
 
+def _matches_period(row: dict[str, Any], period: str) -> bool:
+    """Match the closed day/month/quarter/year keys emitted by history stats."""
+    date_text = str(row.get("date") or "")[:10]
+    if "-Q" in period:
+        try:
+            year, quarter_text = period.split("-Q", 1)
+            month = int(date_text[5:7])
+            return date_text[:4] == year and (month - 1) // 3 + 1 == int(quarter_text)
+        except (ValueError, IndexError):
+            return False
+    return date_text.startswith(period)
+
+
+def _score_band(row: dict[str, Any]) -> str | None:
+    if row.get("holesCompleted") != 18 or row.get("strokes") is None:
+        return None
+    score = int(row["strokes"])
+    if score < 80:
+        return "70s"
+    if score < 90:
+        return "80s"
+    if score < 100:
+        return "90s"
+    return "100+"
+
+
 def _available_courses(rounds: list[dict[str, Any]]) -> list[CourseFilterOption]:
     labels: dict[str, str] = {}
     for row in rounds:
@@ -67,9 +93,13 @@ def build_history_rounds_response(
     course: str | None = None,
     has_shots: bool | None = None,
     has_report: bool | None = None,
+    period: str | None = None,
+    score_band: str | None = None,
+    search: str | None = None,
     report_round_ids: set[str] | None = None,
 ) -> HistoryRoundsResponse:
     report_ids = report_round_ids or set()
+    needle = str(search or "").strip().casefold()
 
     def keep(row: dict[str, Any]) -> bool:
         if year and _year_of(row) != year:
@@ -80,6 +110,17 @@ def build_history_rounds_response(
             return False
         if has_report is not None and (str(row.get("id")) in report_ids) != has_report:
             return False
+        if period and not _matches_period(row, period):
+            return False
+        if score_band and _score_band(row) != score_band:
+            return False
+        if needle:
+            haystack = " ".join(
+                str(row.get(key) or "")
+                for key in ("course", "courseName", "courseKey", "date")
+            ).casefold()
+            if needle not in haystack:
+                return False
         return True
 
     matching = [row for row in data.rounds if keep(row)]
@@ -104,15 +145,23 @@ def build_history_rounds_response(
         ) if not data.rounds else None,
         availableYears=years,
         availableCourses=_available_courses(data.rounds),
-        appliedFilters={"year": year, "course": course, "hasShots": has_shots, "hasReport": has_report},
+        appliedFilters={
+            "year": year,
+            "course": course,
+            "hasShots": has_shots,
+            "hasReport": has_report,
+            "period": period,
+            "scoreBand": score_band,
+            "query": search,
+        },
     )
 
 
 def _round_ids_with_reports(player_id: str = OWNER_ID) -> set[str]:
     return {
         str(rec.get("subjectId"))
-        for rec in list_report_records(root=REPORTS_ROOT, player_id=player_id)
-        if rec.get("kind") == "round"
+        for rec in iter_report_records(root=REPORTS_ROOT, player_id=player_id)
+        if isinstance(rec, dict) and rec.get("kind") == "round"
     }
 
 
@@ -122,6 +171,9 @@ def load_history_rounds_response(
     course: str | None = None,
     has_shots: bool | None = None,
     has_report: bool | None = None,
+    period: str | None = None,
+    score_band: str | None = None,
+    search: str | None = None,
     limit: int = 120,
     player_id: str = OWNER_ID,
 ) -> HistoryRoundsResponse:
@@ -134,6 +186,9 @@ def load_history_rounds_response(
         course=course,
         has_shots=has_shots,
         has_report=has_report,
+        period=period,
+        score_band=score_band,
+        search=search,
         limit=limit,
         report_round_ids=report_round_ids,
     )

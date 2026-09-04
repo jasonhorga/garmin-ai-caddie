@@ -20,6 +20,13 @@ public struct AppSession: Codable, Equatable {
         guard let expiresAt else { return false }
         return expiresAt <= Date()
     }
+
+    /// A malformed persisted row must never make the app appear signed in while requests are
+    /// unauthenticated. Both backend-issued fields are required for a usable session.
+    public var isUsable: Bool {
+        !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !playerId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 /// Where a session is persisted. The real app uses the Keychain; tests/previews inject an in-memory
@@ -50,7 +57,7 @@ public final class SessionStore: ObservableObject {
     public init(persisting: SessionPersisting = KeychainSessionPersisting()) {
         self.persisting = persisting
         let stored = persisting.read()
-        if let stored, !stored.isExpired {
+        if let stored, stored.isUsable, !stored.isExpired {
             self.currentSession = stored
             self.liveTokenValue = stored.token
             self.liveExpiry = stored.expiresAt
@@ -71,12 +78,32 @@ public final class SessionStore: ObservableObject {
     }
 
     public func save(_ session: AppSession) {
+        guard session.isUsable, !session.isExpired else {
+            signOut()
+            return
+        }
         lock.lock()
         liveTokenValue = session.token
         liveExpiry = session.expiresAt
         lock.unlock()
         publish(session)
         persisting.write(session)
+    }
+
+    /// Re-read Keychain after the device has unlocked. A protected-data read can transiently return
+    /// nil during first launch; preserve an already-valid in-memory session rather than forcing the
+    /// user back through Apple sign-in. Invalid or expired rows are still cleared fail-closed.
+    public func reload() {
+        guard let stored = persisting.read() else { return }
+        guard stored.isUsable, !stored.isExpired else {
+            signOut()
+            return
+        }
+        lock.lock()
+        liveTokenValue = stored.token
+        liveExpiry = stored.expiresAt
+        lock.unlock()
+        publish(stored)
     }
 
     /// Clear the session everywhere: the live token, the published session, and the Keychain.
@@ -146,10 +173,25 @@ public struct KeychainSessionPersisting: SessionPersisting {
 
     public func write(_ session: AppSession) {
         guard let data = try? JSONEncoder().encode(session) else { return }
-        SecItemDelete(baseQuery as CFDictionary)
+        let updateStatus = SecItemUpdate(
+            baseQuery as CFDictionary,
+            [
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            ] as CFDictionary
+        )
+        guard updateStatus == errSecItemNotFound else { return }
         var query = baseQuery
         query[kSecValueData as String] = data
-        SecItemAdd(query as CFDictionary, nil)
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let addStatus = SecItemAdd(query as CFDictionary, nil)
+        if addStatus == errSecDuplicateItem {
+            // A concurrent scene activation may have inserted the row between update and add.
+            _ = SecItemUpdate(
+                baseQuery as CFDictionary,
+                [kSecValueData as String: data] as CFDictionary
+            )
+        }
     }
 
     public func clear() {

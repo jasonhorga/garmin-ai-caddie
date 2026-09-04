@@ -167,6 +167,18 @@ def long_hole_fixture():
 
 
 class DecisionLayerTests(unittest.TestCase):
+    def test_continuation_never_recommends_driver_after_tee(self) -> None:
+        from ai_caddie.caddie.decision import _sequence_tail
+
+        rows = [
+            {"clubName": "1W", "median_m": 220.0, "sampleSize": 80},
+            {"clubName": "3W", "median_m": 195.0, "sampleSize": 60},
+            {"clubName": "7I", "median_m": 150.0, "sampleSize": 40},
+        ]
+        tail = _sequence_tail(rows, 300.0)
+        self.assertTrue(tail)
+        self.assertTrue(all(str(row["clubName"]).casefold() not in {"1w", "driver"} for row in tail))
+
     def test_decision_payload_uses_v2_contract(self) -> None:
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
 
@@ -283,33 +295,134 @@ class DecisionLayerTests(unittest.TestCase):
         plan = build_decision_plan(analysis_fixture(stock_risk=3))
         self.assertEqual(plan["selectedOptionId"], "safe")
 
+    def test_tee_strategy_dedupe_keeps_safe_first_for_duplicate_driver_aliases(self) -> None:
+        context = analysis_fixture(stock_risk=1)
+        context["clubProfiles"] = {}
+        context["candidateRoutes"] = [
+            {
+                "id": "aggressive_line",
+                "label": "attack line",
+                "club": "Driver",
+                "carry_m": 220.0,
+                "landingLocal": [0.0, 220.0],
+                "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 3,
+            },
+            {
+                "id": "stock_line",
+                "label": "stock line",
+                "club": "1W",
+                "carry_m": 220.0,
+                "landingLocal": [0.0, 220.0],
+                "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 1,
+            },
+            {
+                "id": "conservative_layup",
+                "label": "safe line",
+                "club": "1D",
+                "carry_m": 220.0,
+                "landingLocal": [0.0, 220.0],
+                "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 0,
+            },
+        ]
+
+        plan = build_decision_plan(context)
+
+        self.assertEqual([option["id"] for option in plan["options"]], ["safe"])
+        self.assertEqual(plan["options"][0]["routeId"], "conservative_layup")
+        self.assertEqual(
+            plan["options"][0]["clubRecommendation"]["clubs"][0]["clubName"],
+            "1D",
+        )
+
+    def test_tee_legacy_routes_keep_distinct_carries_when_club_identity_is_missing(self) -> None:
+        context = analysis_fixture(stock_risk=1)
+        context["candidateRoutes"] = [
+            {
+                "id": "conservative_layup",
+                "label": "safe layup",
+                "carry_m": 170.0,
+                "landingLocal": [0.0, 170.0],
+                "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 0,
+            },
+            {
+                "id": "stock_line",
+                "label": "stock line",
+                "carry_m": 180.0,
+                "landingLocal": [0.0, 180.0],
+                "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 1,
+            },
+            {
+                "id": "aggressive_line",
+                "label": "attack line",
+                "carry_m": 220.0,
+                "landingLocal": [0.0, 220.0],
+                "expectedSurface": {"kind": "rough"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 3,
+            },
+        ]
+
+        plan = build_decision_plan(context)
+
+        self.assertEqual([option["id"] for option in plan["options"]], ["safe", "stock", "attack"])
+
     def test_recommends_clubs_near_option_carry(self) -> None:
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
         clubs = [club["clubName"] for club in plan["selectedOption"]["clubRecommendation"]["clubs"]]
         self.assertIn("3H", clubs)
         self.assertNotIn("Putter", clubs)
 
-    def test_long_hole_decision_includes_multi_shot_sequences(self) -> None:
+    def test_long_hole_decision_builds_honest_multi_shot_sequences(self) -> None:
         plan = build_decision_plan(long_hole_fixture())
 
-        labels = {sequence["label"] for sequence in plan["sequences"]}
-        self.assertIn("1D-3W-58", labels)
-        self.assertIn("3W-5I-54", labels)
+        self.assertEqual([sequence["id"] for sequence in plan["sequences"]], ["safe", "stock", "attack"])
+        options = {option["id"]: option for option in plan["options"]}
+        for sequence in plan["sequences"]:
+            with self.subTest(sequence=sequence["id"]):
+                self.assertNotIn("expectedStrokes", sequence)
+                self.assertGreaterEqual(len(sequence["clubs"]), 2)
+                recommended_first = options[sequence["id"]]["clubRecommendation"]["clubs"][0]["clubName"]
+                self.assertEqual(sequence["clubs"][0]["clubName"], recommended_first)
+                self.assertGreaterEqual(sequence["expectedRemaining_m"], -10.0)
+                self.assertLessEqual(abs(sequence["expectedRemaining_m"]), 20.0)
+
+                remaining = 520.0
+                for step in sequence["clubs"]:
+                    remaining = round(remaining - step["targetCarry_m"], 1)
+                    self.assertEqual(step["expectedRemaining_m"], remaining)
+                self.assertEqual(sequence["expectedRemaining_m"], remaining)
+
         stock_sequence = next(sequence for sequence in plan["sequences"] if sequence["id"] == "stock")
-        self.assertEqual(stock_sequence["expectedStrokes"], 3)
-        self.assertLessEqual(abs(stock_sequence["expectedRemaining_m"]), 30)
-        self.assertEqual(stock_sequence["coverage"], {"ready": 153, "total": 153, "pct": 100.0})
+        self.assertEqual(stock_sequence["coverage"]["ready"], stock_sequence["coverage"]["total"])
+        self.assertEqual(stock_sequence["coverage"]["pct"], 100.0)
         self.assertEqual(stock_sequence["confidence"], "high")
-        self.assertIn("club-sample-1d-0", stock_sequence["sourceRefs"])
-        self.assertEqual(stock_sequence["clubs"][0]["clubName"], "1D")
-        self.assertEqual(stock_sequence["clubs"][0]["targetCarry_m"], 245.0)
-        self.assertEqual(stock_sequence["clubs"][0]["sampleSize"], 80)
-        self.assertEqual(stock_sequence["clubs"][0]["confidence"], "high")
-        self.assertEqual(stock_sequence["clubs"][0]["coverage"], {"ready": 80, "total": 80, "pct": 100.0})
-        self.assertEqual(stock_sequence["clubs"][0]["sourceRefs"][0], "club-sample-1d-0")
+        stock_first_ref = stock_sequence["clubs"][0]["sourceRefs"][0]
+        self.assertIn(stock_first_ref, stock_sequence["sourceRefs"])
+        self.assertEqual(
+            stock_sequence["clubs"][0]["sampleSize"],
+            next(option for option in plan["options"] if option["id"] == "stock")["clubRecommendation"]["clubs"][0]["sampleSize"],
+        )
         self.assertIn("sequence", {row["kind"] for row in plan["evidence"]})
         sequence_evidence = next(row for row in plan["evidence"] if row["kind"] == "sequence")
-        self.assertIn("club-sample-1d-0", sequence_evidence["sourceRefs"])
+        self.assertIn(stock_first_ref, sequence_evidence["sourceRefs"])
+        self.assertNotIn("shots", sequence_evidence["text"].lower())
+        self.assertNotIn("expected strokes", sequence_evidence["text"].lower())
 
     def test_recommend_approach_uses_green_and_hazard_evidence(self) -> None:
         context = approach_fixture()
@@ -404,6 +517,17 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertNotIn("distance_to_pin", {row["label"] for row in plan["missingData"]})
         self.assertTrue(any(row["kind"] == "live_location" for row in plan["evidence"]))
         self.assertTrue(any(row["kind"] == "strategy" for row in plan["evidence"]))
+
+    def test_far_away_live_location_does_not_create_kilometre_sequence(self) -> None:
+        context = long_hole_fixture()
+        context.pop("distanceToPin_m")
+        context["currentLocation"] = {"latitude": 37.7749, "longitude": -122.4194}
+        context["targetLocation"] = {"latitude": 22.2799, "longitude": 114.162}
+
+        plan = recommend_approach(context)
+
+        self.assertIsNone(plan["context"]["distanceToPin_m"])
+        self.assertEqual(plan["sequences"], [])
 
     def test_strategy_mode_attack_selects_attack_when_clearance_and_dispersion_allow(self) -> None:
         context = approach_fixture()

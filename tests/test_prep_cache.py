@@ -74,6 +74,148 @@ class PrepCacheTests(unittest.TestCase):
             self.assertEqual(before[0], after[0], "file count must be unchanged (the trap)")
             self.assertNotEqual(before, after, "in-place edit of a non-newest file must change the sig")
 
+    def test_manual_bag_write_invalidates_owner_and_member_prep_cache(self) -> None:
+        """A saved typed distance must rebuild /prep instead of serving the prior ladder."""
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            original_data = prep_cache.DATA_DIR
+            prep_cache.DATA_DIR = data_root
+            self.addCleanup(setattr, prep_cache, "DATA_DIR", original_data)
+
+            calls = {"n": 0}
+
+            def build() -> dict:
+                calls["n"] += 1
+                return {"build": calls["n"]}
+
+            kwargs = dict(
+                global_id=31794,
+                requested=[1],
+                render=False,
+                include_shots=False,
+                build=build,
+            )
+
+            prep_cache.cached_course_prep(player_id="me", **kwargs)
+            prep_cache.cached_course_prep(player_id="me", **kwargs)
+            self.assertEqual(calls["n"], 1)
+            (data_root / "club_bag_manual.json").write_text(
+                '{"clubs":[{"token":"wood3","distanceM":180}]}', encoding="utf-8"
+            )
+            prep_cache.cached_course_prep(player_id="me", **kwargs)
+            self.assertEqual(calls["n"], 2, "owner manual bag edits must invalidate the cached prep")
+
+            member_dir = data_root / "players" / "memberA"
+            member_dir.mkdir(parents=True)
+            member_kwargs = {**kwargs, "player_id": "memberA"}
+            prep_cache.cached_course_prep(**member_kwargs)
+            prep_cache.cached_course_prep(**member_kwargs)
+            self.assertEqual(calls["n"], 3)
+            (member_dir / "club_bag_manual.json").write_text(
+                '{"clubs":[{"token":"iron7","distanceM":130}]}', encoding="utf-8"
+            )
+            prep_cache.cached_course_prep(**member_kwargs)
+            self.assertEqual(calls["n"], 4, "member manual bag edits must invalidate the cached prep")
+
+    def test_course_data_sig_tracks_only_the_selected_course_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            original = prep_cache._COURSEVIEW_DIR
+            prep_cache._COURSEVIEW_DIR = directory
+            self.addCleanup(setattr, prep_cache, "_COURSEVIEW_DIR", original)
+
+            before = prep_cache._course_data_sig(31795)
+            (directory / "31795_releases.pb").write_bytes(b"release")
+            after_release = prep_cache._course_data_sig(31795)
+            (directory / "31795_course_data_88_medium-plus.json").write_text("{}")
+            after_map = prep_cache._course_data_sig(31795)
+            (directory / "99999_course_data_1_medium-plus.json").write_text("{}")
+
+            self.assertNotEqual(before, after_release)
+            self.assertNotEqual(after_release, after_map)
+            self.assertEqual(prep_cache._course_data_sig(31795), after_map)
+
+    def test_geometry_fingerprint_is_isolated_to_the_selected_course(self) -> None:
+        with tempfile.TemporaryDirectory() as mesh_tmp, tempfile.TemporaryDirectory() as hazard_tmp:
+            mesh_dir = Path(mesh_tmp)
+            hazard_dir = Path(hazard_tmp)
+            original_mesh = prep_cache.MESH_DIR
+            original_hazard = prep_cache.HAZARD_DIR
+            prep_cache.MESH_DIR = mesh_dir
+            prep_cache.HAZARD_DIR = hazard_dir
+            self.addCleanup(setattr, prep_cache, "MESH_DIR", original_mesh)
+            self.addCleanup(setattr, prep_cache, "HAZARD_DIR", original_hazard)
+
+            (mesh_dir / "gid31795_h01_meshes.json").write_text("{}", encoding="utf-8")
+            (hazard_dir / "gid31795_h01_hazards.json").write_text("{}", encoding="utf-8")
+            selected_before = prep_cache._fingerprint(31795)
+
+            # Installing another course must not evict this course's expensive prep cache.
+            (mesh_dir / "gid45979_h01_meshes.json").write_text("{}", encoding="utf-8")
+            (hazard_dir / "gid45979_h01_hazards.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(prep_cache._fingerprint(31795), selected_before)
+
+            # Regenerating this course still invalidates it immediately.
+            selected_mesh = mesh_dir / "gid31795_h01_meshes.json"
+            selected_mesh.write_text('{"changed":true}', encoding="utf-8")
+            self.assertNotEqual(prep_cache._fingerprint(31795), selected_before)
+
+    def test_geometry_fingerprint_changes_when_authority_sidecar_is_bound(self) -> None:
+        """Binding legacy bytes must evict a cached partial prep even when mesh/hazard stay intact."""
+        with tempfile.TemporaryDirectory() as mesh_tmp, tempfile.TemporaryDirectory() as hazard_tmp:
+            original_mesh = prep_cache.MESH_DIR
+            original_hazard = prep_cache.HAZARD_DIR
+            prep_cache.MESH_DIR = Path(mesh_tmp)
+            prep_cache.HAZARD_DIR = Path(hazard_tmp)
+            self.addCleanup(setattr, prep_cache, "MESH_DIR", original_mesh)
+            self.addCleanup(setattr, prep_cache, "HAZARD_DIR", original_hazard)
+
+            (prep_cache.MESH_DIR / "gid31795_h01_meshes.json").write_text("{}")
+            (prep_cache.HAZARD_DIR / "gid31795_h01_hazards.json").write_text("{}")
+            before = prep_cache._fingerprint(31795, requested=[1])
+            (prep_cache.MESH_DIR / "gid31795_h01_authority.json").write_text(
+                '{"schema":"garmin-prodgeometry-authority-v1"}'
+            )
+
+            self.assertNotEqual(before, prep_cache._fingerprint(31795, requested=[1]))
+
+    def test_cached_hole_fingerprint_ignores_other_holes_installed_mid_build(self) -> None:
+        """A cold all-course installer must not make a hole-1 waiter rebuild for holes 2...18."""
+        with tempfile.TemporaryDirectory() as mesh_tmp, tempfile.TemporaryDirectory() as hazard_tmp:
+            original_mesh = prep_cache.MESH_DIR
+            original_hazard = prep_cache.HAZARD_DIR
+            prep_cache.MESH_DIR = Path(mesh_tmp)
+            prep_cache.HAZARD_DIR = Path(hazard_tmp)
+            self.addCleanup(setattr, prep_cache, "MESH_DIR", original_mesh)
+            self.addCleanup(setattr, prep_cache, "HAZARD_DIR", original_hazard)
+            calls = 0
+
+            def build() -> dict:
+                nonlocal calls
+                calls += 1
+                (prep_cache.MESH_DIR / "gid31795_h02_meshes.json").write_text("{}")
+                (prep_cache.HAZARD_DIR / "gid31795_h02_hazards.json").write_text("{}")
+                return {"hole": 1}
+
+            kwargs = dict(
+                global_id=31795,
+                requested=[1],
+                render=False,
+                include_shots=False,
+                player_id="me",
+                build=build,
+            )
+            first = prep_cache.cached_course_prep(**kwargs)
+            second = prep_cache.cached_course_prep(**kwargs)
+
+            self.assertIs(first, second)
+            self.assertEqual(calls, 1)
+
+            # The requested hole itself remains authoritative and must invalidate immediately.
+            (prep_cache.MESH_DIR / "gid31795_h01_meshes.json").write_text("{}")
+            prep_cache.cached_course_prep(**kwargs)
+            self.assertEqual(calls, 2)
+
     def test_singleflight_same_key_cold_cache_builds_once(self) -> None:
         # Thundering-herd guard: N concurrent first-requests for the SAME uncached key must
         # run the ~19s build exactly once; the late arrivals wait and read the cached result.

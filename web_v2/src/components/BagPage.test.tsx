@@ -71,7 +71,7 @@ describe('BagPage', () => {
     const headerRow = within(screen.getByRole('table')).getAllByRole('row')[0]
     expect(within(headerRow).queryByText('Total')).not.toBeInTheDocument()
     expect(within(headerRow).queryByText('左右')).not.toBeInTheDocument()
-    expect(within(headerRow).getByText('打出范围')).toBeInTheDocument()
+    expect(within(headerRow).getByText('P10–P90')).toBeInTheDocument()
 
     // pw has no measured row → its band cell reads 数据不足 (honest, not fabricated).
     const pwRow = within(screen.getByRole('table')).getByRole('row', { name: /P杆/ })

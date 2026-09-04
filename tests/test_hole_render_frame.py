@@ -40,6 +40,23 @@ class HoleRenderFrameTests(unittest.TestCase):
         # Still produces a usable projection (no crash, hole spans the canvas).
         self.assertGreater(abs(project((0, 0))[1] - project((0, 100))[1]), 100)
 
+    def test_frame_ignores_surface_fragments_outside_the_visible_route_corridor(self) -> None:
+        fairway = _mesh([[-10, 0, 0], [10, 0, 0], [10, 0, 100], [-10, 0, 100]])
+        stray = _mesh([[-320, 0, 40], [-300, 0, 40], [-300, 0, 60], [-320, 0, 60]])
+        by = {"Fairway.drc": fairway, "TreeArea.drc": stray}
+        route = [(0.0, 0.0), (0.0, 100.0)]
+
+        # Direct _setup callers retain the historic all-surface behaviour.  The canonical shared
+        # frame is route-aware because the distant fragment can never survive the renderer clip.
+        _project, _scale, unfiltered_w, _h = hole_render._setup(by, route[0], route[-1])
+        _project, _scale, filtered_w, _h, _margin = hole_render._frame(by, route)
+
+        self.assertGreater(unfiltered_w, filtered_w)
+        self.assertEqual(
+            filtered_w,
+            round(hole_render.FRAME_H * hole_render.FRAME_MIN_ASPECT) * hole_render.SS,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

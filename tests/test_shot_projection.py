@@ -252,6 +252,19 @@ class ShotsForHoleTests(unittest.TestCase):
     def test_unknown_course_returns_empty(self) -> None:
         self.assertEqual(sp.shots_for_hole(123456, 1), [])
 
+    def test_course_batch_matches_single_hole_results_and_reads_each_scorecard_once(self) -> None:
+        with patch.object(sp, "read_json", wraps=sp.read_json) as read_json:
+            batch = sp.shots_for_holes(777001, [1, 2])
+
+        self.assertEqual(batch[1], sp.shots_for_hole(777001, 1))
+        self.assertEqual(batch[2], sp.shots_for_hole(777001, 2))
+        scorecard_reads = [
+            call.args[0]
+            for call in read_json.call_args_list
+            if Path(call.args[0]).parent == self.scorecard_dir
+        ]
+        self.assertEqual(len(scorecard_reads), 5)
+
 
 class PrepHoleYourShotsTests(unittest.TestCase):
     """prep_hole(include_shots=True) projects scatter into overlay px (synthetic geometry)."""
@@ -321,12 +334,13 @@ class PrepHoleYourShotsTests(unittest.TestCase):
         self.assertEqual(rows[0]["roundId"], "9100")
         self.assertEqual(rows[-1]["roundId"], "9179")
 
-    def test_omitted_by_default_and_without_render(self) -> None:
+    def test_omitted_by_default_but_available_without_legacy_render(self) -> None:
         result = self._prep(self._md(), [self._row(10.0, 50.0)], render=True)
         self.assertNotIn("yourShots", result)
         prep = self._prep(self._md(), [self._row(10.0, 50.0)], render=False, include_shots=True)
-        self.assertIsInstance(prep, course_prep.HolePrep)
-        self.assertNotIn("yourShots", prep.to_dict())
+        self.assertIsInstance(prep, dict)
+        self.assertEqual(prep["yourShots"][0]["roundId"], "9001")
+        self.assertNotIn("map", prep)
 
     def test_omitted_when_no_shots_or_loader_fails_or_ref_missing(self) -> None:
         self.assertNotIn("yourShots", self._prep(self._md(), [], render=True, include_shots=True))

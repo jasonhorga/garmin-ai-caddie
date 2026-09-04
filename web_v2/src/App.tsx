@@ -30,13 +30,15 @@ import {
   fetchMobileRoundPackage,
   fetchProductSettings,
   fetchCourseSearch,
+  fetchNearbyCourses,
   fetchCourseReport,
   fetchReportIndex,
   fetchRoundReport,
+  fetchRoundHoleShotMap,
+  postRoundCorrection,
   fetchHoleReport,
   fetchClubReport,
   fetchTrendReport,
-  fetchRoundHoleShotMap,
   fetchVisionFindingsForTarget,
   fetchWeatherSnapshot,
   generateCourseReport,
@@ -55,6 +57,11 @@ import { CorrectionsPage, type CorrectionTarget } from './components/Corrections
 import { CourseStats } from './components/CourseStats'
 import { DataQualityPage } from './components/DataQualityPage'
 import { ReviewWorkbench } from './components/ReviewWorkbench'
+import { ResultsLanding } from './components/ResultsLanding'
+import { PerformanceAnalysis } from './components/PerformanceAnalysis'
+import { TimeTrends } from './components/TimeTrends'
+import { ClubPerformance } from './components/ClubPerformance'
+import { CoursePerformance } from './components/CoursePerformance'
 import { AppleSignInPage } from './components/AppleSignInPage'
 import { HistoryDrilldownPanel, type HistoryDrilldownPanelState } from './components/HistoryDrilldownPanel'
 import { HistoryRoundDetailPanel, type HistoryRoundDetailPanelState } from './components/HistoryRoundDetailPanel'
@@ -82,7 +89,6 @@ import { SettingsPage } from './components/SettingsPage'
 import { StrengthsPage } from './components/StrengthsPage'
 import { BagPage } from './components/BagPage'
 import { SyncStatusPanel } from './components/SyncStatusPanel'
-import { StatsDashboard } from './components/StatsDashboard'
 import type { ProductPage } from './navigation'
 import { resolveInitialAdminToken, writeStoredAdminToken } from './adminTokenStore'
 import { readStoredDiagnostics } from './diagnosticsStore'
@@ -104,6 +110,7 @@ import type {
   HistoryRoundsResponse,
   HistoryStatsResponse,
   HistoryStatsSummaryResponse,
+  RoundCard,
   MobileStatsResponse,
   LiveRoundPackageResponse,
   MobileCourseOptionsResponse,
@@ -137,7 +144,7 @@ type HoleGeometryTarget = { globalId: number; localHole: number; sourceRef: stri
 // 'history' (趋势 landing) is deliberately NOT here: it renders from the compact window-aware
 // mobile stats (trendsState), so it must not trigger the ~11MB full statsState load. The deep
 // analysis tabs below still lazy-load the full stats when first opened.
-const statsPages: ProductPage[] = ['courses', 'holes', 'clubs', 'issues', 'reports', 'sync-quality']
+const statsPages: ProductPage[] = ['clubs', 'issues', 'reports', 'sync-quality']
 
 export default function App() {
   // Access model: an Apple sign-in session (sessionStore) is the primary credential
@@ -160,6 +167,9 @@ export default function App() {
   // localStorage flag (no UI) — also how tests exercise that owner-only surface.
   const [diagnostics] = useState(() => isOwnerMode && readStoredDiagnostics())
   const [activePage, setActivePage] = useState<ProductPage>('overview')
+  const [reviewRoundId, setReviewRoundId] = useState<string | null>(null)
+  const [reviewRoundState, setReviewRoundState] = useState<DeferredLoadState<RoundCard>>({ status: 'idle' })
+  const [reviewRoundDetailState, setReviewRoundDetailState] = useState<HistoryRoundDetailPanelState>({ status: 'idle' })
   const [overviewState, setOverviewState] = useState<LoadState<HistoryOverviewResponse>>({ status: 'loading' })
   const [roundsState, setRoundsState] = useState<DeferredLoadState<HistoryRoundsResponse>>({ status: 'idle' })
   const [roundsFilters, setRoundsFilters] = useState<RoundsFilters>({})
@@ -170,7 +180,7 @@ export default function App() {
   const roundsSeq = useRef(0)
   const roundsFullLoaded = useRef(false)
   const [statsState, setStatsState] = useState<DeferredLoadState<HistoryStatsResponse>>({ status: 'idle' })
-  // 概览 landing uses this slim summary (handicap/均杆/本周该练) instead of the
+  // 成绩 landing uses this slim summary instead of the full analysis payload.
   // ~20MB full statsState, which now loads lazily only on the analysis pages.
   const [homeSummaryState, setHomeSummaryState] = useState<DeferredLoadState<HistoryStatsSummaryResponse>>({ status: 'idle' })
   const [trendsWindow, setTrendsWindow] = useState<StatsWindow>('last10')
@@ -182,6 +192,7 @@ export default function App() {
   // and refreshes always read the window the user most recently selected.
   const trendsSeq = useRef(0)
   const trendsWindowRef = useRef<StatsWindow>('last10')
+  const reviewRoundSeq = useRef(0)
   const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
   const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
   const [reportIndexState, setReportIndexState] = useState<DeferredLoadState<ReviewReportIndexResponse>>({ status: 'idle' })
@@ -267,6 +278,16 @@ export default function App() {
       })
       .catch((error: unknown) => {
         if (!cancelled) setHomeSummaryState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+      })
+
+    // One compact all-history payload gives the 成绩 landing its real course/club/
+    // period counts without pulling the multi-megabyte full analysis response.
+    fetchMobileStats(bootAdminToken, 'all')
+      .then((data) => {
+        if (!cancelled) setTrendsAllStats(data)
+      })
+      .catch(() => {
+        // Optional landing enrichment; overview + summary remain usable.
       })
 
     // The full ~11MB /history/stats is NOT fetched on boot — that eager load was the slow
@@ -562,6 +583,7 @@ export default function App() {
       // context (allStats, tolerates null), so it lazy-loads it on entry. Returning here also
       // retries whatever each page actually renders from if it failed earlier.
       if (page === 'overview' && (homeSummaryState.status === 'idle' || homeSummaryState.status === 'error')) void loadHomeSummary()
+      if (page === 'overview' && trendsState.status === 'idle') void loadTrendsState('last10')
       if (page === 'prep' && (statsState.status === 'idle' || statsState.status === 'error')) void loadStatsState()
       if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
     }
@@ -577,6 +599,7 @@ export default function App() {
       // 球场表现 shows 去备战 buttons keyed on globalId from courseOptions;
       // retry the load when it is idle or previously errored (mirrors 概览/备战).
       if (mobileCourseOptionsState.status === 'idle' || mobileCourseOptionsState.status === 'error') void loadMobileCourseOptionsState()
+      if (trendsState.status === 'idle') void loadTrendsState()
     }
     if (page === 'record') {
       // 手机记分 offers a 常打球场 dropdown sourced from courseOptions.
@@ -589,6 +612,9 @@ export default function App() {
       void loadStatsState()
     }
     if (page === 'history' && trendsState.status === 'idle') {
+      void loadTrendsState()
+    }
+    if ((page === 'holes' || page === 'result-clubs') && trendsState.status === 'idle') {
       void loadTrendsState()
     }
     if (page === 'history' && trendsAllStats === null) {
@@ -614,6 +640,80 @@ export default function App() {
     if (page === 'reports' && reportIndexState.status === 'idle') {
       loadReportIndex()
     }
+  }
+
+  function roundCardFromDetail(data: HistoryRoundDetailResponse): RoundCard | null {
+    if (!data.found || data.round === null) return null
+    const row = data.round
+    const number = (key: string): number | null => typeof row[key] === 'number' ? row[key] as number : null
+    const text = (key: string): string | null => typeof row[key] === 'string' ? row[key] as string : null
+    return {
+      id: data.roundRef,
+      date: text('date'),
+      courseName: text('courseName') ?? data.title,
+      courseKey: text('courseKey'),
+      holesCompleted: number('holesCompleted'),
+      score: number('score'),
+      par: number('par'),
+      toPar: number('toPar'),
+      scoreStrip: data.scorecard.map((cell) => ({
+        hole: cell.hole,
+        par: cell.par,
+        score: cell.score,
+        toPar: cell.toPar,
+        className: cell.className,
+      })),
+      badges: [],
+      primaryIssue: null,
+      source: text('source') === 'manual' ? 'manual' : null,
+    }
+  }
+
+  function findLoadedRound(roundRef: string): RoundCard | null {
+    if (overviewState.status !== 'ready') return null
+    return [
+      ...overviewState.data.recentRounds,
+      ...(roundsState.status === 'ready' ? roundsState.data.groups.flatMap((group) => group.rounds) : []),
+    ].find((item) => item.id === roundRef) ?? null
+  }
+
+  function openRoundReview(roundRef: string) {
+    const cleanRef = roundRef.trim()
+    const seq = ++reviewRoundSeq.current
+    setReviewRoundId(cleanRef)
+    setActivePage('review')
+    setSelectedCaddieSourceRef(cleanRef)
+    setCaddieContextState((current) => (loadedCaddieContextSourceRef(current) === cleanRef ? current : { status: 'idle' }))
+    setDrilldownState({ status: 'idle' })
+    setHoleEvidenceState({ status: 'idle' })
+    setGeometryEnsureState('idle')
+    activeHoleGeometryTarget.current = null
+    setReviewRoundDetailState({ status: 'loading', roundRef: cleanRef })
+    const loaded = findLoadedRound(cleanRef)
+    if (loaded) {
+      setReviewRoundState({ status: 'ready', data: loaded })
+    } else {
+      setReviewRoundState({ status: 'loading' })
+    }
+    fetchHistoryRoundDetail(cleanRef, currentAdminToken())
+      .then((data) => {
+        if (reviewRoundSeq.current !== seq) return
+        setReviewRoundDetailState({ status: 'ready', data })
+        const round = roundCardFromDetail(data)
+        if (!loaded) setReviewRoundState(round ? { status: 'ready', data: round } : { status: 'error', message: '这场球在历史数据里没有找到' })
+      })
+      .catch((error: unknown) => {
+        if (reviewRoundSeq.current !== seq) return
+        const message = zhErrorMessage(error)
+        setReviewRoundDetailState({ status: 'error', roundRef: cleanRef, message })
+        if (!loaded) setReviewRoundState({ status: 'error', message })
+      })
+  }
+
+  function openFilteredRounds(filters: RoundsFilters) {
+    setRoundsFilters(filters)
+    setActivePage('rounds')
+    void loadRoundsState(filters)
   }
 
   function loadReportIndex() {
@@ -846,9 +946,7 @@ export default function App() {
         />
       )
     }
-    if (activePage === 'holes' || activePage === 'issues') {
-      return <StrengthsPage data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
-    }
+    if (activePage === 'issues') return <StrengthsPage data={data} onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)} />
     if (activePage === 'reports') {
       return (
         <ReportsPage
@@ -1235,6 +1333,34 @@ export default function App() {
   }
 
   function renderActivePage() {
+    if (activePage === 'review') {
+      const round = reviewRoundState.status === 'ready' && reviewRoundState.data.id === reviewRoundId
+        ? reviewRoundState.data
+        : reviewRoundId ? findLoadedRound(reviewRoundId) : null
+      if (round === null && reviewRoundState.status === 'loading') return <section className="panel empty-state"><h2>正在载入这场球</h2></section>
+      if (round === null) return <section className="panel empty-state"><h2>这场球暂时无法打开</h2>{reviewRoundState.status === 'error' ? <p>{reviewRoundState.message}</p> : null}<button type="button" onClick={() => navigate('rounds')}>返回全部球局</button></section>
+      return (
+        <>
+          <ReviewWorkbench
+            rounds={[round]}
+            playerNamespace={overviewState.status === 'ready' ? overviewState.data.currentPlayer?.id ?? null : session?.playerId ?? null}
+            fetchShotMap={(roundRef, hole) => fetchRoundHoleShotMap(roundRef, hole, currentAdminToken())}
+            saveCorrection={(roundRef, correction) => postRoundCorrection(roundRef, correction, currentAdminToken())}
+          />
+          <HistoryRoundDetailPanel
+            state={reviewRoundDetailState}
+            autoScroll={false}
+            reportState={reportState}
+            onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
+            onRetryRound={openRoundReview}
+            onCreateAnnotationForRound={handleCreateAnnotationForSource}
+            onLoadRoundReport={handleLoadRoundReport}
+            onGenerateRoundReport={handleGenerateRoundReport}
+          />
+          {renderDiagnosticsDrilldownPanels()}
+        </>
+      )
+    }
     if (activePage === 'rounds') {
       if (roundsState.status === 'ready') {
         return (
@@ -1247,7 +1373,7 @@ export default function App() {
                 void loadRoundsState(next)
               }}
               onSelectRef={(sourceRef) => void handleSelectSourceRef(sourceRef)}
-              onOpenRoundDetail={(roundRef) => void handleSelectRoundDetail(roundRef)}
+              onOpenRoundDetail={openRoundReview}
               onLoadAll={() => void loadAllRounds()}
               loadingMore={roundsLoadingMore}
             />
@@ -1299,11 +1425,13 @@ export default function App() {
       if (trendsState.status === 'ready') {
         return (
           <>
-            <StatsDashboard
+            <TimeTrends
               stats={trendsState.data}
               allStats={trendsAllStats}
               window={trendsWindow}
               onWindowChange={handleTrendsWindowChange}
+              onOpenRound={openRoundReview}
+              onOpenPeriod={(period) => openFilteredRounds({ period })}
             />
             {renderDrilldownPanels()}
           </>
@@ -1325,6 +1453,45 @@ export default function App() {
           <h2>统计加载中</h2>
         </section>
       )
+    }
+
+    if (activePage === 'holes') {
+      if (trendsState.status === 'ready') {
+        return (
+          <PerformanceAnalysis
+            stats={trendsState.data}
+            window={trendsWindow}
+            onWindowChange={handleTrendsWindowChange}
+            onOpenScoreBand={(scoreBand) => openFilteredRounds({ scoreBand })}
+            onNavigateCourses={() => navigate('courses')}
+            onNavigateClubs={() => navigate('result-clubs')}
+          />
+        )
+      }
+      if (trendsState.status === 'error') {
+        return <section className="panel empty-state"><h2>表现分析加载失败</h2><p>{trendsState.message}</p><button type="button" onClick={() => void loadTrendsState()}>重试</button></section>
+      }
+      return <section className="panel empty-state"><h2>表现分析加载中</h2></section>
+    }
+
+    if (activePage === 'result-clubs') {
+      if (trendsState.status === 'ready') {
+        return <ClubPerformance stats={trendsState.data} window={trendsWindow} onWindowChange={handleTrendsWindowChange} />
+      }
+      if (trendsState.status === 'error') {
+        return <section className="panel empty-state"><h2>球杆表现加载失败</h2><p>{trendsState.message}</p><button type="button" onClick={() => void loadTrendsState()}>重试</button></section>
+      }
+      return <section className="panel empty-state"><h2>球杆表现加载中</h2></section>
+    }
+
+    if (activePage === 'courses') {
+      if (trendsState.status === 'ready') {
+        return <CoursePerformance stats={trendsState.data} courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null} window={trendsWindow} onWindowChange={handleTrendsWindowChange} onOpenRound={openRoundReview} onPrepCourse={handlePrepCourse} />
+      }
+      if (trendsState.status === 'error') {
+        return <section className="panel empty-state"><h2>球场表现加载失败</h2><p>{trendsState.message}</p><button type="button" onClick={() => void loadTrendsState()}>重试</button></section>
+      }
+      return <section className="panel empty-state"><h2>球场表现加载中</h2></section>
     }
 
     if (statsPages.includes(activePage)) {
@@ -1372,7 +1539,8 @@ export default function App() {
           courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null}
           allStats={statsState.status === 'ready' ? statsState.data : null}
           adminToken={currentAdminToken()}
-          onSearchCourses={(name) => fetchCourseSearch(name, currentAdminToken())}
+          onSearchCourses={(name, city) => fetchCourseSearch(name, currentAdminToken(), city)}
+          onNearbyCourses={(latitude, longitude, radiusKm) => fetchNearbyCourses(latitude, longitude, radiusKm, currentAdminToken())}
           onSelectCourse={handlePrepCourse}
           onChangeCourse={() => {
             setPrepGlobalId(null)
@@ -1532,14 +1700,19 @@ export default function App() {
       )
     }
 
-    // 复盘 landing = the round-review workbench (round selector → hole list →
-    // 逐洞落点图 + 杆序). The rounds list drives the selector; each hole's shot map
-    // is fetched lazily on demand. The archive (球局) + strengths tabs stay separate.
+    // 成绩 landing answers the career/recent-state question first. Existing
+    // round/shot-map capabilities remain downstream instead of owning the rail.
     return (
-      <ReviewWorkbench
-        rounds={overviewState.data.recentRounds ?? []}
-        fetchShotMap={(roundRef, hole) => fetchRoundHoleShotMap(roundRef, hole, currentAdminToken())}
-      />
+      <>
+        <ResultsLanding
+          overview={overviewState.data}
+          summary={homeSummaryState.status === 'ready' ? homeSummaryState.data : null}
+          recentStats={trendsAllStats ?? (trendsState.status === 'ready' ? trendsState.data : null)}
+          onNavigate={navigate}
+          onOpenRound={openRoundReview}
+        />
+        {renderDrilldownPanels()}
+      </>
     )
   }
 

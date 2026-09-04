@@ -35,11 +35,20 @@ class CompositeNineMergeTests(unittest.TestCase):
         self.assertEqual([s["hole"] for s in merged["caddieContextSeeds"]], list(range(1, 19)))
         self.assertEqual([p["hole"] for p in merged["coursePrep"]["holes"]], list(range(1, 19)))
 
-    def test_merge_combines_geometry_and_names_front_shared_sections(self) -> None:
+    def test_merge_combines_geometry_names_and_recomputes_shared_weather(self) -> None:
         merged = _merge_nines(_nine_package("C", 9), _nine_package("A", 4))
         self.assertEqual(merged["geometryCoverage"], {"state": "partial", "readyHoles": 13, "totalHoles": 18})
         self.assertEqual(merged["course"]["name"], "黑骑士 ~ C/A")
-        self.assertEqual(merged["weatherSnapshot"], {"label": "C"})  # shared section from the front loop
+        # The front snapshot remains the display/provenance base, but a composite package must not
+        # retain a misleading nine-hole coverage summary. This deliberately sparse fixture has no
+        # per-hole weather rows, so the recomputed 18-hole view is honestly empty rather than copied
+        # verbatim from the front loop.
+        self.assertEqual(merged["weatherSnapshot"]["label"], "C")
+        self.assertEqual(
+            merged["weatherSnapshot"]["coverage"],
+            {"ready": 0, "total": 0, "pct": 0.0},
+        )
+        self.assertEqual(merged["weatherSnapshot"]["holeCoverage"], [])
         self.assertEqual(merged["nine"], "all")
 
 

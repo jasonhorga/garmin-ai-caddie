@@ -1,5 +1,7 @@
 # Apple Watch Companion Implementation Plan
 
+> **2026-07-16 AUTHORITY CORRECTION — HISTORICAL PLAN / SUPERSEDED：**本文件的 iPhone-companion-only 边界已被后来批准的 Watch 独立整轮与当前 D04 重开问题取代，不得据此收窄现行目标或直接实施。见[Watch 决策账本](../../reviews/2026-07-15-watch-decision-and-task-tracker.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build an Apple Watch companion for current-hole glance, quick input, and iPhone sync.

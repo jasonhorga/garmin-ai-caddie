@@ -1,5 +1,7 @@
 # Apple Watch 全套共识实现计划
 
+> **2026-07-16 AUTHORITY CORRECTION — HISTORICAL PLAN / SUPERSEDED：**本文件记录 07-08 当时的实现共识，**不再是当前已批准设计，也不得直接授权实施**。其固定根页路线、表冠/拖动语义、默认 `HKWorkoutSession`、轨迹确认版 AutoShot 等内容已分别进入 D02、E02/E03、D13、D05 的新决策/证据路由；腕上独立整轮与开局流仍是 D04 的既有范围证据。当前唯一权威队列与 no-code gate 见[Watch 决策账本](../../reviews/2026-07-15-watch-decision-and-task-tracker.md)，全仓冲突索引见[Owner-gate 审计](../../reviews/2026-07-16-repository-wide-owner-gate-authority-and-drift-audit.md)。正文保留用于追溯。
+
 > **执行者须知:** 这是执行**已批准的设计**(spec `docs/superpowers/specs/2026-07-02-unified-tri-surface-spec.md` §四 + 共识渲染图 `scratchpad/wall/watch-*.png` + `flow-*.png`)。设计已定,不要重新设计;每屏的验收标准 = 出模拟器快照对齐对应的共识图。用 superpowers:subagent-driven-development 或 executing-plans 逐任务实现。
 
 **目标:** 把 Apple Watch app 做到与共识渲染图 + spec §四 完全一致——一块能不带手机独立打完 18 洞、对标 Garmin S70 的主打球面。

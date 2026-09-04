@@ -46,17 +46,12 @@ def prepare_recent_round(
     prewarm: Callable[[int, list[int]], None],
     warm_stats: Callable[[], None],
     ensure_geometry: Callable[[int, list[int]], None] | None = None,
-    warm_prep: Callable[[int, list[int]], None] | None = None,
 ) -> dict[str, Any]:
     """预热最近一盘的 topo + 烤统计。每步 best-effort。返回 {"courses": [...], "holes": N}。
 
     ``ensure_geometry(gid, holes)``(可选):在 prewarm 之前,把这盘缺的球道几何按需从 Garmin
     CourseView 取 + 解码下来(**新球场自动补**,以后复盘落点图就有几何了)。同样 best-effort,
-    取不到(如 Garmin 已下架该球场 → 404)就留空、绝不崩。
-
-    ``warm_prep(gid, holes)``(可选):在 topo prewarm 之后,顺带把这盘球场的**备战/实战 prep**
-    (逐洞几何 + F/M/B + 障碍 + 球童)也烤进 prep_cache,让触发者下次开备战/进实战即时出图,
-    而不是等 ~2–19s 的 prep_nine。同样 best-effort。"""
+    取不到(如 Garmin 已下架该球场 → 404)就留空、绝不崩。"""
     targets = recent_round_topo_targets(data)
     for gid, holes in targets:
         if ensure_geometry is not None:
@@ -68,11 +63,6 @@ def prepare_recent_round(
             prewarm(gid, holes)
         except Exception:  # noqa: BLE001 - 预热 best-effort,绝不弄崩触发它的响应/线程
             logger.exception("topo prewarm failed for gid=%s", gid)
-        if warm_prep is not None:
-            try:
-                warm_prep(gid, holes)
-            except Exception:  # noqa: BLE001 - prep 预热 best-effort,绝不弄崩触发它的响应/线程
-                logger.exception("prep warm failed for gid=%s", gid)
     try:
         warm_stats()
     except Exception:  # noqa: BLE001

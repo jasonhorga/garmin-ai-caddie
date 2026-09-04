@@ -1,5 +1,7 @@
 # Secret Handling
 
+> **2026-07-16 SECURITY CORRECTION — CURRENT BACKUP CLAIM IS UNSAFE：**下文“默认排除 `.garmin_tokens`”只覆盖顶层目录；全仓审查已确认成员路径 `data/players/<id>/.garmin_tokens/` 仍可能进入 snapshot/backup，而 manifest 继续声称 `secretFree: true`。在 P0-BKP-01 修复、旧凭据轮换并完成真实内容扫描前，**不得把任何现有备份视为无密钥或放入低信任存储**。证据见[全仓工程审查](../reviews/2026-07-11-full-repository-review.md)与[全仓 Owner-gate 审计](../reviews/2026-07-16-repository-wide-owner-gate-authority-and-drift-audit.md)。
+
 This project is designed for private golf data first. Secrets must stay local or inside the deployment provider's secret manager.
 
 ## Garmin Auth

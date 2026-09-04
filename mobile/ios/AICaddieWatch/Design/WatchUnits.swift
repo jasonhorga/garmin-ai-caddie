@@ -6,4 +6,12 @@ import Foundation
 enum WatchUnits {
     static func yards(_ metres: Double) -> Int { Int((metres * 1.09361).rounded()) }
     static func metres(fromYards yards: Int) -> Double { Double(yards) * 0.9144 }
+
+    /// Plays-like state stays in metres; only the Watch presentation converts the slope delta.
+    /// Keeping this arithmetic here prevents a yard display value from ever receiving metres.
+    static func playsLikeMetres(distanceMetres: Double?, elevationDeltaMetres: Double?) -> Double? {
+        guard let distanceMetres, distanceMetres.isFinite,
+              let elevationDeltaMetres, elevationDeltaMetres.isFinite else { return nil }
+        return distanceMetres + elevationDeltaMetres
+    }
 }

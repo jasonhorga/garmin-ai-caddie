@@ -6,7 +6,6 @@ public enum LiveRoundEventKind: String, Codable, CaseIterable, Equatable {
     case putt
     case penalty
     case note
-    case fairway
     case location
     case photo
     case video

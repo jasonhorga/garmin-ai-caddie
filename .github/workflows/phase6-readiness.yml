@@ -40,6 +40,14 @@ on:
         description: 'Optional confirmed target tester count assigned to Private Trial'
         required: false
         default: ''
+      testflight_build_number:
+        description: 'TestFlight build number to which manual evidence applies'
+        required: false
+        default: ''
+      release_provenance_run_id:
+        description: 'Completed iOS workflow run ID containing the provenance artifact'
+        required: false
+        default: ''
       tester_coverage_confirmed:
         description: 'Internal/external tester coverage has been independently confirmed'
         required: true
@@ -82,15 +90,55 @@ jobs:
       BETA_REVIEW_SUBMITTED: ${{ github.event.inputs.beta_review_submitted }}
       NATIVE_RUNTIME_API_CONFIGURED: ${{ github.event.inputs.native_runtime_api_configured }}
       ASSIGNED_TESTER_COUNT: ${{ github.event.inputs.assigned_tester_count }}
+      AI_CADDIE_TESTFLIGHT_BUILD_NUMBER: ${{ github.event.inputs.testflight_build_number }}
+      RELEASE_PROVENANCE_RUN_ID: ${{ github.event.inputs.release_provenance_run_id }}
       TESTER_COVERAGE_CONFIRMED: ${{ github.event.inputs.tester_coverage_confirmed }}
       INSTALL_VERIFIED: ${{ github.event.inputs.install_verified }}
       FAIL_WHEN_INCOMPLETE: ${{ github.event.inputs.fail_when_incomplete }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Initialize release evidence paths
+        run: |
+          set -euo pipefail
+          evidence_dir="$GITHUB_WORKSPACE/.phase6-release-provenance"
+          mkdir -p "$evidence_dir"
+          {
+            printf 'AI_CADDIE_RELEASE_PROVENANCE_PATH=%s\n' "$evidence_dir/release-provenance.json"
+            printf 'AI_CADDIE_RELEASE_IPA_PATH=%s\n' "$evidence_dir/AICaddie.ipa"
+          } >> "$GITHUB_ENV"
+
       - uses: astral-sh/setup-uv@v5
         with:
           prune-cache: false
+
+      - name: Download release provenance artifact
+        if: ${{ env.RELEASE_PROVENANCE_RUN_ID != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: AICaddie-ipa
+          path: ${{ github.workspace }}/.phase6-release-provenance
+          github-token: ${{ secrets.PHASE6_GH_TOKEN || github.token }}
+          run-id: ${{ env.RELEASE_PROVENANCE_RUN_ID }}
+
+      - name: Validate release workflow identity
+        if: ${{ env.RELEASE_PROVENANCE_RUN_ID != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.PHASE6_GH_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          run_json=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RELEASE_PROVENANCE_RUN_ID}")
+          test "$(jq -r .conclusion <<<"$run_json")" = success
+          test "$(jq -r .name <<<"$run_json")" = 'iOS TestFlight (CD)'
+          test "$(jq -r .head_branch <<<"$run_json")" = "$GITHUB_REF_NAME"
+          test "$(jq -r .path <<<"$run_json")" = '.github/workflows/ios-testflight.yml'
+          candidate_sha=$(jq -r .commit "$AI_CADDIE_RELEASE_PROVENANCE_PATH")
+          candidate_marketing_version=$(jq -r .marketingVersion "$AI_CADDIE_RELEASE_PROVENANCE_PATH")
+          test "$candidate_sha" != null
+          test "$candidate_marketing_version" != null
+          test "$candidate_sha" = "$(jq -r .head_sha <<<"$run_json")"
+          printf 'AI_CADDIE_MARKETING_VERSION=%s\n' "$candidate_marketing_version" >> "$GITHUB_ENV"
+          printf 'AI_CADDIE_RELEASE_COMMIT=%s\n' "$candidate_sha" >> "$GITHUB_ENV"
 
       - name: Install Python dependencies
         run: uv sync --frozen
@@ -99,6 +147,11 @@ jobs:
         run: |
           set -euo pipefail
           args=(ops/phase6_external_readiness.py)
+          args+=(--branch "$GITHUB_REF_NAME")
+          if [ -n "$RELEASE_PROVENANCE_RUN_ID" ]; then
+            test -f "$AI_CADDIE_RELEASE_PROVENANCE_PATH"
+            test -f "$AI_CADDIE_RELEASE_IPA_PATH"
+          fi
           if [ -n "$PHASE6_API_BASE_URL_INPUT" ]; then
             args+=(--api-base-url "$PHASE6_API_BASE_URL_INPUT")
           fi

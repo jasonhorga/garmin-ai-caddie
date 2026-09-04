@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import ast
+import hashlib
 import json
 import plistlib
+import re
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import unittest
 
 from jsonschema import Draft202012Validator
+import yaml
 
 from ai_caddie.history import stats_cache
 from ai_caddie.reports.annotations import add_annotation
@@ -82,6 +86,16 @@ def _assert_json_schema_rejects(testcase: unittest.TestCase, schema: dict[str, o
 
 
 class MobileContractTests(unittest.TestCase):
+    def test_live_round_package_schema_accepts_optional_tee_coordinates(self) -> None:
+        schema = _load_schema("live_round_package.schema.json")
+        package = json.loads(
+            (IOS_DIR / "Fixtures" / "live_round_package.fixture.json").read_text(encoding="utf-8")
+        )
+        package["holes"][0]["teeLatitude"] = 40.0454995
+        package["holes"][0]["teeLongitude"] = 116.5461531
+
+        _assert_json_schema_accepts(self, schema, package)
+
     def test_live_round_package_schema_accepts_fixture(self) -> None:
         schema = _load_schema("live_round_package.schema.json")
         package = {
@@ -331,6 +345,8 @@ class MobileContractTests(unittest.TestCase):
             "hole": 7,
             "par": 4,
             "distanceM": 142.0,
+            "teeLatitude": 22.2785,
+            "teeLongitude": 114.1615,
             "targetNote": "pin set on iPhone",
             "targetLatitude": 22.279,
             "targetLongitude": 114.162,
@@ -347,9 +363,8 @@ class MobileContractTests(unittest.TestCase):
             "offlineOptionId": "stock",
             "decisionId": "decision-1",
             "nextShotPrompt": "8I / Stock / 142m",
-            "holePlanSummary": "1D-3W-58 / 3 shots / leave -21m",
-            "expectedStrokes": 3.0,
-            "expectedRemainingM": -21.0,
+            "holePlanSummary": "1D → 5I → 54 · 留 14 码",
+            "expectedRemainingM": 13.0,
             "evidenceSummary": "route: water left",
             "missingDataSummary": "wind: not cached",
             "frontGreenM": 128.0,
@@ -357,8 +372,6 @@ class MobileContractTests(unittest.TestCase):
             "backGreenM": 142.0,
             "playsLikeDistanceM": 138.0,
             "elevationDeltaM": 3.0,
-            "greenSlopePct": 3.2,
-            "greenSlopeDirDeg": 210.0,
             "lastShotDistanceM": 168.0,
             "distanceFromLastShotM": 142.0,
             "greenInRegulation": False,
@@ -371,9 +384,9 @@ class MobileContractTests(unittest.TestCase):
                 "layup": [253.0, 201.0], "apex": [278.0, 273.0], "greenCtrl": [235.0, 165.0],
             },
             "caddieOptions": [
-                {"optionId": "safe", "label": "稳妥", "clubName": "9I", "carryM": 128.0, "expectedStrokes": 3.1, "confidence": "high"},
-                {"optionId": "stock", "label": "标准", "clubName": "8I", "carryM": 142.0, "expectedStrokes": 3.0, "confidence": "high"},
-                {"optionId": "attack", "label": "进攻", "clubName": "7I", "carryM": 156.0, "expectedStrokes": 3.2, "confidence": "medium"},
+                {"optionId": "safe", "label": "稳妥", "clubName": "9I", "carryM": 128.0, "plan": [{"clubName": "3W", "carryM": 172.0}, {"clubName": "9I", "carryM": 128.0}], "confidence": "high"},
+                {"optionId": "stock", "label": "标准", "clubName": "8I", "carryM": 142.0, "carryP10M": 132.0, "carryP90M": 153.0, "sampleSize": 24, "plan": [{"clubName": "1W", "carryM": 192.0}, {"clubName": "8I", "carryM": 142.0}], "confidence": "high"},
+                {"optionId": "attack", "label": "进攻", "clubName": "7I", "carryM": 156.0, "plan": [{"clubName": "1W", "carryM": 192.0}, {"clubName": "PW", "carryM": 118.0}], "confidence": "medium"},
             ],
             "hazards": [
                 {"kind": "bunker", "label": "沙坑 1", "startM": 120.0, "endM": 140.0},
@@ -409,37 +422,53 @@ class MobileContractTests(unittest.TestCase):
         }
         invalid_distance_event = {**distance_event, "eventId": "watch-distance-bad"}
         invalid_distance_event.pop("contextClub")
+        location_event = {
+            "schema": "ai-caddie-watch-input-event-v1",
+            "eventId": "watch-location-1",
+            "roundId": "round-1",
+            "hole": 7,
+            "kind": "location",
+            "value": "40.0454995,116.5461531,5.0",
+            "createdAt": "2026-07-26T08:00:00Z",
+        }
 
         _assert_json_schema_accepts(self, state_schema, state)
         _assert_json_schema_accepts(self, input_schema, club_event)
         _assert_json_schema_accepts(self, input_schema, distance_event)
+        _assert_json_schema_accepts(self, input_schema, location_event)
         _assert_json_schema_rejects(self, input_schema, invalid_distance_event)
 
     def test_live_round_package_can_report_ready_dependency_checks(self) -> None:
         schema = _load_schema("live_round_package.schema.json")
 
-        def ready_coverage(global_id: int, local_hole: int) -> dict[str, object]:
+        def ready_coverage(
+            global_id: int,
+            local_hole: int,
+            **_kwargs: object,
+        ) -> dict[str, object]:
             return {
                 "schema": "ai-caddie-geometry-evidence-v1",
                 "globalId": global_id,
                 "localHole": local_hole,
                 "coverage": "ready",
+                "geometryRevision": f"{int(local_hole):016x}",
                 "hasHazards": True,
                 "hasMeshes": True,
                 "evidence": [{"label": "geometry", "ref": f"gid{global_id}_h{local_hole:02d}"}],
                 "missingData": [],
             }
 
-        def ready_map(global_id: int, local_hole: int) -> dict[str, object]:
+        def ready_geometry(global_id: int, local_hole: int) -> dict[str, object]:
             return {
-                "schema": "ai-caddie-hole-map-v1",
-                "globalId": global_id,
-                "localHole": local_hole,
-                "provider": {"coordinateSystem": "local"},
-                "coverage": "ready",
-                "layers": ["hazard"],
-                "featureCollection": {"type": "FeatureCollection", "features": []},
-                "missingData": [],
+                "refLat": 40.0,
+                "refLon": 116.0,
+                "hazards": [
+                    {
+                        "id": f"bunker-{local_hole}",
+                        "kind": "bunker",
+                        "polygon": [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+                    }
+                ],
             }
 
         def ready_route(global_id: int, local_hole: int, **_kwargs: object) -> dict[str, object]:
@@ -471,7 +500,7 @@ class MobileContractTests(unittest.TestCase):
             with (
                 patch("ai_caddie.history.history_stats.geometry_coverage_for_hole", side_effect=ready_coverage),
                 patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=ready_coverage),
-                patch("ai_caddie.caddie.mobile_live.build_hole_map_dto", side_effect=ready_map),
+                patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=ready_geometry),
                 patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
             ):
                 package = build_live_round_package(
@@ -514,7 +543,29 @@ class MobileContractTests(unittest.TestCase):
             shots=[],
         )
 
-        package = build_live_round_package("partial-round", data=data, data_mode="fixture")
+        def current_coverage(
+            global_id: int,
+            local_hole: int,
+            **_kwargs: object,
+        ) -> dict[str, object]:
+            ready = int(local_hole) <= 3
+            return {
+                "schema": "ai-caddie-geometry-evidence-v1",
+                "globalId": int(global_id),
+                "localHole": int(local_hole),
+                "coverage": "ready" if ready else "missing",
+                "geometryRevision": f"{int(local_hole):016x}" if ready else None,
+                "hasHazards": ready,
+                "hasMeshes": ready,
+                "evidence": [],
+                "missingData": [] if ready else [{"label": "geometry", "reason": "not installed"}],
+            }
+
+        with patch(
+            "ai_caddie.caddie.mobile_live.geometry_coverage_for_hole",
+            side_effect=current_coverage,
+        ):
+            package = build_live_round_package("partial-round", data=data, data_mode="fixture")
 
         self.assertEqual(len(package["holes"]), 18)
         self.assertEqual(package["holes"][0]["geometryCoverage"], "ready")
@@ -561,23 +612,41 @@ class MobileContractTests(unittest.TestCase):
                 "releaseSource": "cache",
             }
 
-        def coverage_for_test(global_id: int, local_hole: int) -> dict[str, object]:
+        def coverage_for_test(
+            global_id: int,
+            local_hole: int,
+            **_kwargs: object,
+        ) -> dict[str, object]:
             ready = (int(global_id), int(local_hole)) in ensured
             return {
                 "schema": "ai-caddie-geometry-evidence-v1",
                 "globalId": int(global_id),
                 "localHole": int(local_hole),
                 "coverage": "ready" if ready else "missing",
+                "geometryRevision": f"{int(local_hole):016x}" if ready else None,
                 "hasHazards": ready,
                 "hasMeshes": ready,
                 "evidence": [{"label": "geometry", "ref": f"gid{global_id}_h{local_hole:02d}"}] if ready else [],
                 "missingData": [] if ready else [{"label": "geometry", "reason": "not prefetched"}],
             }
 
+        def ready_geometry(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "refLat": 40.0,
+                "refLon": 116.0,
+                "hazards": [
+                    {
+                        "id": f"bunker-{local_hole}",
+                        "kind": "bunker",
+                        "polygon": [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+                    }
+                ],
+            }
+
         with (
             patch("ai_caddie.geometry.geometry_sync.ensure_prodgeometry", side_effect=ensure_for_test),
             patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
-            patch("ai_caddie.caddie.mobile_live.build_hole_map_dto", return_value={"missingData": []}),
+            patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=ready_geometry),
             patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", return_value={"missingData": [], "coverage": "ready"}),
         ):
             package = build_live_round_package(
@@ -800,7 +869,32 @@ class MobileContractTests(unittest.TestCase):
                 "sourceRefs": ["900001"],
             },
         )
-        self.assertLessEqual(len(package["recentHistory"]["rounds"]), 5)
+        self.assertLessEqual(len(package["recentHistory"]["rounds"]), 25)
+
+    def test_live_round_package_keeps_twenty_five_recent_rounds_reachable_from_history(self) -> None:
+        from ai_caddie.caddie.mobile_live import _recent_history
+
+        rounds = [
+            {
+                "id": f"round-{day:02d}",
+                "date": f"2026-07-{day:02d}",
+                "course": "Review Course",
+                "courseKey": "review_course",
+                "score": 80 + day,
+                "par": 72,
+                "holesCompleted": 18,
+            }
+            for day in range(1, 27)
+        ]
+        history = _recent_history(
+            HistoryData(raw_rounds=[], rounds=rounds, shots=[]),
+            {"courses": [], "holes": []},
+            {"courseKey": "review_course", "course": "Review Course", "holes": []},
+        )
+
+        self.assertEqual(len(history["rounds"]), 25)
+        self.assertEqual(history["rounds"][0]["roundId"], "round-26")
+        self.assertEqual(history["rounds"][-1]["roundId"], "round-02")
 
     def test_live_round_package_marks_recent_history_missing_without_same_course_scores(self) -> None:
         holes = [{"number": index, "par": 4} for index in range(1, 19)]
@@ -921,9 +1015,20 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(payload_rules["club"]["properties"]["lie"]["type"], "string")
         self.assertEqual(payload_rules["club"]["properties"]["distanceToPinM"]["type"], ["number", "null"])
         self.assertEqual(payload_rules["club"]["properties"]["offlineOptionId"]["type"], ["string", "null"])
-        self.assertEqual(payload_rules["location"]["properties"]["targetLatitude"]["type"], "number")
-        self.assertEqual(payload_rules["location"]["properties"]["targetLongitude"]["type"], "number")
-        self.assertEqual(payload_rules["location"]["properties"]["targetKind"]["enum"], ["pin", "target", "green_center"])
+        self.assertEqual(
+            payload_rules["location"]["properties"]["targetLatitude"]["type"],
+            ["number", "null"],
+        )
+        self.assertEqual(
+            payload_rules["location"]["properties"]["targetLongitude"]["type"],
+            ["number", "null"],
+        )
+        target_kind_schema = payload_rules["location"]["properties"]["targetKind"]
+        self.assertEqual(
+            target_kind_schema["anyOf"][0]["enum"],
+            ["pin", "target", "green_center"],
+        )
+        self.assertEqual(target_kind_schema["anyOf"][1]["type"], "null")
         self.assertEqual(payload_rules["photo"]["properties"]["mediaType"]["const"], "photo")
         self.assertEqual(payload_rules["video"]["properties"]["mediaType"]["const"], "video")
         self.assertEqual(schema["properties"]["eventId"]["minLength"], 1)
@@ -965,6 +1070,34 @@ class MobileContractTests(unittest.TestCase):
             self,
             schema,
             {**base_event, "kind": "club", "payload": {"clubName": "8I", "unexpected": "drop"}},
+        )
+        _assert_json_schema_accepts(
+            self,
+            schema,
+            {
+                **base_event,
+                "kind": "location",
+                "payload": {
+                    "latitude": 22.279,
+                    "longitude": 114.162,
+                    "targetLatitude": None,
+                    "targetLongitude": None,
+                    "targetKind": None,
+                },
+            },
+        )
+        _assert_json_schema_rejects(
+            self,
+            schema,
+            {
+                **base_event,
+                "kind": "location",
+                "payload": {
+                    "latitude": 22.279,
+                    "longitude": 114.162,
+                    "targetLatitude": None,
+                },
+            },
         )
 
     def test_live_round_event_schema_supports_optional_client_id_for_multi_device_dedup(self) -> None:
@@ -1090,6 +1223,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("enum LiveRoundEventKind: String, Codable", event_swift)
         self.assertIn('case syncMarker = "sync_marker"', event_swift)
 
+    def test_live_round_package_copy_initializers_match_declared_argument_order(self) -> None:
+        package_swift = _read_required_source(self, IOS_DIR / "Models" / "LiveRoundPackage.swift")
+        call_bodies = re.findall(r"LiveRoundPackage\(\n(.*?)\n        \)", package_swift, flags=re.DOTALL)
+
+        self.assertEqual(3, len(call_bodies))
+        for body in call_bodies:
+            self.assertLess(body.index("generatedAt:"), body.index("readinessState:"))
+
     def test_ios_services_define_offline_store_and_sync_client(self) -> None:
         offline_store = (IOS_DIR / "Services" / "OfflineStore.swift").read_text(encoding="utf-8")
         sync_client = (IOS_DIR / "Services" / "SyncClient.swift").read_text(encoding="utf-8")
@@ -1180,10 +1321,34 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("let preparedAt = Date()", app_swift)
         self.assertIn("fetchRemotePackage(capturedAt: Date = Date())", app_swift)
-        self.assertIn("fetchRemotePackage(roundId: requestedRoundId, capturedAt: preparedAt)", app_swift)
-        self.assertIn("fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)", app_swift)
+        self.assertIn("let fetched = await fetchRemotePackage(", app_swift)
+        self.assertIn("roundId: requestedRoundId", app_swift)
+        self.assertIn("capturedAt: preparedAt", app_swift)
+        self.assertIn("preparationToken: preparationToken", app_swift)
+        self.assertIn(
+            "return await fetchRemotePackage(roundId: preferredRoundId, capturedAt: capturedAt)",
+            app_swift,
+        )
         self.assertIn("fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)", app_swift)
-        self.assertIn("fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: true)", app_swift)
+        self.assertIn(
+            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false)",
+            app_swift,
+        )
+        self.assertIn(
+            'URLQueryItem(name: "background_geometry", value: backgroundGeometry ? "true" : "false")',
+            sync_client,
+        )
+
+    def test_ios_home_package_explicitly_skips_the_event_cursor(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+
+        self.assertIn("includeEventCursor: Bool = true", sync_client)
+        self.assertIn('URLQueryItem(name: "include_event_cursor", value: includeEventCursor ? "true" : "false")', sync_client)
+        home_start = app_swift.index("private func fetchHomePackage(")
+        home_end = app_swift.index("private func canContinueExpiredPackage", home_start)
+        home_fetch = app_swift[home_start:home_end]
+        self.assertEqual(home_fetch.count("includeEventCursor: false"), 2)
 
     def test_ios_app_entry_bootstraps_cached_or_fixture_package(self) -> None:
         package_swift = _read_required_source(self, Path("Package.swift"))
@@ -1199,7 +1364,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("final class LiveRoundAppModel", app_swift)
         self.assertIn("AI_CADDIE_LIVE_ROUND_ID", app_swift)
         self.assertIn("private let preferredRoundId: String", app_swift)
-        self.assertIn("fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)", app_swift)
+        self.assertIn(
+            "return await fetchRemotePackage(roundId: preferredRoundId, capturedAt: capturedAt)",
+            app_swift,
+        )
         self.assertIn("offlineStore.saveRoundPackage(remotePackage)", app_swift)
         self.assertIn("loadResumablePackage", app_swift)  # event-log-driven resume (round-10 bug fix)
         self.assertIn("live_round_package.fixture", app_swift)
@@ -1236,7 +1404,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertGreaterEqual(project.count("- Info.plist"), 2)
         self.assertIn("xcodegen generate --spec mobile/ios/project.yml", readme)
         self.assertIn("xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj", readme)
-        self.assertNotIn("- Fixtures", project)
+        app_target = yaml.safe_load(project)["targets"]["AICaddie"]
+        app_excludes = {
+            excluded
+            for source in app_target["sources"]
+            for excluded in source.get("excludes", [])
+        }
+        self.assertNotIn("Fixtures", app_excludes)
 
     def test_ios_and_watch_info_plists_declare_required_live_permissions(self) -> None:
         ios_plist = _read_required_source(self, IOS_DIR / "Info.plist")
@@ -1257,8 +1431,6 @@ class MobileContractTests(unittest.TestCase):
             "$(CURRENT_PROJECT_VERSION)",
             "AICaddieAPIBaseURL",
             "$(AI_CADDIE_API_BASE_URL)",
-            "AICaddieAdminToken",
-            "$(AI_CADDIE_ADMIN_TOKEN)",
             "ITSAppUsesNonExemptEncryption",
             "NSLocationWhenInUseUsageDescription",
             "NSCameraUsageDescription",
@@ -1362,27 +1534,46 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public func prepareCourseRound(globalId: Int, roundId: String, teeBox: String, nine: String) async", app_swift)
         self.assertIn("@Published public private(set) var courseOptions: [MobileCourseOption] = []", app_swift)
         self.assertIn("courseOptions = try await syncClient.fetchCourseOptions().courses", app_swift)
-        self.assertIn("fetchRemotePackage(roundId:", app_swift)
-        self.assertIn("fetchRemoteCoursePackage(globalId:", app_swift)
+        self.assertIn("let fetched = await fetchRemotePackage(", app_swift)
+        self.assertIn("let fetched = await fetchRemoteCoursePackage(", app_swift)
         self.assertIn("offlineStore.loadRoundPackage(roundId:", app_swift)
         self.assertIn("try activatePackage", app_swift)
+        begin_round_preparation = app_swift.split(
+            "private func beginRoundPreparation() -> UUID {", 1
+        )[1].split("private func isCurrentRoundPreparation", 1)[0]
+        self.assertNotIn(
+            "pausePrepCourseDownload()",
+            begin_round_preparation,
+            "starting live play must not pause the independent durable prep download",
+        )
         self.assertIn("StartRoundView(", app_swift)
         self.assertIn("await model.prepareRound(roundId: roundId)", app_swift)
         self.assertIn("await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine)", app_swift)
         # 1d: 开始记分后直接进实战屏(pendingLiveHole → Hub 路径导航到该洞),不弹回 Hub。
         self.assertIn("var pendingLiveHole: Int?", app_swift)
-        self.assertIn("signalFreshRoundEntry()", app_swift)
-        # 开局提前备料:新局进入时后端预热本局涉及球场的所有洞 topo 底图(组合局跨 sourceGlobalId 全覆盖),
-        # 逐洞浏览命中热缓存。fire-and-forget,绝不阻塞开局。
-        self.assertIn("prewarmRoundTopo()", app_swift)
-        self.assertIn("$0.sourceGlobalId ?? package.course.globalId", app_swift)
-        self.assertIn("await syncClient.prewarmCourseTopo(globalId: gid)", app_swift)
-        sync_client_prewarm = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
-        self.assertIn("public func prewarmCourseTopo(globalId: Int) async", sync_client_prewarm)
-        self.assertIn("/api/v2/courses/\\(globalId)/topo/prewarm", sync_client_prewarm)
+        self.assertIn("signalFreshRoundEntry(", app_swift)
+        self.assertIn("func liveHoleInitialLoadDidFinish()", app_swift)
+        self.assertIn("onLiveHoleInitialLoadDidFinish: {", app_swift)
+        # The selected course installer owns each factual prep/topo download. It must not launch a
+        # competing whole-course server prewarm while the same holes are being fetched for offline use.
+        self.assertIn("beginOfflineCourseDownload()", app_swift)
+        self.assertIn("fetchOfflineTopoImages", app_swift)
+        self.assertIn(
+            "if prepDownloadID != nil && serverInstallStatusAvailable && !geometryReady",
+            app_swift,
+        )
+        self.assertIn(
+            'if prepDownloadID != nil && serverInstallStatusAvailable && serverInstallPhase == "failed"',
+            app_swift,
+        )
+        self.assertIn("serverTopoReadyKeys.contains", app_swift)
+        self.assertNotIn("prewarmRoundTopo()", app_swift)
+        self.assertNotIn("prewarmCourseTopo(globalId:", app_swift)
         self.assertIn("enum HubRoute", round_home)
         self.assertIn("path = [.hole(hole)]", round_home)
         self.assertIn("onConsumePendingLiveHole()", round_home)
+        self.assertIn("onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish", round_home)
+        self.assertIn("onLiveHoleInitialLoadDidFinish()", current_hole)
 
         # Composite 18: front loop + a second loop (holes 10–18). Wired front→model→SyncClient→backend.
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
@@ -1406,9 +1597,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let courseOptions: [MobileCourseOption]", start_view)
         self.assertIn("public let onPrepareRound: (String) -> Void", start_view)
         self.assertIn("public let onPrepareCourseRound: (Int, String, String, String) -> Void",start_view)
-        # 按真实结构选场:球场 → 列出它的各 9 洞环(segmentLabel)/ 整场,选一个开始(不再
-        # 用「最近球场」下拉 + 前九/后九 segmented;那是 18 洞洞号切片的旧错模型)。
-        self.assertIn("选择球场", start_view)
+        # 按真实结构选场:GPS 只列附近球场 → 列出它的各 9 洞环(segmentLabel)/整场,
+        # 其他球场必须由玩家主动搜索；历史球场不能重新混入开局列表。
+        self.assertIn("附近球场", start_view)
+        self.assertIn("nearbyCourseOptions + remoteCourseOptions", start_view)
+        self.assertNotIn("return (courseOptions + remoteCourseOptions)", start_view)
+        self.assertIn("await discoverNearbyCourses()", start_view)
         self.assertIn("venueGroups", start_view)
         self.assertIn("func segmentRow(", start_view)
         self.assertIn("segment.segmentLabel", start_view)
@@ -1416,6 +1610,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('Picker("球场", selection: selectedVenueBinding)', start_view)
         self.assertIn("displayVenues", start_view)
         self.assertIn("selectedVenueName", start_view)  # venue derived from the selected segment (no desync)
+        self.assertIn(
+            "onRememberCourseDisplayName(courseGlobalId, selectedRoundDisplayName)",
+            start_view,
+        )  # resume/history must retain A/B/C or A+B, not collapse to the venue
         self.assertIn("locationProvider.latestFix", start_view)
         self.assertIn("haversineMetres(", start_view)
         # 发球台用所选球场的真实 Tee(Garmin CourseView 颜色:金/黑/蓝/白/红…),#2d。
@@ -1423,7 +1621,7 @@ class MobileContractTests(unittest.TestCase):
         course_options_model = _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift")
         self.assertIn("public let latitude: Double?", course_options_model)
         self.assertIn("public let tees: [String]?", course_options_model)
-        self.assertIn("applySelectedCourse(globalIdText:", start_view)
+        self.assertIn("private func applySelectedCourse(_ option: MobileCourseOption)", start_view)
         self.assertIn('Text("发球台")', start_view)
         # 选发球台:候选来自 GET /courses/{id}/tees(颜色 + 总码数 + 默认台),端到端镜像 nine —
         # StartRoundView 收 onLoadCourseTees 闭包 → LiveRoundAppModel.loadCourseTees → SyncClient.fetchCourseTees。
@@ -1431,6 +1629,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("@State private var fetchedTees: [CourseTee] = []", start_view)
         self.assertIn(".task(id: courseGlobalIdText)", start_view)  # 换球场即重拉发球台
         self.assertIn("await onLoadCourseTees(globalId)", start_view)
+        # A transient Tee request cannot leave a newly searched course permanently unstartable.
+        self.assertIn('Label("重试获取发球台", systemImage: "arrow.clockwise")', start_view)
+        self.assertIn('.accessibilityIdentifier("start-round-retry-course-tees")', start_view)
+        self.assertIn("Task { await loadTees() }", start_view)
         self.assertIn("func teeMenuLabel(", start_view)  # 选台菜单:台名 + 码数
         self.assertIn("\\(yards) 码", start_view)  # 显示该台总码数(不造假,缺则不显示)
         self.assertIn("public func loadCourseTees(globalId: Int) async -> [CourseTee]", app_swift)
@@ -1484,7 +1686,41 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("移除加打的 9 洞", current_hole)
         # The Hub forwards the round-management closures into the live screen.
         self.assertIn("onChangeNine: onChangeNine", round_home)
-        self.assertIn("onDiscard: onDiscard", round_home)
+        self.assertIn("onFinishRound: onFinishRound", round_home)
+
+    def test_ios_round_finish_uses_shared_non_destructive_summary(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        summary = _read_required_source(self, IOS_DIR / "Views" / "LiveRoundFinishSummaryView.swift")
+
+        self.assertIn("struct LiveRoundFinishSummaryView: View", summary)
+        for label in ["本场汇总", "保存并结束", "继续打球", "已完成"]:
+            self.assertIn(label, summary)
+        self.assertIn("finishErrorMessage", summary)
+        self.assertIn("pendingEventCount", summary)
+
+        self.assertIn("public let onFinishRound: () async -> Bool", round_home)
+        self.assertIn("onFinishRound: onFinishRound", round_home)
+        self.assertIn("private let onFinishRound: () async -> Bool", current_hole)
+        self.assertIn("showRoundSummary = true", current_hole)
+        final_hole_branch = current_hole.index("if accepted.advanceAfterSave")
+        summary_open = current_hole.index("showRoundSummary = true", final_hole_branch)
+        self.assertIn("nextHole(after: accepted.hole)", current_hole[final_hole_branch:summary_open])
+        self.assertNotIn("未保存的记录会被丢弃", current_hole)
+        # The former Save/Continue-only sheet could trap an invalid round. Keep a deliberate
+        # destructive exit, but require a second confirmation before deleting local data.
+        self.assertIn("onDiscard:", current_hole)
+        self.assertIn("showDiscardConfirmation = true", current_hole)
+        self.assertIn(".confirmationDialog(", current_hole)
+        self.assertIn('Button("放弃并删除本场记录", role: .destructive)', current_hole)
+        self.assertIn("onDiscardRound()", current_hole)
+
+        self.assertIn("isFinishingRound: model.isFinishingRound", app_swift)
+        self.assertIn("finishErrorMessage: model.finishErrorMessage", app_swift)
+        self.assertIn("return await model.finishActiveRound()", app_swift)
+        self.assertIn("onDiscardRound:", app_swift)
+        self.assertIn("model.discardActiveRound()", app_swift)
 
     def test_ios_course_option_models_and_fetcher_match_backend_endpoint(self) -> None:
         course_options = _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift")
@@ -1501,6 +1737,7 @@ class MobileContractTests(unittest.TestCase):
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
 
         self.assertIn("private var syncClient: SyncClient?", app_swift)
         self.assertIn("AI_CADDIE_API_BASE_URL", app_swift)
@@ -1515,15 +1752,14 @@ class MobileContractTests(unittest.TestCase):
         # Consumer sync-status copy (de-engineered): "no sync server" → 未联网,稍后同步.
         self.assertIn("未联网,稍后同步", app_swift)
         # round-12 P2.3: syncPendingEvents PULLS other clients' events (not push-only) — merge into the
-        # local log idempotently by eventId, then re-project. Wires the previously-unused fetchEventReplay.
+        # local log idempotently by full server identity, then re-project.
         self.assertIn("pullAndApplyRemoteEvents(roundId:", app_swift)
         self.assertIn("syncClient.fetchEventReplay(roundId:", app_swift)
-        self.assertIn("offlineStore.containsEvent(eventId:", app_swift)
+        self.assertIn("try offlineStore.applyReplayEvents(replay.events.map(\\.event))", app_swift)
         self.assertIn("liveRoundState = try? offlineStore.restoreLiveRoundState(roundId: roundId, package: package)", app_swift)
         # P1-2: a failed local append must NOT advance/ack the cursor, or the server treats the dropped
-        # events as delivered and never resends them. The error-swallowing `try?` append is gone.
-        self.assertIn("try offlineStore.appendEvent(item.event)", app_swift)
-        self.assertNotIn("try? offlineStore.appendEvent(item.event)", app_swift)
+        # events as delivered and never resends them. Page application remains throwing.
+        self.assertNotIn("try? offlineStore.applyReplayEvents", app_swift)
 
         self.assertIn("func loadPendingEvents(roundId:", offline_store)
         self.assertIn("lastIndex(where:", offline_store)
@@ -1532,7 +1768,19 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let onSync", round_home)
         self.assertIn("Button", round_home)
         self.assertIn("onSync()", round_home)
-        self.assertIn('Label("同步"', round_home)
+        self.assertIn('"立即同步 Garmin"', round_home)
+        self.assertIn("localEventUploadStatus", round_home)
+        self.assertIn("garminSyncStatus", round_home)
+        # The manual action has two explicit stages: local event upload remains intact, then a real
+        # Garmin pull runs and refreshes shared history/stats surfaces. It must never regress to merely
+        # relabelling syncPendingEvents as Garmin sync.
+        self.assertIn("func syncGarminData() async -> Bool", app_swift)
+        self.assertIn("await syncPendingEvents()", app_swift)
+        self.assertIn("syncClient.runGarminSync(withShots: true)", app_swift)
+        self.assertIn("NotificationCenter.default.post(name: .garminDataDidRefresh", app_swift)
+        self.assertIn("func runGarminSync(withShots: Bool = true)", sync_client)
+        self.assertIn('endpoint = "/api/v2/sync/garmin"', sync_client)
+        self.assertIn('/api/v2/players/\\(playerId)/sync/garmin', sync_client)
 
     def test_ios_sync_acknowledgement_metadata_is_preserved(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
@@ -1555,8 +1803,100 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('"acceptedEventIds": .array(result.acceptedEventIds.map { .string($0) })', offline_store)
         self.assertIn('"duplicateEventIds": .array(result.duplicateEventIds.map { .string($0) })', offline_store)
         self.assertIn('"serverSequence": .number(Double(result.serverSequence))', offline_store)
-        self.assertIn("offlineStore.appendSyncMarker(roundId: package.roundId, timestamp: ISO8601DateFormatter().string(from: Date()), result: result)", app_swift)
-        self.assertIn("syncClient.ackEventCursor(roundId: package.roundId, serverSequence: result.serverSequence)", app_swift)
+        # Formatting is intentionally irrelevant: the exact-ACK guard must dominate the marker write.
+        ack_guard = app_swift.index("Set(acknowledged) == Set(expected)")
+        marker_write = app_swift.index("try offlineStore.appendSyncMarker(", ack_guard)
+        marker_result = app_swift.index("result: result", marker_write)
+        self.assertLess(ack_guard, marker_write)
+        self.assertLess(marker_write, marker_result)
+        self.assertNotIn("syncClient.ackEventCursor(roundId: package.roundId, serverSequence: result.serverSequence)", app_swift)
+        replay_persist = app_swift.index("try offlineStore.applyReplayEvents(replay.events.map(\\.event))")
+        replay_cursor = app_swift.index("latestCursor = replay.nextCursor")
+        replay_ack = app_swift.index("syncClient.ackEventCursor(roundId: roundId, serverSequence: latestCursor)")
+        self.assertLess(replay_persist, replay_cursor)
+        self.assertLess(replay_cursor, replay_ack)
+
+    def test_ios_replay_uses_full_identity_envelope_and_page_ack_gate(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
+        store_tests = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "OfflineStoreTests.swift")
+        app_model_tests = _read_required_source(
+            self,
+            IOS_DIR.parent / "AICaddieTests" / "LiveRoundAppModelTests.swift",
+        )
+
+        self.assertIn("private struct ReplayEventIdentity: Hashable", offline_store)
+        self.assertIn("clientId: event.clientId ?? \"\"", offline_store)
+        self.assertIn("public func applyReplayEvents(_ replayEvents: [LiveRoundEvent]) throws -> Bool", offline_store)
+        self.assertIn("guard existing == event else", offline_store)
+        self.assertIn("throw OfflineStoreError.replayIdentityEnvelopeMismatch", offline_store)
+
+        apply_page = app_swift.index("try offlineStore.applyReplayEvents(replay.events.map(\\.event))")
+        replay_cursor = app_swift.index("latestCursor = replay.nextCursor")
+        replay_ack = app_swift.index("syncClient.ackEventCursor(roundId: roundId, serverSequence: latestCursor)")
+        self.assertLess(apply_page, replay_cursor)
+        self.assertLess(replay_cursor, replay_ack)
+        self.assertNotIn("containsEvent(eventId: item.event.eventId)", app_swift)
+
+        self.assertIn("testApplyReplayEventsUsesFullIdentityAndRequiresEqualEnvelope", store_tests)
+        self.assertIn("testApplyReplayEventsThrowsWhenAnyPageEventFailsToPersist", store_tests)
+        self.assertIn("XCTAssertEqual(try store.loadEvents(), [phone, watch])", store_tests)
+        self.assertIn("XCTAssertThrowsError", store_tests)
+        self.assertIn("testLaterConflictWithinReplayPageDoesNotAcknowledgeThatPage", app_model_tests)
+        self.assertIn('XCTAssertFalse(paths.contains("/api/v2/mobile/rounds/', app_model_tests)
+        self.assertIn('/events/ack"))', app_model_tests)
+        self.assertIn('events.contains { $0.eventId == "durable-prefix" }', app_model_tests)
+
+    def test_ios_replay_repairs_torn_eof_and_reloads_before_ack_gate(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
+        store_tests = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "OfflineStoreTests.swift")
+
+        self.assertIn("case eventLogCorrupt", offline_store)
+        self.assertIn("private let eventLogLock = NSLock()", offline_store)
+        self.assertIn(
+            "try repairTornEventLogEOFIfNeededUnlocked(authority: authority)",
+            offline_store,
+        )
+        self.assertIn(
+            "let loaded = try loadEventsStrictlyForReplayUnlocked(authority: authority)",
+            offline_store,
+        )
+        strict_reload = offline_store.index(
+            "let durableEvents = try loadEventsStrictlyForReplayUnlocked("
+        )
+        strict_reload_end = offline_store.index(
+            ").events",
+            strict_reload,
+        )
+        self.assertIn("authority: authority", offline_store[strict_reload:strict_reload_end])
+        apply_return = offline_store.index("return appendedAny", strict_reload)
+        self.assertLess(strict_reload, apply_return)
+
+        apply_page = app_swift.index("try offlineStore.applyReplayEvents(replay.events.map(\\.event))")
+        replay_cursor = app_swift.index("latestCursor = replay.nextCursor")
+        replay_ack = app_swift.index("syncClient.ackEventCursor(roundId: roundId, serverSequence: latestCursor)")
+        self.assertLess(apply_page, replay_cursor)
+        self.assertLess(replay_cursor, replay_ack)
+
+        self.assertIn("testApplyReplayEventsRepairsTornEOFTailAndReloadsBeforeAckGate", store_tests)
+        self.assertIn("testApplyReplayEventsRejectsMalformedMiddleLineBeforePageCanAck", store_tests)
+        self.assertIn("testReplayFirstLogCreationRequiresFileAndDirectoryDurabilityBeforeSuccess", store_tests)
+        self.assertIn("testTornTailReplacementRequiresFileAndDirectoryDurabilityBeforeReplaySuccess", store_tests)
+        self.assertIn("XCTAssertEqual(try store.loadEvents(), [existing, replayed])", store_tests)
+        self.assertIn("import Darwin", offline_store)
+        self.assertIn("syncEventLogFile: @escaping (URL) throws -> Void", offline_store)
+        self.assertIn("syncEventLogDirectory: @escaping (URL) throws -> Void", offline_store)
+        self.assertIn("private func replaceEventLogDataAtomicallyUnlocked", offline_store)
+        self.assertIn("openat(authority.directoryDescriptor, path, flags, mode_t(0o600))", offline_store)
+        self.assertIn("renameat(", offline_store)
+        self.assertIn("try synchronizeDescriptor(temporary.descriptor)", offline_store)
+        self.assertIn("try syncEventLogFile(logURL)", offline_store)
+        self.assertIn("try syncEventLogDirectory(directoryURL)", offline_store)
+        self.assertGreaterEqual(
+            offline_store.count("try replaceEventLogDataAtomicallyUnlocked("),
+            3,
+        )
 
     def test_ios_sync_client_supports_server_event_replay_and_ack(self) -> None:
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
@@ -1617,7 +1957,7 @@ class MobileContractTests(unittest.TestCase):
             app_swift,
         )
 
-    def test_ios_lands_on_hub_with_choices_and_forces_light(self) -> None:
+    def test_ios_lands_on_hub_with_choices_and_keeps_dark_chrome_live_only(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
         offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
@@ -1625,7 +1965,10 @@ class MobileContractTests(unittest.TestCase):
 
         # No in-progress round → land on the Hub (choices) via a home package = the most-played
         # course's data, which does NOT mark an active round (liveRoundState stays nil → no 进行中).
-        self.assertIn("private func fetchHomePackage() async -> LiveRoundPackage?", app_swift)
+        self.assertIn(
+            "private func fetchHomePackage(preferredCourse: Course? = nil) async -> LiveRoundPackage?",
+            app_swift,
+        )
         self.assertIn("private func activateHomePackage(_ nextPackage: LiveRoundPackage, status: String) throws", app_swift)
         self.assertIn("courseOptions.max { $0.roundCount < $1.roundCount }", app_swift)
         self.assertIn("try activateHomePackage(home, status:", app_swift)
@@ -1635,8 +1978,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func inProgressRoundId() throws -> String?", offline_store)
         self.assertIn("func loadResumablePackage() throws -> LiveRoundPackage?", offline_store)
         self.assertIn("offlineStore.loadResumablePackage()", app_swift)
-        # Light-only visual identity — never renders white-on-white in the system's Dark Mode.
-        self.assertIn(".preferredColorScheme(.light)", app_swift)
+        # The approved product chrome stays light, except for the immersive live-hole instrument.
+        # The presentation root owns this switch so status-bar contrast follows navigation state.
+        self.assertIn("@State private var usesDarkLiveChrome = false", app_swift)
+        self.assertIn(".preferredColorScheme(usesDarkLiveChrome ? .dark : .light)", app_swift)
+        self.assertIn("onLiveAppearanceChanged:", app_swift)
         # round-9 E (首页精简): 本场逐洞网格移除;标题更清晰。
         # round-11: 球局调整(加打/结束本场)moved OUT of the Hub into the in-progress screen.
         self.assertNotIn("本场球洞", round_home)
@@ -1668,14 +2014,22 @@ class MobileContractTests(unittest.TestCase):
     def test_ios_hole_2d_map_wired(self) -> None:
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
         hole_map_view = _read_required_source(self, IOS_DIR / "Views" / "HoleImageMapView.swift")
+        hub_style = _read_required_source(self, IOS_DIR / "Views" / "HubReviewStyle.swift")
         course_review = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
+        shot_map_view = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
         # 2D hole map = server-rendered hole image + recommended route/club overlay; shared by
         # 实战 (CurrentHoleView) + 备战 (CourseReviewView). Per-hole source gid → composite back
         # nines fetch the right loop's geometry.
         self.assertIn("struct HoleImageMapView", hole_map_view)
-        self.assertIn("func fetchHolePrep(globalId: Int, localHole: Int) async throws -> CoursePrepHole?", sync_client)
-        self.assertIn("HoleImageMapView(hole: hole, topoURL: topoURL)", course_review)
+        self.assertIn(
+            "func fetchHolePrep(globalId: Int, localHole: Int, render: Bool = false) async throws -> CoursePrepHole?",
+            sync_client,
+        )
+        self.assertIn("HoleImageMapView(", course_review)
+        self.assertIn("hole: hole,", course_review)
+        self.assertIn("topoURL: topoURL,", course_review)
+        self.assertIn("showsPrepFactOverlays: true", course_review)
         self.assertIn("hole.sourceGlobalId ?? package.course.globalId", current_hole)
         self.assertIn("func loadHoleMap()", current_hole)
         # Play line is a smooth curve, not a polyline; landing marker + club label track the
@@ -1689,19 +2043,84 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("private var selectedClubMetres: Double?", current_hole)
         # Base layer = server-rendered realistic TOPO png (…/holes/{hole}/topo.png), fetched over the
         # SAME projection as the overlay so route/club markers align; degrades to the flat render when
-        # there's no gid/geometry OR the request fails / hasn't loaded (no-network CI snapshots).
+        # there's no gid/geometry or the request fails, and marks an in-flight image explicitly.
         topo_base = _read_required_source(self, IOS_DIR / "Views" / "TopoHoleBaseImage.swift")
         self.assertIn("struct TopoHoleBaseImage", topo_base)
-        self.assertIn("AsyncImage(url: topoURL)", topo_base)
+        self.assertIn("final class TopoHoleImageStore", topo_base)
+        self.assertIn("NSCache<NSURL, UIImage>", topo_base)
+        self.assertIn("cachePolicy: .returnCacheDataElseLoad", topo_base)
         self.assertIn("Image(uiImage: fallback)", topo_base)  # graceful fallback, never a blank box
         self.assertIn(
-            "static func topoImageURL(baseURL: URL, globalId: Int, localHole: Int) -> URL?",
+            "public static func topoImageURL(",
             sync_client,
         )
+        self.assertIn("geometryRevision: String? = nil", sync_client)
         self.assertIn("api/v2/courses/\\(globalId)/holes/\\(localHole)/topo.png", sync_client)
-        self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: image)", hole_map_view)
+        self.assertIn('public static let topoStyleVersion = "topo-v8"', sync_client)
+        self.assertIn('URLQueryItem(name: "v", value: topoStyleVersion)', sync_client)
+        self.assertIn("TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)", hole_map_view)
+        self.assertIn(
+            'hole.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame ? topoURL : nil',
+            hole_map_view,
+        )
+        self.assertIn("enum MapSurfaceStyle", hub_style)
+        self.assertIn("func mapSurface() -> some View", hub_style)
+        self.assertIn("map.mapSurface()", hole_map_view)
+        self.assertIn(".mapSurface()", shot_map_view)
         self.assertIn("topoURL: liveTopoURL", current_hole)
-        self.assertIn("SyncClient.topoImageURL(baseURL: caddieBaseURL", current_hole)
+        self.assertIn("baseURL: caddieBaseURL", current_hole)
+        self.assertIn("geometryRevision: geometryRevision", current_hole)
+        self.assertIn('"live-hole-map-partial"', current_hole)
+
+    def test_topo_style_version_invalidates_phone_watch_caches_and_transfers(self) -> None:
+        sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+        offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
+        bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
+        watch_backend = _read_required_source(self, WATCH_DIR / "Services" / "WatchBackendClient.swift")
+        watch_store = _read_required_source(self, WATCH_DIR / "Services" / "WatchHoleImageStore.swift")
+        watch_sync = _read_required_source(self, WATCH_DIR / "Services" / "WatchSyncClient.swift")
+
+        phone_version = re.search(r'public static let topoStyleVersion = "([^"]+)"', sync_client)
+        watch_version = re.search(r'public static let topoStyleVersion = "([^"]+)"', watch_backend)
+        self.assertIsNotNone(phone_version)
+        self.assertIsNotNone(watch_version)
+        assert phone_version is not None and watch_version is not None
+        self.assertEqual(phone_version.group(1), watch_version.group(1))
+        self.assertEqual(phone_version.group(1), "topo-v8")
+
+        phone_green_version = re.search(
+            r'public static let greenDetailStyleVersion = "([^"]+)"', sync_client
+        )
+        watch_green_version = re.search(
+            r'public static let greenDetailStyleVersion = "([^"]+)"', watch_backend
+        )
+        self.assertIsNotNone(phone_green_version)
+        self.assertIsNotNone(watch_green_version)
+        assert phone_green_version is not None and watch_green_version is not None
+        self.assertEqual(phone_green_version.group(1), watch_green_version.group(1))
+        self.assertEqual(phone_green_version.group(1), "green-v3")
+
+        self.assertIn("SyncClient.topoStyleVersion", offline_store)
+        self.assertIn('"styleVersion": SyncClient.topoStyleVersion', bridge)
+        self.assertIn('"assetStyleVersion": assetKind == "green-detail"', bridge)
+        self.assertIn("WatchBackendClient.topoStyleVersion", watch_store)
+        self.assertIn("WatchBackendClient.greenDetailStyleVersion", watch_store)
+        self.assertIn(
+            'meta["styleVersion"] as? String == WatchBackendClient.topoStyleVersion',
+            watch_sync,
+        )
+        self.assertIn("WatchBackendClient.greenDetailStyleVersion", watch_sync)
+
+    def test_ios_topo_map_distinguishes_loading_ready_and_failure(self) -> None:
+        topo_base = _read_required_source(self, IOS_DIR / "Views" / "TopoHoleBaseImage.swift")
+
+        self.assertIn('ProgressView("球场地图加载中…")', topo_base)
+        self.assertIn('.accessibilityIdentifier("topo-hole-base-loading")', topo_base)
+        self.assertIn('.accessibilityElement(children: .ignore)', topo_base)
+        self.assertIn('.accessibilityIdentifier("topo-hole-base-ready")', topo_base)
+        self.assertIn("imageStore.failedURL == topoURL", topo_base)
+        self.assertIn("if let image = imageStore.image", topo_base)
+        self.assertIn("fallbackImage", topo_base)
 
     def test_ios_club_naming_and_lie_filter(self) -> None:
         golf_club = _read_required_source(self, IOS_DIR / "Views" / "GolfClub.swift")
@@ -1746,9 +2165,16 @@ class MobileContractTests(unittest.TestCase):
             'stringPayload("lie", in: event.payload)',
             'numberPayload("latitude", in: event.payload)',
             'numberPayload("longitude", in: event.payload)',
-            'numberPayload("targetLatitude", in: event.payload)',
-            'numberPayload("targetLongitude", in: event.payload)',
-            'stringPayload("targetKind", in: event.payload)',
+        ]:
+            self.assertIn(payload_key, offline_store)
+        self.assertIn("applyTargetPayload(event.payload, to: &state)", offline_store)
+        for payload_key in [
+            'payload.keys.contains("targetLatitude")',
+            'payload.keys.contains("targetLongitude")',
+            'payload.keys.contains("targetKind")',
+            'case .number(let latitude) = payload["targetLatitude"]',
+            'case .number(let longitude) = payload["targetLongitude"]',
+            'case .string(let rawKind) = payload["targetKind"]',
         ]:
             self.assertIn(payload_key, offline_store)
         self.assertIn('optionalNumberPayload("distanceToPinM", in: event.payload)', offline_store)
@@ -1761,7 +2187,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("targetKind == other.targetKind", offline_store)
 
         self.assertIn("@Published public private(set) var liveRoundState: LiveRoundStateSnapshot?", app_swift)
-        self.assertIn("liveRoundState = try offlineStore.restoreLiveRoundState(roundId: nextPackage.roundId, package: nextPackage)", app_swift)
+        self.assertIn("let restored = try offlineStore.restoreLiveRoundState(roundId: nextPackage.roundId, package: nextPackage)", app_swift)
+        self.assertIn("liveRoundState = restored", app_swift)
         self.assertIn("liveRoundState = try offlineStore.restoreLiveRoundState(roundId: event.roundId, package: package)", app_swift)
         self.assertIn("liveRoundState: model.liveRoundState", app_swift)
 
@@ -1789,8 +2216,11 @@ class MobileContractTests(unittest.TestCase):
         # persisted only on explicit Save) — it reconciles them, preserving unsaved local edits.
         self.assertIn("restoredHoleState.reconciledSaveOnlyFields(", current_hole)
         self.assertIn("guard let latestFix else", current_hole)
-        self.assertIn("distanceToPinText = restoredHoleState.distanceToPinM.map(Self.yardsText(fromMetres:)) ?? \"\"", current_hole)
-        self.assertIn('payload["distanceToPinM"] = distanceToPinPayload()', current_hole)
+        self.assertIn("distanceToPinText = Self.validDistanceText(restoredHoleState.distanceToPinM)", current_hole)
+        # Distance remains a restorable club/shot-context fact.  The live view now builds that
+        # payload as a dictionary literal; end-of-hole score confirmation deliberately does not
+        # fabricate a location/shot event merely to persist this field.
+        self.assertIn('"distanceToPinM": distanceToPinPayload()', current_hole)
         self.assertIn("private func distanceToPinPayload() -> JSONValue", current_hole)
 
         self.assertIn("testRestoreLiveRoundStateReplaysScoringClubAndLocationEvents", offline_tests)
@@ -1820,21 +2250,82 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("CaddieDecisionClient(baseURL:", current_hole)
         self.assertIn("MediaUploadClient(baseURL:", current_hole)
 
-    def test_ios_prep_picks_course_before_review(self) -> None:
+    def test_ios_prep_searches_directly_before_review(self) -> None:
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
         prep_picker = _read_required_source(self, IOS_DIR / "Views" / "PrepCoursePickerView.swift")
+        course_search = _read_required_source(self, IOS_DIR / "Views" / "MobileCourseSearchView.swift")
 
-        # 备战先选球场(PrepCoursePickerView)再进赛前攻略,而不是锁死在当前球场。
+        # 备战支持明确的城市/名称搜索和附近球场；选择只加入下载库，完整后才进攻略。
         self.assertIn('title: "备战"', round_home)
-        self.assertIn("PrepCoursePickerView(courseOptions: courseOptions", round_home)
+        self.assertIn('subtitle: "搜索 · 球童试算"', round_home)
+        self.assertIn("PrepCoursePickerView(", round_home)
+        self.assertIn("downloadedCourseOptions: downloadedCourseOptions", round_home)
         self.assertIn("struct PrepCoursePickerView", prep_picker)
-        self.assertIn("courseVenueGroups(courseOptions)", prep_picker)
-        self.assertIn("CourseReviewView(client:", prep_picker)
-        self.assertIn("globalId: segment.globalId", prep_picker)
+        self.assertIn("MobileCourseSearchView(", prep_picker)
+        self.assertIn("mode: .nearbyAndName", prep_picker)
+        self.assertIn('title: "备战球场"', prep_picker)
+        self.assertIn("onNearby: nearbyCourses", prep_picker)
+        self.assertIn("dismissAfterSelection: false", prep_picker)
+        self.assertIn("if mode == .nearbyAndName", course_search)
+        self.assertIn("self.title = title ??", course_search)
+        self.assertIn('Text(activeSearch == .manual ? "正在搜索" : "搜索")', course_search)
+        self.assertNotIn("搜索 Garmin 全部球场", course_search)
+        # The model validates disk readiness once and publishes exact tee/nine keys. SwiftUI render
+        # passes must consume that in-memory set rather than decoding all templates for every row.
+        self.assertIn("installedGlobalIds: [],", prep_picker)
+        self.assertIn("installedCourseKeys: installedCourseKeys", prep_picker)
+        self.assertIn("public let downloadedCourseKeys: Set<String>", prep_picker)
+        self.assertIn("downloadedCourseKeys", prep_picker)
+        self.assertNotIn("downloadedCourseOptions.map(\\.globalId)", prep_picker)
+        self.assertNotIn("loadCourseTemplate(", prep_picker)
+        self.assertNotIn("hasCourseTopoImages", prep_picker)
+        self.assertIn("retainedDownloads: visibleDownloads", prep_picker)
+        self.assertIn("retainedDownloadKey: { match in", prep_picker)
+        self.assertIn("return downloadID(for: course)", prep_picker)
+        app_source = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        self.assertIn("replacingExisting:", app_source)
+        self.assertIn("deferTemplateReplacement", app_source)
+        self.assertIn("let replacementCompleted = await downloadOfflineCourseAssets", app_source)
+        self.assertIn("replacementMatchesRequiredRevisions", app_source)
+        self.assertIn("required.merge(fetchedRevisions)", app_source)
+        self.assertIn("检测到地图有新版本，正在更新。", app_source)
+        self.assertIn("本机地图文件不完整，正在重新下载。", app_source)
+        self.assertIn("两段 9 洞组合暂不支持备战下载", app_source)
+        self.assertIn("prepCourseDownloads.append(candidate)\n            persistPrepCourseDownloads()\n            refreshDownloadedCourseOptions()", app_source)
+        self.assertIn("isTerminalFailure", _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift"))
+        self.assertIn("!existing.isTerminalFailure", _read_required_source(self, IOS_DIR / "AICaddieApp.swift"))
+        self.assertIn("!prepCourseDownloads[index].isTerminalFailure", _read_required_source(self, IOS_DIR / "AICaddieApp.swift"))
+        self.assertIn("courseIsInstalled(for: match)", course_search)
+        self.assertIn("retainedDownloadKey?(match)", course_search)
+        self.assertIn("onDownload(course)", prep_picker)
+        self.assertIn("let wasReady = installedCourseKeys.contains(downloadID(for: course))", prep_picker)
+        self.assertIn("if wasReady", prep_picker)
+        self.assertIn("onNearby: nearbyCourses", prep_picker)
+        self.assertIn("requestAuthorization()", prep_picker)
+        self.assertIn("startUpdatingLocation()", prep_picker)
+        self.assertIn("stopUpdatingLocation()", prep_picker)
+        self.assertNotIn("discoverNearbyCourses", prep_picker)
+        self.assertIn(".navigationDestination(isPresented: selectedCoursePresented)", prep_picker)
+        self.assertIn("CourseReviewView(", prep_picker)
+        self.assertIn("client: SyncClient(baseURL: apiBaseURL, adminToken: adminToken)", prep_picker)
+        self.assertIn("globalId: course.globalId", prep_picker)
+        self.assertIn("holeCount: course.resolvedHoles", prep_picker)
+        self.assertIn("download: selectedDownload(for: course)", prep_picker)
+        # The queued record constructor owns the stable identity; matching its id avoids copying the
+        # key algorithm into the picker and keeps the first destination frame managed.
+        self.assertIn("let queued = queuedDownloadIntent(for: course)", prep_picker)
+        self.assertIn("$0.id == queued.id", prep_picker)
+        self.assertIn("phase: .queued", prep_picker)
+        # Search metadata has no tee/nine fields. The search row must therefore resolve through the
+        # parent picker before matching a durable row; a global-id-only lookup can open the wrong tee.
+        self.assertIn("private func retainedDownload(for match: MobileCourseSearchMatch)", course_search)
+        self.assertIn("return retainedDownloads.first { $0.id == key }", course_search)
+        self.assertNotIn("$0.course.globalId == match.globalId", course_search)
 
     def test_ios_course_review_product_copy_and_route_yardage_contract(self) -> None:
         course_review = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
         course_prep = _read_required_source(self, IOS_DIR / "Models" / "CoursePrep.swift")
+        caddie_plan = _read_required_source(self, IOS_DIR / "Views" / "CaddiePlanView.swift")
 
         self.assertIn("struct CoursePrepHazardIntervalReadout: Equatable", course_prep)
         self.assertIn("enum CoursePrepRoute", course_prep)
@@ -1843,14 +2334,46 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn('.navigationTitle("赛前球场攻略")', course_review)
         self.assertIn('Text("蓝T \\(hole.blueYards)y")', course_review)
+        # Prep is now an installed-package surface. Search selection stays in the durable download
+        # library, and this destination has no page-owned fetch/coverage/partial-map lifecycle.
+        self.assertNotIn("stride(from: 1, through: holeCount, by: 3)", course_review)
+        self.assertNotIn("fetchCoursePrep(", course_review)
+        self.assertNotIn("fetchCoursePackage(", course_review)
+        self.assertNotIn("fetchCourseGeometryCoverage", course_review)
+        self.assertIn("offlineStore.loadCourseTemplate(", course_review)
+        self.assertIn("nine: nine", course_review)
+        self.assertIn("template.hasCompleteOfflineCoursePrep", course_review)
+        self.assertIn("offlineStore.hasCourseTopoImages(for: template)", course_review)
+        self.assertIn("holes = merged.values.sorted { $0.hole < $1.hole }", course_review)
+        self.assertIn("if let hole = selectedHole", course_review)
+        self.assertIn("private var holeNavigator: some View", course_review)
+        self.assertIn('accessibilityIdentifier("prep-hole-menu")', course_review)
+        self.assertIn("showsPrepFactOverlays: true", course_review)
+        self.assertIn("if let download, download.phase != .ready", course_review)
+        self.assertIn('accessibilityIdentifier("prep-download-incomplete")', course_review)
+        self.assertIn('accessibilityIdentifier("prep-local-package-missing")', course_review)
+        self.assertIn("CourseReviewMapPolicy.hasPreciseFacts", course_review)
+        self.assertNotIn("requiresPreciseMap", course_review)
+        self.assertNotIn("简化地图 · 精确地图准备中", course_review)
+        self.assertNotIn("简化地图 · 精确地图暂不可用 · 重试", course_review)
+        self.assertIn("完整地图准备中，当前不会显示简化轮廓", course_review)
         # De-engineered: the "Par 来源：…" provenance label is hidden from the consumer course review.
         self.assertNotIn("Par 来源", course_review)
-        self.assertIn("CoursePrepRoute.intervalReadout", course_review)
-        self.assertIn("水障碍：进", course_review)
-        self.assertIn("沙坑：约", course_review)
-        self.assertIn("沙坑：已过", course_review)
-        self.assertIn("bunker[0] >= current", course_review)
-        self.assertNotIn("abs(bunker[0] - current)", course_review)
+        # Course review and the full caddie plan share one measured hazard projection.  On a
+        # drawable prep hole, water/bunker front/back facts live on the map rather than a list.
+        hole_map = _read_required_source(self, IOS_DIR / "Views" / "HoleImageMapView.swift")
+        self.assertIn("prepHazardAnnotations.prefix(2)", hole_map)
+        self.assertIn('Text("到 \\(toYards) · 过 \\(overYards)")', hole_map)
+        self.assertNotIn(
+            "including: zoomScale > 1.01 ? .all : .none",
+            hole_map,
+            "the fitted viewport must not disable its pinch/rotation subtree",
+        )
+        self.assertIn(".clipped()", hole_map)
+        self.assertNotIn("private var hazardsSection", course_review)
+        self.assertIn("measuredText(frontM: detail.frontM, backM: detail.backM)", caddie_plan)
+        self.assertIn('"到 \\(CoursePrepRoute.yards(fromMetres: frontM)) · 过 \\(CoursePrepRoute.yards(fromMetres: backM)) 码"', caddie_plan)
+        self.assertNotIn("离球路", course_review)
         self.assertNotIn('?? "?"', course_review)
 
     def test_ios_clients_attach_admin_token_header_when_configured(self) -> None:
@@ -1862,8 +2385,8 @@ class MobileContractTests(unittest.TestCase):
         media_client = _read_required_source(self, IOS_DIR / "Services" / "MediaUploadClient.swift")
 
         self.assertIn("AI_CADDIE_ADMIN_TOKEN", app_swift)
-        # Single-owner build: admin token baked at build time, read from Info.plist.
-        self.assertIn('Bundle.main.object(forInfoDictionaryKey: "AICaddieAdminToken")', app_swift)
+        # DEBUG/CI can inject an admin token, but Release has no Info.plist credential path.
+        self.assertNotIn('Bundle.main.object(forInfoDictionaryKey: "AICaddieAdminToken")', app_swift)
         self.assertIn("@Published public private(set) var adminToken: String?", app_swift)
         self.assertIn("adminToken: model.adminToken", app_swift)
         self.assertIn("SyncClient(baseURL: $0, adminToken: resolvedAdminToken)", app_swift)
@@ -1906,12 +2429,20 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("SecItemAdd", backend_store)
         self.assertIn("SecItemCopyMatching", backend_store)
         self.assertIn("SecItemDelete", backend_store)
-        self.assertIn('components.scheme?.lowercased() == "https"', backend_store)
+        self.assertIn('let scheme = components.scheme?.lowercased()', backend_store)
+        self.assertIn('scheme == "https" || isFixtureLoopback', backend_store)
+        self.assertIn('components.port == 9000', backend_store)
+        self.assertIn('allowFixtureLoopback: Bool = false', backend_store)
+        self.assertIn('let markerPresent = environment["AI_CADDIE_FIXTURE_MODE"] != nil', app_swift)
+        self.assertIn('persistedValue = nil', app_swift)
+        self.assertIn('bundleValue = nil', app_swift)
+        self.assertIn('resolveAPIBaseURL(environment:', app_swift)
         self.assertIn("components.user == nil", backend_store)
         self.assertIn("components.password == nil", backend_store)
         self.assertIn("components.query == nil", backend_store)
         self.assertIn("components.fragment == nil", backend_store)
-        self.assertIn("components.percentEncodedPath.isEmpty || components.percentEncodedPath == \"/\"", backend_store)
+        self.assertIn('let rawPath = components.percentEncodedPath', backend_store)
+        self.assertIn('rawPath.isEmpty || rawPath == "/"', backend_store)
         self.assertNotIn("admin-token\".", backend_store)
 
         self.assertIn("public struct BackendSettingsView: View", backend_view)
@@ -1930,9 +2461,9 @@ class MobileContractTests(unittest.TestCase):
             self.assertNotIn('systemImage: "server.rack"', source)
 
         self.assertIn("runtime Backend screen", readme)
-        self.assertIn("admin token is saved in Keychain", readme)
-        self.assertIn("without another", readme)
-        self.assertIn("TestFlight upload", readme)
+        self.assertIn("DEBUG/CI aid", readme)
+        self.assertIn("TestFlight/Release builds never embed the owner admin token", readme)
+        self.assertIn("Sign in with Apple", readme)
 
     def test_ios_app_activates_watch_bridge_for_live_round(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
@@ -1950,7 +2481,7 @@ class MobileContractTests(unittest.TestCase):
         # round-12 P3.4: phone hands the watch its backend config for standalone sync.
         self.assertIn("watchBridge?.sendConfigToWatch", app_swift)
         self.assertIn("try await self.acceptWatchEvent(event)", app_swift)
-        self.assertIn("private func acceptWatchEvent(_ event: LiveRoundEvent) throws", app_swift)
+        self.assertIn("private func acceptWatchEvent(_ event: LiveRoundEvent) async throws", app_swift)
         self.assertIn("try offlineStore.appendEvent(event)", app_swift)
         self.assertIn('syncStatus = "手表已记录"', app_swift)
         self.assertIn("watchBridge: model.watchBridge", app_swift)
@@ -2011,12 +2542,14 @@ class MobileContractTests(unittest.TestCase):
 
     def test_current_hole_view_emits_canonical_scoring_payload_keys(self) -> None:
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        score_confirmation = _read_required_source(self, IOS_DIR / "Models" / "LiveScoreConfirmation.swift")
 
-        self.assertIn('kind: .putt, timestamp: timestamp, payload: ["putts":', current_hole)
-        self.assertIn('kind: .penalty, timestamp: timestamp, payload: ["penalties":', current_hole)
-        self.assertIn('kind: .note, timestamp: timestamp, payload: ["note":', current_hole)
-        self.assertNotIn('payload: ["count":', current_hole)
-        self.assertNotIn('payload: ["text":', current_hole)
+        self.assertIn("LiveScoreSubmission.events(", current_hole)
+        self.assertIn('"putts": .number(Double(draft.putts))', score_confirmation)
+        self.assertIn('"penalties": .number(Double(draft.penalty))', score_confirmation)
+        self.assertIn('"note": .string(trimmedNote)', score_confirmation)
+        self.assertNotIn('payload: ["count":', score_confirmation)
+        self.assertNotIn('payload: ["text":', score_confirmation)
 
     def test_ios_media_capture_and_upload_surfaces(self) -> None:
         upload_client = _read_required_source(self, IOS_DIR / "Services" / "MediaUploadClient.swift")
@@ -2057,7 +2590,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("maxPhotoBytes", media_view)
         self.assertIn("maxVideoBytes", media_view)
         self.assertIn("preferredMIMEType", media_view)
-        self.assertIn("upload retry pending", media_view)
+        self.assertIn("MediaCaptureCopy.savedOffline(kind: mediaKind)", media_view)
+        self.assertIn("已离线保存，待联网后上传", media_view)
         self.assertIn("makePhotoEvent", media_view)
         self.assertIn("makeVideoEvent", media_view)
         self.assertIn("MediaCaptureView", current_hole)
@@ -2082,8 +2616,16 @@ class MobileContractTests(unittest.TestCase):
         # P2: loadPendingMedia skips a torn final line (non-atomic append) instead of throwing and
         # dropping ALL pending media — the same truncation guard as loadEvents.
         self.assertIn("Skipping malformed pending-media line", offline_store)
-        self.assertIn("func attachUploadedMediaId(eventId: String, mediaId: String)", offline_store)
-        self.assertIn('payload["mediaId"] = .string(mediaId)', offline_store)
+        # Event envelopes are immutable once queued. Real local URLs stay solely in the pending
+        # attachment store; a later upload must not rewrite the event under the same idempotency key.
+        self.assertNotIn("attachUploadedMediaId", offline_store)
+        self.assertIn("REDACTED_LOCAL_MEDIA_URL", offline_store)
+        self.assertIn("transportEvent", offline_store)
+        self.assertIn(
+            "try loadEventsUnlocked(strict: true, authority: authority)",
+            offline_store,
+        )
+        self.assertNotIn("try? loadEventsUnlocked(strict: false)", offline_store)
         self.assertIn("func removePendingMedia", offline_store)
         self.assertIn("data.write(to: fileURL, options: [.atomic])", offline_store)
 
@@ -2102,7 +2644,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("Data(contentsOf: media.fileURL)", app_swift)
         self.assertIn("let uploadResponse = try await mediaUploadClient.uploadMediaWithRetry(request)", app_swift)
         self.assertIn("try? await mediaUploadClient.analyzeMedia(mediaId: uploadResponse.media.id)", app_swift)
-        self.assertIn("try offlineStore.attachUploadedMediaId(eventId: media.eventId, mediaId: uploadResponse.media.id)", app_swift)
+        self.assertNotIn("attachUploadedMediaId", app_swift)
         self.assertIn("offlineStore.removePendingMedia", app_swift)
         self.assertIn("continue", app_swift)
         self.assertIn("inferredMimeType(fileName: media.fileName, mediaKind: media.mediaKind)", app_swift)
@@ -2112,6 +2654,66 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("offlineStore: offlineStore", round_home)
         self.assertIn("offlineStore: OfflineStore? = nil", current_hole)
         self.assertIn("offlineStore: offlineStore", current_hole)
+
+    def test_mobile_privacy_sanitizer_has_one_factory_and_shared_cross_language_golden(self) -> None:
+        event_store = _read_required_source(self, Path("ai_caddie/caddie/mobile_event_store.py"))
+        mobile_live = _read_required_source(self, Path("ai_caddie/caddie/mobile_live.py"))
+        reconciliation = _read_required_source(
+            self,
+            Path("ai_caddie/caddie/mobile_reconciliation.py"),
+        )
+        store_tests = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "OfflineStoreTests.swift")
+        canonical_fixture = Path(
+            "contracts/canonical/fixtures/mobile_event_sanitizer_golden.json"
+        )
+        swift_fixture = (
+            IOS_DIR.parent
+            / "AICaddieTests"
+            / "Fixtures"
+            / "mobile_event_sanitizer_golden.json"
+        )
+
+        self.assertTrue(canonical_fixture.exists())
+        self.assertTrue(swift_fixture.exists())
+        canonical_bytes = canonical_fixture.read_bytes()
+        self.assertEqual(swift_fixture.read_bytes(), canonical_bytes)
+        self.assertEqual(
+            hashlib.sha256(canonical_bytes).hexdigest(),
+            "123cba00d8ead0ab2388f508bc9119eba4ba888755b087924839f57947e8aa37",
+        )
+        corpus = json.loads(canonical_bytes)
+        self.assertEqual(corpus["schema"], "ai-caddie-mobile-event-sanitizer-golden-v1")
+        self.assertGreaterEqual(len(corpus["cases"]), 4)
+        self.assertIn("def open_mobile_event_store", event_store)
+        self.assertIn("sanitizer=sanitize_mobile_event", event_store)
+        self.assertNotIn("FileEventStore(", mobile_live)
+        self.assertNotIn("FileEventStore(", reconciliation)
+        self.assertIn("open_mobile_event_store(", mobile_live)
+        self.assertIn("open_mobile_event_store(", reconciliation)
+        direct_constructors: list[str] = []
+        store_module = Path("ai_caddie/caddie/mobile_event_store.py")
+        for root in (Path("ai_caddie"), Path("server_v2")):
+            for path in root.rglob("*.py"):
+                if path == store_module:
+                    continue
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    called_name = (
+                        node.func.id
+                        if isinstance(node.func, ast.Name)
+                        else node.func.attr
+                        if isinstance(node.func, ast.Attribute)
+                        else ""
+                    )
+                    if called_name == "FileEventStore":
+                        direct_constructors.append(f"{path}:{node.lineno}")
+        self.assertEqual(direct_constructors, [])
+        self.assertIn("mobile_event_sanitizer_golden", store_tests)
+        self.assertIn("Bundle.module", store_tests)
+        self.assertIn("Bundle(for: OfflineStoreTests.self)", store_tests)
+        self.assertIn("testPrivacySanitizerMatchesSharedCrossLanguageGoldenCorpus", store_tests)
 
     def test_ios_garmin_session_connector_surface_imports_session_material_without_passwords(self) -> None:
         session_client = _read_required_source(self, IOS_DIR / "Services" / "GarminSessionClient.swift")
@@ -2168,7 +2770,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("password", web_capture.lower())
         self.assertNotIn("username", web_capture.lower())
 
-        self.assertIn("GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken, sessionStore: sessionStore)", round_home)
+        self.assertIn("GarminSessionView(", round_home)
+        self.assertIn("sessionStore: sessionStore", round_home)
+        self.assertIn("onSessionImported: onGarminSessionImported", round_home)
         self.assertIn('Label("Garmin 账号"', round_home)
 
     def test_ios_garmin_session_material_can_be_stored_in_keychain(self) -> None:
@@ -2214,7 +2818,9 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("public let sessionStore: GarminSessionStore?", round_home)
         self.assertIn("sessionStore: GarminSessionStore? = GarminSessionStore()", round_home)
-        self.assertIn("GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken, sessionStore: sessionStore)", round_home)
+        self.assertIn("GarminSessionView(", round_home)
+        self.assertIn("sessionStore: sessionStore", round_home)
+        self.assertIn("onSessionImported: onGarminSessionImported", round_home)
         self.assertIn("public let garminSessionStore: GarminSessionStore?", app_swift)
         self.assertIn("garminSessionStore: GarminSessionStore? = GarminSessionStore()", app_swift)
         self.assertIn("sessionStore: model.garminSessionStore", app_swift)
@@ -2241,8 +2847,11 @@ class MobileContractTests(unittest.TestCase):
             "missingData",
         ]:
             self.assertIn(field, client)
-        self.assertIn('payload["sequences"] = .array(sequences.map { .object($0) })', client)
-        self.assertIn('payload["selectedSequence"] = .object(selectedSequence)', client)
+        self.assertIn("var isOfflineFallback: Bool", client)
+        self.assertIn('"offline_package_seed"', client)
+        self.assertIn('"ai-caddie-decision-audit-snapshot-v1"', client)
+        self.assertNotIn('payload["sequences"] =', client)
+        self.assertNotIn('payload["selectedSequence"] =', client)
 
     def test_ios_offline_caddie_decision_evaluator_builds_auditable_fallback(self) -> None:
         evaluator = _read_required_source(self, IOS_DIR / "Services" / "OfflineCaddieDecisionEvaluator.swift")
@@ -2284,7 +2893,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("sampleRefs: [String]? = nil", package_model)
         self.assertIn("missingData: [[String: JSONValue]]? = nil", package_model)
 
-    def test_ios_club_events_capture_decision_and_actual_shot_for_audit(self) -> None:
+    def test_ios_club_event_builder_supports_audit_without_hole_score_fabricating_a_shot(self) -> None:
         client = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionClient.swift")
         builder = _read_required_source(self, IOS_DIR / "Services" / "LiveRoundEventBuilder.swift")
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
@@ -2308,22 +2917,18 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('payload["distanceToPinM"] = jsonNumberOrNull(distanceToPinM)', builder)
         self.assertIn('payload["offlineOptionId"] = jsonStringOrNull(offlineOptionId)', builder)
         self.assertIn('payload["decisionId"] = .string(decisionId)', builder)
+        self.assertIn("if decision.isOfflineFallback", builder)
         self.assertIn('payload["decision"] = .object(decision.auditPayload)', builder)
         self.assertIn('payload["actualShot"] = .object(actualShot)', builder)
 
-        self.assertIn("private func clubEventPayload() -> [String: JSONValue]", current_hole)
-        self.assertIn("private func actualShotPayload() -> [String: JSONValue]", current_hole)
         self.assertIn("caddieDecision", current_hole)
         self.assertIn('"shotType": .string(selectedShotType)', current_hole)
         self.assertIn('"strategyMode": .string(selectedStrategyMode)', current_hole)
         self.assertIn('"lie": .string(selectedLie)', current_hole)
-        self.assertIn('payload["distanceToPinM"] = distanceToPinPayload()', current_hole)
-        self.assertIn('payload["offlineOptionId"] = .string(selectedOfflineOptionId)', current_hole)
-        self.assertIn('payload["decisionId"] = .string(decisionId)', current_hole)
-        self.assertIn('payload["decision"] = .object(decision.auditPayload)', current_hole)
-        self.assertIn('payload["actualShot"] = .object(actualShotPayload())', current_hole)
-        self.assertIn("if caddieDecision == nil", current_hole)
-        self.assertIn("emit(kind: .club, timestamp: timestamp, payload: clubEventPayload())", current_hole)
+        self.assertIn('"distanceToPinM": distanceToPinPayload()', current_hole)
+        self.assertIn("LiveScoreSubmission.events(", current_hole)
+        self.assertNotIn("private func actualShotPayload()", current_hole)
+        self.assertNotIn('payload["actualShot"] = .object(actualShotPayload())', current_hole)
 
     def test_ios_caddie_request_builder_uses_offline_context_seed_and_live_inputs(self) -> None:
         builder = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionRequestBuilder.swift")
@@ -2445,6 +3050,7 @@ class MobileContractTests(unittest.TestCase):
             "case .penalty:",
             "case .club:",
             "case .distance:",
+            "case .location:",
             "kind: .score",
             "kind: .putt",
             "kind: .penalty",
@@ -2479,6 +3085,7 @@ class MobileContractTests(unittest.TestCase):
         current_hole = (IOS_DIR / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8")
         caddie_plan = (IOS_DIR / "Views" / "CaddiePlanView.swift").read_text(encoding="utf-8")
         location_provider = _read_required_source(self, IOS_DIR / "Services" / "LocationProvider.swift")
+        event_builder = _read_required_source(self, IOS_DIR / "Services" / "LiveRoundEventBuilder.swift")
 
         self.assertIn("struct RoundHomeView: View", round_home)
         self.assertIn("public let onEvent", round_home)
@@ -2487,14 +3094,15 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("PackageReadinessSection", round_home)
         self.assertIn("CurrentHoleView(", round_home)
         self.assertIn("liveRoundState: liveRoundState,", round_home)
-        self.assertIn("RecentRoundReviewView(package: package, apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
-        self.assertIn('title: "历史复盘"', round_home)
+        self.assertIn("ResultsView(apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
+        self.assertIn('title: "成绩"', round_home)
         self.assertIn("struct RecentRoundReviewView: View", recent_review)
         self.assertIn("package.recentHistory.rounds", recent_review)
         self.assertIn("round.toPar", recent_review)
         self.assertIn("aiCaddieShortDate(round.date)", recent_review)  # clean date, not raw ISO
         self.assertIn("package.recentHistory.course", recent_review)
-        self.assertIn("package.recentHistory.holes", recent_review)
+        self.assertNotIn("package.recentHistory.holes", recent_review)
+        self.assertNotIn('Text("球洞规律")', recent_review)
         # 单场复盘: tap a recent round → fetch /history/rounds/{ref} → hole-by-hole scorecard.
         # Fixes "复盘点进去没数据": the round detail renders the scorecard + graceful missing-data.
         round_review = _read_required_source(self, IOS_DIR / "Views" / "RoundReviewView.swift")
@@ -2508,7 +3116,19 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("fetchRoundDetail(roundRef:", round_review)
         self.assertIn("detail.scorecard", round_review)
         self.assertIn("detail.missingData", round_review)  # graceful, never blank
-        self.assertIn("RoundReviewView(roundRef: round.roundId", recent_review)
+        self.assertIn("func scorecardGrid(", round_review)
+        self.assertIn("func scorecardNine(", round_review)
+        self.assertIn("Grid(horizontalSpacing: 0", round_review)
+        self.assertIn("func scoreToken(", round_review)
+        self.assertIn("func metricGrid(", round_review)
+        self.assertIn("func phaseMetrics(", round_review)
+        self.assertNotIn('HubSectionLabel("各环节")', round_review)
+        self.assertNotIn("func scorecardCard(", round_review)
+        self.assertIn("NavigationLink {", recent_review)
+        self.assertIn("RoundReviewView(", recent_review)
+        self.assertIn("roundRef: round.roundId", recent_review)
+        self.assertNotIn("value: HubRoute.roundReview(", recent_review)
+        self.assertNotIn("onOpenRound", recent_review)
         # 复盘逐洞落点图: tap a scorecard hole → that hole's 2D map with this round's actual shots.
         shot_map_view = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
         shot_map_model = _read_required_source(self, IOS_DIR / "Models" / "RoundShotMap.swift")
@@ -2516,6 +3136,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct RoundShot", shot_map_model)
         self.assertIn("func fetchRoundShotMap(roundRef: String, hole: Int) async throws -> RoundHoleShotMap", sync_client)
         self.assertIn("/holes/\\(hole)/shotmap", sync_client)
+        self.assertIn('URLQueryItem(name: "includeImage", value: "false")', sync_client)
         self.assertIn("struct RoundShotMapView", shot_map_view)
         self.assertIn("struct RoundHoleShotMapScreen", shot_map_view)
         self.assertIn("onSelectHole(hole.hole)", round_review)
@@ -2523,26 +3144,65 @@ class MobileContractTests(unittest.TestCase):
         # projected onto (front/back-nine aware); degrades to the flat render with no network / no geo.
         self.assertIn("let globalId: Int?", shot_map_model)
         self.assertIn("let localHole: Int?", shot_map_model)
-        self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: image)", shot_map_view)
-        self.assertIn("RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))", shot_map_view)
-        self.assertIn("SyncClient.topoImageURL(baseURL: apiBaseURL, globalId: gid, localHole: local)", shot_map_view)
-        # round-9 B: color legend + 横滑翻洞 (TabView .page over the round's holes) + unknown lie → 「—」.
+        # Real GPS shots remain visible when a topo bitmap is unavailable. CourseData/mapless states
+        # use fact-only editing, while only the precise editor can move pixels or request a topo URL.
+        self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)", shot_map_view)
+        self.assertIn("editModel.canEditPositions", shot_map_view)
+        self.assertIn("RoundShotFactEditContent(editModel: editModel)", shot_map_view)
+        round_edit_model = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
+        self.assertNotIn("map.map?.image != nil", round_edit_model)
+        self.assertIn("shotMap.usesCourseDataFrame", shot_map_view)
+        self.assertIn("bottomControlClearance: showsNavigationTitle ? 0 : 58", shot_map_view)
+        self.assertIn("geometryRevision: shotMap.geometryRevision", shot_map_view)
+        # Map-first review: one visible hole + compact navigation, zoomable map, and every passive
+        # shot fact attached to its landing. Lists remain only in the edit/reorder surface.
         self.assertIn("struct RoundShotMapPagerScreen", shot_map_view)
-        self.assertIn("struct RoundShotMapLegend", shot_map_view)
         self.assertIn("func shotLieColor(", shot_map_view)
         self.assertIn("func shotLieLabel(", shot_map_view)
-        self.assertIn(".tabViewStyle(.page", shot_map_view)
+        self.assertIn("reviewFactOverlays(overlay: overlay)", shot_map_view)
+        self.assertIn('text: "推杆 ×\\(puttCount)"', shot_map_view)
+        self.assertIn('Text("罚杆 +\\(shotMap.manualPenalty)")', shot_map_view)
+        self.assertIn("with: .color(.white.opacity", shot_map_view)
+        self.assertIn("reviewFactPlacements(in: proxy.size, overlay: overlay)", shot_map_view)
+        self.assertIn("let spacing: CGFloat = 28", shot_map_view)
+        self.assertNotIn('facts.append("→\\(lie)")', shot_map_view)
+        self.assertNotIn("shotLegendOverlay", shot_map_view)
         self.assertIn("RoundShotMapPagerScreen(", round_review)
-        # 数据统计(历史宏观,与复盘分开): consume the compact /history/stats/mobile endpoint.
+        self.assertIn("MagnificationGesture()", shot_map_view)
+        self.assertIn("displayedScale > 1.01 ? .all : .none", shot_map_view)
+        self.assertIn('.accessibilityIdentifier("round-map-layer")', shot_map_view)
+        self.assertIn('identifier: "round-map-fit"', shot_map_view)
+        self.assertIn('identifier: "round-map-zoom"', shot_map_view)
+        self.assertIn("showsShotFacts.toggle()", shot_map_view)
+        self.assertIn("private func toggleZoom()", shot_map_view)
+        self.assertNotIn('Image(systemName: "plus.magnifyingglass")', shot_map_view)
+
+        self.assertIn("final class RoundShotMapRepository", shot_map_view)
+        self.assertIn("await mapRepository.prefetch(holes", shot_map_view)
+        # The pager owns progressive all-hole warming. The summary hands it the shared repository
+        # rather than duplicating requests before the player opens a map.
+        self.assertIn("mapRepository: shotMapRepository", round_review)
+        self.assertIn("scorecard.filter { $0.score != nil }", round_review)
+        # 成绩合并入口: compact stats + complete archive, then drill into existing round review.
         stats_view = _read_required_source(self, IOS_DIR / "Views" / "StatsView.swift")
+        results_view = _read_required_source(self, IOS_DIR / "Views" / "ResultsView.swift")
         mobile_stats_model = _read_required_source(self, IOS_DIR / "Models" / "MobileStats.swift")
         self.assertIn("struct MobileStats", mobile_stats_model)
-        self.assertIn("func fetchMobileStats() async throws -> MobileStats", sync_client)
+        self.assertIn(
+            'func fetchMobileStats(window: String = "all") async throws -> MobileStats',
+            sync_client,
+        )
         self.assertIn("/api/v2/history/stats/mobile", sync_client)
         self.assertIn("struct StatsView: View", stats_view)
-        self.assertIn("fetchMobileStats()", stats_view)
-        self.assertIn('title: "数据统计"', round_home)
-        self.assertIn("StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
+        self.assertIn(
+            '.fetchMobileStats(window: mode == .analysis ? window : "all")',
+            stats_view,
+        )
+        self.assertIn('resultFeatureDestination("表现分析"', results_view)
+        self.assertIn(
+            "StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken, mode: .analysis)",
+            results_view,
+        )
         # round-9 D: trend line chart + per-course drill-in (各九洞); 得分构成 dropped, byPar filtered 3-5.
         self.assertIn("struct StatsTrend", mobile_stats_model)
         self.assertIn("nineBreakdown", mobile_stats_model)
@@ -2625,47 +3285,76 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("CaddieDecisionRequestBuilder", current_hole)
         self.assertIn("caddieContextSeed", current_hole)
         self.assertIn("makeCaddieDecisionRequest", current_hole)
-        self.assertIn("distanceToPinM: distanceToPinMetres", current_hole)
+        self.assertIn("distanceToPinM: effectiveDistanceToPinMetres", current_hole)
+        self.assertIn("LiveCaddieDistance.resolve", current_hole)
         self.assertIn("lie: selectedLie", current_hole)
-        self.assertIn("coordinate: currentCoordinate", current_hole)
-        self.assertIn("targetCoordinate: targetCoordinate", current_hole)
-        self.assertIn('targetKind: targetCoordinate == nil ? nil : "pin"', current_hole)
+        self.assertIn("coordinate: liveCoordinateForCurrentHole", current_hole)
+        self.assertIn("targetCoordinate: $targetCoordinate", current_hole)
+        self.assertIn("targetPixel: $targetPixel", current_hole)
+        self.assertIn("targetKind: wireTargetKind", current_hole)
         self.assertIn("@State private var caddieDecision: CaddieDecisionResponse?", current_hole)
         self.assertIn("isLoadingCaddieDecision", current_hole)
         self.assertIn("caddieErrorMessage", current_hole)
         self.assertIn("@State private var selectedStrategyMode: String = \"stock\"", current_hole)
-        self.assertIn("private var strategyModeOptions: [String]", current_hole)
-        self.assertIn('Picker("策略"', current_hole)
+        self.assertNotIn('Picker("策略"', current_hole)
+        self.assertIn("onSelectStrategyMode: { selectedStrategyMode = $0 }", current_hole)
         self.assertIn("strategyMode: selectedStrategyMode", current_hole)
         self.assertIn("CaddieDecisionClient", current_hole)
         self.assertIn("WatchEventBridge", current_hole)
         self.assertIn("await loadCaddieDecision()", current_hole)
         self.assertIn("fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)", current_hole)
-        self.assertIn("CaddiePlanView(response: caddieDecision, hazards: caddiePlanHazards)", current_hole)
-        self.assertIn("CaddiePlanView(seed: caddieContextSeed, hazards: caddiePlanHazards)", current_hole)
+        self.assertIn("response: caddieDecision", current_hole)
+        self.assertIn("seed: caddieContextSeed", current_hole)
         # Live package no longer embeds all-hole coursePrep (fast start); hazards come from the
         # per-hole prep fetched on demand alongside the 2D map.
-        self.assertIn("CaddiePlanHazard.from(holePrep.hazards)", current_hole)
+        self.assertIn("CaddiePlanHazard.from(", current_hole)
+        self.assertIn("route: holePrep.resolvedMapOverlay?.route", current_hole)
         self.assertIn("selectedOfflineOption", current_hole)
         self.assertIn("sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)", current_hole)
+        green_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveGreenDetailView.swift")
+        live_map_detail = _read_required_source(self, IOS_DIR / "Views" / "LivePlayMapDetailView.swift")
+        shot_edit = _read_required_source(self, IOS_DIR / "Views" / "RoundShotEditComponents.swift")
+        self.assertIn("LiveGreenDetailView", green_detail)
+        self.assertIn('live-green-zoom-in', green_detail)
+        self.assertIn('live-green-zoom-out', green_detail)
+        self.assertIn('live-green-flag-magnifier', green_detail)
+        self.assertIn("LivePlayMapDetailView", live_map_detail)
+        self.assertIn('live-map-zoom-in', live_map_detail)
+        self.assertIn('live-map-zoom-out', live_map_detail)
+        self.assertIn("targetDragLocation", live_map_detail)
+        self.assertIn("LiveMapTargetMagnifierLoupe", live_map_detail)
+        self.assertIn('live-map-target-magnifier', live_map_detail)
+        self.assertIn("RoundShotPrecisionEditor", shot_edit)
+        self.assertIn('round-shot-precision-zoom-in', shot_edit)
+        self.assertIn('round-shot-precision-zoom-out', shot_edit)
+        self.assertIn('round-shot-precision-open', shot_edit)
+        self.assertIn('round-shot-drag-magnifier', shot_edit)
+        self.assertIn('round-shot-precision-magnifier', shot_edit)
         self.assertIn("watchBridge?.sendStateToWatch", current_hole)
-        self.assertIn("kind: .location", current_hole)
-        self.assertIn('"latitude"', current_hole)
-        self.assertIn('"longitude"', current_hole)
-        self.assertIn('"horizontalAccuracyM"', current_hole)
-        self.assertIn('locationPayload["targetLatitude"] = .number(targetCoordinate.latitude)', current_hole)
-        self.assertIn('locationPayload["targetLongitude"] = .number(targetCoordinate.longitude)', current_hole)
-        self.assertIn('"targetPosition"', current_hole)
+        # Location is an actual-shot fact built independently from end-of-hole score confirmation.
+        # Keeping this contract on the event builder prevents the score-save view from having to
+        # fabricate one GPS/club event at the green just to satisfy a source-string audit.
+        self.assertIn("func makeLocationEvent(", event_builder)
+        self.assertIn("kind: .location", event_builder)
+        self.assertIn('"latitude"', event_builder)
+        self.assertIn('"longitude"', event_builder)
+        self.assertIn('"horizontalAccuracyM"', event_builder)
+        self.assertIn('payload["targetLatitude"] = .number(targetCoordinate.latitude)', event_builder)
+        self.assertIn('payload["targetLongitude"] = .number(targetCoordinate.longitude)', event_builder)
+        self.assertIn("LiveScoreSubmission.events(", current_hole)
         self.assertIn("struct CaddiePlanView: View", caddie_plan)
         # 球童方案: 备选打法对比表 + 避开区(course_prep hazards 区间)。
         self.assertIn("public struct CaddiePlanHazard", caddie_plan)
-        self.assertIn("static func from(_ hazards: CoursePrepHazards)", caddie_plan)
+        self.assertIn("public static func from(", caddie_plan)
+        self.assertIn("route: [[Double]]? = nil", caddie_plan)
         self.assertIn("备选打法", caddie_plan)
         self.assertIn("避开区", caddie_plan)
         self.assertIn("struct CaddiePlanSequence: Identifiable, Equatable", caddie_plan)
         self.assertIn("struct CaddiePlanSequenceStep: Identifiable, Equatable", caddie_plan)
-        self.assertIn("init(response: CaddieDecisionResponse, hazards:", caddie_plan)
-        self.assertIn("init(seed: CaddieContextSeed?, hazards:", caddie_plan)
+        self.assertIn("response: CaddieDecisionResponse,", caddie_plan)
+        self.assertIn("seed: CaddieContextSeed?,", caddie_plan)
+        self.assertIn("func caddieStrategyMode(forRouteId", caddie_plan)
+        self.assertIn('accessibilityIdentifier("caddie-strategy-', caddie_plan)
         self.assertIn("options(from response", caddie_plan)
         self.assertIn("options(from seed", caddie_plan)
         self.assertIn("sequences(from response", caddie_plan)
@@ -2675,6 +3364,8 @@ class MobileContractTests(unittest.TestCase):
         # round-11: 整洞序列为主 — three 打法 each rendered as a 开球→攻果岭 club chain (selected on top).
         self.assertIn("private var sequenceCards", caddie_plan)
         self.assertIn("orderedSequences", caddie_plan)
+        self.assertIn("private var orderedOptions", caddie_plan)
+        self.assertIn("ForEach(orderedOptions)", caddie_plan)
         self.assertIn("\\(zhCaddieRouteLabel(sequence.id))打法", caddie_plan)
         self.assertIn("sequence.steps", caddie_plan)
         self.assertIn('number(row["expectedRemaining_m"])', caddie_plan)
@@ -2684,14 +3375,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("sampleSize", caddie_plan)
         self.assertIn("confidence", caddie_plan)
         self.assertIn("coverageText", caddie_plan)
-        self.assertIn("expectedStrokes", caddie_plan)
+        self.assertIn("expectedStrokes", caddie_plan)  # retained as non-player-facing provenance
         self.assertIn("expectedStrokesDelta", caddie_plan)
         self.assertIn("scoreImpactModel", caddie_plan)
         self.assertIn("scoreImpactText", caddie_plan)
         self.assertIn('scoreImpactValue(option["scoreImpact"], key: "expectedStrokes")', caddie_plan)
         self.assertIn("scoreImpactSourceRefs", caddie_plan)
-        self.assertIn('String(format: "期望 %.2f 杆"', caddie_plan)
-        self.assertIn('String(format: "%+.2f 杆"', caddie_plan)
+        self.assertIn("never present them as player-facing expected strokes", caddie_plan)
         self.assertIn("sourceRefs", caddie_plan)
         self.assertIn("sourceRefsText", caddie_plan)
         self.assertIn("missingDataLabels", caddie_plan)
@@ -2705,6 +3395,77 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func startUpdatingLocation", location_provider)
         self.assertIn("didUpdateLocations", location_provider)
         self.assertIn("horizontalAccuracyM", location_provider)
+
+    def test_ios_round_review_runtime_capture_uses_stable_navigation_identifiers(self) -> None:
+        resolver = _read_required_source(
+            self, Path("mobile") / "ios" / "AICaddieUITests" / "RealEvidenceRoundResolver.swift"
+        )
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        recent_review = _read_required_source(self, IOS_DIR / "Views" / "RecentRoundReviewView.swift")
+        round_review = _read_required_source(self, IOS_DIR / "Views" / "RoundReviewView.swift")
+        shot_map = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
+        real_flow = _read_required_source(
+            self, Path("mobile") / "ios" / "AICaddieUITests" / "RealFlowUITests.swift"
+        )
+        review_edit = _read_required_source(
+            self, Path("mobile") / "ios" / "AICaddieUITests" / "ReviewEditUITests.swift"
+        )
+
+        self.assertIn('.accessibilityIdentifier("home-last-round")', round_home)
+        self.assertIn('.accessibilityIdentifier("history-round-row")', recent_review)
+        self.assertIn('.accessibilityIdentifier("round-review-hole-\\(hole.hole)")', round_review)
+        self.assertIn("value: HubRoute.roundReview(", round_home)
+        self.assertIn("NavigationLink {", recent_review)
+        self.assertIn("RoundReviewView(", recent_review)
+        self.assertNotIn("value: HubRoute.roundReview(", recent_review)
+        self.assertNotIn("onOpenRound", recent_review)
+        self.assertIn(".navigationBarTitleDisplayMode(.inline)", recent_review)
+        self.assertIn(".toolbarRole(.editor)", recent_review)
+        self.assertNotIn(".navigationBarBackButtonDisplayMode", recent_review)
+        self.assertIn(".navigationBarTitleDisplayMode(.inline)", round_review)
+        self.assertNotIn(".navigationBarBackButtonDisplayMode", round_review)
+        self.assertIn('isLocked ? "第 \\(current) 洞 · 编辑中" : "第 \\(current) 洞 · 落点"', shot_map)
+        self.assertIn('Label("上一洞", systemImage: "chevron.backward")', shot_map)
+        self.assertIn('Label("下一洞", systemImage: "chevron.forward")', shot_map)
+        for ui_test in [real_flow, review_edit]:
+            self.assertIn("RealEvidenceRoundResolver(", ui_test)
+            self.assertIn("resolveReviewEvidence()", ui_test)
+            self.assertIn("reviewEvidence.hole", ui_test)
+            self.assertIn('app.navigationBars["单场复盘"]', ui_test)
+            self.assertIn('app.buttons["round-review-hole-\\(reviewEvidence.hole)"]', ui_test)
+            self.assertIn('app.buttons["关闭"]', ui_test)
+            self.assertNotIn('identifier CONTAINS "落点"', ui_test)
+            self.assertIn('matching(identifier: "topo-hole-base-ready")', ui_test)
+        self.assertIn("struct RealEvidenceRoundRejection", resolver)
+        self.assertIn("let holeText = hole.map(String.init) ?? \"-\"", resolver)
+        self.assertIn('return "roundRef=\\(roundRef) hole=\\(holeText) reason=\\(reason)"', resolver)
+        self.assertIn("private(set) var rejections", resolver)
+        self.assertIn("shot-map budget exhausted (24)", resolver)
+        self.assertIn("missing geometry/image", resolver)
+        self.assertIn("non-synthetic club-labelled landings", resolver)
+        self.assertIn("not spatially separated", resolver)
+        self.assertIn('app.buttons["Reorder 2"]', real_flow)
+        self.assertIn('identifier: "shot-draft-row-\\(reviewEvidence.shotCount)"', review_edit)
+        self.assertIn('identifier: allowWrites ? "round-edit-save" : "round-edit-cancel"', review_edit)
+        self.assertIn('matching(identifier: "home-last-round")', real_flow)
+        self.assertIn('save("03-history-list")', real_flow)
+        self.assertIn('save("03b-history-real-round")', real_flow)
+        # The modal pager's close action remains explicit. Hole editing exposes distinct Cancel/Save
+        # identifiers rather than overloading another ambiguous "完成" action.
+        self.assertIn('ToolbarItem(placement: .topBarLeading)', shot_map)
+        self.assertIn('Button("关闭", action: onClose)', shot_map)
+        self.assertNotIn('Button("完成") { shotMapHole = nil }', round_review)
+        self.assertIn('accessibilityIdentifier("round-edit-cancel")', shot_map)
+        self.assertIn('accessibilityIdentifier("round-edit-save")', shot_map)
+        # The broad journey exits the whole-hole draft through the real Cancel control. The focused
+        # journey owns add/move/delete/reorder and proves the removed per-shot add sheet stays gone.
+        self.assertIn('identifier: "round-edit-cancel"', real_flow)
+        self.assertIn('app.navigationBars["补一杆"].exists', real_flow)
+        self.assertIn("let reorderStart = lastReorder.coordinate(", review_edit)
+        self.assertIn("let reorderDestination = upperDraftRow.coordinate(", review_edit)
+        self.assertIn("reorderStart.press(", review_edit)
+        self.assertIn("thenDragTo: reorderDestination", review_edit)
+        self.assertNotIn('app.staticTexts["击球时球位"]', real_flow)
 
     def test_native_visual_tokens_share_garmin_pro_score_semantics(self) -> None:
         ios_tokens = _read_required_source(self, IOS_DIR / "Design" / "AICaddieDesignTokens.swift")
@@ -2755,7 +3516,6 @@ class MobileContractTests(unittest.TestCase):
             "decisionId",
             "nextShotPrompt",
             "holePlanSummary",
-            "expectedStrokes",
             "expectedRemainingM",
             "frontGreenM",
             "centerGreenM",
@@ -2784,8 +3544,6 @@ class MobileContractTests(unittest.TestCase):
         for field in [
             "frontGreenM", "centerGreenM", "backGreenM", "playsLikeDistanceM",
             "elevationDeltaM", "lastShotDistanceM", "distanceFromLastShotM",
-            # watch P2 green slope (putt-read break): magnitude % + break bearing (topo frame).
-            "greenSlopePct", "greenSlopeDirDeg",
             # watch P0.2: green F/M/B WGS84 coords (watch recomputes distance from its own GPS)
             "frontGreenLat", "frontGreenLon", "centerGreenLat", "centerGreenLon",
             "backGreenLat", "backGreenLon",
@@ -2833,45 +3591,90 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("holeMap: holeMap", state_swift)   # applying() rebuild passthrough
         self.assertIn("globalId: globalId", state_swift)
         # phone builder: pre-computes anchors from the centreline route, defaulted nil at the call boundary.
-        self.assertIn("static func makeHoleMap(overlay: CoursePrepOverlay", bridge)
+        self.assertIn("public static func makeHoleMap(", bridge)
+        self.assertIn("overlay: CoursePrepOverlay,", bridge)
+        self.assertIn("greenOutline: [[Double]]? = nil", bridge)
         self.assertIn("func interpRoute(", bridge)
         self.assertIn("holeMap: WatchHoleMap? = nil", bridge)
         self.assertIn("globalId: Int? = nil", bridge)
         # phone: CurrentHoleView computes holeMap + relays the topo bitmap to the watch.
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
-        self.assertIn("WatchEventBridge.makeHoleMap(overlay:", current_hole)
+        self.assertIn("WatchEventBridge.makeHoleMap(", current_hole)
+        self.assertIn("greenOutline: holePrep?.greenOutline?.available == true", current_hole)
         self.assertIn("func pushTopoToWatch(", current_hole)
         self.assertIn("watchBridge.pushHoleImage(", current_hole)
-        # watch: geometry builder + the .holeMap screen wired into the container + reachable from home.
+        # watch: geometry builder + permanent current-hole map root. `.holeMap` remains only as a
+        # backward-compatible state alias; there is no second user-visible "open map" page/button.
         geometry = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapGeometry.swift")
-        self.assertIn("static func from(holeMap:", geometry)
+        self.assertIn("public static func from(", geometry)
+        self.assertIn("holeMap: WatchHoleMap?,", geometry)
         container = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundContainerView.swift")
+        self.assertIn("case .home:", container)
         self.assertIn("case .holeMap:", container)
         self.assertIn("WatchHoleMapView(", container)
+        self.assertIn("currentHoleRoot(state)", container)
+        self.assertIn("WatchHoleRootPresentation.resolve(", container)
+        self.assertIn("case .map:", container)
+        self.assertIn("holeMapView(s, geometry)", container)
+        self.assertIn("onOpenMapDetail:", container)
         self.assertIn("model.openHoleMap()", container)
         model = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundModel.swift")
         self.assertIn("case holeMap", model)
         self.assertIn("func openHoleMap()", model)
-        home = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundHomeView.swift")
-        self.assertIn("hasHoleMap", home)
-        self.assertIn("onHoleMap", home)
         # watch P1f: no-geometry big-distance fallback (WatchDistanceHero) + 大字 toggle (spec D1).
         hero = _read_required_source(self, WATCH_DIR / "Views" / "WatchDistanceHero.swift")
         self.assertIn("struct WatchDistanceHero", hero)
         self.assertIn("bigText", hero)
         self.assertIn("WatchDistanceHero(", container)
         self.assertIn("holeMapBigText", container)     # 大字 toggle state
-        self.assertIn("func hasHoleView(", container)  # entry gated on geometry OR a green distance
+        self.assertIn("hasLiveCenterDistance:", container) # root degrades map → distances → score honestly
         self.assertIn(".onTapGesture", container)      # hero tap ↔ map
-        # watch P2 map interactions: 选点测距(tap→distance)+ 拖旗(drag flag)+ 大字(long-press).
+        # Garmin-style map interactions are separated: root tap opens focused Touch Target; flag
+        # movement exists only in explicit Green Preview, persists through its dedicated placement
+        # callback, and never masquerades as a saved shot event.
         map_view = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapView.swift")
-        self.assertIn("measuredPxOverride", map_view)   # 选点测距 state (+ snapshot override)
-        self.assertIn("pinDragOverride", map_view)      # 拖旗 state (+ snapshot override)
-        self.assertIn("SpatialTapGesture", map_view)    # tap → measure
-        self.assertIn("pinDragGesture", map_view)       # drag → move flag
-        self.assertIn("onLongPressGesture", map_view)   # long-press → 大字
-        self.assertIn("func yards(toImagePx", map_view) # derived px→码, no extra payload
-        self.assertIn("onToggleBigText", container)     # map long-press bubbles 大字 up
+        green_view = _read_required_source(self, WATCH_DIR / "Views" / "WatchGreenPreviewView.swift")
+        self.assertIn("measuredPxOverride", map_view)
+        self.assertIn("case touchTarget", map_view)
+        self.assertIn("SpatialTapGesture", map_view)
+        self.assertIn("touchTargetDragGesture", map_view)
+        self.assertIn("WatchTouchTargetMagnifierLoupe", map_view)
+        self.assertIn("WatchTouchTargetMagnifierLayout.position", map_view)
+        self.assertIn('watch-touch-target-magnifier', map_view)
+        self.assertNotIn("pinDragOverride", map_view)
+        self.assertIn("selectedPin", green_view)
+        self.assertIn("onPlacementChange", green_view)
+        self.assertIn("persistPlacement", green_view)
+        # Green View flag placement keeps a S70-style local loupe over the held finger while the
+        # source point remains in the shared image frame.
+        self.assertIn("flagDragLocation", green_view)
+        self.assertIn("WatchGreenFlagMagnifierLoupe", green_view)
+        self.assertIn("WatchGreenMagnifierLayout.position", green_view)
+        self.assertIn('watch-green-flag-magnifier', green_view)
+        self.assertNotIn("onLongPressGesture", map_view)
+        self.assertIn(".onLongPressGesture(minimumDuration: 0.6) { model.openMenu() }", container)
+        self.assertIn("let yardsPerPixel", map_view) # derived px→码, no extra payload
+        self.assertIn(".onTapGesture { holeMapBigText.toggle() }", container)
+
+    def test_watch_unknown_tee_does_not_fabricate_blue(self) -> None:
+        course_model = _read_required_source(
+            self,
+            WATCH_DIR / "Models" / "WatchCourseDownload.swift",
+        )
+        start_view = _read_required_source(self, WATCH_DIR / "Views" / "WatchStartView.swift")
+        setup_view = _read_required_source(
+            self,
+            WATCH_DIR / "Views" / "WatchRoundSetupView.swift",
+        )
+
+        preferred_tee = course_model.split("public var preferredTee: String {", 1)[1].split(
+            "public func withTees(",
+            1,
+        )[0]
+        self.assertIn('?? "unknown"', preferred_tee)
+        self.assertNotIn('?? "Blue"', preferred_tee)
+        self.assertIn('? "球场默认 T"', start_view)
+        self.assertIn('return "unknown"', setup_view)
 
     def test_watch_native_gps_wiring(self) -> None:
         # watch P3: the watch's OWN GPS recomputes you-px + green distances from the wrist (less phone
@@ -2909,13 +3712,18 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("playsLike", prep_model)
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
         self.assertIn("frontGreenM:", current_hole)
-        self.assertIn("geometryCoverage: hole.geometryCoverage.rawValue", current_hole)
+        self.assertIn(
+            "geometryCoverage: holePrep?.geometryCoverage ?? hole.geometryCoverage.rawValue",
+            current_hole,
+        )
         # iPhone live screen (L3): the distance header renders the 前/中/后果岭 triad + 坡度.
         live_components = _read_required_source(self, IOS_DIR / "Views" / "LiveHoleComponents.swift")
         for label in ["前果岭", "中果岭", "后果岭"]:
             self.assertIn(label, live_components)
         self.assertIn("greenCenterYards", live_components)
-        self.assertIn("greenCenterYards:", current_hole)  # CurrentHoleView feeds the header
+        # F/M/B now sits directly on the map instead of feeding the legacy green header.
+        self.assertIn("LiveMapGreenDistanceOverlay(", current_hole)
+        self.assertIn("middleYards:", current_hole)
 
     def test_live_gps_rangefinder_to_green(self) -> None:
         # round-13 B1: the phone recomputes its LIVE distance to the green Front/Middle/Back from its
@@ -2933,7 +3741,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("liveGreenYards", current_hole)
         self.assertIn("GeoDistance.yards(", current_hole)
         self.assertIn("locationProvider.latestFix", current_hole)
-        self.assertIn("isGreenLive: isGreenRangeLive", current_hole)
+        self.assertIn("isLive: isGreenRangeLive", current_hole)
         # The live value is preferred but ALWAYS falls back to the static prep distance (never blank).
         self.assertIn("?? greenYards(liveGreenDistances?.frontM)", current_hole)
         # A subtle 实时 (live) indicator distinguishes live GPS distances from the static prep values.
@@ -2955,11 +3763,12 @@ class MobileContractTests(unittest.TestCase):
         container = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundContainerView.swift")
         for token in ["case .scorecard", "case .holeSelect", "case .menu", "WatchScorecardView", "WatchHoleSelectView", "WatchMenuView"]:
             self.assertIn(token, container)
-        # round-13 spec ①: the 18-hole edge ring on HOME (hugs the rounded-rect screen edge).
+        # Owner decision: the 18-hole edge ring appears only on the main fairway map, never Home.
         ring = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleRingView.swift")
         self.assertIn("struct WatchHoleRingView", ring)
         self.assertIn("struct WatchRingPip", ring)
-        self.assertIn("ringPips", _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundHomeView.swift"))
+        self.assertNotIn("ringPips", _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundHomeView.swift"))
+        self.assertIn("ringPips", _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapView.swift"))
         self.assertIn("WatchRingPip(", container)  # container feeds pips from allHoleStates
 
     def test_watch_state_includes_next_shot_prompt_from_phone_bridge(self) -> None:
@@ -2971,12 +3780,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("nextShotPrompt: nextShotPrompt(selected: selected, offlineOption: offlineSelected)", bridge)
         self.assertIn("private func nextShotPrompt(selected: [String: JSONValue]?, offlineOption: OfflineCaddieOption?) -> String?", bridge)
         self.assertIn("public let holePlanSummary: String?", bridge)
-        self.assertIn("public let expectedStrokes: Double?", bridge)
         self.assertIn("public let expectedRemainingM: Double?", bridge)
         self.assertIn("let selectedSequence = selectedSequence(from: decision)", bridge)
         self.assertIn("holePlanSummary: sequenceSummary(from: selectedSequence)", bridge)
-        self.assertIn('expectedStrokes: number(selectedSequence?["expectedStrokes"])', bridge)
         self.assertIn('expectedRemainingM: number(selectedSequence?["expectedRemaining_m"])', bridge)
+        self.assertIn("public func makeWatchCaddieOptions", bridge)
+        self.assertIn("public let plan: [WatchCaddiePlanStep]?", bridge)
         self.assertIn("private func selectedSequence(from decision: CaddieDecisionResponse?) -> [String: JSONValue]?", bridge)
         self.assertIn("decision.selectedSequence", bridge)
         self.assertIn("decision.sequences?.first", bridge)
@@ -2991,14 +3800,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("nextShotPrompt: String? = nil", state_swift)
         self.assertIn("nextShotPrompt: nextShotPrompt", state_swift)
         self.assertIn("public let holePlanSummary: String?", state_swift)
-        self.assertIn("public let expectedStrokes: Double?", state_swift)
         self.assertIn("public let expectedRemainingM: Double?", state_swift)
         self.assertIn("holePlanSummary: String? = nil", state_swift)
-        self.assertIn("expectedStrokes: Double? = nil", state_swift)
         self.assertIn("expectedRemainingM: Double? = nil", state_swift)
         self.assertIn("holePlanSummary: holePlanSummary", state_swift)
-        self.assertIn("expectedStrokes: expectedStrokes", state_swift)
         self.assertIn("expectedRemainingM: expectedRemainingM", state_swift)
+        self.assertIn("public let plan: [WatchCaddiePlanStep]?", state_swift)
         self.assertIn("if let nextShotPrompt = state.nextShotPrompt", glance_view)
         self.assertIn('Image(systemName: "figure.golf")', glance_view)
         self.assertIn("if let holePlanSummary = state.holePlanSummary", glance_view)
@@ -3182,17 +3989,21 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("@StateObject private var syncClient", watch_app)
         self.assertIn("WatchSyncClient", watch_app)
         self.assertIn("syncClient.currentState", watch_app)
-        self.assertIn("queuedEventCount: syncClient.queuedEventCount", watch_app)
-        self.assertIn("phoneReachable: syncClient.phoneReachable", watch_app)
-        self.assertIn("lastPhoneAcceptedAt: syncClient.lastPhoneAcceptedAt", watch_app)
-        self.assertIn("WatchHoleView", watch_app)
-        self.assertIn("clubs: state.availableClubNames", watch_app)
+        self.assertIn("roundModel.receivePhoneState(state)", watch_app)
+        # A stale persisted single-hole state may enrich a matching real round, but it must never
+        # become a second root UI after Finish/Abandon. That legacy glance had no lifecycle escape and
+        # was one of the round-resurrection paths seen after an update install.
+        self.assertNotIn("queuedEventCount: syncClient.queuedEventCount", watch_app)
+        self.assertNotIn("WatchHoleView(", watch_app)
+        self.assertNotIn("clubs: state.availableClubNames", watch_app)
         self.assertNotIn("defaultClubs", watch_app)
-        self.assertIn("sendQuickInputEvent", watch_app)
         # round-12 P3.3: standalone round entry alongside the companion glance.
         self.assertIn("WatchRoundModel", watch_app)
         self.assertIn("WatchRoundContainerView", watch_app)
-        self.assertIn("startPracticeRound", watch_app)
+        # The production start screen now requires a real course selection; the old
+        # practice-round callback was removed when the offline course library landed.
+        self.assertIn("onStartCourse", watch_app)
+        self.assertIn("courseLibrary.startCourse", watch_app)
         self.assertIn("WatchStartView", watch_app)
         self.assertIn("struct WatchHoleView: View", hole_view)
         self.assertIn("public let queuedEventCount: Int", hole_view)
@@ -3232,6 +4043,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("待选旗位", glance_view)
         self.assertIn("mappin.and.ellipse", glance_view)
 
+    def test_round_shot_map_pager_identity_initializer_order(self) -> None:
+        source = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
+        pager_call = source.split("RoundHoleShotMapScreen(", 1)[1].split("        )\n        .id", 1)[0]
+        self.assertLess(pager_call.index("showsNavigationTitle:"), pager_call.index("globalId:"))
+        for field in ("roundRef:", "globalId:", "backGlobalId:", "nine:", "teeBox:", "mapRepository:"):
+            self.assertIn(field, pager_call)
+
 
 class RoundEditContractTests(unittest.TestCase):
     """复盘编辑 iOS 接线不被后续删:稳定 shotId/罚杆模型 + op 载荷 + POST + 编辑控件都在源码里。"""
@@ -3244,7 +4062,7 @@ class RoundEditContractTests(unittest.TestCase):
 
     def test_correction_op_payload_covers_all_ops(self):
         op = _read_required_source(self, IOS_DIR / "Models" / "RoundCorrection.swift")
-        for token in ["addShot", "reorderShot", "editField", "setHolePenalty", "deleteShot", "position", "insertAfterShotId"]:
+        for token in ["replaceHoleShots", "replaceHoleFacts", "RoundShotFact", "shots", "manualPenalty", "geometryRevision", "clientMutationId"]:
             self.assertIn(token, op)
 
     def test_sync_client_posts_corrections(self):
@@ -3252,18 +4070,19 @@ class RoundEditContractTests(unittest.TestCase):
         self.assertIn("postRoundCorrection", sync)
         self.assertIn("/corrections", sync)
 
-    def test_edit_engine_is_optimistic(self):
+    def test_edit_engine_is_a_whole_hole_draft(self):
         engine = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
-        for token in ["addShot", "move", "editClub", "editLie", "delete", "reorder", "setPenalty", "isEditing"]:
+        for token in ["addShot", "move", "editClub", "editLie", "delete", "reorder", "setPenalty", "cancelEdit", "save()", "replaceHoleShots", "replaceHoleFacts", "canEditPositions"]:
             self.assertIn(token, engine)
+        self.assertNotIn("private func post(", engine)
 
     def test_edit_ui_controls_present(self):
         comps = _read_required_source(self, IOS_DIR / "Views" / "RoundShotEditComponents.swift")
-        for token in ["RoundShotEditLayer", "ShotEditSheet", "AddShotSheet", "PenaltyStepper", "本洞罚杆"]:
+        for token in ["RoundShotEditLayer", "ShotEditSheet", "LongPressGesture", "RoundShotReorderList", "PenaltyStepper", "本洞罚杆"]:
             self.assertIn(token, comps)
         screen = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
-        self.assertIn("RoundEditModel", screen)
-        self.assertIn("编辑", screen)
+        for token in ["RoundEditModel", "编辑", "取消", "保存", "saveEditing"]:
+            self.assertIn(token, screen)
 
     def test_drag_to_move_and_magnifier_present(self):
         """PR2 拖动改位置 + 放大镜:手柄拖动手势 + 拖动态 + loupe 都在源码里。"""
@@ -3271,7 +4090,7 @@ class RoundEditContractTests(unittest.TestCase):
         for token in ["DragGesture", "draggingShotId", "MagnifierLoupe", "previewMove"]:
             self.assertIn(token, comps)
         model = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
-        # Live drag preview updates locally without a POST (commit happens on release via move()).
+        # Live drag preview and finger-up both remain local; the screen-level Save owns persistence.
         self.assertIn("previewMove", model)
 
     def test_landing_list_manual_reorder_present(self):

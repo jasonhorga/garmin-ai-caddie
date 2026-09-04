@@ -176,3 +176,24 @@ class ManualBagRobustnessTests(unittest.TestCase):
             self.assertIsNone(by["wood7"]["distanceSource"])
             self.assertEqual(by["iron7"]["distanceM"], 128)
             self.assertEqual(by["iron7"]["distanceSource"], "default")
+
+    def test_synced_garmin_bag_exposes_nonzero_advice_distance(self) -> None:
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            data_dir = Path(tmp) / "data"
+            data_dir.mkdir()
+            (data_dir / "club_bag.json").write_text(json.dumps({
+                "clubs": [{
+                    "id": 1,
+                    "clubTypeId": 2,
+                    "averageDistance": 181,
+                    "adviceDistance": 188,
+                    "retired": False,
+                    "deleted": False,
+                }]
+            }))
+
+            club = build_effective_club_bag_response("me")["clubs"][0]
+
+        self.assertEqual(club["token"], "wood3")
+        self.assertEqual(club["distanceM"], 188)
+        self.assertEqual(club["distanceSource"], "garmin_advice")

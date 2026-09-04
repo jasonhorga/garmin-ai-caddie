@@ -333,7 +333,7 @@ export function BagPage({ measuredClubs, adminToken, isOwner = true, selfPlayerI
         {/* —— gapping ladder —— */}
         <section className="panel bagx-panel bagx-ladder" aria-label="距离阶梯">
           <h2 className="statsx-h">
-            距离阶梯<small>你的飞行距离(码)· 浅色条 = 你实际打出的范围</small>
+            距离阶梯 Gapping<small>你的 carry(码)· 浅条 = 实测 P10–P90 散布</small>
           </h2>
           <div className="bagx-axis" aria-hidden="true">
             {ticks.map((t, i) => (
@@ -395,11 +395,11 @@ export function BagPage({ measuredClubs, adminToken, isOwner = true, selfPlayerI
               </h2>
               <DistanceBand club={selected} />
               <div className="bagx-kv">
-                <span className="bagx-k">常用距离</span>
+                <span className="bagx-k">Carry P50</span>
                 <span className="bagx-v">{selected.carryYd != null ? `${selected.carryYd} 码` : '数据不足'}</span>
               </div>
               <div className="bagx-kv">
-                <span className="bagx-k">打出范围</span>
+                <span className="bagx-k">散布 P10–P90</span>
                 <span className="bagx-v">{bandText(selected.measured) ?? '数据不足'}</span>
               </div>
               <div className="bagx-kv">
@@ -458,15 +458,15 @@ export function BagPage({ measuredClubs, adminToken, isOwner = true, selfPlayerI
         {/* —— full editable table —— */}
         <section className="panel bagx-panel bagx-table-wrap" aria-label="全部球杆">
           <h2 className="statsx-h">
-            全部球杆<small>与手机 App 同一份球杆档案 · 只显示你真实有的杆</small>
+            全部球杆<small>与 iOS 同一份 club profile · 只显示你真实有的杆</small>
           </h2>
           <div className="bagx-table-scroll">
             <table className="statsx-table bagx-table">
               <thead>
                 <tr>
                   <th>球杆</th>
-                  <th className="statsx-num">常用距离</th>
-                  <th className="statsx-num">打出范围</th>
+                  <th className="statsx-num">Carry P50</th>
+                  <th className="statsx-num">P10–P90</th>
                   <th className="statsx-num">样本</th>
                   <th>来源</th>
                   <th aria-label="操作" />
@@ -512,7 +512,7 @@ function BagHeader({
   return (
     <div className="bagx-toolbar">
       <p className="bagx-crumb">
-        {clubCount > 0 ? `${clubCount} 支 · ` : ''}你的实测距离 · 与手机 App 同一份球杆档案
+        {clubCount > 0 ? `${clubCount} 支 · ` : ''}你的实测距离 · 与 iOS 同一份 club profile
       </p>
       <div className="bagx-actions">
         <button type="button" className="prep-topbtn" onClick={onRecompute} disabled={disabled}>

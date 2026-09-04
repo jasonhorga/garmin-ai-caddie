@@ -14,8 +14,8 @@ from ai_caddie.reports.reports import (
     build_trend_report_facts,
     generate_deterministic_report,
     generate_report,
+    iter_report_records,
     latest_report_record,
-    list_report_records,
     redact_private_text,
     report_source_refs,
     store_report,
@@ -137,7 +137,7 @@ def load_report_index_response(*, player_id: str = OWNER_ID) -> ReviewReportInde
     # Owner (OWNER_ID) → the flat store, byte-identical.
     items = [
         _report_index_item(record, sequence)
-        for sequence, record in enumerate(list_report_records(root=REPORT_ROOT, player_id=player_id))
+        for sequence, record in enumerate(iter_report_records(root=REPORT_ROOT, player_id=player_id))
         if isinstance(record, dict)
     ]
     items.sort(key=lambda item: (str(item.get("storedAt") or ""), int(item.get("sequence") or 0)), reverse=True)

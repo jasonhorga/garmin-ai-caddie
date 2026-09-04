@@ -17,7 +17,11 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
-from ai_caddie.caddie.decision import latest_decision_record, list_decision_audits
+from ai_caddie.caddie.decision import (
+    latest_decision_record,
+    list_decision_audits,
+    store_decision_audit,
+)
 from ai_caddie.caddie.decision_api import build_decision_request_from_fixture
 from ai_caddie.core.config import get_settings
 from ai_caddie.llm.llm_providers import StaticProvider
@@ -115,6 +119,27 @@ class MemberEvidenceWriteIsolationTests(unittest.TestCase):
         self.assertEqual(len(list_decision_audits(root=self.root, player_id=self.a_id)), 1)
         self.assertEqual(list_decision_audits(root=self.root, player_id=OWNER_ID), [])
         self.assertEqual(list_decision_audits(root=self.root, player_id=self.b_id), [])
+
+        member_record = audit.json()["record"]
+        store_decision_audit(
+            member_record["audit"],
+            decision_id=decision_id,
+            root=self.root,
+            player_id=OWNER_ID,
+        )
+        latest = self.client.get(
+            f"/api/v2/caddie/decisions/{decision_id}/audit/latest",
+            headers=self.a_auth,
+        )
+        self.assertEqual(latest.status_code, 200, latest.text)
+        self.assertEqual(latest.json()["record"]["id"], member_record["id"])
+
+        other_member = self.client.get(
+            f"/api/v2/caddie/decisions/{decision_id}/audit/latest",
+            headers=self.b_auth,
+        )
+        self.assertEqual(other_member.status_code, 200, other_member.text)
+        self.assertIsNone(other_member.json()["record"])
 
     def test_member_audit_cannot_read_owner_decision(self) -> None:
         # The owner stores a decision; a member auditing the SAME decision_id (no decision body)
@@ -243,6 +268,8 @@ class MemberEvidenceWriteGateTests(unittest.TestCase):
         for method, url, body in cases:
             resp = self.client.post(url, json=body) if body is not None else self.client.post(url)
             self.assertEqual(resp.status_code, 401, f"{url} should 401 anonymously, got {resp.status_code}")
+        latest = self.client.get("/api/v2/caddie/decisions/d1/audit/latest")
+        self.assertEqual(latest.status_code, 401, latest.text)
         weather = self.client.get("/api/v2/weather/snapshot?persist=true&round_id=r&hole=7")
         self.assertEqual(weather.status_code, 401, weather.text)
 

@@ -251,6 +251,10 @@ class ServerV2ReadinessTests(unittest.TestCase):
                 patch("server_v2.readiness.EXTERNAL_RELEASE_EVIDENCE", missing_external_evidence),
                 patch("server_v2.readiness.SMOKE_EVIDENCE", missing_smoke_evidence),
                 patch("server_v2.readiness.BACKUP_MANIFEST", missing_backup_manifest),
+                patch(
+                    "ai_caddie.connectors.snapshot.validate_private_snapshot_acceptance",
+                    side_effect=AssertionError("readiness must consume accepted evidence, not rescan private data"),
+                ),
             ):
                 response = client.get("/api/v2/readiness")
 
@@ -292,7 +296,10 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertFalse(checks["roadmap_completion"]["evidence"]["completionReady"])
         self.assertEqual(checks["private_snapshot_acceptance"]["state"], "degraded")
         self.assertEqual(checks["private_snapshot_acceptance"]["evidence"]["state"], "blocked")
-        self.assertIn("snapshot_manifest", checks["private_snapshot_acceptance"]["evidence"]["failureLabels"])
+        self.assertEqual(
+            checks["private_snapshot_acceptance"]["evidence"]["failureLabels"],
+            ["accepted_snapshot_evidence"],
+        )
         self.assertEqual(checks["native_mobile"]["evidence"]["nativeBuild"], "environment_blocked")
         self.assertIn("mobile/ios/project.yml", checks["native_mobile"]["evidence"]["projectManifest"])
         self.assertIn("xcodebuild test", checks["native_mobile"]["evidence"]["macosCommands"][0])
@@ -572,28 +579,35 @@ class ServerV2ReadinessTests(unittest.TestCase):
     def test_readiness_mobile_package_turns_ready_when_offline_dependencies_are_ready(self) -> None:
         client = TestClient(app)
 
-        def ready_coverage(global_id: int, local_hole: int) -> dict[str, object]:
+        def ready_coverage(
+            global_id: int,
+            local_hole: int,
+            **_kwargs: object,
+        ) -> dict[str, object]:
             return {
                 "schema": "ai-caddie-geometry-evidence-v1",
                 "globalId": global_id,
                 "localHole": local_hole,
                 "coverage": "ready",
+                "geometryRevision": f"{int(local_hole):016x}",
                 "hasHazards": True,
                 "hasMeshes": True,
                 "evidence": [{"label": "geometry", "ref": f"gid{global_id}_h{local_hole:02d}"}],
                 "missingData": [],
             }
 
-        def ready_map(global_id: int, local_hole: int) -> dict[str, object]:
+        def ready_geometry(global_id: int, local_hole: int) -> dict[str, object]:
             return {
-                "schema": "ai-caddie-hole-map-v1",
-                "globalId": global_id,
-                "localHole": local_hole,
-                "provider": {"coordinateSystem": "local"},
-                "coverage": "ready",
-                "layers": ["hazard"],
-                "featureCollection": {"type": "FeatureCollection", "features": []},
-                "missingData": [],
+                "refLat": 40.0,
+                "refLon": 116.0,
+                "hazards": [
+                    {
+                        "id": f"bunker-{local_hole}",
+                        "kind": "bunker",
+                        "centroid": [12.0, 80.0],
+                        "tee_distances": [],
+                    }
+                ],
             }
 
         def ready_route(global_id: int, local_hole: int, **_kwargs: object) -> dict[str, object]:
@@ -627,7 +641,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
                 patch("server_v2.mobile.MOBILE_ROOT", root),
                 patch("ai_caddie.history.history_stats.geometry_coverage_for_hole", side_effect=ready_coverage),
                 patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=ready_coverage),
-                patch("ai_caddie.caddie.mobile_live.build_hole_map_dto", side_effect=ready_map),
+                patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=ready_geometry),
                 patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
             ):
                 response = client.get("/api/v2/readiness")
@@ -642,13 +656,12 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(seed_quality["seedCount"], 18)
         self.assertEqual(seed_quality["selectedOptionCount"], 18)
         self.assertEqual(seed_quality["optionCount"], 54)
-        # Distance-aware club selection (mobile_live._shot_option_clubs) now picks the club that fits
-        # each hole's distance rather than always the longest, so some holes (e.g. par 3 / short
-        # approaches) select a less-sampled club → 14 medium + 4 low (was a flat 18 medium when every
-        # hole selected the same long, well-sampled club). Counts still sum to the 18 selected options.
+        # The fixture has only one or two recorded shots per club. Scarcity-aware tier selection
+        # therefore keeps every selected option low-confidence; readiness remains degraded while
+        # all 18 holes still have a selected offline option.
         selected_conf = seed_quality["selectedConfidenceCounts"]
-        self.assertEqual(selected_conf["medium"], 14)
-        self.assertEqual(selected_conf["low"], 4)
+        self.assertEqual(selected_conf["medium"], 0)
+        self.assertEqual(selected_conf["low"], 18)
         self.assertEqual(sum(selected_conf.values()), 18)
         self.assertEqual(seed_quality["minSelectedCoveragePct"], 10.0)
         self.assertEqual(seed_quality["state"], "degraded")

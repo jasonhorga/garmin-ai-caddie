@@ -10,25 +10,48 @@ public func zhClubName(_ raw: String) -> String {
     let s = raw.trimmingCharacters(in: .whitespaces)
     if s.isEmpty { return s }
     let lower = s.lowercased()
+    // Garmin's type catalog sometimes spells the loft before the word ("3 Wood" / "3 Iron").
+    // Strip presentation separators only for alias matching; the original label still falls
+    // through unchanged when it is not a recognized catalog club.
+    let compact = lower.filter { !$0.isWhitespace && $0 != "-" && $0 != "_" }
 
     // Wedge by loft degrees (48/50/52/54/56/58/60…).
     if let degrees = Int(s), (44...64).contains(degrees) {
         return "\(degrees)° 挖起杆"
     }
+    if lower.hasPrefix("wedge"),
+       let degrees = Int(lower.dropFirst("wedge".count)),
+       (44...64).contains(degrees) {
+        return "\(degrees)° 挖起杆"
+    }
     func firstDigit(_ text: String) -> String? {
-        text.first(where: { $0.isNumber }).map(String.init)
+        if let digit = text.first(where: { $0.isNumber }) {
+            return String(digit)
+        }
+        let chineseDigits: [Character: String] = [
+            "一": "1", "二": "2", "三": "3", "四": "4", "五": "5",
+            "六": "6", "七": "7", "八": "8", "九": "9",
+        ]
+        return text.compactMap { chineseDigits[$0] }.first
     }
 
     // Driver.
-    if lower == "driver" || lower == "d" || lower == "1w" {
+    if lower == "driver" || lower == "d" || lower == "dr" || lower == "1d" || lower == "1w"
+        || s == "一号木" || s == "一号木杆" {
         return "一号木"
     }
     // Hybrid / 小鸡腿.
-    if s.contains("小鸡腿") || lower.contains("hybrid") || lower.contains("rescue") {
+    if s.contains("小鸡腿") || s.contains("铁木") || lower.contains("hybrid") || lower.contains("rescue") {
         if let n = firstDigit(s) { return "\(cnClubNumber[n] ?? n)号小鸡腿" }
         return "小鸡腿"
     }
     // Fairway wood: "Nw" / "N号木".
+    if compact.hasSuffix("wood"), compact.dropLast(4).allSatisfy(\.isNumber), let n = firstDigit(compact) {
+        return "\(cnClubNumber[n] ?? n)号木"
+    }
+    if lower.hasPrefix("wood"), let n = firstDigit(lower) {
+        return "\(cnClubNumber[n] ?? n)号木"
+    }
     if lower.hasSuffix("w"), lower.dropLast().allSatisfy(\.isNumber), let n = firstDigit(lower) {
         return "\(cnClubNumber[n] ?? n)号木"
     }
@@ -36,6 +59,12 @@ public func zhClubName(_ raw: String) -> String {
         return "\(cnClubNumber[n] ?? n)号木"
     }
     // Iron: "NI" / "N号铁".
+    if compact.hasSuffix("iron"), compact.dropLast(4).allSatisfy(\.isNumber), let n = firstDigit(compact) {
+        return "\(cnClubNumber[n] ?? n)号铁"
+    }
+    if lower.hasPrefix("iron"), let n = firstDigit(lower) {
+        return "\(cnClubNumber[n] ?? n)号铁"
+    }
     if lower.hasSuffix("i"), lower.dropLast().allSatisfy(\.isNumber), let n = firstDigit(lower) {
         return "\(cnClubNumber[n] ?? n)号铁"
     }

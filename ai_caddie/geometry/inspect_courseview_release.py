@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import struct
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -21,6 +22,10 @@ def read_varint(buf: bytes, pos: int) -> tuple[int, int]:
     shift = 0
     out = 0
     while True:
+        if pos >= len(buf):
+            raise ValueError("truncated protobuf varint")
+        if shift >= 70:
+            raise ValueError("protobuf varint exceeds 10 bytes")
         b = buf[pos]
         pos += 1
         out |= (b & 0x7F) << shift
@@ -46,11 +51,15 @@ def parse_fields(buf: bytes):
             value, pos = read_varint(buf, pos)
             raw = None
         elif wire_type == 1:
+            if pos + 8 > len(buf):
+                raise ValueError("truncated fixed64 protobuf field")
             raw = buf[pos : pos + 8]
             pos += 8
             value = None
         elif wire_type == 2:
             size, pos = read_varint(buf, pos)
+            if pos + size > len(buf):
+                raise ValueError("truncated length-delimited protobuf field")
             raw = buf[pos : pos + size]
             pos += size
             try:
@@ -58,6 +67,8 @@ def parse_fields(buf: bytes):
             except UnicodeDecodeError:
                 value = None
         elif wire_type == 5:
+            if pos + 4 > len(buf):
+                raise ValueError("truncated fixed32 protobuf field")
             raw = buf[pos : pos + 4]
             pos += 4
             value = None
@@ -66,9 +77,9 @@ def parse_fields(buf: bytes):
         yield field_no, wire_type, value, raw
 
 
-def fetch_bytes(url: str) -> bytes:
+def fetch_bytes(url: str, *, timeout: float = 30) -> bytes:
     req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urlopen(req, timeout=30) as response:
+    with urlopen(req, timeout=timeout) as response:
         return response.read()
 
 
@@ -107,7 +118,7 @@ def parse_date_layout(pb: bytes) -> dict:
 
 
 def inspect_release(pb: bytes) -> dict:
-    info: dict = {"holes": [], "tees": []}
+    info: dict = {"holes": [], "tees": [], "par_sections": []}
     for field_no, wire_type, value, raw in parse_fields(pb):
         if field_no == 1 and wire_type == 0:
             info["course_id"] = value
@@ -117,13 +128,31 @@ def inspect_release(pb: bytes) -> dict:
             info["release_id"] = value
         elif field_no == 4 and wire_type == 2:
             info["course_name"] = value
-        elif field_no == 6 and wire_type == 2 and raw is not None:
-            # Tee box definitions (repeated): f1=name (Gold/Black/Blue/White/Red…), f4=gender
-            # (MEN/WOMEN), f5=ordering index. This is what Garmin's "new round" tee picker uses.
-            tee: dict = {}
+        elif field_no == 5 and wire_type == 2 and raw is not None:
+            # Repeated front/back scorecard summaries: OUT/IN, par and gender. A course may
+            # carry separate MEN/WOMEN rows (for example Cypress Point is 35/37 vs 37/38).
+            section: dict = {}
             for sub_no, sub_wire, sub_value, _sub_raw in parse_fields(raw):
                 if sub_no == 1 and sub_wire == 2:
+                    section["name"] = sub_value
+                elif sub_no == 2 and sub_wire == 0:
+                    section["par"] = sub_value
+                elif sub_no == 3 and sub_wire == 2:
+                    section["gender"] = sub_value
+            if section.get("name") and section.get("par") is not None:
+                info["par_sections"].append(section)
+        elif field_no == 6 and wire_type == 2 and raw is not None:
+            # Tee box definitions (repeated): f1=name, f2=slope rating, f3=fixed32 course
+            # rating, f4=gender, f5=ordering/geometry set index. These are Garmin's actual
+            # scorecard ratings; for a nine-hole layout f3 is correspondingly around 35–40.
+            tee: dict = {}
+            for sub_no, sub_wire, sub_value, sub_raw in parse_fields(raw):
+                if sub_no == 1 and sub_wire == 2:
                     tee["name"] = sub_value
+                elif sub_no == 2 and sub_wire == 0:
+                    tee["slope_rating"] = sub_value
+                elif sub_no == 3 and sub_wire == 5 and sub_raw is not None and len(sub_raw) == 4:
+                    tee["course_rating"] = round(float(struct.unpack("<f", sub_raw)[0]), 2)
                 elif sub_no == 4 and sub_wire == 2:
                     tee["gender"] = sub_value
                 elif sub_no == 5 and sub_wire == 0:
@@ -135,7 +164,15 @@ def inspect_release(pb: bytes) -> dict:
         elif field_no == 9 and wire_type == 0:
             info["course_lon_raw"] = value
         elif field_no == 10 and wire_type == 0:
+            # Matches hole.json CourseGenVersion across the frozen corpus (22/24/26/28/29).
+            info["course_gen_version"] = value
+            # Retain the old migration-oracle key for callers that archived its output.
             info["unknown_10"] = value
+        elif field_no == 12 and wire_type == 0:
+            # Garmin's JSON representation names this exact field HasGreenContour. Keep the old
+            # migration-oracle key until archived inspector output no longer depends on it.
+            info["has_green_contour"] = bool(value)
+            info["unknown_12"] = value
         elif field_no == 7 and wire_type == 2 and raw is not None:
             hole: dict = {}
             for sub_no, sub_wire, sub_value, _sub_raw in parse_fields(raw):
@@ -156,6 +193,30 @@ def inspect_release(pb: bytes) -> dict:
                 elif sub_no == 8 and sub_wire == 2:
                     hole["geometry_url"] = sub_value
             info["holes"].append(hole)
+    return info
+
+
+def inspect_valid_release(pb: bytes, *, expected_course_id: int | None = None) -> dict:
+    """Parse a complete current-release payload before it may replace a cache."""
+    info = inspect_release(pb)
+    holes = info.get("holes")
+    try:
+        course_id = int(info["course_id"])
+        release_version = int(info["release_version"])
+        hole_numbers = [int(hole["hole"]) for hole in holes]
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("incomplete CourseView release payload") from exc
+    if (
+        release_version <= 0
+        or not hole_numbers
+        or len(hole_numbers) != len(set(hole_numbers))
+        or any(number < 1 or number > 36 for number in hole_numbers)
+    ):
+        raise ValueError("invalid CourseView release identity or hole set")
+    if expected_course_id is not None and course_id != int(expected_course_id):
+        raise ValueError(
+            f"CourseView release course mismatch: expected {int(expected_course_id)}, got {course_id}"
+        )
     return info
 
 

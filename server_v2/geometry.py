@@ -74,7 +74,14 @@ def load_geometry_ensure_response(
 
 def load_course_geometry_coverage_response(global_id: int, holes: list[int] | None = None) -> CourseGeometryCoverageResponse:
     requested_holes = holes if holes else list(range(1, 19))
-    return CourseGeometryCoverageResponse(**geometry_coverage_for_course(global_id, holes=requested_holes))
+    return CourseGeometryCoverageResponse(
+        **geometry_coverage_for_course(
+            global_id,
+            holes=requested_holes,
+            require_current_authority=True,
+            refresh_release=True,
+        )
+    )
 
 
 def load_hole_geometry_evidence_response(

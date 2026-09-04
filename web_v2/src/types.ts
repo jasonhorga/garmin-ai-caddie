@@ -82,7 +82,11 @@ export interface HistoryMetricSet {
   shotCount: number
   average18: number | null
   recent10Average: number | null
+  /** Present on the stats-summary payload; optional on the lightweight overview fallback. */
+  recent20Average?: number | null
   bestScore: number | null
+  /** Present on the stats-summary payload; optional on the lightweight overview fallback. */
+  handicapEstimate?: number | null
 }
 
 export interface DistributionFamily {
@@ -446,6 +450,11 @@ export interface RoundsFilters {
   course?: string
   hasShots?: boolean
   hasReport?: boolean
+  /** Closed stats key: YYYY, YYYY-Qn, YYYY-MM or YYYY-MM-DD. */
+  period?: string
+  scoreBand?: '70s' | '80s' | '90s' | '100+'
+  /** Course/date text search, applied by the archive endpoint. */
+  query?: string
 }
 
 export interface HistoryRoundsResponse {
@@ -465,6 +474,7 @@ export interface HistoryRoundDetailScorecardCell {
   toPar: number | null
   className: ScoreClass
   putts: number | null
+  penalties?: number | null
   gir: boolean | null
   fairway: string | null
   globalId?: number | null
@@ -504,6 +514,8 @@ export interface HistoryRoundDetailResponse {
 // actual trajectory + landing dots can be drawn on top. Synthetic shots (a drive
 // the watch never recorded) are flagged so they render honestly (faded).
 export interface RoundHoleShot {
+  /** Stable correction-layer identity. Synthetic route anchors may omit it. */
+  id?: string | null
   start: [number, number] | null
   end: [number, number] | null
   club: string | null
@@ -518,6 +530,23 @@ export interface RoundHoleShot {
   lieSource?: 'manual' | null
 }
 
+export interface RoundCorrectionRequest {
+  op: 'replaceHoleShots' | 'replaceHoleFacts' | 'addShot' | 'editField' | 'deleteShot' | 'reorderShot' | 'setHolePenalty'
+  hole?: number
+  shots?: Array<Record<string, unknown>>
+  manualPenalty?: number
+  geometryRevision?: string | null
+  clientMutationId?: string
+  shotId?: string
+  field?: string
+  value?: unknown
+  px?: [number, number]
+  club?: string | null
+  lie?: string | null
+  insertAfterShotId?: string | null
+  order?: string[]
+}
+
 export interface RoundHoleShotMapResponse {
   schema: 'ai-caddie-round-hole-shotmap-v1'
   found: boolean
@@ -528,6 +557,8 @@ export interface RoundHoleShotMapResponse {
   // rendered (map set). Used to fetch the realistic topo base bitmap for the 复盘 canvas.
   globalId?: number | null
   localHole?: number | null
+  geometryRevision?: string | null
+  mapKind?: 'prodgeometry' | 'courseData' | null
   map: { image: string; overlay: CoursePrepOverlay } | null
   shots: RoundHoleShot[]
   // 这一洞用户手填的罚杆数(复盘修改层,默认 0)。只读展示:>0 时在洞信息区显示「本洞手填罚杆 +N」。
@@ -569,6 +600,15 @@ export interface MobileStatsResponse {
   schema: 'ai-caddie-mobile-stats-v1'
   dataMode: ResolvedDataMode
   summary: Record<string, unknown>
+  trend?: {
+    points: Array<{
+      date: string
+      score: number | null
+      toPar?: number | null
+      roundId?: string | null
+    }>
+    windowSize?: number
+  }
   time: Record<string, unknown>
   scoring: Record<string, unknown>
   records: Record<string, unknown>
@@ -734,6 +774,10 @@ export interface SyncLastRunStatus {
   snapshotId: string | null
   errorCode: string | null
   updatedAt: string | null
+  remoteRoundCount?: number | null
+  remoteLatestRoundId?: string | null
+  remoteLatestRoundAt?: string | null
+  newRoundCount?: number | null
 }
 
 export interface SnapshotStatus {
@@ -936,6 +980,9 @@ export interface LiveRoundPackageResponse {
   clubProfiles: Array<Record<string, unknown>>
   caddieDecisionEndpoint: string
   offlinePackageStatus: OfflinePackageStatus
+  /** Cross-surface gate: only `ready` may enter a full prep/live package surface. */
+  readinessState?: 'ready' | 'blocked' | 'error'
+  courseInstallJob?: CourseInstallStatus | null
   eventCursor: Record<string, unknown>
   recentHistory: Record<string, unknown>
   cachedCaddieRules: Record<string, unknown>
@@ -976,6 +1023,35 @@ export interface MobileCoursePackageParams {
   teeBox?: string
   capturedAt?: string
   ensureGeometry?: boolean
+  backgroundGeometry?: boolean
+  includeEventCursor?: boolean
+}
+
+export interface CourseInstallHoleStatus {
+  globalId: number
+  localHole: number
+  displayHole: number
+  geometry: string
+  geometryRevision?: string | null
+  topo: string
+  topoRevision?: string | null
+  error?: string | null
+}
+
+export interface CourseInstallStatus {
+  schema: 'ai-caddie-course-install-v1'
+  jobId: string
+  globalId: number
+  teeBox: string
+  nine: string
+  phase: string
+  stage: string
+  totalHoles: number
+  geometryReady: number
+  topoReady: number
+  updatedAt?: string | null
+  error?: string | null
+  holes: CourseInstallHoleStatus[]
 }
 
 /// One selectable tee box for the pre-round picker (GET /api/v2/courses/{id}/tees): colour key
@@ -1054,7 +1130,7 @@ export interface AnnotationListResponse {
   target: { targetType: AnnotationTargetType; targetId: string } | null
 }
 
-export type ParSource = 'played' | 'courseview' | 'estimate'
+export type ParSource = 'played' | 'courseview' | 'courseData' | 'estimate'
 
 export interface CoursePrepOverlay {
   w: number
@@ -1062,6 +1138,38 @@ export interface CoursePrepOverlay {
   ppm: number
   ln: number
   route: Array<[number, number, number]> // [px, py, cumMetres]
+}
+
+export interface CoursePrepProjectionRef {
+  lat: number
+  lon: number
+  px: number
+  py: number
+}
+
+export interface CoursePrepHoleImageProjection {
+  available: boolean
+  widthPx?: number | null
+  heightPx?: number | null
+  refs?: CoursePrepProjectionRef[] | null
+}
+
+export interface CoursePrepHazardDetail {
+  kind: 'water' | 'bunker' | string
+  frontM: number
+  backM: number
+  frontRouteM: number
+  backRouteM: number
+  frontPx: number[]
+  backPx: number[]
+  sideM?: number | null
+}
+
+export interface CoursePrepGreenOutline {
+  available: boolean
+  source?: string | null
+  distanceUnit?: string | null
+  pointsPx: number[][]
 }
 
 export interface CoursePrepStep {
@@ -1105,6 +1213,7 @@ export interface CoursePrepHole {
   route_len_m: number
   route: Array<[number, number, number]>
   geometryCoverage: GeometryCoverageState
+  geometryRevision?: string | null
   sourceRefs: string[]
   missingData: CoursePrepMissingData[]
   candidateRoutes: CoursePrepCandidateRoute[]
@@ -1113,9 +1222,19 @@ export interface CoursePrepHole {
   cautions: string[]
   landing_m: number | null
   tee_club: string | null
-  hazards: { water_carry: Array<[number, number]>; bunkers: Array<[number, number]> }
+  hazards: {
+    water_carry: Array<[number, number]>
+    bunkers: Array<[number, number]>
+    details?: CoursePrepHazardDetail[]
+  }
   map?: { image: string; overlay: CoursePrepOverlay }
   yourShots?: CoursePrepShotDot[]
+  greenDistances?: {
+    available: boolean
+    frontM?: number | null
+    middleM?: number | null
+    backM?: number | null
+  } | null
   // round-13: elevation playsLike (tee→green) from the hole mesh; deltaYd>0 = uphill (plays longer).
   // Mirrors the phone/watch caddie glance so slope shows on every surface.
   playsLike?: {
@@ -1125,12 +1244,20 @@ export interface CoursePrepHole {
     teeElevM?: number | null
     greenElevM?: number | null
   }
+  holeImageProjection?: CoursePrepHoleImageProjection | null
+  greenOutline?: CoursePrepGreenOutline | null
 }
 
 export interface CoursePrepClub {
   name: string
+  /** Canonical backend token (optional for legacy /prep payloads). */
+  token?: string | null
   m: number
   yd: number
+  /** history_median, garmin_advice, garmin_average, manual, catalog_default, or unresolved. */
+  distanceSource?: string | null
+  sampleSize?: number | null
+  confidence?: string | null
 }
 
 export interface CoursePrepResponse {
@@ -1141,7 +1268,10 @@ export interface CoursePrepResponse {
   holes: CoursePrepHole[]
 }
 
-export type StatsWindow = 'all' | '12m' | 'last10'
+/** Web prep is intentionally staged: precise geometry is not enough to open the workbench. */
+export type PrepReadinessState = 'metadata' | 'preparing' | 'precise_ready' | 'offline_installed'
+
+export type StatsWindow = 'all' | '12m' | 'last20' | 'last10'
 
 export interface CourseSearchMatch {
   globalId: number
@@ -1153,9 +1283,12 @@ export interface CourseSearchMatch {
 }
 
 export interface CourseSearchResponse {
-  schema: 'ai-caddie-course-search-v1'
-  query: string
+  schema: 'ai-caddie-course-search-v1' | 'ai-caddie-course-nearby-v1'
+  query?: string
   matches: CourseSearchMatch[]
+  radiusKm?: number
+  complete?: boolean
+  partialReason?: string | null
 }
 
 export interface PrepTip {
