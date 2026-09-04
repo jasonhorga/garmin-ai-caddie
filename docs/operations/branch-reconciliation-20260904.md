@@ -77,8 +77,10 @@ entry marked `port-later` or `defer` is included in `79ee08cd`.
 
 ## Required post-merge checks
 
-1. The target default branch product tree equals `d26feaba^{tree}`; only this
-   reconciliation record may be an additional documentation path.
+1. The target default branch product/runtime tree equals `d26feaba^{tree}`.
+   The only intentional additions are this reconciliation record plus the
+   authority-manifest correction and its focused regression test; no unrelated
+   product code is introduced.
 2. Both `d26feaba` and `b5e17d31` are ancestors of the target merge commit.
 3. The two release tags still point to the exact release/backend commits.
 4. Source CI and Native Mobile CI run against the merge SHA and pass.
