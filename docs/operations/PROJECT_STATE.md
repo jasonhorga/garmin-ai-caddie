@@ -4,11 +4,12 @@
 > Long reviews and historical plans remain reference material; they are not the
 > live task queue.
 
-**Updated:** 2026-09-02 UTC
-**Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**Source baseline:** `d189b3b475891225c9ecb86b0f672c12be3c5c40` (TestFlight build 47
-artifact source; backend runtime revision `c16488911038d7e5b47ec310d1aaf05ca29950df`;
-prior chain remains in Git history)
+**Updated:** 2026-09-04 UTC
+**Branch:** `integration/v2` (GitHub default; reconciled merge `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
+**Source baseline:** `1775d87a7a3eb2ac3c879bb81f07406ef28dd760` (MAP1 product tree
+with recorded `integration/v2` ancestry; TestFlight build 47 artifact source
+remains `d189b3b475891225c9ecb86b0f672c12be3c5c40`; backend runtime revision
+`c16488911038d7e5b47ec310d1aaf05ca29950df`; prior chain remains in Git history)
 **Release rule:** production promotion remains gated on complete P0/P1/P2
 runtime evidence and owner approval. An owner-approved test-environment upload
 may use the explicit test-environment flag, but does not close the physical
@@ -80,6 +81,27 @@ device gate or authorize production promotion.
   repository. No active process, credential, user-round data, or production
   Docker volume was touched. Full records are in
   `docs/operations/cleanup-20260831-local-garmin.md`.
+- **Branch reconciliation (2026-09-04):** Fable 5.1's read-only review found
+  that MAP1 and the old `integration/v2` line were genuine product branches,
+  not a reason to replay every historical commit. PR [#331](https://github.com/jasonhorga/garmin-ai-caddie/pull/331)
+  preserved the old line as the second parent of a normal merge and kept the
+  MAP1 tree canonical. The merged commit is `1775d87a`; the reconciliation
+  branch and old refs remain available for the later whole-repository audit.
+- **Contract boundary correction:** The active
+  `mobile/contracts/live_round_event.schema.json` is no longer incorrectly
+  listed as a frozen legacy adapter. The Watch input schema remains the only
+  declared legacy adapter; the focused regression test and the historical
+  `sync_marker`/`serverSequence` migration debt are recorded in
+  `docs/operations/branch-reconciliation-20260904.md`.
+- **Reconciliation CI:** Source CI run `33832029115` and Native Mobile CI run
+  `33832029223` both passed at head `a331281acb78aec7def0e68d111f6d9cc941b249`
+  (backend, frontend, Docker, iOS and Watch steps). The earlier fixture-test
+  failure was corrected by `a331281a`; no product code changed in that fix.
+- **Release side effects:** TestFlight tag `release/testflight-0.1.0-build-47`,
+  backend tag `deploy/backend-2026-09-02`, and source tag
+  `source/map1-2026-09-04` are unchanged. This reconciliation performed no
+  upload, external distribution, deployment, synchronization, or production
+  data write.
 
 ## Objective
 
@@ -523,7 +545,8 @@ project-level task list; historical plans are reference material.
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
 | `REL` | `evidence-open` | Release and TestFlight gate; backend/native provenance and build 47 are complete. | CD run `33686521143` processed build `0.1.0 (47)` from `d189b3b4`; diagnostics `33687517758` and ASC status `33687613975` passed/confirmed validity. Physical-device installation, exact tester coverage, and optional external Beta Review remain open. |
-| `MAP1` | `evidence-open` | No-GPS map-first start and precision placement across Watch/iOS/review. | Focused homeserver contracts pass 147/147, including production `tee_box=unknown`; Native Mobile CI `33680501425` at `c5902a96` passed all 38 steps, including iOS/Watch builds, no-GPS map/caddie restore, 7 TeeSelection UI tests, ReviewEdit, Watch 329 tests, and 22 Watch runtime screenshots. Physical iPhone/Watch and S70 hardware proof remain open. |
+| `MAP1` | `evidence-open` | No-GPS map-first start and precision placement across Watch/iOS/review. | Focused homeserver contracts pass 147/147, including production `tee_box=unknown`; Native Mobile CI `33680501425` at `c5902a96` passed all 38 steps, and reconciliation Source/Native runs `33832029115`/`33832029223` passed at `a331281a`. Physical iPhone/Watch and S70 hardware proof remain open. |
+| `CLOUD-AUDIT` | `queued` | Read-only whole-repository audit after branch reconciliation; preserve history and release refs while it runs. | A dated temporary snapshot, findings report, resource handoff, and cleanup record from the delegated audit session. |
 
 ### Status vocabulary
 
@@ -918,6 +941,10 @@ Native runs recorded above; it is retained only as historical diagnosis.
 4. Keep backend revision `c1648891` and build 47 unchanged while the physical
    gate is open; retain the prior image/container as rollback material. Do not
    upload another build or run a production synchronization as a test.
+5. Run the queued Cloud whole-repository audit from a read-only temporary
+   snapshot. Exclude credentials, `.venv`, `node_modules`, and build products;
+   retain the reconciliation branch, old PRs, and historical refs until the
+   audit handoff and cleanup are complete.
 
 ## Open Blockers / Facts
 
@@ -961,6 +988,23 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## State Changes
 
+- 2026-09-04: Fable 5.1 re-evaluated the branch topology. The old
+  `integration/v2` line has 46 unique historical commits while MAP1 has 287;
+  the safe decision was a history-preserving normal merge with MAP1's tested
+  tree canonical, not a replay or force-reset. PR #331 merged as
+  `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`; both branch tips are ancestors,
+  and the default branch remains `integration/v2`.
+- 2026-09-04: The first reconciliation CI scan exposed a test-fixture setup
+  error (a temporary authority fixture omitted its manifest), not a product
+  regression. `a331281a` initialized that manifest; Source CI `33832029115`
+  and Native Mobile CI `33832029223` then passed all required jobs. The active
+  live-round contract authority correction and focused regression test are now
+  part of the merged tree.
+- 2026-09-04: Reconciliation changed no release or runtime state. TestFlight,
+  backend, and source tags remain pinned; no upload, deployment, external
+  distribution, synchronization, or production data write occurred. Queue the
+  read-only Cloud whole-repository audit as the next engineering action while
+  `REL` and `MAP1` hardware evidence remain open.
 - 2026-09-02: MAP1 implementation and its contract coverage are integrated at
   source baseline `d189b3b4`; focused homeserver contracts pass 147/147 and
   source CI `33680857200` is green. The map-first no-GPS start, factual
