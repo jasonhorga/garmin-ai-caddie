@@ -13,7 +13,7 @@ product tree. The merge commit intentionally carries no product-code port. Any
 old behavior that remains valuable must arrive later as a small, independently
 tested PR.
 
-## Live refs at decision time
+## Pre-merge refs at decision time
 
 - GitHub default: `integration/v2` -> `b5e17d316f63a82de2c67ecfda271997370f3fe5`
 - MAP1 candidate: `codex/p0-p1-p2-checkpoint-20260823` -> `d26feaba91a81e66ba3ff8a6d293a37d563a926a`
@@ -21,6 +21,11 @@ tested PR.
 - Merge base of MAP1 and old integration: `a0c0fca8f07b888722561f28b2a10cdf45f84d33`
 - Divergence: MAP1 has 287 unique commits; old integration has 46.
 - Release anchors: `release/testflight-0.1.0-build-47` -> `d189b3b4`; `deploy/backend-2026-09-02` -> `c1648891`.
+
+After PR #331, the target `integration/v2` points through reconciliation
+merge `1775d87a`. Its actual parents are old integration `b5e17d31` (first)
+and reconciliation/MAP1 line `a331281a` (second). See
+`branch-strategy-20260904.md` for the post-merge policy and ref inventory.
 
 ## Merge decision
 

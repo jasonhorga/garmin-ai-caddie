@@ -84,9 +84,12 @@ device gate or authorize production promotion.
 - **Branch reconciliation (2026-09-04):** Fable 5.1's read-only review found
   that MAP1 and the old `integration/v2` line were genuine product branches,
   not a reason to replay every historical commit. PR [#331](https://github.com/jasonhorga/garmin-ai-caddie/pull/331)
-  preserved the old line as the second parent of a normal merge and kept the
-  MAP1 tree canonical. The merged commit is `1775d87a`; the reconciliation
-  branch and old refs remain available for the later whole-repository audit.
+  preserved the old line as the first parent and the reconciliation/MAP1 line
+  as the second parent of a normal merge, while keeping the MAP1 tree
+  canonical. The merged commit is `1775d87a`; the reconciliation branch and
+  old refs remain available for the later whole-repository audit. The branch
+  policy and current ref inventory are recorded in
+  `docs/operations/branch-strategy-20260904.md`.
 - **Contract boundary correction:** The active
   `mobile/contracts/live_round_event.schema.json` is no longer incorrectly
   listed as a frozen legacy adapter. The Watch input schema remains the only
@@ -999,8 +1002,12 @@ Native runs recorded above; it is retained only as historical diagnosis.
   `integration/v2` line has 46 unique historical commits while MAP1 has 287;
   the safe decision was a history-preserving normal merge with MAP1's tested
   tree canonical, not a replay or force-reset. PR #331 merged as
-  `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`; both branch tips are ancestors,
-  and the default branch remains `integration/v2`.
+  `1775d87a7a3eb2ac3c879bb81f07406ef28dd760` (old integration first parent,
+  reconciliation/MAP1 second parent); both branch tips are ancestors, and the
+  default branch remains `integration/v2`. Fable's follow-up inventory
+  classified the 268 remote refs and deferred all deletion or rename work until
+  the Cloud audit and owner gates are complete; details are in
+  `docs/operations/branch-strategy-20260904.md`.
 - 2026-09-04: The first reconciliation CI scan exposed a test-fixture setup
   error (a temporary authority fixture omitted its manifest), not a product
   regression. `a331281a` initialized that manifest; Source CI `33832029115`
