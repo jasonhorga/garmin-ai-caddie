@@ -29,6 +29,19 @@ integration `b5e17d31`. Its tree is exactly the MAP1 tree. It must be reviewed
 and merged with a normal merge commit; do not force-reset, squash, or rebase
 the target branch.
 
+### Authority correction found during CI
+
+The first full PR scan correctly exposed that `contracts/canonical/authority.json`
+had incorrectly listed `mobile/contracts/live_round_event.schema.json` as a
+`v1_compatibility_only` legacy adapter. That schema has been the active live-round
+wire contract since `69afb323`, and the old `integration/v2` tip already contains
+`clientId` and `sync_marker`; MAP1 only adds the target-coordinate fields. Fable's
+review therefore recommends removing the erroneous legacy declaration rather than
+deleting working fields or weakening the checker. The Watch input schema remains
+the only declared frozen adapter. A separate contract-migration decision is still
+needed for the historical `sync_marker`/`serverSequence` design debt identified by
+the canonical spec; this reconciliation does not claim that migration is done.
+
 ## Old integration-only non-merge commits
 
 The 46 old commits include 21 merge commits and the 25 decisions below. No

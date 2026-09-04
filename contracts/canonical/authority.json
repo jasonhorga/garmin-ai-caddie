@@ -23,12 +23,6 @@
       "mode": "adapter_only",
       "allowedProperties": ["schema", "eventId", "roundId", "hole", "kind", "value", "createdAt", "contextClub", "shotType", "strategyMode", "lie", "distanceToPinM", "offlineOptionId", "decisionId"],
       "forbiddenEnumValues": ["sync_marker"]
-    },
-    {
-      "path": "mobile/contracts/live_round_event.schema.json",
-      "mode": "v1_compatibility_only",
-      "allowedProperties": ["eventId", "roundId", "timestamp", "hole", "kind", "payload"],
-      "forbiddenEnumValues": ["sync_marker"]
     }
   ],
   "forbiddenSymbols": [

@@ -169,6 +169,13 @@ class AuthorityFixture:
 
 
 class ContractAuthorityTests(unittest.TestCase):
+    def test_repository_manifest_keeps_active_live_event_out_of_legacy_adapters(self) -> None:
+        """The live-round schema is an active wire contract, not a frozen adapter."""
+        manifest = json.loads(Path("contracts/canonical/authority.json").read_text(encoding="utf-8"))
+        adapter_paths = {adapter["path"] for adapter in manifest["legacyAdapters"]}
+        self.assertIn("mobile/contracts/watch_input_event.schema.json", adapter_paths)
+        self.assertNotIn("mobile/contracts/live_round_event.schema.json", adapter_paths)
+
     def test_authoritative_and_evidence_inputs_exist(self) -> None:
         manifest = json.loads(Path("contracts/canonical/authority.json").read_text())
         for item in manifest["authoritativeInputs"] + manifest["evidenceInputs"]:
