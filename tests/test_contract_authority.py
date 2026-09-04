@@ -176,6 +176,21 @@ class ContractAuthorityTests(unittest.TestCase):
         self.assertIn("mobile/contracts/watch_input_event.schema.json", adapter_paths)
         self.assertNotIn("mobile/contracts/live_round_event.schema.json", adapter_paths)
 
+    def test_active_live_event_schema_change_is_not_legacy_rejected(self) -> None:
+        fixture = AuthorityFixture()
+        self.addCleanup(fixture.close)
+        fixture.write(
+            "mobile/contracts/live_round_event.schema.json",
+            json.dumps({"properties": {"clientId": {"type": "string"}}}),
+        )
+        self.assertEqual(
+            check_authority(
+                fixture.root,
+                changed_paths=["mobile/contracts/live_round_event.schema.json"],
+            ),
+            [],
+        )
+
     def test_authoritative_and_evidence_inputs_exist(self) -> None:
         manifest = json.loads(Path("contracts/canonical/authority.json").read_text())
         for item in manifest["authoritativeInputs"] + manifest["evidenceInputs"]:
