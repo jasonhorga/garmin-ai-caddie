@@ -106,8 +106,9 @@ which tree is releasable.
 
 ## Executed policy
 
-1. Keep `integration/v2@6593b95e` as the single canonical line (the
-   `f0b193a2` reference below is historical inventory context).
+1. Keep `integration/v2@caceb88e` as the single canonical product line (the
+   `f0b193a2` and `6593b95e` references below are historical inventory
+   context).
 2. Keep the MAP1 and old integration ancestry through the normal merge
    `1775d87a`; do not replay the 46 old integration-only commits.
 3. Keep old refs, PRs, release tags, and evidence refs through both audit

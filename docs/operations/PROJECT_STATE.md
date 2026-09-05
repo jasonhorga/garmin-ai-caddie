@@ -5,8 +5,8 @@
 > live task queue.
 
 **Updated:** 2026-09-05 UTC
-**Branch:** `integration/v2` (GitHub default; current tip `6593b95ec14b482a0b86fb562354396e7d614c09`; reconciliation merge `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
-**Source baseline:** `6593b95ec14b482a0b86fb562354396e7d614c09` (MAP1 product tree
+**Branch:** `integration/v2` (GitHub default; current product tip `caceb88efb0a860f648677aa41a1c14e1eee95f1`; reconciliation merge `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
+**Source baseline:** `caceb88efb0a860f648677aa41a1c14e1eee95f1` (MAP1 product tree
 with recorded `integration/v2` ancestry and branch-policy documentation;
 TestFlight build 47 artifact source remains
 `d189b3b475891225c9ecb86b0f672c12be3c5c40`; backend runtime revision
@@ -199,7 +199,10 @@ newly added landing's precision editor, zoom, and explicit confirmation. A
 read-only Pydantic smoke in the existing API container accepted all three
 fairway values and rejected an invalid value; local AST/JSON/diff checks pass.
 Swift compilation, simulator runtime, and held-loupe video evidence remain
-open until a GitHub macOS run or qualified device is authorized.
+open until a GitHub macOS run or qualified device is authorized. Commit
+`caceb88e` was fast-forward pushed to `origin/integration/v2`; no new
+TestFlight upload, deployment, synchronization, or production data write was
+performed.
 
 ### Historical context (retained; earlier snapshots)
 
