@@ -198,9 +198,15 @@ Touch Target/View Green zoom controls. Review editing also exercises the
 newly added landing's precision editor, zoom, and explicit confirmation. A
 read-only Pydantic smoke in the existing API container accepted all three
 fairway values and rejected an invalid value; local AST/JSON/diff checks pass.
-Swift compilation, simulator runtime, and held-loupe video evidence remain
-open until a GitHub macOS run or qualified device is authorized. Commit
-`caceb88e` was fast-forward pushed to `origin/integration/v2`; no new
+GitHub Native Mobile CI run `33970471549` at canonical tip `12fb5030` then
+completed successfully: iOS/Watch compilation, XCUITest journeys, runtime
+screenshots, artifact scans, and Watch tests all passed. The native evidence
+artifact is `9971529102` with digest
+`sha256:672a50e02f69811a26d6c836aee49090937d030339507eb7d2f7c0b3a81c6090`.
+This closes the macOS/simulator portion; held-loupe video on real touch input,
+paired iPhone/Watch installation, and S70 hardware comparison remain
+evidence-open. Commit `caceb88e` was fast-forward pushed to
+`origin/integration/v2`, followed by the documentation tip `12fb5030`; no new
 TestFlight upload, deployment, synchronization, or production data write was
 performed.
 
@@ -594,7 +600,7 @@ project-level task list; historical plans are reference material.
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
 | `REL` | `evidence-open` | Release and TestFlight gate; backend/native provenance and build 47 are complete. | CD run `33686521143` processed build `0.1.0 (47)` from `d189b3b4`; diagnostics `33687517758` and ASC status `33687613975` passed/confirmed validity. Physical-device installation, exact tester coverage, and optional external Beta Review remain open. |
-| `MAP1` | `evidence-open` | No-GPS map-first start and precision placement across Watch/iOS/review. | Prior focused/Native runs remain green; the 2026-09-05 follow-up adds no-GPS hero/map/tee-distance assertions and the review added-shot precision-editor journey, plus fairway schema parity. Local AST/JSON/diff checks and an existing-container Pydantic smoke pass; Swift/macOS runtime, held-loupe video, physical iPhone/Watch, and S70 hardware proof remain open. |
+| `MAP1` | `evidence-open` | No-GPS map-first start and precision placement across Watch/iOS/review. | Prior focused/Native runs remain green; the 2026-09-05 follow-up adds no-GPS hero/map/tee-distance assertions and the review added-shot precision-editor journey, plus fairway schema parity. Native Mobile CI `33970471549` at `12fb5030` passed the iOS/Watch compile, simulator journeys, screenshots, and artifact scans; held-loupe video, physical iPhone/Watch, and S70 hardware proof remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 
@@ -621,6 +627,13 @@ means a named external decision or prerequisite is missing; `done` and
   Watch manifests passed, Watch 329 tests passed, and 22 runtime screenshots
   were uploaded. Native artifact `9868217071` has digest
   `sha256:70183f3155e434c617b5d53590be8857e6aab791b17dc518c99af04f46aa0415`.
+- `12fb5030`: Native Mobile CI run `33970471549` completed with `success`.
+  The iOS/Watch compile and XCUITest lanes, no-GPS manual-search/map/caddie
+  journey, Touch Target/View Green zoom, review precision-editor route, Watch
+  tests, runtime screenshots, and secret/artifact scans passed. Artifact
+  `native-build-evidence-ci-fixture` (`9971529102`) digest is
+  `sha256:672a50e02f69811a26d6c836aee49090937d030339507eb7d2f7c0b3a81c6090`;
+  the run was fixture-mode and does not replace physical-device evidence.
 - `d189b3b4`: TestFlight CD run `33686521143` uploaded and Apple processed
   build `0.1.0 (47)`. IPA SHA-256 is
   `19936b224428aa2e740fc7b277f26b80f91c52b44c567b75cbe310349db4f3ad`;
@@ -989,8 +1002,9 @@ Native runs recorded above; it is retained only as historical diagnosis.
 3. Record target tester coverage. Keep build 47 internal unless the owner
    separately approves adding it to `Private Trial` and submitting Beta Review.
 4. Keep backend revision `c1648891` and build 47 unchanged while the physical
-   gate is open; retain the prior image/container as rollback material. Do not
-   upload another build or run a production synchronization as a test.
+   gate is open; build 47 does not contain the P2 follow-up. A new TestFlight
+   build requires an explicit release decision after the hardware gate; do not
+   run a production synchronization as a test.
 5. Review the archived Cloud findings with the owner. Keep the reconciliation
    branch, old PRs, and historical refs until an explicit owner-approved
    cleanup operation creates bundles/tags where needed; do not bulk-delete refs.
