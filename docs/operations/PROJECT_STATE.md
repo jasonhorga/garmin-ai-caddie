@@ -45,6 +45,14 @@ device gate or authorize production promotion.
   `19936b224428aa2e740fc7b277f26b80f91c52b44c567b75cbe310349db4f3ad`;
   artifact `AICaddie-ipa` ID `9868598629` has ZIP digest
   `sha256:19865fc1d6190c5e58e882f63062b39b1cebd00d730c3b656c8e54ed7fdbe82b`.
+- **Current-head artifact-only build 48:** iOS TestFlight CD run
+  `33977405908` built and signed `0.1.0 (48)` from canonical tip `8e13623d`.
+  The IPA SHA-256 is
+  `479dc3e3298e3f8527458752f7a33e2ef22d11d79176047be075d556d24ceafc`;
+  GitHub artifact `AICaddie-ipa` ID `9972807230` has ZIP digest
+  `sha256:5422bcf511eb3933264dbd7d31c0ff2a865eddc8a2feb114cbb49cb1bcf50829`.
+  Its provenance records `uploadRequested=false`, `uploadCompleted=false`,
+  and `uploadToTestflight=false`; build 48 is not in App Store Connect.
 - **Apple status:** Read-only App Store Connect run `33687613975` reports
   build 47 `VALID`, `expired=false`, `internalState=IN_BETA_TESTING`, and
   `externalState=READY_FOR_BETA_SUBMISSION`. Internal group `Jason's friends`
@@ -60,10 +68,10 @@ device gate or authorize production promotion.
   iPhone/Watch installation are unconfirmed. `install_verified` remains
   `false` by design.
 - **Remaining release gate:** Build 47 is uploaded and visible to the internal
-  all-builds group, but physical iPhone/Watch first-launch/start evidence,
-  exact tester qualification, and any external Beta Review remain open. Do not
-  upload another build or trigger external distribution until those checks are
-  explicitly completed.
+  all-builds group; build 48 is artifact-only and is not distributed. Physical
+  iPhone/Watch first-launch/start evidence, exact tester qualification, and any
+  external Beta Review remain open. Do not upload build 48 or trigger external
+  distribution until those checks are explicitly completed.
 - **Post-release cleanup (2026-08-31):** The exact allow-list and protected
   resources are recorded in
   `docs/operations/cleanup-20260831-build46.md`. No source worktree,
@@ -209,6 +217,16 @@ evidence-open. Commit `caceb88e` was fast-forward pushed to
 `origin/integration/v2`, followed by the documentation tip `12fb5030`; no new
 TestFlight upload, deployment, synchronization, or production data write was
 performed.
+
+The current-head TestFlight CD artifact-only run `33977405908` then completed
+successfully from `8e13623d`: Release signing, archive/export, provenance, and
+artifact upload passed. It produced build 48 with IPA SHA-256
+`479dc3e3298e3f8527458752f7a33e2ef22d11d79176047be075d556d24ceafc` and
+artifact `9972807230` (ZIP digest
+`5422bcf511eb3933264dbd7d31c0ff2a865eddc8a2feb114cbb49cb1bcf50829`). The
+workflow explicitly used `upload_to_testflight=false`; no Apple upload or
+deployment side effect occurred. This verifies that the P2 tree is packageable
+as a signed release artifact, but does not close the physical-device gate.
 
 ### Historical context (retained; earlier snapshots)
 
@@ -1112,6 +1130,14 @@ Native runs recorded above; it is retained only as historical diagnosis.
   container passed. Homeserver capacity was about 5.9 GiB, so no new heavy
   test/build/native session ran; no push, deployment, synchronization, or
   TestFlight action occurred.
+- 2026-09-05: Ran the current-head iOS TestFlight CD workflow
+  `33977405908` from `8e13623d` in artifact-only mode. The signed build 48 and
+  provenance passed; IPA SHA-256 is
+  `479dc3e3298e3f8527458752f7a33e2ef22d11d79176047be075d556d24ceafc`, and
+  GitHub artifact `9972807230` has ZIP digest
+  `5422bcf511eb3933264dbd7d31c0ff2a865eddc8a2feb114cbb49cb1bcf50829`.
+  Provenance confirms all TestFlight upload flags are false; no Apple upload,
+  deployment, synchronization, or production data write occurred.
 - 2026-09-02: MAP1 implementation and its focused contract coverage are integrated at
   source baseline `d189b3b4`; focused homeserver contracts pass 147/147 and
   source CI `33680857200` is green. The map-first no-GPS start, factual
