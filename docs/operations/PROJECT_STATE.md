@@ -4,11 +4,12 @@
 > Long reviews and historical plans remain reference material; they are not the
 > live task queue.
 
-**Updated:** 2026-09-04 UTC
-**Branch:** `integration/v2` (GitHub default; reconciled merge `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
-**Source baseline:** `1775d87a7a3eb2ac3c879bb81f07406ef28dd760` (MAP1 product tree
-with recorded `integration/v2` ancestry; TestFlight build 47 artifact source
-remains `d189b3b475891225c9ecb86b0f672c12be3c5c40`; backend runtime revision
+**Updated:** 2026-09-05 UTC
+**Branch:** `integration/v2` (GitHub default; current tip `6593b95ec14b482a0b86fb562354396e7d614c09`; reconciliation merge `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
+**Source baseline:** `6593b95ec14b482a0b86fb562354396e7d614c09` (MAP1 product tree
+with recorded `integration/v2` ancestry and branch-policy documentation;
+TestFlight build 47 artifact source remains
+`d189b3b475891225c9ecb86b0f672c12be3c5c40`; backend runtime revision
 `c16488911038d7e5b47ec310d1aaf05ca29950df`; prior chain remains in Git history)
 **Release rule:** production promotion remains gated on complete P0/P1/P2
 runtime evidence and owner approval. An owner-approved test-environment upload
@@ -105,13 +106,30 @@ device gate or authorize production promotion.
   `source/map1-2026-09-04` are unchanged. This reconciliation performed no
   upload, external distribution, deployment, synchronization, or production
   data write.
-- **Cloud audit (in progress):** A read-only snapshot at
+- **Prior Codex-only audit (complete; not Claude/Fable):** A read-only snapshot at
   `/dev/shm/garmin-ai-caddie-cloud-audit-20260904` was created by Codex at
   `2026-09-04T03:29:05Z` from `04ab1da8b77950d0cdf3dde09174f2c76460f0ec`.
   It is 32 MiB, contains no `.venv`, `node_modules`, build products, or
-  credentials, and expires at `2026-09-05T03:29:05Z`. Cloud may inspect this
-  snapshot only; no containers, services, ports, caches, or dependencies are
-  created for the audit.
+  credentials, and expired at `2026-09-05T03:29:05Z` (cleaned early after
+  handoff). The inspection confirmed one P2 documentation fact error, corrected in
+  `6593b95e`; the archived report is
+  `docs/reviews/2026-09-04-cloud-whole-repository-audit.md` with archive
+  SHA-256
+  `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`.
+- **Claude Fable 5.1 whole-repository audit (complete; P2 follow-up applied):** A
+  homeserver source-only snapshot was reviewed with the explicit first-party
+  model `claude-fable-5-1`, `max` effort, and read-only `Read/Grep/Glob` tools.
+  The report is
+  `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`;
+  session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256
+  `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`;
+  report source-copy SHA-256
+  `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`.
+  Fable's verdict was `NOT READY`. The no-GPS distance labels, active score
+  schema parity, and focused no-GPS/precision UI journeys are now implemented
+  in the follow-up below; held-finger loupe capture and physical-device proof
+  remain evidence-open. No release or deployment state was changed by the
+  review or its follow-up.
 
 ## Objective
 
@@ -142,7 +160,11 @@ now keeps an unresolved Tee as `unknown` instead of displaying or submitting a
 fabricated Blue Tee; the production package route accepts that token, retains
 its provenance in the response, and resolves an internal distance only from a
 factual CourseView Tee list. Without that authority it stays unresolved rather
-than selecting the longest geometry row.
+than selecting the longest geometry row. Fable's follow-up review found that
+the current evidence was mostly source-string, pure-function, screenshot, and
+simulator coverage; the P2 follow-up adds a real no-GPS hero-to-map journey and
+the review precision-editor route, while a held loupe remains video/device
+evidence rather than a post-release accessibility assertion.
 
 A network-disabled, read-only homeserver run in the existing API image passed
 `147/147` focused tests: `tests.test_mobile_contracts` `94/94`,
@@ -162,8 +184,22 @@ show cached/downloaded geometry, and use local map targets, but it must not
 record a fabricated shot coordinate. The reusable remote source snapshot is
 `/home/jason/codex-runs/garmin-ai-caddie-map1-20260902` (29 MiB), expires
 2026-09-09; all focused test/compile containers were `--rm` and are gone.
-Homeserver free space is approximately 6.6 GiB, so no new heavy verification
-session was started.
+Homeserver free space is approximately 5.9 GiB, below the repository's 10 GiB
+heavy-work gate, so no new Native build or full test session was started for
+the follow-up.
+
+P2 follow-up (2026-09-05): the phone now labels no-GPS F/M/B values as
+`发球台 → 果岭` / `码 · 静态参考` and explains that they are not the current
+position; the active live-round JSON Schema accepts the server/Watch
+`fairway` enum with lockstep regression checks; and the no-GPS UI journey now
+starts a manually searched course, verifies map/caddie/tee-reference labels,
+opens Touch Target, places a target, checks Tee-based distance, and exercises
+Touch Target/View Green zoom controls. Review editing also exercises the
+newly added landing's precision editor, zoom, and explicit confirmation. A
+read-only Pydantic smoke in the existing API container accepted all three
+fairway values and rejected an invalid value; local AST/JSON/diff checks pass.
+Swift compilation, simulator runtime, and held-loupe video evidence remain
+open until a GitHub macOS run or qualified device is authorized.
 
 ### Historical context (retained; earlier snapshots)
 
@@ -555,8 +591,9 @@ project-level task list; historical plans are reference material.
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
 | `REL` | `evidence-open` | Release and TestFlight gate; backend/native provenance and build 47 are complete. | CD run `33686521143` processed build `0.1.0 (47)` from `d189b3b4`; diagnostics `33687517758` and ASC status `33687613975` passed/confirmed validity. Physical-device installation, exact tester coverage, and optional external Beta Review remain open. |
-| `MAP1` | `evidence-open` | No-GPS map-first start and precision placement across Watch/iOS/review. | Focused homeserver contracts pass 147/147, including production `tee_box=unknown`; Native Mobile CI `33680501425` at `c5902a96` passed all 38 steps, and reconciliation Source/Native runs `33832029115`/`33832029223` passed at `a331281a`. Physical iPhone/Watch and S70 hardware proof remain open. |
-| `CLOUD-AUDIT` | `in-progress` | Read-only whole-repository audit after branch reconciliation; preserve history and release refs while it runs. | Snapshot `/dev/shm/garmin-ai-caddie-cloud-audit-20260904` (created 2026-09-04T03:29:05Z, expires 2026-09-05T03:29:05Z); pending dated findings report, resource handoff, and cleanup record. |
+| `MAP1` | `evidence-open` | No-GPS map-first start and precision placement across Watch/iOS/review. | Prior focused/Native runs remain green; the 2026-09-05 follow-up adds no-GPS hero/map/tee-distance assertions and the review added-shot precision-editor journey, plus fairway schema parity. Local AST/JSON/diff checks and an existing-container Pydantic smoke pass; Swift/macOS runtime, held-loupe video, physical iPhone/Watch, and S70 hardware proof remain open. |
+| `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
+| `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 
 ### Status vocabulary
 
@@ -951,10 +988,9 @@ Native runs recorded above; it is retained only as historical diagnosis.
 4. Keep backend revision `c1648891` and build 47 unchanged while the physical
    gate is open; retain the prior image/container as rollback material. Do not
    upload another build or run a production synchronization as a test.
-5. Complete the Cloud whole-repository audit from the recorded read-only
-   snapshot. Exclude credentials, `.venv`, `node_modules`, and build products;
-   retain the reconciliation branch, old PRs, and historical refs until the
-   audit handoff and cleanup are complete.
+5. Review the archived Cloud findings with the owner. Keep the reconciliation
+   branch, old PRs, and historical refs until an explicit owner-approved
+   cleanup operation creates bundles/tags where needed; do not bulk-delete refs.
 
 ## Open Blockers / Facts
 
@@ -1017,19 +1053,55 @@ Native runs recorded above; it is retained only as historical diagnosis.
 - 2026-09-04: Reconciliation changed no release or runtime state. TestFlight,
   backend, and source tags remain pinned; no upload, deployment, external
   distribution, synchronization, or production data write occurred. Started
-  the read-only Cloud whole-repository audit from the recorded temporary
+  the prior Codex-only whole-repository inspection from the recorded temporary
   snapshot; `REL` and `MAP1` hardware evidence remain open.
-- 2026-09-04: Cloud audit snapshot lifecycle recorded before delegation:
-  `/dev/shm/garmin-ai-caddie-cloud-audit-20260904`, owner Codex/Cloud,
+- 2026-09-04: Prior Codex-only audit snapshot lifecycle recorded before delegation:
+  `/dev/shm/garmin-ai-caddie-cloud-audit-20260904`, owner Codex,
   created `03:29:05Z`, expiry `2026-09-05T03:29:05Z`, no containers/services/
-  ports/dependencies. Cleanup and findings handoff remain open until the
-  audit returns.
-- 2026-09-02: MAP1 implementation and its contract coverage are integrated at
+  ports/dependencies. The initial temporary report hash was
+  `484791a4d00b1ac5ba1bf6fddd2d7de428e6913941f9607472e3d0bc19817889`; the
+  corrected repository archive hash is
+  `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`.
+  The report is archived in `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`,
+  and the temporary snapshot/report were removed by allow-list cleanup.
+- 2026-09-04: The prior Codex-only inspection's only finding was the P2
+  parent-order wording error in the pre-audit state snapshot. The live state
+  and branch strategy records now state that `1775d87a` has old integration as
+  first parent and MAP1 as second; no runtime or product-code finding was
+  reported. At that earlier point homeserver Fable 5.1 was not used because
+  its capacity check showed about 6.5 GiB free, below the project's 10 GiB
+  start threshold.
+- 2026-09-04: Homeserver Claude Fable 5.1 completed a separate corrected
+  source-only whole-repository audit (session
+  `98bd77e3-c841-4ca2-86ee-91a1001b5382`; model usage only
+  `claude-fable-5-1`). The report is archived at
+  `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; raw
+  JSON is retained under the homeserver project archive with SHA-256
+  `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`;
+  the report source copy has SHA-256
+  `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`.
+  The temporary snapshot, launchers, and report copy were removed after
+  handoff; no containers, services, ports, dependencies, release actions, or
+  source edits were created by Fable.
+- 2026-09-05: Applied the bounded P2 follow-up from the Fable report on the
+  canonical `integration/v2` working tree. No-GPS phone distances now state
+  their Tee/static-reference semantics; `live_round_event.schema.json` and
+  the server fairway validator are covered by parity/accept-reject checks; and
+  XCUITest journeys cover manual no-GPS start → map/caddie/Touch Target/View
+  Green zoom plus added-shot precision zoom/confirm. The Cloud archive report
+  hash was corrected to
+  `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`.
+  Local AST/JSON/diff checks and a read-only Pydantic smoke in the existing API
+  container passed. Homeserver capacity was about 5.9 GiB, so no new heavy
+  test/build/native session ran; no push, deployment, synchronization, or
+  TestFlight action occurred.
+- 2026-09-02: MAP1 implementation and its focused contract coverage are integrated at
   source baseline `d189b3b4`; focused homeserver contracts pass 147/147 and
   source CI `33680857200` is green. The map-first no-GPS start, factual
   `teeBox=unknown` handling, phone map/caddie flow, manual map distance
   placement, and S70-style drag loupes for Touch Target, Green View, and
-  review edits are covered by the current code and tests.
+  review edits are present in source and focused tests. Full end-to-end
+  no-GPS gesture coverage remains open per the 2026-09-04 Fable audit.
 - 2026-09-02: Deployed the compatible backend candidate from
   `/home/jason/codex-runs/garmin-ai-caddie-map1-deploy-20260902` at revision
   `c16488911038d7e5b47ec310d1aaf05ca29950df`; health and authenticated course

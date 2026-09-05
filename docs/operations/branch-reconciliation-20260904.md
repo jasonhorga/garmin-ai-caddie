@@ -4,7 +4,8 @@ Date: 2026-09-04 UTC
 Owner: Codex
 Review: Fable 5.1 (read-only; handoff recorded in the session)
 Reconciliation branch: `integration/map1-reconcile-20260904`
-Expiry review: 2026-09-11 UTC, or immediately after the PR is merged or closed
+Expiry review: 2026-09-11 UTC, or after the audit handoffs and an
+owner-approved cleanup decision
 
 ## Purpose
 
@@ -91,4 +92,5 @@ entry marked `port-later` or `defer` is included in `79ee08cd`.
 4. Source CI and Native Mobile CI run against the merge SHA and pass.
 5. No TestFlight upload, external distribution, backend deployment, or data write
    is triggered by this reconciliation.
-6. Keep old refs and PRs until the later Cloud whole-repository audit is complete.
+6. Keep old refs and PRs until the whole-repository audit handoffs and owner
+   cleanup decision are complete.

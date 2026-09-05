@@ -155,6 +155,34 @@ final class ReviewEditUITests: XCTestCase {
         ).firstMatch
         XCTAssertTrue(addedCount.waitForExistence(timeout: 5), "one empty-map tap must append a numbered local draft")
         XCTAssertFalse(app.navigationBars["补一杆"].exists, "adding a draft point must not interrupt with the old sheet")
+        // A newly added landing has the same S70-style precision editor as an existing shot. Exercise
+        // the real route through zoom and explicit confirmation; the transient held-finger loupe is
+        // retained in the workflow video because XCTest cannot inspect a view between drag frames.
+        let precisionOpen = app.buttons["round-shot-precision-open"]
+        XCTAssertTrue(
+            bringIntoViewAndTap(precisionOpen, maxSwipes: 5),
+            "a newly added landing must expose its precision magnification action"
+        )
+        let precisionEditor = app.descendants(matching: .any)["round-shot-precision-editor"].firstMatch
+        XCTAssertTrue(
+            precisionEditor.waitForExistence(timeout: 8),
+            "the added landing must open the full-screen precision editor"
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["round-shot-precision-marker"].waitForExistence(timeout: 5),
+            "the precision editor must retain the numbered landing marker"
+        )
+        let precisionZoomIn = app.buttons["round-shot-precision-zoom-in"]
+        XCTAssertTrue(precisionZoomIn.waitForExistence(timeout: 5) && precisionZoomIn.isHittable)
+        precisionZoomIn.tap()
+        XCTAssertTrue(app.buttons["round-shot-precision-zoom-out"].waitForExistence(timeout: 5))
+        let precisionConfirm = app.buttons["round-shot-precision-confirm"]
+        XCTAssertTrue(precisionConfirm.waitForExistence(timeout: 5) && precisionConfirm.isHittable)
+        precisionConfirm.tap()
+        XCTAssertTrue(
+            waitUntilGone(precisionEditor, timeout: 8),
+            "confirming the precision edit must return to the local whole-hole draft"
+        )
         settle(2); save("05-add-draft"); dump("05-add-draft")
 
         // ---- 改这一杆: tap selects the landing first; the explicit details button opens the sheet ----

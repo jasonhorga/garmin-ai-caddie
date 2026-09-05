@@ -972,7 +972,7 @@ class MobileContractTests(unittest.TestCase):
         schema = _load_schema("live_round_event.schema.json")
         kinds = schema["properties"]["kind"]["enum"]
         canonical_payloads = {
-            "score": {"strokes": 4},
+            "score": {"strokes": 4, "fairway": "hit"},
             "club": {"clubName": "8I"},
             "putt": {"putts": 2},
             "penalty": {"penalties": 1},
@@ -1001,6 +1001,26 @@ class MobileContractTests(unittest.TestCase):
             self.assertFalse(payload_rules[kind]["additionalProperties"])
         self.assertEqual(payload_rules["putt"]["required"], ["putts"])
         self.assertNotIn("count", payload_rules["putt"]["properties"])
+        score_properties = payload_rules["score"]["properties"]
+        self.assertEqual(
+            score_properties["fairway"],
+            {"type": "string", "enum": ["hit", "left", "right"]},
+        )
+        # The JSON Schema is an active wire contract. Keep its score fields and enum in lockstep
+        # with the server validator that accepts events from both phone and Watch.
+        from server_v2.models import (
+            _LIVE_EVENT_PAYLOAD_ENUMS,
+            _LIVE_EVENT_PAYLOAD_FIELDS,
+            _LIVE_EVENT_PAYLOAD_FIELD_TYPES,
+        )
+
+        required_fields, optional_fields = _LIVE_EVENT_PAYLOAD_FIELDS["score"]
+        self.assertEqual(set(score_properties), required_fields | optional_fields)
+        self.assertEqual(_LIVE_EVENT_PAYLOAD_FIELD_TYPES["score"]["fairway"], "string")
+        self.assertEqual(
+            set(score_properties["fairway"]["enum"]),
+            _LIVE_EVENT_PAYLOAD_ENUMS[("score", "fairway")],
+        )
         self.assertEqual(payload_rules["penalty"]["required"], ["penalties"])
         self.assertNotIn("count", payload_rules["penalty"]["properties"])
         self.assertEqual(payload_rules["note"]["required"], ["note"])
@@ -1059,6 +1079,48 @@ class MobileContractTests(unittest.TestCase):
         }
 
         _assert_json_schema_accepts(self, schema, {**base_event, "kind": "score", "payload": {"strokes": 4}})
+        _assert_json_schema_accepts(
+            self,
+            schema,
+            {**base_event, "kind": "score", "payload": {"strokes": 4, "fairway": "left"}},
+        )
+        for fairway in ["hit", "left", "right"]:
+            _assert_json_schema_accepts(
+                self,
+                schema,
+                {**base_event, "kind": "score", "payload": {"strokes": 4, "fairway": fairway}},
+            )
+        _assert_json_schema_rejects(
+            self,
+            schema,
+            {**base_event, "kind": "score", "payload": {"strokes": 4, "fairway": "miss"}},
+        )
+        # Exercise the server-side validator as well as the JSON Schema. A drift where only one side
+        # accepts fairway would otherwise stay invisible until a real phone/Watch score is posted.
+        from pydantic import ValidationError
+        from server_v2.models import LiveRoundEventRecord
+
+        for fairway in ["hit", "left", "right"]:
+            record = LiveRoundEventRecord(
+                schema="ai-caddie-live-round-event-v1",
+                eventId=f"server-score-{fairway}",
+                roundId="live-round-1",
+                timestamp="2026-05-25T00:00:00Z",
+                hole=1,
+                kind="score",
+                payload={"strokes": 4, "fairway": fairway},
+            )
+            self.assertEqual(record.payload["fairway"], fairway)
+        with self.assertRaises(ValidationError):
+            LiveRoundEventRecord(
+                schema="ai-caddie-live-round-event-v1",
+                eventId="server-score-invalid-fairway",
+                roundId="live-round-1",
+                timestamp="2026-05-25T00:00:00Z",
+                hole=1,
+                kind="score",
+                payload={"strokes": 4, "fairway": "miss"},
+            )
         _assert_json_schema_rejects(self, schema, {**base_event, "kind": "score", "payload": {"putts": 2}})
         _assert_json_schema_rejects(self, schema, {**base_event, "kind": "score", "payload": {"strokes": 0}})
         _assert_json_schema_rejects(self, schema, {**base_event, "kind": "putt", "payload": {"putts": -1}})
@@ -3748,6 +3810,26 @@ class MobileContractTests(unittest.TestCase):
         live_components = _read_required_source(self, IOS_DIR / "Views" / "LiveHoleComponents.swift")
         self.assertIn("isGreenLive", live_components)
         self.assertIn("实时果岭距离", live_components)
+        self.assertIn('Text(isLive ? "果岭 · 实时" : "发球台 → 果岭")', live_components)
+        self.assertIn("不代表当前位置", live_components)
+        # The manual no-GPS path must be represented by a real UI journey, not only source-string or
+        # pure-function coverage. It starts a searched course, opens Touch Target, and checks the
+        # Tee-referenced distance panel (the transient drag loupe is deliberately left as device/video
+        # evidence, where it can be held without mislabelling a post-release screenshot).
+        tee_selection = _read_required_source(
+            self,
+            Path("mobile") / "ios" / "AICaddieUITests" / "TeeSelectionUITests.swift",
+        )
+        for token in [
+            'app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"',
+            'app.staticTexts["第 1 洞"]',
+            'matching(identifier: "live-open-map-from-hero")',
+            'matching(identifier: "live-map-target-marker")',
+            'label CONTAINS %@", "发球台 → 目标',
+            'app.buttons["live-map-zoom-in"]',
+            'app.buttons["live-green-zoom-in"]',
+        ]:
+            self.assertIn(token, tee_selection)
         # The math is unit-tested (live behaviour is device-only).
         self.assertTrue((IOS_DIR.parent / "AICaddieTests" / "GeoDistanceTests.swift").exists())
 

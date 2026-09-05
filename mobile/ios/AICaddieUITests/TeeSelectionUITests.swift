@@ -29,6 +29,9 @@ final class TeeSelectionUITests: XCTestCase {
                 dataMode: cfg("AI_CADDIE_DATA_MODE")
             )
         ) { _, new in new }
+        // Each XCTest method owns a fresh app launch. Clear the local-only sync guard here so the
+        // no-GPS evidence journey cannot leak its test-only isolation into another method.
+        app.launchEnvironment.removeValue(forKey: "UITEST_DISABLE_EVENT_SYNC")
         // 北京丽宫第 1 洞蓝 T: a real CourseView tee on the same course this flow verifies.
         app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.0454995"
         app.launchEnvironment["UITEST_GPS_LON"] = cfg("UITEST_GPS_LON") ?? "116.5461531"
@@ -263,6 +266,9 @@ final class TeeSelectionUITests: XCTestCase {
         app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LAT")
         app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LON")
         app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "authorized"
+        // Keep this evidence round local to the simulator. The explicit cleanup below still exercises
+        // the real end-menu path, while no score/shot event can reach the owner's backend.
+        app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
         launchFresh()
 
         guard tapContaining(["打球", "开始一场", "开始记分"]) else {
@@ -293,6 +299,108 @@ final class TeeSelectionUITests: XCTestCase {
             waitUntilEnabled(app.buttons["start-round-primary-action"], timeout: 90),
             "an authorized-but-fixless player must still reach a startable real course"
         )
+
+        let start = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(bringIntoView(start, maxSwipes: 20))
+        start.tap()
+        defer { discardActiveRoundForEvidence() }
+
+        let firstHole = app.staticTexts["第 1 洞"]
+        XCTAssertTrue(
+            firstHole.waitForExistence(timeout: 90),
+            "manual search without a GPS fix must enter the first hole immediately"
+        )
+        let factualMap = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "live-hole-map-")
+        ).firstMatch
+        XCTAssertTrue(
+            factualMap.waitForExistence(timeout: 90),
+            "the searched course must render its factual map without waiting for GPS"
+        )
+        let caddieReady = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label == %@", "球童建议已就绪")
+        ).firstMatch
+        XCTAssertTrue(
+            caddieReady.waitForExistence(timeout: 90),
+            "the no-GPS start must still expose the static-map caddie recommendation"
+        )
+        let teeReference = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "发球台 → 果岭")
+        ).firstMatch
+        XCTAssertTrue(
+            teeReference.waitForExistence(timeout: 5),
+            "the no-GPS hero must label its F/M/B values as Tee-referenced static distances"
+        )
+
+        let openMap = app.descendants(matching: .any)
+            .matching(identifier: "live-open-map-from-hero")
+            .firstMatch
+        XCTAssertTrue(
+            openMap.waitForExistence(timeout: 8) && openMap.isHittable,
+            "the first map hero must expose the Touch Target entry point"
+        )
+        openMap.tap()
+
+        let distancePanel = app.descendants(matching: .any)
+            .matching(identifier: "live-map-distance-panel")
+            .firstMatch
+        XCTAssertTrue(
+            distancePanel.waitForExistence(timeout: 8),
+            "Touch Target must expose its distance panel before a target is placed"
+        )
+        let targetMarker = app.descendants(matching: .any)
+            .matching(identifier: "live-map-target-marker")
+            .firstMatch
+        XCTAssertFalse(targetMarker.exists)
+        // The interaction layer is intentionally accessibility-hidden; a normalized coordinate is the
+        // closest representation of the player's tap on the real map surface.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.45)).tap()
+        XCTAssertTrue(
+            targetMarker.waitForExistence(timeout: 8),
+            "a map tap without GPS must create a local Touch Target marker"
+        )
+        let teeToTarget = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "发球台 → 目标")
+        ).firstMatch
+        XCTAssertTrue(
+            teeToTarget.waitForExistence(timeout: 5),
+            "no-GPS Touch Target distances must be labelled from the Tee, not from the phone"
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any).matching(
+                NSPredicate(format: "label CONTAINS %@", "当前位置 → 目标")
+            ).firstMatch.exists,
+            "a no-GPS map target must never claim to start at the current phone location"
+        )
+        let zoomIn = app.buttons["live-map-zoom-in"]
+        XCTAssertTrue(zoomIn.waitForExistence(timeout: 5) && zoomIn.isHittable)
+        zoomIn.tap()
+        XCTAssertTrue(app.buttons["live-map-zoom-out"].waitForExistence(timeout: 5))
+        let closeMap = app.buttons["关闭详细地图"]
+        XCTAssertTrue(closeMap.waitForExistence(timeout: 5) && closeMap.isHittable)
+        closeMap.tap()
+
+        // The green editor is reached from the same no-GPS round. Verify its real zoom surface; the
+        // active drag loupe remains a video/device-evidence concern because XCTest cannot snapshot a
+        // transient, held gesture without mislabelling a post-release frame.
+        let moreAdjust = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "更多调整")
+        ).firstMatch
+        XCTAssertTrue(bringIntoView(moreAdjust, maxSwipes: 14))
+        moreAdjust.tap()
+        let greenEditor = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "放大果岭")
+        ).firstMatch
+        XCTAssertTrue(bringIntoView(greenEditor, maxSwipes: 8))
+        greenEditor.tap()
+        let greenZoomIn = app.buttons["live-green-zoom-in"]
+        XCTAssertTrue(greenZoomIn.waitForExistence(timeout: 8) && greenZoomIn.isHittable)
+        XCTAssertTrue(app.descendants(matching: .any)["live-green-distance-panel"].waitForExistence(timeout: 8))
+        greenZoomIn.tap()
+        XCTAssertTrue(app.buttons["live-green-zoom-out"].waitForExistence(timeout: 5))
+        let closeGreen = app.buttons["关闭果岭地图"]
+        XCTAssertTrue(closeGreen.waitForExistence(timeout: 5) && closeGreen.isHittable)
+        closeGreen.tap()
     }
 
     func testNoCourseWithinFiftyKilometresStillOffersCompleteCatalogueFallback() throws {
@@ -558,6 +666,30 @@ final class TeeSelectionUITests: XCTestCase {
         app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "start-round-course-segment-")
         ).firstMatch
+    }
+
+    /// Keep the no-GPS interaction journey isolated from the next UI test. This follows the same
+    /// user-visible end-menu path as production; `UITEST_DISABLE_EVENT_SYNC` makes the final discard
+    /// local-only and therefore cannot write a synthetic round to the owner's backend.
+    private func discardActiveRoundForEvidence() {
+        guard app.state == .runningForeground else { return }
+        let greenClose = app.buttons["关闭果岭地图"]
+        if greenClose.exists, greenClose.isHittable { greenClose.tap() }
+        let mapClose = app.buttons["关闭详细地图"]
+        if mapClose.exists, mapClose.isHittable { mapClose.tap() }
+        let endMenu = app.buttons["live-round-end-menu"]
+        for _ in 0..<12 where !endMenu.isHittable {
+            app.swipeDown()
+            settle(0.4)
+        }
+        guard endMenu.waitForExistence(timeout: 8), endMenu.isHittable else { return }
+        endMenu.tap()
+        let discard = app.buttons["live-finish-discard"]
+        guard discard.waitForExistence(timeout: 8), discard.isHittable else { return }
+        discard.tap()
+        let confirm = app.buttons["放弃并删除本场记录"]
+        if confirm.waitForExistence(timeout: 5), confirm.isHittable { confirm.tap() }
+        _ = app.staticTexts["打球"].waitForExistence(timeout: 10)
     }
 
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.

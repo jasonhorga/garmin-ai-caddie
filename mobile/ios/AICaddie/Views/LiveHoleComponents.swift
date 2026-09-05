@@ -460,7 +460,7 @@ struct LiveDistanceReadout: View {
                 accessibilityIdentifier: "live-green-front"
             )
             VStack(spacing: 2) {
-                Text("到果岭中")
+                Text(isGreenLive ? "到果岭中" : "发球台 → 果岭中")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(LivePlayStyle.ink60)
                 Text(GeoDistance.greenRangeText(greenCenterYards))
@@ -473,6 +473,9 @@ struct LiveDistanceReadout: View {
                 Text(unitLine)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(LivePlayStyle.ink45)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .accessibilityHint(distanceHint)
             }
             .frame(maxWidth: .infinity)
             side(
@@ -485,8 +488,15 @@ struct LiveDistanceReadout: View {
     private var unitLine: String {
         if GeoDistance.isBeyondUsefulGreenRange(greenCenterYards) { return "离本洞较远" }
         if isGreenLive { return "码 · 实时" }
-        if let toPinYards { return "码 · 到旗杆 \(toPinYards)" }
-        return "码"
+        return "码 · 静态参考"
+    }
+
+    private var distanceHint: String {
+        if isGreenLive { return "距离根据当前位置实时计算。" }
+        if let toPinYards {
+            return "发球台到果岭的静态参考，不代表当前位置；到旗杆约 \(toPinYards) 码。"
+        }
+        return "发球台到果岭的静态参考，不代表当前位置。"
     }
 
     private func side(
@@ -904,9 +914,10 @@ struct LiveMapGreenDistanceOverlay: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(isLive ? "果岭 · 实时" : "到果岭")
+            Text(isLive ? "果岭 · 实时" : "发球台 → 果岭")
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.white.opacity(0.72))
+                .accessibilityHint(isLive ? "距离根据当前位置实时计算。" : "这是发球台到果岭的静态参考，不代表当前位置；可用于球童推荐。")
             distanceRow("后", backYards, LivePlayStyle.back, large: false,
                         accessibilityIdentifier: "live-green-back")
             distanceRow("中", middleYards, .white, large: true,
@@ -925,6 +936,7 @@ struct LiveMapGreenDistanceOverlay: View {
         .background(Color.black.opacity(0.67), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.white.opacity(0.16)))
         .shadow(color: .black.opacity(0.38), radius: 5, y: 3)
+        .accessibilityHint(isLive ? "果岭数值根据当前位置实时计算。" : "果岭数值来自发球台到果岭的静态参考，不代表当前位置；可用于球童推荐。")
     }
 
     private func distanceRow(
