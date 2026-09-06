@@ -57,8 +57,9 @@ Current canonical branch: `integration/v2`.
 The standing automatic rule applies only to the internal upload after green
 gates. If it is explicitly revoked or a required gate fails, stop before the
 Apple action; artifact inspection, simulator evidence, contract checks, and
-branch/repository audits can continue. Build 47 remains available to internal
-testers, but it predates the current P2 follow-up.
+branch/repository audits can continue. Current internal candidate build 48 is
+available to the existing internal group; build 47 remains available as the
+previous candidate and predates the current P2 follow-up.
 
 - Before uploading a connected build, run the release preflight from
   `docs/deployment/private-trial.md` and keep the generated evidence file:

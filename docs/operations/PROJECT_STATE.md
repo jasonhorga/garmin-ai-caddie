@@ -9,11 +9,12 @@
 `d06c97c289570b775507febe0a7ec5b5b901ce9b`; product-code tip
 `caceb88efb0a860f648677aa41a1c14e1eee95f1`; reconciliation merge
 `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
-**Source baseline:** `d06c97c289570b775507febe0a7ec5b5b901ce9b` (the commits after
+**Source baseline:** `b4aa9a71832e03b5620e13178ba299902a8ebd08` (the commits after
 `caceb88e` are documentation-only; the MAP1 product tree and recorded
 `integration/v2` ancestry are unchanged; TestFlight build 47 artifact source
-remains `d189b3b475891225c9ecb86b0f672c12be3c5c40`; current artifact-only build
-48 was built from `8e13623d`; backend runtime revision is
+remains `d189b3b475891225c9ecb86b0f672c12be3c5c40`; the earlier diagnostic
+artifact-only build 48 was built from `8e13623d`; the current uploaded TestFlight
+build 48 is from this canonical tip; backend runtime revision is
 `c16488911038d7e5b47ec310d1aaf05ca29950df`)
 **Release rule:** the gates are ordered, not circular:
 `canonical source -> source/Native CI and backend preflight -> automatic fresh
@@ -73,12 +74,28 @@ prerequisite for the upload workflow.
   and `uploadToTestflight=false`; build 48 is not in App Store Connect. It was
   useful only for package/signing diagnostics; do not repeat a standalone IPA
   build when no upload is authorized.
-- **Apple status:** Read-only App Store Connect run `33687613975` reports
-  build 47 `VALID`, `expired=false`, `internalState=IN_BETA_TESTING`, and
-  `externalState=READY_FOR_BETA_SUBMISSION`. Internal group `Jason's friends`
-  uses `allBuilds=true` and includes build 47. The external `Private Trial`
-  group does not include build 47; no external distribution or Beta Review
-  submission was performed.
+- **TestFlight build 48 (current internal candidate):** iOS TestFlight CD run
+  `34012329292` built from canonical tip `b4aa9a71832e03b5620e13178ba299902a8ebd08`
+  with `test_environment_upload=true`, `upload_to_testflight=true`, and
+  `external_distribution=false`. Apple processed `0.1.0 (48)` successfully.
+  The IPA SHA-256 is
+  `1b1febfdb3919694c1dbf92e818f97f29f65d931cccd0eb7672e31b97276abef`;
+  GitHub artifact `AICaddie-ipa` ID `9982919017` has ZIP digest
+  `sha256:baf955c01a7aacd55a4499945a625e83ecdb929a15c5050c2274ff5089b90528`.
+  Provenance records `uploadRequested=true`, `uploadCompleted=true`, and
+  `uploadToTestflight=true`, with API origin
+  `https://caddie.taile36706.ts.net` and backend revision
+  `c16488911038d7e5b47ec310d1aaf05ca29950df`.
+- **Apple status for build 48:** Read-only App Store Connect run
+  `34012813699` reports build `0.1.0 (48)`, id
+  `a4dc0005-bfda-4b52-a208-391267dc2a31`, `VALID`, `expired=false`,
+  `internalState=IN_BETA_TESTING`, `externalState=READY_FOR_BETA_SUBMISSION`,
+  and `usesNonExemptEncryption=false`. The existing internal group
+  `Jason's friends` is `internal=true`, `allBuilds=true`, and includes build
+  48. The external `Private Trial` group does not include build 48. The same
+  read-only run returned processed app bundle `com.ai-caddie.mobile` with
+  arm64 architecture. No external distribution, Beta Review submission, or
+  group mutation was performed.
 - **Artifact diagnostics:** Exact IPA run `33687517758` passed iOS/Watch
   codesign, bundle/profile/team/version/build binding, profile expiry, and arm
   architecture checks. These checks do not substitute for a physical install.
@@ -94,16 +111,14 @@ prerequisite for the upload workflow.
   diagnostics. The internal hardware-validation retry uses the explicit
   `test_environment_upload=true` path and still enforces health schema,
   authenticated readiness shape, and exact backend revision.
-- **Remaining release gate:** Build 47 is uploaded and visible to the internal
-  all-builds group, but it predates the P2 follow-up. The artifact-only build 48
-  is diagnostic-only and is not installable through TestFlight or a pending
-  release candidate. Once the required source/native checks and backend
-  preflight are green, the next action is an automatic fresh TestFlight build
-  from the canonical tip, uploaded only to the existing internal group, solely
-  to collect physical iPhone/Watch evidence. The workflow does not
-  retroactively upload the artifact-only IPA; record the actual Apple build
-  number and hash from the fresh run. External Beta Review and production
-  promotion remain blocked until the evidence and owner approval are complete.
+- **Remaining release gate:** Current TestFlight build 48 is processed and
+  visible through the existing internal all-builds group. The earlier
+  artifact-only build 48 remains a separate, non-uploaded diagnostic package;
+  it is not the install candidate. Physical iPhone/paired Watch installation,
+  first-launch behavior, held-loupe interaction, exact tester evidence, and
+  S70 touch/Digital Crown comparison remain open. External Beta Review and
+  production promotion remain blocked until the hardware evidence and owner
+  approval are complete.
 - **Post-release cleanup (2026-08-31):** The exact allow-list and protected
   resources are recorded in
   `docs/operations/cleanup-20260831-build46.md`. No source worktree,
@@ -188,13 +203,12 @@ View flag placement, and review shot placement. Release evidence remains open
 under `REL` and is not changed by this slice.
 
 The current product tip has a verified backend deployment and passing live
-iOS/Watch Native evidence. The standalone build-48 artifact is diagnostic only;
-it is not a TestFlight release candidate. The remaining release evidence is
+iOS/Watch Native evidence. The earlier standalone build-48 artifact is
+diagnostic only; the fresh TestFlight build 48 from run `34012329292` is the
+current internal release candidate. The remaining release evidence is
 physical-device installation and first-launch/start verification, exact tester
-qualification, and (if desired) external Beta Review/distribution. A fresh
-internal TestFlight build is automatically run after the required test gates,
-before the hardware test; after Apple status is verified, work stops for the
-hardware handoff.
+qualification, and (if desired) external Beta Review/distribution. Apple status
+has been verified, so work stops at the hardware handoff.
 
 MAP1 implementation evidence (2026-09-02): the Watch/iPhone map-first start,
 pixel-safe Touch Target and Green View editors, S70-style drag loupes, and
@@ -249,11 +263,12 @@ artifact is `9971529102` with digest
 This closes the macOS/simulator portion; held-loupe video on real touch input,
 paired iPhone/Watch installation, and S70 hardware comparison remain
 evidence-open. Commit `caceb88e` was fast-forward pushed to
-`origin/integration/v2`, followed by the documentation tip `12fb5030`; no new
-TestFlight upload, deployment, synchronization, or production data write was
-performed.
+`origin/integration/v2`, followed by documentation tips `12fb5030` and
+`b4aa9a71`; the later internal TestFlight upload and its read-only Apple status
+check are recorded below. No external distribution, synchronization, or
+production data write was performed.
 
-The current-head TestFlight CD artifact-only run `33977405908` then completed
+The earlier current-head TestFlight CD artifact-only run `33977405908` then completed
 successfully from `8e13623d`: Release signing, archive/export, provenance, and
 artifact upload passed. It produced build 48 with IPA SHA-256
 `479dc3e3298e3f8527458752f7a33e2ef22d11d79176047be075d556d24ceafc` and
@@ -261,7 +276,15 @@ artifact `9972807230` (ZIP digest
 `5422bcf511eb3933264dbd7d31c0ff2a865eddc8a2feb114cbb49cb1bcf50829`). The
 workflow explicitly used `upload_to_testflight=false`; no Apple upload or
 deployment side effect occurred. This verifies that the P2 tree is packageable
-as a signed release artifact, but does not close the physical-device gate.
+as a signed release artifact, but it is not the current TestFlight candidate and
+does not close the physical-device gate.
+
+The subsequent internal upload run `34012329292` completed successfully from
+`b4aa9a71`, uploaded and processed build 48, and retained external distribution
+off. Read-only App Store Connect verification run `34012813699` confirmed that
+build 48 is `VALID`, unexpired, in internal beta testing, and included by the
+existing `Jason's friends` all-builds group. This closes the CI/Apple processing
+portion only; it does not claim a physical install.
 
 ### Historical context (retained; earlier snapshots)
 
@@ -652,7 +675,7 @@ project-level task list; historical plans are reference material.
 | `S1` | `done` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Focused backend/Web gates plus Native Mobile CI `32837705596` at `bf84ea8a`: iOS 257 tests, Watch 315 tests, iOS/Watch design snapshots, real iOS flow/video, 11 Watch runtime screenshots, secret scans, and non-empty runtime/build artifacts. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
-| `REL` | `evidence-open` | Release and TestFlight gate; backend/native provenance and build 47 are complete. | CD run `33686521143` processed build `0.1.0 (47)` from `d189b3b4`; diagnostics `33687517758` and ASC status `33687613975` passed/confirmed validity. Current build 48 is artifact-only; its internal upload, physical-device installation, exact tester coverage, and optional external Beta Review remain open. |
+| `REL` | `evidence-open` | Release and TestFlight gate; current internal build 48 is processed and group-visible. | CD run `34012329292` processed build `0.1.0 (48)` from `b4aa9a71`; read-only ASC run `34012813699` confirmed `VALID`, unexpired, `IN_BETA_TESTING`, and included in `Jason's friends` (`allBuilds=true`). Physical iPhone/Watch installation, exact tester evidence, and optional external Beta Review remain open. |
 | `MAP1` | `evidence-open` | No-GPS map-first start and precision placement across Watch/iOS/review. | Prior focused/Native runs remain green; the 2026-09-05 follow-up adds no-GPS hero/map/tee-distance assertions and the review added-shot precision-editor journey, plus fairway schema parity. Native Mobile CI `33970471549` at `12fb5030` passed the iOS/Watch compile, simulator journeys, screenshots, and artifact scans; held-loupe video, physical iPhone/Watch, and S70 hardware proof remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
@@ -696,6 +719,16 @@ means a named external decision or prerequisite is missing; `done` and
   version/build/architecture checks. ASC status run `33687613975` confirmed
   build 47 `VALID`, unexpired, in internal beta testing and included by the
   internal all-builds group; it is not assigned to `Private Trial`.
+- TestFlight CD run `34012329292` built and uploaded current build `0.1.0 (48)`
+  from `b4aa9a71` with external distribution disabled. Apple processing,
+  provenance, and artifact upload passed; IPA SHA-256 is
+  `1b1febfdb3919694c1dbf92e818f97f29f65d931cccd0eb7672e31b97276abef`, and
+  artifact `9982919017` has ZIP digest
+  `sha256:baf955c01a7aacd55a4499945a625e83ecdb929a15c5050c2274ff5089b90528`.
+- Read-only ASC listing run `34012813699` confirmed current build 48 is
+  `VALID`, unexpired, in `IN_BETA_TESTING`, and included in the existing
+  internal all-builds group `Jason's friends`; `Private Trial` excludes it.
+  This run performed no tester, group, review, or distribution mutation.
 - Phase 6 audit run `33687800258` passed provenance/backend/signing/API checks
   and intentionally remained `incomplete` because external review, tester
   coverage, and physical installation are unconfirmed; `install_verified` is
@@ -1050,26 +1083,17 @@ Native runs recorded above; it is retained only as historical diagnosis.
 1. Keep `integration/v2` at the canonical tip and preserve the green source and
    Native Mobile evidence. Do not create another standalone IPA; the existing
    artifact-only package is only a historical signing diagnostic.
-2. When the required source/native CI and backend preflight are green, Codex
-   automatically dispatches `iOS TestFlight (CD)` from the current
-   `integration/v2` tip with `upload_to_testflight=true`, the public API origin,
-   and expected backend revision
-   `c16488911038d7e5b47ec310d1aaf05ca29950df`. This creates a fresh signed
-   binary; the artifact-only build 48 is not uploaded retroactively. Keep
-   external distribution off. Use `test_environment_upload=false` when
-   readiness is healthy; use `true` for this internal hardware-validation path
-   when the authenticated shape/health/revision checks pass but readiness is
-   degraded, and record that degraded status.
-3. After Apple processes the fresh internal candidate, record its actual build
-   number and IPA hash, verify it is visible to the existing internal group,
-   and stop for the hardware handoff. The owner then installs that build on the
-   iPhone and paired Watch and records the no-GPS manual search/start,
-   map/caddie, Touch Target, Green View flag drag plus zoom/loupe, review
-   placement, touch, and Digital Crown/S70 evidence.
-4. Bind the hardware evidence to the actual uploaded build number and run Phase
-   6 readiness. Only when it is complete may the owner separately approve
-   `Private Trial`/Beta Review or production promotion. Never use production
-   synchronization as a test.
+2. Install current TestFlight build `0.1.0 (48)` on the iPhone and paired Watch
+   from the existing internal group. Record build-bound evidence for no-GPS
+   manual search/start, direct map/caddie display, Touch Target distance,
+   Green View flag drag plus zoom/loupe, review placement, touch, and Digital
+   Crown/S70 behavior.
+3. Do not run external Beta Review, external tester distribution, production
+   deployment, or synchronization as part of this handoff. Those are separate
+   owner-approved release actions.
+4. Bind the hardware evidence to build 48 and run Phase 6 readiness. Only when
+   it is complete may the owner separately approve `Private Trial`/Beta Review
+   or production promotion. Never use production synchronization as a test.
 5. Keep the reconciliation branch, old PRs, and historical refs until the
    whole-repository audit handoffs and an explicit allow-listed cleanup decision
    are complete; do not bulk-delete refs.
@@ -1177,7 +1201,7 @@ Native runs recorded above; it is retained only as historical diagnosis.
   container passed. Homeserver capacity was about 5.9 GiB, so no new heavy
   test/build/native session ran; no push, deployment, synchronization, or
   TestFlight action occurred.
-- 2026-09-05: Ran the current-head iOS TestFlight CD workflow
+- 2026-09-05: Ran the earlier current-head iOS TestFlight CD workflow
   `33977405908` from `8e13623d` in artifact-only mode. The signed build 48 and
   provenance passed; IPA SHA-256 is
   `479dc3e3298e3f8527458752f7a33e2ef22d11d79176047be075d556d24ceafc`, and
@@ -1185,6 +1209,16 @@ Native runs recorded above; it is retained only as historical diagnosis.
   `5422bcf511eb3933264dbd7d31c0ff2a865eddc8a2feb114cbb49cb1bcf50829`.
   Provenance confirms all TestFlight upload flags are false; no Apple upload,
   deployment, synchronization, or production data write occurred.
+- 2026-09-06: Ran the standing internal hardware-validation upload from
+  canonical `integration/v2` tip `b4aa9a71` as TestFlight CD run
+  `34012329292`. The authenticated health/schema/revision checks passed under
+  `test_environment_upload=true`; Apple processed build `0.1.0 (48)` and the
+  workflow recorded `uploadToTestflight=true`. IPA SHA-256 is
+  `1b1febfdb3919694c1dbf92e818f97f29f65d931cccd0eb7672e31b97276abef`.
+  The follow-up read-only ASC listing run `34012813699` confirmed build 48 in
+  the existing internal group and absent from `Private Trial`. No external
+  distribution, Beta Review submission, production deployment, synchronization,
+  or production data write occurred.
 - 2026-09-02: MAP1 implementation and its focused contract coverage are integrated at
   source baseline `d189b3b4`; focused homeserver contracts pass 147/147 and
   source CI `33680857200` is green. The map-first no-GPS start, factual
