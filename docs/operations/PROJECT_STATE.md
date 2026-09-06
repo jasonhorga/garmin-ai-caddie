@@ -5,17 +5,15 @@
 > live task queue.
 
 **Updated:** 2026-09-06 UTC
-**Branch:** `integration/v2` (GitHub default; current MAP1 source tip and
-latest CI-verified source tip `c11ddf33704dffbe99c4978e54bb269c7be4002b`;
-product-code tip `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
+**Branch:** `integration/v2` (GitHub default; current source and backend tip
+`caf3afad55e31c3b98a378e0d1cf4c2c5fb5a737`; MAP1 product-code tip
+`5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
 `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
-**Source baseline:** `b4aa9a71832e03b5620e13178ba299902a8ebd08` (the commits after
-`caceb88e` are documentation-only; the MAP1 product tree and recorded
-`integration/v2` ancestry are unchanged; TestFlight build 47 artifact source
-remains `d189b3b475891225c9ecb86b0f672c12be3c5c40`; the earlier diagnostic
-artifact-only build 48 was built from `8e13623d`; the current uploaded TestFlight
-build 49 is from this canonical tip; backend runtime revision is
-`c16488911038d7e5b47ec310d1aaf05ca29950df`)
+**Source baseline:** `caf3afad55e31c3b98a378e0d1cf4c2c5fb5a737` (the commits after
+`caceb88e` are documentation-only except for the Garmin auth fix at this tip;
+the MAP1 product tree and recorded `integration/v2` ancestry are unchanged;
+historical TestFlight build 47/48/49/50 sources remain recorded below; backend
+runtime revision is this same `caf3afad` commit)
 **Release rule:** the gates are ordered, not circular:
 `canonical source -> source/Native CI and backend preflight -> automatic fresh
 internal TestFlight build/upload (the workflow performs signing) -> Apple
@@ -33,15 +31,21 @@ prerequisite for the upload workflow.
 
 ## Current Work Summary
 
-- **Backend candidate:** Deployed from the clean detached checkout at
-  `/home/jason/codex-runs/garmin-ai-caddie-map1-deploy-20260902` at exact
-  revision `c16488911038d7e5b47ec310d1aaf05ca29950df`, in container
-  `aicaddie-release-c1648891-candidate-20260902`; image digest is
-  `sha256:866493b220417d84bf01ac8ed15c4b977c6718304229f810c2d22d3527b6742b`.
-  The public endpoint `https://caddie.taile36706.ts.net` reports healthy
-  `ai-caddie-health-v2`; an authenticated package probe for course `31793`
-  returned 18 holes, 18/18 ready geometries, `teeBox=unknown`, and caddie seed
-  source references.
+- **Backend candidate:** Public revision
+  `caf3afad55e31c3b98a378e0d1cf4c2c5fb5a737` is running in healthy container
+  `aicaddie-release-caf3afad-candidate-20260906`, image
+  `garmin-ai-caddie-api:caf3afad-candidate-20260906` with image ID
+  `sha256:d3411677ba24c7663cdeb1d6b9b442c23af71be02463f89307c6472e63035025`.
+  Public `/api/v2/health` reports `status=ok` and that exact revision. The
+  stopped `ce4d41f0` container is retained as the named rollback target; the
+  deployment record is under
+  `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260906-authfix`.
+- **Garmin login verification fix:** Garmin CN's gateway now requires the
+  browser same-origin fetch metadata on authenticated API calls. Commit
+  `caf3afad` sends `Sec-Fetch-Site: same-origin`, `Sec-Fetch-Mode: cors`, and
+  `Sec-Fetch-Dest: empty`; the controlled comparison changed the same valid
+  Cookie/CSRF request from HTTP 403 to 200, and summary/bag reads succeeded.
+  Source CI run `34043175968` passed backend, frontend, and Docker jobs.
 - **Source CI:** GitHub run `33680857200` at `d189b3b4` passed backend (2,047
   tests, 13 skips), frontend component/lint/build/visual smoke, and Docker
   API/sync smoke jobs.
@@ -84,7 +88,7 @@ prerequisite for the upload workflow.
   and `uploadToTestflight=false`; build 48 is not in App Store Connect. It was
   useful only for package/signing diagnostics; do not repeat a standalone IPA
   build when no upload is authorized.
-- **TestFlight build 48 (current internal candidate):** iOS TestFlight CD run
+- **TestFlight build 48 (historical internal candidate):** iOS TestFlight CD run
   `34012329292` built from canonical tip `b4aa9a71832e03b5620e13178ba299902a8ebd08`
   with `test_environment_upload=true`, `upload_to_testflight=true`, and
   `external_distribution=false`. Apple processed `0.1.0 (48)` successfully.
@@ -96,7 +100,23 @@ prerequisite for the upload workflow.
   `uploadToTestflight=true`, with API origin
   `https://caddie.taile36706.ts.net` and backend revision
   `c16488911038d7e5b47ec310d1aaf05ca29950df`.
-- **TestFlight build 49 (current internal candidate):** iOS TestFlight CD run
+- **TestFlight build 50 (historical auth-state candidate):** iOS TestFlight CD
+  run `34040432333` built and uploaded `0.1.0 (50)` from
+  `4bca0f2ed13d3db93474a32137694d04b734c066`; Apple processed it successfully.
+  Its provenance used API origin `https://caddie.taile36706.ts.net` but the
+  pre-fix backend revision `ce4d41f055a3923ce44ee48bdab9131bb4d1fb74`.
+- **TestFlight build 51 (current internal candidate):** iOS TestFlight CD run
+  `34048458619` built and uploaded `0.1.0 (51)` from
+  `caf3afad55e31c3b98a378e0d1cf4c2c5fb5a737`, with
+  `test_environment_upload=true`, `upload_to_testflight=true`, and
+  `external_distribution=false`. Fastlane waited for and reported Apple
+  processing complete. IPA SHA-256 is
+  `28296cd7c146f344939e910d87ffc16a04c7803dbf95d773a405f8010ff3dcf5`;
+  GitHub artifact `AICaddie-ipa` ID `9993936191` has ZIP digest
+  `sha256:e53c7d8eac7de0d116d9076b3733658eb00e019bc7748ed9cd62f28f857b5c62`.
+  Provenance binds API origin `https://caddie.taile36706.ts.net` and backend
+  revision `caf3afad55e31c3b98a378e0d1cf4c2c5fb5a737`.
+- **TestFlight build 49 (historical internal candidate):** iOS TestFlight CD run
   `34025628804` built from canonical tip
   `c11ddf33704dffbe99c4978e54bb269c7be4002b` with
   `test_environment_upload=true`, `upload_to_testflight=true`, and
@@ -128,6 +148,14 @@ prerequisite for the upload workflow.
   49. The external `Private Trial` group does not include build 49. No
   external distribution, Beta Review submission, or group mutation was
   performed.
+- **Apple status for build 51:** Read-only TestFlight workflow run
+  `34048981151` reports build `0.1.0 (51)`, id
+  `065aa316-6be1-4db7-9ae6-2ccf764b3166`, `VALID`, `expired=false`,
+  `internalState=IN_BETA_TESTING`, `externalState=READY_FOR_BETA_SUBMISSION`,
+  and `usesNonExemptEncryption=false`. The existing internal group
+  `Jason's friends` is `internal=true`, `allBuilds=true`, and includes build
+  51. The external `Private Trial` group was not changed and does not include
+  build 51. The processed app bundle is `com.ai-caddie.mobile`/`arm64`.
 - **Artifact diagnostics:** Exact IPA run `33687517758` passed iOS/Watch
   codesign, bundle/profile/team/version/build binding, profile expiry, and arm
   architecture checks. These checks do not substitute for a physical install.
@@ -143,10 +171,9 @@ prerequisite for the upload workflow.
   diagnostics. The internal hardware-validation retry uses the explicit
   `test_environment_upload=true` path and still enforces health schema,
   authenticated readiness shape, and exact backend revision.
-- **Remaining release gate:** Current TestFlight build 49 is processed and
-  visible through the existing internal all-builds group. The earlier
-  artifact-only build 48 remains a separate, non-uploaded diagnostic package;
-  it is not the install candidate. Physical iPhone/paired Watch installation,
+- **Remaining release gate:** Current TestFlight build 51 is processed and
+  visible through the existing internal all-builds group. Physical
+  iPhone/paired Watch installation, fresh Garmin reconnect/sync behavior,
   first-launch behavior, held-loupe interaction, exact tester evidence, and
   S70 touch/Digital Crown comparison remain open. External Beta Review and
   production promotion remain blocked until the hardware evidence and owner
@@ -227,7 +254,16 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`MAP1` — map-first cold start and precision placement** (`evidence-open`)
+**`GARMIN-AUTH` — reconnect validation and release binding** (`evidence-open`)
+
+The Garmin web login succeeds, but build 50 can still report verification
+failure because it was released before the same-origin gateway fix. The fix is
+source-CI green, Native-CI green, and deployed at exact revision `caf3afad`;
+build 51 is uploaded and visible in the internal group. The diagnostic refresh
+endpoint must not be called again: it rotated the captured session, so the
+user must create a fresh session with one reconnect after this handoff.
+
+The preceding `MAP1` slice remains `evidence-open` for physical-device proof:
 
 The current product slice is applying physical iPhone feedback from TestFlight
 build 48: preserve authoritative A/B/C course-loop metadata over stale local
@@ -238,13 +274,12 @@ underlying features; and make horizontal hole-map swipes change holes without
 stealing map-edit gestures. Release evidence remains open under `REL` and is
 not changed by this slice.
 
-The current product tip has a verified backend deployment and passing live
-iOS/Watch Native evidence. The earlier standalone build-48 artifact is
-diagnostic only; the fresh TestFlight build 49 from run `34025628804` is the
-current internal release candidate. The remaining release evidence is
-physical-device installation and first-launch/start verification, exact tester
-qualification, and (if desired) external Beta Review/distribution. Apple status
-has been verified, so work stops at the hardware handoff.
+The current product tip has a verified backend deployment, passing live
+iOS/Watch Native evidence from run `34045077006`, and current TestFlight build
+51 from run `34048458619`. The remaining release evidence is physical-device
+installation, fresh Garmin reconnect/sync, first-launch/start verification,
+exact tester qualification, and (if desired) external Beta Review/distribution.
+Apple status has been verified, so work stops at the hardware handoff.
 
 MAP1 implementation evidence (2026-09-02): the Watch/iPhone map-first start,
 pixel-safe Touch Target and Green View editors, S70-style drag loupes, and
@@ -711,8 +746,9 @@ project-level task list; historical plans are reference material.
 | `S1` | `done` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Focused backend/Web gates plus Native Mobile CI `32837705596` at `bf84ea8a`: iOS 257 tests, Watch 315 tests, iOS/Watch design snapshots, real iOS flow/video, 11 Watch runtime screenshots, secret scans, and non-empty runtime/build artifacts. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
-| `REL` | `evidence-open` | Release and TestFlight gate; current internal build 49 is processed and group-visible. | CD run `34025628804` processed build `0.1.0 (49)`; read-only ASC run `34026097416` confirmed `VALID`, unexpired, `IN_BETA_TESTING`, and included in `Jason's friends` (`allBuilds=true`). Physical iPhone/Watch installation, exact tester evidence, and optional external Beta Review remain open. |
-| `MAP1` | `evidence-open` | Physical iPhone feedback for course-loop authority, Touch Target/caddie map arcs and landing interpolation, simplified live controls, and horizontal hole navigation. | Product/test commit `5628cc6d` plus Source CI `34021727402` and Native Mobile CI `34021862658` are green; TestFlight build 49 is the current handoff candidate. Held-loupe/device evidence remains open. |
+| `REL` | `evidence-open` | Release and TestFlight gate; current internal build 51 is processed and group-visible. | CD run `34048458619` processed build `0.1.0 (51)` with backend `caf3afad`; read-only run `34048981151` confirmed `VALID`, unexpired, `IN_BETA_TESTING`, and included in `Jason's friends` (`allBuilds=true`). Physical installation, fresh Garmin reconnect, and optional external Beta Review remain open. |
+| `MAP1` | `evidence-open` | Physical iPhone feedback for course-loop authority, Touch Target/caddie map arcs and landing interpolation, simplified live controls, and horizontal hole navigation. | Product/test commit `5628cc6d` plus Source CI `34021727402` and Native Mobile CI `34021862658` are green; TestFlight build 50 contains the MAP1 product tree. Held-loupe/device evidence remains open. |
+| `GARMIN-AUTH` | `evidence-open` | Make a successful Garmin web login validate and synchronize against the current CN gateway, then bind the internal app candidate to that backend. | Commit `caf3afad`, Source CI `34043175968`, controlled 403-to-200 gateway comparison, healthy public deployment, Native Mobile CI `34045077006`, TestFlight CD `34048458619`, and Apple/group check `34048981151` are complete. One new real-device reconnect/sync remains. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 
@@ -727,6 +763,23 @@ means a named external decision or prerequisite is missing; `done` and
 
 ## Completed Evidence
 
+- `caf3afad`: Source CI run `34043175968` passed backend, frontend, and Docker
+  jobs after adding Garmin CN same-origin fetch metadata. Controlled gateway
+  comparison with the same Cookie/CSRF pair changed HTTP 403 to 200.
+- `caf3afad`: Public backend deployment
+  `aicaddie-release-caf3afad-candidate-20260906` is healthy and
+  `/api/v2/health` reports the exact revision. Native Mobile CI run
+  `34045077006` passed all live iOS/Watch steps (`dataMode=live`), including
+  no-GPS/manual-search/map/caddie flow, real screenshots/video, Watch tests and
+  runtime screenshots, evidence writing, and secret scans. Native evidence
+  artifact `9993775235` has ZIP digest
+  `sha256:03de0e455a28fd6ddabc0a218d0e0bc5d5c7536db6fd797eef4d0f77a09601e7`.
+- `caf3afad`: TestFlight CD run `34048458619` uploaded and Apple processed
+  build 51; provenance records API origin and backend revision exactly, with
+  IPA SHA-256 `28296cd7c146f344939e910d87ffc16a04c7803dbf95d773a405f8010ff3dcf5`.
+  Read-only TestFlight run `34048981151` confirmed build 51 `VALID`, unexpired,
+  `IN_BETA_TESTING`, arm64, and included in internal `Jason's friends`; no
+  external group or distribution was changed.
 - `d189b3b4`: Source CI run `33680857200` passed backend (2,047 tests, 13
   skips), frontend component/lint/build/visual smoke, and Docker API/sync
   smoke. The MAP1 mobile source is unchanged from `c5902a96`.
@@ -1118,14 +1171,12 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Fix and regression-test the five build-48 screenshot defects recorded in
-   the current `MAP1` slice, preserving direct map interaction and existing
-   Green View/review precision features.
-2. Push the canonical `integration/v2` source, wait for Source CI, then run the
-   full Native Mobile CI evidence workflow. Do not create a standalone IPA.
-3. When both required gates pass, automatically run the internal-only
-   TestFlight upload, wait for Apple processing, verify the existing internal
-   group read-only, then stop for physical iPhone/Watch validation.
+1. Install TestFlight build 51 on the physical iPhone and paired Watch.
+2. In the app, create a fresh Garmin session and tap reconnect once; confirm
+   the state reads “已连接 · 同步完成” and that no-GPS/manual-search map and
+   caddie flows remain usable.
+3. Capture the held-finger loupe, map placement, and S70 touch/Digital Crown
+   comparison evidence. Do not call the diagnostic Garmin refresh endpoint.
 4. Do not run external Beta Review, external tester distribution, production
    deployment, or synchronization as part of this handoff. Those are separate
    owner-approved release actions.
@@ -1144,8 +1195,8 @@ Native runs recorded above; it is retained only as historical diagnosis.
 - The public Funnel root route was restored on 2026-08-25 from
   `127.0.0.1:443` to `:8080` under user authorization; the route backup
   directory and before/after SHAs are recorded above. Public endpoint checks
-  returned 200. The current public candidate is revision `c1648891...`; the
-  prior `6a6080c6...` image/container is retained as the rollback target. The
+  returned 200. The current public candidate is revision `caf3afad...`; the
+  prior `ce4d41f0...` image/container is retained as the named rollback target. The
   current candidate deployment and its health evidence are recorded above.
 - Physical iPhone/Watch installation, first-launch/start behavior, exact tester
   qualification, and external Beta Review remain unverified. CI and simulator
@@ -1175,6 +1226,25 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## State Changes
 
+- 2026-09-06: Garmin login verification failure was isolated to Garmin CN's
+  same-origin gateway check: the old authenticated request returned 403 and
+  the same Cookie/CSRF request with browser fetch metadata returned 200.
+  Commit `caf3afad` added the headers and regression test; Source CI
+  `34043175968` passed and the healthy public backend now reports that exact
+  revision. `GARMIN-AUTH` remained the sole active slice while Native,
+  TestFlight, and read-only Apple verification ran in order; those gates are
+  now complete and the slice is `evidence-open` only for real-device proof.
+- 2026-09-06: TestFlight build 50 from `4bca0f2e` was uploaded by CD run
+  `34040432333`; read-only ASC run `34040896324` reported `VALID`, unexpired,
+  `IN_BETA_TESTING`, and included in the internal `Jason's friends` group.
+  It predates backend revision `caf3afad`, so it is not the final auth-fix
+  handoff candidate.
+- 2026-09-06: Native Mobile CI `34045077006` passed all live iOS/Watch steps
+  at `caf3afad`; TestFlight CD `34048458619` uploaded/processed build 51 with
+  exact API/backend provenance; read-only Apple/group check `34048981151`
+  confirmed `VALID`, unexpired, internal-beta visibility. External distribution
+  and production state were unchanged; the remaining gate is one fresh Garmin
+  reconnect plus physical iPhone/Watch evidence.
 - 2026-09-06: Physical TestFlight build-48 screenshots reproduced stale
   course-loop labels, incorrect Touch Target/caddie path geometry, duplicate
   5i/6i landing placement, redundant live-play controls, and missing
@@ -1185,8 +1255,8 @@ Native runs recorded above; it is retained only as historical diagnosis.
   landing-to-flag arcs, restores the missing Touch Target first leg, keeps
   moved pixel-only flags authoritative, hides the live media card and redundant
   map rows, and adds live/review horizontal hole navigation. The source and
-  Native gates are recorded below; the resulting internal TestFlight build 49
-  is now the hardware-handoff candidate.
+  Native gates are recorded below; build 49 was the then-current
+  hardware-handoff candidate and has since been superseded by build 51.
 - 2026-09-06: User-provided screenshots `IMG_7757.png` through `IMG_7762.png`
   were located at `/home/ubuntu/` and verified as the original build-48
   feedback set: stale A/B/C labels, missing Touch Target first leg, duplicate
