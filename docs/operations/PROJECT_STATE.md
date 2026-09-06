@@ -5,17 +5,16 @@
 > live task queue.
 
 **Updated:** 2026-09-06 UTC
-**Branch:** `integration/v2` (GitHub default; current MAP1 product source tip
-`5628cc6db31dde310ee5691c3683f750e51b27d8`; latest CI-verified source tip
-`d06c97c289570b775507febe0a7ec5b5b901ce9b`; product-code tip
-`5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
+**Branch:** `integration/v2` (GitHub default; current MAP1 source tip and
+latest CI-verified source tip `c11ddf33704dffbe99c4978e54bb269c7be4002b`;
+product-code tip `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
 `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
 **Source baseline:** `b4aa9a71832e03b5620e13178ba299902a8ebd08` (the commits after
 `caceb88e` are documentation-only; the MAP1 product tree and recorded
 `integration/v2` ancestry are unchanged; TestFlight build 47 artifact source
 remains `d189b3b475891225c9ecb86b0f672c12be3c5c40`; the earlier diagnostic
 artifact-only build 48 was built from `8e13623d`; the current uploaded TestFlight
-build 48 is from this canonical tip; backend runtime revision is
+build 49 is from this canonical tip; backend runtime revision is
 `c16488911038d7e5b47ec310d1aaf05ca29950df`)
 **Release rule:** the gates are ordered, not circular:
 `canonical source -> source/Native CI and backend preflight -> automatic fresh
@@ -50,6 +49,8 @@ prerequisite for the upload workflow.
   backend, frontend visual smoke, and Docker jobs. The commits after the P2
   product tip are documentation-only, so this confirms the canonical checkout
   remains green without changing the app binary.
+- **MAP1 source CI:** GitHub run `34021727402` at `c11ddf33` passed backend,
+  frontend component/lint/build/visual smoke, and Docker API/sync smoke jobs.
 - **Release-handoff documentation CI:** GitHub run `34013149549` at
   `6519065d` passed backend, frontend (component tests, lint, build, and visual
   smoke), and Docker API/sync smoke jobs. This was a documentation-only push;
@@ -62,6 +63,10 @@ prerequisite for the upload workflow.
   between `c5902a96` and the current `d189b3b4` (the latter adds only Python
   contract coverage). Native artifact `9868217071` has digest
   `sha256:70183f3155e434c617b5d53590be8857e6aab791b17dc518c99af04f46aa0415`.
+- **MAP1 Native live evidence:** Native Mobile CI run `34021862658` at
+  `c11ddf33` passed all 38 evidence steps, including the live iOS no-GPS
+  start/map/caddie journey, Touch Target and review precision flows, Watch
+  tests, runtime screenshots, and secret/artifact scans.
 - **TestFlight build 47:** iOS TestFlight CD run `33686521143` built and
   uploaded `0.1.0 (47)` from `d189b3b4`. Apple finished processing it;
   provenance records `uploadRequested=true`, `uploadCompleted=true`, and
@@ -91,6 +96,19 @@ prerequisite for the upload workflow.
   `uploadToTestflight=true`, with API origin
   `https://caddie.taile36706.ts.net` and backend revision
   `c16488911038d7e5b47ec310d1aaf05ca29950df`.
+- **TestFlight build 49 (current internal candidate):** iOS TestFlight CD run
+  `34025628804` built from canonical tip
+  `c11ddf33704dffbe99c4978e54bb269c7be4002b` with
+  `test_environment_upload=true`, `upload_to_testflight=true`, and
+  `external_distribution=false`. Apple processed `0.1.0 (49)` successfully.
+  The IPA SHA-256 is
+  `e6a4feb75aa97c3b845451a9539aa6bbfdfcb0e221dd03f0ef45138a51890746`;
+  GitHub artifact `AICaddie-ipa` ID `9987051978` has ZIP digest
+  `sha256:561057cdf94da9f0b1434dba4dfad34ccb8c21e98403cf9174331ea8883d33fd`.
+  Provenance records `uploadRequested=true`, `uploadCompleted=true`, and
+  `uploadToTestflight=true`, with API origin
+  `https://caddie.taile36706.ts.net` and backend revision
+  `c16488911038d7e5b47ec310d1aaf05ca29950df`.
 - **Apple status for build 48:** Read-only App Store Connect run
   `34012813699` reports build `0.1.0 (48)`, id
   `a4dc0005-bfda-4b52-a208-391267dc2a31`, `VALID`, `expired=false`,
@@ -101,6 +119,15 @@ prerequisite for the upload workflow.
   read-only run returned processed app bundle `com.ai-caddie.mobile` with
   arm64 architecture. No external distribution, Beta Review submission, or
   group mutation was performed.
+- **Apple status for build 49:** Read-only App Store Connect run
+  `34026097416` reports build `0.1.0 (49)`, id
+  `628b9237-402e-4ad2-81d6-a91cd9e00564`, `VALID`, `expired=false`,
+  `internalState=IN_BETA_TESTING`, `externalState=READY_FOR_BETA_SUBMISSION`,
+  and `usesNonExemptEncryption=false`. The existing internal group
+  `Jason's friends` is `internal=true`, `allBuilds=true`, and includes build
+  49. The external `Private Trial` group does not include build 49. No
+  external distribution, Beta Review submission, or group mutation was
+  performed.
 - **Artifact diagnostics:** Exact IPA run `33687517758` passed iOS/Watch
   codesign, bundle/profile/team/version/build binding, profile expiry, and arm
   architecture checks. These checks do not substitute for a physical install.
@@ -116,7 +143,7 @@ prerequisite for the upload workflow.
   diagnostics. The internal hardware-validation retry uses the explicit
   `test_environment_upload=true` path and still enforces health schema,
   authenticated readiness shape, and exact backend revision.
-- **Remaining release gate:** Current TestFlight build 48 is processed and
+- **Remaining release gate:** Current TestFlight build 49 is processed and
   visible through the existing internal all-builds group. The earlier
   artifact-only build 48 remains a separate, non-uploaded diagnostic package;
   it is not the install candidate. Physical iPhone/paired Watch installation,
@@ -200,7 +227,7 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`MAP1` — map-first cold start and precision placement** (`in-progress`)
+**`MAP1` — map-first cold start and precision placement** (`evidence-open`)
 
 The current product slice is applying physical iPhone feedback from TestFlight
 build 48: preserve authoritative A/B/C course-loop metadata over stale local
@@ -213,7 +240,7 @@ not changed by this slice.
 
 The current product tip has a verified backend deployment and passing live
 iOS/Watch Native evidence. The earlier standalone build-48 artifact is
-diagnostic only; the fresh TestFlight build 48 from run `34012329292` is the
+diagnostic only; the fresh TestFlight build 49 from run `34025628804` is the
 current internal release candidate. The remaining release evidence is
 physical-device installation and first-launch/start verification, exact tester
 qualification, and (if desired) external Beta Review/distribution. Apple status
@@ -684,8 +711,8 @@ project-level task list; historical plans are reference material.
 | `S1` | `done` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Focused backend/Web gates plus Native Mobile CI `32837705596` at `bf84ea8a`: iOS 257 tests, Watch 315 tests, iOS/Watch design snapshots, real iOS flow/video, 11 Watch runtime screenshots, secret scans, and non-empty runtime/build artifacts. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
-| `REL` | `evidence-open` | Release and TestFlight gate; current internal build 48 is processed and group-visible. | CD run `34012329292` processed build `0.1.0 (48)` from `b4aa9a71`; read-only ASC run `34012813699` confirmed `VALID`, unexpired, `IN_BETA_TESTING`, and included in `Jason's friends` (`allBuilds=true`). Physical iPhone/Watch installation, exact tester evidence, and optional external Beta Review remain open. |
-| `MAP1` | `in-progress` | Physical iPhone feedback for course-loop authority, Touch Target/caddie map arcs and landing interpolation, simplified live controls, and horizontal hole navigation. | Product/test commit `5628cc6d` covers the build-48 screenshot defects. Fresh Source/Native CI evidence is pending; a new internal TestFlight follows automatically only after those gates pass. |
+| `REL` | `evidence-open` | Release and TestFlight gate; current internal build 49 is processed and group-visible. | CD run `34025628804` processed build `0.1.0 (49)`; read-only ASC run `34026097416` confirmed `VALID`, unexpired, `IN_BETA_TESTING`, and included in `Jason's friends` (`allBuilds=true`). Physical iPhone/Watch installation, exact tester evidence, and optional external Beta Review remain open. |
+| `MAP1` | `evidence-open` | Physical iPhone feedback for course-loop authority, Touch Target/caddie map arcs and landing interpolation, simplified live controls, and horizontal hole navigation. | Product/test commit `5628cc6d` plus Source CI `34021727402` and Native Mobile CI `34021862658` are green; TestFlight build 49 is the current handoff candidate. Held-loupe/device evidence remains open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 
@@ -1157,8 +1184,23 @@ Native runs recorded above; it is retained only as historical diagnosis.
   metadata, interpolates club landing pixels, draws explicit Tee-to-landing and
   landing-to-flag arcs, restores the missing Touch Target first leg, keeps
   moved pixel-only flags authoritative, hides the live media card and redundant
-  map rows, and adds live/review horizontal hole navigation. CI is not yet
-  claimed; Source and full Native Mobile runs remain pending.
+  map rows, and adds live/review horizontal hole navigation. The source and
+  Native gates are recorded below; the resulting internal TestFlight build 49
+  is now the hardware-handoff candidate.
+- 2026-09-06: User-provided screenshots `IMG_7757.png` through `IMG_7762.png`
+  were located at `/home/ubuntu/` and verified as the original build-48
+  feedback set: stale A/B/C labels, missing Touch Target first leg, duplicate
+  5i/6i placement, single caddie path, and redundant live controls.
+- 2026-09-06: MAP1 Source CI `34021727402` and Native Mobile CI `34021862658`
+  passed at `c11ddf33`; no new product-code changes were required after the
+  screenshot review.
+- 2026-09-06: Internal upload attempt `34024843660` timed out during the
+  authenticated backend preflight before Apple upload; ASC listing
+  `34025526071` confirmed build 49 did not exist. A retry `34025628804` then
+  uploaded and processed build 49, and ASC listing `34026097416` confirmed it
+  is valid and visible in `Jason's friends`; external `Private Trial` was not
+  changed. `MAP1` and `REL` remain evidence-open for physical iPhone/Watch
+  installation and interaction proof.
 - 2026-09-04: Fable 5.1 re-evaluated the branch topology. The old
   `integration/v2` line has 46 unique historical commits while MAP1 has 287;
   the safe decision was a history-preserving normal merge with MAP1's tested
