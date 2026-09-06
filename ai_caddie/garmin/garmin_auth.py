@@ -133,6 +133,9 @@ def _csrf_from_existing_or_html(cookie_header: str, csrf_from_cookie: str | None
 
 
 def auth_headers(auth: GarminWebAuth) -> dict[str, str]:
+    # Garmin's current CN gateway applies the same-origin fetch check used by the web app.  A
+    # replayed cookie/CSRF pair is valid, but requests without this browser fetch metadata header
+    # are rejected with 403 before the golf API evaluates the session.
     return {
         "Cookie": auth.cookie_header,
         "connect-csrf-token": auth.csrf_token,
@@ -142,6 +145,9 @@ def auth_headers(auth: GarminWebAuth) -> dict[str, str]:
         "x-app-ver": "5.24.1.3a",
         "x-lang": "zh-CN",
         "x-requested-with": "XMLHttpRequest",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
         "user-agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"

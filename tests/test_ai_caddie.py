@@ -23,7 +23,12 @@ from ai_caddie.history.history import (
     merge_same_day_halves,
 )
 from ai_caddie.geometry import geometry_sync
-from ai_caddie.garmin.garmin_auth import CSRF_META_RE, _cookie_domain_matches
+from ai_caddie.garmin.garmin_auth import (
+    CSRF_META_RE,
+    GarminWebAuth,
+    _cookie_domain_matches,
+    auth_headers,
+)
 
 
 def _require_local_garmin_tests(case: unittest.TestCase) -> None:
@@ -337,6 +342,12 @@ class HistoryTests(unittest.TestCase):
 
 
 class AuthTests(unittest.TestCase):
+    def test_auth_headers_mirror_same_origin_browser_fetch(self) -> None:
+        headers = auth_headers(GarminWebAuth("SESSION=opaque", "csrf-value", "test", 1))
+        self.assertEqual(headers["sec-fetch-site"], "same-origin")
+        self.assertEqual(headers["sec-fetch-mode"], "cors")
+        self.assertEqual(headers["sec-fetch-dest"], "empty")
+
     def test_cookie_domain_match(self) -> None:
         self.assertTrue(_cookie_domain_matches(".connect.garmin.cn"))
         self.assertTrue(_cookie_domain_matches("garmin.cn"))
