@@ -5,9 +5,10 @@
 > live task queue.
 
 **Updated:** 2026-09-06 UTC
-**Branch:** `integration/v2` (GitHub default; latest CI-verified source tip
+**Branch:** `integration/v2` (GitHub default; current MAP1 product source tip
+`5628cc6db31dde310ee5691c3683f750e51b27d8`; latest CI-verified source tip
 `d06c97c289570b775507febe0a7ec5b5b901ce9b`; product-code tip
-`caceb88efb0a860f648677aa41a1c14e1eee95f1`; reconciliation merge
+`5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
 `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
 **Source baseline:** `b4aa9a71832e03b5620e13178ba299902a8ebd08` (the commits after
 `caceb88e` are documentation-only; the MAP1 product tree and recorded
@@ -199,12 +200,16 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`MAP1` — map-first cold start and precision placement** (`evidence-open`)
+**`MAP1` — map-first cold start and precision placement** (`in-progress`)
 
-The current product slice verifies the no-GPS Watch/iPhone start path, two-leg
-map distance semantics, and S70-style magnification for Touch Target, Green
-View flag placement, and review shot placement. Release evidence remains open
-under `REL` and is not changed by this slice.
+The current product slice is applying physical iPhone feedback from TestFlight
+build 48: preserve authoritative A/B/C course-loop metadata over stale local
+records; make Touch Target and each caddie club render distance-accurate aim
+points with two direct airborne arcs (Tee to landing and landing to flag);
+remove redundant live-play media/adjustment chrome while retaining the
+underlying features; and make horizontal hole-map swipes change holes without
+stealing map-edit gestures. Release evidence remains open under `REL` and is
+not changed by this slice.
 
 The current product tip has a verified backend deployment and passing live
 iOS/Watch Native evidence. The earlier standalone build-48 artifact is
@@ -680,7 +685,7 @@ project-level task list; historical plans are reference material.
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
 | `REL` | `evidence-open` | Release and TestFlight gate; current internal build 48 is processed and group-visible. | CD run `34012329292` processed build `0.1.0 (48)` from `b4aa9a71`; read-only ASC run `34012813699` confirmed `VALID`, unexpired, `IN_BETA_TESTING`, and included in `Jason's friends` (`allBuilds=true`). Physical iPhone/Watch installation, exact tester evidence, and optional external Beta Review remain open. |
-| `MAP1` | `evidence-open` | No-GPS map-first start and precision placement across Watch/iOS/review. | Prior focused/Native runs remain green; the 2026-09-05 follow-up adds no-GPS hero/map/tee-distance assertions and the review added-shot precision-editor journey, plus fairway schema parity. Native Mobile CI `33970471549` at `12fb5030` passed the iOS/Watch compile, simulator journeys, screenshots, and artifact scans; held-loupe video, physical iPhone/Watch, and S70 hardware proof remain open. |
+| `MAP1` | `in-progress` | Physical iPhone feedback for course-loop authority, Touch Target/caddie map arcs and landing interpolation, simplified live controls, and horizontal hole navigation. | Product/test commit `5628cc6d` covers the build-48 screenshot defects. Fresh Source/Native CI evidence is pending; a new internal TestFlight follows automatically only after those gates pass. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 
@@ -1086,20 +1091,17 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Keep `integration/v2` at the canonical tip and preserve the green source and
-   Native Mobile evidence. Do not create another standalone IPA; the existing
-   artifact-only package is only a historical signing diagnostic.
-2. Install current TestFlight build `0.1.0 (48)` on the iPhone and paired Watch
-   from the existing internal group. Record build-bound evidence for no-GPS
-   manual search/start, direct map/caddie display, Touch Target distance,
-   Green View flag drag plus zoom/loupe, review placement, touch, and Digital
-   Crown/S70 behavior.
-3. Do not run external Beta Review, external tester distribution, production
+1. Fix and regression-test the five build-48 screenshot defects recorded in
+   the current `MAP1` slice, preserving direct map interaction and existing
+   Green View/review precision features.
+2. Push the canonical `integration/v2` source, wait for Source CI, then run the
+   full Native Mobile CI evidence workflow. Do not create a standalone IPA.
+3. When both required gates pass, automatically run the internal-only
+   TestFlight upload, wait for Apple processing, verify the existing internal
+   group read-only, then stop for physical iPhone/Watch validation.
+4. Do not run external Beta Review, external tester distribution, production
    deployment, or synchronization as part of this handoff. Those are separate
    owner-approved release actions.
-4. Bind the hardware evidence to build 48 and run Phase 6 readiness. Only when
-   it is complete may the owner separately approve `Private Trial`/Beta Review
-   or production promotion. Never use production synchronization as a test.
 5. Keep the reconciliation branch, old PRs, and historical refs until the
    whole-repository audit handoffs and an explicit allow-listed cleanup decision
    are complete; do not bulk-delete refs.
@@ -1146,6 +1148,17 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## State Changes
 
+- 2026-09-06: Physical TestFlight build-48 screenshots reproduced stale
+  course-loop labels, incorrect Touch Target/caddie path geometry, duplicate
+  5i/6i landing placement, redundant live-play controls, and missing
+  horizontal hole navigation. `MAP1` returned to `in-progress`; fresh source,
+  Native, and internal TestFlight evidence is required before hardware handoff.
+- 2026-09-06: MAP1 product/test commit `5628cc6d` reconciles stale A/B/C loop
+  metadata, interpolates club landing pixels, draws explicit Tee-to-landing and
+  landing-to-flag arcs, restores the missing Touch Target first leg, keeps
+  moved pixel-only flags authoritative, hides the live media card and redundant
+  map rows, and adds live/review horizontal hole navigation. CI is not yet
+  claimed; Source and full Native Mobile runs remain pending.
 - 2026-09-04: Fable 5.1 re-evaluated the branch topology. The old
   `integration/v2` line has 46 unique historical commits while MAP1 has 287;
   the safe decision was a history-preserving normal merge with MAP1's tested
