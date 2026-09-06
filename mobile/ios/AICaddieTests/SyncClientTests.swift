@@ -1166,6 +1166,36 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(result.state, "reauth_required")
     }
 
+    func testRunGarminSyncPreservesTypedRunningResponseFrom409() async throws {
+        await MainActor.run { SessionStore.shared.signOut() }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = Data(
+            #"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"running","detail":"busy","reauthRequired":false,"errorCode":"sync_in_progress"}"#.utf8
+        )
+        CapturingURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 409,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session
+        )
+
+        let result = try await client.runGarminSync()
+
+        XCTAssertEqual(result.state, "running")
+        XCTAssertEqual(result.errorCode, "sync_in_progress")
+        XCTAssertFalse(result.reauthRequired)
+    }
+
     func testFetchGarminSyncStatusDecodesAuthoritativeLastRun() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]

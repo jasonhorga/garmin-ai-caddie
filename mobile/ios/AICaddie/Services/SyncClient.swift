@@ -57,6 +57,16 @@ public struct GarminSyncRunResponse: Codable, Equatable {
     public let errorCode: String?
 }
 
+/// Result of a user-visible Garmin pull. A saved web session is not a successful
+/// connection until the remote pull has been accepted; an occupied server lock is
+/// therefore a distinct, non-error outcome.
+public enum GarminSyncOutcome: Equatable {
+    case completed
+    case inProgress
+    case reauthRequired
+    case failed
+}
+
 public struct GarminSyncLastRunResponse: Codable, Equatable {
     public let state: String
     public let detail: String
@@ -425,11 +435,12 @@ public final class SyncClient {
 
         // The backend returns the typed run payload for re-auth and connector failures even though
         // their HTTP status is non-2xx. Preserve that actionable state for the consumer UI; an
-        // untyped 409 such as "sync already in progress" still goes through the normal HTTP error.
+        // A typed 409 is still actionable: re-auth, connector failure, and an occupied
+        // sync lock each have a state the UI can present without guessing from text.
         if let http = response as? HTTPURLResponse,
            !(200..<300).contains(http.statusCode),
            let run = try? decoder.decode(GarminSyncRunResponse.self, from: data),
-           run.state == "reauth_required" || run.state == "error" {
+           ["reauth_required", "error", "running", "syncing"].contains(run.state) {
             return run
         }
         try validate(response: response, data: data)

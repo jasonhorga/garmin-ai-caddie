@@ -128,6 +128,25 @@ class ServerV2SyncStatusTests(unittest.TestCase):
         self.assertEqual(payload["lastRun"]["errorCode"], "auth_failed")
         self.assertIsNotNone(payload["lastRun"]["updatedAt"])
 
+    def test_build_sync_status_exposes_running_state_and_wait_action(self) -> None:
+        from ai_caddie.connectors.snapshot import write_connector_status
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_connector_status(
+                root=root,
+                state="running",
+                detail="Garmin sync is in progress.",
+                snapshot_id=None,
+            )
+            payload = build_sync_status_response(root=root, data_mode="local").model_dump()
+
+        self.assertEqual(payload["connector"]["state"], "running")
+        self.assertFalse(payload["connector"]["canSync"])
+        self.assertFalse(payload["connector"]["reauthRequired"])
+        self.assertEqual(payload["connector"]["nextAction"], "wait_for_sync")
+        self.assertEqual(payload["lastRun"]["state"], "running")
+
     def test_reauth_required_status_preserves_last_successful_snapshot_metadata(self) -> None:
         from ai_caddie.connectors.snapshot import write_connector_status
 
@@ -335,7 +354,7 @@ class ServerV2SyncStatusTests(unittest.TestCase):
         self.assertNotIn("schema_", payload)
         self.assertIn(
             payload["connector"]["state"],
-            ["ready", "no_data", "reauth_required", "error"],
+            ["ready", "no_data", "running", "reauth_required", "error"],
         )
 
 

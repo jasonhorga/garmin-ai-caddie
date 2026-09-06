@@ -78,6 +78,10 @@ final class AICaddieAppTests: XCTestCase {
             "当前 Apple 账号无权连接此 Garmin"
         )
         XCTAssertEqual(
+            GarminSessionView.importErrorMessage(SyncClientError.http(status: 409, body: nil)),
+            "同步正在进行，请稍后重试"
+        )
+        XCTAssertEqual(
             GarminSessionView.importErrorMessage(URLError(.timedOut)),
             "连接失败，请重试"
         )
@@ -102,5 +106,53 @@ final class AICaddieAppTests: XCTestCase {
         XCTAssertTrue(GarminWebSessionCaptureView.Coordinator.shouldRetryCapture(attempt: 2))
         XCTAssertFalse(GarminWebSessionCaptureView.Coordinator.shouldRetryCapture(attempt: 3))
         XCTAssertFalse(GarminWebSessionCaptureView.Coordinator.shouldRetryCapture(attempt: -1))
+    }
+
+    func testGarminCookieCaptureKeepsChinaSessionCookiesAndDeduplicatesByName() throws {
+        let future = Date(timeIntervalSinceNow: 300)
+        let expired = Date(timeIntervalSinceNow: -300)
+        let cookies = [
+            try XCTUnwrap(Self.cookie(name: "SESSION", value: "root", domain: ".garmin.cn", expires: future)),
+            try XCTUnwrap(Self.cookie(name: "SESSION", value: "specific", domain: "connect.garmin.cn", path: "/app", expires: future)),
+            try XCTUnwrap(Self.cookie(name: "TRACK", value: "sso", domain: ".garmin.com", expires: future)),
+            try XCTUnwrap(Self.cookie(name: "OLD", value: "gone", domain: ".garmin.cn", expires: expired)),
+            try XCTUnwrap(Self.cookie(name: "CSRF", value: "csrf-value", domain: "connect.garmin.cn", expires: future)),
+        ]
+
+        let pairs = GarminWebSessionCaptureView.Coordinator.garminCookiePairs(from: cookies)
+
+        XCTAssertEqual(Set(pairs), Set(["SESSION=specific", "CSRF=csrf-value"]))
+        XCTAssertTrue(GarminWebSessionCaptureView.isOfficialGarminHost("connect.garmin.cn"))
+        XCTAssertFalse(GarminWebSessionCaptureView.Coordinator.isChinaConnectCookieDomain("connect.garmin.com"))
+        XCTAssertEqual(
+            GarminWebSessionCaptureView.Coordinator.antiForgeryValue(from: cookies, javaScriptValue: "js-value"),
+            "csrf-value"
+        )
+    }
+
+    func testLegacyGarminSessionMaterialDecodesAsUnverified() throws {
+        let payload = Data(
+            #"{"webSessionHeader":"SESSION=abc","antiForgeryValue":"csrf","storedAt":"2026-09-06T12:00:00Z"}"#.utf8
+        )
+        let material = try JSONDecoder().decode(GarminSessionMaterial.self, from: payload)
+
+        XCTAssertNil(material.verifiedAt)
+        XCTAssertEqual(material.withVerifiedAt("2026-09-06T12:01:00Z").verifiedAt, "2026-09-06T12:01:00Z")
+    }
+
+    private static func cookie(
+        name: String,
+        value: String,
+        domain: String,
+        path: String = "/",
+        expires: Date
+    ) -> HTTPCookie? {
+        HTTPCookie(properties: [
+            .name: name,
+            .value: value,
+            .domain: domain,
+            .path: path,
+            .expires: expires,
+        ])
     }
 }

@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 from fastapi.testclient import TestClient
 
 from ai_caddie.connectors.base import ConnectorRunResult, SnapshotManifest
+from server_v2 import main
 from server_v2.main import app
 
 
@@ -156,6 +157,17 @@ class ServerV2SyncRunTests(unittest.TestCase):
         self.assertTrue(payload["reauthRequired"])
         self.assertNotIn("cookie", str(payload).lower())
         self.assertNotIn("csrf", str(payload).lower())
+
+    def test_sync_garmin_endpoint_returns_typed_running_payload_when_lock_is_busy(self) -> None:
+        with main._SYNC_LOCK:
+            response = TestClient(app).post("/api/v2/sync/garmin")
+
+        self.assertEqual(response.status_code, 409)
+        payload = response.json()
+        self.assertEqual(payload["state"], "running")
+        self.assertEqual(payload["errorCode"], "sync_in_progress")
+        self.assertFalse(payload["reauthRequired"])
+        self.assertIsNone(payload["snapshot"])
 
     def test_sync_garmin_endpoint_redacts_secret_terms_from_response(self) -> None:
         connector = Mock()

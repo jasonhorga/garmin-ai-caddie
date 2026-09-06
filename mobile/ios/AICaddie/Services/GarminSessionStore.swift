@@ -5,11 +5,45 @@ public struct GarminSessionMaterial: Codable, Equatable {
     public let webSessionHeader: String
     public let antiForgeryValue: String
     public let storedAt: String
+    /// A captured WebView session is only material, not a connected account. This timestamp is
+    /// written after the backend has completed a real Garmin pull successfully. It is optional so
+    /// keychain records written by older builds continue to decode as "待验证".
+    public let verifiedAt: String?
 
-    public init(webSessionHeader: String, antiForgeryValue: String, storedAt: String) {
+    private enum CodingKeys: String, CodingKey {
+        case webSessionHeader
+        case antiForgeryValue
+        case storedAt
+        case verifiedAt
+    }
+
+    public init(
+        webSessionHeader: String,
+        antiForgeryValue: String,
+        storedAt: String,
+        verifiedAt: String? = nil
+    ) {
         self.webSessionHeader = webSessionHeader
         self.antiForgeryValue = antiForgeryValue
         self.storedAt = storedAt
+        self.verifiedAt = verifiedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        webSessionHeader = try container.decode(String.self, forKey: .webSessionHeader)
+        antiForgeryValue = try container.decode(String.self, forKey: .antiForgeryValue)
+        storedAt = try container.decode(String.self, forKey: .storedAt)
+        verifiedAt = try container.decodeIfPresent(String.self, forKey: .verifiedAt)
+    }
+
+    public func withVerifiedAt(_ value: String?) -> GarminSessionMaterial {
+        GarminSessionMaterial(
+            webSessionHeader: webSessionHeader,
+            antiForgeryValue: antiForgeryValue,
+            storedAt: storedAt,
+            verifiedAt: value
+        )
     }
 }
 

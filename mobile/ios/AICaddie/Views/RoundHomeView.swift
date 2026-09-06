@@ -51,6 +51,9 @@ public struct RoundHomeView: View {
     public let onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void
     public let onSync: () -> Void
     public let onGarminSessionImported: () async -> Bool
+    /// Typed variant used by the Garmin account screen. The Bool callback remains as a compatibility
+    /// bridge for older snapshot/test callers.
+    public let onGarminSessionImportedOutcome: (() async -> GarminSyncOutcome)?
     public let onRefreshGarminSyncStatus: () async -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
@@ -111,6 +114,7 @@ public struct RoundHomeView: View {
         onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
         onSync: @escaping () -> Void = {},
         onGarminSessionImported: @escaping () async -> Bool = { false },
+        onGarminSessionImportedOutcome: (() async -> GarminSyncOutcome)? = nil,
         onRefreshGarminSyncStatus: @escaping () async -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
@@ -161,6 +165,7 @@ public struct RoundHomeView: View {
         self.onRetainReadyHolePrep = onRetainReadyHolePrep
         self.onSync = onSync
         self.onGarminSessionImported = onGarminSessionImported
+        self.onGarminSessionImportedOutcome = onGarminSessionImportedOutcome
         self.onRefreshGarminSyncStatus = onRefreshGarminSyncStatus
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
@@ -574,7 +579,8 @@ public struct RoundHomeView: View {
                             apiBaseURL: apiBaseURL,
                             adminToken: adminToken,
                             sessionStore: sessionStore,
-                            onSessionImported: onGarminSessionImported
+                            onSessionImported: onGarminSessionImported,
+                            onSessionImportedOutcome: onGarminSessionImportedOutcome
                         )
                     } label: {
                         Label("Garmin 账号", systemImage: "link")

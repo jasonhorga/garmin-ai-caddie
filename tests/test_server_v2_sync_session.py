@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from ai_caddie.connectors.sync_lock import acquire_sync_lock
 from server_v2.main import app
 
 
@@ -124,6 +125,26 @@ class ServerV2SyncSessionTests(unittest.TestCase):
                 token_dir_exists = (root / ".garmin_tokens").exists()
 
         self.assertEqual(response.status_code, 422)
+        self.assertFalse(token_dir_exists)
+
+    def test_sync_session_endpoint_returns_busy_without_replacing_material(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.session.SESSION_ROOT", root):
+                with acquire_sync_lock(root):
+                    response = client.post(
+                        "/api/v2/sync/garmin/session",
+                        json={
+                            "webSessionHeader": "Cookie: JWT_WEB=new",
+                            "antiForgeryValue": "connect-csrf-token: new-csrf",
+                        },
+                    )
+                token_dir_exists = (root / ".garmin_tokens").exists()
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("sync is in progress", response.text)
         self.assertFalse(token_dir_exists)
 
 

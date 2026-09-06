@@ -238,13 +238,34 @@ def main(argv: list[str] | None = None) -> int:
     import json
     import sys
 
+    from ai_caddie.connectors.snapshot import write_connector_status
+    from ai_caddie.connectors.sync_lock import SyncInProgress, acquire_sync_lock
+
     argv = sys.argv[1:] if argv is None else argv
     geometry_limit = _int_arg(argv, "--geometry-limit")
-    result = sync(with_shots="--shots" in argv, force_refresh="--refresh-auth" in argv, geometry_limit=geometry_limit)
     try:
-        _persist_sync_observability(result)
-    except Exception:  # noqa: BLE001 - status persistence must not hide the sync result
-        result.notes.append("sync status persistence failed (data sync result is still valid)")
+        # The cron process and the API container share the same data volume. Keep
+        # the lock around the complete run so their monkey-patched fetch paths and
+        # status files cannot overlap.
+        with acquire_sync_lock(ROOT):
+            write_connector_status(
+                root=ROOT,
+                state="running",
+                detail="Garmin sync is in progress.",
+                snapshot_id=None,
+            )
+            result = sync(
+                with_shots="--shots" in argv,
+                force_refresh="--refresh-auth" in argv,
+                geometry_limit=geometry_limit,
+            )
+            try:
+                _persist_sync_observability(result)
+            except Exception:  # noqa: BLE001 - status persistence must not hide the sync result
+                result.notes.append("sync status persistence failed (data sync result is still valid)")
+    except SyncInProgress:
+        print(json.dumps({"state": "running", "detail": "Garmin sync already in progress; skipped."}, ensure_ascii=False))
+        return 0
     print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
     return 0 if result.auth_ok else 1
 

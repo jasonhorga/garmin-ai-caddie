@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from ai_caddie import pipeline
 from ai_caddie.courses.course_reference import CoursePar
+from ai_caddie.connectors.sync_lock import acquire_sync_lock
 from ai_caddie.history.history import HistoryData
 
 
@@ -134,6 +135,22 @@ class PipelineSyncTests(unittest.TestCase):
         self.assertIn('"auth_ok": true', stdout.getvalue())
         sync_call.assert_called_once_with(with_shots=True, force_refresh=True, geometry_limit=50)
         persist.assert_called_once()
+
+    def test_main_skips_when_shared_sync_lock_is_busy(self) -> None:
+        stdout = io.StringIO()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with acquire_sync_lock(root):
+                with (
+                    patch.object(pipeline, "ROOT", root),
+                    patch.object(pipeline, "sync") as sync_call,
+                    redirect_stdout(stdout),
+                ):
+                    code = pipeline.main([])
+
+        self.assertEqual(code, 0)
+        sync_call.assert_not_called()
+        self.assertIn('"state": "running"', stdout.getvalue())
 
     def test_persist_sync_observability_writes_status_without_fake_snapshot(self) -> None:
         with TemporaryDirectory() as tmp:

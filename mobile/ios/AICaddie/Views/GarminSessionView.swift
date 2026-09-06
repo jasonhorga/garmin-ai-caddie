@@ -9,7 +9,10 @@ public struct GarminSessionView: View {
     public let apiBaseURL: URL?
     public let adminToken: String?
     public let sessionStore: GarminSessionStore?
+    /// Kept for source compatibility with older callers. New callers should use the typed outcome
+    /// callback so a busy sync is not collapsed into a generic Bool failure.
     public let onSessionImported: (() async -> Bool)?
+    public let onSessionImportedOutcome: (() async -> GarminSyncOutcome)?
 
     @State private var statusText = "未连接"
     @State private var isImporting = false
@@ -22,12 +25,14 @@ public struct GarminSessionView: View {
         apiBaseURL: URL? = nil,
         adminToken: String? = nil,
         sessionStore: GarminSessionStore? = GarminSessionStore(),
-        onSessionImported: (() async -> Bool)? = nil
+        onSessionImported: (() async -> Bool)? = nil,
+        onSessionImportedOutcome: (() async -> GarminSyncOutcome)? = nil
     ) {
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
         self.sessionStore = sessionStore
         self.onSessionImported = onSessionImported
+        self.onSessionImportedOutcome = onSessionImportedOutcome
     }
 
     public var body: some View {
@@ -55,8 +60,7 @@ public struct GarminSessionView: View {
         }
         .navigationTitle("连接 Garmin")
         .task {
-            connected = hasStoredSession()
-            statusText = connected ? "已连接" : "未连接"
+            refreshStoredSessionPresentation()
         }
         .sheet(isPresented: $showingWebLogin) {
             NavigationStack {
@@ -107,6 +111,7 @@ public struct GarminSessionView: View {
 
     @MainActor
     private func importCapturedSession(_ captured: CapturedGarminWebSession) async {
+        guard !isImporting else { return }
         guard let apiBaseURL else {
             statusText = "暂无法连接,请稍后重试"
             webLoginStatus = "暂无法连接后端，请稍后重试"
@@ -131,29 +136,54 @@ public struct GarminSessionView: View {
                 GarminSessionMaterial(
                     webSessionHeader: captured.webSessionHeader,
                     antiForgeryValue: captured.antiForgeryValue,
-                    storedAt: captured.capturedAt
+                    storedAt: captured.capturedAt,
+                    verifiedAt: nil
                 )
             )
-            connected = hasStoredSession()
-            if let onSessionImported {
-                // The parent settings screen is the sole owner of Garmin sync state. Keep this
-                // account page connection-focused while the parent performs its refresh; otherwise
-                // two independent labels briefly report the same operation and can disagree.
-                statusText = "已连接"
-                webLoginStatus = "已连接，正在同步 Garmin 数据…"
-                let syncSucceeded = await onSessionImported()
-                if syncSucceeded {
-                    statusText = "已连接 · 同步完成"
-                    webLoginStatus = "已连接 · 同步完成"
-                    showingWebLogin = false
-                } else {
-                    statusText = "已连接 · 同步失败"
-                    webLoginStatus = "已连接，但同步失败，请重试"
-                }
+            connected = false
+            statusText = "正在验证 Garmin 登录"
+            webLoginStatus = "已保存，正在验证 Garmin 数据访问…"
+
+            let outcome: GarminSyncOutcome?
+            if let onSessionImportedOutcome {
+                outcome = await onSessionImportedOutcome()
+            } else if let onSessionImported {
+                outcome = (await onSessionImported()) ? .completed : .failed
             } else {
-                statusText = "已连接 · 登录完成"
-                webLoginStatus = "已连接 · 登录完成"
+                outcome = nil
+            }
+
+            guard let outcome else {
+                statusText = "待验证"
+                webLoginStatus = "登录信息已保存，完成一次同步后才会显示已连接"
                 showingWebLogin = false
+                return
+            }
+            switch outcome {
+            case .completed:
+                guard markStoredSessionVerified() else {
+                    connected = false
+                    statusText = "验证结果未保存，请重试"
+                    webLoginStatus = "Garmin 已完成同步，但本机验证状态保存失败，请重试"
+                    return
+                }
+                connected = true
+                statusText = "已连接 · 同步完成"
+                webLoginStatus = "已连接 · 同步完成"
+                showingWebLogin = false
+            case .inProgress:
+                connected = false
+                statusText = "同步正在进行，请稍后查看"
+                webLoginStatus = "同步正在进行，请稍后查看"
+                showingWebLogin = false
+            case .reauthRequired:
+                connected = false
+                statusText = "Garmin 登录验证失败，请重新连接"
+                webLoginStatus = "Garmin 登录验证失败，请重新连接"
+            case .failed:
+                connected = false
+                statusText = "Garmin 连接验证失败，请重试"
+                webLoginStatus = "Garmin 连接验证失败，请重试"
             }
         } catch {
             if Self.shouldInvalidateAppleSession(error, environment: ProcessInfo.processInfo.environment) {
@@ -185,6 +215,9 @@ public struct GarminSessionView: View {
         if case let SyncClientError.http(status, _) = error, status == 403 {
             return "当前 Apple 账号无权连接此 Garmin"
         }
+        if case let SyncClientError.http(status, _) = error, status == 409 {
+            return "同步正在进行，请稍后重试"
+        }
         if case let SyncClientError.http(status, _) = error, (400..<500).contains(status) {
             return "Garmin 登录信息无效，请重新登录"
         }
@@ -207,6 +240,39 @@ public struct GarminSessionView: View {
         }
     }
 
+    @MainActor
+    private func refreshStoredSessionPresentation() {
+        guard let material = loadStoredSession() else {
+            connected = false
+            statusText = "未连接"
+            return
+        }
+        guard material.verifiedAt != nil else {
+            connected = false
+            statusText = "待验证"
+            return
+        }
+        connected = true
+        statusText = "已连接"
+    }
+
+    /// Mark the exact captured material as verified only after a real Garmin sync completed. A
+    /// missing keychain item is treated as a failed verification instead of showing a false green
+    /// connection badge.
+    @discardableResult
+    private func markStoredSessionVerified() -> Bool {
+        guard let sessionStore else { return true }
+        do {
+            guard let material = try sessionStore.loadSession() else { return false }
+            if material.verifiedAt != nil { return true }
+            let formatter = ISO8601DateFormatter()
+            try sessionStore.saveSession(material.withVerifiedAt(formatter.string(from: Date())))
+            return true
+        } catch {
+            return false
+        }
+    }
+
     private func loadStoredSession() -> GarminSessionMaterial? {
         guard let sessionStore else {
             return nil
@@ -218,7 +284,4 @@ public struct GarminSessionView: View {
         }
     }
 
-    private func hasStoredSession() -> Bool {
-        loadStoredSession() != nil
-    }
 }

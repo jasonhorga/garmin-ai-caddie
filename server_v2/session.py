@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from ai_caddie.connectors.garmin_cn import garmin_token_dir
 from ai_caddie.connectors.session_material import save_garmin_cn_web_session
+from ai_caddie.connectors.sync_lock import SyncInProgress, acquire_sync_lock
 from ai_caddie.core.data import ROOT
 from ai_caddie.rounds.players import OWNER_ID
 
@@ -30,13 +31,21 @@ def save_garmin_session_response(
     bind_root = token_dir.parent  # owner -> SESSION_ROOT; member -> SESSION_ROOT/data/players/<id>
     data_dir = None if player_id == OWNER_ID else bind_root
     try:
-        payload = save_garmin_cn_web_session(
-            web_session_header=request.webSessionHeader,
-            anti_forgery_value=request.antiForgeryValue,
-            source=request.source,
-            root=bind_root,
-            data_dir=data_dir,
-        )
+        # Session files and the legacy fetch module are shared by the API and cron. Do not replace
+        # credentials while a sync is reading them; the same lock also serializes two login imports.
+        with acquire_sync_lock(SESSION_ROOT):
+            payload = save_garmin_cn_web_session(
+                web_session_header=request.webSessionHeader,
+                anti_forgery_value=request.antiForgeryValue,
+                source=request.source,
+                root=bind_root,
+                data_dir=data_dir,
+            )
+    except SyncInProgress as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Garmin sync is in progress; retry session connection after it finishes.",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return GarminSessionImportResponse(**payload)

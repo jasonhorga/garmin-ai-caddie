@@ -91,6 +91,7 @@ def _next_action(state: str) -> str | None:
     return {
         "no_data": "connect_garmin",
         "ready": "review_history",
+        "running": "wait_for_sync",
         "reauth_required": "reauthenticate_garmin",
         "error": "inspect_sync_error",
     }.get(state)
@@ -144,7 +145,10 @@ def build_sync_status_response(
         geometry_ready_count = sum(1 for row in live_geometry_dependencies if row.get("status") == "ready")
         geometry_missing_count = sum(1 for row in live_geometry_dependencies if row.get("status") == "missing")
     has_data = scorecard_count > 0
-    if persisted_state in {"reauth_required", "error"}:
+    if persisted_state == "running":
+        state = "running"
+        detail = sanitize_secret_text(persisted.get("detail") or "Garmin sync is in progress.")
+    elif persisted_state in {"reauth_required", "error"}:
         state = persisted_state
         detail = sanitize_secret_text(persisted.get("detail") or "Garmin connector needs attention.")
     else:
@@ -178,7 +182,7 @@ def build_sync_status_response(
         name="garmin_cn_web_session",
         state=state,
         detail=detail,
-        canSync=state != "reauth_required",
+        canSync=state not in {"reauth_required", "running"},
         reauthRequired=state == "reauth_required",
         nextAction=_next_action(state),
     )

@@ -18,9 +18,15 @@ def _reject_oversized(value: Any, *, label: str, max_bytes: int = 131_072) -> An
 DataQualityState = Literal["good", "partial", "missing"]
 ScoreClass = Literal["eagle", "birdie", "par", "bogey", "double", "missing"]
 DistributionClass = Literal["eagle", "birdie", "bogey", "double"]
-ConnectorState = Literal["ready", "no_data", "reauth_required", "error", "not_available"]
+ConnectorState = Literal["ready", "no_data", "running", "reauth_required", "error", "not_available"]
 ConnectorName = Literal["garmin_cn_web_session", "garmin_oauth_feasibility"]
-ConnectorNextAction = Literal["connect_garmin", "review_history", "reauthenticate_garmin", "inspect_sync_error"]
+ConnectorNextAction = Literal[
+    "connect_garmin",
+    "review_history",
+    "wait_for_sync",
+    "reauthenticate_garmin",
+    "inspect_sync_error",
+]
 ResolvedDataModeName = Literal["local", "fixture"]
 ReportConfidence = Literal["low", "medium", "high"]
 GeometryCoverageState = Literal["ready", "partial", "missing"]

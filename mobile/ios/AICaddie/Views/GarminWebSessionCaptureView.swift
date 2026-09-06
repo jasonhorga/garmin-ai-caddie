@@ -83,6 +83,10 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
         private var lastRetryToken: Int
         private var golfProbeUsed = false
         private var captureGeneration = 0
+        /// A page can finish several times while Garmin redirects and hydrates its session. Once
+        /// one material has been handed to the importer, suppress those duplicate callbacks until
+        /// the user explicitly asks for another check.
+        private var captureInFlight = false
 
         static func shouldRetryCapture(attempt: Int) -> Bool {
             attempt >= 0 && attempt + 1 < maxCaptureAttempts
@@ -105,6 +109,7 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
             // An explicit user retry must be able to re-import the same valid material after a
             // transient backend failure; automatic navigation callbacks remain fingerprint-deduped.
             lastFingerprint = nil
+            captureInFlight = false
             retryCapture(from: webView)
         }
 
@@ -184,7 +189,7 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
                 guard let self, let webView, generation == self.captureGeneration else {
                     return
                 }
-                let garminCookies = cookies.filter { GarminWebSessionCaptureView.isOfficialGarminHost($0.domain) }
+                let garminCookies = Self.chinaConnectCookies(from: cookies)
                 let cookiePairs = Self.garminCookiePairs(from: garminCookies)
                 guard !cookiePairs.isEmpty else {
                     if self.scheduleCaptureRetry(
@@ -199,7 +204,11 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
                 }
                 webView.evaluateJavaScript(Self.csrfProbeScript) { value, _ in
                     guard generation == self.captureGeneration else { return }
-                    let antiForgery = Self.antiForgeryValue(from: garminCookies, javaScriptValue: value)
+                    let antiForgery = Self.antiForgeryValue(
+                        from: garminCookies,
+                        javaScriptValue: value,
+                        allowJavaScriptFallback: GarminWebSessionCaptureView.isChinaConnectCookieDomain(webView.url?.host)
+                    )
                     guard !antiForgery.isEmpty else {
                         if self.scheduleCaptureRetry(
                             from: webView,
@@ -221,6 +230,8 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
                         return
                     }
                     self.lastFingerprint = fingerprint
+                    guard !self.captureInFlight else { return }
+                    self.captureInFlight = true
                     self.report("已找到 Garmin 登录信息，正在连接")
                     self.onCaptured(
                         CapturedGarminWebSession(
@@ -262,32 +273,58 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
             webView.load(URLRequest(url: golfURL))
         }
 
-        private static func garminCookiePairs(from cookies: [HTTPCookie]) -> [String] {
-            var seen = Set<String>()
-            return cookies
+        /// Cookie material is intentionally narrower than the navigation allow-list. SSO and
+        /// tracking cookies from `garmin.com` are not valid connect.garmin.cn session material.
+        static func isChinaConnectCookieDomain(_ domain: String?) -> Bool {
+            guard let domain else { return false }
+            let normalized = domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
+            return normalized == "garmin.cn"
+                || normalized == "connect.garmin.cn"
+                || normalized.hasSuffix(".garmin.cn")
+        }
+
+        private static func chinaConnectCookies(from cookies: [HTTPCookie], now: Date = Date()) -> [HTTPCookie] {
+            cookies
                 .filter { cookie in
-                    let domain = cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
-                    return GarminWebSessionCaptureView.isOfficialGarminHost(domain)
+                    isChinaConnectCookieDomain(cookie.domain)
+                        && (cookie.expiresDate == nil || cookie.expiresDate! > now)
+                        && !cookie.name.isEmpty
+                        && !cookie.value.isEmpty
                 }
-                .compactMap { cookie in
-                    guard !cookie.name.isEmpty else {
-                        return nil
-                    }
-                    let pair = "\(cookie.name)=\(cookie.value)"
-                    guard !seen.contains(pair) else {
-                        return nil
-                    }
-                    seen.insert(pair)
-                    return pair
+                .sorted { lhs, rhs in
+                    let lhsDomain = lhs.domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
+                    let rhsDomain = rhs.domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
+                    let lhsHostRank = lhsDomain == "connect.garmin.cn" ? 1 : 0
+                    let rhsHostRank = rhsDomain == "connect.garmin.cn" ? 1 : 0
+                    if lhsHostRank != rhsHostRank { return lhsHostRank > rhsHostRank }
+                    if lhsDomain.count != rhsDomain.count { return lhsDomain.count > rhsDomain.count }
+                    if lhs.path.count != rhs.path.count { return lhs.path.count > rhs.path.count }
+                    if lhs.name != rhs.name { return lhs.name < rhs.name }
+                    return lhs.value < rhs.value
                 }
         }
 
-        private static func antiForgeryValue(from cookies: [HTTPCookie], javaScriptValue: Any?) -> String {
+        static func garminCookiePairs(from cookies: [HTTPCookie]) -> [String] {
+            var seenNames = Set<String>()
+            let candidates = chinaConnectCookies(from: cookies)
+            return candidates.compactMap { cookie in
+                guard seenNames.insert(cookie.name).inserted else { return nil }
+                return "\(cookie.name)=\(cookie.value)"
+            }
+        }
+
+        static func antiForgeryValue(
+            from cookies: [HTTPCookie],
+            javaScriptValue: Any?,
+            allowJavaScriptFallback: Bool = true
+        ) -> String {
             let csrfCookieNames = ["connect-csrf-token", "csrf", "csrf_token", "xsrf-token", "x-csrf-token"]
-            if let cookie = cookies.first(where: { csrfCookieNames.contains($0.name.lowercased()) }) {
+            if let cookie = chinaConnectCookies(from: cookies).first(where: {
+                csrfCookieNames.contains($0.name.lowercased())
+            }) {
                 return cookie.value.trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            if let value = javaScriptValue as? String {
+            if allowJavaScriptFallback, let value = javaScriptValue as? String {
                 return value.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             return ""

@@ -133,6 +133,9 @@ public struct AICaddieApp: App {
                         onGarminSessionImported: {
                             await model.syncGarminData()
                         },
+                        onGarminSessionImportedOutcome: {
+                            await model.syncGarminDataOutcome()
+                        },
                         onRefreshGarminSyncStatus: {
                             await model.refreshGarminSyncPresentation()
                         },
@@ -257,7 +260,8 @@ private struct NoPackageHubView: View {
                             apiBaseURL: model.apiBaseURL,
                             adminToken: model.adminToken,
                             sessionStore: model.garminSessionStore,
-                            onSessionImported: { await model.syncGarminData() }
+                            onSessionImported: { await model.syncGarminData() },
+                            onSessionImportedOutcome: { await model.syncGarminDataOutcome() }
                         )
                     } label: {
                         Label("连接 Garmin", systemImage: "link")
@@ -416,7 +420,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private var garminSyncPresentationLockedUntil: Date?
     /// Login completion, foreground refresh and the manual button share one in-flight operation.
     /// This prevents duplicate Garmin jobs and avoids reporting a coalesced call as a failure.
-    private var garminSyncTask: Task<Bool, Never>?
+    private var garminSyncTask: Task<GarminSyncOutcome, Never>?
     /// A cancelled/account-scoped sync must not clear or repaint a newer account's operation when
     /// its URLSession continuation eventually unwinds.
     private var garminSyncOperationGeneration = 0
@@ -807,8 +811,12 @@ public final class LiveRoundAppModel: ObservableObject {
             garminSyncPresentationWatermark = serverDate
             // `lastGarminSyncAt` is explicitly a last-success timestamp. An error or running
             // status may have a newer updatedAt, but must never be presented as "上次成功".
-            if lastRun.state == "ready" {
+            if lastRun.state == "ready" || lastRun.state == "no_data" {
                 lastGarminSyncAt = serverDate
+                // A cron/API run may have completed after the login view received a 409 busy
+                // response. Reconcile the local badge from that authoritative terminal status so a
+                // later account-screen visit does not remain stuck at "待验证".
+                markGarminSessionVerified()
             }
         }
         switch lastRun.state {
@@ -819,6 +827,7 @@ public final class LiveRoundAppModel: ObservableObject {
         case "running", "syncing":
             garminSyncStatus = "Garmin 同步正在进行"
         case "reauth_required":
+            clearStoredGarminSessionAfterAuthFailure()
             garminSyncStatus = "Garmin 登录已过期，请重新连接"
         case "error":
             garminSyncStatus = "上次 Garmin 拉取失败"
@@ -2607,18 +2616,25 @@ public final class LiveRoundAppModel: ObservableObject {
         await syncPendingEvents(wakeDeferredAfterCompletion: true)
     }
 
-    /// User-initiated data refresh. Phone/watch event upload and Garmin import are deliberately two
-    /// independent stages: a local upload failure must not suppress a Garmin pull, and vice versa.
-    /// The Bool is used by the post-login screen only to choose clear success/failure copy.
+    /// Compatibility wrapper for older callers. A Garmin account is considered connected only when
+    /// the typed operation returns `.completed`; an occupied lock, expired session, or transport
+    /// failure must remain distinguishable to the account UI.
     @discardableResult
     public func syncGarminData() async -> Bool {
+        await syncGarminDataOutcome() == .completed
+    }
+
+    /// User-initiated data refresh. Phone/watch event upload and Garmin import are deliberately two
+    /// independent stages: a local upload failure must not suppress a Garmin pull, and vice versa.
+    @discardableResult
+    public func syncGarminDataOutcome() async -> GarminSyncOutcome {
         if let garminSyncTask {
             return await garminSyncTask.value
         }
         garminSyncOperationGeneration += 1
         let operationGeneration = garminSyncOperationGeneration
-        let task = Task { [weak self] in
-            guard let self else { return false }
+        let task: Task<GarminSyncOutcome, Never> = Task { [weak self] in
+            guard let self else { return .failed }
             return await self.performGarminSync(operationGeneration: operationGeneration)
         }
         garminSyncTask = task
@@ -2631,9 +2647,9 @@ public final class LiveRoundAppModel: ObservableObject {
         return result
     }
 
-    private func performGarminSync(operationGeneration: Int) async -> Bool {
-        guard operationGeneration == garminSyncOperationGeneration else { return false }
-        guard !isGarminSyncing else { return false }
+    private func performGarminSync(operationGeneration: Int) async -> GarminSyncOutcome {
+        guard operationGeneration == garminSyncOperationGeneration else { return .failed }
+        guard !isGarminSyncing else { return .inProgress }
         garminSyncPresentationGeneration += 1
         garminSyncPresentationLockedUntil = nil
         isGarminSyncing = true
@@ -2652,13 +2668,13 @@ public final class LiveRoundAppModel: ObservableObject {
         } else {
             localEventUploadStatus = "没有待上传的本机记录"
         }
-        guard operationGeneration == garminSyncOperationGeneration else { return false }
+        guard operationGeneration == garminSyncOperationGeneration else { return .failed }
 
         guard let syncClient else {
             garminSyncStatus = "未联网，Garmin 数据未更新"
             garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
             garminSyncPresentationWatermark = Date()
-            return false
+            return .failed
         }
         garminSyncStatus = "正在拉取 Garmin 数据…"
         do {
@@ -2668,19 +2684,26 @@ public final class LiveRoundAppModel: ObservableObject {
                 if operationGeneration == garminSyncOperationGeneration {
                     garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
                 }
-                return false
+                return .failed
             }
             if result.reauthRequired || result.state == "reauth_required" {
+                clearStoredGarminSessionAfterAuthFailure()
                 garminSyncStatus = "Garmin 登录已过期，请重新连接"
                 garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
                 garminSyncPresentationWatermark = Date()
-                return false
+                return .reauthRequired
             }
-            guard result.state == "ready" else {
+            if result.state == "running" || result.state == "syncing" {
+                garminSyncStatus = "同步正在进行，请稍后查看"
+                garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
+                garminSyncPresentationWatermark = Date()
+                return .inProgress
+            }
+            guard result.state == "ready" || result.state == "no_data" else {
                 garminSyncStatus = "Garmin 拉取失败，请稍后重试"
                 garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
                 garminSyncPresentationWatermark = Date()
-                return false
+                return .failed
             }
 
             await refreshCourseOptions()
@@ -2700,9 +2723,10 @@ public final class LiveRoundAppModel: ObservableObject {
             let completedAt = refreshedStatus?.lastRun?.updatedAt
                 .flatMap { ISO8601DateFormatter().date(from: $0) }
                 ?? Date()
-            guard operationGeneration == garminSyncOperationGeneration else { return false }
+            guard operationGeneration == garminSyncOperationGeneration else { return .failed }
+            markGarminSessionVerified()
             lastGarminSyncAt = completedAt
-            garminSyncStatus = refreshedStatus?.lastRun?.newRoundCount == 0
+            garminSyncStatus = refreshedStatus?.lastRun?.newRoundCount == 0 || result.state == "no_data"
                 ? "Garmin 已同步，暂无新球局"
                 : "Garmin 数据已更新"
             garminSyncPresentationLockedUntil = Date().addingTimeInterval(5)
@@ -2710,25 +2734,57 @@ public final class LiveRoundAppModel: ObservableObject {
             // several seconds even though the POST has already returned ready.
             garminSyncPresentationWatermark = Date()
             NotificationCenter.default.post(name: .garminDataDidRefresh, object: nil)
-            return true
+            return .completed
         } catch let error as SyncClientError {
-            guard operationGeneration == garminSyncOperationGeneration else { return false }
+            guard operationGeneration == garminSyncOperationGeneration else { return .failed }
             if case .http(let status, _) = error, status == 409 {
-                garminSyncStatus = "已有一次 Garmin 同步在进行，请稍后再试"
+                garminSyncStatus = "同步正在进行，请稍后查看"
+                garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
+                garminSyncPresentationWatermark = Date()
+                AICaddieLog.network.info("Garmin pull is already in progress")
+                return .inProgress
             } else {
                 garminSyncStatus = "Garmin 拉取失败，请稍后重试"
             }
             garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
             garminSyncPresentationWatermark = Date()
             AICaddieLog.network.error("Garmin pull failed: \(String(describing: error), privacy: .public)")
-            return false
+            return .failed
         } catch {
-            guard operationGeneration == garminSyncOperationGeneration else { return false }
+            guard operationGeneration == garminSyncOperationGeneration else { return .failed }
             garminSyncStatus = "Garmin 拉取失败，请稍后重试"
             garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
             garminSyncPresentationWatermark = Date()
             AICaddieLog.network.error("Garmin pull failed: \(String(describing: error), privacy: .public)")
-            return false
+            return .failed
+        }
+    }
+
+    /// Persist the verification bit separately from the captured material. A successful server pull
+    /// is the only event allowed to turn the account badge green; a failed pull leaves the material
+    /// available for a retry but never claims it is connected.
+    private func markGarminSessionVerified() {
+        guard let garminSessionStore else { return }
+        do {
+            guard let material = try garminSessionStore.loadSession(), material.verifiedAt == nil else {
+                return
+            }
+            let formatter = ISO8601DateFormatter()
+            try garminSessionStore.saveSession(material.withVerifiedAt(formatter.string(from: Date())))
+        } catch {
+            AICaddieLog.storage.error("Garmin verification state could not be saved: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// A confirmed Garmin auth failure invalidates the local badge as well as the server status. Keep
+    /// no expired cookie around: reopening the account screen must not turn a past success into a
+    /// false "已连接" state.
+    private func clearStoredGarminSessionAfterAuthFailure() {
+        guard let garminSessionStore else { return }
+        do {
+            try garminSessionStore.deleteSession()
+        } catch {
+            AICaddieLog.storage.error("Expired Garmin session could not be cleared: \(String(describing: error), privacy: .public)")
         }
     }
 

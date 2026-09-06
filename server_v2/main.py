@@ -23,7 +23,8 @@ from ai_caddie.history.stats_cache import cached_load_history_data
 from ai_caddie.rounds import round_corrections, round_ingest
 from ai_caddie.rounds.players import OWNER_ID
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error, sanitize_safe_meta
-from ai_caddie.connectors.snapshot import snapshot_to_payload
+from ai_caddie.connectors.snapshot import snapshot_to_payload, write_connector_status
+from ai_caddie.connectors.sync_lock import SyncInProgress, acquire_sync_lock
 from ai_caddie.core.data import ROOT
 
 from .annotations import create_annotation_response, list_annotation_response, list_target_annotation_response
@@ -2224,6 +2225,51 @@ _SYNC_LOCK = threading.Lock()
 SYNC_ROOT = ROOT
 
 
+@contextlib.contextmanager
+def _acquire_garmin_sync_lock():
+    """Hold both the in-process and shared-volume Garmin locks.
+
+    The API and the homeserver cron run in different processes. The historical
+    ``threading.Lock`` only covered concurrent requests inside one Uvicorn
+    worker, so a cron pull could still rewrite the files underneath an API pull.
+    """
+
+    if not _SYNC_LOCK.acquire(blocking=False):
+        raise SyncInProgress("Garmin sync already in progress")
+    try:
+        with acquire_sync_lock(SYNC_ROOT):
+            yield
+    finally:
+        _SYNC_LOCK.release()
+
+
+def _mark_garmin_sync_running(*, player_id: str = OWNER_ID) -> None:
+    data_dir = None
+    if player_id != OWNER_ID:
+        data_dir = SYNC_ROOT / "data" / "players" / player_id
+    write_connector_status(
+        root=SYNC_ROOT,
+        state="running",
+        detail="Garmin sync is in progress.",
+        snapshot_id=None,
+        data_dir=data_dir,
+    )
+
+
+def _sync_in_progress_response(response: Response) -> SyncRunResponse:
+    response.status_code = 409
+    return SyncRunResponse(
+        schema="ai-caddie-sync-run-v2",
+        connector="garmin_cn_web_session",
+        state="running",
+        detail="已有一次 Garmin 同步正在进行，请稍后查看结果。",
+        reauthRequired=False,
+        errorCode="sync_in_progress",
+        snapshot=None,
+        safeMeta={},
+    )
+
+
 @app.post("/api/v2/sync/garmin", response_model=SyncRunResponse)
 def sync_garmin(
     http_request: Request,
@@ -2235,19 +2281,16 @@ def sync_garmin(
     # Owner-only sync of the flat owner tree; an OWNER Apple session authorizes it (a member uses
     # the per-member /api/v2/players/{id}/sync/garmin route instead, and is 403 here).
     enforce_admin_or_owner(http_request)
-    # codex HIGH #2: Garmin sync mutates process-global token/data paths (connectors/garmin_cn.py),
-    # so two concurrent syncs would cross-contaminate. Serialise with a non-blocking lock — a second
-    # concurrent sync is rejected (409) rather than racing the in-flight one.
-    if not _SYNC_LOCK.acquire(blocking=False):
-        raise HTTPException(status_code=409, detail="sync already in progress")
     try:
-        result = GarminCnWebSessionConnector().sync(
-            with_shots=with_shots,
-            force_refresh_auth=force_refresh_auth,
-            ensure_geometry=ensure_geometry,
-        )
-    finally:
-        _SYNC_LOCK.release()
+        with _acquire_garmin_sync_lock():
+            _mark_garmin_sync_running()
+            result = GarminCnWebSessionConnector().sync(
+                with_shots=with_shots,
+                force_refresh_auth=force_refresh_auth,
+                ensure_geometry=ensure_geometry,
+            )
+    except SyncInProgress:
+        return _sync_in_progress_response(response)
     if result.state == "reauth_required":
         response.status_code = 409
     elif result.state == "error":
@@ -2319,17 +2362,15 @@ def sync_player_garmin(
     self-heal + geometry-ensure stay on the legacy owner-only route."""
     if acting_player_id != OWNER_ID and acting_player_id != player_id:
         raise HTTPException(status_code=403, detail="cannot sync Garmin for another player")
-    # Same global lock as the legacy sync: the connector mutates process-global fetch paths,
-    # so a member sync and any other sync must not run concurrently.
-    if not _SYNC_LOCK.acquire(blocking=False):
-        raise HTTPException(status_code=409, detail="sync already in progress")
     try:
-        result = GarminCnWebSessionConnector(root=SYNC_ROOT, player_id=player_id).sync(
-            with_shots=with_shots,
-            force_refresh_auth=False,
-        )
-    finally:
-        _SYNC_LOCK.release()
+        with _acquire_garmin_sync_lock():
+            _mark_garmin_sync_running(player_id=player_id)
+            result = GarminCnWebSessionConnector(root=SYNC_ROOT, player_id=player_id).sync(
+                with_shots=with_shots,
+                force_refresh_auth=False,
+            )
+    except SyncInProgress:
+        return _sync_in_progress_response(response)
     detail = result.detail
     if result.state == "reauth_required":
         response.status_code = 409
