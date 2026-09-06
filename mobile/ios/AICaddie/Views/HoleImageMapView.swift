@@ -3,7 +3,13 @@ import SwiftUI
 import UIKit
 #endif
 
-/// 球洞 2D 俯视图:服务端渲染的真实球场图(球道/果岭/沙坑/水)+ 推荐打法叠加(route 平滑弧线 +
+struct MapFlightArc: Equatable {
+    let start: CGPoint
+    let control: CGPoint
+    let end: CGPoint
+}
+
+/// 球洞 2D 俯视图:服务端渲染的真实球场图(球道/果岭/沙坑/水)+ 推荐打法叠加(两段飞行弧线 +
 /// 落点 + 球杆 + 旗杆)。备战和实战共用 —— 给它一个 `CoursePrepHole` 即可。
 /// 实战时可传 `selectedClub` + 该杆距离:切球杆/换策略时落点标记与球杆标签**实时联动**。
 /// 不传则回退到 prep 的推荐落点 / 推荐球杆(备战屏即如此)。
@@ -13,6 +19,9 @@ public struct HoleImageMapView: View {
     public let selectedClub: String?
     /// 实战:当前选中球杆的典型距离(米)。传入则落点标记移到该距离处。
     public let selectedClubMetres: Double?
+    /// Optional live flag override in the overlay's pixel frame. View Green can move the flag, and
+    /// the recommendation's second leg must terminate at that visible flag rather than a stale route end.
+    public let pinOverlayPixel: CGPoint?
     /// 服务端真实地形底图 URL(`…/holes/{hole}/topo.png`)。有则底图用它,否则/加载失败回退到
     /// payload 里的 flat 渲染图(`hole.map.image`);加载中会明确标示,不会把 fallback 冒充完成态。
     /// 两者共用同一投影,叠加层像素级对齐。
@@ -32,12 +41,14 @@ public struct HoleImageMapView: View {
     public let allowsRotation: Bool
 
     public init(hole: CoursePrepHole, selectedClub: String? = nil, selectedClubMetres: Double? = nil,
+                pinOverlayPixel: CGPoint? = nil,
                 topoURL: URL? = nil, showsCardChrome: Bool = true,
                 showsRecommendedRoute: Bool = true, showsHazards: Bool = true,
                 showsPrepFactOverlays: Bool = false, allowsRotation: Bool = false) {
         self.hole = hole
         self.selectedClub = selectedClub
         self.selectedClubMetres = selectedClubMetres
+        self.pinOverlayPixel = pinOverlayPixel
         self.topoURL = topoURL
         self.showsCardChrome = showsCardChrome
         self.showsRecommendedRoute = showsRecommendedRoute
@@ -107,7 +118,12 @@ public struct HoleImageMapView: View {
         let routePoints: [CGPoint] = overlay.route.compactMap { row in
             row.count >= 2 ? CGPoint(x: row[0] * sx, y: row[1] * sy) : nil
         }
-        let pin = routePoints.last
+        let pin = resolvedPinPoint(overlay: overlay, sx: sx, sy: sy) ?? routePoints.last
+        let landingRow = Self.landingOverlayPoint(
+            overlay,
+            targetMetres: selectedClubMetres ?? hole.landingM
+        )
+        let landing = landingRow.map { CGPoint(x: $0[0] * sx, y: $0[1] * sy) }
         if hole.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
             drawLightweightFacts(
                 &context,
@@ -118,23 +134,27 @@ public struct HoleImageMapView: View {
                 showsHazards: showsHazards
             )
         }
-        // Recommended play line (tee → green) as a smooth SOLID curve, not a hard polyline.
-        if showsRecommendedRoute, routePoints.count >= 2 {
-            context.stroke(
-                Self.smoothPath(through: routePoints),
-                with: .color(.white.opacity(0.95)),
-                style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
-            )
-            let tee = routePoints[0]
+        // A recommendation is a flight plan, not the course centreline. Draw one independent arc
+        // from Tee/current origin to the selected club's landing and another from landing to flag.
+        if showsRecommendedRoute, let tee = routePoints.first, let pin {
+            for arc in Self.flightArcs(tee: tee, landing: landing, pin: pin) {
+                let path = Self.path(for: arc)
+                context.stroke(
+                    path,
+                    with: .color(.black.opacity(0.58)),
+                    style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
+                )
+                context.stroke(
+                    path,
+                    with: .color(.white.opacity(0.96)),
+                    style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
+                )
+            }
             context.fill(Path(ellipseIn: CGRect(x: tee.x - 5, y: tee.y - 5, width: 10, height: 10)), with: .color(.white))
         }
         // Landing point + club label: live (selected club's distance) when playing, else the prep's
         // recommended landing. Switching clubs mid-shot moves the marker here.
-        if showsRecommendedRoute, let landing = Self.landingOverlayPoint(
-            overlay,
-            targetMetres: selectedClubMetres ?? hole.landingM
-        ) {
-            let center = CGPoint(x: landing[0] * sx, y: landing[1] * sy)
+        if showsRecommendedRoute, let center = landing {
             context.fill(Path(ellipseIn: CGRect(x: center.x - 8, y: center.y - 8, width: 16, height: 16)), with: .color(LiveHoleStyle.green))
             context.fill(Path(ellipseIn: CGRect(x: center.x - 3, y: center.y - 3, width: 6, height: 6)), with: .color(.white))
             if let club = clubLabel {
@@ -148,6 +168,17 @@ public struct HoleImageMapView: View {
         if showsRecommendedRoute, let pin {
             context.fill(Path(ellipseIn: CGRect(x: pin.x - 5, y: pin.y - 5, width: 10, height: 10)), with: .color(.red))
         }
+    }
+
+    private func resolvedPinPoint(overlay: CoursePrepOverlay, sx: CGFloat, sy: CGFloat) -> CGPoint? {
+        guard let pinOverlayPixel,
+              pinOverlayPixel.x.isFinite,
+              pinOverlayPixel.y.isFinite,
+              pinOverlayPixel.x >= 0,
+              pinOverlayPixel.y >= 0,
+              pinOverlayPixel.x <= CGFloat(overlay.w),
+              pinOverlayPixel.y <= CGFloat(overlay.h) else { return nil }
+        return CGPoint(x: pinOverlayPixel.x * sx, y: pinOverlayPixel.y * sy)
     }
 
     /// Preparation is a spatial planning surface, not a second report below the map. These overlays
@@ -344,21 +375,80 @@ public struct HoleImageMapView: View {
         return zhClubName(raw)
     }
 
-    /// Landing point in overlay px: walk the route polyline to where cumulative metres reach the
-    /// target (selected club's distance when playing, else the prep's recommended landingM).
+    /// Landing point in overlay px: interpolate inside the route segment where cumulative metres
+    /// reach the selected club distance. Returning the next stored vertex made 150 yd and 160 yd
+    /// clubs share one marker whenever both distances fell between the same two route samples.
     static func landingOverlayPoint(
         _ overlay: CoursePrepOverlay,
         targetMetres targetM: Double?
     ) -> [Double]? {
-        guard let targetM, !overlay.route.isEmpty else {
+        guard let targetM, targetM.isFinite, !overlay.route.isEmpty else {
             return nil
         }
-        for row in overlay.route where row.count >= 3 {
-            if row[2] >= targetM {
-                return row
-            }
+        let measured = overlay.route.compactMap { row -> (x: Double, y: Double, metres: Double)? in
+            guard row.count >= 3,
+                  row[0].isFinite,
+                  row[1].isFinite,
+                  row[2].isFinite else { return nil }
+            return (row[0], row[1], row[2])
         }
-        return overlay.route.last
+        guard let first = measured.first else { return nil }
+        if targetM <= first.metres {
+            return [first.x, first.y, first.metres]
+        }
+
+        var previous = first
+        for current in measured.dropFirst() {
+            guard current.metres > previous.metres else { continue }
+            if targetM <= current.metres {
+                let fraction = min(max(
+                    (targetM - previous.metres) / (current.metres - previous.metres),
+                    0
+                ), 1)
+                return [
+                    previous.x + (current.x - previous.x) * fraction,
+                    previous.y + (current.y - previous.y) * fraction,
+                    previous.metres + (current.metres - previous.metres) * fraction,
+                ]
+            }
+            previous = current
+        }
+        guard let last = measured.last else { return nil }
+        return [last.x, last.y, last.metres]
+    }
+
+    /// Two stable quadratic flight arcs. The small screen-space bend keeps each leg readable over
+    /// the map without pretending that the recommendation follows the fairway or models ball roll.
+    static func flightArcs(tee: CGPoint, landing: CGPoint?, pin: CGPoint) -> [MapFlightArc] {
+        guard let landing,
+              hypot(landing.x - tee.x, landing.y - tee.y) > 1,
+              hypot(pin.x - landing.x, pin.y - landing.y) > 1 else {
+            return [flightArc(from: tee, to: pin)]
+        }
+        return [
+            flightArc(from: tee, to: landing),
+            flightArc(from: landing, to: pin),
+        ]
+    }
+
+    static func flightArc(from start: CGPoint, to end: CGPoint) -> MapFlightArc {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let length = max(hypot(dx, dy), 0.001)
+        let bend = min(max(length * 0.08, 8), 26)
+        let midpoint = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
+        let control = CGPoint(
+            x: midpoint.x + (-dy / length) * bend,
+            y: midpoint.y + (dx / length) * bend
+        )
+        return MapFlightArc(start: start, control: control, end: end)
+    }
+
+    static func path(for arc: MapFlightArc) -> Path {
+        Path { path in
+            path.move(to: arc.start)
+            path.addQuadCurve(to: arc.end, control: arc.control)
+        }
     }
 
     /// A Par-3 recommendation can end on the pin. Keep its club name outside the 60-point live
@@ -370,7 +460,7 @@ public struct HoleImageMapView: View {
         return CGPoint(x: pin.x, y: pin.y + 44)
     }
 
-    /// Smooth play line through the route centreline points. Quadratic-through-midpoints: each
+    /// Smooth factual centreline used only by the coarse CourseView fallback. Quadratic-through-midpoints: each
     /// interior route point is a control point and the curve passes through the midpoints between
     /// consecutive points. Unlike a Catmull-Rom spline this stays INSIDE the control polygon, so it
     /// never overshoots/bulges outside the fairway at a dogleg (the earlier curve's problem) while

@@ -380,18 +380,11 @@ final class TeeSelectionUITests: XCTestCase {
         XCTAssertTrue(closeMap.waitForExistence(timeout: 5) && closeMap.isHittable)
         closeMap.tap()
 
-        // The green editor is reached from the same no-GPS round. Verify its real zoom surface; the
+        // The green itself is the entry point from the same no-GPS round. Verify its real zoom surface; the
         // active drag loupe remains a video/device-evidence concern because XCTest cannot snapshot a
         // transient, held gesture without mislabelling a post-release frame.
-        let moreAdjust = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", "更多调整")
-        ).firstMatch
-        XCTAssertTrue(bringIntoView(moreAdjust, maxSwipes: 14))
-        moreAdjust.tap()
-        let greenEditor = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", "放大果岭")
-        ).firstMatch
-        XCTAssertTrue(bringIntoView(greenEditor, maxSwipes: 8))
+        let greenEditor = app.buttons["live-open-green-from-hero"]
+        XCTAssertTrue(greenEditor.waitForExistence(timeout: 8) && greenEditor.isHittable)
         greenEditor.tap()
         let greenZoomIn = app.buttons["live-green-zoom-in"]
         XCTAssertTrue(greenZoomIn.waitForExistence(timeout: 8) && greenZoomIn.isHittable)
@@ -401,6 +394,21 @@ final class TeeSelectionUITests: XCTestCase {
         let closeGreen = app.buttons["关闭果岭地图"]
         XCTAssertTrue(closeGreen.waitForExistence(timeout: 5) && closeGreen.isHittable)
         closeGreen.tap()
+
+        // The live hole image itself pages between adjacent holes. This exercises the actual SwiftUI
+        // drag route, while map editing remains isolated inside its full-screen precision surfaces.
+        let firstHero = app.descendants(matching: .any)
+            .matching(identifier: "live-open-map-from-hero")
+            .firstMatch
+        XCTAssertTrue(firstHero.waitForExistence(timeout: 8) && firstHero.isHittable)
+        firstHero.swipeLeft()
+        XCTAssertTrue(app.staticTexts["第 2 洞"].waitForExistence(timeout: 30))
+        let secondHero = app.descendants(matching: .any)
+            .matching(identifier: "live-open-map-from-hero")
+            .firstMatch
+        XCTAssertTrue(secondHero.waitForExistence(timeout: 30) && secondHero.isHittable)
+        secondHero.swipeRight()
+        XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 30))
     }
 
     func testNoCourseWithinFiftyKilometresStillOffersCompleteCatalogueFallback() throws {

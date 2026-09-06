@@ -591,10 +591,7 @@ public struct StartRoundView: View {
     }
 
     private func segmentTitle(_ segment: MobileCourseOption) -> String {
-        if let label = segment.segmentLabel, !label.isEmpty {
-            return "\(label) 场"
-        }
-        return "全场"
+        segment.segmentDisplayTitle
     }
 
     private func segmentHolesText(_ segment: MobileCourseOption) -> String {
@@ -860,14 +857,157 @@ public struct StartRoundView: View {
     }
 
     private var availableCourseOptions: [MobileCourseOption] {
-        var seen = Set<Int>()
-        return (nearbyCourseOptions + remoteCourseOptions).filter { seen.insert($0.globalId).inserted }
+        Self.reconciledCourseOptions(
+            primary: nearbyCourseOptions + remoteCourseOptions,
+            catalogue: courseOptions,
+            downloaded: downloadedCourseOptions
+        )
     }
 
     private var courseLookupOptions: [MobileCourseOption] {
+        Self.reconciledCourseOptions(
+            primary: availableCourseOptions + courseOptions + downloadedCourseOptions,
+            catalogue: courseOptions,
+            downloaded: downloadedCourseOptions
+        )
+    }
+
+    /// Nearby/search metadata determines which rows are in range, while the latest mobile catalogue
+    /// owns each global ID's playable loop structure. Downloaded packages contribute offline state
+    /// only. Older packages can retain a played combination such as `~ C/A` or an empty string in
+    /// `segmentLabel`; treating either as the current loop produced C/全场/全场 for Black Knight.
+    static func reconciledCourseOptions(
+        primary: [MobileCourseOption],
+        catalogue: [MobileCourseOption],
+        downloaded: [MobileCourseOption]
+    ) -> [MobileCourseOption] {
+        var catalogueByID: [Int: MobileCourseOption] = [:]
+        var downloadedByID: [Int: MobileCourseOption] = [:]
+        for option in catalogue where catalogueByID[option.globalId] == nil {
+            catalogueByID[option.globalId] = option
+        }
+        for option in downloaded where downloadedByID[option.globalId] == nil {
+            downloadedByID[option.globalId] = option
+        }
+
         var seen = Set<Int>()
-        return (availableCourseOptions + courseOptions + downloadedCourseOptions)
-            .filter { seen.insert($0.globalId).inserted }
+        return primary.compactMap { provider in
+            guard seen.insert(provider.globalId).inserted else { return nil }
+            return reconciledCourseOption(
+                provider: provider,
+                catalogue: catalogueByID[provider.globalId],
+                downloaded: downloadedByID[provider.globalId]
+            )
+        }
+    }
+
+    static func reconciledCourseOption(
+        provider: MobileCourseOption,
+        catalogue: MobileCourseOption?,
+        downloaded: MobileCourseOption?
+    ) -> MobileCourseOption {
+        let segmentHoles = firstPositive([
+            catalogue?.segmentHoles,
+            provider.segmentHoles,
+            downloaded?.segmentHoles,
+            provider.holes,
+            catalogue?.holes,
+            downloaded?.holes,
+        ]) ?? provider.holes
+        let venue = firstNonEmpty([
+            catalogue?.venueName,
+            provider.venueName,
+            downloaded?.venueName,
+            catalogue.map { courseVenueName($0) },
+            Optional(courseVenueName(provider)),
+            downloaded.map { courseVenueName($0) },
+        ]) ?? provider.name
+        let label = resolvedSegmentLabel(
+            explicit: [catalogue?.segmentLabel, provider.segmentLabel, downloaded?.segmentLabel],
+            names: [catalogue?.name, Optional(provider.name), downloaded?.name],
+            segmentHoles: segmentHoles
+        )
+        let retainedName = firstNonEmpty([
+            catalogue?.name,
+            Optional(provider.name),
+            downloaded?.name,
+        ]) ?? venue
+        let displayName = label.map { "\(venue) ~ \($0)" } ?? retainedName
+        let facts = catalogue ?? downloaded ?? provider
+        let tees = firstNonEmptyList([catalogue?.tees, downloaded?.tees, provider.tees])
+
+        return MobileCourseOption(
+            globalId: provider.globalId,
+            courseKey: catalogue?.courseKey ?? downloaded?.courseKey ?? provider.courseKey,
+            name: displayName,
+            roundCount: facts.roundCount,
+            latestRoundId: facts.latestRoundId,
+            latestRoundDate: facts.latestRoundDate,
+            templateRoundId: facts.templateRoundId,
+            suggestedLiveRoundId: facts.suggestedLiveRoundId,
+            holes: segmentHoles,
+            teeBox: facts.teeBox ?? provider.teeBox,
+            geometryCoverage: facts.geometryCoverage,
+            sourceRefs: facts.sourceRefs,
+            venueName: venue,
+            segmentLabel: label,
+            segmentHoles: segmentHoles,
+            latitude: provider.latitude ?? catalogue?.latitude ?? downloaded?.latitude,
+            longitude: provider.longitude ?? catalogue?.longitude ?? downloaded?.longitude,
+            tees: tees
+        )
+    }
+
+    private static func firstPositive(_ values: [Int?]) -> Int? {
+        values.compactMap { $0 }.first { $0 > 0 }
+    }
+
+    private static func firstNonEmpty(_ values: [String?]) -> String? {
+        values.compactMap { value -> String? in
+            guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else { return nil }
+            return trimmed
+        }.first
+    }
+
+    private static func firstNonEmptyList(_ values: [[String]?]) -> [String]? {
+        values.compactMap { value in
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }.first
+    }
+
+    private static func resolvedSegmentLabel(
+        explicit: [String?],
+        names: [String?],
+        segmentHoles: Int
+    ) -> String? {
+        for raw in explicit {
+            if let label = normalizedSegmentLabel(raw, segmentHoles: segmentHoles) {
+                return label
+            }
+        }
+        guard segmentHoles == 9 else { return nil }
+        for name in names {
+            guard let name,
+                  let suffix = name.components(separatedBy: " ~ ").dropFirst().first,
+                  let label = normalizedSegmentLabel(String(suffix), segmentHoles: segmentHoles) else {
+                continue
+            }
+            return label
+        }
+        return nil
+    }
+
+    private static func normalizedSegmentLabel(_ raw: String?, segmentHoles: Int) -> String? {
+        guard var label = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !label.isEmpty else { return nil }
+        if segmentHoles == 9, let first = label.split(separator: "/", maxSplits: 1).first {
+            label = String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let wholeCourseLabels = Set(["all", "full", "全场", "整场"])
+        guard !label.isEmpty, !wholeCourseLabels.contains(label.lowercased()) else { return nil }
+        return label
     }
 
     private var selectedCourseRequiresRemoteTees: Bool {
@@ -1059,35 +1199,10 @@ public struct StartRoundView: View {
 
     private func resolvedOption(for match: MobileCourseSearchMatch) -> MobileCourseOption? {
         guard let provider = match.courseOption else { return nil }
-        let knownOptions = courseOptions + downloadedCourseOptions
-        guard let known = knownOptions.first(where: { $0.globalId == match.globalId }) else {
-            return provider
-        }
-        // Catalogue coordinates remain authoritative for a nearby result, while an installed row
-        // keeps the player's established display name and loop labels. Garmin can return an English
-        // provider alias for the same globalId (for example Shadow Creek for the locally known
-        // 北京丽宫); replacing the installed name made 开始一场 disagree with history, prep and the
-        // downloaded package. Do not prefer the old row wholesale, because that can still discard
-        // fresh catalogue coordinates and break nearest-first ordering.
-        return MobileCourseOption(
-            globalId: provider.globalId,
-            courseKey: known.courseKey,
-            name: known.name,
-            roundCount: known.roundCount,
-            latestRoundId: known.latestRoundId,
-            latestRoundDate: known.latestRoundDate,
-            templateRoundId: known.templateRoundId,
-            suggestedLiveRoundId: known.suggestedLiveRoundId,
-            holes: provider.holes,
-            teeBox: known.teeBox,
-            geometryCoverage: known.geometryCoverage,
-            sourceRefs: known.sourceRefs,
-            venueName: known.venueName ?? provider.venueName,
-            segmentLabel: known.segmentLabel ?? provider.segmentLabel,
-            segmentHoles: known.segmentHoles ?? provider.segmentHoles,
-            latitude: provider.latitude ?? known.latitude,
-            longitude: provider.longitude ?? known.longitude,
-            tees: known.tees
+        return Self.reconciledCourseOption(
+            provider: provider,
+            catalogue: courseOptions.first { $0.globalId == match.globalId },
+            downloaded: downloadedCourseOptions.first { $0.globalId == match.globalId }
         )
     }
 }

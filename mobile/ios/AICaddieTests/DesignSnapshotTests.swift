@@ -212,7 +212,7 @@ final class DesignSnapshotTests: XCTestCase {
         let view = VStack(alignment: .leading, spacing: 8) {
             Label("更多调整", systemImage: "slider.horizontal.3")
                 .font(.headline)
-            Text("球杆 · 打法 · 球位 · 距离 · 目标 · 备注")
+            Text("球杆 · 打法 · 球位 · 距离 · 罚杆 · 备注")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

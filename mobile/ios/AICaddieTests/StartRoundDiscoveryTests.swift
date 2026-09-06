@@ -270,6 +270,59 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
+    func testReconciliationRepairsStaleBlackKnightLoopLabelsWithPartialCatalogue() {
+        let venue = "北京天竺黑骑士球员俱乐部"
+        let providerRows = [
+            MobileCourseOption(
+                globalId: 31796, name: "\(venue) ~ C/A", holes: 9,
+                venueName: venue, segmentLabel: "C/A", segmentHoles: 9
+            ),
+            MobileCourseOption(
+                globalId: 31794, name: "\(venue) ~ A/B", holes: 9,
+                venueName: venue, segmentLabel: "", segmentHoles: 9
+            ),
+            MobileCourseOption(
+                globalId: 31795, name: "\(venue) ~ B/C", holes: 9,
+                venueName: venue, segmentLabel: "", segmentHoles: 9
+            ),
+        ]
+        // Only C is present in the current player catalogue. A and B must still recover from the
+        // provider's old played-combination names rather than falling back to two "全场" rows.
+        let catalogue = [
+            MobileCourseOption(
+                globalId: 31796, name: "\(venue) ~ C/A", holes: 18,
+                venueName: venue, segmentLabel: "C", segmentHoles: 9
+            ),
+        ]
+        let downloaded = providerRows.map {
+            MobileCourseOption(
+                globalId: $0.globalId,
+                name: $0.name,
+                holes: 9,
+                geometryCoverage: "ready",
+                venueName: venue,
+                segmentLabel: "",
+                segmentHoles: 9
+            )
+        }
+
+        let reconciled = StartRoundView.reconciledCourseOptions(
+            primary: providerRows,
+            catalogue: catalogue,
+            downloaded: downloaded
+        )
+        let group = courseVenueGroups(reconciled).first
+
+        XCTAssertEqual(group?.venue, venue)
+        XCTAssertEqual(group?.segments.map(\.globalId), [31794, 31795, 31796])
+        XCTAssertEqual(group?.segments.map(\.segmentDisplayTitle), ["A 场", "B 场", "C 场"])
+        XCTAssertEqual(
+            group?.segments.map(\.name),
+            ["\(venue) ~ A", "\(venue) ~ B", "\(venue) ~ C"]
+        )
+        XCTAssertEqual(group?.segments.map(\.resolvedHoles), [9, 9, 9])
+    }
+
     private func option(
         globalId: Int,
         name: String,

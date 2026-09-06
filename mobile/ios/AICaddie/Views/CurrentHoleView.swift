@@ -25,6 +25,26 @@ private struct LiveMapHazardAnnotation: Identifiable {
     let backPx: [Double]
 }
 
+/// Shared horizontal-navigation decision for live and review hole maps. Vertical scrolls and short
+/// map adjustments are ignored; edit/precision surfaces can disable the transition explicitly.
+enum HoleSwipeNavigation {
+    static func target(
+        current: Int,
+        holes: [Int],
+        translation: CGSize,
+        enabled: Bool = true,
+        minimumHorizontalDistance: CGFloat = 64
+    ) -> Int? {
+        guard enabled,
+              let index = holes.firstIndex(of: current),
+              abs(translation.width) >= minimumHorizontalDistance,
+              abs(translation.width) > abs(translation.height) * 1.25 else { return nil }
+        let nextIndex = translation.width < 0 ? index + 1 : index - 1
+        guard holes.indices.contains(nextIndex) else { return nil }
+        return holes[nextIndex]
+    }
+}
+
 public struct CurrentHoleView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -107,6 +127,9 @@ public struct CurrentHoleView: View {
     @State private var holeRootScrollRequest = 0
 
     private static let holeRootScrollAnchor = "live-hole-root"
+    /// The capture implementation remains available, but this evidence card is intentionally absent
+    /// from live play until it has a product-worthy entry point.
+    static let showsMediaCaptureCard = false
 
     private var liveHeroHeight: CGFloat {
         // The previous fixed 360pt card made the factual hole map a thumbnail. Keep the first screen
@@ -381,7 +404,9 @@ public struct CurrentHoleView: View {
         // Secondary live controls remain part of the dark playing instrument.
         VStack(spacing: 12) {
             moreAdjustCard
-            mediaCard
+            if Self.showsMediaCaptureCard {
+                mediaCard
+            }
             manageSection
         }
         .padding(.horizontal, 14)
@@ -416,6 +441,7 @@ public struct CurrentHoleView: View {
                 referenceCoordinate: mapReferenceCoordinate,
                 referenceIsLive: mapReferenceIsLive,
                 pinCoordinate: effectiveMapPinCoordinate,
+                pinOverlayPixel: effectiveMapPinPixel,
                 onTargetChanged: { coordinate in
                     handleMapTargetChanged(coordinate, kind: "target")
                 },
@@ -613,19 +639,7 @@ public struct CurrentHoleView: View {
             }
             .frame(height: liveHeroHeight)
             .allowsHitTesting(false)
-            // The hero is the first map instrument, so a player should not have to find the
-            // secondary "更多调整" disclosure before opening Touch Target. Keep this transparent
-            // layer below the header (which is declared next) and above the decorative overlays;
-            // the panel below the hero has its own higher z-index and keeps its buttons tappable.
-            Rectangle()
-                .fill(.clear)
-                .frame(maxWidth: .infinity)
-                .frame(height: max(liveHeroHeight - LivePlayMapOverlayLayout.liveMapTopInset, 1))
-                .offset(y: LivePlayMapOverlayLayout.liveMapTopInset / 2)
-                .contentShape(Rectangle())
-                .onTapGesture { showMapDetail = true }
-                .accessibilityLabel("打开地图并选目标")
-                .accessibilityIdentifier("live-open-map-from-hero")
+            heroInteractionLayer
             LivePlayHeader(
                 holeNumber: hole.number,
                 par: hole.par,
@@ -642,10 +656,69 @@ public struct CurrentHoleView: View {
         .frame(height: liveHeroHeight)
     }
 
+    /// The map itself owns its interactions: tap the green target for flag placement, tap elsewhere
+    /// for Touch Target, and swipe horizontally for the adjacent hole. No explanatory action rows are
+    /// needed below the map.
+    private var heroInteractionLayer: some View {
+        GeometryReader { geometry in
+            let interactiveHeight = max(
+                geometry.size.height - LivePlayMapOverlayLayout.liveMapTopInset,
+                1
+            )
+            ZStack {
+                Rectangle()
+                    .fill(.clear)
+                    .frame(width: geometry.size.width, height: interactiveHeight)
+                    .position(
+                        x: geometry.size.width / 2,
+                        y: LivePlayMapOverlayLayout.liveMapTopInset + interactiveHeight / 2
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture { showMapDetail = true }
+                    .simultaneousGesture(holeSwipeGesture)
+                    .accessibilityLabel("打开地图并选目标")
+                    .accessibilityHint("左右滑动切换球洞")
+                    .accessibilityIdentifier("live-open-map-from-hero")
+
+                if let greenTarget = liveGreenTarget(in: geometry.size) {
+                    Button {
+                        showGreenDetail = true
+                    } label: {
+                        Circle()
+                            .fill(Color.white.opacity(0.001))
+                            .frame(width: 76, height: 76)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .position(greenTarget)
+                    .accessibilityLabel("调整旗位")
+                    .accessibilityIdentifier("live-open-green-from-hero")
+                }
+            }
+        }
+        .frame(height: liveHeroHeight)
+    }
+
+    private var holeSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onEnded { value in
+                guard let target = HoleSwipeNavigation.target(
+                    current: hole.number,
+                    holes: package.holes.map(\.number),
+                    translation: value.translation
+                ) else { return }
+                #if canImport(UIKit)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                #endif
+                onAdvanceHole(target)
+            }
+    }
+
     /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时回退暗色渐变占位。
     @ViewBuilder private var liveMapBackdrop: some View {
         if let holePrep, holePrep.resolvedMapOverlay != nil {
             HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
+                             pinOverlayPixel: effectiveMapPinPixel,
                              topoURL: liveTopoURL, showsCardChrome: false,
                              showsRecommendedRoute: true,
                              showsHazards: true)
@@ -740,7 +813,8 @@ public struct CurrentHoleView: View {
         .preferredColorScheme(.light)
     }
 
-    /// All the original secondary inputs are preserved, tucked into 更多调整.
+    /// Less-frequent scoring inputs remain here. Map target and flag placement live directly on the
+    /// map above, matching the interaction instead of duplicating it as explanatory rows.
     private var moreAdjustCard: some View {
         DisclosureGroup {
             VStack(spacing: 10) {
@@ -757,30 +831,6 @@ public struct CurrentHoleView: View {
                 }
                 TextField("到旗杆距离(码)", text: $distanceToPinText)
                     .keyboardType(.decimalPad)
-                Button {
-                    targetCoordinate = currentCoordinate
-                    targetPixel = nil
-                    targetKind = currentCoordinate == nil ? nil : "target"
-                    lastTargetEditKind = currentCoordinate == nil ? nil : "target"
-                    if currentCoordinate != nil {
-                        distanceToPinText = ""
-                        persistMapTarget(coordinate: targetCoordinate, kind: "target")
-                        Task { await loadCaddieDecision(syncClub: !hasUserSelectedClub) }
-                    }
-                } label: {
-                    Label("设为目标点", systemImage: "mappin.and.ellipse")
-                }
-                .disabled(currentCoordinate == nil)
-                Button {
-                    showMapDetail = true
-                } label: {
-                    Label("打开地图选目标", systemImage: "map")
-                }
-                Button {
-                    showGreenDetail = true
-                } label: {
-                    Label("放大果岭 / 拖动旗位", systemImage: "flag.fill")
-                }
                 Stepper("罚杆 \(penaltyCount)", value: $penaltyCount, in: 0...4)
                 TextField("备注", text: $note)
             }
@@ -789,7 +839,7 @@ public struct CurrentHoleView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Label("更多调整", systemImage: "slider.horizontal.3")
                     .font(.headline)
-                Text("球杆 · 打法 · 球位 · 距离 · 目标 · 备注")
+                Text("球杆 · 打法 · 球位 · 距离 · 罚杆 · 备注")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -1102,6 +1152,25 @@ public struct CurrentHoleView: View {
     /// route endpoint, while the latter remains the fallback for untouched holes.
     private var effectiveMapPinCoordinate: CLLocationCoordinate2D? {
         greenPinCoordinate ?? mapPinCoordinate
+    }
+
+    private var effectiveMapPinPixel: CGPoint? {
+        if let moved = validMapPixel(greenPinPixel) {
+            return moved
+        }
+        if let moved = greenPinCoordinate,
+           let refs = holePrep?.holeImageProjection?.refs,
+           let projected = WatchEventBridge.projectToTopoPx(
+               lat: moved.latitude,
+               lon: moved.longitude,
+               refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+           ), projected.count >= 2,
+           let valid = validMapPixel(CGPoint(x: projected[0], y: projected[1])) {
+            return valid
+        }
+        guard let last = holePrep?.resolvedMapOverlay?.route.last,
+              last.count >= 2 else { return nil }
+        return validMapPixel(CGPoint(x: last[0], y: last[1]))
     }
 
     /// The legacy Watch/event payload has one coordinate tuple. Until that contract grows a second

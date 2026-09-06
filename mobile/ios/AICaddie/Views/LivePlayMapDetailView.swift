@@ -22,6 +22,9 @@ public struct LivePlayMapDetailView: View {
     public let referenceCoordinate: CLLocationCoordinate2D?
     public let referenceIsLive: Bool
     public let pinCoordinate: CLLocationCoordinate2D?
+    /// Full-hole overlay pixel for a moved flag. This remains authoritative when the course map
+    /// has no geo projection anchors, so the target-to-pin leg never snaps back to the old flag.
+    public let pinOverlayPixel: CGPoint?
     public let onTargetChanged: (CLLocationCoordinate2D?) -> Void
     public let onTargetCommitted: (CLLocationCoordinate2D?) -> Void
     public let onTargetPixelChanged: (CGPoint?) -> Void
@@ -55,6 +58,7 @@ public struct LivePlayMapDetailView: View {
         referenceCoordinate: CLLocationCoordinate2D?,
         referenceIsLive: Bool,
         pinCoordinate: CLLocationCoordinate2D?,
+        pinOverlayPixel: CGPoint? = nil,
         onTargetChanged: @escaping (CLLocationCoordinate2D?) -> Void = { _ in },
         onTargetCommitted: @escaping (CLLocationCoordinate2D?) -> Void = { _ in },
         targetPixel: Binding<CGPoint?> = .constant(nil),
@@ -70,6 +74,7 @@ public struct LivePlayMapDetailView: View {
         self.referenceCoordinate = referenceCoordinate
         self.referenceIsLive = referenceIsLive
         self.pinCoordinate = pinCoordinate
+        self.pinOverlayPixel = pinOverlayPixel
         self.onTargetChanged = onTargetChanged
         self.onTargetCommitted = onTargetCommitted
         self.onTargetPixelChanged = onTargetPixelChanged
@@ -242,9 +247,12 @@ public struct LivePlayMapDetailView: View {
                 hole: hole,
                 selectedClub: selectedClub,
                 selectedClubMetres: selectedClubMetres,
+                pinOverlayPixel: pinPixel(overlay: overlay),
                 topoURL: topoURL,
                 showsCardChrome: false,
-                showsRecommendedRoute: true,
+                // Once the player places a Touch Target it owns the map. Hiding the club plan keeps
+                // the two target legs unambiguous instead of stacking two unrelated white routes.
+                showsRecommendedRoute: effectiveTargetPixel(overlay: overlay) == nil,
                 showsHazards: true
             )
             .frame(width: size.width, height: size.height)
@@ -463,7 +471,8 @@ public struct LivePlayMapDetailView: View {
         size: CGSize,
         overlay: CoursePrepOverlay
     ) {
-        guard let target = targetBasePoint(overlay: overlay, size: size),
+        guard let reference = referenceBasePoint(overlay: overlay, size: size),
+              let target = targetBasePoint(overlay: overlay, size: size),
               let pinPx = pinPixel(overlay: overlay),
               let pin = LivePlayMapOverlayLayout.project(
                   overlayPoint: [pinPx.x, pinPx.y],
@@ -471,14 +480,24 @@ public struct LivePlayMapDetailView: View {
                   overlayHeight: overlay.h,
                   into: size
               ) else { return }
-        var path = Path()
-        path.move(to: target)
-        path.addLine(to: pin)
-        context.stroke(
-            path,
-            with: .color(Color.orange.opacity(0.92)),
-            style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [7, 5])
-        )
+        let arcs = HoleImageMapView.flightArcs(tee: reference, landing: target, pin: pin)
+        for (index, arc) in arcs.enumerated() {
+            let path = HoleImageMapView.path(for: arc)
+            context.stroke(
+                path,
+                with: .color(.black.opacity(0.58)),
+                style: StrokeStyle(lineWidth: index == 0 ? 6 : 5, lineCap: .round)
+            )
+            context.stroke(
+                path,
+                with: .color(index == 0 ? .white.opacity(0.97) : Color.orange.opacity(0.94)),
+                style: StrokeStyle(
+                    lineWidth: index == 0 ? 3 : 2.5,
+                    lineCap: .round,
+                    dash: index == 0 ? [] : [7, 5]
+                )
+            )
+        }
     }
 
     /// The currently selected point in the overlay's factual pixel frame.  Prefer the explicit pixel
@@ -504,6 +523,9 @@ public struct LivePlayMapDetailView: View {
     }
 
     private func pinPixel(overlay: CoursePrepOverlay) -> CGPoint? {
+        if let pinOverlayPixel, validPixel(pinOverlayPixel, overlay: overlay) {
+            return pinOverlayPixel
+        }
         if let pinCoordinate,
            let projected = project(coordinate: pinCoordinate) {
             return CGPoint(x: projected[0], y: projected[1])

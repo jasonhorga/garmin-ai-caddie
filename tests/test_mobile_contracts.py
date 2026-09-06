@@ -3342,7 +3342,19 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn('label: "到旗杆(米)"', live_components)
         self.assertIn("private var distanceToPinMetres: Double?", current_hole)
         self.assertIn("CoursePrepRoute.metres(fromYards:", current_hole)
-        self.assertIn('Label("设为目标点", systemImage: "mappin.and.ellipse")', current_hole)
+        # Map interactions belong on the map itself; the secondary form must not repeat instructional
+        # rows or expose the temporarily hidden media evidence card.
+        for redundant_copy in [
+            'Label("设为目标点", systemImage: "mappin.and.ellipse")',
+            'Label("打开地图选目标", systemImage: "map")',
+            'Label("放大果岭 / 拖动旗位", systemImage: "flag.fill")',
+        ]:
+            self.assertNotIn(redundant_copy, current_hole)
+        self.assertIn('static let showsMediaCaptureCard = false', current_hole)
+        self.assertIn('if Self.showsMediaCaptureCard {', current_hole)
+        self.assertIn('accessibilityIdentifier("live-open-map-from-hero")', current_hole)
+        self.assertIn('accessibilityIdentifier("live-open-green-from-hero")', current_hole)
+        self.assertIn('HoleSwipeNavigation.target(', current_hole)
         self.assertIn("penaltyCount", current_hole)
         self.assertIn("CaddieDecisionRequestBuilder", current_hole)
         self.assertIn("caddieContextSeed", current_hole)

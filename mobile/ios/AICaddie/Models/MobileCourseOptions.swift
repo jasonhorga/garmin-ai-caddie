@@ -107,7 +107,7 @@ public extension MobileCourseOption {
 
     /// Segment row title: a loop ("A 场") or a whole course ("全场").
     var segmentDisplayTitle: String {
-        if let label = segmentLabel, !label.isEmpty {
+        if let label = segmentLabel?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty {
             return "\(label) 场"
         }
         return "全场"

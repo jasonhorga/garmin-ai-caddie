@@ -1100,6 +1100,21 @@ public struct RoundShotMapPagerScreen: View {
             teeBox: teeBox
         )
         .id("\(roundRef):\(current)")
+        .gesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    guard let target = HoleSwipeNavigation.target(
+                        current: current,
+                        holes: holes,
+                        translation: value.translation,
+                        enabled: !isLocked
+                    ) else { return }
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        current = target
+                    }
+                },
+            including: isLocked ? .none : .all
+        )
         .overlay(alignment: .topTrailing) {
             if !isLocked { downloadProgress }
         }
