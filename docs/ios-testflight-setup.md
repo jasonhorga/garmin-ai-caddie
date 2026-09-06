@@ -36,9 +36,26 @@ upload flag. Tester/install assertions must name the build number and remain
 manual evidence. An `upload=false` manifest is allowed for artifact-only
 builds, but it never satisfies the release gate.
 
-Current branch: `codex/release-hardening-20260827`.
+Current canonical branch: `integration/v2`.
 
-- Before uploading a connected build, run the external release preflight from
+### Ordered release sequence
+
+1. Keep the product tree on `integration/v2` and pass source/Native CI.
+2. Build and inspect a signed artifact with `upload_to_testflight=false`.
+3. With explicit owner authorization, upload the exact candidate to the
+   existing internal TestFlight group. This is the step that makes a current
+   iPhone/paired Watch test possible; it is not external distribution or
+   production approval.
+4. Test that exact build on physical hardware and record build-bound evidence.
+5. Run Phase 6 readiness. Only after it is complete can the owner separately
+   approve external Beta Review/distribution or production promotion.
+
+If the internal upload is declined, artifact inspection, simulator evidence,
+contract checks, and branch/repository audits can continue, but physical-device
+and S70 interaction evidence cannot be claimed. Build 47 remains available to
+internal testers, but it predates the current P2 follow-up.
+
+- Before uploading a connected build, run the release preflight from
   `docs/deployment/private-trial.md` and keep the generated evidence file:
   ```bash
   uv run python ops/phase6_external_readiness.py \
@@ -46,8 +63,9 @@ Current branch: `codex/release-hardening-20260827`.
     --probe-backend \
     --output logs/phase6_external_readiness_latest.json
   ```
-  A fully connected external trial should not be considered ready until this
-  reports `state=ready`.
+  A connected candidate should not be uploaded against an unverified backend;
+  `state=ready` is required for the normal path. A test-environment upload may
+  use the explicit degraded-readiness flag only with separate owner approval.
 - Run the `iOS TestFlight (CD)` workflow manually from the intended release branch with
   optional release notes and optional origin-only `api_base_url`. It runs
   `xcodegen generate` → `fastlane ios beta` → archives the app (with embedded
