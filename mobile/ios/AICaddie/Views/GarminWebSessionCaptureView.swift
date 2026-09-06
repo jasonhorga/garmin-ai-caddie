@@ -207,7 +207,7 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
                     let antiForgery = Self.antiForgeryValue(
                         from: garminCookies,
                         javaScriptValue: value,
-                        allowJavaScriptFallback: GarminWebSessionCaptureView.isChinaConnectCookieDomain(webView.url?.host)
+                        allowJavaScriptFallback: Coordinator.isChinaConnectCookieDomain(webView.url?.host)
                     )
                     guard !antiForgery.isEmpty else {
                         if self.scheduleCaptureRetry(
