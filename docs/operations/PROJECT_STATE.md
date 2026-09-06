@@ -49,6 +49,10 @@ prerequisite for the upload workflow.
   backend, frontend visual smoke, and Docker jobs. The commits after the P2
   product tip are documentation-only, so this confirms the canonical checkout
   remains green without changing the app binary.
+- **Release-handoff documentation CI:** GitHub run `34013149549` at
+  `6519065d` passed backend, frontend (component tests, lint, build, and visual
+  smoke), and Docker API/sync smoke jobs. This was a documentation-only push;
+  no product binary or release side effect changed.
 - **Native live evidence:** Native Mobile CI run `33680501425` at mobile
   source `c5902a96` passed all 38 evidence steps. iOS and Watch manifests are
   `passed`; the live iOS journey covered no-GPS manual search/start, map and
@@ -694,6 +698,8 @@ means a named external decision or prerequisite is missing; `done` and
 - `d189b3b4`: Source CI run `33680857200` passed backend (2,047 tests, 13
   skips), frontend component/lint/build/visual smoke, and Docker API/sync
   smoke. The MAP1 mobile source is unchanged from `c5902a96`.
+- `6519065d`: Documentation-only source CI run `34013149549` passed backend,
+  frontend component/lint/build/visual smoke, and Docker API/sync smoke.
 - Backend candidate revision `c1648891` is deployed from
   `/home/jason/codex-runs/garmin-ai-caddie-map1-deploy-20260902` in
   `aicaddie-release-c1648891-candidate-20260902`; public health and the
