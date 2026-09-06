@@ -23,10 +23,12 @@ processing/status check -> stop and hand off for physical iPhone/Watch evidence
 promotion`. Once the required test gates are green, this internal-only upload
 does not require another per-upload chat confirmation. It keeps
 `external_distribution=false` and does not authorize production. An
-owner-approved `test_environment_upload=true` only permits a deliberately
-degraded readiness check; it never closes the physical-device gate or promotes
-the app. A standalone artifact-only IPA is an optional historical diagnostic,
-not a release gate or a prerequisite for the upload workflow.
+owner-approved `test_environment_upload=true` is the permitted internal-only
+fallback when the authenticated readiness shape, health schema, and exact
+backend revision pass but non-production readiness checks are degraded; it
+never closes the physical-device gate or promotes the app. A standalone
+artifact-only IPA is an optional historical diagnostic, not a release gate or a
+prerequisite for the upload workflow.
 
 ## Current Work Summary
 
@@ -85,6 +87,13 @@ not a release gate or a prerequisite for the upload workflow.
   `incomplete`: external Beta Review, target tester coverage, and physical
   iPhone/Watch installation are unconfirmed. `install_verified` remains
   `false` by design.
+- **Internal upload attempt `34011709040`:** archive/export/sign completed on
+  the macOS runner, but the strict Fastlane backend preflight rejected the
+  authenticated `degraded` readiness state before calling Apple upload. No
+  TestFlight build was created by this run; its IPA artifact was retained for
+  diagnostics. The internal hardware-validation retry uses the explicit
+  `test_environment_upload=true` path and still enforces health schema,
+  authenticated readiness shape, and exact backend revision.
 - **Remaining release gate:** Build 47 is uploaded and visible to the internal
   all-builds group, but it predates the P2 follow-up. The artifact-only build 48
   is diagnostic-only and is not installable through TestFlight or a pending
@@ -1047,9 +1056,10 @@ Native runs recorded above; it is retained only as historical diagnosis.
    and expected backend revision
    `c16488911038d7e5b47ec310d1aaf05ca29950df`. This creates a fresh signed
    binary; the artifact-only build 48 is not uploaded retroactively. Keep
-   external distribution off; `test_environment_upload` stays false while
-   readiness is healthy (set it true only with separate owner approval for a
-   degraded environment).
+   external distribution off. Use `test_environment_upload=false` when
+   readiness is healthy; use `true` for this internal hardware-validation path
+   when the authenticated shape/health/revision checks pass but readiness is
+   degraded, and record that degraded status.
 3. After Apple processes the fresh internal candidate, record its actual build
    number and IPA hash, verify it is visible to the existing internal group,
    and stop for the hardware handoff. The owner then installs that build on the

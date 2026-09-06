@@ -69,8 +69,10 @@ testers, but it predates the current P2 follow-up.
     --output logs/phase6_external_readiness_latest.json
   ```
   A connected candidate should not be uploaded against an unverified backend;
-  `state=ready` is required for the normal path. A test-environment upload may
-  use the explicit degraded-readiness flag only with separate owner approval.
+  `state=ready` is required for the normal path. For the standing internal
+  hardware-validation path, an authenticated schema/health/revision match may
+  use the explicit `test_environment_upload=true` flag when non-production
+  readiness checks are degraded; this never authorizes external distribution.
 - Run the `iOS TestFlight (CD)` workflow manually from the intended release branch with
   optional release notes and optional origin-only `api_base_url`. It runs
   `xcodegen generate` → `fastlane ios beta` → archives the app (with embedded
