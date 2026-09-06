@@ -41,19 +41,24 @@ Current canonical branch: `integration/v2`.
 ### Ordered release sequence
 
 1. Keep the product tree on `integration/v2` and pass source/Native CI.
-2. Build and inspect a signed artifact with `upload_to_testflight=false`.
-3. With explicit owner authorization, upload the exact candidate to the
-   existing internal TestFlight group. This is the step that makes a current
-   iPhone/paired Watch test possible; it is not external distribution or
-   production approval.
-4. Test that exact build on physical hardware and record build-bound evidence.
-5. Run Phase 6 readiness. Only after it is complete can the owner separately
+2. Once source/Native CI and the backend preflight are green, automatically run
+   a fresh signed build from the canonical tip with `upload_to_testflight=true`
+   and send it only to the existing internal TestFlight group. Do not create a
+   standalone IPA first; the workflow signs and uploads the candidate in one
+   operation. Record the new run's actual build number and hash. This is the
+   step that makes a current iPhone/paired Watch test possible; it is not
+   external distribution or production approval.
+3. After Apple processes the candidate, verify its status and stop for the
+   hardware handoff. Test that exact newly uploaded build on physical hardware
+   and record build-bound evidence.
+4. Run Phase 6 readiness. Only after it is complete can the owner separately
    approve external Beta Review/distribution or production promotion.
 
-If the internal upload is declined, artifact inspection, simulator evidence,
-contract checks, and branch/repository audits can continue, but physical-device
-and S70 interaction evidence cannot be claimed. Build 47 remains available to
-internal testers, but it predates the current P2 follow-up.
+The standing automatic rule applies only to the internal upload after green
+gates. If it is explicitly revoked or a required gate fails, stop before the
+Apple action; artifact inspection, simulator evidence, contract checks, and
+branch/repository audits can continue. Build 47 remains available to internal
+testers, but it predates the current P2 follow-up.
 
 - Before uploading a connected build, run the release preflight from
   `docs/deployment/private-trial.md` and keep the generated evidence file:

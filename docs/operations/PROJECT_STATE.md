@@ -5,7 +5,10 @@
 > live task queue.
 
 **Updated:** 2026-09-06 UTC
-**Branch:** `integration/v2` (GitHub default; current canonical tip `d06c97c289570b775507febe0a7ec5b5b901ce9b`; product-code tip `caceb88efb0a860f648677aa41a1c14e1eee95f1`; reconciliation merge `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
+**Branch:** `integration/v2` (GitHub default; latest CI-verified source tip
+`d06c97c289570b775507febe0a7ec5b5b901ce9b`; product-code tip
+`caceb88efb0a860f648677aa41a1c14e1eee95f1`; reconciliation merge
+`1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
 **Source baseline:** `d06c97c289570b775507febe0a7ec5b5b901ce9b` (the commits after
 `caceb88e` are documentation-only; the MAP1 product tree and recorded
 `integration/v2` ancestry are unchanged; TestFlight build 47 artifact source
@@ -13,14 +16,17 @@ remains `d189b3b475891225c9ecb86b0f672c12be3c5c40`; current artifact-only build
 48 was built from `8e13623d`; backend runtime revision is
 `c16488911038d7e5b47ec310d1aaf05ca29950df`)
 **Release rule:** the gates are ordered, not circular:
-`canonical source -> CI/simulator evidence -> signed artifact -> owner-authorized
-internal TestFlight upload (required to collect physical-device evidence)
--> physical iPhone/Watch evidence -> Phase 6 readiness -> owner approval ->
-external distribution or production promotion`. An internal upload keeps
+`canonical source -> source/Native CI and backend preflight -> automatic fresh
+internal TestFlight build/upload (the workflow performs signing) -> Apple
+processing/status check -> stop and hand off for physical iPhone/Watch evidence
+-> Phase 6 readiness -> owner approval -> external distribution or production
+promotion`. Once the required test gates are green, this internal-only upload
+does not require another per-upload chat confirmation. It keeps
 `external_distribution=false` and does not authorize production. An
 owner-approved `test_environment_upload=true` only permits a deliberately
 degraded readiness check; it never closes the physical-device gate or promotes
-the app.
+the app. A standalone artifact-only IPA is an optional historical diagnostic,
+not a release gate or a prerequisite for the upload workflow.
 
 ## Current Work Summary
 
@@ -55,14 +61,16 @@ the app.
   `19936b224428aa2e740fc7b277f26b80f91c52b44c567b75cbe310349db4f3ad`;
   artifact `AICaddie-ipa` ID `9868598629` has ZIP digest
   `sha256:19865fc1d6190c5e58e882f63062b39b1cebd00d730c3b656c8e54ed7fdbe82b`.
-- **Current-head artifact-only build 48:** iOS TestFlight CD run
+- **Historical artifact-only build 48 (diagnostic only):** iOS TestFlight CD run
   `33977405908` built and signed `0.1.0 (48)` from canonical tip `8e13623d`.
   The IPA SHA-256 is
   `479dc3e3298e3f8527458752f7a33e2ef22d11d79176047be075d556d24ceafc`;
   GitHub artifact `AICaddie-ipa` ID `9972807230` has ZIP digest
   `sha256:5422bcf511eb3933264dbd7d31c0ff2a865eddc8a2feb114cbb49cb1bcf50829`.
   Its provenance records `uploadRequested=false`, `uploadCompleted=false`,
-  and `uploadToTestflight=false`; build 48 is not in App Store Connect.
+  and `uploadToTestflight=false`; build 48 is not in App Store Connect. It was
+  useful only for package/signing diagnostics; do not repeat a standalone IPA
+  build when no upload is authorized.
 - **Apple status:** Read-only App Store Connect run `33687613975` reports
   build 47 `VALID`, `expired=false`, `internalState=IN_BETA_TESTING`, and
   `externalState=READY_FOR_BETA_SUBMISSION`. Internal group `Jason's friends`
@@ -78,11 +86,14 @@ the app.
   iPhone/Watch installation are unconfirmed. `install_verified` remains
   `false` by design.
 - **Remaining release gate:** Build 47 is uploaded and visible to the internal
-  all-builds group, but it predates the P2 follow-up. Build 48 is the exact
-  current-head signed candidate and is artifact-only, so it is not yet
-  installable through TestFlight. The next optional release action is an
-  owner-authorized upload of build 48 to the existing internal group solely to
-  collect physical iPhone/Watch evidence. External Beta Review and production
+  all-builds group, but it predates the P2 follow-up. The artifact-only build 48
+  is diagnostic-only and is not installable through TestFlight or a pending
+  release candidate. Once the required source/native checks and backend
+  preflight are green, the next action is an automatic fresh TestFlight build
+  from the canonical tip, uploaded only to the existing internal group, solely
+  to collect physical iPhone/Watch evidence. The workflow does not
+  retroactively upload the artifact-only IPA; record the actual Apple build
+  number and hash from the fresh run. External Beta Review and production
   promotion remain blocked until the evidence and owner approval are complete.
 - **Post-release cleanup (2026-08-31):** The exact allow-list and protected
   resources are recorded in
@@ -167,12 +178,14 @@ map distance semantics, and S70-style magnification for Touch Target, Green
 View flag placement, and review shot placement. Release evidence remains open
 under `REL` and is not changed by this slice.
 
-The current release candidate has a verified backend deployment, passing live
-iOS/Watch Native evidence, and a signed current-head artifact (build 48) as
-summarized above. The remaining release evidence is physical-device
-installation and first-launch/start verification, exact tester qualification,
-and (if desired) external Beta Review/distribution. Build 48's internal upload
-is a separate owner decision made before, not after, the hardware test.
+The current product tip has a verified backend deployment and passing live
+iOS/Watch Native evidence. The standalone build-48 artifact is diagnostic only;
+it is not a TestFlight release candidate. The remaining release evidence is
+physical-device installation and first-launch/start verification, exact tester
+qualification, and (if desired) external Beta Review/distribution. A fresh
+internal TestFlight build is automatically run after the required test gates,
+before the hardware test; after Apple status is verified, work stops for the
+hardware handoff.
 
 MAP1 implementation evidence (2026-09-02): the Watch/iPhone map-first start,
 pixel-safe Touch Target and Green View editors, S70-style drag loupes, and
@@ -1025,29 +1038,29 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Keep `integration/v2` at the canonical tip and preserve the green source,
-   Native Mobile, and signed artifact evidence. These checks can continue
-   without an Apple-side mutation.
-2. Make the owner decision on the exact build-48 candidate. If the decision is
-   **no upload**, Codex can finish documentation, provenance/contract review,
-   branch-audit preparation, and simulator verification; the owner can inspect
-   the IPA/artifacts or continue testing old internal build 47. Neither path
-   can prove P2 behavior on a real iPhone/paired Watch, and the app-store IPA
-   is not a general developer/USB install package.
-3. If the decision is **internal upload**, dispatch `iOS TestFlight (CD)` from
-   `integration/v2` with `upload_to_testflight=true`, the public API origin, and
-   expected backend revision `c16488911038d7e5b47ec310d1aaf05ca29950df`.
-   Keep external distribution off; `test_environment_upload` stays false while
+1. Keep `integration/v2` at the canonical tip and preserve the green source and
+   Native Mobile evidence. Do not create another standalone IPA; the existing
+   artifact-only package is only a historical signing diagnostic.
+2. When the required source/native CI and backend preflight are green, Codex
+   automatically dispatches `iOS TestFlight (CD)` from the current
+   `integration/v2` tip with `upload_to_testflight=true`, the public API origin,
+   and expected backend revision
+   `c16488911038d7e5b47ec310d1aaf05ca29950df`. This creates a fresh signed
+   binary; the artifact-only build 48 is not uploaded retroactively. Keep
+   external distribution off; `test_environment_upload` stays false while
    readiness is healthy (set it true only with separate owner approval for a
    degraded environment).
-4. After Apple processes build 48, assign only the existing internal group,
-   install that exact build on the iPhone and paired Watch, and record the
-   no-GPS manual search/start, map/caddie, Touch Target, Green View flag drag
-   plus zoom/loupe, review placement, touch, and Digital Crown/S70 evidence.
-5. Bind the hardware evidence to build 48 and run Phase 6 readiness. Only when
-   it is complete may the owner separately approve `Private Trial`/Beta Review
-   or production promotion. Never use production synchronization as a test.
-6. Keep the reconciliation branch, old PRs, and historical refs until the
+3. After Apple processes the fresh internal candidate, record its actual build
+   number and IPA hash, verify it is visible to the existing internal group,
+   and stop for the hardware handoff. The owner then installs that build on the
+   iPhone and paired Watch and records the no-GPS manual search/start,
+   map/caddie, Touch Target, Green View flag drag plus zoom/loupe, review
+   placement, touch, and Digital Crown/S70 evidence.
+4. Bind the hardware evidence to the actual uploaded build number and run Phase
+   6 readiness. Only when it is complete may the owner separately approve
+   `Private Trial`/Beta Review or production promotion. Never use production
+   synchronization as a test.
+5. Keep the reconciliation branch, old PRs, and historical refs until the
    whole-repository audit handoffs and an explicit allow-listed cleanup decision
    are complete; do not bulk-delete refs.
 
