@@ -397,11 +397,14 @@ public struct StartRoundView: View {
     /// A downloaded course is an offline fallback only when its retained provider coordinate proves
     /// that it is actually near the current fix. `courseOptions` also contains play history, so rows
     /// without coordinates or outside the radius must never reappear as a disguised history list.
+    /// The recovery-only `includeUnknownCoordinates` exception is safe because the caller renders
+    /// those rows in the explicitly labelled offline section, never as nearby/provider evidence.
     static func locallyAvailableNearbyCourses(
         _ options: [MobileCourseOption],
         latitude: Double,
         longitude: Double,
-        radiusKm: Int
+        radiusKm: Int,
+        includeUnknownCoordinates: Bool = false
     ) -> [MobileCourseOption] {
         guard latitude.isFinite, (-90...90).contains(latitude),
               longitude.isFinite, (-180...180).contains(longitude),
@@ -409,10 +412,18 @@ public struct StartRoundView: View {
         let radiusMetres = Double(radiusKm) * 1_000
         var seen = Set<Int>()
         return options.filter { option in
-            guard seen.insert(option.globalId).inserted,
-                  let courseLatitude = option.latitude,
-                  let courseLongitude = option.longitude,
-                  courseLatitude.isFinite, (-90...90).contains(courseLatitude),
+            guard seen.insert(option.globalId).inserted else {
+                return false
+            }
+            guard let courseLatitude = option.latitude,
+                  let courseLongitude = option.longitude else {
+                // A complete downloaded package is still an explicit offline source even when an
+                // older CourseView package did not carry a Tee anchor. It stays in the separate
+                // 本机已下载 section; this flag is only used after the provider request fails and
+                // never promotes the row into nearby/provider evidence.
+                return includeUnknownCoordinates
+            }
+            guard courseLatitude.isFinite, (-90...90).contains(courseLatitude),
                   courseLongitude.isFinite, (-180...180).contains(courseLongitude) else {
                 return false
             }
@@ -1414,7 +1425,17 @@ public struct StartRoundView: View {
                   nearbyRequestToken == requestToken,
                   locationDiscoveryKey == requestKey else { return }
             nearbyCourseOptions = []
-            offlineCourseOptions = resolvedOfflineOptions(localNearby)
+            // Keep a verified local package usable even when its older package format has no
+            // per-hole Tee anchor. Rows with factual coordinates still need to be within 50 km;
+            // coordinate-less rows are shown only in the explicitly labelled offline section.
+            let offlineFallback = Self.locallyAvailableNearbyCourses(
+                downloadedCourseOptions,
+                latitude: fix.coordinate.latitude,
+                longitude: fix.coordinate.longitude,
+                radiusKm: 50,
+                includeUnknownCoordinates: true
+            )
+            offlineCourseOptions = resolvedOfflineOptions(offlineFallback)
             nearbyDiscoveryFailed = true
             nearbyStatusText = Self.nearbyDiscoveryErrorMessage(error)
             // A failed provider request must not preserve an implicit historical/default course.

@@ -99,6 +99,33 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
+    func testOfflineServiceFailureCanRetainVerifiedPackageWithoutTeeCoordinates() {
+        let downloaded = option(
+            globalId: 31793,
+            name: "北京丽宫体育公园高尔夫俱乐部",
+            latitude: nil,
+            longitude: nil,
+            roundCount: 0
+        )
+        let far = option(
+            globalId: 3881,
+            name: "Cypress Point Club",
+            latitude: 36.58,
+            longitude: -121.97,
+            roundCount: 0
+        )
+
+        let fallback = StartRoundView.locallyAvailableNearbyCourses(
+            [far, downloaded],
+            latitude: 40.0454995,
+            longitude: 116.5461531,
+            radiusKm: 50,
+            includeUnknownCoordinates: true
+        )
+
+        XCTAssertEqual(fallback.map(\.globalId), [31793])
+    }
+
     func testNearbyDiscoveryDoesNotRestartForNormalWalkingGPSUpdates() {
         let initial = StartRoundView.nearbyDiscoveryBucket(
             latitude: 40.0454995,
