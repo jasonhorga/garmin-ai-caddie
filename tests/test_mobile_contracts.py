@@ -2514,13 +2514,18 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('Label("Clear saved backend"', backend_view)
         self.assertNotIn("Text(adminToken", backend_view)
 
-        # 后端 URL/token 已烤入构建 → 主界面不再暴露后端入口(BackendSettingsView 仍存在,
-        # 但不从 Hub/开始一场链接);回调 prop 仍声明(由 app 注入)。
-        for source in [round_home, start_view]:
-            self.assertIn("onSaveBackendConfiguration", source)
-            self.assertIn("onClearBackendConfiguration", source)
-            self.assertNotIn("BackendSettingsView(", source)
-            self.assertNotIn('systemImage: "server.rack"', source)
+        # A processed TestFlight build must let the owner recover from a stale or
+        # unreachable saved origin. Keep the entry in the round settings sheet,
+        # while leaving the start-round form focused on course selection.
+        self.assertIn("onSaveBackendConfiguration", round_home)
+        self.assertIn("onClearBackendConfiguration", round_home)
+        self.assertIn("BackendSettingsView(", round_home)
+        self.assertIn('Label("后端设置", systemImage: "server.rack")', round_home)
+        self.assertIn('.accessibilityIdentifier("settings-backend")', round_home)
+        self.assertIn("onSaveBackendConfiguration", start_view)
+        self.assertIn("onClearBackendConfiguration", start_view)
+        self.assertNotIn("BackendSettingsView(", start_view)
+        self.assertNotIn('systemImage: "server.rack"', start_view)
 
         self.assertIn("runtime Backend screen", readme)
         self.assertIn("DEBUG/CI aid", readme)
