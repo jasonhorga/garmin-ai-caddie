@@ -643,6 +643,7 @@ public struct StartRoundView: View {
                     Text("本机已下载")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("start-round-offline-courses")
                     Spacer()
                     Text("仅供离线开始")
                         .font(.caption2)
@@ -660,7 +661,6 @@ public struct StartRoundView: View {
                     }
                 }
             }
-            .accessibilityIdentifier("start-round-offline-courses")
             .liveCard()
         }
     }
