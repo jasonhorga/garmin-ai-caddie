@@ -3,7 +3,7 @@ import SwiftUI
 
 /// 球局主页(Hub)— 已批准设计稿的「三件事」卡片版:打球(开始/继续 + 中途加/减九洞)、
 /// 备战 · 复盘磁贴、上一场速览。灰底圆角白卡(ScrollView),保留导航接线(实战逐洞、
-/// 赛前攻略、历史复盘、同步、Garmin 账号)。工程项(离线诊断、后端地址)不对用户暴露。
+/// 赛前攻略、历史复盘、同步、Garmin 账号)。后端地址只作为账号设置里的连接诊断入口。
 /// 表现型卡片组件(Hub*)纯输入,供 CI 设计快照复用。
 /// Hub navigation routes driven by a path, so the app can jump straight into the live hole after
 /// 开始记分 (instead of bouncing back to the Hub). 备战/复盘 stay simple leaf links.
@@ -591,6 +591,18 @@ public struct RoundHomeView: View {
                     } label: {
                         Label("球杆设置", systemImage: "bag")
                     }
+                    NavigationLink {
+                        BackendSettingsView(
+                            apiBaseURL: apiBaseURL,
+                            adminTokenConfigured: adminTokenConfigured,
+                            syncStatus: syncStatus,
+                            onSave: onSaveBackendConfiguration,
+                            onClear: onClearBackendConfiguration
+                        )
+                    } label: {
+                        Label("后端设置", systemImage: "server.rack")
+                    }
+                    .accessibilityIdentifier("settings-backend")
                 } header: {
                     Text("账号与球包")
                 }

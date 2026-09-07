@@ -283,6 +283,12 @@ GitHub Actions；在 CI 全部通过前不部署或上传新的 TestFlight。
 `GARMIN-AUTH` remains `evidence-open` for the one fresh physical reconnect;
 `MAP1` remains `evidence-open` for held-loupe and paired-device evidence.
 
+现场证据（2026-09-07 08:49–08:54 UTC）：在用户实际点击多次“重新连接
+Garmin”期间，对运行中的 candidate API 做了 10 分钟只读监听；除健康检查外，
+没有收到 `/api/v2/sync/garmin/session`、`/api/v2/sync/garmin` 或成员同步路由的
+任何请求。监听进程已清理。当前失败点位于手机发请求之前，或设备使用了不同的
+API origin；尚未取得真实 HTTP 状态码，不能宣称同步已修复。
+
 **`GARMIN-AUTH` — reconnect validation and release binding** (`evidence-open`)
 
 The Garmin web login succeeds, but build 50 can still report verification
