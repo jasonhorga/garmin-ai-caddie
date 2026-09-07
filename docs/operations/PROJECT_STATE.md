@@ -55,7 +55,9 @@ prerequisite for the upload workflow.
   were saved; the shared API health endpoint remained `ok` at the same
   revision. The repository helper fix is committed as `0fd1ffc2` and Source CI
   run `34079053241` passed backend, frontend, and Docker smoke jobs. The next
-  scheduled run is the normal hourly cron at `:37` UTC.
+  unattended cron run at 02:37 UTC also used the exact image and completed
+  successfully with the same 490 rounds and 112/112 course references (0 new
+  rounds), confirming the automatic schedule is recovered.
 - **Garmin login verification fix:** Garmin CN's gateway now requires the
   browser same-origin fetch metadata on authenticated API calls. Commit
   `caf3afad` sends `Sec-Fetch-Site: same-origin`, `Sec-Fetch-Mode: cors`, and
