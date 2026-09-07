@@ -53,7 +53,9 @@ prerequisite for the upload workflow.
   controlled run at 02:06 UTC exited 0: Garmin auth succeeded, 490 rounds,
   490 scorecards, 490 shot sets, 112/112 course references, and 4 new rounds
   were saved; the shared API health endpoint remained `ok` at the same
-  revision. The next scheduled run is the normal hourly cron at `:37` UTC.
+  revision. The repository helper fix is committed as `0fd1ffc2` and Source CI
+  run `34079053241` passed backend, frontend, and Docker smoke jobs. The next
+  scheduled run is the normal hourly cron at `:37` UTC.
 - **Garmin login verification fix:** Garmin CN's gateway now requires the
   browser same-origin fetch metadata on authenticated API calls. Commit
   `caf3afad` sends `Sec-Fetch-Site: same-origin`, `Sec-Fetch-Mode: cors`, and
