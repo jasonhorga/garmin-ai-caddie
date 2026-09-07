@@ -1316,7 +1316,7 @@ public struct StartRoundView: View {
             switch urlError.code {
             case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost,
                  .cannotFindHost, .dnsLookupFailed, .timedOut, .secureConnectionFailed:
-                return "网络暂时不可用；可重试，或按球场名搜索。"
+                return "附近球场暂时无法读取；可重试，或按城市或球场名搜索。"
             default:
                 break
             }

@@ -395,6 +395,13 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
+    func testNearbyTransportFailureExplainsCityOrCourseSearchRecovery() {
+        XCTAssertEqual(
+            StartRoundView.nearbyDiscoveryErrorMessage(URLError(.timedOut)),
+            "附近球场暂时无法读取；可重试，或按城市或球场名搜索。"
+        )
+    }
+
     private func option(
         globalId: Int,
         name: String,
