@@ -13,8 +13,10 @@
 #   python -m ai_caddie.pipeline --shots ...
 # which pulls scorecards/shots AND the real club bag (fetch.fetch_clubs → /club/player).
 #
-# Build (api image must exist first — see ops/build_sync_image.sh):
-#   docker build -f Dockerfile.sync -t aicaddie-sync:latest .
+# Build from a revision-labelled API image with ops/build_sync_image.sh. The
+# direct command below is retained for CI smoke tests; production cron requires
+# the full-SHA tag produced by that helper.
+#   API_IMAGE=garmin-ai-caddie-api:<full-SHA> bash ops/build_sync_image.sh
 ARG API_IMAGE=garmin-ai-caddie-api:latest
 FROM ${API_IMAGE}
 

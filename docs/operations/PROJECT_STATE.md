@@ -40,6 +40,20 @@ prerequisite for the upload workflow.
   stopped `ce4d41f0` container is retained as the named rollback target; the
   deployment record is under
   `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260906-authfix`.
+- **Sync image incident and recovery (2026-09-07):** The hourly cron is a
+  one-shot `docker run --rm`, so a persistent `aicaddie-sync` container is not
+  expected in `docker ps` between runs. At 23:37, 00:37, and 01:37 UTC it
+  correctly refused the missing exact-revision image instead of using stale
+  `latest` (which still points to the 2026-08-21 `6a6080c` image). The rebuilt
+  image `aicaddie-sync:caf3afad55e31c3b98a378e0d1cf4c2c5fb5a737` was created at
+  01:41 UTC, has image ID
+  `sha256:81799662dda5c81fe17cfb52e1ccba8edb7bbcd7856c969d31ad39d1954c3615`,
+  and its source label matches the API image while its key code hashes match
+  the API image and canonical checkout. A
+  controlled run at 02:06 UTC exited 0: Garmin auth succeeded, 490 rounds,
+  490 scorecards, 490 shot sets, 112/112 course references, and 4 new rounds
+  were saved; the shared API health endpoint remained `ok` at the same
+  revision. The next scheduled run is the normal hourly cron at `:37` UTC.
 - **Garmin login verification fix:** Garmin CN's gateway now requires the
   browser same-origin fetch metadata on authenticated API calls. Commit
   `caf3afad` sends `Sec-Fetch-Site: same-origin`, `Sec-Fetch-Mode: cors`, and

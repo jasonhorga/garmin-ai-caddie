@@ -270,6 +270,30 @@ class DeploymentManifestTests(unittest.TestCase):
         self.assertNotIn("JWT_WEB", docker_text + compose_text)
         self.assertNotIn("connect-csrf-token", docker_text + compose_text)
 
+    def test_sync_build_script_pins_tag_to_api_source_revision(self) -> None:
+        script = Path("ops/build_sync_image.sh")
+        self.assertTrue(script.exists(), "missing sync image build script")
+        text = script.read_text(encoding="utf-8")
+
+        for required in [
+            "ai.caddie.source-revision",
+            "SYNC_IMAGE_TAG:-$API_SOURCE_REVISION",
+            "CANONICAL_TAG=\"aicaddie-sync:${API_SOURCE_REVISION}\"",
+            "docker tag \"$SYNC_TAG\" \"$CANONICAL_TAG\"",
+            "--label \"ai.caddie.source-revision=${API_SOURCE_REVISION}\"",
+            "PUBLISH_LATEST",
+            "does not exist locally",
+            "refusing an unbound sync image",
+            "no active API container found",
+        ]:
+            self.assertIn(required, text)
+
+        # Building the API and then silently tagging an unrelated `latest` image
+        # was the incident's root cause; the helper must consume a labelled API
+        # image and produce the immutable cron tag.
+        self.assertNotIn("docker compose build api", text)
+        self.assertNotIn("SYNC_IMAGE_TAG:-latest", text)
+
     def test_compose_persists_topo_render_cache_inside_private_volume(self) -> None:
         compose = self._load_compose()
         api = compose["services"]["api"]

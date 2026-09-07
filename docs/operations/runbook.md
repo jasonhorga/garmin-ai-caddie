@@ -140,6 +140,23 @@ curl -s http://127.0.0.1:9000/api/v2/sync/status
 
 The response should never include cookie, CSRF, token, `.env`, or absolute private paths.
 
+### Build the Sync Image
+
+The homeserver sync job is a one-shot container. After the API candidate is
+deployed, run the helper from this checkout:
+
+```bash
+bash ops/build_sync_image.sh
+```
+
+It resolves the active API image, requires its full
+`ai.caddie.source-revision` label, and creates
+`aicaddie-sync:<same-full-SHA>`, which is the only tag the cron job accepts.
+When building before the candidate is started, pass the labelled image
+explicitly with `API_IMAGE=...`. The helper does not silently fall back to a
+moving `:latest` tag; `PUBLISH_LATEST=1` is an explicit compatibility alias
+only and is not used by cron.
+
 ## GitHub Actions
 
 The default CI can be run manually from GitHub Actions because the workflow has
