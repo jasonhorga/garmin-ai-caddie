@@ -71,7 +71,7 @@ final class AICaddieAppTests: XCTestCase {
         )
         XCTAssertEqual(
             GarminSessionView.importErrorMessage(SyncClientError.http(status: 422, body: nil)),
-            "Garmin 登录信息无效，请重新登录"
+            "Garmin 登录信息格式无效，请重新登录"
         )
         XCTAssertEqual(
             GarminSessionView.importErrorMessage(SyncClientError.http(status: 403, body: nil)),
@@ -83,7 +83,38 @@ final class AICaddieAppTests: XCTestCase {
         )
         XCTAssertEqual(
             GarminSessionView.importErrorMessage(URLError(.timedOut)),
-            "连接失败，请重试"
+            "网络暂时不可用，Garmin 登录尚未验证；请检查网络后重试"
+        )
+        XCTAssertEqual(
+            GarminSessionView.importErrorMessage(SyncClientError.http(status: 503, body: nil)),
+            "服务器暂时不可用，Garmin 登录尚未验证；请稍后重试"
+        )
+        XCTAssertEqual(
+            GarminSessionView.importErrorMessage(DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "invalid"))),
+            "服务器返回内容无效，Garmin 登录尚未验证；请稍后重试"
+        )
+    }
+
+    func testVerifiedGarminSyncFailureKeepsConnectedStateInCopy() {
+        XCTAssertEqual(
+            GarminSyncPresentation.syncErrorMessage(
+                URLError(.timedOut),
+                hasVerifiedSession: true
+            ),
+            "Garmin 已连接；本次同步失败：网络暂时不可用，请稍后重试"
+        )
+        XCTAssertEqual(
+            GarminSyncPresentation.syncErrorMessage(
+                URLError(.timedOut),
+                hasVerifiedSession: false
+            ),
+            "Garmin 网页已登录；数据验证未完成：网络暂时不可用，请稍后重试"
+        )
+        XCTAssertEqual(
+            GarminSessionView.connectedStatusText(
+                syncStatus: "Garmin 已连接；本次同步失败：网络暂时不可用，请稍后重试"
+            ),
+            "已连接 · 本次同步失败"
         )
     }
 

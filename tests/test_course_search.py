@@ -378,6 +378,45 @@ class CourseSearchEndpointTests(unittest.TestCase):
         self.assertTrue(response.json()["complete"])
         nearby.assert_called_once_with(latitude=22.7401328, longitude=114.0714097, radius_km=50)
 
+    def test_nearby_endpoint_preserves_provider_loop_labels_without_history_reconciliation(self) -> None:
+        from ai_caddie.courses import course_search
+        from server_v2 import main as server_main
+
+        venue = "北京天竺黑骑士球员俱乐部"
+        canned = [
+            course_search.CourseMatch(
+                31794, f"{venue} ~ A", 9, "北京", "北京", 0.9,
+                40.0451, 116.5466, 0.1,
+            ),
+            course_search.CourseMatch(
+                31795, f"{venue} ~ B", 9, "北京", "北京", 0.8,
+                40.0452, 116.5467, 0.2,
+            ),
+            course_search.CourseMatch(
+                31796, f"{venue} ~ C", 9, "北京", "北京", 0.7,
+                40.0453, 116.5468, 0.3,
+            ),
+        ]
+        with (
+            patch.object(server_main.course_search, "courseview_nearby", return_value=canned),
+            patch.object(
+                server_main,
+                "_reconcile_player_course_matches",
+                side_effect=AssertionError("nearby discovery must not use player history"),
+            ) as reconcile,
+        ):
+            response = self._client().get(
+                "/api/v2/courses/nearby",
+                params={"latitude": 40.045, "longitude": 116.5466, "radius_km": 50},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [row["name"] for row in response.json()["matches"]],
+            [f"{venue} ~ A", f"{venue} ~ B", f"{venue} ~ C"],
+        )
+        reconcile.assert_not_called()
+
     def test_nearby_endpoint_bounds_radius(self) -> None:
         response = self._client().get(
             "/api/v2/courses/nearby",

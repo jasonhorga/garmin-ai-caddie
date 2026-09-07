@@ -323,6 +323,78 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(group?.segments.map(\.resolvedHoles), [9, 9, 9])
     }
 
+    func testNineHoleWithoutLoopLabelIsNeverPresentedAsWholeCourse() {
+        let unlabeledNine = MobileCourseOption(
+            globalId: 9001,
+            name: "示例球场",
+            holes: 9,
+            segmentLabel: nil,
+            segmentHoles: nil
+        )
+        let wholeEighteen = MobileCourseOption(
+            globalId: 9002,
+            name: "示例球场",
+            holes: 18,
+            segmentLabel: nil,
+            segmentHoles: 18
+        )
+
+        XCTAssertEqual(unlabeledNine.segmentDisplayTitle, "未标注场区")
+        XCTAssertEqual(wholeEighteen.segmentDisplayTitle, "全场")
+    }
+
+    func testSecondNineCandidatesKeepOnlySameVenueNineHoleRows() {
+        let selected = MobileCourseOption(
+            globalId: 9101,
+            name: "黑骑士 ~ A",
+            holes: 9,
+            venueName: "黑骑士",
+            segmentLabel: "A",
+            segmentHoles: 9
+        )
+        let sibling = MobileCourseOption(
+            globalId: 9102,
+            name: "黑骑士 ~ B",
+            holes: 9,
+            venueName: "黑骑士",
+            segmentLabel: "B",
+            segmentHoles: 9
+        )
+        let staleWholeVenueRow = MobileCourseOption(
+            globalId: 9103,
+            name: "黑骑士",
+            holes: 18,
+            venueName: "黑骑士",
+            segmentLabel: nil,
+            segmentHoles: 18
+        )
+        let otherVenue = MobileCourseOption(
+            globalId: 9104,
+            name: "另一球场 ~ C",
+            holes: 9,
+            venueName: "另一球场",
+            segmentLabel: "C",
+            segmentHoles: 9
+        )
+
+        XCTAssertEqual(
+            StartRoundView.sameVenueNineHoleCandidates(
+                selected: selected,
+                candidates: [staleWholeVenueRow, otherVenue, sibling, selected]
+            ).map(\.globalId),
+            [9101, 9102]
+        )
+    }
+
+    func testNearby401ExplainsThatTheAppLoginExpired() {
+        XCTAssertEqual(
+            StartRoundView.nearbyDiscoveryErrorMessage(
+                SyncClientError.http(status: 401, body: nil)
+            ),
+            "登录已失效；请重新登录后再查找附近球场。"
+        )
+    }
+
     private func option(
         globalId: Int,
         name: String,

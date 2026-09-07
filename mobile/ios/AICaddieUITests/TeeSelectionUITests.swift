@@ -425,7 +425,7 @@ final class TeeSelectionUITests: XCTestCase {
         }
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
         let emptyCopy = "当前位置 50 km 内没有找到球场；可以扩大范围或按名称搜索。"
-        let failureCopy = "附近球场暂时读取失败；可以先按城市或球场名搜索。"
+        let failureCopy = "附近球场暂时无法读取；可重试，或按城市或球场名搜索。"
         let terminal = app.staticTexts.matching(
             NSPredicate(format: "label == %@ OR label == %@", emptyCopy, failureCopy)
         ).firstMatch
@@ -466,7 +466,7 @@ final class TeeSelectionUITests: XCTestCase {
         }
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
         XCTAssertTrue(
-            app.staticTexts["附近球场暂时读取失败；可以先按城市或球场名搜索。"]
+            app.staticTexts["附近球场暂时无法读取；可重试，或按城市或球场名搜索。"]
                 .waitForExistence(timeout: 20),
             "a transport failure without a factual local candidate must settle to the manual fallback"
         )
@@ -549,14 +549,23 @@ final class TeeSelectionUITests: XCTestCase {
         }
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
         XCTAssertTrue(
-            app.staticTexts["附近服务不可用；已显示下载到本机的附近球场。"]
+            app.staticTexts["附近球场暂时无法读取；可重试，或按城市或球场名搜索。"]
                 .waitForExistence(timeout: 20)
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)["start-round-nearby-results-summary"].exists,
+            "a failed nearby request must not expose a nearby summary"
         )
 
         let downloaded = firstDownloadedCourseSegment()
         XCTAssertTrue(
             downloaded.waitForExistence(timeout: 8),
             "only a genuinely downloaded nearby course may survive the service failure"
+        )
+        XCTAssertEqual(
+            downloaded.value as? String,
+            "未选择",
+            "an offline package must require an explicit tap after nearby discovery fails"
         )
         if downloaded.value as? String != "已选择" {
             downloaded.tap()
@@ -672,7 +681,7 @@ final class TeeSelectionUITests: XCTestCase {
 
     private func firstDownloadedCourseSegment() -> XCUIElement {
         app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "start-round-course-segment-")
+            NSPredicate(format: "identifier BEGINSWITH %@", "start-round-offline-course-segment-")
         ).firstMatch
     }
 

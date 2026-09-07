@@ -261,7 +261,8 @@ private struct NoPackageHubView: View {
                             adminToken: model.adminToken,
                             sessionStore: model.garminSessionStore,
                             onSessionImported: { await model.syncGarminData() },
-                            onSessionImportedOutcome: { await model.syncGarminDataOutcome() }
+                            onSessionImportedOutcome: { await model.syncGarminDataOutcome() },
+                            garminSyncStatus: model.garminSyncStatus
                         )
                     } label: {
                         Label("连接 Garmin", systemImage: "link")
@@ -828,9 +829,15 @@ public final class LiveRoundAppModel: ObservableObject {
             garminSyncStatus = "Garmin 同步正在进行"
         case "reauth_required":
             clearStoredGarminSessionAfterAuthFailure()
-            garminSyncStatus = "Garmin 登录已过期，请重新连接"
+            garminSyncStatus = "Garmin 登录已过期或会话无效，请重新连接"
         case "error":
-            garminSyncStatus = "上次 Garmin 拉取失败"
+            garminSyncStatus = hasVerifiedGarminSession()
+                ? "Garmin 已连接；本次同步失败，请稍后重试"
+                : "Garmin 网页已登录；数据验证未完成，请稍后重试"
+        case "not_available":
+            garminSyncStatus = hasVerifiedGarminSession()
+                ? "Garmin 已连接；本次同步失败：服务暂时不可用，请稍后重试"
+                : "Garmin 网页已登录；数据验证未完成：服务暂时不可用，请稍后重试"
         default:
             break
         }
@@ -2650,6 +2657,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private func performGarminSync(operationGeneration: Int) async -> GarminSyncOutcome {
         guard operationGeneration == garminSyncOperationGeneration else { return .failed }
         guard !isGarminSyncing else { return .inProgress }
+        let hadVerifiedGarminSession = hasVerifiedGarminSession()
         garminSyncPresentationGeneration += 1
         garminSyncPresentationLockedUntil = nil
         isGarminSyncing = true
@@ -2671,7 +2679,10 @@ public final class LiveRoundAppModel: ObservableObject {
         guard operationGeneration == garminSyncOperationGeneration else { return .failed }
 
         guard let syncClient else {
-            garminSyncStatus = "未联网，Garmin 数据未更新"
+            garminSyncStatus = GarminSyncPresentation.syncErrorMessage(
+                URLError(.cannotConnectToHost),
+                hasVerifiedSession: hadVerifiedGarminSession
+            )
             garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
             garminSyncPresentationWatermark = Date()
             return .failed
@@ -2700,7 +2711,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 return .inProgress
             }
             guard result.state == "ready" || result.state == "no_data" else {
-                garminSyncStatus = "Garmin 拉取失败，请稍后重试"
+                garminSyncStatus = hadVerifiedGarminSession
+                    ? "Garmin 已连接；本次同步未完成，请稍后重试"
+                    : "Garmin 网页已登录；数据验证未完成，请稍后重试"
                 garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
                 garminSyncPresentationWatermark = Date()
                 return .failed
@@ -2744,7 +2757,10 @@ public final class LiveRoundAppModel: ObservableObject {
                 AICaddieLog.network.info("Garmin pull is already in progress")
                 return .inProgress
             } else {
-                garminSyncStatus = "Garmin 拉取失败，请稍后重试"
+                garminSyncStatus = GarminSyncPresentation.syncErrorMessage(
+                    error,
+                    hasVerifiedSession: hadVerifiedGarminSession
+                )
             }
             garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
             garminSyncPresentationWatermark = Date()
@@ -2752,12 +2768,20 @@ public final class LiveRoundAppModel: ObservableObject {
             return .failed
         } catch {
             guard operationGeneration == garminSyncOperationGeneration else { return .failed }
-            garminSyncStatus = "Garmin 拉取失败，请稍后重试"
+            garminSyncStatus = GarminSyncPresentation.syncErrorMessage(
+                error,
+                hasVerifiedSession: hadVerifiedGarminSession
+            )
             garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
             garminSyncPresentationWatermark = Date()
             AICaddieLog.network.error("Garmin pull failed: \(String(describing: error), privacy: .public)")
             return .failed
         }
+    }
+
+    private func hasVerifiedGarminSession() -> Bool {
+        guard let garminSessionStore else { return false }
+        return (try? garminSessionStore.loadSession())?.verifiedAt != nil
     }
 
     /// Persist the verification bit separately from the captured material. A successful server pull

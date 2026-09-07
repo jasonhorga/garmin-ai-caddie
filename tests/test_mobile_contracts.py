@@ -1665,7 +1665,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("nearbyCourseOptions + remoteCourseOptions", start_view)
         self.assertNotIn("return (courseOptions + remoteCourseOptions)", start_view)
         self.assertIn("await discoverNearbyCourses()", start_view)
-        self.assertIn("venueGroups", start_view)
+        self.assertIn("makeVenueGroups", start_view)
         self.assertIn("func segmentRow(", start_view)
         self.assertIn("segment.segmentLabel", start_view)
         # 球场用下拉菜单选(#2a),GPS 可用时按距离排序、否则最常打在前(#4a)。

@@ -49,12 +49,17 @@ public struct StartRoundView: View {
     @State private var fetchedTees: [CourseTee] = []
     @State private var nearbyCourseOptions: [MobileCourseOption] = []
     @State private var remoteCourseOptions: [MobileCourseOption] = []
+    /// Downloaded packages are an explicit offline source. They must never be mixed into the
+    /// provider-nearby list: a stale local package is not evidence that the course is nearby.
+    @State private var offlineCourseOptions: [MobileCourseOption] = []
     @State private var showingCourseSearch = false
     @State private var showingTeeSelector = false
     @State private var isLoadingTees = false
     @State private var teeLoadFailed = false
     @State private var isLoadingNearby = false
     @State private var nearbyStatusText: String?
+    @State private var nearbyDiscoveryFailed = false
+    @State private var nearbyRetryToken = 0
     @State private var teeRequestToken: UUID?
     @State private var nearbyRequestToken: UUID?
 
@@ -101,6 +106,9 @@ public struct StartRoundView: View {
         // An explicit caller selection may be retained, but history alone is not a course picker.
         // Normal new-round entry waits for Garmin's nearby catalogue, matching S70 behaviour.
         let resolvedCourseId = defaultCourseGlobalId.map(String.init) ?? ""
+        // A caller-provided course is an explicit choice (for example a resumed deep link). History
+        // supplied only through `courseOptions` must not become an implicit nearby selection.
+        self._userPickedVenue = State(initialValue: defaultCourseGlobalId != nil)
         let selected = (courseOptions + downloadedCourseOptions).first {
             String($0.globalId) == resolvedCourseId
         }
@@ -168,6 +176,7 @@ public struct StartRoundView: View {
                 VStack(spacing: 0) {
                     VStack(spacing: 12) {
                         courseCard
+                        offlineCourseCard
                         secondNineCard
                     }
                     Spacer(minLength: 12)
@@ -189,7 +198,7 @@ public struct StartRoundView: View {
             locationProvider.startUpdatingLocation()
         }
         .onDisappear { locationProvider.stopUpdatingLocation() }
-        .task(id: locationDiscoveryKey) { await discoverNearbyCourses() }
+        .task(id: nearbyDiscoveryTaskKey) { await discoverNearbyCourses() }
         // 选了/换了球场 → 拉该球场的可选发球台(颜色 + 码数 + 默认),填充选台器。
         .task(id: courseGlobalIdText) {
             await loadTees()
@@ -259,7 +268,10 @@ public struct StartRoundView: View {
     /// The venue of the currently selected segment — the single source of truth (no separate state
     /// that can desync from courseGlobalIdText). Falls back to the top venue when nothing is selected.
     private var selectedVenueName: String {
-        selectedSegment.map { $0.venueName ?? baseCourseName($0.name) } ?? displayVenues.first?.venue ?? ""
+        selectedSegment.map { $0.venueName ?? baseCourseName($0.name) }
+            ?? displayVenues.first?.venue
+            ?? offlineVenues.first?.venue
+            ?? ""
     }
 
     /// The active-round identity must retain the chosen playable segment, not just its physical
@@ -332,7 +344,7 @@ public struct StartRoundView: View {
     /// S70 only auto-selects when GPS finds one nearby venue. With more than one, the player chooses
     /// from the nearby list; history never silently becomes the default course.
     private func ensureDefaultSelection() {
-        guard displayVenues.count == 1, let top = displayVenues.first else { return }
+        guard nearbyVenues.count == 1, let top = nearbyVenues.first else { return }
         let currentIsValid = selectedSegment != nil
         if !currentIsValid {
             selectVenue(top.venue, userInitiated: false)
@@ -341,9 +353,25 @@ public struct StartRoundView: View {
         }
     }
 
-    /// Venues ordered nearest-first from the provider-wide GPS result.
+    /// Provider nearby/search venues. Offline packages are deliberately excluded: they have their
+    /// own section and must not influence the nearby summary or picker.
     private var displayVenues: [(venue: String, segments: [MobileCourseOption])] {
-        let groups = venueGroups
+        orderedVenues(makeVenueGroups(from: nearbyCourseOptions + remoteCourseOptions))
+    }
+
+    private var nearbyVenues: [(venue: String, segments: [MobileCourseOption])] {
+        orderedVenues(makeVenueGroups(from: nearbyCourseOptions))
+    }
+
+    private var offlineVenues: [(venue: String, segments: [MobileCourseOption])] {
+        makeVenueGroups(from: offlineCourseOptions)
+    }
+
+    /// Order provider rows by distance only when a real fix exists. Search rows without a fix keep
+    /// their provider order, and offline rows never use a distance claim.
+    private func orderedVenues(
+        _ groups: [(venue: String, segments: [MobileCourseOption])]
+    ) -> [(venue: String, segments: [MobileCourseOption])] {
         guard let fix = locationProvider.latestFix else {
             return groups
         }
@@ -417,27 +445,53 @@ public struct StartRoundView: View {
                         )
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        if nearbyDiscoveryFailed {
+                            Button {
+                                nearbyRetryToken &+= 1
+                            } label: {
+                                Label("重试附近球场", systemImage: "arrow.clockwise")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(LiveHoleStyle.green)
+                            .accessibilityIdentifier("start-round-retry-nearby")
+                        }
                     }
                 }
             } else {
-                if isLoadingNearby {
+                if !nearbyVenues.isEmpty, isLoadingNearby {
                     ProgressView("正在更新附近球场…")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("start-round-nearby-loading")
-                } else {
+                } else if !nearbyVenues.isEmpty, !nearbyDiscoveryFailed {
                     Label(
-                        "当前位置 50 km · \(displayVenues.count) 个球场 · 最近在前",
+                        "当前位置 50 km · \(nearbyVenues.count) 个球场 · 最近在前",
                         systemImage: "location.fill"
                     )
                     .font(.caption2)
                     .foregroundStyle(LiveHoleStyle.green)
                     .accessibilityIdentifier("start-round-nearby-results-summary")
+                } else if !remoteCourseOptions.isEmpty {
+                    Label("已选择搜索结果", systemImage: "magnifyingglass")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
                 if let nearbyStatusText {
                     Text(nearbyStatusText)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                }
+                if nearbyDiscoveryFailed {
+                    Button {
+                        nearbyRetryToken &+= 1
+                    } label: {
+                        Label("重试附近球场", systemImage: "arrow.clockwise")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(LiveHoleStyle.green)
+                    .accessibilityIdentifier("start-round-retry-nearby")
                 }
                 // Only provider-nearby venues (plus one explicit text-search selection) appear here.
                 Picker("球场", selection: selectedVenueBinding) {
@@ -547,8 +601,53 @@ public struct StartRoundView: View {
         .liveCard()
     }
 
+    /// Local packages remain startable when the nearby service is unavailable, but they are shown in
+    /// a visibly separate section. This prevents an old course (or an old A/B/C combination) from
+    /// looking like a current GPS result and requires an explicit tap before it becomes selected.
+    @ViewBuilder private var offlineCourseCard: some View {
+        if !offlineVenues.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("本机已下载")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("仅供离线开始")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Text(offlineCourseExplanation)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                ForEach(offlineVenues, id: \.venue) { group in
+                    Text(group.venue)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    ForEach(group.segments) { segment in
+                        segmentRow(segment, identifierPrefix: "start-round-offline-course-segment")
+                    }
+                }
+            }
+            .accessibilityIdentifier("start-round-offline-courses")
+            .liveCard()
+        }
+    }
+
+    private var offlineCourseExplanation: String {
+        if nearbyDiscoveryFailed {
+            return "附近服务暂时不可用；这些球场来自本机，不代表当前附近结果。"
+        }
+        if locationProvider.latestFix == nil {
+            return "暂时没有 GPS；这些球场来自本机，选择后可直接开始离线球局。"
+        }
+        return "这些球场来自本机；选择后可直接开始离线球局。"
+    }
+
     /// 单个可打段(9 洞环 / 整场)的可选行;选中绿描边高亮。
-    @ViewBuilder private func segmentRow(_ segment: MobileCourseOption) -> some View {
+    @ViewBuilder private func segmentRow(
+        _ segment: MobileCourseOption,
+        identifierPrefix: String = "start-round-course-segment"
+    ) -> some View {
         let selected = String(segment.globalId) == courseGlobalIdText
         Button {
             userPickedVenue = true
@@ -585,7 +684,7 @@ public struct StartRoundView: View {
             .clipShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("start-round-course-segment-\(segment.globalId)")
+        .accessibilityIdentifier("\(identifierPrefix)-\(segment.globalId)")
         .accessibilityValue(selected ? "已选择" : "未选择")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -599,7 +698,10 @@ public struct StartRoundView: View {
     }
 
     private var selectedSegment: MobileCourseOption? {
-        availableCourseOptions.first { String($0.globalId) == courseGlobalIdText }
+        guard let globalId = courseGlobalId else { return nil }
+        return availableCourseOptions.first { $0.globalId == globalId }
+            ?? offlineResolvedCourseOptions.first { $0.globalId == globalId }
+            ?? explicitCourseOptions.first { $0.globalId == globalId }
     }
 
     private var segmentSelectionHelp: String {
@@ -616,14 +718,11 @@ public struct StartRoundView: View {
     /// 选中的是 9 洞环、且同球场有 9 洞环可作第二环时,提供「加打凑 18」。
     /// 含已选环本身 —— 同一个 9 洞环打两轮(A+A/B+B/C+C)是真实打法,不排除。
     private var secondNineCandidates: [MobileCourseOption] {
-        guard let selectedSegment, (selectedSegment.segmentHoles ?? selectedSegment.holes) == 9 else {
-            return []
-        }
-        let venue = selectedSegment.venueName ?? baseCourseName(selectedSegment.name)
-        return availableCourseOptions
-            .filter { ($0.venueName ?? baseCourseName($0.name)) == venue
-                && ($0.segmentHoles ?? $0.holes) == 9 }
-            .sorted { segmentSortKey($0) < segmentSortKey($1) }
+        guard let selectedSegment else { return [] }
+        return Self.sameVenueNineHoleCandidates(
+            selected: selectedSegment,
+            candidates: selectedAuthorityOptions
+        )
     }
 
     /// 加打另一个 9 洞凑 18(可选):列出同球场的各 9 洞环 + 「不加打」。
@@ -798,10 +897,13 @@ public struct StartRoundView: View {
         return failurePrefixes.contains(where: { normalized.hasPrefix($0) }) ? normalized : nil
     }
 
-    /// Group the provider-ranked nearby rows by venue without re-sorting them by historical play count.
-    private var venueGroups: [(venue: String, segments: [MobileCourseOption])] {
+    /// Group rows by physical venue without re-sorting them by historical play count. The source is
+    /// supplied by the caller so provider results and downloaded offline packages stay separate.
+    private func makeVenueGroups(
+        from options: [MobileCourseOption]
+    ) -> [(venue: String, segments: [MobileCourseOption])] {
         var groups: [(venue: String, segments: [MobileCourseOption])] = []
-        for option in availableCourseOptions {
+        for option in options {
             let venue = option.venueName ?? baseCourseName(option.name)
             if let index = groups.firstIndex(where: { $0.venue == venue }) {
                 groups[index].segments.append(option)
@@ -856,6 +958,8 @@ public struct StartRoundView: View {
         "live-\(globalId)-\(uuid.uuidString)"
     }
 
+    /// Provider-backed rows only. Downloaded packages are rendered in their own offline section and
+    /// cannot silently become nearby/second-nine evidence.
     private var availableCourseOptions: [MobileCourseOption] {
         Self.reconciledCourseOptions(
             primary: nearbyCourseOptions + remoteCourseOptions,
@@ -864,12 +968,53 @@ public struct StartRoundView: View {
         )
     }
 
-    private var courseLookupOptions: [MobileCourseOption] {
+    private var offlineResolvedCourseOptions: [MobileCourseOption] {
         Self.reconciledCourseOptions(
-            primary: availableCourseOptions + courseOptions + downloadedCourseOptions,
+            primary: offlineCourseOptions,
             catalogue: courseOptions,
             downloaded: downloadedCourseOptions
         )
+    }
+
+    private var explicitCourseOptions: [MobileCourseOption] {
+        Self.reconciledCourseOptions(
+            primary: courseOptions + downloadedCourseOptions,
+            catalogue: courseOptions,
+            downloaded: downloadedCourseOptions
+        )
+    }
+
+    private var courseLookupOptions: [MobileCourseOption] {
+        Self.reconciledCourseOptions(
+            primary: availableCourseOptions + offlineResolvedCourseOptions + explicitCourseOptions,
+            catalogue: courseOptions,
+            downloaded: downloadedCourseOptions
+        )
+    }
+
+    /// The source that granted the current selection owns its sibling loops. Mixing a stale local
+    /// package into a provider row is what previously produced C/全场/全场 for Black Knight.
+    private var selectedAuthorityOptions: [MobileCourseOption] {
+        guard let selectedSegment else { return [] }
+        let selectedID = selectedSegment.globalId
+        if nearbyCourseOptions.contains(where: { $0.globalId == selectedID }) {
+            return Self.reconciledCourseOptions(
+                primary: nearbyCourseOptions,
+                catalogue: courseOptions,
+                downloaded: downloadedCourseOptions
+            )
+        }
+        if remoteCourseOptions.contains(where: { $0.globalId == selectedID }) {
+            return Self.reconciledCourseOptions(
+                primary: remoteCourseOptions,
+                catalogue: courseOptions,
+                downloaded: downloadedCourseOptions
+            )
+        }
+        if offlineCourseOptions.contains(where: { $0.globalId == selectedID }) {
+            return offlineResolvedCourseOptions
+        }
+        return explicitCourseOptions.filter { Self.samePhysicalVenue($0, selectedSegment) }
     }
 
     /// Nearby/search metadata determines which rows are in range, while the latest mobile catalogue
@@ -922,9 +1067,11 @@ public struct StartRoundView: View {
             Optional(courseVenueName(provider)),
             downloaded.map { courseVenueName($0) },
         ]) ?? provider.name
+        // The live provider row is the authority for a current loop label. Catalogue/downloaded
+        // rows may contain an old played combination such as C/A; use them only as fallbacks.
         let label = resolvedSegmentLabel(
-            explicit: [catalogue?.segmentLabel, provider.segmentLabel, downloaded?.segmentLabel],
-            names: [catalogue?.name, Optional(provider.name), downloaded?.name],
+            explicit: [provider.segmentLabel, catalogue?.segmentLabel, downloaded?.segmentLabel],
+            names: [Optional(provider.name), catalogue?.name, downloaded?.name],
             segmentHoles: segmentHoles
         )
         let retainedName = firstNonEmpty([
@@ -1022,6 +1169,16 @@ public struct StartRoundView: View {
     ) {
         let isSameCourse = courseGlobalId == selected.globalId
         guard let option = resolvedOption(for: selected) else { return }
+        // The explicit catalogue choice supersedes any prior nearby transport error. Do not leave
+        // the old "nearby unavailable" banner beside a valid manually searched course.
+        // Invalidate an in-flight nearby request as well; its late failure must not repaint this
+        // explicit search result as a nearby-service error.
+        nearbyRequestToken = nil
+        isLoadingNearby = false
+        nearbyCourseOptions = []
+        nearbyStatusText = nil
+        nearbyDiscoveryFailed = false
+        offlineCourseOptions = []
         remoteCourseOptions = Self.sameVenueSearchOptions(
             selected: option,
             candidates: matches.compactMap { resolvedOption(for: $0) }
@@ -1069,6 +1226,28 @@ public struct StartRoundView: View {
         }
     }
 
+    /// Return only factual 9-hole siblings from the authority that supplied the selected row.
+    /// This is intentionally separate from the broad lookup used to resolve a back-course id.
+    static func sameVenueNineHoleCandidates(
+        selected: MobileCourseOption,
+        candidates: [MobileCourseOption]
+    ) -> [MobileCourseOption] {
+        guard selected.resolvedHoles == 9 else { return [] }
+        var seen = Set<Int>()
+        return candidates
+            .filter {
+                selected.resolvedHoles == 9
+                    && $0.resolvedHoles == 9
+                    && samePhysicalVenue(selected, $0)
+                    && seen.insert($0.globalId).inserted
+            }
+            .sorted { segmentSortKeyStatic($0) < segmentSortKeyStatic($1) }
+    }
+
+    private static func segmentSortKeyStatic(_ segment: MobileCourseOption) -> String {
+        segment.segmentLabel ?? "~~"
+    }
+
     /// Keep the manual-search start exception scoped to one physical venue. The provider models
     /// each playable loop as a separate global ID, so comparing IDs here would incorrectly revoke
     /// the exception when the player changes A/B/C or chooses a second nine.
@@ -1102,12 +1281,47 @@ public struct StartRoundView: View {
         )
     }
 
+    /// A retry changes the task identity even when the GPS bucket is unchanged.
+    private var nearbyDiscoveryTaskKey: String {
+        let downloadedIDs = downloadedCourseOptions
+            .map(\.globalId)
+            .sorted()
+            .map(String.init)
+            .joined(separator: ",")
+        return "\(locationDiscoveryKey)#downloads-\(downloadedIDs)#retry-\(nearbyRetryToken)"
+    }
+
     /// Nearby is a 50 km catalogue query, so restarting it for every 3–11 m Core Location update
     /// only cancels useful in-flight requests while the player walks or arrives by cart.  A roughly
     /// 1 km bucket still refreshes after meaningful travel without letting normal GPS jitter keep
     /// the start screen in an endless loading loop.
     static func nearbyDiscoveryBucket(latitude: Double, longitude: Double) -> String {
         "\(Int(floor(latitude * 100))):\(Int(floor(longitude * 100)))"
+    }
+
+    static func nearbyDiscoveryErrorMessage(_ error: Error) -> String {
+        if case let SyncClientError.http(status, _) = error {
+            switch status {
+            case 401:
+                return "登录已失效；请重新登录后再查找附近球场。"
+            case 403:
+                return "当前账号无权读取球场目录。"
+            case 500...599:
+                return "球场目录暂时不可用；可重试，或按球场名搜索。"
+            default:
+                break
+            }
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost,
+                 .cannotFindHost, .dnsLookupFailed, .timedOut, .secureConnectionFailed:
+                return "网络暂时不可用；可重试，或按球场名搜索。"
+            default:
+                break
+            }
+        }
+        return "附近球场暂时无法读取；可重试，或按球场名搜索。"
     }
 
     /// Permission denial is a synchronous product state, not a network result. Derive its copy
@@ -1126,8 +1340,16 @@ public struct StartRoundView: View {
     private func discoverNearbyCourses() async {
         let requestToken = UUID()
         nearbyRequestToken = requestToken
+        // Once the player has chosen a manual search result, nearby discovery is background noise.
+        // Do not let a new GPS bucket or a late transport failure overwrite that explicit choice.
+        guard !selectedCourseWasManualSearch else {
+            isLoadingNearby = false
+            return
+        }
         guard let fix = locationProvider.latestFix else {
             nearbyCourseOptions = []
+            offlineCourseOptions = resolvedOfflineOptions(downloadedCourseOptions)
+            nearbyDiscoveryFailed = false
             isLoadingNearby = locationProvider.authorizationStatus == .notDetermined
                 || locationProvider.authorizationStatus == .authorizedAlways
                 || locationProvider.authorizationStatus == .authorizedWhenInUse
@@ -1144,10 +1366,11 @@ public struct StartRoundView: View {
             radiusKm: 50
         )
         let requestKey = locationDiscoveryKey
-        // Publish the factual local candidates immediately, but do not auto-select the only local
-        // venue yet: the provider response may add a second nearby venue, which must restore the
-        // explicit-choice rule. The player may still tap a local row while the request is pending.
-        nearbyCourseOptions = localNearby
+        // Keep local candidates in their explicit offline section while the provider request is in
+        // flight. They are useful for an immediate offline start, but they are not nearby evidence.
+        nearbyCourseOptions = []
+        offlineCourseOptions = resolvedOfflineOptions(localNearby)
+        nearbyDiscoveryFailed = false
         isLoadingNearby = true
         nearbyStatusText = nil
         defer {
@@ -1166,35 +1389,57 @@ public struct StartRoundView: View {
                   locationDiscoveryKey == requestKey else { return }
             var seen = Set<Int>()
             let providerNearby = matches.compactMap { resolvedOption(for: $0) }
-            nearbyCourseOptions = (providerNearby + localNearby).filter {
+            nearbyCourseOptions = providerNearby.filter {
                 seen.insert($0.globalId).inserted
             }
+            let providerIDs = Set(nearbyCourseOptions.map(\.globalId))
+            offlineCourseOptions = resolvedOfflineOptions(localNearby).filter {
+                !providerIDs.contains($0.globalId)
+            }
+            nearbyDiscoveryFailed = false
             nearbyStatusText = nearbyCourseOptions.isEmpty
                 ? "当前位置 50 km 内没有找到球场；可以扩大范围或按名称搜索。"
                 : nil
             if !userPickedVenue {
-                if displayVenues.count == 1 {
+                if nearbyVenues.count == 1 {
                     ensureDefaultSelection()
                 } else if selectedSegment == nil || !nearbyCourseOptions.contains(where: {
                     String($0.globalId) == courseGlobalIdText
                 }) {
-                    courseGlobalIdText = ""
-                    teeBox = ""
-                    fetchedTees = []
+                    clearAutomaticSelection()
                 }
             }
         } catch {
             guard !Task.isCancelled,
                   nearbyRequestToken == requestToken,
                   locationDiscoveryKey == requestKey else { return }
-            nearbyCourseOptions = localNearby
-            nearbyStatusText = localNearby.isEmpty
-                ? "附近球场暂时读取失败；可以先按城市或球场名搜索。"
-                : "附近服务不可用；已显示下载到本机的附近球场。"
-            if !userPickedVenue {
-                ensureDefaultSelection()
-            }
+            nearbyCourseOptions = []
+            offlineCourseOptions = resolvedOfflineOptions(localNearby)
+            nearbyDiscoveryFailed = true
+            nearbyStatusText = Self.nearbyDiscoveryErrorMessage(error)
+            // A failed provider request must not preserve an implicit historical/default course.
+            // A player who tapped a row (including an offline row while loading) keeps that choice.
+            clearAutomaticSelection()
         }
+    }
+
+    private func resolvedOfflineOptions(_ options: [MobileCourseOption]) -> [MobileCourseOption] {
+        Self.reconciledCourseOptions(
+            primary: options,
+            catalogue: courseOptions,
+            downloaded: downloadedCourseOptions
+        )
+    }
+
+    private func clearAutomaticSelection() {
+        guard !userPickedVenue else { return }
+        courseGlobalIdText = ""
+        roundId = defaultRoundId
+        backGlobalIdText = ""
+        teeBox = ""
+        fetchedTees = []
+        teeLoadFailed = false
+        selectedCourseWasManualSearch = false
     }
 
     private func resolvedOption(for match: MobileCourseSearchMatch) -> MobileCourseOption? {

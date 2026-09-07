@@ -105,10 +105,14 @@ public extension MobileCourseOption {
         venueName ?? (name.components(separatedBy: " ~ ").first?.trimmingCharacters(in: .whitespaces) ?? name)
     }
 
-    /// Segment row title: a loop ("A 场") or a whole course ("全场").
+    /// Segment row title: a loop ("A 场") or a factual whole 18-hole course. A 9-hole row without
+    /// a trustworthy loop label must not be presented as the whole course.
     var segmentDisplayTitle: String {
         if let label = segmentLabel?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty {
             return "\(label) 场"
+        }
+        if resolvedHoles == 9 {
+            return "未标注场区"
         }
         return "全场"
     }

@@ -4,7 +4,7 @@
 > Long reviews and historical plans remain reference material; they are not the
 > live task queue.
 
-**Updated:** 2026-09-06 UTC
+**Updated:** 2026-09-07 UTC
 **Branch:** `integration/v2` (GitHub default; current source and backend tip
 `caf3afad55e31c3b98a378e0d1cf4c2c5fb5a737`; MAP1 product-code tip
 `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
@@ -253,6 +253,17 @@ course preparation, review, and synchronized history. Preserve existing working
 code; do not restart the old multi-week plan tree.
 
 ## Current Slice
+
+**`PHONE-REGRESSION` — Garmin 状态与附近球场来源修正** (`in-progress`)
+
+本轮处理 TestFlight 截图 7770–7772 暴露的两个回归：Garmin 网页已登录时，
+App 不能再把导入/验证/同步/网络失败统称为“连接失败”；附近服务失败时，
+也不能把本机历史球场冒充附近结果，更不能丢失 A/B/C 场区标签。`course` 在
+用户界面统一称为“球场”，A/B/C 称为“场区”。先完成源代码和回归测试，再走
+GitHub Actions；在 CI 全部通过前不部署或上传新的 TestFlight。
+
+`GARMIN-AUTH` remains `evidence-open` for the one fresh physical reconnect;
+`MAP1` remains `evidence-open` for held-loupe and paired-device evidence.
 
 **`GARMIN-AUTH` — reconnect validation and release binding** (`evidence-open`)
 
@@ -749,6 +760,7 @@ project-level task list; historical plans are reference material.
 | `REL` | `evidence-open` | Release and TestFlight gate; current internal build 51 is processed and group-visible. | CD run `34048458619` processed build `0.1.0 (51)` with backend `caf3afad`; read-only run `34048981151` confirmed `VALID`, unexpired, `IN_BETA_TESTING`, and included in `Jason's friends` (`allBuilds=true`). Physical installation, fresh Garmin reconnect, and optional external Beta Review remain open. |
 | `MAP1` | `evidence-open` | Physical iPhone feedback for course-loop authority, Touch Target/caddie map arcs and landing interpolation, simplified live controls, and horizontal hole navigation. | Product/test commit `5628cc6d` plus Source CI `34021727402` and Native Mobile CI `34021862658` are green; TestFlight build 50 contains the MAP1 product tree. Held-loupe/device evidence remains open. |
 | `GARMIN-AUTH` | `evidence-open` | Make a successful Garmin web login validate and synchronize against the current CN gateway, then bind the internal app candidate to that backend. | Commit `caf3afad`, Source CI `34043175968`, controlled 403-to-200 gateway comparison, healthy public deployment, Native Mobile CI `34045077006`, TestFlight CD `34048458619`, and Apple/group check `34048981151` are complete. One new real-device reconnect/sync remains. |
+| `PHONE-REGRESSION` | `in-progress` | Correct Garmin verification/sync copy and isolate provider-nearby, manual-search, and downloaded-球场来源; preserve A/B/C 场区 labels and no-GPS start. | Source and Native CI plus a fresh internal TestFlight candidate after the current fixes; physical screenshots remain evidence-open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 

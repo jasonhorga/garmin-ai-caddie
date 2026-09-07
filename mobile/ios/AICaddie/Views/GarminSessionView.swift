@@ -9,6 +9,9 @@ public struct GarminSessionView: View {
     public let apiBaseURL: URL?
     public let adminToken: String?
     public let sessionStore: GarminSessionStore?
+    /// Latest pull status from the owning app model. It lets this account page say "已连接；本次
+    /// 同步失败" instead of erasing a valid account state after a transient network error.
+    public let garminSyncStatus: String?
     /// Kept for source compatibility with older callers. New callers should use the typed outcome
     /// callback so a busy sync is not collapsed into a generic Bool failure.
     public let onSessionImported: (() async -> Bool)?
@@ -20,19 +23,22 @@ public struct GarminSessionView: View {
     @State private var showingWebLogin = false
     @State private var webLoginStatus = "请在 Garmin 页面完成登录"
     @State private var loginRetryToken = 0
+    @State private var capturedSession: CapturedGarminWebSession?
 
     public init(
         apiBaseURL: URL? = nil,
         adminToken: String? = nil,
         sessionStore: GarminSessionStore? = GarminSessionStore(),
         onSessionImported: (() async -> Bool)? = nil,
-        onSessionImportedOutcome: (() async -> GarminSyncOutcome)? = nil
+        onSessionImportedOutcome: (() async -> GarminSyncOutcome)? = nil,
+        garminSyncStatus: String? = nil
     ) {
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
         self.sessionStore = sessionStore
         self.onSessionImported = onSessionImported
         self.onSessionImportedOutcome = onSessionImportedOutcome
+        self.garminSyncStatus = garminSyncStatus
     }
 
     public var body: some View {
@@ -40,6 +46,7 @@ public struct GarminSessionView: View {
             Section("Garmin") {
                 Button {
                     webLoginStatus = "请在 Garmin 页面完成登录"
+                    capturedSession = nil
                     showingWebLogin = true
                 } label: {
                     Label(connected ? "重新连接 Garmin" : "连接 Garmin", systemImage: "link")
@@ -62,40 +69,57 @@ public struct GarminSessionView: View {
         .task {
             refreshStoredSessionPresentation()
         }
+        .onChange(of: garminSyncStatus) { _, _ in
+            guard connected else { return }
+            statusText = Self.connectedStatusText(syncStatus: garminSyncStatus)
+        }
         .sheet(isPresented: $showingWebLogin) {
             NavigationStack {
                 VStack(spacing: 0) {
-                    GarminWebSessionCaptureView(
-                        onCaptured: { captured in
-                            Task {
-                                await importCapturedSession(captured)
+                    if capturedSession != nil {
+                        verificationPanel
+                    } else {
+                        GarminWebSessionCaptureView(
+                            onCaptured: { captured in
+                                // Freeze the web status as soon as cookies are captured. Garmin's
+                                // dashboard can emit a later generic toast while our API validation
+                                // is running; that toast must not overwrite the app's explanation.
+                                capturedSession = captured
+                                Task {
+                                    await importCapturedSession(captured)
+                                }
+                            },
+                            retryToken: loginRetryToken,
+                            onStatus: { status in
+                                guard capturedSession == nil else { return }
+                                webLoginStatus = status
                             }
-                        },
-                        retryToken: loginRetryToken,
-                        onStatus: { status in
-                            webLoginStatus = status
+                        )
+                        HStack(spacing: 8) {
+                            Image(systemName: "info.circle")
+                                .foregroundStyle(.secondary)
+                            Text(webLoginStatus)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                    )
-                    HStack(spacing: 8) {
-                        Image(systemName: "info.circle")
-                            .foregroundStyle(.secondary)
-                        Text(webLoginStatus)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Color(uiColor: .secondarySystemBackground))
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Color(uiColor: .secondarySystemBackground))
                 }
                 .navigationTitle("登录 Garmin")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
-                            loginRetryToken &+= 1
+                            if let capturedSession, !isImporting {
+                                Task { await importCapturedSession(capturedSession) }
+                            } else {
+                                loginRetryToken &+= 1
+                            }
                         } label: {
-                            Label("检查登录", systemImage: "arrow.clockwise")
+                            Label(capturedSession == nil ? "检查登录" : "重试验证", systemImage: "arrow.clockwise")
                         }
                         .disabled(isImporting)
                     }
@@ -112,9 +136,10 @@ public struct GarminSessionView: View {
     @MainActor
     private func importCapturedSession(_ captured: CapturedGarminWebSession) async {
         guard !isImporting else { return }
+        capturedSession = captured
         guard let apiBaseURL else {
-            statusText = "暂无法连接,请稍后重试"
-            webLoginStatus = "暂无法连接后端，请稍后重试"
+            statusText = "Garmin 网页已登录，但 App 后端未配置"
+            webLoginStatus = "登录信息已捕获，但 App 还没有可用的后端地址"
             return
         }
 
@@ -170,20 +195,20 @@ public struct GarminSessionView: View {
                 connected = true
                 statusText = "已连接 · 同步完成"
                 webLoginStatus = "已连接 · 同步完成"
+                capturedSession = nil
                 showingWebLogin = false
             case .inProgress:
                 connected = false
-                statusText = "同步正在进行，请稍后查看"
-                webLoginStatus = "同步正在进行，请稍后查看"
-                showingWebLogin = false
+                statusText = "同步正在进行"
+                webLoginStatus = "Garmin 网页已登录；同步正在进行，稍后可重试查看结果"
             case .reauthRequired:
                 connected = false
-                statusText = "Garmin 登录验证失败，请重新连接"
-                webLoginStatus = "Garmin 登录验证失败，请重新连接"
+                statusText = "Garmin 网页已登录，但会话已失效"
+                webLoginStatus = "Garmin 页面显示已登录，但 Garmin 会话已失效；请返回并重新登录"
             case .failed:
                 connected = false
-                statusText = "Garmin 连接验证失败，请重试"
-                webLoginStatus = "Garmin 连接验证失败，请重试"
+                statusText = "Garmin 网页已登录，但数据验证未完成"
+                webLoginStatus = "Garmin 页面显示已登录；App 尚未完成数据验证，请点“重试验证”或稍后再试"
             }
         } catch {
             if Self.shouldInvalidateAppleSession(error, environment: ProcessInfo.processInfo.environment) {
@@ -209,19 +234,7 @@ public struct GarminSessionView: View {
     }
 
     static func importErrorMessage(_ error: Error) -> String {
-        if case let SyncClientError.http(status, _) = error, status == 401 {
-            return "Apple 登录已失效，请重新登录"
-        }
-        if case let SyncClientError.http(status, _) = error, status == 403 {
-            return "当前 Apple 账号无权连接此 Garmin"
-        }
-        if case let SyncClientError.http(status, _) = error, status == 409 {
-            return "同步正在进行，请稍后重试"
-        }
-        if case let SyncClientError.http(status, _) = error, (400..<500).contains(status) {
-            return "Garmin 登录信息无效，请重新登录"
-        }
-        return "连接失败，请重试"
+        GarminSyncPresentation.importErrorMessage(error)
     }
 
     @MainActor
@@ -253,7 +266,76 @@ public struct GarminSessionView: View {
             return
         }
         connected = true
-        statusText = "已连接"
+        statusText = Self.connectedStatusText(syncStatus: garminSyncStatus)
+    }
+
+    static func connectedStatusText(syncStatus: String?) -> String {
+        guard let status = syncStatus?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !status.isEmpty,
+              status != "尚未手动更新" else {
+            return "已连接"
+        }
+        if status.contains("失败") || status.contains("不可用") || status.contains("未完成") {
+            return "已连接 · 本次同步失败"
+        }
+        if status.contains("正在") {
+            return "已连接 · 正在同步"
+        }
+        return "已连接"
+    }
+
+    @ViewBuilder
+    private var verificationPanel: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: isImporting ? "arrow.triangle.2.circlepath" : "checkmark.shield")
+                .font(.system(size: 42))
+                .foregroundStyle(isImporting ? LiveHoleStyle.green : .secondary)
+            Text(statusText)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+            Text(webLoginStatus)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 20)
+            if isImporting {
+                ProgressView()
+                    .accessibilityIdentifier("garmin-verification-progress")
+            } else {
+                Button {
+                    retryCapturedSession()
+                } label: {
+                    Label("重试验证", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(capturedSession == nil)
+                Button {
+                    returnToGarminLogin()
+                } label: {
+                    Label("返回 Garmin 登录", systemImage: "arrow.uturn.backward.circle")
+                }
+                .buttonStyle(.bordered)
+            }
+            Spacer()
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("garmin-verification-panel")
+    }
+
+    @MainActor
+    private func retryCapturedSession() {
+        guard let capturedSession, !isImporting else { return }
+        Task { await importCapturedSession(capturedSession) }
+    }
+
+    @MainActor
+    private func returnToGarminLogin() {
+        guard !isImporting else { return }
+        capturedSession = nil
+        webLoginStatus = "请在 Garmin 页面完成登录"
+        loginRetryToken &+= 1
     }
 
     /// Mark the exact captured material as verified only after a real Garmin sync completed. A

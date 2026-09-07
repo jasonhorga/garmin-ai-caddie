@@ -1274,13 +1274,11 @@ def course_nearby_endpoint(
         partial_reason = None
         pages_fetched = 0
         cache_status = "adapter"
-    matches = _reconcile_player_course_matches(
-        matches,
-        player_id=player_id,
-        nearby_origin=(latitude, longitude),
-        nearby_radius_km=radius_km,
-        append_history=True,
-    )
+    # Nearby discovery is provider truth.  Do not apply the player's historical display-name
+    # overlay or append history-only rows here: a played course can have a different localized
+    # name (and a stale A/B/C combination), but that does not make it a current nearby result.
+    # The iOS client may still use its local catalogue to localize the provider row while retaining
+    # the provider's loop suffix and coordinates.
     return {
         "schema": "ai-caddie-course-nearby-v1",
         "radiusKm": radius_km,

@@ -580,7 +580,8 @@ public struct RoundHomeView: View {
                             adminToken: adminToken,
                             sessionStore: sessionStore,
                             onSessionImported: onGarminSessionImported,
-                            onSessionImportedOutcome: onGarminSessionImportedOutcome
+                            onSessionImportedOutcome: onGarminSessionImportedOutcome,
+                            garminSyncStatus: garminSyncStatus
                         )
                     } label: {
                         Label("Garmin 账号", systemImage: "link")

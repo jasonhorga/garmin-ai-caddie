@@ -67,6 +67,123 @@ public enum GarminSyncOutcome: Equatable {
     case failed
 }
 
+/// User-facing classification for the two-step Garmin connection flow. Capturing a web session and
+/// validating it with a data pull are different operations; transport failures must not be reported
+/// as a bad Garmin password, and a successful capture must not be shown as an active connection.
+public enum GarminSyncPresentation {
+    public static func importErrorMessage(_ error: Error) -> String {
+        if let syncError = error as? SyncClientError {
+            switch syncError {
+            case .notHTTPResponse:
+                return "服务器响应无效，Garmin 登录尚未验证；请稍后重试"
+            case let .http(status, _):
+                return httpMessage(status: status)
+            }
+        }
+        if let urlError = error as? URLError {
+            return urlMessage(urlError)
+        }
+        if error is DecodingError {
+            return "服务器返回内容无效，Garmin 登录尚未验证；请稍后重试"
+        }
+        return "Garmin 登录已完成，但暂时无法验证数据；请稍后重试"
+    }
+
+    /// Classify a failure after the captured session has been accepted and a pull is running. A
+    /// previously verified account remains connected when one sync is down; only a typed Garmin
+    /// re-auth response invalidates that account.
+    public static func syncErrorMessage(
+        _ error: Error,
+        hasVerifiedSession: Bool = false
+    ) -> String {
+        let detail: String
+        if let syncError = error as? SyncClientError {
+            switch syncError {
+            case .notHTTPResponse:
+                detail = "服务器响应无效"
+            case let .http(status, _):
+                detail = syncFailureDetail(status: status)
+            }
+        } else if let urlError = error as? URLError {
+            detail = syncURLFailureDetail(urlError)
+        } else if error is DecodingError {
+            detail = "服务器返回内容无效"
+        } else {
+            detail = "暂时无法完成同步"
+        }
+        if hasVerifiedSession {
+            return "Garmin 已连接；本次同步失败：\(detail)，请稍后重试"
+        }
+        return "Garmin 网页已登录；数据验证未完成：\(detail)，请稍后重试"
+    }
+
+    private static func httpMessage(status: Int) -> String {
+        switch status {
+        case 401:
+            return "Apple 登录已失效，请重新登录"
+        case 403:
+            return "当前 Apple 账号无权连接此 Garmin"
+        case 409:
+            return "同步正在进行，请稍后重试"
+        case 422:
+            return "Garmin 登录信息格式无效，请重新登录"
+        case 429:
+            return "请求过于频繁，请稍后重试"
+        case 500...599:
+            return "服务器暂时不可用，Garmin 登录尚未验证；请稍后重试"
+        case 400..<500:
+            return "Garmin 登录信息未被接受，请重新登录"
+        default:
+            return "服务器暂时无法验证 Garmin 登录，请稍后重试"
+        }
+    }
+
+    private static func syncFailureDetail(status: Int) -> String {
+        switch status {
+        case 401:
+            return "Apple 登录已失效，请重新登录"
+        case 403:
+            return "当前 Apple 账号无权同步此 Garmin"
+        case 409:
+            return "同步正在进行"
+        case 422:
+            return "Garmin 登录信息格式无效"
+        case 429:
+            return "请求过于频繁"
+        case 500...599:
+            return "服务器暂时不可用"
+        case 400..<500:
+            return "Garmin 会话未被接受"
+        default:
+            return "服务器暂时无法完成同步"
+        }
+    }
+
+    private static func syncURLFailureDetail(_ error: URLError) -> String {
+        switch error.code {
+        case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost,
+             .cannotFindHost, .dnsLookupFailed, .timedOut, .secureConnectionFailed:
+            return "网络暂时不可用"
+        case .badURL:
+            return "后端地址无效"
+        default:
+            return "网络请求失败"
+        }
+    }
+
+    private static func urlMessage(_ error: URLError) -> String {
+        switch error.code {
+        case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost,
+             .cannotFindHost, .dnsLookupFailed, .timedOut, .secureConnectionFailed:
+            return "网络暂时不可用，Garmin 登录尚未验证；请检查网络后重试"
+        case .badURL:
+            return "后端地址无效，无法验证 Garmin 登录"
+        default:
+            return "服务器响应无效，Garmin 登录尚未验证；请稍后重试"
+        }
+    }
+}
+
 public struct GarminSyncLastRunResponse: Codable, Equatable {
     public let state: String
     public let detail: String
