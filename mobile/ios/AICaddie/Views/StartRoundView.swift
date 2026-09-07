@@ -364,7 +364,28 @@ public struct StartRoundView: View {
     }
 
     private var offlineVenues: [(venue: String, segments: [MobileCourseOption])] {
-        makeVenueGroups(from: offlineCourseOptions)
+        makeVenueGroups(from: offlineDisplayOptions)
+    }
+
+    /// A cancelled/restarted GPS task can clear the async `offlineCourseOptions` assignment after
+    /// the nearby request has already reported an error. Keep the explicitly labelled local section
+    /// recoverable from the source-of-truth download list while the error state is visible. Provider
+    /// rows remain separate, and factual coordinates still use the normal 50 km rule.
+    private var offlineDisplayOptions: [MobileCourseOption] {
+        guard nearbyDiscoveryFailed else { return offlineCourseOptions }
+        let fallback: [MobileCourseOption]
+        if let fix = locationProvider.latestFix {
+            fallback = Self.locallyAvailableNearbyCourses(
+                downloadedCourseOptions,
+                latitude: fix.coordinate.latitude,
+                longitude: fix.coordinate.longitude,
+                radiusKm: 50,
+                includeUnknownCoordinates: true
+            )
+        } else {
+            fallback = downloadedCourseOptions
+        }
+        return resolvedOfflineOptions(offlineCourseOptions + fallback)
     }
 
     /// Order provider rows by distance only when a real fix exists. Search rows without a fix keep
