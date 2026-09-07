@@ -522,6 +522,16 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertNotIn("AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN", fixture_start)
         self.assertIn("Configure live native auth", steps)
         self.assertIn("secrets.AI_CADDIE_ADMIN_TOKEN", steps["Configure live native auth"]["env"]["LIVE_ADMIN_TOKEN"])
+        self.assertIn("Resolve live API host for hosted runners", steps)
+        live_host_resolution = steps["Resolve live API host for hosted runners"]
+        self.assertIn("!inputs.fixture_mode", live_host_resolution["if"])
+        self.assertIn("199.247.155.53", live_host_resolution["run"])
+        self.assertIn("199.247.152.53", live_host_resolution["run"])
+        self.assertIn("/etc/hosts", live_host_resolution["run"])
+        self.assertLess(
+            list(steps).index("Resolve live API host for hosted runners"),
+            list(steps).index("Validate native launch prerequisites"),
+        )
         self.assertIn("command -v uv", fixture_start)
         self.assertIn("uv --version", fixture_start)
         self.assertIn("python3 --version", fixture_start)

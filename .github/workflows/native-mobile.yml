@@ -143,6 +143,64 @@ jobs:
           printf 'AI_CADDIE_ADMIN_TOKEN=%s\n' "$LIVE_ADMIN_TOKEN" >> "$GITHUB_ENV"
           printf 'TEST_RUNNER_AI_CADDIE_ADMIN_TOKEN=%s\n' "$LIVE_ADMIN_TOKEN" >> "$GITHUB_ENV"
           printf 'ARTIFACT_ADMIN_TOKEN=%s\n' "$LIVE_ADMIN_TOKEN" >> "$GITHUB_ENV"
+      - name: Resolve live API host for hosted runners
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fixture_mode }}
+        env:
+          NATIVE_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+        run: |
+          set -euo pipefail
+          API_HOST="$(python3 - "$NATIVE_BASE_URL" <<'PY'
+          import sys
+          from urllib.parse import urlparse
+
+          parsed = urlparse(sys.argv[1])
+          print(parsed.hostname or "")
+          PY
+          )"
+          test -n "$API_HOST"
+
+          # Tailscale MagicDNS names are intentionally split-DNS names. Hosted
+          # runners are outside the tailnet, so ask the two documented Tailscale
+          # resolvers for the Funnel address and preserve the original hostname
+          # for SNI/certificate validation.
+          if python3 - "$API_HOST" <<'PY'
+          import socket
+          import sys
+
+          try:
+              socket.getaddrinfo(sys.argv[1], 443, type=socket.SOCK_STREAM)
+          except OSError:
+              raise SystemExit(1)
+          PY
+          then
+            echo "Live API host resolves through the runner DNS: $API_HOST"
+            exit 0
+          fi
+
+          resolved_ip=""
+          for resolver in 199.247.155.53 199.247.152.53; do
+            candidate="$(dig +short @"$resolver" "$API_HOST" A 2>/dev/null \
+              | awk '/^[0-9]+(\.[0-9]+){3}$/ { print; exit }' || true)"
+            if [[ -n "$candidate" ]]; then
+              resolved_ip="$candidate"
+              echo "Resolved $API_HOST via $resolver -> $resolved_ip"
+              break
+            fi
+          done
+          test -n "$resolved_ip"
+          printf '%s %s\n' "$resolved_ip" "$API_HOST" | sudo tee -a /etc/hosts >/dev/null
+          if command -v dscacheutil >/dev/null 2>&1; then
+            sudo dscacheutil -flushcache || true
+          fi
+          python3 - "$API_HOST" <<'PY'
+          import socket
+          import sys
+
+          addresses = socket.getaddrinfo(sys.argv[1], 443, type=socket.SOCK_STREAM)
+          if not addresses:
+              raise SystemExit("live API host did not resolve after /etc/hosts mapping")
+          print("Live API addresses:", sorted({row[4][0] for row in addresses}))
+          PY
       - name: Validate native launch prerequisites
         id: validate_native_launch_prereq
         if: ${{ github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
