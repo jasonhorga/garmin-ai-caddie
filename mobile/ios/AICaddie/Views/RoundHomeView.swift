@@ -414,6 +414,7 @@ public struct RoundHomeView: View {
                 HubPlayTile()
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("home-new-round")
         }
     }
 

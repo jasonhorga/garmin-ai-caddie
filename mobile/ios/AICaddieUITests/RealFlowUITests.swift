@@ -599,17 +599,10 @@ final class RealFlowUITests: XCTestCase {
                 "settled live-hole evidence must retain all three identified green distances"
             )
         }
-        XCTAssertTrue(tapContaining(["展开"]), "live caddie strip must expose its full plan")
-        let planHeading = app.staticTexts["球童完整方案"]
+        let planHeading = openCaddiePlan(timeout: 75)
         XCTAssertTrue(
-            scrollTo(planHeading, maxSwipes: 8),
-            "expanded caddie plan must be scrolled into the visible simulator viewport"
-        )
-        let caddieLoading = app.activityIndicators["正在更新球童建议"]
-        _ = caddieLoading.waitForExistence(timeout: 2) // a warm backend may finish before this appears
-        XCTAssertTrue(
-            waitUntilGone(caddieLoading, timeout: 75),
-            "structured on-course caddie options must not be blocked by an unused LLM explanation"
+            fullyVisible(planHeading),
+            "the focused caddie plan must be visible after opening the live caddie entry"
         )
         XCTAssertFalse(
             app.staticTexts["联网球童暂不可用 · 已切换到离线缓存建议。"].exists,
@@ -953,10 +946,9 @@ final class RealFlowUITests: XCTestCase {
 
         app.buttons["保存并结束"].tap()
         XCTAssertTrue(
-            app.staticTexts["打球"].waitForExistence(timeout: 8),
-            "a finished round must return to the approved product home"
+            app.buttons["home-new-round"].waitForExistence(timeout: 8),
+            "a finished round must return to the approved product home with a new-round entry"
         )
-        XCTAssertTrue(app.staticTexts["新开一场 · 选起始 9 洞"].exists)
         XCTAssertFalse(app.navigationBars["开始一场"].exists, "finish must not strand the player in the setup form")
         XCTAssertFalse(app.staticTexts["进行中"].exists, "the explicitly finished round must no longer be active")
         settle(1); save("journey-finished-home"); dump("journey-finished-home")
@@ -1170,13 +1162,15 @@ final class RealFlowUITests: XCTestCase {
             restoredMap.waitForExistence(timeout: 12),
             "a searched course must show its factual map immediately even without a GPS fix"
         )
-        let restoredCaddie = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label == %@", "球童建议已就绪"))
-            .firstMatch
+        let restoredPlan = openCaddiePlan(timeout: 75)
         XCTAssertTrue(
-            restoredCaddie.waitForExistence(timeout: 75),
+            fullyVisible(restoredPlan),
             "a searched course without GPS must still expose the static-map caddie recommendation"
         )
+        let restoredPlanClose = app.buttons["关闭球童方案"]
+        XCTAssertTrue(restoredPlanClose.waitForExistence(timeout: 5))
+        restoredPlanClose.tap()
+        XCTAssertTrue(waitUntilGone(restoredPlan, timeout: 5))
 
         let parText = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Par '")).firstMatch
         XCTAssertTrue(parText.waitForExistence(timeout: 8))
@@ -1257,7 +1251,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["本场汇总"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["已完成 1/\(evidence.holes) 洞"].exists)
         app.buttons["保存并结束"].tap()
-        XCTAssertTrue(app.staticTexts["打球"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 10))
         XCTAssertTrue(
             waitUntilGone(app.buttons["home-in-progress-round"], timeout: 8),
             "local UI-test cleanup must remove only the temporary new-course round"
@@ -1459,18 +1453,43 @@ final class RealFlowUITests: XCTestCase {
             waitUntilGone(loading, timeout: 75),
             "hole \(hole) must settle its real structured caddie response before capture"
         )
-        let caddieReady = app.descendants(matching: .any).matching(
-            NSPredicate(format: "label == %@", "球童建议已就绪")
-        ).firstMatch
+        let caddiePlan = openCaddiePlan(timeout: 75)
+        let closeCaddiePlan = app.buttons["关闭球童方案"]
+        XCTAssertTrue(closeCaddiePlan.waitForExistence(timeout: 5))
+        closeCaddiePlan.tap()
         XCTAssertTrue(
-            caddieReady.waitForExistence(timeout: 75),
-            "hole \(hole) must expose a settled caddie-ready state before capture"
+            waitUntilGone(caddiePlan, timeout: 5),
+            "hole \(hole) must return to the same live surface after caddie inspection"
         )
         XCTAssertFalse(
             app.staticTexts["联网球童暂不可用 · 已切换到离线缓存建议。"].exists,
             "hole \(hole) must not silently replace the real journey with an offline suggestion"
         )
         return par
+    }
+
+    /// The live root now exposes one focused caddie destination. Opening it is the product-level
+    /// readiness assertion; the old inline "球童建议已就绪" accessibility node no longer exists.
+    @discardableResult
+    private func openCaddiePlan(timeout: TimeInterval) -> XCUIElement {
+        let entry = app.buttons["live-caddie-entry"]
+        XCTAssertTrue(
+            scrollTo(entry, maxSwipes: 18),
+            "the live root must expose the focused caddie entry"
+        )
+        entry.tap()
+        let heading = app.staticTexts["球童完整方案"]
+        XCTAssertTrue(
+            heading.waitForExistence(timeout: timeout),
+            "opening the caddie entry must present the complete plan"
+        )
+        let loading = app.activityIndicators["正在更新球童建议"]
+        _ = loading.waitForExistence(timeout: 2)
+        XCTAssertTrue(
+            waitUntilGone(loading, timeout: timeout),
+            "the focused caddie plan must settle its structured recommendation"
+        )
+        return heading
     }
 
     private func waitForWholeYardValue(_ element: XCUIElement, timeout: TimeInterval) -> Bool {

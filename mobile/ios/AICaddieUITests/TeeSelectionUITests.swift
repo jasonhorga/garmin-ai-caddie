@@ -321,13 +321,15 @@ final class TeeSelectionUITests: XCTestCase {
             factualMap.waitForExistence(timeout: 90),
             "the searched course must render its factual map without waiting for GPS"
         )
-        let caddieReady = app.descendants(matching: .any).matching(
-            NSPredicate(format: "label == %@", "球童建议已就绪")
-        ).firstMatch
+        let caddiePlan = openCaddiePlan(timeout: 90)
         XCTAssertTrue(
-            caddieReady.waitForExistence(timeout: 90),
+            caddiePlan.isHittable,
             "the no-GPS start must still expose the static-map caddie recommendation"
         )
+        let closeCaddiePlan = app.buttons["关闭球童方案"]
+        XCTAssertTrue(closeCaddiePlan.waitForExistence(timeout: 5))
+        closeCaddiePlan.tap()
+        XCTAssertTrue(waitUntilGone(caddiePlan, timeout: 5))
         let teeReference = app.descendants(matching: .any).matching(
             NSPredicate(format: "label CONTAINS %@", "发球台 → 果岭")
         ).firstMatch
@@ -536,7 +538,10 @@ final class TeeSelectionUITests: XCTestCase {
         let back = app.buttons["返回球局首页"]
         XCTAssertTrue(back.waitForExistence(timeout: 5))
         back.tap()
-        XCTAssertTrue(app.staticTexts["打球"].waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.buttons["home-in-progress-round"].waitForExistence(timeout: 8),
+            "returning from the cache warm-up must preserve the active round card"
+        )
         app.terminate()
 
         // Phase 2: disable bootstrap refresh, nearby discovery, Tee lookup, course package, per-hole
@@ -545,7 +550,7 @@ final class TeeSelectionUITests: XCTestCase {
         app.launchEnvironment["UITEST_FORCE_NEARBY_FAILURE"] = "1"
         app.launchEnvironment["UITEST_FORCE_COURSE_PACKAGE_FAILURE"] = "1"
         app.launchEnvironment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] = "1"
-        launchFresh()
+        launchFresh(resetActiveRound: true)
 
         guard tapContaining(["打球", "开始一场", "开始记分"]) else {
             XCTFail("the home must open a new round with all live services offline")
@@ -608,8 +613,8 @@ final class TeeSelectionUITests: XCTestCase {
 
     // MARK: - navigation helpers
 
-    private func launchFresh() {
-        if shouldResetActiveRoundOnNextLaunch {
+    private func launchFresh(resetActiveRound: Bool = false) {
+        if resetActiveRound || shouldResetActiveRoundOnNextLaunch {
             app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
             app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
             shouldResetActiveRoundOnNextLaunch = false
@@ -651,6 +656,30 @@ final class TeeSelectionUITests: XCTestCase {
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    /// The live root now exposes one focused caddie destination. The former inline readiness label
+    /// was intentionally removed with the S70-style information hierarchy.
+    @discardableResult
+    private func openCaddiePlan(timeout: TimeInterval) -> XCUIElement {
+        let entry = app.buttons["live-caddie-entry"]
+        XCTAssertTrue(
+            bringIntoView(entry, maxSwipes: 18),
+            "the live root must expose the focused caddie entry"
+        )
+        entry.tap()
+        let heading = app.staticTexts["球童完整方案"]
+        XCTAssertTrue(
+            heading.waitForExistence(timeout: timeout),
+            "opening the caddie entry must present the complete plan"
+        )
+        let loading = app.activityIndicators["正在更新球童建议"]
+        _ = loading.waitForExistence(timeout: 2)
+        XCTAssertTrue(
+            waitUntilGone(loading, timeout: timeout),
+            "the focused caddie plan must settle its structured recommendation"
+        )
+        return heading
     }
 
     private func searchAndSelectBeijingPalace(field identifier: String, text: String) throws {
@@ -718,7 +747,7 @@ final class TeeSelectionUITests: XCTestCase {
         discard.tap()
         let confirm = app.buttons["放弃并删除本场记录"]
         if confirm.waitForExistence(timeout: 5), confirm.isHittable { confirm.tap() }
-        _ = app.staticTexts["打球"].waitForExistence(timeout: 10)
+        _ = app.buttons["home-new-round"].waitForExistence(timeout: 10)
     }
 
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.
