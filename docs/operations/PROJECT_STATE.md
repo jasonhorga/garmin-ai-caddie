@@ -15,7 +15,7 @@ success path now treats an intentionally absent injected session store as
 non-blocking; real Keychain persistence failures remain visible; the backend
 runtime is pinned to `f363872f3af631edf0bcae5f9ab3e2c9fe28e0bb`; the MAP1
 product tree and recorded `integration/v2` ancestry are unchanged; historical
-TestFlight build 47/48/49/50/51/52 sources remain recorded below)
+TestFlight build 47/48/49/50/51/52/53 sources remain recorded below)
 **Release rule:** the gates are ordered, not circular:
 `canonical source -> source/Native CI and backend preflight -> automatic fresh
 internal TestFlight build/upload (the workflow performs signing) -> Apple
@@ -152,7 +152,7 @@ prerequisite for the upload workflow.
   `sha256:e53c7d8eac7de0d116d9076b3733658eb00e019bc7748ed9cd62f28f857b5c62`.
   Provenance binds API origin `https://caddie.taile36706.ts.net` and backend
   revision `caf3afad55e31c3b98a378e0d1cf4c2c5fb5a737`.
-- **TestFlight build 52 (current internal candidate):** The first CD attempt
+- **TestFlight build 52 (superseded internal candidate):** The first CD attempt
   `34162509901` signed an IPA but stopped before Apple upload because the hosted
   macOS runner could not resolve the Tailscale split-DNS origin. The retry
   `34162939105` passed backend preflight, uploaded, and waited for Apple
@@ -168,7 +168,25 @@ prerequisite for the upload workflow.
   the existing internal `Jason's friends` all-builds group. No external group,
   Beta Review submission, or production promotion was performed. The quick
   tunnel remains running for physical validation and must stay alive while
-  Build 52 is being tested.
+  the current internal build is being tested.
+- **TestFlight build 53 (current internal candidate):** iOS TestFlight CD run
+  `34231106418` built and uploaded from source
+  `f24a22ddcdf41b3abc1f7907a71f9201110f94ce` with
+  `test_environment_upload=true`, `upload_to_testflight=true`, and
+  `external_distribution=false`. Apple processed `0.1.0 (53)` successfully.
+  The provenance binds API origin
+  `https://suggests-kilometers-normal-insertion.trycloudflare.com` to backend
+  revision `f363872f3af631edf0bcae5f9ab3e2c9fe28e0bb`. IPA SHA-256 is
+  `fe4f6078dd7b0560b5f755c14d2133af13ca1a272562a064995c3d6ec2c8e23f5`;
+  GitHub artifact `AICaddie-ipa` ID `10058141615` has ZIP digest
+  `sha256:19188deaf5e25097b0b5bd8bd6afb3bcf15bdd5536430ccf4add49320512e0ed`.
+  Read-only App Store Connect run `34232120285` reports build ID
+  `318e7835-7c6c-42d9-a7d7-5c26bd90c628`, `VALID`, `expired=false`,
+  `internalState=IN_BETA_TESTING`, `externalState=READY_FOR_BETA_SUBMISSION`,
+  processed arm64 bundle `com.ai-caddie.mobile`, and inclusion in the existing
+  internal `Jason's friends` all-builds group. The external `Private Trial`
+  group was not changed; no Beta Review submission, external distribution, or
+  production promotion was performed.
 - **TestFlight build 49 (historical internal candidate):** iOS TestFlight CD run
   `34025628804` built from canonical tip
   `c11ddf33704dffbe99c4978e54bb269c7be4002b` with
@@ -224,7 +242,7 @@ prerequisite for the upload workflow.
   diagnostics. The internal hardware-validation retry uses the explicit
   `test_environment_upload=true` path and still enforces health schema,
   authenticated readiness shape, and exact backend revision.
-- **Remaining release gate:** Current TestFlight build 52 is processed and
+- **Remaining release gate:** Current TestFlight build 53 is processed and
   visible through the existing internal all-builds group. Physical
   iPhone/paired Watch installation, fresh Garmin reconnect/sync behavior,
   first-launch behavior, held-loupe interaction, exact tester evidence, and
@@ -307,7 +325,7 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`PHONE-REGRESSION` — 球童推荐、障碍物标注与 Garmin 状态修正** (`in-progress`)
+**`PHONE-REGRESSION` — 球童推荐、障碍物标注与 Garmin 状态修正** (`evidence-open`)
 
 本轮继续处理 TestFlight 截图 7770–7772、7802–7803 暴露的问题：Garmin 网页已登录时，
 App 不能再把导入/验证/同步/网络失败统称为“连接失败”；附近服务失败时，也不能把
@@ -315,13 +333,13 @@ App 不能再把导入/验证/同步/网络失败统称为“连接失败”；�
 带球距离和落点使用同一份后端推荐；障碍物前后点只显示紧邻边界的小数字，并拒绝
 8,000+ 码等失真值；Garmin 已保存但未验证的会话必须能不重新登录直接重试同步。
 `course` 在用户界面统一称为“球场”，A/B/C 称为“场区”。此前的
-本轮修改已通过 Source CI 和 Native Mobile CI；下一步按既定规则自动上传新的内部
-TestFlight build，随后检查 Apple processing/status。Native Mobile CI run `34223836622`
-在 source `f24a22dd`、backend `f363872f` 上全绿。此前的
+本轮修改已通过 Source CI 和 Native Mobile CI，并已按既定规则自动上传内部
+TestFlight Build 53、完成 Apple processing/status 检查。Native Mobile CI run
+`34223836622` 在 source `f24a22dd`、backend `f363872f` 上全绿。此前的
 `34124638966`/`34121007416` 仅是旧候选的网络失败记录，不能作为当前产品
 失败证据。
 
-本次 live 验证和 Build 52 的 API 入口为
+本次 live 验证和 Build 53 的 API 入口为
 `https://suggests-kilometers-normal-insertion.trycloudflare.com`，由 homeserver
 上的临时 tmux 会话 `codex-aicaddie-quicktunnel-http2-20260907` 代理到候选
 API `127.0.0.1:39055`。健康检查持续返回 revision
@@ -342,7 +360,8 @@ API origin；尚未取得真实 HTTP 状态码，不能宣称同步已修复。
 The Garmin web login succeeds, but build 50 can still report verification
 failure because it was released before the same-origin gateway fix. The fix is
 source-CI green, Native-CI green, and deployed at exact revision `caf3afad`;
-build 51 is uploaded and visible in the internal group. The diagnostic refresh
+build 53 is uploaded and visible in the internal group, with the later sync
+success-path fix at source `f24a22dd` and backend `f363872f`. The diagnostic refresh
 endpoint must not be called again: it rotated the captured session, so the
 user must create a fresh session with one reconnect after this handoff.
 
@@ -829,10 +848,10 @@ project-level task list; historical plans are reference material.
 | `S1` | `done` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Focused backend/Web gates plus Native Mobile CI `32837705596` at `bf84ea8a`: iOS 257 tests, Watch 315 tests, iOS/Watch design snapshots, real iOS flow/video, 11 Watch runtime screenshots, secret scans, and non-empty runtime/build artifacts. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
-| `REL` | `evidence-open` | Release and TestFlight gate; current internal build 52 is processed and group-visible. | Native CI `34159418409` and CD run `34162939105` passed at source `8c378997`; read-only run `34163600353` confirmed build `0.1.0 (52)` `VALID`, unexpired, `IN_BETA_TESTING`, arm64, and included in `Jason's friends` (`allBuilds=true`) with backend `caf3afad`. Physical installation, fresh Garmin reconnect, and optional external Beta Review remain open. |
+| `REL` | `evidence-open` | Release and TestFlight gate; current internal build 53 is processed and group-visible. | Native CI `34223836622` and CD run `34231106418` passed at source `f24a22dd`; read-only run `34232120285` confirmed build `0.1.0 (53)` `VALID`, unexpired, `IN_BETA_TESTING`, arm64, and included in `Jason's friends` (`allBuilds=true`) with backend `f363872f`. Physical installation, fresh Garmin reconnect, and optional external Beta Review remain open. |
 | `MAP1` | `evidence-open` | Physical iPhone feedback for course-loop authority, Touch Target/caddie map arcs and landing interpolation, simplified live controls, and horizontal hole navigation. | Product/test commit `5628cc6d` plus Source CI `34021727402` and Native Mobile CI `34021862658` are green; TestFlight build 50 contains the MAP1 product tree. Held-loupe/device evidence remains open. |
-| `GARMIN-AUTH` | `evidence-open` | Make a successful Garmin web login validate and synchronize against the current CN gateway, then bind the internal app candidate to that backend. | Commit `caf3afad`, Source CI `34043175968`, controlled 403-to-200 gateway comparison, healthy public deployment, Native Mobile CI `34159418409`, TestFlight CD `34162939105`, and Apple/group check `34163600353` are complete. One new real-device reconnect/sync remains. |
-| `PHONE-REGRESSION` | `in-progress` | Unify backend caddie recommendation with the live club strip/map landing, constrain hazard labels/distances to small factual edge numbers, and provide a direct retry for saved-but-unverified Garmin sessions while preserving provider-nearby, manual-search, downloaded-course provenance and A/B/C labels. | Focused source/native gates and a fresh internal TestFlight build after this work; physical screenshots and device behavior remain evidence-open. |
+| `GARMIN-AUTH` | `evidence-open` | Make a successful Garmin web login validate and synchronize against the current CN gateway, then bind the internal app candidate to that backend. | Commit `caf3afad`, source sync follow-up `f24a22dd`, Source CI `34043175968`/`34223501012`, controlled 403-to-200 gateway comparison, healthy public deployment, Native Mobile CI `34223836622`, TestFlight CD `34231106418`, and Apple/group check `34232120285` are complete. One new real-device reconnect/sync remains. |
+| `PHONE-REGRESSION` | `evidence-open` | Unify backend caddie recommendation with the live club strip/map landing, constrain hazard labels/distances to small factual edge numbers, and provide a direct retry for saved-but-unverified Garmin sessions while preserving provider-nearby, manual-search, downloaded-course provenance and A/B/C labels. | Source CI `34223501012`, Native Mobile CI `34223836622`, backend revision `f363872f`, TestFlight Build 53, and Apple processing/group visibility are complete; physical screenshots and device behavior remain evidence-open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 
@@ -864,6 +883,18 @@ means a named external decision or prerequisite is missing; `done` and
   Read-only TestFlight run `34048981151` confirmed build 51 `VALID`, unexpired,
   `IN_BETA_TESTING`, arm64, and included in internal `Jason's friends`; no
   external group or distribution was changed.
+- `f24a22dd`: Source CI `34223501012` and Native Mobile CI `34223836622` passed;
+  the latter completed all 300 iOS tests, live course/map/caddie evidence,
+  Watch tests/runtime screenshots, and artifact/secret scans. TestFlight CD
+  `34231106418` uploaded and Apple processed build 53 against backend
+  `f363872f`. IPA SHA-256 is
+  `fe4f6078dd7b0560b5f755c14d2133af13ca1a272562a064995c3d6ec2c8e23f5`;
+  artifact `10058141615` ZIP digest is
+  `sha256:19188deaf5e25097b0b5bd8bd6afb3bcf15bdd5536430ccf4add49320512e0ed`.
+  Read-only App Store Connect run `34232120285` confirmed build 53 `VALID`,
+  unexpired, `IN_BETA_TESTING`, arm64, and included in internal `Jason's
+  friends`; no external group, Beta Review submission, or production
+  promotion was performed.
 - `d189b3b4`: Source CI run `33680857200` passed backend (2,047 tests, 13
   skips), frontend component/lint/build/visual smoke, and Docker API/sync
   smoke. The MAP1 mobile source is unchanged from `c5902a96`.
@@ -1255,7 +1286,7 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Install TestFlight build 51 on the physical iPhone and paired Watch.
+1. Install TestFlight build 53 on the physical iPhone and paired Watch.
 2. In the app, create a fresh Garmin session and tap reconnect once; confirm
    the state reads “已连接 · 同步完成” and that no-GPS/manual-search map and
    caddie flows remain usable.
@@ -1309,6 +1340,14 @@ Native runs recorded above; it is retained only as historical diagnosis.
   master checklist from memory.
 
 ## State Changes
+
+- 2026-09-08: `PHONE-REGRESSION` moved from `in-progress` to `evidence-open`
+  after Source CI `34223501012`, Native Mobile CI `34223836622`, backend
+  revision `f363872f`, TestFlight CD `34231106418`, and read-only Apple check
+  `34232120285` all passed. Build 53 is the current internal handoff; the
+  remaining work is fresh physical Garmin reconnect/sync, iPhone/Watch install,
+  and held-loupe/S70 evidence. External distribution and production remain
+  unchanged.
 
 - 2026-09-06: Garmin login verification failure was isolated to Garmin CN's
   same-origin gateway check: the old authenticated request returned 403 and
