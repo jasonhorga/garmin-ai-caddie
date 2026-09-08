@@ -33,9 +33,20 @@ final class TeeSelectionUITests: XCTestCase {
                 dataMode: cfg("AI_CADDIE_DATA_MODE")
             )
         ) { _, new in new }
-        // Each XCTest method owns a fresh app launch. Clear the local-only sync guard here so the
-        // no-GPS evidence journey cannot leak its test-only isolation into another method.
-        app.launchEnvironment.removeValue(forKey: "UITEST_DISABLE_EVENT_SYNC")
+        // XCUIApplication keeps launchEnvironment mutations between test methods. Clear every
+        // test-only fault/permission switch here so the empty-nearby and transport-failure
+        // journeys cannot change one another's production branch or depend on execution order.
+        for key in [
+            "UITEST_FORCE_NEARBY_FAILURE",
+            "UITEST_FORCE_COURSE_PACKAGE_FAILURE",
+            "UITEST_FORCE_LIVE_NETWORK_FAILURE",
+            "UITEST_COURSE_TEES_DELAY_MS",
+            "UITEST_LOCATION_AUTHORIZATION",
+            "UITEST_RESET_ACTIVE_ROUND",
+            "UITEST_DISABLE_EVENT_SYNC",
+        ] {
+            app.launchEnvironment.removeValue(forKey: key)
+        }
         // 北京丽宫第 1 洞蓝 T: a real CourseView tee on the same course this flow verifies.
         app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.0454995"
         app.launchEnvironment["UITEST_GPS_LON"] = cfg("UITEST_GPS_LON") ?? "116.5461531"
