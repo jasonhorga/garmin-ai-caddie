@@ -331,7 +331,10 @@ final class ReviewEditUITests: XCTestCase {
             let boundaryDestination = upperDraftRow.coordinate(
                 withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)
             )
-            lastReorder.press(
+            let boundaryStart = lastReorder.coordinate(
+                withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+            )
+            boundaryStart.press(
                 forDuration: 1.0,
                 thenDragTo: boundaryDestination,
                 withVelocity: .slow,
