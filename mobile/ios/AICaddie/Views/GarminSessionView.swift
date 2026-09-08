@@ -12,6 +12,9 @@ public struct GarminSessionView: View {
     /// The owning app model is the sole account-state authority. This view never reconstructs state
     /// from localized strings or from an independent "connected" Boolean.
     public let connectionState: GarminConnectionState
+    /// Deprecated read-only compatibility projection for older callers.
+    @available(*, deprecated, message: "Use connectionState instead")
+    public var garminSyncStatus: String { connectionState.statusText }
     /// Kept for source compatibility with older callers. New callers should use the typed outcome
     /// callback so a busy sync is not collapsed into a generic Bool failure.
     public let onSessionImported: (() async -> Bool)?
@@ -33,6 +36,7 @@ public struct GarminSessionView: View {
         onSessionImported: (() async -> Bool)? = nil,
         onSessionImportedOutcome: (() async -> GarminSyncOutcome)? = nil,
         connectionState: GarminConnectionState = .disconnected,
+        garminSyncStatus: String? = nil,
         onSessionForgot: @escaping () -> Void = {}
     ) {
         self.apiBaseURL = apiBaseURL
@@ -41,6 +45,8 @@ public struct GarminSessionView: View {
         self.onSessionImported = onSessionImported
         self.onSessionImportedOutcome = onSessionImportedOutcome
         self.connectionState = connectionState
+        // Source compatibility only; all rendering and retry decisions use the typed state.
+        _ = garminSyncStatus
         self.onSessionForgot = onSessionForgot
     }
 

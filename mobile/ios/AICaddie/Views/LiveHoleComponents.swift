@@ -960,7 +960,7 @@ struct LiveMapGreenDistanceOverlay: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(isLive ? "当前位置 → 果岭" : "发球台 → 果岭")
+            Text(isLive ? "果岭 · 实时" : "发球台 → 果岭")
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.white.opacity(0.72))
                 .accessibilityHint(isLive ? "距离根据当前位置实时计算。" : "这是发球台到果岭的静态参考，不代表当前位置；可用于球童推荐。")

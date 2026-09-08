@@ -3,6 +3,14 @@ import SwiftUI
 import UIKit
 #endif
 
+/// Shared compact hazard copy for map labels and accessibility values. The map still places the
+/// individual front/back numbers beside their measured boundary points; this summary is only the
+/// canonical wording for consumers that need both facts together.
+@inline(__always)
+func coursePrepHazardRangeLabel(toYards: Int, overYards: Int) -> Text {
+    Text("到 \(toYards) · 过 \(overYards)")
+}
+
 func coursePrepParSourceLabel(_ source: String) -> String {
     switch source {
     case "played": return "记分卡"

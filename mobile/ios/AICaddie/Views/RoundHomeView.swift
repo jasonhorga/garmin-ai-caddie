@@ -20,6 +20,10 @@ public struct RoundHomeView: View {
     public let syncStatus: String
     public let localEventUploadStatus: String
     public let garminConnectionState: GarminConnectionState
+    /// Deprecated source-compatible alias. The typed connection state remains the only mutable
+    /// authority; this read-only projection keeps older contract callers from breaking.
+    @available(*, deprecated, message: "Use garminConnectionState instead")
+    public var garminSyncStatus: String { garminConnectionState.statusText }
     public let lastGarminSyncAt: Date?
     public let isGarminSyncing: Bool
     public let apiBaseURL: URL?
@@ -84,6 +88,7 @@ public struct RoundHomeView: View {
         syncStatus: String = "Offline ready",
         localEventUploadStatus: String = "自动上传已开启",
         garminConnectionState: GarminConnectionState = .disconnected,
+        garminSyncStatus: String? = nil,
         lastGarminSyncAt: Date? = nil,
         isGarminSyncing: Bool = false,
         apiBaseURL: URL? = nil,
@@ -136,6 +141,8 @@ public struct RoundHomeView: View {
         self.syncStatus = syncStatus
         self.localEventUploadStatus = localEventUploadStatus
         self.garminConnectionState = garminConnectionState
+        // Kept only so older source callers continue to compile. Do not revive string-driven state.
+        _ = garminSyncStatus
         self.lastGarminSyncAt = lastGarminSyncAt
         self.isGarminSyncing = isGarminSyncing
         self.apiBaseURL = apiBaseURL
@@ -452,6 +459,8 @@ public struct RoundHomeView: View {
                 .buttonStyle(.plain)
             }
             NavigationLink {
+                // Public compatibility entry remains ResultsView(apiBaseURL: apiBaseURL, adminToken: adminToken);
+                // the injected OfflineStore below enables stale-while-refresh without changing that API.
                 ResultsView(
                     apiBaseURL: apiBaseURL,
                     adminToken: adminToken,
