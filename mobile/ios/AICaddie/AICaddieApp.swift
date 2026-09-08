@@ -131,10 +131,10 @@ public struct AICaddieApp: App {
                             }
                         },
                         onGarminSessionImported: {
-                            await model.syncGarminData()
+                            await model.syncGarminDataAfterSessionImport() == .completed
                         },
                         onGarminSessionImportedOutcome: {
-                            await model.syncGarminDataOutcome()
+                            await model.syncGarminDataAfterSessionImport()
                         },
                         onRefreshGarminSyncStatus: {
                             await model.refreshGarminSyncPresentation()
@@ -260,13 +260,14 @@ private struct NoPackageHubView: View {
                             apiBaseURL: model.apiBaseURL,
                             adminToken: model.adminToken,
                             sessionStore: model.garminSessionStore,
-                            onSessionImported: { await model.syncGarminData() },
-                            onSessionImportedOutcome: { await model.syncGarminDataOutcome() },
+                            onSessionImported: { await model.syncGarminDataAfterSessionImport() == .completed },
+                            onSessionImportedOutcome: { await model.syncGarminDataAfterSessionImport() },
                             garminSyncStatus: model.garminSyncStatus
                         )
                     } label: {
                         Label("连接 Garmin", systemImage: "link")
                     }
+#if DEBUG
                     NavigationLink {
                         BackendSettingsView(
                             apiBaseURL: model.apiBaseURL,
@@ -280,8 +281,9 @@ private struct NoPackageHubView: View {
                             }
                         )
                     } label: {
-                        Label("设置", systemImage: "gearshape")
+                        Label("开发者连接", systemImage: "gearshape")
                     }
+#endif
                 } header: {
                     Text("账号与连接")
                 }
@@ -719,6 +721,11 @@ public final class LiveRoundAppModel: ObservableObject {
         // best-effort course/history refresh runs. A slow or unavailable backend must not hide the
         // primary start action behind the bootstrap loading screen.
         isBootstrapping = false
+        // A saved Garmin session is an account fact, not a button the player must rediscover. Start
+        // its status reconciliation in the background so a slow history pull never blocks the Hub.
+        Task { @MainActor [weak self] in
+            await self?.autoSyncGarminIfNeeded()
+        }
 
         // Phase 2 — BACKGROUND refresh (network): course options + a fresh active/home package.
         // Runs after the menu is already on screen (when a cache existed), so it never delays it.
@@ -812,35 +819,109 @@ public final class LiveRoundAppModel: ObservableObject {
             garminSyncPresentationWatermark = serverDate
             // `lastGarminSyncAt` is explicitly a last-success timestamp. An error or running
             // status may have a newer updatedAt, but must never be presented as "上次成功".
-            if lastRun.state == "ready" || lastRun.state == "no_data" {
+            if canVerifyGarminSession(from: lastRun, serverDate: serverDate) {
                 lastGarminSyncAt = serverDate
                 // A cron/API run may have completed after the login view received a 409 busy
                 // response. Reconcile the local badge from that authoritative terminal status so a
                 // later account-screen visit does not remain stuck at "待验证".
-                markGarminSessionVerified()
+                _ = markGarminSessionVerified(after: serverDate)
             }
         }
-        switch lastRun.state {
-        case "ready":
-            garminSyncStatus = lastRun.newRoundCount == 0
-                ? "Garmin 已同步，暂无新球局"
-                : "Garmin 数据已更新"
-        case "running", "syncing":
-            garminSyncStatus = "Garmin 同步正在进行"
-        case "reauth_required":
-            clearStoredGarminSessionAfterAuthFailure()
-            garminSyncStatus = "Garmin 登录已过期或会话无效，请重新连接"
-        case "error":
-            garminSyncStatus = hasVerifiedGarminSession()
-                ? "Garmin 已连接；本次同步失败，请稍后重试"
-                : "Garmin 网页已登录；数据验证未完成，请稍后重试"
-        case "not_available":
-            garminSyncStatus = hasVerifiedGarminSession()
-                ? "Garmin 已连接；本次同步失败：服务暂时不可用，请稍后重试"
-                : "Garmin 网页已登录；数据验证未完成：服务暂时不可用，请稍后重试"
-        default:
-            break
+        let awaitingFirstVerification = !hasVerifiedGarminSession()
+            && (lastRun.errorCode == "session_stored"
+                || (lastRun.state == "ready" || lastRun.state == "no_data")
+                    && !canVerifyGarminSession(from: lastRun, serverDate: serverDate))
+        if lastRun.errorCode == "session_stored"
+            || (awaitingFirstVerification && (lastRun.state == "ready" || lastRun.state == "no_data")) {
+            // The import endpoint records the cookies before the first real data pull. A terminal
+            // looking `no_data`/`ready` row with that marker is still only a saved session, never a
+            // verified connection.
+            garminSyncStatus = "Garmin 登录已保存，数据验证未完成；可重试同步"
+        } else {
+            switch lastRun.state {
+            case "ready":
+                garminSyncStatus = lastRun.newRoundCount == 0
+                    ? "Garmin 已同步，暂无新球局"
+                    : "Garmin 数据已更新"
+            case "no_data":
+                garminSyncStatus = "Garmin 已同步，暂无新球局"
+            case "running", "syncing":
+                garminSyncStatus = "Garmin 同步正在进行"
+            case "reauth_required":
+                clearStoredGarminSessionAfterAuthFailure()
+                garminSyncStatus = "Garmin 登录已过期或会话无效，请重新连接"
+            case "error":
+                garminSyncStatus = hasVerifiedGarminSession()
+                    ? "Garmin 已连接；本次同步失败，请稍后重试"
+                    : "Garmin 网页已登录；数据验证未完成，请稍后重试"
+            case "not_available":
+                garminSyncStatus = hasVerifiedGarminSession()
+                    ? "Garmin 已连接；本次同步失败：服务暂时不可用，请稍后重试"
+                    : "Garmin 网页已登录；数据验证未完成：服务暂时不可用，请稍后重试"
+            default:
+                break
+            }
         }
+    }
+
+    /// Reconcile an existing keychain session automatically on launch/foreground. A terminal server
+    /// status can arrive after the original POST was cancelled, so a short status poll follows both
+    /// a normal pull and a 409/in-progress response.
+    public func autoSyncGarminIfNeeded() async {
+        guard garminSessionStore != nil, loadStoredGarminSession() != nil else { return }
+        await refreshGarminSyncPresentation()
+        let needsPull = !hasVerifiedGarminSession()
+            || lastGarminSyncAt.map { Date().timeIntervalSince($0) > 15 * 60 } ?? true
+        guard needsPull else { return }
+        let outcome = await syncGarminDataOutcome()
+        guard outcome == .inProgress else { return }
+        for _ in 0..<24 {
+            if hasVerifiedGarminSession() { return }
+            try? await Task.sleep(nanoseconds: 5 * 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            await refreshGarminSyncPresentation()
+            if garminSyncStatus.contains("登录已过期") || garminSyncStatus.contains("会话无效") {
+                return
+            }
+        }
+    }
+
+    /// Import flow variant: wait for a server job that was already running when the captured session
+    /// arrived. The caller gets a terminal result when possible, while the account screen can close
+    /// immediately and rely on the published status during the wait.
+    public func syncGarminDataAfterSessionImport() async -> GarminSyncOutcome {
+        let initial = await syncGarminDataOutcome()
+        if initial != .inProgress { return initial }
+        for _ in 0..<24 {
+            if hasVerifiedGarminSession() { return .completed }
+            try? await Task.sleep(nanoseconds: 5 * 1_000_000_000)
+            guard !Task.isCancelled else { return initial }
+            await refreshGarminSyncPresentation()
+            if garminSyncStatus.contains("登录已过期") || garminSyncStatus.contains("会话无效") {
+                return .reauthRequired
+            }
+        }
+        return initial
+    }
+
+    private func loadStoredGarminSession() -> GarminSessionMaterial? {
+        guard let garminSessionStore else { return nil }
+        return try? garminSessionStore.loadSession()
+    }
+
+    private func canVerifyGarminSession(
+        from lastRun: GarminSyncLastRunResponse,
+        serverDate: Date?
+    ) -> Bool {
+        guard lastRun.state == "ready" || lastRun.state == "no_data",
+              lastRun.errorCode != "session_stored" else { return false }
+        guard let material = loadStoredGarminSession() else { return false }
+        if material.verifiedAt != nil { return true }
+        guard let serverDate,
+              let storedDate = ISO8601DateFormatter().date(from: material.storedAt) else {
+            return false
+        }
+        return serverDate >= storedDate
     }
 
     public func saveBackendConfiguration(apiBaseURLText: String, adminTokenText: String?) async {
@@ -850,12 +931,19 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         BackendConfigurationStore.saveAPIBaseURL(resolvedAPIBaseURL)
         let nextAdminToken: String?
+#if DEBUG
         if let adminTokenText, let sanitizedAdminToken = Self.sanitizedConfigurationValue(adminTokenText) {
             BackendConfigurationStore.saveAdminToken(sanitizedAdminToken)
             nextAdminToken = sanitizedAdminToken
         } else {
             nextAdminToken = adminToken ?? Self.defaultAdminToken()
         }
+#else
+        // Release builds authenticate with the signed-in Apple session only. Never persist a token
+        // pasted into an old/debug-only settings screen.
+        BackendConfigurationStore.saveAdminToken(nil)
+        nextAdminToken = nil
+#endif
         applyBackendConfiguration(apiBaseURL: resolvedAPIBaseURL, adminToken: nextAdminToken)
         syncStatus = "已保存"
         await refreshCourseOptions()
@@ -2599,6 +2687,9 @@ public final class LiveRoundAppModel: ObservableObject {
         endPrepBackgroundTask()
         resumePrepCourseDownloads(retryFailed: true)
         retryDeferredRoundFinishes()
+        Task { @MainActor [weak self] in
+            await self?.autoSyncGarminIfNeeded()
+        }
         // Only a real live state enters the ordinary uploader. A sealed round can remain as the Hub's
         // visual home fallback with the same package ID, but its durable finish worker owns that tail.
         guard !eventSyncSuppressedForUITests,
@@ -2704,6 +2795,12 @@ public final class LiveRoundAppModel: ObservableObject {
                 garminSyncPresentationWatermark = Date()
                 return .reauthRequired
             }
+            if result.errorCode == "session_stored" {
+                garminSyncStatus = "Garmin 登录已保存，数据验证未完成；可重试同步"
+                garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
+                garminSyncPresentationWatermark = Date()
+                return .inProgress
+            }
             if result.state == "running" || result.state == "syncing" {
                 garminSyncStatus = "同步正在进行，请稍后查看"
                 garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
@@ -2737,7 +2834,12 @@ public final class LiveRoundAppModel: ObservableObject {
                 .flatMap { ISO8601DateFormatter().date(from: $0) }
                 ?? Date()
             guard operationGeneration == garminSyncOperationGeneration else { return .failed }
-            markGarminSessionVerified()
+            guard markGarminSessionVerified(after: completedAt) else {
+                garminSyncStatus = "同步完成，但 Garmin 连接状态保存失败；请重试"
+                garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
+                garminSyncPresentationWatermark = Date()
+                return .failed
+            }
             lastGarminSyncAt = completedAt
             garminSyncStatus = refreshedStatus?.lastRun?.newRoundCount == 0 || result.state == "no_data"
                 ? "Garmin 已同步，暂无新球局"
@@ -2787,16 +2889,24 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Persist the verification bit separately from the captured material. A successful server pull
     /// is the only event allowed to turn the account badge green; a failed pull leaves the material
     /// available for a retry but never claims it is connected.
-    private func markGarminSessionVerified() {
-        guard let garminSessionStore else { return }
+    @discardableResult
+    private func markGarminSessionVerified(after serverDate: Date? = nil) -> Bool {
+        guard let garminSessionStore else { return false }
         do {
             guard let material = try garminSessionStore.loadSession(), material.verifiedAt == nil else {
-                return
+                return true
+            }
+            if let serverDate,
+               let storedDate = ISO8601DateFormatter().date(from: material.storedAt),
+               serverDate < storedDate {
+                return false
             }
             let formatter = ISO8601DateFormatter()
             try garminSessionStore.saveSession(material.withVerifiedAt(formatter.string(from: Date())))
+            return true
         } catch {
             AICaddieLog.storage.error("Garmin verification state could not be saved: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 
@@ -3066,7 +3176,9 @@ public final class LiveRoundAppModel: ObservableObject {
             return fixtureURL
         }
         #endif
-        let candidates: [String?] = [environment["AI_CADDIE_API_BASE_URL"], persistedValue, bundleValue]
+        // A build-time origin is newer than a stale per-device tunnel override. Persisted values are
+        // retained only as a development fallback when the app was built without an origin.
+        let candidates: [String?] = [environment["AI_CADDIE_API_BASE_URL"], bundleValue, persistedValue]
         for candidate in candidates {
             guard let resolvedAPIBaseURL = BackendConfigurationStore.normalizedAPIBaseURL(from: candidate) else {
                 continue

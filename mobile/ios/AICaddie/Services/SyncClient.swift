@@ -187,6 +187,7 @@ public enum GarminSyncPresentation {
 public struct GarminSyncLastRunResponse: Codable, Equatable {
     public let state: String
     public let detail: String
+    public let errorCode: String?
     public let updatedAt: String?
     public let remoteRoundCount: Int?
     public let remoteLatestRoundId: String?

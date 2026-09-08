@@ -110,6 +110,7 @@ public struct CurrentHoleView: View {
     @State private var note: String = ""
     @State private var caddieDecision: CaddieDecisionResponse?
     @State private var isLoadingCaddieDecision = false
+    @State private var caddieRequestGeneration = 0
     @State private var caddieErrorMessage: String?
     @State private var visionFindings: [[String: JSONValue]] = []
     @State private var lastAppliedRestoredHoleState: LiveHoleStateSnapshot?
@@ -198,8 +199,9 @@ public struct CurrentHoleView: View {
         self._score = State(initialValue: restoredHoleState?.score ?? hole.par)
         self._puttCount = State(initialValue: restoredHoleState?.putts ?? 2)
         self._penaltyCount = State(initialValue: restoredHoleState?.penaltyCount ?? 0)
-        self._selectedClub = State(initialValue: restoredHoleState.map { zhClubName($0.selectedClub) }
-            ?? Self.defaultClub(par: hole.par, holeYards: hole.yards, profiles: package.clubProfiles))
+        let restoredClub = restoredHoleState.map { Self.normalizedSelectedClub($0.selectedClub) } ?? ""
+        self._selectedClub = State(initialValue: restoredClub)
+        self._hasUserSelectedClub = State(initialValue: !restoredClub.isEmpty)
         self._selectedShotType = State(initialValue: restoredHoleState?.selectedShotType ?? seed?.shotTypes.first ?? "approach")
         self._selectedStrategyMode = State(initialValue: restoredHoleState?.selectedStrategyMode ?? "stock")
         self._distanceToPinText = State(initialValue: Self.validDistanceText(restoredHoleState?.distanceToPinM))
@@ -377,13 +379,10 @@ public struct CurrentHoleView: View {
             LiveCaddieStrip(
                 clubs: caddieClubChips,
                 playsText: caddiePlaysText,
-                isLoading: isLoadingCaddieDecision || isPreciseHoleMapPending,
+                isLoading: isLoadingCaddieDecision,
                 isReady: caddieDecision != nil
-                    && !isPreciseHoleMapPending
                     && !isLoadingCaddieDecision,
-                errorText: isPreciseHoleMapPending
-                    ? "精确地图准备中 · 球童建议稍后更新"
-                    : caddieErrorMessage,
+                errorText: caddieErrorMessage,
                 onExpand: { showCaddieDetail = true },
                 onSelect: { selectClub($0) }
             )
@@ -403,7 +402,6 @@ public struct CurrentHoleView: View {
     private var liveSecondaryCards: some View {
         // Secondary live controls remain part of the dark playing instrument.
         VStack(spacing: 12) {
-            moreAdjustCard
             if Self.showsMediaCaptureCard {
                 mediaCard
             }
@@ -721,7 +719,8 @@ public struct CurrentHoleView: View {
                              pinOverlayPixel: effectiveMapPinPixel,
                              topoURL: liveTopoURL, showsCardChrome: false,
                              showsRecommendedRoute: true,
-                             showsHazards: true)
+                             showsHazards: true,
+                             showsPrepClubLabel: false)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(
                     holePrep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
@@ -758,6 +757,7 @@ public struct CurrentHoleView: View {
                             onSelectStrategyMode: { selectedStrategyMode = $0 }
                         )
                     }
+                    caddieInputControls
                     if isLoadingCaddieDecision {
                         ProgressView("更新球童建议…")
                     }
@@ -811,6 +811,36 @@ public struct CurrentHoleView: View {
         }
         .tint(LiveHoleStyle.green)
         .preferredColorScheme(.light)
+    }
+
+    /// Low-frequency inputs belong with the full caddie plan, not in the live map instrument. Any
+    /// change that affects the decision immediately requests a fresh plan; score-only fields stay in
+    /// the score confirmation sheet.
+    private var caddieInputControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("球童条件")
+                .font(.headline)
+            Picker("打法", selection: $selectedShotType) {
+                ForEach(shotTypeOptions, id: \.self) { Text(zhShotType($0)).tag($0) }
+            }
+            Picker("球位", selection: $selectedLie) {
+                ForEach(lieOptions, id: \.self) { Text(zhLie($0)).tag($0) }
+            }
+            TextField("到旗杆距离(码)", text: $distanceToPinText)
+                .keyboardType(.decimalPad)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit {
+                    Task { await loadCaddieDecision() }
+                }
+        }
+        .padding(12)
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+        .onChange(of: selectedShotType) { _, _ in
+            Task { await loadCaddieDecision(syncClub: !hasUserSelectedClub) }
+        }
+        .onChange(of: selectedLie) { _, _ in
+            Task { await loadCaddieDecision(syncClub: !hasUserSelectedClub) }
+        }
     }
 
     /// Less-frequent scoring inputs remain here. Map target and flag placement live directly on the
@@ -896,9 +926,13 @@ public struct CurrentHoleView: View {
 
     /// The caddie strip's club chips: the 3 most-relevant clubs + their distance, selected = filled.
     private var caddieClubChips: [LiveCaddieStrip.Club] {
-        let bag = bagBest(filterTeeOnly: true)
+        let bag = caddieClubProfiles
         return clubNames.map { name in
-            let sub = bag[name].map { "\(CoursePrepRoute.yards(fromMetres: $0.medianM)) 码" } ?? ""
+            let sub = LiveClubStripPolicy.distanceMetres(
+                for: name,
+                profiles: bag,
+                recommendation: recommendedClubChoice
+            ).map { "\(CoursePrepRoute.yards(fromMetres: $0)) 码" } ?? ""
             return LiveCaddieStrip.Club(name: name, sub: sub, on: name == selectedClub)
         }
     }
@@ -933,7 +967,13 @@ public struct CurrentHoleView: View {
         let route = holePrep.resolvedMapOverlay?.route
         return holePrep.hazards.details
             .filter { ($0.kind == "bunker" || $0.kind == "water")
-                && $0.frontPx.count >= 2 && $0.backPx.count >= 2 }
+                && $0.frontPx.count >= 2 && $0.backPx.count >= 2
+                && CoursePrepLiveHazardReadout.isPlausibleYards(
+                    CoursePrepRoute.yards(fromMetres: $0.frontM)
+                )
+                && CoursePrepLiveHazardReadout.isPlausibleYards(
+                    CoursePrepRoute.yards(fromMetres: $0.backM)
+                ) }
             .sorted { $0.frontRouteM < $1.frontRouteM }
             .enumerated()
             .map { index, detail in
@@ -1471,10 +1511,8 @@ public struct CurrentHoleView: View {
 
     @MainActor
     private func loadCurrentHole() async {
-        isLoadingCaddieDecision = true
         let canPollForPreciseMap = await loadHoleMap()
         guard !Task.isCancelled else {
-            isLoadingCaddieDecision = false
             return
         }
         // Sync the selected club to the recommendation on a fresh hole; a hole the player already
@@ -1483,7 +1521,6 @@ public struct CurrentHoleView: View {
         await loadCaddieDecision(
             syncClub: !alreadyRecorded && !isPreciseHoleMapPending && !hasUserSelectedClub
         )
-        isLoadingCaddieDecision = false
         #if DEBUG
         UITestEventLatencyTrace.record(
             "live-hole.initial-load-finished hole=\(hole.number) course=\(package.course.globalId)"
@@ -1615,8 +1652,13 @@ public struct CurrentHoleView: View {
         sourceLocalHole: Int,
         watchHole: Int
     ) async {
-        if prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
-           prep.resolvedMapOverlay != nil {
+        holePrep = prep
+        guard prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
+              prep.resolvedMapOverlay != nil else { return }
+
+        // Publish the factual map immediately. Watch/cache asset delivery is auxiliary and must not
+        // keep the caddie strip in a loading state or make the player stare at the previous club.
+        Task { @MainActor in
             await pushTopoToWatch(
                 globalId: globalId,
                 sourceLocalHole: sourceLocalHole,
@@ -1631,7 +1673,6 @@ public struct CurrentHoleView: View {
             )
             onRetainReadyHolePrep(package.roundId, hole.number, prep)
         }
-        holePrep = prep
     }
 
     #if DEBUG
@@ -1852,6 +1893,7 @@ public struct CurrentHoleView: View {
     private var liveHazardReadouts: [CoursePrepLiveHazardReadout]? {
         guard let holePrep,
               holePrep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
+              hasPlausibleLiveFix,
               let fix = locationProvider.latestFix,
               let route = holePrep.resolvedMapOverlay?.route,
               let projection = holePrep.holeImageProjection,
@@ -1945,15 +1987,16 @@ public struct CurrentHoleView: View {
     /// Club picker options: the player's clubs, minus empty/"Unknown" placeholders and
     /// case-insensitive duplicates (Garmin club names are user-entered and messy).
     /// Player's clubs from the backend real bag: zhClubName-normalized, deduped (keep most-sampled),
-    /// restricted to the player's bag. `filterTeeOnly` drops 一号木 off the tee — applied to the
-    /// quick chips, but NOT to the full dropdown (which lets the player pick ANY club).
+    /// restricted to the player's bag. Tee-only clubs are filtered only after the opening shot and
+    /// only when the current shot is not a tee shot; the old `selectedLie` gate hid driver before the
+    /// player had hit anything.
     private func bagBest(filterTeeOnly: Bool) -> [String: ClubProfile] {
         var best: [String: ClubProfile] = [:]
         for profile in package.clubProfiles {
             let raw = profile.clubName.trimmingCharacters(in: .whitespaces)
             guard !raw.isEmpty, raw.lowercased() != "unknown" else { continue }
             let name = zhClubName(raw)
-            if filterTeeOnly, clubIsTeeOnly(name), selectedLie != "tee" { continue }
+            if filterTeeOnly, shouldFilterTeeOnlyClubs, clubIsTeeOnly(name) { continue }
             if let existing = best[name], existing.sampleSize >= profile.sampleSize { continue }
             best[name] = profile
         }
@@ -1965,21 +2008,31 @@ public struct CurrentHoleView: View {
         return best
     }
 
-    /// The 3 clubs most relevant to THIS shot (quick chips): nearest to the to-pin distance when
-    /// known, else the 3 longest. Always keeps the selected club visible.
+    private var shouldFilterTeeOnlyClubs: Bool {
+        selectedShotType.lowercased() != "tee" && recordedNonPuttShotCount > 0
+    }
+
+    /// Profiles used by the quick strip. The backend recommendation is re-added from the complete
+    /// bag even when a tee-only fallback filter would otherwise remove it.
+    private var caddieClubProfiles: [String: ClubProfile] {
+        var profiles = bagBest(filterTeeOnly: true)
+        if let recommendedClub,
+           profiles[recommendedClub] == nil,
+           let fallback = bagBest(filterTeeOnly: false)[recommendedClub] {
+            profiles[recommendedClub] = fallback
+        }
+        return profiles
+    }
+
+    /// The three quick chips always put the actual caddie recommendation first. Distance-ranked bag
+    /// clubs fill the remaining slots and the selected club remains visible for manual choices.
     private var clubNames: [String] {
-        let best = bagBest(filterTeeOnly: true)
-        let ordered: [String]
-        if let target = effectiveDistanceToPinMetres {
-            ordered = best.sorted { abs($0.value.medianM - target) < abs($1.value.medianM - target) }.map(\.key)
-        } else {
-            ordered = best.sorted { $0.value.medianM > $1.value.medianM }.map(\.key)
-        }
-        var top = Array(ordered.prefix(3))
-        if best[selectedClub] != nil, !top.contains(selectedClub) {
-            top = [selectedClub] + top.prefix(2)
-        }
-        return top
+        LiveClubStripPolicy.orderedNames(
+            profiles: caddieClubProfiles,
+            recommended: recommendedClub,
+            selected: selectedClub,
+            targetMetres: effectiveDistanceToPinMetres
+        )
     }
 
     /// round-12: the FULL bag for the dropdown picker — every club + its distance, longest→shortest,
@@ -1992,10 +2045,14 @@ public struct CurrentHoleView: View {
 
     /// The caddie's currently-recommended club (zh), used to mark it in the dropdown.
     private var recommendedClub: String? {
-        guard let decision = caddieDecision, let raw = recommendedClubName(from: decision) else {
-            return nil
-        }
-        return zhClubName(raw)
+        recommendedClubChoice?.name
+    }
+
+    /// The same normalized club/carry pair drives the strip and the map. Do not derive the map
+    /// distance from a possibly stale local median when the backend supplied a strategy carry.
+    private var recommendedClubChoice: LiveClubStripPolicy.Recommendation? {
+        guard let decision = caddieDecision else { return nil }
+        return LiveClubStripPolicy.recommendation(from: decision)
     }
 
     /// round-12: full-bag dropdown — pick ANY club + its distance; recommended club marked; defaults
@@ -2044,50 +2101,19 @@ public struct CurrentHoleView: View {
 
     /// The selected club's typical distance (metres) from the bag model — drives the live map marker.
     private var selectedClubMetres: Double? {
-        guard let profile = package.clubProfiles.first(where: { zhClubName($0.clubName) == selectedClub }) else {
-            return nil
+        guard !selectedClub.isEmpty else { return nil }
+        if let recommendation = recommendedClubChoice,
+           recommendation.name == selectedClub,
+           let carry = recommendation.carryMetres {
+            return carry
         }
-        return profile.medianM
-    }
-
-    /// A sensible pre-decision default club: the tee club (longest trustworthy non-tee-only club) for
-    /// par 4/5, or the club whose median matches the green distance for a par 3. Avoids defaulting to
-    /// an arbitrary clubProfiles.first (which could be a noisy short iron — owner's "9I" reads 159m
-    /// off 13 stray shots). The live caddie decision refines this to its recommendation once loaded.
-    private static func defaultClub(par: Int, holeYards: Int?, profiles: [ClubProfile]) -> String {
-        let usable = profiles.filter { profile in
-            let raw = profile.clubName.trimmingCharacters(in: .whitespaces)
-            return !raw.isEmpty && raw.lowercased() != "unknown" && profile.medianM > 0
-        }
-        // ≥20 samples mirrors the backend caddie trust filter (MIN_CADDIE_SAMPLE); fall back to all
-        // data-backed clubs for low-data players so we still pick something reasonable.
-        let trusted = usable.filter { $0.sampleSize >= 20 }
-        let pool = trusted.isEmpty ? usable : trusted
-        guard !pool.isEmpty else { return "" }
-        let pick: ClubProfile
-        if par == 3, let yards = holeYards, yards > 0 {
-            let targetM = Double(yards) * 0.9144
-            pick = pool.min { abs($0.medianM - targetM) < abs($1.medianM - targetM) } ?? pool[0]
-        } else {
-            let nonTee = pool.filter { !clubIsTeeOnly(zhClubName($0.clubName)) }
-            let candidates = nonTee.isEmpty ? pool : nonTee
-            pick = candidates.max { $0.medianM < $1.medianM } ?? candidates[0]
-        }
-        return zhClubName(pick.clubName)
+        return package.clubProfiles.first(where: { zhClubName($0.clubName) == selectedClub })?.medianM
     }
 
     /// The club the player will hit NOW under the caddie's decision: the first step of the selected
     /// sequence (the tee/advance shot) when sequences exist, else the selected single-club option.
     private func recommendedClubName(from decision: CaddieDecisionResponse) -> String? {
-        let sequences = CaddiePlanSequence.sequences(from: decision)
-        let selectedId = CaddiePlanSequence.selectedSequenceId(from: decision) ?? decision.selectedOptionId
-        if let sequence = sequences.first(where: { $0.id == selectedId }) ?? sequences.first,
-           let firstClub = sequence.steps.first?.clubName, firstClub != "-" {
-            return firstClub
-        }
-        let options = CaddiePlanOption.options(from: decision)
-        let club = (options.first { $0.id == decision.selectedOptionId } ?? options.first)?.clubName
-        return (club == nil || club == "-") ? nil : club
+        LiveClubStripPolicy.recommendation(from: decision)?.name
     }
 
     /// Adopt the caddie's recommended club as the selected club so the club strip highlight and the
@@ -2095,10 +2121,11 @@ public struct CurrentHoleView: View {
     /// decision carries no usable club.
     @MainActor
     private func syncSelectedClubToRecommendation() {
-        guard let decision = caddieDecision, let club = recommendedClubName(from: decision) else {
+        guard !hasUserSelectedClub else { return }
+        guard let club = recommendedClubChoice?.name else {
             return
         }
-        selectedClub = zhClubName(club)
+        selectedClub = club
     }
 
     // MARK: - 球局调整(加打 / 减九洞 / 结束本场)— round-11 从首页移入实战屏
@@ -2301,7 +2328,15 @@ public struct CurrentHoleView: View {
 
     @MainActor
     private func loadCaddieDecision(syncClub: Bool = false) async {
-        #if DEBUG
+        caddieRequestGeneration &+= 1
+        let requestGeneration = caddieRequestGeneration
+        isLoadingCaddieDecision = true
+        defer {
+            if requestGeneration == caddieRequestGeneration {
+                isLoadingCaddieDecision = false
+            }
+        }
+#if DEBUG
         let effectiveClient = ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1"
             ? nil
             : caddieClient
@@ -2324,14 +2359,9 @@ public struct CurrentHoleView: View {
         }
 
         let requestedBeforePrep = holePrep == nil
-        isLoadingCaddieDecision = true
-        defer {
-            isLoadingCaddieDecision = false
-        }
-
         do {
             let response = try await effectiveClient.fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, requestGeneration == caddieRequestGeneration else { return }
             // If prep arrived while a manual distance-free request was in flight, the ordered hole
             // bootstrap will launch the context-complete request next. Never let the stale answer
             // overwrite it.
@@ -2343,6 +2373,7 @@ public struct CurrentHoleView: View {
         } catch let error where LiveCaddieLoadFailure.isCancellation(error) {
             return
         } catch {
+            guard requestGeneration == caddieRequestGeneration else { return }
             if let offlineDecision = makeOfflineCaddieDecision() {
                 caddieDecision = offlineDecision
                 caddieErrorMessage = "联网球童暂不可用 · 已切换到离线缓存建议。"
@@ -2480,15 +2511,16 @@ public struct CurrentHoleView: View {
         puttCount = reconciled.putts
         penaltyCount = reconciled.penaltyCount
         // Normalise to the same zhClubName the picker uses (init does this) so the ClubStrip highlight matches.
-        selectedClub = zhClubName(restoredHoleState.selectedClub)
+        // An empty selection is intentional while a fresh decision is loading; never turn it into a
+        // stale default club just because the event log was replayed.
+        selectedClub = Self.normalizedSelectedClub(restoredHoleState.selectedClub)
+        hasUserSelectedClub = !selectedClub.isEmpty
         selectedShotType = restoredHoleState.selectedShotType
         selectedStrategyMode = restoredHoleState.selectedStrategyMode
         selectedLie = restoredHoleState.lie
         distanceToPinText = Self.validDistanceText(restoredHoleState.distanceToPinM)
         if let latitude = restoredHoleState.latitude, let longitude = restoredHoleState.longitude {
             currentCoordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
-        } else {
-            currentCoordinate = nil
         }
         if let restoredTarget = Self.restoredTarget(from: restoredHoleState) {
             if restoredTarget.kind == "pin" {
@@ -2765,6 +2797,12 @@ public struct CurrentHoleView: View {
               metres > 0,
               metres <= GeoDistance.maximumUsefulGreenMetres else { return "" }
         return yardsText(fromMetres: metres)
+    }
+
+    private static func normalizedSelectedClub(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.lowercased() != "unknown" else { return "" }
+        return zhClubName(trimmed)
     }
 
     /// Target semantics are shared by iPhone, Watch and the server event contract. `map_target` was

@@ -55,6 +55,93 @@ final class HoleMapInteractionTests: XCTestCase {
         XCTAssertNotEqual(arcs[1].control, CGPoint(x: 132.5, y: 180))
     }
 
+    func testTouchTargetKeepsTeeToTargetArcWhenPinProjectionIsMissing() {
+        let reference = CGPoint(x: 40, y: 420)
+        let target = CGPoint(x: 130, y: 250)
+
+        let arcs = LivePlayMapDetailView.targetFlightArcs(
+            reference: reference,
+            target: target,
+            pin: nil
+        )
+
+        XCTAssertEqual(arcs.count, 1)
+        XCTAssertEqual(arcs[0].start, reference)
+        XCTAssertEqual(arcs[0].end, target)
+    }
+
+    func testCaddieRecommendationCarriesTheSelectedSequenceClubAndDistance() {
+        let decision = CaddieDecisionResponse(
+            schema: "ai-caddie-decision-v2",
+            decisionId: "decision-1",
+            sourceRef: nil,
+            evidenceRefs: nil,
+            shotType: "tee",
+            phase: "tee_shot",
+            context: [:],
+            options: [[
+                "id": .string("stock"),
+                "carry_m": .number(225),
+                "clubName": .string("3W"),
+            ]],
+            selected: nil,
+            selectedOptionId: "stock",
+            selectedOption: nil,
+            sequences: [[
+                "id": .string("stock"),
+                "clubs": .array([
+                    .object([
+                        "clubName": .string("1W"),
+                        "targetCarry_m": .number(242),
+                    ])
+                ]),
+            ]],
+            selectedSequence: ["id": .string("stock")],
+            avoidZones: [],
+            forbiddenZones: [],
+            acceptableMiss: [:],
+            evidence: [],
+            confidence: [:],
+            missingData: [],
+            auditCriteria: []
+        )
+
+        XCTAssertEqual(
+            LiveClubStripPolicy.recommendation(from: decision),
+            LiveClubStripPolicy.Recommendation(name: "一号木", carryMetres: 242)
+        )
+    }
+
+    func testRecommendationRemainsVisibleWhenBagHasNoMatchingProfile() {
+        let names = LiveClubStripPolicy.orderedNames(
+            profiles: [
+                "三号木": ClubProfile(clubName: "3W", sampleSize: 10, medianM: 200, p10M: 180, p90M: 220),
+            ],
+            recommended: "一号木",
+            selected: "一号木",
+            targetMetres: 220
+        )
+
+        XCTAssertEqual(names.first, "一号木")
+        XCTAssertTrue(names.contains("三号木"))
+    }
+
+    func testHazardCalloutNumbersStaySmallAndUseSeparateBoundaryLanes() {
+        XCTAssertTrue(CoursePrepLiveHazardReadout.isPlausibleYards(999))
+        XCTAssertFalse(CoursePrepLiveHazardReadout.isPlausibleYards(8_809))
+
+        let viewport = CGSize(width: 360, height: 540)
+        let front = LiveHazardCalloutLayout.center(
+            for: CGPoint(x: 170, y: 260), isFront: true, index: 0, viewportSize: viewport
+        )
+        let back = LiveHazardCalloutLayout.center(
+            for: CGPoint(x: 170, y: 260), isFront: false, index: 0, viewportSize: viewport
+        )
+        XCTAssertGreaterThanOrEqual(abs(front.y - back.y), LiveHazardCalloutLayout.labelHeight)
+        XCTAssertGreaterThanOrEqual(front.x, LiveHazardCalloutLayout.labelWidth / 2)
+        XCTAssertLessThanOrEqual(back.x, viewport.width - LiveHazardCalloutLayout.labelWidth / 2)
+    }
+
     func testHorizontalHoleSwipeChangesOnlyToAnAdjacentHole() {
         let holes = [1, 2, 3]
 

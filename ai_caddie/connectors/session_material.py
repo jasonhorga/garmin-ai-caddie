@@ -79,7 +79,9 @@ def save_garmin_cn_web_session(
         state="no_data",
         detail=detail,
         snapshot_id=None,
-        error_code=None,
+        # `no_data` is also the terminal state for a successful empty sync. Keep the import-only
+        # state distinguishable so clients do not mark a freshly captured cookie as verified.
+        error_code="session_stored",
         data_dir=Path(data_dir) if data_dir is not None else None,
     )
     return {

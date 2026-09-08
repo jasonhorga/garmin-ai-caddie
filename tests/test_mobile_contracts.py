@@ -2097,7 +2097,8 @@ class MobileContractTests(unittest.TestCase):
         # Play line is a smooth curve, not a polyline; landing marker + club label track the
         # currently-selected club in real time (switching clubs moves the marker).
         self.assertIn("static func smoothPath(through points: [CGPoint]) -> Path", hole_map_view)
-        self.assertIn("selectedClubMetres ?? hole.landingM", hole_map_view)
+        self.assertIn("if selectedClub != nil { return selectedClubMetres }", hole_map_view)
+        self.assertIn("return showsPrepClubLabel ? hole.landingM : nil", hole_map_view)
         self.assertIn(
             "HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,",
             current_hole,
@@ -2187,6 +2188,7 @@ class MobileContractTests(unittest.TestCase):
     def test_ios_club_naming_and_lie_filter(self) -> None:
         golf_club = _read_required_source(self, IOS_DIR / "Views" / "GolfClub.swift")
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        club_policy = _read_required_source(self, IOS_DIR / "Services" / "LiveClubStripPolicy.swift")
         caddie_plan = _read_required_source(self, IOS_DIR / "Views" / "CaddiePlanView.swift")
         # 3c 球杆命名规范化(一号木/三号木/三号小鸡腿/五号铁/P杆/挖起杆…)+ 3b lie 过滤(球道不出一号木)。
         self.assertIn("func zhClubName(", golf_club)
@@ -2194,11 +2196,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("挖起杆", golf_club)
         self.assertIn("func clubIsTeeOnly(", golf_club)
         self.assertIn("zhClubName(", current_hole)
-        self.assertIn("clubIsTeeOnly(name), selectedLie != \"tee\"", current_hole)
-        self.assertIn("medianM > $1.value.medianM", current_hole)  # longest→shortest (no-distance fallback)
+        self.assertIn("if filterTeeOnly, shouldFilterTeeOnlyClubs, clubIsTeeOnly(name)", current_hole)
+        self.assertIn('selectedShotType.lowercased() != "tee"', current_hole)
+        self.assertIn("let lhsDelta = abs(lhs.value.medianM - targetMetres)", club_policy)
+        self.assertIn("let rhsDelta = abs(rhs.value.medianM - targetMetres)", club_policy)
+        self.assertIn("lhs.value.medianM > rhs.value.medianM", club_policy)  # longest→shortest fallback
         # Only the 3 clubs most relevant to this shot: nearest the to-pin distance when known.
-        self.assertIn("ordered.prefix(3)", current_hole)
-        self.assertIn("abs($0.value.medianM - target) < abs($1.value.medianM - target)", current_hole)
+        self.assertIn("Array(result.prefix(3))", club_policy)
+        self.assertIn("if let recommended", club_policy)
         self.assertIn("zhClubName(option.clubName)", caddie_plan)
 
     def test_ios_restores_live_round_state_from_offline_event_log(self) -> None:
@@ -2263,10 +2268,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("self._score = State(initialValue: restoredHoleState?.score ?? hole.par)", current_hole)
         self.assertIn("self._puttCount = State(initialValue: restoredHoleState?.putts ?? 2)", current_hole)
         self.assertIn("self._penaltyCount = State(initialValue: restoredHoleState?.penaltyCount ?? 0)", current_hole)
-        # round-11 B: a restored club is still honored; a FRESH hole defaults to a distance-matched
-        # trustworthy club (Self.defaultClub), never an arbitrary clubProfiles.first (the noisy 9I).
-        self.assertIn("self._selectedClub = State(initialValue: restoredHoleState.map { zhClubName($0.selectedClub) }", current_hole)
-        self.assertIn("Self.defaultClub(par: hole.par, holeYards: hole.yards, profiles: package.clubProfiles)", current_hole)
+        # A restored club is still honored. A fresh hole intentionally waits for a real caddie
+        # recommendation rather than showing a guessed club while the decision is loading.
+        self.assertIn("let restoredClub = restoredHoleState.map { Self.normalizedSelectedClub($0.selectedClub) } ?? \"\"", current_hole)
+        self.assertIn("self._selectedClub = State(initialValue: restoredClub)", current_hole)
+        self.assertNotIn("defaultClub(", current_hole)
         self.assertNotIn("package.clubProfiles.first?.clubName", current_hole)
         self.assertIn("@State private var lastAppliedRestoredHoleState: LiveHoleStateSnapshot?", current_hole)
         self.assertIn("self._lastAppliedRestoredHoleState = State(initialValue: restoredHoleState)", current_hole)
@@ -2510,8 +2516,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public struct BackendSettingsView: View", backend_view)
         self.assertIn('TextField("API origin"', backend_view)
         self.assertIn("SecureField", backend_view)
-        self.assertIn('Label("Save backend"', backend_view)
-        self.assertIn('Label("Clear saved backend"', backend_view)
+        self.assertIn('Label("保存服务器"', backend_view)
+        self.assertIn('Label("恢复默认服务器"', backend_view)
         self.assertNotIn("Text(adminToken", backend_view)
 
         # A processed TestFlight build must let the owner recover from a stale or
@@ -2520,7 +2526,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("onSaveBackendConfiguration", round_home)
         self.assertIn("onClearBackendConfiguration", round_home)
         self.assertIn("BackendSettingsView(", round_home)
-        self.assertIn('Label("后端设置", systemImage: "server.rack")', round_home)
+        self.assertIn('Label("开发者连接", systemImage: "server.rack")', round_home)
         self.assertIn('.accessibilityIdentifier("settings-backend")', round_home)
         self.assertIn("onSaveBackendConfiguration", start_view)
         self.assertIn("onClearBackendConfiguration", start_view)

@@ -32,6 +32,9 @@ public struct HoleImageMapView: View {
     /// Live map-layer controls. Prep/review callers retain the full factual rendering by default.
     public let showsRecommendedRoute: Bool
     public let showsHazards: Bool
+    /// Preparation-only fallback label. Live play must wait for an authoritative selected club so a
+    /// stale `tee_club` never contradicts the caddie strip while its request is loading.
+    public let showsPrepClubLabel: Bool
     /// Pre-round only: place static tee-based F/M/B and measured obstacle-edge ranges on the map.
     /// Live play supplies current-GPS ranges in `CurrentHoleView`, so its caller leaves this false
     /// and never gets a duplicate or a tee distance disguised as a live distance.
@@ -44,7 +47,8 @@ public struct HoleImageMapView: View {
                 pinOverlayPixel: CGPoint? = nil,
                 topoURL: URL? = nil, showsCardChrome: Bool = true,
                 showsRecommendedRoute: Bool = true, showsHazards: Bool = true,
-                showsPrepFactOverlays: Bool = false, allowsRotation: Bool = false) {
+                showsPrepFactOverlays: Bool = false, allowsRotation: Bool = false,
+                showsPrepClubLabel: Bool = true) {
         self.hole = hole
         self.selectedClub = selectedClub
         self.selectedClubMetres = selectedClubMetres
@@ -55,6 +59,7 @@ public struct HoleImageMapView: View {
         self.showsHazards = showsHazards
         self.showsPrepFactOverlays = showsPrepFactOverlays
         self.allowsRotation = allowsRotation
+        self.showsPrepClubLabel = showsPrepClubLabel
     }
 
     public var body: some View {
@@ -119,10 +124,11 @@ public struct HoleImageMapView: View {
             row.count >= 2 ? CGPoint(x: row[0] * sx, y: row[1] * sy) : nil
         }
         let pin = resolvedPinPoint(overlay: overlay, sx: sx, sy: sy) ?? routePoints.last
-        let landingRow = Self.landingOverlayPoint(
-            overlay,
-            targetMetres: selectedClubMetres ?? hole.landingM
-        )
+        let landingTargetMetres: Double? = {
+            if selectedClub != nil { return selectedClubMetres }
+            return showsPrepClubLabel ? hole.landingM : nil
+        }()
+        let landingRow = Self.landingOverlayPoint(overlay, targetMetres: landingTargetMetres)
         let landing = landingRow.map { CGPoint(x: $0[0] * sx, y: $0[1] * sy) }
         if hole.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
             drawLightweightFacts(
@@ -136,7 +142,9 @@ public struct HoleImageMapView: View {
         }
         // A recommendation is a flight plan, not the course centreline. Draw one independent arc
         // from Tee/current origin to the selected club's landing and another from landing to flag.
-        if showsRecommendedRoute, let tee = routePoints.first, let pin {
+        // Until an authoritative landing distance exists, leave the flight plan absent instead of
+        // drawing a misleading tee-to-flag line that looks like a recommendation.
+        if showsRecommendedRoute, let tee = routePoints.first, let landing, let pin {
             for arc in Self.flightArcs(tee: tee, landing: landing, pin: pin) {
                 let path = Self.path(for: arc)
                 context.stroke(
@@ -369,6 +377,7 @@ public struct HoleImageMapView: View {
         if let selectedClub, !selectedClub.isEmpty {
             return selectedClub
         }
+        guard showsPrepClubLabel else { return nil }
         guard let raw = hole.teeClub ?? hole.steps.first?.club else {
             return nil
         }

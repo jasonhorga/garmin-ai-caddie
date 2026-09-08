@@ -32,29 +32,37 @@ public struct BackendSettingsView: View {
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+#if DEBUG
                 SecureField(adminTokenConfigured ? "New admin token" : "Admin token", text: $adminTokenText)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 HStack {
                     Label(adminTokenConfigured ? "Token saved" : "No token", systemImage: adminTokenConfigured ? "checkmark.seal" : "exclamationmark.triangle")
-                        .foregroundStyle(adminTokenConfigured ? .green : .secondary)
+                    .foregroundStyle(adminTokenConfigured ? .green : .secondary)
                     Spacer()
                     Text(connectionLabel)
                         .foregroundStyle(apiBaseURL == nil ? .secondary : .primary)
                 }
                 .font(.caption)
+#endif
                 Button {
-                    onSave(apiBaseURLText, adminTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : adminTokenText)
+                    onSave(apiBaseURLText,
+#if DEBUG
+                           adminTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : adminTokenText
+#else
+                           nil
+#endif
+                    )
                     adminTokenText = ""
                 } label: {
-                    Label("Save backend", systemImage: "checkmark.circle")
+                    Label("保存服务器", systemImage: "checkmark.circle")
                 }
                 Button(role: .destructive) {
                     onClear()
                     apiBaseURLText = ""
                     adminTokenText = ""
                 } label: {
-                    Label("Clear saved backend", systemImage: "trash")
+                    Label("恢复默认服务器", systemImage: "arrow.uturn.backward")
                 }
             }
 
@@ -64,7 +72,7 @@ public struct BackendSettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("Backend")
+        .navigationTitle("服务器连接")
     }
 
     private var connectionLabel: String {

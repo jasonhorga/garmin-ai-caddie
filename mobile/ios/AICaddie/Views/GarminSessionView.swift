@@ -24,6 +24,7 @@ public struct GarminSessionView: View {
     @State private var webLoginStatus = "请在 Garmin 页面完成登录"
     @State private var loginRetryToken = 0
     @State private var capturedSession: CapturedGarminWebSession?
+    @State private var backgroundSyncStarted = false
 
     public init(
         apiBaseURL: URL? = nil,
@@ -63,15 +64,24 @@ public struct GarminSessionView: View {
                 Text(statusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if shouldShowStoredSessionRetry {
+                    Button {
+                        retryStoredSessionSync()
+                    } label: {
+                        Label("重试同步", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(isImporting || storedSessionSyncInProgress)
+                    .accessibilityIdentifier("garmin-retry-sync")
+                }
             }
         }
         .navigationTitle("连接 Garmin")
         .task {
             refreshStoredSessionPresentation()
+            startStoredSessionSyncIfNeeded()
         }
         .onChange(of: garminSyncStatus) { _, _ in
-            guard connected else { return }
-            statusText = Self.connectedStatusText(syncStatus: garminSyncStatus)
+            refreshStoredSessionPresentation()
         }
         .sheet(isPresented: $showingWebLogin) {
             NavigationStack {
@@ -166,50 +176,11 @@ public struct GarminSessionView: View {
                 )
             )
             connected = false
-            statusText = "正在验证 Garmin 登录"
-            webLoginStatus = "已保存，正在验证 Garmin 数据访问…"
-
-            let outcome: GarminSyncOutcome?
-            if let onSessionImportedOutcome {
-                outcome = await onSessionImportedOutcome()
-            } else if let onSessionImported {
-                outcome = (await onSessionImported()) ? .completed : .failed
-            } else {
-                outcome = nil
-            }
-
-            guard let outcome else {
-                statusText = "待验证"
-                webLoginStatus = "登录信息已保存，完成一次同步后才会显示已连接"
-                showingWebLogin = false
-                return
-            }
-            switch outcome {
-            case .completed:
-                guard markStoredSessionVerified() else {
-                    connected = false
-                    statusText = "验证结果未保存，请重试"
-                    webLoginStatus = "Garmin 已完成同步，但本机验证状态保存失败，请重试"
-                    return
-                }
-                connected = true
-                statusText = "已连接 · 同步完成"
-                webLoginStatus = "已连接 · 同步完成"
-                capturedSession = nil
-                showingWebLogin = false
-            case .inProgress:
-                connected = false
-                statusText = "同步正在进行"
-                webLoginStatus = "Garmin 网页已登录；同步正在进行，稍后可重试查看结果"
-            case .reauthRequired:
-                connected = false
-                statusText = "Garmin 网页已登录，但会话已失效"
-                webLoginStatus = "Garmin 页面显示已登录，但 Garmin 会话已失效；请返回并重新登录"
-            case .failed:
-                connected = false
-                statusText = "Garmin 网页已登录，但数据验证未完成"
-                webLoginStatus = "Garmin 页面显示已登录；App 尚未完成数据验证，请点“重试验证”或稍后再试"
-            }
+            statusText = Self.pendingStatusText(syncStatus: garminSyncStatus)
+            webLoginStatus = "登录已保存，正在同步；完成后会自动显示已连接"
+            showingWebLogin = false
+            capturedSession = nil
+            startBackgroundSync()
         } catch {
             if Self.shouldInvalidateAppleSession(error, environment: ProcessInfo.processInfo.environment) {
                 SessionStore.shared.signOut()
@@ -262,7 +233,7 @@ public struct GarminSessionView: View {
         }
         guard material.verifiedAt != nil else {
             connected = false
-            statusText = "待验证"
+            statusText = Self.pendingStatusText(syncStatus: garminSyncStatus)
             return
         }
         connected = true
@@ -282,6 +253,34 @@ public struct GarminSessionView: View {
             return "已连接 · 正在同步"
         }
         return "已连接"
+    }
+
+    static func pendingStatusText(syncStatus: String?) -> String {
+        guard let status = syncStatus?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !status.isEmpty,
+              status != "尚未手动更新" else {
+            return "登录已保存，正在同步"
+        }
+        if status.contains("登录已过期") || status.contains("会话无效") {
+            return "Garmin 登录已过期，请重新连接"
+        }
+        if status.contains("失败") || status.contains("不可用") || status.contains("未完成") || status.contains("可重试") {
+            return "登录已保存；本次同步失败，请稍后重试"
+        }
+        if status.contains("同步") || status.contains("正在") {
+            return "登录已保存，正在同步"
+        }
+        return "登录已保存，正在同步"
+    }
+
+    private var storedSessionSyncInProgress: Bool {
+        guard let status = garminSyncStatus else { return false }
+        return status.contains("正在") || status.contains("进行") || status.contains("拉取")
+    }
+
+    private var shouldShowStoredSessionRetry: Bool {
+        guard let material = loadStoredSession(), material.verifiedAt == nil else { return false }
+        return !storedSessionSyncInProgress || garminSyncStatus?.contains("失败") == true
     }
 
     @ViewBuilder
@@ -327,7 +326,15 @@ public struct GarminSessionView: View {
     @MainActor
     private func retryCapturedSession() {
         guard let capturedSession, !isImporting else { return }
+        backgroundSyncStarted = false
         Task { await importCapturedSession(capturedSession) }
+    }
+
+    @MainActor
+    private func retryStoredSessionSync() {
+        guard !isImporting, !storedSessionSyncInProgress else { return }
+        backgroundSyncStarted = false
+        startBackgroundSync()
     }
 
     @MainActor
@@ -363,6 +370,59 @@ public struct GarminSessionView: View {
             return try sessionStore.loadSession()
         } catch {
             return nil
+        }
+    }
+
+    @MainActor
+    private func startStoredSessionSyncIfNeeded() {
+        guard let material = loadStoredSession(), material.verifiedAt == nil else { return }
+        startBackgroundSync()
+    }
+
+    @MainActor
+    private func startBackgroundSync() {
+        guard !backgroundSyncStarted else { return }
+        guard onSessionImportedOutcome != nil || onSessionImported != nil else { return }
+        backgroundSyncStarted = true
+        statusText = Self.pendingStatusText(syncStatus: garminSyncStatus)
+        Task { @MainActor in
+            defer { backgroundSyncStarted = false }
+            let outcome: GarminSyncOutcome
+            if let onSessionImportedOutcome {
+                outcome = await onSessionImportedOutcome()
+            } else if let onSessionImported {
+                outcome = (await onSessionImported()) ? .completed : .failed
+            } else {
+                outcome = .failed
+            }
+            applySyncOutcome(outcome)
+        }
+    }
+
+    @MainActor
+    private func applySyncOutcome(_ outcome: GarminSyncOutcome) {
+        switch outcome {
+        case .completed:
+            guard markStoredSessionVerified() else {
+                connected = false
+                statusText = "同步完成，但连接状态保存失败"
+                return
+            }
+            connected = true
+            statusText = "已连接 · 同步完成"
+            webLoginStatus = "已连接 · 同步完成"
+        case .inProgress:
+            connected = false
+            statusText = "登录已保存，正在同步"
+            webLoginStatus = "同步正在后台进行，完成后会自动更新"
+        case .reauthRequired:
+            connected = false
+            statusText = "Garmin 登录已过期，请重新连接"
+            webLoginStatus = "Garmin 会话已失效，请重新登录"
+        case .failed:
+            connected = false
+            statusText = "登录已保存；本次同步失败，请稍后重试"
+            webLoginStatus = "登录已保存；本次同步未完成，请稍后重试"
         }
     }
 

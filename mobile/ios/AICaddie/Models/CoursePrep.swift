@@ -118,25 +118,36 @@ struct CoursePrepLiveHazardReadout: Equatable {
 
     var detail: String { "到 \(toYards) · 过 \(overYards) 码" }
 
+    /// A hazard range is a player-facing on-course instrument, not an arbitrary great-circle
+    /// measurement. Values beyond the same 999-yard usefulness envelope as the green range usually
+    /// mean a stale fix or a mismatched projection, so they must not reach the map labels.
+    static func isPlausibleYards(_ value: Int) -> Bool {
+        (0...GeoDistance.maximumUsefulGreenYards).contains(value)
+    }
+
     static func upcoming(
         hazards: CoursePrepHazards,
         route: [[Double]],
         projectionRefs: [CoursePrepProjectionRef],
         playerLatitude: Double,
-        playerLongitude: Double
+        playerLongitude: Double,
+        maxDistanceFromRouteMetres: Double = GeoDistance.maximumUsefulGreenMetres
     ) -> [Self]? {
         guard playerLatitude.isFinite, (-90...90).contains(playerLatitude),
               playerLongitude.isFinite, (-180...180).contains(playerLongitude) else {
             return nil
         }
         let refs = projectionRefs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
-        guard let playerPx = WatchEventBridge.projectToTopoPx(
+        guard maxDistanceFromRouteMetres.isFinite, maxDistanceFromRouteMetres >= 0,
+              let playerPx = WatchEventBridge.projectToTopoPx(
             lat: playerLatitude,
             lon: playerLongitude,
             refs: refs
-        ), let progressM = playerProgressMetres(on: route, playerPx: playerPx) else {
+        ), let progress = playerProgressMetres(on: route, playerPx: playerPx),
+              progress.distanceM <= maxDistanceFromRouteMetres else {
             return nil
         }
+        let progressM = progress.progressM
 
         let supported = hazards.details
             .filter { $0.kind == "bunker" || $0.kind == "water" }
@@ -169,6 +180,9 @@ struct CoursePrepLiveHazardReadout: Equatable {
                       to: back.latitude,
                       back.longitude
                   ) else {
+                continue
+            }
+            guard isPlausibleYards(toYards), isPlausibleYards(overYards) else {
                 continue
             }
             let label = CoursePrepHazardNaming.label(
@@ -209,12 +223,16 @@ struct CoursePrepLiveHazardReadout: Equatable {
         return WatchEventBridge.projectFromTopoPx(px: pixels[0], py: pixels[1], refs: refs)
     }
 
-    private static func playerProgressMetres(on route: [[Double]], playerPx: [Double]) -> Double? {
+    private static func playerProgressMetres(
+        on route: [[Double]],
+        playerPx: [Double]
+    ) -> (progressM: Double, distanceM: Double)? {
         guard playerPx.count >= 2, playerPx[0].isFinite, playerPx[1].isFinite, route.count >= 2 else {
             return nil
         }
         var bestDistanceSquared = Double.greatestFiniteMagnitude
         var bestProgressM: Double?
+        var bestDistanceM: Double?
         for index in 0..<(route.count - 1) {
             let start = route[index]
             let end = route[index + 1]
@@ -234,9 +252,15 @@ struct CoursePrepLiveHazardReadout: Equatable {
             if distanceSquared < bestDistanceSquared {
                 bestDistanceSquared = distanceSquared
                 bestProgressM = start[2] + (end[2] - start[2]) * fraction
+                let segmentPixelLength = sqrt(lengthSquared)
+                let segmentMetres = end[2] - start[2]
+                bestDistanceM = segmentPixelLength > 0
+                    ? sqrt(distanceSquared) * segmentMetres / segmentPixelLength
+                    : nil
             }
         }
-        return bestProgressM
+        guard let bestProgressM, let bestDistanceM, bestDistanceM.isFinite else { return nil }
+        return (bestProgressM, bestDistanceM)
     }
 
     private static func validRoutePoint(_ point: [Double]) -> Bool {

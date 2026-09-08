@@ -472,15 +472,19 @@ public struct LivePlayMapDetailView: View {
         overlay: CoursePrepOverlay
     ) {
         guard let reference = referenceBasePoint(overlay: overlay, size: size),
-              let target = targetBasePoint(overlay: overlay, size: size),
-              let pinPx = pinPixel(overlay: overlay),
-              let pin = LivePlayMapOverlayLayout.project(
-                  overlayPoint: [pinPx.x, pinPx.y],
-                  overlayWidth: overlay.w,
-                  overlayHeight: overlay.h,
-                  into: size
-              ) else { return }
-        let arcs = HoleImageMapView.flightArcs(tee: reference, landing: target, pin: pin)
+              let target = targetBasePoint(overlay: overlay, size: size) else { return }
+        let pin = pinPixel(overlay: overlay).flatMap { pinPx in
+            LivePlayMapOverlayLayout.project(
+                overlayPoint: [pinPx.x, pinPx.y],
+                overlayWidth: overlay.w,
+                overlayHeight: overlay.h,
+                into: size
+            )
+        }
+        // The first leg is independently useful and must remain visible even when an older or
+        // searched course package has no projected flag point. Add the second leg whenever the pin
+        // is factual; never let one missing endpoint hide the Tee -> target line.
+        let arcs = Self.targetFlightArcs(reference: reference, target: target, pin: pin)
         for (index, arc) in arcs.enumerated() {
             let path = HoleImageMapView.path(for: arc)
             context.stroke(
@@ -498,6 +502,13 @@ public struct LivePlayMapDetailView: View {
                 )
             )
         }
+    }
+
+    static func targetFlightArcs(reference: CGPoint, target: CGPoint, pin: CGPoint?) -> [MapFlightArc] {
+        guard let pin else {
+            return [HoleImageMapView.flightArc(from: reference, to: target)]
+        }
+        return HoleImageMapView.flightArcs(tee: reference, landing: target, pin: pin)
     }
 
     /// The currently selected point in the overlay's factual pixel frame.  Prefer the explicit pixel

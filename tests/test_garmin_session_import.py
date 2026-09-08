@@ -26,6 +26,7 @@ class GarminSessionImportTests(unittest.TestCase):
             session_dir = root / ".garmin_tokens"
             web_session_file = session_dir / "web_cookie.txt"
             anti_forgery_file = session_dir / "csrf.txt"
+            status_file = root / "data" / "sync" / "garmin_cn_status.json"
 
             self.assertEqual(result["schema"], "ai-caddie-garmin-session-import-v1")
             self.assertEqual(result["connector"], "garmin_cn_web_session")
@@ -34,6 +35,9 @@ class GarminSessionImportTests(unittest.TestCase):
             self.assertTrue(result["antiForgeryPresent"])
             self.assertEqual(result["source"], "manual_paste")
             self.assertIn("ios_web_login", result["acceptedSources"])
+            status = json.loads(status_file.read_text(encoding="utf-8"))
+            self.assertEqual(status["state"], "no_data")
+            self.assertEqual(status["errorCode"], "session_stored")
             self.assertEqual(web_session_file.read_text(encoding="utf-8").strip(), "JWT_WEB=abc123; GARMIN=two")
             self.assertEqual(anti_forgery_file.read_text(encoding="utf-8").strip(), "csrf-secret-value")
             self.assertEqual(stat.S_IMODE(session_dir.stat().st_mode), 0o700)

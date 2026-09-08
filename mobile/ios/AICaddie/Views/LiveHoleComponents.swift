@@ -407,19 +407,6 @@ struct LivePlayHeader: View {
                 .padding(.horizontal, 11)
                 .background(LivePlayStyle.panelFill.opacity(0.7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(LivePlayStyle.stroke14))
-            if let onFinishRound {
-                Button(action: onFinishRound) {
-                    Image(systemName: "ellipsis.circle.fill")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(LivePlayStyle.ink)
-                        .frame(width: 36, height: 36)
-                        .background(LivePlayStyle.panelFill.opacity(0.7), in: Circle())
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("结束或放弃本场")
-                .accessibilityIdentifier("live-round-end-menu")
-            }
             if let onOpenMap {
                 Button(action: onOpenMap) {
                     Image(systemName: "map.fill")
@@ -432,6 +419,20 @@ struct LivePlayHeader: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("打开详细地图")
                 .accessibilityIdentifier("live-open-map-detail")
+            }
+            if let onFinishRound {
+                Menu {
+                    Button("结束本场", role: .destructive, action: onFinishRound)
+                } label: {
+                    Image(systemName: "ellipsis.circle.fill")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(LivePlayStyle.ink)
+                        .frame(width: 36, height: 36)
+                        .background(LivePlayStyle.panelFill.opacity(0.7), in: Circle())
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("结束或放弃本场")
+                .accessibilityIdentifier("live-round-end-menu")
             }
         }
     }
@@ -961,8 +962,8 @@ struct LiveMapGreenDistanceOverlay: View {
     }
 }
 
-/// Obstacle distances are attached to their true front/back boundary points. A short connector makes
-/// label displacement explicit on dense maps; blue always means water and yellow always means sand.
+/// Obstacle distances are attached to their true front/back boundary points. Tiny edge numbers keep
+/// dense maps readable; blue always means water and yellow always means sand.
 struct LiveMapHazardRangeOverlay: View {
     let kind: String
     let label: String
@@ -983,47 +984,31 @@ struct LiveMapHazardRangeOverlay: View {
         ZStack {
             boundaryMarker(at: front)
             boundaryMarker(at: back)
-            callout
+            boundaryLabel("\(toYards)", at: front, isFront: true)
+            boundaryLabel("\(overYards)", at: back, isFront: false)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(label)，到 \(toYards) 码，过 \(overYards) 码")
     }
 
-    private var callout: some View {
-        let anchor = CGPoint(x: (front.x + back.x) / 2, y: (front.y + back.y) / 2)
-        let preferRight = anchor.x < viewportSize.width * 0.54
-        let width: CGFloat = 112
-        let desiredX = anchor.x + (preferRight ? 70 : -70)
-        let x = min(max(desiredX, width / 2 + 6), viewportSize.width - width / 2 - 6)
-        let stagger: CGFloat = index == 0 ? -20 : 24
-        let y = min(max(anchor.y + stagger, 176), viewportSize.height - 48)
-        let center = CGPoint(x: x, y: y)
-
-        return ZStack {
-            Path { path in
-                path.move(to: anchor)
-                path.addLine(to: center)
-            }
-            .stroke(tint.opacity(0.9), style: StrokeStyle(lineWidth: 1.4, lineCap: .round))
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(label)
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .lineLimit(1)
-                Text("到 \(toYards)  ·  过 \(overYards)")
-                    .font(.system(size: 11, weight: .heavy))
-                    .monospacedDigit()
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .frame(width: width, alignment: .leading)
-            .background(Color.black.opacity(0.74), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(tint.opacity(0.9)))
+    private func boundaryLabel(_ text: String, at point: CGPoint, isFront: Bool) -> some View {
+        let center = LiveHazardCalloutLayout.center(
+            for: point,
+            isFront: isFront,
+            index: index,
+            viewportSize: viewportSize
+        )
+        // Keep only a tiny number beside the boundary. The old two-line connector/capsule covered
+        // the fairway and collided whenever front/back edges or two hazards were close together.
+        return Text(text)
+            .font(.system(size: 9, weight: .heavy, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            .frame(width: LiveHazardCalloutLayout.labelWidth, height: LiveHazardCalloutLayout.labelHeight)
+            .background(Color.black.opacity(0.52), in: Capsule())
+            .overlay(Capsule().stroke(tint.opacity(0.72), lineWidth: 0.7))
+            .shadow(color: .black.opacity(0.35), radius: 1, y: 1)
             .position(center)
-        }
     }
 
     private func boundaryMarker(at point: CGPoint) -> some View {
@@ -1032,6 +1017,32 @@ struct LiveMapHazardRangeOverlay: View {
             .frame(width: 9, height: 9)
             .overlay(Circle().stroke(Color.black.opacity(0.8), lineWidth: 1.2))
             .position(point)
+    }
+}
+
+/// Small, deterministic lanes for hazard numbers. Keeping this independent of SwiftUI view state
+/// makes dense two-hazard maps predictable and easy to regression-test.
+enum LiveHazardCalloutLayout {
+    static let labelWidth: CGFloat = 30
+    static let labelHeight: CGFloat = 18
+
+    static func center(
+        for point: CGPoint,
+        isFront: Bool,
+        index: Int,
+        viewportSize: CGSize
+    ) -> CGPoint {
+        guard viewportSize.width > 0, viewportSize.height > 0 else { return point }
+        let rightSide = point.x < viewportSize.width * 0.56
+        let xOffset: CGFloat = rightSide ? 17 : -17
+        // Front/back labels occupy opposite sides of the hazard edge. Each later hazard gets its
+        // own vertical lane, which keeps two nearby water/sand spans readable without a large box.
+        let laneOffset = CGFloat(index) * 28
+        let yOffset = (isFront ? -12 : 12) + (rightSide ? laneOffset : -laneOffset)
+        return CGPoint(
+            x: min(max(point.x + xOffset, labelWidth / 2 + 3), viewportSize.width - labelWidth / 2 - 3),
+            y: min(max(point.y + yOffset, labelHeight / 2 + 4), viewportSize.height - labelHeight / 2 - 4)
+        )
     }
 }
 

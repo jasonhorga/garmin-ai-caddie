@@ -548,32 +548,6 @@ public struct RoundHomeView: View {
                 }
 
                 Section {
-                    HStack(spacing: 12) {
-                        Image(systemName: pendingEventCount > 0 ? "tray.full.fill" : "checkmark.circle.fill")
-                            .foregroundStyle(pendingEventCount > 0 ? Color.orange : LiveHoleStyle.green)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(localEventUploadStatus)
-                                .font(.subheadline)
-                            Text("记分后自动上传")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if pendingEventCount > 0 {
-                            Text("\(pendingEventCount)")
-                                .font(.caption.bold())
-                                .monospacedDigit()
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.orange, in: Capsule())
-                        }
-                    }
-                } header: {
-                    Text("本机记分")
-                }
-
-                Section {
                     NavigationLink {
                         GarminSessionView(
                             apiBaseURL: apiBaseURL,
@@ -591,6 +565,7 @@ public struct RoundHomeView: View {
                     } label: {
                         Label("球杆设置", systemImage: "bag")
                     }
+#if DEBUG
                     NavigationLink {
                         BackendSettingsView(
                             apiBaseURL: apiBaseURL,
@@ -600,9 +575,10 @@ public struct RoundHomeView: View {
                             onClear: onClearBackendConfiguration
                         )
                     } label: {
-                        Label("后端设置", systemImage: "server.rack")
+                        Label("开发者连接", systemImage: "server.rack")
                     }
                     .accessibilityIdentifier("settings-backend")
+#endif
                 } header: {
                     Text("账号与球包")
                 }
