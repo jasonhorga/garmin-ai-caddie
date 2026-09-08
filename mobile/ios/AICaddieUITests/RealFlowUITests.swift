@@ -578,11 +578,11 @@ final class RealFlowUITests: XCTestCase {
             "phone-only play must expose a fully visible GPS shot action"
         )
         XCTAssertTrue(
-            fullyVisible(app.buttons["确认本洞成绩"]),
+            fullyVisible(app.buttons["完成本洞"]),
             "score confirmation must remain fully visible beside the shot action"
         )
         XCTAssertTrue(
-            fullyVisible(app.buttons["本场计分卡"]),
+            fullyVisible(app.buttons["计分卡"]),
             "the real scorecard action must be fully visible above the home-indicator boundary"
         )
         let liveCaddieLoading = app.activityIndicators["正在更新球童建议"]
@@ -679,7 +679,7 @@ final class RealFlowUITests: XCTestCase {
         )
         settle(1); save("11d-shot-recorded"); dump("11d-shot-recorded")
 
-        let saveHoleButton = app.buttons["确认本洞成绩"]
+        let saveHoleButton = app.buttons["完成本洞"]
         XCTAssertTrue(scrollTo(saveHoleButton, maxSwipes: 14), "real hole must return to score confirmation")
         XCTAssertTrue(saveHoleButton.waitForExistence(timeout: 8), "hole root must expose score confirmation")
         saveHoleButton.tap()
@@ -746,7 +746,7 @@ final class RealFlowUITests: XCTestCase {
         )
         settle(1); save("13-next-hole"); dump("13-next-hole")
 
-        let scorecard = app.buttons["本场计分卡"]
+        let scorecard = app.buttons["计分卡"]
         XCTAssertTrue(scrollTo(scorecard, maxSwipes: 8), "real hole must expose its scorecard action")
         XCTAssertTrue(scorecard.waitForExistence(timeout: 5), "live play must expose a real scorecard action")
         scorecard.tap()
@@ -1211,7 +1211,7 @@ final class RealFlowUITests: XCTestCase {
         // Re-query the action only after the id-keyed CurrentHoleView replacement and score-sheet
         // dismissal have both completed. Tapping the outgoing view can synthesize successfully while
         // losing the presentation request with that view's lifecycle.
-        let scorecard = app.buttons["本场计分卡"]
+        let scorecard = app.buttons["计分卡"]
         XCTAssertTrue(scrollTo(scorecard, maxSwipes: 18))
         scorecard.tap()
         let scorecardEdit = app.buttons["live-scorecard-edit-hole"]
@@ -1567,7 +1567,7 @@ final class RealFlowUITests: XCTestCase {
         puttsAdjustment: Int = 0,
         penaltyAdjustment: Int = 0
     ) throws {
-        let confirm = app.buttons["确认本洞成绩"]
+        let confirm = app.buttons["完成本洞"]
         XCTAssertTrue(scrollTo(confirm, maxSwipes: 18), "hole \(hole) must expose score confirmation")
         confirm.tap()
         let accept = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '接受推荐 '")).firstMatch

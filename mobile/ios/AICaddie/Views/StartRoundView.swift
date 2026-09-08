@@ -207,6 +207,10 @@ public struct StartRoundView: View {
             NavigationStack {
                 MobileCourseSearchView(
                     locationProvider: locationProvider,
+                    // The parent owns the sheet binding. Selection must commit the course and tee
+                    // provenance here before the sheet closes; a child NavigationStack dismiss can
+                    // otherwise race SwiftUI's state transaction and lose the selected row.
+                    dismissAfterSelection: false,
                     installedGlobalIds: Set(downloadedCourseOptions.map(\.globalId)),
                     onSearch: { query, city in
                         let coordinate = locationProvider.latestFix?.coordinate
@@ -1242,6 +1246,9 @@ public struct StartRoundView: View {
         if fetchedTees.isEmpty && !hasSearchTeeAuthority {
             teeBox = "unknown"
         }
+        // Close only after all selection state has been written. The child search view deliberately
+        // leaves dismissal to this parent so a no-GPS manual search is immediately startable.
+        showingCourseSearch = false
     }
 
     /// Selecting one catalogue row returns to the compact start form, but the sibling loops from

@@ -598,12 +598,12 @@ final class TeeSelectionUITests: XCTestCase {
             app.descendants(matching: .any)["topo-hole-base-ready"].waitForExistence(timeout: 10),
             "the offline first hole must render the retained topo bitmap, not a network loading state"
         )
+        let offlineCaddieEntry = app.buttons["live-caddie-entry"]
         XCTAssertTrue(
-            app.staticTexts.matching(
-                NSPredicate(format: "label CONTAINS %@", "离线模式")
-            ).firstMatch.waitForExistence(timeout: 10),
-            "the live caddie must explicitly use the retained offline decision"
+            offlineCaddieEntry.waitForExistence(timeout: 10),
+            "the live caddie must expose the retained offline decision through its stable entry"
         )
+        XCTAssertEqual(offlineCaddieEntry.label, "球童建议")
         XCTAssertFalse(
             app.buttons["编辑第 1 洞成绩"].exists,
             "rebasing a downloaded course must not inherit a previous round's score events"
