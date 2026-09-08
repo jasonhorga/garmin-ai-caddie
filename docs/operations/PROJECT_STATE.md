@@ -4,18 +4,18 @@
 > Long reviews and historical plans remain reference material; they are not the
 > live task queue.
 
-**Updated:** 2026-09-07 UTC
+**Updated:** 2026-09-08 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
-`8c378997694d5183e440d85518963131ff704c56`; backend runtime tip
-`caf3afad55e31c3b98a378e0d1cf4c2c5fb5a737`; MAP1 product-code tip
+`f24a22ddcdf41b3abc1f7907a71f9201110f94ce`; backend runtime tip
+`f363872f3af631edf0bcae5f9ab3e2c9fe28e0bb`; MAP1 product-code tip
 `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
 `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
-**Source baseline:** `8c378997694d5183e440d85518963131ff704c56` (the product fixes
-after `caf3afad` are the documented iOS nearby/offline discovery and backend
-settings changes; the backend runtime remains pinned to `caf3afad`;
-the MAP1 product tree and recorded `integration/v2` ancestry are unchanged;
-historical TestFlight build 47/48/49/50 sources remain recorded below; backend
-runtime revision is this same `caf3afad` commit)
+**Source baseline:** `f24a22ddcdf41b3abc1f7907a71f9201110f94ce` (the Garmin sync
+success path now treats an intentionally absent injected session store as
+non-blocking; real Keychain persistence failures remain visible; the backend
+runtime is pinned to `f363872f3af631edf0bcae5f9ab3e2c9fe28e0bb`; the MAP1
+product tree and recorded `integration/v2` ancestry are unchanged; historical
+TestFlight build 47/48/49/50/51/52 sources remain recorded below)
 **Release rule:** the gates are ordered, not circular:
 `canonical source -> source/Native CI and backend preflight -> automatic fresh
 internal TestFlight build/upload (the workflow performs signing) -> Apple
@@ -34,14 +34,14 @@ prerequisite for the upload workflow.
 ## Current Work Summary
 
 - **Backend candidate:** Public revision
-  `caf3afad55e31c3b98a378e0d1cf4c2c5fb5a737` is running in healthy container
-  `aicaddie-release-caf3afad-candidate-20260906`, image
-  `garmin-ai-caddie-api:caf3afad-candidate-20260906` with image ID
-  `sha256:d3411677ba24c7663cdeb1d6b9b442c23af71be02463f89307c6472e63035025`.
+  `f363872f3af631edf0bcae5f9ab3e2c9fe28e0bb` is running in healthy container
+  `aicaddie-release-f363872f-candidate-20260908`, image
+  `garmin-ai-caddie-api:f363872f-candidate-20260908` with image ID
+  `sha256:40604015f163a0b1401b77dea1579af190f09f32f5b62caa34d4e8d270de601f`.
   Public `/api/v2/health` reports `status=ok` and that exact revision. The
-  stopped `ce4d41f0` container is retained as the named rollback target; the
+  prior `caf3afad` container remains stopped as the named rollback target; the
   deployment record is under
-  `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260906-authfix`.
+  `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260908-phone-regression`.
 - **Sync image incident and recovery (2026-09-07):** The hourly cron is a
   one-shot `docker run --rm`, so a persistent `aicaddie-sync` container is not
   expected in `docker ps` between runs. At 23:37, 00:37, and 01:37 UTC it
@@ -98,6 +98,15 @@ prerequisite for the upload workflow.
   and secret scans; Watch build, runtime screenshots, and evidence scans also
   passed. It used backend revision
   `caf3afad55e31c3b98a378e0d1cf4c2c5fb5a737`.
+- **Current Native live evidence:** Native Mobile CI run `34223836622` at
+  source `f24a22ddcdf41b3abc1f7907a71f9201110f94ce` passed all evidence steps
+  in 1h05m24s: all 300 iOS tests (including Garmin concurrent-success and
+  refresh-notification cases), SwiftJCS boundaries, live course preflight,
+  real iOS screenshots/video and secret scans, Watch tests, Watch runtime
+  screenshots, and native evidence scans. It used backend revision
+  `f363872f3af631edf0bcae5f9ab3e2c9fe28e0bb`.
+- **Current source CI:** GitHub CI run `34223501012` at `f24a22dd` passed
+  backend, frontend, and Docker jobs.
 - **TestFlight build 47:** iOS TestFlight CD run `33686521143` built and
   uploaded `0.1.0 (47)` from `d189b3b4`. Apple finished processing it;
   provenance records `uploadRequested=true`, `uploadCompleted=true`, and
@@ -306,9 +315,9 @@ App 不能再把导入/验证/同步/网络失败统称为“连接失败”；�
 带球距离和落点使用同一份后端推荐；障碍物前后点只显示紧邻边界的小数字，并拒绝
 8,000+ 码等失真值；Garmin 已保存但未验证的会话必须能不重新登录直接重试同步。
 `course` 在用户界面统一称为“球场”，A/B/C 称为“场区”。此前的
-Source CI、Native Mobile CI 和内部 TestFlight 已通过，但本轮修改尚未重新验证或上传。
-Native Mobile CI run `34159418409` 在 source `8c378997`、backend `caf3afad` 上全绿，TestFlight
-build 52 已由 CD `34162939105` 上传并由 Apple 处理完成。此前的
+本轮修改已通过 Source CI 和 Native Mobile CI；下一步按既定规则自动上传新的内部
+TestFlight build，随后检查 Apple processing/status。Native Mobile CI run `34223836622`
+在 source `f24a22dd`、backend `f363872f` 上全绿。此前的
 `34124638966`/`34121007416` 仅是旧候选的网络失败记录，不能作为当前产品
 失败证据。
 
@@ -316,7 +325,7 @@ build 52 已由 CD `34162939105` 上传并由 Apple 处理完成。此前的
 `https://suggests-kilometers-normal-insertion.trycloudflare.com`，由 homeserver
 上的临时 tmux 会话 `codex-aicaddie-quicktunnel-http2-20260907` 代理到候选
 API `127.0.0.1:39055`。健康检查持续返回 revision
-`caf3afad55e31c3b98a378e0d1cf4c2c5fb5a737`。该入口只在 Native/内部
+`f363872f3af631edf0bcae5f9ab3e2c9fe28e0bb`。该入口只在 Native/内部
 TestFlight/真机验证期间保留，未修改共享 Tailscale Funnel 或 Lightsail 防火墙。
 
 `GARMIN-AUTH` remains `evidence-open` for the one fresh physical reconnect;
