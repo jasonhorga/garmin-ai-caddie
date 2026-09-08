@@ -9,6 +9,9 @@ import XCTest
 /// `*Documents/real-screenshots/*`.
 final class TeeSelectionUITests: XCTestCase {
     private let app = XCUIApplication()
+    /// The suite intentionally reuses one simulator installation. Reset only the first launch of
+    /// each test method; later relaunches are part of the same journey and must retain its round.
+    private var shouldResetActiveRoundOnNextLaunch = true
 
     /// Read a config value the test runner may receive either plain or TEST_RUNNER_-prefixed.
     private func cfg(_ key: String) -> String? {
@@ -18,6 +21,7 @@ final class TeeSelectionUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        shouldResetActiveRoundOnNextLaunch = true
         app.launchEnvironment["AI_CADDIE_API_BASE_URL"] = cfg("AI_CADDIE_API_BASE_URL") ?? ""
         app.launchEnvironment["AI_CADDIE_ADMIN_TOKEN"] = cfg("AI_CADDIE_ADMIN_TOKEN") ?? ""
         for key in UITestBackendLaunchConfiguration.markerKeys {
@@ -605,6 +609,14 @@ final class TeeSelectionUITests: XCTestCase {
     // MARK: - navigation helpers
 
     private func launchFresh() {
+        if shouldResetActiveRoundOnNextLaunch {
+            app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
+            app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
+            shouldResetActiveRoundOnNextLaunch = false
+        } else {
+            app.launchEnvironment.removeValue(forKey: "UITEST_RESET_ACTIVE_ROUND")
+            app.launchEnvironment.removeValue(forKey: "UITEST_DISABLE_EVENT_SYNC")
+        }
         if app.state == .runningForeground { app.terminate() }
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "app did not foreground")

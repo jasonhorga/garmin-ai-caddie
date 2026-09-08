@@ -696,6 +696,22 @@ public final class LiveRoundAppModel: ObservableObject {
             retryDeferredRoundFinishes()
         }
         #if DEBUG
+        // UI-test classes share one simulator installation. A previous journey may have left a
+        // local in-progress round behind, which is intentionally resumed by production. The
+        // explicit test marker gives a fresh test method a local-only reset without weakening the
+        // product's resume rule or touching this path in Release/TestFlight builds.
+        if ProcessInfo.processInfo.environment["UITEST_RESET_ACTIVE_ROUND"] == "1" {
+            do {
+                if let roundId = try offlineStore.inProgressRoundId() {
+                    try offlineStore.discardRound(roundId: roundId)
+                    watchBridge?.clearRoundSeed(roundId: roundId)
+                }
+            } catch {
+                AICaddieLog.storage.error(
+                    "UI-test active round reset failed: \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
         // A deterministic, backend-free two-hole round for the phone scoring XCUITest. Force it
         // before cache bootstrap so another UI test's real-course cache cannot change what failure
         // the scoring regression test observes. This path is not compiled into Release/TestFlight.
