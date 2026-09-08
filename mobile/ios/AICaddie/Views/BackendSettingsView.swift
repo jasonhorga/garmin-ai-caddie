@@ -46,13 +46,12 @@ public struct BackendSettingsView: View {
                 .font(.caption)
 #endif
                 Button {
-                    onSave(apiBaseURLText,
 #if DEBUG
-                           adminTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : adminTokenText
+                    let token = adminTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : adminTokenText
 #else
-                           nil
+                    let token: String? = nil
 #endif
-                    )
+                    onSave(apiBaseURLText, token)
                     adminTokenText = ""
                 } label: {
                     Label("保存服务器", systemImage: "checkmark.circle")
