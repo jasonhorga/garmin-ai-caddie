@@ -2891,7 +2891,10 @@ public final class LiveRoundAppModel: ObservableObject {
     /// available for a retry but never claims it is connected.
     @discardableResult
     private func markGarminSessionVerified(after serverDate: Date? = nil) -> Bool {
-        guard let garminSessionStore else { return false }
+        // The store is injectable and intentionally absent in API-only previews and sync logic
+        // tests. In that mode there is no local verification bit to persist, but a successful
+        // server pull is still a completed sync and must publish its success/refresh notification.
+        guard let garminSessionStore else { return true }
         do {
             guard let material = try garminSessionStore.loadSession(), material.verifiedAt == nil else {
                 return true
