@@ -11,6 +11,10 @@ import XCTest
 /// screen, and dumps its element tree so any tap that misses is fixable next iteration without guessing.
 final class RealFlowUITests: XCTestCase {
     private let app = XCUIApplication()
+    /// Captured from the product's selected-course row so the relaunch assertion follows the
+    /// same localized display name that the player saw, rather than duplicating the app's alias map
+    /// in the UI test.
+    private var selectedNewCourseDisplayName: String?
     /// 北京丽宫体育公园高尔夫俱乐部 in the live Garmin catalogue.
     private let approvedJourneyCourseGlobalId = 31793
 
@@ -1074,6 +1078,14 @@ final class RealFlowUITests: XCTestCase {
             waitUntilEnabled(primary, timeout: 20),
             "re-selecting the same course must not clear Tees and strand the start action"
         )
+        let selectedVenue = app.buttons["start-round-course-venue-picker"]
+        XCTAssertTrue(
+            selectedVenue.waitForExistence(timeout: 5),
+            "the selected course must retain a visible localized venue name"
+        )
+        selectedNewCourseDisplayName = selectedVenue.label
+            .replacingOccurrences(of: "球场, ", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         XCTAssertTrue(scrollTo(primary, maxSwipes: 20))
         settle(1); save("09c-new-course-ready-to-start"); dump("09c-new-course-ready-to-start")
         primary.tap()
@@ -1136,7 +1148,11 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30))
         let inProgress = app.buttons["home-in-progress-round"]
         XCTAssertTrue(inProgress.waitForExistence(timeout: 60), "new-course round must survive force-quit")
-        XCTAssertTrue(inProgress.label.contains(evidence.name), "restored card must retain the selected course")
+        let expectedCourseName = selectedNewCourseDisplayName ?? evidence.name
+        XCTAssertTrue(
+            inProgress.label.contains(expectedCourseName),
+            "restored card must retain the selected course (expected \(expectedCourseName), got \(inProgress.label))"
+        )
         XCTAssertTrue(inProgress.label.contains("第 1 洞"), "unplayed restored round must remain on hole 1")
         settle(1); save("09f-new-course-restored-home"); dump("09f-new-course-restored-home")
         inProgress.tap()
