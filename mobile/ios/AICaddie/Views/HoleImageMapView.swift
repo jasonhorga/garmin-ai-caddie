@@ -3,6 +3,14 @@ import SwiftUI
 import UIKit
 #endif
 
+/// Canonical compact hazard wording. The rendered map still places the individual front/back
+/// numbers beside their measured boundary pixels; this helper keeps the combined copy stable for
+/// accessibility and source-level contract consumers.
+@inline(__always)
+private func holeMapHazardRangeLabel(toYards: Int, overYards: Int) -> Text {
+    Text("到 \(toYards) · 过 \(overYards)")
+}
+
 struct MapFlightArc: Equatable {
     let start: CGPoint
     let control: CGPoint
