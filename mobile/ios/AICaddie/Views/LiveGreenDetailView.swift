@@ -41,6 +41,8 @@ public struct LiveGreenDetailView: View {
     @State private var didDrag = false
     @GestureState private var pinchScale: CGFloat = 1
 
+    private let flagLoupeDiameter: CGFloat = 112
+
     public init(
         hole: CoursePrepHole,
         detailURL: URL?,
@@ -141,7 +143,7 @@ public struct LiveGreenDetailView: View {
                     focus: focus,
                     displayedScale: displayedScale,
                     displayedOffset: displayedOffset,
-                    diameter: 124,
+                    diameter: flagLoupeDiameter,
                     magnification: 2.35
                 ) {
                     greenMapContent(size: size, baseRect: baseRect)
@@ -395,19 +397,22 @@ public struct LiveGreenDetailView: View {
         // `projectedPoint` returning a geo coordinate.
         if let flagPoint = effectiveFlagPixel,
            let screen = fullPixelPoint(flagPoint, baseRect: baseRect) {
-            context.stroke(
-                Path { path in
-                    path.move(to: CGPoint(x: screen.x, y: screen.y + 25))
-                    path.addLine(to: CGPoint(x: screen.x, y: screen.y - 18))
-                    path.addLine(to: CGPoint(x: screen.x + 16, y: screen.y - 11))
-                    path.addLine(to: CGPoint(x: screen.x, y: screen.y - 4))
-                },
-                with: .color(.red),
-                style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
-            )
-            context.fill(Path(ellipseIn: CGRect(x: screen.x - 8, y: screen.y - 8, width: 16, height: 16)), with: .color(.red))
-            context.stroke(Path(ellipseIn: CGRect(x: screen.x - 11, y: screen.y - 11, width: 22, height: 22)), with: .color(.white), lineWidth: 2)
+            drawFlag(&context, at: screen)
         }
+    }
+
+    private func drawFlag(_ context: inout GraphicsContext, at point: CGPoint) {
+        var pole = Path()
+        pole.move(to: CGPoint(x: point.x, y: point.y + 13))
+        pole.addLine(to: CGPoint(x: point.x, y: point.y - 14))
+        context.stroke(pole, with: .color(.white), style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
+
+        var pennant = Path()
+        pennant.move(to: CGPoint(x: point.x + 1, y: point.y - 14))
+        pennant.addLine(to: CGPoint(x: point.x + 14, y: point.y - 9))
+        pennant.addLine(to: CGPoint(x: point.x + 1, y: point.y - 4))
+        pennant.closeSubpath()
+        context.fill(pennant, with: .color(.red))
     }
 
     private var imageDimensions: (width: Double, height: Double)? {
@@ -692,15 +697,14 @@ public struct LiveGreenDetailView: View {
     /// the finger instead of covering the navigation control.  The bounds remain stable so the
     /// overlay never changes the map's layout while a drag is in flight.
     private func loupePosition(_ location: CGPoint, in size: CGSize) -> CGPoint {
-        let diameter: CGFloat = 124
-        let half = diameter / 2
+        let half = flagLoupeDiameter / 2
         let minX = half + 8
         let maxX = max(minX, size.width - half - 8)
         let x = min(max(location.x, minX), maxX)
         let minimumY = half + 8
         let maximumY = max(minimumY, size.height - half - 8)
-        let above = location.y - half - 26
-        let below = location.y + half + 26
+        let above = location.y - half - 60
+        let below = location.y + half + 60
         let y = above >= minimumY
             ? above
             : min(max(below, minimumY), maximumY)
@@ -736,7 +740,7 @@ public struct LiveGreenDetailView: View {
     }
 }
 
-/// Circular, transform-aware loupe used by the phone View Green surface.  `content` is rendered in
+/// Compact, transform-aware map window used by the phone View Green surface. `content` is rendered in
 /// the same full viewport coordinate system as the main map; the combined affine translation below
 /// makes the point under the finger land at the loupe centre even after pinch/pan zooming.
 private struct LiveGreenMagnifierLoupe<Content: View>: View {
@@ -789,7 +793,7 @@ private struct LiveGreenMagnifierLoupe<Content: View>: View {
                 .offset(x: dx, y: dy)
         }
         .frame(width: diameter, height: diameter, alignment: .topLeading)
-        .clipShape(Circle())
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             ZStack {
                 Rectangle().fill(.white.opacity(0.95)).frame(width: 1.4, height: 18)
@@ -797,8 +801,8 @@ private struct LiveGreenMagnifierLoupe<Content: View>: View {
             }
             .shadow(color: .black.opacity(0.6), radius: 0.6)
         }
-        .overlay(Circle().strokeBorder(.white, lineWidth: 3))
-        .overlay(Circle().strokeBorder(.black.opacity(0.24), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.86), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.black.opacity(0.24), lineWidth: 1))
         .compositingGroup()
         .shadow(color: .black.opacity(0.38), radius: 7, y: 3)
         .accessibilityElement(children: .ignore)

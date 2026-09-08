@@ -587,7 +587,7 @@ public struct CaddiePlanView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .frame(width: 48, alignment: .leading)
-                        Text(zhClubName(step.clubName))
+                        Text(zhClubDisplayName(step.clubName))
                             .font(.subheadline.weight(.semibold))
                         if let carry = step.targetCarryM {
                             Text("\(CoursePrepRoute.yards(fromMetres: carry)) 码")
@@ -632,7 +632,7 @@ public struct CaddiePlanView: View {
     /// 推荐这一杆的醒目摘要:球杆 + 带球 + 打法标签。
     @ViewBuilder private func recommendedSummary(_ option: CaddiePlanOption) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(zhClubName(option.clubName)).font(.title3.weight(.bold)).foregroundStyle(.primary)
+            Text(zhClubDisplayName(option.clubName)).font(.title3.weight(.bold)).foregroundStyle(.primary)
             Text("\(CoursePrepRoute.yards(fromMetres: option.carryM)) 码").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
             Spacer()
             Text(zhCaddieRouteLabel(option.label))
@@ -736,7 +736,7 @@ public struct CaddiePlanView: View {
                             .clipShape(Capsule())
                     }
                     HStack(spacing: 6) {
-                        Text(zhClubName(option.clubName))
+                        Text(zhClubDisplayName(option.clubName))
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
                         Text("·")

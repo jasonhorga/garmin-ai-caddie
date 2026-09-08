@@ -19,6 +19,8 @@ final class ClubNameTests: XCTestCase {
         XCTAssertEqual(zhClubName("3号小鸡腿"), "三号小鸡腿")
         XCTAssertEqual(zhClubName("三号铁木杆"), "三号小鸡腿")
         XCTAssertEqual(zhClubName("2I/Hybrid"), "二号小鸡腿")
+        XCTAssertEqual(zhClubName("3H"), "三号小鸡腿")
+        XCTAssertEqual(zhClubDisplayName("3H"), "三号混合杆")
         XCTAssertEqual(zhClubName("9I"), "九号铁")
         XCTAssertEqual(zhClubName("3 Iron"), "三号铁")
         XCTAssertEqual(zhClubName("7 iron"), "七号铁")

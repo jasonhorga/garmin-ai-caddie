@@ -67,6 +67,67 @@ public enum GarminSyncOutcome: Equatable {
     case failed
 }
 
+/// One authority for the complete Garmin account lifecycle. Views render this value directly; they
+/// must not infer connection state by searching localized status strings.
+public enum GarminConnectionState: Equatable {
+    case disconnected
+    case awaitingVerification
+    case verifying
+    case syncing
+    case connected
+    case connectedNoChanges
+    case connectedUpdated
+    case verificationFailed
+    case syncFailed
+    case reauthRequired
+    case persistenceFailed
+
+    public var statusText: String {
+        switch self {
+        case .disconnected:
+            return "未连接 Garmin"
+        case .awaitingVerification:
+            return "Garmin 登录已保存，等待数据验证"
+        case .verifying:
+            return "Garmin 登录已保存，正在验证数据"
+        case .syncing:
+            return "Garmin 已连接，正在同步"
+        case .connected:
+            return "Garmin 已连接"
+        case .connectedNoChanges:
+            return "Garmin 已同步，暂无新球局"
+        case .connectedUpdated:
+            return "Garmin 数据已更新"
+        case .verificationFailed:
+            return "Garmin 登录已保存，暂时无法验证；可重试"
+        case .syncFailed:
+            return "Garmin 已连接，本次同步失败；可重试"
+        case .reauthRequired:
+            return "Garmin 登录已过期，请重新连接"
+        case .persistenceFailed:
+            return "同步完成，但 Garmin 连接状态保存失败；请重试"
+        }
+    }
+
+    public var isVerified: Bool {
+        switch self {
+        case .syncing, .connected, .connectedNoChanges, .connectedUpdated, .syncFailed:
+            return true
+        default:
+            return false
+        }
+    }
+
+    public var isBusy: Bool {
+        self == .verifying || self == .syncing
+    }
+
+    public var canRetrySavedSession: Bool {
+        self == .awaitingVerification || self == .verificationFailed || self == .syncFailed
+            || self == .persistenceFailed
+    }
+}
+
 /// User-facing classification for the two-step Garmin connection flow. Capturing a web session and
 /// validating it with a data pull are different operations; transport failures must not be reported
 /// as a bad Garmin password, and a successful capture must not be shown as an active connection.

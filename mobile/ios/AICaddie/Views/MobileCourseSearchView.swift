@@ -202,7 +202,7 @@ public struct MobileCourseSearchView: View {
                                 Image(systemName: match.courseOption == nil ? "exclamationmark.triangle" : "flag.fill")
                                     .foregroundStyle(match.courseOption == nil ? .orange : LiveHoleStyle.green)
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(match.name)
+                                    Text(match.displayName)
                                         .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(.primary)
                                     Text(match.subtitle)
@@ -262,7 +262,7 @@ public struct MobileCourseSearchView: View {
                         .foregroundStyle(verifiedReady ? .secondary : LiveHoleStyle.green)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(download.course.name)
+                        Text(download.course.localizedName)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
                         Text(status)
@@ -287,7 +287,7 @@ public struct MobileCourseSearchView: View {
             // HStack makes SwiftUI expose a synthetic button that can inherit the id but not the
             // opening action when a retry control is present beside it.
             .accessibilityIdentifier("prep-download-row-\(download.id)")
-            .accessibilityLabel(download.course.name)
+            .accessibilityLabel(download.course.localizedName)
             .accessibilityValue(status)
             .accessibilityHint(isTerminalFailure
                 ? "该球场暂不支持备战，请使用开始一场"

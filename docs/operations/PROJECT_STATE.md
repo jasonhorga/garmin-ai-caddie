@@ -325,6 +325,24 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
+**`PHONE-UX2` — 7813–7819 真机交互与信息架构修正** (`in-progress`)
+
+本轮处理 TestFlight Build 53 的真机截图反馈：简化 Touch Target/旗位拖动放大镜，
+移除地图上的大外圆、双圆与十字准心，并把放大视图与手指保持可见间距；缩小并错开
+沙坑/水障碍前后沿数字；地图支持缩放。已有进行中球局时首页只提供“继续”，不再
+暴露新开球局入口。球童建议收进二级入口，统一杆名与推荐排序，并明确
+`3H` 为“三号混合杆”；梳理记杆、确认本洞成绩和本场计分卡的层级，明确果岭
+前/中/后与旗位距离是两组不同事实。Garmin 登录、会话保存、数据验证、同步和
+网络失败改用单一权威状态；球场名称与行政地址优先显示中文；成绩页先显示持久化
+缓存，再在后台刷新。
+
+退出条件：相关单元/UI 回归覆盖通过，Source CI 与 Native Mobile CI 在同一源码
+提交上全绿；随后按既定发布规则自动构建并上传新的内部 TestFlight，核验 Apple
+processing 和内部组可见性后停在真机交接。Build 53 继续作为上一轮历史候选，
+不能作为本轮修改已交付的证据。
+
+此前 `PHONE-REGRESSION` 保持 `evidence-open`：
+
 **`PHONE-REGRESSION` — 球童推荐、障碍物标注与 Garmin 状态修正** (`evidence-open`)
 
 本轮继续处理 TestFlight 截图 7770–7772、7802–7803 暴露的问题：Garmin 网页已登录时，
@@ -852,6 +870,7 @@ project-level task list; historical plans are reference material.
 | `MAP1` | `evidence-open` | Physical iPhone feedback for course-loop authority, Touch Target/caddie map arcs and landing interpolation, simplified live controls, and horizontal hole navigation. | Product/test commit `5628cc6d` plus Source CI `34021727402` and Native Mobile CI `34021862658` are green; TestFlight build 50 contains the MAP1 product tree. Held-loupe/device evidence remains open. |
 | `GARMIN-AUTH` | `evidence-open` | Make a successful Garmin web login validate and synchronize against the current CN gateway, then bind the internal app candidate to that backend. | Commit `caf3afad`, source sync follow-up `f24a22dd`, Source CI `34043175968`/`34223501012`, controlled 403-to-200 gateway comparison, healthy public deployment, Native Mobile CI `34223836622`, TestFlight CD `34231106418`, and Apple/group check `34232120285` are complete. One new real-device reconnect/sync remains. |
 | `PHONE-REGRESSION` | `evidence-open` | Unify backend caddie recommendation with the live club strip/map landing, constrain hazard labels/distances to small factual edge numbers, and provide a direct retry for saved-but-unverified Garmin sessions while preserving provider-nearby, manual-search, downloaded-course provenance and A/B/C labels. | Source CI `34223501012`, Native Mobile CI `34223836622`, backend revision `f363872f`, TestFlight Build 53, and Apple processing/group visibility are complete; physical screenshots and device behavior remain evidence-open. |
+| `PHONE-UX2` | `in-progress` | Apply Build 53 screenshot feedback for offset/simplified map loupes, compact factual hazard labels, resume-only active-round behavior, one Garmin auth/sync state, localized course/address display, stale-while-refresh score history, nested caddie advice, clearer scoring hierarchy and F/M/B versus pin presentation, plus zoomable maps with a single flag marker. | Focused tests, Source CI, Native Mobile CI, a fresh internal TestFlight upload, and Apple processing/internal-group verification on one source revision. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 

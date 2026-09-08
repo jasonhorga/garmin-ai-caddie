@@ -595,6 +595,8 @@ public final class OfflineStore {
     private var homePackageURL: URL
     private var liveProgressURL: URL
     private var prepCourseDownloadsURL: URL
+    private var historyRoundsURL: URL
+    private var mobileStatsURL: URL
     private var pendingRoundFinishesURL: URL
     private var pendingRoundFinishesBackupURL: URL
     private var pendingMediaDirectoryURL: URL
@@ -685,6 +687,8 @@ public final class OfflineStore {
         self.homePackageURL = resolvedDirectory.appendingPathComponent("home_package.json")
         self.liveProgressURL = resolvedDirectory.appendingPathComponent("live_progress.json")
         self.prepCourseDownloadsURL = resolvedDirectory.appendingPathComponent("prep_course_downloads.json")
+        self.historyRoundsURL = resolvedDirectory.appendingPathComponent("history_rounds.json")
+        self.mobileStatsURL = resolvedDirectory.appendingPathComponent("mobile_stats.json")
         self.pendingRoundFinishesURL = resolvedDirectory.appendingPathComponent("pending_round_finishes.json")
         self.pendingRoundFinishesBackupURL = resolvedDirectory.appendingPathComponent("pending_round_finishes.backup.json")
         self.pendingMediaDirectoryURL = resolvedDirectory.appendingPathComponent(
@@ -745,6 +749,8 @@ public final class OfflineStore {
         homePackageURL = directory.appendingPathComponent("home_package.json")
         liveProgressURL = directory.appendingPathComponent("live_progress.json")
         prepCourseDownloadsURL = directory.appendingPathComponent("prep_course_downloads.json")
+        historyRoundsURL = directory.appendingPathComponent("history_rounds.json")
+        mobileStatsURL = directory.appendingPathComponent("mobile_stats.json")
         pendingRoundFinishesURL = directory.appendingPathComponent("pending_round_finishes.json")
         pendingRoundFinishesBackupURL = directory.appendingPathComponent("pending_round_finishes.backup.json")
         pendingMediaDirectoryURL = directory.appendingPathComponent(
@@ -764,6 +770,8 @@ public final class OfflineStore {
             "home_package.json",
             "live_progress.json",
             "prep_course_downloads.json",
+            "history_rounds.json",
+            "mobile_stats.json",
             "pending_round_finishes.json",
             "pending_round_finishes.backup.json",
             "pending_media",
@@ -875,6 +883,31 @@ public final class OfflineStore {
             return nil
         }
         return try decoder.decode(LiveRoundPackage.self, from: Data(contentsOf: homePackageURL))
+    }
+
+    /// History is user-owned data, so keep it inside the account directory and replace it in one
+    /// atomic write. A torn refresh must never erase the last usable archive shown on the phone.
+    public func saveHistoryRoundsArchive(_ archive: HistoryRoundsArchive) throws {
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try encoder.encode(archive).write(to: historyRoundsURL, options: [.atomic])
+    }
+
+    public func loadHistoryRoundsArchive() throws -> HistoryRoundsArchive? {
+        guard FileManager.default.fileExists(atPath: historyRoundsURL.path) else { return nil }
+        return try decoder.decode(HistoryRoundsArchive.self, from: Data(contentsOf: historyRoundsURL))
+    }
+
+    /// Stats and the round archive are cached separately because either endpoint may be available
+    /// while the other is temporarily unavailable. This lets the results screen retain partial
+    /// factual content during a background refresh.
+    public func saveMobileStats(_ stats: MobileStats) throws {
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try encoder.encode(stats).write(to: mobileStatsURL, options: [.atomic])
+    }
+
+    public func loadMobileStats() throws -> MobileStats? {
+        guard FileManager.default.fileExists(atPath: mobileStatsURL.path) else { return nil }
+        return try decoder.decode(MobileStats.self, from: Data(contentsOf: mobileStatsURL))
     }
 
     /// Preserve one immutable package per factual course/Tee/hole-set signature after a round ends.

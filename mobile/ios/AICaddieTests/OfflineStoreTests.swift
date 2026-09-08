@@ -20,6 +20,31 @@ final class OfflineStoreTests: XCTestCase {
         case directorySync
     }
 
+    func testHistoryAndStatsCachesRoundTripAndStayAccountScoped() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let archive = try JSONDecoder().decode(
+            HistoryRoundsArchive.self,
+            from: Data(#"{"total":0,"groups":[],"availableYears":[],"availableCourses":[]}"#.utf8)
+        )
+        let stats = MobileStats()
+
+        store.bindAccount(playerId: "player-a", migrateLegacyData: false)
+        try store.saveHistoryRoundsArchive(archive)
+        try store.saveMobileStats(stats)
+        XCTAssertEqual(try store.loadHistoryRoundsArchive(), archive)
+        XCTAssertEqual(try store.loadMobileStats(), stats)
+
+        store.bindAccount(playerId: "player-b", migrateLegacyData: false)
+        XCTAssertNil(try store.loadHistoryRoundsArchive())
+        XCTAssertNil(try store.loadMobileStats())
+
+        store.bindAccount(playerId: "player-a", migrateLegacyData: false)
+        XCTAssertEqual(try store.loadHistoryRoundsArchive(), archive)
+        XCTAssertEqual(try store.loadMobileStats(), stats)
+    }
+
     private struct PrivacySanitizerGolden: Decodable {
         struct Case: Decodable {
             let name: String

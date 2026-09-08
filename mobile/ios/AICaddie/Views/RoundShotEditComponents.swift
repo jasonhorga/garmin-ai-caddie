@@ -69,7 +69,7 @@ public struct RoundShotEditLayer: View {
     @State private var suppressSelectionTap = false
 
     private let hitRadius: CGFloat = 24
-    private let loupeDiameter: CGFloat = 116
+    private let loupeDiameter: CGFloat = 112
 
     public init(editModel: RoundEditModel, overlay: CoursePrepOverlay, clubs: [String],
                 baseImage: UIImage?, topoURL: URL?) {
@@ -305,10 +305,16 @@ public struct RoundShotEditLayer: View {
         dragLocation = nil
     }
 
-    /// Place the loupe centered horizontally on the finger but ABOVE it, clamped inside the map.
+    /// Keep the loupe well clear of the finger, using the lower side only when the upper edge would
+    /// clip it. This distance is intentional for real-device use where a fingertip hides the map.
     private func loupePosition(_ loc: CGPoint, in size: CGSize) -> CGPoint {
         let half = loupeDiameter / 2
-        let y = max(half + 6, loc.y - half - 26)
+        let minimumY = half + 6
+        let maximumY = max(minimumY, size.height - half - 6)
+        let above = loc.y - half - 60
+        let below = loc.y + half + 60
+        let candidate = above >= minimumY ? above : below
+        let y = min(max(candidate, minimumY), maximumY)
         let x = min(max(half + 6, loc.x), size.width - half - 6)
         return CGPoint(x: x, y: y)
     }
@@ -428,10 +434,8 @@ public struct RoundShotEditLayer: View {
 
 // MARK: - magnifier loupe (设计 §5)
 
-/// A circular magnifier that floats above the finger during a landing drag. Renders the SAME base map
-/// + shot overlay (via ``drawRoundShotPath``), magnified and centered on the finger's map point, with
-/// a crosshair — so the point being placed stays visible even though the finger covers it. Fixed-size
-/// + `Circle` mask = ImageRenderer / window-snapshot friendly (no ScrollView).
+/// A compact map window that floats above the finger during a landing drag. It keeps the source point
+/// visible without the heavy ring/circle treatment that used to obscure the map on a phone.
 public struct MagnifierLoupe: View {
     let overlay: CoursePrepOverlay
     let shots: [RoundShot]
@@ -472,7 +476,7 @@ public struct MagnifierLoupe: View {
             .offset(x: dx, y: dy)
         }
         .frame(width: diameter, height: diameter, alignment: .topLeading)
-        .clipShape(Circle())
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             ZStack {
                 Rectangle().fill(.white.opacity(0.9)).frame(width: 1.2, height: 15)
@@ -480,8 +484,8 @@ public struct MagnifierLoupe: View {
             }
             .shadow(color: .black.opacity(0.55), radius: 0.5)
         }
-        .overlay(Circle().strokeBorder(.white, lineWidth: 3))
-        .overlay(Circle().strokeBorder(.black.opacity(0.2), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.86), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.black.opacity(0.22), lineWidth: 1))
         .compositingGroup()
         .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
         .accessibilityElement(children: .ignore)
@@ -543,7 +547,7 @@ public struct RoundShotPrecisionEditor: View {
 
     private static let headerInset: CGFloat = 72
     private static let bottomInset: CGFloat = 112
-    private static let markerLoupeDiameter: CGFloat = 124
+    private static let markerLoupeDiameter: CGFloat = 112
 
     private enum InteractionMode {
         case point
@@ -611,7 +615,7 @@ public struct RoundShotPrecisionEditor: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
             Spacer(minLength: 0)
-            Text("拖动准星")
+            Text("拖动落点")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.72))
         }
@@ -781,12 +785,13 @@ public struct RoundShotPrecisionEditor: View {
         let point = CGPoint(x: frame.minX + local.x, y: frame.minY + local.y)
         return ZStack {
             Circle()
-                .fill(Color.orange.opacity(0.24))
-                .frame(width: 58, height: 58)
-                .overlay(Circle().stroke(Color.orange, lineWidth: 2.5))
-            Rectangle().fill(.white).frame(width: 1.5, height: 26)
-            Rectangle().fill(.white).frame(width: 26, height: 1.5)
+                .fill(Color.orange)
+                .frame(width: 16, height: 16)
+            Circle()
+                .fill(Color.white)
+                .frame(width: 5, height: 5)
         }
+        .shadow(color: .black.opacity(0.5), radius: 2, y: 1)
         .position(point)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("第 \(shotNumber) 杆落点")
@@ -970,8 +975,8 @@ public struct RoundShotPrecisionEditor: View {
         let x = min(max(location.x, minX), maxX)
         let minimumY = Self.headerInset + half + 8
         let maximumY = max(minimumY, size.height - Self.bottomInset - half - 8)
-        let above = location.y - half - 26
-        let below = location.y + half + 26
+        let above = location.y - half - 60
+        let below = location.y + half + 60
         let candidate = above >= minimumY ? above : below
         return CGPoint(x: x, y: min(max(candidate, minimumY), maximumY))
     }
@@ -1027,7 +1032,7 @@ private struct RoundShotPrecisionMagnifierLoupe<Content: View>: View {
                 .offset(x: dx, y: dy)
         }
         .frame(width: diameter, height: diameter, alignment: .topLeading)
-        .clipShape(Circle())
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             ZStack {
                 Rectangle().fill(.white.opacity(0.95)).frame(width: 1.4, height: 18)
@@ -1035,8 +1040,8 @@ private struct RoundShotPrecisionMagnifierLoupe<Content: View>: View {
             }
             .shadow(color: .black.opacity(0.6), radius: 0.6)
         }
-        .overlay(Circle().strokeBorder(.white, lineWidth: 3))
-        .overlay(Circle().strokeBorder(.black.opacity(0.24), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.86), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.black.opacity(0.24), lineWidth: 1))
         .compositingGroup()
         .shadow(color: .black.opacity(0.38), radius: 7, y: 3)
         .accessibilityElement(children: .ignore)

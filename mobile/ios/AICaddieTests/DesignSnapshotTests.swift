@@ -69,7 +69,7 @@ final class DesignSnapshotTests: XCTestCase {
             LivePlayStyle.topScrim
                 .frame(height: 176)
                 .frame(maxWidth: .infinity, alignment: .top)
-            LivePlayReticle().offset(x: 30, y: 96)
+            LivePlayFlagMarker().offset(x: 30, y: 96)
             LiveMapGreenDistanceOverlay(
                 frontYards: 205, middleYards: 219, backYards: 231,
                 toPinYards: 245, isLive: false

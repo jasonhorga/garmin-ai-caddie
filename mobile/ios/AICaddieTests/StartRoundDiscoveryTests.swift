@@ -265,6 +265,39 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(state.teeBox, "white")
     }
 
+    func testCourseSearchPresentationLocalizesKnownChineseNamesAndAddressesWithoutChangingRawFacts() {
+        let match = MobileCourseSearchMatch(
+            globalId: 40_001,
+            name: "Nicklaus Club Beijing",
+            holes: 18,
+            city: "Chaoyang District",
+            province: "beijing",
+            ratio: 1,
+            distanceKm: 8.25
+        )
+
+        XCTAssertEqual(match.name, "Nicklaus Club Beijing")
+        XCTAssertEqual(match.city, "Chaoyang District")
+        XCTAssertEqual(match.displayName, "北京尼克劳斯俱乐部")
+        XCTAssertEqual(match.subtitle, "8.2 公里 · 朝阳区 · 北京市 · 18 洞")
+        XCTAssertEqual(match.courseOption?.name, "北京尼克劳斯俱乐部")
+    }
+
+    func testKnownProviderConflictUsesVerifiedChineseDisplayAliasOnlyAtPresentationBoundary() {
+        let match = MobileCourseSearchMatch(
+            globalId: 31_793,
+            name: "Shadow Creek Golf Club",
+            holes: 18,
+            city: "Shunyi District",
+            province: "Beijing",
+            ratio: 1
+        )
+
+        XCTAssertEqual(match.name, "Shadow Creek Golf Club")
+        XCTAssertEqual(match.displayName, "北京丽宫体育公园高尔夫俱乐部")
+        XCTAssertEqual(match.subtitle, "顺义区 · 北京市 · 18 洞")
+    }
+
     func testRoundDisplayNameRetainsSingleAndCompositeLoopIdentity() {
         let loopA = MobileCourseOption(
             globalId: 31783,

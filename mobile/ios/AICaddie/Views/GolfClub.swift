@@ -40,7 +40,10 @@ public func zhClubName(_ raw: String) -> String {
         || s == "一号木" || s == "一号木杆" {
         return "一号木"
     }
-    // Hybrid / 小鸡腿.
+    // Hybrid / 小鸡腿. Provider shorthand such as 3H must normalize to the same internal bag key.
+    if (lower.hasSuffix("h") && lower.dropLast().allSatisfy(\.isNumber)), let n = firstDigit(lower) {
+        return "\(cnClubNumber[n] ?? n)号小鸡腿"
+    }
     if s.contains("小鸡腿") || s.contains("铁木") || lower.contains("hybrid") || lower.contains("rescue") {
         if let n = firstDigit(s) { return "\(cnClubNumber[n] ?? n)号小鸡腿" }
         return "小鸡腿"
@@ -86,6 +89,12 @@ public func zhClubName(_ raw: String) -> String {
     default:
         return s
     }
+}
+
+/// User-facing club labels use the standard Chinese term while storage and bag matching retain the
+/// existing stable key. In particular, a provider `3H` is shown as “三号混合杆”, never an opaque token.
+public func zhClubDisplayName(_ raw: String) -> String {
+    zhClubName(raw).replacingOccurrences(of: "小鸡腿", with: "混合杆")
 }
 
 /// Driver/woods only make sense from the tee — never a 1-wood off the fairway (the player's note).

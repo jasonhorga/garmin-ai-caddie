@@ -9,22 +9,22 @@ public struct GarminSessionView: View {
     public let apiBaseURL: URL?
     public let adminToken: String?
     public let sessionStore: GarminSessionStore?
-    /// Latest pull status from the owning app model. It lets this account page say "已连接；本次
-    /// 同步失败" instead of erasing a valid account state after a transient network error.
-    public let garminSyncStatus: String?
+    /// The owning app model is the sole account-state authority. This view never reconstructs state
+    /// from localized strings or from an independent "connected" Boolean.
+    public let connectionState: GarminConnectionState
     /// Kept for source compatibility with older callers. New callers should use the typed outcome
     /// callback so a busy sync is not collapsed into a generic Bool failure.
     public let onSessionImported: (() async -> Bool)?
     public let onSessionImportedOutcome: (() async -> GarminSyncOutcome)?
+    public let onSessionForgot: () -> Void
 
-    @State private var statusText = "未连接"
     @State private var isImporting = false
-    @State private var connected = false
     @State private var showingWebLogin = false
     @State private var webLoginStatus = "请在 Garmin 页面完成登录"
     @State private var loginRetryToken = 0
     @State private var capturedSession: CapturedGarminWebSession?
     @State private var backgroundSyncStarted = false
+    @State private var transientErrorText: String?
 
     public init(
         apiBaseURL: URL? = nil,
@@ -32,14 +32,16 @@ public struct GarminSessionView: View {
         sessionStore: GarminSessionStore? = GarminSessionStore(),
         onSessionImported: (() async -> Bool)? = nil,
         onSessionImportedOutcome: (() async -> GarminSyncOutcome)? = nil,
-        garminSyncStatus: String? = nil
+        connectionState: GarminConnectionState = .disconnected,
+        onSessionForgot: @escaping () -> Void = {}
     ) {
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
         self.sessionStore = sessionStore
         self.onSessionImported = onSessionImported
         self.onSessionImportedOutcome = onSessionImportedOutcome
-        self.garminSyncStatus = garminSyncStatus
+        self.connectionState = connectionState
+        self.onSessionForgot = onSessionForgot
     }
 
     public var body: some View {
@@ -48,12 +50,13 @@ public struct GarminSessionView: View {
                 Button {
                     webLoginStatus = "请在 Garmin 页面完成登录"
                     capturedSession = nil
+                    transientErrorText = nil
                     showingWebLogin = true
                 } label: {
-                    Label(connected ? "重新连接 Garmin" : "连接 Garmin", systemImage: "link")
+                    Label(hasStoredSession ? "更换 Garmin 账号" : "连接 Garmin", systemImage: "link")
                 }
                 .disabled(isImporting)
-                if connected {
+                if hasStoredSession {
                     Button(role: .destructive) {
                         forgetStoredSession()
                     } label: {
@@ -61,7 +64,7 @@ public struct GarminSessionView: View {
                     }
                     .disabled(isImporting)
                 }
-                Text(statusText)
+                Text(transientErrorText ?? connectionState.statusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if shouldShowStoredSessionRetry {
@@ -77,11 +80,10 @@ public struct GarminSessionView: View {
         }
         .navigationTitle("连接 Garmin")
         .task {
-            refreshStoredSessionPresentation()
             startStoredSessionSyncIfNeeded()
         }
-        .onChange(of: garminSyncStatus) { _, _ in
-            refreshStoredSessionPresentation()
+        .onChange(of: connectionState) { _, _ in
+            transientErrorText = nil
         }
         .sheet(isPresented: $showingWebLogin) {
             NavigationStack {
@@ -148,7 +150,7 @@ public struct GarminSessionView: View {
         guard !isImporting else { return }
         capturedSession = captured
         guard let apiBaseURL else {
-            statusText = "Garmin 网页已登录，但 App 后端未配置"
+            transientErrorText = "Garmin 网页已登录，但服务暂时不可用"
             webLoginStatus = "登录信息已捕获，但 App 还没有可用的后端地址"
             return
         }
@@ -175,18 +177,18 @@ public struct GarminSessionView: View {
                     verifiedAt: nil
                 )
             )
-            connected = false
-            statusText = Self.pendingStatusText(syncStatus: garminSyncStatus)
-            webLoginStatus = "登录已保存，正在同步；完成后会自动显示已连接"
+            transientErrorText = nil
+            webLoginStatus = "Garmin 登录已保存"
             showingWebLogin = false
             capturedSession = nil
+            backgroundSyncStarted = false
             startBackgroundSync()
         } catch {
             if Self.shouldInvalidateAppleSession(error, environment: ProcessInfo.processInfo.environment) {
                 SessionStore.shared.signOut()
             }
             let message = Self.importErrorMessage(error)
-            statusText = message
+            transientErrorText = message
             webLoginStatus = message
         }
     }
@@ -211,76 +213,29 @@ public struct GarminSessionView: View {
     @MainActor
     private func forgetStoredSession() {
         guard let sessionStore else {
-            connected = false
-            statusText = "未连接"
+            transientErrorText = nil
+            onSessionForgot()
             return
         }
         do {
             try sessionStore.deleteSession()
-            connected = false
-            statusText = "已断开"
+            transientErrorText = nil
+            onSessionForgot()
         } catch {
-            statusText = "断开失败,请重试"
+            transientErrorText = "断开失败，请重试"
         }
-    }
-
-    @MainActor
-    private func refreshStoredSessionPresentation() {
-        guard let material = loadStoredSession() else {
-            connected = false
-            statusText = "未连接"
-            return
-        }
-        guard material.verifiedAt != nil else {
-            connected = false
-            statusText = Self.pendingStatusText(syncStatus: garminSyncStatus)
-            return
-        }
-        connected = true
-        statusText = Self.connectedStatusText(syncStatus: garminSyncStatus)
-    }
-
-    static func connectedStatusText(syncStatus: String?) -> String {
-        guard let status = syncStatus?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !status.isEmpty,
-              status != "尚未手动更新" else {
-            return "已连接"
-        }
-        if status.contains("失败") || status.contains("不可用") || status.contains("未完成") {
-            return "已连接 · 本次同步失败"
-        }
-        if status.contains("正在") {
-            return "已连接 · 正在同步"
-        }
-        return "已连接"
-    }
-
-    static func pendingStatusText(syncStatus: String?) -> String {
-        guard let status = syncStatus?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !status.isEmpty,
-              status != "尚未手动更新" else {
-            return "登录已保存，正在同步"
-        }
-        if status.contains("登录已过期") || status.contains("会话无效") {
-            return "Garmin 登录已过期，请重新连接"
-        }
-        if status.contains("失败") || status.contains("不可用") || status.contains("未完成") || status.contains("可重试") {
-            return "登录已保存；本次同步失败，请稍后重试"
-        }
-        if status.contains("同步") || status.contains("正在") {
-            return "登录已保存，正在同步"
-        }
-        return "登录已保存，正在同步"
     }
 
     private var storedSessionSyncInProgress: Bool {
-        guard let status = garminSyncStatus else { return false }
-        return status.contains("正在") || status.contains("进行") || status.contains("拉取")
+        connectionState.isBusy || backgroundSyncStarted
     }
 
     private var shouldShowStoredSessionRetry: Bool {
-        guard let material = loadStoredSession(), material.verifiedAt == nil else { return false }
-        return !storedSessionSyncInProgress || garminSyncStatus?.contains("失败") == true
+        hasStoredSession && connectionState.canRetrySavedSession && !storedSessionSyncInProgress
+    }
+
+    private var hasStoredSession: Bool {
+        loadStoredSession() != nil
     }
 
     @ViewBuilder
@@ -290,14 +245,9 @@ public struct GarminSessionView: View {
             Image(systemName: isImporting ? "arrow.triangle.2.circlepath" : "checkmark.shield")
                 .font(.system(size: 42))
                 .foregroundStyle(isImporting ? LiveHoleStyle.green : .secondary)
-            Text(statusText)
+            Text(isImporting ? "正在保存 Garmin 登录" : (transientErrorText ?? "Garmin 登录已读取"))
                 .font(.headline)
                 .multilineTextAlignment(.center)
-            Text(webLoginStatus)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 20)
             if isImporting {
                 ProgressView()
                     .accessibilityIdentifier("garmin-verification-progress")
@@ -345,23 +295,6 @@ public struct GarminSessionView: View {
         loginRetryToken &+= 1
     }
 
-    /// Mark the exact captured material as verified only after a real Garmin sync completed. A
-    /// missing keychain item is treated as a failed verification instead of showing a false green
-    /// connection badge.
-    @discardableResult
-    private func markStoredSessionVerified() -> Bool {
-        guard let sessionStore else { return true }
-        do {
-            guard let material = try sessionStore.loadSession() else { return false }
-            if material.verifiedAt != nil { return true }
-            let formatter = ISO8601DateFormatter()
-            try sessionStore.saveSession(material.withVerifiedAt(formatter.string(from: Date())))
-            return true
-        } catch {
-            return false
-        }
-    }
-
     private func loadStoredSession() -> GarminSessionMaterial? {
         guard let sessionStore else {
             return nil
@@ -375,7 +308,10 @@ public struct GarminSessionView: View {
 
     @MainActor
     private func startStoredSessionSyncIfNeeded() {
-        guard let material = loadStoredSession(), material.verifiedAt == nil else { return }
+        guard loadStoredSession() != nil,
+              connectionState == .awaitingVerification || connectionState == .verificationFailed else {
+            return
+        }
         startBackgroundSync()
     }
 
@@ -384,7 +320,6 @@ public struct GarminSessionView: View {
         guard !backgroundSyncStarted else { return }
         guard onSessionImportedOutcome != nil || onSessionImported != nil else { return }
         backgroundSyncStarted = true
-        statusText = Self.pendingStatusText(syncStatus: garminSyncStatus)
         Task { @MainActor in
             defer { backgroundSyncStarted = false }
             let outcome: GarminSyncOutcome
@@ -401,28 +336,18 @@ public struct GarminSessionView: View {
 
     @MainActor
     private func applySyncOutcome(_ outcome: GarminSyncOutcome) {
+        // Typed production callbacks update `connectionState` in the owning model before returning.
+        // Only the legacy Bool bridge needs a local fallback when it cannot publish that state.
+        guard onSessionImportedOutcome == nil else { return }
         switch outcome {
         case .completed:
-            guard markStoredSessionVerified() else {
-                connected = false
-                statusText = "同步完成，但连接状态保存失败"
-                return
-            }
-            connected = true
-            statusText = "已连接 · 同步完成"
-            webLoginStatus = "已连接 · 同步完成"
+            transientErrorText = nil
         case .inProgress:
-            connected = false
-            statusText = "登录已保存，正在同步"
-            webLoginStatus = "同步正在后台进行，完成后会自动更新"
+            transientErrorText = nil
         case .reauthRequired:
-            connected = false
-            statusText = "Garmin 登录已过期，请重新连接"
-            webLoginStatus = "Garmin 会话已失效，请重新登录"
+            transientErrorText = GarminConnectionState.reauthRequired.statusText
         case .failed:
-            connected = false
-            statusText = "登录已保存；本次同步失败，请稍后重试"
-            webLoginStatus = "登录已保存；本次同步未完成，请稍后重试"
+            transientErrorText = GarminConnectionState.verificationFailed.statusText
         }
     }
 

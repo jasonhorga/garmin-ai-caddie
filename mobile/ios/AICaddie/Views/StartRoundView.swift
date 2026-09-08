@@ -268,7 +268,7 @@ public struct StartRoundView: View {
     /// The venue of the currently selected segment — the single source of truth (no separate state
     /// that can desync from courseGlobalIdText). Falls back to the top venue when nothing is selected.
     private var selectedVenueName: String {
-        selectedSegment.map { $0.venueName ?? baseCourseName($0.name) }
+        selectedSegment.map(\.venueDisplayName)
             ?? displayVenues.first?.venue
             ?? offlineVenues.first?.venue
             ?? ""
@@ -310,7 +310,7 @@ public struct StartRoundView: View {
     private var selectedVenueBinding: Binding<String?> {
         Binding(
             get: {
-                selectedSegment.map { $0.venueName ?? baseCourseName($0.name) }
+                selectedSegment.map(\.venueDisplayName)
             },
             set: { newVenue in
                 guard let newVenue else { return }
@@ -936,7 +936,7 @@ public struct StartRoundView: View {
     ) -> [(venue: String, segments: [MobileCourseOption])] {
         var groups: [(venue: String, segments: [MobileCourseOption])] = []
         for option in options {
-            let venue = option.venueName ?? baseCourseName(option.name)
+            let venue = option.venueDisplayName
             if let index = groups.firstIndex(where: { $0.venue == venue }) {
                 groups[index].segments.append(option)
             } else {

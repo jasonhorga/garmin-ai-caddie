@@ -244,7 +244,7 @@ final class SyncClientTests: XCTestCase {
         XCTAssertNil(matches[1].latitude)
         XCTAssertNil(matches[1].longitude)
         XCTAssertEqual(matches[0].distanceKm, 0.4)
-        XCTAssertEqual(matches[0].subtitle, "0.4 km · 深圳 · 广东 · 9 洞")
+        XCTAssertEqual(matches[0].subtitle, "0.4 公里 · 深圳 · 广东 · 9 洞")
         XCTAssertNotNil(matches[0].courseOption)
         XCTAssertNil(matches[1].courseOption)
     }

@@ -172,10 +172,24 @@ public struct HoleImageMapView: View {
                 )
             }
         }
-        // Pin (green end of the route).
+        // Pin (green end of the route): a compact flag, never a target ring or crosshair.
         if showsRecommendedRoute, let pin {
-            context.fill(Path(ellipseIn: CGRect(x: pin.x - 5, y: pin.y - 5, width: 10, height: 10)), with: .color(.red))
+            drawPinFlag(&context, at: pin)
         }
+    }
+
+    private func drawPinFlag(_ context: inout GraphicsContext, at point: CGPoint) {
+        var pole = Path()
+        pole.move(to: CGPoint(x: point.x, y: point.y + 11))
+        pole.addLine(to: CGPoint(x: point.x, y: point.y - 12))
+        context.stroke(pole, with: .color(.white), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+
+        var pennant = Path()
+        pennant.move(to: CGPoint(x: point.x + 1, y: point.y - 12))
+        pennant.addLine(to: CGPoint(x: point.x + 12, y: point.y - 8))
+        pennant.addLine(to: CGPoint(x: point.x + 1, y: point.y - 4))
+        pennant.closeSubpath()
+        context.fill(pennant, with: .color(.red))
     }
 
     private func resolvedPinPoint(overlay: CoursePrepOverlay, sx: CGFloat, sy: CGFloat) -> CGPoint? {
@@ -381,7 +395,7 @@ public struct HoleImageMapView: View {
         guard let raw = hole.teeClub ?? hole.steps.first?.club else {
             return nil
         }
-        return zhClubName(raw)
+        return zhClubDisplayName(raw)
     }
 
     /// Landing point in overlay px: interpolate inside the route segment where cumulative metres
@@ -775,63 +789,16 @@ private struct PrepMapHazardRangeOverlay: View {
     let index: Int
     let viewportSize: CGSize
 
-    private var tint: Color {
-        kind == "water"
-            ? Color(red: 0.18, green: 0.58, blue: 0.94)
-            : Color(red: 0.95, green: 0.77, blue: 0.28)
-    }
-
-    private var anchor: CGPoint {
-        CGPoint(x: (front.x + back.x) / 2, y: (front.y + back.y) / 2)
-    }
-
-    private var center: CGPoint {
-        let width: CGFloat = 104
-        let preferRight = anchor.x < viewportSize.width * 0.52
-        let desiredX = anchor.x + (preferRight ? 65 : -65)
-        let stagger: CGFloat = index == 0 ? -14 : 18
-        return CGPoint(
-            x: min(max(desiredX, width / 2 + 5), viewportSize.width - width / 2 - 5),
-            y: min(max(anchor.y + stagger, 38), viewportSize.height - 34)
-        )
-    }
-
     var body: some View {
-        ZStack {
-            Path { path in
-                path.move(to: anchor)
-                path.addLine(to: center)
-            }
-            .stroke(tint.opacity(0.9), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
-            marker(front)
-            marker(back)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(label)
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.74))
-                    .lineLimit(1)
-                Text("到 \(toYards) · 过 \(overYards)")
-                    .font(.system(size: 10, weight: .heavy))
-                    .monospacedDigit()
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 4)
-            .frame(width: 104, alignment: .leading)
-            .background(Color.black.opacity(0.74), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(tint.opacity(0.9)))
-            .position(center)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label)，到 \(toYards) 码，过 \(overYards) 码")
-    }
-
-    private func marker(_ point: CGPoint) -> some View {
-        Circle()
-            .fill(tint)
-            .frame(width: 8, height: 8)
-            .overlay(Circle().stroke(Color.black.opacity(0.75), lineWidth: 1))
-            .position(point)
+        LiveMapHazardRangeOverlay(
+            kind: kind,
+            label: label,
+            toYards: toYards,
+            overYards: overYards,
+            front: front,
+            back: back,
+            index: index,
+            viewportSize: viewportSize
+        )
     }
 }

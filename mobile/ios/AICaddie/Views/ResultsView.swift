@@ -8,15 +8,21 @@ import SwiftUI
 public struct ResultsView: View {
     public let apiBaseURL: URL?
     public let adminToken: String?
+    public let offlineStore: OfflineStore?
 
     @State private var stats: MobileStats?
     @State private var archive: HistoryRoundsArchive?
     @State private var isLoading = true
     @State private var errorText: String?
 
-    public init(apiBaseURL: URL? = nil, adminToken: String? = nil) {
+    public init(
+        apiBaseURL: URL? = nil,
+        adminToken: String? = nil,
+        offlineStore: OfflineStore? = nil
+    ) {
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
+        self.offlineStore = offlineStore
     }
 
     public var body: some View {
@@ -46,24 +52,50 @@ public struct ResultsView: View {
 
     @MainActor
     private func load() async {
+        loadCachedResults()
         guard let apiBaseURL else {
             isLoading = false
             errorText = "未配置后端地址"
             return
         }
-        isLoading = true
+        // Keep cached content on screen during a refresh. The full-screen loader is reserved for
+        // the first visit when neither endpoint has produced a local result yet.
+        isLoading = stats == nil && archive == nil
         errorText = nil
         let client = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
         async let statsRequest = client.fetchMobileStats()
         async let archiveRequest = client.fetchHistoryRounds()
         var failedSections: [String] = []
-        do { stats = try await statsRequest } catch { failedSections.append("生涯与趋势") }
-        do { archive = try await archiveRequest } catch { failedSections.append("球局档案") }
+        do {
+            let freshStats = try await statsRequest
+            stats = freshStats
+            try? offlineStore?.saveMobileStats(freshStats)
+        } catch {
+            failedSections.append("生涯与趋势")
+        }
+        do {
+            let freshArchive = try await archiveRequest
+            archive = freshArchive
+            try? offlineStore?.saveHistoryRoundsArchive(freshArchive)
+        } catch {
+            failedSections.append("球局档案")
+        }
         guard !Task.isCancelled else { return }
         if !failedSections.isEmpty {
             errorText = "\(failedSections.joined(separator: "、"))暂时取不到"
         }
         isLoading = false
+    }
+
+    @MainActor
+    private func loadCachedResults() {
+        guard let offlineStore else { return }
+        if stats == nil {
+            stats = try? offlineStore.loadMobileStats()
+        }
+        if archive == nil {
+            archive = try? offlineStore.loadHistoryRoundsArchive()
+        }
     }
 }
 

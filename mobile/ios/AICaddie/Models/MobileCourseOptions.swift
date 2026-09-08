@@ -1,5 +1,61 @@
 import Foundation
 
+/// Provider metadata remains untouched on the wire. These aliases are presentation-only and cover
+/// stable catalogue names seen in the Chinese app; unknown names fall through instead of inventing
+/// a translation that could identify the wrong physical course.
+public enum MobileCourseDisplayLocalization {
+    private static let courseAliases: [String: String] = [
+        "beijing riverside resort golf club": "北京河畔度假高尔夫俱乐部",
+        "beijing huanggang international golf club": "北京黄港国际高尔夫俱乐部",
+        "beijing black knight golf club": "北京黑骑士国际高尔夫俱乐部",
+        "beijing black knight international golf club": "北京黑骑士国际高尔夫俱乐部",
+        "nicklaus club beijing": "北京尼克劳斯俱乐部",
+        "beijing orient tianxing country club": "北京东方天星乡村俱乐部",
+    ]
+
+    private static let areaAliases: [String: String] = [
+        "beijing": "北京市",
+        "beijing city": "北京市",
+        "chaoyang": "朝阳区",
+        "chaoyang district": "朝阳区",
+        "shunyi": "顺义区",
+        "shunyi district": "顺义区",
+        "daxing": "大兴区",
+        "daxing district": "大兴区",
+        "changping": "昌平区",
+        "changping district": "昌平区",
+        "tianzhu": "天竺镇",
+    ]
+
+    public static func courseName(_ raw: String, globalId: Int? = nil) -> String {
+        let parts = raw.components(separatedBy: " ~ ")
+        let venue = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? raw
+        let localizedVenue: String
+        if globalId == 31_793 {
+            // This CourseView ID is provider-mislabeled as Shadow Creek; the repository's verified
+            // player history and geometry identify the Beijing venue without changing provider data.
+            localizedVenue = "北京丽宫体育公园高尔夫俱乐部"
+        } else {
+            localizedVenue = courseAliases[normalized(venue)] ?? venue
+        }
+        guard parts.count > 1 else { return localizedVenue }
+        return ([localizedVenue] + parts.dropFirst()).joined(separator: " ~ ")
+    }
+
+    public static func administrativeArea(_ raw: String?) -> String? {
+        guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return areaAliases[normalized(value)] ?? value
+    }
+
+    private static func normalized(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "  ", with: " ")
+    }
+}
+
 public struct MobileCourseOptionsResponse: Codable, Equatable {
     public let schema: String
     public let dataMode: String
@@ -55,12 +111,19 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
         let segment = parts.count > 1
             ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
             : nil
+        let localizedVenue = MobileCourseDisplayLocalization.courseName(venue, globalId: globalId)
+        let localizedName: String
+        if let segment, !segment.isEmpty {
+            localizedName = "\(localizedVenue) ~ \(segment)"
+        } else {
+            localizedName = localizedVenue
+        }
         return MobileCourseOption(
             globalId: globalId,
-            name: name,
+            name: localizedName,
             holes: holes,
             geometryCoverage: "missing",
-            venueName: venue.isEmpty ? name : venue,
+            venueName: localizedVenue,
             segmentLabel: segment?.isEmpty == false ? segment : nil,
             segmentHoles: holes,
             latitude: latitude,
@@ -72,18 +135,21 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
         var location: [String] = []
         if let distanceKm, distanceKm.isFinite, distanceKm >= 0 {
             location.append(distanceKm < 10
-                ? String(format: "%.1f km", distanceKm)
-                : "\(Int(distanceKm.rounded())) km")
+                ? String(format: "%.1f 公里", distanceKm)
+                : "\(Int(distanceKm.rounded())) 公里")
         }
         for rawValue in [city, province] {
-            guard let value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !value.isEmpty else { continue }
+            guard let value = MobileCourseDisplayLocalization.administrativeArea(rawValue) else { continue }
             if !location.contains(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) {
                 location.append(value)
             }
         }
         let holeText = holes.flatMap { $0 > 0 ? "\($0) 洞" : nil } ?? "洞数未知"
         return (location + [holeText]).joined(separator: " · ")
+    }
+
+    public var displayName: String {
+        MobileCourseDisplayLocalization.courseName(name, globalId: globalId)
     }
 }
 
@@ -102,7 +168,12 @@ public struct MobileNearbyCoursesResponse: Codable, Equatable {
 public extension MobileCourseOption {
     /// Venue name without the loop suffix (falls back to stripping " ~ …" from `name`).
     var venueDisplayName: String {
-        venueName ?? (name.components(separatedBy: " ~ ").first?.trimmingCharacters(in: .whitespaces) ?? name)
+        let raw = venueName ?? (name.components(separatedBy: " ~ ").first?.trimmingCharacters(in: .whitespaces) ?? name)
+        return MobileCourseDisplayLocalization.courseName(raw, globalId: globalId)
+    }
+
+    var localizedName: String {
+        MobileCourseDisplayLocalization.courseName(name, globalId: globalId)
     }
 
     /// Segment row title: a loop ("A 场") or a factual whole 18-hole course. A 9-hole row without

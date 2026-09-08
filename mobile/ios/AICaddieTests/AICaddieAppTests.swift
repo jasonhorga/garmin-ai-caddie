@@ -111,11 +111,11 @@ final class AICaddieAppTests: XCTestCase {
             "Garmin 网页已登录；数据验证未完成：网络暂时不可用，请稍后重试"
         )
         XCTAssertEqual(
-            GarminSessionView.connectedStatusText(
-                syncStatus: "Garmin 已连接；本次同步失败：网络暂时不可用，请稍后重试"
-            ),
-            "已连接 · 本次同步失败"
+            GarminConnectionState.syncFailed.statusText,
+            "Garmin 已连接，本次同步失败；可重试"
         )
+        XCTAssertTrue(GarminConnectionState.syncFailed.isVerified)
+        XCTAssertFalse(GarminConnectionState.verificationFailed.isVerified)
     }
 
     func testGarminImport401InvalidatesAppleSessionExceptExplicitUITestBypass() {

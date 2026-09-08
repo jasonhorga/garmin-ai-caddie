@@ -530,7 +530,7 @@ struct LiveClubChip: View {
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 1) {
-                Text(name).font(.system(size: 15, weight: .heavy)).monospacedDigit()
+                Text(zhClubDisplayName(name)).font(.system(size: 15, weight: .heavy)).monospacedDigit()
                 if !sub.isEmpty {
                     Text(sub)
                         .font(.system(size: 11, weight: .semibold))
@@ -610,6 +610,52 @@ struct LiveCaddieStrip: View {
     }
 }
 
+/// The live root only exposes one S70-style caddie destination. Club choices and decision status
+/// belong inside that destination so they cannot compete with shot and scoring controls.
+struct LiveCaddieEntry: View {
+    let isLoading: Bool
+    let isReady: Bool
+    var onTap: () -> Void = {}
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 10) {
+                Image(systemName: "figure.golf")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(LivePlayStyle.greenLabel)
+                    .frame(width: 30, height: 30)
+                    .background(LivePlayStyle.fill08, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("球童建议")
+                        .font(.system(size: 14, weight: .heavy))
+                        .foregroundStyle(LivePlayStyle.ink)
+                    Text(isReady ? "查看本洞策略与选杆" : "打开后查看或重试")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(LivePlayStyle.ink45)
+                }
+                Spacer(minLength: 0)
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(LivePlayStyle.ink60)
+                }
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(LivePlayStyle.ink45)
+            }
+            .padding(.vertical, 9)
+            .padding(.horizontal, 11)
+            .frame(maxWidth: .infinity)
+            .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(LivePlayStyle.stroke10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("球童建议")
+        .accessibilityHint("查看本洞完整策略和推荐球杆")
+        .accessibilityIdentifier("live-caddie-entry")
+    }
+}
+
 /// Two symmetric score steppers (杆 − N ＋ / 推 − N ＋) with circular −/＋ buttons that never clip.
 struct LivePlayScoreSteppers: View {
     @Binding var score: Int
@@ -675,7 +721,7 @@ struct LiveHolePrimaryActions: View {
                 .opacity(canRecordShot ? 1 : 0.55)
 
                 actionButton(
-                    title: "确认本洞成绩",
+                    title: "完成本洞",
                     systemImage: "checkmark.circle.fill",
                     foreground: LivePlayStyle.onAccent,
                     background: LivePlayStyle.accent,
@@ -847,10 +893,10 @@ struct LiveScorecardButton: View {
             HStack(spacing: 9) {
                 Image(systemName: "list.bullet.rectangle")
                     .font(.system(size: 16, weight: .semibold))
-                Text("本场计分卡")
+                Text("计分卡")
                     .font(.system(size: 14, weight: .bold))
                 Spacer(minLength: 0)
-                Text("随时修改")
+                Text("查看全场")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(LivePlayStyle.ink45)
                 Image(systemName: "chevron.forward")
@@ -865,20 +911,19 @@ struct LiveScorecardButton: View {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(LivePlayStyle.stroke10))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("本场计分卡")
+        .accessibilityLabel("计分卡")
         .accessibilityHint("查看并修改每洞成绩")
     }
 }
 
-/// White crosshair reticle marking the green on the map backdrop.
-struct LivePlayReticle: View {
+/// One compact flag marks the factual pin without obscuring the green with rings or crosshairs.
+struct LivePlayFlagMarker: View {
     var body: some View {
-        ZStack {
-            Circle().stroke(Color.white, lineWidth: 2.5).frame(width: 46, height: 46)
-            Rectangle().fill(Color.white).frame(width: 2, height: 60)
-            Rectangle().fill(Color.white).frame(width: 60, height: 2)
-        }
-        .shadow(color: .black.opacity(0.35), radius: 1.5)
+        Image(systemName: "flag.fill")
+            .font(.system(size: 22, weight: .bold))
+            .foregroundStyle(.red)
+            .shadow(color: .black.opacity(0.55), radius: 2, y: 1)
+            .accessibilityHidden(true)
     }
 }
 
@@ -915,25 +960,26 @@ struct LiveMapGreenDistanceOverlay: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(isLive ? "果岭 · 实时" : "发球台 → 果岭")
+            Text(isLive ? "当前位置 → 果岭" : "发球台 → 果岭")
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.white.opacity(0.72))
                 .accessibilityHint(isLive ? "距离根据当前位置实时计算。" : "这是发球台到果岭的静态参考，不代表当前位置；可用于球童推荐。")
-            distanceRow("后", backYards, LivePlayStyle.back, large: false,
+            distanceRow("后沿", backYards, LivePlayStyle.back, large: false,
                         accessibilityIdentifier: "live-green-back")
-            distanceRow("中", middleYards, .white, large: true,
+            distanceRow("中心", middleYards, .white, large: true,
                         accessibilityIdentifier: "live-green-middle")
-            distanceRow("前", frontYards, LivePlayStyle.front, large: false,
+            distanceRow("前沿", frontYards, LivePlayStyle.front, large: false,
                         accessibilityIdentifier: "live-green-front")
             if let toPinYards, !GeoDistance.isBeyondUsefulGreenRange(toPinYards) {
-                Text("旗 \(toPinYards) 码")
+                Divider().overlay(Color.white.opacity(0.2))
+                Text("\(isLive ? "当前位置" : "发球台") → 旗位 \(toPinYards) 码")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.66))
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .frame(width: 108, alignment: .leading)
+        .frame(width: 126, alignment: .leading)
         .background(Color.black.opacity(0.67), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.white.opacity(0.16)))
         .shadow(color: .black.opacity(0.38), radius: 5, y: 3)
@@ -1001,21 +1047,19 @@ struct LiveMapHazardRangeOverlay: View {
         // Keep only a tiny number beside the boundary. The old two-line connector/capsule covered
         // the fairway and collided whenever front/back edges or two hazards were close together.
         return Text(text)
-            .font(.system(size: 9, weight: .heavy, design: .rounded))
+            .font(.system(size: 8, weight: .heavy, design: .rounded))
             .monospacedDigit()
             .foregroundStyle(.white)
             .frame(width: LiveHazardCalloutLayout.labelWidth, height: LiveHazardCalloutLayout.labelHeight)
-            .background(Color.black.opacity(0.52), in: Capsule())
-            .overlay(Capsule().stroke(tint.opacity(0.72), lineWidth: 0.7))
-            .shadow(color: .black.opacity(0.35), radius: 1, y: 1)
+            .shadow(color: .black.opacity(0.95), radius: 1.5)
             .position(center)
     }
 
     private func boundaryMarker(at point: CGPoint) -> some View {
         Circle()
             .fill(tint)
-            .frame(width: 9, height: 9)
-            .overlay(Circle().stroke(Color.black.opacity(0.8), lineWidth: 1.2))
+            .frame(width: 6, height: 6)
+            .overlay(Circle().stroke(Color.black.opacity(0.85), lineWidth: 0.8))
             .position(point)
     }
 }
@@ -1023,8 +1067,8 @@ struct LiveMapHazardRangeOverlay: View {
 /// Small, deterministic lanes for hazard numbers. Keeping this independent of SwiftUI view state
 /// makes dense two-hazard maps predictable and easy to regression-test.
 enum LiveHazardCalloutLayout {
-    static let labelWidth: CGFloat = 30
-    static let labelHeight: CGFloat = 18
+    static let labelWidth: CGFloat = 22
+    static let labelHeight: CGFloat = 13
 
     static func center(
         for point: CGPoint,
@@ -1033,12 +1077,13 @@ enum LiveHazardCalloutLayout {
         viewportSize: CGSize
     ) -> CGPoint {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return point }
-        let rightSide = point.x < viewportSize.width * 0.56
-        let xOffset: CGFloat = rightSide ? 17 : -17
-        // Front/back labels occupy opposite sides of the hazard edge. Each later hazard gets its
-        // own vertical lane, which keeps two nearby water/sand spans readable without a large box.
-        let laneOffset = CGFloat(index) * 28
-        let yOffset = (isFront ? -12 : 12) + (rightSide ? laneOffset : -laneOffset)
+        let spaceOnRight = point.x < viewportSize.width - labelWidth - 12
+        let preferRight = index.isMultiple(of: 2)
+        let rightSide = preferRight ? spaceOnRight : point.x < labelWidth + 12
+        let xOffset: CGFloat = rightSide ? 13 : -13
+        // Front/back numbers sit on opposite sides of their own edge; alternating horizontal sides
+        // separates adjacent sand/water annotations without moving a number away from its fact.
+        let yOffset: CGFloat = isFront ? -8 : 8
         return CGPoint(
             x: min(max(point.x + xOffset, labelWidth / 2 + 3), viewportSize.width - labelWidth / 2 - 3),
             y: min(max(point.y + yOffset, labelHeight / 2 + 4), viewportSize.height - labelHeight / 2 - 4)

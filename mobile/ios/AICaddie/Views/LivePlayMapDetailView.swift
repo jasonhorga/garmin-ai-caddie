@@ -44,6 +44,8 @@ public struct LivePlayMapDetailView: View {
     @State private var didDrag = false
     @GestureState private var pinchScale: CGFloat = 1
 
+    private let targetLoupeDiameter: CGFloat = 112
+
     private enum InteractionMode {
         case target
         case pan
@@ -165,7 +167,7 @@ public struct LivePlayMapDetailView: View {
                     focus: focus,
                     displayedScale: displayedScale,
                     displayedOffset: displayedOffset,
-                    diameter: 124,
+                    diameter: targetLoupeDiameter,
                     magnification: 2.35
                 ) {
                     mapContent(overlay: overlay, size: size)
@@ -262,15 +264,15 @@ public struct LivePlayMapDetailView: View {
             }
 
             if let target = targetBasePoint(overlay: overlay, size: size) {
-                Circle()
-                    .fill(Color.orange.opacity(0.22))
-                    .frame(width: 64, height: 64)
-                    .overlay(Circle().stroke(Color.orange, lineWidth: 2.5))
-                    .overlay(
-                        Image(systemName: "scope")
-                            .font(.system(size: 21, weight: .bold))
-                            .foregroundStyle(.white)
-                    )
+                ZStack {
+                    Circle()
+                        .fill(Color.orange)
+                        .frame(width: 16, height: 16)
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 5, height: 5)
+                }
+                    .shadow(color: .black.opacity(0.5), radius: 2, y: 1)
                     .position(target)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("目标点")
@@ -502,6 +504,23 @@ public struct LivePlayMapDetailView: View {
                 )
             )
         }
+        if let pin {
+            drawPinFlag(&context, at: pin)
+        }
+    }
+
+    private func drawPinFlag(_ context: inout GraphicsContext, at point: CGPoint) {
+        var pole = Path()
+        pole.move(to: CGPoint(x: point.x, y: point.y + 11))
+        pole.addLine(to: CGPoint(x: point.x, y: point.y - 12))
+        context.stroke(pole, with: .color(.white), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+
+        var pennant = Path()
+        pennant.move(to: CGPoint(x: point.x + 1, y: point.y - 12))
+        pennant.addLine(to: CGPoint(x: point.x + 12, y: point.y - 8))
+        pennant.addLine(to: CGPoint(x: point.x + 1, y: point.y - 4))
+        pennant.closeSubpath()
+        context.fill(pennant, with: .color(.red))
     }
 
     static func targetFlightArcs(reference: CGPoint, target: CGPoint, pin: CGPoint?) -> [MapFlightArc] {
@@ -724,15 +743,14 @@ public struct LivePlayMapDetailView: View {
     /// Keep the loupe fully visible, clear of the header and the bottom distance sheet. The target
     /// itself may be near any edge because the map coordinate is still allowed to move there.
     private func targetLoupePosition(_ location: CGPoint, in size: CGSize) -> CGPoint {
-        let diameter: CGFloat = 124
-        let half = diameter / 2
+        let half = targetLoupeDiameter / 2
         let minX = half + 8
         let maxX = max(minX, size.width - half - 8)
         let minY = half + 78
         let maxY = max(minY, size.height - half - 132)
         let x = min(max(location.x, minX), maxX)
-        let above = location.y - half - 26
-        let below = location.y + half + 26
+        let above = location.y - half - 60
+        let below = location.y + half + 60
         let preferred = above >= minY ? above : below
         return CGPoint(x: x, y: min(max(preferred, minY), maxY))
     }
@@ -751,7 +769,7 @@ public struct LivePlayMapDetailView: View {
     }
 }
 
-/// Circular, transform-aware loupe used by the phone Touch Target surface. The main map applies
+/// Compact, transform-aware map window used by the phone Touch Target surface. The main map applies
 /// `C + s(p-C) + O`; the extra magnification keeps the exact source pixel under the finger at the
 /// loupe crosshair even after pinch zooming or map panning.
 private struct LiveMapTargetMagnifierLoupe<Content: View>: View {
@@ -801,7 +819,7 @@ private struct LiveMapTargetMagnifierLoupe<Content: View>: View {
                 .offset(x: dx, y: dy)
         }
         .frame(width: diameter, height: diameter, alignment: .topLeading)
-        .clipShape(Circle())
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             ZStack {
                 Rectangle().fill(.white.opacity(0.95)).frame(width: 1.4, height: 18)
@@ -809,8 +827,8 @@ private struct LiveMapTargetMagnifierLoupe<Content: View>: View {
             }
             .shadow(color: .black.opacity(0.6), radius: 0.6)
         }
-        .overlay(Circle().strokeBorder(.white, lineWidth: 3))
-        .overlay(Circle().strokeBorder(.black.opacity(0.24), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.86), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.black.opacity(0.24), lineWidth: 1))
         .compositingGroup()
         .shadow(color: .black.opacity(0.38), radius: 7, y: 3)
         .accessibilityElement(children: .ignore)

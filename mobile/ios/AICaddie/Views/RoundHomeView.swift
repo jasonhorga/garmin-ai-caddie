@@ -19,7 +19,7 @@ public struct RoundHomeView: View {
     public let pendingEventCount: Int
     public let syncStatus: String
     public let localEventUploadStatus: String
-    public let garminSyncStatus: String
+    public let garminConnectionState: GarminConnectionState
     public let lastGarminSyncAt: Date?
     public let isGarminSyncing: Bool
     public let apiBaseURL: URL?
@@ -55,6 +55,7 @@ public struct RoundHomeView: View {
     /// bridge for older snapshot/test callers.
     public let onGarminSessionImportedOutcome: (() async -> GarminSyncOutcome)?
     public let onRefreshGarminSyncStatus: () async -> Void
+    public let onGarminSessionForgot: () -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
     /// 拉取所选球场的可选发球台(供「开始一场」的选台器);仅转发给 StartRoundView。
@@ -82,7 +83,7 @@ public struct RoundHomeView: View {
         pendingEventCount: Int = 0,
         syncStatus: String = "Offline ready",
         localEventUploadStatus: String = "自动上传已开启",
-        garminSyncStatus: String = "尚未手动更新",
+        garminConnectionState: GarminConnectionState = .disconnected,
         lastGarminSyncAt: Date? = nil,
         isGarminSyncing: Bool = false,
         apiBaseURL: URL? = nil,
@@ -116,6 +117,7 @@ public struct RoundHomeView: View {
         onGarminSessionImported: @escaping () async -> Bool = { false },
         onGarminSessionImportedOutcome: (() async -> GarminSyncOutcome)? = nil,
         onRefreshGarminSyncStatus: @escaping () async -> Void = {},
+        onGarminSessionForgot: @escaping () -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
@@ -133,7 +135,7 @@ public struct RoundHomeView: View {
         self.pendingEventCount = pendingEventCount
         self.syncStatus = syncStatus
         self.localEventUploadStatus = localEventUploadStatus
-        self.garminSyncStatus = garminSyncStatus
+        self.garminConnectionState = garminConnectionState
         self.lastGarminSyncAt = lastGarminSyncAt
         self.isGarminSyncing = isGarminSyncing
         self.apiBaseURL = apiBaseURL
@@ -167,6 +169,7 @@ public struct RoundHomeView: View {
         self.onGarminSessionImported = onGarminSessionImported
         self.onGarminSessionImportedOutcome = onGarminSessionImportedOutcome
         self.onRefreshGarminSyncStatus = onRefreshGarminSyncStatus
+        self.onGarminSessionForgot = onGarminSessionForgot
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
         self.onLoadCourseTees = onLoadCourseTees
@@ -376,11 +379,14 @@ public struct RoundHomeView: View {
     // MARK: - 打球(开始 / 继续 + 加打/移除九洞)
 
     @ViewBuilder private var playSection: some View {
-        if let liveRoundState, package.holes.contains(where: { $0.number == liveRoundState.activeHole }) {
-            NavigationLink(value: HubRoute.hole(liveRoundState.activeHole)) {
+        if let liveRoundState {
+            let activeHole = package.holes.contains(where: { $0.number == liveRoundState.activeHole })
+                ? liveRoundState.activeHole
+                : (package.holes.first?.number ?? liveRoundState.activeHole)
+            NavigationLink(value: HubRoute.hole(activeHole)) {
                 HubInProgressCard(
                     courseName: package.course.name,
-                    activeHole: liveRoundState.activeHole,
+                    activeHole: activeHole,
                     recorded: recordedScoreHoleCount,
                     total: package.holes.count
                 )
@@ -393,20 +399,14 @@ public struct RoundHomeView: View {
                 activeHole: pendingWatchRoundStart.activeHole
             )
         }
-        // Do not offer a second start while the Watch-created round is waiting for its iPhone
-        // package. The status card above is the single continuation path; a second round here would
-        // make the phone appear to lose the wrist session that it is still activating.
-        if pendingWatchRoundStart == nil {
+        // An active or Watch-created round owns this section. Starting a second round would orphan
+        // the durable score/shot state, so the new-round entry only exists when neither state does.
+        if liveRoundState == nil, pendingWatchRoundStart == nil {
             // 打球 = the wide primary tile (was the full-width green button); opens 开始一场 (StartRoundView).
             NavigationLink(value: HubRoute.start) {
                 HubPlayTile()
             }
             .buttonStyle(.plain)
-        } else {
-            HubPlayTile()
-                .opacity(0.45)
-                .accessibilityLabel("打球")
-                .accessibilityValue("等待手表球局同步")
         }
     }
 
@@ -452,7 +452,11 @@ public struct RoundHomeView: View {
                 .buttonStyle(.plain)
             }
             NavigationLink {
-                ResultsView(apiBaseURL: apiBaseURL, adminToken: adminToken)
+                ResultsView(
+                    apiBaseURL: apiBaseURL,
+                    adminToken: adminToken,
+                    offlineStore: offlineStore
+                )
             } label: {
                 HubTile(icon: "chart.line.uptrend.xyaxis", title: "成绩", subtitle: "球局 · 统计")
             }
@@ -518,7 +522,7 @@ public struct RoundHomeView: View {
                             // The model owns the sync state. During an in-flight operation, prefer
                             // the explicit loading label over the previous terminal result so a
                             // SwiftUI update cannot briefly show “已更新” beside the spinner.
-                            Text(isGarminSyncing ? "正在同步 Garmin 数据…" : garminSyncStatus)
+                            Text(garminConnectionState.statusText)
                                 .font(.subheadline.weight(.semibold))
                             if let lastGarminSyncAt, !isGarminSyncing {
                                 Text("上次成功 · \(lastGarminSyncAt, format: .dateTime.month().day().hour().minute())")
@@ -555,7 +559,8 @@ public struct RoundHomeView: View {
                             sessionStore: sessionStore,
                             onSessionImported: onGarminSessionImported,
                             onSessionImportedOutcome: onGarminSessionImportedOutcome,
-                            garminSyncStatus: garminSyncStatus
+                            connectionState: garminConnectionState,
+                            onSessionForgot: onGarminSessionForgot
                         )
                     } label: {
                         Label("Garmin 账号", systemImage: "link")

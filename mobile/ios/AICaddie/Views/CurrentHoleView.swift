@@ -126,6 +126,10 @@ public struct CurrentHoleView: View {
     @State private var pendingHistoricalScoreHole: Int?
     @State private var pendingPhoneShot: PendingPhoneShot?
     @State private var holeRootScrollRequest = 0
+    @State private var heroMapScale: CGFloat = 1
+    @State private var heroMapOffset: CGSize = .zero
+    @GestureState private var heroMapPinchScale: CGFloat = 1
+    @GestureState private var heroMapDragOffset: CGSize = .zero
 
     private static let holeRootScrollAnchor = "live-hole-root"
     /// The capture implementation remains available, but this evidence card is intentionally absent
@@ -269,6 +273,8 @@ public struct CurrentHoleView: View {
             }
         }
         .task(id: hole.number) {
+            heroMapScale = 1
+            heroMapOffset = .zero
             #if DEBUG
             // The package already carries factual Tee coordinates for every ready hole. Move the
             // deterministic multi-hole simulator journey before waiting on the per-hole prep GET;
@@ -374,17 +380,13 @@ public struct CurrentHoleView: View {
     }
 
     private var livePrimaryPanel: some View {
-        // Dark-glass data panel: distance hero → caddie strip → shot/score actions → tab bar.
+        // Keep the live root task-focused: one caddie destination, two play actions, one scorecard.
         LivePlayPanel {
-            LiveCaddieStrip(
-                clubs: caddieClubChips,
-                playsText: caddiePlaysText,
+            LiveCaddieEntry(
                 isLoading: isLoadingCaddieDecision,
                 isReady: caddieDecision != nil
                     && !isLoadingCaddieDecision,
-                errorText: caddieErrorMessage,
-                onExpand: { showCaddieDetail = true },
-                onSelect: { selectClub($0) }
+                onTap: { showCaddieDetail = true }
             )
             LiveHolePrimaryActions(
                 canRecordShot: liveCoordinateForCurrentHole != nil,
@@ -580,27 +582,64 @@ public struct CurrentHoleView: View {
 
     // MARK: - 打球屏 v2 hero (map backdrop + header + overlays)
 
-    /// Map-as-backdrop hero: the server-rendered hole image (推荐打法叠加) fills the top, with the
-    /// header, a green crosshair reticle on the green, and one amber hazard carry pill over it.
+    /// Map-as-backdrop hero: the server-rendered hole image fills the top, with one compact flag,
+    /// factual green ranges and small obstacle-edge numbers.
     private var heroSection: some View {
+        ZStack(alignment: .top) {
+            heroMapVisual
+            LivePlayStyle.topScrim
+                .frame(height: 176)
+                .frame(maxWidth: .infinity, alignment: .top)
+                .allowsHitTesting(false)
+            heroInteractionLayer
+            LivePlayHeader(
+                holeNumber: hole.number,
+                par: hole.par,
+                yards: hole.yards,
+                teeLabel: teeLabelZh,
+                roundToParText: roundToParText,
+                onBack: { dismiss() },
+                onFinishRound: { showRoundSummary = true },
+                onOpenMap: { showMapDetail = true }
+            )
+            .padding(.horizontal, 20)
+            .padding(.top, 4)
+            if heroMapScale > 1.01 {
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        heroMapScale = 1
+                        heroMapOffset = .zero
+                    }
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.caption.weight(.bold))
+                        .frame(width: 34, height: 34)
+                        .background(.black.opacity(0.68), in: Circle())
+                        .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 48)
+                .padding(.trailing, 14)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .accessibilityLabel("重置地图缩放")
+                .accessibilityIdentifier("live-hero-map-reset-zoom")
+            }
+        }
+        .frame(height: liveHeroHeight)
+    }
+
+    /// The map, factual overlays, and live markers share one transform. Keeping this as a single
+    /// visual plane prevents hazard labels or the GPS point from drifting away from the bitmap when
+    /// the player pinches the live map.
+    private var heroMapVisual: some View {
         ZStack(alignment: .top) {
             liveMapBackdrop
                 .padding(.top, LivePlayMapOverlayLayout.liveMapTopInset)
                 .frame(height: liveHeroHeight)
                 .frame(maxWidth: .infinity)
                 .clipped()
-            LivePlayStyle.topScrim
-                .frame(height: 176)
-                .frame(maxWidth: .infinity, alignment: .top)
-                .allowsHitTesting(false)
             GeometryReader { geo in
-                let greenTarget = liveGreenTarget(in: geo.size)
                 ZStack {
-                    LivePlayReticle()
-                        .position(
-                            greenTarget ?? LivePlayMapOverlayLayout.fallbackGreenTarget(in: geo.size)
-                        )
-
                     LiveMapGreenDistanceOverlay(
                         frontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
                         middleYards: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
@@ -637,21 +676,40 @@ public struct CurrentHoleView: View {
             }
             .frame(height: liveHeroHeight)
             .allowsHitTesting(false)
-            heroInteractionLayer
-            LivePlayHeader(
-                holeNumber: hole.number,
-                par: hole.par,
-                yards: hole.yards,
-                teeLabel: teeLabelZh,
-                roundToParText: roundToParText,
-                onBack: { dismiss() },
-                onFinishRound: { showRoundSummary = true },
-                onOpenMap: { showMapDetail = true }
-            )
-            .padding(.horizontal, 20)
-            .padding(.top, 4)
         }
         .frame(height: liveHeroHeight)
+        .scaleEffect(heroDisplayedMapScale)
+        .offset(heroDisplayedMapOffset)
+        .clipped()
+    }
+
+    private var heroDisplayedMapScale: CGFloat {
+        max(1, heroMapScale * heroMapPinchScale)
+    }
+
+    private var heroDisplayedMapOffset: CGSize {
+        clampedHeroMapOffset(
+            CGSize(
+                width: heroMapOffset.width + heroMapDragOffset.width,
+                height: heroMapOffset.height + heroMapDragOffset.height
+            ),
+            scale: heroDisplayedMapScale,
+            viewport: CGSize(width: .greatestFiniteMagnitude, height: liveHeroHeight)
+        )
+    }
+
+    private func clampedHeroMapOffset(_ proposed: CGSize, scale: CGFloat, viewport: CGSize) -> CGSize {
+        #if canImport(UIKit)
+        let width = max(UIScreen.main.bounds.width, 1)
+        #else
+        let width = max(viewport.width.isFinite ? viewport.width : 1, 1)
+        #endif
+        let maxX = width.isFinite ? max((width * (scale - 1)) / 2, 0) : 0
+        let maxY = max((liveHeroHeight * (scale - 1)) / 2, 0)
+        return CGSize(
+            width: min(max(proposed.width, -maxX), maxX),
+            height: min(max(proposed.height, -maxY), maxY)
+        )
     }
 
     /// The map itself owns its interactions: tap the green target for flag placement, tap elsewhere
@@ -673,7 +731,8 @@ public struct CurrentHoleView: View {
                     )
                     .contentShape(Rectangle())
                     .onTapGesture { showMapDetail = true }
-                    .simultaneousGesture(holeSwipeGesture)
+                    .simultaneousGesture(heroMapPinchGesture)
+                    .simultaneousGesture(heroMapPanOrSwipeGesture)
                     .accessibilityLabel("打开地图并选目标")
                     .accessibilityHint("左右滑动切换球洞")
                     .accessibilityIdentifier("live-open-map-from-hero")
@@ -688,7 +747,7 @@ public struct CurrentHoleView: View {
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
-                    .position(greenTarget)
+                    .position(transformedHeroPoint(greenTarget, in: geometry.size))
                     .accessibilityLabel("调整旗位")
                     .accessibilityIdentifier("live-open-green-from-hero")
                 }
@@ -710,6 +769,62 @@ public struct CurrentHoleView: View {
                 #endif
                 onAdvanceHole(target)
             }
+    }
+
+    private var heroMapPinchGesture: some Gesture {
+        MagnificationGesture()
+            .updating($heroMapPinchScale) { value, state, _ in
+                state = value
+            }
+            .onEnded { value in
+                heroMapScale = min(max(heroMapScale * value, 1), 4)
+                heroMapOffset = clampedHeroMapOffset(
+                    heroMapOffset,
+                    scale: heroMapScale,
+                    viewport: CGSize(width: 1, height: liveHeroHeight)
+                )
+            }
+    }
+
+    private var heroMapPanOrSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .updating($heroMapDragOffset) { value, state, _ in
+                if heroMapScale > 1.01 {
+                    state = value.translation
+                }
+            }
+            .onEnded { value in
+                if heroMapScale > 1.01 {
+                    heroMapOffset = clampedHeroMapOffset(
+                        CGSize(
+                            width: heroMapOffset.width + value.translation.width,
+                            height: heroMapOffset.height + value.translation.height
+                        ),
+                        scale: heroMapScale,
+                        viewport: CGSize(width: 1, height: liveHeroHeight)
+                    )
+                    return
+                }
+                guard let target = HoleSwipeNavigation.target(
+                    current: hole.number,
+                    holes: package.holes.map(\.number),
+                    translation: value.translation
+                ) else { return }
+                #if canImport(UIKit)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                #endif
+                onAdvanceHole(target)
+            }
+    }
+
+    private func transformedHeroPoint(_ point: CGPoint, in viewport: CGSize) -> CGPoint {
+        let scale = heroDisplayedMapScale
+        let center = CGPoint(x: viewport.width / 2, y: viewport.height / 2)
+        let offset = heroDisplayedMapOffset
+        return CGPoint(
+            x: center.x + (point.x - center.x) * scale + offset.width,
+            y: center.y + (point.y - center.y) * scale + offset.height
+        )
     }
 
     /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时回退暗色渐变占位。
