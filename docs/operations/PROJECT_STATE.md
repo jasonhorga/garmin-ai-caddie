@@ -4,7 +4,7 @@
 > Long reviews and historical plans remain reference material; they are not the
 > live task queue.
 
-**Updated:** 2026-09-09 UTC
+**Updated:** 2026-09-09 23:54 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `b9ff8b9d`; deployed backend tip
 `6d130528c366df62a6050f6c23b5d885fbe56e55`; MAP1 product-code tip
@@ -397,12 +397,16 @@ code; do not restart the old multi-week plan tree.
 `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260909-topo-v10`
 完成对齐和本地/公网预检；恢复时唯一继续路径是完成新源码的原生编译/测试，再检查地图、
 障碍页、旗位真实设备表现；在这些证据完成前保持
-`PHONE-UX2` 为 `in-progress`，不要上传或发布新的候选包。
+`PHONE-UX2` 为 `in-progress`，不要上传或发布新的候选包。当前 Native Mobile CI
+run `34417237317`（源码 `13474bf7`，后端 `5124d638`，API
+`https://suggests-kilometers-normal-insertion.trycloudflare.com`）仍在执行真实
+iOS XCUITest；截至本检查点已完成编译、单测、设计快照和 live preflight，iOS/Watch
+截图与最终 evidence 尚未完成。
 
 **Durable execution plan (persisted 2026-09-09 UTC):**
 1. 已完成：修正测试方法边界，并保留当前工作区全部产品改动；`git diff --check` 通过。
 2. 已完成：homeserver 容量检查通过（约 117 GiB 可用、5.1 GiB 可用内存）；复用上述 scratch 在只读挂载并提供临时目录/数据层的容器中运行聚焦套件，`374 passed, 5 skipped`，exit 0。首轮只读容器错误是缺少 `/tmp` 和可写事件根，已修正验证条件，不是产品回归。
-3. 进行中：`topo-v10` 后端已在 homeserver 对齐并完成本地/quick-tunnel 公网 preflight；针对当前源码重新通过 GitHub Native Mobile CI 完成 Swift 编译、单测、截图和真实 iPhone/Watch 证据，重点核对地图纵向拖动、独立障碍页、单一旗杆底部落点和三种打法选择。`34407853548` 的三个 iOS topo 等待失败已定位为部署版本错配，不能作为产品回归证据。
+3. 进行中：`topo-v10` 后端已在 homeserver 对齐并完成本地/quick-tunnel 公网 preflight；Native Mobile CI `34417237317` 正在针对当前源码完成 Swift 编译、单测、截图和真实 iPhone/Watch 证据，重点核对地图纵向拖动、独立障碍页、单一旗杆底部落点和三种打法选择。`34407853548` 的三个 iOS topo 等待失败已定位为部署版本错配，不能作为产品回归证据。
 4. 约束：原生/设备证据完成前不生成或上传新候选包、不做 Beta Review/外部发布/生产发布；验证结束后只清理本会话 allow-list 资源并回写本账本。
 
 此前 `PHONE-REGRESSION` 保持 `evidence-open`：
