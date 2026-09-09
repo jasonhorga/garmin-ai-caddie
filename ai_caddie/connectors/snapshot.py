@@ -4,6 +4,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+from pathlib import PurePosixPath
 import re
 import shutil
 from typing import Any
@@ -25,9 +26,14 @@ from .redaction import sanitize_secret_text
 SYNC_DIR = Path("data") / "sync"
 SNAPSHOT_DIR = Path("data") / "snapshots"
 STATUS_FILE = SYNC_DIR / "garmin_cn_status.json"
-GEOMETRY_ASSET_DIRS = (
-    Path("output") / "prodgeometry_hazards",
-    Path("output") / "prodgeometry",
+# Geometry is shared, reproducible runtime output. It remains in ``output/`` and
+# is represented by dependency metadata, but is deliberately never copied into
+# each durable Garmin data snapshot.
+GEOMETRY_ASSET_PREFIXES = frozenset(
+    {
+        ("output", "prodgeometry_hazards"),
+        ("output", "prodgeometry"),
+    }
 )
 GEOMETRY_HAZARD_DIR = Path("output") / "prodgeometry_hazards"
 GEOMETRY_MESH_DIR = Path("output") / "prodgeometry"
@@ -59,16 +65,15 @@ def _relative(path: Path, root: Path) -> str:
         return path.as_posix()
 
 
+def _is_geometry_asset_path(path: str | Path | PurePosixPath) -> bool:
+    parts = PurePosixPath(str(path)).parts
+    return len(parts) >= 2 and tuple(parts[:2]) in GEOMETRY_ASSET_PREFIXES
+
+
 def _json_files(path: Path) -> list[Path]:
     if not path.exists():
         return []
     return sorted(item for item in path.glob("*.json") if item.is_file())
-
-
-def _json_files_recursive(path: Path) -> list[Path]:
-    if not path.exists():
-        return []
-    return sorted(item for item in path.rglob("*.json") if item.is_file())
 
 
 def _read_json(path: Path) -> Any:
@@ -685,7 +690,8 @@ def _merge_provenance_for_round(
 def build_snapshot_manifest(*, root: Path = ROOT, snapshot_id: str, data_dir: Path | None = None) -> SnapshotManifest:
     # ``data_dir`` defaults to ``root/data`` (owner, byte-for-byte). A member passes
     # their partition so the manifest counts THEIR scorecards/shots/summary while the
-    # geometry assets stay anchored at the shared ``root`` (public course geometry).
+    # geometry dependencies stay anchored at the shared ``root`` (public course geometry).
+    # Geometry itself is shared/reproducible output and is intentionally not a raw snapshot file.
     data_dir = data_dir if data_dir is not None else (root / "data")
     summary = data_dir / "summary.json"
     scorecards = _json_files(data_dir / "scorecards")
@@ -696,8 +702,6 @@ def build_snapshot_manifest(*, root: Path = ROOT, snapshot_id: str, data_dir: Pa
         files.append(_relative(summary, root))
     files.extend(_relative(path, root) for path in scorecards)
     files.extend(_relative(path, root) for path in shots)
-    for relative_dir in GEOMETRY_ASSET_DIRS:
-        files.extend(_relative(path, root) for path in _json_files_recursive(root / relative_dir))
     return SnapshotManifest(
         snapshot_id=snapshot_id,
         scorecard_count=len(scorecards),
@@ -814,6 +818,11 @@ def write_durable_snapshot(*, root: Path = ROOT, manifest: SnapshotManifest) -> 
     snapshot_dir = root / SNAPSHOT_DIR / manifest.snapshot_id
     raw_dir = snapshot_dir / "raw"
     for file_name in manifest.files:
+        # Keep the invariant at the write boundary as well as in manifest
+        # construction, so a legacy or hand-built manifest cannot reintroduce
+        # multi-gigabyte derived geometry copies.
+        if _is_geometry_asset_path(file_name):
+            continue
         source = root / file_name
         if not source.exists() or not source.is_file():
             continue
@@ -969,7 +978,10 @@ def validate_private_snapshot_acceptance(*, root: Path = ROOT) -> dict[str, Any]
     snapshot_id = str(manifest.get("snapshotId") or "")
     scorecard_files = _manifest_files(manifest, "data/scorecards/")
     shot_files = _manifest_files(manifest, "data/shots/")
-    geometry_files = _manifest_files(manifest, "output/prodgeometry")
+    # Older manifests listed geometry files. They are retained as a diagnostic
+    # count for compatibility, but are no longer required to be copied because
+    # the canonical geometry lives in the shared output directory.
+    legacy_geometry_files = _manifest_files(manifest, "output/prodgeometry")
     normalized = _read_normalized_snapshot_payload(root=root, snapshot_id=snapshot_id) if snapshot_id else None
     connector_status = read_connector_status(root=root)
 
@@ -1004,18 +1016,19 @@ def validate_private_snapshot_acceptance(*, root: Path = ROOT) -> dict[str, Any]
         )
     )
 
-    all_manifest_data_files = [*scorecard_files, *shot_files, *geometry_files]
+    all_manifest_data_files = [*scorecard_files, *shot_files]
     missing_raw_copies = _raw_snapshot_missing_files(root=root, snapshot_id=snapshot_id, files=all_manifest_data_files) if snapshot_id else []
     checks.append(
         _acceptance_check(
             "durable_snapshot",
             "ready" if snapshot_id and not missing_raw_copies and all_manifest_data_files else "failed",
-            "Raw scorecards, shots, and geometry files are copied into the durable snapshot."
+            "Raw scorecards and shots are copied into the durable snapshot; shared geometry is tracked separately."
             if snapshot_id and not missing_raw_copies and all_manifest_data_files
             else "The durable snapshot is missing raw files referenced by the manifest.",
             {
                 "manifestFileCount": len(all_manifest_data_files),
                 "missingRawCopyCount": len(missing_raw_copies),
+                "legacyGeometryFileCount": len(legacy_geometry_files),
             },
         )
     )
@@ -1093,7 +1106,7 @@ def validate_private_snapshot_acceptance(*, root: Path = ROOT) -> dict[str, Any]
         _acceptance_check(
             "geometry_dependencies",
             "ready" if geometry_ready else "failed",
-            "Geometry dependencies are discovered with player profile id availability for prodgeometry."
+            "Geometry dependencies are discovered with player profile id availability for shared prodgeometry output."
             if geometry_ready
             else "Geometry dependencies are missing or lack player profile id availability.",
             {

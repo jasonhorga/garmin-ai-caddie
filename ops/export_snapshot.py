@@ -29,13 +29,15 @@ DATA_PATHS = [
     Path("data") / "decisions",  # P2: the live caddie decisions ledger (decisions.jsonl) — was omitted
 ]
 
-GEOMETRY_OUTPUT_PATHS = [
-    Path("output") / "prodgeometry_hazards",
-    Path("output") / "prodgeometry",
-]
-
 IDENTITY_SQLITE_MEMBER = Path("data") / "identity.db"
 IDENTITY_POSTGRES_MEMBER = Path("data") / "identity.pg_dump"
+
+DERIVED_GEOMETRY_PREFIXES = frozenset(
+    {
+        ("output", "prodgeometry_hazards"),
+        ("output", "prodgeometry"),
+    }
+)
 
 
 def _is_secret_path(path: Path | PurePosixPath) -> bool:
@@ -50,6 +52,11 @@ def _display_path(path: Path) -> str:
     return path.name if path.is_absolute() else path.as_posix()
 
 
+def _is_derived_geometry_path(path: Path | PurePosixPath) -> bool:
+    parts = PurePosixPath(str(path)).parts
+    return any(tuple(parts[index : index + 2]) in DERIVED_GEOMETRY_PREFIXES for index in range(len(parts) - 1))
+
+
 def _iter_files(source_root: Path, include_clubs: bool) -> list[Path]:
     files: list[Path] = []
     for relative in DATA_PATHS:
@@ -60,12 +67,8 @@ def _iter_files(source_root: Path, include_clubs: bool) -> list[Path]:
             files.append(relative)
         elif path.is_dir():
             files.extend(_iter_regular_files(source_root, path))
-    for relative in GEOMETRY_OUTPUT_PATHS:
-        path = source_root / relative
-        if path.is_symlink():
-            continue
-        if path.is_dir():
-            files.extend(relative for relative in _iter_regular_files(source_root, path) if relative.suffix == ".json")
+    # ``output/prodgeometry*`` is reproducible shared runtime output, not private
+    # Garmin source data. It is intentionally absent from portable exports.
     if include_clubs and _is_regular_file(source_root / "clubs.json"):
         files.append(Path("clubs.json"))
     return sorted(set(files))
@@ -80,11 +83,12 @@ def _iter_regular_files(source_root: Path, directory: Path) -> list[Path]:
             for dirname in dirnames
             if not (root_path / dirname).is_symlink()
             and not _is_secret_path((root_path / dirname).relative_to(source_root))
+            and not _is_derived_geometry_path((root_path / dirname).relative_to(source_root))
         ]
         for filename in filenames:
             path = root_path / filename
             relative = path.relative_to(source_root)
-            if _is_regular_file(path) and not _is_secret_path(relative):
+            if _is_regular_file(path) and not _is_secret_path(relative) and not _is_derived_geometry_path(relative):
                 files.append(relative)
     return sorted(files)
 

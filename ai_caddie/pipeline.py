@@ -88,10 +88,10 @@ def _persist_sync_observability(result: SyncResult, *, root=ROOT) -> bool:
 
     The cron entrypoint historically called this module directly, so scorecards and shots were
     refreshed while ``/sync/status`` kept serving the previous run's metadata. A raw-snapshot
-    manifest is intentionally NOT written here: connector snapshots include durable copies of all
-    referenced data/geometry, and copying those every hour would be both expensive and dishonest
-    unless the matching durable tree were created too. ``sync_status`` recognizes a newer ready
-    status without a snapshot id and reports the live files while retaining the last durable id.
+    manifest is intentionally NOT written here: connector snapshots are the durable owner archive
+    for raw Garmin data, while geometry remains shared/reproducible output tracked by dependency
+    metadata. ``sync_status`` recognizes a newer ready status without a snapshot id and reports the
+    live files while retaining the last durable id.
     """
     from ai_caddie.connectors.snapshot import write_connector_status
 

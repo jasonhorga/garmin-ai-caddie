@@ -32,7 +32,7 @@ class SnapshotImportExportTests(unittest.TestCase):
         self.assertNotIn("/home/", json.dumps(manifest).lower())
         self.assertNotIn(".garmin_tokens", json.dumps(manifest).lower())
 
-    def test_export_import_excludes_secrets_and_restores_data(self) -> None:
+    def test_export_import_excludes_derived_geometry_and_secrets(self) -> None:
         with TemporaryDirectory() as tmp:
             source = Path(tmp) / "source"
             source.mkdir()
@@ -52,6 +52,10 @@ class SnapshotImportExportTests(unittest.TestCase):
             (source / "data" / "scorecards" / "1.json").write_text("{}", encoding="utf-8")
             (source / "data" / "shots" / "1.json").write_text("{}", encoding="utf-8")
             (source / "data" / "snapshots" / "manifest.json").write_text("{}", encoding="utf-8")
+            (source / "data" / "snapshots" / "legacy" / "raw" / "output" / "prodgeometry").mkdir(parents=True)
+            (source / "data" / "snapshots" / "legacy" / "raw" / "output" / "prodgeometry" / "old.json").write_text(
+                '{"meshes":[]}', encoding="utf-8"
+            )
             (source / "data" / "sync" / "status.json").write_text("{}", encoding="utf-8")
             (source / "data" / "annotations" / "annotations.jsonl").write_text('{"kind":"issue_tag"}\n', encoding="utf-8")
             (source / "data" / "media" / "media_index.jsonl").write_text('{"mediaKind":"photo"}\n', encoding="utf-8")
@@ -91,14 +95,15 @@ class SnapshotImportExportTests(unittest.TestCase):
             self.assertIn("data/scorecards/1.json", names)
             self.assertIn("data/shots/1.json", names)
             self.assertIn("data/snapshots/manifest.json", names)
+            self.assertNotIn("data/snapshots/legacy/raw/output/prodgeometry/old.json", names)
             self.assertIn("data/sync/status.json", names)
             self.assertIn("data/annotations/annotations.jsonl", names)
             self.assertIn("data/media/media_index.jsonl", names)
             self.assertIn("data/weather/weather_snapshots.jsonl", names)
             self.assertIn("data/reports/reports.jsonl", names)
             self.assertIn("data/decision_audits/decision_audits.jsonl", names)
-            self.assertIn("output/prodgeometry_hazards/gid31795_h04_hazards.json", names)
-            self.assertIn("output/prodgeometry/gid31795_h04_meshes.json", names)
+            self.assertNotIn("output/prodgeometry_hazards/gid31795_h04_hazards.json", names)
+            self.assertNotIn("output/prodgeometry/gid31795_h04_meshes.json", names)
             self.assertNotIn("output/prodgeometry_overlay/debug.png", names)
             self.assertNotIn(".env", names)
             self.assertNotIn(".garmin_tokens/web_cookie.txt", names)
@@ -113,18 +118,29 @@ class SnapshotImportExportTests(unittest.TestCase):
                 (target / "data" / "decision_audits" / "decision_audits.jsonl").read_text(encoding="utf-8"),
                 '{"classification":"execution"}\n',
             )
-            self.assertEqual(
-                (target / "output" / "prodgeometry_hazards" / "gid31795_h04_hazards.json").read_text(encoding="utf-8"),
-                '{"hazards":[]}',
-            )
-            self.assertEqual(
-                (target / "output" / "prodgeometry" / "gid31795_h04_meshes.json").read_text(encoding="utf-8"),
-                '{"meshes":[]}',
-            )
+            self.assertFalse((target / "output" / "prodgeometry_hazards" / "gid31795_h04_hazards.json").exists())
+            self.assertFalse((target / "output" / "prodgeometry" / "gid31795_h04_meshes.json").exists())
             self.assertFalse((target / "output" / "prodgeometry_overlay" / "debug.png").exists())
             self.assertFalse((target / ".env").exists())
             self.assertFalse((target / ".garmin_tokens").exists())
             self.assertFalse((target / "clubs.json").exists())
+
+    def test_import_accepts_legacy_geometry_members(self) -> None:
+        """Old archives remain restorable even though new exports omit geometry."""
+        with TemporaryDirectory() as tmp:
+            tarball = Path(tmp) / "legacy-geometry.tar.gz"
+            payload = Path(tmp) / "geometry.json"
+            payload.write_text('{"meshes":[]}', encoding="utf-8")
+            with tarfile.open(tarball, "w:gz") as archive:
+                archive.add(payload, arcname="output/prodgeometry/gid31795_h04_meshes.json")
+
+            target = Path(tmp) / "target"
+            import_snapshot(tarball, target_root=target)
+
+            self.assertEqual(
+                (target / "output" / "prodgeometry" / "gid31795_h04_meshes.json").read_text(encoding="utf-8"),
+                '{"meshes":[]}',
+            )
 
     def test_export_includes_player_data_roots_and_skips_symlinks(self) -> None:
         with TemporaryDirectory() as tmp:

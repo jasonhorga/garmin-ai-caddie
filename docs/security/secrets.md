@@ -56,6 +56,10 @@ This project is designed for private golf data first. Secrets must stay local or
 - `data/reports`
 - `data/decision_audits`
 
+It deliberately excludes the derived shared geometry under
+`output/prodgeometry` and `output/prodgeometry_hazards`; that data is
+reproducible and is not part of the private Garmin source snapshot.
+
 It excludes by default:
 
 - `.garmin_tokens`

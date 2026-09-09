@@ -9,6 +9,8 @@ SUPPORTED_OUTPUT_DIRS = {
     ("output", "prodgeometry_hazards"),
     ("output", "prodgeometry"),
 }
+# These paths are accepted only for backwards compatibility with archives made
+# before derived geometry was removed from the export scope.
 
 
 def _is_secret_path(path: PurePosixPath) -> bool:

@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from ai_caddie.core.data import deg_to_semicircle
+from ai_caddie.connectors.base import SnapshotManifest
 from ai_caddie.connectors.snapshot import (
     build_snapshot_manifest,
     discover_played_geometry_dependencies,
@@ -16,6 +16,7 @@ from ai_caddie.connectors.snapshot import (
     write_connector_status,
     write_snapshot_manifest,
 )
+from ai_caddie.core.data import deg_to_semicircle
 from ai_caddie.history.history import (
     HistoryData,
     history_course_detail,
@@ -105,7 +106,7 @@ class ConnectorSnapshotTests(unittest.TestCase):
         self.assertIn("data/scorecards/1.json", manifest.files)
         self.assertNotIn(".garmin_tokens", " ".join(manifest.files))
 
-    def test_snapshot_manifest_and_durable_copy_include_prodgeometry_assets(self) -> None:
+    def test_snapshot_manifest_and_durable_copy_exclude_prodgeometry_assets(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             hazard = root / "output" / "prodgeometry_hazards" / "gid31795_h04_hazards.json"
@@ -141,11 +142,42 @@ class ConnectorSnapshotTests(unittest.TestCase):
                 / "gid31795_h04_meshes.json"
             ).exists()
 
-        self.assertIn("output/prodgeometry_hazards/gid31795_h04_hazards.json", manifest.files)
-        self.assertIn("output/prodgeometry/gid31795_h04_meshes.json", manifest.files)
+        self.assertNotIn("output/prodgeometry_hazards/gid31795_h04_hazards.json", manifest.files)
+        self.assertNotIn("output/prodgeometry/gid31795_h04_meshes.json", manifest.files)
         self.assertNotIn("output/prodgeometry_overlay/debug.png", manifest.files)
-        self.assertTrue(hazard_copied)
-        self.assertTrue(mesh_copied)
+        self.assertFalse(hazard_copied)
+        self.assertFalse(mesh_copied)
+        self.assertTrue(hazard.exists())
+        self.assertTrue(mesh.exists())
+
+    def test_durable_snapshot_write_guard_skips_legacy_geometry_members(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mesh = root / "output" / "prodgeometry" / "gid31795_h04_meshes.json"
+            mesh.parent.mkdir(parents=True)
+            mesh.write_text('{"meshes":[]}', encoding="utf-8")
+            legacy = SnapshotManifest(
+                snapshot_id="snap_legacy_geometry",
+                scorecard_count=0,
+                shot_file_count=0,
+                summary_present=False,
+                files=["output/prodgeometry/gid31795_h04_meshes.json"],
+            )
+
+            write_durable_snapshot(root=root, manifest=legacy)
+
+            copied = (
+                root
+                / "data"
+                / "snapshots"
+                / "snap_legacy_geometry"
+                / "raw"
+                / "output"
+                / "prodgeometry"
+                / "gid31795_h04_meshes.json"
+            )
+
+        self.assertFalse(copied.exists())
 
     def test_snapshot_manifest_discovers_geometry_dependencies_from_scorecards(self) -> None:
         with TemporaryDirectory() as tmp:
