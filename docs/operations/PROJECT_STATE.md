@@ -33,16 +33,19 @@ prerequisite for the upload workflow.
 ## Current Work Summary
 
 - **Backend candidate:** Public revision
-  `6d130528c366df62a6050f6c23b5d885fbe56e55` is running in healthy container
-  `aicaddie-release-6d130528-candidate-20260909`, image
-  `garmin-ai-caddie-api:6d130528-candidate-20260909` with image digest
-  `sha256:fcc5ee95dd6c89c837d326d435c7646ed39a9b6b1607c20e59957c961cf60647`.
-  Public `/api/v2/health` reports `status=ok` and that
-  exact revision. This revision is a descendant of the earlier `325cc2f3`
-  candidate, so the runtime is not a rollback; it includes the earlier backend
-  fixes plus the later topo rendering and snapshot-scope changes. The deployment
-  record is under
-  `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260909-snapshot-exclusion`.
+  `5124d6384c71cba0e2f911ab043464aca3e28c46` is running in healthy container
+  `aicaddie-release-5124d638-candidate-20260909`, image
+  `garmin-ai-caddie-api:5124d638-candidate-20260909` with image digest
+  `sha256:8b06a4d3c7a39338fe5dc0d0e8a8e741a168c740df403e924a8837e874900628`.
+  The matching sync image is
+  `aicaddie-sync:5124d6384c71cba0e2f911ab043464aca3e28c46` (digest
+  `sha256:8d4ed1702ad8689c8eda9e42e681dab2dd613b65e25bf548ad543184105a312c`).
+  Local and quick-tunnel probes report `health=ok`, `topo-v10=200` with a
+  `678x1060` PNG, and `topo-v9=409`; the old
+  `aicaddie-release-6d130528-candidate-20260909` remains stopped as rollback.
+  The fresh private-volume archive (2,223,575,223 bytes) and PostgreSQL dump
+  are SHA-256 recorded under
+  `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260909-topo-v10`.
 - **Native UX2 rerun diagnosis (2026-09-09):** Native Mobile CI run
   `34407853548` compiled and passed the non-device gates, but its three iOS
   topo/offline waits failed. The artifact `ios-app.log` and a direct local/public
@@ -390,14 +393,16 @@ code; do not restart the old multi-week plan tree.
 远端 scratch 为 `/home/jason/codex-runs/garmin-ai-caddie-phone-ux2-20260909-b`
 （只读挂载测试，未创建持久服务）。聚焦套件已更新为 `374 passed, 5 skipped`；
 全量 discovery 的失败/错误来自验证容器缺少 `git` 且排除了 `.env`、`data`、`output`
-等 authority/鉴权/持久化资源，不能当作产品回归。恢复时唯一继续路径是先完成新源码
-的原生编译/测试，再检查地图、障碍页、旗位真实设备表现；在这些证据完成前保持
+等 authority/鉴权/持久化资源，不能当作产品回归。`topo-v10` 后端已在
+`/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260909-topo-v10`
+完成对齐和本地/公网预检；恢复时唯一继续路径是完成新源码的原生编译/测试，再检查地图、
+障碍页、旗位真实设备表现；在这些证据完成前保持
 `PHONE-UX2` 为 `in-progress`，不要上传或发布新的候选包。
 
 **Durable execution plan (persisted 2026-09-09 UTC):**
 1. 已完成：修正测试方法边界，并保留当前工作区全部产品改动；`git diff --check` 通过。
 2. 已完成：homeserver 容量检查通过（约 117 GiB 可用、5.1 GiB 可用内存）；复用上述 scratch 在只读挂载并提供临时目录/数据层的容器中运行聚焦套件，`374 passed, 5 skipped`，exit 0。首轮只读容器错误是缺少 `/tmp` 和可写事件根，已修正验证条件，不是产品回归。
-3. 进行中：先将 homeserver 候选 API 对齐到当前源码的 `topo-v10` 后端（保留现有卷、端口和回滚容器），完成本地/公网 preflight；然后针对当前源码重新通过 GitHub Native Mobile CI 完成 Swift 编译、单测、截图和真实 iPhone/Watch 证据，重点核对地图纵向拖动、独立障碍页、单一旗杆底部落点和三种打法选择。`34407853548` 的三个 iOS topo 等待失败已定位为部署版本错配，不能作为产品回归证据。
+3. 进行中：`topo-v10` 后端已在 homeserver 对齐并完成本地/quick-tunnel 公网 preflight；针对当前源码重新通过 GitHub Native Mobile CI 完成 Swift 编译、单测、截图和真实 iPhone/Watch 证据，重点核对地图纵向拖动、独立障碍页、单一旗杆底部落点和三种打法选择。`34407853548` 的三个 iOS topo 等待失败已定位为部署版本错配，不能作为产品回归证据。
 4. 约束：原生/设备证据完成前不生成或上传新候选包、不做 Beta Review/外部发布/生产发布；验证结束后只清理本会话 allow-list 资源并回写本账本。
 
 此前 `PHONE-REGRESSION` 保持 `evidence-open`：
