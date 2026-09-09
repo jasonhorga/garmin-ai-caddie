@@ -6,7 +6,7 @@
 
 **Updated:** 2026-09-09 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
-`a44f1c9f9f5b92b280e85e93e15e1094c7ff85a6`; deployed backend tip
+`4f446b1d`; deployed backend tip
 `6d130528c366df62a6050f6c23b5d885fbe56e55`; MAP1 product-code tip
 `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
 `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
@@ -1428,6 +1428,12 @@ Native runs recorded above; it is retained only as historical diagnosis.
   master checklist from memory.
 
 ## State Changes
+
+- 2026-09-09: Context recovery confirmed the sole active slice remains
+  `PHONE-UX2`; the durable source tip is `4f446b1d` (the previous
+  `a44f1c9f` entry was stale). The next action is a fresh Native Mobile CI
+  run against `4f446b1d`; no TestFlight or other release side effect is
+  authorized before its native/device evidence is complete.
 
 - 2026-09-09: `PHONE-UX2` focused verification was rerun in the documented
   homeserver-only environment using scratch
