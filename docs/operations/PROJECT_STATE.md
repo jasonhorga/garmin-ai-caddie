@@ -6,7 +6,7 @@
 
 **Updated:** 2026-09-09 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
-`4f446b1d`; deployed backend tip
+`b9ff8b9d`; deployed backend tip
 `6d130528c366df62a6050f6c23b5d885fbe56e55`; MAP1 product-code tip
 `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
 `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
@@ -386,7 +386,7 @@ code; do not restart the old multi-week plan tree.
 **Durable execution plan (persisted 2026-09-09 UTC):**
 1. 已完成：修正测试方法边界，并保留当前工作区全部产品改动；`git diff --check` 通过。
 2. 已完成：homeserver 容量检查通过（约 117 GiB 可用、5.1 GiB 可用内存）；复用上述 scratch 在只读挂载并提供临时目录/数据层的容器中运行聚焦套件，`374 passed, 5 skipped`，exit 0。首轮只读容器错误是缺少 `/tmp` 和可写事件根，已修正验证条件，不是产品回归。
-3. 进行中：通过 GitHub Native Mobile CI 完成 Swift 编译、单测、截图和真实 iPhone/Watch 证据，重点核对地图纵向拖动、独立障碍页、单一旗杆底部落点和三种打法选择。
+3. 进行中：针对 `b9ff8b9d` 重新通过 GitHub Native Mobile CI 完成 Swift 编译、单测、截图和真实 iPhone/Watch 证据，重点核对地图纵向拖动、独立障碍页、单一旗杆底部落点和三种打法选择。
 4. 约束：原生/设备证据完成前不生成或上传新候选包、不做 Beta Review/外部发布/生产发布；验证结束后只清理本会话 allow-list 资源并回写本账本。
 
 此前 `PHONE-REGRESSION` 保持 `evidence-open`：
@@ -1429,10 +1429,18 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## State Changes
 
+- 2026-09-09: Native Mobile CI `34406253005` reached all Watch build/runtime evidence
+  and failed only at the iOS app target with Swift access-control errors in
+  `CoursePrep.swift:158`: a public default argument referenced internal
+  `GeoDistance` symbols. The minimal fix is `b9ff8b9d`, which exposes the
+  route-distance default through `CoursePrepLiveHazardReadout` without making
+  the math helper public. A fresh Native run against `b9ff8b9d` is required;
+  no release side effect was performed.
+
 - 2026-09-09: Context recovery confirmed the sole active slice remains
-  `PHONE-UX2`; the durable source tip is `4f446b1d` (the previous
+  `PHONE-UX2`; the durable source tip is `b9ff8b9d` (the previous
   `a44f1c9f` entry was stale). The next action is a fresh Native Mobile CI
-  run against `4f446b1d`; no TestFlight or other release side effect is
+  run against `b9ff8b9d`; no TestFlight or other release side effect is
   authorized before its native/device evidence is complete.
 
 - 2026-09-09: `PHONE-UX2` focused verification was rerun in the documented
