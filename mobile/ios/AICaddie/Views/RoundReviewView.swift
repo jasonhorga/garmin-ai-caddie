@@ -80,6 +80,7 @@ public struct RoundReviewView: View {
                     RoundReviewContent(
                         detail: detail, isLoading: isLoading, errorText: errorText,
                         fallbackCourseName: fallbackCourseName,
+                        globalId: globalId,
                         onSelectHole: { shotMapHole = ShotMapHole(hole: $0) },
                         onRetry: { Task { await load() } }
                     )
@@ -152,6 +153,7 @@ struct RoundReviewContent: View {
     let isLoading: Bool
     let errorText: String?
     let fallbackCourseName: String?
+    let globalId: Int? = nil
     var onSelectHole: (Int) -> Void = { _ in }
     var onRetry: () -> Void = {}
 

@@ -392,7 +392,10 @@ public struct RoundHomeView: View {
                 : (package.holes.first?.number ?? liveRoundState.activeHole)
             NavigationLink(value: HubRoute.hole(activeHole)) {
                 HubInProgressCard(
-                    courseName: package.course.localizedName,
+                    courseName: localizedCourseDisplayName(
+                        package.course.name,
+                        globalId: package.course.globalId
+                    ),
                     activeHole: activeHole,
                     recorded: recordedScoreHoleCount,
                     total: package.holes.count

@@ -73,7 +73,7 @@ public struct GarminSessionView: View {
                 // The owning app model is the only source of truth for the account lifecycle. A
                 // transient web/import error belongs to the verification sheet; rendering it here
                 // alongside the model state used to produce contradictory labels such as
-                // “网页已登录但未验证” and “已连接正在同步” at the same time.
+                // "网页已登录但未验证" and "已连接正在同步" at the same time.
                 Text(connectionState.statusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
