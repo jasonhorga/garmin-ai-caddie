@@ -43,6 +43,17 @@ prerequisite for the upload workflow.
   fixes plus the later topo rendering and snapshot-scope changes. The deployment
   record is under
   `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260909-snapshot-exclusion`.
+- **Native UX2 rerun diagnosis (2026-09-09):** Native Mobile CI run
+  `34407853548` compiled and passed the non-device gates, but its three iOS
+  topo/offline waits failed. The artifact `ios-app.log` and a direct local/public
+  probe both show `GET /api/v2/courses/{gid}/holes/{hole}/topo.png?v=topo-v10`
+  returning HTTP `409` with `{"detail":"topo renderer version changed"}`.
+  Inspecting the running image `garmin-ai-caddie-api:6d130528-candidate-20260909`
+  (digest `sha256:fcc5ee95dd6c89c837d326d435c7646ed39a9b6b1607c20e59957c961cf60647`)
+  confirms its loaded `STYLE_VERSION` is `topo-v9`; current source/mobile clients
+  require `topo-v10` (introduced by `4f446b1d`). This is a backend/client renderer
+  contract mismatch, not an iOS gesture or topo-loading regression. No TestFlight
+  upload was made from this failed run.
 - **Snapshot geometry remediation (2026-09-09):** Commits `ca3f505c` and
   `6d130528` make durable manifests/writes and portable exports omit the
   reproducible shared `output/prodgeometry*` trees while retaining
@@ -386,7 +397,7 @@ code; do not restart the old multi-week plan tree.
 **Durable execution plan (persisted 2026-09-09 UTC):**
 1. 已完成：修正测试方法边界，并保留当前工作区全部产品改动；`git diff --check` 通过。
 2. 已完成：homeserver 容量检查通过（约 117 GiB 可用、5.1 GiB 可用内存）；复用上述 scratch 在只读挂载并提供临时目录/数据层的容器中运行聚焦套件，`374 passed, 5 skipped`，exit 0。首轮只读容器错误是缺少 `/tmp` 和可写事件根，已修正验证条件，不是产品回归。
-3. 进行中：针对 `b9ff8b9d` 重新通过 GitHub Native Mobile CI 完成 Swift 编译、单测、截图和真实 iPhone/Watch 证据，重点核对地图纵向拖动、独立障碍页、单一旗杆底部落点和三种打法选择。
+3. 进行中：先将 homeserver 候选 API 对齐到当前源码的 `topo-v10` 后端（保留现有卷、端口和回滚容器），完成本地/公网 preflight；然后针对当前源码重新通过 GitHub Native Mobile CI 完成 Swift 编译、单测、截图和真实 iPhone/Watch 证据，重点核对地图纵向拖动、独立障碍页、单一旗杆底部落点和三种打法选择。`34407853548` 的三个 iOS topo 等待失败已定位为部署版本错配，不能作为产品回归证据。
 4. 约束：原生/设备证据完成前不生成或上传新候选包、不做 Beta Review/外部发布/生产发布；验证结束后只清理本会话 allow-list 资源并回写本账本。
 
 此前 `PHONE-REGRESSION` 保持 `evidence-open`：
