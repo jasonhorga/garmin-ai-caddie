@@ -120,6 +120,10 @@ public struct CoursePrepLiveHazardReadout: Equatable {
 
     public var detail: String { "到 \(toYards) · 过 \(overYards) 码" }
 
+    /// Public API default used by the route filter. Keep the distance policy on the readout type so
+    /// callers do not need access to the app-internal `GeoDistance` implementation.
+    public static let defaultMaxDistanceFromRouteMetres = 999.0 / 1.09361
+
     public init(
         id: String,
         kind: String,
@@ -155,7 +159,7 @@ public struct CoursePrepLiveHazardReadout: Equatable {
         projectionRefs: [CoursePrepProjectionRef],
         playerLatitude: Double,
         playerLongitude: Double,
-        maxDistanceFromRouteMetres: Double = GeoDistance.maximumUsefulGreenMetres
+        maxDistanceFromRouteMetres: Double = CoursePrepLiveHazardReadout.defaultMaxDistanceFromRouteMetres
     ) -> [Self]? {
         guard playerLatitude.isFinite, (-90...90).contains(playerLatitude),
               playerLongitude.isFinite, (-180...180).contains(playerLongitude) else {
