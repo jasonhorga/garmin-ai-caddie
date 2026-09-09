@@ -7,13 +7,13 @@
 **Updated:** 2026-09-09 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `a44f1c9f9f5b92b280e85e93e15e1094c7ff85a6`; deployed backend tip
-`325cc2f33aa39ac18bbcac9bc2e87c6f15a89384`; MAP1 product-code tip
+`6d130528c366df62a6050f6c23b5d885fbe56e55`; MAP1 product-code tip
 `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
 `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
 **Source baseline:** `a44f1c9f9f5b92b280e85e93e15e1094c7ff85a6` (the Build 53
 feedback changes are now included in the canonical source and Build 54; the
-backend runtime is the newer descendant `325cc2f3` of the earlier
-`f363872f` candidate; historical TestFlight build 47/48/49/50/51/52/53
+backend runtime is the newer descendant `6d130528` of the earlier
+`325cc2f3` candidate; historical TestFlight build 47/48/49/50/51/52/53
 sources remain recorded below)
 **Release rule:** the gates are ordered, not circular:
 `canonical source -> source/Native CI and backend preflight -> automatic fresh
@@ -33,15 +33,28 @@ prerequisite for the upload workflow.
 ## Current Work Summary
 
 - **Backend candidate:** Public revision
-  `325cc2f33aa39ac18bbcac9bc2e87c6f15a89384` is running in healthy container
-  `aicaddie-release-325cc2f3-candidate-20260909`, image
-  `garmin-ai-caddie-api:325cc2f3-candidate-20260909` with image ID
-  `sha256:de4ed6962f08c1d56e37f0b30428135d42cd5e76a142937e3ae2631cbd0eec55`.
+  `6d130528c366df62a6050f6c23b5d885fbe56e55` is running in healthy container
+  `aicaddie-release-6d130528-candidate-20260909`, image
+  `garmin-ai-caddie-api:6d130528-candidate-20260909` with image digest
+  `sha256:fcc5ee95dd6c89c837d326d435c7646ed39a9b6b1607c20e59957c961cf60647`.
   Public `/api/v2/health` reports `status=ok` and that
-  exact revision. This revision is a descendant of the earlier `f363872f`
+  exact revision. This revision is a descendant of the earlier `325cc2f3`
   candidate, so the runtime is not a rollback; it includes the earlier backend
-  fixes plus the later topo rendering change. The deployment record is under
-  `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260909-phone-ux2-topov9`.
+  fixes plus the later topo rendering and snapshot-scope changes. The deployment
+  record is under
+  `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260909-snapshot-exclusion`.
+- **Snapshot geometry remediation (2026-09-09):** Commits `ca3f505c` and
+  `6d130528` make durable manifests/writes and portable exports omit the
+  reproducible shared `output/prodgeometry*` trees while retaining
+  `geometryDependencies` metadata; imports still accept legacy archives. The
+  exact allow-list and verification records are under
+  `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`.
+  Sixteen legacy geometry directories were removed from nine retained snapshots,
+  releasing `34,241,567,932` bytes; raw Garmin data, manifests, normalized
+  history, and top-level shared geometry remain. Post-cleanup checks found zero
+  snapshot geometry directories, `snapshotId=null`, and no cross-snapshot or
+  external references. The 10:37 UTC scheduled sync then completed with 491
+  scorecards/shots, 112/112 course references, and no new snapshot geometry.
 - **Sync image incident and recovery (2026-09-07):** The hourly cron is a
   one-shot `docker run --rm`, so a persistent `aicaddie-sync` container is not
   expected in `docker ps` between runs. At 23:37, 00:37, and 01:37 UTC it
@@ -259,7 +272,7 @@ prerequisite for the upload workflow.
   diagnostics. The internal hardware-validation retry uses the explicit
   `test_environment_upload=true` path and still enforces health schema,
   authenticated readiness shape, and exact backend revision.
-- **Remaining release gate:** Current TestFlight build 53 is processed and
+- **Remaining release gate:** Current TestFlight build 54 is processed and
   visible through the existing internal all-builds group. Physical
   iPhone/paired Watch installation, fresh Garmin reconnect/sync behavior,
   first-launch behavior, held-loupe interaction, exact tester evidence, and
@@ -891,6 +904,7 @@ project-level task list; historical plans are reference material.
 | `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback for offset/simplified map loupes, compact factual hazard labels, resume-only active-round behavior, one Garmin auth/sync state, localized course/address display, stale-while-refresh score history, nested caddie advice, clearer scoring hierarchy and F/M/B versus pin presentation, plus zoomable maps with a single flag marker. | Source CI `34316491467`, Native Mobile CI `34316964148`, TestFlight CD `34323088795`, and Apple/internal-group check `34324271971` passed at source `a44f1c9f`; Build 54 is ready for physical iPhone/Watch validation. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
+| `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |
 
 ### Status vocabulary
 
@@ -941,6 +955,14 @@ means a named external decision or prerequisite is missing; `done` and
   Read-only Apple check `34324271971` confirmed `VALID`, unexpired,
   `IN_BETA_TESTING`, arm64, and membership in internal `Jason's friends`;
   external distribution and production remained unchanged.
+- `ca3f505c`/`6d130528`: Source CI `34330414405` and focused remote snapshot
+  tests (`31/31`) passed. New manifests and portable exports contain no
+  `output/prodgeometry*` members while retaining dependency metadata; the
+  import path accepts pre-change archives. Homeserver cleanup manifest
+  `20260909-snapshot-geometry-exclusion` records 16 exact deletions,
+  `34,241,567,932` bytes released, nine retained snapshots, zero remaining
+  per-snapshot geometry directories, and no external references. The next
+  scheduled sync completed successfully against API revision `6d130528`.
 - `d189b3b4`: Source CI run `33680857200` passed backend (2,047 tests, 13
   skips), frontend component/lint/build/visual smoke, and Docker API/sync
   smoke. The MAP1 mobile source is unchanged from `c5902a96`.
@@ -1386,6 +1408,15 @@ Native runs recorded above; it is retained only as historical diagnosis.
   master checklist from memory.
 
 ## State Changes
+
+- 2026-09-09: `SNAPSHOT-BLOAT` completed. Derived shared geometry is now
+  excluded from new durable snapshots and portable exports, with dependency
+  metadata retained and legacy archive import preserved. The exact allow-list
+  removed 16 per-snapshot geometry directories (`34,241,567,932` bytes) while
+  retaining nine raw-data snapshots and the top-level geometry store. Candidate
+  API revision `6d130528` is healthy; the scheduled sync completed afterward
+  and produced no snapshot geometry. Homeserver README and cleanup evidence were
+  updated; no mobile/TestFlight release side effect was performed.
 
 - 2026-09-09: `PHONE-UX2` moved from `in-progress` to `evidence-open` after
   Source CI `34316491467`, Native Mobile CI `34316964148`, TestFlight CD
