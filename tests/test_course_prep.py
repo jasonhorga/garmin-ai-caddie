@@ -233,8 +233,9 @@ class PureLogicTests(unittest.TestCase):
         self.assertTrue(row["greenOutline"]["available"])
         self.assertEqual(row["greenOutline"]["source"], "prodgeometry.Green.drc.boundary")
         self.assertEqual(len(row["greenOutline"]["pointsPx"]), 4)
-        self.assertEqual([row["id"] for row in row["candidateRoutes"]], ["safe", "stock"])
-        self.assertEqual([row["club"] for row in row["candidateRoutes"]], ["7I", "1W"])
+        self.assertEqual([route["id"] for route in row["candidateRoutes"]], ["safe", "stock", "attack"])
+        self.assertEqual([route["club"] for route in row["candidateRoutes"]], ["1W", "1W", "1W"])
+        self.assertTrue(all(route["allowSameClubStrategies"] for route in row["candidateRoutes"]))
         self.assertTrue(any(target["kind"] == "landing" for target in row["carryTargets"]))
 
     def test_candidate_routes_emit_only_distinct_modes_in_safe_stock_attack_order(self) -> None:
@@ -251,6 +252,28 @@ class PureLogicTests(unittest.TestCase):
         three = cp._candidate_routes([("1W", 200), ("7I", 128), ("8I", 122)], hazards)
         self.assertEqual([route["id"] for route in three], ["safe", "stock", "attack"])
         self.assertEqual([route["club"] for route in three], ["8I", "7I", "1W"])
+
+    def test_candidate_routes_keep_driver_modes_for_sparse_par4_bag(self) -> None:
+        routes = cp._candidate_routes(
+            [("1W", 200)],
+            {"water_carry": [], "bunkers": []},
+            par=4,
+        )
+
+        self.assertEqual([route["id"] for route in routes], ["safe", "stock", "attack"])
+        self.assertEqual([route["club"] for route in routes], ["1W", "1W", "1W"])
+        self.assertEqual([route["carryM"] for route in routes], [200.0, 200.0, 200.0])
+        self.assertTrue(all(route["allowSameClubStrategies"] for route in routes))
+
+    def test_candidate_routes_keep_sparse_non_driver_bag_distinct_only_when_supported(self) -> None:
+        routes = cp._candidate_routes(
+            [("7I", 128)],
+            {"water_carry": [], "bunkers": []},
+            par=4,
+        )
+
+        self.assertEqual([route["id"] for route in routes], ["stock"])
+        self.assertEqual([route["club"] for route in routes], ["7I"])
 
     def test_candidate_routes_collapse_duplicate_physical_club_aliases(self) -> None:
         routes = cp._candidate_routes(

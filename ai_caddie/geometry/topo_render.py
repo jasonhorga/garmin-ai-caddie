@@ -24,8 +24,8 @@ The rich topo texturing is ported from the standalone prototype
     fairway/green; shadows never darken mown surfaces
   - water: THIS hole's connected lake plus decoded coastal Ocean/VfxOcean/OceanSide surfaces,
     shallow->deep gradient + ripple + bright shoreline
-  - green: compact flag on the REAL per-hole green centroid (clustered to the play line so a
-    neighbour green never steals the flag)
+  - green: the factual putting surface only; the live pole-foot flag is a client overlay so it can
+    be moved without baking a second marker into the shared bitmap
   - clean super-sampled material edges (no Gaussian blur softening)
 
 NOT baked into the base (they are dynamic per-shot overlays, drawn by the client): the playing
@@ -59,7 +59,7 @@ from ai_caddie.geometry.geometry_authority import authority_path, cache_token
 # topo-v2: fill-the-frame projection (#233) — the hole now fills the height (FRAME_H=1060, variable
 # width) instead of floating small in a fixed 720x1120 letterbox. Bump so the pre-#233 cached PNGs
 # are superseded and every hole re-renders with the tighter framing.
-STYLE_VERSION = "topo-v9"  # v9: compact green flag; no target rings or crosshair overlays
+STYLE_VERSION = "topo-v10"  # v10: dynamic client flag; no baked marker/rings/crosshair overlays
 # The focused asset is a separate cache contract from the whole-hole bitmap.  Bump this when its
 # crop/compositing treatment changes; otherwise an installed Watch can keep the old, green-only
 # tile forever even though the server has learned to render a sharp surrounding apron.
@@ -772,7 +772,8 @@ def render_hole_topo_image(gid: int, hole: int) -> Image.Image:
             raise TopoGeometryUnavailable(f"no derivable route for gid{gid} hole{hole}")
         project, sc, w, h, _margin = hole_render._frame(by, route)
         img = _build(md, by, route, project, sc, w, h, gid, hole)
-        img = _draw_green_marker(img, project, by, route)
+        # The flag is deliberately not baked into the shared bitmap. Phone/Watch/Web overlays own
+        # one movable pole-foot marker, which avoids a duplicate static flag after a pin edit.
         img = _draw_tee_marker(img, project, by, route)
         return img.resize((w // SS, h // SS), Image.LANCZOS)
     except TopoGeometryUnavailable:

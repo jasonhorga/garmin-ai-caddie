@@ -2119,7 +2119,7 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn("geometryRevision: String? = nil", sync_client)
         self.assertIn("api/v2/courses/\\(globalId)/holes/\\(localHole)/topo.png", sync_client)
-        self.assertIn('public static let topoStyleVersion = "topo-v9"', sync_client)
+        self.assertIn('public static let topoStyleVersion = "topo-v10"', sync_client)
         self.assertIn('URLQueryItem(name: "v", value: topoStyleVersion)', sync_client)
         self.assertIn("TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)", hole_map_view)
         self.assertIn(
@@ -2149,7 +2149,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIsNotNone(watch_version)
         assert phone_version is not None and watch_version is not None
         self.assertEqual(phone_version.group(1), watch_version.group(1))
-        self.assertEqual(phone_version.group(1), "topo-v9")
+        self.assertEqual(phone_version.group(1), "topo-v10")
 
         phone_green_version = re.search(
             r'public static let greenDetailStyleVersion = "([^"]+)"', sync_client
@@ -3382,10 +3382,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("caddieErrorMessage", current_hole)
         self.assertIn("@State private var selectedStrategyMode: String = \"stock\"", current_hole)
         self.assertNotIn('Picker("策略"', current_hole)
-        self.assertIn("onSelectStrategyMode: { selectedStrategyMode = $0 }", current_hole)
+        self.assertIn("onSelectStrategyMode: selectStrategyMode", current_hole)
         self.assertIn("strategyMode: selectedStrategyMode", current_hole)
         self.assertIn("CaddieDecisionClient", current_hole)
         self.assertIn("WatchEventBridge", current_hole)
+
         self.assertIn("await loadCaddieDecision()", current_hole)
         self.assertIn("fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)", current_hole)
         self.assertIn("response: caddieDecision", current_hole)
@@ -3480,6 +3481,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func startUpdatingLocation", location_provider)
         self.assertIn("didUpdateLocations", location_provider)
         self.assertIn("horizontalAccuracyM", location_provider)
+
+    def test_live_hazard_detail_owns_its_numbered_spans_without_shared_duplicates(self) -> None:
+        hazard_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveHazardDetailView.swift")
+        self.assertIn("showsRecommendedRoute: false", hazard_detail)
+        self.assertIn("showsHazards: false", hazard_detail)
+        self.assertIn("drawHazardSpans(&context, size: size)", hazard_detail)
 
     def test_ios_round_review_runtime_capture_uses_stable_navigation_identifiers(self) -> None:
         resolver = _read_required_source(

@@ -1164,14 +1164,15 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
         for name, distance in ladder
         if club_bag_service.canonical_club_name(name) != "putter"
     ]
-    driver_row = next(
+    real_driver_row = next(
         (
             (name, distance)
             for name, distance in usable_ladder
             if club_bag_service.canonical_club_name(name) == "driver"
         ),
-        usable_ladder[0] if usable_ladder else (None, 200),
+        None,
     )
+    driver_row = real_driver_row or (usable_ladder[0] if usable_ladder else (None, 200))
     driver_name, driver = driver_row
     landing = None
     if par == 3:
@@ -1182,7 +1183,15 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
         # The factual Driver row owns the tee carry. Looking it up again by a free-form display name
         # was the source of Driver -> Driver: production calls it ``Driver``, while the old exclusion
         # only recognised ``1W``.
-        tee_club = driver_name if route_len_m > driver else club_for(landing, usable_ladder)[0]
+        # A Par 4/5 opening shot should expose the player's actual Driver/1W whenever it exists.
+        # The previous distance-only branch silently swapped to a hybrid on short holes, making the
+        # caddie appear to forbid the club the golfer normally tees with.  Keep the landing target
+        # conservative for a short hole, but keep the physical tee club honest.
+        tee_club = (
+            driver_name
+            if real_driver_row is not None
+            else (driver_name if route_len_m > driver else club_for(landing, usable_ladder)[0])
+        )
         steps.append({"club": tee_club, "note": f"开球落点约 {yd(landing)}y"})
         remaining = route_len_m - landing
         approach_ladder = [
@@ -1570,7 +1579,7 @@ def _lightweight_prep_hole(
                 "reason": "precise prodgeometry is pending; factual CourseView courseData is active",
             }
         ],
-        candidateRoutes=_candidate_routes(ladder, hazards),
+        candidateRoutes=_candidate_routes(ladder, hazards, par=par),
         carryTargets=_carry_targets(landing, hazards),
         steps=steps,
         cautions=cautions,
@@ -1624,7 +1633,21 @@ def lightweight_prep_hole(
     return value if isinstance(value, dict) else None
 
 
-def _candidate_routes(ladder: list[tuple[str, int]], hazards: dict) -> list[dict]:
+def _candidate_routes(
+    ladder: list[tuple[str, int]],
+    hazards: dict,
+    *,
+    par: int | None = None,
+) -> list[dict]:
+    """Build stable safe/stock/attack route facts from a measured club ladder.
+
+    ``par=None`` preserves the historical helper semantics for callers that only have a ladder.
+    Production prep passes the hole par.  On a Par 4/5, a real Driver is retained for every
+    strategy whenever it is present: the modes describe target line/risk, not invented distances
+    for one physical club.  This remains true for a sparse bag, because the golfer still needs to
+    choose the Driver line explicitly.  Without a Driver, sparse ladders keep the old safe/stock
+    fallback so the payload does not claim three independently supported choices.
+    """
     if not ladder:
         return []
     # A strategy is only viable when it has a distinct measured club/carry.  Repeating the longest
@@ -1638,11 +1661,20 @@ def _candidate_routes(ladder: list[tuple[str, int]], hazards: dict) -> list[dict
     if not playable:
         return []
 
+    driver_row = next(
+        (row for row in playable if club_bag_service.canonical_club_name(row[0]) == "driver"),
+        None,
+    )
+    same_club_modes = bool(par in {4, 5} and driver_row is not None)
+
     # ``ladder`` is longest-first.  The middle tier is the standard route; the shortest and
     # longest tiers are the honest conservative/aggressive alternatives.  With one or two tiers,
-    # return only the modes represented by the bag, in the same stable public order.
+    # return only the modes represented by the bag unless a real Driver is present on a Par 4/5;
+    # in that case all three line choices deliberately share the Driver's measured carry.
     tiers: list[tuple[str, tuple[str, int]]] = []
-    if len(playable) >= 3:
+    if same_club_modes:
+        tiers = [("safe", driver_row), ("stock", driver_row), ("attack", driver_row)]  # type: ignore[list-item]
+    elif len(playable) >= 3:
         tiers = [
             ("safe", playable[2]),
             ("stock", playable[1]),
@@ -1654,15 +1686,17 @@ def _candidate_routes(ladder: list[tuple[str, int]], hazards: dict) -> list[dict
         tiers = [("stock", playable[0])]
 
     # Be defensive about callers passing aliases or repeated rows despite the normal ladder
-    # canonicalisation.  A duplicate physical club never earns a second strategy label.
+    # canonicalisation.  In the explicit same-club mode, duplicate physical identity is expected:
+    # each row is a different target/risk strategy.
     seen: set[str] = set()
     distinct: list[tuple[str, tuple[str, int]]] = []
     for option_id, (club_name, carry_m) in tiers:
         canonical = club_bag_service.canonical_club_name(club_name)
         key = canonical or str(club_name).strip().casefold()
-        if key in seen:
+        if not same_club_modes and key in seen:
             continue
-        seen.add(key)
+        if not same_club_modes:
+            seen.add(key)
         distinct.append((option_id, (club_name, carry_m)))
 
     risk = 3 if (hazards.get("water_carry") or hazards.get("bunkers")) else 1
@@ -1673,6 +1707,8 @@ def _candidate_routes(ladder: list[tuple[str, int]], hazards: dict) -> list[dict
             "club": club_name,
             "carryM": float(carry_m),
             "riskScore": base_risk[option_id],
+            "strategyMode": option_id,
+            "allowSameClubStrategies": same_club_modes,
             "source": "course_prep",
         }
         for option_id, (club_name, carry_m) in distinct
@@ -1822,7 +1858,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         ),
         sourceRefs=[f"course:{int(global_id)}", f"geometry:{int(global_id)}:{int(local_hole)}"],
         missingData=missing_data,
-        candidateRoutes=_candidate_routes(ladder, hazards),
+        candidateRoutes=_candidate_routes(ladder, hazards, par=par),
         carryTargets=_carry_targets(landing, hazards),
         steps=steps, cautions=cautions, landing_m=(round(landing, 1) if landing else None),
         tee_club=tee_club, hazards=hazards,

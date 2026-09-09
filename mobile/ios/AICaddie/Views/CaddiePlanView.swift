@@ -40,16 +40,18 @@ func zhCaddieShotRole(_ role: String) -> String {
 func zhCaddieRouteLabel(_ label: String) -> String {
     let key = label.lowercased()
         .replacingOccurrences(of: "_", with: " ")
-        .trimmingCharacters(in: .whitespaces)
+        .replacingOccurrences(of: "-", with: " ")
+        .split(whereSeparator: { $0.isWhitespace })
+        .joined(separator: " ")
     switch key {
-    case "safe", "conservative", "protect", "protect score", "lay back":
+    case "safe", "safe line", "safe route", "conservative", "conservative layup",
+         "protect", "protect score", "lay back", "layup", "lay up":
         return "保守"
-    case "stock", "standard", "neutral":
+    case "stock", "stock line", "stock route", "standard", "standard line", "neutral",
+         "recommended", "recommended line":
         return "推荐"
-    case "attack", "aggressive", "go for it":
+    case "attack", "attack line", "aggressive", "aggressive line", "go for it", "go for it line":
         return "进攻"
-    case "layup", "lay up":
-        return "铺垫"
     case "punch", "recovery", "escape":
         return "解围"
     default:
@@ -63,13 +65,16 @@ func caddieStrategyMode(forRouteId routeId: String) -> String? {
     let key = routeId.lowercased()
         .replacingOccurrences(of: "_", with: " ")
         .replacingOccurrences(of: "-", with: " ")
-        .trimmingCharacters(in: .whitespaces)
+        .split(whereSeparator: { $0.isWhitespace })
+        .joined(separator: " ")
     switch key {
-    case "conservative layup", "safe", "conservative", "protect", "protect score", "lay back":
+    case "conservative layup", "safe", "safe line", "safe route", "conservative", "protect",
+         "protect score", "lay back", "layup", "lay up":
         return "protect_score"
-    case "stock line", "stock", "standard", "neutral":
+    case "stock line", "stock", "stock route", "standard", "standard line", "neutral",
+         "recommended", "recommended line":
         return "stock"
-    case "aggressive line", "attack", "aggressive", "go for it":
+    case "aggressive line", "attack", "attack line", "aggressive", "go for it", "go for it line":
         return "attack"
     default:
         return nil
@@ -449,6 +454,9 @@ public struct CaddiePlanView: View {
     public let sequences: [CaddiePlanSequence]
     public let selectedSequenceId: String?
     public let hazards: [CaddiePlanHazard]
+    /// The live round owns the selected mode. Keeping it as an explicit input means a tap is
+    /// reflected immediately, before the network has returned a replacement decision payload.
+    public let selectedStrategyMode: String?
     public let onSelectStrategyMode: (String) -> Void
 
     public init(
@@ -457,6 +465,7 @@ public struct CaddiePlanView: View {
         sequences: [CaddiePlanSequence] = [],
         selectedSequenceId: String? = nil,
         hazards: [CaddiePlanHazard] = [],
+        selectedStrategyMode: String? = nil,
         onSelectStrategyMode: @escaping (String) -> Void = { _ in }
     ) {
         self.options = options
@@ -464,12 +473,14 @@ public struct CaddiePlanView: View {
         self.sequences = sequences
         self.selectedSequenceId = selectedSequenceId
         self.hazards = hazards
+        self.selectedStrategyMode = selectedStrategyMode
         self.onSelectStrategyMode = onSelectStrategyMode
     }
 
     public init(
         response: CaddieDecisionResponse,
         hazards: [CaddiePlanHazard] = [],
+        selectedStrategyMode: String? = nil,
         onSelectStrategyMode: @escaping (String) -> Void = { _ in }
     ) {
         let responseOptions = CaddiePlanOption.options(from: response)
@@ -479,12 +490,14 @@ public struct CaddiePlanView: View {
         self.sequences = responseSequences
         self.selectedSequenceId = CaddiePlanSequence.selectedSequenceId(from: response) ?? response.selectedOptionId
         self.hazards = hazards
+        self.selectedStrategyMode = selectedStrategyMode
         self.onSelectStrategyMode = onSelectStrategyMode
     }
 
     public init(
         seed: CaddieContextSeed?,
         hazards: [CaddiePlanHazard] = [],
+        selectedStrategyMode: String? = nil,
         onSelectStrategyMode: @escaping (String) -> Void = { _ in }
     ) {
         let seedOptions = CaddiePlanOption.options(from: seed)
@@ -493,11 +506,26 @@ public struct CaddiePlanView: View {
         self.sequences = []
         self.selectedSequenceId = nil
         self.hazards = hazards
+        self.selectedStrategyMode = selectedStrategyMode
         self.onSelectStrategyMode = onSelectStrategyMode
     }
 
+    private var activeStrategyMode: String? {
+        guard let selectedStrategyMode else {
+            return nil
+        }
+        return caddieStrategyMode(forRouteId: selectedStrategyMode)
+            ?? selectedStrategyMode.lowercased()
+    }
+
     private var recommended: CaddiePlanOption? {
-        options.first { $0.id == selectedOptionId } ?? options.first
+        // A tap changes the live mode before the server returns a new decision. Prefer that mode
+        // here so the summary/detail never flashes the stale backend-selected row for one frame.
+        if let activeStrategyMode,
+           let selected = options.first(where: { mode(for: $0) == activeStrategyMode }) {
+            return selected
+        }
+        return options.first { $0.id == selectedOptionId } ?? options.first
     }
 
     /// The recommendation is the product's primary answer. Keep it first even though legacy API
@@ -505,8 +533,8 @@ public struct CaddiePlanView: View {
     /// aggressive by their factual risk score.
     private var orderedOptions: [CaddiePlanOption] {
         options.enumerated().sorted { lhs, rhs in
-            let lhsSelected = lhs.element.id == selectedOptionId
-            let rhsSelected = rhs.element.id == selectedOptionId
+            let lhsSelected = isSelected(lhs.element)
+            let rhsSelected = isSelected(rhs.element)
             if lhsSelected != rhsSelected { return lhsSelected }
             if lhs.element.riskScore != rhs.element.riskScore {
                 return lhs.element.riskScore < rhs.element.riskScore
@@ -517,7 +545,36 @@ public struct CaddiePlanView: View {
 
     /// Selected打法 first, then the rest in backend order — matches the approved「整洞序列为主」mockup.
     private var orderedSequences: [CaddiePlanSequence] {
-        sequences.sorted { ($0.id == selectedSequenceId ? 0 : 1) < ($1.id == selectedSequenceId ? 0 : 1) }
+        sequences.sorted {
+            (isSelected($0) ? 0 : 1) < (isSelected($1) ? 0 : 1)
+        }
+    }
+
+    private func mode(for sequence: CaddiePlanSequence) -> String? {
+        caddieStrategyMode(forRouteId: sequence.id)
+            ?? caddieStrategyMode(forRouteId: sequence.label)
+    }
+
+    private func mode(for option: CaddiePlanOption) -> String? {
+        caddieStrategyMode(forRouteId: option.id)
+            ?? caddieStrategyMode(forRouteId: option.label)
+    }
+
+    private func isSelected(_ option: CaddiePlanOption) -> Bool {
+        if let activeStrategyMode,
+           let optionMode = mode(for: option) {
+            return optionMode == activeStrategyMode
+        }
+        return option.id == selectedOptionId
+    }
+
+    private func isSelected(_ sequence: CaddiePlanSequence) -> Bool {
+        if let activeStrategyMode,
+           let sequenceMode = mode(for: sequence),
+           sequenceMode == activeStrategyMode {
+            return true
+        }
+        return activeStrategyMode == nil && sequence.id == selectedSequenceId
     }
 
     public var body: some View {
@@ -555,9 +612,9 @@ public struct CaddiePlanView: View {
     /// 整洞打法序列:每种打法一张卡,逐杆写「角色 球杆 带球 → 留距」,选中打法高亮置顶。
     @ViewBuilder private var sequenceCards: some View {
         ForEach(orderedSequences) { sequence in
-            let isSelected = sequence.id == selectedSequenceId
+            let isSelected = isSelected(sequence)
             let color = AICaddieDesignTokens.strategyColor(sequence.id)
-            let strategyMode = caddieStrategyMode(forRouteId: sequence.id)
+            let strategyMode = mode(for: sequence)
             Button {
                 if let strategyMode {
                     onSelectStrategyMode(strategyMode)
@@ -708,14 +765,18 @@ public struct CaddiePlanView: View {
     private var altTable: some View {
         VStack(spacing: 8) {
             ForEach(orderedOptions) { option in
-                let isSelected = option.id == selectedOptionId
+                let optionMode = mode(for: option)
+                let isSelected = isSelected(option)
                 let color = AICaddieDesignTokens.strategyColor(option.id)
-                VStack(alignment: .leading, spacing: 7) {
+                Button {
+                    if let optionMode { onSelectStrategyMode(optionMode) }
+                } label: {
+                  VStack(alignment: .leading, spacing: 7) {
                     HStack(spacing: 7) {
                         Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                             .font(.caption)
                             .foregroundStyle(isSelected ? color : Color.secondary)
-                        Text("\(zhCaddieRouteLabel(option.label))打法")
+                        Text("\(zhCaddieRouteLabel(option.id))打法")
                             .font(.subheadline.weight(isSelected ? .semibold : .medium))
                         if isSelected {
                             Text("已选")
@@ -745,17 +806,20 @@ public struct CaddiePlanView: View {
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
+                  }
+                  .padding(10)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+                  .background(
+                      RoundedRectangle(cornerRadius: 10)
+                          .fill(isSelected ? color.opacity(0.08) : Color(.secondarySystemBackground).opacity(0.6))
+                  )
+                  .overlay(
+                      RoundedRectangle(cornerRadius: 10)
+                          .strokeBorder(isSelected ? color.opacity(0.45) : Color.primary.opacity(0.05), lineWidth: 1)
+                  )
                 }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(isSelected ? color.opacity(0.08) : Color(.secondarySystemBackground).opacity(0.6))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(isSelected ? color.opacity(0.45) : Color.primary.opacity(0.05), lineWidth: 1)
-                )
+                .buttonStyle(.plain)
+                .disabled(optionMode == nil)
             }
         }
     }
@@ -799,7 +863,7 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
     ) -> [CaddiePlanHazard] {
         var out: [(frontRouteM: Double, hazard: CaddiePlanHazard)] = []
         let bunkerDetails = hazards.details
-            .filter { $0.kind == "bunker" }
+            .filter { $0.kind == "bunker" && max($0.frontRouteM, $0.backRouteM) > 30.0 }
             .sorted { $0.frontRouteM < $1.frontRouteM }
         if !bunkerDetails.isEmpty {
             for (index, detail) in bunkerDetails.enumerated() {
@@ -810,7 +874,9 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
                 )))
             }
         } else {
-            let bunkers = hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            let bunkers = hazards.bunkers
+                .filter { ($0.first ?? 0) > 30.0 }
+                .sorted { ($0.first ?? 0) < ($1.first ?? 0) }
             for (index, interval) in bunkers.enumerated() {
                 let label = CoursePrepHazardNaming.legacyLabel(
                     kind: "bunker", interval: interval, route: route
@@ -821,7 +887,7 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
             }
         }
         let waterDetails = hazards.details
-            .filter { $0.kind == "water" }
+            .filter { $0.kind == "water" && max($0.frontRouteM, $0.backRouteM) > 30.0 }
             .sorted { $0.frontRouteM < $1.frontRouteM }
         if !waterDetails.isEmpty {
             for (index, detail) in waterDetails.enumerated() {
@@ -832,7 +898,9 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
                 )))
             }
         } else {
-            let water = hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            let water = hazards.waterCarry
+                .filter { max($0.first ?? 0, $0.dropFirst().first ?? 0) > 30.0 }
+                .sorted { ($0.first ?? 0) < ($1.first ?? 0) }
             for (index, interval) in water.enumerated() {
                 let label = CoursePrepHazardNaming.legacyLabel(
                     kind: "water", interval: interval, route: route

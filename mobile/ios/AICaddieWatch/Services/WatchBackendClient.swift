@@ -161,7 +161,7 @@ extension WatchBackendClientError: LocalizedError {
 
 public final class WatchBackendClient {
     /// Must match the phone renderer/cache version; the cross-target contract test locks equality.
-    public static let topoStyleVersion = "topo-v9"
+    public static let topoStyleVersion = "topo-v10"
     /// Focused View Green pixels have their own cache contract so an improved context render does
     /// not force every whole-hole topo to download again.
     public static let greenDetailStyleVersion = "green-v3"

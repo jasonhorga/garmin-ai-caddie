@@ -15,6 +15,56 @@ enum LiveHoleStyle {
     static let line = Color(red: 231 / 255, green: 233 / 255, blue: 236 / 255)
 }
 
+/// Shared Garmin/S70-style flag geometry. Every caller passes the point where the pole enters the
+/// ground (the flag's foot), never the centre of the pennant. Keeping the renderer here prevents the
+/// hole map, Touch Target, and View Green surfaces from drifting into three subtly different flags.
+enum LiveMapFlagRenderer {
+    static let poleHeight: CGFloat = 27
+    static let pennantWidth: CGFloat = 14
+    static let pennantHeight: CGFloat = 8
+
+    static func poleTop(from foot: CGPoint, height: CGFloat = poleHeight) -> CGPoint {
+        CGPoint(x: foot.x, y: foot.y - height)
+    }
+
+    static func draw(_ context: inout GraphicsContext, at foot: CGPoint) {
+        let top = poleTop(from: foot)
+
+        var pole = Path()
+        pole.move(to: foot)
+        pole.addLine(to: top)
+        context.stroke(
+            pole,
+            with: .color(.black.opacity(0.58)),
+            style: StrokeStyle(lineWidth: 4, lineCap: .round)
+        )
+        context.stroke(
+            pole,
+            with: .color(.white.opacity(0.95)),
+            style: StrokeStyle(lineWidth: 1.8, lineCap: .round)
+        )
+
+        var pennant = Path()
+        pennant.move(to: CGPoint(x: top.x + 1, y: top.y + 1))
+        pennant.addLine(to: CGPoint(x: top.x + pennantWidth, y: top.y + pennantHeight / 2 + 1))
+        pennant.addLine(to: CGPoint(x: top.x + 1, y: top.y + pennantHeight + 1))
+        pennant.closeSubpath()
+        context.fill(pennant, with: .color(Color(red: 0.92, green: 0.12, blue: 0.12)))
+        context.stroke(
+            pennant,
+            with: .color(.black.opacity(0.48)),
+            style: StrokeStyle(lineWidth: 0.8, lineJoin: .round)
+        )
+
+        let socket = CGRect(x: foot.x - 3.2, y: foot.y - 1.8, width: 6.4, height: 3.6)
+        context.fill(Path(ellipseIn: socket), with: .color(.black.opacity(0.42)))
+        context.fill(
+            Path(ellipseIn: CGRect(x: foot.x - 1.8, y: foot.y - 1.2, width: 3.6, height: 2.4)),
+            with: .color(.white.opacity(0.92))
+        )
+    }
+}
+
 /// Trim a raw ISO datetime ("2026-05-20T08:00:00+08:00") to a clean date ("2026-05-20")
 /// for display — the live screens show user-facing dates, never raw timestamps.
 func aiCaddieShortDate(_ raw: String) -> String {
@@ -615,6 +665,10 @@ struct LiveCaddieStrip: View {
 struct LiveCaddieEntry: View {
     let isLoading: Bool
     let isReady: Bool
+    /// The single actionable answer belongs on the live root. The full strategy sheet remains the
+    /// place for comparing lines and choosing another club, so this text never becomes a second
+    /// club-picker row competing with the scoring controls.
+    var nextShotText: String? = nil
     var onTap: () -> Void = {}
 
     var body: some View {
@@ -629,9 +683,11 @@ struct LiveCaddieEntry: View {
                     Text("球童建议")
                         .font(.system(size: 14, weight: .heavy))
                         .foregroundStyle(LivePlayStyle.ink)
-                    Text(isReady ? "查看本洞策略与选杆" : "打开后查看或重试")
+                    Text(nextShotText ?? (isReady ? "查看本洞策略与选杆" : "打开后查看或重试"))
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(LivePlayStyle.ink45)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
                 }
                 Spacer(minLength: 0)
                 if isLoading {
@@ -653,6 +709,52 @@ struct LiveCaddieEntry: View {
         .accessibilityLabel("球童建议")
         .accessibilityHint("查看本洞完整策略和推荐球杆")
         .accessibilityIdentifier("live-caddie-entry")
+    }
+}
+
+/// One compact route into the complete obstacle instrument. Whole-hole maps stay visually clean;
+/// this entry makes the Garmin-style front/back list reachable without hiding it in the caddie text.
+struct LiveHazardEntry: View {
+    let count: Int
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color(red: 0.95, green: 0.69, blue: 0.20))
+                    .frame(width: 30, height: 30)
+                    .background(Color(red: 0.95, green: 0.69, blue: 0.20).opacity(0.14), in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("障碍物")
+                        .font(.system(size: 14, weight: .heavy))
+                        .foregroundStyle(LivePlayStyle.ink)
+                    Text("水障碍与沙坑 · 到前沿 / 过后沿")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(LivePlayStyle.ink45)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
+                Spacer(minLength: 8)
+                Text("\(count)")
+                    .font(.system(size: 14, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(LivePlayStyle.ink60)
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(LivePlayStyle.ink45)
+            }
+            .padding(.vertical, 9)
+            .padding(.horizontal, 11)
+            .frame(maxWidth: .infinity)
+            .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(LivePlayStyle.stroke10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("障碍物，\(count) 个")
+        .accessibilityHint("查看所有障碍物的前沿和后沿距离")
+        .accessibilityIdentifier("live-hazard-entry")
     }
 }
 
@@ -1183,6 +1285,53 @@ enum LivePlayMapOverlayLayout {
             y: topInset + (mapHeight - renderedHeight) / 2,
             width: renderedWidth,
             height: renderedHeight
+        )
+    }
+
+    /// Clamp a zoom translation against the *fitted map rectangle*, rather than against the whole
+    /// phone viewport. The old viewport-sized bounds allowed the image's letterboxed top/bottom to
+    /// move while the actual course stayed out of reach, which made the upper fairway impossible to
+    /// inspect after a pinch. When a transformed axis is smaller than the viewport there is no valid
+    /// pan on that axis, so it remains centered at zero.
+    static func clampedOffset(
+        _ proposed: CGSize,
+        mapFrame: CGRect,
+        viewportSize: CGSize,
+        scale: CGFloat
+    ) -> CGSize {
+        guard proposed.width.isFinite,
+              proposed.height.isFinite,
+              mapFrame.minX.isFinite,
+              mapFrame.minY.isFinite,
+              mapFrame.width.isFinite,
+              mapFrame.height.isFinite,
+              viewportSize.width.isFinite,
+              viewportSize.height.isFinite,
+              viewportSize.width > 0,
+              viewportSize.height > 0,
+              scale.isFinite,
+              scale > 0 else {
+            return .zero
+        }
+
+        let center = CGPoint(x: viewportSize.width / 2, y: viewportSize.height / 2)
+        let transformedMinX = center.x + (mapFrame.minX - center.x) * scale
+        let transformedMaxX = center.x + (mapFrame.maxX - center.x) * scale
+        let transformedMinY = center.y + (mapFrame.minY - center.y) * scale
+        let transformedMaxY = center.y + (mapFrame.maxY - center.y) * scale
+
+        func bounds(minimum: CGFloat, maximum: CGFloat, viewport: CGFloat) -> (CGFloat, CGFloat) {
+            let span = maximum - minimum
+            guard span > viewport else { return (0, 0) }
+            // After translation, the transformed bounds must cover [0, viewport].
+            return (viewport - maximum, -minimum)
+        }
+
+        let xBounds = bounds(minimum: transformedMinX, maximum: transformedMaxX, viewport: viewportSize.width)
+        let yBounds = bounds(minimum: transformedMinY, maximum: transformedMaxY, viewport: viewportSize.height)
+        return CGSize(
+            width: min(max(proposed.width, xBounds.0), xBounds.1),
+            height: min(max(proposed.height, yBounds.0), yBounds.1)
         )
     }
 

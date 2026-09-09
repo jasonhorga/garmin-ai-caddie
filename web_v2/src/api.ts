@@ -102,8 +102,8 @@ function apiUrl(path: string): string {
 export function topoImageUrl(globalId: number, hole: number, geometryRevision?: string | null): string {
   const revision = geometryRevision?.trim()
   const query = revision
-    ? `v=topo-v9&r=${encodeURIComponent(revision)}`
-    : 'v=topo-v9'
+    ? `v=topo-v10&r=${encodeURIComponent(revision)}`
+    : 'v=topo-v10'
   return apiUrl(`/api/v2/courses/${globalId}/holes/${hole}/topo.png?${query}`)
 }
 

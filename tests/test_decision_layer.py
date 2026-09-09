@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from ai_caddie.caddie.analysis import _hole_summary, llm_brief
 from ai_caddie.caddie.decision import (
+    _dedupe_strategy_options,
     audit_decision,
     build_decision_plan,
     generate_decision_explanation,
@@ -342,6 +343,31 @@ class DecisionLayerTests(unittest.TestCase):
             plan["options"][0]["clubRecommendation"]["clubs"][0]["clubName"],
             "1D",
         )
+
+    def test_same_club_strategy_authorization_is_scoped_to_each_canonical_group(self) -> None:
+        options = [
+            {"id": "safe", "club": "Driver", "allowSameClubStrategies": True, "carry_m": 220.0},
+            {"id": "stock", "club": "1W", "allowSameClubStrategies": True, "carry_m": 220.0},
+            {"id": "attack", "club": "1D", "allowSameClubStrategies": True, "carry_m": 220.0},
+            {"id": "backup-a", "club": "3W", "allowSameClubStrategies": True, "carry_m": 190.0},
+            {"id": "backup-b", "club": "3 Wood", "allowSameClubStrategies": False, "carry_m": 190.0},
+        ]
+
+        deduped = _dedupe_strategy_options(options)
+
+        # The Driver aliases are one fully-authorized mode set; the unrelated wood group is not.
+        self.assertEqual([row["id"] for row in deduped], ["safe", "stock", "attack", "backup-a"])
+
+    def test_same_club_strategy_requires_every_repeated_row_to_opt_in(self) -> None:
+        options = [
+            {"id": "safe", "club": "Driver", "allowSameClubStrategies": True, "carry_m": 220.0},
+            {"id": "stock", "club": "1W", "allowSameClubStrategies": False, "carry_m": 220.0},
+            {"id": "attack", "club": "1D", "allowSameClubStrategies": True, "carry_m": 220.0},
+        ]
+
+        deduped = _dedupe_strategy_options(options)
+
+        self.assertEqual([row["id"] for row in deduped], ["safe"])
 
     def test_tee_legacy_routes_keep_distinct_carries_when_club_identity_is_missing(self) -> None:
         context = analysis_fixture(stock_risk=1)

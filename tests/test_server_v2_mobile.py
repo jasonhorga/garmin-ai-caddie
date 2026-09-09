@@ -142,10 +142,35 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(refreshed["holeRemaining_m"], 313.1)
         self.assertEqual(
             [row["id"] for row in refreshed["candidateRoutes"]],
-            ["conservative_layup", "stock_line"],
+            ["conservative_layup", "stock_line", "aggressive_line"],
+        )
+        self.assertEqual(
+            [row["club"] for row in refreshed["candidateRoutes"]],
+            ["1W", "1W", "1W"],
         )
         self.assertEqual(refreshed["candidateRoutes"][1]["lineRisks"][0]["id"], "water-near")
         self.assertEqual(refreshed["candidateRoutes"][1]["lineRisks"][0]["carryToClear_m"], 200.0)
+
+    def test_mobile_live_paths_keep_driver_modes_for_sparse_par4_bag(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        profiles = [
+            {"clubName": "1W", "median_m": 200.0, "p10_m": 180.0, "p90_m": 220.0, "sampleSize": 30},
+        ]
+
+        routes = mobile_live._tee_candidate_routes(
+            {"yards": 350}, profiles, [], par=4, target_m=320.0, avoid_zones=[]
+        )
+        options = mobile_live._offline_caddie_options(
+            profiles, source_ref="test:1", hazards=[], par=4, target_m=320.0, avoid_zones=[]
+        )
+
+        self.assertEqual([row["id"] for row in routes], ["conservative_layup", "stock_line", "aggressive_line"])
+        self.assertEqual([row["club"] for row in routes], ["1W", "1W", "1W"])
+        self.assertTrue(all(row["allowSameClubStrategies"] for row in routes))
+        self.assertEqual([row["id"] for row in options], ["safe", "stock", "attack"])
+        self.assertEqual([row["clubName"] for row in options], ["1W", "1W", "1W"])
+        self.assertTrue(all(row["allowSameClubStrategies"] for row in options))
 
     def test_non_live_decision_context_is_not_rehydrated(self) -> None:
         from ai_caddie.caddie import mobile_live

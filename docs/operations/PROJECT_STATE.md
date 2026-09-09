@@ -355,7 +355,7 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`PHONE-UX2` — 7813–7819 真机交互与信息架构修正** (`evidence-open`)
+**`PHONE-UX2` — 7813–7819 真机交互与信息架构修正** (`in-progress`)
 
 本轮处理 TestFlight Build 53 的真机截图反馈：简化 Touch Target/旗位拖动放大镜，
 移除地图上的大外圆、双圆与十字准心，并把放大视图与手指保持可见间距；缩小并错开
@@ -366,11 +366,28 @@ code; do not restart the old multi-week plan tree.
 网络失败改用单一权威状态；球场名称与行政地址优先显示中文；成绩页先显示持久化
 缓存，再在后台刷新。
 
-源码与自动验证退出条件已完成：Source CI `34316491467` 和 Native Mobile CI
+基线源码与自动验证已完成：Source CI `34316491467` 和 Native Mobile CI
 `34316964148` 均在源码 `a44f1c9f` 上全绿；TestFlight CD `34323088795`
 已上传 Build 54，Apple read-only 检查 `34324271971` 确认其已处理并在内部
-`Jason's friends` 组可见。当前停止在真机交接，剩余的是 iPhone/Watch 物理设备
-验证；Build 53 保留为上一轮历史候选，不能作为本轮效果证据。
+`Jason's friends` 组可见。后续 UX2 边界修正已在远端通过 373 个聚焦测试（5 个
+跳过），仍需
+完成新源码的原生编译/设备证据后才能交接；Build 53 保留为上一轮历史候选，不能作为
+本轮效果证据。
+
+**Durable resume checkpoint (2026-09-09 UTC):** 当前唯一工作切片为
+`PHONE-UX2`。已完成同杆授权分组、稀疏球包 Driver 线路和即时选中摘要代码及回归测试；
+远端 scratch 为 `/home/jason/codex-runs/garmin-ai-caddie-phone-ux2-20260909-b`
+（只读挂载测试，未创建持久服务）。聚焦套件已更新为 `374 passed, 5 skipped`；
+全量 discovery 的失败/错误来自验证容器缺少 `git` 且排除了 `.env`、`data`、`output`
+等 authority/鉴权/持久化资源，不能当作产品回归。恢复时唯一继续路径是先完成新源码
+的原生编译/测试，再检查地图、障碍页、旗位真实设备表现；在这些证据完成前保持
+`PHONE-UX2` 为 `in-progress`，不要上传或发布新的候选包。
+
+**Durable execution plan (persisted 2026-09-09 UTC):**
+1. 已完成：修正测试方法边界，并保留当前工作区全部产品改动；`git diff --check` 通过。
+2. 已完成：homeserver 容量检查通过（约 117 GiB 可用、5.1 GiB 可用内存）；复用上述 scratch 在只读挂载并提供临时目录/数据层的容器中运行聚焦套件，`374 passed, 5 skipped`，exit 0。首轮只读容器错误是缺少 `/tmp` 和可写事件根，已修正验证条件，不是产品回归。
+3. 进行中：通过 GitHub Native Mobile CI 完成 Swift 编译、单测、截图和真实 iPhone/Watch 证据，重点核对地图纵向拖动、独立障碍页、单一旗杆底部落点和三种打法选择。
+4. 约束：原生/设备证据完成前不生成或上传新候选包、不做 Beta Review/外部发布/生产发布；验证结束后只清理本会话 allow-list 资源并回写本账本。
 
 此前 `PHONE-REGRESSION` 保持 `evidence-open`：
 
@@ -901,7 +918,7 @@ project-level task list; historical plans are reference material.
 | `MAP1` | `evidence-open` | Physical iPhone feedback for course-loop authority, Touch Target/caddie map arcs and landing interpolation, simplified live controls, and horizontal hole navigation. | Product/test commit `5628cc6d` plus Source CI `34021727402` and Native Mobile CI `34021862658` are green; TestFlight build 50 contains the MAP1 product tree. Held-loupe/device evidence remains open. |
 | `GARMIN-AUTH` | `evidence-open` | Make a successful Garmin web login validate and synchronize against the current CN gateway, then bind the internal app candidate to that backend. | Commit `caf3afad`, source sync follow-up `f24a22dd`, Source CI `34043175968`/`34223501012`, controlled 403-to-200 gateway comparison, healthy public deployment, Native Mobile CI `34223836622`, TestFlight CD `34231106418`, and Apple/group check `34232120285` are complete. One new real-device reconnect/sync remains. |
 | `PHONE-REGRESSION` | `evidence-open` | Unify backend caddie recommendation with the live club strip/map landing, constrain hazard labels/distances to small factual edge numbers, and provide a direct retry for saved-but-unverified Garmin sessions while preserving provider-nearby, manual-search, downloaded-course provenance and A/B/C labels. | Source CI `34223501012`, Native Mobile CI `34223836622`, backend revision `f363872f`, TestFlight Build 53, and Apple processing/group visibility are complete; physical screenshots and device behavior remain evidence-open. |
-| `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback for offset/simplified map loupes, compact factual hazard labels, resume-only active-round behavior, one Garmin auth/sync state, localized course/address display, stale-while-refresh score history, nested caddie advice, clearer scoring hierarchy and F/M/B versus pin presentation, plus zoomable maps with a single flag marker. | Source CI `34316491467`, Native Mobile CI `34316964148`, TestFlight CD `34323088795`, and Apple/internal-group check `34324271971` passed at source `a44f1c9f`; Build 54 is ready for physical iPhone/Watch validation. |
+| `PHONE-UX2` | `in-progress` | Apply Build 53 screenshot feedback for offset/simplified map loupes, compact factual hazard labels, resume-only active-round behavior, one Garmin auth/sync state, localized course/address display, stale-while-refresh score history, nested caddie advice, clearer scoring hierarchy and F/M/B versus pin presentation, plus zoomable maps with a single flag marker. Follow-up fixes cover strategy selection, tee-club semantics, a dedicated hazard surface, fitted-map panning, and one pole-foot flag geometry. | Source CI `34316491467`, Native Mobile CI `34316964148`, TestFlight CD `34323088795`, and Apple/internal-group check `34324271971` passed at source `a44f1c9f`; focused remote suite now passes `373` tests (`5` skips), while fresh native/device evidence remains open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 | `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |
@@ -1354,18 +1371,21 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Install TestFlight build 53 on the physical iPhone and paired Watch.
-2. In the app, create a fresh Garmin session and tap reconnect once; confirm
+1. Run the broader remote Python regression suite from the current source
+   scratch, including mobile, course-prep, decision, schema and topo tests.
+2. Attempt the supported Swift/iOS/Watch native compile/test path; record a
+   concrete pass or the environment limitation instead of inferring it from
+   Python contracts.
+3. If native gates pass, install the resulting internal candidate on the
+   physical iPhone and paired Watch; verify map panning, the dedicated hazard
+   list, one pole-foot flag, and selectable Driver/safe/stock/attack lines.
+4. In the app, create a fresh Garmin session and tap reconnect once; confirm
    the state reads “已连接 · 同步完成” and that no-GPS/manual-search map and
-   caddie flows remain usable.
-3. Capture the held-finger loupe, map placement, and S70 touch/Digital Crown
-   comparison evidence. Do not call the diagnostic Garmin refresh endpoint.
-4. Do not run external Beta Review, external tester distribution, production
-   deployment, or synchronization as part of this handoff. Those are separate
-   owner-approved release actions.
-5. Keep the reconciliation branch, old PRs, and historical refs until the
-   whole-repository audit handoffs and an explicit allow-listed cleanup decision
-   are complete; do not bulk-delete refs.
+   caddie flows remain usable. Do not call the diagnostic refresh endpoint.
+5. Do not run external Beta Review, external tester distribution, production
+   deployment, or synchronization as part of this handoff. Keep historical
+   refs and any cleanup manifests until an explicit allow-listed cleanup
+   decision is complete.
 
 ## Open Blockers / Facts
 
@@ -1409,6 +1429,16 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## State Changes
 
+- 2026-09-09: `PHONE-UX2` focused verification was rerun in the documented
+  homeserver-only environment using scratch
+  `/home/jason/codex-runs/garmin-ai-caddie-phone-ux2-20260909-b`, a read-only
+  source mount, and ephemeral `/tmp`, `data`, and `output` tmpfs layers. The
+  suite ran `374` tests with `5` skips and exited `0`. The earlier failed
+  attempt had `122` environment errors because a fully read-only container
+  lacked a temporary directory and event-store write layer; no source or
+  persistent homeserver data was changed. Native/device evidence remains the
+  next gate.
+
 - 2026-09-09: `SNAPSHOT-BLOAT` completed. Derived shared geometry is now
   excluded from new durable snapshots and portable exports, with dependency
   metadata retained and legacy archive import preserved. The exact allow-list
@@ -1425,6 +1455,21 @@ Native runs recorded above; it is retained only as historical diagnosis.
   `325cc2f3`; the remaining gate is physical iPhone/Watch validation. The
   quick tunnel remains available for that evidence. No external distribution,
   Beta Review submission, or production promotion occurred.
+
+- 2026-09-09: `PHONE-UX2` follow-up implementation passed the focused remote
+  contract suite (`373` tests, `5` skips, exit 0), including course prep,
+  decision selection, mobile package/server paths, topo rendering, mobile
+  contracts, and CI fixtures. The broader discovery run found `4` failures,
+  `18` errors, and `13` skips only because its validation container lacks
+  `git` and excludes `.env`, `data`, and `output`; those authority, auth, and
+  persistence checks are environment-limited rather than product evidence.
+  Same-club authorization is now scoped per canonical club group; sparse Par
+  4/5 Driver bags expose three line modes with one measured carry. The fresh
+  native build/device run remains open; no release or deployment side effect
+  was performed. Test scratch
+  `/home/jason/codex-runs/garmin-ai-caddie-phone-ux2-20260909-b` is a temporary
+  read-only mount with no persistent service and is retained until final
+  verification/allow-listed cleanup.
 
 - 2026-09-08: `PHONE-REGRESSION` moved from `in-progress` to `evidence-open`
   after Source CI `34223501012`, Native Mobile CI `34223836622`, backend

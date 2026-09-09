@@ -147,11 +147,12 @@ public struct LivePlayMapDetailView: View {
 
     @ViewBuilder
     private func mapViewport(overlay: CoursePrepOverlay, size: CGSize) -> some View {
-        let displayedOffset = CGSize(
+        let rawDisplayedOffset = CGSize(
             width: offset.width + transientDragOffset.width,
             height: offset.height + transientDragOffset.height
         )
         let displayedScale = min(max(scale * pinchScale, 1), 4)
+        let displayedOffset = clamped(rawDisplayedOffset, in: size, scale: displayedScale)
 
         ZStack(alignment: .topTrailing) {
             mapContent(overlay: overlay, size: size)
@@ -511,17 +512,7 @@ public struct LivePlayMapDetailView: View {
     }
 
     private func drawPinFlag(_ context: inout GraphicsContext, at point: CGPoint) {
-        var pole = Path()
-        pole.move(to: CGPoint(x: point.x, y: point.y + 11))
-        pole.addLine(to: CGPoint(x: point.x, y: point.y - 12))
-        context.stroke(pole, with: .color(.white), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-
-        var pennant = Path()
-        pennant.move(to: CGPoint(x: point.x + 1, y: point.y - 12))
-        pennant.addLine(to: CGPoint(x: point.x + 12, y: point.y - 8))
-        pennant.addLine(to: CGPoint(x: point.x + 1, y: point.y - 4))
-        pennant.closeSubpath()
-        context.fill(pennant, with: .color(.red))
+        LiveMapFlagRenderer.draw(&context, at: point)
     }
 
     static func targetFlightArcs(reference: CGPoint, target: CGPoint, pin: CGPoint?) -> [MapFlightArc] {
@@ -732,12 +723,19 @@ public struct LivePlayMapDetailView: View {
     }
 
     private func clamped(_ value: CGSize, in size: CGSize, scale: CGFloat) -> CGSize {
-        guard scale > 1 else { return .zero }
-        let maxX = size.width * (scale - 1) / 2
-        let maxY = size.height * (scale - 1) / 2
-        return CGSize(
-            width: min(max(value.width, -maxX), maxX),
-            height: min(max(value.height, -maxY), maxY)
+        guard let overlay = hole.resolvedMapOverlay,
+              let frame = LivePlayMapOverlayLayout.mapFrame(
+                  overlayWidth: overlay.w,
+                  overlayHeight: overlay.h,
+                  in: size
+              ) else {
+            return scale > 1 ? value : .zero
+        }
+        return LivePlayMapOverlayLayout.clampedOffset(
+            value,
+            mapFrame: frame,
+            viewportSize: size,
+            scale: scale
         )
     }
 

@@ -247,8 +247,8 @@ describe('ReviewWorkbench', () => {
     await waitFor(() => expect(apiMocks.prefetchTopoImage).toHaveBeenCalledTimes(2))
     const urls = apiMocks.prefetchTopoImage.mock.calls.map(([url]) => String(url))
     expect(urls).toEqual([
-      '/api/v2/courses/3881/holes/1/topo.png?v=topo-v9',
-      '/api/v2/courses/3881/holes/3/topo.png?v=topo-v9',
+      '/api/v2/courses/3881/holes/1/topo.png?v=topo-v10',
+      '/api/v2/courses/3881/holes/3/topo.png?v=topo-v10',
     ])
     expect(urls.join('\n')).not.toContain('current-hole-only-revision')
     expect(urls.join('\n')).not.toContain('&r=')

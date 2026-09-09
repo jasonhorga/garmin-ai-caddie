@@ -52,10 +52,10 @@ class TopoRenderModuleTests(unittest.TestCase):
         rendered = topo_render._feather_green_detail_edges(source)
         self.assertEqual(rendered.getpixel((32, 32))[3], 0)
 
-    def test_topo_v9_starts_overlays_on_a_transparent_course_canvas(self) -> None:
+    def test_topo_v10_starts_overlays_on_a_transparent_course_canvas(self) -> None:
         from PIL import Image
 
-        self.assertEqual(topo_render.STYLE_VERSION, "topo-v9")
+        self.assertEqual(topo_render.STYLE_VERSION, "topo-v10")
         self.assertTrue(hasattr(topo_render, "_clip_to_transparent_canvas"))
 
         source = Image.new("RGB", (2, 1), topo_render.PAL["bg"])
@@ -370,7 +370,7 @@ class TopoRenderModuleTests(unittest.TestCase):
     def test_cache_key_includes_style_version(self) -> None:
         with patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": "/x/y"}):
             path = topo_render.cache_path(31795, 7)
-        self.assertTrue(path.name.startswith("gid31795_h07_topo-v9-"))
+        self.assertTrue(path.name.startswith("gid31795_h07_topo-v10-"))
         self.assertTrue(path.name.endswith(".png"))
         self.assertIn(topo_render.STYLE_VERSION, str(path))
 

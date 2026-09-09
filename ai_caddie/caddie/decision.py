@@ -1102,6 +1102,11 @@ def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[
         # identity from a broad carry-matched recommendation: legacy route evidence may quite
         # legitimately resolve several distances to the same nearest profile.
         "club": route.get("club") or route.get("clubName"),
+        # A complete Par 4/5 bag may intentionally expose safe/stock/attack lines that all use
+        # the same measured Driver.  Keep this producer signal through the decision contract so
+        # deduplication does not erase two valid, selectable strategy modes.
+        "allowSameClubStrategies": bool(route.get("allowSameClubStrategies")),
+        "strategyMode": route.get("strategyMode"),
         "label": OPTION_LABELS.get(option_id, str(route.get("label") or option_id)),
         "routeLabel": route.get("label"),
         "carry_m": carry_m,
@@ -1143,16 +1148,30 @@ def _strategy_club_key(option: dict[str, Any]) -> str | None:
 
 
 def _dedupe_strategy_options(options: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Drop strategy labels that resolve to the same physical first-shot club.
+    """Drop accidental duplicate routes while preserving explicitly distinct strategy modes.
 
     Candidate route producers are allowed to provide fewer than three modes when the bag or route
     evidence cannot support distinct choices.  Keeping the first occurrence in the canonical
-    safe/stock/attack order preserves the lower-risk explanation and, importantly, never fabricates
-    a second distance for one Driver.  Options without a club identity remain distinct by carry.
+    safe/stock/attack order preserves the lower-risk explanation.  A complete Par 4/5 tee package
+    can mark ``allowSameClubStrategies`` when one measured Driver intentionally backs all three
+    lines; in that case the mode id, rather than physical club identity, is the dedupe key.
+    Options without a club identity remain distinct by carry.
     """
     seen_modes: set[str] = set()
     seen_clubs: set[str] = set()
     seen_route_carries: set[tuple[str, float]] = set()
+    # Authorization belongs to one physical-club group.  A single truthy row must not unlock
+    # unrelated aliases/clubs in the same payload; every row in a repeated canonical group must
+    # opt in before the mode labels are allowed to coexist.
+    club_groups: dict[str, list[dict[str, Any]]] = {}
+    for option in options:
+        club_key = _strategy_club_key(option)
+        if club_key:
+            club_groups.setdefault(club_key, []).append(option)
+    allow_same_by_club = {
+        club_key: len(group) > 1 and all(bool(row.get("allowSameClubStrategies")) for row in group)
+        for club_key, group in club_groups.items()
+    }
     deduped: list[dict[str, Any]] = []
     for option in _ordered_options(options):
         option_id = str(option.get("id") or "").strip().lower()
@@ -1161,9 +1180,11 @@ def _dedupe_strategy_options(options: list[dict[str, Any]]) -> list[dict[str, An
         seen_modes.add(option_id)
         club_key = _strategy_club_key(option)
         if club_key:
-            if club_key in seen_clubs:
+            allow_same_club = allow_same_by_club.get(club_key, False)
+            if not allow_same_club and club_key in seen_clubs:
                 continue
-            seen_clubs.add(club_key)
+            if not allow_same_club:
+                seen_clubs.add(club_key)
         else:
             carry = round(_float(option.get("carry_m")), 1)
             route_key = str(option.get("routeId") or option_id).strip().lower()
@@ -1172,6 +1193,19 @@ def _dedupe_strategy_options(options: list[dict[str, Any]]) -> list[dict[str, An
             seen_route_carries.add((route_key, carry))
         deduped.append(option)
     return deduped
+
+
+def _has_authorized_same_club_group(options: list[dict[str, Any]]) -> bool:
+    """Return whether any repeated canonical club group is explicitly authorized as one mode set."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for option in options:
+        club_key = _strategy_club_key(option)
+        if club_key:
+            groups.setdefault(club_key, []).append(option)
+    return any(
+        len(group) > 1 and all(bool(option.get("allowSameClubStrategies")) for option in group)
+        for group in groups.values()
+    )
 
 
 def _strategy_mode(context: dict[str, Any]) -> str:
@@ -1346,6 +1380,15 @@ def _select_option(
         context=context,
     ):
         return attack
+    # The live phone sends the selected mode explicitly, and a generated Driver-line package marks
+    # the same intent on its options.  In either case "stock" means the standard recommendation,
+    # not "pick the safest row again because its numeric risk is one point lower".  Keep the old
+    # risk-aware fallback for unmarked legacy/fixture contexts.
+    if stock and (
+        (context and ("strategyMode" in context or "strategy" in context))
+        or _has_authorized_same_club_group(options)
+    ):
+        return stock
     if stock and stock["riskScore"] <= safest["riskScore"] + 1:
         return stock
     return safest

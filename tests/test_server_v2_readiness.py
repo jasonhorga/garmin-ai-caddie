@@ -656,12 +656,12 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(seed_quality["seedCount"], 18)
         self.assertEqual(seed_quality["selectedOptionCount"], 18)
         self.assertEqual(seed_quality["optionCount"], 54)
-        # The fixture has only one or two recorded shots per club. Scarcity-aware tier selection
-        # therefore keeps every selected option low-confidence; readiness remains degraded while
-        # all 18 holes still have a selected offline option.
+        # Par 4/5 seeds now retain the real Driver for every line, so the fixture's 14 Driver
+        # samples are medium-confidence; the four Par 3 distance-tier selections remain sparse.
+        # Readiness is still degraded while all 18 holes have a selected offline option.
         selected_conf = seed_quality["selectedConfidenceCounts"]
-        self.assertEqual(selected_conf["medium"], 0)
-        self.assertEqual(selected_conf["low"], 18)
+        self.assertEqual(selected_conf["medium"], 14)
+        self.assertEqual(selected_conf["low"], 4)
         self.assertEqual(sum(selected_conf.values()), 18)
         self.assertEqual(seed_quality["minSelectedCoveragePct"], 10.0)
         self.assertEqual(seed_quality["state"], "degraded")

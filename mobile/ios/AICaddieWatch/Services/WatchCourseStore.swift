@@ -576,7 +576,12 @@ public enum WatchCourseTemplateBuilder {
         guard let value else { return [] }
         var result: [WatchHazard] = []
         let bunkerDetails = value.details
-            .filter { $0.kind == "bunker" }
+            .filter {
+                $0.kind == "bunker"
+                    && $0.frontRouteM.isFinite
+                    && $0.backRouteM.isFinite
+                    && max($0.frontRouteM, $0.backRouteM) > 30.0
+            }
             .sorted { $0.frontRouteM < $1.frontRouteM }
         if !bunkerDetails.isEmpty {
             for detail in bunkerDetails {
@@ -598,7 +603,9 @@ public enum WatchCourseTemplateBuilder {
                 ))
             }
         } else {
-            let bunkers = value.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            let bunkers = value.bunkers
+                .filter { ($0.first ?? 0) > 30.0 }
+                .sorted { ($0.first ?? 0) < ($1.first ?? 0) }
             for interval in bunkers {
                 result.append(WatchHazard(
                     kind: "bunker",
@@ -611,7 +618,12 @@ public enum WatchCourseTemplateBuilder {
             }
         }
         let waterDetails = value.details
-            .filter { $0.kind == "water" }
+            .filter {
+                $0.kind == "water"
+                    && $0.frontRouteM.isFinite
+                    && $0.backRouteM.isFinite
+                    && max($0.frontRouteM, $0.backRouteM) > 30.0
+            }
             .sorted { $0.frontRouteM < $1.frontRouteM }
         if !waterDetails.isEmpty {
             for detail in waterDetails {
@@ -633,7 +645,9 @@ public enum WatchCourseTemplateBuilder {
                 ))
             }
         } else {
-            let water = value.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            let water = value.waterCarry
+                .filter { max($0.first ?? 0, $0.dropFirst().first ?? 0) > 30.0 }
+                .sorted { ($0.first ?? 0) < ($1.first ?? 0) }
             for interval in water {
                 result.append(WatchHazard(
                     kind: "water",

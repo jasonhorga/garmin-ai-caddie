@@ -532,6 +532,9 @@
                     "type": "object",
                     "additionalProperties": true
                   }
+                },
+                "allowSameClubStrategies": {
+                  "type": "boolean"
                 }
               }
             }

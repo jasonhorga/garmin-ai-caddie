@@ -1191,12 +1191,13 @@ def _caddie_clean_rows(club_profiles: list[dict[str, Any]]) -> list[dict[str, An
 def _shot_option_clubs(
     rows: list[dict[str, Any]], *, par: int, target_m: float
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
-    """Pick distinct (safe, stock, attack) club profiles for the shot by distance.
+    """Pick the club profile behind each strategy card.
 
-    A route mode is not viable when it merely reuses another mode's physical club.  For a par 4/5
-    tee, three measured tiers are shortest (safe), middle (stock), and longest (attack); a two-club
-    bag yields safe + stock, and a one-club bag yields stock only.  Par 3 keeps the target-distance
-    behaviour, selecting each tier from a distinct profile.
+    A Par 4/5 tee strategy is a *line choice*, not three artificial carry values.  When the
+    player's real bag contains a Driver, all three cards therefore use that one measured median
+    carry; safe/stock/attack differ in their route risk and target intent.  This keeps the opening
+    shot honest (and makes 1W selectable) while still allowing a golfer to choose a safer line.
+    Par 3 and bags without a Driver retain the distance-tier fallback used by older packages.
     """
     if not rows:
         return None, None, None
@@ -1214,6 +1215,12 @@ def _shot_option_clubs(
         return _club_nearest(available, target) if available else None
 
     longest = rows[0]
+    driver = next((row for row in rows if key(row) == "driver"), None)
+    if par in {4, 5} and driver is not None:
+        # One physical Driver has one expected carry.  The decision layer carries the strategy
+        # distinction in risk/line metadata rather than pretending attack means a p90 carry.
+        return driver, driver, driver
+
     if par == 3:
         target = target_m if target_m and target_m > 0 else float(longest.get("median_m") or 0)
         stock = nearest(rows, target)
@@ -1313,17 +1320,31 @@ def _tee_candidate_routes(
             {"kind": "risk_edge" if (attack_near or attack_line) else "fairway"},
         ),
     ]
+    from ai_caddie.caddie.club_bag import canonical_club_name
+
+    def _club_key(profile: dict[str, Any] | None) -> str | None:
+        if profile is None:
+            return None
+        name = str(profile.get("clubName") or "").strip()
+        return canonical_club_name(name) or name.casefold()
+
+    same_club_modes = (
+        par in {4, 5}
+        and safe_p is not None
+        and stock_p is not None
+        and attack_p is not None
+        and _club_key(safe_p) == _club_key(stock_p) == _club_key(attack_p) == "driver"
+    )
     seen: set[str] = set()
     routes: list[dict[str, Any]] = []
     for route_id, label, profile, carry, near_risks, line_risks, base_risk, surface in specs:
         if profile is None or carry <= 0:
             continue
-        from ai_caddie.caddie.club_bag import canonical_club_name
-
-        club_key = canonical_club_name(str(profile.get("clubName") or "")) or str(profile.get("clubName") or "").strip().casefold()
-        if club_key in seen:
+        club_key = _club_key(profile)
+        if not same_club_modes and club_key in seen:
             continue
-        seen.add(club_key)
+        if not same_club_modes:
+            seen.add(club_key)
         routes.append(
             {
                 "id": route_id,
@@ -1335,6 +1356,8 @@ def _tee_candidate_routes(
                 "nearRisks": near_risks,
                 "lineRisks": line_risks,
                 "riskScore": round(base_risk + len(near_risks) * 1.5 + len(line_risks), 1),
+                "strategyMode": {"conservative_layup": "safe", "stock_line": "stock", "aggressive_line": "attack"}.get(route_id),
+                "allowSameClubStrategies": same_club_modes,
                 "source": "offline_package_seed",
             }
         )
@@ -1359,17 +1382,27 @@ def _offline_caddie_options(
     base_risk = {"safe": 0.8, "stock": 1.5, "attack": 3.0}
     option_specs = [("safe", "Safe", safe_p), ("stock", "Stock", stock_p), ("attack", "Attack", attack_p)]
     options: list[dict[str, Any]] = []
+    from ai_caddie.caddie.club_bag import canonical_club_name
+
+    same_club_modes = (
+        par in {4, 5}
+        and safe_p is not None
+        and stock_p is not None
+        and attack_p is not None
+        and canonical_club_name(str(safe_p.get("clubName") or "")) == "driver"
+        and canonical_club_name(str(stock_p.get("clubName") or "")) == "driver"
+        and canonical_club_name(str(attack_p.get("clubName") or "")) == "driver"
+    )
     seen_clubs: set[str] = set()
     for option_id, label, profile in option_specs:
         if profile is None:
             continue
-        from ai_caddie.caddie.club_bag import canonical_club_name
-
         club_name = str(profile.get("clubName") or "")
         club_key = canonical_club_name(club_name) or club_name.strip().casefold()
-        if club_key in seen_clubs:
+        if not same_club_modes and club_key in seen_clubs:
             continue
-        seen_clubs.add(club_key)
+        if not same_club_modes:
+            seen_clubs.add(club_key)
         median = float(profile.get("median_m") or 0)
         p10 = float(profile.get("p10_m") or median)
         p90 = float(profile.get("p90_m") or median)
@@ -1399,6 +1432,7 @@ def _offline_caddie_options(
                 "sourceRefs": [source_ref],
                 "sampleRefs": sample_refs,
                 "missingData": missing_data,
+                "allowSameClubStrategies": same_club_modes,
             }
         )
     return options

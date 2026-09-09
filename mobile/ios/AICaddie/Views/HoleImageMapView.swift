@@ -187,17 +187,8 @@ public struct HoleImageMapView: View {
     }
 
     private func drawPinFlag(_ context: inout GraphicsContext, at point: CGPoint) {
-        var pole = Path()
-        pole.move(to: CGPoint(x: point.x, y: point.y + 11))
-        pole.addLine(to: CGPoint(x: point.x, y: point.y - 12))
-        context.stroke(pole, with: .color(.white), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-
-        var pennant = Path()
-        pennant.move(to: CGPoint(x: point.x + 1, y: point.y - 12))
-        pennant.addLine(to: CGPoint(x: point.x + 12, y: point.y - 8))
-        pennant.addLine(to: CGPoint(x: point.x + 1, y: point.y - 4))
-        pennant.closeSubpath()
-        context.fill(pennant, with: .color(.red))
+        // `point` is the pole foot in the shared topo frame, matching View Green drag semantics.
+        LiveMapFlagRenderer.draw(&context, at: point)
     }
 
     private func resolvedPinPoint(overlay: CoursePrepOverlay, sx: CGFloat, sy: CGFloat) -> CGPoint? {
@@ -277,6 +268,9 @@ public struct HoleImageMapView: View {
         return hole.hazards.details
             .filter {
                 ($0.kind == "bunker" || $0.kind == "water")
+                    && $0.frontRouteM.isFinite
+                    && $0.backRouteM.isFinite
+                    && max($0.frontRouteM, $0.backRouteM) > 30.0
                     && $0.frontPx.count >= 2
                     && $0.backPx.count >= 2
                     && $0.frontPx.prefix(2).allSatisfy(\.isFinite)
@@ -360,8 +354,14 @@ public struct HoleImageMapView: View {
         }
 
         for detail in hole.hazards.details where showsHazards
+            && (detail.kind == "bunker" || detail.kind == "water")
+            && detail.frontRouteM.isFinite
+            && detail.backRouteM.isFinite
+            && max(detail.frontRouteM, detail.backRouteM) > 30.0
             && detail.frontPx.count >= 2
-            && detail.backPx.count >= 2 {
+            && detail.backPx.count >= 2
+            && detail.frontPx.prefix(2).allSatisfy(\.isFinite)
+            && detail.backPx.prefix(2).allSatisfy(\.isFinite) {
             let front = CGPoint(x: detail.frontPx[0] * sx, y: detail.frontPx[1] * sy)
             let back = CGPoint(x: detail.backPx[0] * sx, y: detail.backPx[1] * sy)
             var span = Path()

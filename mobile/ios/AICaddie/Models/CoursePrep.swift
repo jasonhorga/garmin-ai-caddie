@@ -104,28 +104,52 @@ public struct CoursePrepHazardIntervalReadout: Equatable {
     }
 }
 
-struct CoursePrepLiveHazardReadout: Equatable {
-    let id: String
-    let kind: String
-    let label: String
-    let toYards: Int
-    let overYards: Int
+public struct CoursePrepLiveHazardReadout: Equatable {
+    public let id: String
+    public let kind: String
+    public let label: String
+    public let toYards: Int
+    public let overYards: Int
     /// The same factual boundary pixels used to calculate the range. Keeping them attached to the
     /// readout lets every client put the numbers on the obstacle instead of rebuilding a list below
     /// the map (or positioning a generic pill in an unrelated screen lane).
-    let frontPx: [Double]
-    let backPx: [Double]
+    public let frontPx: [Double]
+    public let backPx: [Double]
+    public let frontRouteM: Double
+    public let backRouteM: Double
 
-    var detail: String { "到 \(toYards) · 过 \(overYards) 码" }
+    public var detail: String { "到 \(toYards) · 过 \(overYards) 码" }
+
+    public init(
+        id: String,
+        kind: String,
+        label: String,
+        toYards: Int,
+        overYards: Int,
+        frontPx: [Double],
+        backPx: [Double],
+        frontRouteM: Double = 0,
+        backRouteM: Double = 0
+    ) {
+        self.id = id
+        self.kind = kind
+        self.label = label
+        self.toYards = toYards
+        self.overYards = overYards
+        self.frontPx = frontPx
+        self.backPx = backPx
+        self.frontRouteM = frontRouteM
+        self.backRouteM = backRouteM
+    }
 
     /// A hazard range is a player-facing on-course instrument, not an arbitrary great-circle
     /// measurement. Values beyond the same 999-yard usefulness envelope as the green range usually
     /// mean a stale fix or a mismatched projection, so they must not reach the map labels.
-    static func isPlausibleYards(_ value: Int) -> Bool {
+    public static func isPlausibleYards(_ value: Int) -> Bool {
         (0...GeoDistance.maximumUsefulGreenYards).contains(value)
     }
 
-    static func upcoming(
+    public static func upcoming(
         hazards: CoursePrepHazards,
         route: [[Double]],
         projectionRefs: [CoursePrepProjectionRef],
@@ -162,6 +186,12 @@ struct CoursePrepLiveHazardReadout: Equatable {
         var hasUnpassedGeometry = false
 
         for detail in supported {
+            // A tiny bunker immediately beside the tee is not a meaningful on-course target. Keep
+            // water that extends farther down the hole, but suppress hazards that end within this
+            // tee apron so the live map/list does not call out the player's starting pad.
+            if max(detail.frontRouteM, detail.backRouteM) <= 30.0 {
+                continue
+            }
             let ordinal = ordinals[detail.kind, default: 0]
             ordinals[detail.kind] = ordinal + 1
             guard max(detail.frontRouteM, detail.backRouteM) > progressM else { continue }
@@ -198,7 +228,9 @@ struct CoursePrepLiveHazardReadout: Equatable {
                     toYards: toYards,
                     overYards: overYards,
                     frontPx: detail.frontPx,
-                    backPx: detail.backPx
+                    backPx: detail.backPx,
+                    frontRouteM: detail.frontRouteM,
+                    backRouteM: detail.backRouteM
                 ),
                 frontRouteM: detail.frontRouteM
             ))

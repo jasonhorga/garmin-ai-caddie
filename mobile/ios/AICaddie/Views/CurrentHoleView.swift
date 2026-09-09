@@ -120,6 +120,7 @@ public struct CurrentHoleView: View {
     @State private var showCaddieDetail = false
     @State private var showMapDetail = false
     @State private var showGreenDetail = false
+    @State private var showHazardDetail = false
     @State private var scoreDraft: LiveScoreDraft?
     @State private var showScorecard = false
     @State private var gpsHoleCandidate: LiveHoleGPSCandidate?
@@ -312,6 +313,9 @@ public struct CurrentHoleView: View {
         .fullScreenCover(isPresented: $showGreenDetail) {
             greenDetailSurface
         }
+        .fullScreenCover(isPresented: $showHazardDetail) {
+            hazardDetailSurface
+        }
         .sheet(item: $scoreDraft) { presentedDraft in
             scoreConfirmationSurface(for: presentedDraft)
         }
@@ -362,6 +366,9 @@ public struct CurrentHoleView: View {
                 liveHoleStack
                     .padding(.bottom, 24)
             }
+            // Once the hero is zoomed, vertical drags belong to the map. Disabling the parent
+            // scroll view for that short interaction window prevents it from swallowing the drag.
+            .scrollDisabled(heroMapScale > 1.01)
             .onChange(of: holeRootScrollRequest) { _, _ in
                 withAnimation(.easeOut(duration: 0.22)) {
                     scrollProxy.scrollTo(Self.holeRootScrollAnchor, anchor: .top)
@@ -386,8 +393,15 @@ public struct CurrentHoleView: View {
                 isLoading: isLoadingCaddieDecision,
                 isReady: caddieDecision != nil
                     && !isLoadingCaddieDecision,
+                nextShotText: liveRecommendedNextShotText,
                 onTap: { showCaddieDetail = true }
             )
+            if !liveHazardDisplayRows.isEmpty {
+                LiveHazardEntry(
+                    count: liveHazardDisplayRows.count,
+                    onTap: { showHazardDetail = true }
+                )
+            }
             LiveHolePrimaryActions(
                 canRecordShot: liveCoordinateForCurrentHole != nil,
                 recordedShotCount: recordedNonPuttShotCount,
@@ -501,6 +515,24 @@ public struct CurrentHoleView: View {
         }
     }
 
+    @ViewBuilder
+    private var hazardDetailSurface: some View {
+        if let holePrep {
+            LiveHazardDetailView(
+                hole: holePrep,
+                topoURL: liveTopoURL,
+                liveReadouts: liveHazardReadouts
+            )
+        } else {
+            ZStack {
+                LivePlayStyle.base.ignoresSafeArea()
+                ProgressView("障碍物地图准备中…")
+                    .tint(.white)
+                    .foregroundStyle(.white)
+            }
+        }
+    }
+
     private func scoreConfirmationSurface(for presentedDraft: LiveScoreDraft) -> some View {
         LiveScoreConfirmationView(
             draft: Binding(
@@ -580,6 +612,22 @@ public struct CurrentHoleView: View {
         package.caddieContextSeeds.first { $0.hole == hole.number }
     }
 
+    /// Apply a strategy tap immediately. The network request that follows refreshes the authoritative
+    /// decision, but the first frame already switches both the selected card and the next-club answer.
+    private func selectStrategyMode(_ mode: String) {
+        let normalized = caddieStrategyMode(forRouteId: mode) ?? mode.lowercased()
+        guard !normalized.isEmpty else { return }
+        selectedStrategyMode = normalized
+        hasUserSelectedClub = false
+        if let decision = caddieDecision,
+           let recommendation = LiveClubStripPolicy.recommendation(
+               from: decision,
+               strategyMode: normalized
+           ) {
+            selectedClub = recommendation.name
+        }
+    }
+
     // MARK: - 打球屏 v2 hero (map backdrop + header + overlays)
 
     /// Map-as-backdrop hero: the server-rendered hole image fills the top, with one compact flag,
@@ -632,13 +680,12 @@ public struct CurrentHoleView: View {
     /// visual plane prevents hazard labels or the GPS point from drifting away from the bitmap when
     /// the player pinches the live map.
     private var heroMapVisual: some View {
-        ZStack(alignment: .top) {
-            liveMapBackdrop
-                .padding(.top, LivePlayMapOverlayLayout.liveMapTopInset)
-                .frame(height: liveHeroHeight)
-                .frame(maxWidth: .infinity)
-                .clipped()
-            GeometryReader { geo in
+        GeometryReader { geo in
+            ZStack(alignment: .top) {
+                liveMapBackdrop
+                    .padding(.top, LivePlayMapOverlayLayout.liveMapTopInset)
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
                 ZStack {
                     LiveMapGreenDistanceOverlay(
                         frontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
@@ -649,21 +696,6 @@ public struct CurrentHoleView: View {
                     )
                     .position(x: min(118, geo.size.width * 0.31), y: 137)
 
-                    ForEach(Array(liveMapHazardAnnotations.prefix(2).enumerated()), id: \.element.id) { index, annotation in
-                        if let front = liveMapTarget(annotation.frontPx, in: geo.size),
-                           let back = liveMapTarget(annotation.backPx, in: geo.size) {
-                            LiveMapHazardRangeOverlay(
-                                kind: annotation.kind,
-                                label: annotation.label,
-                                toYards: annotation.toYards,
-                                overYards: annotation.overYards,
-                                front: front,
-                                back: back,
-                                index: index,
-                                viewportSize: geo.size
-                            )
-                        }
-                    }
                     if isPreciseHoleMapPending {
                         LiveMapPreparingPill()
                             .position(x: geo.size.width * 0.5, y: geo.size.height * 0.88)
@@ -673,13 +705,14 @@ public struct CurrentHoleView: View {
                             .position(player)
                     }
                 }
+                .frame(width: geo.size.width, height: geo.size.height)
+                .allowsHitTesting(false)
             }
-            .frame(height: liveHeroHeight)
-            .allowsHitTesting(false)
+            .frame(width: geo.size.width, height: geo.size.height)
+            .scaleEffect(heroDisplayedMapScale)
+            .offset(heroDisplayedMapOffset(in: geo.size))
         }
         .frame(height: liveHeroHeight)
-        .scaleEffect(heroDisplayedMapScale)
-        .offset(heroDisplayedMapOffset)
         .clipped()
     }
 
@@ -687,28 +720,25 @@ public struct CurrentHoleView: View {
         max(1, heroMapScale * heroMapPinchScale)
     }
 
-    private var heroDisplayedMapOffset: CGSize {
-        clampedHeroMapOffset(
-            CGSize(
-                width: heroMapOffset.width + heroMapDragOffset.width,
-                height: heroMapOffset.height + heroMapDragOffset.height
-            ),
-            scale: heroDisplayedMapScale,
-            viewport: CGSize(width: .greatestFiniteMagnitude, height: liveHeroHeight)
+    private func heroDisplayedMapOffset(in viewport: CGSize) -> CGSize {
+        let proposed = CGSize(
+            width: heroMapOffset.width + heroMapDragOffset.width,
+            height: heroMapOffset.height + heroMapDragOffset.height
         )
-    }
-
-    private func clampedHeroMapOffset(_ proposed: CGSize, scale: CGFloat, viewport: CGSize) -> CGSize {
-        #if canImport(UIKit)
-        let width = max(UIScreen.main.bounds.width, 1)
-        #else
-        let width = max(viewport.width.isFinite ? viewport.width : 1, 1)
-        #endif
-        let maxX = width.isFinite ? max((width * (scale - 1)) / 2, 0) : 0
-        let maxY = max((liveHeroHeight * (scale - 1)) / 2, 0)
-        return CGSize(
-            width: min(max(proposed.width, -maxX), maxX),
-            height: min(max(proposed.height, -maxY), maxY)
+        guard let overlay = holePrep?.resolvedMapOverlay,
+              let frame = LivePlayMapOverlayLayout.mapFrame(
+                  overlayWidth: overlay.w,
+                  overlayHeight: overlay.h,
+                  in: viewport,
+                  topInset: LivePlayMapOverlayLayout.liveMapTopInset
+              ) else {
+            return proposed
+        }
+        return LivePlayMapOverlayLayout.clampedOffset(
+            proposed,
+            mapFrame: frame,
+            viewportSize: viewport,
+            scale: heroDisplayedMapScale
         )
     }
 
@@ -731,8 +761,8 @@ public struct CurrentHoleView: View {
                     )
                     .contentShape(Rectangle())
                     .onTapGesture { showMapDetail = true }
-                    .simultaneousGesture(heroMapPinchGesture)
-                    .simultaneousGesture(heroMapPanOrSwipeGesture)
+                    .simultaneousGesture(heroMapPinchGesture(in: geometry.size))
+                    .highPriorityGesture(heroMapPanOrSwipeGesture(in: geometry.size))
                     .accessibilityLabel("打开地图并选目标")
                     .accessibilityHint("左右滑动切换球洞")
                     .accessibilityIdentifier("live-open-map-from-hero")
@@ -771,22 +801,22 @@ public struct CurrentHoleView: View {
             }
     }
 
-    private var heroMapPinchGesture: some Gesture {
+    private func heroMapPinchGesture(in viewport: CGSize) -> some Gesture {
         MagnificationGesture()
             .updating($heroMapPinchScale) { value, state, _ in
                 state = value
             }
             .onEnded { value in
                 heroMapScale = min(max(heroMapScale * value, 1), 4)
-                heroMapOffset = clampedHeroMapOffset(
+                heroMapOffset = heroMapClampedOffset(
                     heroMapOffset,
                     scale: heroMapScale,
-                    viewport: CGSize(width: 1, height: liveHeroHeight)
+                    viewport: viewport
                 )
             }
     }
 
-    private var heroMapPanOrSwipeGesture: some Gesture {
+    private func heroMapPanOrSwipeGesture(in viewport: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 24)
             .updating($heroMapDragOffset) { value, state, _ in
                 if heroMapScale > 1.01 {
@@ -795,13 +825,13 @@ public struct CurrentHoleView: View {
             }
             .onEnded { value in
                 if heroMapScale > 1.01 {
-                    heroMapOffset = clampedHeroMapOffset(
+                    heroMapOffset = heroMapClampedOffset(
                         CGSize(
                             width: heroMapOffset.width + value.translation.width,
                             height: heroMapOffset.height + value.translation.height
                         ),
                         scale: heroMapScale,
-                        viewport: CGSize(width: 1, height: liveHeroHeight)
+                        viewport: viewport
                     )
                     return
                 }
@@ -820,10 +850,28 @@ public struct CurrentHoleView: View {
     private func transformedHeroPoint(_ point: CGPoint, in viewport: CGSize) -> CGPoint {
         let scale = heroDisplayedMapScale
         let center = CGPoint(x: viewport.width / 2, y: viewport.height / 2)
-        let offset = heroDisplayedMapOffset
+        let offset = heroDisplayedMapOffset(in: viewport)
         return CGPoint(
             x: center.x + (point.x - center.x) * scale + offset.width,
             y: center.y + (point.y - center.y) * scale + offset.height
+        )
+    }
+
+    private func heroMapClampedOffset(_ proposed: CGSize, scale: CGFloat, viewport: CGSize) -> CGSize {
+        guard let overlay = holePrep?.resolvedMapOverlay,
+              let frame = LivePlayMapOverlayLayout.mapFrame(
+                  overlayWidth: overlay.w,
+                  overlayHeight: overlay.h,
+                  in: viewport,
+                  topInset: LivePlayMapOverlayLayout.liveMapTopInset
+              ) else {
+            return proposed
+        }
+        return LivePlayMapOverlayLayout.clampedOffset(
+            proposed,
+            mapFrame: frame,
+            viewportSize: viewport,
+            scale: scale
         )
     }
 
@@ -863,13 +911,15 @@ public struct CurrentHoleView: View {
                         CaddiePlanView(
                             response: caddieDecision,
                             hazards: caddiePlanHazards,
-                            onSelectStrategyMode: { selectedStrategyMode = $0 }
+                            selectedStrategyMode: selectedStrategyMode,
+                            onSelectStrategyMode: selectStrategyMode
                         )
                     } else {
                         CaddiePlanView(
                             seed: caddieContextSeed,
                             hazards: caddiePlanHazards,
-                            onSelectStrategyMode: { selectedStrategyMode = $0 }
+                            selectedStrategyMode: selectedStrategyMode,
+                            onSelectStrategyMode: selectStrategyMode
                         )
                     }
                     caddieInputControls
@@ -1061,13 +1111,38 @@ public struct CurrentHoleView: View {
         return "坡度修正 \(deltaYd > 0 ? "+" : "")\(deltaYd) 码 · \(deltaYd > 0 ? "上坡" : "下坡")"
     }
 
+    /// The live root states the next action in plain language. Full club selection remains in the
+    /// caddie sheet's bag menu, so a player does not have to infer the recommendation from a tiny
+    /// chip or a multi-shot route label.
+    private var liveRecommendedNextShotText: String? {
+        guard let recommendation = recommendedClubChoice else { return nil }
+        let name = zhClubDisplayName(recommendation.name)
+        if let carry = recommendation.carryMetres {
+            return "下一杆 · \(name) · \(CoursePrepRoute.yards(fromMetres: carry)) 码"
+        }
+        return "下一杆 · \(name)"
+    }
+
+    /// All relevant mapped hazards belong to the dedicated obstacle instrument. Keeping this count
+    /// derived from the same factory as the detail page prevents a button that opens an empty list.
+    private var liveHazardDisplayRows: [LiveHazardDisplayItem] {
+        guard let holePrep else { return [] }
+        return LiveHazardDisplayItem.rows(for: holePrep, liveReadouts: liveHazardReadouts)
+    }
+
     /// At most two upcoming, position-bound obstacles are shown on the large phone map. Live GPS
     /// ranges win; before the first qualified fix, the same measured edges retain their tee ranges.
     /// Legacy one-number hazards cannot be placed on an edge and therefore stay out of the overlay.
     private var liveMapHazardAnnotations: [LiveMapHazardAnnotation] {
         guard !isPreciseHoleMapPending, let holePrep else { return [] }
         if let live = liveHazardReadouts {
-            return live.map {
+            return live.filter {
+                $0.frontRouteM.isFinite
+                    && $0.backRouteM.isFinite
+                    && max($0.frontRouteM, $0.backRouteM) > 30.0
+                    && $0.frontPx.count >= 2
+                    && $0.backPx.count >= 2
+            }.map {
                 LiveMapHazardAnnotation(
                     id: $0.id,
                     kind: $0.kind,
@@ -1082,7 +1157,12 @@ public struct CurrentHoleView: View {
         let route = holePrep.resolvedMapOverlay?.route
         return holePrep.hazards.details
             .filter { ($0.kind == "bunker" || $0.kind == "water")
+                && $0.frontRouteM.isFinite
+                && $0.backRouteM.isFinite
+                && max($0.frontRouteM, $0.backRouteM) > 30.0
                 && $0.frontPx.count >= 2 && $0.backPx.count >= 2
+                && $0.frontPx.prefix(2).allSatisfy(\.isFinite)
+                && $0.backPx.prefix(2).allSatisfy(\.isFinite)
                 && CoursePrepLiveHazardReadout.isPlausibleYards(
                     CoursePrepRoute.yards(fromMetres: $0.frontM)
                 )
@@ -1634,7 +1714,11 @@ public struct CurrentHoleView: View {
         // recorded keeps their actual choice.
         let alreadyRecorded = liveRoundState?.holeState(for: hole.number)?.selectedClub.isEmpty == false
         await loadCaddieDecision(
-            syncClub: !alreadyRecorded && !isPreciseHoleMapPending && !hasUserSelectedClub
+            // A CourseView partial map still carries the authoritative tee/club context needed for
+            // the first recommendation. Do not leave the opening screen without a default Driver
+            // while the heavier prodgeometry bitmap is being fetched; the precise refresh below will
+            // reconcile the same selection once it arrives.
+            syncClub: !alreadyRecorded && !hasUserSelectedClub
         )
         #if DEBUG
         UITestEventLatencyTrace.record(
@@ -2035,7 +2119,12 @@ public struct CurrentHoleView: View {
         let route = holePrep.resolvedMapOverlay?.route
         var out: [WatchHazard] = []
         let bunkerDetails = holePrep.hazards.details
-            .filter { $0.kind == "bunker" }
+            .filter {
+                $0.kind == "bunker"
+                    && $0.frontRouteM.isFinite
+                    && $0.backRouteM.isFinite
+                    && max($0.frontRouteM, $0.backRouteM) > 30.0
+            }
             .sorted { $0.frontRouteM < $1.frontRouteM }
         if !bunkerDetails.isEmpty {
             for detail in bunkerDetails {
@@ -2053,7 +2142,9 @@ public struct CurrentHoleView: View {
                 ))
             }
         } else {
-            let bunkers = holePrep.hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            let bunkers = holePrep.hazards.bunkers
+                .filter { ($0.first ?? 0) > 30.0 }
+                .sorted { ($0.first ?? 0) < ($1.first ?? 0) }
             for interval in bunkers {
                 out.append(WatchHazard(
                     kind: "bunker",
@@ -2066,7 +2157,12 @@ public struct CurrentHoleView: View {
             }
         }
         let waterDetails = holePrep.hazards.details
-            .filter { $0.kind == "water" }
+            .filter {
+                $0.kind == "water"
+                    && $0.frontRouteM.isFinite
+                    && $0.backRouteM.isFinite
+                    && max($0.frontRouteM, $0.backRouteM) > 30.0
+            }
             .sorted { $0.frontRouteM < $1.frontRouteM }
         if !waterDetails.isEmpty {
             for detail in waterDetails {
@@ -2084,7 +2180,9 @@ public struct CurrentHoleView: View {
                 ))
             }
         } else {
-            let water = holePrep.hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            let water = holePrep.hazards.waterCarry
+                .filter { max($0.first ?? 0, $0.dropFirst().first ?? 0) > 30.0 }
+                .sorted { ($0.first ?? 0) < ($1.first ?? 0) }
             for interval in water {
                 out.append(WatchHazard(
                     kind: "water",
@@ -2167,7 +2265,10 @@ public struct CurrentHoleView: View {
     /// distance from a possibly stale local median when the backend supplied a strategy carry.
     private var recommendedClubChoice: LiveClubStripPolicy.Recommendation? {
         guard let decision = caddieDecision else { return nil }
-        return LiveClubStripPolicy.recommendation(from: decision)
+        return LiveClubStripPolicy.recommendation(
+            from: decision,
+            strategyMode: selectedStrategyMode
+        )
     }
 
     /// round-12: full-bag dropdown — pick ANY club + its distance; recommended club marked; defaults
@@ -2228,7 +2329,10 @@ public struct CurrentHoleView: View {
     /// The club the player will hit NOW under the caddie's decision: the first step of the selected
     /// sequence (the tee/advance shot) when sequences exist, else the selected single-club option.
     private func recommendedClubName(from decision: CaddieDecisionResponse) -> String? {
-        LiveClubStripPolicy.recommendation(from: decision)?.name
+        LiveClubStripPolicy.recommendation(
+            from: decision,
+            strategyMode: selectedStrategyMode
+        )?.name
     }
 
     /// Adopt the caddie's recommended club as the selected club so the club strip highlight and the

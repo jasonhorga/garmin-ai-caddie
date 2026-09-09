@@ -122,10 +122,11 @@ public struct LiveGreenDetailView: View {
             ? CGRect(origin: .zero, size: size)
             : detailRect(in: size)
         let displayedScale = min(max(scale * pinchScale, 1), 4)
-        let displayedOffset = CGSize(
+        let rawDisplayedOffset = CGSize(
             width: offset.width + transientOffset.width,
             height: offset.height + transientOffset.height
         )
+        let displayedOffset = clamped(rawDisplayedOffset, in: size, scale: displayedScale)
 
         ZStack(alignment: .topTrailing) {
             greenMapContent(size: size, baseRect: baseRect)
@@ -403,17 +404,7 @@ public struct LiveGreenDetailView: View {
     }
 
     private func drawFlag(_ context: inout GraphicsContext, at point: CGPoint) {
-        var pole = Path()
-        pole.move(to: CGPoint(x: point.x, y: point.y + 13))
-        pole.addLine(to: CGPoint(x: point.x, y: point.y - 14))
-        context.stroke(pole, with: .color(.white), style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
-
-        var pennant = Path()
-        pennant.move(to: CGPoint(x: point.x + 1, y: point.y - 14))
-        pennant.addLine(to: CGPoint(x: point.x + 14, y: point.y - 9))
-        pennant.addLine(to: CGPoint(x: point.x + 1, y: point.y - 4))
-        pennant.closeSubpath()
-        context.fill(pennant, with: .color(.red))
+        LiveMapFlagRenderer.draw(&context, at: point)
     }
 
     private var imageDimensions: (width: Double, height: Double)? {
@@ -714,10 +705,24 @@ public struct LiveGreenDetailView: View {
     }
 
     private func clamped(_ value: CGSize, in size: CGSize, scale: CGFloat) -> CGSize {
-        guard scale > 1 else { return .zero }
-        let maxX = size.width * (scale - 1) / 2
-        let maxY = size.height * (scale - 1) / 2
-        return CGSize(width: min(max(value.width, -maxX), maxX), height: min(max(value.height, -maxY), maxY))
+        let mapFrame: CGRect?
+        if activeDetailCrop == nil,
+           let overlay = hole.resolvedMapOverlay {
+            mapFrame = LivePlayMapOverlayLayout.mapFrame(
+                overlayWidth: overlay.w,
+                overlayHeight: overlay.h,
+                in: size
+            )
+        } else {
+            mapFrame = detailRect(in: size)
+        }
+        guard let mapFrame else { return scale > 1 ? value : .zero }
+        return LivePlayMapOverlayLayout.clampedOffset(
+            value,
+            mapFrame: mapFrame,
+            viewportSize: size,
+            scale: scale
+        )
     }
 
     private func distanceYards(from start: CLLocationCoordinate2D?, to end: CLLocationCoordinate2D?) -> Int? {

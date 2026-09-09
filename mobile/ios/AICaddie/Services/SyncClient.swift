@@ -383,7 +383,7 @@ public enum SyncClientError: Error, Equatable {
 public final class SyncClient {
     /// Renderer contract shared with the phone's on-disk topo cache and Watch transfer metadata.
     /// Bump this whenever existing rendered pixels must be invalidated on installed devices.
-    public static let topoStyleVersion = "topo-v9"
+    public static let topoStyleVersion = "topo-v10"
     /// Version only the focused View Green asset; changing it must not invalidate every course topo.
     public static let greenDetailStyleVersion = "green-v3"
     public static let greenDetailImageSize = 1280

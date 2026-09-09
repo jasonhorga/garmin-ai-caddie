@@ -714,14 +714,14 @@ def _fixture_png(global_id: int, hole: int, width: int = 64, height: int = 64) -
 
 @ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/topo.png")
 def topo_png(global_id: int, hole: int, v: str | None = None, r: str | None = None) -> Response:
-    if v is not None and v != "topo-v9":
+    if v is not None and v != "topo-v10":
         raise HTTPException(status_code=409, detail="fixture topo renderer version unsupported")
     return _fixture_png(global_id, hole)
 
 
 @ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/green.png")
 def green_png(global_id: int, hole: int, x: float = 0, y: float = 0, width: float = 64, height: float = 64, size: int = 64, v: str | None = None, g: str | None = None, r: str | None = None) -> Response:
-    if v is not None and v != "topo-v9":
+    if v is not None and v != "topo-v10":
         raise HTTPException(status_code=409, detail="fixture topo renderer version unsupported")
     if g is not None and g != "green-v3":
         raise HTTPException(status_code=409, detail="fixture green renderer version unsupported")
