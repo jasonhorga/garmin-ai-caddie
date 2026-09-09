@@ -1429,6 +1429,13 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## State Changes
 
+- 2026-09-09: Fresh Native Mobile CI `34407853548` was dispatched from
+  `integration/v2` head `158c1db5` (product-code tip `b9ff8b9d`) with
+  `capture_scope=full`, live API
+  `https://suggests-kilometers-normal-insertion.trycloudflare.com`, and
+  backend revision `6d130528`. The run is still in progress; no TestFlight,
+  signing, or distribution side effect was started.
+
 - 2026-09-09: Native Mobile CI `34406253005` reached all Watch build/runtime evidence
   and failed only at the iOS app target with Swift access-control errors in
   `CoursePrep.swift:158`: a public default argument referenced internal
