@@ -121,6 +121,7 @@ class ConnectorSnapshotTests(unittest.TestCase):
 
             manifest = build_snapshot_manifest(root=root, snapshot_id="snap_geometry")
             write_durable_snapshot(root=root, manifest=manifest)
+            source_geometry_preserved = hazard.exists() and mesh.exists()
             hazard_copied = (
                 root
                 / "data"
@@ -147,8 +148,7 @@ class ConnectorSnapshotTests(unittest.TestCase):
         self.assertNotIn("output/prodgeometry_overlay/debug.png", manifest.files)
         self.assertFalse(hazard_copied)
         self.assertFalse(mesh_copied)
-        self.assertTrue(hazard.exists())
-        self.assertTrue(mesh.exists())
+        self.assertTrue(source_geometry_preserved)
 
     def test_durable_snapshot_write_guard_skips_legacy_geometry_members(self) -> None:
         with TemporaryDirectory() as tmp:
