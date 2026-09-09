@@ -153,9 +153,27 @@ struct RoundReviewContent: View {
     let isLoading: Bool
     let errorText: String?
     let fallbackCourseName: String?
-    let globalId: Int? = nil
-    var onSelectHole: (Int) -> Void = { _ in }
-    var onRetry: () -> Void = {}
+    let globalId: Int?
+    var onSelectHole: (Int) -> Void
+    var onRetry: () -> Void
+
+    init(
+        detail: RoundDetail?,
+        isLoading: Bool,
+        errorText: String?,
+        fallbackCourseName: String?,
+        globalId: Int? = nil,
+        onSelectHole: @escaping (Int) -> Void = { _ in },
+        onRetry: @escaping () -> Void = {}
+    ) {
+        self.detail = detail
+        self.isLoading = isLoading
+        self.errorText = errorText
+        self.fallbackCourseName = fallbackCourseName
+        self.globalId = globalId
+        self.onSelectHole = onSelectHole
+        self.onRetry = onRetry
+    }
 
     private struct ReviewMetric: Identifiable {
         let id: String
