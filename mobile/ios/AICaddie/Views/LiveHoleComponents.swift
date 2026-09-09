@@ -1065,10 +1065,15 @@ struct LiveMapHazardRangeOverlay: View {
 }
 
 /// Small, deterministic lanes for hazard numbers. Keeping this independent of SwiftUI view state
-/// makes dense two-hazard maps predictable and easy to regression-test.
+/// makes dense two-hazard maps predictable and easy to regression-test. The first hazard stays close
+/// to its boundary; later hazards move their front labels farther upward and back labels farther
+/// downward, so two spans at the same fairway pixel still have distinct numbers without a callout box.
 enum LiveHazardCalloutLayout {
     static let labelWidth: CGFloat = 22
     static let labelHeight: CGFloat = 13
+    private static let horizontalGap: CGFloat = 15
+    private static let boundaryGap: CGFloat = 8
+    private static let laneSpacing: CGFloat = 18
 
     static func center(
         for point: CGPoint,
@@ -1077,16 +1082,30 @@ enum LiveHazardCalloutLayout {
         viewportSize: CGSize
     ) -> CGPoint {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return point }
-        let spaceOnRight = point.x < viewportSize.width - labelWidth - 12
-        let preferRight = index.isMultiple(of: 2)
-        let rightSide = preferRight ? spaceOnRight : point.x < labelWidth + 12
-        let xOffset: CGFloat = rightSide ? 13 : -13
-        // Front/back numbers sit on opposite sides of their own edge; alternating horizontal sides
-        // separates adjacent sand/water annotations without moving a number away from its fact.
-        let yOffset: CGFloat = isFront ? -8 : 8
+        let halfWidth = labelWidth / 2
+        let minX = halfWidth + 3
+        let maxX = max(minX, viewportSize.width - halfWidth - 3)
+        let canPlaceRight = point.x + horizontalGap + halfWidth <= viewportSize.width - 3
+        let canPlaceLeft = point.x - horizontalGap - halfWidth >= 3
+        // Alternate sides by obstacle, but always prefer the side that actually fits. This keeps a
+        // second hazard readable even when the first one is near a map edge.
+        let prefersRight = max(index, 0).isMultiple(of: 2)
+        let rightSide: Bool
+        if prefersRight {
+            rightSide = canPlaceRight || !canPlaceLeft
+        } else {
+            rightSide = !canPlaceLeft && canPlaceRight
+        }
+        let xOffset = rightSide ? horizontalGap : -horizontalGap
+        let lane = CGFloat(max(index, 0)) * laneSpacing
+        // Front/back labels move away from one another. The lane is deliberately applied in opposite
+        // directions so a pair of hazards sharing nearly identical pixels cannot stack vertically.
+        let yOffset = (isFront ? -boundaryGap : boundaryGap) + (isFront ? -lane : lane)
+        let minY = labelHeight / 2 + 4
+        let maxY = max(minY, viewportSize.height - labelHeight / 2 - 4)
         return CGPoint(
-            x: min(max(point.x + xOffset, labelWidth / 2 + 3), viewportSize.width - labelWidth / 2 - 3),
-            y: min(max(point.y + yOffset, labelHeight / 2 + 4), viewportSize.height - labelHeight / 2 - 4)
+            x: min(max(point.x + xOffset, minX), maxX),
+            y: min(max(point.y + yOffset, minY), maxY)
         )
     }
 }

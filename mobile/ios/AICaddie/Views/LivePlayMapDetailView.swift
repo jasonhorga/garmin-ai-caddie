@@ -44,7 +44,8 @@ public struct LivePlayMapDetailView: View {
     @State private var didDrag = false
     @GestureState private var pinchScale: CGFloat = 1
 
-    private let targetLoupeDiameter: CGFloat = 112
+    /// Keep the precision window readable without covering the course or the held finger.
+    private let targetLoupeDiameter: CGFloat = 100
 
     private enum InteractionMode {
         case target
@@ -159,8 +160,8 @@ public struct LivePlayMapDetailView: View {
             .offset(displayedOffset)
 
             // S70-style precision affordance: while the target handle is held, show the same
-            // transformed course map in a circular loupe. The crosshair is centered on the finger,
-            // so a small movement is observable without hiding the source point under the fingertip.
+            // transformed course map in a compact rounded loupe. The crosshair tracks the held
+            // point while the window itself stays far enough away from the fingertip to remain legible.
             if let focus = targetDragLocation, interactionMode == .target {
                 LiveMapTargetMagnifierLoupe(
                     mapSize: size,
@@ -744,13 +745,14 @@ public struct LivePlayMapDetailView: View {
     /// itself may be near any edge because the map coordinate is still allowed to move there.
     private func targetLoupePosition(_ location: CGPoint, in size: CGSize) -> CGPoint {
         let half = targetLoupeDiameter / 2
+        let fingerClearance: CGFloat = 72
         let minX = half + 8
         let maxX = max(minX, size.width - half - 8)
         let minY = half + 78
         let maxY = max(minY, size.height - half - 132)
         let x = min(max(location.x, minX), maxX)
-        let above = location.y - half - 60
-        let below = location.y + half + 60
+        let above = location.y - half - fingerClearance
+        let below = location.y + half + fingerClearance
         let preferred = above >= minY ? above : below
         return CGPoint(x: x, y: min(max(preferred, minY), maxY))
     }

@@ -392,7 +392,7 @@ public struct RoundHomeView: View {
                 : (package.holes.first?.number ?? liveRoundState.activeHole)
             NavigationLink(value: HubRoute.hole(activeHole)) {
                 HubInProgressCard(
-                    courseName: package.course.name,
+                    courseName: package.course.localizedName,
                     activeHole: activeHole,
                     recorded: recordedScoreHoleCount,
                     total: package.holes.count
@@ -483,7 +483,7 @@ public struct RoundHomeView: View {
                 NavigationLink(
                     value: HubRoute.roundReview(
                         roundRef: last.roundId,
-                        courseName: last.courseName,
+                        courseName: last.localizedCourseDisplayName,
                         globalId: last.globalId ?? package.course.globalId,
                         backGlobalId: package.holes.lazy.compactMap(\.sourceGlobalId).first { $0 != package.course.globalId },
                         nine: package.nine,
@@ -491,7 +491,7 @@ public struct RoundHomeView: View {
                     )
                 ) {
                     HubLastRoundCard(
-                        courseName: last.courseName,
+                        courseName: last.localizedCourseDisplayName,
                         date: last.date,
                         score: last.score,
                         toPar: last.toPar,

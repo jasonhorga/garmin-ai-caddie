@@ -293,16 +293,20 @@ public struct StartRoundView: View {
         front: MobileCourseOption,
         back: MobileCourseOption?
     ) -> String {
-        guard let back else { return front.name }
-        let venue = front.venueName ?? front.name.components(separatedBy: " ~ ").first?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? front.name
-        let frontLabel = front.segmentLabel ?? front.name.components(separatedBy: " ~ ").dropFirst().first
-        let backLabel = back.segmentLabel ?? back.name.components(separatedBy: " ~ ").dropFirst().first
-        guard let frontLabel = frontLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let backLabel = backLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !frontLabel.isEmpty,
-              !backLabel.isEmpty else {
-            return front.name
+        let venue = MobileCourseDisplayLocalization.courseName(
+            courseVenueName(front),
+            globalId: front.globalId
+        )
+        let frontLabel = normalizedRoundSegmentLabel(front)
+        guard let back else {
+            // A single nine must not carry a stale played combination (for example `C/A`) from an
+            // older package. Rebuild the visible identity from the current segment authority.
+            return frontLabel.map { "\(venue) ~ \($0)" }
+                ?? MobileCourseDisplayLocalization.courseName(front.name, globalId: front.globalId)
+        }
+        let backLabel = normalizedRoundSegmentLabel(back)
+        guard let frontLabel, let backLabel else {
+            return MobileCourseDisplayLocalization.courseName(front.name, globalId: front.globalId)
         }
         return "\(venue) ~ \(frontLabel)/\(backLabel)"
     }
@@ -1095,7 +1099,7 @@ public struct StartRoundView: View {
             catalogue?.holes,
             downloaded?.holes,
         ]) ?? provider.holes
-        let venue = firstNonEmpty([
+        let rawVenue = firstNonEmpty([
             catalogue?.venueName,
             provider.venueName,
             downloaded?.venueName,
@@ -1103,6 +1107,7 @@ public struct StartRoundView: View {
             Optional(courseVenueName(provider)),
             downloaded.map { courseVenueName($0) },
         ]) ?? provider.name
+        let venue = MobileCourseDisplayLocalization.courseName(rawVenue, globalId: provider.globalId)
         // The live provider row is the authority for a current loop label. Catalogue/downloaded
         // rows may contain an old played combination such as C/A; use them only as fallbacks.
         let label = resolvedSegmentLabel(
@@ -1173,13 +1178,24 @@ public struct StartRoundView: View {
         guard segmentHoles == 9 else { return nil }
         for name in names {
             guard let name,
-                  let suffix = name.components(separatedBy: " ~ ").dropFirst().first,
+                  let suffix = name.components(separatedBy: "~").dropFirst().first,
                   let label = normalizedSegmentLabel(String(suffix), segmentHoles: segmentHoles) else {
                 continue
             }
             return label
         }
         return nil
+    }
+
+    private static func normalizedRoundSegmentLabel(_ option: MobileCourseOption) -> String? {
+        let nameSuffix = option.name.components(separatedBy: "~").dropFirst().first
+        let explicit = option.segmentLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawLabel = (explicit?.isEmpty == false ? explicit : nil)
+            ?? nameSuffix.map { String($0) }
+        return normalizedSegmentLabel(
+            rawLabel,
+            segmentHoles: option.resolvedHoles
+        )
     }
 
     private static func normalizedSegmentLabel(_ raw: String?, segmentHoles: Int) -> String? {
@@ -1291,10 +1307,11 @@ public struct StartRoundView: View {
     /// each playable loop as a separate global ID, so comparing IDs here would incorrectly revoke
     /// the exception when the player changes A/B/C or chooses a second nine.
     static func courseVenueName(_ option: MobileCourseOption) -> String {
-        option.venueName
-            ?? option.name.components(separatedBy: " ~ ").first?
+        let raw = option.venueName
+            ?? option.name.components(separatedBy: "~").first?
                 .trimmingCharacters(in: .whitespaces)
             ?? option.name
+        return MobileCourseDisplayLocalization.courseName(raw, globalId: option.globalId)
     }
 
     static func samePhysicalVenue(_ lhs: MobileCourseOption, _ rhs: MobileCourseOption) -> Bool {

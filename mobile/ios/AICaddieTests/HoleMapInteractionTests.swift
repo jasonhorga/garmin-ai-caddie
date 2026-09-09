@@ -142,6 +142,32 @@ final class HoleMapInteractionTests: XCTestCase {
         XCTAssertLessThanOrEqual(back.x, viewport.width - LiveHazardCalloutLayout.labelWidth / 2)
     }
 
+    func testNearbyHazardsUseDistinctVerticalLanesWhenTheirEdgesCoincide() {
+        let viewport = CGSize(width: 360, height: 540)
+        let point = CGPoint(x: 170, y: 260)
+        let firstFront = LiveHazardCalloutLayout.center(
+            for: point, isFront: true, index: 0, viewportSize: viewport
+        )
+        let secondFront = LiveHazardCalloutLayout.center(
+            for: point, isFront: true, index: 1, viewportSize: viewport
+        )
+        let firstBack = LiveHazardCalloutLayout.center(
+            for: point, isFront: false, index: 0, viewportSize: viewport
+        )
+        let secondBack = LiveHazardCalloutLayout.center(
+            for: point, isFront: false, index: 1, viewportSize: viewport
+        )
+
+        XCTAssertGreaterThanOrEqual(
+            abs(firstFront.y - secondFront.y),
+            LiveHazardCalloutLayout.labelHeight
+        )
+        XCTAssertGreaterThanOrEqual(
+            abs(firstBack.y - secondBack.y),
+            LiveHazardCalloutLayout.labelHeight
+        )
+    }
+
     func testHorizontalHoleSwipeChangesOnlyToAnAdjacentHole() {
         let holes = [1, 2, 3]
 

@@ -51,7 +51,10 @@ struct RecentReviewContent: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("球场近况").font(.caption).foregroundStyle(.secondary)
             // Base course name (黑骑士), not the "~ A" nine combo — course form spans all loops.
-            Text(courseHistory.courseName ?? package.course.name).font(.title3.weight(.bold))
+            Text(localizedCourseDisplayName(
+                courseHistory.courseName ?? package.course.name,
+                globalId: package.course.globalId
+            )).font(.title3.weight(.bold))
             HStack(spacing: 10) {
                 stat("场次", "\(courseHistory.roundCount)")
                 if let averageScore = courseHistory.averageScore {
@@ -103,7 +106,7 @@ struct RecentReviewContent: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(round.courseName).font(.subheadline.weight(.semibold))
+                    Text(round.localizedCourseDisplayName).font(.subheadline.weight(.semibold))
                     Text(aiCaddieShortDate(round.date)).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()

@@ -69,7 +69,7 @@ public struct RoundShotEditLayer: View {
     @State private var suppressSelectionTap = false
 
     private let hitRadius: CGFloat = 24
-    private let loupeDiameter: CGFloat = 112
+    private let loupeDiameter: CGFloat = 100
 
     public init(editModel: RoundEditModel, overlay: CoursePrepOverlay, clubs: [String],
                 baseImage: UIImage?, topoURL: URL?) {
@@ -139,7 +139,7 @@ public struct RoundShotEditLayer: View {
                                 topoURL: topoURL,
                                 mapSize: frame.size,
                                 focus: CGPoint(x: focus.x - frame.minX, y: focus.y - frame.minY),
-                                diameter: 98,
+                                diameter: 100,
                                 magnification: 2.35
                             )
                             Text(sheetFocusLabel)
@@ -309,10 +309,11 @@ public struct RoundShotEditLayer: View {
     /// clip it. This distance is intentional for real-device use where a fingertip hides the map.
     private func loupePosition(_ loc: CGPoint, in size: CGSize) -> CGPoint {
         let half = loupeDiameter / 2
+        let fingerClearance: CGFloat = 72
         let minimumY = half + 6
         let maximumY = max(minimumY, size.height - half - 6)
-        let above = loc.y - half - 60
-        let below = loc.y + half + 60
+        let above = loc.y - half - fingerClearance
+        let below = loc.y + half + fingerClearance
         let candidate = above >= minimumY ? above : below
         let y = min(max(candidate, minimumY), maximumY)
         let x = min(max(half + 6, loc.x), size.width - half - 6)
@@ -445,11 +446,11 @@ public struct MagnifierLoupe: View {
     let mapSize: CGSize
     /// Finger location in that same view space (the point to magnify + center under the crosshair).
     let focus: CGPoint
-    var diameter: CGFloat = 116
+    var diameter: CGFloat = 100
     var magnification: CGFloat = 2.2
 
     public init(overlay: CoursePrepOverlay, shots: [RoundShot], baseImage: UIImage?, topoURL: URL?,
-                mapSize: CGSize, focus: CGPoint, diameter: CGFloat = 116, magnification: CGFloat = 2.2) {
+                mapSize: CGSize, focus: CGPoint, diameter: CGFloat = 100, magnification: CGFloat = 2.2) {
         self.overlay = overlay
         self.shots = shots
         self.baseImage = baseImage
@@ -547,7 +548,7 @@ public struct RoundShotPrecisionEditor: View {
 
     private static let headerInset: CGFloat = 72
     private static let bottomInset: CGFloat = 112
-    private static let markerLoupeDiameter: CGFloat = 112
+    private static let markerLoupeDiameter: CGFloat = 100
 
     private enum InteractionMode {
         case point
@@ -970,13 +971,14 @@ public struct RoundShotPrecisionEditor: View {
     /// bottom confirm/cancel rail.
     private func precisionLoupePosition(_ location: CGPoint, in size: CGSize) -> CGPoint {
         let half = Self.markerLoupeDiameter / 2
+        let fingerClearance: CGFloat = 72
         let minX = half + 8
         let maxX = max(minX, size.width - half - 8)
         let x = min(max(location.x, minX), maxX)
         let minimumY = Self.headerInset + half + 8
         let maximumY = max(minimumY, size.height - Self.bottomInset - half - 8)
-        let above = location.y - half - 60
-        let below = location.y + half + 60
+        let above = location.y - half - fingerClearance
+        let below = location.y + half + fingerClearance
         let candidate = above >= minimumY ? above : below
         return CGPoint(x: x, y: min(max(candidate, minimumY), maximumY))
     }

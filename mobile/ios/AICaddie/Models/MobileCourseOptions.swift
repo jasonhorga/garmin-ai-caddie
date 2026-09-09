@@ -4,11 +4,38 @@ import Foundation
 /// stable catalogue names seen in the Chinese app; unknown names fall through instead of inventing
 /// a translation that could identify the wrong physical course.
 public enum MobileCourseDisplayLocalization {
+    /// Stable CourseView identities verified from the player's catalogue/history. These aliases are
+    /// presentation-only: wire payloads and provider caches continue to retain their original names.
+    /// The fixture names below are intentionally left untouched by `courseName` so generic CI rows
+    /// such as `Fixture Links` do not get mistaken for a real course.
+    private static let stableCourseAliases: [Int: String] = [
+        31_790: "奥园体育俱乐部",
+        31_791: "翡翠湖高尔夫俱乐部",
+        31_792: "金色河畔高尔夫俱乐部",
+        31_793: "北京丽宫体育公园高尔夫俱乐部",
+        31_794: "北京天竺黑骑士球员俱乐部",
+        31_795: "北京天竺黑骑士球员俱乐部",
+        31_796: "北京天竺黑骑士球员俱乐部",
+    ]
+
+    private static let fixtureCourseNames: Set<String> = [
+        "fixture links",
+        "fixture open course",
+        "cypress point club",
+    ]
+
     private static let courseAliases: [String: String] = [
         "beijing riverside resort golf club": "北京河畔度假高尔夫俱乐部",
         "beijing huanggang international golf club": "北京黄港国际高尔夫俱乐部",
         "beijing black knight golf club": "北京黑骑士国际高尔夫俱乐部",
         "beijing black knight international golf club": "北京黑骑士国际高尔夫俱乐部",
+        "black knight": "北京天竺黑骑士球员俱乐部",
+        "black knight golf club": "北京天竺黑骑士球员俱乐部",
+        "the black knight": "北京天竺黑骑士球员俱乐部",
+        "jade island golf club": "翡翠湖高尔夫俱乐部",
+        "jade lake golf club": "翡翠湖高尔夫俱乐部",
+        "golden riverside golf club": "金色河畔高尔夫俱乐部",
+        "aoyuan sports club": "奥园体育俱乐部",
         "nicklaus club beijing": "北京尼克劳斯俱乐部",
         "beijing orient tianxing country club": "北京东方天星乡村俱乐部",
     ]
@@ -25,21 +52,33 @@ public enum MobileCourseDisplayLocalization {
         "changping": "昌平区",
         "changping district": "昌平区",
         "tianzhu": "天竺镇",
+        "shenzhen": "深圳市",
+        "guangdong": "广东省",
+        "guangdong province": "广东省",
+        "monterey": "蒙特雷",
+        "monterey county": "蒙特雷县",
+        "california": "加利福尼亚州",
     ]
 
     public static func courseName(_ raw: String, globalId: Int? = nil) -> String {
-        let parts = raw.components(separatedBy: " ~ ")
+        // Provider responses are not consistent about spaces around `~`; normalising the separator
+        // here prevents a stale `C/A` suffix from becoming part of the venue key.
+        let parts = raw.components(separatedBy: "~")
         let venue = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? raw
         let localizedVenue: String
         if globalId == 31_793 {
             // This CourseView ID is provider-mislabeled as Shadow Creek; the repository's verified
             // player history and geometry identify the Beijing venue without changing provider data.
             localizedVenue = "北京丽宫体育公园高尔夫俱乐部"
+        } else if let stable = globalId.flatMap({ stableCourseAliases[$0] }),
+                  !fixtureCourseNames.contains(normalized(venue)) {
+            localizedVenue = stable
         } else {
             localizedVenue = courseAliases[normalized(venue)] ?? venue
         }
         guard parts.count > 1 else { return localizedVenue }
-        return ([localizedVenue] + parts.dropFirst()).joined(separator: " ~ ")
+        let suffixes = parts.dropFirst().map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return ([localizedVenue] + suffixes).joined(separator: " ~ ")
     }
 
     public static func administrativeArea(_ raw: String?) -> String? {
@@ -52,8 +91,22 @@ public enum MobileCourseDisplayLocalization {
     private static func normalized(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-            .replacingOccurrences(of: "  ", with: " ")
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
     }
+}
+
+/// One presentation boundary for user-visible course names. Callers that only have an optional
+/// payload should use this helper instead of sprinkling English fallbacks through view code.
+public func localizedCourseDisplayName(
+    _ raw: String?,
+    globalId: Int? = nil,
+    fallback: String = "未知球场"
+) -> String {
+    guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        return fallback
+    }
+    return MobileCourseDisplayLocalization.courseName(raw, globalId: globalId)
 }
 
 public struct MobileCourseOptionsResponse: Codable, Equatable {
@@ -191,6 +244,25 @@ public extension MobileCourseOption {
     /// True 9/18 hole count for this segment (CourseView), falling back to the played count.
     var resolvedHoles: Int {
         segmentHoles ?? holes
+    }
+}
+
+public extension RecentRoundSummary {
+    var localizedCourseDisplayName: String {
+        MobileCourseDisplayLocalization.courseName(courseName, globalId: globalId)
+    }
+}
+
+public extension HistoryRoundCard {
+    var localizedCourseDisplayName: String {
+        MobileCourseDisplayLocalization.courseName(courseName, globalId: globalId)
+    }
+}
+
+public extension StatsCourse {
+    var localizedCourseDisplayName: String {
+        guard let courseName else { return courseKey }
+        return MobileCourseDisplayLocalization.courseName(courseName, globalId: globalId)
     }
 }
 

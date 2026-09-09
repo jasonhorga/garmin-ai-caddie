@@ -70,7 +70,11 @@ public struct GarminSessionView: View {
                     }
                     .disabled(isImporting)
                 }
-                Text(transientErrorText ?? connectionState.statusText)
+                // The owning app model is the only source of truth for the account lifecycle. A
+                // transient web/import error belongs to the verification sheet; rendering it here
+                // alongside the model state used to produce contradictory labels such as
+                // “网页已登录但未验证” and “已连接正在同步” at the same time.
+                Text(connectionState.statusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if shouldShowStoredSessionRetry {
@@ -314,8 +318,15 @@ public struct GarminSessionView: View {
 
     @MainActor
     private func startStoredSessionSyncIfNeeded() {
-        guard loadStoredSession() != nil,
-              connectionState == .awaitingVerification || connectionState == .verificationFailed else {
+        guard loadStoredSession() != nil else { return }
+        // A keychain session can outlive the in-memory model after a cold launch. Treat a stale
+        // `.disconnected` projection the same as an unverified state so the saved account reconnects
+        // automatically; verified terminal states remain untouched.
+        guard connectionState == .disconnected
+            || connectionState == .awaitingVerification
+            || connectionState == .verificationFailed
+            || connectionState == .syncFailed
+            || connectionState == .persistenceFailed else {
             return
         }
         startBackgroundSync()

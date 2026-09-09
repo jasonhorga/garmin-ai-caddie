@@ -221,7 +221,11 @@ struct RoundReviewContent: View {
     /// own its full line before the metadata flows below it. The score remains a stable trailing
     /// anchor in both layouts.
     private func summaryTitle(_ round: RoundDetailSummary?) -> some View {
-        let courseName = round?.courseName ?? fallbackCourseName ?? "这一场"
+        let courseName = localizedCourseDisplayName(
+            round?.courseName ?? fallbackCourseName,
+            globalId: globalId,
+            fallback: "这一场"
+        )
         let subtitle = summarySubtitle(round)
         return ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {

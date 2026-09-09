@@ -559,7 +559,7 @@ struct StatsContent: View {
     private func courseRow(_ c: StatsCourse) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 1) {
-                Text(c.courseName ?? c.courseKey).font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text(c.localizedCourseDisplayName).font(.subheadline.weight(.semibold)).lineLimit(1)
                 Text("\(c.roundCount ?? 0) 次 · 最佳 \(c.bestScore.map(String.init) ?? "—")").font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
@@ -710,7 +710,7 @@ struct CourseStatsDetailView: View {
             .padding(14)
         }
         .background(HubStyle.grouped)
-        .navigationTitle(course.courseName ?? "球场")
+        .navigationTitle(course.localizedCourseDisplayName)
     }
 
     // MARK: 所有比赛(用户:直接列出每一场 时间·成绩,点单场看复盘)
@@ -725,7 +725,7 @@ struct CourseStatsDetailView: View {
                 ForEach(rounds) { r in
                     if let ref = r.roundId, !ref.isEmpty {
                         NavigationLink {
-                        RoundReviewView(roundRef: ref, fallbackCourseName: course.courseName,
+                        RoundReviewView(roundRef: ref, fallbackCourseName: course.localizedCourseDisplayName,
                                         apiBaseURL: apiBaseURL, adminToken: adminToken,
                                         globalId: r.globalId ?? course.globalId,
                                         backGlobalId: r.backGlobalId ?? course.backGlobalId,

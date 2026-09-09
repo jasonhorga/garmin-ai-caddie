@@ -47,7 +47,7 @@ struct LiveRoundFinishSummaryView: View {
             Text("本场汇总")
                 .font(.title2.weight(.heavy))
                 .foregroundStyle(LivePlayStyle.ink)
-            Text(courseName)
+            Text(localizedCourseDisplayName(courseName))
                 .font(.subheadline)
                 .foregroundStyle(LivePlayStyle.ink60)
                 .lineLimit(1)

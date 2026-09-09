@@ -41,7 +41,8 @@ public struct LiveGreenDetailView: View {
     @State private var didDrag = false
     @GestureState private var pinchScale: CGFloat = 1
 
-    private let flagLoupeDiameter: CGFloat = 112
+    /// Keep the flag preview compact and clear of the held finger on phone-sized displays.
+    private let flagLoupeDiameter: CGFloat = 100
 
     public init(
         hole: CoursePrepHole,
@@ -135,8 +136,8 @@ public struct LiveGreenDetailView: View {
             // drag therefore cannot win the hit test for a button layered above it.
             greenInteractionLayer(size: size, baseRect: baseRect)
 
-            // S70-style precision affordance: keep the same transformed map under a circular loupe
-            // while the flag is held.  The loupe is display-only and never steals the map gesture.
+            // S70-style precision affordance: keep the same transformed map under a compact rounded
+            // loupe while the flag is held. The loupe is display-only and never steals the map gesture.
             if let focus = flagDragLocation, draggingFlag {
                 LiveGreenMagnifierLoupe(
                     mapSize: size,
@@ -698,13 +699,14 @@ public struct LiveGreenDetailView: View {
     /// overlay never changes the map's layout while a drag is in flight.
     private func loupePosition(_ location: CGPoint, in size: CGSize) -> CGPoint {
         let half = flagLoupeDiameter / 2
+        let fingerClearance: CGFloat = 72
         let minX = half + 8
         let maxX = max(minX, size.width - half - 8)
         let x = min(max(location.x, minX), maxX)
         let minimumY = half + 8
         let maximumY = max(minimumY, size.height - half - 8)
-        let above = location.y - half - 60
-        let below = location.y + half + 60
+        let above = location.y - half - fingerClearance
+        let below = location.y + half + fingerClearance
         let y = above >= minimumY
             ? above
             : min(max(below, minimumY), maximumY)

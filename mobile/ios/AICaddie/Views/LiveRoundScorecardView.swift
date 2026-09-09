@@ -71,7 +71,7 @@ struct LiveRoundScorecardView: View {
                 Text("本场计分卡")
                     .font(.title2.weight(.heavy))
                     .foregroundStyle(LivePlayStyle.ink)
-                Text("\(courseName) · 已记 \(recordedScoreHoles.count)/\(holes.count) 洞")
+                Text("\(localizedCourseDisplayName(courseName)) · 已记 \(recordedScoreHoles.count)/\(holes.count) 洞")
                     .font(.caption)
                     .foregroundStyle(LivePlayStyle.ink60)
             }

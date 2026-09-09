@@ -485,7 +485,7 @@ struct ResultsRoundRow: View {
 
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(round.courseName)
+                    Text(round.localizedCourseDisplayName)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(2)
                     Text([round.holesCompleted.map { "\($0) 洞" }, round.par.map { "Par \($0)" },
@@ -867,7 +867,7 @@ struct ResultsCoursesView: View {
                 CourseStatsDetailView(course: course, apiBaseURL: apiBaseURL, adminToken: adminToken)
             } label: {
                 VStack(alignment: .leading) {
-                    Text(course.courseName ?? course.courseKey)
+                    Text(course.localizedCourseDisplayName)
                     Text("\(course.roundCount ?? 0) 场 · 均杆 \(course.average18.map(oneDecimal) ?? "—") · 最佳 \(course.bestScore.map(String.init) ?? "—")")
                         .font(.caption).foregroundStyle(.secondary)
                 }

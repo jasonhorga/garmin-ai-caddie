@@ -177,6 +177,26 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
+    func testStableCourseDisplayNameRebuildsSingleLoopWithoutStaleCombination() {
+        let selected = MobileCourseOption(
+            globalId: 31_794,
+            name: "Black Knight ~ C/A",
+            holes: 9,
+            venueName: "Black Knight",
+            segmentLabel: "C",
+            segmentHoles: 9
+        )
+
+        XCTAssertEqual(
+            StartRoundView.roundDisplayName(front: selected, back: nil),
+            "北京天竺黑骑士球员俱乐部 ~ C"
+        )
+        XCTAssertEqual(
+            StartRoundView.courseVenueName(selected),
+            "北京天竺黑骑士球员俱乐部"
+        )
+    }
+
     func testManualSearchProvenanceSurvivesSiblingLoopButNotAnotherVenue() {
         let searchedLoop = MobileCourseOption(
             globalId: 31670,
