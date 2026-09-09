@@ -813,7 +813,7 @@ extension WatchSyncClient: WCSessionDelegate {
         if let receivedAssetStyle = meta["assetStyleVersion"] as? String {
             guard receivedAssetStyle == expectedAssetStyle else { return false }
         } else if detail {
-            // A queued green-v1 transfer can arrive after an app upgrade.  It shares topo-v8 but
+            // A queued green-v1 transfer can arrive after an app upgrade.  It shares topo-v9 but
             // does not contain the enlarged/feathered context, so it must never repopulate v2's
             // versioned file after the new asset has been requested.
             return false

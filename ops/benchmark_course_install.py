@@ -376,7 +376,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--nine", choices=("all", "front", "back"), default="all")
     parser.add_argument("--token", default=os.environ.get("AI_CADDIE_ADMIN_TOKEN"))
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--topo-style", default="topo-v8")
+    parser.add_argument("--topo-style", default="topo-v9")
     parser.add_argument("--concurrency", type=int, default=2)
     parser.add_argument("--expected-holes", type=int, default=18)
     parser.add_argument("--detached-seconds", type=float, default=15.0)

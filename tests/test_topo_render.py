@@ -52,10 +52,10 @@ class TopoRenderModuleTests(unittest.TestCase):
         rendered = topo_render._feather_green_detail_edges(source)
         self.assertEqual(rendered.getpixel((32, 32))[3], 0)
 
-    def test_topo_v8_starts_overlays_on_a_transparent_course_canvas(self) -> None:
+    def test_topo_v9_starts_overlays_on_a_transparent_course_canvas(self) -> None:
         from PIL import Image
 
-        self.assertEqual(topo_render.STYLE_VERSION, "topo-v8")
+        self.assertEqual(topo_render.STYLE_VERSION, "topo-v9")
         self.assertTrue(hasattr(topo_render, "_clip_to_transparent_canvas"))
 
         source = Image.new("RGB", (2, 1), topo_render.PAL["bg"])
@@ -73,6 +73,31 @@ class TopoRenderModuleTests(unittest.TestCase):
         shadow = Image.new("RGBA", source.size, (32, 54, 32, 92))
         with_shadow = Image.alpha_composite(rendered, shadow)
         self.assertEqual(with_shadow.getpixel((0, 0)), (32, 54, 32, 92))
+
+    def test_green_marker_is_a_compact_flag_without_target_rings(self) -> None:
+        from PIL import Image
+
+        # A broad synthetic green makes the old marker's rings unambiguously wider than the flag.
+        # The marker must stay anchored at the selected component centroid, independent of the
+        # factual green boundary size.
+        source = Image.new("RGBA", (240, 180), (0, 0, 0, 0))
+        by = {"Green.drc": {"positions": [(-40, 0, 0), (40, 0, 10)]}}
+        component = {"vertex_indices": [0, 1]}
+
+        def project(point):
+            return (120 + point[0], 90 + point[1])
+
+        with patch.object(topo_render.course_prep, "selected_green_component", return_value=component):
+            rendered = topo_render._draw_green_marker(source, project, by, [(0, 0), (0, 10)])
+
+        bbox = rendered.getchannel("A").getbbox()
+        self.assertIsNotNone(bbox)
+        assert bbox is not None
+        # The compact flag is at most 20 px wide; a target ring around this 80 px green would be
+        # roughly 100 px wide and fail this guard.
+        self.assertLess(bbox[2] - bbox[0], 40)
+        self.assertGreaterEqual(bbox[0], 119)
+        self.assertLessEqual(bbox[2], 133)
 
     @unittest.skipUnless(_HAVE_GEOMETRY, "requires decoded prodgeometry meshes (absent in CI)")
     def test_renders_reference_hole_to_aligned_png(self) -> None:
@@ -345,7 +370,7 @@ class TopoRenderModuleTests(unittest.TestCase):
     def test_cache_key_includes_style_version(self) -> None:
         with patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": "/x/y"}):
             path = topo_render.cache_path(31795, 7)
-        self.assertTrue(path.name.startswith("gid31795_h07_topo-v8-"))
+        self.assertTrue(path.name.startswith("gid31795_h07_topo-v9-"))
         self.assertTrue(path.name.endswith(".png"))
         self.assertIn(topo_render.STYLE_VERSION, str(path))
 
@@ -405,7 +430,7 @@ class TopoRenderModuleTests(unittest.TestCase):
         )
         self.assertEqual(result.tobytes(), current.tobytes())
 
-    def test_topo_v8_consumes_decoded_coast_and_ocean_layers(self) -> None:
+    def test_topo_v9_consumes_decoded_coast_and_ocean_layers(self) -> None:
         self.assertEqual(topo_render.OCEAN_LAYERS, ("Ocean", "VfxOcean", "OceanSide"))
         self.assertIn("Beach", topo_render.ORDER)
         self.assertIn("Cliff", topo_render.ORDER)

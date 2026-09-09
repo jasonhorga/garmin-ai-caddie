@@ -205,7 +205,7 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(status["totalHoles"], 18)
         self.assertEqual(status["topoReady"], 18)
 
-        asset = topo_png(31793, 1, v="topo-v8", r=FIXTURE_REVISION)
+        asset = topo_png(31793, 1, v="topo-v9", r=FIXTURE_REVISION)
         self.assertEqual(asset.media_type, "image/png")
         self.assertGreater(len(asset.body), 1024)
 

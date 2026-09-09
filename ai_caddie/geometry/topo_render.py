@@ -24,8 +24,8 @@ The rich topo texturing is ported from the standalone prototype
     fairway/green; shadows never darken mown surfaces
   - water: THIS hole's connected lake plus decoded coastal Ocean/VfxOcean/OceanSide surfaces,
     shallow->deep gradient + ripple + bright shoreline
-  - green: white target ring + flag on the REAL per-hole green centroid (clustered to the play
-    line so a neighbour green never steals the flag)
+  - green: compact flag on the REAL per-hole green centroid (clustered to the play line so a
+    neighbour green never steals the flag)
   - clean super-sampled material edges (no Gaussian blur softening)
 
 NOT baked into the base (they are dynamic per-shot overlays, drawn by the client): the playing
@@ -59,7 +59,7 @@ from ai_caddie.geometry.geometry_authority import authority_path, cache_token
 # topo-v2: fill-the-frame projection (#233) — the hole now fills the height (FRAME_H=1060, variable
 # width) instead of floating small in a fixed 720x1120 letterbox. Bump so the pre-#233 cached PNGs
 # are superseded and every hole re-renders with the tighter framing.
-STYLE_VERSION = "topo-v8"  # v8: bounded coast plus every route-visible water component
+STYLE_VERSION = "topo-v9"  # v9: compact green flag; no target rings or crosshair overlays
 # The focused asset is a separate cache contract from the whole-hole bitmap.  Bump this when its
 # crop/compositing treatment changes; otherwise an installed Watch can keep the old, green-only
 # tile forever even though the server has learned to render a sharp surrounding apron.
@@ -687,10 +687,12 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
 
 
 def _draw_green_marker(img, project, by, route):
-    """LOCKED green treatment: white target ring + flag on the REAL per-hole green centroid.
+    """Draw only a compact flag on the REAL per-hole green centroid.
 
     Clusters green vertices near the play-line end so a neighbour hole's green never steals the
-    flag. Draws directly on the SS image (downsampled with everything else)."""
+    flag. The green surface itself already communicates the target area; large rings and crosshairs
+    obscure the map and belong to neither the base asset nor the live editing affordance. Draws
+    directly on the SS image (downsampled with everything else)."""
     gm = by.get("Green.drc")
     if not gm:
         return img
@@ -703,19 +705,16 @@ def _draw_green_marker(img, project, by, route):
     near = [_local(gm["positions"][index]) for index in component["vertex_indices"]]
     cx = sum(p[0] for p in near) / len(near)
     cz = sum(p[1] for p in near) / len(near)
-    gpx = [project(p) for p in near]
-    gxs = [p[0] for p in gpx]; gys = [p[1] for p in gpx]
-    rx = (max(gxs) - min(gxs)) / 2 + 6 * SS
-    ry = (max(gys) - min(gys)) / 2 + 6 * SS
     gcx, gcy = project((cx, cz))
-    d.ellipse((gcx - rx, gcy - ry, gcx + rx, gcy + ry), outline=(255, 255, 255, 235), width=2 * SS)
-    d.ellipse((gcx - rx - 3 * SS, gcy - ry - 3 * SS, gcx + rx + 3 * SS, gcy + ry + 3 * SS),
-              outline=(40, 70, 40, 150), width=SS)
-    pole = 30 * SS
-    d.line([(gcx, gcy), (gcx, gcy - pole)], fill=(250, 250, 250, 255), width=2 * SS)
-    d.polygon([(gcx, gcy - pole), (gcx + 17 * SS, gcy - pole + 7 * SS), (gcx, gcy - pole + 14 * SS)],
-              fill=(228, 58, 58, 255))
-    d.ellipse((gcx - 3 * SS, gcy - 3 * SS, gcx + 3 * SS, gcy + 3 * SS), fill=(30, 30, 30, 255))
+    pole = 22 * SS
+    flag_width = 12 * SS
+    flag_height = 7 * SS
+    d.line([(gcx, gcy), (gcx, gcy - pole)], fill=(250, 250, 250, 255), width=max(1, SS))
+    d.polygon(
+        [(gcx, gcy - pole), (gcx + flag_width, gcy - pole + flag_height / 2),
+         (gcx, gcy - pole + flag_height)],
+        fill=(228, 58, 58, 255),
+    )
     composited = Image.alpha_composite(img.convert("RGBA"), marker)
     return composited if input_mode == "RGBA" else composited.convert(input_mode)
 
