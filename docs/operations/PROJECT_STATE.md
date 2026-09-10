@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-10 20:10 UTC
+**Updated:** 2026-09-10 20:12 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `b9ff8b9d`; current internal-release source `aae339ba`; deployed backend tip
 `5124d6384c71cba0e2f911ab043464aca3e28c46`; MAP1 product-code tip
@@ -474,9 +474,10 @@ TestFlight CD `34425296280` 上传为 Build 55，Apple read-only 检查
 5. 已完成：在包含 `.git`、`.env.example`、Git authority 工具和非 root 文件权限的
    homeserver 容器中完成完整 discovery，`2072 tests` 全部通过，`13 skipped`；旧三序列
    ID 与旧 readiness 置信度分布断言已按真实新行为迁移。
-6. 进行中：Native Mobile CI `34523500098` 已确认 iOS target 编译失败，原因是
+6. 已完成修复：Native Mobile CI `34523500098` 已确认 iOS target 编译失败，原因是
    `semanticSignature` 在属性声明处先以默认值初始化、显式 initializer 又重复赋值；当前
-   工作树已移除属性声明处的默认初始化，仅保留 initializer 默认参数，待提交并重新验证。
+   工作树已移除属性声明处的默认初始化，仅保留 initializer 默认参数；修复已提交为
+   `702a7fb4` 并推送。Native Mobile CI `34524849966` 已按该精确 SHA 重新排队，等待结果。
    Swift 树同时已为 `CoursePrepHazardDetail` 增加畸形/旧格式
    `outlinePx` 的容错解码，并补充缺失、`null`、错误类型和畸形点数组回归测试；需对
    最新 `LiveHazardDetailView` 与 Codable 边界重新走 Native Mobile CI。此前
@@ -1557,6 +1558,12 @@ Native runs recorded above; it is retained only as historical diagnosis.
   is an exact-SHA Native Mobile CI rerun. The run's Watch build, screenshots,
   scans, and evidence-writing cleanup completed, but the iOS compile failure
   means it is not product evidence.
+
+- 2026-09-10: Removed the declaration-time `semanticSignature` values and
+  committed the minimal Swift fix as `702a7fb4`. Native Mobile CI
+  `34524849966` was dispatched against that exact SHA with the same live API
+  origin and backend revision `5124d6384c71cba0e2f911ab043464aca3e28c46`;
+  result is pending. No TestFlight, deployment, or sync action was started.
 
 - 2026-09-10: `CoursePrepHazardDetail` now treats `outlinePx` as an optional
   rendering enhancement. Missing/legacy, `null`, wrong-type, and malformed-point
