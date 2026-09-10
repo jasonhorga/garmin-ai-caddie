@@ -478,9 +478,12 @@ struct LiveHazardDetailView: View {
         overlay: CoursePrepOverlay,
         size: CGSize
     ) -> CGPoint? {
-        let overlayPoint = projectedHazardPixelPoint(pixels: pixels, overlay: overlay, size: size)
-            ?? HoleImageMapView.landingOverlayPoint(overlay, targetMetres: routeMetres)
-        guard let overlayPoint else { return nil }
+        if let projected = projectedHazardPixelPoint(pixels: pixels, overlay: overlay, size: size) {
+            return projected
+        }
+        guard let overlayPoint = HoleImageMapView.landingOverlayPoint(overlay, targetMetres: routeMetres) else {
+            return nil
+        }
         return LivePlayMapOverlayLayout.project(
             overlayPoint: overlayPoint,
             overlayWidth: overlay.w,

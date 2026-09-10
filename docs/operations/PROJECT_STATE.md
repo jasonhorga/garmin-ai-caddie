@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-10 19:32 UTC
+**Updated:** 2026-09-10 19:41 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `b9ff8b9d`; current internal-release source `aae339ba`; deployed backend tip
 `5124d6384c71cba0e2f911ab043464aca3e28c46`; MAP1 product-code tip
@@ -474,7 +474,10 @@ TestFlight CD `34425296280` 上传为 Build 55，Apple read-only 检查
 5. 已完成：在包含 `.git`、`.env.example`、Git authority 工具和非 root 文件权限的
    homeserver 容器中完成完整 discovery，`2072 tests` 全部通过，`13 skipped`；旧三序列
    ID 与旧 readiness 置信度分布断言已按真实新行为迁移。
-6. 进行中：当前 Swift 树已为 `CoursePrepHazardDetail` 增加畸形/旧格式
+6. 进行中：Native Mobile CI `34521196474` 在 iOS target 编译阶段暴露了
+   `LiveHazardDetailView.hazardPoint` 将 `CGPoint?` 与 `[Double]?` 回退值混用的类型错误；
+   当前工作树已拆开该回退投影，待重新提交并验证。Swift 树同时已为
+   `CoursePrepHazardDetail` 增加畸形/旧格式
    `outlinePx` 的容错解码，并补充缺失、`null`、错误类型和畸形点数组回归测试；需对
    最新 `LiveHazardDetailView` 与 Codable 边界重新走 Native Mobile CI。此前
    `34417237317` 通过的是该 Swift 修正前的提交。
@@ -1530,6 +1533,14 @@ Native runs recorded above; it is retained only as historical diagnosis.
   master checklist from memory.
 
 ## State Changes
+
+- 2026-09-10: Native Mobile CI `34521196474` was dispatched against
+  `2a4d9821` with the live backend contract, but its iOS app target failed at
+  compile time before simulator evidence. Inspection found a concrete type
+  mismatch in the new hazard fallback (`CGPoint?` combined with `[Double]?`);
+  the workflow was cancelled after the failed iOS step so its queued Watch work
+  did not become evidence. The fallback is now split into overlay-coordinate
+  lookup followed by projection, and a new CI run is required.
 
 - 2026-09-10: `CoursePrepHazardDetail` now treats `outlinePx` as an optional
   rendering enhancement. Missing/legacy, `null`, wrong-type, and malformed-point
