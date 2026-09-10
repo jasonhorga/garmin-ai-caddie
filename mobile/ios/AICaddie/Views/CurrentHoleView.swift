@@ -956,6 +956,7 @@ public struct CurrentHoleView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("球童建议")
                         .font(.title2.weight(.bold))
+                        .accessibilityIdentifier("caddie-plan-heading")
                     Text("第 \(hole.number) 洞 · Par \(hole.par)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

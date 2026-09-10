@@ -1491,7 +1491,7 @@ final class RealFlowUITests: XCTestCase {
             "the live root must expose the focused caddie entry"
         )
         entry.tap()
-        let heading = app.staticTexts["球童建议"]
+        let heading = app.staticTexts["caddie-plan-heading"]
         XCTAssertTrue(
             heading.waitForExistence(timeout: timeout),
             "opening the caddie entry must present the complete plan"
