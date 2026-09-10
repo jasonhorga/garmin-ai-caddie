@@ -461,7 +461,10 @@ class GeometryEvidenceTests(unittest.TestCase):
         self.assertEqual([row["distanceFromStart_m"] for row in route["lineIntersections"]], [80.0, 110.0])
         self.assertEqual(route["hazardClearances"][0]["carryToFront_m"], 80.0)
         self.assertEqual(route["hazardClearances"][0]["carryToClear_m"], 110.0)
-        self.assertEqual(route["avoidZones"], [{"id": "water_crossing", "kind": "water", "carryToClear_m": 110.0}])
+        self.assertEqual(
+            route["avoidZones"],
+            [{"id": "water_crossing", "kind": "water", "carryToFront_m": 80.0, "carryToClear_m": 110.0}],
+        )
 
     def test_route_evidence_uses_compact_authority_distances_only_for_the_bound_tee_route(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -540,6 +543,7 @@ class GeometryEvidenceTests(unittest.TestCase):
                 {
                     "id": "water_crossing",
                     "kind": "water",
+                    "carryToFront_m": 80.0,
                     "carryToClear_m": 110.0,
                     "source": "authority_tee_distances",
                 }
@@ -647,6 +651,7 @@ class GeometryEvidenceTests(unittest.TestCase):
                 {
                     "id": "front_bunker",
                     "kind": "bunker",
+                    "carryToFront_m": 90.0,
                     "carryToClear_m": 110.0,
                     "distanceToCenter_m": 6.0,
                     "landingRadius_m": 18.0,

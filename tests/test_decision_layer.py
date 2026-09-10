@@ -168,17 +168,25 @@ def long_hole_fixture():
 
 
 class DecisionLayerTests(unittest.TestCase):
-    def test_continuation_never_recommends_driver_after_tee(self) -> None:
+    def test_continuation_scores_driver_like_every_other_non_putter(self) -> None:
         from ai_caddie.caddie.decision import _sequence_tail
 
         rows = [
-            {"clubName": "1W", "median_m": 220.0, "sampleSize": 80},
-            {"clubName": "3W", "median_m": 195.0, "sampleSize": 60},
-            {"clubName": "7I", "median_m": 150.0, "sampleSize": 40},
+            {
+                "clubName": "Driver", "median_m": 220.0, "p10_m": 216.0, "p90_m": 224.0,
+                "sampleSize": 80, "riskRate": 0.0, "usableRate": 100.0,
+                "surfaceDistribution": [{"surface": "green", "count": 80, "pct": 100.0}],
+            },
+            {
+                "clubName": "Control Club", "median_m": 195.0, "p10_m": 165.0, "p90_m": 225.0,
+                "sampleSize": 60, "riskRate": 30.0, "usableRate": 50.0,
+            },
+            {"clubName": "Putter", "median_m": 220.0, "sampleSize": 100},
         ]
-        tail = _sequence_tail(rows, 300.0)
+        tail = _sequence_tail(rows, 220.0)
+
         self.assertTrue(tail)
-        self.assertTrue(all(str(row["clubName"]).casefold() not in {"1w", "driver"} for row in tail))
+        self.assertEqual([row["clubName"] for row in tail], ["Driver"])
 
     def test_decision_payload_uses_v2_contract(self) -> None:
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
@@ -296,7 +304,7 @@ class DecisionLayerTests(unittest.TestCase):
         plan = build_decision_plan(analysis_fixture(stock_risk=3))
         self.assertEqual(plan["selectedOptionId"], "safe")
 
-    def test_tee_strategy_dedupe_keeps_safe_first_for_duplicate_driver_aliases(self) -> None:
+    def test_tee_strategy_dedupe_keeps_primary_for_duplicate_driver_aliases(self) -> None:
         context = analysis_fixture(stock_risk=1)
         context["clubProfiles"] = {}
         context["candidateRoutes"] = [
@@ -337,37 +345,60 @@ class DecisionLayerTests(unittest.TestCase):
 
         plan = build_decision_plan(context)
 
-        self.assertEqual([option["id"] for option in plan["options"]], ["safe"])
-        self.assertEqual(plan["options"][0]["routeId"], "conservative_layup")
+        self.assertEqual([option["id"] for option in plan["options"]], ["stock"])
+        self.assertEqual(plan["options"][0]["routeId"], "stock_line")
         self.assertEqual(
             plan["options"][0]["clubRecommendation"]["clubs"][0]["clubName"],
-            "1D",
+            "1W",
         )
 
-    def test_same_club_strategy_authorization_is_scoped_to_each_canonical_group(self) -> None:
+    def test_same_club_strategy_duplicates_collapse_without_escape_hatch(self) -> None:
         options = [
-            {"id": "safe", "club": "Driver", "allowSameClubStrategies": True, "carry_m": 220.0},
-            {"id": "stock", "club": "1W", "allowSameClubStrategies": True, "carry_m": 220.0},
-            {"id": "attack", "club": "1D", "allowSameClubStrategies": True, "carry_m": 220.0},
-            {"id": "backup-a", "club": "3W", "allowSameClubStrategies": True, "carry_m": 190.0},
-            {"id": "backup-b", "club": "3 Wood", "allowSameClubStrategies": False, "carry_m": 190.0},
+            {"id": "safe", "club": "Driver", "carry_m": 220.0},
+            {"id": "stock", "club": "1W", "carry_m": 220.0},
+            {"id": "attack", "club": "1D", "carry_m": 220.0},
+            {"id": "backup-a", "club": "3W", "carry_m": 190.0},
+            {"id": "backup-b", "club": "3 Wood", "carry_m": 190.0},
         ]
 
         deduped = _dedupe_strategy_options(options)
 
-        # The Driver aliases are one fully-authorized mode set; the unrelated wood group is not.
-        self.assertEqual([row["id"] for row in deduped], ["safe", "stock", "attack", "backup-a"])
+        self.assertEqual([row["id"] for row in deduped], ["stock", "backup-a"])
 
-    def test_same_club_strategy_requires_every_repeated_row_to_opt_in(self) -> None:
+    def test_same_club_with_meaningfully_different_carry_remains_an_alternative(self) -> None:
         options = [
-            {"id": "safe", "club": "Driver", "allowSameClubStrategies": True, "carry_m": 220.0},
-            {"id": "stock", "club": "1W", "allowSameClubStrategies": False, "carry_m": 220.0},
-            {"id": "attack", "club": "1D", "allowSameClubStrategies": True, "carry_m": 220.0},
+            {"id": "safe", "club": "Driver", "carry_m": 210.0},
+            {"id": "stock", "club": "1W", "carry_m": 220.0},
+            {"id": "attack", "club": "1D", "carry_m": 235.0},
         ]
 
         deduped = _dedupe_strategy_options(options)
 
-        self.assertEqual([row["id"] for row in deduped], ["safe"])
+        self.assertEqual([row["id"] for row in deduped], ["safe", "stock", "attack"])
+
+    def test_explicit_route_club_is_first_even_when_another_club_is_nearer_to_carry(self) -> None:
+        context = analysis_fixture(stock_risk=1)
+        context["clubProfiles"] = {
+            "Club One": {"clubName": "Club One", "sampleSize": 30, "median": 190.0, "p10": 180.0, "p90": 200.0},
+            "Club Two": {"clubName": "Club Two", "sampleSize": 30, "median": 198.0, "p10": 188.0, "p90": 208.0},
+        }
+        context["candidateRoutes"] = [{
+            "id": "stock_line",
+            "club": "Club One",
+            "carry_m": 198.0,
+            "landingLocal": [0.0, 198.0],
+            "expectedSurface": {"kind": "fairway"},
+            "nearRisks": [],
+            "lineRisks": [],
+            "riskScore": 1,
+        }]
+
+        plan = build_decision_plan(context)
+
+        self.assertEqual(
+            plan["selectedOption"]["clubRecommendation"]["clubs"][0]["clubName"],
+            "Club One",
+        )
 
     def test_tee_legacy_routes_keep_distinct_carries_when_club_identity_is_missing(self) -> None:
         context = analysis_fixture(stock_risk=1)
@@ -417,7 +448,15 @@ class DecisionLayerTests(unittest.TestCase):
     def test_long_hole_decision_builds_honest_multi_shot_sequences(self) -> None:
         plan = build_decision_plan(long_hole_fixture())
 
-        self.assertEqual([sequence["id"] for sequence in plan["sequences"]], ["safe", "stock", "attack"])
+        self.assertTrue(plan["sequences"])
+        selected_sequence_payload = plan["selectedSequence"]
+        self.assertIsInstance(selected_sequence_payload, dict)
+        self.assertIn(selected_sequence_payload["id"], {sequence["id"] for sequence in plan["sequences"]})
+        signatures = {
+            tuple((step["clubName"], step["targetCarry_m"]) for step in sequence["clubs"])
+            for sequence in plan["sequences"]
+        }
+        self.assertEqual(len(signatures), len(plan["sequences"]))
         options = {option["id"]: option for option in plan["options"]}
         for sequence in plan["sequences"]:
             with self.subTest(sequence=sequence["id"]):
@@ -434,19 +473,21 @@ class DecisionLayerTests(unittest.TestCase):
                     self.assertEqual(step["expectedRemaining_m"], remaining)
                 self.assertEqual(sequence["expectedRemaining_m"], remaining)
 
-        stock_sequence = next(sequence for sequence in plan["sequences"] if sequence["id"] == "stock")
-        self.assertEqual(stock_sequence["coverage"]["ready"], stock_sequence["coverage"]["total"])
-        self.assertEqual(stock_sequence["coverage"]["pct"], 100.0)
-        self.assertEqual(stock_sequence["confidence"], "high")
-        stock_first_ref = stock_sequence["clubs"][0]["sourceRefs"][0]
-        self.assertIn(stock_first_ref, stock_sequence["sourceRefs"])
+        selected_sequence = next(
+            sequence for sequence in plan["sequences"] if sequence["id"] == selected_sequence_payload["id"]
+        )
+        self.assertEqual(selected_sequence["coverage"]["ready"], selected_sequence["coverage"]["total"])
+        self.assertEqual(selected_sequence["coverage"]["pct"], 100.0)
+        self.assertEqual(selected_sequence["confidence"], "high")
+        selected_first_ref = selected_sequence["clubs"][0]["sourceRefs"][0]
+        self.assertIn(selected_first_ref, selected_sequence["sourceRefs"])
         self.assertEqual(
-            stock_sequence["clubs"][0]["sampleSize"],
-            next(option for option in plan["options"] if option["id"] == "stock")["clubRecommendation"]["clubs"][0]["sampleSize"],
+            selected_sequence["clubs"][0]["sampleSize"],
+            options[selected_sequence["id"]]["clubRecommendation"]["clubs"][0]["sampleSize"],
         )
         self.assertIn("sequence", {row["kind"] for row in plan["evidence"]})
         sequence_evidence = next(row for row in plan["evidence"] if row["kind"] == "sequence")
-        self.assertIn(stock_first_ref, sequence_evidence["sourceRefs"])
+        self.assertIn(selected_first_ref, sequence_evidence["sourceRefs"])
         self.assertNotIn("shots", sequence_evidence["text"].lower())
         self.assertNotIn("expected strokes", sequence_evidence["text"].lower())
 
@@ -623,6 +664,15 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertNotEqual(plan["selectedOptionId"], "attack")
         self.assertEqual(plan["confidence"]["level"], "low")
         self.assertIn("meshes", {row["label"] for row in plan["missingData"]})
+
+    def test_requested_option_id_selects_the_exact_displayed_alternative(self) -> None:
+        context = approach_fixture(has_geometry=False)
+        context["strategyMode"] = "stock"
+        context["requestedOptionId"] = "attack"
+
+        plan = recommend_approach(context)
+
+        self.assertEqual(plan["selectedOptionId"], "attack")
 
     def test_approach_options_expose_clearance_dispersion_and_scoring_impact(self) -> None:
         plan = recommend_approach(approach_fixture())

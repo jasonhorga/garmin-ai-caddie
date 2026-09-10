@@ -656,12 +656,13 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(seed_quality["seedCount"], 18)
         self.assertEqual(seed_quality["selectedOptionCount"], 18)
         self.assertEqual(seed_quality["optionCount"], 54)
-        # Par 4/5 seeds now retain the real Driver for every line, so the fixture's 14 Driver
-        # samples are medium-confidence; the four Par 3 distance-tier selections remain sparse.
-        # Readiness is still degraded while all 18 holes have a selected offline option.
+        # The deterministic readiness fixture exposes one sampled shot for each option and a
+        # ten-shot target.  Every selected option must therefore remain low-confidence with 10%
+        # coverage; readiness is degraded even though all 18 holes have a selected option.
         selected_conf = seed_quality["selectedConfidenceCounts"]
-        self.assertEqual(selected_conf["medium"], 14)
-        self.assertEqual(selected_conf["low"], 4)
+        self.assertEqual(selected_conf["high"], 0)
+        self.assertEqual(selected_conf["medium"], 0)
+        self.assertEqual(selected_conf["low"], 18)
         self.assertEqual(sum(selected_conf.values()), 18)
         self.assertEqual(seed_quality["minSelectedCoveragePct"], 10.0)
         self.assertEqual(seed_quality["state"], "degraded")

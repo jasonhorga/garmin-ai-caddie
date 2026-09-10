@@ -34,7 +34,8 @@ final class CaddieDecisionRequestBuilderTests: XCTestCase {
                 coordinate: CLLocationCoordinate2D(latitude: 40.0455, longitude: 116.5462),
                 horizontalAccuracyM: 5,
                 capturedAt: "2026-06-20T00:00:00Z",
-                strategyMode: "stock"
+                strategyMode: "attack",
+                requestedOptionId: "attack"
             )
         )
 
@@ -42,5 +43,24 @@ final class CaddieDecisionRequestBuilderTests: XCTestCase {
             return XCTFail("currentLocation missing")
         }
         XCTAssertEqual(location["capturedAt"], .string("2026-06-20T00:00:00Z"))
+        XCTAssertEqual(request.context["strategyMode"], .string("attack"))
+        XCTAssertEqual(request.context["requestedOptionId"], .string("attack"))
+    }
+
+    func testAutomaticDecisionLeavesStrategyOverrideUnset() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
+        let package = try JSONDecoder().decode(LiveRoundPackage.self, from: Data(contentsOf: url))
+        let seed = try XCTUnwrap(package.caddieContextSeeds.first)
+
+        let request = CaddieDecisionRequestBuilder().makeDecisionRequest(
+            seed: seed,
+            input: LiveCaddieInput(shotType: "tee", distanceToPinM: 374)
+        )
+
+        XCTAssertNil(request.context["strategyMode"])
+        XCTAssertNil(request.context["requestedOptionId"])
     }
 }

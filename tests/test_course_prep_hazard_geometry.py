@@ -257,11 +257,25 @@ class OutputShapeTests(unittest.TestCase):
         for row in hazards["details"]:
             self.assertEqual(
                 set(row),
-                {"kind", "frontM", "backM", "frontRouteM", "backRouteM", "frontPx", "backPx", "sideM"},
+                {
+                    "kind",
+                    "frontM",
+                    "backM",
+                    "frontRouteM",
+                    "backRouteM",
+                    "frontPx",
+                    "backPx",
+                    "outlinePx",
+                    "sideM",
+                },
             )
             self.assertLess(row["frontRouteM"], row["backRouteM"])
             self.assertEqual(len(row["frontPx"]), 2)
             self.assertEqual(len(row["backPx"]), 2)
+            self.assertGreaterEqual(len(row["outlinePx"]), 3)
+            for point in row["outlinePx"]:
+                self.assertEqual(len(point), 2)
+                self.assertTrue(all(isinstance(value, float) and math.isfinite(value) for value in point))
 
 
 class FrameCorridorTests(unittest.TestCase):

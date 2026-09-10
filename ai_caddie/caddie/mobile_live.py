@@ -1142,6 +1142,8 @@ def _diagnostic_context_for_seed(
 
 
 def _decision_club_profiles(club_profiles: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    from ai_caddie.caddie.decision import CLUB_PERFORMANCE_FIELDS
+
     rows: dict[str, dict[str, Any]] = {}
     for profile in club_profiles:
         club_name = str(profile.get("clubName") or "").strip()
@@ -1152,7 +1154,7 @@ def _decision_club_profiles(club_profiles: list[dict[str, Any]]) -> dict[str, di
             median = profile.get("median")
         if median is None:
             continue
-        rows[club_name] = {
+        row = {
             "clubName": club_name,
             "sampleSize": int(profile.get("sampleSize") or 0),
             "median": float(median),
@@ -1162,7 +1164,46 @@ def _decision_club_profiles(club_profiles: list[dict[str, Any]]) -> dict[str, di
             "p10_m": float(profile.get("p10_m") if profile.get("p10_m") is not None else profile.get("p10") or median),
             "p90_m": float(profile.get("p90_m") if profile.get("p90_m") is not None else profile.get("p90") or median),
         }
+        for key in CLUB_PERFORMANCE_FIELDS:
+            if key in profile:
+                row[key] = profile[key]
+        rows[club_name] = row
     return rows
+
+
+def _club_performance_profiles(
+    club_profiles: list[dict[str, Any]],
+    stats_clubs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Join compact package distances with each physical club's richer history outcomes."""
+    from ai_caddie.caddie.club_bag import canonical_club_name
+    from ai_caddie.caddie.decision import CLUB_PERFORMANCE_FIELDS
+
+    by_club: dict[str, dict[str, Any]] = {}
+    for row in stats_clubs:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("club") or row.get("clubName") or "").strip()
+        if not name:
+            continue
+        token = canonical_club_name(name) or name.casefold()
+        previous = by_club.get(token)
+        if previous is None or int(row.get("sampleCount") or row.get("sampleSize") or 0) > int(
+            previous.get("sampleCount") or previous.get("sampleSize") or 0
+        ):
+            by_club[token] = row
+
+    enriched: list[dict[str, Any]] = []
+    for profile in club_profiles:
+        row = dict(profile)
+        name = str(row.get("clubName") or "").strip()
+        token = canonical_club_name(name) or name.casefold()
+        stats = by_club.get(token) or {}
+        for key in CLUB_PERFORMANCE_FIELDS:
+            if stats.get(key) is not None:
+                row[key] = stats[key]
+        enriched.append(row)
+    return enriched
 
 
 def _club_nearest(rows: list[dict[str, Any]], target_m: float) -> dict[str, Any] | None:
@@ -1173,15 +1214,20 @@ def _club_nearest(rows: list[dict[str, Any]], target_m: float) -> dict[str, Any]
 
 
 def _caddie_clean_rows(club_profiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Sorted club rows for offline caddie picks: drop zero-median clubs, prefer trustworthy sample
-    sizes, and collapse same-club aliases. Mirrors the online decision engine (ai_caddie.caddie.decision)
-    so the offline seed / first-render flash never recommends a noisy low-sample club (e.g. a
-    mislabeled "9I" with 13 stray long shots). The full bag still reaches the recording strip via
-    the package's clubProfiles — this only governs what the caddie recommends."""
-    from ai_caddie.caddie.decision import _dedupe_near_clubs, _prefer_trusted_clubs
+    """Return every measured non-putter club, collapsing only aliases of one physical club.
 
-    rows = [profile for profile in club_profiles if float(profile.get("median_m") or 0) > 0]
-    rows = _dedupe_near_clubs(_prefer_trusted_clubs(rows))
+    Sparse rows remain eligible and carry a continuous uncertainty penalty in the shared decision
+    model. Removing them whenever another club crosses an arbitrary sample threshold would prevent
+    the model from comparing the player's actual bag.
+    """
+    from ai_caddie.caddie.decision import _dedupe_near_clubs, _is_playable_club
+
+    rows = [
+        profile
+        for profile in club_profiles
+        if float(profile.get("median_m") or 0) > 0 and _is_playable_club(profile)
+    ]
+    rows = _dedupe_near_clubs(rows)
     return sorted(
         rows,
         key=lambda profile: (-float(profile.get("median_m") or 0), str(profile.get("clubName") or "")),
@@ -1189,18 +1235,28 @@ def _caddie_clean_rows(club_profiles: list[dict[str, Any]]) -> list[dict[str, An
 
 
 def _shot_option_clubs(
-    rows: list[dict[str, Any]], *, par: int, target_m: float
+    rows: list[dict[str, Any]],
+    *,
+    par: int,
+    target_m: float,
+    avoid_zones: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
-    """Pick the club profile behind each strategy card.
+    """Pick one primary club and only physically different alternatives.
 
-    A Par 4/5 tee strategy is a *line choice*, not three artificial carry values.  When the
-    player's real bag contains a Driver, all three cards therefore use that one measured median
-    carry; safe/stock/attack differ in their route risk and target intent.  This keeps the opening
-    shot honest (and makes 1W selectable) while still allowing a golfer to choose a safer line.
-    Par 3 and bags without a Driver retain the distance-tier fallback used by older packages.
+    For Par 4/5, ``stock`` is ranked by the complete measured-carry chain to the green.  That lets
+    a reliable final club influence the tee choice instead of blindly minimizing the remaining
+    metres.  ``safe`` and ``attack`` are the nearest shorter/longer clubs around that answer; one
+    Driver is never repeated under three labels.  Par 3 uses target fit plus the same dispersion and
+    sample-strength evidence.
     """
     if not rows:
         return None, None, None
+
+    from ai_caddie.caddie.decision import (
+        _club_hazard_cost,
+        _club_stability_cost,
+        _whole_hole_sequence_key,
+    )
 
     def key(profile: dict[str, Any]) -> str:
         from ai_caddie.caddie.club_bag import canonical_club_name
@@ -1214,23 +1270,74 @@ def _shot_option_clubs(
         available = [row for row in candidates if key(row) not in (excluded or set())]
         return _club_nearest(available, target) if available else None
 
-    longest = rows[0]
-    driver = next((row for row in rows if key(row) == "driver"), None)
-    if par in {4, 5} and driver is not None:
-        # One physical Driver has one expected carry.  The decision layer carries the strategy
-        # distinction in risk/line metadata rather than pretending attack means a p90 carry.
-        return driver, driver, driver
-
-    if par == 3:
-        target = target_m if target_m and target_m > 0 else float(longest.get("median_m") or 0)
-        stock = nearest(rows, target)
-        used = {key(stock)} if stock else set()
-        safe = nearest(rows, target + 9.0, used)  # one more club — do not come up short
-        if safe:
-            used.add(key(safe))
-        attack = nearest(rows, max(50.0, target - 9.0), used)  # one less — aggressive
+    if par in {4, 5}:
+        # Evaluate the whole physical bag. Shot-count, advancement, each club's own distribution,
+        # sample uncertainty, outcome surfaces, and mapped exposure keep implausibly short tee clubs
+        # from winning without an arbitrary "four longest" cutoff.
+        ranked = sorted(
+            rows,
+            key=lambda profile: (
+                _whole_hole_sequence_key(profile, rows, target_m, avoid_zones),
+                key(profile),
+            ),
+        )
+        stock = ranked[0]
+        stock_carry = float(stock.get("median_m") or 0)
+        remaining = ranked[1:]
+        safe = next(
+            (row for row in remaining if float(row.get("median_m") or 0) < stock_carry - 0.5),
+            None,
+        )
+        attack = next(
+            (
+                row
+                for row in remaining
+                if row is not safe and float(row.get("median_m") or 0) > stock_carry + 0.5
+            ),
+            None,
+        )
+        # Two distinct clubs can have the same carry, and both must remain independently modeled.
+        # Fill an empty transport slot with the next best unrepresented physical alternative.
+        if safe is None:
+            safe = next((row for row in remaining if row is not attack), None)
+        if attack is None:
+            attack = next((row for row in remaining if row is not safe), None)
         return safe, stock, attack
 
+    if par == 3:
+        target = target_m if target_m and target_m > 0 else float(rows[0].get("median_m") or 0)
+        ranked = sorted(
+            rows,
+            key=lambda profile: (
+                abs(float(profile.get("median_m") or 0) - target)
+                + _club_stability_cost(profile, scoring_shot=True)
+                + _club_hazard_cost(profile, avoid_zones),
+                -int(profile.get("sampleSize") or 0),
+                key(profile),
+            ),
+        )
+        stock = ranked[0]
+        stock_carry = float(stock.get("median_m") or 0)
+        remaining = ranked[1:]
+        safe = next(
+            (row for row in remaining if float(row.get("median_m") or 0) > stock_carry + 0.5),
+            None,
+        )
+        attack = next(
+            (
+                row
+                for row in remaining
+                if row is not safe and float(row.get("median_m") or 0) < stock_carry - 0.5
+            ),
+            None,
+        )
+        if safe is None:
+            safe = next((row for row in remaining if row is not attack), None)
+        if attack is None:
+            attack = next((row for row in remaining if row is not safe), None)
+        return safe, stock, attack
+
+    longest = rows[0]
     if len(rows) >= 3:
         # rows are longest-first; reserve the middle tier for the standard line so the attack route
         # is a real longer club instead of the same Driver at a fabricated second distance.
@@ -1243,7 +1350,10 @@ def _shot_option_clubs(
     return None, rows[0], None
 
 
-def _option_risks(avoid_zones: list[dict[str, Any]] | None, carry_m: float) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _option_risks(
+    avoid_zones: list[dict[str, Any]] | None,
+    profile: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Per-option (near, line) risks derived from the route's distance-aware avoidZones, so each
     option surfaces the hazards ITS carry brings into play — not the hole's one dominant hazard on
     every option. near = lands by it; line = a carry hazard this carry is near/just clearing."""
@@ -1264,15 +1374,29 @@ def _option_risks(avoid_zones: list[dict[str, Any]] | None, carry_m: float) -> t
                 fact[key] = zone[key]
         return fact
 
+    if profile is None:
+        return near, line
+
+    from ai_caddie.caddie.decision import (
+        _club_distribution_bounds,
+        _club_hazard_exposure,
+        _hazard_zone_span,
+    )
+
+    _low_m, median_m, _high_m = _club_distribution_bounds(profile)
     for zone in avoid_zones or []:
         kind = str(zone.get("kind") or "hazard")
         zone_id = str(zone.get("id") or "hazard")
-        center = zone.get("distanceToCenter_m")
-        clear = zone.get("carryToClear_m")
-        if center is not None and abs(float(center) - carry_m) <= 18.0:
-            near.append(_fact(zone, kind=kind, zone_id=zone_id))
-        elif clear is not None and -10.0 <= (float(clear) - carry_m) <= 30.0:
-            line.append(_fact(zone, kind=kind, zone_id=zone_id))
+        exposure = _club_hazard_exposure(profile, zone)
+        if exposure <= 0:
+            continue
+        fact = _fact(zone, kind=kind, zone_id=zone_id)
+        fact["modeledExposure"] = round(exposure, 3)
+        span = _hazard_zone_span(zone)
+        if span is not None and median_m < span[0]:
+            near.append(fact)
+        else:
+            line.append(fact)
     return near, line
 
 
@@ -1288,7 +1412,12 @@ def _tee_candidate_routes(
     rows = _caddie_clean_rows(club_profiles)
     if not rows:
         return []
-    safe_p, stock_p, attack_p = _shot_option_clubs(rows, par=par, target_m=target_m)
+    safe_p, stock_p, attack_p = _shot_option_clubs(
+        rows,
+        par=par,
+        target_m=target_m,
+        avoid_zones=avoid_zones,
+    )
 
     def _carry(profile: dict[str, Any] | None) -> float:
         # round-12: ONE distance per club — a club flies its median; "attack" differs by line / risk,
@@ -1300,15 +1429,15 @@ def _tee_candidate_routes(
     safe_carry = _carry(safe_p)
     stock_carry = _carry(stock_p)
     attack_carry = _carry(attack_p)
-    safe_near, safe_line = _option_risks(avoid_zones, safe_carry)
-    stock_near, stock_line = _option_risks(avoid_zones, stock_carry)
-    attack_near, attack_line = _option_risks(avoid_zones, attack_carry)
+    safe_near, safe_line = _option_risks(avoid_zones, safe_p)
+    stock_near, stock_line = _option_risks(avoid_zones, stock_p)
+    attack_near, attack_line = _option_risks(avoid_zones, attack_p)
     # Only when route geometry has NO distance-aware avoid zones, fall back to the hole's mapped hazard.
     if not avoid_zones and hazards and not attack_line:
         attack_line = [{"kind": str((hazards[0] or {}).get("kind") or "hazard"), "id": str((hazards[0] or {}).get("id") or "mapped_hazard")}]
     specs = [
-        ("conservative_layup", "safe layup", safe_p, safe_carry, safe_near, safe_line, 0.0, {"kind": "fairway"}),
-        ("stock_line", "stock line", stock_p, stock_carry, stock_near, stock_line, 1.0, {"kind": "fairway"}),
+        ("conservative_layup", "safe layup", safe_p, safe_carry, safe_near, safe_line, {"kind": "fairway"}),
+        ("stock_line", "stock line", stock_p, stock_carry, stock_near, stock_line, {"kind": "fairway"}),
         (
             "aggressive_line",
             "attack line",
@@ -1316,7 +1445,6 @@ def _tee_candidate_routes(
             attack_carry,
             attack_near,
             attack_line,
-            3.0,
             {"kind": "risk_edge" if (attack_near or attack_line) else "fairway"},
         ),
     ]
@@ -1328,23 +1456,17 @@ def _tee_candidate_routes(
         name = str(profile.get("clubName") or "").strip()
         return canonical_club_name(name) or name.casefold()
 
-    same_club_modes = (
-        par in {4, 5}
-        and safe_p is not None
-        and stock_p is not None
-        and attack_p is not None
-        and _club_key(safe_p) == _club_key(stock_p) == _club_key(attack_p) == "driver"
-    )
     seen: set[str] = set()
     routes: list[dict[str, Any]] = []
-    for route_id, label, profile, carry, near_risks, line_risks, base_risk, surface in specs:
+    from ai_caddie.caddie.decision import _club_hazard_cost, _club_stability_cost
+
+    for route_id, label, profile, carry, near_risks, line_risks, surface in specs:
         if profile is None or carry <= 0:
             continue
         club_key = _club_key(profile)
-        if not same_club_modes and club_key in seen:
+        if club_key in seen:
             continue
-        if not same_club_modes:
-            seen.add(club_key)
+        seen.add(club_key)
         routes.append(
             {
                 "id": route_id,
@@ -1355,9 +1477,14 @@ def _tee_candidate_routes(
                 "expectedSurface": surface,
                 "nearRisks": near_risks,
                 "lineRisks": line_risks,
-                "riskScore": round(base_risk + len(near_risks) * 1.5 + len(line_risks), 1),
+                "riskScore": round(
+                    (
+                        _club_stability_cost(profile, scoring_shot=par == 3)
+                        + _club_hazard_cost(profile, avoid_zones)
+                    ) / 8.0,
+                    1,
+                ),
                 "strategyMode": {"conservative_layup": "safe", "stock_line": "stock", "aggressive_line": "attack"}.get(route_id),
-                "allowSameClubStrategies": same_club_modes,
                 "source": "offline_package_seed",
             }
         )
@@ -1376,41 +1503,39 @@ def _offline_caddie_options(
     rows = _caddie_clean_rows(club_profiles)
     if not rows:
         return []
-    # Pick clubs by DISTANCE (par 3 around the green, par 4/5 control/driver) — not "always longest",
-    # which made every hole (incl. par 3s) recommend the driver and collapsed safe==stock.
-    safe_p, stock_p, attack_p = _shot_option_clubs(rows, par=par, target_m=target_m)
-    base_risk = {"safe": 0.8, "stock": 1.5, "attack": 3.0}
+    # Rank every physical club from its own history and the mapped shot window. The internal option
+    # ids preserve transport compatibility; they are not fixed player-facing strategy categories.
+    safe_p, stock_p, attack_p = _shot_option_clubs(
+        rows,
+        par=par,
+        target_m=target_m,
+        avoid_zones=avoid_zones,
+    )
     option_specs = [("safe", "Safe", safe_p), ("stock", "Stock", stock_p), ("attack", "Attack", attack_p)]
     options: list[dict[str, Any]] = []
     from ai_caddie.caddie.club_bag import canonical_club_name
+    from ai_caddie.caddie.decision import _club_hazard_cost, _club_stability_cost
 
-    same_club_modes = (
-        par in {4, 5}
-        and safe_p is not None
-        and stock_p is not None
-        and attack_p is not None
-        and canonical_club_name(str(safe_p.get("clubName") or "")) == "driver"
-        and canonical_club_name(str(stock_p.get("clubName") or "")) == "driver"
-        and canonical_club_name(str(attack_p.get("clubName") or "")) == "driver"
-    )
     seen_clubs: set[str] = set()
     for option_id, label, profile in option_specs:
         if profile is None:
             continue
         club_name = str(profile.get("clubName") or "")
         club_key = canonical_club_name(club_name) or club_name.strip().casefold()
-        if not same_club_modes and club_key in seen_clubs:
+        if club_key in seen_clubs:
             continue
-        if not same_club_modes:
-            seen_clubs.add(club_key)
+        seen_clubs.add(club_key)
         median = float(profile.get("median_m") or 0)
         p10 = float(profile.get("p10_m") or median)
         p90 = float(profile.get("p90_m") or median)
         # One physical club has one expected carry.  Attack is differentiated by the route/risk
         # tier, while p10/p90 remain the measured dispersion facts for the same club.
         carry = median
-        near_risks, line_risks = _option_risks(avoid_zones, carry)
-        risk_score = base_risk[option_id] + len(near_risks) * 1.5 + len(line_risks) * 1.0
+        near_risks, line_risks = _option_risks(avoid_zones, profile)
+        risk_score = (
+            _club_stability_cost(profile, scoring_shot=par == 3)
+            + _club_hazard_cost(profile, avoid_zones)
+        ) / 8.0
         sample_size = int(profile.get("sampleSize") or 0)
         sample_refs = _compact_source_refs(profile.get("sampleRefs") or profile.get("validShotRefs") or [], limit=OFFLINE_OPTION_SAMPLE_REF_LIMIT)
         missing_data = _offline_option_missing_data(str(profile.get("clubName") or ""), sample_size)
@@ -1432,7 +1557,6 @@ def _offline_caddie_options(
                 "sourceRefs": [source_ref],
                 "sampleRefs": sample_refs,
                 "missingData": missing_data,
-                "allowSameClubStrategies": same_club_modes,
             }
         )
     return options
@@ -2293,13 +2417,14 @@ def build_live_round_package(
         )
     if geometry_ensure is not None:
         source_coverage["geometryEnsure"] = geometry_ensure
+    caddie_profiles = _club_performance_profiles(club_profiles, list(stats.get("clubs") or []))
     caddie_context_seeds = _caddie_context_seeds(
         round_id=round_id,
         round_row=round_row,
         stats=stats,
         holes=holes,
         course_key=course_key,
-        club_profiles=club_profiles,
+        club_profiles=caddie_profiles,
         weather_snapshot=weather_snapshot,
         weather_by_hole=weather_by_hole,
         player_profile=player_profile,

@@ -36,6 +36,7 @@ public struct LiveCaddieInput {
     public let horizontalAccuracyM: Double?
     public let capturedAt: String?
     public let strategyMode: String?
+    public let requestedOptionId: String?
     public let visionFindings: [[String: JSONValue]]
 
     public init(
@@ -48,6 +49,7 @@ public struct LiveCaddieInput {
         horizontalAccuracyM: Double? = nil,
         capturedAt: String? = nil,
         strategyMode: String? = nil,
+        requestedOptionId: String? = nil,
         visionFindings: [[String: JSONValue]] = []
     ) {
         self.shotType = shotType
@@ -59,6 +61,7 @@ public struct LiveCaddieInput {
         self.horizontalAccuracyM = horizontalAccuracyM
         self.capturedAt = capturedAt
         self.strategyMode = strategyMode
+        self.requestedOptionId = requestedOptionId
         self.visionFindings = visionFindings
     }
 }
@@ -110,6 +113,10 @@ public final class CaddieDecisionRequestBuilder {
         }
         if let strategyMode = input.strategyMode, !strategyMode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             context["strategyMode"] = .string(strategyMode)
+        }
+        if let requestedOptionId = input.requestedOptionId,
+           !requestedOptionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            context["requestedOptionId"] = .string(requestedOptionId)
         }
         if !input.visionFindings.isEmpty {
             context["visionFindings"] = .array(input.visionFindings.map { .object($0) })

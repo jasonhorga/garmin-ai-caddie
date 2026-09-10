@@ -2,21 +2,23 @@ import SwiftUI
 import XCTest
 @testable import AICaddie
 
-/// round-10 反馈的纯逻辑回归:避开区语义命名/排序、issue 中文映射、策略语义着色。
+/// round-10 反馈的纯逻辑回归:障碍物语义命名/排序、issue 中文映射、传输枚举兼容。
 final class RoundTenUITests: XCTestCase {
-    func testStrategyLabelsDistinguishRecommendationConservativeAndAttack() {
-        XCTAssertEqual(zhCaddieRouteLabel("stock"), "推荐")
-        XCTAssertEqual(zhCaddieRouteLabel("safe"), "保守")
-        XCTAssertEqual(zhCaddieRouteLabel("attack"), "进攻")
+    func testRouteModesMapToTransportOptionIds() {
+        XCTAssertEqual(caddieOptionId(forStrategyMode: "stock"), "stock")
+        XCTAssertEqual(caddieOptionId(forStrategyMode: "protect_score"), "safe")
+        XCTAssertEqual(caddieOptionId(forStrategyMode: "attack"), "attack")
+        XCTAssertNil(caddieOptionId(forStrategyMode: "unknown_route"))
     }
 
-    func testHazardIconsUseProductGlyphKeysInsteadOfEmoji() throws {
-        let hazards = CaddiePlanHazard.from(
-            CoursePrepHazards(waterCarry: [[175, 195]], bunkers: [[138, 12]])
+    func testHazardRowsExposeSemanticKindsForSystemIcons() throws {
+        let hazards = LiveHazardDisplayItem.rows(
+            for: makeHole(hazards: CoursePrepHazards(waterCarry: [[175, 195]], bunkers: [[138, 12]])),
+            liveReadouts: nil
         )
 
-        XCTAssertEqual(try XCTUnwrap(hazards.first { $0.label == "沙坑" }).icon, "bunker")
-        XCTAssertEqual(try XCTUnwrap(hazards.first { $0.label == "前方水障碍" }).icon, "water")
+        XCTAssertEqual(try XCTUnwrap(hazards.first { $0.label == "沙坑" }).kind, "bunker")
+        XCTAssertTrue(try XCTUnwrap(hazards.first { $0.label == "前方水障碍" }).isWater)
     }
 
     func testUncalibratedExpectedStrokesStayOutOfPlayerFacingCopy() {
@@ -31,8 +33,10 @@ final class RoundTenUITests: XCTestCase {
     }
 
     func testHazardsNameAndSortMultipleBunkersNearToFar() throws {
-        let hazards = CaddiePlanHazard.from(
-            CoursePrepHazards(
+        let route: [[Double]] = [[100, 500, 0], [100, 100, 260]]
+        let hazards = LiveHazardDisplayItem.rows(
+            for: makeHole(
+                hazards: CoursePrepHazards(
                 waterCarry: [[175, 195]],
                 bunkers: [[210, 18], [138, 12]],
                 details: [
@@ -52,10 +56,12 @@ final class RoundTenUITests: XCTestCase {
                         frontPx: [112, 390], backPx: [114, 371], sideM: 12
                     ),
                 ]
+                ),
+                route: route
             ),
-            route: [[100, 500, 0], [100, 100, 260]]
+            liveReadouts: nil
         )
-        let bunkers = hazards.filter { $0.icon == "bunker" }
+        let bunkers = hazards.filter { $0.kind == "bunker" }
         XCTAssertEqual(bunkers.count, 2)
         // Name by actionable side/area, sort by measured front edge, and keep S70 front/back facts.
         XCTAssertEqual(bunkers[0].label, "右侧球道沙坑")
@@ -64,47 +70,56 @@ final class RoundTenUITests: XCTestCase {
         let nearClearYards = CoursePrepRoute.yards(fromMetres: 149)
         let farYards = CoursePrepRoute.yards(fromMetres: 207)
         let farClearYards = CoursePrepRoute.yards(fromMetres: 224)
-        XCTAssertEqual(bunkers[0].detail, "到 \(nearYards) · 过 \(nearClearYards) 码")
-        XCTAssertEqual(bunkers[1].detail, "到 \(farYards) · 过 \(farClearYards) 码")
+        XCTAssertEqual(bunkers[0].frontYards, nearYards)
+        XCTAssertEqual(bunkers[0].backYards, nearClearYards)
+        XCTAssertEqual(bunkers[1].frontYards, farYards)
+        XCTAssertEqual(bunkers[1].backYards, farClearYards)
         XCTAssertLessThan(nearYards, farYards)  // sort order: nearer bunker first
 
-        let water = try XCTUnwrap(hazards.first { $0.icon == "water" })
-        XCTAssertEqual(water.detail, "到 191 · 过 213 码")
+        let water = try XCTUnwrap(hazards.first { $0.kind == "water" })
+        XCTAssertEqual(water.frontYards, 191)
+        XCTAssertEqual(water.backYards, 213)
 
         // Every iPhone surface consumes one proximity order, regardless of hazard kind. A water
         // edge between two bunkers must not be appended after every bunker simply because of type.
         XCTAssertEqual(hazards.map(\.label), ["右侧球道沙坑", "前方水障碍", "右侧果岭沙坑"])
-        XCTAssertEqual(
-            "\(hazards[0].label) · \(try XCTUnwrap(hazards[0].detail))",
-            "右侧球道沙坑 · 到 147 · 过 163 码"
-        )
+        XCTAssertEqual(hazards[0].label, "右侧球道沙坑")
+        XCTAssertEqual(hazards[0].frontYards, 147)
+        XCTAssertEqual(hazards[0].backYards, 163)
     }
 
     func testLegacyBunkerNeverTreatsItsLateralGapAsTheBackEdge() throws {
-        let bunker = try XCTUnwrap(CaddiePlanHazard.from(
-            CoursePrepHazards(bunkers: [[138, 12]])
-        ).first)
+        let bunker = try XCTUnwrap(
+            LiveHazardDisplayItem.rows(
+                for: makeHole(hazards: CoursePrepHazards(bunkers: [[138, 12]])),
+                liveReadouts: nil
+            ).first
+        )
 
-        XCTAssertEqual(bunker.detail, "距 151 码")
-        XCTAssertFalse(bunker.detail?.contains("离球路") == true)
-        XCTAssertFalse(bunker.detail?.contains("过") == true)
+        XCTAssertEqual(bunker.frontYards, 151)
+        XCTAssertNil(bunker.backYards)
     }
 
     func testSingleHazardOfAKindIsNotNumbered() {
-        let hazards = CaddiePlanHazard.from(
-            CoursePrepHazards(waterCarry: [[175, 195]], bunkers: [[138, 12]])
+        let hazards = LiveHazardDisplayItem.rows(
+            for: makeHole(hazards: CoursePrepHazards(waterCarry: [[175, 195]], bunkers: [[138, 12]])),
+            liveReadouts: nil
         )
-        XCTAssertEqual(hazards.filter { $0.icon == "bunker" }.first?.label, "沙坑")
-        XCTAssertEqual(hazards.filter { $0.icon == "water" }.first?.label, "前方水障碍")
+        XCTAssertEqual(hazards.first { $0.kind == "bunker" }?.label, "沙坑")
+        XCTAssertEqual(hazards.first { $0.kind == "water" }?.label, "前方水障碍")
     }
 
     func testLegacyHazardsUseAreaAndDistanceInsteadOfDecoderOrderNumbers() {
-        let hazards = CaddiePlanHazard.from(
-            CoursePrepHazards(
-                waterCarry: [[175, 195]],
-                bunkers: [[260, 12], [138, 12]]
+        let route: [[Double]] = [[100, 500, 0], [100, 100, 300]]
+        let hazards = LiveHazardDisplayItem.rows(
+            for: makeHole(
+                hazards: CoursePrepHazards(
+                    waterCarry: [[175, 195]],
+                    bunkers: [[260, 12], [138, 12]]
+                ),
+                route: route
             ),
-            route: [[100, 500, 0], [100, 100, 300]]
+            liveReadouts: nil
         )
 
         XCTAssertEqual(
@@ -141,5 +156,21 @@ final class RoundTenUITests: XCTestCase {
         XCTAssertEqual(caddieStrategyMode(forRouteId: "aggressive_line"), "attack")
         XCTAssertEqual(caddieStrategyMode(forRouteId: "go_for_it"), "attack")
         XCTAssertNil(caddieStrategyMode(forRouteId: "unknown_route"))
+    }
+
+    private func makeHole(
+        hazards: CoursePrepHazards,
+        route: [[Double]] = [[100, 500, 0], [100, 100, 300]]
+    ) -> CoursePrepHole {
+        CoursePrepHole(
+            hole: 1,
+            par: 4,
+            parSource: "test",
+            blueYards: 328,
+            routeLenM: route.last?.dropFirst(2).first ?? 300,
+            route: route,
+            geometryCoverage: "ready",
+            hazards: hazards
+        )
     }
 }

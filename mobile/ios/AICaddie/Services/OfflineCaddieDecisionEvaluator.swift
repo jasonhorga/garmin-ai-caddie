@@ -3,8 +3,22 @@ import Foundation
 public final class OfflineCaddieDecisionEvaluator {
     public init() {}
 
-    public func selectedOption(in seed: CaddieContextSeed, strategyMode: String?) -> OfflineCaddieOption? {
-        let preferredId = preferredOptionId(for: strategyMode) ?? seed.selectedOfflineOptionId
+    public func selectedOption(
+        in seed: CaddieContextSeed,
+        strategyMode: String?,
+        requestedOptionId: String? = nil
+    ) -> OfflineCaddieOption? {
+        let requested = requestedOptionId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+        let preferredId = requested.flatMap { id in
+            seed.offlineOptions.first(where: {
+                $0.optionId.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                    .replacingOccurrences(of: "-", with: "_") == id
+            })?.optionId
+        } ?? preferredOptionId(for: strategyMode) ?? seed.selectedOfflineOptionId
         if let preferredId,
            let option = seed.offlineOptions.first(where: { $0.optionId == preferredId }) {
             return option
@@ -17,7 +31,15 @@ public final class OfflineCaddieDecisionEvaluator {
         request: CaddieDecisionRequest,
         strategyMode: String?
     ) -> CaddieDecisionResponse? {
-        guard let selected = selectedOption(in: seed, strategyMode: strategyMode) else {
+        let requestedOptionId: String? = {
+            guard case .string(let raw) = request.context["requestedOptionId"] else { return nil }
+            return raw
+        }()
+        guard let selected = selectedOption(
+            in: seed,
+            strategyMode: strategyMode,
+            requestedOptionId: requestedOptionId
+        ) else {
             return nil
         }
         let optionRows = seed.offlineOptions.map(optionPayload)

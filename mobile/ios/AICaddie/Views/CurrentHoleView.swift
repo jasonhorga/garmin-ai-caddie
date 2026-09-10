@@ -13,18 +13,6 @@ private struct PendingPhoneShot: Identifiable {
     var id: String { locationEvent.eventId }
 }
 
-/// One obstacle annotation in the shared topo-pixel frame. Distances and placement always come from
-/// the same boundary facts, so the map never points at one bunker while describing another one.
-private struct LiveMapHazardAnnotation: Identifiable {
-    let id: String
-    let kind: String
-    let label: String
-    let toYards: Int
-    let overYards: Int
-    let frontPx: [Double]
-    let backPx: [Double]
-}
-
 /// Shared horizontal-navigation decision for live and review hole maps. Vertical scrolls and short
 /// map adjustments are ignored; edit/precision surfaces can disable the transition explicitly.
 enum HoleSwipeNavigation {
@@ -84,7 +72,13 @@ public struct CurrentHoleView: View {
     @State private var selectedClub: String
     @State private var hasUserSelectedClub = false
     @State private var selectedShotType: String
+    /// Persisted round state still carries the legacy strategy field for event compatibility. Keep
+    /// the player's one-shot override separate so the default value can never force the backend to
+    /// return a stock option when its own per-club model selected another route.
     @State private var selectedStrategyMode: String = "stock"
+    /// Non-nil only after the player explicitly taps an alternative in the caddie detail. Automatic
+    /// requests leave this nil and therefore consume the backend/seed selectedOptionId.
+    @State private var requestedStrategyMode: String? = nil
     @State private var holePrep: CoursePrepHole?
     @State private var distanceToPinText: String = ""
     @State private var selectedLie: String = "fairway"
@@ -274,6 +268,10 @@ public struct CurrentHoleView: View {
             }
         }
         .task(id: hole.number) {
+            // A reused CurrentHoleView must not carry a manual choice into the next hole. The
+            // persisted `selectedStrategyMode` remains available for legacy event replay, while
+            // this transient override always starts in automatic mode for a new hole.
+            requestedStrategyMode = nil
             heroMapScale = 1
             heroMapOffset = .zero
             #if DEBUG
@@ -298,11 +296,6 @@ public struct CurrentHoleView: View {
         }
         .onChange(of: liveRoundState) { _, newState in
             applyRestoredStateIfNeeded(newState)
-        }
-        .onChange(of: selectedStrategyMode) { _, _ in
-            // Changing strategy re-plans the shot → adopt the new strategy's recommended club so the
-            // club strip + landing marker move with it (保守/激进 选不同杆,图上的落点要跟着变).
-            Task { await loadCaddieDecision(syncClub: true) }
         }
         .fullScreenCover(isPresented: $showCaddieDetail) {
             caddieDetailSurface
@@ -368,7 +361,12 @@ public struct CurrentHoleView: View {
             }
             // Once the hero is zoomed, vertical drags belong to the map. Disabling the parent
             // scroll view for that short interaction window prevents it from swallowing the drag.
-            .scrollDisabled(heroMapScale > 1.01)
+            // A pinch is a live gesture even before the committed scale changes. Disable the
+            // ancestor scroll for both the committed and in-flight scale so a vertical map drag
+            // cannot be stolen by the hole page while zooming.
+            .scrollDisabled(
+                heroMapScale > 1.01 || abs(heroMapPinchScale - 1) > 0.01
+            )
             .onChange(of: holeRootScrollRequest) { _, _ in
                 withAnimation(.easeOut(duration: 0.22)) {
                     scrollProxy.scrollTo(Self.holeRootScrollAnchor, anchor: .top)
@@ -615,10 +613,12 @@ public struct CurrentHoleView: View {
     /// Apply a strategy tap immediately. The network request that follows refreshes the authoritative
     /// decision, but the first frame already switches both the selected card and the next-club answer.
     private func selectStrategyMode(_ mode: String) {
-        let normalized = caddieStrategyMode(forRouteId: mode) ?? mode.lowercased()
+        let normalized = caddieSelectionToken(forRouteId: mode) ?? mode.lowercased()
         guard !normalized.isEmpty else { return }
+        requestedStrategyMode = normalized
         selectedStrategyMode = normalized
         hasUserSelectedClub = false
+        caddieErrorMessage = nil
         if let decision = caddieDecision,
            let recommendation = LiveClubStripPolicy.recommendation(
                from: decision,
@@ -626,6 +626,10 @@ public struct CurrentHoleView: View {
            ) {
             selectedClub = recommendation.name
         }
+        // Strategy changes are explicit user actions. Trigger the request here instead of observing
+        // the persisted field: applying the server's authoritative selection must never launch a
+        // second request (and tapping the already-selected route still needs one request).
+        Task { await loadCaddieDecision(syncClub: true) }
     }
 
     // MARK: - 打球屏 v2 hero (map backdrop + header + overlays)
@@ -819,12 +823,15 @@ public struct CurrentHoleView: View {
     private func heroMapPanOrSwipeGesture(in viewport: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 24)
             .updating($heroMapDragOffset) { value, state, _ in
-                if heroMapScale > 1.01 {
+                // During a simultaneous pinch the committed scale is still 1. Use the effective
+                // gesture scale so vertical drags start moving the map immediately instead of
+                // being routed to the ancestor ScrollView.
+                if heroMapScale * heroMapPinchScale > 1.01 {
                     state = value.translation
                 }
             }
             .onEnded { value in
-                if heroMapScale > 1.01 {
+                if heroMapScale > 1.01 || abs(heroMapPinchScale - 1) > 0.01 {
                     heroMapOffset = heroMapClampedOffset(
                         CGSize(
                             width: heroMapOffset.width + value.translation.width,
@@ -882,7 +889,7 @@ public struct CurrentHoleView: View {
                              pinOverlayPixel: effectiveMapPinPixel,
                              topoURL: liveTopoURL, showsCardChrome: false,
                              showsRecommendedRoute: true,
-                             showsHazards: true,
+                             showsHazards: false,
                              showsPrepClubLabel: false)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(
@@ -900,8 +907,8 @@ public struct CurrentHoleView: View {
 
     // MARK: - Focused caddie plan + secondary dark cards
 
-    /// Approved full-hole plan hierarchy: one light, focused surface containing exactly the three
-    /// complete route cards. It deliberately does not repeat the live distance/actions panel.
+    /// One focused recommendation plus genuinely different club combinations. Hazard ranging has
+    /// its own map instrument and is intentionally absent from this surface.
     private var caddieDetailSurface: some View {
         ZStack {
             Color.white.ignoresSafeArea()
@@ -910,15 +917,13 @@ public struct CurrentHoleView: View {
                     if let caddieDecision {
                         CaddiePlanView(
                             response: caddieDecision,
-                            hazards: caddiePlanHazards,
-                            selectedStrategyMode: selectedStrategyMode,
+                            selectedStrategyMode: requestedStrategyMode,
                             onSelectStrategyMode: selectStrategyMode
                         )
                     } else {
                         CaddiePlanView(
                             seed: caddieContextSeed,
-                            hazards: caddiePlanHazards,
-                            selectedStrategyMode: selectedStrategyMode,
+                            selectedStrategyMode: requestedStrategyMode,
                             onSelectStrategyMode: selectStrategyMode
                         )
                     }
@@ -949,7 +954,7 @@ public struct CurrentHoleView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("球童完整方案")
+                    Text("球童建议")
                         .font(.title2.weight(.bold))
                     Text("第 \(hole.number) 洞 · Par \(hole.par)")
                         .font(.subheadline)
@@ -1128,60 +1133,6 @@ public struct CurrentHoleView: View {
     private var liveHazardDisplayRows: [LiveHazardDisplayItem] {
         guard let holePrep else { return [] }
         return LiveHazardDisplayItem.rows(for: holePrep, liveReadouts: liveHazardReadouts)
-    }
-
-    /// At most two upcoming, position-bound obstacles are shown on the large phone map. Live GPS
-    /// ranges win; before the first qualified fix, the same measured edges retain their tee ranges.
-    /// Legacy one-number hazards cannot be placed on an edge and therefore stay out of the overlay.
-    private var liveMapHazardAnnotations: [LiveMapHazardAnnotation] {
-        guard !isPreciseHoleMapPending, let holePrep else { return [] }
-        if let live = liveHazardReadouts {
-            return live.filter {
-                $0.frontRouteM.isFinite
-                    && $0.backRouteM.isFinite
-                    && max($0.frontRouteM, $0.backRouteM) > 30.0
-                    && $0.frontPx.count >= 2
-                    && $0.backPx.count >= 2
-            }.map {
-                LiveMapHazardAnnotation(
-                    id: $0.id,
-                    kind: $0.kind,
-                    label: $0.label,
-                    toYards: $0.toYards,
-                    overYards: $0.overYards,
-                    frontPx: $0.frontPx,
-                    backPx: $0.backPx
-                )
-            }
-        }
-        let route = holePrep.resolvedMapOverlay?.route
-        return holePrep.hazards.details
-            .filter { ($0.kind == "bunker" || $0.kind == "water")
-                && $0.frontRouteM.isFinite
-                && $0.backRouteM.isFinite
-                && max($0.frontRouteM, $0.backRouteM) > 30.0
-                && $0.frontPx.count >= 2 && $0.backPx.count >= 2
-                && $0.frontPx.prefix(2).allSatisfy(\.isFinite)
-                && $0.backPx.prefix(2).allSatisfy(\.isFinite)
-                && CoursePrepLiveHazardReadout.isPlausibleYards(
-                    CoursePrepRoute.yards(fromMetres: $0.frontM)
-                )
-                && CoursePrepLiveHazardReadout.isPlausibleYards(
-                    CoursePrepRoute.yards(fromMetres: $0.backM)
-                ) }
-            .sorted { $0.frontRouteM < $1.frontRouteM }
-            .enumerated()
-            .map { index, detail in
-                LiveMapHazardAnnotation(
-                    id: "\(detail.kind)-\(index)",
-                    kind: detail.kind,
-                    label: CoursePrepHazardNaming.label(kind: detail.kind, detail: detail, route: route),
-                    toYards: CoursePrepRoute.yards(fromMetres: detail.frontM),
-                    overYards: CoursePrepRoute.yards(fromMetres: detail.backM),
-                    frontPx: detail.frontPx,
-                    backPx: detail.backPx
-                )
-            }
     }
 
     /// CourseView's small package is a factual drawing source, but its hazard spans are not a
@@ -2063,29 +2014,6 @@ public struct CurrentHoleView: View {
     /// 实时果岭测距当前是否生效(有 GPS 定位 + 该洞带果岭经纬度)→ 头部显示「实时」标记区分实时/静态。
     private var isGreenRangeLive: Bool { liveGreenYards != nil }
 
-    /// 本洞避开区:取按洞拉取的 prep 水域区间与沙坑路线点/横距供球童方案展示。
-    /// (live 包为提速不再内置全洞 coursePrep;按洞 prep 随 2D 图一起加载。)
-    private var caddiePlanHazards: [CaddiePlanHazard] {
-        guard let holePrep,
-              holePrep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
-            return []
-        }
-        if let liveHazards = liveHazardReadouts {
-            return liveHazards.map {
-                CaddiePlanHazard(
-                    id: $0.id,
-                    icon: $0.kind == "water" ? "water" : "bunker",
-                    label: $0.label,
-                    detail: $0.detail
-                )
-            }
-        }
-        return CaddiePlanHazard.from(
-            holePrep.hazards,
-            route: holePrep.resolvedMapOverlay?.route
-        )
-    }
-
     /// Live-round hazard ranges use the player's current GPS fix and the measured front/back boundary
     /// pixels. A non-nil empty array means every measured hazard is already behind the player; nil
     /// means this older prep lacks the projection needed for live ranging and should use static facts.
@@ -2117,13 +2045,17 @@ public struct CurrentHoleView: View {
             return []
         }
         let route = holePrep.resolvedMapOverlay?.route
+        let routeLengthM = holePrep.resolvedMapOverlay?.ln ?? holePrep.routeLenM
         var out: [WatchHazard] = []
         let bunkerDetails = holePrep.hazards.details
             .filter {
                 $0.kind == "bunker"
-                    && $0.frontRouteM.isFinite
-                    && $0.backRouteM.isFinite
-                    && max($0.frontRouteM, $0.backRouteM) > 30.0
+                    && CoursePrepHazardRelevance.isRelevant(
+                        kind: $0.kind,
+                        frontRouteM: $0.frontRouteM,
+                        backRouteM: $0.backRouteM,
+                        routeLengthM: routeLengthM
+                    )
             }
             .sorted { $0.frontRouteM < $1.frontRouteM }
         if !bunkerDetails.isEmpty {
@@ -2143,7 +2075,15 @@ public struct CurrentHoleView: View {
             }
         } else {
             let bunkers = holePrep.hazards.bunkers
-                .filter { ($0.first ?? 0) > 30.0 }
+                .filter {
+                    guard let front = $0.first else { return false }
+                    return CoursePrepHazardRelevance.isRelevant(
+                        kind: "bunker",
+                        frontRouteM: front,
+                        backRouteM: front,
+                        routeLengthM: routeLengthM
+                    )
+                }
                 .sorted { ($0.first ?? 0) < ($1.first ?? 0) }
             for interval in bunkers {
                 out.append(WatchHazard(
@@ -2159,9 +2099,12 @@ public struct CurrentHoleView: View {
         let waterDetails = holePrep.hazards.details
             .filter {
                 $0.kind == "water"
-                    && $0.frontRouteM.isFinite
-                    && $0.backRouteM.isFinite
-                    && max($0.frontRouteM, $0.backRouteM) > 30.0
+                    && CoursePrepHazardRelevance.isRelevant(
+                        kind: $0.kind,
+                        frontRouteM: $0.frontRouteM,
+                        backRouteM: $0.backRouteM,
+                        routeLengthM: routeLengthM
+                    )
             }
             .sorted { $0.frontRouteM < $1.frontRouteM }
         if !waterDetails.isEmpty {
@@ -2181,7 +2124,16 @@ public struct CurrentHoleView: View {
             }
         } else {
             let water = holePrep.hazards.waterCarry
-                .filter { max($0.first ?? 0, $0.dropFirst().first ?? 0) > 30.0 }
+                .filter {
+                    guard let front = $0.first else { return false }
+                    let back = $0.dropFirst().first ?? front
+                    return CoursePrepHazardRelevance.isRelevant(
+                        kind: "water",
+                        frontRouteM: front,
+                        backRouteM: back,
+                        routeLengthM: routeLengthM
+                    )
+                }
                 .sorted { ($0.first ?? 0) < ($1.first ?? 0) }
             for interval in water {
                 out.append(WatchHazard(
@@ -2267,7 +2219,7 @@ public struct CurrentHoleView: View {
         guard let decision = caddieDecision else { return nil }
         return LiveClubStripPolicy.recommendation(
             from: decision,
-            strategyMode: selectedStrategyMode
+            strategyMode: requestedStrategyMode
         )
     }
 
@@ -2331,7 +2283,7 @@ public struct CurrentHoleView: View {
     private func recommendedClubName(from decision: CaddieDecisionResponse) -> String? {
         LiveClubStripPolicy.recommendation(
             from: decision,
-            strategyMode: selectedStrategyMode
+            strategyMode: requestedStrategyMode
         )?.name
     }
 
@@ -2539,10 +2491,27 @@ public struct CurrentHoleView: View {
                 targetKind: wireTargetKind,
                 horizontalAccuracyM: liveCoordinateForCurrentHole == nil ? nil : currentHorizontalAccuracyM,
                 capturedAt: liveCoordinateForCurrentHole == nil ? nil : locationProvider.latestFix?.capturedAt,
-                strategyMode: selectedStrategyMode,
+                strategyMode: requestedStrategyMode,
+                requestedOptionId: caddieOptionId(forStrategyMode: requestedStrategyMode),
                 visionFindings: visionFindings
             )
         )
+    }
+
+    /// Adopt the route the decision engine actually selected. The request's strategy/option is a
+    /// preference, not a guarantee: hazards, dispersion, sparse samples, or a whole-hole leave
+    /// can make the engine choose another route. Keeping this field aligned is important for the
+    /// next-club strip, Watch state, and persisted club events.
+    @MainActor
+    private func syncStrategyModeToDecision(_ response: CaddieDecisionResponse?) {
+        requestedStrategyMode = nil
+        guard let response,
+              let authoritative = caddieAuthoritativeStrategyMode(from: response) else {
+            return
+        }
+        if selectedStrategyMode != authoritative {
+            selectedStrategyMode = authoritative
+        }
     }
 
     @MainActor
@@ -2564,6 +2533,7 @@ public struct CurrentHoleView: View {
         #endif
         guard let effectiveClient else {
             caddieDecision = makeOfflineCaddieDecision()
+            syncStrategyModeToDecision(caddieDecision)
             caddieErrorMessage = caddieDecision == nil
                 ? "这一洞暂时无法给建议。"
                 : "离线模式 · 使用已保存的方案。"
@@ -2587,6 +2557,10 @@ public struct CurrentHoleView: View {
             guard !(requestedBeforePrep && holePrep != nil) else { return }
             caddieDecision = response
             caddieErrorMessage = nil
+            // The server has now resolved the requested route (including any safety constraints).
+            // Return the UI and club strip to the authoritative selectedOptionId instead of
+            // continuing to shadow a rejected/manual transport preference.
+            syncStrategyModeToDecision(response)
             if syncClub { syncSelectedClubToRecommendation() }
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
         } catch let error where LiveCaddieLoadFailure.isCancellation(error) {
@@ -2595,6 +2569,7 @@ public struct CurrentHoleView: View {
             guard requestGeneration == caddieRequestGeneration else { return }
             if let offlineDecision = makeOfflineCaddieDecision() {
                 caddieDecision = offlineDecision
+                syncStrategyModeToDecision(offlineDecision)
                 caddieErrorMessage = "联网球童暂不可用 · 已切换到离线缓存建议。"
             } else {
                 caddieErrorMessage = "球童建议暂取不到 · 仍显示已缓存的方案。"
@@ -2613,7 +2588,7 @@ public struct CurrentHoleView: View {
         return offlineDecisionEvaluator.makeDecision(
             seed: caddieContextSeed,
             request: request,
-            strategyMode: selectedStrategyMode
+            strategyMode: requestedStrategyMode
         )
     }
 
@@ -2621,7 +2596,17 @@ public struct CurrentHoleView: View {
         guard let seed = caddieContextSeed else {
             return nil
         }
-        return offlineDecisionEvaluator.selectedOption(in: seed, strategyMode: selectedStrategyMode)
+        if let decision = caddieDecision,
+           decision.isOfflineFallback,
+           let selectedID = decision.selectedOptionId,
+           let selected = seed.offlineOptions.first(where: { $0.optionId == selectedID }) {
+            return selected
+        }
+        return offlineDecisionEvaluator.selectedOption(
+            in: seed,
+            strategyMode: requestedStrategyMode,
+            requestedOptionId: caddieOptionId(forStrategyMode: requestedStrategyMode)
+        )
     }
 
     private func sendWatchState(decision: CaddieDecisionResponse?, offlineOption: OfflineCaddieOption?) {
@@ -2735,6 +2720,9 @@ public struct CurrentHoleView: View {
         selectedClub = Self.normalizedSelectedClub(restoredHoleState.selectedClub)
         hasUserSelectedClub = !selectedClub.isEmpty
         selectedShotType = restoredHoleState.selectedShotType
+        // A restored event is authoritative for the persisted legacy field, but it is never a
+        // pending tap. Do not replay a stale one-shot override when a saved round is rehydrated.
+        requestedStrategyMode = nil
         selectedStrategyMode = restoredHoleState.selectedStrategyMode
         selectedLie = restoredHoleState.lie
         distanceToPinText = Self.validDistanceText(restoredHoleState.distanceToPinM)

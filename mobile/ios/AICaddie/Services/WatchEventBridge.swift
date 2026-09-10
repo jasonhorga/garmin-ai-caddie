@@ -1234,12 +1234,11 @@ public final class WatchEventBridge: NSObject {
         let sequences = CaddiePlanSequence.sequences(from: decision)
         return CaddiePlanOption.options(from: decision).map { option in
             let sequence = sequences.first { $0.id == option.id }
-            let idLabel = zhCaddieRouteLabel(option.id)
-            let fallbackLabel = zhCaddieRouteLabel(option.label)
+            let clubName = option.clubName == "-" ? nil : option.clubName
             return WatchCaddieOption(
                 optionId: option.id,
-                label: idLabel != option.id ? idLabel : fallbackLabel,
-                clubName: option.clubName == "-" ? nil : option.clubName,
+                label: clubName.map { zhClubDisplayName(zhClubName($0)) } ?? option.label,
+                clubName: clubName,
                 carryM: option.carryM > 0 ? option.carryM : nil,
                 carryP10M: option.p10M,
                 carryP90M: option.p90M,

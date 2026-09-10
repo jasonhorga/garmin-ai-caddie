@@ -63,6 +63,35 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertEqual(hole.hazards.waterCarry.first, [40.0, 90.0])
     }
 
+    func testHazardOutlineIsOptionalAndMalformedGeometryDoesNotBreakHoleDecode() throws {
+        let cases: [(name: String, field: String)] = [
+            ("old package without outline", ""),
+            ("null outline", #""outlinePx":null,"#),
+            ("wrong scalar type", #""outlinePx":"legacy","#),
+            ("wrong object type", #""outlinePx":{"x":1},"#),
+            ("malformed point type", #""outlinePx":[[1,2],["bad",3],[4,5]],"#),
+            ("malformed point length", #""outlinePx":[[1],[2,3],[4,5]],"#),
+        ]
+
+        for fixture in cases {
+            let json = """
+            {"kind":"water","frontM":100.0,"backM":120.0,"frontRouteM":90.0,
+             "backRouteM":110.0,"frontPx":[10.0,20.0],"backPx":[12.0,24.0],
+             \(fixture.field)"sideM":null}
+            """
+            let detail = try JSONDecoder().decode(CoursePrepHazardDetail.self, from: Data(json.utf8))
+            XCTAssertEqual(detail.outlinePx, [], fixture.name)
+        }
+
+        let validJSON = """
+        {"kind":"water","frontM":100.0,"backM":120.0,"frontRouteM":90.0,
+         "backRouteM":110.0,"frontPx":[10.0,20.0],"backPx":[12.0,24.0],
+         "outlinePx":[[10.0,20.0],[14.0,21.0],[12.0,24.0]],"sideM":null}
+        """
+        let valid = try JSONDecoder().decode(CoursePrepHazardDetail.self, from: Data(validJSON.utf8))
+        XCTAssertEqual(valid.outlinePx, [[10.0, 20.0], [14.0, 21.0], [12.0, 24.0]])
+    }
+
     func testResolvesTopoOverlayFromLightweightRouteAndAffineProjection() throws {
         let json = """
         {"schema":"ai-caddie-course-prep-v1","globalId":3881,"holeCount":1,"clubs":[],
@@ -227,6 +256,35 @@ final class CoursePrepTests: XCTestCase {
 
         XCTAssertEqual(upcoming.map(\.label), ["前方水障碍"])
         XCTAssertEqual(upcoming.first?.detail, "到 36 · 过 61 码")
+    }
+
+    func testHazardRelevanceDropsTeeBunkersButKeepsForwardWater() {
+        XCTAssertFalse(
+            CoursePrepHazardRelevance.isRelevant(
+                kind: "bunker", frontRouteM: 8, backRouteM: 42, routeLengthM: 360
+            ),
+            "a bunker touching the tee apron is not a useful shot-planning obstacle"
+        )
+        XCTAssertTrue(
+            CoursePrepHazardRelevance.isRelevant(
+                kind: "water", frontRouteM: 8, backRouteM: 42, routeLengthM: 360
+            ),
+            "forward water can require a real carry even when its near edge begins by the tee"
+        )
+    }
+
+    func testHazardRelevanceDropsGeometryBehindTheGreen() {
+        XCTAssertFalse(
+            CoursePrepHazardRelevance.isRelevant(
+                kind: "bunker", frontRouteM: 380, backRouteM: 395, routeLengthM: 360
+            )
+        )
+        XCTAssertTrue(
+            CoursePrepHazardRelevance.isRelevant(
+                kind: "bunker", frontRouteM: 350, backRouteM: 366, routeLengthM: 360
+            ),
+            "a small route-station tolerance retains bunkers touching the back of the green"
+        )
     }
 
     private func measuredHazards() -> CoursePrepHazards {

@@ -2427,8 +2427,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("完整地图准备中，当前不会显示简化轮廓", course_review)
         # De-engineered: the "Par 来源：…" provenance label is hidden from the consumer course review.
         self.assertNotIn("Par 来源", course_review)
-        # Course review and the full caddie plan share one measured hazard projection.  On a
-        # drawable prep hole, water/bunker front/back facts live on the map rather than a list.
+        # Course review uses the shared measured projection on the map. Hazard ranging itself is a
+        # separate one-at-a-time instrument, so the caddie recommendation page does not duplicate
+        # obstacle cards or their distance labels.
         hole_map = _read_required_source(self, IOS_DIR / "Views" / "HoleImageMapView.swift")
         self.assertIn("prepHazardAnnotations.prefix(2)", hole_map)
         self.assertIn('Text("到 \\(toYards) · 过 \\(overYards)")', hole_map)
@@ -2439,8 +2440,11 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn(".clipped()", hole_map)
         self.assertNotIn("private var hazardsSection", course_review)
-        self.assertIn("measuredText(frontM: detail.frontM, backM: detail.backM)", caddie_plan)
-        self.assertIn('"到 \\(CoursePrepRoute.yards(fromMetres: frontM)) · 过 \\(CoursePrepRoute.yards(fromMetres: backM)) 码"', caddie_plan)
+        hazard_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveHazardDetailView.swift")
+        self.assertIn('distanceColumn(title: "到前沿", value: row.frontYards)', hazard_detail)
+        self.assertIn('distanceColumn(title: "过后沿", value: row.backYards)', hazard_detail)
+        self.assertIn('identifier: "hazard-previous"', hazard_detail)
+        self.assertIn('identifier: "hazard-next"', hazard_detail)
         self.assertNotIn("离球路", course_review)
         self.assertNotIn('?? "?"', course_review)
 
@@ -2958,7 +2962,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("caddieDecision = makeOfflineCaddieDecision()", current_hole)
         self.assertIn("联网球童暂不可用 · 已切换到离线缓存建议。", current_hole)
         self.assertIn("离线模式 · 使用已保存的方案。", current_hole)
-        self.assertIn("offlineDecisionEvaluator.selectedOption(in: seed, strategyMode: selectedStrategyMode)", current_hole)
+        self.assertIn("offlineDecisionEvaluator.selectedOption(", current_hole)
+        self.assertIn("strategyMode: requestedStrategyMode", current_hole)
+        self.assertIn("requestedOptionId: caddieOptionId(forStrategyMode: requestedStrategyMode)", current_hole)
 
         self.assertIn("testMakesAuditableOfflineDecisionFromSeedAndStrategy", evaluator_tests)
         self.assertIn("testStrategyModeSelectsCachedOptionWithoutNetwork", evaluator_tests)
@@ -3020,6 +3026,7 @@ class MobileContractTests(unittest.TestCase):
             '"targetLocation"',
             '"kind"',
             '"strategyMode"',
+            '"requestedOptionId"',
             '"latitude"',
             '"longitude"',
             '"horizontalAccuracyM"',
@@ -3030,6 +3037,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("targetKind: String?", builder)
         self.assertIn('targetLocation["kind"] = .string(targetKind)', builder)
         self.assertIn("strategyMode: String?", builder)
+        self.assertIn("requestedOptionId: String?", builder)
 
     def test_ios_vision_findings_feed_live_caddie_request_context(self) -> None:
         upload_client = _read_required_source(self, IOS_DIR / "Services" / "MediaUploadClient.swift")
@@ -3374,6 +3382,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("LiveCaddieDistance.resolve", current_hole)
         self.assertIn("lie: selectedLie", current_hole)
         self.assertIn("coordinate: liveCoordinateForCurrentHole", current_hole)
+        self.assertIn("requestedOptionId: caddieOptionId(forStrategyMode: requestedStrategyMode)", current_hole)
         self.assertIn("targetCoordinate: $targetCoordinate", current_hole)
         self.assertIn("targetPixel: $targetPixel", current_hole)
         self.assertIn("targetKind: wireTargetKind", current_hole)
@@ -3381,9 +3390,16 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("isLoadingCaddieDecision", current_hole)
         self.assertIn("caddieErrorMessage", current_hole)
         self.assertIn("@State private var selectedStrategyMode: String = \"stock\"", current_hole)
+        self.assertIn("@State private var requestedStrategyMode: String? = nil", current_hole)
+        self.assertIn("requestedStrategyMode = nil", current_hole)
         self.assertNotIn('Picker("策略"', current_hole)
         self.assertIn("onSelectStrategyMode: selectStrategyMode", current_hole)
-        self.assertIn("strategyMode: selectedStrategyMode", current_hole)
+        self.assertIn("strategyMode: requestedStrategyMode", current_hole)
+        self.assertIn("selectedStrategyMode: requestedStrategyMode", current_hole)
+        self.assertIn("requestedStrategyMode = nil", current_hole)
+        self.assertIn("requestedStrategyMode = normalized", current_hole)
+        self.assertIn("syncStrategyModeToDecision", current_hole)
+        self.assertIn("requestedStrategyMode = nil", current_hole)
         self.assertIn("CaddieDecisionClient", current_hole)
         self.assertIn("WatchEventBridge", current_hole)
 
@@ -3391,10 +3407,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)", current_hole)
         self.assertIn("response: caddieDecision", current_hole)
         self.assertIn("seed: caddieContextSeed", current_hole)
-        # Live package no longer embeds all-hole coursePrep (fast start); hazards come from the
-        # per-hole prep fetched on demand alongside the 2D map.
-        self.assertIn("CaddiePlanHazard.from(", current_hole)
-        self.assertIn("route: holePrep.resolvedMapOverlay?.route", current_hole)
+        # Live package no longer embeds all-hole coursePrep (fast start); the dedicated obstacle
+        # browser consumes the per-hole prep fetched on demand alongside the 2D map.
+        self.assertIn("LiveHazardDisplayItem.rows(for: holePrep", current_hole)
+        self.assertIn("liveHazardDisplayRows", current_hole)
         self.assertIn("selectedOfflineOption", current_hole)
         self.assertIn("sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)", current_hole)
         green_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveGreenDetailView.swift")
@@ -3429,17 +3445,16 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('payload["targetLongitude"] = .number(targetCoordinate.longitude)', event_builder)
         self.assertIn("LiveScoreSubmission.events(", current_hole)
         self.assertIn("struct CaddiePlanView: View", caddie_plan)
-        # 球童方案: 备选打法对比表 + 避开区(course_prep hazards 区间)。
-        self.assertIn("public struct CaddiePlanHazard", caddie_plan)
-        self.assertIn("public static func from(", caddie_plan)
-        self.assertIn("route: [[Double]]? = nil", caddie_plan)
-        self.assertIn("备选打法", caddie_plan)
-        self.assertIn("避开区", caddie_plan)
+        # 球童方案只呈现球杆答案；障碍物由独立的逐项浏览页负责。
+        self.assertNotIn("public struct CaddiePlanHazard", caddie_plan)
+        self.assertNotIn("备选打法", caddie_plan)
+        self.assertNotIn("避开区", caddie_plan)
         self.assertIn("struct CaddiePlanSequence: Identifiable, Equatable", caddie_plan)
         self.assertIn("struct CaddiePlanSequenceStep: Identifiable, Equatable", caddie_plan)
         self.assertIn("response: CaddieDecisionResponse,", caddie_plan)
         self.assertIn("seed: CaddieContextSeed?,", caddie_plan)
         self.assertIn("func caddieStrategyMode(forRouteId", caddie_plan)
+        self.assertIn("func caddieOptionId(forStrategyMode", caddie_plan)
         self.assertIn('accessibilityIdentifier("caddie-strategy-', caddie_plan)
         self.assertIn("options(from response", caddie_plan)
         self.assertIn("options(from seed", caddie_plan)
@@ -3447,12 +3462,15 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("selectedSequenceId(from response", caddie_plan)
         self.assertIn("response.selectedSequence", caddie_plan)
         self.assertIn("response.sequences ?? []", caddie_plan)
-        # round-11: 整洞序列为主 — three 打法 each rendered as a 开球→攻果岭 club chain (selected on top).
-        self.assertIn("private var sequenceCards", caddie_plan)
-        self.assertIn("orderedSequences", caddie_plan)
-        self.assertIn("private var orderedOptions", caddie_plan)
-        self.assertIn("ForEach(orderedOptions)", caddie_plan)
-        self.assertIn("\\(zhCaddieRouteLabel(sequence.id))打法", caddie_plan)
+        # UX2: one explicit next-club answer; only materially different physical choices expand below it.
+        self.assertIn("private var primarySequence", caddie_plan)
+        self.assertIn("distinctSequences", caddie_plan)
+        self.assertIn("distinctOptions", caddie_plan)
+        self.assertIn("primaryRecommendation", caddie_plan)
+        self.assertIn('Label("其他选择"', caddie_plan)
+        self.assertIn('accessibilityIdentifier("caddie-primary-recommendation")', caddie_plan)
+        self.assertIn('accessibilityIdentifier("caddie-other-options")', caddie_plan)
+        self.assertNotIn("zhCaddieRouteLabel", caddie_plan)
         self.assertIn("sequence.steps", caddie_plan)
         self.assertIn('number(row["expectedRemaining_m"])', caddie_plan)
         self.assertIn('number(row["targetCarry_m"])', caddie_plan)
@@ -3482,11 +3500,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("didUpdateLocations", location_provider)
         self.assertIn("horizontalAccuracyM", location_provider)
 
-    def test_live_hazard_detail_owns_its_numbered_spans_without_shared_duplicates(self) -> None:
+    def test_live_hazard_detail_owns_one_selected_outline_without_shared_duplicates(self) -> None:
         hazard_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveHazardDetailView.swift")
         self.assertIn("showsRecommendedRoute: false", hazard_detail)
         self.assertIn("showsHazards: false", hazard_detail)
-        self.assertIn("drawHazardSpans(&context, size: size)", hazard_detail)
+        self.assertIn("drawSelectedHazard(&context, size: size)", hazard_detail)
+        self.assertIn('identifier: "hazard-next"', hazard_detail)
+        self.assertIn('accessibilityIdentifier("selected-hazard-', hazard_detail)
 
     def test_ios_round_review_runtime_capture_uses_stable_navigation_identifiers(self) -> None:
         resolver = _read_required_source(
@@ -3574,7 +3594,7 @@ class MobileContractTests(unittest.TestCase):
             self.assertIn("static func confidenceColor(_", source)
 
         self.assertIn("AICaddieDesignTokens.scoreColor(toPar: round.toPar)", recent_review)
-        self.assertIn("AICaddieDesignTokens.strategyColor(option.id)", caddie_plan)
+        self.assertIn("LiveHoleStyle.green", caddie_plan)
         self.assertIn("AICaddieDesignTokens.confidenceColor(state.caddieConfidence)", watch_glance)
 
     def test_watch_state_model_defines_compact_codable_state(self) -> None:

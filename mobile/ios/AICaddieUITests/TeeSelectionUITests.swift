@@ -679,7 +679,7 @@ final class TeeSelectionUITests: XCTestCase {
             "the live root must expose the focused caddie entry"
         )
         entry.tap()
-        let heading = app.staticTexts["球童完整方案"]
+        let heading = app.staticTexts["球童建议"]
         XCTAssertTrue(
             heading.waitForExistence(timeout: timeout),
             "opening the caddie entry must present the complete plan"

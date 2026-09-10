@@ -201,6 +201,42 @@ def _merge_intervals(intervals, gap=1e-6) -> list[list[float]]:
     return merged
 
 
+def _water_component_intervals(lake, segments) -> list[dict]:
+    """Return route crossings with the lake component that supplied each interval.
+
+    ``water_carry`` remains a merged scalar contract for the decision engine. The component link is
+    additive and exists only so the player-facing hazard detail can draw the actual lake boundary
+    instead of an ellipse around two route samples.
+    """
+    if not lake:
+        return []
+    from ai_caddie.geometry.measure_prodgeometry_distances import (
+        line_intervals_for_component,
+        mesh_components,
+    )
+
+    rows: list[dict] = []
+    for component in mesh_components(lake):
+        outline = _component_outline(component.get("triangles") or [])
+        for a, b, cum, seg in segments:
+            for t0, t1 in line_intervals_for_component(a, b, component):
+                start = cum + t0 * seg
+                end = cum + t1 * seg
+                if end - start <= 1e-6:
+                    continue
+                rows.append({"start": start, "end": end, "outline": outline})
+    return rows
+
+
+def _water_carry_from_component_intervals(rows: list[dict]) -> list[list[float]]:
+    raw = [(row["start"], row["end"]) for row in rows]
+    return [
+        [round(start, 1), round(end, 1)]
+        for start, end in _merge_intervals(raw)
+        if end - start >= WATER_MIN_M
+    ]
+
+
 def _water_carry(lake, segments) -> list[list[float]]:
     """Carry intervals (metres along the route) from the EXACT route-segment ∩ lake intersection.
 
@@ -211,18 +247,7 @@ def _water_carry(lake, segments) -> list[list[float]]:
     """
     if not lake:
         return []
-    from ai_caddie.geometry.measure_prodgeometry_distances import line_intervals_for_component, mesh_components
-
-    raw: list[tuple[float, float]] = []
-    for component in mesh_components(lake):
-        for a, b, cum, seg in segments:
-            for t0, t1 in line_intervals_for_component(a, b, component):
-                raw.append((cum + t0 * seg, cum + t1 * seg))
-    return [
-        [round(start, 1), round(end, 1)]
-        for start, end in _merge_intervals(raw)
-        if end - start >= WATER_MIN_M
-    ]
+    return _water_carry_from_component_intervals(_water_component_intervals(lake, segments))
 
 
 def _component_boundary_edges(triangles) -> list[tuple[tuple[float, float], tuple[float, float]]]:
@@ -304,6 +329,46 @@ def _ordered_component_boundary(triangles) -> list[tuple[float, float]]:
     if not loops:
         return []
     return max(loops, key=lambda loop: (abs(signed_area(loop)), tuple(loop)))
+
+
+MAX_HAZARD_OUTLINE_POINTS = 64
+
+
+def _compact_boundary_points(
+    points: list[tuple[float, float]],
+    *,
+    maximum: int = MAX_HAZARD_OUTLINE_POINTS,
+) -> list[tuple[float, float]]:
+    """Bound a mesh outline before putting it in the per-hole mobile payload.
+
+    The exterior edge can contain thousands of vertices for a detailed lake. Uniformly sampling
+    that already-ordered loop preserves its shape and winding while keeping JSON decoding and
+    Canvas drawing cheap. A small/invalid loop is returned unchanged so geometry tests retain exact
+    vertices.
+    """
+    if maximum < 3:
+        return []
+    compact: list[tuple[float, float]] = []
+    for point in points:
+        try:
+            candidate = (float(point[0]), float(point[1]))
+        except (IndexError, TypeError, ValueError, OverflowError):
+            continue
+        if not all(math.isfinite(value) for value in candidate):
+            continue
+        if not compact or candidate != compact[-1]:
+            compact.append(candidate)
+    if len(compact) <= maximum:
+        return compact
+    # Keep the first vertex and sample evenly through the closed loop. The Canvas closes the path,
+    # so repeating the first point would only waste payload bytes.
+    last = len(compact) - 1
+    indexes = sorted({round(index * last / (maximum - 1)) for index in range(maximum)})
+    return [compact[index] for index in indexes]
+
+
+def _component_outline(triangles) -> list[tuple[float, float]]:
+    return _compact_boundary_points(_ordered_component_boundary(triangles))
 
 
 def _selected_green_boundary(by: dict, route) -> list[tuple[float, float]]:
@@ -465,6 +530,7 @@ def _side_water_measurements(lake, route) -> list[dict]:
             "frontPoint": front_point,
             "backPoint": back_point,
             "sideM": round(side, 1),
+            "outline": _component_outline(component.get("triangles") or []),
         })
 
     measurements.sort(key=lambda row: (row["frontRouteM"], row["backRouteM"], row["sideM"]))
@@ -585,15 +651,33 @@ def _bunker_measurements(bunker, route) -> list[dict]:
                 "frontPoint": front_point,
                 "backPoint": back_point,
                 "sideM": round(best_side, 1),
+                "outline": _component_outline(triangles),
             })
     bunkers.sort(key=lambda row: row["legacy"])
     return bunkers
 
 
-def _hazard_detail(kind: str, front_route_m: float, back_route_m: float, front_point, back_point,
-                   tee, to_px, side_m: float | None = None) -> dict:
+def _hazard_detail(
+    kind: str,
+    front_route_m: float,
+    back_route_m: float,
+    front_point,
+    back_point,
+    tee,
+    to_px,
+    side_m: float | None = None,
+    outline: list[tuple[float, float]] | None = None,
+) -> dict:
     front_px = to_px(front_point)
     back_px = to_px(back_point)
+    outline_px: list[list[float]] = []
+    for point in outline or []:
+        try:
+            projected = to_px(point)
+            if all(math.isfinite(float(value)) for value in projected[:2]):
+                outline_px.append([round(float(projected[0]), 1), round(float(projected[1]), 1)])
+        except (IndexError, TypeError, ValueError, OverflowError):
+            continue
     return {
         "kind": kind,
         "frontM": round(math.hypot(front_point[0] - tee[0], front_point[1] - tee[1]), 1),
@@ -602,8 +686,26 @@ def _hazard_detail(kind: str, front_route_m: float, back_route_m: float, front_p
         "backRouteM": round(back_route_m, 1),
         "frontPx": [round(front_px[0], 1), round(front_px[1], 1)],
         "backPx": [round(back_px[0], 1), round(back_px[1], 1)],
+        "outlinePx": outline_px,
         "sideM": side_m,
     }
+
+
+def _water_outline_for_interval(
+    component_rows: list[dict],
+    start: float,
+    end: float,
+) -> list[tuple[float, float]]:
+    """Choose the component with the largest overlap for one merged carry interval."""
+    best: tuple[float, list[tuple[float, float]]] | None = None
+    for row in component_rows:
+        overlap = max(0.0, min(end, float(row["end"])) - max(start, float(row["start"])))
+        if overlap <= 0:
+            continue
+        outline = row.get("outline") or []
+        if best is None or overlap > best[0]:
+            best = (overlap, outline)
+    return best[1] if best else []
 
 
 def route_hazards(by: dict, route, *, to_px=None) -> dict:
@@ -617,7 +719,8 @@ def route_hazards(by: dict, route, *, to_px=None) -> dict:
     player-facing front/back contract and put their map markers on real geometry boundary pixels.
     """
     segments = _route_segments(route)
-    water = _water_carry(by.get("Lake.drc"), segments)
+    water_component_rows = _water_component_intervals(by.get("Lake.drc"), segments)
+    water = _water_carry_from_component_intervals(water_component_rows)
     side_water_measurements = _side_water_measurements(by.get("Lake.drc"), route)
     bunker_measurements = _bunker_measurements(by.get("Bunker.drc"), route)
     details: list[dict] = []
@@ -630,6 +733,7 @@ def route_hazards(by: dict, route, *, to_px=None) -> dict:
             if front_point is not None and back_point is not None:
                 details.append(_hazard_detail(
                     "water", start, end, front_point, back_point, tee, to_px,
+                    outline=_water_outline_for_interval(water_component_rows, start, end),
                 ))
         for water_row in side_water_measurements:
             details.append(_hazard_detail(
@@ -641,6 +745,7 @@ def route_hazards(by: dict, route, *, to_px=None) -> dict:
                 tee,
                 to_px,
                 side_m=water_row["sideM"],
+                outline=water_row.get("outline"),
             ))
         for bunker_row in bunker_measurements:
             details.append(_hazard_detail(
@@ -652,6 +757,7 @@ def route_hazards(by: dict, route, *, to_px=None) -> dict:
                 tee,
                 to_px,
                 side_m=bunker_row["sideM"],
+                outline=bunker_row.get("outline"),
             ))
     return {
         "water_carry": water,
@@ -1535,6 +1641,9 @@ def _lightweight_prep_hole(
                 **hazard,
                 "frontPx": [round(front_px[0], 1), round(front_px[1], 1)],
                 "backPx": [round(back_px[0], 1), round(back_px[1], 1)],
+                # CourseView exposes only a two-point hazard span. Do not invent a polygon from
+                # that line; the phone will use its restrained front/back fallback instead.
+                "outlinePx": [],
             }
         )
     green_px = [project(point) for point in green_outline]
@@ -1639,14 +1748,13 @@ def _candidate_routes(
     *,
     par: int | None = None,
 ) -> list[dict]:
-    """Build stable safe/stock/attack route facts from a measured club ladder.
+    """Build measured route choices without relabeling one club as three strategies.
 
-    ``par=None`` preserves the historical helper semantics for callers that only have a ladder.
-    Production prep passes the hole par.  On a Par 4/5, a real Driver is retained for every
-    strategy whenever it is present: the modes describe target line/risk, not invented distances
-    for one physical club.  This remains true for a sparse bag, because the golfer still needs to
-    choose the Driver line explicitly.  Without a Driver, sparse ladders keep the old safe/stock
-    fallback so the payload does not claim three independently supported choices.
+    Prep only has a distance ladder, so it cannot claim to know three different target lines for
+    one physical club.  A normal Par 4/5 therefore exposes the Driver (or longest measured club) as
+    the stock choice and, when available, one genuinely shorter control-club alternative.  The live
+    decision layer later adds dispersion, samples, hazards, and whole-hole leave-distance scoring.
+    ``par=None`` retains the older generic tiering for callers that do not know the hole shape.
     """
     if not ladder:
         return []
@@ -1661,43 +1769,40 @@ def _candidate_routes(
     if not playable:
         return []
 
-    driver_row = next(
-        (row for row in playable if club_bag_service.canonical_club_name(row[0]) == "driver"),
-        None,
-    )
-    same_club_modes = bool(par in {4, 5} and driver_row is not None)
-
-    # ``ladder`` is longest-first.  The middle tier is the standard route; the shortest and
-    # longest tiers are the honest conservative/aggressive alternatives.  With one or two tiers,
-    # return only the modes represented by the bag unless a real Driver is present on a Par 4/5;
-    # in that case all three line choices deliberately share the Driver's measured carry.
-    tiers: list[tuple[str, tuple[str, int]]] = []
-    if same_club_modes:
-        tiers = [("safe", driver_row), ("stock", driver_row), ("attack", driver_row)]  # type: ignore[list-item]
-    elif len(playable) >= 3:
-        tiers = [
-            ("safe", playable[2]),
-            ("stock", playable[1]),
-            ("attack", playable[0]),
-        ]
-    elif len(playable) == 2:
-        tiers = [("safe", playable[1]), ("stock", playable[0])]
-    else:
-        tiers = [("stock", playable[0])]
-
-    # Be defensive about callers passing aliases or repeated rows despite the normal ladder
-    # canonicalisation.  In the explicit same-club mode, duplicate physical identity is expected:
-    # each row is a different target/risk strategy.
-    seen: set[str] = set()
-    distinct: list[tuple[str, tuple[str, int]]] = []
-    for option_id, (club_name, carry_m) in tiers:
+    # ``ladder`` is longest-first.  Collapse aliases before choosing route tiers so a stale
+    # ``Driver``/``1W`` duplicate cannot become a player-facing alternative.
+    distinct_playable: list[tuple[str, int]] = []
+    seen_clubs: set[str] = set()
+    for club_name, carry_m in playable:
         canonical = club_bag_service.canonical_club_name(club_name)
         key = canonical or str(club_name).strip().casefold()
-        if not same_club_modes and key in seen:
+        if key in seen_clubs:
             continue
-        if not same_club_modes:
-            seen.add(key)
-        distinct.append((option_id, (club_name, carry_m)))
+        seen_clubs.add(key)
+        distinct_playable.append((club_name, carry_m))
+
+    driver_row = next(
+        (row for row in distinct_playable if club_bag_service.canonical_club_name(row[0]) == "driver"),
+        None,
+    )
+
+    tiers: list[tuple[str, tuple[str, int]]] = []
+    if par in {4, 5}:
+        stock = driver_row or distinct_playable[0]
+        tiers.append(("stock", stock))
+        shorter = next((row for row in distinct_playable if row[1] < stock[1]), None)
+        if shorter is not None:
+            tiers.append(("safe", shorter))
+    elif len(distinct_playable) >= 3:
+        tiers = [
+            ("safe", distinct_playable[2]),
+            ("stock", distinct_playable[1]),
+            ("attack", distinct_playable[0]),
+        ]
+    elif len(distinct_playable) == 2:
+        tiers = [("safe", distinct_playable[1]), ("stock", distinct_playable[0])]
+    else:
+        tiers = [("stock", distinct_playable[0])]
 
     risk = 3 if (hazards.get("water_carry") or hazards.get("bunkers")) else 1
     base_risk = {"safe": 0, "stock": 1, "attack": risk}
@@ -1708,10 +1813,9 @@ def _candidate_routes(
             "carryM": float(carry_m),
             "riskScore": base_risk[option_id],
             "strategyMode": option_id,
-            "allowSameClubStrategies": same_club_modes,
             "source": "course_prep",
         }
-        for option_id, (club_name, carry_m) in distinct
+        for option_id, (club_name, carry_m) in tiers
     ]
 
 

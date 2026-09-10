@@ -265,12 +265,16 @@ public struct HoleImageMapView: View {
     private var prepHazardAnnotations: [PrepHazardAnnotation] {
         guard hole.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else { return [] }
         let route = hole.resolvedMapOverlay?.route
+        let routeLengthM = hole.resolvedMapOverlay?.ln ?? hole.routeLenM
         return hole.hazards.details
             .filter {
                 ($0.kind == "bunker" || $0.kind == "water")
-                    && $0.frontRouteM.isFinite
-                    && $0.backRouteM.isFinite
-                    && max($0.frontRouteM, $0.backRouteM) > 30.0
+                    && CoursePrepHazardRelevance.isRelevant(
+                        kind: $0.kind,
+                        frontRouteM: $0.frontRouteM,
+                        backRouteM: $0.backRouteM,
+                        routeLengthM: routeLengthM
+                    )
                     && $0.frontPx.count >= 2
                     && $0.backPx.count >= 2
                     && $0.frontPx.prefix(2).allSatisfy(\.isFinite)
@@ -355,9 +359,12 @@ public struct HoleImageMapView: View {
 
         for detail in hole.hazards.details where showsHazards
             && (detail.kind == "bunker" || detail.kind == "water")
-            && detail.frontRouteM.isFinite
-            && detail.backRouteM.isFinite
-            && max(detail.frontRouteM, detail.backRouteM) > 30.0
+            && CoursePrepHazardRelevance.isRelevant(
+                kind: detail.kind,
+                frontRouteM: detail.frontRouteM,
+                backRouteM: detail.backRouteM,
+                routeLengthM: hole.resolvedMapOverlay?.ln ?? hole.routeLenM
+            )
             && detail.frontPx.count >= 2
             && detail.backPx.count >= 2
             && detail.frontPx.prefix(2).allSatisfy(\.isFinite)

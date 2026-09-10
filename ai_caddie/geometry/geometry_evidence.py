@@ -533,7 +533,12 @@ def build_route_geometry_evidence(
                 if used_authority_distances:
                     clear["source"] = "authority_tee_distances"
                 hazard_clearances.append(clear)
-                avoid_zone = {"id": hazard_id, "kind": kind, "carryToClear_m": clear["carryToClear_m"]}
+                avoid_zone = {
+                    "id": hazard_id,
+                    "kind": kind,
+                    "carryToFront_m": clear["carryToFront_m"],
+                    "carryToClear_m": clear["carryToClear_m"],
+                }
                 if used_authority_distances:
                     avoid_zone["source"] = "authority_tee_distances"
                 avoid_zones.append(avoid_zone)

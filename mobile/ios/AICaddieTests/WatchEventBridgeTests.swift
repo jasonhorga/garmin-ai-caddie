@@ -218,6 +218,7 @@ final class WatchEventBridgeTests: XCTestCase {
 
         let plans = bridge.makeWatchCaddieOptions(from: decision)
         let stock = try XCTUnwrap(plans.first { $0.optionId == "stock" })
+        XCTAssertEqual(stock.label, "八号铁")
         XCTAssertEqual(stock.plan?.map(\.clubName), ["1D", "5I", "54"])
         XCTAssertEqual(stock.plan?.map(\.carryM), [245, 168, 94])
         XCTAssertEqual(stock.carryP10M, 132)

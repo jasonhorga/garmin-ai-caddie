@@ -4,8 +4,8 @@ import AICaddieDomain
 import UIKit
 #endif
 
-/// One player-facing obstacle row. The geometry fields stay in the same full-hole topo frame as the
-/// bitmap, while the yardage fields can be replaced by a current-GPS readout without moving the row.
+/// One player-facing obstacle. Geometry stays in the full-hole topo frame; distances become
+/// current-position readings as soon as a qualified GPS fix is available.
 struct LiveHazardDisplayItem: Identifiable, Equatable {
     let id: String
     let kind: String
@@ -14,23 +14,69 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
     let backYards: Int?
     let frontPx: [Double]
     let backPx: [Double]
+    let outlinePx: [[Double]]
     let frontRouteM: Double
+    let backRouteM: Double
 
     var isWater: Bool { kind == "water" }
 
-    /// Build the complete, meaningful obstacle list for the dedicated surface. A live readout is
-    /// matched by stable geometry id first, then by the nearest same-kind route station so a partial
-    /// GPS response cannot attach a later obstacle's distance to the first one in the list.
     static func rows(
         for hole: CoursePrepHole,
         liveReadouts: [CoursePrepLiveHazardReadout]?
     ) -> [Self] {
+        let routeLengthM = hole.resolvedMapOverlay?.ln ?? hole.routeLenM
+
+        // A non-nil live result is authoritative for what remains ahead. Falling back to tee
+        // distances for unmatched geometry resurrected already-passed hazards during live play.
+        if let liveReadouts {
+            return liveReadouts
+                .filter {
+                    ($0.kind == "bunker" || $0.kind == "water")
+                        && CoursePrepHazardRelevance.isRelevant(
+                            kind: $0.kind,
+                            frontRouteM: $0.frontRouteM,
+                            backRouteM: $0.backRouteM,
+                            routeLengthM: routeLengthM
+                        )
+                        && CoursePrepLiveHazardReadout.isPlausibleYards($0.toYards)
+                        && CoursePrepLiveHazardReadout.isPlausibleYards($0.overYards)
+                }
+                .sorted {
+                    if $0.toYards == $1.toYards { return $0.id < $1.id }
+                    return $0.toYards < $1.toYards
+                }
+                .map {
+                    Self(
+                        id: $0.id,
+                        kind: $0.kind,
+                        label: $0.label,
+                        frontYards: $0.toYards,
+                        backYards: $0.overYards,
+                        frontPx: $0.frontPx,
+                        backPx: $0.backPx,
+                        outlinePx: $0.outlinePx,
+                        frontRouteM: $0.frontRouteM,
+                        backRouteM: $0.backRouteM
+                    )
+                }
+        }
+
         let route = hole.resolvedMapOverlay?.route
         let details = hole.hazards.details
-            .filter { detail in
-                guard detail.kind == "bunker" || detail.kind == "water" else { return false }
-                guard detail.frontRouteM.isFinite, detail.backRouteM.isFinite else { return false }
-                return max(detail.frontRouteM, detail.backRouteM) > 30.0
+            .filter {
+                ($0.kind == "bunker" || $0.kind == "water")
+                    && CoursePrepHazardRelevance.isRelevant(
+                        kind: $0.kind,
+                        frontRouteM: $0.frontRouteM,
+                        backRouteM: $0.backRouteM,
+                        routeLengthM: routeLengthM
+                    )
+                    && CoursePrepLiveHazardReadout.isPlausibleYards(
+                        CoursePrepRoute.yards(fromMetres: $0.frontM)
+                    )
+                    && CoursePrepLiveHazardReadout.isPlausibleYards(
+                        CoursePrepRoute.yards(fromMetres: $0.backM)
+                    )
             }
             .sorted {
                 if $0.frontRouteM == $1.frontRouteM { return $0.kind < $1.kind }
@@ -38,44 +84,38 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
             }
 
         var rows: [Self] = []
-        var detailOrdinals: [String: Int] = [:]
-        var usedLiveIDs = Set<String>()
+        var ordinals: [String: Int] = [:]
         for detail in details {
-            let ordinal = detailOrdinals[detail.kind, default: 0]
-            detailOrdinals[detail.kind] = ordinal + 1
-            let id = "\(detail.kind)-\(ordinal)"
-            let label = CoursePrepHazardNaming.label(kind: detail.kind, detail: detail, route: route)
-            let live = liveReadouts?.first(where: { $0.id == id })
-                ?? liveReadouts?
-                    .filter { $0.kind == detail.kind && !usedLiveIDs.contains($0.id) }
-                    .filter { $0.frontRouteM.isFinite && $0.frontRouteM > 0 }
-                    .min {
-                        abs($0.frontRouteM - detail.frontRouteM)
-                            < abs($1.frontRouteM - detail.frontRouteM)
-                    }
-            if let live { usedLiveIDs.insert(live.id) }
+            let ordinal = ordinals[detail.kind, default: 0]
+            ordinals[detail.kind] = ordinal + 1
             rows.append(
                 Self(
-                    id: id,
+                    id: "\(detail.kind)-\(ordinal)",
                     kind: detail.kind,
-                    label: label,
-                    frontYards: live?.toYards ?? CoursePrepRoute.yards(fromMetres: detail.frontM),
-                    backYards: live?.overYards ?? CoursePrepRoute.yards(fromMetres: detail.backM),
+                    label: CoursePrepHazardNaming.label(kind: detail.kind, detail: detail, route: route),
+                    frontYards: CoursePrepRoute.yards(fromMetres: detail.frontM),
+                    backYards: CoursePrepRoute.yards(fromMetres: detail.backM),
                     frontPx: detail.frontPx,
                     backPx: detail.backPx,
-                    frontRouteM: detail.frontRouteM
+                    outlinePx: detail.outlinePx,
+                    frontRouteM: detail.frontRouteM,
+                    backRouteM: detail.backRouteM
                 )
             )
         }
 
-        // Older downloaded packages expose interval arrays but no mapped detail rows. Keep those
-        // facts in the list, without pretending a lateral bunker distance is a back edge.
+        // Legacy packages can still supply interval facts without map boundary pixels.
         let detailKinds = Set(details.map(\.kind))
         if !detailKinds.contains("water") {
             for (index, interval) in hole.hazards.waterCarry.enumerated() {
                 guard let front = interval.first else { continue }
                 let back = interval.dropFirst().first
-                guard max(front, back ?? front) > 30 else { continue }
+                guard CoursePrepHazardRelevance.isRelevant(
+                    kind: "water",
+                    frontRouteM: front,
+                    backRouteM: back ?? front,
+                    routeLengthM: routeLengthM
+                ) else { continue }
                 rows.append(
                     Self(
                         id: "water-legacy-\(index)",
@@ -85,14 +125,22 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
                         backYards: back.map { CoursePrepRoute.yards(fromMetres: $0) },
                         frontPx: [],
                         backPx: [],
-                        frontRouteM: front
+                        outlinePx: [],
+                        frontRouteM: front,
+                        backRouteM: back ?? front
                     )
                 )
             }
         }
         if !detailKinds.contains("bunker") {
             for (index, interval) in hole.hazards.bunkers.enumerated() {
-                guard let front = interval.first, front > 30 else { continue }
+                guard let front = interval.first,
+                      CoursePrepHazardRelevance.isRelevant(
+                        kind: "bunker",
+                        frontRouteM: front,
+                        backRouteM: front,
+                        routeLengthM: routeLengthM
+                      ) else { continue }
                 rows.append(
                     Self(
                         id: "bunker-legacy-\(index)",
@@ -102,7 +150,9 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
                         backYards: nil,
                         frontPx: [],
                         backPx: [],
-                        frontRouteM: front
+                        outlinePx: [],
+                        frontRouteM: front,
+                        backRouteM: front
                     )
                 )
             }
@@ -114,19 +164,43 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
     }
 }
 
-/// Full-hole obstacle instrument for live play. The main map remains uncluttered; this surface gives
-/// every water/bunker a numbered visual span plus a vertically scrollable front/back distance row.
+/// Dedicated one-at-a-time hazard browser. The selected obstacle is circled on the course image;
+/// its front and back edges are the only large numbers on screen.
 struct LiveHazardDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedHazardID: String?
 
     let hole: CoursePrepHole
     let topoURL: URL?
     let liveReadouts: [CoursePrepLiveHazardReadout]?
 
-    private let mapHeight: CGFloat = 320
+    private let mapHeight: CGFloat = 390
+
+    init(
+        hole: CoursePrepHole,
+        topoURL: URL?,
+        liveReadouts: [CoursePrepLiveHazardReadout]?
+    ) {
+        self.hole = hole
+        self.topoURL = topoURL
+        self.liveReadouts = liveReadouts
+        _selectedHazardID = State(
+            initialValue: LiveHazardDisplayItem.rows(for: hole, liveReadouts: liveReadouts).first?.id
+        )
+    }
 
     private var rows: [LiveHazardDisplayItem] {
         LiveHazardDisplayItem.rows(for: hole, liveReadouts: liveReadouts)
+    }
+
+    private var selectedIndex: Int? {
+        guard !rows.isEmpty else { return nil }
+        return rows.firstIndex(where: { $0.id == selectedHazardID }) ?? 0
+    }
+
+    private var selectedHazard: LiveHazardDisplayItem? {
+        guard let selectedIndex else { return nil }
+        return rows[selectedIndex]
     }
 
     var body: some View {
@@ -135,30 +209,22 @@ struct LiveHazardDetailView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     hazardMap
-                    legend
-                    Text(rows.isEmpty ? "本洞暂无可用障碍数据" : "全部障碍")
-                        .font(.headline.weight(.heavy))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 18)
-                        .padding(.bottom, 8)
                     if rows.isEmpty {
+                        Text("本洞暂无可用障碍数据")
+                            .font(.headline.weight(.heavy))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 18)
                         Text("地图数据准备好后可重新打开")
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(0.62))
                             .padding(.horizontal, 16)
                             .padding(.bottom, 24)
-                    } else {
-                        VStack(spacing: 0) {
-                            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                                hazardRow(row, index: index)
-                                if index < rows.count - 1 {
-                                    Divider().overlay(Color.white.opacity(0.10))
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 28)
+                    } else if let selectedHazard, let selectedIndex {
+                        selectedHazardPanel(selectedHazard, index: selectedIndex)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 14)
+                            .padding(.bottom, 28)
                     }
                 }
                 .padding(.top, 66)
@@ -167,6 +233,11 @@ struct LiveHazardDetailView: View {
         }
         .preferredColorScheme(.dark)
         .accessibilityIdentifier("live-hazard-detail")
+        .onChange(of: rows.map(\.id)) { _, ids in
+            if selectedHazardID == nil || !ids.contains(selectedHazardID ?? "") {
+                selectedHazardID = ids.first
+            }
+        }
     }
 
     private var header: some View {
@@ -185,8 +256,8 @@ struct LiveHazardDetailView: View {
                 .foregroundStyle(.white)
                 .lineLimit(1)
             Spacer(minLength: 0)
-            Text("\(rows.count) 个")
-                .font(.caption.weight(.bold))
+            Text(selectedIndex.map { "\($0 + 1) / \(rows.count)" } ?? "0 / 0")
+                .font(.caption.monospacedDigit().weight(.bold))
                 .foregroundStyle(.white.opacity(0.72))
         }
         .padding(.horizontal, 16)
@@ -204,162 +275,234 @@ struct LiveHazardDetailView: View {
 
     private var hazardMap: some View {
         GeometryReader { proxy in
-            ZStack(alignment: .topLeading) {
+            ZStack {
                 HoleImageMapView(
                     hole: hole,
                     topoURL: topoURL,
                     showsCardChrome: false,
                     showsRecommendedRoute: false,
-                    // The dedicated surface owns the numbered front/back spans below. The shared
-                    // map must stay free of its coarse hazard layer or every obstacle is painted
-                    // twice (once as an unnumbered span, once as the detailed instrument).
                     showsHazards: false
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 Canvas { context, size in
-                    drawHazardSpans(&context, size: size)
+                    drawSelectedHazard(&context, size: size)
                 }
                 .allowsHitTesting(false)
-                Text("编号对应下方列表")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.white)
-                    .padding(.vertical, 5)
-                    .padding(.horizontal, 8)
-                    .background(Color.black.opacity(0.62), in: Capsule())
-                    .padding(.leading, 14)
-                    .padding(.top, 12)
+                .accessibilityIdentifier("selected-hazard-map-outline")
             }
         }
         .frame(height: mapHeight)
         .clipped()
         .background(Color.black.opacity(0.18))
-        .accessibilityLabel("本洞障碍物分布图")
+        .accessibilityLabel("当前障碍物位置")
     }
 
-    private var legend: some View {
-        HStack(spacing: 18) {
-            legendItem(color: Color(red: 0.20, green: 0.63, blue: 0.95), text: "水障碍")
-            legendItem(color: Color(red: 0.96, green: 0.76, blue: 0.25), text: "沙坑")
-            Spacer(minLength: 0)
-            Text(liveReadouts == nil ? "发球台参考" : "当前位置")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.58))
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 11)
-        .background(Color.black.opacity(0.20))
-    }
-
-    private func legendItem(color: Color, text: String) -> some View {
-        HStack(spacing: 6) {
-            Capsule().fill(color).frame(width: 20, height: 7)
-            Text(text)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.78))
-        }
-    }
-
-    private func hazardRow(_ row: LiveHazardDisplayItem, index: Int) -> some View {
-        HStack(alignment: .center, spacing: 10) {
-            ZStack {
-                Circle().fill(row.isWater ? Color.blue.opacity(0.22) : Color.yellow.opacity(0.20))
-                Text("\(index + 1)")
-                    .font(.caption.weight(.heavy))
-                    .foregroundStyle(row.isWater ? Color.blue.opacity(0.95) : Color.yellow.opacity(0.95))
-            }
-            .frame(width: 30, height: 30)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Image(systemName: row.isWater ? "drop.fill" : "square.grid.2x2.fill")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(row.isWater ? Color.blue : Color.yellow)
+    private func selectedHazardPanel(_ row: LiveHazardDisplayItem, index: Int) -> some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 10) {
+                Image(systemName: row.isWater ? "drop.fill" : "square.grid.2x2.fill")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(row.isWater ? Color.blue : Color.yellow)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(row.label)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.headline.weight(.bold))
                         .foregroundStyle(.white)
-                        .lineLimit(2)
+                    Text(row.isWater ? "水障碍" : "沙坑")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.58))
                 }
-                Text(row.isWater ? "水障碍" : "沙坑")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.52))
+                Spacer()
+                Text(liveReadouts == nil ? "发球台参考" : "当前位置")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.62))
             }
-            Spacer(minLength: 6)
-            distanceColumn(title: "到前沿", value: row.frontYards)
-            distanceColumn(title: "过后沿", value: row.backYards)
+
+            HStack(spacing: 0) {
+                distanceColumn(title: "到前沿", value: row.frontYards)
+                Divider()
+                    .frame(height: 58)
+                    .overlay(Color.white.opacity(0.16))
+                distanceColumn(title: "过后沿", value: row.backYards)
+            }
+
+            HStack(spacing: 18) {
+                navigationButton(
+                    systemName: "chevron.up",
+                    label: "上一个障碍",
+                    identifier: "hazard-previous"
+                ) {
+                    select(index: index - 1)
+                }
+                .disabled(index == 0)
+                .opacity(index == 0 ? 0.35 : 1)
+                Text("\(index + 1) / \(rows.count)")
+                    .font(.subheadline.monospacedDigit().weight(.bold))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .frame(minWidth: 58)
+                navigationButton(
+                    systemName: "chevron.down",
+                    label: "下一个障碍",
+                    identifier: "hazard-next"
+                ) {
+                    select(index: index + 1)
+                }
+                .disabled(index == rows.count - 1)
+                .opacity(index == rows.count - 1 ? 0.35 : 1)
+            }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 12)
-        .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(index + 1)号\(row.isWater ? "水障碍" : "沙坑")，\(row.label)，到前沿 \(row.frontYards) 码，过后沿 \(row.backYards.map(String.init) ?? "未知")")
+        .padding(16)
+        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("selected-hazard-\(index + 1)")
     }
 
     private func distanceColumn(title: String, value: Int?) -> some View {
-        VStack(alignment: .trailing, spacing: 2) {
+        VStack(spacing: 3) {
             Text(title)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.52))
-            Text(value.map { "\($0) 码" } ?? "—")
-                .font(.system(size: 15, weight: .heavy, design: .rounded))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.58))
+            Text(value.map(String.init) ?? "—")
+                .font(.system(size: 34, weight: .heavy, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+            Text("码")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.58))
         }
-        .frame(width: 54, alignment: .trailing)
+        .frame(maxWidth: .infinity)
     }
 
-    private func drawHazardSpans(_ context: inout GraphicsContext, size: CGSize) {
-        guard let overlay = hole.resolvedMapOverlay else { return }
-        for (index, row) in rows.enumerated() {
-            guard row.frontPx.count >= 2,
-                  row.backPx.count >= 2,
-                  let front = LivePlayMapOverlayLayout.project(
-                      overlayPoint: row.frontPx,
-                      overlayWidth: overlay.w,
-                      overlayHeight: overlay.h,
-                      into: size
-                  ),
-                  let back = LivePlayMapOverlayLayout.project(
-                      overlayPoint: row.backPx,
-                      overlayWidth: overlay.w,
-                      overlayHeight: overlay.h,
-                      into: size
-                  ) else { continue }
+    private func navigationButton(
+        systemName: String,
+        label: String,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 17, weight: .bold))
+                .frame(width: 44, height: 44)
+                .background(Color.white.opacity(0.10), in: Circle())
+                .foregroundStyle(.white)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
+    }
 
+    private func select(index: Int) {
+        guard rows.indices.contains(index) else { return }
+        selectedHazardID = rows[index].id
+        #if canImport(UIKit)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
+    }
+
+    private func drawSelectedHazard(_ context: inout GraphicsContext, size: CGSize) {
+        guard let row = selectedHazard,
+              let overlay = hole.resolvedMapOverlay else { return }
+
+        let front = hazardPoint(
+            pixels: row.frontPx,
+            routeMetres: row.frontRouteM,
+            overlay: overlay,
+            size: size
+        )
+        let back = hazardPoint(
+            pixels: row.backPx,
+            routeMetres: row.backRouteM,
+            overlay: overlay,
+            size: size
+        )
+        // An outline is already in the topo-pixel frame. Never interpolate malformed outline
+        // points along the route: doing so can draw a false segment at the tee. Only the legacy
+        // front/back markers are allowed to use route interpolation below.
+        let outlinePoints = row.outlinePx.compactMap {
+            projectedHazardPixelPoint(pixels: $0, overlay: overlay, size: size)
+        }
+
+        // Precise prep carries the ordered mesh boundary. Draw it as a translucent filled shape
+        // with a high-contrast red halo so the selected obstacle remains readable over the topo
+        // raster. Older packages have no polygon and use only the narrow front/back span below.
+        if outlinePoints.count >= 3 {
+            var outline = Path()
+            outline.move(to: outlinePoints[0])
+            for point in outlinePoints.dropFirst() {
+                outline.addLine(to: point)
+            }
+            outline.closeSubpath()
+            context.fill(outline, with: .color(Color(red: 0.95, green: 0.16, blue: 0.14).opacity(0.12)))
+            context.stroke(outline, with: .color(.black.opacity(0.78)), style: StrokeStyle(lineWidth: 8))
+            context.stroke(
+                outline,
+                with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)),
+                style: StrokeStyle(lineWidth: 3)
+            )
+        } else if let front, let back {
+            // Do not invent an oversized oval from two points. A restrained span is honest about
+            // the legacy data while still making the selected obstacle obvious.
             var span = Path()
             span.move(to: front)
             span.addLine(to: back)
-            let tint = row.isWater
-                ? Color(red: 0.20, green: 0.63, blue: 0.95)
-                : Color(red: 0.96, green: 0.76, blue: 0.25)
+            context.stroke(span, with: .color(.black.opacity(0.78)), style: StrokeStyle(lineWidth: 14, lineCap: .round))
             context.stroke(
                 span,
-                with: .color(.black.opacity(0.72)),
-                style: StrokeStyle(lineWidth: 17, lineCap: .round)
-            )
-            context.stroke(
-                span,
-                with: .color(tint.opacity(0.92)),
-                style: StrokeStyle(lineWidth: 11, lineCap: .round)
-            )
-            for point in [front, back] {
-                context.fill(
-                    Path(ellipseIn: CGRect(x: point.x - 5, y: point.y - 5, width: 10, height: 10)),
-                    with: .color(tint)
-                )
-                context.stroke(
-                    Path(ellipseIn: CGRect(x: point.x - 5, y: point.y - 5, width: 10, height: 10)),
-                    with: .color(.black.opacity(0.70)),
-                    style: StrokeStyle(lineWidth: 1)
-                )
-            }
-            let midpoint = CGPoint(x: (front.x + back.x) / 2, y: (front.y + back.y) / 2)
-            context.draw(
-                Text("\(index + 1)")
-                    .font(.system(size: 10, weight: .heavy, design: .rounded))
-                    .foregroundColor(.black),
-                at: midpoint
+                with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)),
+                style: StrokeStyle(lineWidth: 7, lineCap: .round)
             )
         }
+
+        for (point, label) in [(front, "前"), (back, "后")] {
+            guard let point else { continue }
+            let marker = Path(ellipseIn: CGRect(x: point.x - 6, y: point.y - 6, width: 12, height: 12))
+            context.fill(marker, with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)))
+            context.stroke(marker, with: .color(.white), style: StrokeStyle(lineWidth: 1.5))
+            context.draw(
+                Text(label).font(.system(size: 10, weight: .heavy)).foregroundColor(.white),
+                at: CGPoint(x: point.x + 13, y: point.y)
+            )
+        }
+    }
+
+    /// Precise prep supplies real boundary pixels. Legacy packages only know the interval along the
+    /// measured route, so interpolate that route rather than leaving the selected obstacle unmarked.
+    private func hazardPoint(
+        pixels: [Double],
+        routeMetres: Double,
+        overlay: CoursePrepOverlay,
+        size: CGSize
+    ) -> CGPoint? {
+        let overlayPoint = projectedHazardPixelPoint(pixels: pixels, overlay: overlay, size: size)
+            ?? HoleImageMapView.landingOverlayPoint(overlay, targetMetres: routeMetres)
+        guard let overlayPoint else { return nil }
+        return LivePlayMapOverlayLayout.project(
+            overlayPoint: overlayPoint,
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            into: size
+        )
+    }
+
+    private func projectedHazardPixelPoint(
+        pixels: [Double],
+        overlay: CoursePrepOverlay,
+        size: CGSize
+    ) -> CGPoint? {
+        guard pixels.count >= 2,
+              pixels.prefix(2).allSatisfy(\.isFinite) else {
+            return nil
+        }
+        return LivePlayMapOverlayLayout.project(
+            overlayPoint: pixels,
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            into: size
+        )
     }
 }

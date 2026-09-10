@@ -115,6 +115,9 @@ public struct CoursePrepLiveHazardReadout: Equatable {
     /// the map (or positioning a generic pill in an unrelated screen lane).
     public let frontPx: [Double]
     public let backPx: [Double]
+    /// Optional ordered exterior boundary in the same topo-pixel frame. Empty means the package
+    /// only carried legacy front/back points and the UI must use its restrained fallback.
+    public let outlinePx: [[Double]]
     public let frontRouteM: Double
     public let backRouteM: Double
 
@@ -132,6 +135,7 @@ public struct CoursePrepLiveHazardReadout: Equatable {
         overYards: Int,
         frontPx: [Double],
         backPx: [Double],
+        outlinePx: [[Double]] = [],
         frontRouteM: Double = 0,
         backRouteM: Double = 0
     ) {
@@ -142,6 +146,7 @@ public struct CoursePrepLiveHazardReadout: Equatable {
         self.overYards = overYards
         self.frontPx = frontPx
         self.backPx = backPx
+        self.outlinePx = outlinePx
         self.frontRouteM = frontRouteM
         self.backRouteM = backRouteM
     }
@@ -176,6 +181,7 @@ public struct CoursePrepLiveHazardReadout: Equatable {
             return nil
         }
         let progressM = progress.progressM
+        let routeLengthM = CoursePrepHazardRelevance.routeLengthM(from: route)
 
         let supported = hazards.details
             .filter { $0.kind == "bunker" || $0.kind == "water" }
@@ -190,12 +196,12 @@ public struct CoursePrepLiveHazardReadout: Equatable {
         var hasUnpassedGeometry = false
 
         for detail in supported {
-            // A tiny bunker immediately beside the tee is not a meaningful on-course target. Keep
-            // water that extends farther down the hole, but suppress hazards that end within this
-            // tee apron so the live map/list does not call out the player's starting pad.
-            if max(detail.frontRouteM, detail.backRouteM) <= 30.0 {
-                continue
-            }
+            guard CoursePrepHazardRelevance.isRelevant(
+                kind: detail.kind,
+                frontRouteM: detail.frontRouteM,
+                backRouteM: detail.backRouteM,
+                routeLengthM: routeLengthM
+            ) else { continue }
             let ordinal = ordinals[detail.kind, default: 0]
             ordinals[detail.kind] = ordinal + 1
             guard max(detail.frontRouteM, detail.backRouteM) > progressM else { continue }
@@ -233,6 +239,7 @@ public struct CoursePrepLiveHazardReadout: Equatable {
                     overYards: overYards,
                     frontPx: detail.frontPx,
                     backPx: detail.backPx,
+                    outlinePx: detail.outlinePx,
                     frontRouteM: detail.frontRouteM,
                     backRouteM: detail.backRouteM
                 ),
@@ -357,6 +364,53 @@ public struct CoursePrepHazards: Codable, Equatable {
     }
 }
 
+/// One relevance policy for every phone hazard surface. Route station, not straight-line range,
+/// determines whether an obstacle belongs to the playable hole corridor.
+enum CoursePrepHazardRelevance {
+    static let teeApronCutoffM = 30.0
+    static let behindGreenToleranceM = 12.0
+
+    static func routeLengthM(from route: [[Double]]) -> Double? {
+        if let cumulative = route.last.flatMap({ $0.count >= 3 ? $0[2] : nil }),
+           cumulative.isFinite,
+           cumulative > 0 {
+            return cumulative
+        }
+        guard route.count >= 2 else { return nil }
+        var total = 0.0
+        for (start, end) in zip(route, route.dropFirst()) where start.count >= 2 && end.count >= 2 {
+            let dx = end[0] - start[0]
+            let dy = end[1] - start[1]
+            guard dx.isFinite, dy.isFinite else { return nil }
+            total += hypot(dx, dy)
+        }
+        return total > 0 ? total : nil
+    }
+
+    static func isRelevant(
+        kind: String,
+        frontRouteM: Double,
+        backRouteM: Double,
+        routeLengthM: Double?
+    ) -> Bool {
+        guard frontRouteM.isFinite, backRouteM.isFinite else { return false }
+        let nearEdgeM = min(frontRouteM, backRouteM)
+        let farEdgeM = max(frontRouteM, backRouteM)
+        guard nearEdgeM >= 0 else { return false }
+
+        if kind == "bunker" {
+            // A bunker touching the tee apron is not a shot-planning obstacle even if its far edge
+            // extends beyond 30 m. Water can begin near the tee and still require a real carry.
+            guard nearEdgeM > teeApronCutoffM else { return false }
+        } else {
+            guard farEdgeM > teeApronCutoffM else { return false }
+        }
+
+        guard let routeLengthM, routeLengthM.isFinite, routeLengthM > 0 else { return true }
+        return nearEdgeM <= routeLengthM + behindGreenToleranceM
+    }
+}
+
 /// Player-facing front/back facts for one mapped hazard. Route metres are used only for ordering and
 /// passed/remaining state; front/back metres are straight-line distances from the selected tee, and
 /// the pixel pairs are the real geometry boundary points on the shared topo image.
@@ -368,6 +422,9 @@ public struct CoursePrepHazardDetail: Codable, Equatable {
     public let backRouteM: Double
     public let frontPx: [Double]
     public let backPx: [Double]
+    /// Ordered exterior boundary points in the shared topo-pixel frame. Optional on the wire for
+    /// compatibility with older downloaded packages that only know two edge points.
+    public let outlinePx: [[Double]]
     public let sideM: Double?
 
     public init(
@@ -378,6 +435,7 @@ public struct CoursePrepHazardDetail: Codable, Equatable {
         backRouteM: Double,
         frontPx: [Double],
         backPx: [Double],
+        outlinePx: [[Double]] = [],
         sideM: Double?
     ) {
         self.kind = kind
@@ -387,7 +445,47 @@ public struct CoursePrepHazardDetail: Codable, Equatable {
         self.backRouteM = backRouteM
         self.frontPx = frontPx
         self.backPx = backPx
+        self.outlinePx = outlinePx
         self.sideM = sideM
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, frontM, backM, frontRouteM, backRouteM, frontPx, backPx, outlinePx, sideM
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decode(String.self, forKey: .kind)
+        frontM = try container.decode(Double.self, forKey: .frontM)
+        backM = try container.decode(Double.self, forKey: .backM)
+        frontRouteM = try container.decode(Double.self, forKey: .frontRouteM)
+        backRouteM = try container.decode(Double.self, forKey: .backRouteM)
+        frontPx = try container.decode([Double].self, forKey: .frontPx)
+        backPx = try container.decode([Double].self, forKey: .backPx)
+        outlinePx = Self.decodeOutlinePx(from: container)
+        sideM = try container.decodeIfPresent(Double.self, forKey: .sideM)
+    }
+
+    /// `outlinePx` was added after the first downloaded course packages. Treat it as an optional
+    /// rendering enhancement: a missing/null/wrongly-typed field must not discard the whole hole.
+    /// Also fail closed for partial points so the map never draws a misleading polygon.
+    private static func decodeOutlinePx(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) -> [[Double]] {
+        let raw: [[Double]]?
+        do {
+            raw = try container.decodeIfPresent([[Double]].self, forKey: .outlinePx)
+        } catch {
+            return []
+        }
+        guard let raw,
+              raw.count >= 3,
+              raw.allSatisfy({ point in
+                  point.count == 2 && point.allSatisfy(\.isFinite)
+              }) else {
+            return []
+        }
+        return raw
     }
 }
 

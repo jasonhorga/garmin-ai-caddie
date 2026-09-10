@@ -311,7 +311,7 @@ final class DesignSnapshotTests: XCTestCase {
                                expectedRemainingM: steps.last?.expectedRemainingM, riskScore: nil, confidence: confidence,
                                coverageText: nil, sourceRefs: [], steps: steps)
         }
-        // round-11: 整洞序列为主 — three 打法 each a 开球→攻果岭 chain (user-approved direction).
+        // The selected chain is primary; only physically different club sequences appear below it.
         let view = CaddiePlanView(
             options: [
                 option("stock", "稳妥", "7i", 150, 1),
@@ -324,32 +324,7 @@ final class DesignSnapshotTests: XCTestCase {
                 sequence("stock", "medium", [step("advance", "Driver", 180, 133), step("scoring", "PW", 130, 3)]),
                 sequence("attack", "low", [step("advance", "Driver", 180, 133), step("scoring", "SW", 125, 8)]),
             ],
-            selectedSequenceId: "stock",
-            // Multiple mapped hazards are named by side/area and sorted near→far. Build via .from
-            // to exercise the same player-facing logic as prep and live play.
-            hazards: CaddiePlanHazard.from(
-                CoursePrepHazards(
-                    waterCarry: [[175, 195]],
-                    bunkers: [[210, 18], [138, 12]],
-                    details: [
-                        CoursePrepHazardDetail(
-                            kind: "water", frontM: 175, backM: 195,
-                            frontRouteM: 175, backRouteM: 195,
-                            frontPx: [100, 300], backPx: [100, 280], sideM: nil
-                        ),
-                        CoursePrepHazardDetail(
-                            kind: "bunker", frontM: 207, backM: 224,
-                            frontRouteM: 205, backRouteM: 225,
-                            frontPx: [130, 260], backPx: [132, 240], sideM: 18
-                        ),
-                        CoursePrepHazardDetail(
-                            kind: "bunker", frontM: 134, backM: 149,
-                            frontRouteM: 132, backRouteM: 151,
-                            frontPx: [112, 390], backPx: [114, 371], sideM: 12
-                        ),
-                    ]
-                )
-            )
+            selectedSequenceId: "stock"
         )
         .padding(14)
         .frame(width: 390)

@@ -30,18 +30,43 @@ RISK_KINDS = {"bunker", "water", "water_edge", "tree_area"}
 BAD_SURFACES = {"bunker", "water", "water_edge", "tree_area"}
 EXCLUDED_TEE_CLUBS = {"unknown", "?", "putter"}
 MIN_STRONG_CLUB_SAMPLE = 5
-# A club needs at least this many recorded shots before its median distance is trustworthy
-# enough to drive a caddie recommendation. A low-sample bucket (e.g. a mislabeled "9I" holding a
-# handful of stray long shots, median 159m) otherwise poisons club selection. The club still
-# appears in the recording strip — this only governs what the caddie *recommends*.
-MIN_CADDIE_SAMPLE = 20
-# Two club rows whose medians sit within this many metres are treated as the same physical club
-# under different labels (e.g. "3W" vs "3号木杆") and collapsed to the better-sampled row.
-NEAR_DUP_CLUB_EPS_M = 3.0
 MIN_SEQUENCE_DISTANCE_M = 260.0
 MAX_SEQUENCE_OVERSHOOT_M = 10.0
 MAX_SEQUENCE_STEPS = 5
 EXTRA_SEQUENCE_STEP_COST_M = 25.0
+# These weights rank deterministic club combinations; they are not exposed as calibrated strokes.
+# The final full swing carries the most weight because planning a preferred approach distance is
+# more useful than merely minimizing a few metres of arithmetic remainder.
+FINAL_SHOT_STABILITY_WEIGHT = 0.55
+POSITION_SHOT_STABILITY_WEIGHT = 0.10
+TEE_ADVANCEMENT_WEIGHT = 0.18
+MISSING_DISPERSION_RATIO = 0.22
+CLUB_RATE_PRIOR_SHOTS = 12
+CLUB_RISK_RATE_PRIOR = 0.08
+CLUB_USABLE_RATE_PRIOR = 0.72
+CLUB_SCORING_SUCCESS_PRIOR = 0.35
+CLUB_RISK_COST_WEIGHT_M = 28.0
+CLUB_UNUSABLE_COST_WEIGHT_M = 6.0
+CLUB_SCORING_MISS_COST_WEIGHT_M = 12.0
+CLUB_POSITION_MISS_COST_WEIGHT_M = 4.0
+CLUB_SAMPLE_QUALITY_COST_WEIGHT_M = 5.0
+HAZARD_DEFAULT_WIDTH_M = {"water": 20.0, "water_edge": 18.0, "bunker": 14.0, "tree_area": 22.0}
+HAZARD_EXPOSURE_COST_M = {"water": 36.0, "water_edge": 32.0, "bunker": 20.0, "tree_area": 26.0}
+CLUB_PERFORMANCE_FIELDS = (
+    "hazardRate",
+    "riskRate",
+    "usableRate",
+    "riskShotRefs",
+    "usableShotRefs",
+    "surfaceDistribution",
+    "topSurface",
+    "rawSampleCount",
+    "validSampleCount",
+    "invalidSampleCount",
+    "outlierCount",
+    "consistency",
+    "dispersionRange",
+)
 VISION_USABLE_CONFIDENCE = {"medium", "high"}
 VISION_HAZARD_TYPES = {
     "visible_water": "water",
@@ -586,36 +611,52 @@ def _risk_score(route: dict[str, Any]) -> float:
 
 
 def _prefer_trusted_clubs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Keep only clubs with a trustworthy sample size, but never return empty.
+    """Retain every measured physical club; sparse evidence is handled by shrinkage.
 
-    Falls back to the full list when no club clears the bar (low-data players) so the caddie
-    still produces a recommendation rather than nothing.
+    This compatibility helper intentionally does not gate on a sample threshold. An abrupt cutoff
+    lets one high-sample club erase the rest of the player's bag and defeats the uncertainty terms
+    in the shared per-club model.
     """
-    trusted = [row for row in rows if int(row.get("sampleSize") or 0) >= MIN_CADDIE_SAMPLE]
-    return trusted or rows
+    return list(rows)
+
+
+def _club_identity(value: Any) -> str:
+    from ai_caddie.caddie.club_bag import canonical_club_name
+
+    if isinstance(value, dict):
+        name = str(value.get("clubName") or value.get("club") or "").strip()
+    else:
+        name = str(value or "").strip()
+    return canonical_club_name(name) or name.casefold()
+
+
+def _is_playable_club(value: Any) -> bool:
+    """Return whether a physical bag row can be used for a non-putting shot.
+
+    Club identity is used only to remove missing/putter rows and collapse aliases. Driver, woods,
+    irons, hybrids, and wedges all remain eligible for the same distribution-based scorer.
+    """
+    identity = _club_identity(value)
+    return bool(identity) and identity not in EXCLUDED_TEE_CLUBS
 
 
 def _dedupe_near_clubs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Collapse canonical aliases and rows whose medians are near-identical.
+    """Collapse only names known to identify the same physical catalog club.
 
-    Keeps the better-sampled row of each cluster; the caller re-sorts. Canonical identity must win
-    even when stale aliases have drifted by more than the distance epsilon (``3W`` and
-    ``三号木杆`` are one physical club, not two options).
+    Equal or near-equal carries are not identity evidence: two real clubs can overlap in distance and
+    still have different dispersions and outcomes. The better-sampled canonical alias wins.
     """
-    from ai_caddie.caddie.club_bag import canonical_club_name
-
     kept: list[dict[str, Any]] = []
-    canonical_seen: set[str] = set()
-    for row in sorted(rows, key=lambda r: (-int(r.get("sampleSize") or 0), str(r.get("clubName") or ""))):
-        token = canonical_club_name(str(row.get("clubName") or ""))
-        if token and token in canonical_seen:
+    identities: set[str] = set()
+    for row in sorted(
+        rows,
+        key=lambda r: (-_effective_club_sample_size(r), str(r.get("clubName") or "")),
+    ):
+        identity = _club_identity(row)
+        if not identity or identity in identities:
             continue
-        median_m = _float(row.get("median_m"))
-        if any(abs(_float(other.get("median_m")) - median_m) <= NEAR_DUP_CLUB_EPS_M for other in kept):
-            continue
+        identities.add(identity)
         kept.append(row)
-        if token:
-            canonical_seen.add(token)
     return kept
 
 
@@ -623,16 +664,16 @@ def _club_profiles_for_carry(profiles: dict[str, dict[str, Any]], carry_m: float
     rows = []
     for name, profile in (profiles or {}).items():
         club_name = str(profile.get("clubName") or name)
-        if club_name.strip().lower() in EXCLUDED_TEE_CLUBS:
+        if not _is_playable_club(club_name):
             continue
-        median = profile.get("median")
+        median = profile.get("median") if profile.get("median") is not None else profile.get("median_m")
         if median is None:
             continue
         source_refs = _club_profile_source_refs(profile)
         sample_size = int(profile.get("sampleSize") or len(source_refs) or 0)
         median_m = _float(median)
-        p10 = _float(profile.get("p10"), median_m)
-        p90 = _float(profile.get("p90"), median_m)
+        p10 = _float(profile.get("p10") if profile.get("p10") is not None else profile.get("p10_m"), median_m)
+        p90 = _float(profile.get("p90") if profile.get("p90") is not None else profile.get("p90_m"), median_m)
         tolerance = max(18.0, (p90 - p10) / 2.0 + 8.0)
         if abs(median_m - carry_m) > tolerance:
             continue
@@ -647,9 +688,13 @@ def _club_profiles_for_carry(profiles: dict[str, dict[str, Any]], carry_m: float
             "coverage": _sample_coverage(sample_size, source_refs),
             "confidence": _sample_confidence(sample_size),
         })
-        for key in ("hazardRate", "riskRate", "usableRate", "riskShotRefs", "usableShotRefs", "surfaceDistribution", "topSurface"):
+        for key in CLUB_PERFORMANCE_FIELDS:
             if key in profile:
                 rows[-1][key] = profile[key]
+        effective_sample_size = _effective_club_sample_size(rows[-1])
+        rows[-1]["effectiveSampleSize"] = effective_sample_size
+        rows[-1]["coverage"] = _sample_coverage(effective_sample_size, source_refs)
+        rows[-1]["confidence"] = _sample_confidence(effective_sample_size)
     rows = _dedupe_near_clubs(_prefer_trusted_clubs(rows))
     rows.sort(key=lambda row: (abs(row["deltaToCarry_m"]), -row["sampleSize"], row["clubName"]))
     return rows
@@ -681,9 +726,9 @@ def _club_profile_rows(profiles: dict[str, dict[str, Any]]) -> list[dict[str, An
     rows = []
     for name, profile in (profiles or {}).items():
         club_name = str(profile.get("clubName") or name).strip()
-        if not club_name or club_name.lower() in EXCLUDED_TEE_CLUBS:
+        if not club_name or not _is_playable_club(club_name):
             continue
-        median = profile.get("median")
+        median = profile.get("median") if profile.get("median") is not None else profile.get("median_m")
         if median is None:
             continue
         median_m = _float(median)
@@ -691,16 +736,24 @@ def _club_profile_rows(profiles: dict[str, dict[str, Any]]) -> list[dict[str, An
             continue
         source_refs = _club_profile_source_refs(profile)
         sample_size = int(profile.get("sampleSize") or len(source_refs) or 0)
-        rows.append({
+        row = {
             "clubName": club_name,
             "sampleSize": sample_size,
             "median_m": round(median_m, 1),
-            "p10_m": round(_float(profile.get("p10"), median_m), 1),
-            "p90_m": round(_float(profile.get("p90"), median_m), 1),
+            "p10_m": round(_float(profile.get("p10") if profile.get("p10") is not None else profile.get("p10_m"), median_m), 1),
+            "p90_m": round(_float(profile.get("p90") if profile.get("p90") is not None else profile.get("p90_m"), median_m), 1),
             "sourceRefs": source_refs,
             "coverage": _sample_coverage(sample_size, source_refs),
             "confidence": _sample_confidence(sample_size),
-        })
+        }
+        for key in CLUB_PERFORMANCE_FIELDS:
+            if key in profile:
+                row[key] = profile[key]
+        effective_sample_size = _effective_club_sample_size(row)
+        row["effectiveSampleSize"] = effective_sample_size
+        row["coverage"] = _sample_coverage(effective_sample_size, source_refs)
+        row["confidence"] = _sample_confidence(effective_sample_size)
+        rows.append(row)
     rows = _dedupe_near_clubs(_prefer_trusted_clubs(rows))
     return sorted(rows, key=lambda row: (-row["median_m"], -row["sampleSize"], row["clubName"]))
 
@@ -719,7 +772,7 @@ def _sequence_step(row: dict[str, Any], remaining_before_m: float, role: str) ->
     carry_m = _float(row.get("median_m"))
     remaining_after_m = round(remaining_before_m - carry_m, 1)
     source_refs = _sanitize_ref_list(row.get("sourceRefs"))
-    sample_size = int(row.get("sampleSize") or len(source_refs) or 0)
+    sample_size = _effective_club_sample_size(row)
     return {
         "clubName": row.get("clubName"),
         "role": role,
@@ -731,6 +784,7 @@ def _sequence_step(row: dict[str, Any], remaining_before_m: float, role: str) ->
         "sourceRefs": source_refs,
         "coverage": _sample_coverage(sample_size, source_refs),
         "confidence": _sample_confidence(sample_size),
+        "performanceModel": _club_performance_metrics(row),
     }
 
 
@@ -753,28 +807,263 @@ def _sequence_confidence(steps: list[dict[str, Any]]) -> str:
     return "high"
 
 
-def _is_driver(row: dict[str, Any]) -> bool:
-    from ai_caddie.caddie.club_bag import canonical_club_name
-
-    return canonical_club_name(str(row.get("clubName") or "")) == "driver"
-
-
 def _sequence_first_club(option: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     recommendation = option.get("clubRecommendation") if isinstance(option.get("clubRecommendation"), dict) else {}
     clubs = recommendation.get("clubs") if isinstance(recommendation.get("clubs"), list) else []
     club_name = str((clubs[0] if clubs and isinstance(clubs[0], dict) else {}).get("clubName") or "").strip()
     if club_name:
-        exact = next((row for row in rows if str(row.get("clubName") or "").casefold() == club_name.casefold()), None)
+        exact = next((row for row in rows if _club_identity(row) == _club_identity(club_name)), None)
         if exact is not None:
             return exact
     target_m = _float(option.get("carry_m") if option.get("carry_m") is not None else option.get("carryM"))
     return min(rows, key=lambda row: (abs(_float(row.get("median_m")) - target_m), -int(row.get("sampleSize") or 0))) if rows else None
 
 
+def _club_dispersion_width(row: dict[str, Any]) -> float:
+    """Return a conservative longitudinal dispersion width in metres.
+
+    Missing percentile evidence must not look perfectly stable.  A proportional fallback keeps a
+    low-data club eligible while ensuring recorded p10/p90 evidence wins when it exists.
+    """
+    median_m = max(1.0, _float(row.get("median_m")))
+    raw_p10 = row.get("p10_m")
+    raw_p90 = row.get("p90_m")
+    if raw_p10 is None or raw_p90 is None:
+        return median_m * MISSING_DISPERSION_RATIO
+    p10_m = _float(raw_p10, median_m)
+    p90_m = _float(raw_p90, median_m)
+    width_m = p90_m - p10_m
+    return width_m if width_m > 0 else median_m * MISSING_DISPERSION_RATIO
+
+
+def _smoothed_club_rate(
+    row: dict[str, Any],
+    keys: tuple[str, ...],
+    *,
+    prior: float,
+    fallback_surfaces: set[str] | None = None,
+) -> float:
+    """Bayesian-style shrinkage for a per-club percentage from sparse history."""
+    observed: float | None = None
+    for key in keys:
+        if row.get(key) is None:
+            continue
+        value = _float(row.get(key), math.nan)
+        if math.isfinite(value):
+            observed = max(0.0, min(1.0, value / 100.0))
+            break
+    if observed is None and fallback_surfaces:
+        observed = _surface_observed_rate(row, fallback_surfaces)
+    if observed is None:
+        return prior
+    sample_size = _effective_club_sample_size(row)
+    return (observed * sample_size + prior * CLUB_RATE_PRIOR_SHOTS) / (
+        sample_size + CLUB_RATE_PRIOR_SHOTS
+    )
+
+
+def _effective_club_sample_size(row: dict[str, Any]) -> int:
+    valid = row.get("validSampleCount")
+    if valid is not None:
+        return max(0, int(valid or 0))
+    return max(0, int(row.get("sampleSize") or 0))
+
+
+def _club_sample_quality_rate(row: dict[str, Any]) -> float:
+    """Fraction of raw rows that survived validation/outlier filtering.
+
+    Invalid and outlier rows describe evidence quality, not golfing outcomes. They therefore widen
+    uncertainty without being mislabeled as water, bunker, or rough results.
+    """
+    raw = max(0, int(row.get("rawSampleCount") or 0))
+    valid = max(0, int(row.get("validSampleCount") or 0))
+    invalid = max(0, int(row.get("invalidSampleCount") or 0))
+    outliers = max(0, int(row.get("outlierCount") or 0))
+    if raw <= 0:
+        inferred = valid + invalid + outliers
+        raw = inferred if inferred > 0 else max(
+            max(0, int(row.get("sampleSize") or 0)),
+            _effective_club_sample_size(row),
+        )
+    if raw <= 0:
+        return 1.0
+    if valid <= 0 and row.get("validSampleCount") is None:
+        valid = max(0, raw - invalid - outliers)
+    return max(0.0, min(1.0, valid / raw))
+
+
+def _surface_observed_rate(row: dict[str, Any], surfaces: set[str]) -> float | None:
+    distribution = row.get("surfaceDistribution")
+    if not isinstance(distribution, list):
+        return None
+    matched = 0.0
+    total = 0.0
+    for item in distribution:
+        if not isinstance(item, dict):
+            continue
+        count = _float(item.get("count"), math.nan)
+        if math.isfinite(count) and count >= 0:
+            total += count
+            if str(item.get("surface") or "").strip().lower() in surfaces:
+                matched += count
+    if total > 0:
+        return max(0.0, min(1.0, matched / total))
+
+    matched_pct = 0.0
+    saw_pct = False
+    for item in distribution:
+        if not isinstance(item, dict):
+            continue
+        pct = _float(item.get("pct"), math.nan)
+        if not math.isfinite(pct) or pct < 0:
+            continue
+        saw_pct = True
+        if str(item.get("surface") or "").strip().lower() in surfaces:
+            matched_pct += pct
+    return max(0.0, min(1.0, matched_pct / 100.0)) if saw_pct else None
+
+
+def _smoothed_surface_rate(
+    row: dict[str, Any],
+    surfaces: set[str],
+    *,
+    prior: float,
+) -> float:
+    observed = _surface_observed_rate(row, surfaces)
+    if observed is None:
+        return prior
+    sample_size = _effective_club_sample_size(row)
+    return (observed * sample_size + prior * CLUB_RATE_PRIOR_SHOTS) / (
+        sample_size + CLUB_RATE_PRIOR_SHOTS
+    )
+
+
+def _club_performance_metrics(row: dict[str, Any]) -> dict[str, Any]:
+    """Comparable facts for one physical club, independent of its name or catalog category."""
+    sample_size = _effective_club_sample_size(row)
+    risk_rate = _smoothed_club_rate(
+        row,
+        ("riskRate", "hazardRate"),
+        prior=CLUB_RISK_RATE_PRIOR,
+        fallback_surfaces={"water", "bunker", "rough", "water_edge", "tree_area"},
+    )
+    usable_rate = _smoothed_club_rate(
+        row,
+        ("usableRate",),
+        prior=CLUB_USABLE_RATE_PRIOR,
+        fallback_surfaces={"fairway", "green"},
+    )
+    scoring_success_rate = _smoothed_surface_rate(
+        row,
+        {"green"},
+        prior=CLUB_SCORING_SUCCESS_PRIOR,
+    )
+    sample_quality_rate = _club_sample_quality_rate(row)
+    evidence_strength = sample_size / (sample_size + CLUB_RATE_PRIOR_SHOTS)
+    return {
+        "longitudinalSpread_m": round(_club_dispersion_width(row), 1),
+        "riskRatePct": round(risk_rate * 100.0, 1),
+        "usableRatePct": round(usable_rate * 100.0, 1),
+        "scoringSuccessRatePct": round(scoring_success_rate * 100.0, 1),
+        "sampleQualityPct": round(sample_quality_rate * 100.0, 1),
+        "sampleSize": sample_size,
+        "evidenceStrength": round(evidence_strength, 3),
+    }
+
+
+def _club_stability_cost(row: dict[str, Any], *, scoring_shot: bool) -> float:
+    """Convert one club's own distribution and outcomes into a comparable planning cost."""
+    weight = FINAL_SHOT_STABILITY_WEIGHT if scoring_shot else POSITION_SHOT_STABILITY_WEIGHT
+    metrics = _club_performance_metrics(row)
+    risk_rate = _float(metrics.get("riskRatePct")) / 100.0
+    unusable_rate = 1.0 - _float(metrics.get("usableRatePct")) / 100.0
+    context_success_rate = (
+        _float(metrics.get("scoringSuccessRatePct")) / 100.0
+        if scoring_shot
+        else _float(metrics.get("usableRatePct")) / 100.0
+    )
+    sample_quality_gap = 1.0 - _float(metrics.get("sampleQualityPct")) / 100.0
+    evidence_gap = 1.0 - _float(metrics.get("evidenceStrength"))
+    uncertainty_cost = evidence_gap * (8.0 if scoring_shot else 3.0)
+    return (
+        _float(metrics.get("longitudinalSpread_m")) * weight
+        + risk_rate * CLUB_RISK_COST_WEIGHT_M
+        + unusable_rate * CLUB_UNUSABLE_COST_WEIGHT_M
+        + (1.0 - context_success_rate)
+        * (CLUB_SCORING_MISS_COST_WEIGHT_M if scoring_shot else CLUB_POSITION_MISS_COST_WEIGHT_M)
+        + sample_quality_gap * CLUB_SAMPLE_QUALITY_COST_WEIGHT_M
+        + uncertainty_cost
+    )
+
+
+def _club_distribution_bounds(row: dict[str, Any]) -> tuple[float, float, float]:
+    median_m = max(0.0, _float(row.get("median_m")))
+    half_fallback = _club_dispersion_width(row) / 2.0
+    low_m = _float(row.get("p10_m"), median_m - half_fallback)
+    high_m = _float(row.get("p90_m"), median_m + half_fallback)
+    low_m, high_m = sorted((max(0.0, low_m), max(0.0, high_m)))
+    return low_m, median_m, high_m
+
+
+def _hazard_zone_span(zone: dict[str, Any]) -> tuple[float, float] | None:
+    clear = _float(zone.get("carryToClear_m"), math.nan)
+    if not math.isfinite(clear):
+        return None
+    front = _float(zone.get("carryToFront_m"), math.nan)
+    if not math.isfinite(front):
+        kind = str(zone.get("kind") or "")
+        front = clear - HAZARD_DEFAULT_WIDTH_M.get(kind, 16.0)
+    front, clear = sorted((max(0.0, front), max(0.0, clear)))
+    return front, clear
+
+
+def _club_hazard_exposure(row: dict[str, Any], zone: dict[str, Any]) -> float:
+    """Estimate whether this club's central 80% carry window reaches one mapped hazard span."""
+    span = _hazard_zone_span(zone)
+    if span is None:
+        return 0.0
+    front_m, back_m = span
+    low_m, median_m, high_m = _club_distribution_bounds(row)
+    buffer_m = 5.0
+    if high_m <= front_m - buffer_m or low_m >= back_m + buffer_m:
+        return 0.0
+    spread_m = max(1.0, high_m - low_m)
+    if median_m < front_m:
+        exposure = (high_m - (front_m - buffer_m)) / (spread_m + buffer_m) * 0.55
+    elif median_m > back_m:
+        exposure = ((back_m + buffer_m) - low_m) / (spread_m + buffer_m) * 0.55
+    else:
+        exposure = 0.85
+    return max(0.0, min(0.85, exposure))
+
+
+def _club_hazard_cost(row: dict[str, Any], avoid_zones: list[dict[str, Any]] | None) -> float:
+    cost = 0.0
+    for zone in avoid_zones or []:
+        if not isinstance(zone, dict):
+            continue
+        kind = str(zone.get("kind") or "")
+        severity = HAZARD_EXPOSURE_COST_M.get(kind)
+        if severity is None:
+            continue
+        cost += _club_hazard_exposure(row, zone) * severity
+    return cost
+
+
+def _planned_chain_cost(rows: list[dict[str, Any]], leave_m: float) -> float:
+    if not rows:
+        return abs(leave_m)
+    stability = sum(
+        _club_stability_cost(row, scoring_shot=index == len(rows) - 1)
+        for index, row in enumerate(rows)
+    )
+    return abs(leave_m) + stability
+
+
 def _sequence_tail(rows: list[dict[str, Any]], remaining_m: float) -> list[dict[str, Any]]:
     if remaining_m <= 20.0:
         return []
-    playable = [row for row in rows if not _is_driver(row)]
+    playable = [row for row in rows if _is_playable_club(row)]
     if not playable:
         return []
     longest_m = max(_float(row.get("median_m")) for row in playable)
@@ -788,10 +1077,10 @@ def _sequence_tail(rows: list[dict[str, Any]], remaining_m: float) -> list[dict[
             overshoot_m = max(0.0, -leave_m)
             excessive_overshoot = 1.0 if overshoot_m > MAX_SEQUENCE_OVERSHOOT_M else 0.0
             extra_step_cost = (step_count - minimum_steps) * EXTRA_SEQUENCE_STEP_COST_M
-            sample_strength = sum(int(row.get("sampleSize") or 0) for row in candidate)
+            sample_strength = sum(_effective_club_sample_size(row) for row in candidate)
             key = (
                 excessive_overshoot,
-                abs(leave_m) + extra_step_cost,
+                _planned_chain_cost(candidate, leave_m) + extra_step_cost,
                 overshoot_m,
                 -float(sample_strength),
                 *tuple(str(row.get("clubName") or "") for row in candidate),
@@ -799,6 +1088,85 @@ def _sequence_tail(rows: list[dict[str, Any]], remaining_m: float) -> list[dict[
             if best is None or key < best[0]:
                 best = (key, candidate)
     return best[1] if best else []
+
+
+def _whole_hole_sequence_key(
+    first: dict[str, Any],
+    rows: list[dict[str, Any]],
+    distance_m: float,
+    avoid_zones: list[dict[str, Any]] | None = None,
+) -> tuple[float, ...]:
+    """Rank a first club by its complete measured-carry chain to the green.
+
+    This intentionally produces only an ordering, not an expected-strokes claim. Extra full swings,
+    residual distance, dispersion, recorded outcomes, sample strength, and mapped exposure share one
+    utility score. A small advancement credit makes a normal clear Par 4/5 naturally prefer Driver,
+    while a materially steadier or safer chain can still leave a more reliable scoring club.
+    """
+    first_carry_m = _float(first.get("median_m"))
+    if not math.isfinite(distance_m) or distance_m <= 0:
+        score = (
+            _club_stability_cost(first, scoring_shot=False)
+            + _club_hazard_cost(first, avoid_zones)
+            + EXTRA_SEQUENCE_STEP_COST_M
+            - first_carry_m * TEE_ADVANCEMENT_WEIGHT
+        )
+        return (0.0, round(score, 4), 1.0, 0.0, -float(first.get("sampleSize") or 0), -first_carry_m)
+    tail = _sequence_tail(rows, distance_m - first_carry_m)
+    planned = [first, *tail]
+    leave_m = round(distance_m - sum(_float(row.get("median_m")) for row in planned), 1)
+    overshoot_m = max(0.0, -leave_m)
+    unresolved = 1.0 if leave_m > 20.0 or overshoot_m > MAX_SEQUENCE_OVERSHOOT_M else 0.0
+    score = (
+        _planned_chain_cost(planned, leave_m)
+        + _club_hazard_cost(first, avoid_zones)
+        + len(planned) * EXTRA_SEQUENCE_STEP_COST_M
+        - min(first_carry_m, distance_m) * TEE_ADVANCEMENT_WEIGHT
+    )
+    sample_strength = sum(_effective_club_sample_size(row) for row in planned)
+    return (
+        unresolved,
+        round(score, 4),
+        float(len(planned)),
+        overshoot_m,
+        -float(sample_strength),
+        -first_carry_m,
+    )
+
+
+def _sequence_signature(sequence: dict[str, Any]) -> tuple[tuple[str, float], ...]:
+    try:
+        from ai_caddie.caddie.club_bag import canonical_club_name
+    except Exception:
+        canonical_club_name = None  # type: ignore[assignment]
+
+    signature: list[tuple[str, float]] = []
+    for step in sequence.get("clubs") or []:
+        if not isinstance(step, dict):
+            continue
+        name = str(step.get("clubName") or "").strip()
+        canonical = canonical_club_name(name) if canonical_club_name else None
+        signature.append((canonical or name.casefold(), round(_float(step.get("targetCarry_m")), 1)))
+    return tuple(signature)
+
+
+def _dedupe_sequences(sequences: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep one copy of a physical club chain, preferring the stock recommendation."""
+    preference = {"stock": 0, "safe": 1, "attack": 2}
+    ranked = sorted(
+        enumerate(sequences),
+        key=lambda pair: (preference.get(str(pair[1].get("id") or ""), 9), pair[0]),
+    )
+    seen: set[tuple[tuple[str, float], ...]] = set()
+    kept: list[tuple[int, dict[str, Any]]] = []
+    for original_index, sequence in ranked:
+        signature = _sequence_signature(sequence)
+        if signature and signature in seen:
+            continue
+        if signature:
+            seen.add(signature)
+        kept.append((original_index, sequence))
+    return [sequence for _, sequence in sorted(kept, key=lambda pair: pair[0])]
 
 
 def _sequence_option(*, option: dict[str, Any], distance_m: float, club_rows: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -821,7 +1189,7 @@ def _sequence_option(*, option: dict[str, Any], distance_m: float, club_rows: li
         "totalPlannedCarry_m": round(sum(_float(step.get("targetCarry_m")) for step in steps), 1),
         "expectedRemaining_m": round(remaining, 1),
         "riskScore": _float(option.get("riskScore")),
-        "rationale": "Uses recorded median club carries and must be recalculated after the next lie is known.",
+        "rationale": "Uses each club's recorded carry distribution, outcome rates, and sample strength; re-plan after the next lie.",
         "sourceRefs": source_refs,
         "coverage": _sequence_coverage(steps),
         "confidence": _sequence_confidence(steps),
@@ -835,7 +1203,12 @@ def _club_sequences(context: dict[str, Any], options: list[dict[str, Any]]) -> l
     rows = _club_profile_rows(context.get("clubProfiles") or {})
     if len(rows) < 2 or not options:
         return []
-    return [sequence for option in options if (sequence := _sequence_option(option=option, distance_m=distance_m, club_rows=rows))]
+    sequences = [
+        sequence
+        for option in options
+        if (sequence := _sequence_option(option=option, distance_m=distance_m, club_rows=rows))
+    ]
+    return _dedupe_sequences(sequences)
 
 
 def _selected_sequence(sequences: list[dict[str, Any]], selected: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -853,7 +1226,7 @@ def _sequence_evidence(sequences: list[dict[str, Any]], selected_sequence: dict[
         "kind": "sequence",
         "text": (
             f"{sequence['strategyLabel']}: {sequence['label']} "
-            f"uses recorded median carries and leaves {sequence['expectedRemaining_m']}m; re-plan from the next lie"
+            f"uses per-club distributions and outcomes and leaves {sequence['expectedRemaining_m']}m; re-plan from the next lie"
         ),
         "sourceRefs": sequence.get("sourceRefs", []),
         "coverage": sequence.get("coverage"),
@@ -875,6 +1248,23 @@ def _fallback_club(route: dict[str, Any], analysis: dict[str, Any]) -> list[dict
 def _club_recommendation(route: dict[str, Any], analysis: dict[str, Any]) -> dict[str, Any]:
     carry_m = _float(route.get("carry_m"))
     clubs = _club_profiles_for_carry(analysis.get("clubProfiles") or {}, carry_m)
+    explicit_name = str(route.get("club") or route.get("clubName") or "").strip()
+    if explicit_name:
+        explicit_identity = _club_identity(explicit_name)
+        exact = next(
+            (
+                row
+                for row in _club_profile_rows(analysis.get("clubProfiles") or {})
+                if _club_identity(row) == explicit_identity
+            ),
+            None,
+        )
+        if exact is not None:
+            exact = {
+                **exact,
+                "deltaToCarry_m": round(_float(exact.get("median_m")) - carry_m, 1),
+            }
+            clubs = [exact, *(row for row in clubs if _club_identity(row) != explicit_identity)]
     source = "club_profiles"
     if not clubs:
         clubs = _fallback_club(route, analysis)
@@ -1102,10 +1492,6 @@ def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[
         # identity from a broad carry-matched recommendation: legacy route evidence may quite
         # legitimately resolve several distances to the same nearest profile.
         "club": route.get("club") or route.get("clubName"),
-        # A complete Par 4/5 bag may intentionally expose safe/stock/attack lines that all use
-        # the same measured Driver.  Keep this producer signal through the decision contract so
-        # deduplication does not erase two valid, selectable strategy modes.
-        "allowSameClubStrategies": bool(route.get("allowSameClubStrategies")),
         "strategyMode": route.get("strategyMode"),
         "label": OPTION_LABELS.get(option_id, str(route.get("label") or option_id)),
         "routeLabel": route.get("label"),
@@ -1147,65 +1533,93 @@ def _strategy_club_key(option: dict[str, Any]) -> str | None:
         return name.casefold()
 
 
-def _dedupe_strategy_options(options: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Drop accidental duplicate routes while preserving explicitly distinct strategy modes.
+def _strategy_target_key(option: dict[str, Any]) -> tuple[float, float] | None:
+    value = option.get("targetLocal")
+    if not isinstance(value, (list, tuple)) or len(value) < 2:
+        return None
+    x = _float(value[0], math.nan)
+    y = _float(value[1], math.nan)
+    if not math.isfinite(x) or not math.isfinite(y):
+        return None
+    return round(x, 1), round(y, 1)
 
-    Candidate route producers are allowed to provide fewer than three modes when the bag or route
-    evidence cannot support distinct choices.  Keeping the first occurrence in the canonical
-    safe/stock/attack order preserves the lower-risk explanation.  A complete Par 4/5 tee package
-    can mark ``allowSameClubStrategies`` when one measured Driver intentionally backs all three
-    lines; in that case the mode id, rather than physical club identity, is the dedupe key.
-    Options without a club identity remain distinct by carry.
+
+def _strategy_risk_key(option: dict[str, Any]) -> tuple[tuple[Any, ...], ...]:
+    def metric(value: Any) -> float | None:
+        if value is None:
+            return None
+        number = _float(value, math.nan)
+        return round(number, 1) if math.isfinite(number) else None
+
+    facts = option.get("avoidZones") or option.get("forbiddenZones") or []
+    keys: list[tuple[Any, ...]] = []
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        keys.append((
+            str(fact.get("kind") or ""),
+            str(fact.get("id") or ""),
+            str(fact.get("source") or ""),
+            metric(fact.get("carryToFront_m")),
+            metric(fact.get("carryToClear_m")),
+            metric(fact.get("distanceToCenter_m")),
+        ))
+    return tuple(sorted(keys, key=str))
+
+
+def _strategy_signature(option: dict[str, Any]) -> tuple[Any, ...]:
+    club_key = _strategy_club_key(option)
+    target_key = _strategy_target_key(option)
+    risk_key = _strategy_risk_key(option)
+    surface = option.get("expectedSurface")
+    surface_kind = str(surface.get("kind") or "") if isinstance(surface, dict) else ""
+    if club_key:
+        # A physical club has one modeled carry.  Different target coordinates or factual hazard
+        # interactions can make it a real alternative; so can a materially different conditioned
+        # carry. A different mode label or heuristic risk number alone cannot.
+        return (
+            "club",
+            club_key,
+            round(_float(option.get("carry_m") if option.get("carry_m") is not None else option.get("carryM")), 1),
+            target_key,
+            risk_key,
+            surface_kind,
+        )
+    return (
+        "route",
+        round(_float(option.get("carry_m")), 1),
+        target_key,
+        risk_key,
+        surface_kind,
+    )
+
+
+def _dedupe_strategy_options(options: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop mode-label duplicates while retaining materially different physical choices.
+
+    Club, landing point, surface, and hazard facts define a choice.  ``safe``/``stock``/``attack``
+    labels and their heuristic risk numbers do not.  When old producers send the same choice three
+    times, keep ``stock`` because that is the product's primary recommendation.
     """
     seen_modes: set[str] = set()
-    seen_clubs: set[str] = set()
-    seen_route_carries: set[tuple[str, float]] = set()
-    # Authorization belongs to one physical-club group.  A single truthy row must not unlock
-    # unrelated aliases/clubs in the same payload; every row in a repeated canonical group must
-    # opt in before the mode labels are allowed to coexist.
-    club_groups: dict[str, list[dict[str, Any]]] = {}
-    for option in options:
-        club_key = _strategy_club_key(option)
-        if club_key:
-            club_groups.setdefault(club_key, []).append(option)
-    allow_same_by_club = {
-        club_key: len(group) > 1 and all(bool(row.get("allowSameClubStrategies")) for row in group)
-        for club_key, group in club_groups.items()
-    }
-    deduped: list[dict[str, Any]] = []
-    for option in _ordered_options(options):
+    seen_signatures: set[tuple[Any, ...]] = set()
+    preference = {"stock": 0, "safe": 1, "attack": 2}
+    ranked = sorted(
+        enumerate(options),
+        key=lambda pair: (preference.get(str(pair[1].get("id") or ""), 9), pair[0]),
+    )
+    kept: list[dict[str, Any]] = []
+    for _, option in ranked:
         option_id = str(option.get("id") or "").strip().lower()
         if option_id in seen_modes:
             continue
+        signature = _strategy_signature(option)
+        if signature in seen_signatures:
+            continue
         seen_modes.add(option_id)
-        club_key = _strategy_club_key(option)
-        if club_key:
-            allow_same_club = allow_same_by_club.get(club_key, False)
-            if not allow_same_club and club_key in seen_clubs:
-                continue
-            if not allow_same_club:
-                seen_clubs.add(club_key)
-        else:
-            carry = round(_float(option.get("carry_m")), 1)
-            route_key = str(option.get("routeId") or option_id).strip().lower()
-            if (route_key, carry) in seen_route_carries:
-                continue
-            seen_route_carries.add((route_key, carry))
-        deduped.append(option)
-    return deduped
-
-
-def _has_authorized_same_club_group(options: list[dict[str, Any]]) -> bool:
-    """Return whether any repeated canonical club group is explicitly authorized as one mode set."""
-    groups: dict[str, list[dict[str, Any]]] = {}
-    for option in options:
-        club_key = _strategy_club_key(option)
-        if club_key:
-            groups.setdefault(club_key, []).append(option)
-    return any(
-        len(group) > 1 and all(bool(option.get("allowSameClubStrategies")) for option in group)
-        for group in groups.values()
-    )
+        seen_signatures.add(signature)
+        kept.append(option)
+    return _ordered_options(kept)
 
 
 def _strategy_mode(context: dict[str, Any]) -> str:
@@ -1362,6 +1776,20 @@ def _select_option(
     if not constrained_options:
         constrained_options = options
     safest = min(constrained_options, key=lambda row: (row["riskScore"], row["carry_m"]))
+    # The one-at-a-time club picker sends an exact option identity. This is distinct from the
+    # legacy risk-appetite mode: if the player taps a displayed physical alternative, honor that
+    # exact choice unless a structured constraint removed it from the available set.
+    raw_requested_id = str((context or {}).get("requestedOptionId") or "").strip().lower().replace("-", "_")
+    requested_id = _normalize_option_id(raw_requested_id) or (raw_requested_id or None)
+    requested = next(
+        (
+            row for row in constrained_options
+            if str(row.get("id") or "").strip().lower().replace("-", "_") == requested_id
+        ),
+        None,
+    )
+    if requested is not None:
+        return requested
     if strategy_mode in {"protect_score", "conservative", "safe"}:
         return safest
     stock = next((row for row in constrained_options if row["id"] == "stock"), None)
@@ -1380,16 +1808,13 @@ def _select_option(
         context=context,
     ):
         return attack
-    # The live phone sends the selected mode explicitly, and a generated Driver-line package marks
-    # the same intent on its options.  In either case "stock" means the standard recommendation,
-    # not "pick the safest row again because its numeric risk is one point lower".  Keep the old
-    # risk-aware fallback for unmarked legacy/fixture contexts.
-    if stock and (
-        (context and ("strategyMode" in context or "strategy" in context))
-        or _has_authorized_same_club_group(options)
-    ):
-        return stock
-    if stock and stock["riskScore"] <= safest["riskScore"] + 1:
+    # ``stock`` is the normal answer when its modeled risk is close to the safest route.  A real
+    # hazard or a recovery constraint must still be allowed to move the recommendation to ``safe``;
+    # otherwise a legacy route package can silently turn every obstructed lie into a stock swing.
+    # The mobile tee producer already folds each club's dispersion, outcome rates, sample quality,
+    # whole-hole leave, and mapped hazard exposure into this same risk score, so this guard does not
+    # encode a preference for any club name or category.
+    if stock and _float(stock.get("riskScore")) <= _float(safest.get("riskScore")) + 1.0:
         return stock
     return safest
 

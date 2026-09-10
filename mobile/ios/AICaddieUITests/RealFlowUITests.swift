@@ -599,6 +599,34 @@ final class RealFlowUITests: XCTestCase {
                 "settled live-hole evidence must retain all three identified green distances"
             )
         }
+        let hazardEntry = app.buttons["live-hazard-entry"]
+        XCTAssertTrue(
+            hazardEntry.waitForExistence(timeout: 8) && fullyVisible(hazardEntry),
+            "the live hole must expose its dedicated one-at-a-time obstacle browser"
+        )
+        hazardEntry.tap()
+        let hazardDetail = app.descendants(matching: .any)["live-hazard-detail"].firstMatch
+        XCTAssertTrue(hazardDetail.waitForExistence(timeout: 5))
+        let firstSelectedHazard = app.descendants(matching: .any)["selected-hazard-1"].firstMatch
+        XCTAssertTrue(firstSelectedHazard.waitForExistence(timeout: 5))
+        XCTAssertFalse(
+            app.descendants(matching: .any)["selected-hazard-2"].firstMatch.exists,
+            "only the selected obstacle may have an active distance panel"
+        )
+        let nextHazard = app.buttons["hazard-next"]
+        if nextHazard.isEnabled {
+            nextHazard.tap()
+            XCTAssertTrue(
+                app.descendants(matching: .any)["selected-hazard-2"].firstMatch.waitForExistence(timeout: 3),
+                "down navigation must replace the selected obstacle instead of stacking another one"
+            )
+            XCTAssertFalse(firstSelectedHazard.exists)
+        }
+        settle(1); save("10b-live-hazard"); dump("10b-live-hazard")
+        let closeHazards = app.buttons["关闭障碍物"]
+        XCTAssertTrue(closeHazards.waitForExistence(timeout: 3))
+        closeHazards.tap()
+        XCTAssertTrue(waitUntilGone(hazardDetail, timeout: 3))
         let planHeading = openCaddiePlan(timeout: 75)
         XCTAssertTrue(
             fullyVisible(planHeading),
@@ -618,41 +646,26 @@ final class RealFlowUITests: XCTestCase {
             120,
             "the complete caddie plan heading must start in the first-glance band, not below a duplicated distance panel"
         )
+        let primaryRecommendation = app.descendants(matching: .any)["caddie-primary-recommendation"].firstMatch
+        XCTAssertTrue(
+            primaryRecommendation.waitForExistence(timeout: 5),
+            "the caddie must answer with one primary next-club recommendation"
+        )
+        XCTAssertEqual(
+            app.descendants(matching: .any).matching(
+                NSPredicate(format: "identifier == %@", "caddie-primary-recommendation")
+            ).count,
+            1,
+            "the primary recommendation must not be repeated as three strategy cards"
+        )
         for label in ["推荐打法", "保守打法", "进攻打法"] {
-            XCTAssertTrue(
-                app.staticTexts[label].waitForExistence(timeout: 5),
-                "a Par 4 tee decision must expose all three complete club-to-club strategy chains: \(label)"
-            )
+            XCTAssertFalse(app.staticTexts[label].exists, "legacy strategy labels must not replace physical club choices")
         }
         XCTAssertFalse(
             app.segmentedControls.firstMatch.exists,
-            "the three route cards are the strategy controls; a duplicate segmented control wastes map-height"
-        )
-        for strategy in ["protect_score", "stock", "attack"] {
-            XCTAssertTrue(
-                app.buttons["caddie-strategy-\(strategy)"].waitForExistence(timeout: 5),
-                "each complete route card must directly select the \(strategy) strategy"
-            )
-        }
-        XCTAssertTrue(
-            scrollTo(app.staticTexts["推荐打法"], maxSwipes: 12),
-            "the selected full-hole club chain must be visible in the simulator evidence"
+            "legacy strategy modes must not consume the focused recommendation surface"
         )
         settle(1); save("11-caddie-plan"); dump("11-caddie-plan")
-
-        let avoidZones = app.buttons["备选打法 · 避开区"]
-        XCTAssertTrue(scrollTo(avoidZones, maxSwipes: 8), "full caddie plan must expose avoid zones")
-        avoidZones.tap()
-        let avoidZonesHeading = app.staticTexts["避开区"]
-        XCTAssertTrue(scrollTo(avoidZonesHeading, maxSwipes: 8), "expanded avoid zones must be visible")
-        for label in ["推荐打法", "保守打法", "进攻打法"] {
-            XCTAssertEqual(
-                app.staticTexts.matching(NSPredicate(format: "label == %@", label)).count,
-                1,
-                "a complete route must appear once; the avoid-zone disclosure must not repeat a second single-shot option table: \(label)"
-            )
-        }
-        settle(1); save("11b-caddie-hazards"); dump("11b-caddie-hazards")
 
         closeCaddiePlan.tap()
         XCTAssertTrue(
@@ -1478,7 +1491,7 @@ final class RealFlowUITests: XCTestCase {
             "the live root must expose the focused caddie entry"
         )
         entry.tap()
-        let heading = app.staticTexts["球童完整方案"]
+        let heading = app.staticTexts["球童建议"]
         XCTAssertTrue(
             heading.waitForExistence(timeout: timeout),
             "opening the caddie entry must present the complete plan"

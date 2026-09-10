@@ -107,8 +107,19 @@ class ServerV2CaddieTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertEqual([sequence["id"] for sequence in payload["sequences"]], ["safe", "stock", "attack"])
+        sequence_ids = [sequence["id"] for sequence in payload["sequences"]]
+        self.assertTrue(sequence_ids)
+        self.assertEqual(len(sequence_ids), len(set(sequence_ids)))
         options = {option["id"]: option for option in payload["options"]}
+        self.assertTrue(set(sequence_ids).issubset(options))
+        physical_signatures = [
+            tuple(
+                (club["clubName"], round(float(club["targetCarry_m"]), 1))
+                for club in sequence["clubs"]
+            )
+            for sequence in payload["sequences"]
+        ]
+        self.assertEqual(len(physical_signatures), len(set(physical_signatures)))
         for sequence in payload["sequences"]:
             self.assertNotIn("expectedStrokes", sequence)
             self.assertEqual(

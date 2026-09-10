@@ -233,9 +233,9 @@ class PureLogicTests(unittest.TestCase):
         self.assertTrue(row["greenOutline"]["available"])
         self.assertEqual(row["greenOutline"]["source"], "prodgeometry.Green.drc.boundary")
         self.assertEqual(len(row["greenOutline"]["pointsPx"]), 4)
-        self.assertEqual([route["id"] for route in row["candidateRoutes"]], ["safe", "stock", "attack"])
-        self.assertEqual([route["club"] for route in row["candidateRoutes"]], ["1W", "1W", "1W"])
-        self.assertTrue(all(route["allowSameClubStrategies"] for route in row["candidateRoutes"]))
+        self.assertEqual([route["id"] for route in row["candidateRoutes"]], ["stock", "safe"])
+        self.assertEqual([route["club"] for route in row["candidateRoutes"]], ["1W", "7I"])
+        self.assertNotIn("allowSameClubStrategies", row["candidateRoutes"][0])
         self.assertTrue(any(target["kind"] == "landing" for target in row["carryTargets"]))
 
     def test_candidate_routes_emit_only_distinct_modes_in_safe_stock_attack_order(self) -> None:
@@ -253,17 +253,17 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual([route["id"] for route in three], ["safe", "stock", "attack"])
         self.assertEqual([route["club"] for route in three], ["8I", "7I", "1W"])
 
-    def test_candidate_routes_keep_driver_modes_for_sparse_par4_bag(self) -> None:
+    def test_candidate_routes_do_not_repeat_driver_for_sparse_par4_bag(self) -> None:
         routes = cp._candidate_routes(
             [("1W", 200)],
             {"water_carry": [], "bunkers": []},
             par=4,
         )
 
-        self.assertEqual([route["id"] for route in routes], ["safe", "stock", "attack"])
-        self.assertEqual([route["club"] for route in routes], ["1W", "1W", "1W"])
-        self.assertEqual([route["carryM"] for route in routes], [200.0, 200.0, 200.0])
-        self.assertTrue(all(route["allowSameClubStrategies"] for route in routes))
+        self.assertEqual([route["id"] for route in routes], ["stock"])
+        self.assertEqual([route["club"] for route in routes], ["1W"])
+        self.assertEqual([route["carryM"] for route in routes], [200.0])
+        self.assertNotIn("allowSameClubStrategies", routes[0])
 
     def test_candidate_routes_keep_sparse_non_driver_bag_distinct_only_when_supported(self) -> None:
         routes = cp._candidate_routes(
@@ -282,8 +282,12 @@ class PureLogicTests(unittest.TestCase):
         )
 
         self.assertEqual([route["id"] for route in routes], ["safe", "stock"])
-        self.assertEqual([route["club"] for route in routes], ["3W", "Driver"])
-        self.assertEqual(len({cp.club_bag_service.canonical_club_name(route["club"]) for route in routes}), len(routes))
+        # The retained alias is an implementation detail (the ladder may contain ``1W`` or
+        # ``Driver``). The contract is one route per physical club, not a particular spelling.
+        identities = [cp.club_bag_service.canonical_club_name(route["club"]) for route in routes]
+        self.assertEqual(identities[0], cp.club_bag_service.canonical_club_name("3W"))
+        self.assertEqual(identities[1], cp.club_bag_service.canonical_club_name("Driver"))
+        self.assertEqual(len(set(identities)), len(routes))
 
     def test_missing_prodgeometry_uses_cached_course_data_without_guessing_unknown_codes(self) -> None:
         course_data = {

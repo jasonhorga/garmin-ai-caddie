@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-10 01:42 UTC
+**Updated:** 2026-09-10 19:32 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `b9ff8b9d`; current internal-release source `aae339ba`; deployed backend tip
 `5124d6384c71cba0e2f911ab043464aca3e28c46`; MAP1 product-code tip
@@ -441,31 +441,45 @@ code; do not restart the old multi-week plan tree.
 跳过），Native Mobile CI `34417237317` 也已在 live 模式全绿；Build 53/54
 保留为上一轮历史候选，不能作为本轮 follow-up 效果证据。当前 follow-up 已由
 TestFlight CD `34425296280` 上传为 Build 55，Apple read-only 检查
-`34426251893` 确认其已处理并在内部 all-builds 组可见。当前只剩与同一产品源码和
-后端绑定的实体 iPhone/Watch 安装与交互证据。
+`34426251893` 确认其已处理并在内部 all-builds 组可见。Build 55 随后的实体 iPhone
+截图 `IMG_7915.png`、`IMG_7918.jpeg`、`IMG_7919.png` 未通过产品验收：障碍物同时
+堆叠显示，难以辨认和选择；球童固定展示“推荐/保守/进攻”三套方案，即使路线相同
+也重复列出，且没有体现单杆稳定性和下一杆最佳留距。因此 Build 55 仅保留为历史
+内部候选，不能作为本切片完成证据。
 
-**Durable resume checkpoint (2026-09-10 01:42 UTC):** 当前唯一工作切片为
-`PHONE-UX2`（`evidence-open`）。已完成同杆授权分组、稀疏球包 Driver 线路和即时选中摘要代码及回归测试；
-远端 scratch 为 `/home/jason/codex-runs/garmin-ai-caddie-phone-ux2-20260909-b`
-（只读挂载测试，未创建持久服务）。聚焦套件已更新为 `374 passed, 5 skipped`；
-全量 discovery 的失败/错误来自验证容器缺少 `git` 且排除了 `.env`、`data`、`output`
-等 authority/鉴权/持久化资源，不能当作产品回归。`topo-v10` 后端已在
-`/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260909-topo-v10`
-完成对齐和本地/公网预检；Native Mobile CI `34417237317` 已完成新源码的编译、单测、
-设计快照、live preflight、真实 iOS/Watch 证据和 secret scan。认证后端预检已通过，
-内部 TestFlight Build 55 已在 run `34425296280` 上传并完成 Apple processing；只读
-run `34426251893` 确认它为 `VALID`、在内部组可见且不在 `Private Trial`。恢复时唯一
-继续路径是在 Build 55 上完成实体 iPhone/Watch 验证，重点检查地图纵向拖动、独立
-障碍页、单一旗杆底部落点和三种打法选择；在该证据完成前保持 `PHONE-UX2` 为
-`evidence-open`，不做外部发布或生产变更。
+**Durable resume checkpoint (2026-09-10 18:53 UTC):** `PHONE-UX2` 的实现和聚焦自动验证已完成，
+状态为 `evidence-open`。Build 55 已被最新实体 iPhone 反馈否决，不再等待旧版
+物理证据。障碍页应默认选中最近且仍相关的一个障碍；地图一次只强调该障碍，在有
+几何边界时沿真实形状画红色轮廓，否则使用克制的红色前后沿指示；前沿/后沿距离是
+主信息，并允许逐个切换。球童首页只显示一个主要推荐；只有杆序、落点或风险具有
+实质差异时才在“其他选择”中显示替代方案，相同方案必须去重。推荐算法必须为球包中
+每支实体球杆建立同一套独立表现模型，并用各杆自己的距离分布、方向/距离离散、失误
+结果、样本量与场景适配度优化整条击球链及下一杆留距。A 杆比 P 杆稳定只是用户用于
+说明原则的例子，不得针对 A/P 或任何杆名、杆种写特殊偏好。不得把“发球台必打一号木”
+硬编码为规则，但普通无明显危险的四杆洞/五杆洞应由距离、离散度与风险自然选出 Driver。
 
-**Durable execution plan (persisted 2026-09-10 01:42 UTC):**
-1. 已完成：修正测试方法边界，并保留当前工作区全部产品改动；`git diff --check` 通过。
-2. 已完成：homeserver 容量检查通过（约 117 GiB 可用、5.1 GiB 可用内存）；复用上述 scratch 在只读挂载并提供临时目录/数据层的容器中运行聚焦套件，`374 passed, 5 skipped`，exit 0。首轮只读容器错误是缺少 `/tmp` 和可写事件根，已修正验证条件，不是产品回归。
-3. 已完成：`topo-v10` 后端已在 homeserver 对齐并完成本地/quick-tunnel 公网 preflight；Native Mobile CI `34417237317` 在 live 模式完成 Swift 编译、单测、截图、视频、Watch 运行时证据和 secret scan，manifest 为 `ios=passed`、`watch=passed`。`34407853548` 的三个 iOS topo 等待失败已定位为部署版本错配，不能作为产品回归证据。
-4. 已完成：认证后端 preflight 在一次瞬时超时后重试通过；内部 TestFlight CD `34425296280` 构建并上传 Build 55，provenance/IPA SHA 校验通过；Apple read-only run `34426251893` 确认 `VALID`、`IN_BETA_TESTING` 和内部 all-builds 组可见。
-5. 进行中：在 Build 55 上安装实体 iPhone/Watch，验证地图纵向/横向拖动、独立障碍详情页的上下浏览、单一旗杆底部落点和推荐/保守/进攻路线选择；CI 已证明源码可编译和模拟器路径可运行，但不能替代实体设备证据。
-6. 约束：实体证据完成前不做 Beta Review、外部发布、生产发布或测试性同步；验证结束后只清理本会话 allow-list 资源并回写本账本。
+**Durable execution plan (persisted 2026-09-10 19:19 UTC):**
+1. 已完成：将 Build 55 的障碍堆叠和三卡重复问题收敛为独立障碍浏览页与单一主推荐；
+   旧三卡/旧障碍文案契约已迁移到现行实现。
+2. 已完成：iOS 障碍详情页采用单选模型，默认最近相关障碍；仅为选中障碍绘制红色
+   轮廓/边界指示，突出前沿与后沿距离，并提供清晰的上一项/下一项或紧凑列表导航。
+3. 已完成：后端与离线球童路线生成已为每支实体球杆用统一公式从其自身历史表现
+   建模，并以距离分布、方向/距离离散、失误结果、样本置信度、场景适配和首选下一杆
+   留距对整条击球链评分；不得按 A/P 等杆名特判。主推荐只显示一次，实质相同的候选
+   去重，差异候选收进“其他选择”。
+4. 已完成：更新拒绝旧三卡假设的 Swift/Python/UI 测试；homeserver 聚焦套件 `359
+   passed, 2 skipped`（退出码 0）。最新 `LiveHazardDetailView.swift` 同时修复了畸形
+   `outlinePx` 不应被插值到球路起点的问题；Swift 树最近一次 Native Mobile CI
+   `34417237317` 已全绿，但该 CI 早于这项 Swift 修正，需重新验证边界。
+5. 已完成：在包含 `.git`、`.env.example`、Git authority 工具和非 root 文件权限的
+   homeserver 容器中完成完整 discovery，`2072 tests` 全部通过，`13 skipped`；旧三序列
+   ID 与旧 readiness 置信度分布断言已按真实新行为迁移。
+6. 进行中：当前 Swift 树已为 `CoursePrepHazardDetail` 增加畸形/旧格式
+   `outlinePx` 的容错解码，并补充缺失、`null`、错误类型和畸形点数组回归测试；需对
+   最新 `LiveHazardDetailView` 与 Codable 边界重新走 Native Mobile CI。此前
+   `34417237317` 通过的是该 Swift 修正前的提交。
+7. 约束：新实现和验证通过前不上传新的 TestFlight，不做 Beta Review、外部发布、生产
+   发布或数据同步；所有远端 scratch、容器和证据均按 allow-list 登记与清理。
 
 此前 `PHONE-REGRESSION` 保持 `evidence-open`：
 
@@ -996,7 +1010,7 @@ project-level task list; historical plans are reference material.
 | `MAP1` | `evidence-open` | Physical iPhone feedback for course-loop authority, Touch Target/caddie map arcs and landing interpolation, simplified live controls, and horizontal hole navigation. | Product/test commit `5628cc6d` plus Source CI `34021727402` and Native Mobile CI `34021862658` are green; TestFlight build 50 contains the MAP1 product tree. Held-loupe/device evidence remains open. |
 | `GARMIN-AUTH` | `evidence-open` | Make a successful Garmin web login validate and synchronize against the current CN gateway, then bind the internal app candidate to that backend. | Commit `caf3afad`, source sync follow-up `f24a22dd`, Source CI `34043175968`/`34223501012`, controlled 403-to-200 gateway comparison, healthy public deployment, Native Mobile CI `34223836622`, TestFlight CD `34231106418`, and Apple/group check `34232120285` are complete. One new real-device reconnect/sync remains. |
 | `PHONE-REGRESSION` | `evidence-open` | Unify backend caddie recommendation with the live club strip/map landing, constrain hazard labels/distances to small factual edge numbers, and provide a direct retry for saved-but-unverified Garmin sessions while preserving provider-nearby, manual-search, downloaded-course provenance and A/B/C labels. | Source CI `34223501012`, Native Mobile CI `34223836622`, backend revision `f363872f`, TestFlight Build 53, and Apple processing/group visibility are complete; physical screenshots and device behavior remain evidence-open. |
-| `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback for offset/simplified map loupes, compact factual hazard labels, resume-only active-round behavior, one Garmin auth/sync state, localized course/address display, stale-while-refresh score history, nested caddie advice, clearer scoring hierarchy and F/M/B versus pin presentation, plus zoomable maps with a single flag marker. Follow-up fixes cover strategy selection, tee-club semantics, a dedicated hazard surface, fitted-map panning, and one pole-foot flag geometry. | Source CI `34316491467`; focused remote suite `374 passed, 5 skipped`; Native Mobile CI `34417237317` passed live iOS/Watch evidence at source `13474bf7`/product tip `b9ff8b9d`; TestFlight CD `34425296280` and read-only ASC run `34426251893` produced and confirmed internal Build 55 against backend `5124d638`. Physical iPhone/Watch installation and dedicated hazard-page/held-drag proof remain open. |
+| `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Current working tree passes the focused homeserver suite (`359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`, exit 0) with Git/authority/template inputs present. The latest Swift hazard renderer rejects malformed `outlinePx`; Native Mobile CI `34417237317` passed the prior Swift tree, so a fresh boundary verification remains required. Remote scratch `/home/jason/codex-runs/garmin-ai-caddie-phone-ux2-20260910-c` was closed after verification with no ports/containers left. Remaining evidence is fresh Swift CI plus physical iPhone/Watch validation of map panning, the dedicated hazard page, pole-foot flag dragging, and the final caddie recommendation. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 | `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |
@@ -1456,10 +1470,12 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Obtain the explicitly authorized internal candidate built from the current
-   product tip `b9ff8b9d` (Build 54 predates the follow-up and is not evidence
-   for it); do not infer authorization from the green CI run.
-2. Install that exact candidate on the physical iPhone and paired Watch. Verify
+1. Commit and push the current `PHONE-UX2` source/test tree, then run a fresh
+   Native Mobile CI against that exact SHA. Confirm iOS/Watch compilation,
+   Codable boundary tests, and the live simulator journey all pass.
+2. After that CI gate, obtain the explicitly authorized internal candidate built
+   from the same product tip and install it on the physical iPhone and paired
+   Watch. Verify
    map vertical/horizontal panning after zoom, the dedicated hazard page with
    complete front/back rows and meaningful filtering, one rendered flag whose
    drag anchor is the pole foot, and selectable Driver/recommended/protect/
@@ -1515,6 +1531,37 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## State Changes
 
+- 2026-09-10: `CoursePrepHazardDetail` now treats `outlinePx` as an optional
+  rendering enhancement. Missing/legacy, `null`, wrong-type, and malformed-point
+  values fail closed to an empty outline instead of invalidating the enclosing
+  hole package; valid three-or-more two-dimensional finite-point outlines remain
+  available to the selected hazard renderer. Added Swift regression coverage for
+  each boundary. The homeserver focused suite on the synchronized source copy
+  passed `292 tests, 2 skips` (exit 0); a fresh Native Mobile CI on the resulting
+  commit is still required.
+
+- 2026-09-10: Full homeserver discovery was rerun with the source snapshot's
+  `.git` and `.env.example` present, Git authority tooling available in the
+  ephemeral container, and the test process running as the snapshot owner so
+  unreadable-file cases remain meaningful. Result: `Ran 2072 tests in 64.789s;
+  OK (skipped=13)`, exit 0. The command used the API image's existing
+  `/app/.venv`, a temporary `git` package layer, `PYTHONPATH` for its existing
+  `pathspec` module, and no ports, tunnels, volumes, or persistent dependency
+  installation. The final log is
+  `/home/jason/codex-runs/garmin-ai-caddie-phone-ux2-20260910-e/full-test-output-final-pass2.log`;
+  it remains allow-listed until evidence is archived and cleanup is recorded.
+
+- 2026-09-10: Durable `PHONE-UX2` checkpoint corrected the focused homeserver
+  evidence to `359 passed, 2 skipped` (exit 0) and recorded the latest
+  `LiveHazardDetailView` malformed-`outlinePx` guard. A full discovery run was
+  attempted in an environment missing Git metadata and `.env.example`; after
+  those inputs were restored, two failures still reflect superseded contracts:
+  `tests/test_server_v2_caddie.py:110` hard-codes the old three sequence IDs,
+  while `tests/test_server_v2_readiness.py:663-665` hard-codes the old
+  `14 medium / 4 low` confidence split. The next action is to inspect the new
+  algorithm's actual fixture output and update the contracts or model, then
+  rerun discovery with Git and `.env.example` present.
+
 - 2026-09-10: The authenticated Phase 6 backend preflight recorded one
   transient 20-second public readiness timeout, followed by local/public
   authenticated responses in 6.45/6.62 seconds and a successful persisted
@@ -1553,6 +1600,20 @@ Native runs recorded above; it is retained only as historical diagnosis.
   after the artifact checks. `PHONE-UX2` therefore moved from `in-progress` to `evidence-open`;
   physical iPhone/Watch and dedicated hazard-page proof remain open. No
   TestFlight, signing, or distribution side effect was started.
+
+- 2026-09-10: `PHONE-UX2` follow-up implementation was rechecked after context
+  recovery. The homeserver-only command
+  `docker run --rm ... /app/.venv/bin/python -m unittest
+  tests.test_decision_layer tests.test_course_prep tests.test_mobile_contracts
+  tests.test_server_v2_mobile` ran `292` tests with `2` skips and exited `0`.
+  The six initial failures were resolved without changing the decision schema:
+  risk-aware safe/recovery fallback is restored for materially dangerous or
+  obstructed situations; long-hole assertions read `selectedSequence.id`; club
+  alias assertions validate canonical physical identity; and hazard-distance
+  assertions live on `LiveHazardDetailView`, not the caddie page. The temporary
+  source snapshot was `/home/jason/codex-runs/garmin-ai-caddie-phone-ux2-20260910-c`;
+  its container was `--rm`, with no ports, tunnels, volumes, or dependency
+  installs. It remains allow-listed only until the final cleanup check below.
 
 - 2026-09-09: Native Mobile CI `34406253005` reached all Watch build/runtime evidence
   and failed only at the iOS app target with Swift access-control errors in

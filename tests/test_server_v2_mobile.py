@@ -142,16 +142,16 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(refreshed["holeRemaining_m"], 313.1)
         self.assertEqual(
             [row["id"] for row in refreshed["candidateRoutes"]],
-            ["conservative_layup", "stock_line", "aggressive_line"],
+            ["stock_line", "aggressive_line"],
         )
         self.assertEqual(
             [row["club"] for row in refreshed["candidateRoutes"]],
-            ["1W", "1W", "1W"],
+            ["3W", "1W"],
         )
         self.assertEqual(refreshed["candidateRoutes"][1]["lineRisks"][0]["id"], "water-near")
         self.assertEqual(refreshed["candidateRoutes"][1]["lineRisks"][0]["carryToClear_m"], 200.0)
 
-    def test_mobile_live_paths_keep_driver_modes_for_sparse_par4_bag(self) -> None:
+    def test_mobile_live_paths_do_not_repeat_driver_for_sparse_par4_bag(self) -> None:
         from ai_caddie.caddie import mobile_live
 
         profiles = [
@@ -165,12 +165,136 @@ class ServerV2MobileTests(unittest.TestCase):
             profiles, source_ref="test:1", hazards=[], par=4, target_m=320.0, avoid_zones=[]
         )
 
-        self.assertEqual([row["id"] for row in routes], ["conservative_layup", "stock_line", "aggressive_line"])
-        self.assertEqual([row["club"] for row in routes], ["1W", "1W", "1W"])
-        self.assertTrue(all(row["allowSameClubStrategies"] for row in routes))
-        self.assertEqual([row["id"] for row in options], ["safe", "stock", "attack"])
-        self.assertEqual([row["clubName"] for row in options], ["1W", "1W", "1W"])
-        self.assertTrue(all(row["allowSameClubStrategies"] for row in options))
+        self.assertEqual([row["id"] for row in routes], ["stock_line"])
+        self.assertEqual([row["club"] for row in routes], ["1W"])
+        self.assertEqual([row["id"] for row in options], ["stock"])
+        self.assertEqual([row["clubName"] for row in options], ["1W"])
+        self.assertNotIn("allowSameClubStrategies", routes[0])
+        self.assertNotIn("allowSameClubStrategies", options[0])
+
+    def test_low_sample_clubs_remain_in_independent_caddie_models(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.caddie.decision import _club_performance_metrics
+
+        profiles = [
+            {"clubName": "Club High", "median_m": 205.0, "p10_m": 190.0, "p90_m": 218.0, "sampleSize": 60},
+            {"clubName": "Club Low", "median_m": 190.0, "p10_m": 184.0, "p90_m": 196.0, "sampleSize": 3},
+        ]
+
+        rows = mobile_live._caddie_clean_rows(profiles)
+
+        self.assertEqual({row["clubName"] for row in rows}, {"Club High", "Club Low"})
+        low = next(row for row in rows if row["clubName"] == "Club Low")
+        self.assertGreater(_club_performance_metrics(low)["evidenceStrength"], 0)
+        self.assertLess(_club_performance_metrics(low)["evidenceStrength"], 0.5)
+
+    def test_swapping_arbitrary_club_reliability_swaps_preferred_leave(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.caddie.decision import _sequence_tail
+
+        def profile(name: str, carry: float, *, reliable: bool, tee_club: bool = False) -> dict[str, object]:
+            if tee_club:
+                surfaces = [
+                    {"surface": "fairway", "count": 95, "pct": 95.0},
+                    {"surface": "green", "count": 5, "pct": 5.0},
+                ]
+                return {
+                    "clubName": name,
+                    "median_m": carry,
+                    "p10_m": carry - 10,
+                    "p90_m": carry + 10,
+                    "sampleSize": 100,
+                    "riskRate": 5.0,
+                    "usableRate": 95.0,
+                    "surfaceDistribution": surfaces,
+                }
+            surfaces = (
+                [{"surface": "green", "count": 45, "pct": 90.0}, {"surface": "fairway", "count": 5, "pct": 10.0}]
+                if reliable
+                else [{"surface": "green", "count": 20, "pct": 40.0}, {"surface": "rough", "count": 30, "pct": 60.0}]
+            )
+            return {
+                "clubName": name,
+                "median_m": carry,
+                "p10_m": carry - (4 if reliable else 30),
+                "p90_m": carry + (4 if reliable else 30),
+                "sampleSize": 50,
+                "riskRate": 0.0 if reliable else 40.0,
+                "usableRate": 100.0 if reliable else 40.0,
+                "surfaceDistribution": surfaces,
+            }
+
+        def recommendation(*, near_reliable: bool) -> tuple[str, str]:
+            rows = mobile_live._caddie_clean_rows([
+                profile("Driver", 230.0, reliable=True, tee_club=True),
+                profile("Control Club", 210.0, reliable=True, tee_club=True),
+                profile("Approach Near", 170.0, reliable=near_reliable),
+                profile("Approach Far", 190.0, reliable=not near_reliable),
+            ])
+            _safe, primary, _attack = mobile_live._shot_option_clubs(
+                rows,
+                par=4,
+                target_m=400.0,
+                avoid_zones=[],
+            )
+            self.assertIsNotNone(primary)
+            remaining = 400.0 - float(primary["median_m"])
+            tail = _sequence_tail(rows, remaining)
+            self.assertTrue(tail)
+            return str(primary["clubName"]), str(tail[-1]["clubName"])
+
+        self.assertEqual(recommendation(near_reliable=True), ("Driver", "Approach Near"))
+        self.assertEqual(recommendation(near_reliable=False), ("Control Club", "Approach Far"))
+
+    def test_clear_par4_naturally_selects_driver_once_and_hazard_can_change_it(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        profiles = [
+            {"clubName": "Driver", "median_m": 230.0, "p10_m": 215.0, "p90_m": 245.0, "sampleSize": 60},
+            {"clubName": "3W", "median_m": 205.0, "p10_m": 194.0, "p90_m": 215.0, "sampleSize": 55},
+            {"clubName": "5W", "median_m": 190.0, "p10_m": 180.0, "p90_m": 200.0, "sampleSize": 50},
+            {"clubName": "7I", "median_m": 155.0, "p10_m": 148.0, "p90_m": 162.0, "sampleSize": 50},
+            {"clubName": "PW", "median_m": 110.0, "p10_m": 104.0, "p90_m": 116.0, "sampleSize": 50},
+        ]
+
+        clear = mobile_live._tee_candidate_routes(
+            {"yards": 421}, profiles, [], par=4, target_m=385.0, avoid_zones=[]
+        )
+        water = [{"id": "water-span", "kind": "water", "carryToFront_m": 220.0, "carryToClear_m": 250.0}]
+        guarded = mobile_live._tee_candidate_routes(
+            {"yards": 421}, profiles, [{"id": "water-span", "kind": "water"}],
+            par=4, target_m=385.0, avoid_zones=water,
+        )
+
+        clear_primary = next(row for row in clear if row["id"] == "stock_line")
+        guarded_primary = next(row for row in guarded if row["id"] == "stock_line")
+        self.assertEqual(clear_primary["club"], "Driver")
+        self.assertEqual(sum(row["club"] == "Driver" for row in clear), 1)
+        self.assertNotEqual(guarded_primary["club"], "Driver")
+
+    def test_equal_distance_physical_clubs_are_modeled_independently(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        rows = mobile_live._caddie_clean_rows([
+            {
+                "clubName": "Alpha Club", "median_m": 180.0, "p10_m": 150.0, "p90_m": 210.0,
+                "sampleSize": 40, "riskRate": 35.0, "usableRate": 55.0,
+            },
+            {
+                "clubName": "Beta Club", "median_m": 180.0, "p10_m": 174.0, "p90_m": 186.0,
+                "sampleSize": 40, "riskRate": 2.0, "usableRate": 95.0,
+            },
+        ])
+
+        alternative, primary, _ = mobile_live._shot_option_clubs(
+            rows,
+            par=3,
+            target_m=180.0,
+            avoid_zones=[],
+        )
+
+        self.assertEqual(primary["clubName"], "Beta Club")
+        self.assertEqual(alternative["clubName"], "Alpha Club")
 
     def test_non_live_decision_context_is_not_rehydrated(self) -> None:
         from ai_caddie.caddie import mobile_live

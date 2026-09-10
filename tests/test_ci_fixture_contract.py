@@ -328,8 +328,15 @@ class CIFixtureContractTests(unittest.TestCase):
             }
         )
         decision = caddie_decision({"shotType": "tee", "context": context})
-        self.assertEqual([sequence["id"] for sequence in decision["sequences"]], ["safe", "stock", "attack"])
-        self.assertTrue(all(len(sequence["clubs"]) >= 2 for sequence in decision["sequences"]))
+        sequences = decision["sequences"]
+        self.assertTrue(sequences)
+        self.assertTrue(all(len(sequence["clubs"]) >= 2 for sequence in sequences))
+        signatures = {
+            tuple((club["clubName"], club["targetCarry_m"]) for club in sequence["clubs"])
+            for sequence in sequences
+        }
+        self.assertEqual(len(signatures), len(sequences))
+        self.assertIn(decision["selectedSequence"]["id"], {sequence["id"] for sequence in sequences})
 
     def test_fixture_review_and_asset_identity_is_fail_closed(self) -> None:
         try:
@@ -590,10 +597,16 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertIsInstance(context["clubProfiles"], dict)
         self.assertGreaterEqual(len(context["clubProfiles"]), 3)
         tee_response = caddie_decision({"shotType": "tee", "context": context})
-        self.assertEqual([sequence["id"] for sequence in tee_response["sequences"]], ["safe", "stock", "attack"])
-        self.assertEqual(tee_response["selectedSequence"]["id"], "stock")
-        self.assertTrue(all(len(sequence["clubs"]) >= 2 for sequence in tee_response["sequences"]))
-        self.assertTrue(all(sequence["sourceRefs"] for sequence in tee_response["sequences"]))
+        sequences = tee_response["sequences"]
+        self.assertTrue(sequences)
+        signatures = {
+            tuple((club["clubName"], club["targetCarry_m"]) for club in sequence["clubs"])
+            for sequence in sequences
+        }
+        self.assertEqual(len(signatures), len(sequences))
+        self.assertIn(tee_response["selectedSequence"]["id"], {sequence["id"] for sequence in sequences})
+        self.assertTrue(all(len(sequence["clubs"]) >= 2 for sequence in sequences))
+        self.assertTrue(all(sequence["sourceRefs"] for sequence in sequences))
         self.assertEqual(tee_response["selectedSequence"]["sourceRef"], "home-31795:10")
         response = caddie_decision({"shotType": "approach", "context": context})
         self.assertEqual(response["selected"]["courseGlobalId"], 3881)
