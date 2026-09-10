@@ -8,7 +8,7 @@ final class RoundTenUITests: XCTestCase {
         XCTAssertEqual(caddieOptionId(forStrategyMode: "stock"), "stock")
         XCTAssertEqual(caddieOptionId(forStrategyMode: "protect_score"), "safe")
         XCTAssertEqual(caddieOptionId(forStrategyMode: "attack"), "attack")
-        XCTAssertNil(caddieOptionId(forStrategyMode: "unknown_route"))
+        XCTAssertEqual(caddieOptionId(forStrategyMode: "unknown_route"), "unknown_route")
     }
 
     func testHazardRowsExposeSemanticKindsForSystemIcons() throws {
@@ -17,8 +17,8 @@ final class RoundTenUITests: XCTestCase {
             liveReadouts: nil
         )
 
-        XCTAssertEqual(try XCTUnwrap(hazards.first { $0.label == "沙坑" }).kind, "bunker")
-        XCTAssertTrue(try XCTUnwrap(hazards.first { $0.label == "前方水障碍" }).isWater)
+        XCTAssertEqual(try XCTUnwrap(hazards.first { $0.kind == "bunker" }).kind, "bunker")
+        XCTAssertTrue(try XCTUnwrap(hazards.first { $0.kind == "water" }).isWater)
     }
 
     func testUncalibratedExpectedStrokesStayOutOfPlayerFacingCopy() {
@@ -57,7 +57,11 @@ final class RoundTenUITests: XCTestCase {
                     ),
                 ]
                 ),
-                route: route
+                route: route,
+                map: CoursePrepMap(
+                    image: nil,
+                    overlay: CoursePrepOverlay(w: 240, h: 520, ppm: 1, ln: 260, route: route)
+                )
             ),
             liveReadouts: nil
         )
@@ -105,7 +109,7 @@ final class RoundTenUITests: XCTestCase {
             for: makeHole(hazards: CoursePrepHazards(waterCarry: [[175, 195]], bunkers: [[138, 12]])),
             liveReadouts: nil
         )
-        XCTAssertEqual(hazards.first { $0.kind == "bunker" }?.label, "沙坑")
+        XCTAssertEqual(hazards.first { $0.kind == "bunker" }?.label, "球道沙坑")
         XCTAssertEqual(hazards.first { $0.kind == "water" }?.label, "前方水障碍")
     }
 
@@ -160,7 +164,8 @@ final class RoundTenUITests: XCTestCase {
 
     private func makeHole(
         hazards: CoursePrepHazards,
-        route: [[Double]] = [[100, 500, 0], [100, 100, 300]]
+        route: [[Double]] = [[100, 500, 0], [100, 100, 300]],
+        map: CoursePrepMap? = nil
     ) -> CoursePrepHole {
         CoursePrepHole(
             hole: 1,
@@ -170,7 +175,8 @@ final class RoundTenUITests: XCTestCase {
             routeLenM: route.last?.dropFirst(2).first ?? 300,
             route: route,
             geometryCoverage: "ready",
-            hazards: hazards
+            hazards: hazards,
+            map: map
         )
     }
 }

@@ -62,6 +62,9 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
         }
 
         let route = hole.resolvedMapOverlay?.route
+        // Precise rows need the overlay's topo-pixel route for lateral naming. Legacy interval
+        // rows have no pixels, so their area label can safely use the raw cumulative route.
+        let legacyRoute = route ?? hole.route
         let details = hole.hazards.details
             .filter {
                 ($0.kind == "bunker" || $0.kind == "water")
@@ -120,7 +123,7 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
                     Self(
                         id: "water-legacy-\(index)",
                         kind: "water",
-                        label: CoursePrepHazardNaming.legacyLabel(kind: "water", interval: interval, route: route),
+                        label: CoursePrepHazardNaming.legacyLabel(kind: "water", interval: interval, route: legacyRoute),
                         frontYards: CoursePrepRoute.yards(fromMetres: front),
                         backYards: back.map { CoursePrepRoute.yards(fromMetres: $0) },
                         frontPx: [],
@@ -145,7 +148,7 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
                     Self(
                         id: "bunker-legacy-\(index)",
                         kind: "bunker",
-                        label: CoursePrepHazardNaming.legacyLabel(kind: "bunker", interval: interval, route: route),
+                        label: CoursePrepHazardNaming.legacyLabel(kind: "bunker", interval: interval, route: legacyRoute),
                         frontYards: CoursePrepRoute.yards(fromMetres: front),
                         backYards: nil,
                         frontPx: [],

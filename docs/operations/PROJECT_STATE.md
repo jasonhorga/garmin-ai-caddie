@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-10 20:12 UTC
+**Updated:** 2026-09-10 20:31 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `b9ff8b9d`; current internal-release source `aae339ba`; deployed backend tip
 `5124d6384c71cba0e2f911ab043464aca3e28c46`; MAP1 product-code tip
@@ -477,8 +477,9 @@ TestFlight CD `34425296280` 上传为 Build 55，Apple read-only 检查
 6. 已完成修复：Native Mobile CI `34523500098` 已确认 iOS target 编译失败，原因是
    `semanticSignature` 在属性声明处先以默认值初始化、显式 initializer 又重复赋值；当前
    工作树已移除属性声明处的默认初始化，仅保留 initializer 默认参数；修复已提交为
-   `702a7fb4` 并推送。Native Mobile CI `34524849966` 已按该精确 SHA 重新排队，等待结果。
-   Swift 树同时已为 `CoursePrepHazardDetail` 增加畸形/旧格式
+   `702a7fb4` 并推送。Native Mobile CI `34524849966` 已按该精确 SHA 编译通过，但旧的
+   `RoundTenUITests` 有 6 个命名/未知 route 断言失败；当前工作树已迁移这些断言并修复
+   legacy route 标签回退，待提交后再次验证。Swift 树同时已为 `CoursePrepHazardDetail` 增加畸形/旧格式
    `outlinePx` 的容错解码，并补充缺失、`null`、错误类型和畸形点数组回归测试；需对
    最新 `LiveHazardDetailView` 与 Codable 边界重新走 Native Mobile CI。此前
    `34417237317` 通过的是该 Swift 修正前的提交。
@@ -1564,6 +1565,15 @@ Native runs recorded above; it is retained only as historical diagnosis.
   `34524849966` was dispatched against that exact SHA with the same live API
   origin and backend revision `5124d6384c71cba0e2f911ab043464aca3e28c46`;
   result is pending. No TestFlight, deployment, or sync action was started.
+
+- 2026-09-10: Native Mobile CI `34524849966` compiled the iOS app and ran all
+  309 iOS tests; six failures were stale `RoundTenUITests` expectations (the
+  new route-token passthrough and the overlay-gated precise hazard naming).
+  Watch build, runtime screenshots, scans, and evidence cleanup completed, but
+  the iOS test gate was red. The tests now use a valid topo overlay for lateral
+  naming, assert semantic kind rather than an unavailable label, accept unknown
+  route tokens, and the legacy interval path falls back to the cumulative raw
+  route for fairway/green naming. A new exact-SHA Native run is required.
 
 - 2026-09-10: `CoursePrepHazardDetail` now treats `outlinePx` as an optional
   rendering enhancement. Missing/legacy, `null`, wrong-type, and malformed-point
