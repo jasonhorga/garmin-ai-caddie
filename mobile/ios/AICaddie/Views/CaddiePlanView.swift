@@ -153,6 +153,42 @@ public struct CaddiePlanOption: Identifiable, Equatable {
     /// labels are intentionally excluded because legacy payloads often repeat them for one choice.
     public let semanticSignature: String = ""
 
+    public init(
+        id: String,
+        label: String,
+        carryM: Double,
+        riskScore: Double,
+        clubName: String,
+        p10M: Double?,
+        p90M: Double?,
+        sampleSize: Int?,
+        confidence: String?,
+        coverageText: String?,
+        expectedStrokes: Double?,
+        expectedStrokesDelta: Double?,
+        scoreImpactModel: String?,
+        sourceRefs: [String],
+        missingDataLabels: [String],
+        semanticSignature: String = ""
+    ) {
+        self.id = id
+        self.label = label
+        self.carryM = carryM
+        self.riskScore = riskScore
+        self.clubName = clubName
+        self.p10M = p10M
+        self.p90M = p90M
+        self.sampleSize = sampleSize
+        self.confidence = confidence
+        self.coverageText = coverageText
+        self.expectedStrokes = expectedStrokes
+        self.expectedStrokesDelta = expectedStrokesDelta
+        self.scoreImpactModel = scoreImpactModel
+        self.sourceRefs = sourceRefs
+        self.missingDataLabels = missingDataLabels
+        self.semanticSignature = semanticSignature
+    }
+
     public var qualityText: String {
         var parts: [String] = []
         if let confidence {
@@ -445,6 +481,28 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
     public let steps: [CaddiePlanSequenceStep]
     /// Stable non-label route facts used for deduplication of old repeated strategies.
     public let semanticSignature: String = ""
+
+    public init(
+        id: String,
+        label: String,
+        expectedRemainingM: Double?,
+        riskScore: Double?,
+        confidence: String?,
+        coverageText: String?,
+        sourceRefs: [String],
+        steps: [CaddiePlanSequenceStep],
+        semanticSignature: String = ""
+    ) {
+        self.id = id
+        self.label = label
+        self.expectedRemainingM = expectedRemainingM
+        self.riskScore = riskScore
+        self.confidence = confidence
+        self.coverageText = coverageText
+        self.sourceRefs = sourceRefs
+        self.steps = steps
+        self.semanticSignature = semanticSignature
+    }
 
     public var metaText: String {
         var parts: [String] = []

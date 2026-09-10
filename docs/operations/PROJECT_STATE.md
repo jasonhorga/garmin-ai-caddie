@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-10 19:41 UTC
+**Updated:** 2026-09-10 19:56 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `b9ff8b9d`; current internal-release source `aae339ba`; deployed backend tip
 `5124d6384c71cba0e2f911ab043464aca3e28c46`; MAP1 product-code tip
@@ -474,10 +474,10 @@ TestFlight CD `34425296280` 上传为 Build 55，Apple read-only 检查
 5. 已完成：在包含 `.git`、`.env.example`、Git authority 工具和非 root 文件权限的
    homeserver 容器中完成完整 discovery，`2072 tests` 全部通过，`13 skipped`；旧三序列
    ID 与旧 readiness 置信度分布断言已按真实新行为迁移。
-6. 进行中：Native Mobile CI `34521196474` 在 iOS target 编译阶段暴露了
-   `LiveHazardDetailView.hazardPoint` 将 `CGPoint?` 与 `[Double]?` 回退值混用的类型错误；
-   当前工作树已拆开该回退投影，待重新提交并验证。Swift 树同时已为
-   `CoursePrepHazardDetail` 增加畸形/旧格式
+6. 进行中：Native Mobile CI `34522228651` 在前一项修复后继续暴露了
+   `CaddiePlanOption/CaddiePlanSequence` 的 `semanticSignature` memberwise initializer
+   缺参；当前工作树已补显式公开初始化器并保留默认值，待重新提交并验证。Swift 树同时
+   已为 `CoursePrepHazardDetail` 增加畸形/旧格式
    `outlinePx` 的容错解码，并补充缺失、`null`、错误类型和畸形点数组回归测试；需对
    最新 `LiveHazardDetailView` 与 Codable 边界重新走 Native Mobile CI。此前
    `34417237317` 通过的是该 Swift 修正前的提交。
@@ -1541,6 +1541,13 @@ Native runs recorded above; it is retained only as historical diagnosis.
   the workflow was cancelled after the failed iOS step so its queued Watch work
   did not become evidence. The fallback is now split into overlay-coordinate
   lookup followed by projection, and a new CI run is required.
+
+- 2026-09-10: Follow-up Native Mobile CI `34522228651` reached the iOS app
+  module emission and reported `CaddiePlanView.swift:204:32` extra argument
+  `semanticSignature`. The same run's Watch build and artifact scans completed,
+  but the iOS compile gate remained failed; it was cancelled before any release
+  action. Both public caddie plan structs now have explicit initializers with a
+  default semantic signature, and another exact-SHA Native run is required.
 
 - 2026-09-10: `CoursePrepHazardDetail` now treats `outlinePx` as an optional
   rendering enhancement. Missing/legacy, `null`, wrong-type, and malformed-point
