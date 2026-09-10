@@ -151,7 +151,7 @@ public struct CaddiePlanOption: Identifiable, Equatable {
     public let missingDataLabels: [String]
     /// Stable route facts used to distinguish materially different choices. Mode ids and prose
     /// labels are intentionally excluded because legacy payloads often repeat them for one choice.
-    public let semanticSignature: String = ""
+    public let semanticSignature: String
 
     public init(
         id: String,
@@ -480,7 +480,7 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
     public let sourceRefs: [String]
     public let steps: [CaddiePlanSequenceStep]
     /// Stable non-label route facts used for deduplication of old repeated strategies.
-    public let semanticSignature: String = ""
+    public let semanticSignature: String
 
     public init(
         id: String,

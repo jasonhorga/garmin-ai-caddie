@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-10 19:56 UTC
+**Updated:** 2026-09-10 20:10 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `b9ff8b9d`; current internal-release source `aae339ba`; deployed backend tip
 `5124d6384c71cba0e2f911ab043464aca3e28c46`; MAP1 product-code tip
@@ -474,10 +474,10 @@ TestFlight CD `34425296280` 上传为 Build 55，Apple read-only 检查
 5. 已完成：在包含 `.git`、`.env.example`、Git authority 工具和非 root 文件权限的
    homeserver 容器中完成完整 discovery，`2072 tests` 全部通过，`13 skipped`；旧三序列
    ID 与旧 readiness 置信度分布断言已按真实新行为迁移。
-6. 进行中：Native Mobile CI `34522228651` 在前一项修复后继续暴露了
-   `CaddiePlanOption/CaddiePlanSequence` 的 `semanticSignature` memberwise initializer
-   缺参；当前工作树已补显式公开初始化器并保留默认值，待重新提交并验证。Swift 树同时
-   已为 `CoursePrepHazardDetail` 增加畸形/旧格式
+6. 进行中：Native Mobile CI `34523500098` 已确认 iOS target 编译失败，原因是
+   `semanticSignature` 在属性声明处先以默认值初始化、显式 initializer 又重复赋值；当前
+   工作树已移除属性声明处的默认初始化，仅保留 initializer 默认参数，待提交并重新验证。
+   Swift 树同时已为 `CoursePrepHazardDetail` 增加畸形/旧格式
    `outlinePx` 的容错解码，并补充缺失、`null`、错误类型和畸形点数组回归测试；需对
    最新 `LiveHazardDetailView` 与 Codable 边界重新走 Native Mobile CI。此前
    `34417237317` 通过的是该 Swift 修正前的提交。
@@ -1548,6 +1548,15 @@ Native runs recorded above; it is retained only as historical diagnosis.
   but the iOS compile gate remained failed; it was cancelled before any release
   action. Both public caddie plan structs now have explicit initializers with a
   default semantic signature, and another exact-SHA Native run is required.
+
+- 2026-09-10: Native Mobile CI `34523500098` compiled far enough to expose the
+  next initializer issue: Swift rejected both `CaddiePlanOption` and
+  `CaddiePlanSequence` because their immutable `semanticSignature` properties
+  had a declaration-time value and were assigned again in the explicit
+  initializer. The declaration-time defaults are now removed; the next action
+  is an exact-SHA Native Mobile CI rerun. The run's Watch build, screenshots,
+  scans, and evidence-writing cleanup completed, but the iOS compile failure
+  means it is not product evidence.
 
 - 2026-09-10: `CoursePrepHazardDetail` now treats `outlinePx` as an optional
   rendering enhancement. Missing/legacy, `null`, wrong-type, and malformed-point
