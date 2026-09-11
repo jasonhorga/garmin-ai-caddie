@@ -9,17 +9,16 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-11 04:56 UTC
+**Updated:** 2026-09-11 05:01 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `04adc25c`; current internal-release source `f09b381a`; deployed backend tip
 `5124d6384c71cba0e2f911ab043464aca3e28c46`; MAP1 product-code tip
 `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
 `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
-**Source baseline:** `aae339ba4bae8df9b8a7004f1d5f5064d116fa88` (the Build 53
-feedback and subsequent UX2 boundary fixes are included in internal Build 55;
-the last product-code change is `b9ff8b9d`, and the backend runtime is
-`5124d638`; historical TestFlight build 47 through 54 sources remain recorded
-below)
+**Source baseline:** `f09b381a1754c032e371348a9860c22612fbbc4e` (internal Build 56
+release source; product-code tip `04adc25c`; the follow-up bookkeeping commit
+`b0990443` is documentation-only; backend runtime is `5124d638`; historical
+TestFlight build 47 through 55 sources remain recorded below)
 **Release rule:** the gates are ordered, not circular:
 `canonical source -> source/Native CI and backend preflight -> automatic fresh
 internal TestFlight build/upload (the workflow performs signing) -> Apple
