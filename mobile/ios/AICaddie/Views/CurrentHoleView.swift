@@ -782,6 +782,13 @@ public struct CurrentHoleView: View {
                     .position(x: greenBounds.midX, y: greenBounds.midY)
                     .accessibilityLabel("调整旗位")
                     .accessibilityIdentifier("live-open-green-from-hero")
+                    // Keep the accessibility activation point on the actual green contour.  The
+                    // button is already reduced to the contour's local bounding box, so this point
+                    // remains deterministic for XCTest and VoiceOver without reopening the whole
+                    // map as a green hit target.
+                    .accessibilityActivationPoint(
+                        CGPoint(x: greenBounds.midX, y: greenBounds.midY)
+                    )
                     .zIndex(1)
                 } else if let greenTarget = liveGreenTarget(in: geometry.size) {
                     Button {
