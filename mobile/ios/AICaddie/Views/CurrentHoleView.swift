@@ -787,7 +787,10 @@ public struct CurrentHoleView: View {
                     // remains deterministic for XCTest and VoiceOver without reopening the whole
                     // map as a green hit target.
                     .accessibilityActivationPoint(
-                        CGPoint(x: greenBounds.midX, y: greenBounds.midY)
+                        CGPoint(
+                            x: greenPath.boundingRect.midX,
+                            y: greenPath.boundingRect.midY
+                        )
                     )
                     .zIndex(1)
                 } else if let greenTarget = liveGreenTarget(in: geometry.size) {
