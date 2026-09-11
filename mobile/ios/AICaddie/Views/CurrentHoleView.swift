@@ -751,63 +751,37 @@ public struct CurrentHoleView: View {
     /// needed below the map.
     private var heroInteractionLayer: some View {
         GeometryReader { geometry in
-            let interactiveHeight = max(
-                geometry.size.height - LivePlayMapOverlayLayout.liveMapTopInset,
-                1
-            )
             let greenPath = liveGreenHitPath(in: geometry.size)
             ZStack {
-                Rectangle()
-                    .fill(.clear)
-                    .frame(width: geometry.size.width, height: interactiveHeight)
-                    .position(
-                        x: geometry.size.width / 2,
-                        y: LivePlayMapOverlayLayout.liveMapTopInset + interactiveHeight / 2
-                    )
+                Color.clear
                     .contentShape(Rectangle())
-                    // A tap on the putting surface belongs to View Green. Keep the same guard in
-                    // the map layer so overlapping hit regions cannot open the wrong surface.
-                    .simultaneousGesture(
-                        SpatialTapGesture().onEnded { value in
-                            // This rectangle starts below the fixed header, so SpatialTapGesture
-                            // reports a local y coordinate. The green path is built in the full hero
-                            // coordinate space; convert before deciding whether the map tap should
-                            // win. Without this offset, a green tap can also present the map cover.
-                            let heroLocation = LivePlayMapOverlayLayout.heroCoordinate(
-                                fromInteractionLocation: value.location
-                            )
-                            guard greenPath?.contains(heroLocation) != true else { return }
-                            showMapDetail = true
-                        }
-                    )
-                    .simultaneousGesture(heroMapPinchGesture(in: geometry.size))
-                    // A high-priority parent drag can swallow the green button's tap. The regular
-                    // gesture still owns map panning/swipe navigation outside the putting surface.
-                    .gesture(heroMapPanOrSwipeGesture(in: geometry.size))
-                    .accessibilityLabel("打开地图并选目标")
-                    .accessibilityHint("左右滑动切换球洞")
-                    .accessibilityIdentifier("live-open-map-from-hero")
 
                 if let greenPath {
+                    let greenBounds = greenPath.boundingRect
+                    let localGreenPath = greenPath.applying(
+                        CGAffineTransform(
+                            translationX: -greenBounds.minX,
+                            y: -greenBounds.minY
+                        )
+                    )
                     Button {
                         showGreenDetail = true
                     } label: {
                         Color.white.opacity(0.001)
-                            .frame(width: geometry.size.width, height: geometry.size.height)
-                            .contentShape(greenPath)
+                            .frame(
+                                width: max(greenBounds.width, 1),
+                                height: max(greenBounds.height, 1)
+                            )
+                            .contentShape(localGreenPath)
                     }
                     .buttonStyle(.plain)
+                    .frame(
+                        width: max(greenBounds.width, 1),
+                        height: max(greenBounds.height, 1)
+                    )
+                    .position(x: greenBounds.midX, y: greenBounds.midY)
                     .accessibilityLabel("调整旗位")
                     .accessibilityIdentifier("live-open-green-from-hero")
-                    // The visual button keeps the full map frame so the irregular green path can be
-                    // used as its content shape. Accessibility/XCTest otherwise taps the frame
-                    // center, which may sit in the fairway and never activate this button.
-                    .accessibilityActivationPoint(
-                        CGPoint(
-                            x: greenPath.boundingRect.midX,
-                            y: greenPath.boundingRect.midY
-                        )
-                    )
                     .zIndex(1)
                 } else if let greenTarget = liveGreenTarget(in: geometry.size) {
                     Button {
@@ -825,6 +799,21 @@ public struct CurrentHoleView: View {
                     .zIndex(1)
                 }
             }
+            // Keep all map gestures in the full hero coordinate space. The old gesture lived on a
+            // translated rectangle below the header, which made green-path exclusion depend on
+            // SwiftUI's local-coordinate interpretation and allowed an accessibility tap to be lost.
+            .simultaneousGesture(
+                SpatialTapGesture().onEnded { value in
+                    guard value.location.y >= LivePlayMapOverlayLayout.liveMapTopInset,
+                          greenPath?.contains(value.location) != true else { return }
+                    showMapDetail = true
+                }
+            )
+            .simultaneousGesture(heroMapPinchGesture(in: geometry.size))
+            .gesture(heroMapPanOrSwipeGesture(in: geometry.size))
+            .accessibilityLabel("打开地图并选目标")
+            .accessibilityHint("左右滑动切换球洞")
+            .accessibilityIdentifier("live-open-map-from-hero")
         }
         .frame(height: liveHeroHeight)
     }
