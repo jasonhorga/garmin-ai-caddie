@@ -9,9 +9,9 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-11 21:35 UTC
+**Updated:** 2026-09-11 23:44 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
-`2c160799`; current internal-release source `f09b381a`; deployed backend tip
+`9cddcbd6`; current internal-release source `f09b381a`; deployed backend tip
 `5124d6384c71cba0e2f911ab043464aca3e28c46`; MAP1 product-code tip
 `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
 `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
@@ -1119,7 +1119,7 @@ project-level task list; historical plans are reference material.
 | `MAP1` | `evidence-open` | Physical iPhone feedback for course-loop authority, Touch Target/caddie map arcs and landing interpolation, simplified live controls, and horizontal hole navigation. | Product/test commit `5628cc6d` plus Source CI `34021727402` and Native Mobile CI `34021862658` are green; TestFlight build 50 contains the MAP1 product tree. Held-loupe/device evidence remains open. |
 | `GARMIN-AUTH` | `evidence-open` | Make a successful Garmin web login validate and synchronize against the current CN gateway, then bind the internal app candidate to that backend. | Commit `caf3afad`, source sync follow-up `f24a22dd`, Source CI `34043175968`/`34223501012`, controlled 403-to-200 gateway comparison, healthy public deployment, Native Mobile CI `34223836622`, TestFlight CD `34231106418`, and Apple/group check `34232120285` are complete. One new real-device reconnect/sync remains. |
 | `PHONE-REGRESSION` | `evidence-open` | Unify backend caddie recommendation with the live club strip/map landing, constrain hazard labels/distances to small factual edge numbers, and provide a direct retry for saved-but-unverified Garmin sessions while preserving provider-nearby, manual-search, downloaded-course provenance and A/B/C labels. | Source CI `34223501012`, Native Mobile CI `34223836622`, backend revision `f363872f`, TestFlight Build 53, and Apple processing/group visibility are complete; physical screenshots and device behavior remain evidence-open. |
-| `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Native CI `34546023165` at exact `04adc25c` is fully green: 311 iOS app tests + 50 domain-package tests, 11 live iOS UI tests, 329 Watch tests, live preflight, Codable/design/evidence/secret gates; artifacts and visual checks are recorded in the Native UX2 verification entry above. Physical iPhone/Watch validation of map panning, the dedicated hazard page, pole-foot flag dragging, and the final caddie recommendation remains open. |
+| `PHONE-UX2` | `in-progress` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Native CI `34546023165` at exact `04adc25c` was green, but follow-up Native `34655087985` at `81260294` failed only the live green-entry tap assertion (`live-green-distance-panel` absent). Commit `9cddcbd6` makes the contour button's local hit target deterministic and moves map gestures to the full hero coordinate space; Source CI and a fresh full Native run are pending. Physical iPhone/Watch validation of map panning, the dedicated hazard page, pole-foot flag dragging, and the final caddie recommendation remains open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 | `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |
@@ -1592,12 +1592,11 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Native CI `34644603782` is the completed gate for source `b06299d0`; its
-   live iOS capture failed at the green-detail accessibility assertion, so do
-   not upload it. After that run fully closes, dispatch exactly one full live
-   Native run `34649846180` is queued for final source `2c160799` against
-   backend candidate `c82c0547`. When that exact run is green, start the
-   routine internal TestFlight upload automatically from the same source.
+1. Source CI for `9cddcbd6` must finish successfully, then dispatch exactly one
+   full live Native run against backend candidate `c82c0547`. The prior run
+   `34655087985` at `81260294` is not release-eligible because its green-entry
+   XCUITest assertion failed. When the new exact run is green, start the routine
+   internal TestFlight upload automatically from the same source.
 2. For physical validation, obtain the explicitly authorized internal candidate built
    from the same product tip and install it on the physical iPhone and paired
    Watch. Verify
@@ -1657,6 +1656,18 @@ Native runs recorded above; it is retained only as historical diagnosis.
   master checklist from memory.
 
 ## State Changes
+
+- 2026-09-11: Native Mobile CI `34655087985` completed at source `81260294`.
+  iOS/Watch compilation, unit tests, live preflight, Watch runtime captures,
+  evidence writing, and secret scans passed. The sole failure was
+  `testAuthorizedGPSWithoutFixStillOffersCompleteCatalogueFallback`: tapping
+  `live-open-green-from-hero` did not present `live-green-distance-panel`.
+  The accessibility hierarchy stayed on the hole page, proving neither action
+  fired. The temporary screenshot/log inspection directory is
+  `/home/jason/codex-runs/garmin-native-34655087985-failure-20260911/` with a
+  24-hour expiry. Commit `9cddcbd6` replaces the full-frame contour button with
+  a local bounding-box path button and moves map gestures to full hero space;
+  no TestFlight or distribution action was taken.
 
 - 2026-09-11: After the failed `b06299d0` Native capture, the green-entry
   activation-point fix was committed as `61e613bf`; the scorecard total-label
