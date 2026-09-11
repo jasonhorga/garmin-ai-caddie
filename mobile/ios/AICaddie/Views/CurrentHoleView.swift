@@ -792,6 +792,15 @@ public struct CurrentHoleView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("调整旗位")
                     .accessibilityIdentifier("live-open-green-from-hero")
+                    // The visual button keeps the full map frame so the irregular green path can be
+                    // used as its content shape. Accessibility/XCTest otherwise taps the frame
+                    // center, which may sit in the fairway and never activate this button.
+                    .accessibilityActivationPoint(
+                        CGPoint(
+                            x: greenPath.boundingRect.midX,
+                            y: greenPath.boundingRect.midY
+                        )
+                    )
                     .zIndex(1)
                 } else if let greenTarget = liveGreenTarget(in: geometry.size) {
                     Button {
