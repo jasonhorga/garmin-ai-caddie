@@ -9,9 +9,9 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-11 05:15 UTC
+**Updated:** 2026-09-11 21:35 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
-`04adc25c`; current internal-release source `f09b381a`; deployed backend tip
+`2c160799`; current internal-release source `f09b381a`; deployed backend tip
 `5124d6384c71cba0e2f911ab043464aca3e28c46`; MAP1 product-code tip
 `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
 `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
@@ -1592,9 +1592,12 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Keep Native CI `34546023165` as the simulator gate of record; no duplicate run
-   or new TestFlight upload is needed for this slice. Its artifacts and visual
-   conclusions are recorded in the Native UX2 verification entry above.
+1. Native CI `34644603782` is the completed gate for source `b06299d0`; its
+   live iOS capture failed at the green-detail accessibility assertion, so do
+   not upload it. After that run fully closes, dispatch exactly one full live
+   Native run `34649846180` is queued for final source `2c160799` against
+   backend candidate `c82c0547`. When that exact run is green, start the
+   routine internal TestFlight upload automatically from the same source.
 2. For physical validation, obtain the explicitly authorized internal candidate built
    from the same product tip and install it on the physical iPhone and paired
    Watch. Verify
@@ -1654,6 +1657,25 @@ Native runs recorded above; it is retained only as historical diagnosis.
   master checklist from memory.
 
 ## State Changes
+
+- 2026-09-11: After the failed `b06299d0` Native capture, the green-entry
+  activation-point fix was committed as `61e613bf`; the scorecard total-label
+  interpolation correction and its contract assertion followed in
+  `2c160799`. Homeserver focused contracts passed `2/2`, the candidate API
+  reported backend revision `c82c0547` with Topo v10 HTTP 200, and Native
+  Mobile CI `34649846180` was dispatched at exact source `2c160799` with live
+  preflight required. No TestFlight upload has been made from the failed run.
+
+- 2026-09-11: Native Mobile CI `34644603782` reached the live iOS journey at
+  exact source `b06299d0`; compile, 311 iOS tests, live preflight, and the
+  preceding map/caddie assertions passed, but
+  `testAuthorizedGPSWithoutFixStillOffersCompleteCatalogueFallback` could not
+  find `live-green-distance-panel` after tapping the irregular green entry.
+  The full-frame transparent button's default accessibility tap point was the
+  map center rather than the green outline. The minimal product fix adds the
+  outline bounds as its activation point and is pushed as `61e613bf`.
+  The failed source is not eligible for TestFlight; its Watch/evidence tail is
+  still closing, and the next action is one exact-SHA Native rerun.
 
 - 2026-09-11: Native Mobile CI `34534905003` completed at exact source
   `3b77b596`. All compile, 309 iOS unit tests, SwiftJCS/design/live-preflight,
