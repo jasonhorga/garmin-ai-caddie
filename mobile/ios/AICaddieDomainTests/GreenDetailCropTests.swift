@@ -2,7 +2,7 @@ import XCTest
 @testable import AICaddieDomain
 
 final class GreenDetailCropTests: XCTestCase {
-    func testCropRetainsApproachApronAndStaysInsideWholeHoleFrame() throws {
+    func testCropKeepsTheGreenLargeAndCentredWithOnlyAModestApron() throws {
         let crop = try XCTUnwrap(GreenDetailCrop.around(
             points: [
                 [410, 257], [452, 252], [470, 281],
@@ -13,11 +13,13 @@ final class GreenDetailCropTests: XCTestCase {
         ))
 
         XCTAssertEqual(crop.width, crop.height)
-        XCTAssertEqual(crop.width, 420)
+        XCTAssertEqual(crop.width, 180)
         XCTAssertLessThanOrEqual(crop.x + crop.width, 720)
         XCTAssertLessThanOrEqual(crop.y + crop.height, 1120)
         XCTAssertLessThan(crop.x, 397)
         XCTAssertGreaterThan(crop.x + crop.width, 470)
+        XCTAssertGreaterThanOrEqual(crop.x, 0)
+        XCTAssertGreaterThanOrEqual(crop.y, 0)
     }
 
     func testCropClampsAtImageEdgeWithoutChangingItsScale() throws {

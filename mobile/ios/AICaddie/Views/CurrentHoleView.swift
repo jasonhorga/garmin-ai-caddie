@@ -651,8 +651,7 @@ public struct CurrentHoleView: View {
                 teeLabel: teeLabelZh,
                 roundToParText: roundToParText,
                 onBack: { dismiss() },
-                onFinishRound: { showRoundSummary = true },
-                onOpenMap: { showMapDetail = true }
+                onFinishRound: { showRoundSummary = true }
             )
             .padding(.horizontal, 20)
             .padding(.top, 4)
@@ -715,6 +714,7 @@ public struct CurrentHoleView: View {
             .frame(width: geo.size.width, height: geo.size.height)
             .scaleEffect(heroDisplayedMapScale)
             .offset(heroDisplayedMapOffset(in: geo.size))
+            .animation(nil, value: heroMapDragOffset)
         }
         .frame(height: liveHeroHeight)
         .clipped()
@@ -771,7 +771,16 @@ public struct CurrentHoleView: View {
                     .accessibilityHint("左右滑动切换球洞")
                     .accessibilityIdentifier("live-open-map-from-hero")
 
-                if let greenTarget = liveGreenTarget(in: geometry.size) {
+                if let greenPath = liveGreenHitPath(in: geometry.size) {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.001))
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .contentShape(greenPath)
+                        .onTapGesture { showGreenDetail = true }
+                        .accessibilityLabel("调整旗位")
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityIdentifier("live-open-green-from-hero")
+                } else if let greenTarget = liveGreenTarget(in: geometry.size) {
                     Button {
                         showGreenDetail = true
                     } label: {
@@ -890,7 +899,8 @@ public struct CurrentHoleView: View {
                              topoURL: liveTopoURL, showsCardChrome: false,
                              showsRecommendedRoute: true,
                              showsHazards: false,
-                             showsPrepClubLabel: false)
+                             showsPrepClubLabel: false,
+                             showsClubLabel: false)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(
                     holePrep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
@@ -1124,9 +1134,9 @@ public struct CurrentHoleView: View {
         guard let recommendation = recommendedClubChoice else { return nil }
         let name = zhClubDisplayName(recommendation.name)
         if let carry = recommendation.carryMetres {
-            return "下一杆 · \(name) · \(CoursePrepRoute.yards(fromMetres: carry)) 码"
+            return "下一杆：\(name) · \(CoursePrepRoute.yards(fromMetres: carry)) 码"
         }
-        return "下一杆 · \(name)"
+        return "下一杆：\(name)"
     }
 
     /// All relevant mapped hazards belong to the dedicated obstacle instrument. Keeping this count
@@ -1237,6 +1247,34 @@ public struct CurrentHoleView: View {
             into: heroSize,
             topInset: LivePlayMapOverlayLayout.liveMapTopInset
         )
+    }
+
+    /// The green entry follows the factual putting-surface boundary instead of a fixed hit circle
+    /// around the pin. The path is projected and transformed with the hero map, so it remains
+    /// correct while the player is inspecting a zoomed/panned hole.
+    private func liveGreenHitPath(in heroSize: CGSize) -> Path? {
+        guard let overlay = holePrep?.resolvedMapOverlay,
+              let outline = holePrep?.greenOutline,
+              outline.available else { return nil }
+        let points = outline.pointsPx.compactMap { row -> CGPoint? in
+            guard row.count >= 2,
+                  row[0].isFinite,
+                  row[1].isFinite,
+                  let projected = LivePlayMapOverlayLayout.project(
+                      overlayPoint: row,
+                      overlayWidth: overlay.w,
+                      overlayHeight: overlay.h,
+                      into: heroSize,
+                      topInset: LivePlayMapOverlayLayout.liveMapTopInset
+                  ) else { return nil }
+            return transformedHeroPoint(projected, in: heroSize)
+        }
+        guard points.count >= 3 else { return nil }
+        var path = Path()
+        path.move(to: points[0])
+        for point in points.dropFirst() { path.addLine(to: point) }
+        path.closeSubpath()
+        return path
     }
 
     /// Project any topo-pixel fact through exactly the same aspect-fit transform as the bitmap.

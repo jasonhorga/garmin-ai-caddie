@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-11 05:01 UTC
+**Updated:** 2026-09-11 05:15 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `04adc25c`; current internal-release source `f09b381a`; deployed backend tip
 `5124d6384c71cba0e2f911ab043464aca3e28c46`; MAP1 product-code tip
@@ -507,7 +507,7 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`PHONE-UX2` — 7813–7819 真机交互与信息架构修正** (`evidence-open`)
+**`PHONE-UX2` — 7813–7819 真机交互与信息架构修正** (`in-progress`)
 
 本轮处理 TestFlight Build 53 的真机截图反馈：简化 Touch Target/旗位拖动放大镜，
 移除地图上的大外圆、双圆与十字准心，并把放大视图与手指保持可见间距；缩小并错开

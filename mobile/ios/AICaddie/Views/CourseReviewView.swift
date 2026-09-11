@@ -205,28 +205,25 @@ public struct CourseReviewView: View {
     }
 
     private func pendingHoleCard(_ holeNumber: Int) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255))
-                    .frame(maxWidth: .infinity, minHeight: 420)
-                VStack(spacing: 10) {
-                    Image(systemName: "arrow.down.circle")
-                        .font(.title2)
-                        .foregroundStyle(.white)
-                    Text("完整球场包安装后显示第 \(holeNumber) 洞")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                }
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(LiveHoleStyle.green)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("第 \(holeNumber) 洞")
+                    .font(.headline.weight(.bold))
+                    .accessibilityIdentifier("prep-hole-header-\(holeNumber)")
+                Text("地图准备中，完成后自动显示")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("prep-hole-map-\(holeNumber)")
-
-            Text("第 \(holeNumber) 洞 · 地图准备中")
-                .font(.headline.weight(.bold))
-                .accessibilityIdentifier("prep-hole-header-\(holeNumber)")
+            Spacer(minLength: 0)
         }
-        .hubCard()
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("prep-hole-map-\(holeNumber)")
     }
 
     private var missingLocalPackageState: some View {

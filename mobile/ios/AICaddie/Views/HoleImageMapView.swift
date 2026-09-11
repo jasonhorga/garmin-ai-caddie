@@ -43,6 +43,9 @@ public struct HoleImageMapView: View {
     /// Preparation-only fallback label. Live play must wait for an authoritative selected club so a
     /// stale `tee_club` never contradicts the caddie strip while its request is loading.
     public let showsPrepClubLabel: Bool
+    /// Live play can keep the factual landing marker/route while presenting the club answer in the
+    /// caddie panel. This prevents a tiny map label from competing with the prominent "下一杆" copy.
+    public let showsClubLabel: Bool
     /// Pre-round only: place static tee-based F/M/B and measured obstacle-edge ranges on the map.
     /// Live play supplies current-GPS ranges in `CurrentHoleView`, so its caller leaves this false
     /// and never gets a duplicate or a tee distance disguised as a live distance.
@@ -56,7 +59,7 @@ public struct HoleImageMapView: View {
                 topoURL: URL? = nil, showsCardChrome: Bool = true,
                 showsRecommendedRoute: Bool = true, showsHazards: Bool = true,
                 showsPrepFactOverlays: Bool = false, allowsRotation: Bool = false,
-                showsPrepClubLabel: Bool = true) {
+                showsPrepClubLabel: Bool = true, showsClubLabel: Bool = true) {
         self.hole = hole
         self.selectedClub = selectedClub
         self.selectedClubMetres = selectedClubMetres
@@ -68,6 +71,7 @@ public struct HoleImageMapView: View {
         self.showsPrepFactOverlays = showsPrepFactOverlays
         self.allowsRotation = allowsRotation
         self.showsPrepClubLabel = showsPrepClubLabel
+        self.showsClubLabel = showsClubLabel
     }
 
     public var body: some View {
@@ -173,7 +177,7 @@ public struct HoleImageMapView: View {
         if showsRecommendedRoute, let center = landing {
             context.fill(Path(ellipseIn: CGRect(x: center.x - 8, y: center.y - 8, width: 16, height: 16)), with: .color(LiveHoleStyle.green))
             context.fill(Path(ellipseIn: CGRect(x: center.x - 3, y: center.y - 3, width: 6, height: 6)), with: .color(.white))
-            if let club = clubLabel {
+            if showsClubLabel, let club = clubLabel {
                 context.draw(
                     Text(club).font(.caption2.weight(.bold)).foregroundColor(.white),
                     at: Self.clubLabelPoint(landing: center, pin: pin)

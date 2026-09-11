@@ -64,6 +64,27 @@ final class AICaddieAppTests: XCTestCase {
         )
     }
 
+    func testCourseSearchDoesNotShowEmptyStateWhileRequestIsStillRunning() {
+        XCTAssertFalse(
+            MobileCourseSearchView.shouldShowEmptyState(
+                didSearch: true,
+                searchCompleted: false,
+                isSearching: true,
+                hasMatches: false,
+                hasError: false
+            )
+        )
+        XCTAssertTrue(
+            MobileCourseSearchView.shouldShowEmptyState(
+                didSearch: true,
+                searchCompleted: true,
+                isSearching: false,
+                hasMatches: false,
+                hasError: false
+            )
+        )
+    }
+
     func testGarminImportErrorsKeepAuthorizationFailureActionable() {
         XCTAssertEqual(
             GarminSessionView.importErrorMessage(SyncClientError.http(status: 401, body: nil)),

@@ -49,6 +49,7 @@ public struct MobileCourseSearchView: View {
     @State private var activeSearch: SearchKind?
     @State private var lastSearch: SearchKind?
     @State private var didSearch = false
+    @State private var searchCompleted = false
     @State private var errorText: String?
 
     public init(
@@ -174,7 +175,16 @@ public struct MobileCourseSearchView: View {
                 }
             }
 
-            if didSearch, matches.isEmpty, errorText == nil {
+            // `didSearch` is set before the async request starts so the button can immediately
+            // reflect the active query. Empty results are a conclusion, not a loading state: do not
+            // render the empty state until the request's defer has marked it complete.
+            if Self.shouldShowEmptyState(
+                didSearch: didSearch,
+                searchCompleted: searchCompleted,
+                isSearching: activeSearch != nil,
+                hasMatches: !matches.isEmpty,
+                hasError: errorText != nil
+            ) {
                 Section {
                     ContentUnavailableView(
                         "没有匹配结果",
@@ -422,8 +432,12 @@ public struct MobileCourseSearchView: View {
         activeSearch = .manual
         lastSearch = .manual
         didSearch = true
+        searchCompleted = false
         errorText = nil
-        defer { activeSearch = nil }
+        defer {
+            activeSearch = nil
+            searchCompleted = true
+        }
         do {
             var seen = Set<Int>()
             let hasKeyword = trimmedQuery.count >= 2
@@ -451,8 +465,12 @@ public struct MobileCourseSearchView: View {
         activeSearch = .nearby
         lastSearch = .nearby
         didSearch = true
+        searchCompleted = false
         errorText = nil
-        defer { activeSearch = nil }
+        defer {
+            activeSearch = nil
+            searchCompleted = true
+        }
         do {
             var seen = Set<Int>()
             matches = try await onNearby(
@@ -476,6 +494,16 @@ public struct MobileCourseSearchView: View {
         return nearby
             ? "现在无法读取附近球场，请检查网络或改用名称搜索。"
             : "现在无法搜索球场，请检查网络后重试。"
+    }
+
+    static func shouldShowEmptyState(
+        didSearch: Bool,
+        searchCompleted: Bool,
+        isSearching: Bool,
+        hasMatches: Bool,
+        hasError: Bool
+    ) -> Bool {
+        didSearch && searchCompleted && !isSearching && !hasMatches && !hasError
     }
 
 }

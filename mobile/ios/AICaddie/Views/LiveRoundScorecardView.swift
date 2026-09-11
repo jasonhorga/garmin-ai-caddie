@@ -53,6 +53,9 @@ struct LiveRoundScorecardView: View {
                     if holes.count > 9 {
                         scoreNine(title: "后九", holes: Array(holes.dropFirst(9).prefix(9)))
                     }
+                    if let totalScore {
+                        totalSummary(totalScore: totalScore, toPar: totalToPar)
+                    }
                     selectedActions
                 }
                 .padding(.horizontal, 14)
@@ -76,13 +79,21 @@ struct LiveRoundScorecardView: View {
                     .foregroundStyle(LivePlayStyle.ink60)
             }
             Spacer(minLength: 0)
-            if let totalToPar {
-                Text(toParText(totalToPar))
-                    .font(.headline.monospacedDigit().weight(.heavy))
-                    .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: totalToPar))
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 10)
-                    .background(LivePlayStyle.fill08, in: Capsule())
+            VStack(alignment: .trailing, spacing: 3) {
+                if let totalScore {
+                    Text("总杆 \(totalScore)")
+                        .font(.subheadline.monospacedDigit().weight(.heavy))
+                        .foregroundStyle(LivePlayStyle.ink)
+                        .accessibilityIdentifier("live-scorecard-total-score-header")
+                }
+                if let totalToPar {
+                    Text(toParText(totalToPar))
+                        .font(.headline.monospacedDigit().weight(.heavy))
+                        .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: totalToPar))
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 8)
+                        .background(LivePlayStyle.fill08, in: Capsule())
+                }
             }
             Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -152,6 +163,37 @@ struct LiveRoundScorecardView: View {
         .padding(10)
         .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 15))
         .overlay(RoundedRectangle(cornerRadius: 15).stroke(LivePlayStyle.stroke10))
+    }
+
+    private func totalSummary(totalScore: Int, toPar: Int?) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("本场总分")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(LivePlayStyle.ink60)
+                Text("\(totalScore) 杆")
+                    .font(.system(size: 25, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(LivePlayStyle.ink)
+                    .accessibilityIdentifier("live-scorecard-total-score")
+            }
+            Spacer(minLength: 0)
+            if let toPar {
+                Text(toParText(toPar))
+                    .font(.headline.monospacedDigit().weight(.heavy))
+                    .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 11)
+                    .background(LivePlayStyle.fill08, in: Capsule())
+                    .accessibilityLabel("本场 (toParText(toPar))")
+            }
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(LivePlayStyle.stroke10))
+        .accessibilityIdentifier("live-scorecard-total-summary")
     }
 
     private func scoreRow<Content: View>(
@@ -267,6 +309,11 @@ struct LiveRoundScorecardView: View {
         let recorded = holes.compactMap { hole -> Int? in
             score(for: hole).map { $0 - hole.par }
         }
+        return recorded.isEmpty ? nil : recorded.reduce(0, +)
+    }
+
+    private var totalScore: Int? {
+        let recorded = holes.compactMap { score(for: $0) }
         return recorded.isEmpty ? nil : recorded.reduce(0, +)
     }
 

@@ -174,13 +174,15 @@ struct TopoHoleBaseImage: View {
     }
 
     private var loadingImage: some View {
-        ZStack {
+        // Keep the already-available fallback visible, but avoid covering it with a second
+        // illustration/card while the revision-bound PNG is fetched. A small corner spinner is
+        // enough feedback and lets the player read the map immediately.
+        ZStack(alignment: .topTrailing) {
             fallbackImage
-            Color.black.opacity(0.24)
-            ProgressView("球场地图加载中…")
+            ProgressView()
+                .controlSize(.small)
                 .tint(.white)
-                .foregroundStyle(.white)
-                .font(.caption.weight(.semibold))
+                .padding(8)
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("topo-hole-base-loading")

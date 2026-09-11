@@ -172,6 +172,10 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
 struct LiveHazardDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedHazardID: String?
+    @State private var mapScale: CGFloat = 1
+    @State private var mapOffset: CGSize = .zero
+    @State private var transientMapOffset: CGSize = .zero
+    @GestureState private var pinchScale: CGFloat = 1
 
     let hole: CoursePrepHole
     let topoURL: URL?
@@ -232,6 +236,7 @@ struct LiveHazardDetailView: View {
                 }
                 .padding(.top, 66)
             }
+            .scrollDisabled(mapScale > 1.01 || abs(pinchScale - 1) > 0.01)
             header
         }
         .preferredColorScheme(.dark)
@@ -278,26 +283,166 @@ struct LiveHazardDetailView: View {
 
     private var hazardMap: some View {
         GeometryReader { proxy in
-            ZStack {
-                HoleImageMapView(
-                    hole: hole,
-                    topoURL: topoURL,
-                    showsCardChrome: false,
-                    showsRecommendedRoute: false,
-                    showsHazards: false
-                )
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                Canvas { context, size in
-                    drawSelectedHazard(&context, size: size)
+            let displayedScale = min(max(mapScale * pinchScale, 1), 4)
+            let proposedOffset = CGSize(
+                width: mapOffset.width + transientMapOffset.width,
+                height: mapOffset.height + transientMapOffset.height
+            )
+            let displayedOffset = clamped(
+                proposedOffset,
+                in: proxy.size,
+                scale: displayedScale
+            )
+            ZStack(alignment: .topTrailing) {
+                hazardMapContent(size: proxy.size)
+                    .scaleEffect(displayedScale)
+                    .offset(displayedOffset)
+
+                hazardMapInteraction(size: proxy.size)
+
+                VStack(spacing: 8) {
+                    hazardMapControl(
+                        systemName: "plus.magnifyingglass",
+                        label: "放大障碍物地图",
+                        identifier: "live-hazard-zoom-in"
+                    ) {
+                        changeMapScale(by: 0.5, in: proxy.size)
+                    }
+                    hazardMapControl(
+                        systemName: "minus.magnifyingglass",
+                        label: "缩小障碍物地图",
+                        identifier: "live-hazard-zoom-out"
+                    ) {
+                        changeMapScale(by: -0.5, in: proxy.size)
+                    }
+                    hazardMapControl(
+                        systemName: "scope",
+                        label: "还原障碍物地图",
+                        identifier: "live-hazard-fit"
+                    ) {
+                        resetMapViewport()
+                    }
                 }
-                .allowsHitTesting(false)
-                .accessibilityIdentifier("selected-hazard-map-outline")
+                .padding(.top, 12)
+                .padding(.trailing, 12)
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
+            .animation(nil, value: transientMapOffset)
         }
         .frame(height: mapHeight)
         .clipped()
         .background(Color.black.opacity(0.18))
         .accessibilityLabel("当前障碍物位置")
+    }
+
+    @ViewBuilder
+    private func hazardMapContent(size: CGSize) -> some View {
+        ZStack {
+            HoleImageMapView(
+                hole: hole,
+                topoURL: topoURL,
+                showsCardChrome: false,
+                showsRecommendedRoute: false,
+                showsHazards: false
+            )
+            .frame(width: size.width, height: size.height)
+            Canvas { context, canvasSize in
+                drawSelectedHazard(&context, size: canvasSize)
+            }
+            .allowsHitTesting(false)
+            .accessibilityIdentifier("selected-hazard-map-outline")
+        }
+        .frame(width: size.width, height: size.height)
+    }
+
+    private func hazardMapInteraction(size: CGSize) -> some View {
+        Rectangle()
+            .fill(.clear)
+            .frame(width: size.width, height: size.height)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 4)
+                    .onChanged { value in
+                        guard mapScale * pinchScale > 1.01 else { return }
+                        transientMapOffset = value.translation
+                    }
+                    .onEnded { value in
+                        guard mapScale > 1.01 || abs(pinchScale - 1) > 0.01 else {
+                            transientMapOffset = .zero
+                            return
+                        }
+                        mapOffset = clamped(
+                            CGSize(
+                                width: mapOffset.width + value.translation.width,
+                                height: mapOffset.height + value.translation.height
+                            ),
+                            in: size,
+                            scale: mapScale
+                        )
+                        transientMapOffset = .zero
+                    }
+            )
+            .simultaneousGesture(
+                MagnificationGesture()
+                    .updating($pinchScale) { value, state, _ in state = value }
+                    .onEnded { value in
+                        mapScale = min(max(mapScale * value, 1), 4)
+                        mapOffset = clamped(mapOffset, in: size, scale: mapScale)
+                    }
+            )
+            .accessibilityHidden(true)
+    }
+
+    private func hazardMapControl(
+        systemName: String,
+        label: String,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.black)
+                .frame(width: 38, height: 38)
+                .background(Color.white.opacity(0.94), in: Circle())
+                .shadow(color: .black.opacity(0.28), radius: 3, y: 1)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func changeMapScale(by delta: CGFloat, in size: CGSize) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            mapScale = min(max(mapScale + delta, 1), 4)
+            mapOffset = clamped(mapOffset, in: size, scale: mapScale)
+        }
+    }
+
+    private func resetMapViewport() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            mapScale = 1
+            mapOffset = .zero
+            transientMapOffset = .zero
+        }
+    }
+
+    private func clamped(_ value: CGSize, in size: CGSize, scale: CGFloat) -> CGSize {
+        guard let overlay = hole.resolvedMapOverlay,
+              let frame = LivePlayMapOverlayLayout.mapFrame(
+                  overlayWidth: overlay.w,
+                  overlayHeight: overlay.h,
+                  in: size
+              ) else {
+            return scale > 1 ? value : .zero
+        }
+        return LivePlayMapOverlayLayout.clampedOffset(
+            value,
+            mapFrame: frame,
+            viewportSize: size,
+            scale: scale
+        )
     }
 
     private func selectedHazardPanel(_ row: LiveHazardDisplayItem, index: Int) -> some View {
@@ -402,6 +547,12 @@ struct LiveHazardDetailView: View {
     private func select(index: Int) {
         guard rows.indices.contains(index) else { return }
         selectedHazardID = rows[index].id
+        // Each obstacle is a separate inspection task. Refit when switching so the newly selected
+        // outline and its two edge labels are immediately visible instead of inheriting a pan from
+        // the previous obstacle.
+        mapScale = 1
+        mapOffset = .zero
+        transientMapOffset = .zero
         #if canImport(UIKit)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #endif
@@ -470,7 +621,11 @@ struct LiveHazardDetailView: View {
             )
         }
 
-        for (point, label) in [(front, "前"), (back, "后")] {
+        let edgeLabels: [(CGPoint?, String, Int?)] = [
+            (front, "前", row.frontYards),
+            (back, "后", row.backYards),
+        ]
+        for (point, label, yards) in edgeLabels {
             guard let point else { continue }
             let marker = Path(ellipseIn: CGRect(x: point.x - 5, y: point.y - 5, width: 10, height: 10))
             context.fill(marker, with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)))
@@ -480,10 +635,12 @@ struct LiveHazardDetailView: View {
                 isFront: label == "前",
                 viewportSize: size
             )
+            let labelText = yards.map { "\(label) \($0)" } ?? label
+            let labelWidth: CGFloat = yards == nil ? LiveHazardFocusRingLayout.labelWidth : 52
             let labelRect = CGRect(
-                x: labelCenter.x - LiveHazardFocusRingLayout.labelWidth / 2,
+                x: labelCenter.x - labelWidth / 2,
                 y: labelCenter.y - LiveHazardFocusRingLayout.labelHeight / 2,
-                width: LiveHazardFocusRingLayout.labelWidth,
+                width: labelWidth,
                 height: LiveHazardFocusRingLayout.labelHeight
             )
             context.fill(
@@ -491,7 +648,7 @@ struct LiveHazardDetailView: View {
                 with: .color(.black.opacity(0.72))
             )
             context.draw(
-                Text(label).font(.system(size: 10, weight: .heavy)).foregroundColor(.white),
+                Text(labelText).font(.system(size: 10, weight: .heavy)).foregroundColor(.white),
                 at: labelCenter
             )
         }

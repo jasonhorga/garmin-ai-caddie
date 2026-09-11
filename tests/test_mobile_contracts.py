@@ -2177,13 +2177,24 @@ class MobileContractTests(unittest.TestCase):
     def test_ios_topo_map_distinguishes_loading_ready_and_failure(self) -> None:
         topo_base = _read_required_source(self, IOS_DIR / "Views" / "TopoHoleBaseImage.swift")
 
-        self.assertIn('ProgressView("球场地图加载中…")', topo_base)
+        # Loading keeps the already available fallback visible and uses a compact spinner rather
+        # than the removed full-map explanatory overlay.
+        self.assertIn("ProgressView()", topo_base)
+        self.assertIn(".controlSize(.small)", topo_base)
         self.assertIn('.accessibilityIdentifier("topo-hole-base-loading")', topo_base)
         self.assertIn('.accessibilityElement(children: .ignore)', topo_base)
         self.assertIn('.accessibilityIdentifier("topo-hole-base-ready")', topo_base)
         self.assertIn("imageStore.failedURL == topoURL", topo_base)
         self.assertIn("if let image = imageStore.image", topo_base)
         self.assertIn("fallbackImage", topo_base)
+
+    def test_live_scorecard_exposes_round_total_for_recorded_holes(self) -> None:
+        scorecard = _read_required_source(self, IOS_DIR / "Views" / "LiveRoundScorecardView.swift")
+
+        self.assertIn("if let totalScore", scorecard)
+        self.assertIn('accessibilityIdentifier("live-scorecard-total-score")', scorecard)
+        self.assertIn("let recorded = holes.compactMap { score(for: $0) }", scorecard)
+        self.assertIn('Text("本场 \\(toParText(toPar))")', scorecard)
 
     def test_ios_club_naming_and_lie_filter(self) -> None:
         golf_club = _read_required_source(self, IOS_DIR / "Views" / "GolfClub.swift")
@@ -3504,9 +3515,21 @@ class MobileContractTests(unittest.TestCase):
         hazard_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveHazardDetailView.swift")
         self.assertIn("showsRecommendedRoute: false", hazard_detail)
         self.assertIn("showsHazards: false", hazard_detail)
-        self.assertIn("drawSelectedHazard(&context, size: size)", hazard_detail)
+        self.assertIn("Canvas { context, canvasSize in", hazard_detail)
+        self.assertIn("drawSelectedHazard(&context, size: canvasSize)", hazard_detail)
+        self.assertIn('identifier: "live-hazard-zoom-in"', hazard_detail)
+        self.assertIn('identifier: "live-hazard-zoom-out"', hazard_detail)
+        self.assertIn('identifier: "live-hazard-fit"', hazard_detail)
         self.assertIn('identifier: "hazard-next"', hazard_detail)
         self.assertIn('accessibilityIdentifier("selected-hazard-', hazard_detail)
+
+    def test_live_green_detail_keeps_crop_interaction_when_detail_asset_is_unavailable(self) -> None:
+        green_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveGreenDetailView.swift")
+
+        self.assertIn("private var activeDetailCrop: GreenDetailCrop?", green_detail)
+        self.assertIn("return crop()", green_detail)
+        self.assertNotIn("guard detailURL != nil else { return nil }", green_detail)
+        self.assertIn("TopoHoleBaseImage(topoURL: detailURL, fallback: detailFallbackImage)", green_detail)
 
     def test_ios_round_review_runtime_capture_uses_stable_navigation_identifiers(self) -> None:
         resolver = _read_required_source(

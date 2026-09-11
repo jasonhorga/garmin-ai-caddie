@@ -1499,9 +1499,9 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    /// Fetch topo PNGs with a bounded concurrency window. The offline caller uses two-hole batches:
-    /// a cold topo render is CPU-heavy, and four simultaneous renders made interactive nearby/search/
-    /// map requests wait behind the background course download. Returning after each small batch lets
+    /// Fetch topo PNGs with a bounded concurrency window. Live play uses two-hole batches because a
+    /// cold topo render is CPU-heavy; the durable prep queue can use four immutable ready-byte
+    /// requests once its first map is on disk. Returning after each small batch lets
     /// the caller persist progress before moving on, so a later resume skips completed holes.
     private func fetchOfflineTopoImages(
         _ holes: [(globalId: Int, localHole: Int, geometryRevision: String?)],
@@ -1719,17 +1719,20 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             // Keep the card the player opens first ahead of throughput work. Starting holes 1 and
             // 2 concurrently made the second request win the scheduler occasionally, so a wholly
-            // cold course gets one priority bitmap first. Once any map is durable, later incremental
-            // passes use the bounded two-hole window immediately instead of serialising a new hole.
+            // cold course gets one priority bitmap first. Once any map is durable, prep downloads
+            // use a wider four-hole window while live play keeps the lighter two-hole lane.
             let needsPriorityLane = prepDownloadID == nil && downloadedHoleCount() == 0
             var readyIndex = 0
             while readyIndex < ready.count {
                 guard !Task.isCancelled else { return }
-                let window = readyIndex == 0 && needsPriorityLane ? 1 : 2
+                let window = readyIndex == 0 && needsPriorityLane
+                    ? 1
+                    : (prepDownloadID == nil ? 2 : 4)
                 let end = min(readyIndex + window, ready.count)
                 let downloads = await fetchOfflineTopoImages(
                     Array(ready[readyIndex..<end]),
-                    using: syncClient
+                    using: syncClient,
+                    maximumConcurrentRequests: prepDownloadID == nil ? 2 : 4
                 )
                 guard !Task.isCancelled else { return }
                 for download in downloads {
@@ -2042,11 +2045,14 @@ public final class LiveRoundAppModel: ObservableObject {
             var missingIndex = 0
             while missingIndex < fetchableTopoHoles.count {
                 guard !Task.isCancelled else { return false }
-                let window = missingIndex == 0 && needsPriorityLane ? 1 : 2
+                let window = missingIndex == 0 && needsPriorityLane
+                    ? 1
+                    : (prepDownloadID == nil ? 2 : 4)
                 let end = min(missingIndex + window, fetchableTopoHoles.count)
                 let downloads = await fetchOfflineTopoImages(
                     Array(fetchableTopoHoles[missingIndex..<end]),
-                    using: syncClient
+                    using: syncClient,
+                    maximumConcurrentRequests: prepDownloadID == nil ? 2 : 4
                 )
                 guard !Task.isCancelled else { return false }
                 for download in downloads {

@@ -420,12 +420,8 @@ struct LivePlayHeader: View {
     let roundToParText: String
     var onBack: (() -> Void)? = nil
     var onFinishRound: (() -> Void)? = nil
-    /// Opens the S70-style detailed touch-target map. Kept optional so compact callers (including
-    /// snapshots and Watch-adjacent previews) retain their existing header width.
-    var onOpenMap: (() -> Void)? = nil
-
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
             if let onBack {
                 Button(action: onBack) {
                     Image(systemName: "chevron.backward")
@@ -457,19 +453,6 @@ struct LivePlayHeader: View {
                 .padding(.horizontal, 11)
                 .background(LivePlayStyle.panelFill.opacity(0.7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(LivePlayStyle.stroke14))
-            if let onOpenMap {
-                Button(action: onOpenMap) {
-                    Image(systemName: "map.fill")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(LivePlayStyle.ink)
-                        .frame(width: 36, height: 36)
-                        .background(LivePlayStyle.panelFill.opacity(0.7), in: Circle())
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("打开详细地图")
-                .accessibilityIdentifier("live-open-map-detail")
-            }
             if let onFinishRound {
                 Menu {
                     Button("结束本场", role: .destructive, action: onFinishRound)
@@ -683,11 +666,19 @@ struct LiveCaddieEntry: View {
                     Text("球童建议")
                         .font(.system(size: 14, weight: .heavy))
                         .foregroundStyle(LivePlayStyle.ink)
-                    Text(nextShotText ?? (isReady ? "查看本洞策略与选杆" : "打开后查看或重试"))
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(LivePlayStyle.ink45)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
+                    if let nextShotText {
+                        Text(nextShotText)
+                            .font(.system(size: 15, weight: .heavy, design: .rounded))
+                            .foregroundStyle(LivePlayStyle.ink)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.62)
+                    } else {
+                        Text(isReady ? "查看本洞策略与选杆" : "打开后查看或重试")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(LivePlayStyle.ink45)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                    }
                 }
                 Spacer(minLength: 0)
                 if isLoading {
@@ -707,6 +698,7 @@ struct LiveCaddieEntry: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("球童建议")
+        .accessibilityValue(nextShotText ?? (isReady ? "查看本洞策略与选杆" : "打开后查看或重试"))
         .accessibilityHint("查看本洞完整策略和推荐球杆")
         .accessibilityIdentifier("live-caddie-entry")
     }

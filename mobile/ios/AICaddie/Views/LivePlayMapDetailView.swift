@@ -205,6 +205,9 @@ public struct LivePlayMapDetailView: View {
         }
         .frame(width: size.width, height: size.height)
         .clipped()
+        // Direct manipulation must paint at the gesture cadence. An inherited animation otherwise
+        // leaves the bitmap behind the finger and catches up only when the drag ends.
+        .animation(nil, value: transientDragOffset)
     }
 
     private func mapInteractionLayer(overlay: CoursePrepOverlay, size: CGSize) -> some View {

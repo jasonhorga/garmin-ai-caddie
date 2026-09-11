@@ -39,6 +39,7 @@ public struct LiveGreenDetailView: View {
     /// pass the round-owned binding above, so reopening View Green retains the selected pixel.
     @State private var fallbackTargetPixel: CGPoint?
     @State private var didDrag = false
+    @State private var flagDragCancelled = false
     @GestureState private var pinchScale: CGFloat = 1
 
     /// Keep the flag preview compact and clear of the held finger on phone-sized displays.
@@ -177,6 +178,9 @@ public struct LiveGreenDetailView: View {
         }
         .frame(width: size.width, height: size.height)
         .clipped()
+        // A held pan is a direct-manipulation gesture. Do not let an inherited animation defer the
+        // bitmap until finger-up; the map must track each DragGesture update like the distance view.
+        .animation(nil, value: transientOffset)
     }
 
     /// The base bitmap and factual green/flag overlay are intentionally one reusable view.  The
@@ -184,7 +188,7 @@ public struct LiveGreenDetailView: View {
     @ViewBuilder
     private func greenMapContent(size: CGSize, baseRect: CGRect) -> some View {
         ZStack {
-            if let detailURL, activeDetailCrop != nil, baseRect.width > 0 {
+            if activeDetailCrop != nil, baseRect.width > 0 {
                 // Keep the fallback in the same crop coordinate system as the high-resolution
                 // response, so an offline/404 request still leaves a usable green map.
                 TopoHoleBaseImage(topoURL: detailURL, fallback: detailFallbackImage)
@@ -335,11 +339,11 @@ public struct LiveGreenDetailView: View {
         )
     }
 
-    /// A detail URL alone is not enough to switch coordinate systems. The focused asset and the
-    /// affine crop must both be valid; otherwise every renderer and touch conversion falls back to
-    /// the complete topo frame together.
+    /// The affine crop is authoritative whenever the hole has a factual green outline. The remote
+    /// high-resolution asset is an enhancement; if it is unavailable (offline, uncached, or the
+    /// API is still warming up), the decoded whole-hole bitmap is cropped into the same frame so
+    /// the interaction does not silently fall back to a tiny full-hole thumbnail.
     private var activeDetailCrop: GreenDetailCrop? {
-        guard detailURL != nil else { return nil }
         return crop()
     }
 
@@ -613,21 +617,34 @@ public struct LiveGreenDetailView: View {
     private func flagOrPanGesture(size: CGSize, baseRect: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
-                if !draggingFlag {
+                if !draggingFlag && !flagDragCancelled {
                     if let base = effectiveFlagPixel.flatMap({ fullPixelPoint($0, baseRect: baseRect) }),
                        let screen = transformed(base, in: size, scale: scale, offset: offset),
                        hypot(screen.x - value.startLocation.x, screen.y - value.startLocation.y) <= 44 {
                         draggingFlag = true
+                        flagDragCancelled = false
+                    } else if scale <= 1.01 {
+                        // At fit scale only the putting surface is an actionable flag target. A
+                        // drag that begins on the fairway/header is deliberately inert instead of
+                        // turning every part of the map into a flag-placement gesture.
+                        draggingFlag = pixel(
+                            at: value.startLocation,
+                            size: size,
+                            baseRect: baseRect,
+                            scale: scale,
+                            offset: offset
+                        ) != nil
+                        flagDragCancelled = !draggingFlag
                     } else if scale > 1.01 {
                         draggingFlag = false
+                        flagDragCancelled = false
                     } else {
-                        // At fit scale a drag in the green is an intuitive flag placement gesture.
-                        draggingFlag = true
+                        draggingFlag = false
+                        flagDragCancelled = true
                     }
                 }
                 didDrag = true
                 if draggingFlag {
-                    flagDragLocation = value.location
                     if let pixel = pixel(
                         at: value.location,
                         size: size,
@@ -635,22 +652,31 @@ public struct LiveGreenDetailView: View {
                         scale: scale,
                         offset: offset
                     ) {
+                        flagDragLocation = value.location
                         applyFlag(pixel: pixel, committed: false)
+                    } else {
+                        // Leaving the green ends flag editing immediately. Keep the last valid
+                        // point, but never commit a point outside the factual polygon on finger-up.
+                        draggingFlag = false
+                        flagDragCancelled = true
+                        flagDragLocation = nil
                     }
-                } else {
+                } else if !flagDragCancelled {
                     flagDragLocation = nil
                     transientOffset = value.translation
                 }
             }
             .onEnded { value in
                 let wasDraggingFlag = draggingFlag
+                let wasFlagDragCancelled = flagDragCancelled
                 defer {
                     draggingFlag = false
+                    flagDragCancelled = false
                     flagDragLocation = nil
                     transientOffset = .zero
                     DispatchQueue.main.async { didDrag = false }
                 }
-                if wasDraggingFlag {
+                if wasDraggingFlag && !wasFlagDragCancelled {
                     if let pixel = pixel(
                         at: value.location,
                         size: size,
@@ -660,7 +686,7 @@ public struct LiveGreenDetailView: View {
                     ) {
                         applyFlag(pixel: pixel, committed: true)
                     }
-                } else {
+                } else if !wasFlagDragCancelled {
                     offset = clamped(
                         CGSize(width: offset.width + value.translation.width, height: offset.height + value.translation.height),
                         in: size,
