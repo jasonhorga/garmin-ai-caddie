@@ -9,9 +9,9 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-11 03:06 UTC
+**Updated:** 2026-09-11 04:56 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
-`04adc25c`; current internal-release source `aae339ba`; deployed backend tip
+`04adc25c`; current internal-release source `f09b381a`; deployed backend tip
 `5124d6384c71cba0e2f911ab043464aca3e28c46`; MAP1 product-code tip
 `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
 `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
@@ -532,9 +532,17 @@ TestFlight CD `34425296280` 上传为 Build 55，Apple read-only 检查
 也重复列出，且没有体现单杆稳定性和下一杆最佳留距。因此 Build 55 仅保留为历史
 内部候选，不能作为本切片完成证据。
 
-**Durable resume checkpoint (2026-09-10 18:53 UTC):** `PHONE-UX2` 的实现和聚焦自动验证已完成，
-状态为 `evidence-open`。Build 55 已被最新实体 iPhone 反馈否决，不再等待旧版
-物理证据。障碍页应默认选中最近且仍相关的一个障碍；地图一次只强调该障碍，在有
+UX2 修正后的内部候选已由 TestFlight CD Run `34563234682` 从源码
+`f09b381a1754c032e371348a9860c22612fbbc4e`（产品代码 tip `04adc25c`）构建并上传为
+`0.1.0 (56)`，绑定 API origin
+`https://suggests-kilometers-normal-insertion.trycloudflare.com` 和后端
+`5124d6384c71cba0e2f911ab043464aca3e28c46`。Fastlane 已确认 Apple 接收并完成处理；
+只读 ASC Run `34563918681` 确认 Build 56 `VALID`、未过期、`IN_BETA_TESTING`、arm64，
+并已在内部全量组 `Jason's friends` 中。外部 `Private Trial` 组未变更。
+
+**Durable resume checkpoint (2026-09-11 04:56 UTC):** `PHONE-UX2` 的实现和聚焦自动验证已完成，
+状态为 `evidence-open`。Build 55 已被最新实体 iPhone 反馈否决，Build 56 已上传并完成
+Apple processing；不再等待旧版物理证据。障碍页应默认选中最近且仍相关的一个障碍；地图一次只强调该障碍，在有
 几何边界时沿真实形状画红色轮廓，否则使用克制的红色前后沿指示；前沿/后沿距离是
 主信息，并允许逐个切换。球童首页只显示一个主要推荐；只有杆序、落点或风险具有
 实质差异时才在“其他选择”中显示替代方案，相同方案必须去重。推荐算法必须为球包中
@@ -578,9 +586,10 @@ TestFlight CD `34425296280` 上传为 Build 55，Apple read-only 检查
    homeserver `tests.test_mobile_contracts` 通过 `95/95`。修复已提交为 `04adc25c`；
    同参数 live Native Mobile CI `34546023165` 已完成并全绿（311 app 测试、50 domain
    测试、11 live UI 测试、329 Watch 测试）；证据摘要见上方验证条目。
-8. 约束：本轮未上传新的 TestFlight，不做 Beta Review、外部发布、生产发布或数据同步；
-   真机证据和后续 release side effect 仍须按门禁处理，所有远端 scratch、容器和证据均按
-   allow-list 登记与清理。
+8. 已执行：Native/source gates 通过后自动派发内部 TestFlight CD，使用
+   `upload_to_testflight=true`、`test_environment_upload=true`、`external_distribution=false`；
+   Build 56 已完成 Apple processing。未做 Beta Review、外部发布、生产发布或数据同步；
+   真机证据仍须按门禁处理，所有远端 scratch、容器和证据均按 allow-list 登记与清理。
 
 此前 `PHONE-REGRESSION` 保持 `evidence-open`：
 
@@ -1107,7 +1116,7 @@ project-level task list; historical plans are reference material.
 | `S1` | `done` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Focused backend/Web gates plus Native Mobile CI `32837705596` at `bf84ea8a`: iOS 257 tests, Watch 315 tests, iOS/Watch design snapshots, real iOS flow/video, 11 Watch runtime screenshots, secret scans, and non-empty runtime/build artifacts. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
-| `REL` | `evidence-open` | Release and TestFlight gate; current internal build 55 is processed and group-visible. | Source CI `34316491467`, focused remote suite `374 passed, 5 skipped`, and Native CI `34417237317` are green for the current product tree. CD run `34425296280` uploaded `0.1.0 (55)` from `aae339ba`/product tip `b9ff8b9d`; read-only run `34426251893` confirmed it `VALID`, unexpired, `IN_BETA_TESTING`, arm64, and included in the internal all-builds group with backend `5124d638`. Physical installation, fresh Garmin reconnect, and optional external Beta Review remain open. |
+| `REL` | `evidence-open` | Release and TestFlight gate; current internal build 56 is processed and group-visible. | Source/Native gates are green for product tip `04adc25c`; CD run `34563234682` uploaded `0.1.0 (56)` from release source `f09b381a` with backend `5124d638`. Read-only ASC run `34563918681` confirmed it `VALID`, unexpired, `IN_BETA_TESTING`, arm64, and included in the internal all-builds group. Physical installation, fresh Garmin reconnect, and optional external Beta Review remain open. |
 | `MAP1` | `evidence-open` | Physical iPhone feedback for course-loop authority, Touch Target/caddie map arcs and landing interpolation, simplified live controls, and horizontal hole navigation. | Product/test commit `5628cc6d` plus Source CI `34021727402` and Native Mobile CI `34021862658` are green; TestFlight build 50 contains the MAP1 product tree. Held-loupe/device evidence remains open. |
 | `GARMIN-AUTH` | `evidence-open` | Make a successful Garmin web login validate and synchronize against the current CN gateway, then bind the internal app candidate to that backend. | Commit `caf3afad`, source sync follow-up `f24a22dd`, Source CI `34043175968`/`34223501012`, controlled 403-to-200 gateway comparison, healthy public deployment, Native Mobile CI `34223836622`, TestFlight CD `34231106418`, and Apple/group check `34232120285` are complete. One new real-device reconnect/sync remains. |
 | `PHONE-REGRESSION` | `evidence-open` | Unify backend caddie recommendation with the live club strip/map landing, constrain hazard labels/distances to small factual edge numbers, and provide a direct retry for saved-but-unverified Garmin sessions while preserving provider-nearby, manual-search, downloaded-course provenance and A/B/C labels. | Source CI `34223501012`, Native Mobile CI `34223836622`, backend revision `f363872f`, TestFlight Build 53, and Apple processing/group visibility are complete; physical screenshots and device behavior remain evidence-open. |
@@ -1127,6 +1136,19 @@ means a named external decision or prerequisite is missing; `done` and
 
 ## Completed Evidence
 
+- `f09b381a`/product tip `04adc25c`: after the exact-SHA Native Mobile gates
+  passed, TestFlight CD Run `34563234682` automatically built and uploaded
+  internal-only `0.1.0 (56)` with `upload_to_testflight=true`,
+  `test_environment_upload=true`, and `external_distribution=false`. The
+  release provenance binds API origin
+  `https://suggests-kilometers-normal-insertion.trycloudflare.com` and backend
+  revision `5124d6384c71cba0e2f911ab043464aca3e28c46`; IPA SHA-256 is
+  `5d2e65a91c53f0b6c012aff2611a7b72654eb95809fb5313d7e7cb21dc95cb34`.
+  Artifact `AICaddie-ipa` ID `10185260592` has ZIP digest
+  `sha256:25fa674a0a01e9a5c9050c6f4290d9ab5b29f360a756f49f3c08a903bc7d1b13`.
+  Read-only ASC Run `34563918681` confirmed Build 56 `VALID`, unexpired,
+  `IN_BETA_TESTING`, arm64, and in internal `Jason's friends`; external
+  `Private Trial`, Beta Review, production, and data sync were unchanged.
 - `caf3afad`: Source CI run `34043175968` passed backend, frontend, and Docker
   jobs after adding Garmin CN same-origin fetch metadata. Controlled gateway
   comparison with the same Cookie/CSRF pair changed HTTP 403 to 200.
