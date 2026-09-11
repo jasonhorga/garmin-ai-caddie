@@ -1286,6 +1286,16 @@ enum LivePlayMapOverlayLayout {
     /// preserving pixel alignment with the factual route.
     static let liveMapTopInset: CGFloat = 80
 
+    /// The hero map's tap rectangle is positioned below the fixed header. SwiftUI reports gesture
+    /// locations in that rectangle's local coordinate space, while projected markers and green
+    /// outlines use the complete hero space.
+    static func heroCoordinate(
+        fromInteractionLocation location: CGPoint,
+        topInset: CGFloat = liveMapTopInset
+    ) -> CGPoint {
+        CGPoint(x: location.x, y: location.y + topInset)
+    }
+
     static func fallbackGreenTarget(in heroSize: CGSize) -> CGPoint {
         CGPoint(x: heroSize.width * 0.55, y: heroSize.height * 0.30)
     }

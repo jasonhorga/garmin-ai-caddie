@@ -186,6 +186,22 @@ final class DesignSnapshotTests: XCTestCase {
         )
     }
 
+    func testHeroMapTapConvertsInteractionLaneToFullHeroCoordinates() {
+        XCTAssertEqual(
+            LivePlayMapOverlayLayout.heroCoordinate(
+                fromInteractionLocation: CGPoint(x: 196, y: 124)
+            ),
+            CGPoint(x: 196, y: 204)
+        )
+        XCTAssertEqual(
+            LivePlayMapOverlayLayout.heroCoordinate(
+                fromInteractionLocation: CGPoint(x: 196, y: 124),
+                topInset: 0
+            ),
+            CGPoint(x: 196, y: 124)
+        )
+    }
+
     func testParThreeClubLabelMovesOutsideTheGreenTargetReticle() {
         let pin = CGPoint(x: 180, y: 90)
 

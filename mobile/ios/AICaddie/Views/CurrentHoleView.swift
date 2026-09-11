@@ -769,7 +769,14 @@ public struct CurrentHoleView: View {
                     // the map layer so overlapping hit regions cannot open the wrong surface.
                     .simultaneousGesture(
                         SpatialTapGesture().onEnded { value in
-                            guard greenPath?.contains(value.location) != true else { return }
+                            // This rectangle starts below the fixed header, so SpatialTapGesture
+                            // reports a local y coordinate. The green path is built in the full hero
+                            // coordinate space; convert before deciding whether the map tap should
+                            // win. Without this offset, a green tap can also present the map cover.
+                            let heroLocation = LivePlayMapOverlayLayout.heroCoordinate(
+                                fromInteractionLocation: value.location
+                            )
+                            guard greenPath?.contains(heroLocation) != true else { return }
                             showMapDetail = true
                         }
                     )
