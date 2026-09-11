@@ -35,6 +35,11 @@ never closes the physical-device gate or promotes the app. A standalone
 artifact-only IPA is an optional historical diagnostic, not a release gate or a
 prerequisite for the upload workflow.
 
+**Owner execution preference (2026-09-11):** After the source and Native
+Mobile gates pass, Codex should start the internal TestFlight build/upload and
+Apple processing check automatically. Pause only for a genuine product or
+release-scope decision; do not pause for routine TestFlight execution.
+
 ## Current Work Summary
 
 - **Backend candidate:** Public revision
