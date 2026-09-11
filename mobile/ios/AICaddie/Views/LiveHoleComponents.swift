@@ -1212,6 +1212,82 @@ enum LiveHazardCalloutLayout {
     }
 }
 
+/// Compact selection geometry for downloaded packages that predate `outlinePx`. The two boundary
+/// points are factual, but they are not enough to claim the obstacle's exact shape. This ring makes
+/// the selected span obvious without drawing an invented oversized oval or reusing the whole-map
+/// hazard layer.
+enum LiveHazardFocusRingLayout {
+    static let minimumWidth: CGFloat = 58
+    static let minimumHeight: CGFloat = 58
+    static let horizontalPadding: CGFloat = 20
+    static let verticalPadding: CGFloat = 20
+    static let labelWidth: CGFloat = 22
+    static let labelHeight: CGFloat = 16
+
+    static func rect(
+        front: CGPoint?,
+        back: CGPoint?,
+        viewportSize: CGSize
+    ) -> CGRect? {
+        guard viewportSize.width.isFinite,
+              viewportSize.height.isFinite,
+              viewportSize.width > 0,
+              viewportSize.height > 0 else {
+            return nil
+        }
+        let points = [front, back].compactMap { point -> CGPoint? in
+            guard let point,
+                  point.x.isFinite,
+                  point.y.isFinite else { return nil }
+            return point
+        }
+        guard let first = points.first else { return nil }
+
+        let bounds = points.dropFirst().reduce(CGRect(origin: first, size: .zero)) { partial, point in
+            partial.union(CGRect(origin: point, size: .zero))
+        }
+        let width = max(minimumWidth, bounds.width + horizontalPadding * 2)
+        let height = max(minimumHeight, bounds.height + verticalPadding * 2)
+        var ring = CGRect(
+            x: bounds.midX - width / 2,
+            y: bounds.midY - height / 2,
+            width: width,
+            height: height
+        )
+
+        // Keep the focus ring visible when an obstacle sits against the edge of the fitted map.
+        // This is a viewport presentation constraint, not a geometry correction.
+        let inset: CGFloat = 4
+        if ring.minX < inset { ring.origin.x = inset }
+        if ring.maxX > viewportSize.width - inset {
+            ring.origin.x = max(inset, viewportSize.width - inset - ring.width)
+        }
+        if ring.minY < inset { ring.origin.y = inset }
+        if ring.maxY > viewportSize.height - inset {
+            ring.origin.y = max(inset, viewportSize.height - inset - ring.height)
+        }
+        return ring
+    }
+
+    static func labelCenter(
+        for point: CGPoint,
+        isFront: Bool,
+        viewportSize: CGSize
+    ) -> CGPoint {
+        let side: CGFloat = point.x <= viewportSize.width / 2 ? 1 : -1
+        let x = point.x + side * 17
+        let y = point.y + (isFront ? -18 : 18)
+        let minX = labelWidth / 2 + 4
+        let maxX = max(minX, viewportSize.width - labelWidth / 2 - 4)
+        let minY = labelHeight / 2 + 4
+        let maxY = max(minY, viewportSize.height - labelHeight / 2 - 4)
+        return CGPoint(
+            x: min(max(x, minX), maxX),
+            y: min(max(y, minY), maxY)
+        )
+    }
+}
+
 enum LivePlayMapOverlayLayout {
     /// The map begins below the fixed live header. Applying the same inset to the bitmap and every
     /// projected marker keeps a shallow/partial hole's green reticle from crossing the title while

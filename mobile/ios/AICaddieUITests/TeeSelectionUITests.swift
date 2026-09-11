@@ -724,11 +724,39 @@ final class TeeSelectionUITests: XCTestCase {
 
     private func bringIntoView(_ element: XCUIElement, maxSwipes: Int) -> Bool {
         for _ in 0..<maxSwipes {
-            if element.exists, element.isHittable { return true }
-            app.swipeUp()
+            if element.exists, element.isHittable, fullyVisible(element) { return true }
+            if element.exists, element.frame.minY < visibleSafeRect().minY {
+                app.swipeDown()
+            } else {
+                app.swipeUp()
+            }
             settle(0.6)
         }
-        return element.exists && element.isHittable
+        return element.exists && element.isHittable && fullyVisible(element)
+    }
+
+    /// SwiftUI can report a row at the bottom edge as hittable even when its tap point is under the
+    /// iPhone home-indicator lane. Require the full row to be inside the usable viewport before
+    /// tapping so a catalogue selection exercises the real button action.
+    private func visibleSafeRect() -> CGRect {
+        let windowFrame = app.windows.firstMatch.frame
+        var top = windowFrame.minY + 8
+        let navigationBar = app.navigationBars.firstMatch
+        if navigationBar.exists {
+            top = max(top, navigationBar.frame.maxY + 8)
+        }
+        let bottom = windowFrame.maxY - 34
+        return CGRect(
+            x: windowFrame.minX + 8,
+            y: top,
+            width: max(0, windowFrame.width - 16),
+            height: max(0, bottom - top)
+        )
+    }
+
+    private func fullyVisible(_ element: XCUIElement) -> Bool {
+        let frame = element.frame
+        return !frame.isNull && !frame.isEmpty && visibleSafeRect().contains(frame)
     }
 
     private func firstDownloadedCourseSegment() -> XCUIElement {

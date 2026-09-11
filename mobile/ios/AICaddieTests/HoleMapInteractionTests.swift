@@ -168,6 +168,45 @@ final class HoleMapInteractionTests: XCTestCase {
         )
     }
 
+    func testLegacyHazardFocusRingEnclosesBothBoundaryPoints() throws {
+        let front = CGPoint(x: 170, y: 260)
+        let back = CGPoint(x: 174, y: 282)
+        let ring = try XCTUnwrap(
+            LiveHazardFocusRingLayout.rect(
+                front: front,
+                back: back,
+                viewportSize: CGSize(width: 360, height: 540)
+            )
+        )
+
+        XCTAssertTrue(ring.contains(front))
+        XCTAssertTrue(ring.contains(back))
+        XCTAssertGreaterThanOrEqual(ring.width, LiveHazardFocusRingLayout.minimumWidth)
+        XCTAssertGreaterThanOrEqual(ring.height, LiveHazardFocusRingLayout.minimumHeight)
+    }
+
+    func testLegacyHazardFocusLabelsSeparateFrontAndBackAtMapCenter() {
+        let viewport = CGSize(width: 360, height: 540)
+        let point = CGPoint(x: 170, y: 260)
+        let front = LiveHazardFocusRingLayout.labelCenter(
+            for: point,
+            isFront: true,
+            viewportSize: viewport
+        )
+        let back = LiveHazardFocusRingLayout.labelCenter(
+            for: point,
+            isFront: false,
+            viewportSize: viewport
+        )
+
+        XCTAssertGreaterThanOrEqual(
+            abs(front.y - back.y),
+            LiveHazardFocusRingLayout.labelHeight
+        )
+        XCTAssertGreaterThanOrEqual(front.x, LiveHazardFocusRingLayout.labelWidth / 2)
+        XCTAssertLessThanOrEqual(back.x, viewport.width - LiveHazardFocusRingLayout.labelWidth / 2)
+    }
+
     func testHorizontalHoleSwipeChangesOnlyToAnAdjacentHole() {
         let holes = [1, 2, 3]
 

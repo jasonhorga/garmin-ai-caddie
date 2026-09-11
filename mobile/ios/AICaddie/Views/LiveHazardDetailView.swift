@@ -432,7 +432,8 @@ struct LiveHazardDetailView: View {
 
         // Precise prep carries the ordered mesh boundary. Draw it as a translucent filled shape
         // with a high-contrast red halo so the selected obstacle remains readable over the topo
-        // raster. Older packages have no polygon and use only the narrow front/back span below.
+        // raster. Older packages have only two factual edge points, so use a compact focus ring
+        // rather than pretending those points describe an exact bunker or water outline.
         if outlinePoints.count >= 3 {
             var outline = Path()
             outline.move(to: outlinePoints[0])
@@ -447,28 +448,51 @@ struct LiveHazardDetailView: View {
                 with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)),
                 style: StrokeStyle(lineWidth: 3)
             )
-        } else if let front, let back {
-            // Do not invent an oversized oval from two points. A restrained span is honest about
-            // the legacy data while still making the selected obstacle obvious.
-            var span = Path()
-            span.move(to: front)
-            span.addLine(to: back)
-            context.stroke(span, with: .color(.black.opacity(0.78)), style: StrokeStyle(lineWidth: 14, lineCap: .round))
+        } else if let ring = LiveHazardFocusRingLayout.rect(
+            front: front,
+            back: back,
+            viewportSize: size
+        ) {
+            let focus = Path(ellipseIn: ring.insetBy(dx: 3, dy: 3))
+            context.fill(
+                focus,
+                with: .color(Color(red: 0.95, green: 0.16, blue: 0.14).opacity(0.10))
+            )
             context.stroke(
-                span,
+                focus,
+                with: .color(.black.opacity(0.82)),
+                style: StrokeStyle(lineWidth: 9)
+            )
+            context.stroke(
+                focus,
                 with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)),
-                style: StrokeStyle(lineWidth: 7, lineCap: .round)
+                style: StrokeStyle(lineWidth: 3)
             )
         }
 
         for (point, label) in [(front, "前"), (back, "后")] {
             guard let point else { continue }
-            let marker = Path(ellipseIn: CGRect(x: point.x - 6, y: point.y - 6, width: 12, height: 12))
+            let marker = Path(ellipseIn: CGRect(x: point.x - 5, y: point.y - 5, width: 10, height: 10))
             context.fill(marker, with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)))
             context.stroke(marker, with: .color(.white), style: StrokeStyle(lineWidth: 1.5))
+            let labelCenter = LiveHazardFocusRingLayout.labelCenter(
+                for: point,
+                isFront: label == "前",
+                viewportSize: size
+            )
+            let labelRect = CGRect(
+                x: labelCenter.x - LiveHazardFocusRingLayout.labelWidth / 2,
+                y: labelCenter.y - LiveHazardFocusRingLayout.labelHeight / 2,
+                width: LiveHazardFocusRingLayout.labelWidth,
+                height: LiveHazardFocusRingLayout.labelHeight
+            )
+            context.fill(
+                Path(roundedRect: labelRect, cornerRadius: 5),
+                with: .color(.black.opacity(0.72))
+            )
             context.draw(
                 Text(label).font(.system(size: 10, weight: .heavy)).foregroundColor(.white),
-                at: CGPoint(x: point.x + 13, y: point.y)
+                at: labelCenter
             )
         }
     }
