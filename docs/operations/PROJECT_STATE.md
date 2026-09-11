@@ -9,9 +9,9 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-11 00:25 UTC
+**Updated:** 2026-09-11 00:22 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
-`b9ff8b9d`; current internal-release source `aae339ba`; deployed backend tip
+`04adc25c`; current internal-release source `aae339ba`; deployed backend tip
 `5124d6384c71cba0e2f911ab043464aca3e28c46`; MAP1 product-code tip
 `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
 `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
@@ -540,7 +540,8 @@ TestFlight CD `34425296280` 上传为 Build 55，Apple read-only 检查
    `34534905003` 已完成，但唯一失败是目录结果位于 home-indicator 安全区下方，
    点击未触发选择。当前工作树已加入完整安全视口判断，并将旧包障碍降级从红色线段改为
    紧凑红色焦点环与分离的前/后标签；新增几何回归测试。同步目录修正符号链接后，
-   homeserver `tests.test_mobile_contracts` 通过 `95/95`。需提交后再次精确 SHA 验证。
+   homeserver `tests.test_mobile_contracts` 通过 `95/95`。修复已提交为 `04adc25c`；
+   同参数 live Native Mobile CI `34546023165` 已按该精确 SHA 排队。
 8. 约束：新实现和验证通过前不上传新的 TestFlight，不做 Beta Review、外部发布、生产
    发布或数据同步；所有远端 scratch、容器和证据均按 allow-list 登记与清理。
 
@@ -1073,7 +1074,7 @@ project-level task list; historical plans are reference material.
 | `MAP1` | `evidence-open` | Physical iPhone feedback for course-loop authority, Touch Target/caddie map arcs and landing interpolation, simplified live controls, and horizontal hole navigation. | Product/test commit `5628cc6d` plus Source CI `34021727402` and Native Mobile CI `34021862658` are green; TestFlight build 50 contains the MAP1 product tree. Held-loupe/device evidence remains open. |
 | `GARMIN-AUTH` | `evidence-open` | Make a successful Garmin web login validate and synchronize against the current CN gateway, then bind the internal app candidate to that backend. | Commit `caf3afad`, source sync follow-up `f24a22dd`, Source CI `34043175968`/`34223501012`, controlled 403-to-200 gateway comparison, healthy public deployment, Native Mobile CI `34223836622`, TestFlight CD `34231106418`, and Apple/group check `34232120285` are complete. One new real-device reconnect/sync remains. |
 | `PHONE-REGRESSION` | `evidence-open` | Unify backend caddie recommendation with the live club strip/map landing, constrain hazard labels/distances to small factual edge numbers, and provide a direct retry for saved-but-unverified Garmin sessions while preserving provider-nearby, manual-search, downloaded-course provenance and A/B/C labels. | Source CI `34223501012`, Native Mobile CI `34223836622`, backend revision `f363872f`, TestFlight Build 53, and Apple processing/group visibility are complete; physical screenshots and device behavior remain evidence-open. |
-| `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Native run `34534905003` at `3b77b596` passed compile, 309 iOS tests, Watch, live preflight, and all scans; its sole live UI failure was a bottom-edge catalogue tap that the new full-safe-viewport helper addresses. The current working tree also improves the legacy hazard focus ring and adds geometry coverage; one exact-SHA rerun is required. Physical iPhone/Watch validation of map panning, the dedicated hazard page, pole-foot flag dragging, and the final caddie recommendation remains open. |
+| `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Native run `34534905003` at `3b77b596` passed compile, 309 iOS tests, Watch, live preflight, and all scans; its sole live UI failure was a bottom-edge catalogue tap. Fix commit `04adc25c` adds the full-safe-viewport helper, legacy hazard focus ring, and geometry coverage; exact-SHA rerun `34546023165` is queued. Physical iPhone/Watch validation of map panning, the dedicated hazard page, pole-foot flag dragging, and the final caddie recommendation remains open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 | `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |
@@ -1608,6 +1609,17 @@ Native runs recorded above; it is retained only as historical diagnosis.
   a compact legacy focus ring with separated edge tags plus two geometry tests.
   No TestFlight, deployment, external distribution, or data sync was started.
 
+- 2026-09-11: Committed and pushed the deterministic catalogue tap and legacy
+  hazard focus-ring refinement as `04adc25c`. Homeserver
+  `tests.test_mobile_contracts` passed `95/95` after replacing only the
+  scratch checkout's control-plane `data` symlink with an isolated writable
+  directory; the original symlink was retained beside it for cleanup. Native
+  Mobile CI `34546023165` was dispatched against that exact SHA with
+  `capture_scope=full`, live preflight required, API origin
+  `https://suggests-kilometers-normal-insertion.trycloudflare.com`, and backend
+  revision `5124d6384c71cba0e2f911ab043464aca3e28c46`. No TestFlight,
+  deployment, external distribution, or data sync was started.
+
 - 2026-09-10: Native Mobile CI `34527145107` completed against exact source
   `2910b459`. iOS compiled, all 309 iOS tests passed, and SwiftJCS/design/live
   preflight/Watch/evidence-secret gates passed. The live iOS capture alone
@@ -1619,8 +1631,9 @@ Native runs recorded above; it is retained only as historical diagnosis.
   session, no containers/ports/tunnels, scheduled expiry 2026-09-11 21:32 UTC)
   and cleaned after inspection together with its local view copies. The source
   now gives the sheet heading a stable `caddie-plan-heading` identifier and both
-  helpers use it; commit `3b77b596` is pushed and exact-SHA live rerun
-  `34534905003` is in progress.
+  helpers use it; commit `3b77b596` is pushed and rerun `34534905003` completed
+  with the bottom-edge catalogue diagnosis. The follow-up fix is `04adc25c` and
+  exact-SHA rerun `34546023165` is queued.
 
 - 2026-09-10: Native Mobile CI `34521196474` was dispatched against
   `2a4d9821` with the live backend contract, but its iOS app target failed at
