@@ -3430,8 +3430,9 @@ class MobileContractTests(unittest.TestCase):
         live_map_detail = _read_required_source(self, IOS_DIR / "Views" / "LivePlayMapDetailView.swift")
         shot_edit = _read_required_source(self, IOS_DIR / "Views" / "RoundShotEditComponents.swift")
         self.assertIn("LiveGreenDetailView", green_detail)
-        self.assertIn('live-green-zoom-in', green_detail)
         self.assertIn('live-green-zoom-out', green_detail)
+        self.assertIn('live-green-fit', green_detail)
+        self.assertNotIn('live-green-zoom-in', green_detail)
         self.assertIn('live-green-flag-magnifier', green_detail)
         self.assertIn("LivePlayMapDetailView", live_map_detail)
         self.assertIn('live-map-zoom-in', live_map_detail)
@@ -3902,7 +3903,7 @@ class MobileContractTests(unittest.TestCase):
             'matching(identifier: "live-map-target-marker")',
             'label CONTAINS %@", "发球台 → 目标',
             'app.buttons["live-map-zoom-in"]',
-            'app.buttons["live-green-zoom-in"]',
+            'app.descendants(matching: .any)["live-green-distance-panel"]',
         ]:
             self.assertIn(token, tee_selection)
         # The math is unit-tested (live behaviour is device-only).

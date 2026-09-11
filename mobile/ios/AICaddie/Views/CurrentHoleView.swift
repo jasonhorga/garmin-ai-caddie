@@ -755,6 +755,7 @@ public struct CurrentHoleView: View {
                 geometry.size.height - LivePlayMapOverlayLayout.liveMapTopInset,
                 1
             )
+            let greenPath = liveGreenHitPath(in: geometry.size)
             ZStack {
                 Rectangle()
                     .fill(.clear)
@@ -764,22 +765,34 @@ public struct CurrentHoleView: View {
                         y: LivePlayMapOverlayLayout.liveMapTopInset + interactiveHeight / 2
                     )
                     .contentShape(Rectangle())
-                    .onTapGesture { showMapDetail = true }
+                    // A tap on the putting surface belongs to View Green. Keep the same guard in
+                    // the map layer so overlapping hit regions cannot open the wrong surface.
+                    .simultaneousGesture(
+                        SpatialTapGesture().onEnded { value in
+                            guard greenPath?.contains(value.location) != true else { return }
+                            showMapDetail = true
+                        }
+                    )
                     .simultaneousGesture(heroMapPinchGesture(in: geometry.size))
-                    .highPriorityGesture(heroMapPanOrSwipeGesture(in: geometry.size))
+                    // A high-priority parent drag can swallow the green button's tap. The regular
+                    // gesture still owns map panning/swipe navigation outside the putting surface.
+                    .gesture(heroMapPanOrSwipeGesture(in: geometry.size))
                     .accessibilityLabel("打开地图并选目标")
                     .accessibilityHint("左右滑动切换球洞")
                     .accessibilityIdentifier("live-open-map-from-hero")
 
-                if let greenPath = liveGreenHitPath(in: geometry.size) {
-                    Rectangle()
-                        .fill(Color.white.opacity(0.001))
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .contentShape(greenPath)
-                        .onTapGesture { showGreenDetail = true }
-                        .accessibilityLabel("调整旗位")
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityIdentifier("live-open-green-from-hero")
+                if let greenPath {
+                    Button {
+                        showGreenDetail = true
+                    } label: {
+                        Color.white.opacity(0.001)
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .contentShape(greenPath)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("调整旗位")
+                    .accessibilityIdentifier("live-open-green-from-hero")
+                    .zIndex(1)
                 } else if let greenTarget = liveGreenTarget(in: geometry.size) {
                     Button {
                         showGreenDetail = true
@@ -793,6 +806,7 @@ public struct CurrentHoleView: View {
                     .position(transformedHeroPoint(greenTarget, in: geometry.size))
                     .accessibilityLabel("调整旗位")
                     .accessibilityIdentifier("live-open-green-from-hero")
+                    .zIndex(1)
                 }
             }
         }

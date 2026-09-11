@@ -155,19 +155,18 @@ public struct LiveGreenDetailView: View {
                 .allowsHitTesting(false)
             }
 
-            VStack(spacing: 9) {
-                mapControl(system: "plus.magnifyingglass", label: "放大果岭", identifier: "live-green-zoom-in") {
-                    changeScale(by: 0.5, in: size)
+            if scale > 1.01 {
+                VStack(spacing: 9) {
+                    mapControl(system: "minus.magnifyingglass", label: "缩小果岭", identifier: "live-green-zoom-out") {
+                        changeScale(by: -0.5, in: size)
+                    }
+                    mapControl(system: "scope", label: "还原果岭", identifier: "live-green-fit") {
+                        resetViewport()
+                    }
                 }
-                mapControl(system: "minus.magnifyingglass", label: "缩小果岭", identifier: "live-green-zoom-out") {
-                    changeScale(by: -0.5, in: size)
-                }
-                mapControl(system: "scope", label: "还原果岭", identifier: "live-green-fit") {
-                    resetViewport()
-                }
+                .padding(.top, 92)
+                .padding(.trailing, 12)
             }
-            .padding(.top, 92)
-            .padding(.trailing, 12)
 
             VStack {
                 Spacer()

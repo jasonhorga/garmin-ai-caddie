@@ -403,11 +403,11 @@ final class TeeSelectionUITests: XCTestCase {
         let greenEditor = app.buttons["live-open-green-from-hero"]
         XCTAssertTrue(greenEditor.waitForExistence(timeout: 8) && greenEditor.isHittable)
         greenEditor.tap()
-        let greenZoomIn = app.buttons["live-green-zoom-in"]
-        XCTAssertTrue(greenZoomIn.waitForExistence(timeout: 8) && greenZoomIn.isHittable)
-        XCTAssertTrue(app.descendants(matching: .any)["live-green-distance-panel"].waitForExistence(timeout: 8))
-        greenZoomIn.tap()
-        XCTAssertTrue(app.buttons["live-green-zoom-out"].waitForExistence(timeout: 5))
+        // View Green opens on the focused, centered putting surface. There is no redundant
+        // plus-button: pinch/drag is reserved for deliberate precision interaction.
+        let greenPanel = app.descendants(matching: .any)["live-green-distance-panel"]
+        XCTAssertTrue(greenPanel.waitForExistence(timeout: 8))
+        XCTAssertFalse(app.buttons["live-green-zoom-in"].exists)
         let closeGreen = app.buttons["关闭果岭地图"]
         XCTAssertTrue(closeGreen.waitForExistence(timeout: 5) && closeGreen.isHittable)
         closeGreen.tap()
@@ -741,7 +741,13 @@ final class TeeSelectionUITests: XCTestCase {
     private func visibleSafeRect() -> CGRect {
         let windowFrame = app.windows.firstMatch.frame
         var top = windowFrame.minY + 8
-        let navigationBar = app.navigationBars.firstMatch
+        // A sheet leaves the underlying start-round navigation bar in the accessibility tree. Use
+        // the active catalogue bar first; otherwise its frame falsely marks every top result as
+        // covered and the helper oscillates between the list's two scroll bounds.
+        let catalogueNavigationBar = app.navigationBars["找球场"]
+        let navigationBar = catalogueNavigationBar.exists
+            ? catalogueNavigationBar
+            : app.navigationBars.firstMatch
         if navigationBar.exists {
             top = max(top, navigationBar.frame.maxY + 8)
         }
