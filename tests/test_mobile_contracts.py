@@ -2196,6 +2196,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let recorded = holes.compactMap { score(for: $0) }", scorecard)
         self.assertIn('Text("本场总分")', scorecard)
         self.assertIn('Text(toParText(toPar))', scorecard)
+        self.assertIn('accessibilityLabel("本场 \\(toParText(toPar))")', scorecard)
         self.assertIn('accessibilityIdentifier("live-scorecard-total-summary")', scorecard)
 
     def test_ios_club_naming_and_lie_filter(self) -> None:
@@ -3386,6 +3387,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('if Self.showsMediaCaptureCard {', current_hole)
         self.assertIn('accessibilityIdentifier("live-open-map-from-hero")', current_hole)
         self.assertIn('accessibilityIdentifier("live-open-green-from-hero")', current_hole)
+        self.assertIn(".accessibilityActivationPoint(", current_hole)
+        self.assertIn("greenPath.boundingRect.midX", current_hole)
         self.assertIn('HoleSwipeNavigation.target(', current_hole)
         self.assertIn("penaltyCount", current_hole)
         self.assertIn("CaddieDecisionRequestBuilder", current_hole)

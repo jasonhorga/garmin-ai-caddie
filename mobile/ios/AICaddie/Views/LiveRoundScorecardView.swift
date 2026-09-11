@@ -185,7 +185,7 @@ struct LiveRoundScorecardView: View {
                     .padding(.vertical, 7)
                     .padding(.horizontal, 11)
                     .background(LivePlayStyle.fill08, in: Capsule())
-                    .accessibilityLabel("本场 (toParText(toPar))")
+                    .accessibilityLabel("本场 \(toParText(toPar))")
             }
         }
         .padding(.horizontal, 13)
