@@ -44,6 +44,8 @@ DIAGNOSTIC_SOURCE_REF_LIMIT = 12
 COURSE_OPTION_LIMIT = 24
 OFFLINE_OPTION_STRONG_SAMPLE = 10
 OFFLINE_OPTION_SAMPLE_REF_LIMIT = 6
+DECISION_CLUB_REF_LIMIT = 6
+DECISION_CLUB_SURFACE_LIMIT = 8
 MOBILE_CADDIE_RISK_KINDS = {"bunker", "water", "water_edge", "tree_area"}
 
 # A cold 18-hole course performs independent network/download/Draco jobs per hole.  Keep a little
@@ -1141,6 +1143,80 @@ def _diagnostic_context_for_seed(
     return context or None
 
 
+def _compact_decision_surface_distribution(value: Any) -> list[dict[str, Any]]:
+    """Keep aggregate surface outcomes while dropping per-shot references from mobile seeds."""
+    if not isinstance(value, list):
+        return []
+    compact: list[dict[str, Any]] = []
+    for raw in value[:DECISION_CLUB_SURFACE_LIMIT]:
+        if not isinstance(raw, dict):
+            continue
+        row: dict[str, Any] = {}
+        for key in ("surface", "count", "pct", "confidence"):
+            if raw.get(key) is not None:
+                row[key] = raw[key]
+        coverage = _compact_coverage(raw.get("coverage"))
+        if coverage:
+            row["coverage"] = coverage
+        if row:
+            compact.append(row)
+    return compact
+
+
+def _compact_decision_club_profile(
+    profile: dict[str, Any],
+    *,
+    performance_fields: tuple[str, ...],
+) -> dict[str, Any]:
+    """Bound one club's live decision payload without changing its measured model.
+
+    History stats include thousands of shot identifiers under risk/surface rows. They are useful for
+    server-side audits but not for choosing a club on the phone. The decision engine consumes the
+    aggregate rates, counts and percentiles below; a few refs remain for evidence traceability.
+    """
+    scalar_fields = {
+        "clubName",
+        "sampleSize",
+        "median",
+        "p10",
+        "p90",
+        "median_m",
+        "p10_m",
+        "p90_m",
+        "hazardRate",
+        "riskRate",
+        "usableRate",
+        "topSurface",
+        "consistency",
+        "dispersionRange",
+        "rawSampleCount",
+        "validSampleCount",
+        "invalidSampleCount",
+        "outlierCount",
+        "effectiveSampleSize",
+    }
+    compact: dict[str, Any] = {
+        key: profile[key]
+        for key in scalar_fields
+        if profile.get(key) is not None
+    }
+    for key in performance_fields:
+        if key in {"riskShotRefs", "usableShotRefs"}:
+            refs = _compact_source_refs(profile.get(key), limit=DECISION_CLUB_REF_LIMIT)
+            if refs:
+                compact[key] = refs
+            raw = profile.get(key)
+            if isinstance(raw, list) and len(raw) > len(refs):
+                compact[f"{key}Count"] = len(raw)
+        elif key == "surfaceDistribution":
+            distribution = _compact_decision_surface_distribution(profile.get(key))
+            if distribution:
+                compact[key] = distribution
+        elif key in scalar_fields and profile.get(key) is not None:
+            compact[key] = profile[key]
+    return compact
+
+
 def _decision_club_profiles(club_profiles: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     from ai_caddie.caddie.decision import CLUB_PERFORMANCE_FIELDS
 
@@ -1167,7 +1243,10 @@ def _decision_club_profiles(club_profiles: list[dict[str, Any]]) -> dict[str, di
         for key in CLUB_PERFORMANCE_FIELDS:
             if key in profile:
                 row[key] = profile[key]
-        rows[club_name] = row
+        rows[club_name] = _compact_decision_club_profile(
+            row,
+            performance_fields=CLUB_PERFORMANCE_FIELDS,
+        )
     return rows
 
 

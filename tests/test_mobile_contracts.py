@@ -2194,7 +2194,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("if let totalScore", scorecard)
         self.assertIn('accessibilityIdentifier("live-scorecard-total-score")', scorecard)
         self.assertIn("let recorded = holes.compactMap { score(for: $0) }", scorecard)
-        self.assertIn('Text("本场 \\(toParText(toPar))")', scorecard)
+        self.assertIn('Text("本场总分")', scorecard)
+        self.assertIn('Text(toParText(toPar))', scorecard)
+        self.assertIn('accessibilityIdentifier("live-scorecard-total-summary")', scorecard)
 
     def test_ios_club_naming_and_lie_filter(self) -> None:
         golf_club = _read_required_source(self, IOS_DIR / "Views" / "GolfClub.swift")

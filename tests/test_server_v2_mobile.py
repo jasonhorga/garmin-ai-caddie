@@ -188,6 +188,47 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertGreater(_club_performance_metrics(low)["evidenceStrength"], 0)
         self.assertLess(_club_performance_metrics(low)["evidenceStrength"], 0.5)
 
+    def test_mobile_decision_club_profiles_bound_per_shot_references(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.caddie.decision import CLUB_PERFORMANCE_FIELDS
+
+        refs = [f"round:{index}:shot" for index in range(2_000)]
+        compact = mobile_live._decision_club_profiles(
+            [
+                {
+                    "clubName": "Driver",
+                    "sampleSize": 2_000,
+                    "median_m": 220.0,
+                    "p10_m": 190.0,
+                    "p90_m": 245.0,
+                    "riskRate": 8.0,
+                    "usableRate": 88.0,
+                    "rawSampleCount": 2_100,
+                    "validSampleCount": 2_000,
+                    "riskShotRefs": refs,
+                    "usableShotRefs": refs,
+                    "surfaceDistribution": [
+                        {
+                            "surface": "fairway",
+                            "count": 1_700,
+                            "pct": 85.0,
+                            "shotRefs": refs,
+                            "sourceRefs": refs,
+                        }
+                    ],
+                }
+            ]
+        )
+
+        profile = compact["Driver"]
+        self.assertLess(len(json.dumps(profile, separators=(",", ":"))), 5_000)
+        self.assertEqual(len(profile["riskShotRefs"]), mobile_live.DECISION_CLUB_REF_LIMIT)
+        self.assertEqual(profile["riskShotRefsCount"], len(refs))
+        self.assertNotIn("shotRefs", profile["surfaceDistribution"][0])
+        self.assertNotIn("sourceRefs", profile["surfaceDistribution"][0])
+        self.assertEqual(profile["riskRate"], 8.0)
+        self.assertIn("surfaceDistribution", CLUB_PERFORMANCE_FIELDS)
+
     def test_swapping_arbitrary_club_reliability_swaps_preferred_leave(self) -> None:
         from ai_caddie.caddie import mobile_live
         from ai_caddie.caddie.decision import _sequence_tail
