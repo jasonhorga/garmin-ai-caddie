@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-12 18:58 UTC
+**Updated:** 2026-09-12 19:12 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; current internal-release source
 `29d0a0c7`; deployed backend tip
@@ -66,8 +66,10 @@ release-scope decision; do not pause for routine TestFlight execution.
   Local health, nearby/search, and fast-start package preflight passed; the
   package intentionally returns one hole with `startMode=first_hole_fast` and
   `fullCoursePending=true`. A fresh public Quick Tunnel must target `39061`
-  before Native or TestFlight is dispatched. The old UX3 tunnels on `39059`
-  and `39060` are separate rollback/history resources and must not be reused.
+  before Native or TestFlight is dispatched; it is now the API origin embedded
+  in internal TestFlight Build 58 and must remain available for physical
+  validation. The old UX3 tunnels on `39059` and `39060` are separate
+  rollback/history resources and must not be reused.
 - **Native UX2 rerun diagnosis (2026-09-09):** Native Mobile CI run
   `34407853548` compiled and passed the non-device gates, but its three iOS
   topo/offline waits failed. The artifact `ios-app.log` and a direct local/public
@@ -1159,12 +1161,12 @@ project-level task list; historical plans are reference material.
 | `S1` | `done` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Focused backend/Web gates plus Native Mobile CI `32837705596` at `bf84ea8a`: iOS 257 tests, Watch 315 tests, iOS/Watch design snapshots, real iOS flow/video, 11 Watch runtime screenshots, secret scans, and non-empty runtime/build artifacts. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
-| `REL` | `evidence-open` | Release and TestFlight gate; current internal build 57 is processed and group-visible. | Source/Native gates are green for product tip `70480f99`; CD run `34666136884` uploaded `0.1.0 (57)` from exact source `70480f99751d1881db289806d6b3b623efdfa6bc` with candidate backend `c82c0547`. Read-only ASC run `34666574292` confirmed it `VALID`, unexpired, `IN_BETA_TESTING`, arm64, and included in the existing internal group. Physical installation, fresh Garmin reconnect, and optional external Beta Review remain open. |
+| `REL` | `evidence-open` | Release and TestFlight gate; current internal build 58 is processed and group-visible. | Source/Native gates are green for product tip `29d0a0c7`; CD run `34712702517` uploaded `0.1.0 (58)` from exact source `29d0a0c7a3fe8df73d7466e3765a60596996b03d` with candidate backend `17ad4e66`. Read-only ASC run `34713289501` confirmed it `VALID`, unexpired, `IN_BETA_TESTING`, arm64, and included in the existing internal group. Physical installation, fresh Garmin reconnect, and optional external Beta Review remain open. |
 | `MAP1` | `evidence-open` | Physical iPhone feedback for course-loop authority, Touch Target/caddie map arcs and landing interpolation, simplified live controls, and horizontal hole navigation. | Product/test commit `5628cc6d` plus Source CI `34021727402` and Native Mobile CI `34021862658` are green; TestFlight build 50 contains the MAP1 product tree. Held-loupe/device evidence remains open. |
 | `GARMIN-AUTH` | `evidence-open` | Make a successful Garmin web login validate and synchronize against the current CN gateway, then bind the internal app candidate to that backend. | Commit `caf3afad`, source sync follow-up `f24a22dd`, Source CI `34043175968`/`34223501012`, controlled 403-to-200 gateway comparison, healthy public deployment, Native Mobile CI `34223836622`, TestFlight CD `34231106418`, and Apple/group check `34232120285` are complete. One new real-device reconnect/sync remains. |
 | `PHONE-REGRESSION` | `evidence-open` | Unify backend caddie recommendation with the live club strip/map landing, constrain hazard labels/distances to small factual edge numbers, and provide a direct retry for saved-but-unverified Garmin sessions while preserving provider-nearby, manual-search, downloaded-course provenance and A/B/C labels. | Source CI `34223501012`, Native Mobile CI `34223836622`, backend revision `f363872f`, TestFlight Build 53, and Apple processing/group visibility are complete; physical screenshots and device behavior remain evidence-open. |
 | `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Source CI `34663338160` and exact-SHA live Native Mobile CI `34663501590` at `70480f99` passed, including iOS/Watch builds, real iOS journey, dedicated hazard/caddie captures, Watch runtime screenshots, evidence and secret scans. Internal TestFlight CD `34666136884` uploaded Build 57; ASC read-only run `34666574292` confirmed `VALID` and `IN_BETA_TESTING`. Physical iPhone/Watch validation of map panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation remains open. |
-| `PHONE-UX3` | `in-progress` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present at exact source `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; homeserver focused suite `296 passed, 2 skipped`, Python compileall, Source CI `34709596756`, and Native `34709800015` (full live iOS/Watch evidence) pass. Internal TestFlight CD `34712702517` is running with the candidate API on port `39061`; Apple status remains pending. |
+| `PHONE-UX3` | `evidence-open` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present at exact source `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; homeserver focused suite `296 passed, 2 skipped`, Python compileall, Source CI `34709596756`, and Native `34709800015` (full live iOS/Watch evidence) pass. Internal TestFlight CD `34712702517` uploaded Build 58; ASC run `34713289501` confirmed it is processed and in the internal group. Remaining evidence is physical iPhone/Watch verification of real-time panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 | `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |
@@ -1180,6 +1182,41 @@ means a named external decision or prerequisite is missing; `done` and
 
 ## Completed Evidence
 
+- `29d0a0c7` / `29d0a0c7a3fe8df73d7466e3765a60596996b03d`: Source CI
+  `34709596756` and exact-SHA live Native Mobile CI `34709800015` passed all
+  iOS/Watch tests, real iOS map/prep/green/hazard/caddie journeys, Watch
+  runtime captures, evidence writing, and secret scans in `dataMode=live`.
+  Artifacts are `design-snapshots` `10303071585`
+  (`sha256:3b0c525f780b52ae7575fca5740f82de3e5226adb86ce67bdc2019240010be8d`),
+  `real-screenshots` `10303124175`
+  (`sha256:6fa4ba65e5ed84c3bc09e0332cefb6b62aecca0381e0a1d6436c85584e996f3f`),
+  `real-video` `10303134105`
+  (`sha256:614d377de5371ee1daf51471594d6dc10ad28147453dcd1a14dd37b03284fd6d`),
+  `watch-snapshots` `10303756932`
+  (`sha256:2b7fd2907c78f2e6d459ab0bd898de1b308b5c622547623768c9da7f01dde334`),
+  `watch-real-screenshots` `10303029881`
+  (`sha256:cc8506cac9054cb35d7604b1afec890040e0f9571d5fe605237f27a62bbd879a`),
+  and `native-build-evidence` `10303269448`
+  (`sha256:d8518172168ddace4d1cf31ec8f5a191b2a0ca5f24c2d42c90507e201886ed7e`).
+  The live API origin was
+  `https://right-exhibits-colleges-dated.trycloudflare.com`, backend revision
+  `17ad4e66871126730c9fca9246fee884af309b2f`, and all runtime secret-byte
+  scans passed.
+- `29d0a0c7`: TestFlight CD `34712702517` built and uploaded internal-only
+  `0.1.0 (58)` with `upload_to_testflight=true`,
+  `test_environment_upload=true`, and `external_distribution=false`. Release
+  provenance binds API origin
+  `https://right-exhibits-colleges-dated.trycloudflare.com` and backend
+  revision `17ad4e66871126730c9fca9246fee884af309b2f`; IPA SHA-256 is
+  `17d650ce199f24796544e093d5f4e7ebf8c70f9cccd81d3718f25938c152e8c3` and
+  `AICaddie-ipa` artifact `10303574619` has ZIP digest
+  `sha256:d4af725ec98939328a742b83339a0093befedc54a155d291582b23430cc9ed8b`.
+  Fastlane reported Apple processing complete. Read-only ASC run
+  `34713289501` confirmed Build 58 id `e42cb599-56e1-4dbf-8c47-76dbd5622ebc`,
+  `VALID`, unexpired, `IN_BETA_TESTING`, `usesNonExemptEncryption=false`,
+  arm64, and inclusion in the existing internal `Jason's friends` group;
+  external `Private Trial`, Beta Review, production, and data sync were not
+  changed.
 - `70480f99` / `70480f99751d1881db289806d6b3b623efdfa6bc`: Source CI
   `34663338160` passed. Exact-SHA live Native Mobile CI `34663501590` then
   passed iOS (313 tests), 11 live XCUITests, Watch (329 tests), live course
@@ -1732,6 +1769,14 @@ Native runs recorded above; it is retained only as historical diagnosis.
   master checklist from memory.
 
 ## State Changes
+
+- 2026-09-12: TestFlight CD `34712702517` completed successfully and Apple
+  processing finished for Build 58 (`0.1.0`). Read-only ASC run `34713289501`
+  confirmed `VALID`, unexpired, `IN_BETA_TESTING`, arm64, and inclusion in
+  the existing internal `Jason's friends` group. `PHONE-UX3` is now
+  `evidence-open`; only physical iPhone/Watch interaction and fresh Garmin
+  reconnect evidence remain. External distribution and production promotion
+  were not performed.
 
 - 2026-09-12: Native Mobile CI `34709800015` completed successfully at exact
   source `29d0a0c7a3fe8df73d7466e3765a60596996b03d`. All iOS/Watch tests,
