@@ -257,6 +257,18 @@ final class HoleMapInteractionTests: XCTestCase {
         )
     }
 
+    func testHeroMapGesturePolicySeparatesFittedPagingFromZoomedPan() {
+        XCTAssertFalse(HeroMapGesturePolicy.isZoomed(scale: 1))
+        XCTAssertTrue(HeroMapGesturePolicy.acceptsHoleSwipe(scale: 1))
+        XCTAssertTrue(HeroMapGesturePolicy.isZoomed(scale: 1, pinchScale: 1.02))
+        XCTAssertFalse(
+            HeroMapGesturePolicy.acceptsHoleSwipe(scale: 1, pinchScale: 1.02),
+            "a live pinch must switch to map panning before the committed scale changes"
+        )
+        XCTAssertTrue(HeroMapGesturePolicy.isZoomed(scale: 2))
+        XCTAssertFalse(HeroMapGesturePolicy.acceptsHoleSwipe(scale: 2))
+    }
+
     func testMediaCaptureCardRemainsFeatureFlaggedOffInLivePlay() {
         XCTAssertFalse(CurrentHoleView.showsMediaCaptureCard)
     }

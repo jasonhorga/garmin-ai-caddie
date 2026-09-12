@@ -1259,7 +1259,19 @@ public final class LiveRoundAppModel: ObservableObject {
                 guard !Task.isCancelled, let self,
                       self.liveRoundState?.roundId == roundId,
                       self.package?.course.globalId == globalId else { return }
-                let stable = self.applyingSelectedCourseDisplayName(to: complete)
+                // The complete response is allowed to carry the server's lightweight first-hole
+                // seed. Merge any precise prep that the live view already retained before publishing
+                // it, so the handoff cannot downgrade the visible map or its factual caddie state.
+                let stable = self.mergingForegroundPrep(
+                    in: self.applyingSelectedCourseDisplayName(to: complete)
+                )
+                // A fast-start response is not a valid scorecard/install authority. Keep it on
+                // screen and let the foreground/installer retry when the server still returns only
+                // the priority hole.
+                guard stable.holes.count > 1 else {
+                    self.syncStatus = "其余球洞仍在后台准备中"
+                    return
+                }
                 try offlineStore.saveRoundPackage(stable)
                 let activeHole = self.liveRoundState?.activeHole
                 self.package = stable
@@ -1313,32 +1325,130 @@ public final class LiveRoundAppModel: ObservableObject {
     /// retain every hole's lightweight route/hazard/F-M-B facts and its precise topo bitmap. The
     /// package identity remains the live round's; the course template and bitmap keys are static.
     private func beginOfflineCourseDownload(revalidatePackage: Bool = false) {
-        guard var snapshot = package, let syncClient else { return }
+        guard let initial = package, let syncClient else { return }
+        let expectedRoundId = initial.roundId
+        let expectedGlobalId = initial.course.globalId
+        let expectedTeeBox = initial.course.teeBox
+        let expectedNine = initial.nine ?? "all"
         // An explicit same-round refresh supersedes any one-shot fresh-entry release still pending.
         deferredOfflineCourseDownloadRevalidation = nil
-        if let retained = try? offlineStore.loadCourseTemplate(
-            globalId: snapshot.course.globalId,
-            teeBox: snapshot.course.teeBox,
-            nine: snapshot.nine ?? "all"
-        ), retained.hasCompleteOfflineCoursePrep {
-            snapshot = snapshot.replacingCoursePrep(retained.coursePrep)
-        }
-        let downloadSnapshot = snapshot
         offlineCourseDownloadTask?.cancel()
-        offlineCourseDownloadTask = Task { [weak self] in
-            self?.recordUITestLatency(
-                "offline-cache.task.begin globalId=\(downloadSnapshot.course.globalId)"
+        offlineCourseDownloadTask = Task { @MainActor [weak self, syncClient, initial] in
+            guard let self else { return }
+            // Fast-start intentionally publishes one hole first. Never let the all-hole installer
+            // capture that transient package: wait for the refresh task, then verify the live model
+            // still belongs to this round. A failed/short refresh gets one explicit full-package
+            // request so a stale one-hole snapshot cannot strand the prep queue at 0/N forever.
+            let downloadSnapshot = await self.completeCourseSnapshotForOfflineDownload(
+                initial: initial,
+                expectedRoundId: expectedRoundId,
+                expectedGlobalId: expectedGlobalId,
+                teeBox: expectedTeeBox,
+                nine: expectedNine,
+                using: syncClient
             )
-            await self?.downloadOfflineCourseAssets(
-                for: downloadSnapshot,
+            guard let downloadSnapshot else {
+                self.syncStatus = "其余球洞仍在后台准备中"
+                self.startPrepCourseDownloadQueueIfNeeded()
+                return
+            }
+            guard !Task.isCancelled,
+                  self.liveRoundState?.roundId == expectedRoundId,
+                  self.package?.course.globalId == expectedGlobalId else { return }
+            var snapshot = downloadSnapshot
+            if let retained = try? self.offlineStore.loadCourseTemplate(
+                globalId: snapshot.course.globalId,
+                teeBox: snapshot.course.teeBox,
+                nine: snapshot.nine ?? "all"
+            ), retained.hasCompleteOfflineCoursePrep {
+                snapshot = snapshot.replacingCoursePrep(retained.coursePrep)
+            }
+            self.recordUITestLatency(
+                "offline-cache.task.begin globalId=\(snapshot.course.globalId) holes=\(snapshot.holes.count)"
+            )
+            await self.downloadOfflineCourseAssets(
+                for: snapshot,
                 using: syncClient,
                 revalidatePackage: revalidatePackage
             )
-            self?.recordUITestLatency(
-                "offline-cache.task.end globalId=\(downloadSnapshot.course.globalId)"
+            self.recordUITestLatency(
+                "offline-cache.task.end globalId=\(snapshot.course.globalId) holes=\(snapshot.holes.count)"
             )
-            self?.startPrepCourseDownloadQueueIfNeeded()
+            self.startPrepCourseDownloadQueueIfNeeded()
         }
+    }
+
+    /// Resolve the complete package before starting the all-hole cache pipeline. The fast-start
+    /// response is deliberately allowed to remain on screen, but it is not a valid installer
+    /// snapshot because it contains only the first displayed hole.
+    private func completeCourseSnapshotForOfflineDownload(
+        initial: LiveRoundPackage,
+        expectedRoundId: String,
+        expectedGlobalId: Int,
+        teeBox: String,
+        nine: String,
+        using syncClient: SyncClient
+    ) async -> LiveRoundPackage? {
+        await fastStartCourseRefreshTask?.value
+        guard !Task.isCancelled,
+              liveRoundState?.roundId == expectedRoundId,
+              package?.course.globalId == expectedGlobalId else { return nil }
+        if let current = package, current.roundId == expectedRoundId, current.holes.count > 1 {
+            return current
+        }
+
+        // The background refresh may have failed or may have been served a cached fast response.
+        // Make one bounded, explicit full request. It is idempotent and normally hits the server's
+        // completed release cache, while preserving the first-hole UI if the network is unavailable.
+        do {
+            let complete = try await syncClient.fetchCoursePackage(
+                globalId: expectedGlobalId,
+                roundId: expectedRoundId,
+                teeBox: teeBox,
+                nine: nine,
+                capturedAt: Date(),
+                ensureGeometry: false,
+                backgroundGeometry: true,
+                includeEventCursor: false,
+                fastStart: false
+            )
+            guard !Task.isCancelled,
+                  complete.roundId == expectedRoundId,
+                  complete.course.globalId == expectedGlobalId else { return package ?? initial }
+            if complete.holes.count > initial.holes.count, complete.holes.count > 1 {
+                let stable = mergingForegroundPrep(
+                    in: applyingSelectedCourseDisplayName(to: complete)
+                )
+                try? offlineStore.saveRoundPackage(stable)
+                package = stable
+                if let activeHole = liveRoundState?.activeHole,
+                   stable.holes.contains(where: { $0.number == activeHole }) {
+                    try? offlineStore.saveActiveHole(roundId: expectedRoundId, hole: activeHole)
+                    liveRoundState = try? offlineStore.restoreLiveRoundState(
+                        roundId: expectedRoundId,
+                        package: stable
+                    )
+                }
+                return stable
+            }
+            // A full request that still contains one hole is a transient server response, not a
+            // valid all-hole installer snapshot. Returning it here would turn the durable progress
+            // row into a permanent 0/1 course. Leave the playable seed in place and let the next
+            // foreground pass retry the completion request.
+            if initial.holes.count <= 1 {
+                AICaddieLog.network.info(
+                    "Full course snapshot still partial; deferring offline install for \(expectedGlobalId, privacy: .public)"
+                )
+                return nil
+            }
+        } catch is CancellationError {
+            return nil
+        } catch {
+            AICaddieLog.network.info(
+                "Full course snapshot deferred: \(String(describing: error), privacy: .public)"
+            )
+        }
+        return package ?? initial
     }
 
     #if DEBUG
@@ -1521,6 +1631,13 @@ public final class LiveRoundAppModel: ObservableObject {
             holes: merged.values.sorted { $0.hole < $1.hole },
             missingData: base?.missingData ?? currentPrep.missingData
         ))
+    }
+
+    /// Package handoff helper used by the fast-start refresh and the durable installer. Keeping it
+    /// separate makes the downgrade guard explicit at every boundary where a one-hole seed can be
+    /// replaced by a server response.
+    private func mergingForegroundPrep(in candidate: LiveRoundPackage) -> LiveRoundPackage {
+        preservingForegroundPrecisePrep(in: candidate)
     }
 
     /// Course prep cost grows non-linearly when one request parses all 18 large meshes. Keep the
@@ -1871,32 +1988,114 @@ public final class LiveRoundAppModel: ObservableObject {
         // server is still decoding Garmin ZIPs. Older servers simply fall back to the existing
         // coverage probe path.
         func refreshServerInstallStatus() async {
-            let status: CourseInstallStatus?
             let primaryGlobalId = snapshot.course.globalId
             let backGlobalId = courseInstallBackGlobalId(for: snapshot)
-            do {
-                status = try await syncClient.fetchCourseInstallStatus(
-                    globalId: primaryGlobalId,
-                    teeBox: snapshot.course.teeBox,
-                    nine: snapshot.nine ?? "all",
-                    backGlobalId: backGlobalId
+            let expectedKeys = Set(snapshot.holes.map { roundHole in
+                offlinePrepKey(
+                    globalId: roundHole.sourceGlobalId ?? primaryGlobalId,
+                    localHole: roundHole.sourceLocalHole ?? roundHole.number
                 )
-            } catch {
+            })
+            let expectedGlobalIds = Set(snapshot.holes.map { roundHole in
+                roundHole.sourceGlobalId ?? primaryGlobalId
+            })
+            let expectedDisplayKeys = Dictionary(
+                grouping: snapshot.holes.map { roundHole in
+                    (
+                        roundHole.number,
+                        offlinePrepKey(
+                            globalId: roundHole.sourceGlobalId ?? primaryGlobalId,
+                            localHole: roundHole.sourceLocalHole ?? roundHole.number
+                        )
+                    )
+                },
+                by: { $0.0 }
+            ).compactMapValues { values in
+                values.count == 1 ? values[0].1 : nil
+            }
+            let rawTee = snapshot.course.teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
+            var teeCandidates = [rawTee.isEmpty ? "blue" : rawTee]
+            // Older package responses can carry an unknown tee while the install journal was
+            // created with the server's blue fallback. Probe that alias once, but only accept a
+            // status whose globalId and hole keys belong to this package.
+            if rawTee.caseInsensitiveCompare("unknown") == .orderedSame {
+                teeCandidates.append("blue")
+            }
+
+            var status: CourseInstallStatus?
+            for tee in teeCandidates where status == nil {
+                do {
+                    guard let candidate = try await syncClient.fetchCourseInstallStatus(
+                        globalId: primaryGlobalId,
+                        teeBox: tee,
+                        nine: snapshot.nine ?? "all",
+                        backGlobalId: backGlobalId
+                    ) else { continue }
+                    let hasMatchingHole = candidate.holes.contains { row in
+                        let exact = row.globalId > 0 && row.localHole > 0
+                            ? offlinePrepKey(globalId: row.globalId, localHole: row.localHole)
+                            : nil
+                        if expectedKeys.contains(exact ?? "") {
+                            return true
+                        }
+                        // Display-hole fallback is only for legacy rows that omit identity. A
+                        // positive globalId from another course must never match by display number.
+                        guard row.globalId <= 0 || expectedGlobalIds.contains(row.globalId) else {
+                            return false
+                        }
+                        return expectedDisplayKeys[row.displayHole] != nil
+                    }
+                    // A status row with the right course id but no matching hole can belong to a
+                    // different tee/nine job. Keep probing aliases instead of accepting it and
+                    // accidentally treating an empty journal as authoritative.
+                    guard hasMatchingHole else { continue }
+                    status = candidate
+                } catch {
+                    continue
+                }
+            }
+
+            guard let status else {
+                // A missing/temporarily mismatched journal is not permission to stop fetching
+                // factual rows. Clear stale gates so the client can use direct idempotent requests.
+                serverInstallStatusAvailable = false
+                serverInstallPhase = nil
+                serverGeometryReadyKeys.removeAll()
+                serverTopoReadyKeys.removeAll()
                 return
             }
-            guard let status else { return }
-            serverInstallStatusAvailable = true
+
+            var geometryKeys = Set<String>()
+            var topoKeys = Set<String>()
+            var matchedRows = 0
+            for row in status.holes {
+                let exact = row.globalId > 0 && row.localHole > 0
+                    ? offlinePrepKey(globalId: row.globalId, localHole: row.localHole)
+                    : nil
+                let key: String?
+                if expectedKeys.contains(exact ?? "") {
+                    key = exact
+                } else if row.globalId <= 0 || expectedGlobalIds.contains(row.globalId) {
+                    // Only identity-less/known-course rows may use the display-hole fallback.
+                    key = expectedDisplayKeys[row.displayHole]
+                } else {
+                    key = nil
+                }
+                guard let key else { continue }
+                matchedRows += 1
+                if row.geometry.caseInsensitiveCompare("ready") == .orderedSame {
+                    geometryKeys.insert(key)
+                }
+                if row.topo.caseInsensitiveCompare("ready") == .orderedSame {
+                    topoKeys.insert(key)
+                }
+            }
+            // Only a journal with rows for this exact selection can gate topo bytes. An otherwise
+            // valid but empty/foreign status must not strand a course forever behind stale keys.
+            serverInstallStatusAvailable = matchedRows > 0
             serverInstallPhase = status.phase.lowercased()
-            serverGeometryReadyKeys = Set(status.holes.compactMap { row in
-                row.geometry.caseInsensitiveCompare("ready") == .orderedSame
-                    ? offlinePrepKey(globalId: row.globalId, localHole: row.localHole)
-                    : nil
-            })
-            serverTopoReadyKeys = Set(status.holes.compactMap { row in
-                row.topo.caseInsensitiveCompare("ready") == .orderedSame
-                    ? offlinePrepKey(globalId: row.globalId, localHole: row.localHole)
-                    : nil
-            })
+            serverGeometryReadyKeys = geometryKeys
+            serverTopoReadyKeys = topoKeys
         }
         await refreshServerInstallStatus()
         // A lightweight package deliberately embeds the first hole as a fast partial seed even
@@ -1928,14 +2127,11 @@ public final class LiveRoundAppModel: ObservableObject {
                     let prep = prepBySource[key]
                     let geometryReady = geometryReadyKeys.contains(key)
                         || serverGeometryReadyKeys.contains(key)
-                    // Fetch missing lightweight facts immediately.  Once a partial response exists,
-                    // wait on the cheap coverage endpoint and rebuild it exactly once when geometry
-                    // becomes ready instead of repeatedly paying for the same partial prep.
-                    // The durable journal is a prep-throughput scheduler only. Live play must still
-                    // fetch its first factual row immediately while server geometry is cold.
-                    if prepDownloadID != nil && serverInstallStatusAvailable && !geometryReady {
-                        return false
-                    }
+                    // Fetch missing lightweight facts immediately, even while the durable journal
+                    // reports queued/running geometry. The journal schedules expensive geometry;
+                    // it is not an authority for whether factual route/hazard rows may be read.
+                    // Once a partial response exists we wait for the cheap readiness probe and
+                    // rebuild it only after the matching geometry revision becomes ready.
                     return prep?.resolvedMapOverlay == nil
                         || (geometryReady && !offlinePrepIsPrecise(prep))
                 }
@@ -2797,6 +2993,14 @@ public final class LiveRoundAppModel: ObservableObject {
         endPrepBackgroundTask()
         resumePrepCourseDownloads(retryFailed: true)
         retryDeferredRoundFinishes()
+        // A fast-start course can remain on its playable one-hole seed when the server is still
+        // materializing the full package. Retry that completion on the next foreground, but never
+        // replace a multi-hole package or block the foreground event uploader on the request.
+        if !isPreparingRound,
+           liveRoundState != nil,
+           (package?.holes.count ?? 0) <= 1 {
+            beginOfflineCourseDownload()
+        }
         Task { @MainActor [weak self] in
             await self?.autoSyncGarminIfNeeded()
         }

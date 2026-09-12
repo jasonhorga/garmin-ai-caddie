@@ -190,6 +190,10 @@ def build_mobile_course_package_response(
         include_event_cursor=include_event_cursor,
         ensure_lightweight=True,
         fast_start=fast_start,
+        # The first-hole response may only consult already-cached CourseView bytes. A complete
+        # follow-up request is allowed to refresh Garmin release/courseData authority in the
+        # background, so provider latency never blocks the initial playable surface.
+        allow_lightweight_fetch=not fast_start,
     )
     package["coursePrep"] = first_hole_lightweight_course_prep(
         package,

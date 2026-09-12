@@ -771,11 +771,13 @@ class ServerV2MobileTests(unittest.TestCase):
                 31796,
                 background_tasks=BackgroundTasks(),
                 include_event_cursor=False,
+                fast_start=True,
                 player_id="owner",
             )
 
         self.assertIs(actual, expected)
         self.assertFalse(build_package.call_args.kwargs["include_event_cursor"])
+        self.assertTrue(build_package.call_args.kwargs["fast_start"])
 
     def test_course_package_queues_only_missing_source_holes_for_background_upgrade(self) -> None:
         from server_v2 import main as server_main
@@ -1605,12 +1607,69 @@ class ServerV2MobileTests(unittest.TestCase):
         with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}), \
                 patch("ai_caddie.courses.course_prep.prep_nine") as prep_nine, \
                 patch("server_v2.mobile.first_hole_lightweight_course_prep", return_value=seed) as first_seed:
-            response = client.get("/api/v2/mobile/courses/31795/package", params={"round_id": "live-31795"})
+            response = client.get(
+                "/api/v2/mobile/courses/31795/package",
+                params={"round_id": "live-31795", "fast_start": "true"},
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["coursePrep"], seed)
         prep_nine.assert_not_called()
         first_seed.assert_called_once()
+
+    def test_fast_start_course_template_and_weather_are_cache_only(self) -> None:
+        """The first playable response must not block on Garmin/CourseView or Open-Meteo."""
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_reference, courseview_core
+
+        course_data = {
+            "holes": [{
+                "holeNumber": 1,
+                "lines": [{
+                    "role": "route",
+                    "lengthMetres": 210.0,
+                    "points": [
+                        {"latitude": 39.0, "longitude": 116.0},
+                        {"latitude": 39.001, "longitude": 116.001},
+                    ],
+                }],
+            }],
+        }
+        with (
+            patch.object(course_reference, "courseview_par", return_value=[4]),
+            patch.object(courseview_core, "ensure_course_data", return_value=course_data) as ensure,
+            patch.object(
+                course_reference,
+                "courseview_release_info",
+                return_value={"course_name": "Cache Course", "release_version": 17},
+            ) as release,
+            patch.object(mobile_live, "geometry_coverage_for_hole", return_value={
+                "coverage": "partial",
+                "geometryRevision": None,
+                "authorityObservation": "cached",
+            }),
+            patch.object(mobile_live, "fetch_open_meteo_weather_snapshot") as weather_fetch,
+        ):
+            template = mobile_live._geometry_only_course_template(
+                31795,
+                round_id="fast-cache",
+                tee_box="blue",
+                ensure_lightweight=True,
+                allow_lightweight_fetch=False,
+            )
+            weather = mobile_live._weather_snapshot_for_package(
+                "fast-cache",
+                captured_at="2026-09-12T00:00:00Z",
+                latitude=39.0,
+                longitude=116.0,
+                allow_fetch=False,
+            )
+
+        self.assertIsNotNone(template)
+        ensure.assert_called_once_with(31795, allow_fetch=False, root=Path("."))
+        self.assertEqual(release.call_args.kwargs["allow_fetch"], False)
+        weather_fetch.assert_not_called()
+        self.assertEqual(weather["state"], "missing")
 
     def test_first_hole_lightweight_seed_keeps_composite_source_authority(self) -> None:
         from ai_caddie.caddie import mobile_live

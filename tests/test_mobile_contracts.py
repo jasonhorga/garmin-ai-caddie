@@ -1621,14 +1621,26 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("beginOfflineCourseDownload()", app_swift)
         self.assertIn("fetchOfflineTopoImages", app_swift)
         self.assertIn(
+            "Fetch missing lightweight facts immediately, even while the durable journal",
+            app_swift,
+            "a queued/running install journal must not suppress incremental factual prep requests",
+        )
+        self.assertNotIn(
             "if prepDownloadID != nil && serverInstallStatusAvailable && !geometryReady",
             app_swift,
+            "the old status gate stranded cold courses at 0/N progress",
         )
         self.assertIn(
             'if prepDownloadID != nil && serverInstallStatusAvailable && serverInstallPhase == "failed"',
             app_swift,
         )
         self.assertIn("serverTopoReadyKeys.contains", app_swift)
+        self.assertIn("let expectedGlobalIds = Set(snapshot.holes.map", app_swift)
+        self.assertIn("positive globalId from another course must never match", app_swift)
+        self.assertIn("complete.holes.count > initial.holes.count, complete.holes.count > 1", app_swift)
+        self.assertIn("Full course snapshot still partial; deferring offline install", app_swift)
+        self.assertIn("mergingForegroundPrep", app_swift)
+        self.assertIn("stable.holes.count > 1", app_swift)
         self.assertNotIn("prewarmRoundTopo()", app_swift)
         self.assertNotIn("prewarmCourseTopo(globalId:", app_swift)
         self.assertIn("enum HubRoute", round_home)
@@ -1636,6 +1648,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("onConsumePendingLiveHole()", round_home)
         self.assertIn("onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish", round_home)
         self.assertIn("onLiveHoleInitialLoadDidFinish()", current_hole)
+        self.assertIn("精确球道图准备中", current_hole)
+        self.assertIn("!isPreciseHoleMapPending && !liveHazardDisplayRows.isEmpty", current_hole)
+        self.assertIn("var delaySeconds: UInt64 = 2", current_hole)
+        self.assertIn("min(delaySeconds * 2, 15)", current_hole)
+        self.assertNotIn(":\\(package.holes.count):", round_home)
 
         # Composite 18: front loop + a second loop (holes 10–18). Wired front→model→SyncClient→backend.
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")

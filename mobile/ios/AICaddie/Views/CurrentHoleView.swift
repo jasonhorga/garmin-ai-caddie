@@ -33,6 +33,19 @@ enum HoleSwipeNavigation {
     }
 }
 
+/// The live hero has two mutually exclusive drag contracts. Keeping the routing decision pure makes
+/// it possible to test the boundary without relying on simulator touch timing: a fitted map pages
+/// holes, while a zoomed map always pans in place.
+enum HeroMapGesturePolicy {
+    static func isZoomed(scale: CGFloat, pinchScale: CGFloat = 1) -> Bool {
+        scale * pinchScale > 1.01
+    }
+
+    static func acceptsHoleSwipe(scale: CGFloat, pinchScale: CGFloat = 1) -> Bool {
+        !isZoomed(scale: scale, pinchScale: pinchScale)
+    }
+}
+
 public struct CurrentHoleView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -302,6 +315,20 @@ public struct CurrentHoleView: View {
         .onChange(of: liveRoundState) { _, newState in
             applyRestoredStateIfNeeded(newState)
         }
+        .onChange(of: package.coursePrep?.holes.first(where: { $0.hole == hole.number })) { _, incoming in
+            // The full fast-start package can arrive while this destination is visible. Preserve a
+            // precise map already retained by the live view when the response still carries its
+            // intentionally partial first-hole seed; otherwise adopt the new factual prep without
+            // restarting the hole task or discarding zoom/flag interaction state.
+            guard let incoming else { return }
+            let currentIsPrecise = holePrep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
+                && holePrep?.resolvedMapOverlay != nil
+            let incomingIsPrecise = incoming.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
+                && incoming.resolvedMapOverlay != nil
+            if !currentIsPrecise || incomingIsPrecise {
+                holePrep = incoming
+            }
+        }
         .fullScreenCover(isPresented: $showCaddieDetail) {
             caddieDetailSurface
         }
@@ -399,7 +426,7 @@ public struct CurrentHoleView: View {
                 nextShotText: liveRecommendedNextShotText,
                 onTap: { showCaddieDetail = true }
             )
-            if !liveHazardDisplayRows.isEmpty {
+            if !isPreciseHoleMapPending && !liveHazardDisplayRows.isEmpty {
                 LiveHazardEntry(
                     count: liveHazardDisplayRows.count,
                     onTap: { showHazardDetail = true }
@@ -448,7 +475,7 @@ public struct CurrentHoleView: View {
 
     @ViewBuilder
     private var mapDetailSurface: some View {
-        if let holePrep {
+        if let holePrep, !isPreciseHoleMapPending {
             LivePlayMapDetailView(
                 hole: holePrep,
                 topoURL: liveTopoURL,
@@ -476,7 +503,7 @@ public struct CurrentHoleView: View {
         } else {
             ZStack {
                 LivePlayStyle.base.ignoresSafeArea()
-                ProgressView("地图准备中…")
+                ProgressView("精确球道图准备中…")
                     .tint(.white)
                     .foregroundStyle(.white)
             }
@@ -485,7 +512,7 @@ public struct CurrentHoleView: View {
 
     @ViewBuilder
     private var greenDetailSurface: some View {
-        if let holePrep {
+        if let holePrep, !isPreciseHoleMapPending {
             LiveGreenDetailView(
                 hole: holePrep,
                 detailURL: greenDetailURL,
@@ -511,7 +538,7 @@ public struct CurrentHoleView: View {
         } else {
             ZStack {
                 LivePlayStyle.base.ignoresSafeArea()
-                ProgressView("果岭地图准备中…")
+                ProgressView("精确果岭图准备中…")
                     .tint(.white)
                     .foregroundStyle(.white)
             }
@@ -520,7 +547,7 @@ public struct CurrentHoleView: View {
 
     @ViewBuilder
     private var hazardDetailSurface: some View {
-        if let holePrep {
+        if let holePrep, !isPreciseHoleMapPending {
             LiveHazardDetailView(
                 hole: holePrep,
                 topoURL: liveTopoURL,
@@ -529,7 +556,7 @@ public struct CurrentHoleView: View {
         } else {
             ZStack {
                 LivePlayStyle.base.ignoresSafeArea()
-                ProgressView("障碍物地图准备中…")
+                ProgressView("精确障碍物图准备中…")
                     .tint(.white)
                     .foregroundStyle(.white)
             }
@@ -798,6 +825,7 @@ public struct CurrentHoleView: View {
                         )
                     )
                     Button {
+                        guard !isPreciseHoleMapPending else { return }
                         showGreenDetail = true
                     } label: {
                         Color.white.opacity(0.001)
@@ -828,6 +856,7 @@ public struct CurrentHoleView: View {
                     .zIndex(1)
                 } else if let greenTarget = liveGreenTarget(in: geometry.size) {
                     Button {
+                        guard !isPreciseHoleMapPending else { return }
                         showGreenDetail = true
                     } label: {
                         Circle()
@@ -847,16 +876,20 @@ public struct CurrentHoleView: View {
             // SwiftUI's local-coordinate interpretation and allowed an accessibility tap to be lost.
             .simultaneousGesture(
                 SpatialTapGesture().onEnded { value in
-                    guard value.location.y >= LivePlayMapOverlayLayout.liveMapTopInset,
+                    guard !isPreciseHoleMapPending,
+                          value.location.y >= LivePlayMapOverlayLayout.liveMapTopInset,
                           greenPath?.contains(value.location) != true else { return }
                     showMapDetail = true
                 }
             )
             .simultaneousGesture(heroMapPinchGesture(in: geometry.size))
-            // Give the map first refusal once it is zoomed. The parent ScrollView is disabled in
-            // that state, but high priority also covers the first drag frame while SwiftUI is
-            // publishing the pinch/zoom state.
-            .highPriorityGesture(heroMapPanOrSwipeGesture(in: geometry.size))
+            // Keep the two drag contracts separate. The paging gesture is active only at the fitted
+            // scale, while the map pan is active only after zoom; this prevents a vertical pan from
+            // accidentally changing holes and prevents the parent ScrollView from stealing zoomed
+            // map movement. Both are simultaneous so ordinary vertical page scrolling remains
+            // available when the fitted map is not being paged.
+            .simultaneousGesture(heroMapHoleSwipeGesture())
+            .simultaneousGesture(heroMapPanGesture(in: geometry.size))
             // Keep the map gesture container and the contour-sized green button as separate
             // accessibility elements. Without an explicit containment boundary SwiftUI promotes
             // this gesture-bearing ZStack to one full-hero button and hides the green entry from
@@ -869,9 +902,18 @@ public struct CurrentHoleView: View {
         .frame(height: liveHeroHeight)
     }
 
-    private var holeSwipeGesture: some Gesture {
-        DragGesture(minimumDistance: 24)
+    private func heroMapHoleSwipeGesture() -> some Gesture {
+        // Once zoomed, make this recognizer inert so it cannot compete with the pan recognizer.
+        DragGesture(
+            minimumDistance: HeroMapGesturePolicy.isZoomed(scale: heroMapScale)
+                ? 10_000
+                : 24
+        )
             .onEnded { value in
+                guard HeroMapGesturePolicy.acceptsHoleSwipe(
+                    scale: heroMapScale,
+                    pinchScale: heroMapPinchScale
+                ) else { return }
                 guard let target = HoleSwipeNavigation.target(
                     current: hole.number,
                     holes: package.holes.map(\.number),
@@ -899,38 +941,36 @@ public struct CurrentHoleView: View {
             }
     }
 
-    private func heroMapPanOrSwipeGesture(in viewport: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 4)
+    private func heroMapPanGesture(in viewport: CGSize) -> some Gesture {
+        DragGesture(
+            minimumDistance: HeroMapGesturePolicy.isZoomed(scale: heroMapScale)
+                ? 4
+                : 10_000
+        )
             .onChanged { value in
-                // During a simultaneous pinch the committed scale is still 1. Use the effective
-                // gesture scale so vertical drags start moving the map immediately instead of
-                // being routed to the ancestor ScrollView.
-                guard heroMapScale * heroMapPinchScale > 1.01 else { return }
+                guard HeroMapGesturePolicy.isZoomed(
+                    scale: heroMapScale,
+                    pinchScale: heroMapPinchScale
+                ) else { return }
                 heroMapTransientDragOffset = value.translation
             }
             .onEnded { value in
-                if heroMapScale > 1.01 || abs(heroMapPinchScale - 1) > 0.01 {
-                    heroMapOffset = heroMapClampedOffset(
-                        CGSize(
-                            width: heroMapOffset.width + value.translation.width,
-                            height: heroMapOffset.height + value.translation.height
-                        ),
-                        scale: heroMapScale,
-                        viewport: viewport
-                    )
+                guard HeroMapGesturePolicy.isZoomed(
+                    scale: heroMapScale,
+                    pinchScale: heroMapPinchScale
+                ) else {
                     heroMapTransientDragOffset = .zero
                     return
                 }
+                heroMapOffset = heroMapClampedOffset(
+                    CGSize(
+                        width: heroMapOffset.width + value.translation.width,
+                        height: heroMapOffset.height + value.translation.height
+                    ),
+                    scale: heroMapScale,
+                    viewport: viewport
+                )
                 heroMapTransientDragOffset = .zero
-                guard let target = HoleSwipeNavigation.target(
-                    current: hole.number,
-                    holes: package.holes.map(\.number),
-                    translation: value.translation
-                ) else { return }
-                #if canImport(UIKit)
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                #endif
-                onAdvanceHole(target)
             }
     }
 
@@ -1924,7 +1964,10 @@ public struct CurrentHoleView: View {
         let mapLocalHole = hole.sourceLocalHole ?? hole.number
         guard mapGlobalId != 0 else { return }
         let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
-        var delaySeconds: UInt64 = 5
+        // The server-side install journal is already doing the expensive work. Keep the active
+        // hole responsive with a short bounded probe instead of making a player wait through a
+        // 60-second exponential slot after geometry has become ready.
+        var delaySeconds: UInt64 = 2
 
         while !Task.isCancelled {
             do {
@@ -1937,11 +1980,11 @@ public struct CurrentHoleView: View {
                 globalId: mapGlobalId,
                 localHole: mapLocalHole
             ) else {
-                delaySeconds = min(delaySeconds * 2, 60)
+                delaySeconds = min(delaySeconds * 2, 15)
                 continue
             }
             guard refreshed.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
-                delaySeconds = min(delaySeconds * 2, 60)
+                delaySeconds = min(delaySeconds * 2, 15)
                 continue
             }
 

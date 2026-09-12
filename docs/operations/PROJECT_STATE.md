@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-12 03:24 UTC
+**Updated:** 2026-09-12 11:48 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `70480f99`; current internal-release source `70480f99`; deployed backend tip
 `5124d6384c71cba0e2f911ab043464aca3e28c46`; MAP1 product-code tip
@@ -527,9 +527,9 @@ code; do not restart the old multi-week plan tree.
 4. 已完成：新球局走首洞 fast-start（服务端跳过同步 release fetch，首洞包先返回），进入
    后后台补齐完整球场；partial 首洞不再展示粗糙示意图，只显示干净的地图准备面并原位替换
    为精确 topo。
-5. 进行中：homeserver 聚焦测试已通过；下一步是 Source/Native exact-SHA gate。全绿后自动
-   上传新的内部 TestFlight 并核对 ASC processing/status；实体设备上的跟手、旗杆底部拖动和
-   Garmin 重连仍作为上传后的 evidence-open 项。
+5. 进行中：homeserver 聚焦测试与 Python compileall 已通过；下一步是 Source/Native
+   exact-SHA gate。全绿后自动上传新的内部 TestFlight 并核对 ASC processing/status；实体
+   设备上的跟手、旗杆底部拖动和 Garmin 重连仍作为上传后的 evidence-open 项。
 
 **`PHONE-UX2` — 7813–7819 真机交互与信息架构修正** (`evidence-open`)
 
@@ -1145,7 +1145,7 @@ project-level task list; historical plans are reference material.
 | `GARMIN-AUTH` | `evidence-open` | Make a successful Garmin web login validate and synchronize against the current CN gateway, then bind the internal app candidate to that backend. | Commit `caf3afad`, source sync follow-up `f24a22dd`, Source CI `34043175968`/`34223501012`, controlled 403-to-200 gateway comparison, healthy public deployment, Native Mobile CI `34223836622`, TestFlight CD `34231106418`, and Apple/group check `34232120285` are complete. One new real-device reconnect/sync remains. |
 | `PHONE-REGRESSION` | `evidence-open` | Unify backend caddie recommendation with the live club strip/map landing, constrain hazard labels/distances to small factual edge numbers, and provide a direct retry for saved-but-unverified Garmin sessions while preserving provider-nearby, manual-search, downloaded-course provenance and A/B/C labels. | Source CI `34223501012`, Native Mobile CI `34223836622`, backend revision `f363872f`, TestFlight Build 53, and Apple processing/group visibility are complete; physical screenshots and device behavior remain evidence-open. |
 | `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Source CI `34663338160` and exact-SHA live Native Mobile CI `34663501590` at `70480f99` passed, including iOS/Watch builds, real iOS journey, dedicated hazard/caddie captures, Watch runtime screenshots, evidence and secret scans. Internal TestFlight CD `34666136884` uploaded Build 57; ASC read-only run `34666574292` confirmed `VALID` and `IN_BETA_TESTING`. Physical iPhone/Watch validation of map panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation remains open. |
-| `PHONE-UX3` | `in-progress` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present in the working tree; homeserver focused suite `295 passed, 2 skipped` and Python compile check pass. Source/Native exact-SHA gates and the automatic internal TestFlight upload remain open. |
+| `PHONE-UX3` | `in-progress` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present in the working tree; homeserver focused suite `296 passed, 2 skipped` and Python compileall pass. Claude Fable UX3 read-only review found no new blocker in the arc/green-drag/hazard-layer design and identified the fast-start handoff/cache risks now covered by the current changes. Source/Native exact-SHA gates and the automatic internal TestFlight upload remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 | `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |
@@ -1729,6 +1729,15 @@ Native runs recorded above; it is retained only as historical diagnosis.
   probe is now HTTP 200 (`revision=66344953`, Topo v10 `678x1060`). Exact-SHA Native rerun is the
   next action; no TestFlight upload has been started from the failed gate.
 
+- 2026-09-12: Homeserver Claude Fable completed a read-only UX3 review from snapshot
+  `/dev/shm/garmin-ai-caddie-fable-ux3-20260912`; report is preserved at
+  `/home/jason/codex-runs/garmin-ai-caddie-phone-ux3-20260912/fable-ux3-review.txt` and the
+  review process created no persistent resources. It identified seven fast-start risks:首屏仍可能
+  触发 CourseView/weather 外网请求、完整包可能覆盖首洞精确 prep、后台补齐只启动一次、单洞
+  响应误作完整球局、partial 状态暴露粗糙详情、精确图轮询退避过长，以及缺少完整包交接测试。
+  The current implementation addresses those boundaries; static arc/green-drag/hazard-layer review
+  was accepted. The focused homeserver suite then ran `296 tests in 13.378s`, `OK (skipped=2)`,
+  and remote Python compileall passed.
 - 2026-09-12: `PHONE-UX3` implementation is complete in the working tree. The phone map now uses
   direct transient panning, the opening tee has a configurable 200–240 yard reference arc, View
   Green keeps its crop/last valid pole-foot while a held finger leaves the green, and the hazard
@@ -1736,7 +1745,7 @@ Native runs recorded above; it is retained only as historical diagnosis.
   reject water-intersecting carry windows, avoid an unjustified repeated opening club, and use the
   same projected tee anchor. New rounds request a first-hole fast-start package and refresh the
   complete course in the background; the partial visual is now a clean loading surface. Homeserver
-  focused tests ran `295 passed, 2 skipped`; Python compileall passed with a temporary pyc prefix.
+  focused tests ran `296 passed, 2 skipped`; Python compileall passed with a temporary pyc prefix.
   Source/Native exact-SHA gates and TestFlight upload are still pending.
 
 - 2026-09-11: Native Mobile CI `34655087985` completed at source `81260294`.

@@ -246,11 +246,22 @@ def _weather_snapshot_for_package(
     longitude: float | None = None,
     root: Path | str | None = None,
     transport: WeatherTransport | None = None,
+    allow_fetch: bool = True,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     cached = weather_snapshot_for_time(round_id, captured_at=captured_at, root=root, exact_hole=True, player_id=player_id)
     if cached:
         return cached
+    # A first-hole fast-start package must not wait on Open-Meteo.  It is still useful to return a
+    # truthful missing snapshot; the complete package request refreshes weather after the map is on
+    # screen.  This keeps provider latency out of the critical start path without fabricating values.
+    if not allow_fetch:
+        return build_weather_snapshot(
+            round_id=round_id,
+            captured_at=captured_at,
+            latitude=latitude,
+            longitude=longitude,
+        )
     if latitude is not None and longitude is not None:
         snapshot = fetch_open_meteo_weather_snapshot(
             round_id=round_id,
@@ -2371,6 +2382,7 @@ def build_live_round_package(
     include_course_prep: bool = True,
     include_event_cursor: bool = True,
     hole_numbers_override: list[int] | None = None,
+    allow_weather_fetch: bool = True,
     stats_data: HistoryData | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
@@ -2462,6 +2474,7 @@ def build_live_round_package(
         longitude=course_longitude,
         root=root,
         transport=weather_transport,
+        allow_fetch=allow_weather_fetch,
         player_id=player_id,
     )
     weather_coverage, weather_by_hole = _weather_coverage_for_package(
@@ -2620,6 +2633,7 @@ def _geometry_only_course_template(
     tee_box: str | None = None,
     course_name: str | None = None,
     ensure_lightweight: bool = False,
+    allow_lightweight_fetch: bool | None = None,
     priority_holes: list[int] | None = None,
     root: Path | str | None = None,
 ) -> dict[str, Any] | None:
@@ -2629,9 +2643,14 @@ def _geometry_only_course_template(
     holes = []
     cv_par = course_reference.courseview_par(int(global_id), allow_fetch=False)
     package_root = Path(root) if root is not None else Path(".")
+    fetch_allowed = ensure_lightweight if allow_lightweight_fetch is None else allow_lightweight_fetch
     try:
         lightweight = (
-            courseview_core.ensure_course_data(int(global_id), root=package_root)
+            courseview_core.ensure_course_data(
+                int(global_id),
+                allow_fetch=fetch_allowed,
+                root=package_root,
+            )
             if ensure_lightweight
             else courseview_core.load_cached_course_data(int(global_id), root=package_root)
         )
@@ -2645,7 +2664,7 @@ def _geometry_only_course_template(
     try:
         release = course_reference.courseview_release_info(
             int(global_id),
-            allow_fetch=ensure_lightweight,
+            allow_fetch=fetch_allowed,
             root=package_root,
         )
     except Exception:
@@ -2796,6 +2815,7 @@ def build_live_round_package_for_course(
     include_event_cursor: bool = True,
     ensure_lightweight: bool = False,
     fast_start: bool = False,
+    allow_lightweight_fetch: bool | None = None,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
@@ -2821,6 +2841,7 @@ def build_live_round_package_for_course(
             tee_box=tee_box,
             course_name=_course_display_name(source, int(global_id)),
             ensure_lightweight=ensure_lightweight,
+            allow_lightweight_fetch=allow_lightweight_fetch,
             priority_holes=priority_holes,
             root=root,
         )
@@ -2855,6 +2876,7 @@ def build_live_round_package_for_course(
         include_course_prep=include_course_prep,
         include_event_cursor=include_event_cursor,
         hole_numbers_override=priority_holes,
+        allow_weather_fetch=not fast_start,
         # Build stats from the ORIGINAL history (not the template-augmented package_source) so the
         # stats cache stays warm across every course/round — see note in build_live_round_package.
         stats_data=source,
