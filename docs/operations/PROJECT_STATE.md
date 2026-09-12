@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-12 02:06 UTC
+**Updated:** 2026-09-12 03:24 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `70480f99`; current internal-release source `70480f99`; deployed backend tip
 `5124d6384c71cba0e2f911ab043464aca3e28c46`; MAP1 product-code tip
@@ -507,6 +507,29 @@ course preparation, review, and synchronized history. Preserve existing working
 code; do not restart the old multi-week plan tree.
 
 ## Current Slice
+
+**`PHONE-UX3` — 7959–7961 地图操控、障碍几何、球路安全与首洞加载** (`in-progress`)
+
+本轮承接 `PHONE-UX2` 的实体反馈，处理五个相互关联的产品问题：外层球道图放大拖动必须
+与目标点测距页一样实时跟手；障碍详情在缩放后要把地图、真实轮廓和固定尺寸的红点/距离
+标签分层渲染，默认一次只突出一个障碍；球路规划必须以每支球杆的实际 carry/离散度和
+障碍风险约束落点，不能把一号木画进水里，也不能无依据地产生“一号木接一号木”；发球台
+锚点、路线起点和目标点初始投影必须统一；新球场开局采用首洞优先的并行准备，先显示可玩的
+第一洞，剩余洞在后台队列加载。不得用杆名特判，必须复用现有逐杆表现模型和缓存协议。
+
+**Durable execution plan (persisted 2026-09-12 03:24 UTC):**
+1. 已完成：外层 `CurrentHoleView` 与目标点页采用同一套 transient drag/scale 状态，拖动实时
+   跟手，父级 `ScrollView` 在放大交互期间不抢手势。
+2. 已完成：`LiveHazardDetailView` 拆分地图几何层和固定尺寸标注层；精确 `outlinePx` 沿真实
+   轮廓画紧凑红线，前后沿仅保留小红点和稳定字号标签，并默认一次选中一个障碍。
+3. 已完成：决策层和轻量备战层加入逐杆水障碍硬约束、前沿 layup 安全边界、首杆实体球杆
+   排除和统一 tee/route 投影锚点；没有针对任何具体杆名写特殊偏好。
+4. 已完成：新球局走首洞 fast-start（服务端跳过同步 release fetch，首洞包先返回），进入
+   后后台补齐完整球场；partial 首洞不再展示粗糙示意图，只显示干净的地图准备面并原位替换
+   为精确 topo。
+5. 进行中：homeserver 聚焦测试已通过；下一步是 Source/Native exact-SHA gate。全绿后自动
+   上传新的内部 TestFlight 并核对 ASC processing/status；实体设备上的跟手、旗杆底部拖动和
+   Garmin 重连仍作为上传后的 evidence-open 项。
 
 **`PHONE-UX2` — 7813–7819 真机交互与信息架构修正** (`evidence-open`)
 
@@ -1122,6 +1145,7 @@ project-level task list; historical plans are reference material.
 | `GARMIN-AUTH` | `evidence-open` | Make a successful Garmin web login validate and synchronize against the current CN gateway, then bind the internal app candidate to that backend. | Commit `caf3afad`, source sync follow-up `f24a22dd`, Source CI `34043175968`/`34223501012`, controlled 403-to-200 gateway comparison, healthy public deployment, Native Mobile CI `34223836622`, TestFlight CD `34231106418`, and Apple/group check `34232120285` are complete. One new real-device reconnect/sync remains. |
 | `PHONE-REGRESSION` | `evidence-open` | Unify backend caddie recommendation with the live club strip/map landing, constrain hazard labels/distances to small factual edge numbers, and provide a direct retry for saved-but-unverified Garmin sessions while preserving provider-nearby, manual-search, downloaded-course provenance and A/B/C labels. | Source CI `34223501012`, Native Mobile CI `34223836622`, backend revision `f363872f`, TestFlight Build 53, and Apple processing/group visibility are complete; physical screenshots and device behavior remain evidence-open. |
 | `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Source CI `34663338160` and exact-SHA live Native Mobile CI `34663501590` at `70480f99` passed, including iOS/Watch builds, real iOS journey, dedicated hazard/caddie captures, Watch runtime screenshots, evidence and secret scans. Internal TestFlight CD `34666136884` uploaded Build 57; ASC read-only run `34666574292` confirmed `VALID` and `IN_BETA_TESTING`. Physical iPhone/Watch validation of map panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation remains open. |
+| `PHONE-UX3` | `in-progress` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present in the working tree; homeserver focused suite `295 passed, 2 skipped` and Python compile check pass. Source/Native exact-SHA gates and the automatic internal TestFlight upload remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 | `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |
@@ -1689,6 +1713,16 @@ Native runs recorded above; it is retained only as historical diagnosis.
   master checklist from memory.
 
 ## State Changes
+
+- 2026-09-12: `PHONE-UX3` implementation is complete in the working tree. The phone map now uses
+  direct transient panning, the opening tee has a configurable 200–240 yard reference arc, View
+  Green keeps its crop/last valid pole-foot while a held finger leaves the green, and the hazard
+  page separates transformed geometry from fixed-size edge annotations. Decision/course-prep paths
+  reject water-intersecting carry windows, avoid an unjustified repeated opening club, and use the
+  same projected tee anchor. New rounds request a first-hole fast-start package and refresh the
+  complete course in the background; the partial visual is now a clean loading surface. Homeserver
+  focused tests ran `295 passed, 2 skipped`; Python compileall passed with a temporary pyc prefix.
+  Source/Native exact-SHA gates and TestFlight upload are still pending.
 
 - 2026-09-11: Native Mobile CI `34655087985` completed at source `81260294`.
   iOS/Watch compilation, unit tests, live preflight, Watch runtime captures,

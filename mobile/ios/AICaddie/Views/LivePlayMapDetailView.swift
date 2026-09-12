@@ -540,6 +540,13 @@ public struct LivePlayMapDetailView: View {
     }
 
     private func referencePixel(overlay: CoursePrepOverlay) -> CGPoint? {
+        // At the tee the overlay route's first sample is the same anchor used by the rendered Tee
+        // marker and the opening distance arc. Prefer it over a separately rounded GPS/metadata
+        // coordinate so the initial target dot cannot appear inside the tee box or several metres
+        // down the fairway.
+        if !referenceIsLive, let tee = routePixel(overlay.route.first) {
+            return tee
+        }
         if let referenceCoordinate,
            let projected = project(coordinate: referenceCoordinate) {
             return CGPoint(x: projected[0], y: projected[1])

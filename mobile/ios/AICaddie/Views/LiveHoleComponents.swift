@@ -1519,6 +1519,36 @@ struct LiveMapPreparingPill: View {
     }
 }
 
+/// Fast-start may have the first hole's factual route before the precise topo bitmap is ready.
+/// Keep that handoff visually quiet: the player can already see the hole/caddie surface, while a
+/// coarse route sketch is deliberately withheld from the primary map because it reads like a
+/// finished course drawing and is hard to interpret on a phone.
+struct LiveMapPreparingSurface: View {
+    let holeNumber: Int
+
+    var body: some View {
+        ZStack {
+            LivePlayStyle.base
+            VStack(spacing: 10) {
+                Image(systemName: "map")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(LivePlayStyle.accent)
+                ProgressView()
+                    .tint(LivePlayStyle.accent)
+                Text("第 (holeNumber) 洞")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
+                Text("正在载入精确球道图")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.62))
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("第 (holeNumber) 洞地图准备中")
+        .accessibilityIdentifier("live-map-preparing-surface")
+    }
+}
+
 /// Apple-Maps-style dark-glass bottom panel: a grab handle + the stacked data sections.
 struct LivePlayPanel<Content: View>: View {
     private let content: Content

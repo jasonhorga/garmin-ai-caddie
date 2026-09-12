@@ -69,7 +69,11 @@ def _mobile_materialization_lock(player_id: str) -> Iterator[None]:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def _refresh_course_release_authority(global_ids: list[int]) -> None:
+def _refresh_course_release_authority(
+    global_ids: list[int],
+    *,
+    allow_fetch: bool = True,
+) -> None:
     """Refresh each physical loop's small Garmin release before package coverage is evaluated."""
     from ai_caddie.courses.course_reference import courseview_release_info
 
@@ -77,7 +81,7 @@ def _refresh_course_release_authority(global_ids: list[int]) -> None:
         try:
             # Geometry files and release documents live under the canonical repository data root;
             # MOBILE_ROOT only scopes player/event fixtures and may be redirected independently.
-            courseview_release_info(selected_global_id, allow_fetch=True)
+            courseview_release_info(selected_global_id, allow_fetch=allow_fetch)
         except Exception:
             # Offline/provider failure keeps the last complete release and precise map usable. A
             # later package request retries without making course start depend on Garmin uptime.
@@ -154,12 +158,14 @@ def build_mobile_course_package_response(
     nine: str = "all",
     back_global_id: int | None = None,
     include_event_cursor: bool = True,
+    fast_start: bool = False,
     player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
     # Refresh every selected physical loop before historical `ready` or cached precise files are
     # evaluated. This applies equally to played and never-played catalogue courses.
     _refresh_course_release_authority(
-        [int(global_id), *([int(back_global_id)] if back_global_id is not None else [])]
+        [int(global_id), *([int(back_global_id)] if back_global_id is not None else [])],
+        allow_fetch=not fast_start,
     )
     data, mode = load_history_data_for_mode(player_id=player_id)
     package = build_live_round_package_for_course(
@@ -183,11 +189,14 @@ def build_mobile_course_package_response(
         include_course_prep=False,
         include_event_cursor=include_event_cursor,
         ensure_lightweight=True,
+        fast_start=fast_start,
     )
     package["coursePrep"] = first_hole_lightweight_course_prep(
         package,
         player_id=player_id,
     )
+    package["startMode"] = "first_hole_fast" if fast_start else "full"
+    package["fullCoursePending"] = bool(fast_start and len(package.get("holes") or []) <= 1)
     return LiveRoundPackageResponse(
         **package
     )

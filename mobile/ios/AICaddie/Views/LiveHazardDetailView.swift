@@ -298,6 +298,14 @@ struct LiveHazardDetailView: View {
                     .scaleEffect(displayedScale)
                     .offset(displayedOffset)
 
+                // Keep geometry in the transformed map plane, but keep edge readouts in the
+                // viewport plane so zooming never makes dots or numbers cover the obstacle.
+                hazardMapAnnotationLayer(
+                    size: proxy.size,
+                    scale: displayedScale,
+                    offset: displayedOffset
+                )
+
                 hazardMapInteraction(size: proxy.size)
 
                 VStack(spacing: 8) {
@@ -348,12 +356,30 @@ struct LiveHazardDetailView: View {
             )
             .frame(width: size.width, height: size.height)
             Canvas { context, canvasSize in
-                drawSelectedHazard(&context, size: canvasSize)
+                drawSelectedHazardGeometry(&context, size: canvasSize)
             }
             .allowsHitTesting(false)
             .accessibilityIdentifier("selected-hazard-map-outline")
         }
         .frame(width: size.width, height: size.height)
+    }
+
+    private func hazardMapAnnotationLayer(
+        size: CGSize,
+        scale: CGFloat,
+        offset: CGSize
+    ) -> some View {
+        Canvas { context, canvasSize in
+            drawSelectedHazardAnnotations(
+                &context,
+                size: canvasSize,
+                scale: scale,
+                offset: offset
+            )
+        }
+        .frame(width: size.width, height: size.height)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private func hazardMapInteraction(size: CGSize) -> some View {
@@ -558,7 +584,9 @@ struct LiveHazardDetailView: View {
         #endif
     }
 
-    private func drawSelectedHazard(_ context: inout GraphicsContext, size: CGSize) {
+    /// Draw only the factual obstacle shape in the transformed map plane. Edge points and labels
+    /// are rendered separately so they retain a stable screen size while the map zooms.
+    private func drawSelectedHazardGeometry(_ context: inout GraphicsContext, size: CGSize) {
         guard let row = selectedHazard,
               let overlay = hole.resolvedMapOverlay else { return }
 
@@ -581,10 +609,9 @@ struct LiveHazardDetailView: View {
             projectedHazardPixelPoint(pixels: $0, overlay: overlay, size: size)
         }
 
-        // Precise prep carries the ordered mesh boundary. Draw it as a translucent filled shape
-        // with a high-contrast red halo so the selected obstacle remains readable over the topo
-        // raster. Older packages have only two factual edge points, so use a compact focus ring
-        // rather than pretending those points describe an exact bunker or water outline.
+        // Precise prep carries the ordered mesh boundary. Follow it directly with a compact red
+        // line. A black halo used to swallow small bunkers at 3–4x zoom. Older packages have only
+        // two edge points, so use a restrained fallback ring without claiming exact geometry.
         if outlinePoints.count >= 3 {
             var outline = Path()
             outline.move(to: outlinePoints[0])
@@ -592,12 +619,11 @@ struct LiveHazardDetailView: View {
                 outline.addLine(to: point)
             }
             outline.closeSubpath()
-            context.fill(outline, with: .color(Color(red: 0.95, green: 0.16, blue: 0.14).opacity(0.12)))
-            context.stroke(outline, with: .color(.black.opacity(0.78)), style: StrokeStyle(lineWidth: 8))
+            context.fill(outline, with: .color(Color(red: 0.95, green: 0.16, blue: 0.14).opacity(0.08)))
             context.stroke(
                 outline,
                 with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)),
-                style: StrokeStyle(lineWidth: 3)
+                style: StrokeStyle(lineWidth: 2.5, lineJoin: .round)
             )
         } else if let ring = LiveHazardFocusRingLayout.rect(
             front: front,
@@ -607,29 +633,47 @@ struct LiveHazardDetailView: View {
             let focus = Path(ellipseIn: ring.insetBy(dx: 3, dy: 3))
             context.fill(
                 focus,
-                with: .color(Color(red: 0.95, green: 0.16, blue: 0.14).opacity(0.10))
-            )
-            context.stroke(
-                focus,
-                with: .color(.black.opacity(0.82)),
-                style: StrokeStyle(lineWidth: 9)
+                with: .color(Color(red: 0.95, green: 0.16, blue: 0.14).opacity(0.06))
             )
             context.stroke(
                 focus,
                 with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)),
-                style: StrokeStyle(lineWidth: 3)
+                style: StrokeStyle(lineWidth: 2.5)
             )
         }
+    }
 
+    private func drawSelectedHazardAnnotations(
+        _ context: inout GraphicsContext,
+        size: CGSize,
+        scale: CGFloat,
+        offset: CGSize
+    ) {
+        guard let row = selectedHazard,
+              let overlay = hole.resolvedMapOverlay else { return }
+        let baseFront = hazardPoint(
+            pixels: row.frontPx,
+            routeMetres: row.frontRouteM,
+            overlay: overlay,
+            size: size
+        )
+        let baseBack = hazardPoint(
+            pixels: row.backPx,
+            routeMetres: row.backRouteM,
+            overlay: overlay,
+            size: size
+        )
+        let front = baseFront.flatMap { transformed($0, in: size, scale: scale, offset: offset) }
+        let back = baseBack.flatMap { transformed($0, in: size, scale: scale, offset: offset) }
         let edgeLabels: [(CGPoint?, String, Int?)] = [
             (front, "前", row.frontYards),
             (back, "后", row.backYards),
         ]
         for (point, label, yards) in edgeLabels {
             guard let point else { continue }
-            let marker = Path(ellipseIn: CGRect(x: point.x - 5, y: point.y - 5, width: 10, height: 10))
+            // One small red point is enough; the previous white halo hid the actual boundary.
+            let marker = Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7))
             context.fill(marker, with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)))
-            context.stroke(marker, with: .color(.white), style: StrokeStyle(lineWidth: 1.5))
             let labelCenter = LiveHazardFocusRingLayout.labelCenter(
                 for: point,
                 isFront: label == "前",
@@ -648,10 +692,30 @@ struct LiveHazardDetailView: View {
                 with: .color(.black.opacity(0.72))
             )
             context.draw(
-                Text(labelText).font(.system(size: 10, weight: .heavy)).foregroundColor(.white),
+                Text(labelText)
+                    .font(.system(size: 10, weight: .heavy, design: .rounded))
+                    .foregroundColor(.white),
                 at: labelCenter
             )
         }
+    }
+
+    private func transformed(
+        _ point: CGPoint,
+        in size: CGSize,
+        scale: CGFloat,
+        offset: CGSize
+    ) -> CGPoint? {
+        guard point.x.isFinite,
+              point.y.isFinite,
+              size.width > 0,
+              size.height > 0,
+              scale.isFinite,
+              scale > 0 else { return nil }
+        return CGPoint(
+            x: (point.x - size.width / 2) * scale + size.width / 2 + offset.width,
+            y: (point.y - size.height / 2) * scale + size.height / 2 + offset.height
+        )
     }
 
     /// Precise prep supplies real boundary pixels. Legacy packages only know the interval along the

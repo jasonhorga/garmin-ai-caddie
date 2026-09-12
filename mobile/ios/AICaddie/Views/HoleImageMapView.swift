@@ -46,6 +46,9 @@ public struct HoleImageMapView: View {
     /// Live play can keep the factual landing marker/route while presenting the club answer in the
     /// caddie panel. This prevents a tiny map label from competing with the prominent "下一杆" copy.
     public let showsClubLabel: Bool
+    /// Opening-tee distance reference. A non-nil value draws one S70-style cross-fairway arc at
+    /// that carry distance; callers pass nil as soon as the player leaves the tee/records a shot.
+    public let teeDistanceArcYards: Int?
     /// Pre-round only: place static tee-based F/M/B and measured obstacle-edge ranges on the map.
     /// Live play supplies current-GPS ranges in `CurrentHoleView`, so its caller leaves this false
     /// and never gets a duplicate or a tee distance disguised as a live distance.
@@ -59,7 +62,8 @@ public struct HoleImageMapView: View {
                 topoURL: URL? = nil, showsCardChrome: Bool = true,
                 showsRecommendedRoute: Bool = true, showsHazards: Bool = true,
                 showsPrepFactOverlays: Bool = false, allowsRotation: Bool = false,
-                showsPrepClubLabel: Bool = true, showsClubLabel: Bool = true) {
+                showsPrepClubLabel: Bool = true, showsClubLabel: Bool = true,
+                teeDistanceArcYards: Int? = nil) {
         self.hole = hole
         self.selectedClub = selectedClub
         self.selectedClubMetres = selectedClubMetres
@@ -72,6 +76,7 @@ public struct HoleImageMapView: View {
         self.allowsRotation = allowsRotation
         self.showsPrepClubLabel = showsPrepClubLabel
         self.showsClubLabel = showsClubLabel
+        self.teeDistanceArcYards = teeDistanceArcYards
     }
 
     public var body: some View {
@@ -139,7 +144,7 @@ public struct HoleImageMapView: View {
         let landingTargetMetres: Double? = {
             if selectedClub != nil { return selectedClubMetres }
             return showsPrepClubLabel ? hole.landingM : nil
-        }()
+        }().flatMap { Self.safeLandingMetres($0, for: hole) }
         let landingRow = Self.landingOverlayPoint(overlay, targetMetres: landingTargetMetres)
         let landing = landingRow.map { CGPoint(x: $0[0] * sx, y: $0[1] * sy) }
         if hole.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
@@ -171,6 +176,43 @@ public struct HoleImageMapView: View {
                 )
             }
             context.fill(Path(ellipseIn: CGRect(x: tee.x - 5, y: tee.y - 5, width: 10, height: 10)), with: .color(.white))
+        }
+        if let teeDistanceArcYards,
+           teeDistanceArcYards > 0,
+           let arc = Self.teeDistanceArc(
+               overlay: overlay,
+               targetYards: teeDistanceArcYards,
+               size: size
+           ) {
+            let path = Self.path(for: arc)
+            context.stroke(
+                path,
+                with: .color(.black.opacity(0.62)),
+                style: StrokeStyle(lineWidth: 5, lineCap: .round, dash: [9, 6])
+            )
+            context.stroke(
+                path,
+                with: .color(Color(red: 1.0, green: 0.78, blue: 0.18)),
+                style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [9, 6])
+            )
+            let labelPoint = CGPoint(x: (arc.start.x + arc.end.x) / 2, y: arc.control.y - 14)
+            let label = "\(teeDistanceArcYards)码"
+            let labelRect = CGRect(
+                x: labelPoint.x - 25,
+                y: labelPoint.y - 9,
+                width: 50,
+                height: 18
+            )
+            context.fill(
+                Path(roundedRect: labelRect, cornerRadius: 5),
+                with: .color(.black.opacity(0.72))
+            )
+            context.draw(
+                Text(label)
+                    .font(.system(size: 10, weight: .heavy, design: .rounded))
+                    .foregroundColor(.white),
+                at: labelPoint
+            )
         }
         // Landing point + club label: live (selected club's distance) when playing, else the prep's
         // recommended landing. Switching clubs mid-shot moves the marker here.
@@ -459,6 +501,26 @@ public struct HoleImageMapView: View {
         return [last.x, last.y, last.metres]
     }
 
+    /// Last visual guard against a stale/legacy recommendation drawing its landing marker in a
+    /// mapped water interval. The server applies the same boundary when it has club distributions;
+    /// this keeps an older cached package honest while the live caddie request is still loading.
+    static func safeLandingMetres(_ targetMetres: Double, for hole: CoursePrepHole) -> Double? {
+        guard targetMetres.isFinite, targetMetres >= 0 else { return nil }
+        var adjusted = targetMetres
+        for interval in hole.hazards.waterCarry {
+            guard interval.count >= 2,
+                  interval[0].isFinite,
+                  interval[1].isFinite else { continue }
+            let front = min(interval[0], interval[1])
+            let back = max(interval[0], interval[1])
+            let buffer = 8.0
+            if adjusted > front - buffer, adjusted < back + buffer {
+                adjusted = max(1.0, front - buffer)
+            }
+        }
+        return adjusted
+    }
+
     /// Two stable quadratic flight arcs. The small screen-space bend keeps each leg readable over
     /// the map without pretending that the recommendation follows the fairway or models ball roll.
     static func flightArcs(tee: CGPoint, landing: CGPoint?, pin: CGPoint) -> [MapFlightArc] {
@@ -482,6 +544,71 @@ public struct HoleImageMapView: View {
         let control = CGPoint(
             x: midpoint.x + (-dy / length) * bend,
             y: midpoint.y + (dx / length) * bend
+        )
+        return MapFlightArc(start: start, control: control, end: end)
+    }
+
+    /// Build a cross-fairway distance reference from the route's cumulative metre samples. The
+    /// result is in the rendered map frame, so the bitmap and the reference share the same tee
+    /// anchor even when the source route is a dogleg.
+    static func teeDistanceArc(
+        overlay: CoursePrepOverlay,
+        targetYards: Int,
+        size: CGSize
+    ) -> MapFlightArc? {
+        guard targetYards > 0,
+              overlay.w > 0,
+              overlay.h > 0,
+              size.width > 0,
+              size.height > 0 else { return nil }
+        let targetM = Double(targetYards) / 1.09361
+        let rows = overlay.route.compactMap { row -> (x: CGFloat, y: CGFloat, metres: Double)? in
+            guard row.count >= 3,
+                  row[0].isFinite,
+                  row[1].isFinite,
+                  row[2].isFinite else { return nil }
+            return (
+                CGFloat(row[0]) / CGFloat(overlay.w) * size.width,
+                CGFloat(row[1]) / CGFloat(overlay.h) * size.height,
+                row[2]
+            )
+        }
+        guard rows.count >= 2,
+              let first = rows.first,
+              let last = rows.last,
+              targetM >= first.metres,
+              targetM <= last.metres else { return nil }
+
+        var previous = first
+        var current = rows[1]
+        for candidate in rows.dropFirst() {
+            current = candidate
+            if targetM <= candidate.metres { break }
+            previous = candidate
+        }
+        let span = max(current.metres - previous.metres, 0.001)
+        let fraction = min(max((targetM - previous.metres) / span, 0), 1)
+        let center = CGPoint(
+            x: previous.x + (current.x - previous.x) * CGFloat(fraction),
+            y: previous.y + (current.y - previous.y) * CGFloat(fraction)
+        )
+        let tangent = CGPoint(x: current.x - previous.x, y: current.y - previous.y)
+        let length = max(hypot(tangent.x, tangent.y), 0.001)
+        let normal = CGPoint(x: -tangent.y / length, y: tangent.x / length)
+        let scale = min(size.width / CGFloat(overlay.w), size.height / CGFloat(overlay.h))
+        let halfWidth = min(max(CGFloat(overlay.ppm) * scale * 24, 30), size.width * 0.42)
+        let start = CGPoint(
+            x: min(max(center.x - normal.x * halfWidth, 4), size.width - 4),
+            y: min(max(center.y - normal.y * halfWidth, 4), size.height - 4)
+        )
+        let end = CGPoint(
+            x: min(max(center.x + normal.x * halfWidth, 4), size.width - 4),
+            y: min(max(center.y + normal.y * halfWidth, 4), size.height - 4)
+        )
+        // A slight greenward bow reads as a distance band instead of a second flight path.
+        let control = CGPoint(
+            x: center.x + tangent.x / length * min(halfWidth * 0.22, 28),
+            y: center.y + tangent.y / length * min(halfWidth * 0.22, 28)
         )
         return MapFlightArc(start: start, control: control, end: end)
     }

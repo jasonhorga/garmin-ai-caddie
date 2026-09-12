@@ -495,6 +495,10 @@ public final class LiveRoundAppModel: ObservableObject {
     private var deferredRoundFinishGeneration: UUID?
     private var deferredRoundFinishRetryRequested = false
     private var offlineCourseDownloadTask: Task<Void, Never>?
+    /// A fast-start response contains only the first playable hole. This task replaces it with the
+    /// complete round package after the first map is on screen; it is cancelled whenever the player
+    /// changes course/round so a stale response cannot overwrite a newer selection.
+    private var fastStartCourseRefreshTask: Task<Void, Never>?
     private var prepCourseDownloadTask: Task<Void, Never>?
     private var prepCourseDownloadGeneration: UUID?
     private var activePrepCourseDownloadID: String?
@@ -647,6 +651,8 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
+        fastStartCourseRefreshTask?.cancel()
+        fastStartCourseRefreshTask = nil
         pausePrepCourseDownload()
         watchFinishedRoundReconciliationTask?.cancel()
         watchFinishedRoundReconciliationTask = nil
@@ -998,6 +1004,8 @@ public final class LiveRoundAppModel: ObservableObject {
         roundPreparationToken = token
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
+        fastStartCourseRefreshTask?.cancel()
+        fastStartCourseRefreshTask = nil
         deferredOfflineCourseDownloadRevalidation = nil
         isPreparingRound = true
         return token
@@ -1142,7 +1150,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 teeBox: teeBox,
                 nine: nine,
                 capturedAt: preparedAt,
-                preparationToken: preparationToken
+                preparationToken: preparationToken,
+                fastStart: isNewRound
             )
             recordUITestLatency(
                 "course-start.fetch.end globalId=\(globalId) found=\(fetched != nil)"
@@ -1162,6 +1171,14 @@ public final class LiveRoundAppModel: ObservableObject {
                     recordUITestLatency("course-start.signal.begin globalId=\(globalId)")
                     signalFreshRoundEntry(cacheOfflineAssets: true)
                     recordUITestLatency("course-start.signal.end globalId=\(globalId)")
+                    if remotePackage.holes.count <= 1 {
+                        scheduleFastStartCourseRefresh(
+                            globalId: globalId,
+                            roundId: requestedRoundId,
+                            teeBox: teeBox,
+                            nine: nine
+                        )
+                    }
                 } else {
                     // 加打另外九洞 changes the package in place but still needs the newly selected
                     // holes retained. beginRoundPreparation cancelled the superseded download above.
@@ -1202,6 +1219,57 @@ public final class LiveRoundAppModel: ObservableObject {
         } catch {
             AICaddieLog.network.error("Course package prepare failed: \(String(describing: error), privacy: .public)")
             syncStatus = "开始失败,稍后重试"
+        }
+    }
+
+    /// Replace the one-hole fast-start package once the first live surface is available. The
+    /// refresh intentionally does not wait for precise topology: the existing per-hole installer
+    /// owns those assets, while this request restores scorecard/navigation metadata quickly.
+    private func scheduleFastStartCourseRefresh(
+        globalId: Int,
+        roundId: String,
+        teeBox: String,
+        nine: String
+    ) {
+        fastStartCourseRefreshTask?.cancel()
+        fastStartCourseRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(nanoseconds: 1_500_000_000)
+                guard !Task.isCancelled, let syncClient = self.syncClient else { return }
+                let complete = try await syncClient.fetchCoursePackage(
+                    globalId: globalId,
+                    roundId: roundId,
+                    teeBox: teeBox,
+                    nine: nine,
+                    capturedAt: Date(),
+                    ensureGeometry: false,
+                    backgroundGeometry: true,
+                    includeEventCursor: false,
+                    fastStart: false
+                )
+                guard !Task.isCancelled,
+                      self.liveRoundState?.roundId == roundId,
+                      self.package?.course.globalId == globalId else { return }
+                let stable = self.applyingSelectedCourseDisplayName(to: complete)
+                try self.offlineStore.saveRoundPackage(stable)
+                let activeHole = self.liveRoundState?.activeHole
+                self.package = stable
+                if let activeHole, stable.holes.contains(where: { $0.number == activeHole }) {
+                    try self.offlineStore.saveActiveHole(roundId: roundId, hole: activeHole)
+                    self.liveRoundState = try self.offlineStore.restoreLiveRoundState(
+                        roundId: roundId,
+                        package: stable
+                    )
+                }
+                self.syncStatus = "其余球洞已在后台就绪"
+            } catch is CancellationError {
+                return
+            } catch {
+                AICaddieLog.network.info(
+                    "Fast-start full package refresh deferred: \(String(describing: error), privacy: .public)"
+                )
+            }
         }
     }
 
@@ -3300,7 +3368,8 @@ public final class LiveRoundAppModel: ObservableObject {
         teeBox: String,
         nine: String = "all",
         capturedAt: Date = Date(),
-        preparationToken: UUID? = nil
+        preparationToken: UUID? = nil,
+        fastStart: Bool = false
     ) async -> LiveRoundPackage? {
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_COURSE_PACKAGE_FAILURE"] == "1"
@@ -3320,7 +3389,7 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             // A newly generated round has no server events yet. Replay/ACK owns recovery later;
             // scanning the owner's historical event log here only delays the first-hole screen.
-            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false)
+            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false, fastStart: fastStart)
         } catch {
             AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             if preparationToken == nil || preparationToken == roundPreparationToken {

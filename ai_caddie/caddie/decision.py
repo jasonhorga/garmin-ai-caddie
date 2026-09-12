@@ -1017,6 +1017,72 @@ def _hazard_zone_span(zone: dict[str, Any]) -> tuple[float, float] | None:
     return front, clear
 
 
+WATER_SAFE_LAYUP_BUFFER_M = 8.0
+WATER_SAFE_CLEARANCE_BUFFER_M = 8.0
+
+
+def _water_zones(zones: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Keep only route water spans for the hard carry constraint.
+
+    Bunkers and lateral rough remain scored risks. Water is different: a stock recommendation that
+    lands inside a mapped crossing is not a useful alternative, even when its aggregate risk score
+    happens to beat a shorter club.
+    """
+    return [
+        zone
+        for zone in zones or []
+        if isinstance(zone, dict)
+        and str(zone.get("kind") or "").strip().lower() in {"water", "water_edge", "water_hazard"}
+        and _hazard_zone_span(zone) is not None
+    ]
+
+
+def _carry_water_safe(carry_m: float, zones: list[dict[str, Any]] | None) -> bool:
+    """Return whether a deterministic carry is either safely short or safely over every water span."""
+    if not math.isfinite(carry_m) or carry_m < 0:
+        return False
+    for zone in _water_zones(zones):
+        span = _hazard_zone_span(zone)
+        if span is None:
+            continue
+        front_m, clear_m = span
+        before = carry_m <= front_m - WATER_SAFE_LAYUP_BUFFER_M
+        over = carry_m >= clear_m + WATER_SAFE_CLEARANCE_BUFFER_M
+        if not (before or over):
+            return False
+    return True
+
+
+def _club_water_safety(row: dict[str, Any], zones: list[dict[str, Any]] | None) -> str:
+    """Classify one club's measured distribution against water.
+
+    ``safe_before`` and ``safe_over`` require the full p10-p90 window to clear a buffer. This is
+    deliberately stricter than checking the median: a long but inconsistent Driver should not be
+    presented as a stock crossing when its lower tail still finishes in the lake.
+    """
+    water = _water_zones(zones)
+    if not water:
+        return "clear"
+    low_m, median_m, high_m = _club_distribution_bounds(row)
+    states: list[str] = []
+    for zone in water:
+        span = _hazard_zone_span(zone)
+        if span is None:
+            continue
+        front_m, clear_m = span
+        if high_m <= front_m - WATER_SAFE_LAYUP_BUFFER_M:
+            states.append("safe_before")
+        elif low_m >= clear_m + WATER_SAFE_CLEARANCE_BUFFER_M:
+            states.append("safe_over")
+        else:
+            states.append("risk")
+    if states and all(state == "safe_before" for state in states):
+        return "safe_before"
+    if states and all(state == "safe_over" for state in states):
+        return "safe_over"
+    return "risk"
+
+
 def _club_hazard_exposure(row: dict[str, Any], zone: dict[str, Any]) -> float:
     """Estimate whether this club's central 80% carry window reaches one mapped hazard span."""
     span = _hazard_zone_span(zone)
@@ -1060,10 +1126,20 @@ def _planned_chain_cost(rows: list[dict[str, Any]], leave_m: float) -> float:
     return abs(leave_m) + stability
 
 
-def _sequence_tail(rows: list[dict[str, Any]], remaining_m: float) -> list[dict[str, Any]]:
+def _sequence_tail(
+    rows: list[dict[str, Any]],
+    remaining_m: float,
+    *,
+    exclude_club_keys: set[str] | None = None,
+) -> list[dict[str, Any]]:
     if remaining_m <= 20.0:
         return []
-    playable = [row for row in rows if _is_playable_club(row)]
+    excluded = exclude_club_keys or set()
+    playable = [
+        row
+        for row in rows
+        if _is_playable_club(row) and _club_identity(row) not in excluded
+    ]
     if not playable:
         return []
     longest_m = max(_float(row.get("median_m")) for row in playable)
@@ -1076,10 +1152,12 @@ def _sequence_tail(rows: list[dict[str, Any]], remaining_m: float) -> list[dict[
             leave_m = round(remaining_m - sum(_float(row.get("median_m")) for row in candidate), 1)
             overshoot_m = max(0.0, -leave_m)
             excessive_overshoot = 1.0 if overshoot_m > MAX_SEQUENCE_OVERSHOOT_M else 0.0
+            unresolved_leave = 1.0 if leave_m > 20.0 else 0.0
             extra_step_cost = (step_count - minimum_steps) * EXTRA_SEQUENCE_STEP_COST_M
             sample_strength = sum(_effective_club_sample_size(row) for row in candidate)
             key = (
                 excessive_overshoot,
+                unresolved_leave,
                 _planned_chain_cost(candidate, leave_m) + extra_step_cost,
                 overshoot_m,
                 -float(sample_strength),
@@ -1112,7 +1190,14 @@ def _whole_hole_sequence_key(
             - first_carry_m * TEE_ADVANCEMENT_WEIGHT
         )
         return (0.0, round(score, 4), 1.0, 0.0, -float(first.get("sampleSize") or 0), -first_carry_m)
-    tail = _sequence_tail(rows, distance_m - first_carry_m)
+    # A physical club can be used again later in a real round, but a cold tee plan must not claim
+    # the same opening club twice in a row (for example Driver -> Driver). Re-planning after the
+    # next lie is the product contract; the first preview therefore reserves the opening identity.
+    tail = _sequence_tail(
+        rows,
+        distance_m - first_carry_m,
+        exclude_club_keys={_club_identity(first)},
+    )
     planned = [first, *tail]
     leave_m = round(distance_m - sum(_float(row.get("median_m")) for row in planned), 1)
     overshoot_m = max(0.0, -leave_m)
@@ -1173,7 +1258,14 @@ def _sequence_option(*, option: dict[str, Any], distance_m: float, club_rows: li
     first = _sequence_first_club(option, club_rows)
     if first is None:
         return None
-    planned_rows = [first, *_sequence_tail(club_rows, distance_m - _float(first.get("median_m")))]
+    planned_rows = [
+        first,
+        *_sequence_tail(
+            club_rows,
+            distance_m - _float(first.get("median_m")),
+            exclude_club_keys={_club_identity(first)},
+        ),
+    ]
     remaining = distance_m
     steps = []
     for index, row in enumerate(planned_rows):
@@ -1432,6 +1524,24 @@ def _routes_from_route_evidence(analysis: dict[str, Any]) -> list[dict[str, Any]
     if route_length <= 0:
         return []
     zones = _route_evidence_zones(route_evidence)
+
+    def safe_carry(carry_m: float) -> tuple[float, bool]:
+        """Clip a tee route to the first safe layup when its carry would finish in water."""
+        adjusted = float(carry_m)
+        clipped = False
+        for zone in _water_zones(zones):
+            span = _hazard_zone_span(zone)
+            if span is None:
+                continue
+            front_m, clear_m = span
+            if adjusted <= front_m - WATER_SAFE_LAYUP_BUFFER_M:
+                continue
+            if adjusted >= clear_m + WATER_SAFE_CLEARANCE_BUFFER_M:
+                continue
+            adjusted = max(1.0, front_m - WATER_SAFE_LAYUP_BUFFER_M)
+            clipped = True
+        return round(adjusted, 1), clipped
+
     safe_delta = min(20.0, max(10.0, route_length * 0.1))
     attack_delta = min(20.0, max(10.0, route_length * 0.08))
     specs = [
@@ -1440,7 +1550,8 @@ def _routes_from_route_evidence(analysis: dict[str, Any]) -> list[dict[str, Any]
         ("aggressive_line", "attack route-geometry extension", "attack", route_length + attack_delta),
     ]
     routes = []
-    for route_id, label, option_id, carry_m in specs:
+    for route_id, label, option_id, raw_carry_m in specs:
+        carry_m, clipped_to_layup = safe_carry(raw_carry_m)
         target_local = _route_target_for_carry(route_evidence, carry_m, route_length)
         option_zones = _avoid_zones_for_target(
             zones,
@@ -1453,9 +1564,10 @@ def _routes_from_route_evidence(analysis: dict[str, Any]) -> list[dict[str, Any]
                 "label": label,
                 "carry_m": round(carry_m, 1),
                 "landingLocal": target_local,
-                "expectedSurface": {"kind": "fairway"},
+                "expectedSurface": {"kind": "layup" if clipped_to_layup else "fairway"},
                 "nearRisks": [],
                 "lineRisks": option_zones,
+                "waterConstraint": "layup_before_water" if clipped_to_layup else "clear_or_no_water",
                 "riskScore": _route_evidence_risk_score(
                     option_id,
                     carry_m,

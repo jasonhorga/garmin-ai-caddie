@@ -1334,6 +1334,7 @@ def _shot_option_clubs(
     from ai_caddie.caddie.decision import (
         _club_hazard_cost,
         _club_stability_cost,
+        _club_water_safety,
         _whole_hole_sequence_key,
     )
 
@@ -1353,10 +1354,19 @@ def _shot_option_clubs(
         # Evaluate the whole physical bag. Shot-count, advancement, each club's own distribution,
         # sample uncertainty, outcome surfaces, and mapped exposure keep implausibly short tee clubs
         # from winning without an arbitrary "four longest" cutoff.
+        # Water is a hard feasibility constraint. A club is eligible only when its measured
+        # p10-p90 window is wholly before the front edge or wholly beyond the clear edge. If the
+        # bag has no such club, retain all rows as a low-confidence fallback instead of returning
+        # an empty caddie result.
+        water_safe_rows = [
+            row for row in rows
+            if _club_water_safety(row, avoid_zones) != "risk"
+        ]
+        ranked_rows = water_safe_rows or rows
         ranked = sorted(
-            rows,
+            ranked_rows,
             key=lambda profile: (
-                _whole_hole_sequence_key(profile, rows, target_m, avoid_zones),
+                _whole_hole_sequence_key(profile, ranked_rows, target_m, avoid_zones),
                 key(profile),
             ),
         )
@@ -2360,6 +2370,7 @@ def build_live_round_package(
     geometry_ensure: dict[str, Any] | None = None,
     include_course_prep: bool = True,
     include_event_cursor: bool = True,
+    hole_numbers_override: list[int] | None = None,
     stats_data: HistoryData | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
@@ -2404,6 +2415,11 @@ def build_live_round_package(
         )
     course_key = str(round_row.get("courseKey") or "")
     hole_numbers = _expected_package_hole_numbers(round_row, stats, course_key=course_key)
+    if hole_numbers_override:
+        requested = {int(number) for number in hole_numbers_override if isinstance(number, int)}
+        narrowed = [number for number in hole_numbers if number in requested]
+        if narrowed:
+            hole_numbers = narrowed
     if ensure_geometry and geometry_ensure is None:
         geometry_ensure = _ensure_geometry_for_package_holes(round_row, hole_numbers)
     holes = _package_holes(
@@ -2604,6 +2620,7 @@ def _geometry_only_course_template(
     tee_box: str | None = None,
     course_name: str | None = None,
     ensure_lightweight: bool = False,
+    priority_holes: list[int] | None = None,
     root: Path | str | None = None,
 ) -> dict[str, Any] | None:
     from ai_caddie.caddie.analysis import _selected_tee
@@ -2635,7 +2652,13 @@ def _geometry_only_course_template(
         release = None
     resolved_course_name = course_name or str((release or {}).get("course_name") or "").strip() or None
     has_geometry_source = False
-    hole_numbers = sorted(lightweight_holes) or list(range(1, len(cv_par or []) + 1)) or list(range(1, 19))
+    available_hole_numbers = sorted(lightweight_holes) or list(range(1, len(cv_par or []) + 1)) or list(range(1, 19))
+    requested_priority = [
+        int(number)
+        for number in (priority_holes or [])
+        if isinstance(number, int) and int(number) in set(available_hole_numbers)
+    ]
+    hole_numbers = requested_priority or available_hole_numbers
     for local_hole in hole_numbers:
         try:
             coverage = geometry_coverage_for_hole(
@@ -2772,6 +2795,7 @@ def build_live_round_package_for_course(
     include_course_prep: bool = True,
     include_event_cursor: bool = True,
     ensure_lightweight: bool = False,
+    fast_start: bool = False,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
@@ -2786,6 +2810,10 @@ def build_live_round_package_for_course(
     template_round = None
     package_source = source
     geometry_ensure = None
+    priority_holes = None
+    if fast_start:
+        # A front-nine/all start enters hole 1; a back-nine start enters its first displayed hole.
+        priority_holes = [10] if str(nine).strip().lower() == "back" else [1]
     if selected_round_id is None:
         template_round = _geometry_only_course_template(
             int(global_id),
@@ -2793,6 +2821,7 @@ def build_live_round_package_for_course(
             tee_box=tee_box,
             course_name=_course_display_name(source, int(global_id)),
             ensure_lightweight=ensure_lightweight,
+            priority_holes=priority_holes,
             root=root,
         )
         # Resolve the release-bound lightweight route before generating precise
@@ -2825,6 +2854,7 @@ def build_live_round_package_for_course(
         geometry_ensure=geometry_ensure,
         include_course_prep=include_course_prep,
         include_event_cursor=include_event_cursor,
+        hole_numbers_override=priority_holes,
         # Build stats from the ORIGINAL history (not the template-augmented package_source) so the
         # stats cache stays warm across every course/round — see note in build_live_round_package.
         stats_data=source,
@@ -2875,7 +2905,7 @@ def build_live_round_package_for_course(
         base = _venue_base_name(str((front_package.get("course") or {}).get("name") or ""))
         if loop_label and base:
             front_package["course"] = {**front_package["course"], "name": f"{base} ~ {loop_label}"}
-    if back_global_id is None:
+    if back_global_id is None or fast_start:
         return front_package
     # Composite 18: this loop (holes 1–9) + a second loop (holes 10–18). Each loop is its own
     # CourseView course with its own holes/par/geometry; merge them into one round.
@@ -2895,6 +2925,7 @@ def build_live_round_package_for_course(
         include_course_prep=include_course_prep,
         include_event_cursor=include_event_cursor,
         ensure_lightweight=ensure_lightweight,
+        fast_start=False,
         player_id=player_id,
     )
     return _merge_nines(front_package, back_package)

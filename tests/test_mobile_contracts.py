@@ -1393,7 +1393,7 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn("fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)", app_swift)
         self.assertIn(
-            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false)",
+            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false, fastStart: fastStart)",
             app_swift,
         )
         self.assertIn(
@@ -2075,6 +2075,7 @@ class MobileContractTests(unittest.TestCase):
 
     def test_ios_hole_2d_map_wired(self) -> None:
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        live_hole_components = _read_required_source(self, IOS_DIR / "Views" / "LiveHoleComponents.swift")
         hole_map_view = _read_required_source(self, IOS_DIR / "Views" / "HoleImageMapView.swift")
         hub_style = _read_required_source(self, IOS_DIR / "Views" / "HubReviewStyle.swift")
         course_review = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
@@ -2134,6 +2135,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("baseURL: caddieBaseURL", current_hole)
         self.assertIn("geometryRevision: geometryRevision", current_hole)
         self.assertIn('"live-hole-map-partial"', current_hole)
+        self.assertIn("LiveMapPreparingSurface(holeNumber: holePrep.hole)", current_hole)
+        self.assertIn('accessibilityIdentifier("live-map-preparing-surface")', live_hole_components)
 
     def test_topo_style_version_invalidates_phone_watch_caches_and_transfers(self) -> None:
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
@@ -3522,7 +3525,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("showsRecommendedRoute: false", hazard_detail)
         self.assertIn("showsHazards: false", hazard_detail)
         self.assertIn("Canvas { context, canvasSize in", hazard_detail)
-        self.assertIn("drawSelectedHazard(&context, size: canvasSize)", hazard_detail)
+        self.assertIn("drawSelectedHazardGeometry(&context, size: canvasSize)", hazard_detail)
         self.assertIn('identifier: "live-hazard-zoom-in"', hazard_detail)
         self.assertIn('identifier: "live-hazard-zoom-out"', hazard_detail)
         self.assertIn('identifier: "live-hazard-fit"', hazard_detail)

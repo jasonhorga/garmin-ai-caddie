@@ -1262,6 +1262,78 @@ def _hole_image_projection(by: dict, route, md: dict | None = None, *, frame=Non
         return {"available": False}
 
 
+TEE_WATER_LAYUP_BUFFER_M = 8.0
+TEE_WATER_CLEARANCE_BUFFER_M = 8.0
+
+
+def _strategy_water_safe(carry_m: float, hazards: dict) -> bool:
+    """Allow a tee carry only when it is safely short of or beyond every water crossing."""
+    if not math.isfinite(float(carry_m)) or carry_m < 0:
+        return False
+    for interval in (hazards or {}).get("water_carry") or []:
+        if not isinstance(interval, (list, tuple)) or len(interval) < 2:
+            continue
+        try:
+            front_m, clear_m = sorted((float(interval[0]), float(interval[1])))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not (
+            carry_m <= front_m - TEE_WATER_LAYUP_BUFFER_M
+            or carry_m >= clear_m + TEE_WATER_CLEARANCE_BUFFER_M
+        ):
+            return False
+    return True
+
+
+def _strategy_tee_row(usable_ladder, hazards: dict):
+    """Resolve one factual tee club without drawing a stock landing inside water.
+
+    The ladder contains measured median carries, so this lightweight prep cannot claim p10/p90
+    precision. It therefore uses an explicit eight-metre edge buffer and leaves the richer live
+    decision layer to apply each club's full distribution when it becomes available.
+    """
+    if not usable_ladder:
+        return None
+    driver_row = next(
+        (
+            row for row in usable_ladder
+            if club_bag_service.canonical_club_name(row[0]) == "driver"
+        ),
+        None,
+    )
+    if not (hazards or {}).get("water_carry"):
+        return driver_row or usable_ladder[0]
+
+    safe_rows = [row for row in usable_ladder if _strategy_water_safe(float(row[1]), hazards)]
+    if driver_row in safe_rows:
+        return driver_row
+    if safe_rows:
+        # Prefer the longest safe measured carry: it is the most useful layup while preserving the
+        # hard water boundary. ``usable_ladder`` is normally longest-first, but sort defensively.
+        return max(safe_rows, key=lambda row: float(row[1]))
+
+    # A sparse bag may have no buffered carry at all. Choose the longest carry that still stops
+    # before the first crossing; if even that is impossible, expose the shortest club as an
+    # explicit low-confidence fallback rather than silently pretending a water carry is safe.
+    first_front = min(
+        (
+            float(interval[0])
+            for interval in (hazards or {}).get("water_carry") or []
+            if isinstance(interval, (list, tuple)) and len(interval) >= 2
+        ),
+        default=math.inf,
+    )
+    before_rows = [
+        row for row in usable_ladder
+        if float(row[1]) <= first_front - TEE_WATER_LAYUP_BUFFER_M
+    ]
+    return (
+        max(before_rows, key=lambda row: float(row[1]))
+        if before_rows
+        else min(usable_ladder, key=lambda row: float(row[1]))
+    )
+
+
 def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
     steps: list[dict] = []
     cautions: list[str] = []
@@ -1278,7 +1350,8 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
         ),
         None,
     )
-    driver_row = real_driver_row or (usable_ladder[0] if usable_ladder else (None, 200))
+    selected_tee_row = _strategy_tee_row(usable_ladder, hazards)
+    driver_row = selected_tee_row or real_driver_row or (usable_ladder[0] if usable_ladder else (None, 200))
     driver_name, driver = driver_row
     landing = None
     if par == 3:
@@ -1293,17 +1366,14 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
         # The previous distance-only branch silently swapped to a hybrid on short holes, making the
         # caddie appear to forbid the club the golfer normally tees with.  Keep the landing target
         # conservative for a short hole, but keep the physical tee club honest.
-        tee_club = (
-            driver_name
-            if real_driver_row is not None
-            else (driver_name if route_len_m > driver else club_for(landing, usable_ladder)[0])
-        )
+        tee_club = driver_name
         steps.append({"club": tee_club, "note": f"开球落点约 {yd(landing)}y"})
         remaining = route_len_m - landing
         approach_ladder = [
             (name, distance)
             for name, distance in usable_ladder
-            if club_bag_service.canonical_club_name(name) != "driver"
+            if club_bag_service.canonical_club_name(name)
+            != club_bag_service.canonical_club_name(tee_club)
         ]
         # Plan a complete Par 4/5 chain. A long Par 5 remainder is not one imaginary approach; use
         # the longest playable non-driver until a normal scoring club can cover what remains.
@@ -1781,18 +1851,34 @@ def _candidate_routes(
         seen_clubs.add(key)
         distinct_playable.append((club_name, carry_m))
 
-    driver_row = next(
-        (row for row in distinct_playable if club_bag_service.canonical_club_name(row[0]) == "driver"),
-        None,
-    )
-
     tiers: list[tuple[str, tuple[str, int]]] = []
     if par in {4, 5}:
-        stock = driver_row or distinct_playable[0]
+        # Keep the same physical Driver preference on an open hole, but apply the exact same water
+        # boundary used by the lightweight strategy. A Driver whose measured carry intersects a
+        # crossing is not a valid stock/attack route; choose the longest buffered layup instead.
+        stock = _strategy_tee_row(distinct_playable, hazards) or distinct_playable[0]
         tiers.append(("stock", stock))
-        shorter = next((row for row in distinct_playable if row[1] < stock[1]), None)
+        shorter = next(
+            (
+                row for row in distinct_playable
+                if row[1] < stock[1]
+                and _strategy_water_safe(float(row[1]), hazards)
+            ),
+            None,
+        )
         if shorter is not None:
             tiers.append(("safe", shorter))
+        # Only expose an attack route when its physical carry also respects every water boundary.
+        longer_safe = next(
+            (
+                row for row in distinct_playable
+                if row[1] > stock[1]
+                and _strategy_water_safe(float(row[1]), hazards)
+            ),
+            None,
+        )
+        if longer_safe is not None:
+            tiers.append(("attack", longer_safe))
     elif len(distinct_playable) >= 3:
         tiers = [
             ("safe", distinct_playable[2]),

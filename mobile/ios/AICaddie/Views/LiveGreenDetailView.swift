@@ -39,7 +39,9 @@ public struct LiveGreenDetailView: View {
     /// pass the round-owned binding above, so reopening View Green retains the selected pixel.
     @State private var fallbackTargetPixel: CGPoint?
     @State private var didDrag = false
-    @State private var flagDragCancelled = false
+    /// Leaving the putting surface pauses flag updates instead of cancelling the held gesture.
+    @State private var flagDragOutsideGreen = false
+    @State private var lastValidFlagPixel: [Double]?
     @GestureState private var pinchScale: CGFloat = 1
 
     /// Keep the flag preview compact and clear of the held finger on phone-sized displays.
@@ -522,7 +524,8 @@ public struct LiveGreenDetailView: View {
         size: CGSize,
         baseRect: CGRect,
         scale: CGFloat,
-        offset: CGSize
+        offset: CGSize,
+        requireInsideGreen: Bool = true
     ) -> [Double]? {
         let untransformed = CGPoint(
             x: (point.x - size.width / 2 - offset.width) / max(scale, 0.001) + size.width / 2,
@@ -553,7 +556,12 @@ public struct LiveGreenDetailView: View {
         } else {
             fullPx = nil
         }
-        guard let fullPx, validFlagPixel(fullPx) else { return nil }
+        guard let fullPx,
+              fullPx.count >= 2,
+              validPixel(CGPoint(x: fullPx[0], y: fullPx[1])) else { return nil }
+        if requireInsideGreen, !validFlagPixel(fullPx) {
+            return nil
+        }
         return fullPx
     }
 
@@ -582,6 +590,12 @@ public struct LiveGreenDetailView: View {
     }
 
     private func referencePixel() -> [Double]? {
+        // Keep the first-shot detail marker on the exact overlay Tee anchor. The normal map, Touch
+        // Target and View Green surfaces must share one origin even when package GPS metadata was
+        // rounded independently from the route projection.
+        if !referenceIsLive, let tee = routePixel(hole.resolvedMapOverlay?.route.first) {
+            return tee
+        }
         if let referenceCoordinate,
            let projected = projectedPoint(referenceCoordinate) {
             return projected
@@ -616,30 +630,38 @@ public struct LiveGreenDetailView: View {
     private func flagOrPanGesture(size: CGSize, baseRect: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
-                if !draggingFlag && !flagDragCancelled {
+                if !draggingFlag && !flagDragOutsideGreen {
                     if let base = effectiveFlagPixel.flatMap({ fullPixelPoint($0, baseRect: baseRect) }),
                        let screen = transformed(base, in: size, scale: scale, offset: offset),
                        hypot(screen.x - value.startLocation.x, screen.y - value.startLocation.y) <= 44 {
                         draggingFlag = true
-                        flagDragCancelled = false
+                        flagDragOutsideGreen = false
+                        lastValidFlagPixel = effectiveFlagPixel
                     } else if scale <= 1.01 {
                         // At fit scale only the putting surface is an actionable flag target. A
                         // drag that begins on the fairway/header is deliberately inert instead of
                         // turning every part of the map into a flag-placement gesture.
-                        draggingFlag = pixel(
+                        if let startPixel = pixel(
                             at: value.startLocation,
                             size: size,
                             baseRect: baseRect,
                             scale: scale,
-                            offset: offset
-                        ) != nil
-                        flagDragCancelled = !draggingFlag
+                            offset: offset,
+                            requireInsideGreen: true
+                        ) {
+                            draggingFlag = true
+                            flagDragOutsideGreen = false
+                            lastValidFlagPixel = startPixel
+                        } else {
+                            draggingFlag = false
+                            flagDragOutsideGreen = true
+                        }
                     } else if scale > 1.01 {
                         draggingFlag = false
-                        flagDragCancelled = false
+                        flagDragOutsideGreen = false
                     } else {
                         draggingFlag = false
-                        flagDragCancelled = true
+                        flagDragOutsideGreen = true
                     }
                 }
                 didDrag = true
@@ -649,43 +671,44 @@ public struct LiveGreenDetailView: View {
                         size: size,
                         baseRect: baseRect,
                         scale: scale,
-                        offset: offset
+                        offset: offset,
+                        requireInsideGreen: false
                     ) {
-                        flagDragLocation = value.location
-                        applyFlag(pixel: pixel, committed: false)
+                        if validFlagPixel(pixel) {
+                            flagDragOutsideGreen = false
+                            lastValidFlagPixel = pixel
+                            flagDragLocation = value.location
+                            applyFlag(pixel: pixel, committed: false)
+                        } else {
+                            // Keep the last valid crop/flag visible while the finger crosses the
+                            // fairway. Re-entry resumes the same gesture without resetting zoom.
+                            flagDragOutsideGreen = true
+                        }
                     } else {
-                        // Leaving the green ends flag editing immediately. Keep the last valid
-                        // point, but never commit a point outside the factual polygon on finger-up.
-                        draggingFlag = false
-                        flagDragCancelled = true
-                        flagDragLocation = nil
+                        flagDragOutsideGreen = true
                     }
-                } else if !flagDragCancelled {
+                } else if !flagDragOutsideGreen {
                     flagDragLocation = nil
                     transientOffset = value.translation
                 }
             }
             .onEnded { value in
                 let wasDraggingFlag = draggingFlag
-                let wasFlagDragCancelled = flagDragCancelled
+                let wasFlagDragOutsideGreen = flagDragOutsideGreen
+                let finalFlagPixel = lastValidFlagPixel
                 defer {
                     draggingFlag = false
-                    flagDragCancelled = false
+                    flagDragOutsideGreen = false
+                    lastValidFlagPixel = nil
                     flagDragLocation = nil
                     transientOffset = .zero
                     DispatchQueue.main.async { didDrag = false }
                 }
-                if wasDraggingFlag && !wasFlagDragCancelled {
-                    if let pixel = pixel(
-                        at: value.location,
-                        size: size,
-                        baseRect: baseRect,
-                        scale: scale,
-                        offset: offset
-                    ) {
-                        applyFlag(pixel: pixel, committed: true)
-                    }
-                } else if !wasFlagDragCancelled {
+                if wasDraggingFlag, let finalFlagPixel {
+                    // Releasing outside the green commits the last valid in-green point. Releasing
+                    // inside has already updated this same point on the final onChanged frame.
+                    applyFlag(pixel: finalFlagPixel, committed: true)
+                } else if !wasFlagDragOutsideGreen {
                     offset = clamped(
                         CGSize(width: offset.width + value.translation.width, height: offset.height + value.translation.height),
                         in: size,

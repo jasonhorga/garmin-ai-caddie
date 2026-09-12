@@ -123,8 +123,12 @@ public struct CurrentHoleView: View {
     @State private var holeRootScrollRequest = 0
     @State private var heroMapScale: CGFloat = 1
     @State private var heroMapOffset: CGSize = .zero
+    /// Direct-manipulation offset is ordinary state, matching the Touch Target detail surface.
+    /// GestureState can be coalesced behind the ancestor ScrollView and make the bitmap catch up
+    /// only on finger-up on some iOS releases.
+    @State private var heroMapTransientDragOffset: CGSize = .zero
     @GestureState private var heroMapPinchScale: CGFloat = 1
-    @GestureState private var heroMapDragOffset: CGSize = .zero
+    @AppStorage("liveTeeDistanceArcYards") private var teeDistanceArcYards: Int = 220
 
     private static let holeRootScrollAnchor = "live-hole-root"
     /// The capture implementation remains available, but this evidence card is intentionally absent
@@ -274,6 +278,7 @@ public struct CurrentHoleView: View {
             requestedStrategyMode = nil
             heroMapScale = 1
             heroMapOffset = .zero
+            heroMapTransientDragOffset = .zero
             #if DEBUG
             // The package already carries factual Tee coordinates for every ready hole. Move the
             // deterministic multi-hole simulator journey before waiting on the per-hole prep GET;
@@ -660,6 +665,7 @@ public struct CurrentHoleView: View {
                     withAnimation(.easeOut(duration: 0.18)) {
                         heroMapScale = 1
                         heroMapOffset = .zero
+                        heroMapTransientDragOffset = .zero
                     }
                 } label: {
                     Image(systemName: "arrow.counterclockwise")
@@ -674,6 +680,33 @@ public struct CurrentHoleView: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .accessibilityLabel("重置地图缩放")
                 .accessibilityIdentifier("live-hero-map-reset-zoom")
+            }
+            if showsTeeDistanceArc {
+                Menu {
+                    ForEach([200, 210, 220, 230, 240], id: \.self) { yards in
+                        Button {
+                            teeDistanceArcYards = yards
+                        } label: {
+                            if teeDistanceArcYards == yards {
+                                Label("\(yards) 码", systemImage: "checkmark")
+                            } else {
+                                Text("\(yards) 码")
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ruler")
+                        .font(.caption.weight(.bold))
+                        .frame(width: 34, height: 34)
+                        .background(.black.opacity(0.68), in: Circle())
+                        .foregroundStyle(.white)
+                }
+                .menuStyle(.borderlessButton)
+                .padding(.top, 48)
+                .padding(.trailing, heroMapScale > 1.01 ? 56 : 14)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .accessibilityLabel("设置发球台距离弧线")
+                .accessibilityIdentifier("live-tee-distance-arc-settings")
             }
         }
         .frame(height: liveHeroHeight)
@@ -714,7 +747,7 @@ public struct CurrentHoleView: View {
             .frame(width: geo.size.width, height: geo.size.height)
             .scaleEffect(heroDisplayedMapScale)
             .offset(heroDisplayedMapOffset(in: geo.size))
-            .animation(nil, value: heroMapDragOffset)
+            .animation(nil, value: heroMapTransientDragOffset)
         }
         .frame(height: liveHeroHeight)
         .clipped()
@@ -726,8 +759,8 @@ public struct CurrentHoleView: View {
 
     private func heroDisplayedMapOffset(in viewport: CGSize) -> CGSize {
         let proposed = CGSize(
-            width: heroMapOffset.width + heroMapDragOffset.width,
-            height: heroMapOffset.height + heroMapDragOffset.height
+            width: heroMapOffset.width + heroMapTransientDragOffset.width,
+            height: heroMapOffset.height + heroMapTransientDragOffset.height
         )
         guard let overlay = holePrep?.resolvedMapOverlay,
               let frame = LivePlayMapOverlayLayout.mapFrame(
@@ -820,7 +853,10 @@ public struct CurrentHoleView: View {
                 }
             )
             .simultaneousGesture(heroMapPinchGesture(in: geometry.size))
-            .gesture(heroMapPanOrSwipeGesture(in: geometry.size))
+            // Give the map first refusal once it is zoomed. The parent ScrollView is disabled in
+            // that state, but high priority also covers the first drag frame while SwiftUI is
+            // publishing the pinch/zoom state.
+            .highPriorityGesture(heroMapPanOrSwipeGesture(in: geometry.size))
             // Keep the map gesture container and the contour-sized green button as separate
             // accessibility elements. Without an explicit containment boundary SwiftUI promotes
             // this gesture-bearing ZStack to one full-hero button and hides the green entry from
@@ -864,14 +900,13 @@ public struct CurrentHoleView: View {
     }
 
     private func heroMapPanOrSwipeGesture(in viewport: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 24)
-            .updating($heroMapDragOffset) { value, state, _ in
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
                 // During a simultaneous pinch the committed scale is still 1. Use the effective
                 // gesture scale so vertical drags start moving the map immediately instead of
                 // being routed to the ancestor ScrollView.
-                if heroMapScale * heroMapPinchScale > 1.01 {
-                    state = value.translation
-                }
+                guard heroMapScale * heroMapPinchScale > 1.01 else { return }
+                heroMapTransientDragOffset = value.translation
             }
             .onEnded { value in
                 if heroMapScale > 1.01 || abs(heroMapPinchScale - 1) > 0.01 {
@@ -883,8 +918,10 @@ public struct CurrentHoleView: View {
                         scale: heroMapScale,
                         viewport: viewport
                     )
+                    heroMapTransientDragOffset = .zero
                     return
                 }
+                heroMapTransientDragOffset = .zero
                 guard let target = HoleSwipeNavigation.target(
                     current: hole.number,
                     holes: package.holes.map(\.number),
@@ -927,14 +964,23 @@ public struct CurrentHoleView: View {
 
     /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时回退暗色渐变占位。
     @ViewBuilder private var liveMapBackdrop: some View {
-        if let holePrep, holePrep.resolvedMapOverlay != nil {
+        if let holePrep, isPreciseHoleMapPending {
+            // The one-hole fast-start package is intentionally useful before prodgeometry arrives,
+            // but its coarse route/hazard strokes are not a finished visual map. Keep the first
+            // screen calm while the exact bitmap is fetched; the surrounding caddie and green
+            // distance instruments remain live and the same map slot swaps in place when ready.
+            LiveMapPreparingSurface(holeNumber: holePrep.hole)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("live-hole-map-partial")
+        } else if let holePrep, holePrep.resolvedMapOverlay != nil {
             HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
                              pinOverlayPixel: effectiveMapPinPixel,
                              topoURL: liveTopoURL, showsCardChrome: false,
                              showsRecommendedRoute: true,
                              showsHazards: false,
                              showsPrepClubLabel: false,
-                             showsClubLabel: false)
+                             showsClubLabel: false,
+                             teeDistanceArcYards: showsTeeDistanceArc ? teeDistanceArcYards : nil)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(
                     holePrep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
@@ -947,6 +993,22 @@ public struct CurrentHoleView: View {
                 startPoint: .top, endPoint: .bottom
             )
         }
+    }
+
+    /// The distance reference is useful only before the first full shot of a hole. With no GPS
+    /// fix we still treat the opening state as the tee so an offline/new-course start gets the same
+    /// S70 cue; once a shot is recorded it disappears even if the player walks back toward the tee.
+    private var showsTeeDistanceArc: Bool {
+        guard recordedNonPuttShotCount == 0 else { return false }
+        guard let current = currentCoordinate else { return true }
+        guard let tee = teeAnchorCoordinate else { return false }
+        let distance = GeoDistance.haversineMetres(
+            current.latitude,
+            current.longitude,
+            tee.latitude,
+            tee.longitude
+        )
+        return distance.isFinite && distance <= 45
     }
 
     // MARK: - Focused caddie plan + secondary dark cards
@@ -1324,7 +1386,13 @@ public struct CurrentHoleView: View {
     }
 
     private func livePlayerTarget(in heroSize: CGSize) -> CGPoint? {
-        guard let currentCoordinate = liveCoordinateForCurrentHole,
+        let displayCoordinate: CLLocationCoordinate2D? = {
+            if recordedNonPuttShotCount == 0, showsTeeDistanceArc {
+                return teeAnchorCoordinate ?? liveCoordinateForCurrentHole
+            }
+            return liveCoordinateForCurrentHole
+        }()
+        guard let currentCoordinate = displayCoordinate,
               let overlay = holePrep?.resolvedMapOverlay,
               let refs = holePrep?.holeImageProjection?.refs,
               refs.count >= 3,
@@ -1346,26 +1414,54 @@ public struct CurrentHoleView: View {
     /// to the factual Tee anchor carried by the package or reconstructed from the map projection;
     /// this is a display/reference coordinate only and is never sent as `currentLocation`.
     private var mapReferenceCoordinate: CLLocationCoordinate2D? {
+        // The first-shot map, Touch Target reference and tee-distance arc must share one physical
+        // anchor. Snap the opening state to the projected route[0] while the player is at the tee;
+        // after a shot, live GPS regains authority and the map follows the player normally.
+        if recordedNonPuttShotCount == 0,
+           let teeAnchor = teeAnchorCoordinate,
+           (currentCoordinate == nil || isWithinTeeAnchor(currentCoordinate, teeAnchor)) {
+            return teeAnchor
+        }
         if mapReferenceIsLive, let currentCoordinate {
             return currentCoordinate
         }
-        if let latitude = hole.teeLatitude, let longitude = hole.teeLongitude,
-           latitude.isFinite, longitude.isFinite,
-           (-90...90).contains(latitude), (-180...180).contains(longitude) {
-            return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        return teeAnchorCoordinate
+    }
+
+    /// One tee authority for the route, map reference, GPS snap and initial detail marker.
+    private var teeAnchorCoordinate: CLLocationCoordinate2D? {
+        if let prep = holePrep,
+           let first = prep.resolvedMapOverlay?.route.first,
+           first.count >= 2,
+           let refs = prep.holeImageProjection?.refs,
+           let projected = WatchEventBridge.projectFromTopoPx(
+               px: first[0],
+               py: first[1],
+               refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+           ) {
+            return CLLocationCoordinate2D(latitude: projected.latitude, longitude: projected.longitude)
         }
-        guard let prep = holePrep,
-              let first = prep.resolvedMapOverlay?.route.first,
-              first.count >= 2,
-              let refs = prep.holeImageProjection?.refs else {
-            return nil
-        }
-        let projected = WatchEventBridge.projectFromTopoPx(
-            px: first[0],
-            py: first[1],
-            refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+        guard let latitude = hole.teeLatitude,
+              let longitude = hole.teeLongitude,
+              latitude.isFinite,
+              longitude.isFinite,
+              (-90...90).contains(latitude),
+              (-180...180).contains(longitude) else { return nil }
+        return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+
+    private func isWithinTeeAnchor(
+        _ coordinate: CLLocationCoordinate2D?,
+        _ tee: CLLocationCoordinate2D
+    ) -> Bool {
+        guard let coordinate else { return true }
+        let distance = GeoDistance.haversineMetres(
+            coordinate.latitude,
+            coordinate.longitude,
+            tee.latitude,
+            tee.longitude
         )
-        return projected.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        return distance.isFinite && distance <= 45
     }
 
     private var mapReferenceIsLive: Bool {
