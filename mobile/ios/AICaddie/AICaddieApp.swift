@@ -416,6 +416,13 @@ public final class PrepCourseDownloadPresentationState: ObservableObject {
 
 @MainActor
 public final class LiveRoundAppModel: ObservableObject {
+    private struct FastStartCourseRefreshRequest {
+        let globalId: Int
+        let roundId: String
+        let teeBox: String
+        let nine: String
+    }
+
     @Published public private(set) var package: LiveRoundPackage?
     @Published public private(set) var pendingEventCount: Int = 0
     @Published public private(set) var syncStatus: String = "离线就绪"
@@ -499,6 +506,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// complete round package after the first map is on screen; it is cancelled whenever the player
     /// changes course/round so a stale response cannot overwrite a newer selection.
     private var fastStartCourseRefreshTask: Task<Void, Never>?
+    /// Keep the request pending until the first-hole surface has actually appeared. This avoids
+    /// starting a delayed network task while a caller is still preparing or abandoning the round.
+    private var pendingFastStartCourseRefresh: FastStartCourseRefreshRequest?
     private var prepCourseDownloadTask: Task<Void, Never>?
     private var prepCourseDownloadGeneration: UUID?
     private var activePrepCourseDownloadID: String?
@@ -653,6 +663,7 @@ public final class LiveRoundAppModel: ObservableObject {
         offlineCourseDownloadTask = nil
         fastStartCourseRefreshTask?.cancel()
         fastStartCourseRefreshTask = nil
+        pendingFastStartCourseRefresh = nil
         pausePrepCourseDownload()
         watchFinishedRoundReconciliationTask?.cancel()
         watchFinishedRoundReconciliationTask = nil
@@ -1006,6 +1017,7 @@ public final class LiveRoundAppModel: ObservableObject {
         offlineCourseDownloadTask = nil
         fastStartCourseRefreshTask?.cancel()
         fastStartCourseRefreshTask = nil
+        pendingFastStartCourseRefresh = nil
         deferredOfflineCourseDownloadRevalidation = nil
         isPreparingRound = true
         return token
@@ -1168,17 +1180,17 @@ public final class LiveRoundAppModel: ObservableObject {
                 try activatePackage(remotePackage, status: "球场已就绪")
                 recordUITestLatency("course-start.activate.end globalId=\(globalId)")
                 if isNewRound {
-                    recordUITestLatency("course-start.signal.begin globalId=\(globalId)")
-                    signalFreshRoundEntry(cacheOfflineAssets: true)
-                    recordUITestLatency("course-start.signal.end globalId=\(globalId)")
                     if remotePackage.holes.count <= 1 {
-                        scheduleFastStartCourseRefresh(
+                        pendingFastStartCourseRefresh = FastStartCourseRefreshRequest(
                             globalId: globalId,
                             roundId: requestedRoundId,
                             teeBox: teeBox,
                             nine: nine
                         )
                     }
+                    recordUITestLatency("course-start.signal.begin globalId=\(globalId)")
+                    signalFreshRoundEntry(cacheOfflineAssets: true)
+                    recordUITestLatency("course-start.signal.end globalId=\(globalId)")
                 } else {
                     // 加打另外九洞 changes the package in place but still needs the newly selected
                     // holes retained. beginRoundPreparation cancelled the superseded download above.
@@ -1291,6 +1303,15 @@ public final class LiveRoundAppModel: ObservableObject {
     /// pipeline deliberately starts here, rather than in `prepareCourseRound` or `onAppear`, so
     /// all-hole prep/file work can compete with neither navigation nor the first playable facts.
     func liveHoleInitialLoadDidFinish() {
+        if let request = pendingFastStartCourseRefresh {
+            pendingFastStartCourseRefresh = nil
+            scheduleFastStartCourseRefresh(
+                globalId: request.globalId,
+                roundId: request.roundId,
+                teeBox: request.teeBox,
+                nine: request.nine
+            )
+        }
         guard let revalidatePackage = deferredOfflineCourseDownloadRevalidation else { return }
         deferredOfflineCourseDownloadRevalidation = nil
         recordUITestLatency(
@@ -1339,6 +1360,10 @@ public final class LiveRoundAppModel: ObservableObject {
     /// the next test's process-wide URLProtocol handler.
     func waitForOfflineCourseDownloadForTesting() async {
         await offlineCourseDownloadTask?.value
+        // Fast-start package replacement is intentionally separate from the topo/prep pipeline, but
+        // it still owns a URLSession request. Keep it inside the test's lifetime so a later test
+        // cannot observe the previous model's request through the process-wide URLProtocol stub.
+        await fastStartCourseRefreshTask?.value
     }
 
     /// Test-only synchronization point for the app-owned prep queue. Production views never await
