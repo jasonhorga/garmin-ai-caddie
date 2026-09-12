@@ -363,7 +363,7 @@ public struct RoundHomeView: View {
             // destination instance (and its stale `package.holes`) because the route itself did
             // not change. Include the package shape in the identity so the live surface immediately
             // gains the adjacent-hole navigation metadata when the refresh publishes.
-            .id("\(package.roundId):\(hole.number):\(package.holes.count):\(package.nine ?? \"all\")")
+            .id("\(package.roundId):\(hole.number):\(package.holes.count):\(package.nine ?? "all")")
         }
     }
 
