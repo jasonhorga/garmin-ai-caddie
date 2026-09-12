@@ -26,20 +26,14 @@ public struct ResultsView: View {
     }
 
     public var body: some View {
-        Group {
-            if isLoading && stats == nil && archive == nil {
-                AICaddieLoadingView(text: "载入成绩…")
-            } else {
-                ScrollView {
-                    ResultsLandingContent(
-                        stats: stats,
-                        archive: archive,
-                        errorText: errorText,
-                        apiBaseURL: apiBaseURL,
-                        adminToken: adminToken
-                    )
-                }
-            }
+        ScrollView {
+            ResultsLandingContent(
+                stats: stats,
+                archive: archive,
+                errorText: errorText,
+                apiBaseURL: apiBaseURL,
+                adminToken: adminToken
+            )
         }
         .background(HubStyle.grouped)
         .navigationTitle("成绩")
