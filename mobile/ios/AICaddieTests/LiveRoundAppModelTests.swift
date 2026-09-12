@@ -1826,7 +1826,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
-        let source = try localFixturePackage()
+        let source = try multiHoleFixturePackage()
         let roundId = "fast-start-handoff"
         let first = try XCTUnwrap(source.holes.first)
         let fast = package(
@@ -1981,7 +1981,7 @@ final class LiveRoundAppModelTests: XCTestCase {
     func testFastStartRefreshRetriesAfterTransientFullPackageFailure() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let source = try localFixturePackage()
+        let source = try multiHoleFixturePackage()
         let roundId = "fast-start-retry"
         let first = try XCTUnwrap(source.holes.first)
         let fast = package(
@@ -2082,7 +2082,7 @@ final class LiveRoundAppModelTests: XCTestCase {
     }
 
     func testFastStartScoreAdvanceWaitsForFullPackageThenUsesNextHole() throws {
-        let source = try localFixturePackage()
+        let source = try multiHoleFixturePackage()
         let first = try XCTUnwrap(source.holes.first)
         let fast = package(
             source,
@@ -4243,6 +4243,27 @@ final class LiveRoundAppModelTests: XCTestCase {
         let fixture = try String(contentsOf: url, encoding: .utf8)
             .replacingOccurrences(of: #""dataMode": "fixture""#, with: #""dataMode": "local""#)
         return try JSONDecoder().decode(LiveRoundPackage.self, from: Data(fixture.utf8))
+    }
+
+    /// The shared fixture intentionally models a single playable hole. Fast-start handoff tests
+    /// need a distinct second hole so a full response can be distinguished from the one-hole seed.
+    private func multiHoleFixturePackage() throws -> LiveRoundPackage {
+        let base = try localFixturePackage()
+        let first = try XCTUnwrap(base.holes.first)
+        let second = Hole(
+            number: first.number + 1,
+            par: 4,
+            yards: (first.yards ?? 400) + 10,
+            geometryCoverage: .ready,
+            sourceGlobalId: base.course.globalId,
+            sourceLocalHole: first.number + 1
+        )
+        return package(
+            base,
+            roundId: base.roundId,
+            recentRounds: base.recentHistory.rounds,
+            holes: [first, second]
+        )
     }
 
     private func readyPrepValidationFixture(
