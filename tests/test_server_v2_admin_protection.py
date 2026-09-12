@@ -864,6 +864,7 @@ class MobilePackageAdminOnlyTests(unittest.TestCase):
             client_id=None,
             ensure_geometry=False,
             include_event_cursor=True,
+            fast_start=False,
             nine="all",
             back_global_id=None,
             player_id=self.member_id,
