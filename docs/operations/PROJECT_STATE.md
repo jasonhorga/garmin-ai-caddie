@@ -1714,6 +1714,13 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## State Changes
 
+- 2026-09-12: Native Mobile CI `34684703178` at exact source `b371a9d8` passed
+  iOS/Watch compilation and tests, design/runtime evidence, and secret scans. Its live preflight
+  alone failed before simulator capture because the Quick Tunnel returned HTTP 530 for
+  `/api/v2/health` after the script's transient retries; no app assertion ran and no TestFlight
+  action occurred. The origin recovered to HTTP 200 immediately afterward. The next action remains
+  an exact-SHA live Native rerun against the recovered UX3 backend.
+
 - 2026-09-12: Native Mobile CI `34682413447` at exact source `70d5987f` passed
   compilation, iOS/Watch tests, design/live preflight, and Watch runtime evidence, but the live
   iOS capture did not complete. `RealFlowUITests` waited 240 seconds for the prep-course row to
