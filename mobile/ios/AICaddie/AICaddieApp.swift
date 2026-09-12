@@ -1282,8 +1282,9 @@ public final class LiveRoundAppModel: ObservableObject {
             defer {
                 // A newer round may have replaced this task. Its completion must not clear the new
                 // task's in-flight marker or make foreground recovery skip a needed retry.
-                guard let self, self.fastStartCourseRefreshGeneration == generation else { return }
-                self.fastStartCourseRefreshInFlight = false
+                if let self, self.fastStartCourseRefreshGeneration == generation {
+                    self.fastStartCourseRefreshInFlight = false
+                }
             }
 
             for (attempt, delay) in delays.enumerated() {
