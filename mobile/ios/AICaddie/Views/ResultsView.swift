@@ -111,7 +111,10 @@ struct ResultsLandingContent: View {
             recentRoundsCard
             if let summary = stats?.summary { recentCard(summary, points: stats?.trend?.points ?? []) }
             quickDestinations
-            if let summary = stats?.summary { careerCard(summary) }
+            // Keep the career surface present while the first stats request or a large local cache
+            // is decoding. The page can then show its stable structure immediately instead of
+            // leaving the user on a full-screen spinner until every section is ready.
+            careerCard(stats?.summary)
             libraryDestinations
             if let errorText, stats != nil || archive != nil {
                 Label(errorText, systemImage: "exclamationmark.circle")
@@ -129,22 +132,33 @@ struct ResultsLandingContent: View {
         .padding(14)
     }
 
-    private func careerCard(_ summary: StatsSummary) -> some View {
+    @ViewBuilder
+    private func careerCard(_ summary: StatsSummary?) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("我的高尔夫生涯").font(.caption).foregroundStyle(.secondary)
-            HStack(alignment: .firstTextBaseline) {
-                Text("\(summary.totalRounds ?? archive?.total ?? 0)")
-                    .font(.system(size: 38, weight: .heavy)).monospacedDigit()
-                Text("场球 · \(summary.courseCount ?? 0) 个球场")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                Spacer()
-                Text("\(summary.eighteenHoleRounds ?? 0) 场完整 18 洞")
-                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            }
-            HStack(spacing: 8) {
-                resultKPI("18 洞均杆", summary.average18.map(oneDecimal) ?? "—")
-                resultKPI("历史最佳", summary.bestScore.map(String.init) ?? "—")
-                resultKPI("差点估算", summary.handicapEstimate.map(oneDecimal) ?? "—")
+            if let summary {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("\(summary.totalRounds ?? archive?.total ?? 0)")
+                        .font(.system(size: 38, weight: .heavy)).monospacedDigit()
+                    Text("场球 · \(summary.courseCount ?? 0) 个球场")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(summary.eighteenHoleRounds ?? 0) 场完整 18 洞")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }
+                HStack(spacing: 8) {
+                    resultKPI("18 洞均杆", summary.average18.map(oneDecimal) ?? "—")
+                    resultKPI("历史最佳", summary.bestScore.map(String.init) ?? "—")
+                    resultKPI("差点估算", summary.handicapEstimate.map(oneDecimal) ?? "—")
+                }
+            } else {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("正在载入生涯数据…")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
             }
         }
         .hubCard()

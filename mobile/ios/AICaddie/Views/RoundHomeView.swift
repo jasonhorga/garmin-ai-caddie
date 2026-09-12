@@ -358,7 +358,12 @@ public struct RoundHomeView: View {
             // the prior hole's @State and scroll offset into the next hole. Explicit round+hole identity
             // gives every ordered transition a fresh live surface; LocationProvider immediately republishes
             // its injected fix in UI tests and resumes Core Location normally on a real device.
-            .id("\(package.roundId):\(hole.number)")
+            // A new round starts with a one-hole fast package and replaces it with the complete
+            // hole list in the background. NavigationStack otherwise keeps the original
+            // destination instance (and its stale `package.holes`) because the route itself did
+            // not change. Include the package shape in the identity so the live surface immediately
+            // gains the adjacent-hole navigation metadata when the refresh publishes.
+            .id("\(package.roundId):\(hole.number):\(package.holes.count):\(package.nine ?? \"all\")")
         }
     }
 
