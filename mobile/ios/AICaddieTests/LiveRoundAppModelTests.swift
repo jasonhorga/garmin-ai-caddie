@@ -1889,7 +1889,8 @@ final class LiveRoundAppModelTests: XCTestCase {
             apiBaseURL: client.baseURL,
             watchBridge: nil,
             garminSessionStore: nil,
-            syncClient: client
+            syncClient: client,
+            fastStartCourseRefreshDelaysNanoseconds: [0]
         )
 
         await model.prepareCourseRound(
@@ -1960,7 +1961,8 @@ final class LiveRoundAppModelTests: XCTestCase {
             apiBaseURL: client.baseURL,
             watchBridge: nil,
             garminSessionStore: nil,
-            syncClient: client
+            syncClient: client,
+            fastStartCourseRefreshDelaysNanoseconds: []
         )
 
         await model.prepareCourseRound(
@@ -1974,6 +1976,138 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(requestLock.withLock { requestCount }, 2)
         XCTAssertEqual(model.package?.holes.count, 1)
         XCTAssertEqual(model.syncStatus, "其余球洞仍在后台准备中")
+    }
+
+    func testFastStartRefreshRetriesAfterTransientFullPackageFailure() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let source = try localFixturePackage()
+        let roundId = "fast-start-retry"
+        let first = try XCTUnwrap(source.holes.first)
+        let fast = package(
+            source,
+            roundId: roundId,
+            recentRounds: [],
+            holes: [first],
+            startMode: "first_hole_fast",
+            fullCoursePending: true
+        ).replacingCoursePrep(nil)
+        let complete = package(
+            source,
+            roundId: roundId,
+            recentRounds: [],
+            holes: source.holes,
+            startMode: "full",
+            fullCoursePending: false
+        )
+        let fastData = try JSONEncoder().encode(fast)
+        let completeData = try JSONEncoder().encode(complete)
+        let requestLock = NSLock()
+        var fastStartFlags: [Bool] = []
+        var fullRequestCount = 0
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let isFast = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                .first(where: { $0.name == "fast_start" })?.value == "true"
+            let response: (HTTPURLResponse, Data)
+            requestLock.lock()
+            fastStartFlags.append(isFast)
+            if isFast {
+                response = (
+                    HTTPURLResponse(
+                        url: url,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    fastData
+                )
+            } else {
+                fullRequestCount += 1
+                if fullRequestCount == 1 {
+                    response = (
+                        HTTPURLResponse(
+                            url: url,
+                            statusCode: 409,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        Data(#"{"detail":"still preparing"}"#.utf8)
+                    )
+                } else {
+                    response = (
+                        HTTPURLResponse(
+                            url: url,
+                            statusCode: 200,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        completeData
+                    )
+                }
+            }
+            requestLock.unlock()
+            return response
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        let client = SyncClient(
+            baseURL: URL(string: "https://fast-start-retry.example.test")!,
+            session: session,
+            retrySleep: { _ in XCTFail("non-transient handoff failure must not retry in SyncClient") }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory),
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client,
+            fastStartCourseRefreshDelaysNanoseconds: [0, 0]
+        )
+
+        await model.prepareCourseRound(
+            globalId: source.course.globalId,
+            roundId: roundId,
+            teeBox: source.course.teeBox,
+            nine: source.nine ?? "all"
+        )
+        await model.waitForOfflineCourseDownloadForTesting()
+
+        XCTAssertEqual(requestLock.withLock { fastStartFlags }, [true, false, false])
+        XCTAssertEqual(model.package?.holes.count, source.holes.count)
+        XCTAssertFalse(model.package?.isFullCoursePending ?? true)
+    }
+
+    func testFastStartScoreAdvanceWaitsForFullPackageThenUsesNextHole() throws {
+        let source = try localFixturePackage()
+        let first = try XCTUnwrap(source.holes.first)
+        let fast = package(
+            source,
+            roundId: "fast-start-navigation",
+            recentRounds: [],
+            holes: [first],
+            startMode: "first_hole_fast",
+            fullCoursePending: true
+        )
+        XCTAssertEqual(
+            LiveHoleAdvanceResolution.resolve(after: first.number, package: fast),
+            .waitForFullCourse(nextHole: first.number + 1)
+        )
+
+        let complete = package(
+            source,
+            roundId: "fast-start-navigation",
+            recentRounds: [],
+            startMode: "full",
+            fullCoursePending: false
+        )
+        XCTAssertEqual(
+            LiveHoleAdvanceResolution.resolve(after: first.number, package: complete),
+            .advance(to: source.holes[1].number)
+        )
     }
 
     func testOnlineCourseStartRetainsAllHolePrepAndTopoForLaterOfflineUse() async throws {
@@ -4223,7 +4357,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         roundId: String,
         recentRounds: [RecentRoundSummary],
         holes: [Hole]? = nil,
-        caddieContextSeeds: [CaddieContextSeed]? = nil
+        caddieContextSeeds: [CaddieContextSeed]? = nil,
+        startMode: String? = nil,
+        fullCoursePending: Bool? = nil
     ) -> LiveRoundPackage {
         let selectedHoles = holes ?? source.holes
         return LiveRoundPackage(
@@ -4236,6 +4372,8 @@ final class LiveRoundAppModelTests: XCTestCase {
             course: source.course,
             holes: selectedHoles,
             nine: source.nine,
+            startMode: startMode,
+            fullCoursePending: fullCoursePending,
             coursePrep: source.coursePrep,
             geometryCoverage: GeometryCoverage(
                 state: source.geometryCoverage.state,

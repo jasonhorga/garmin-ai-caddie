@@ -969,6 +969,9 @@ export interface LiveRoundPackageResponse {
     teeBox: string
   }
   holes: Array<Record<string, unknown>>
+  /** `first_hole_fast` contains only the priority hole until the full package is ready. */
+  startMode?: 'first_hole_fast' | 'full'
+  fullCoursePending?: boolean
   geometryCoverage: {
     state: GeometryCoverageState
     readyHoles: number

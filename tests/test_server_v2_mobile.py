@@ -1614,6 +1614,8 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["coursePrep"], seed)
+        self.assertEqual(response.json()["startMode"], "first_hole_fast")
+        self.assertTrue(response.json()["fullCoursePending"])
         prep_nine.assert_not_called()
         first_seed.assert_called_once()
 

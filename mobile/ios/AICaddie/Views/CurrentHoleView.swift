@@ -46,6 +46,26 @@ enum HeroMapGesturePolicy {
     }
 }
 
+/// Resolves the post-score transition without conflating a one-hole fast-start response with the
+/// end of a round. This is deliberately pure so the partial-package hand-off can be covered without
+/// depending on SwiftUI sheet timing.
+enum LiveHoleAdvanceResolution: Equatable {
+    case advance(to: Int)
+    case waitForFullCourse(nextHole: Int)
+    case finish
+
+    static func resolve(after acceptedHole: Int, package: LiveRoundPackage) -> Self {
+        let ordered = package.holes.map(\.number)
+        if let index = ordered.firstIndex(of: acceptedHole), ordered.indices.contains(index + 1) {
+            return .advance(to: ordered[index + 1])
+        }
+        if package.isFullCoursePending {
+            return .waitForFullCourse(nextHole: acceptedHole + 1)
+        }
+        return .finish
+    }
+}
+
 public struct CurrentHoleView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -133,6 +153,10 @@ public struct CurrentHoleView: View {
     @State private var gpsHoleCandidate: LiveHoleGPSCandidate?
     @State private var pendingHistoricalScoreHole: Int?
     @State private var pendingPhoneShot: PendingPhoneShot?
+    /// A fast-start package may not contain the next hole yet. Keep the player's intent until the
+    /// complete package hand-off arrives instead of treating the short response as end-of-round.
+    @State private var pendingAdvanceHole: Int?
+    @State private var isWaitingForFullCourse = false
     @State private var holeRootScrollRequest = 0
     @State private var heroMapScale: CGFloat = 1
     @State private var heroMapOffset: CGSize = .zero
@@ -289,6 +313,8 @@ public struct CurrentHoleView: View {
             // persisted `selectedStrategyMode` remains available for legacy event replay, while
             // this transient override always starts in automatic mode for a new hole.
             requestedStrategyMode = nil
+            pendingAdvanceHole = nil
+            isWaitingForFullCourse = false
             heroMapScale = 1
             heroMapOffset = .zero
             heroMapTransientDragOffset = .zero
@@ -328,6 +354,9 @@ public struct CurrentHoleView: View {
             if !currentIsPrecise || incomingIsPrecise {
                 holePrep = incoming
             }
+        }
+        .onChange(of: package.holes.map(\.number)) { _, _ in
+            continuePendingAdvanceIfAvailable()
         }
         .fullScreenCover(isPresented: $showCaddieDetail) {
             caddieDetailSurface
@@ -426,6 +455,17 @@ public struct CurrentHoleView: View {
                 nextShotText: liveRecommendedNextShotText,
                 onTap: { showCaddieDetail = true }
             )
+            if isWaitingForFullCourse {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("正在准备第 \(pendingAdvanceHole ?? (hole.number + 1)) 洞…")
+                        .font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("live-awaiting-full-course")
+            }
             if !isPreciseHoleMapPending && !liveHazardDisplayRows.isEmpty {
                 LiveHazardEntry(
                     count: liveHazardDisplayRows.count,
@@ -3006,13 +3046,28 @@ public struct CurrentHoleView: View {
             penaltyCount = accepted.penalty
         }
         if accepted.advanceAfterSave {
-            if let next = nextHole(after: accepted.hole) {
+            switch LiveHoleAdvanceResolution.resolve(after: accepted.hole, package: package) {
+            case .advance(let next):
                 onAdvanceHole(next)
-            } else {
+            case .waitForFullCourse(let nextHole):
+                // The one-hole fast-start response is playable but is not a complete scorecard.
+                // Wait in place for the background full-package refresh; the package observer above
+                // will advance as soon as the next factual hole is published.
+                pendingAdvanceHole = nextHole
+                isWaitingForFullCourse = true
+            case .finish:
                 showRoundSummary = true
             }
         }
         sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
+    }
+
+    private func continuePendingAdvanceIfAvailable() {
+        guard let pendingAdvanceHole,
+              package.holes.contains(where: { $0.number == pendingAdvanceHole }) else { return }
+        self.pendingAdvanceHole = nil
+        isWaitingForFullCourse = false
+        onAdvanceHole(pendingAdvanceHole)
     }
 
     private func cancelScoreConfirmation() {

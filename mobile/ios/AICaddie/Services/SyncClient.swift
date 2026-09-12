@@ -389,6 +389,10 @@ public final class SyncClient {
     public static let greenDetailImageSize = 1280
     static let courseReleaseTimeoutInterval: TimeInterval = 180
     static let coursePackageTimeoutInterval: TimeInterval = 120
+    /// Fast-start only needs the first playable hole. A cold full-course build that cannot answer
+    /// within this window should fall back to the local seed/cache while the bounded refresh retries
+    /// in the background; ordinary package requests retain the longer cold-course budget above.
+    static let fastStartPackageTimeoutInterval: TimeInterval = 15
     static let coursePrepTimeoutInterval: TimeInterval = 90
     static let courseTopoTimeoutInterval: TimeInterval = 60
     static let courseCoverageTimeoutInterval: TimeInterval = 15
@@ -494,11 +498,16 @@ public final class SyncClient {
         // geometry window, and give the lightweight package the same bounded cold-course window as
         // Tee metadata. This GET is idempotent, so a transient timeout can safely retry and then hit
         // the completed server cache.
-        request.timeoutInterval = ensureGeometry ? 900 : Self.coursePackageTimeoutInterval
+        request.timeoutInterval = ensureGeometry
+            ? 900
+            : (fastStart ? Self.fastStartPackageTimeoutInterval : Self.coursePackageTimeoutInterval)
         applyAuth(to: &request)
         let data = try await fetchRetriableGetData(
             request,
-            maximumAttempts: Self.courseAssetMaximumAttempts
+            // A first-hole fast start must yield to the local/cache fallback within its short
+            // opening budget. The background refresh owns the later bounded retries; repeating a
+            // timed-out opening request here would silently stretch the tap to 30+ seconds.
+            maximumAttempts: fastStart ? 1 : Self.courseAssetMaximumAttempts
         )
         return try decoder.decode(LiveRoundPackage.self, from: data)
     }

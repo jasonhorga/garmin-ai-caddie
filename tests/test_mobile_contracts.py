@@ -1616,6 +1616,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("signalFreshRoundEntry(", app_swift)
         self.assertIn("func liveHoleInitialLoadDidFinish()", app_swift)
         self.assertIn("onLiveHoleInitialLoadDidFinish: {", app_swift)
+        package_model = _read_required_source(self, IOS_DIR / "Models" / "LiveRoundPackage.swift")
+        self.assertIn("let startMode: String?", package_model)
+        self.assertIn("let fullCoursePending: Bool?", package_model)
+        self.assertIn("var isFullCoursePending: Bool", package_model)
         # The selected course installer owns each factual prep/topo download. It must not launch a
         # competing whole-course server prewarm while the same holes are being fetched for offline use.
         self.assertIn("beginOfflineCourseDownload()", app_swift)
@@ -1783,9 +1787,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("onFinishRound: onFinishRound", round_home)
         self.assertIn("private let onFinishRound: () async -> Bool", current_hole)
         self.assertIn("showRoundSummary = true", current_hole)
-        final_hole_branch = current_hole.index("if accepted.advanceAfterSave")
-        summary_open = current_hole.index("showRoundSummary = true", final_hole_branch)
-        self.assertIn("nextHole(after: accepted.hole)", current_hole[final_hole_branch:summary_open])
+        self.assertIn("LiveHoleAdvanceResolution.resolve(after: accepted.hole, package: package)", current_hole)
         self.assertNotIn("未保存的记录会被丢弃", current_hole)
         # The former Save/Continue-only sheet could trap an invalid round. Keep a deliberate
         # destructive exit, but require a second confirmation before deleting local data.
@@ -1800,6 +1802,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("return await model.finishActiveRound()", app_swift)
         self.assertIn("onDiscardRound:", app_swift)
         self.assertIn("model.discardActiveRound()", app_swift)
+
+        # A one-hole fast-start package is not the end of a round. The live view keeps the score
+        # advance intent and resumes it when the complete package arrives.
+        self.assertIn("LiveHoleAdvanceResolution", current_hole)
+        self.assertIn("waitForFullCourse(nextHole:", current_hole)
+        self.assertIn("package.isFullCoursePending", current_hole)
 
     def test_ios_course_option_models_and_fetcher_match_backend_endpoint(self) -> None:
         course_options = _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift")

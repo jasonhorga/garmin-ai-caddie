@@ -499,6 +499,11 @@ public final class LiveRoundAppModel: ObservableObject {
     /// complete round package after the first map is on screen; it is cancelled whenever the player
     /// changes course/round so a stale response cannot overwrite a newer selection.
     private var fastStartCourseRefreshTask: Task<Void, Never>?
+    /// Keep the refresh task handle for test/lifecycle synchronization while separately tracking
+    /// whether a request/retry loop is still active. A foreground transition can restart an
+    /// exhausted loop without duplicating one that is already in flight.
+    private var fastStartCourseRefreshInFlight = false
+    private var fastStartCourseRefreshGeneration = UUID()
     private var prepCourseDownloadTask: Task<Void, Never>?
     private var prepCourseDownloadGeneration: UUID?
     private var activePrepCourseDownloadID: String?
@@ -519,6 +524,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// invent a demo round: with no configured id bootstrap lands on the normal home package.
     private let preferredRoundId: String?
     private let offlineGeometryRetryDelaysNanoseconds: [UInt64]
+    /// First element is the initial post-activation delay; following elements are bounded retry
+    /// delays. Tests inject zeroes so transient failures can be exercised without wall-clock waits.
+    private let fastStartCourseRefreshDelaysNanoseconds: [UInt64]
     /// Keeps the Apple-session observer alive so the watch's standalone-sync auth tracks sign-in /
     /// refresh / sign-out (round-13 watch-auth).
     private var sessionCancellables = Set<AnyCancellable>()
@@ -534,6 +542,10 @@ public final class LiveRoundAppModel: ObservableObject {
             2_000_000_000, 3_000_000_000, 5_000_000_000, 8_000_000_000,
             12_000_000_000, 20_000_000_000, 30_000_000_000, 45_000_000_000,
             60_000_000_000, 60_000_000_000,
+        ],
+        fastStartCourseRefreshDelaysNanoseconds: [UInt64] = [
+            1_500_000_000, 2_000_000_000, 5_000_000_000, 10_000_000_000,
+            20_000_000_000,
         ]
     ) {
         self.init(
@@ -544,7 +556,8 @@ public final class LiveRoundAppModel: ObservableObject {
             garminSessionStore: garminSessionStore,
             preferredRoundId: preferredRoundId,
             syncClient: syncClient,
-            offlineGeometryRetryDelaysNanoseconds: offlineGeometryRetryDelaysNanoseconds
+            offlineGeometryRetryDelaysNanoseconds: offlineGeometryRetryDelaysNanoseconds,
+            fastStartCourseRefreshDelaysNanoseconds: fastStartCourseRefreshDelaysNanoseconds
         )
     }
 
@@ -560,6 +573,10 @@ public final class LiveRoundAppModel: ObservableObject {
             2_000_000_000, 3_000_000_000, 5_000_000_000, 8_000_000_000,
             12_000_000_000, 20_000_000_000, 30_000_000_000, 45_000_000_000,
             60_000_000_000, 60_000_000_000,
+        ],
+        fastStartCourseRefreshDelaysNanoseconds: [UInt64] = [
+            1_500_000_000, 2_000_000_000, 5_000_000_000, 10_000_000_000,
+            20_000_000_000,
         ]
     ) {
         let resolvedAPIBaseURL = apiBaseURL ?? Self.defaultAPIBaseURL()
@@ -574,6 +591,7 @@ public final class LiveRoundAppModel: ObservableObject {
             ? requestedRoundId
             : Self.configuredLiveRoundId()
         self.offlineGeometryRetryDelaysNanoseconds = offlineGeometryRetryDelaysNanoseconds
+        self.fastStartCourseRefreshDelaysNanoseconds = fastStartCourseRefreshDelaysNanoseconds
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
         self.mediaUploadClient = resolvedAPIBaseURL.map {
             MediaUploadClient(baseURL: $0, adminToken: resolvedAdminToken)
@@ -658,8 +676,7 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
-        fastStartCourseRefreshTask?.cancel()
-        fastStartCourseRefreshTask = nil
+        cancelFastStartCourseRefresh()
         pausePrepCourseDownload()
         watchFinishedRoundReconciliationTask?.cancel()
         watchFinishedRoundReconciliationTask = nil
@@ -1011,8 +1028,7 @@ public final class LiveRoundAppModel: ObservableObject {
         roundPreparationToken = token
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
-        fastStartCourseRefreshTask?.cancel()
-        fastStartCourseRefreshTask = nil
+        cancelFastStartCourseRefresh()
         deferredOfflineCourseDownloadRevalidation = nil
         isPreparingRound = true
         return token
@@ -1054,8 +1070,8 @@ public final class LiveRoundAppModel: ObservableObject {
             )
             guard isCurrentRoundPreparation(preparationToken) else { return }
             if let remotePackage = fetched {
-                try offlineStore.saveRoundPackage(remotePackage)
-                try activatePackage(remotePackage, status: "已下载离线")
+                let persisted = try offlineStore.saveRoundPackage(remotePackage)
+                try activatePackage(persisted, status: "已下载离线")
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
@@ -1118,6 +1134,8 @@ public final class LiveRoundAppModel: ObservableObject {
         // `liveRoundState`, not package identity, therefore decides whether Start must enter hole 1.
         // The same active round's 加打/移除九洞 keeps its identity and does not re-enter as a new one.
         let isNewRound = liveRoundState?.roundId != requestedRoundId
+        let isIntentionalHoleSetChange = !isNewRound
+            && (package?.nine ?? "all").caseInsensitiveCompare(nine) != .orderedSame
         if isNewRound {
             startingNine = (nine == "all") ? nil : nine
         }
@@ -1142,8 +1160,11 @@ public final class LiveRoundAppModel: ObservableObject {
                     roundId: requestedRoundId,
                     generatedAt: preparedAt
                 ))
-                try offlineStore.saveRoundPackage(offlinePackage)
-                try activatePackage(offlinePackage, status: "本地球场已就绪")
+                let persisted = try offlineStore.saveRoundPackage(
+                    offlinePackage,
+                    allowHoleCountDecrease: isIntentionalHoleSetChange
+                )
+                try activatePackage(persisted, status: "本地球场已就绪")
                 signalFreshRoundEntry(revalidatePackage: true)
                 // Enter immediately from local facts, then verify the Garmin release in the
                 // background. Matching revisions reuse every byte; changed holes refresh only
@@ -1169,13 +1190,16 @@ public final class LiveRoundAppModel: ObservableObject {
                 recordUITestLatency(
                     "course-start.save.begin globalId=\(globalId) bytes-holes=\(remotePackage.holes.count)"
                 )
-                try offlineStore.saveRoundPackage(remotePackage)
+                let persisted = try offlineStore.saveRoundPackage(
+                    remotePackage,
+                    allowHoleCountDecrease: isIntentionalHoleSetChange
+                )
                 recordUITestLatency("course-start.save.end globalId=\(globalId)")
                 recordUITestLatency("course-start.activate.begin globalId=\(globalId)")
-                try activatePackage(remotePackage, status: "球场已就绪")
+                try activatePackage(persisted, status: "球场已就绪")
                 recordUITestLatency("course-start.activate.end globalId=\(globalId)")
                 if isNewRound {
-                    if remotePackage.holes.count <= 1 {
+                    if persisted.holes.count <= 1 {
                         scheduleFastStartCourseRefresh(
                             globalId: globalId,
                             roundId: requestedRoundId,
@@ -1197,8 +1221,11 @@ public final class LiveRoundAppModel: ObservableObject {
                 let cachedPackage = applyingSelectedCourseDisplayName(to: cachedPackage)
                 // Persist the active-round pointer for the offline/cached start too, so a round
                 // started without network still resumes on relaunch (continue card survives quit).
-                try offlineStore.saveRoundPackage(cachedPackage)
-                try activatePackage(cachedPackage, status: "已下载离线")
+                let persisted = try offlineStore.saveRoundPackage(
+                    cachedPackage,
+                    allowHoleCountDecrease: isIntentionalHoleSetChange
+                )
+                try activatePackage(persisted, status: "已下载离线")
                 if isNewRound {
                     signalFreshRoundEntry(revalidatePackage: true)
                 } else {
@@ -1213,8 +1240,11 @@ public final class LiveRoundAppModel: ObservableObject {
                     roundId: requestedRoundId,
                     generatedAt: preparedAt
                 ))
-                try offlineStore.saveRoundPackage(offlinePackage)
-                try activatePackage(offlinePackage, status: "离线球场已就绪")
+                let persisted = try offlineStore.saveRoundPackage(
+                    offlinePackage,
+                    allowHoleCountDecrease: isIntentionalHoleSetChange
+                )
+                try activatePackage(persisted, status: "离线球场已就绪")
                 if isNewRound {
                     signalFreshRoundEntry(revalidatePackage: true)
                 } else {
@@ -1238,59 +1268,121 @@ public final class LiveRoundAppModel: ObservableObject {
         teeBox: String,
         nine: String
     ) {
+        guard !fastStartCourseRefreshInFlight else { return }
         fastStartCourseRefreshTask?.cancel()
         guard let syncClient else { return }
         let offlineStore = self.offlineStore
+        let generation = UUID()
+        fastStartCourseRefreshGeneration = generation
+        fastStartCourseRefreshInFlight = true
+        let delays = fastStartCourseRefreshDelaysNanoseconds.isEmpty
+            ? [UInt64(0)]
+            : fastStartCourseRefreshDelaysNanoseconds
         fastStartCourseRefreshTask = Task { @MainActor [weak self, syncClient, offlineStore] in
-            do {
-                try await Task.sleep(nanoseconds: 1_500_000_000)
-                guard !Task.isCancelled else { return }
-                let complete = try await syncClient.fetchCoursePackage(
-                    globalId: globalId,
-                    roundId: roundId,
-                    teeBox: teeBox,
-                    nine: nine,
-                    capturedAt: Date(),
-                    ensureGeometry: false,
-                    backgroundGeometry: true,
-                    includeEventCursor: false,
-                    fastStart: false
-                )
-                guard !Task.isCancelled, let self,
-                      self.liveRoundState?.roundId == roundId,
-                      self.package?.course.globalId == globalId else { return }
-                // The complete response is allowed to carry the server's lightweight first-hole
-                // seed. Merge any precise prep that the live view already retained before publishing
-                // it, so the handoff cannot downgrade the visible map or its factual caddie state.
-                let stable = self.mergingForegroundPrep(
-                    in: self.applyingSelectedCourseDisplayName(to: complete)
-                )
-                // A fast-start response is not a valid scorecard/install authority. Keep it on
-                // screen and let the foreground/installer retry when the server still returns only
-                // the priority hole.
-                guard stable.holes.count > 1 else {
-                    self.syncStatus = "其余球洞仍在后台准备中"
-                    return
-                }
-                try offlineStore.saveRoundPackage(stable)
-                let activeHole = self.liveRoundState?.activeHole
-                self.package = stable
-                if let activeHole, stable.holes.contains(where: { $0.number == activeHole }) {
-                    try offlineStore.saveActiveHole(roundId: roundId, hole: activeHole)
-                    self.liveRoundState = try offlineStore.restoreLiveRoundState(
+            defer {
+                // A newer round may have replaced this task. Its completion must not clear the new
+                // task's in-flight marker or make foreground recovery skip a needed retry.
+                guard let self, self.fastStartCourseRefreshGeneration == generation else { return }
+                self.fastStartCourseRefreshInFlight = false
+            }
+
+            for (attempt, delay) in delays.enumerated() {
+                do {
+                    try await Task.sleep(nanoseconds: delay)
+                    guard !Task.isCancelled, let self,
+                          self.fastStartCourseRefreshGeneration == generation,
+                          self.liveRoundState?.roundId == roundId,
+                          self.package?.course.globalId == globalId else { return }
+
+                    let complete = try await syncClient.fetchCoursePackage(
+                        globalId: globalId,
                         roundId: roundId,
-                        package: stable
+                        teeBox: teeBox,
+                        nine: nine,
+                        capturedAt: Date(),
+                        ensureGeometry: false,
+                        backgroundGeometry: true,
+                        includeEventCursor: false,
+                        fastStart: false
+                    )
+                    guard !Task.isCancelled,
+                          self.fastStartCourseRefreshGeneration == generation,
+                          self.liveRoundState?.roundId == roundId,
+                          self.package?.course.globalId == globalId else { return }
+
+                    // The complete response is allowed to carry the server's lightweight first-hole
+                    // seed. Merge any precise prep that the live view already retained before
+                    // publishing it, so the handoff cannot downgrade the visible map or caddie state.
+                    let stable = self.mergingForegroundPrep(
+                        in: self.applyingSelectedCourseDisplayName(to: complete)
+                    )
+                    // A response that is still one hole is a transient server state, not a valid
+                    // scorecard authority. Continue through the bounded retry schedule instead of
+                    // stranding the player at hole 1.
+                    guard stable.holes.count > 1 else {
+                        AICaddieLog.network.info(
+                            "Fast-start full package still partial (attempt \(attempt + 1, privacy: .public)/\(delays.count, privacy: .public))"
+                        )
+                        continue
+                    }
+
+                    let persisted = try offlineStore.saveRoundPackage(stable)
+                    let activeHole = self.liveRoundState?.activeHole
+                    self.package = persisted
+                    if let activeHole, persisted.holes.contains(where: { $0.number == activeHole }) {
+                        try offlineStore.saveActiveHole(roundId: roundId, hole: activeHole)
+                        self.liveRoundState = try offlineStore.restoreLiveRoundState(
+                            roundId: roundId,
+                            package: persisted
+                        )
+                    }
+                    self.syncStatus = "其余球洞已在后台就绪"
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    AICaddieLog.network.info(
+                        "Fast-start full package refresh attempt \(attempt + 1, privacy: .public)/\(delays.count, privacy: .public) deferred: \(String(describing: error), privacy: .public)"
                     )
                 }
-                self.syncStatus = "其余球洞已在后台就绪"
-            } catch is CancellationError {
-                return
-            } catch {
-                AICaddieLog.network.info(
-                    "Fast-start full package refresh deferred: \(String(describing: error), privacy: .public)"
-                )
             }
+
+            guard let self,
+                  self.fastStartCourseRefreshGeneration == generation,
+                  self.liveRoundState?.roundId == roundId,
+                  (self.package?.holes.count ?? 0) <= 1 else { return }
+            self.syncStatus = "其余球洞仍在后台准备中"
+            AICaddieLog.network.info(
+                "Fast-start full package refresh exhausted retries for \(globalId, privacy: .public)/\(roundId, privacy: .public)"
+            )
         }
+    }
+
+    /// Cancel and invalidate every outstanding fast-start request before the model changes account
+    /// or leaves live play. URLSession cancellation is cooperative; the generation guard closes the
+    /// window where a late response could otherwise publish into a newly bound round.
+    private func cancelFastStartCourseRefresh() {
+        fastStartCourseRefreshTask?.cancel()
+        fastStartCourseRefreshTask = nil
+        fastStartCourseRefreshGeneration = UUID()
+        fastStartCourseRefreshInFlight = false
+    }
+
+    /// Restart an exhausted fast-start loop when the app becomes active or the player advances.
+    /// The current one-hole package remains playable while this task runs in the background.
+    private func retryPendingFastStartCourseRefreshIfNeeded() {
+        guard !fastStartCourseRefreshInFlight,
+              let current = package,
+              current.holes.count <= 1,
+              current.isFullCoursePending,
+              let live = liveRoundState,
+              live.roundId == current.roundId else { return }
+        scheduleFastStartCourseRefresh(
+            globalId: current.course.globalId,
+            roundId: current.roundId,
+            teeBox: current.course.teeBox,
+            nine: current.nine ?? "all"
+        )
     }
 
     /// After a fresh round is prepared, point the UI at its first hole so it enters the live screen.
@@ -1318,6 +1410,7 @@ public final class LiveRoundAppModel: ObservableObject {
         )
         // This pipeline downloads every topo itself. Running the server-wide prewarmer at the same
         // time makes both jobs parse/render the same 18 holes and more than doubles server work.
+        retryPendingFastStartCourseRefreshIfNeeded()
         beginOfflineCourseDownload(revalidatePackage: revalidatePackage)
     }
 
@@ -1419,17 +1512,18 @@ public final class LiveRoundAppModel: ObservableObject {
                 let stable = mergingForegroundPrep(
                     in: applyingSelectedCourseDisplayName(to: complete)
                 )
-                try? offlineStore.saveRoundPackage(stable)
-                package = stable
+                let persisted = try? offlineStore.saveRoundPackage(stable)
+                guard let persisted else { return package ?? initial }
+                package = persisted
                 if let activeHole = liveRoundState?.activeHole,
-                   stable.holes.contains(where: { $0.number == activeHole }) {
+                   persisted.holes.contains(where: { $0.number == activeHole }) {
                     try? offlineStore.saveActiveHole(roundId: expectedRoundId, hole: activeHole)
                     liveRoundState = try? offlineStore.restoreLiveRoundState(
                         roundId: expectedRoundId,
-                        package: stable
+                        package: persisted
                     )
                 }
-                return stable
+                return persisted
             }
             // A full request that still contains one hole is a transient server response, not a
             // valid all-hole installer snapshot. Returning it here would turn the durable progress
@@ -1776,8 +1870,9 @@ public final class LiveRoundAppModel: ObservableObject {
             // reopen the old precise package. Network failure never enters this branch.
             if package?.roundId == current.roundId, liveRoundState != nil {
                 do {
-                    try offlineStore.saveRoundPackage(current)
-                    package = current
+                    let persisted = try offlineStore.saveRoundPackage(current)
+                    snapshot = persisted
+                    package = persisted
                 } catch {
                     AICaddieLog.storage.error(
                         "Revalidated course package save failed: \(String(describing: error), privacy: .public)"
@@ -2257,8 +2352,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 try offlineStore.saveCourseTemplate(durableEnriched)
             }
             if package?.roundId == snapshot.roundId, liveRoundState != nil {
-                try offlineStore.saveRoundPackage(durableEnriched)
-                package = durableEnriched
+                let persisted = try offlineStore.saveRoundPackage(durableEnriched)
+                package = persisted
             }
         } catch {
             AICaddieLog.storage.error(
@@ -2410,8 +2505,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 replacementCompleted = replacementIsComplete
             }
             if package?.roundId == snapshot.roundId, liveRoundState != nil {
-                try offlineStore.saveRoundPackage(durableEnriched)
-                package = durableEnriched
+                let persisted = try offlineStore.saveRoundPackage(durableEnriched)
+                package = persisted
             }
             refreshDownloadedCourseOptions()
             if durableEnriched.hasCompleteOfflineCoursePrep,
@@ -2454,8 +2549,11 @@ public final class LiveRoundAppModel: ObservableObject {
             guard isCurrentRoundPreparation(preparationToken) else { return }
             if let remotePackage = fetched {
                 let remotePackage = applyingSelectedCourseDisplayName(to: remotePackage)
-                try offlineStore.saveRoundPackage(remotePackage)
-                try activatePackage(remotePackage, status: "球场已就绪")
+                let persisted = try offlineStore.saveRoundPackage(
+                    remotePackage,
+                    allowHoleCountDecrease: !isNewRound
+                )
+                try activatePackage(persisted, status: "球场已就绪")
                 if isNewRound {
                     signalFreshRoundEntry(cacheOfflineAssets: true)
                 } else {
@@ -2467,8 +2565,11 @@ public final class LiveRoundAppModel: ObservableObject {
                 let cachedPackage = applyingSelectedCourseDisplayName(to: cachedPackage)
                 // Persist the active-round pointer for the offline/cached start too, so a round
                 // started without network still resumes on relaunch (continue card survives quit).
-                try offlineStore.saveRoundPackage(cachedPackage)
-                try activatePackage(cachedPackage, status: "已下载离线")
+                let persisted = try offlineStore.saveRoundPackage(
+                    cachedPackage,
+                    allowHoleCountDecrease: !isNewRound
+                )
+                try activatePackage(persisted, status: "已下载离线")
                 if isNewRound {
                     signalFreshRoundEntry(revalidatePackage: true)
                 } else {
@@ -2557,6 +2658,7 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func leaveSealedRoundLocally(package sealedPackage: LiveRoundPackage) throws {
+        cancelFastStartCourseRefresh()
         if let cachedHome = try offlineStore.loadHomePackage() {
             try activateHomePackage(cachedHome, status: "本场已保存 · 后台同步中")
         } else {
@@ -2673,6 +2775,7 @@ public final class LiveRoundAppModel: ObservableObject {
         guard try offlineStore.loadPendingMedia(roundId: roundId).isEmpty else {
             throw LiveRoundFinishError.pendingMedia
         }
+        cancelFastStartCourseRefresh()
         let homePackage = package
         watchRoundStartRetryTasks.removeValue(forKey: roundId)?.cancel()
         try offlineStore.discardRound(roundId: roundId)
@@ -2760,13 +2863,13 @@ public final class LiveRoundAppModel: ObservableObject {
                 scheduleWatchRoundStartRetry(start)
                 return
             }
-            try offlineStore.saveRoundPackage(nextPackage)
-            try activatePackage(nextPackage, status: "手表已开始 · iPhone 已同步")
-            if nextPackage.holes.contains(where: { $0.number == start.activeHole }) {
+            let persisted = try offlineStore.saveRoundPackage(nextPackage)
+            try activatePackage(persisted, status: "手表已开始 · iPhone 已同步")
+            if persisted.holes.contains(where: { $0.number == start.activeHole }) {
                 try offlineStore.saveActiveHole(roundId: roundId, hole: start.activeHole)
                 liveRoundState = try offlineStore.restoreLiveRoundState(
                     roundId: roundId,
-                    package: nextPackage
+                    package: persisted
                 )
             }
             pendingLiveHole = start.activeHole
@@ -2900,6 +3003,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// the Watch only after the matching phone data has been removed.
     public func discardActiveRound() {
         guard let package, liveRoundState?.roundId == package.roundId else { return }
+        cancelFastStartCourseRefresh()
         watchRoundStartRetryTasks.removeValue(forKey: package.roundId)?.cancel()
         do {
             try offlineStore.discardRound(roundId: package.roundId)
@@ -2938,6 +3042,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     watchBridge.makeWatchRoundSeedPayload(package: package, activeHole: hole)
                 )
             }
+            retryPendingFastStartCourseRefreshIfNeeded()
         } catch {
             AICaddieLog.storage.error("Active-hole save failed: \(String(describing: error), privacy: .public)")
             syncStatus = "当前洞保存失败,请重试"
@@ -2999,6 +3104,7 @@ public final class LiveRoundAppModel: ObservableObject {
         if !isPreparingRound,
            liveRoundState != nil,
            (package?.holes.count ?? 0) <= 1 {
+            retryPendingFastStartCourseRefreshIfNeeded()
             beginOfflineCourseDownload()
         }
         Task { @MainActor [weak self] in
@@ -4288,6 +4394,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// marking an active round — liveRoundState stays nil (no 进行中 card) and it is not the
     /// current-round pointer. Cached to home_package.json for offline relaunch.
     private func activateHomePackage(_ nextPackage: LiveRoundPackage, status: String) throws {
+        cancelFastStartCourseRefresh()
         package = nextPackage
         liveRoundState = nil
         startingNine = nil

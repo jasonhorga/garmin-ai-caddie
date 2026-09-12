@@ -797,13 +797,36 @@ public final class OfflineStore {
         }
     }
 
-    public func saveRoundPackage(_ package: LiveRoundPackage) throws {
+    /// Persist a round package without allowing an asynchronous partial response to erase a richer
+    /// snapshot already on disk. A deliberate nine-hole change is the only caller that should pass
+    /// `allowHoleCountDecrease: true`. Returning the effective package lets the MainActor publish
+    /// the same monotonic value it wrote, rather than briefly exposing a one-hole in-memory state.
+    @discardableResult
+    public func saveRoundPackage(
+        _ package: LiveRoundPackage,
+        allowHoleCountDecrease: Bool = false
+    ) throws -> LiveRoundPackage {
         try FileManager.default.createDirectory(at: packagesDirectoryURL, withIntermediateDirectories: true)
-        let encoded = try encoder.encode(package)
-        try encoded.write(to: packageURL(roundId: package.roundId), options: [.atomic])
+        let persistedPackage: LiveRoundPackage
+        if !allowHoleCountDecrease,
+           let existing = try? loadRoundPackage(roundId: package.roundId),
+           existing.holes.count > package.holes.count {
+            // A late background installer can still be holding the one-hole fast-start seed while
+            // the full package has already arrived through another request. Keep the richer round
+            // authority; the caller can retry the missing assets without shrinking the scorecard.
+            persistedPackage = existing
+            AICaddieLog.storage.info(
+                "Ignored round package downgrade \(package.roundId, privacy: .public): \(package.holes.count, privacy: .public) < \(existing.holes.count, privacy: .public) holes"
+            )
+        } else {
+            persistedPackage = package
+        }
+        let encoded = try encoder.encode(persistedPackage)
+        try encoded.write(to: packageURL(roundId: persistedPackage.roundId), options: [.atomic])
         try encoded.write(to: currentPackageURL, options: [.atomic])
-        try saveCourseTemplate(package)
-        AICaddieLog.storage.debug("Saved round package \(package.roundId, privacy: .public) (\(package.holes.count, privacy: .public) holes)")
+        try saveCourseTemplate(persistedPackage)
+        AICaddieLog.storage.debug("Saved round package \(persistedPackage.roundId, privacy: .public) (\(persistedPackage.holes.count, privacy: .public) holes)")
+        return persistedPackage
     }
 
     public func loadRoundPackage(roundId: String) throws -> LiveRoundPackage? {
@@ -1283,7 +1306,9 @@ public final class OfflineStore {
     ) throws {
         // Persist the newest package even if an older copy already exists. A crash before the ledger
         // write simply leaves the round resumable; a crash after it leaves the complete sealed copy.
-        try saveRoundPackage(package)
+        // Sealing is an explicit user action and therefore may persist a deliberate nine-hole
+        // package even when an older copy for this round still contains the full loop.
+        try saveRoundPackage(package, allowHoleCountDecrease: true)
         try saveHomePackage(package)
         var records = try loadPendingRoundFinishes()
         let queuedAt = records.first(where: { $0.roundId == package.roundId })?.queuedAt

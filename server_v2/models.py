@@ -1022,6 +1022,10 @@ class LiveRoundPackageResponse(BaseModel):
     playerProfile: dict[str, Any]
     course: dict[str, Any]
     holes: list[dict[str, Any]]
+    # A first-hole fast-start response deliberately contains only the priority hole. Keep the
+    # hand-off state on the wire so mobile clients never infer "end of round" from a short package.
+    startMode: Literal["first_hole_fast", "full"] = "full"
+    fullCoursePending: bool = False
     coursePrep: dict[str, Any] | None = None
     geometryCoverage: dict[str, Any]
     readinessChecks: list[dict[str, Any]] = Field(default_factory=list)

@@ -577,7 +577,6 @@ public struct StartRoundView: View {
                             ForEach(teeOptions, id: \.self) { tee in
                                 Button {
                                     teeBox = tee
-                                    showingTeeSelector = false
                                 } label: {
                                     if tee.caseInsensitiveCompare(teeBox) == .orderedSame {
                                         Label(teeMenuLabel(tee), systemImage: "checkmark")

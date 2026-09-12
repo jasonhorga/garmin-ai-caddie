@@ -683,6 +683,45 @@ final class SyncClientTests: XCTestCase {
         )
     }
 
+    func testFastStartCoursePackageUsesShortOpeningTimeout() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let fixtureURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
+        let responseData = try Data(contentsOf: fixtureURL)
+        CapturingURLProtocol.requestHandler = { request in
+            let queryItems = URLComponents(
+                url: try XCTUnwrap(request.url),
+                resolvingAgainstBaseURL: false
+            )?.queryItems
+            XCTAssertEqual(queryItems?.first { $0.name == "fast_start" }?.value, "true")
+            XCTAssertEqual(request.timeoutInterval, SyncClient.fastStartPackageTimeoutInterval)
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, responseData)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session
+        )
+
+        _ = try await client.fetchCoursePackage(
+            globalId: 10283,
+            roundId: "live-round-fast-start",
+            teeBox: "blue",
+            backgroundGeometry: true,
+            fastStart: true
+        )
+    }
+
     func testFetchColdCoursePackageRetriesTransientTimeout() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]

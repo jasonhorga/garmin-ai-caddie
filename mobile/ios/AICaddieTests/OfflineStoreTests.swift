@@ -89,6 +89,33 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(try store.loadCurrentRoundPackage()?.roundId, package.roundId)
     }
 
+    func testRoundPackageSaveCannotDowngradeAFullSnapshot() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let full = try localFixturePackage()
+        let partial = replacingHoles(
+            in: full,
+            with: [try XCTUnwrap(full.holes.first)],
+            generatedAt: "2026-09-12T00:00:00Z"
+        )
+
+        try store.saveRoundPackage(full)
+        let effective = try store.saveRoundPackage(partial)
+
+        XCTAssertEqual(effective.holes.count, full.holes.count)
+        XCTAssertEqual(try store.loadRoundPackage(roundId: full.roundId)?.holes.count, full.holes.count)
+        XCTAssertEqual(try store.loadCurrentRoundPackage()?.holes.count, full.holes.count)
+
+        // A user-requested nine-hole change is explicit and remains allowed.
+        let narrowed = try store.saveRoundPackage(
+            partial,
+            allowHoleCountDecrease: true
+        )
+        XCTAssertEqual(narrowed.holes.count, 1)
+        XCTAssertEqual(try store.loadRoundPackage(roundId: full.roundId)?.holes.count, 1)
+    }
+
     func testSealedRoundIsNotResumableAndOutboxSurvivesRelaunch() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
