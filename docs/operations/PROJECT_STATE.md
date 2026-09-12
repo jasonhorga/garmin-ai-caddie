@@ -9,17 +9,17 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-12 17:11 UTC
+**Updated:** 2026-09-12 18:58 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
-`f3b04dd853e2508cf48f6a4f5bcb6c30ecc61e05`; current internal-release source
-`f3b04dd8`; deployed backend tip
+`29d0a0c7a3fe8df73d7466e3765a60596996b03d`; current internal-release source
+`29d0a0c7`; deployed backend tip
 `17ad4e66871126730c9fca9246fee884af309b2f` candidate; MAP1 product-code tip
 `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
 `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
-**Source baseline:** `f3b04dd853e2508cf48f6a4f5bcb6c30ecc61e05` (PHONE-UX3
-candidate source; Source CI for the iOS compile fix is pending; Native run
-`34706816330` at prior source `17ad4e66871126730c9fca9246fee884af309b2f`
-failed only on a Swift `defer` compile error; candidate API is bound to
+**Source baseline:** `29d0a0c7a3fe8df73d7466e3765a60596996b03d` (PHONE-UX3
+candidate source; Source CI `34709596756` and Native Mobile CI `34709800015`
+passed; internal TestFlight CD `34712702517` is in progress after the Swift
+`defer` compile fix and the multi-hole fast-start fixture correction; candidate API is bound to
 homeserver loopback port `39061`; stable deployed backend remains `5124d638`;
 historical TestFlight build 47 through 57 sources remain recorded below)
 **Release rule:** the gates are ordered, not circular:
@@ -540,9 +540,9 @@ code; do not restart the old multi-week plan tree.
    后后台补齐完整球场；partial 首洞不再展示粗糙示意图，只显示干净的地图准备面并原位替换
    为精确 topo。
 5. 已完成实现与静态验证：homeserver 聚焦测试 `296 passed, 2 skipped`、Python
-   compileall、Source CI `34704996932`（exact `17ad4e66`）均通过；随后 Native
-   `34706816330` 暴露了 `defer` 闭包中的 Swift 编译错误，已在 `f3b04dd8` 以最小改动修复，
-   新 Source CI 正在运行；候选后端在
+   compileall、Source CI `34709596756`（exact `29d0a0c7`）和 Native
+   `34709800015`（iOS/Watch、真实 simulator、evidence 全绿）均通过；内部
+   TestFlight CD `34712702517` 正在运行；候选后端在
    39061 健康运行，且 Fable 评审指出的 fast-start 单次补齐、partial 覆盖完整包、旧任务
    失效和洞数回退边界已由 `17ad4e66` 修复。当前动作是为 39061 建立新 Quick Tunnel，
    做 health/nearby/search/fast-start/exact-revision 公网预检，然后运行 exact-SHA
@@ -1164,7 +1164,7 @@ project-level task list; historical plans are reference material.
 | `GARMIN-AUTH` | `evidence-open` | Make a successful Garmin web login validate and synchronize against the current CN gateway, then bind the internal app candidate to that backend. | Commit `caf3afad`, source sync follow-up `f24a22dd`, Source CI `34043175968`/`34223501012`, controlled 403-to-200 gateway comparison, healthy public deployment, Native Mobile CI `34223836622`, TestFlight CD `34231106418`, and Apple/group check `34232120285` are complete. One new real-device reconnect/sync remains. |
 | `PHONE-REGRESSION` | `evidence-open` | Unify backend caddie recommendation with the live club strip/map landing, constrain hazard labels/distances to small factual edge numbers, and provide a direct retry for saved-but-unverified Garmin sessions while preserving provider-nearby, manual-search, downloaded-course provenance and A/B/C labels. | Source CI `34223501012`, Native Mobile CI `34223836622`, backend revision `f363872f`, TestFlight Build 53, and Apple processing/group visibility are complete; physical screenshots and device behavior remain evidence-open. |
 | `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Source CI `34663338160` and exact-SHA live Native Mobile CI `34663501590` at `70480f99` passed, including iOS/Watch builds, real iOS journey, dedicated hazard/caddie captures, Watch runtime screenshots, evidence and secret scans. Internal TestFlight CD `34666136884` uploaded Build 57; ASC read-only run `34666574292` confirmed `VALID` and `IN_BETA_TESTING`. Physical iPhone/Watch validation of map panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation remains open. |
-| `PHONE-UX3` | `in-progress` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present at exact source `f3b04dd853e2508cf48f6a4f5bcb6c30ecc61e05`; homeserver focused suite `296 passed, 2 skipped`, Python compileall, and Source CI `34704996932` pass. Native `34706816330` exposed and confirmed one Swift `defer` compile error at the prior SHA; `f3b04dd8` contains the minimal fix and its Source CI is pending. Candidate API is healthy on port `39061`; a fresh exact-SHA Native run remains the next gate before internal TestFlight upload. |
+| `PHONE-UX3` | `in-progress` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present at exact source `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; homeserver focused suite `296 passed, 2 skipped`, Python compileall, Source CI `34709596756`, and Native `34709800015` (full live iOS/Watch evidence) pass. Internal TestFlight CD `34712702517` is running with the candidate API on port `39061`; Apple status remains pending. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 | `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |
@@ -1732,6 +1732,21 @@ Native runs recorded above; it is retained only as historical diagnosis.
   master checklist from memory.
 
 ## State Changes
+
+- 2026-09-12: Native Mobile CI `34709800015` completed successfully at exact
+  source `29d0a0c7a3fe8df73d7466e3765a60596996b03d`. All iOS/Watch tests,
+  live simulator journeys, hazard/green/caddie captures, Watch runtime
+  screenshots, evidence writing, and secret scans passed. Per the standing
+  owner rule, internal TestFlight CD `34712702517` was dispatched immediately
+  with the candidate Quick Tunnel and backend revision
+  `17ad4e66871126730c9fca9246fee884af309b2f`; external distribution remains off.
+
+- 2026-09-12: Native Mobile CI `34709800015` is running at exact source
+  `29d0a0c7a3fe8df73d7466e3765a60596996b03d`. Launch prerequisites, live API
+  resolution, and environment validation passed; the iOS app target is in
+  progress. This run includes the multi-hole fast-start fixture correction.
+  The next action remains automatic internal TestFlight upload only after all
+  Native iOS/Watch and evidence stages pass.
 
 - 2026-09-12: Resumed `PHONE-UX3` after context compaction. Exact source
   `17ad4e66871126730c9fca9246fee884af309b2f` is pushed; Source CI
