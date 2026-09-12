@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-11 23:44 UTC
+**Updated:** 2026-09-12 00:56 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `9cddcbd6`; current internal-release source `f09b381a`; deployed backend tip
 `5124d6384c71cba0e2f911ab043464aca3e28c46`; MAP1 product-code tip
@@ -3302,3 +3302,31 @@ Native runs recorded above; it is retained only as historical diagnosis.
   `Private Trial`; status run `33309492585` observed
   `externalState=IN_BETA_TESTING`, and exact-artifact diagnostic run
   `33309532213` passed. Physical installation remains the only open evidence.
+
+- 2026-09-12: Current `PHONE-UX2` follow-up product tip is
+  `876292430c2737b7fbf3144de059fce30ff73a10`. The first Source CI after the
+  green-entry geometry fix exposed one frozen mobile contract expression;
+  commit `87629243` retained the deterministic local contour hit target and
+  restored the required `greenPath.boundingRect.midX` accessibility activation
+  point. Source CI `34659712177` passed backend, frontend, and Docker jobs.
+  Exactly one full live Native Mobile CI run `34659950957` is running against
+  API origin `https://talented-claims-paris-august.trycloudflare.com` and
+  backend revision `c82c0547277c83244ed02f2c4f07275019c7a6c8`, with
+  `capture_scope=full`, `fixture_mode=false`, and
+  `require_live_preflight=true`. The run completed with the real iOS UI step
+  failing only at the green-entry accessibility assertion; no TestFlight action
+  has been started from this tip. The next action is the bounded accessibility
+  containment fix and one exact-SHA full rerun.
+- 2026-09-12: Native run `34659950957` completed at exact SHA
+  `876292430c2737b7fbf3144de059fce30ff73a10` with iOS/Watch builds, unit tests,
+  live preflight, Watch runtime evidence, and secret scans passing. The only
+  product assertion failure was
+  `TeeSelectionUITests.testAuthorizedGPSWithoutFixStillOffersCompleteCatalogueFallback`
+  at `TeeSelectionUITests.swift:404`: after closing the detailed map, the green
+  entry existed visually but the accessibility tree exposed the full hero as a
+  single `live-open-map-from-hero` element, so the contour-sized
+  `live-open-green-from-hero` control was not hittable. The downloaded
+  `tree-10-live-hole.txt` confirms the missing child element. The pending fix
+  adds `.accessibilityElement(children: .contain)` to the gesture container so
+  map and green controls remain separate. Next action is one fresh exact-SHA
+  full live Native run; no TestFlight upload is valid until it passes.

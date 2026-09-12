@@ -821,6 +821,11 @@ public struct CurrentHoleView: View {
             )
             .simultaneousGesture(heroMapPinchGesture(in: geometry.size))
             .gesture(heroMapPanOrSwipeGesture(in: geometry.size))
+            // Keep the map gesture container and the contour-sized green button as separate
+            // accessibility elements. Without an explicit containment boundary SwiftUI promotes
+            // this gesture-bearing ZStack to one full-hero button and hides the green entry from
+            // VoiceOver/XCTest hit testing.
+            .accessibilityElement(children: .contain)
             .accessibilityLabel("打开地图并选目标")
             .accessibilityHint("左右滑动切换球洞")
             .accessibilityIdentifier("live-open-map-from-hero")
