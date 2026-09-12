@@ -9,19 +9,18 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-12 15:22 UTC
+**Updated:** 2026-09-12 16:49 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
-`af7bf59c`; current internal-release source `70480f99`; deployed backend tip
-`af7bf59c7c378154465b84b2d7dd5563031e8d15` candidate; MAP1 product-code tip
+`17ad4e66871126730c9fca9246fee884af309b2f`; current internal-release source
+`17ad4e66`; deployed backend tip
+`17ad4e66871126730c9fca9246fee884af309b2f` candidate; MAP1 product-code tip
 `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation merge
 `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
-**Source baseline:** `af7bf59c7c378154465b84b2d7dd5563031e8d15` (PHONE-UX3
-candidate source; Source CI `34692058357` passed; Native run `34694753123`
-failed in the live iOS journey; candidate API/backend binding is
-`https://metropolitan-soap-consistent-restoration.trycloudflare.com` /
-`af7bf59c7c378154465b84b2d7dd5563031e8d15`; stable deployed backend remains
-`5124d638`; historical TestFlight build 47 through 57 sources remain recorded
-below)
+**Source baseline:** `17ad4e66871126730c9fca9246fee884af309b2f` (PHONE-UX3
+candidate source; Source CI `34704996932` passed; Native run `34694703123`
+is superseded by the fast-start resilience fixes; candidate API is bound to
+homeserver loopback port `39061`; stable deployed backend remains `5124d638`;
+historical TestFlight build 47 through 57 sources remain recorded below)
 **Release rule:** the gates are ordered, not circular:
 `canonical source -> source/Native CI and backend preflight -> automatic fresh
 internal TestFlight build/upload (the workflow performs signing) -> Apple
@@ -58,6 +57,16 @@ release-scope decision; do not pause for routine TestFlight execution.
   The fresh private-volume archive (2,223,575,223 bytes) and PostgreSQL dump
   are SHA-256 recorded under
   `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260909-topo-v10`.
+- **PHONE-UX3 backend candidate (2026-09-12):** Revision
+  `17ad4e66871126730c9fca9246fee884af309b2f` is running in
+  `aicaddie-release-17ad4e66-candidate-20260912` on homeserver loopback port
+  `39061`; image digest is
+  `sha256:1345d20af40961bff55a10d9f6bf85815f37e188ae122b017f52c318e82ffd57`.
+  Local health, nearby/search, and fast-start package preflight passed; the
+  package intentionally returns one hole with `startMode=first_hole_fast` and
+  `fullCoursePending=true`. A fresh public Quick Tunnel must target `39061`
+  before Native or TestFlight is dispatched. The old UX3 tunnels on `39059`
+  and `39060` are separate rollback/history resources and must not be reused.
 - **Native UX2 rerun diagnosis (2026-09-09):** Native Mobile CI run
   `34407853548` compiled and passed the non-device gates, but its three iOS
   topo/offline waits failed. The artifact `ios-app.log` and a direct local/public
@@ -529,14 +538,14 @@ code; do not restart the old multi-week plan tree.
 4. 已完成：新球局走首洞 fast-start（服务端跳过同步 release fetch，首洞包先返回），进入
    后后台补齐完整球场；partial 首洞不再展示粗糙示意图，只显示干净的地图准备面并原位替换
    为精确 topo。
-5. 进行中：homeserver 聚焦测试与 Python compileall 已通过；Source CI
-   `34692058357` 已在 exact `af7bf59c` 通过，候选后端已用 `af7` 镜像在
-   39060 启动，公网 preflight 返回 nearby=66/search=1，Topo v10 为 200；Native
-   exact-SHA gate `34694753123` 已失败，原因是 fast-start 完整包补齐只请求一次，失败
-   后首洞包一直只有 1 洞（另有白 T 取消按钮断言，已有工作树修复）。当前先补 fast-start
-   有界退避重试、前台/推进洞自愈和球局包洞数只增不减写回保护，再重跑 exact-SHA
-   Native。全绿后自动上传新的内部 TestFlight 并核对 ASC processing/status；实体设备上的
-   跟手、旗杆底部拖动和 Garmin 重连仍作为上传后的 evidence-open 项。
+5. 已完成实现与静态验证：homeserver 聚焦测试 `296 passed, 2 skipped`、Python
+   compileall、Source CI `34704996932`（exact `17ad4e66`）均通过；候选后端在
+   39061 健康运行，且 Fable 评审指出的 fast-start 单次补齐、partial 覆盖完整包、旧任务
+   失效和洞数回退边界已由 `17ad4e66` 修复。当前动作是为 39061 建立新 Quick Tunnel，
+   做 health/nearby/search/fast-start/exact-revision 公网预检，然后运行 exact-SHA
+   Native。Native 全绿后按既定自动规则上传新的内部 TestFlight并核对 ASC
+   processing/status；实体设备上的跟手、旗杆底部拖动和 Garmin 重连仍作为上传后的
+   evidence-open 项。
 
 **`PHONE-UX2` — 7813–7819 真机交互与信息架构修正** (`evidence-open`)
 
@@ -1152,7 +1161,7 @@ project-level task list; historical plans are reference material.
 | `GARMIN-AUTH` | `evidence-open` | Make a successful Garmin web login validate and synchronize against the current CN gateway, then bind the internal app candidate to that backend. | Commit `caf3afad`, source sync follow-up `f24a22dd`, Source CI `34043175968`/`34223501012`, controlled 403-to-200 gateway comparison, healthy public deployment, Native Mobile CI `34223836622`, TestFlight CD `34231106418`, and Apple/group check `34232120285` are complete. One new real-device reconnect/sync remains. |
 | `PHONE-REGRESSION` | `evidence-open` | Unify backend caddie recommendation with the live club strip/map landing, constrain hazard labels/distances to small factual edge numbers, and provide a direct retry for saved-but-unverified Garmin sessions while preserving provider-nearby, manual-search, downloaded-course provenance and A/B/C labels. | Source CI `34223501012`, Native Mobile CI `34223836622`, backend revision `f363872f`, TestFlight Build 53, and Apple processing/group visibility are complete; physical screenshots and device behavior remain evidence-open. |
 | `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Source CI `34663338160` and exact-SHA live Native Mobile CI `34663501590` at `70480f99` passed, including iOS/Watch builds, real iOS journey, dedicated hazard/caddie captures, Watch runtime screenshots, evidence and secret scans. Internal TestFlight CD `34666136884` uploaded Build 57; ASC read-only run `34666574292` confirmed `VALID` and `IN_BETA_TESTING`. Physical iPhone/Watch validation of map panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation remains open. |
-| `PHONE-UX3` | `in-progress` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present in the working tree; homeserver focused suite `296 passed, 2 skipped` and Python compileall pass. Claude Fable UX3 read-only review found no new blocker in the arc/green-drag/hazard-layer design and identified the fast-start handoff/cache risks now covered by the current changes. Native run `34694753123` failed on the one-shot fast-start handoff and a stale Tee-selection assertion; bounded retry/package monotonicity work is in progress before the next exact-SHA gate. |
+| `PHONE-UX3` | `in-progress` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present at exact source `17ad4e66871126730c9fca9246fee884af309b2f`; homeserver focused suite `296 passed, 2 skipped`, Python compileall, and Source CI `34704996932` pass. Claude Fable UX3 read-only review found no blocker in the arc/green-drag/hazard-layer design; its fast-start handoff/cache risks are covered by the current changes. Candidate API is healthy on port `39061`; fresh public preflight and exact-SHA Native evidence are the remaining gates before internal TestFlight upload. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 | `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |
@@ -1720,6 +1729,29 @@ Native runs recorded above; it is retained only as historical diagnosis.
   master checklist from memory.
 
 ## State Changes
+
+- 2026-09-12: Resumed `PHONE-UX3` after context compaction. Exact source
+  `17ad4e66871126730c9fca9246fee884af309b2f` is pushed; Source CI
+  `34704996932` is green. Candidate API image digest is
+  `sha256:1345d20af40961bff55a10d9f6bf85815f37e188ae122b017f52c318e82ffd57`
+  in container `aicaddie-release-17ad4e66-candidate-20260912` on port 39061.
+  Fable's startup-acceleration report is preserved on homeserver at
+  `/home/jason/codex-runs/garmin-ai-caddie-phone-ux3-20260912/fable-startup-acceleration-review.txt`;
+  its actionable risks are covered by this source. A fresh tunnel, public
+  preflight, exact-SHA Native run, and internal TestFlight upload are the sole
+  remaining actions for this slice; no external distribution or production
+  promotion is authorized.
+
+- 2026-09-12: Source CI `34704996932` passed at exact source
+  `17ad4e66871126730c9fca9246fee884af309b2f`. Candidate preflight passed on
+  homeserver and through Quick Tunnel
+  `https://right-exhibits-colleges-dated.trycloudflare.com` (39061), including
+  health revision equality, nearby/search, one-hole fast-start, and an 18-hole
+  ready full package. Exact-SHA live Native Mobile CI `34706816330` is now
+  queued with `capture_scope=full`, `fixture_mode=false`, and
+  `require_live_preflight=true`; its public origin and backend revision are
+  pinned to that candidate. No TestFlight action has started until this gate
+  completes.
 
 - 2026-09-12: Native Mobile CI `34684703178` at exact source `b371a9d8` passed
   iOS/Watch compilation and tests, design/runtime evidence, and secret scans. Its live preflight
