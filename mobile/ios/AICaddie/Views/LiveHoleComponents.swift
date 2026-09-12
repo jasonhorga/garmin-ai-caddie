@@ -1535,7 +1535,7 @@ struct LiveMapPreparingSurface: View {
                     .foregroundStyle(LivePlayStyle.accent)
                 ProgressView()
                     .tint(LivePlayStyle.accent)
-                Text("第 (holeNumber) 洞")
+                Text("第 \(holeNumber) 洞")
                     .font(.headline.weight(.bold))
                     .foregroundStyle(.white)
                 Text("正在载入精确球道图")
@@ -1544,7 +1544,7 @@ struct LiveMapPreparingSurface: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("第 (holeNumber) 洞地图准备中")
+        .accessibilityLabel("第 \(holeNumber) 洞地图准备中")
         .accessibilityIdentifier("live-map-preparing-surface")
     }
 }
