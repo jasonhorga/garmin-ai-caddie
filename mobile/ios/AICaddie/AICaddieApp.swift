@@ -416,13 +416,6 @@ public final class PrepCourseDownloadPresentationState: ObservableObject {
 
 @MainActor
 public final class LiveRoundAppModel: ObservableObject {
-    private struct FastStartCourseRefreshRequest {
-        let globalId: Int
-        let roundId: String
-        let teeBox: String
-        let nine: String
-    }
-
     @Published public private(set) var package: LiveRoundPackage?
     @Published public private(set) var pendingEventCount: Int = 0
     @Published public private(set) var syncStatus: String = "离线就绪"
@@ -506,9 +499,6 @@ public final class LiveRoundAppModel: ObservableObject {
     /// complete round package after the first map is on screen; it is cancelled whenever the player
     /// changes course/round so a stale response cannot overwrite a newer selection.
     private var fastStartCourseRefreshTask: Task<Void, Never>?
-    /// Keep the request pending until the first-hole surface has actually appeared. This avoids
-    /// starting a delayed network task while a caller is still preparing or abandoning the round.
-    private var pendingFastStartCourseRefresh: FastStartCourseRefreshRequest?
     private var prepCourseDownloadTask: Task<Void, Never>?
     private var prepCourseDownloadGeneration: UUID?
     private var activePrepCourseDownloadID: String?
@@ -612,6 +602,13 @@ public final class LiveRoundAppModel: ObservableObject {
         refreshDownloadedCourseOptions()
     }
 
+    deinit {
+        // A fast-start refresh is deliberately detached from the first-hole view so the remaining
+        // holes can arrive while the player is already playing. Explicit cancellation is required
+        // because dropping a Task handle does not cancel the underlying URLSession request.
+        fastStartCourseRefreshTask?.cancel()
+    }
+
     /// round-12 P3.4 (Watch standalone): hand the watch this phone's backend config so a standalone
     /// round can sync on its own. The bridge stores it and re-pushes once the WCSession activates.
     ///
@@ -663,7 +660,6 @@ public final class LiveRoundAppModel: ObservableObject {
         offlineCourseDownloadTask = nil
         fastStartCourseRefreshTask?.cancel()
         fastStartCourseRefreshTask = nil
-        pendingFastStartCourseRefresh = nil
         pausePrepCourseDownload()
         watchFinishedRoundReconciliationTask?.cancel()
         watchFinishedRoundReconciliationTask = nil
@@ -1017,7 +1013,6 @@ public final class LiveRoundAppModel: ObservableObject {
         offlineCourseDownloadTask = nil
         fastStartCourseRefreshTask?.cancel()
         fastStartCourseRefreshTask = nil
-        pendingFastStartCourseRefresh = nil
         deferredOfflineCourseDownloadRevalidation = nil
         isPreparingRound = true
         return token
@@ -1181,7 +1176,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 recordUITestLatency("course-start.activate.end globalId=\(globalId)")
                 if isNewRound {
                     if remotePackage.holes.count <= 1 {
-                        pendingFastStartCourseRefresh = FastStartCourseRefreshRequest(
+                        scheduleFastStartCourseRefresh(
                             globalId: globalId,
                             roundId: requestedRoundId,
                             teeBox: teeBox,
@@ -1234,9 +1229,9 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    /// Replace the one-hole fast-start package once the first live surface is available. The
-    /// refresh intentionally does not wait for precise topology: the existing per-hole installer
-    /// owns those assets, while this request restores scorecard/navigation metadata quickly.
+    /// Replace the one-hole fast-start package as soon as it is activated. The refresh intentionally
+    /// does not wait for precise topology: the existing per-hole installer owns those assets, while
+    /// this request restores scorecard/navigation metadata while the first hole is on screen.
     private func scheduleFastStartCourseRefresh(
         globalId: Int,
         roundId: String,
@@ -1244,11 +1239,12 @@ public final class LiveRoundAppModel: ObservableObject {
         nine: String
     ) {
         fastStartCourseRefreshTask?.cancel()
-        fastStartCourseRefreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+        guard let syncClient else { return }
+        let offlineStore = self.offlineStore
+        fastStartCourseRefreshTask = Task { @MainActor [weak self, syncClient, offlineStore] in
             do {
                 try await Task.sleep(nanoseconds: 1_500_000_000)
-                guard !Task.isCancelled, let syncClient = self.syncClient else { return }
+                guard !Task.isCancelled else { return }
                 let complete = try await syncClient.fetchCoursePackage(
                     globalId: globalId,
                     roundId: roundId,
@@ -1260,16 +1256,16 @@ public final class LiveRoundAppModel: ObservableObject {
                     includeEventCursor: false,
                     fastStart: false
                 )
-                guard !Task.isCancelled,
+                guard !Task.isCancelled, let self,
                       self.liveRoundState?.roundId == roundId,
                       self.package?.course.globalId == globalId else { return }
                 let stable = self.applyingSelectedCourseDisplayName(to: complete)
-                try self.offlineStore.saveRoundPackage(stable)
+                try offlineStore.saveRoundPackage(stable)
                 let activeHole = self.liveRoundState?.activeHole
                 self.package = stable
                 if let activeHole, stable.holes.contains(where: { $0.number == activeHole }) {
-                    try self.offlineStore.saveActiveHole(roundId: roundId, hole: activeHole)
-                    self.liveRoundState = try self.offlineStore.restoreLiveRoundState(
+                    try offlineStore.saveActiveHole(roundId: roundId, hole: activeHole)
+                    self.liveRoundState = try offlineStore.restoreLiveRoundState(
                         roundId: roundId,
                         package: stable
                     )
@@ -1300,18 +1296,9 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     /// `CurrentHoleView` calls this after its initial map and caddie request have settled. The cache
-    /// pipeline deliberately starts here, rather than in `prepareCourseRound` or `onAppear`, so
-    /// all-hole prep/file work can compete with neither navigation nor the first playable facts.
+    /// pipeline starts here; the fast-start package refresh is already running independently so the
+    /// scorecard can gain the remaining holes without delaying the first playable facts.
     func liveHoleInitialLoadDidFinish() {
-        if let request = pendingFastStartCourseRefresh {
-            pendingFastStartCourseRefresh = nil
-            scheduleFastStartCourseRefresh(
-                globalId: request.globalId,
-                roundId: request.roundId,
-                teeBox: request.teeBox,
-                nine: request.nine
-            )
-        }
         guard let revalidatePackage = deferredOfflineCourseDownloadRevalidation else { return }
         deferredOfflineCourseDownloadRevalidation = nil
         recordUITestLatency(
