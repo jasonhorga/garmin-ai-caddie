@@ -1714,6 +1714,14 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## State Changes
 
+- 2026-09-12: Native Mobile CI `34682413447` at exact source `70d5987f` passed
+  compilation, iOS/Watch tests, design/live preflight, and Watch runtime evidence, but the live
+  iOS capture did not complete. `RealFlowUITests` waited 240 seconds for the prep-course row to
+  reach `已完整下载到本机`, and the following hole-navigation assertion could not observe `第 2 洞`.
+  The public origin used by that run returned transient cold-course delays; a fresh health/topo
+  probe is now HTTP 200 (`revision=66344953`, Topo v10 `678x1060`). Exact-SHA Native rerun is the
+  next action; no TestFlight upload has been started from the failed gate.
+
 - 2026-09-12: `PHONE-UX3` implementation is complete in the working tree. The phone map now uses
   direct transient panning, the opening tee has a configurable 200–240 yard reference arc, View
   Green keeps its crop/last valid pole-foot while a held finger leaves the green, and the hazard
