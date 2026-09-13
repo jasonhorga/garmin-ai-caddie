@@ -14,6 +14,7 @@ from typing import Any, Annotated, Literal
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
 
@@ -256,6 +257,10 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
+# Mobile round packages intentionally retain the complete 18-hole JSON contract. Compressing the
+# highly repetitive response reduces tunnel/cellular transfer without changing decoded fields; the
+# middleware only activates above 1 KiB and leaves small health/metadata responses untouched.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 def _safe_validation_errors(exc: RequestValidationError) -> list[dict[str, object]]:
@@ -971,7 +976,7 @@ def course_topo_prewarm(global_id: int, background_tasks: BackgroundTasks) -> di
 def _prepare_recent_bg(player_id: str) -> None:
     """「打开即用」后台准备最近一盘:预热其球洞图 topo + 烤统计。best-effort,绝不抛
     (镜像 warm_stats_cache 的 swallow 语义,不弄崩触发它的响应/线程)。"""
-    from ai_caddie.history.history import load_history_data
+    from ai_caddie.history.stats_cache import cached_load_history_data
     from ai_caddie.rounds.prepare_recent import prepare_recent_round
     from server_v2.history_stats import warm_stats_cache
 
@@ -991,9 +996,13 @@ def _prepare_recent_bg(player_id: str) -> None:
                 pass
 
     try:
-        data = load_history_data(player_id=player_id)
+        # The stats warmer consumes the same history projection. Reusing its fingerprinted loader
+        # avoids a second full scorecard/shot scan when this hook follows a sync or mobile finish.
+        data = cached_load_history_data(player_id=player_id)
         prepare_recent_round(
-            data, prewarm=_prewarm_course_topo, warm_stats=warm_stats_cache,
+            data,
+            prewarm=_prewarm_course_topo,
+            warm_stats=lambda: warm_stats_cache(player_id=player_id),
             ensure_geometry=_ensure_geometry,
         )
     except Exception:  # noqa: BLE001 - best-effort;绝不弄崩触发它的线程
@@ -2382,6 +2391,10 @@ def sync_player_garmin(
         # stats cache so their next history/stats read recomputes, without evicting other
         # players' caches (mirrors round_ingest._invalidate_cache, but player-scoped).
         stats_cache.clear(player_id)
+        # Keep the first post-sync history/package request off the cold stats path. The warmer is
+        # player-scoped and single-flight, so a repeated sync callback cannot create duplicate CPU
+        # workers for this partition.
+        warm_stats_cache_in_background(player_id=player_id)
     return SyncRunResponse(
         schema="ai-caddie-sync-run-v2",
         connector=result.connector,

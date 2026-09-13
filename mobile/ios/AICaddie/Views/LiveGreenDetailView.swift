@@ -477,6 +477,31 @@ public struct LiveGreenDetailView: View {
         return WatchGreenPolygon.contains(row, outline: outline.pointsPx)
     }
 
+    /// Keep the persisted pole-foot on the factual putting surface. For an outside touch this is a
+    /// nearest-segment projection, not a rectangular clamp, so a curved edge remains draggable in
+    /// the unconstrained direction.
+    private func constrainedFlagPixel(_ row: [Double]) -> [Double]? {
+        guard row.count >= 2,
+              row[0].isFinite,
+              row[1].isFinite,
+              validPixel(CGPoint(x: row[0], y: row[1])) else { return nil }
+        guard let outline = hole.greenOutline,
+              outline.available,
+              outline.pointsPx.count >= 3 else {
+            return [row[0], row[1]]
+        }
+        guard let projected = LivePolygonGeometry.nearestPoint(
+            CGPoint(x: row[0], y: row[1]),
+            on: outline.pointsPx.compactMap { point in
+                guard point.count >= 2,
+                      point[0].isFinite,
+                      point[1].isFinite else { return nil }
+                return CGPoint(x: point[0], y: point[1])
+            }
+        ) else { return nil }
+        return [Double(projected.x), Double(projected.y)]
+    }
+
     private func pinPixel() -> [Double]? {
         if let pinCoordinate, let projected = projectedPoint(pinCoordinate) {
             return projected
@@ -532,27 +557,36 @@ public struct LiveGreenDetailView: View {
             y: (point.y - size.height / 2 - offset.height) / max(scale, 0.001) + size.height / 2
         )
         let fullPx: [Double]?
+        let allowOutsideMap = !requireInsideGreen
         if let crop = activeDetailCrop {
-            guard baseRect.contains(untransformed) else { return nil }
+            guard baseRect.width > 0, baseRect.height > 0 else { return nil }
+            if !allowOutsideMap {
+                guard baseRect.contains(untransformed) else { return nil }
+            }
             guard crop.width > 0, crop.height > 0 else { return nil }
-            fullPx = [
+            let raw = [
                 crop.x + Double((untransformed.x - baseRect.minX) / baseRect.width) * crop.width,
                 crop.y + Double((untransformed.y - baseRect.minY) / baseRect.height) * crop.height,
             ]
+            fullPx = allowOutsideMap ? clampedImagePixel(raw) : raw
         } else if let overlay = hole.resolvedMapOverlay {
             fullPx = LivePlayMapOverlayLayout.unproject(
                 screenPoint: CGPoint(x: untransformed.x - baseRect.minX, y: untransformed.y - baseRect.minY),
                 overlayWidth: overlay.w,
                 overlayHeight: overlay.h,
                 from: baseRect.size,
-                clampToMap: false
+                clampToMap: allowOutsideMap
             )
         } else if let dimensions = imageDimensions {
-            guard baseRect.contains(untransformed) else { return nil }
-            fullPx = [
+            guard baseRect.width > 0, baseRect.height > 0 else { return nil }
+            if !allowOutsideMap {
+                guard baseRect.contains(untransformed) else { return nil }
+            }
+            let raw = [
                 Double((untransformed.x - baseRect.minX) / baseRect.width) * dimensions.width,
                 Double((untransformed.y - baseRect.minY) / baseRect.height) * dimensions.height,
             ]
+            fullPx = allowOutsideMap ? clampedImagePixel(raw) : raw
         } else {
             fullPx = nil
         }
@@ -563,6 +597,15 @@ public struct LiveGreenDetailView: View {
             return nil
         }
         return fullPx
+    }
+
+    private func clampedImagePixel(_ row: [Double]) -> [Double] {
+        guard row.count >= 2,
+              let dimensions = imageDimensions else { return row }
+        return [
+            min(max(row[0], 0), dimensions.width),
+            min(max(row[1], 0), dimensions.height),
+        ]
     }
 
     private func coordinate(for pixel: [Double]) -> CLLocationCoordinate2D? {
@@ -636,7 +679,8 @@ public struct LiveGreenDetailView: View {
                        hypot(screen.x - value.startLocation.x, screen.y - value.startLocation.y) <= 44 {
                         draggingFlag = true
                         flagDragOutsideGreen = false
-                        lastValidFlagPixel = effectiveFlagPixel
+                        lastValidFlagPixel = effectiveFlagPixel.flatMap(constrainedFlagPixel) ?? effectiveFlagPixel
+                        flagDragLocation = value.startLocation
                     } else if scale <= 1.01 {
                         // At fit scale only the putting surface is an actionable flag target. A
                         // drag that begins on the fairway/header is deliberately inert instead of
@@ -666,6 +710,9 @@ public struct LiveGreenDetailView: View {
                 }
                 didDrag = true
                 if draggingFlag {
+                    // The loupe follows the raw finger even when it is outside the green. Only the
+                    // committed pole-foot is constrained to the nearest legal boundary point.
+                    flagDragLocation = value.location
                     if let pixel = pixel(
                         at: value.location,
                         size: size,
@@ -674,15 +721,10 @@ public struct LiveGreenDetailView: View {
                         offset: offset,
                         requireInsideGreen: false
                     ) {
-                        if validFlagPixel(pixel) {
-                            flagDragOutsideGreen = false
-                            lastValidFlagPixel = pixel
-                            flagDragLocation = value.location
-                            applyFlag(pixel: pixel, committed: false)
-                        } else {
-                            // Keep the last valid crop/flag visible while the finger crosses the
-                            // fairway. Re-entry resumes the same gesture without resetting zoom.
-                            flagDragOutsideGreen = true
+                        flagDragOutsideGreen = !validFlagPixel(pixel)
+                        if let constrained = constrainedFlagPixel(pixel) {
+                            lastValidFlagPixel = constrained
+                            applyFlag(pixel: constrained, committed: false)
                         }
                     } else {
                         flagDragOutsideGreen = true
@@ -694,7 +736,6 @@ public struct LiveGreenDetailView: View {
             }
             .onEnded { value in
                 let wasDraggingFlag = draggingFlag
-                let wasFlagDragOutsideGreen = flagDragOutsideGreen
                 let finalFlagPixel = lastValidFlagPixel
                 defer {
                     draggingFlag = false
@@ -708,7 +749,7 @@ public struct LiveGreenDetailView: View {
                     // Releasing outside the green commits the last valid in-green point. Releasing
                     // inside has already updated this same point on the final onChanged frame.
                     applyFlag(pixel: finalFlagPixel, committed: true)
-                } else if !wasFlagDragOutsideGreen {
+                } else {
                     offset = clamped(
                         CGSize(width: offset.width + value.translation.width, height: offset.height + value.translation.height),
                         in: size,
@@ -866,49 +907,14 @@ private struct LiveGreenMagnifierLoupe<Content: View>: View {
     }
 }
 
-private enum WatchGreenPolygon {
+enum WatchGreenPolygon {
     static func contains(_ point: [Double], outline: [[Double]]) -> Bool {
         guard point.count >= 2 else { return false }
         let polygon = outline.compactMap { row -> CGPoint? in
             guard row.count >= 2, row[0].isFinite, row[1].isFinite else { return nil }
             return CGPoint(x: row[0], y: row[1])
         }
-        guard polygon.count >= 3 else { return false }
-        let p = CGPoint(x: point[0], y: point[1])
-        // Treat a point on the factual outline as inside. Touch coordinates are rounded to image
-        // pixels, and rejecting the boundary makes a drag near the green edge snap back on release.
-        let edgeTolerance = 0.75
-        for index in polygon.indices {
-            let a = polygon[index]
-            let b = polygon[(index + 1) % polygon.count]
-            let dx = b.x - a.x
-            let dy = b.y - a.y
-            let lengthSquared = dx * dx + dy * dy
-            guard lengthSquared > 0 else { continue }
-            let cross = (p.x - a.x) * dy - (p.y - a.y) * dx
-            if abs(cross) <= edgeTolerance * sqrt(lengthSquared) {
-                let projection = (p.x - a.x) * dx + (p.y - a.y) * dy
-                if projection >= -edgeTolerance,
-                   projection <= lengthSquared + edgeTolerance {
-                    return true
-                }
-            }
-        }
-        var inside = false
-        var previous = polygon.count - 1
-        for current in polygon.indices {
-            let a = polygon[current]
-            let b = polygon[previous]
-            if (a.y > p.y) != (b.y > p.y) {
-                let denominator = b.y - a.y
-                if abs(denominator) > 0.000001 {
-                    let x = (b.x - a.x) * (p.y - a.y) / denominator + a.x
-                    if p.x < x { inside.toggle() }
-                }
-            }
-            previous = current
-        }
-        return inside
+        return LivePolygonGeometry.contains(CGPoint(x: point[0], y: point[1]), polygon: polygon)
     }
 }
 #endif

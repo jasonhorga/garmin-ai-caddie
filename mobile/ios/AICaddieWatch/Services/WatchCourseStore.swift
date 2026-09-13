@@ -255,6 +255,7 @@ public enum WatchCourseTemplateBuilder {
                 backGreenLon: green?.backLon,
                 holeImageProjection: projection,
                 globalId: globalId,
+                sourceLocalHole: localHole,
                 holeMap: holeMap,
                 playsLikeDistanceM: WatchUnits.playsLikeMetres(
                     distanceMetres: distanceM,

@@ -1280,6 +1280,117 @@ enum LiveHazardFocusRingLayout {
     }
 }
 
+/// Small, deterministic polygon primitives shared by the phone's green editor and hazard detail
+/// surface. Course geometry is delivered in image pixels, so all calculations stay in that frame
+/// until the final viewport transform. In particular, a drag outside a curved boundary can still
+/// resolve to the nearest legal point instead of freezing the marker at the last sample.
+enum LivePolygonGeometry {
+    static func normalized(_ points: [CGPoint]) -> [CGPoint] {
+        let finite = points.filter { $0.x.isFinite && $0.y.isFinite }
+        guard finite.count > 1 else { return finite }
+        var result: [CGPoint] = []
+        result.reserveCapacity(finite.count)
+        for point in finite {
+            if let last = result.last,
+               hypot(last.x - point.x, last.y - point.y) <= 0.0001 {
+                continue
+            }
+            result.append(point)
+        }
+        if result.count > 1,
+           let first = result.first,
+           let last = result.last,
+           hypot(first.x - last.x, first.y - last.y) <= 0.0001 {
+            result.removeLast()
+        }
+        return result
+    }
+
+    static func contains(_ point: CGPoint, polygon: [CGPoint]) -> Bool {
+        let polygon = normalized(polygon)
+        guard polygon.count >= 3,
+              point.x.isFinite,
+              point.y.isFinite else { return false }
+
+        // Include the sampled boundary. Touch coordinates are rounded to image pixels, and
+        // rejecting an edge point makes a legal drag snap back one frame before release.
+        let edgeTolerance: CGFloat = 0.75
+        for index in polygon.indices {
+            let a = polygon[index]
+            let b = polygon[(index + 1) % polygon.count]
+            let dx = b.x - a.x
+            let dy = b.y - a.y
+            let lengthSquared = dx * dx + dy * dy
+            guard lengthSquared > 0 else { continue }
+            let cross = (point.x - a.x) * dy - (point.y - a.y) * dx
+            if abs(cross) <= edgeTolerance * sqrt(lengthSquared) {
+                let projection = (point.x - a.x) * dx + (point.y - a.y) * dy
+                if projection >= -edgeTolerance,
+                   projection <= lengthSquared + edgeTolerance {
+                    return true
+                }
+            }
+        }
+
+        var inside = false
+        var previous = polygon.count - 1
+        for current in polygon.indices {
+            let a = polygon[current]
+            let b = polygon[previous]
+            if (a.y > point.y) != (b.y > point.y) {
+                let denominator = b.y - a.y
+                if abs(denominator) > 0.000001 {
+                    let x = (b.x - a.x) * (point.y - a.y) / denominator + a.x
+                    if point.x < x { inside.toggle() }
+                }
+            }
+            previous = current
+        }
+        return inside
+    }
+
+    /// Return the nearest point on the polygon boundary, or the original point when it is already
+    /// inside. The segment projection (rather than a bounding-box clamp) is what lets a finger move
+    /// vertically outside a rounded/right-hand edge while the flag follows that edge.
+    static func nearestPoint(_ point: CGPoint, on rawPolygon: [CGPoint]) -> CGPoint? {
+        let polygon = normalized(rawPolygon)
+        guard polygon.count >= 3,
+              point.x.isFinite,
+              point.y.isFinite else { return nil }
+        if contains(point, polygon: polygon) { return point }
+
+        var best: CGPoint?
+        var bestDistance = CGFloat.greatestFiniteMagnitude
+        for index in polygon.indices {
+            let a = polygon[index]
+            let b = polygon[(index + 1) % polygon.count]
+            let dx = b.x - a.x
+            let dy = b.y - a.y
+            let lengthSquared = dx * dx + dy * dy
+            guard lengthSquared > 0 else { continue }
+            let rawFraction = ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared
+            let fraction = min(max(rawFraction, 0), 1)
+            let candidate = CGPoint(x: a.x + dx * fraction, y: a.y + dy * fraction)
+            let distance = (candidate.x - point.x) * (candidate.x - point.x)
+                + (candidate.y - point.y) * (candidate.y - point.y)
+            if distance < bestDistance {
+                bestDistance = distance
+                best = candidate
+            }
+        }
+        return best
+    }
+
+    static func centroid(of rawPolygon: [CGPoint]) -> CGPoint? {
+        let polygon = normalized(rawPolygon)
+        guard !polygon.isEmpty else { return nil }
+        let sum = polygon.reduce(CGPoint.zero) { partial, point in
+            CGPoint(x: partial.x + point.x, y: partial.y + point.y)
+        }
+        return CGPoint(x: sum.x / CGFloat(polygon.count), y: sum.y / CGFloat(polygon.count))
+    }
+}
+
 enum LivePlayMapOverlayLayout {
     /// The map begins below the fixed live header. Applying the same inset to the bitmap and every
     /// projected marker keeps a shallow/partial hole's green reticle from crossing the title while

@@ -9,6 +9,7 @@ import json
 import logging
 import math
 from pathlib import Path
+import threading
 import time
 from typing import Any, Callable
 
@@ -57,6 +58,17 @@ _GEOMETRY_INSTALL_POOL = ThreadPoolExecutor(
     thread_name_prefix="course-geometry-install",
 )
 logger = logging.getLogger(__name__)
+_EVENT_CURSOR_CACHE_LOCK = threading.Lock()
+_EVENT_CURSOR_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+_EVENT_CURSOR_CACHE_LIMIT = 256
+
+
+def _file_stat_signature(path: Path) -> tuple[int, int, int]:
+    try:
+        stat = path.stat()
+    except (FileNotFoundError, OSError):
+        return (0, 0, 0)
+    return (int(stat.st_mtime_ns), int(stat.st_size), int(stat.st_ino))
 
 
 def _format_time(value: datetime) -> str:
@@ -92,12 +104,28 @@ def _event_cursor(
     # sequence/pending-count, never the owner's (different path).
     clean_client_id = _clean_client_id(client_id)
     path = mobile_event_log(root, player_id=player_id)
+    ack_path = path.with_name("client_acks.json")
+    cache_key = (
+        str(path),
+        str(round_id),
+        clean_client_id,
+        _file_stat_signature(path),
+        _file_stat_signature(ack_path),
+    )
+    with _EVENT_CURSOR_CACHE_LOCK:
+        cached = _EVENT_CURSOR_CACHE.get(cache_key)
+        if cached is not None:
+            return dict(cached)
     latest_sequence, pending_count, last_acked = open_mobile_event_store(path.parent).read_round_cursor(
         str(round_id),
         clean_client_id,
     )
     cursor: dict[str, Any] = {"serverSequence": latest_sequence, "pendingEventCount": 0}
     if not clean_client_id:
+        with _EVENT_CURSOR_CACHE_LOCK:
+            _EVENT_CURSOR_CACHE[cache_key] = dict(cursor)
+            if len(_EVENT_CURSOR_CACHE) > _EVENT_CURSOR_CACHE_LIMIT:
+                _EVENT_CURSOR_CACHE.pop(next(iter(_EVENT_CURSOR_CACHE)))
         return cursor
     cursor.update(
         {
@@ -107,6 +135,10 @@ def _event_cursor(
             "replayEndpoint": f"/api/v2/mobile/rounds/{round_id}/events/replay",
         }
     )
+    with _EVENT_CURSOR_CACHE_LOCK:
+        _EVENT_CURSOR_CACHE[cache_key] = dict(cursor)
+        if len(_EVENT_CURSOR_CACHE) > _EVENT_CURSOR_CACHE_LIMIT:
+            _EVENT_CURSOR_CACHE.pop(next(iter(_EVENT_CURSOR_CACHE)))
     return cursor
 
 
@@ -962,6 +994,36 @@ def _course_prep_package(global_id: int, holes: list[dict[str, Any]], *, player_
     }
 
 
+def _package_club_ladder(package: dict[str, Any]) -> list[tuple[str, int]] | None:
+    """Build the small ladder needed by CourseView prep from an already-built package.
+
+    ``lightweight_prep_hole`` historically called ``effective_club_ladder`` again. On a real
+    history that rescans every shot file even though ``build_live_round_package`` has just computed
+    the same medians in ``clubProfiles``. Reusing only positive, named medians removes that scan;
+    callers fall back to the authoritative loader when the package has no usable profiles (notably
+    old/fixture payloads and member bags).
+    """
+    rows = package.get("clubProfiles")
+    if not isinstance(rows, list):
+        return None
+    ladder: list[tuple[str, int]] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("clubName") or row.get("club") or "").strip()
+        median = _safe_float(row.get("median_m") if row.get("median_m") is not None else row.get("median"))
+        if not name or median is None or median <= 0:
+            continue
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        ladder.append((name, int(round(median))))
+    ladder.sort(key=lambda pair: -pair[1])
+    return ladder or None
+
+
 def first_hole_lightweight_course_prep(
     package: dict[str, Any],
     *,
@@ -985,10 +1047,17 @@ def first_hole_lightweight_course_prep(
     if not round_hole or not source_global_id or not source_local_hole:
         return None
     try:
+        # The package already contains the player's filtered club medians. Reuse them when
+        # available; omitting the optional argument preserves the authoritative fallback and keeps
+        # old/fixture callers byte-for-byte compatible.
+        ladder = _package_club_ladder(package)
+        prep_kwargs: dict[str, Any] = {"player_id": player_id}
+        if ladder:
+            prep_kwargs["ladder"] = ladder
         prep = course_prep.lightweight_prep_hole(
             source_global_id,
             source_local_hole,
-            player_id=player_id,
+            **prep_kwargs,
         )
     except Exception:
         return None
@@ -1348,6 +1417,7 @@ def _shot_option_clubs(
         _club_water_safety,
         _whole_hole_sequence_key,
     )
+    decision_memo: dict[Any, Any] = {}
 
     def key(profile: dict[str, Any]) -> str:
         from ai_caddie.caddie.club_bag import canonical_club_name
@@ -1377,7 +1447,13 @@ def _shot_option_clubs(
         ranked = sorted(
             ranked_rows,
             key=lambda profile: (
-                _whole_hole_sequence_key(profile, ranked_rows, target_m, avoid_zones),
+                _whole_hole_sequence_key(
+                    profile,
+                    ranked_rows,
+                    target_m,
+                    avoid_zones,
+                    memo=decision_memo,
+                ),
                 key(profile),
             ),
         )
@@ -1410,7 +1486,11 @@ def _shot_option_clubs(
             rows,
             key=lambda profile: (
                 abs(float(profile.get("median_m") or 0) - target)
-                + _club_stability_cost(profile, scoring_shot=True)
+                + _club_stability_cost(
+                    profile,
+                    scoring_shot=True,
+                    memo=decision_memo,
+                )
                 + _club_hazard_cost(profile, avoid_zones),
                 -int(profile.get("sampleSize") or 0),
                 key(profile),
@@ -1508,11 +1588,12 @@ def _tee_candidate_routes(
     par: int = 4,
     target_m: float = 0.0,
     avoid_zones: list[dict[str, Any]] | None = None,
+    shot_option_clubs: tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None] | None = None,
 ) -> list[dict[str, Any]]:
     rows = _caddie_clean_rows(club_profiles)
     if not rows:
         return []
-    safe_p, stock_p, attack_p = _shot_option_clubs(
+    safe_p, stock_p, attack_p = shot_option_clubs or _shot_option_clubs(
         rows,
         par=par,
         target_m=target_m,
@@ -1559,6 +1640,7 @@ def _tee_candidate_routes(
     seen: set[str] = set()
     routes: list[dict[str, Any]] = []
     from ai_caddie.caddie.decision import _club_hazard_cost, _club_stability_cost
+    stability_memo: dict[tuple[int, bool], float] = {}
 
     for route_id, label, profile, carry, near_risks, line_risks, surface in specs:
         if profile is None or carry <= 0:
@@ -1579,7 +1661,11 @@ def _tee_candidate_routes(
                 "lineRisks": line_risks,
                 "riskScore": round(
                     (
-                        _club_stability_cost(profile, scoring_shot=par == 3)
+                        _club_stability_cost(
+                            profile,
+                            scoring_shot=par == 3,
+                            memo=stability_memo,
+                        )
                         + _club_hazard_cost(profile, avoid_zones)
                     ) / 8.0,
                     1,
@@ -1599,13 +1685,14 @@ def _offline_caddie_options(
     par: int = 4,
     target_m: float = 0.0,
     avoid_zones: list[dict[str, Any]] | None = None,
+    shot_option_clubs: tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None] | None = None,
 ) -> list[dict[str, Any]]:
     rows = _caddie_clean_rows(club_profiles)
     if not rows:
         return []
     # Rank every physical club from its own history and the mapped shot window. The internal option
     # ids preserve transport compatibility; they are not fixed player-facing strategy categories.
-    safe_p, stock_p, attack_p = _shot_option_clubs(
+    safe_p, stock_p, attack_p = shot_option_clubs or _shot_option_clubs(
         rows,
         par=par,
         target_m=target_m,
@@ -1615,6 +1702,7 @@ def _offline_caddie_options(
     options: list[dict[str, Any]] = []
     from ai_caddie.caddie.club_bag import canonical_club_name
     from ai_caddie.caddie.decision import _club_hazard_cost, _club_stability_cost
+    stability_memo: dict[tuple[int, bool], float] = {}
 
     seen_clubs: set[str] = set()
     for option_id, label, profile in option_specs:
@@ -1633,7 +1721,11 @@ def _offline_caddie_options(
         carry = median
         near_risks, line_risks = _option_risks(avoid_zones, profile)
         risk_score = (
-            _club_stability_cost(profile, scoring_shot=par == 3)
+            _club_stability_cost(
+                profile,
+                scoring_shot=par == 3,
+                memo=stability_memo,
+            )
             + _club_hazard_cost(profile, avoid_zones)
         ) / 8.0
         sample_size = int(profile.get("sampleSize") or 0)
@@ -2065,6 +2157,12 @@ def _caddie_context_seeds(
             round(float(hole_yards) / 1.09361, 1) if hole_yards else 0.0
         )
         avoid_zones = (route_evidence or {}).get("avoidZones") or []
+        shot_option_clubs = _shot_option_clubs(
+            club_profiles,
+            par=par_value,
+            target_m=target_distance_m,
+            avoid_zones=avoid_zones,
+        )
         manual_notes = _manual_notes_for_seed(
             annotations_root=annotations_root,
             round_id=round_id,
@@ -2095,7 +2193,10 @@ def _caddie_context_seeds(
             "playerProfile": player_profile or {},
             "candidateRoutes": _tee_candidate_routes(
                 hole, club_profiles, geometry.get("hazards") or [],
-                par=par_value, target_m=target_distance_m, avoid_zones=avoid_zones,
+                par=par_value,
+                target_m=target_distance_m,
+                avoid_zones=avoid_zones,
+                shot_option_clubs=shot_option_clubs,
             ),
             "historicalHole": {
                 "courseKey": hole_stats.get("courseKey") or course_key,
@@ -2125,6 +2226,7 @@ def _caddie_context_seeds(
             par=par_value,
             target_m=target_distance_m,
             avoid_zones=avoid_zones,
+            shot_option_clubs=shot_option_clubs,
         )
         evidence_rows = [
             {"label": "live_round_package", "value": "offline_seed"},

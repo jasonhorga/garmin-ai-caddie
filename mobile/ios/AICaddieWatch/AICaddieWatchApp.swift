@@ -255,6 +255,7 @@ public struct AICaddieWatchApp: App {
                     config: key.config,
                     backGlobalId: key.backGlobalId,
                     teeBox: key.teeBox,
+                    priorityHole: roundModel.activeHole,
                     onProgress: { states in
                         guard roundModel.round?.roundId == key.roundId else { return }
                         roundModel.applyCourseMapUpgrade(states)
@@ -264,6 +265,14 @@ public struct AICaddieWatchApp: App {
                 return
             }
             roundModel.applyCourseMapUpgrade(upgraded.holeStates)
+        }
+        .task(id: activeGreenDetailKey) {
+            guard roundModel.screen == .viewGreen,
+                  let state = roundModel.activeHoleState else { return }
+            await courseLibrary.loadGreenDetailIfNeeded(
+                for: state,
+                config: syncClient.config
+            )
         }
     }
 
@@ -300,6 +309,13 @@ public struct AICaddieWatchApp: App {
             teeBox: round.teeBox,
             config: config
         )
+    }
+
+    private var activeGreenDetailKey: String? {
+        guard roundModel.screen == .viewGreen,
+              let state = roundModel.activeHoleState,
+              let globalId = state.globalId else { return nil }
+        return "\(roundModel.round?.roundId ?? "-"):\(globalId):\(state.hole):\(state.geometryRevision ?? "-")"
     }
 
     private func reconcileAutoShot() {

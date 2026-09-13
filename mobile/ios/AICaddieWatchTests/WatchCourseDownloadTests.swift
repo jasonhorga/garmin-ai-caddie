@@ -3,6 +3,9 @@ import XCTest
 
 @MainActor
 final class WatchCourseDownloadTests: XCTestCase {
+    func testCourseAssetConcurrencyIsBoundedForWatchRadio() {
+        XCTAssertEqual(WatchCourseLibrary.courseAssetConcurrency, 2)
+    }
     @MainActor
     func testNearbyWithoutConfigReportsAuthenticationBoundary() async {
         let directory = FileManager.default.temporaryDirectory
@@ -171,6 +174,17 @@ final class WatchCourseDownloadTests: XCTestCase {
         let seeded = WatchCourseTemplateBuilder.seededPreps(from: package)
         XCTAssertEqual(seeded[7001]?.holes.map(\.hole), [1])
         XCTAssertEqual(seeded[7002]?.holes.map(\.hole), [1])
+
+        let front = WatchCourseOption(globalId: 7001, name: "Composite", holes: 9, teeBox: "Blue")
+        let back = WatchCourseOption(globalId: 7002, name: "Composite B", holes: 9, teeBox: "Blue")
+        let download = try WatchCourseTemplateBuilder.build(
+            option: front,
+            backOption: back,
+            package: package,
+            prepsByGlobalId: seeded,
+            cachedAt: "2026-08-31T00:00:00Z"
+        )
+        XCTAssertEqual(download.template.holeStates.first(where: { $0.hole == 10 })?.sourceLocalHole, 1)
     }
 
     private func validTopoData() throws -> Data {

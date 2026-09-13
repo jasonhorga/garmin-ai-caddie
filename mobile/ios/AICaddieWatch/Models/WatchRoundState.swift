@@ -416,6 +416,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     // watch P1b: course global id (keys the cached /topo.png in WatchHoleImageStore) + the pre-computed
     // hole-map overlay anchors. Both optional — older payloads (no map) fall back to the text home view.
     public let globalId: Int?
+    /// Composite rounds display holes 10...18 while their source request uses local holes 1...9.
+    /// Retaining that source key lets on-demand focused assets use the correct backend endpoint.
+    public let sourceLocalHole: Int?
     public let holeMap: WatchHoleMap?
     // round-13 spec ②⑤: AI-caddie play options (激进/推荐/保守) + measured hazard facts, pushed from
     // the phone. Additive/optional — default [] so older payloads decode unchanged.
@@ -463,6 +466,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case backGreenLon
         case holeImageProjection
         case globalId
+        case sourceLocalHole
         case holeMap
         case playsLikeDistanceM
         case elevationDeltaM
@@ -516,6 +520,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         backGreenLon: Double? = nil,
         holeImageProjection: WatchHoleImageProjection? = nil,
         globalId: Int? = nil,
+        sourceLocalHole: Int? = nil,
         holeMap: WatchHoleMap? = nil,
         playsLikeDistanceM: Double? = nil,
         elevationDeltaM: Double? = nil,
@@ -567,6 +572,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.backGreenLon = backGreenLon
         self.holeImageProjection = holeImageProjection
         self.globalId = globalId
+        self.sourceLocalHole = sourceLocalHole
         self.holeMap = holeMap
         self.playsLikeDistanceM = playsLikeDistanceM
         self.elevationDeltaM = elevationDeltaM
@@ -619,6 +625,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.backGreenLon = try container.decodeIfPresent(Double.self, forKey: .backGreenLon)
         self.holeImageProjection = try container.decodeIfPresent(WatchHoleImageProjection.self, forKey: .holeImageProjection)
         self.globalId = try container.decodeIfPresent(Int.self, forKey: .globalId)
+        self.sourceLocalHole = try container.decodeIfPresent(Int.self, forKey: .sourceLocalHole)
         self.holeMap = try container.decodeIfPresent(WatchHoleMap.self, forKey: .holeMap)
         self.centerGreenM = try container.decodeIfPresent(Double.self, forKey: .centerGreenM)
         self.backGreenM = try container.decodeIfPresent(Double.self, forKey: .backGreenM)
@@ -678,6 +685,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             backGreenLon: backGreenLon,
             holeImageProjection: holeImageProjection,
             globalId: globalId,
+            sourceLocalHole: sourceLocalHole,
             holeMap: holeMap,
             playsLikeDistanceM: playsLikeDistanceM,
             elevationDeltaM: elevationDeltaM,
@@ -742,6 +750,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             backGreenLon: replacesGeometryAuthority ? upgraded.backGreenLon : (upgraded.backGreenLon ?? backGreenLon),
             holeImageProjection: replacesGeometryAuthority ? upgraded.holeImageProjection : (upgraded.holeImageProjection ?? holeImageProjection),
             globalId: upgraded.globalId ?? globalId,
+            sourceLocalHole: upgraded.sourceLocalHole ?? sourceLocalHole,
             holeMap: replacesGeometryAuthority ? upgraded.holeMap : (upgraded.holeMap ?? holeMap),
             playsLikeDistanceM: replacesGeometryAuthority ? upgraded.playsLikeDistanceM : (upgraded.playsLikeDistanceM ?? playsLikeDistanceM),
             elevationDeltaM: replacesGeometryAuthority ? upgraded.elevationDeltaM : (upgraded.elevationDeltaM ?? elevationDeltaM),
@@ -827,6 +836,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             backGreenLon: backGreenLon,
             holeImageProjection: holeImageProjection,
             globalId: globalId,
+            sourceLocalHole: sourceLocalHole,
             holeMap: holeMap,
             playsLikeDistanceM: playsLikeDistanceM,
             elevationDeltaM: elevationDeltaM,

@@ -17,6 +17,7 @@ underlying build with ``unittest.mock`` so we can assert a subsequent request is
 from __future__ import annotations
 
 import os
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -105,6 +106,24 @@ class CacheWarmupTests(unittest.TestCase):
             thread.join(timeout=30)
             self.assertFalse(thread.is_alive(), "warm thread should finish")
             self.assertGreaterEqual(build_spy.call_count, 1)
+
+    def test_background_warm_singleflights_per_player(self) -> None:
+        entered = threading.Event()
+        release = threading.Event()
+
+        def blocking_warm(*, player_id: str = "me") -> None:
+            entered.set()
+            self.assertTrue(release.wait(timeout=2))
+
+        with patch("server_v2.history_stats.warm_stats_cache", side_effect=blocking_warm):
+            first = warm_stats_cache_in_background(player_id="p-singleflight")
+            self.assertTrue(entered.wait(timeout=1))
+            second = warm_stats_cache_in_background(player_id="p-singleflight")
+            self.assertIs(first, second)
+            release.set()
+            first.join(timeout=2)
+
+        self.assertFalse(first.is_alive())
 
 
 class AppStartupTests(unittest.TestCase):

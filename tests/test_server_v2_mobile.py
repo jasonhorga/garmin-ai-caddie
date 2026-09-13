@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+import threading
 import unittest
 from unittest.mock import call, patch
 
@@ -711,6 +712,120 @@ class ServerV2MobileTests(unittest.TestCase):
             },
         )
         self.assertEqual(scan_count, 1)
+
+    def test_event_cursor_cache_invalidates_after_append_and_ack(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
+
+        round_id = "cursor-cache-invalidation"
+        client_id = "watch-cache"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = open_mobile_event_store((root / mobile_live.EVENT_LOG).parent)
+            first = {
+                "schema": "ai-caddie-live-round-event-v1",
+                "roundId": round_id,
+                "clientId": client_id,
+                "eventId": "score-1",
+                "timestamp": "2026-07-29T00:00:00Z",
+                "hole": 1,
+                "kind": "score",
+                "payload": {"strokes": 4},
+            }
+            store.append_batch(round_id, [first], request_key="cursor-cache-1")
+            before_ack = mobile_live._event_cursor(round_id, root=root, client_id=client_id)
+            self.assertEqual(before_ack["pendingEventCount"], 1)
+
+            store.ack(round_id, client_id, 1)
+            after_ack = mobile_live._event_cursor(round_id, root=root, client_id=client_id)
+            self.assertEqual(after_ack["pendingEventCount"], 0)
+            self.assertEqual(after_ack["lastAckedServerSequence"], 1)
+
+            second = dict(first, eventId="score-2", payload={"strokes": 5})
+            store.append_batch(round_id, [second], request_key="cursor-cache-2")
+            after_append = mobile_live._event_cursor(round_id, root=root, client_id=client_id)
+            self.assertEqual(after_append["serverSequence"], 2)
+            self.assertEqual(after_append["pendingEventCount"], 1)
+
+    def test_concurrent_course_packages_share_build_but_rebind_client_cursors(self) -> None:
+        from server_v2 import mobile as mobile_service
+
+        package = {
+            "schema": "ai-caddie-live-round-package-v1",
+            "roundId": "singleflight-round",
+            "dataMode": "fixture",
+            "sourceCoverage": {},
+            "missingData": [],
+            "playerProfile": {},
+            "course": {"globalId": 1, "name": "Test", "teeBox": "blue"},
+            "holes": [],
+            "coursePrep": None,
+            "geometryCoverage": {},
+            "readinessChecks": [],
+            "nine": "all",
+            "caddieContextSeeds": [],
+            "weatherSnapshot": {},
+            "clubProfiles": [],
+            "caddieDecisionEndpoint": "/api/v2/caddie/decision",
+            "offlinePackageStatus": {},
+            "readinessState": "blocked",
+            "eventCursor": {"serverSequence": 0, "pendingEventCount": 0},
+            "recentHistory": {},
+            "cachedCaddieRules": {},
+            "generatedAt": "2026-01-01T00:00:00Z",
+        }
+        entered = threading.Event()
+        release = threading.Event()
+        calls = {"n": 0}
+        results: list[object] = []
+
+        def build_once(*_args, **_kwargs):
+            calls["n"] += 1
+            entered.set()
+            self.assertTrue(release.wait(timeout=2))
+            return package
+
+        def invoke(client_id: str) -> None:
+            results.append(
+                mobile_service.build_mobile_course_package_response(
+                    1,
+                    round_id="singleflight-round",
+                    client_id=client_id,
+                    captured_at="2026-01-01T00:00:00Z",
+                )
+            )
+
+        data = SimpleNamespace(rounds=[], shots=[])
+        with (
+            patch.object(mobile_service, "load_history_data_for_mode", return_value=(data, "fixture")),
+            patch.object(mobile_service, "_refresh_course_release_authority"),
+            patch.object(mobile_service, "build_live_round_package_for_course", side_effect=build_once),
+            patch.object(mobile_service, "first_hole_lightweight_course_prep", return_value=None),
+            patch.object(
+                mobile_service,
+                "_event_cursor",
+                side_effect=lambda _round, **kwargs: {
+                    "serverSequence": 0,
+                    "pendingEventCount": 0,
+                    "clientId": kwargs["client_id"],
+                },
+            ),
+        ):
+            first = threading.Thread(target=invoke, args=("ios-phone",))
+            second = threading.Thread(target=invoke, args=("apple-watch",))
+            first.start()
+            self.assertTrue(entered.wait(timeout=1))
+            second.start()
+            release.set()
+            first.join(timeout=2)
+            second.join(timeout=2)
+
+        self.assertFalse(first.is_alive() or second.is_alive())
+        self.assertEqual(calls["n"], 1)
+        self.assertEqual(
+            sorted(row.eventCursor["clientId"] for row in results),
+            ["apple-watch", "ios-phone"],
+        )
 
     def test_event_cursor_does_not_sanitize_unrelated_event_payloads(self) -> None:
         from ai_caddie.caddie import mobile_live

@@ -971,8 +971,19 @@ def _club_performance_metrics(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _club_stability_cost(row: dict[str, Any], *, scoring_shot: bool) -> float:
+def _club_stability_cost(
+    row: dict[str, Any],
+    *,
+    scoring_shot: bool,
+    memo: dict[tuple[int, bool], float] | None = None,
+) -> float:
     """Convert one club's own distribution and outcomes into a comparable planning cost."""
+    # The memo is deliberately scoped to one planning build. Object identity avoids repeating the
+    # relatively expensive canonical-club normalization for every candidate chain while remaining
+    # safe when two distinct rows happen to share a display name.
+    memo_key = (id(row), bool(scoring_shot))
+    if memo is not None and memo_key in memo:
+        return memo[memo_key]
     weight = FINAL_SHOT_STABILITY_WEIGHT if scoring_shot else POSITION_SHOT_STABILITY_WEIGHT
     metrics = _club_performance_metrics(row)
     risk_rate = _float(metrics.get("riskRatePct")) / 100.0
@@ -985,7 +996,7 @@ def _club_stability_cost(row: dict[str, Any], *, scoring_shot: bool) -> float:
     sample_quality_gap = 1.0 - _float(metrics.get("sampleQualityPct")) / 100.0
     evidence_gap = 1.0 - _float(metrics.get("evidenceStrength"))
     uncertainty_cost = evidence_gap * (8.0 if scoring_shot else 3.0)
-    return (
+    value = (
         _float(metrics.get("longitudinalSpread_m")) * weight
         + risk_rate * CLUB_RISK_COST_WEIGHT_M
         + unusable_rate * CLUB_UNUSABLE_COST_WEIGHT_M
@@ -994,6 +1005,9 @@ def _club_stability_cost(row: dict[str, Any], *, scoring_shot: bool) -> float:
         + sample_quality_gap * CLUB_SAMPLE_QUALITY_COST_WEIGHT_M
         + uncertainty_cost
     )
+    if memo is not None:
+        memo[memo_key] = value
+    return value
 
 
 def _club_distribution_bounds(row: dict[str, Any]) -> tuple[float, float, float]:
@@ -1116,11 +1130,20 @@ def _club_hazard_cost(row: dict[str, Any], avoid_zones: list[dict[str, Any]] | N
     return cost
 
 
-def _planned_chain_cost(rows: list[dict[str, Any]], leave_m: float) -> float:
+def _planned_chain_cost(
+    rows: list[dict[str, Any]],
+    leave_m: float,
+    *,
+    memo: dict[tuple[int, bool], float] | None = None,
+) -> float:
     if not rows:
         return abs(leave_m)
     stability = sum(
-        _club_stability_cost(row, scoring_shot=index == len(rows) - 1)
+        _club_stability_cost(
+            row,
+            scoring_shot=index == len(rows) - 1,
+            memo=memo,
+        )
         for index, row in enumerate(rows)
     )
     return abs(leave_m) + stability
@@ -1131,10 +1154,19 @@ def _sequence_tail(
     remaining_m: float,
     *,
     exclude_club_keys: set[str] | None = None,
+    memo: dict[Any, Any] | None = None,
 ) -> list[dict[str, Any]]:
     if remaining_m <= 20.0:
         return []
     excluded = exclude_club_keys or set()
+    tail_key = (
+        "sequence_tail",
+        tuple(id(row) for row in rows),
+        round(float(remaining_m), 1),
+        tuple(sorted(excluded)),
+    )
+    if memo is not None and tail_key in memo:
+        return memo[tail_key]
     playable = [
         row
         for row in rows
@@ -1142,30 +1174,55 @@ def _sequence_tail(
     ]
     if not playable:
         return []
+    # combinations_with_replacement yields index tuples in ascending order. Arrange the playable
+    # rows by the same stable descending-carry order used by the old per-candidate ``sorted`` call;
+    # this lets every candidate reuse that order without allocating and sorting a new list.
+    playable = sorted(playable, key=lambda row: -_float(row.get("median_m")))
+    carry_by_index = [_float(row.get("median_m")) for row in playable]
+    sample_by_index = [_effective_club_sample_size(row) for row in playable]
+    position_cost_by_index = [
+        _club_stability_cost(row, scoring_shot=False, memo=memo)
+        for row in playable
+    ]
+    scoring_cost_by_index = [
+        _club_stability_cost(row, scoring_shot=True, memo=memo)
+        for row in playable
+    ]
+    names_by_index = [str(row.get("clubName") or "") for row in playable]
     longest_m = max(_float(row.get("median_m")) for row in playable)
     minimum_steps = max(1, math.ceil(max(0.0, remaining_m - MAX_SEQUENCE_OVERSHOOT_M) / longest_m))
     maximum_steps = min(MAX_SEQUENCE_STEPS - 1, minimum_steps + 1)
     best: tuple[tuple[float, ...], list[dict[str, Any]]] | None = None
     for step_count in range(minimum_steps, maximum_steps + 1):
         for indexes in combinations_with_replacement(range(len(playable)), step_count):
-            candidate = sorted((playable[index] for index in indexes), key=lambda row: -_float(row.get("median_m")))
-            leave_m = round(remaining_m - sum(_float(row.get("median_m")) for row in candidate), 1)
+            candidate = [playable[index] for index in indexes]
+            carry_total = sum(carry_by_index[index] for index in indexes)
+            leave_m = round(remaining_m - carry_total, 1)
             overshoot_m = max(0.0, -leave_m)
             excessive_overshoot = 1.0 if overshoot_m > MAX_SEQUENCE_OVERSHOOT_M else 0.0
             unresolved_leave = 1.0 if leave_m > 20.0 else 0.0
             extra_step_cost = (step_count - minimum_steps) * EXTRA_SEQUENCE_STEP_COST_M
-            sample_strength = sum(_effective_club_sample_size(row) for row in candidate)
+            sample_strength = sum(sample_by_index[index] for index in indexes)
+            last_index = indexes[-1]
+            chain_cost = (
+                abs(leave_m)
+                + sum(position_cost_by_index[index] for index in indexes[:-1])
+                + scoring_cost_by_index[last_index]
+            )
             key = (
                 excessive_overshoot,
                 unresolved_leave,
-                _planned_chain_cost(candidate, leave_m) + extra_step_cost,
+                chain_cost + extra_step_cost,
                 overshoot_m,
                 -float(sample_strength),
-                *tuple(str(row.get("clubName") or "") for row in candidate),
+                *tuple(names_by_index[index] for index in indexes),
             )
             if best is None or key < best[0]:
                 best = (key, candidate)
-    return best[1] if best else []
+    result = best[1] if best else []
+    if memo is not None:
+        memo[tail_key] = result
+    return result
 
 
 def _whole_hole_sequence_key(
@@ -1173,6 +1230,8 @@ def _whole_hole_sequence_key(
     rows: list[dict[str, Any]],
     distance_m: float,
     avoid_zones: list[dict[str, Any]] | None = None,
+    *,
+    memo: dict[Any, Any] | None = None,
 ) -> tuple[float, ...]:
     """Rank a first club by its complete measured-carry chain to the green.
 
@@ -1184,7 +1243,7 @@ def _whole_hole_sequence_key(
     first_carry_m = _float(first.get("median_m"))
     if not math.isfinite(distance_m) or distance_m <= 0:
         score = (
-            _club_stability_cost(first, scoring_shot=False)
+            _club_stability_cost(first, scoring_shot=False, memo=memo)
             + _club_hazard_cost(first, avoid_zones)
             + EXTRA_SEQUENCE_STEP_COST_M
             - first_carry_m * TEE_ADVANCEMENT_WEIGHT
@@ -1197,13 +1256,14 @@ def _whole_hole_sequence_key(
         rows,
         distance_m - first_carry_m,
         exclude_club_keys={_club_identity(first)},
+        memo=memo,
     )
     planned = [first, *tail]
     leave_m = round(distance_m - sum(_float(row.get("median_m")) for row in planned), 1)
     overshoot_m = max(0.0, -leave_m)
     unresolved = 1.0 if leave_m > 20.0 or overshoot_m > MAX_SEQUENCE_OVERSHOOT_M else 0.0
     score = (
-        _planned_chain_cost(planned, leave_m)
+        _planned_chain_cost(planned, leave_m, memo=memo)
         + _club_hazard_cost(first, avoid_zones)
         + len(planned) * EXTRA_SEQUENCE_STEP_COST_M
         - min(first_carry_m, distance_m) * TEE_ADVANCEMENT_WEIGHT
@@ -1254,7 +1314,13 @@ def _dedupe_sequences(sequences: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [sequence for _, sequence in sorted(kept, key=lambda pair: pair[0])]
 
 
-def _sequence_option(*, option: dict[str, Any], distance_m: float, club_rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _sequence_option(
+    *,
+    option: dict[str, Any],
+    distance_m: float,
+    club_rows: list[dict[str, Any]],
+    memo: dict[Any, Any] | None = None,
+) -> dict[str, Any] | None:
     first = _sequence_first_club(option, club_rows)
     if first is None:
         return None
@@ -1264,6 +1330,7 @@ def _sequence_option(*, option: dict[str, Any], distance_m: float, club_rows: li
             club_rows,
             distance_m - _float(first.get("median_m")),
             exclude_club_keys={_club_identity(first)},
+            memo=memo,
         ),
     ]
     remaining = distance_m
@@ -1295,10 +1362,18 @@ def _club_sequences(context: dict[str, Any], options: list[dict[str, Any]]) -> l
     rows = _club_profile_rows(context.get("clubProfiles") or {})
     if len(rows) < 2 or not options:
         return []
+    memo: dict[Any, Any] = {}
     sequences = [
         sequence
         for option in options
-        if (sequence := _sequence_option(option=option, distance_m=distance_m, club_rows=rows))
+        if (
+            sequence := _sequence_option(
+                option=option,
+                distance_m=distance_m,
+                club_rows=rows,
+                memo=memo,
+            )
+        )
     ]
     return _dedupe_sequences(sequences)
 

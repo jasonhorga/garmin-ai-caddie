@@ -17,6 +17,11 @@ REPORTS_ROOT = Path(".")
 DECISION_AUDIT_ROOT = Path(".")
 
 logger = logging.getLogger(__name__)
+_WARM_LOCK = threading.Lock()
+# Warming is player-scoped. A member sync must not attach to an owner's in-flight warm and then
+# leave the member's first package cold. The per-player map still bounds duplicate work to one
+# worker for each data partition.
+_WARM_THREADS: dict[str, threading.Thread] = {}
 
 
 def load_history_stats_response(window: str = "all", *, player_id: str = OWNER_ID) -> HistoryStatsResponse:
@@ -72,7 +77,7 @@ def load_mobile_stats_response(window: str = "all", *, player_id: str = OWNER_ID
     return MobileStatsResponse(**build_mobile_stats(stats))
 
 
-def warm_stats_cache() -> None:
+def warm_stats_cache(player_id: str = OWNER_ID) -> None:
     """Pre-populate the stats cache so the first request after a sync or boot is a hit.
 
     Calls the same cached accessors the request path uses: ``cached_load_history_data``
@@ -92,21 +97,40 @@ def warm_stats_cache() -> None:
     response or crash the background thread it runs on.
     """
     try:
-        cached_load_history_data()
-        load_history_stats_response()
-        load_history_stats_response(window="last10")
-        load_history_stats_response(window="last20")
-        load_history_stats_response(window="12m")
+        cached_load_history_data(player_id=player_id)
+        load_history_stats_response(player_id=player_id)
+        load_history_stats_response(window="last10", player_id=player_id)
+        load_history_stats_response(window="last20", player_id=player_id)
+        load_history_stats_response(window="12m", player_id=player_id)
     except Exception:  # noqa: BLE001 - warming is best-effort and must not propagate
         logger.exception("stats cache warm failed")
 
 
-def warm_stats_cache_in_background() -> threading.Thread:
+def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Thread:
     """Run :func:`warm_stats_cache` on a daemon thread and return it.
 
     Used after a successful sync so the ~10s recompute happens off the request path and
     does NOT block the ``/api/v2/sync/garmin`` response.
     """
-    thread = threading.Thread(target=warm_stats_cache, name="stats-cache-warm", daemon=True)
-    thread.start()
-    return thread
+    clean_player_id = str(player_id or OWNER_ID).strip() or OWNER_ID
+    with _WARM_LOCK:
+        existing = _WARM_THREADS.get(clean_player_id)
+        if existing is not None and existing.is_alive():
+            return existing
+
+        def run() -> None:
+            try:
+                warm_stats_cache(player_id=clean_player_id)
+            finally:
+                with _WARM_LOCK:
+                    if _WARM_THREADS.get(clean_player_id) is threading.current_thread():
+                        _WARM_THREADS.pop(clean_player_id, None)
+
+        thread = threading.Thread(
+            target=run,
+            name=f"stats-cache-warm-{clean_player_id}",
+            daemon=True,
+        )
+        _WARM_THREADS[clean_player_id] = thread
+        thread.start()
+        return thread

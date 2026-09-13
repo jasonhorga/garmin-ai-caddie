@@ -18,6 +18,10 @@ public enum WatchCourseDiscoveryState: Equatable {
 public final class WatchCourseLibrary: ObservableObject {
     static let preciseUpgradeMaximumAttempts = 6
     static let preciseUpgradeRetryDelaysSeconds: [UInt64] = [5, 10, 20, 40, 60]
+    /// Keep the Watch responsive on cellular/Bluetooth while still overlapping the independent
+    /// course requests. The active-hole batch is run alone first; the remaining batches use this
+    /// bounded width instead of opening one task per hole.
+    static let courseAssetConcurrency = 2
 
     @Published public private(set) var courses: [WatchCourseOption]
     /// Provider-wide rows around the Watch's current fix. This is the only list shown by the
@@ -31,6 +35,9 @@ public final class WatchCourseLibrary: ObservableObject {
     @Published public private(set) var discoveryState: WatchCourseDiscoveryState = .waitingForGPS
     @Published public private(set) var preparingCourseId: Int?
     @Published public private(set) var errorMessage: String?
+    /// Changes when an on-demand View Green asset lands so the app shell can rebuild its shared image
+    /// geometry without making green.png part of the all-hole startup critical path.
+    @Published public private(set) var lastGreenDetailKey: String?
     public private(set) var diagnosticErrorMessage: String?
 
     private let store: WatchCourseStore
@@ -370,6 +377,7 @@ public final class WatchCourseLibrary: ObservableObject {
         _ selection: WatchCourseSelection,
         roundId: String,
         config: WatchRoundConfig?,
+        priorityHole: Int? = nil,
         onProgress: (([WatchRoundState]) -> Void)? = nil
     ) async -> WatchPreparedCourse? {
         guard let config else { return nil }
@@ -384,6 +392,7 @@ public final class WatchCourseLibrary: ObservableObject {
                     config: config,
                     backgroundGeometry: shouldQueueGeometry,
                     includePreparedGeometry: true,
+                    priorityHole: priorityHole,
                     onProgress: { [weak self] partial in
                         guard let self else { return }
                         // Persist the partial package before publishing it. A process interruption
@@ -455,6 +464,7 @@ public final class WatchCourseLibrary: ObservableObject {
         config: WatchRoundConfig?,
         backGlobalId: Int? = nil,
         teeBox: String? = nil,
+        priorityHole: Int? = nil,
         onProgress: (([WatchRoundState]) -> Void)? = nil
     ) async -> WatchPreparedCourse? {
         guard let config else {
@@ -481,6 +491,7 @@ public final class WatchCourseLibrary: ObservableObject {
             selection,
             roundId: roundId,
             config: config,
+            priorityHole: priorityHole,
             onProgress: onProgress
         )
     }
@@ -491,6 +502,7 @@ public final class WatchCourseLibrary: ObservableObject {
         selection: WatchCourseSelection,
         roundId: String,
         config: WatchRoundConfig?,
+        priorityHole: Int? = nil,
         onProgress: (([WatchRoundState]) -> Void)? = nil
     ) async -> WatchPreparedCourse? {
         guard let config,
@@ -507,6 +519,7 @@ public final class WatchCourseLibrary: ObservableObject {
             cachedSelection,
             roundId: roundId,
             config: config,
+            priorityHole: priorityHole,
             onProgress: onProgress
         )
     }
@@ -517,6 +530,7 @@ public final class WatchCourseLibrary: ObservableObject {
         config: WatchRoundConfig,
         backgroundGeometry: Bool,
         includePreparedGeometry: Bool,
+        priorityHole: Int? = nil,
         onProgress: ((WatchCourseDownload) -> Void)? = nil
     ) async throws -> WatchCourseDownload {
         let client = makeClient(config)
@@ -581,8 +595,31 @@ public final class WatchCourseLibrary: ObservableObject {
             try publishProgress()
         }
 
-        for globalId in requestedByGlobalId.keys.sorted() {
-            let localHoles = requestedByGlobalId[globalId, default: []].sorted()
+        // Turn the requested holes into small independent prep batches. The batch containing the
+        // visible hole is deliberately first and runs alone, so the first map can become drawable
+        // before the rest of the course competes for the Watch's radio/CPU.
+        struct PrepBatch {
+            let globalId: Int
+            let localHoles: [Int]
+            let priority: Bool
+        }
+        var prepBatches: [PrepBatch] = []
+        let requestedPriorityHole = priorityHole ?? package.holes.first?.number
+        let orderedGlobalIds = requestedByGlobalId.keys.sorted { lhs, rhs in
+            let lhsPriority = requestedByGlobalId[lhs, default: []].contains { local in
+                displayHoleByGlobalId[lhs]?[local] == requestedPriorityHole
+            }
+            let rhsPriority = requestedByGlobalId[rhs, default: []].contains { local in
+                displayHoleByGlobalId[rhs]?[local] == requestedPriorityHole
+            }
+            return lhsPriority != rhsPriority ? lhsPriority : lhs < rhs
+        }
+        for globalId in orderedGlobalIds {
+            let localHoles = requestedByGlobalId[globalId, default: []].sorted { lhs, rhs in
+                let lhsPriority = displayHoleByGlobalId[globalId]?[lhs] == requestedPriorityHole
+                let rhsPriority = displayHoleByGlobalId[globalId]?[rhs] == requestedPriorityHole
+                return lhsPriority != rhsPriority ? lhsPriority : lhs < rhs
+            }
             for start in stride(
                 from: 0,
                 to: localHoles.count,
@@ -592,94 +629,148 @@ public final class WatchCourseLibrary: ObservableObject {
                     start + WatchBackendClient.maximumCoursePrepHolesPerRequest,
                     localHoles.count
                 )
-                let response = try await client.fetchCoursePrep(
+                let batchHoles = Array(localHoles[start..<end])
+                prepBatches.append(PrepBatch(
                     globalId: globalId,
-                    localHoles: Array(localHoles[start..<end])
-                )
-
-                // Prep is deliberately delivered in small batches. Publish the route/projection
-                // immediately after each response so the first hole can become a vector map while
-                // later batches and precise topo rasters continue in the background.
-                preps[globalId] = Self.mergePrep(preps[globalId], response, globalId: globalId)
-                try publishProgress()
+                    localHoles: batchHoles,
+                    priority: batchHoles.contains {
+                        displayHoleByGlobalId[globalId]?[$0] == requestedPriorityHole
+                    }
+                ))
             }
-            let prep = preps[globalId] ?? WatchCoursePrepResponse(globalId: globalId)
-            let readyHoles = Set(prep.holes.compactMap { hole in
-                hole.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame
-                    ? hole.hole
-                    : nil
-            })
-            for localHole in localHoles where readyHoles.contains(localHole) {
-                let displayHole = displayHoleByGlobalId[globalId]?[localHole] ?? localHole
-                let prepHole = prep.holes.first { $0.hole == localHole }
-                let packageHole = package.holes.first {
-                    ($0.sourceGlobalId ?? package.course.globalId) == globalId
-                        && ($0.sourceLocalHole ?? $0.number) == localHole
-                }
-                let geometryRevision = prepHole?.geometryRevision ?? packageHole?.geometryRevision
-                var topoData: Data? = imageStore.data(
-                    globalId: globalId,
-                    hole: displayHole,
-                    geometryRevision: geometryRevision
-                )
-                if topoData == nil {
-                    do {
-                        let data = try await client.fetchCourseTopo(
-                            globalId: globalId,
-                            localHole: localHole,
-                            geometryRevision: geometryRevision
+        }
+
+        func mergePrepResponse(_ response: WatchCoursePrepResponse, for globalId: Int) throws {
+            // Prep is delivered in small batches. Publish the route/projection immediately after
+            // each response so the active hole can become a vector map while later batches run.
+            preps[globalId] = Self.mergePrep(preps[globalId], response, globalId: globalId)
+            try publishProgress()
+        }
+
+        // The active batch is the only synchronous part of the upgrade. Remaining batches are
+        // fetched two at a time; a failed request still aborts this attempt and uses the existing
+        // bounded retry loop rather than silently declaring an incomplete course ready.
+        if let firstBatch = prepBatches.first {
+            let response = try await client.fetchCoursePrep(
+                globalId: firstBatch.globalId,
+                localHoles: firstBatch.localHoles
+            )
+            try mergePrepResponse(response, for: firstBatch.globalId)
+        }
+        let remainingBatches = Array(prepBatches.dropFirst())
+        for start in stride(from: 0, to: remainingBatches.count, by: Self.courseAssetConcurrency) {
+            let end = min(start + Self.courseAssetConcurrency, remainingBatches.count)
+            let group = Array(remainingBatches[start..<end])
+            let responses = try await withThrowingTaskGroup(
+                of: (Int, WatchCoursePrepResponse).self,
+                returning: [(Int, WatchCoursePrepResponse)].self
+            ) { taskGroup in
+                for batch in group {
+                    taskGroup.addTask {
+                        let response = try await client.fetchCoursePrep(
+                            globalId: batch.globalId,
+                            localHoles: batch.localHoles
                         )
-                        if WatchHoleImageStore.isValidImageData(data) {
-                            topoData = data
-                        }
-                    } catch {
-                        // The builder marks this exact display hole partial. The caller may begin with
-                        // vector facts while the bounded background recovery retries only missing maps.
+                        return (batch.globalId, response)
                     }
                 }
-                if let topoData {
-                    topoImages[globalId, default: [:]][localHole] = topoData
-                    // Keep the visible vector map in place and upgrade the same hole as soon as its
-                    // authoritative raster lands; no second round or GPS fix is required.
-                    try publishProgress()
+                var resolved: [(Int, WatchCoursePrepResponse)] = []
+                for try await response in taskGroup {
+                    resolved.append(response)
                 }
+                return resolved
+            }
+            for (globalId, response) in responses {
+                try mergePrepResponse(response, for: globalId)
+            }
+        }
 
-                // View Green has its own geometry-rendered detail asset. It is independent of the
-                // whole-hole readiness branch: a cached topo must still be upgraded if an earlier
-                // build predates the focused bitmap.
-                if let prepHole,
-                   let projection = prepHole.holeImageProjection,
-                   let width = projection.widthPx,
-                   let height = projection.heightPx,
-                   let outline = prepHole.greenOutline,
-                   let crop = GreenDetailCrop.around(
-                       points: outline.pointsPx,
-                       imageWidth: Double(width),
-                       imageHeight: Double(height)
-                   ),
-                   !imageStore.hasImage(
-                       globalId: globalId,
-                       hole: displayHole,
-                       geometryRevision: geometryRevision,
-                       detail: true
-                   ) {
-                    if let detail = try? await client.fetchGreenDetailImage(
-                        globalId: globalId,
-                        localHole: localHole,
-                        crop: crop,
-                        geometryRevision: geometryRevision
-                    ), WatchHoleImageStore.isValidImageData(detail) {
-                        try? imageStore.store(
-                            data: detail,
-                            globalId: globalId,
-                            hole: displayHole,
-                            geometryRevision: geometryRevision,
-                            detail: true
-                        )
+        struct TopoRequest {
+            let globalId: Int
+            let localHole: Int
+            let displayHole: Int
+            let geometryRevision: String?
+            let priority: Bool
+        }
+        var topoRequests: [TopoRequest] = []
+        for batch in prepBatches {
+            let prep = preps[batch.globalId] ?? WatchCoursePrepResponse(globalId: batch.globalId)
+            for localHole in batch.localHoles {
+                let displayHole = displayHoleByGlobalId[batch.globalId]?[localHole] ?? localHole
+                let prepHole = prep.holes.first { $0.hole == localHole }
+                let packageHole = package.holes.first {
+                    ($0.sourceGlobalId ?? package.course.globalId) == batch.globalId
+                        && ($0.sourceLocalHole ?? $0.number) == localHole
+                }
+                guard prepHole?.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame
+                    || packageHole?.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame
+                else { continue }
+                let geometryRevision = prepHole?.geometryRevision ?? packageHole?.geometryRevision
+                if let cached = imageStore.data(
+                    globalId: batch.globalId,
+                    hole: displayHole,
+                    geometryRevision: geometryRevision
+                ) {
+                    topoImages[batch.globalId, default: [:]][localHole] = cached
+                    continue
+                }
+                topoRequests.append(TopoRequest(
+                    globalId: batch.globalId,
+                    localHole: localHole,
+                    displayHole: displayHole,
+                    geometryRevision: geometryRevision,
+                    priority: displayHole == requestedPriorityHole
+                ))
+            }
+        }
+        if !topoImages.isEmpty {
+            try publishProgress()
+        }
+
+        func fetchTopo(_ request: TopoRequest) async -> (TopoRequest, Data?) {
+            do {
+                let data = try await client.fetchCourseTopo(
+                    globalId: request.globalId,
+                    localHole: request.localHole,
+                    geometryRevision: request.geometryRevision
+                )
+                return (request, WatchHoleImageStore.isValidImageData(data) ? data : nil)
+            } catch {
+                // The vector map remains usable; a later bounded retry can fetch this exact raster.
+                return (request, nil)
+            }
+        }
+
+        topoRequests.sort { lhs, rhs in
+            lhs.priority != rhs.priority ? lhs.priority : lhs.displayHole < rhs.displayHole
+        }
+        if let activeTopo = topoRequests.first {
+            let (request, data) = await fetchTopo(activeTopo)
+            if let data {
+                topoImages[request.globalId, default: [:]][request.localHole] = data
+                try publishProgress()
+            }
+        }
+        let remainingTopo = Array(topoRequests.dropFirst())
+        for start in stride(from: 0, to: remainingTopo.count, by: Self.courseAssetConcurrency) {
+            let end = min(start + Self.courseAssetConcurrency, remainingTopo.count)
+            let group = Array(remainingTopo[start..<end])
+            await withTaskGroup(of: (TopoRequest, Data?).self) { taskGroup in
+                for request in group {
+                    taskGroup.addTask { await fetchTopo(request) }
+                }
+                for await (request, data) in taskGroup {
+                    if let data {
+                        topoImages[request.globalId, default: [:]][request.localHole] = data
+                        try? publishProgress()
                     }
                 }
             }
         }
+
+        // green.png is intentionally absent from this critical path. It is a large focused asset
+        // used only by View Green; `loadGreenDetailIfNeeded` fetches it when the player opens that
+        // instrument and stores it under the same revisioned image store.
 
         let download = try WatchCourseTemplateBuilder.build(
             option: selection.front,
@@ -695,6 +786,61 @@ public final class WatchCourseLibrary: ObservableObject {
             ? nil
             : "地图仍待补齐：第 \(Self.holeList(missing)) 洞"
         return download
+    }
+
+    /// Fetch the focused View Green bitmap only when that instrument is opened. The precise topo
+    /// and all 18-hole facts remain independently cacheable; delaying this larger crop keeps course
+    /// startup bounded and makes the first non-current-hole green view an honest, short loading state.
+    public func loadGreenDetailIfNeeded(
+        for state: WatchRoundState,
+        config: WatchRoundConfig?
+    ) async {
+        guard let config,
+              let globalId = state.globalId,
+              let projection = state.holeImageProjection,
+              let width = projection.widthPx,
+              let height = projection.heightPx,
+              width > 0,
+              height > 0,
+              let outline = state.holeMap?.greenOutline,
+              let crop = GreenDetailCrop.around(
+                  points: outline,
+                  imageWidth: Double(width),
+                  imageHeight: Double(height)
+              ) else { return }
+        let displayHole = state.hole
+        let localHole = state.sourceLocalHole ?? displayHole
+        let revision = state.geometryRevision
+        let key = "\(globalId):\(displayHole):\(revision ?? "-")"
+        guard !imageStore.hasImage(
+            globalId: globalId,
+            hole: displayHole,
+            geometryRevision: revision,
+            detail: true
+        ) else {
+            lastGreenDetailKey = key
+            return
+        }
+        do {
+            let detail = try await makeClient(config).fetchGreenDetailImage(
+                globalId: globalId,
+                localHole: localHole,
+                crop: crop,
+                geometryRevision: revision
+            )
+            guard !Task.isCancelled, WatchHoleImageStore.isValidImageData(detail) else { return }
+            try imageStore.store(
+                data: detail,
+                globalId: globalId,
+                hole: displayHole,
+                geometryRevision: revision,
+                detail: true
+            )
+            lastGreenDetailKey = key
+        } catch {
+            // The geometry-only green surface remains useful when this optional focused asset is
+            // unavailable. Re-entering View Green retries through the task identity.
+        }
     }
 
     private func persist(_ download: WatchCourseDownload) throws {

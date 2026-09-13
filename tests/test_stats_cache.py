@@ -63,6 +63,29 @@ class StatsCacheTests(unittest.TestCase):
             self.assertEqual(first, {"build_number": 1})
             self.assertEqual(calls["n"], 1)
 
+    def test_persistent_projection_rehydrates_after_process_cache_clear(self) -> None:
+        """The optional disk projection survives an in-memory cache eviction."""
+        calls = {"n": 0}
+        persistent_root = self.tmp / "persistent-stats"
+        with patch.dict(
+            os.environ,
+            {"AI_CADDIE_STATS_CACHE_DIR": str(persistent_root)},
+            clear=False,
+        ), patch.object(stats_cache, "_build_history_stats", self._counting_build(calls)), \
+             patch.object(stats_cache, "_FINGERPRINT_DIRS", (self.scorecards,)):
+            data = _dummy_data()
+            first = stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
+            self.assertEqual(first, {"build_number": 1})
+            self.assertTrue(stats_cache.flush_persistent_writes(timeout=2.0))
+            self.assertTrue(list(persistent_root.glob("*.json")))
+
+            # A process restart has no process-local value, but unchanged source files should still
+            # avoid the expensive rebuild by accepting the versioned, fingerprinted projection.
+            stats_cache.clear()
+            second = stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
+            self.assertEqual(second, first)
+            self.assertEqual(calls["n"], 1)
+
     def test_cache_recomputes_when_a_new_score_lands(self) -> None:
         calls = {"n": 0}
         with patch.object(stats_cache, "_build_history_stats", self._counting_build(calls)), \

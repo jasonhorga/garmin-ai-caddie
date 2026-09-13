@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-13 04:30 UTC
+**Updated:** 2026-09-13 12:35 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; current internal-release source
 `29d0a0c7`; deployed backend tip
@@ -522,21 +522,22 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`PHONE-UX4` — 恢复完整地图加载并完成启动耗时诊断** (`in-progress`)
+**`PERF-STARTUP` — 在不长期离线保存所有地图的前提下缩短完整球场启动** (`in-progress`)
 
-根据最新产品决定，本轮先恢复 `9132183e` 的完整球场包启动路径：新球局不再自动走
-“一洞 fast-start → 再补 18 洞”，而是沿用完整洞集包、首洞 prep/topo 的既有 loading 顺序。
-fast-start 协议和历史包补齐代码暂时保留为显式迁移/实验路径，默认关闭。障碍物和果岭的后续视觉改动
-暂停到本轮耗时报告完成并由产品选择优化方向。
+根据最新产品决定，本轮保留完整 18 洞协议和事实，不把所有地图长期离线存储；启动时允许首洞
+地图优先，并把其余精细资源放到有界后台队列。旧 fast-start 协议和历史包补齐代码仍保留为
+兼容路径，但不改变完整 round 的数据语义。障碍物和果岭的后续视觉改动暂停到本轮耗时报告完成。
 
-**Durable execution plan (persisted 2026-09-13 02:10 UTC; measured evidence updated 08:45 UTC):**
-1. 已完成：对照 `9132183e` 定位旧 loading 逻辑，给正常新球局关闭 fast-start；历史兼容开关保留。实现与默认路径回归断言已保存于提交 `77f13d20`。
-2. 已完成：在 homeserver 对候选服务测量完整地图加载的逐阶段耗时，覆盖冷/热缓存、请求大小、状态和首屏阻塞关系；证据见下方。
+**Durable execution plan (persisted 2026-09-13 02:10 UTC; implementation evidence updated 12:35 UTC):**
+1. 已完成：对照 `9132183e` 保留完整 18 洞协议语义，并确认首洞可先显示的兼容路径。
+2. 已完成：在 homeserver 对候选服务测量完整地图加载的逐阶段耗时，覆盖冷/热缓存、请求大小、状态和首屏阻塞关系。
 3. 已完成：整理当前慢速原因、可选优化方向及可验证的 S70 架构对照；没有把 Garmin 未公开的毫秒数据写成事实。
-4. 待产品选择后：再实施选定优化、运行 Native gate，并按既定规则自动上传内部 TestFlight；本阶段不启动新的上传。
+4. 已完成实现：服务端策略/包复用、stats 后台写入与持久指纹缓存、GZip、手机首洞 topo 预取、Watch 有界并发和按需 green detail；不实施“下载所有地图并长期离线存储”。
+5. 进行中：Native gate、内部 TestFlight 和 Apple processing 检查；任何新增的首屏时序影响会在证据段落中记录。
 
-本轮提交后的验证边界：`git diff --check` 已通过；控制机没有 Xcode，因此未在本轮重跑
-Native Mobile gate。未上传 TestFlight，原因是当前切片只恢复旧路径并提供耗时证据，优化方向仍待产品选择。
+本轮提交后的验证边界：`git diff --check`、Python compileall、远端 focused suite `334 passed, 2 skipped`
+已通过；控制机没有 Xcode，Native Mobile gate 尚未重跑。用户已批准除全场地图长期离线保存之外的全部
+优化，故 Native gate 通过后按既定规则自动上传新的内部 TestFlight。
 
 ### PHONE-UX4 loading measurement (2026-09-13)
 
@@ -668,10 +669,20 @@ Quick Tunnel）成功完成。Apple Watch Series 9 45mm **模拟器**在点开�
 不是 p50/p95；S70 仍没有公开可复现的逐阶段秒数，必须用同一 ready 事件在实体设备上重复
 测量后再比较。
 
-**当前待产品选择：** 优先建议先实施 D+（每洞策略单次评估、`_sequence_tail`/
-`_club_stability_cost` memo）和 stats 预热，再复测首屏/球童/完整课程三个 SLA；若完整课程尾部
-仍超目标，再决定是否做轻量事实包 + 后台 seed、持久化指纹缓存或本地 CourseView 资源。没有
-收到方向前不改生产算法、不重启 fast-start 默认路径，也不上传新的 TestFlight。
+**PERF-STARTUP implementation checkpoint (2026-09-13):**
+
+- 服务端在同一洞内复用球杆候选和稳定性/sequence memo；`tee_candidate_routes` 与
+  `offline_caddie_options` 共用已计算的候选，完整 18 洞响应字段不删减。
+- history stats 使用稳定 fingerprint、进程内 single-flight、后台 JSON 持久化 writer；sync/结束球局后
+  按玩家后台 warm。相同 package 的并发请求 single-flight，返回前再绑定各客户端 event cursor。
+- package JSON 超过 1 KiB 时启用 GZip；手机只在完整 package 返回后预取首洞 topo，并复用已有
+  `TopoHoleImageStore`，没有把全场地图加入新的长期离线下载路径。
+- Watch 先准备当前洞，其余 prep/topo 以并发上限 `2` 后台推进；green detail 从启动关键路径移到进入
+  View Green 时按需请求。复合 9+9 洞保留 source local hole，完整 round 事实仍为 18 洞。
+
+已知体验代价：手机首洞预取增加一次短暂网络/电量峰值；Watch 两路并发提高短时带宽和电量峰值；
+首次打开非当前洞 View Green 可能先显示几何边界再补齐精细图；未访问过的球场精细图仍需网络。
+这些代价不改变显示事实或计分语义，且不包含“长期离线保存所有地图”的新增行为。
 
 本轮承接 `PHONE-UX2` 的实体反馈，处理五个相互关联的产品问题：外层球道图放大拖动必须
 与目标点测距页一样实时跟手；障碍详情在缩放后要把地图、真实轮廓和固定尺寸的红点/距离
@@ -1318,6 +1329,7 @@ project-level task list; historical plans are reference material.
 | `PHONE-REGRESSION` | `evidence-open` | Unify backend caddie recommendation with the live club strip/map landing, constrain hazard labels/distances to small factual edge numbers, and provide a direct retry for saved-but-unverified Garmin sessions while preserving provider-nearby, manual-search, downloaded-course provenance and A/B/C labels. | Source CI `34223501012`, Native Mobile CI `34223836622`, backend revision `f363872f`, TestFlight Build 53, and Apple processing/group visibility are complete; physical screenshots and device behavior remain evidence-open. |
 | `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Source CI `34663338160` and exact-SHA live Native Mobile CI `34663501590` at `70480f99` passed, including iOS/Watch builds, real iOS journey, dedicated hazard/caddie captures, Watch runtime screenshots, evidence and secret scans. Internal TestFlight CD `34666136884` uploaded Build 57; ASC read-only run `34666574292` confirmed `VALID` and `IN_BETA_TESTING`. Physical iPhone/Watch validation of map panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation remains open. |
 | `PHONE-UX3` | `evidence-open` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present at exact source `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; homeserver focused suite `296 passed, 2 skipped`, Python compileall, Source CI `34709596756`, and Native `34709800015` (full live iOS/Watch evidence) pass. Internal TestFlight CD `34712702517` uploaded Build 58; ASC run `34713289501` confirmed it is processed and in the internal group. Remaining evidence is physical iPhone/Watch verification of real-time panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation. |
+| `PERF-STARTUP` | `in-progress` | Reduce complete-round startup latency without storing every course map offline: reuse server decision/package work, connect existing stats warm-up, keep full 18-hole facts while prioritizing the active hole on phone, and use bounded Watch topo concurrency with on-demand green detail. | Implementation and remote focused suite (`334 passed, 2 skipped`) are green; Python compileall and diff-check pass. User approved all reviewed optimizations except long-term storage of all maps offline. Native/Watch gates, cold/warm/concurrent before/after timings, and a fresh internal TestFlight remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 | `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |
@@ -1920,6 +1932,27 @@ Native runs recorded above; it is retained only as historical diagnosis.
   master checklist from memory.
 
 ## State Changes
+
+- 2026-09-13: Owner approved the `PERF-STARTUP` slice: implement all reviewed
+  startup optimizations except storing every course's full map set offline.
+  The implementation must preserve the complete 18-hole facts contract and
+  distinguish facts-ready from fine-map-ready. Known experience risks are:
+  background stats/package work can compete for CPU unless single-flight and
+  bounded; moving weather/release refresh off the critical path can briefly
+  show stale data or an updating state; Watch green detail may briefly load on
+  entering a later hole; Watch topo concurrency can increase burst bandwidth
+  and battery use; without full offline map storage a never-visited course
+  still needs network for its fine maps. Current slice starts with the
+  server-side decision/package reuse and existing stats-cache integration.
+
+- 2026-09-13: Implemented the approved startup optimization set in the canonical
+  working tree: strategy/package reuse and single-flight, player-scoped stats
+  warm/persistent writer, GZip, phone first-hole topo prefetch, and bounded
+  Watch prep/topo concurrency with on-demand green detail. Added regression
+  coverage for persistent stats rehydration, per-player warm single-flight,
+  cursor invalidation, GZip contract preservation, and Watch concurrency/source
+  hole identity. Homeserver compileall and focused tests pass (`334 passed,
+  2 skipped`); Native gate and TestFlight are intentionally still pending.
 
 - 2026-09-13: Homeserver `claude-opus-5` max-effort read-only review completed
   from `/dev/shm/garmin-ai-caddie-opus5-phone-ux4-20260913` at source

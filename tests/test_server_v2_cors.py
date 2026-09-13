@@ -62,6 +62,21 @@ class ServerV2CorsTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn("PUT", resp.headers.get("access-control-allow-methods", ""))
 
+    def test_large_json_response_is_gzipped_without_changing_contract(self) -> None:
+        from fastapi.testclient import TestClient
+
+        from server_v2.main import app
+
+        with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}):
+            response = TestClient(app).get(
+                "/api/v2/history/rounds",
+                headers={"Accept-Encoding": "gzip"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("content-encoding"), "gzip")
+        self.assertIn("groups", response.json())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1195,6 +1195,10 @@ public final class LiveRoundAppModel: ObservableObject {
             guard isCurrentRoundPreparation(preparationToken) else { return }
             if let remotePackage = fetched {
                 let remotePackage = applyingSelectedCourseDisplayName(to: remotePackage)
+                // Warm only the first playable topo while the package is being persisted and the
+                // live view is entering. This shares TopoHoleImageStore's in-flight request with
+                // CurrentHoleView; it is a transient cache, not a full-course offline download.
+                prefetchFirstHoleTopo(in: remotePackage)
                 recordUITestLatency(
                     "course-start.save.begin globalId=\(globalId) bytes-holes=\(remotePackage.holes.count)"
                 )
@@ -1406,6 +1410,31 @@ public final class LiveRoundAppModel: ObservableObject {
             "course-start.pending-published hole=\(pendingLiveHole ?? -1) "
                 + "cache=\(cacheOfflineAssets) revalidate=\(revalidatePackage)"
         )
+    }
+
+    /// Start the first-hole bitmap as soon as the complete package arrives. The package already
+    /// carries the release-bound geometry revision, so the URL is identical to the one used by the
+    /// live map and coalesces with its request. Only one hole is warmed here; the approved startup
+    /// path deliberately does not turn every course map into long-lived phone storage.
+    private func prefetchFirstHoleTopo(in snapshot: LiveRoundPackage) {
+        #if canImport(UIKit)
+        guard let client = syncClient,
+              let first = snapshot.holes.first,
+              let prep = snapshot.coursePrep?.holes.first(where: { $0.hole == first.number }),
+              prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
+              prep.resolvedMapOverlay != nil else { return }
+        let globalId = first.sourceGlobalId ?? snapshot.course.globalId
+        let localHole = first.sourceLocalHole ?? first.number
+        let revision = prep.geometryRevision ?? first.geometryRevision
+        TopoHoleImageStore.prefetch(
+            SyncClient.topoImageURL(
+                baseURL: client.baseURL,
+                globalId: globalId,
+                localHole: localHole,
+                geometryRevision: revision
+            )
+        )
+        #endif
     }
 
     /// `CurrentHoleView` calls this after its initial map and caddie request have settled. The cache

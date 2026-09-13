@@ -22,13 +22,24 @@ If a future change makes ``build_history_stats`` read a NEW source, add it to
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
 from ai_caddie.reports.annotations import annotation_file
-from ai_caddie.core.data import DATA_DIR, HAZARD_DIR, MANUAL_DIR, MESH_DIR, SCORECARD_DIR, SHOT_DIR, SNAPSHOT_DIR, evidence_root
+from ai_caddie.core.data import (
+    DATA_DIR,
+    HAZARD_DIR,
+    MANUAL_DIR,
+    MESH_DIR,
+    SCORECARD_DIR,
+    SHOT_DIR,
+    SNAPSHOT_DIR,
+    evidence_root,
+)
 from ai_caddie.caddie.decision import decision_audit_file
 from ai_caddie.history.history import OWNER_ID
 from ai_caddie.history.history import load_history_data as _load_history_data
@@ -54,9 +65,156 @@ _GEOMETRY_DIRS: tuple[Path, ...] = (HAZARD_DIR, MESH_DIR)
 _lock = threading.Lock()
 _cache: dict[tuple, tuple[Any, Any]] = {}
 _load_cache: dict[str, tuple[Any, Any]] = {}
+# Loading the scorecard/shot files is itself expensive on a cold process. Share that read among
+# simultaneous package, history, and sync consumers before the stats single-flight starts.
+_load_inflight: dict[str, threading.Event] = {}
 # Per-cache-key singleflight. A cold stats build is CPU-heavy; concurrent phone/watch/web package
 # requests must share it instead of each launching another identical 6-25 second computation.
 _inflight: dict[tuple, threading.Event] = {}
+
+# A process restart used to discard the six-to-seven-second all-history build even when none of
+# the source files changed. Keep a small, versioned JSON projection in the private data directory.
+# The cache is deliberately disabled when no private root is configured (normal unit/fixture runs),
+# and it never stores CourseView/map bytes. Set AI_CADDIE_STATS_CACHE_DIR to an explicit location in
+# a controlled deployment or test.
+_PERSISTENT_CACHE_SCHEMA = "ai-caddie-history-stats-cache-v1"
+_PERSISTENT_CACHE_MAX_BYTES = 64 * 1024 * 1024
+# A stats projection can be tens of megabytes on a real history.  Never make the first package
+# caller serialize and write that projection synchronously: the request only needs the in-memory
+# value, while this bounded/coalescing writer makes it available to the next process restart.
+_PERSISTENT_WRITER_CONDITION = threading.Condition()
+_PERSISTENT_WRITER_PENDING: dict[Path, tuple[tuple, Any]] = {}
+_PERSISTENT_WRITER_ACTIVE = 0
+_PERSISTENT_WRITER_THREAD: threading.Thread | None = None
+
+
+def _persistent_cache_root() -> Path | None:
+    configured = os.getenv("AI_CADDIE_STATS_CACHE_DIR")
+    if configured:
+        return Path(configured)
+    if os.getenv("AI_CADDIE_PRIVATE_ROOT"):
+        return DATA_DIR / ".cache" / "history_stats"
+    return None
+
+
+def _cache_digest(value: object) -> str:
+    return hashlib.blake2b(repr(value).encode("utf-8"), digest_size=16).hexdigest()
+
+
+def _persistent_cache_path(key: tuple) -> Path | None:
+    root = _persistent_cache_root()
+    if root is None:
+        return None
+    return root / f"{_cache_digest(key)}.json"
+
+
+def _read_persistent_value(path: Path | None, fingerprint: tuple) -> Any | None:
+    if path is None:
+        return None
+    try:
+        if path.stat().st_size > _PERSISTENT_CACHE_MAX_BYTES:
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("schema") != _PERSISTENT_CACHE_SCHEMA:
+        return None
+    if payload.get("fingerprint") != _cache_digest(fingerprint):
+        return None
+    value = payload.get("value")
+    return value if isinstance(value, dict) else None
+
+
+def _write_persistent_value(path: Path | None, fingerprint: tuple, value: Any) -> None:
+    """Write one cache entry atomically.
+
+    This function runs only on the dedicated writer thread.  Compact encoding matters here: the
+    stats payload is large and pretty-printing it can add several seconds of CPU and disk work.
+    ``os.replace`` preserves the old complete entry until the new one is ready, and a failed write
+    is intentionally non-fatal because the process-local cache remains authoritative.
+    """
+    if path is None or not isinstance(value, dict):
+        return
+    payload = {
+        "schema": _PERSISTENT_CACHE_SCHEMA,
+        "fingerprint": _cache_digest(fingerprint),
+        "value": value,
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(
+        f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    )
+    try:
+        tmp.write_text(encoded, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+
+
+def _persistent_writer_loop() -> None:
+    global _PERSISTENT_WRITER_ACTIVE
+    while True:
+        with _PERSISTENT_WRITER_CONDITION:
+            while not _PERSISTENT_WRITER_PENDING:
+                _PERSISTENT_WRITER_CONDITION.wait()
+            path, (fingerprint, value) = _PERSISTENT_WRITER_PENDING.popitem()
+            _PERSISTENT_WRITER_ACTIVE += 1
+        try:
+            _write_persistent_value(path, fingerprint, value)
+        except (OSError, TypeError, ValueError):
+            # A read-only/private-volume deployment should still serve the request from the process
+            # cache. Persistent warming is an optimization, never a correctness dependency.
+            pass
+        finally:
+            with _PERSISTENT_WRITER_CONDITION:
+                _PERSISTENT_WRITER_ACTIVE -= 1
+                _PERSISTENT_WRITER_CONDITION.notify_all()
+
+
+def _enqueue_persistent_value(path: Path | None, fingerprint: tuple, value: Any) -> None:
+    """Queue a cache write without extending the caller's package latency.
+
+    At most one pending value per path is retained.  If a sync invalidates stats while an older
+    projection is being serialized, the newer value replaces the queued one; its fingerprint also
+    prevents an older in-flight write from ever being accepted after a restart.
+    """
+    if path is None or not isinstance(value, dict):
+        return
+    global _PERSISTENT_WRITER_THREAD
+    with _PERSISTENT_WRITER_CONDITION:
+        _PERSISTENT_WRITER_PENDING[path] = (fingerprint, value)
+        if (
+            _PERSISTENT_WRITER_THREAD is None
+            or not _PERSISTENT_WRITER_THREAD.is_alive()
+        ):
+            _PERSISTENT_WRITER_THREAD = threading.Thread(
+                target=_persistent_writer_loop,
+                name="stats-cache-writer",
+                daemon=True,
+            )
+            _PERSISTENT_WRITER_THREAD.start()
+        _PERSISTENT_WRITER_CONDITION.notify()
+
+
+def flush_persistent_writes(timeout: float = 5.0) -> bool:
+    """Best-effort test/operations hook; production request paths do not wait on this."""
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    with _PERSISTENT_WRITER_CONDITION:
+        while _PERSISTENT_WRITER_PENDING or _PERSISTENT_WRITER_ACTIVE:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            _PERSISTENT_WRITER_CONDITION.wait(timeout=remaining)
+    return True
 
 
 def _fingerprint_dirs(player_id: str) -> tuple[Path, ...]:
@@ -205,10 +363,15 @@ def _data_signature(data) -> tuple:
     in-memory datasets (e.g. ones injected directly by tests) get different signatures,
     so the cache can never hand one dataset's result back for another -- independent of
     the test runner (CI uses `unittest discover`, which ignores pytest fixtures). In
-    production `data` always comes from disk, so this matches the file fingerprint."""
+    production `data` always comes from disk, so this matches the file fingerprint. The
+    ID digest is stable across processes so the optional disk cache survives a restart."""
     rounds = getattr(data, "rounds", None) or []
     shots = getattr(data, "shots", None) or []
-    return (len(shots), hash(tuple(str(r.get("id")) for r in rounds)))
+    round_ids = "\x00".join(str(r.get("id")) for r in rounds)
+    # Python's built-in hash is intentionally randomized per process, which is fine for the
+    # in-memory cache but would make a disk-cache fingerprint miss after every restart.
+    stable_ids = hashlib.blake2b(round_ids.encode("utf-8"), digest_size=16).hexdigest()
+    return (len(shots), stable_ids)
 
 
 def _fingerprint(data, roots: dict[str, Any], player_id: str = OWNER_ID) -> tuple:
@@ -244,16 +407,39 @@ def cached_load_history_data(player_id: str = OWNER_ID):
     data-dir fingerprint, per player. The ~2s read of scorecards/shots is skipped while
     that player's dirs are unchanged; a new score (new file) auto-invalidates it. Each
     player has its own entry, so loading one player never evicts another."""
-    fingerprint = tuple(_dir_sig(d) for d in _load_dirs(player_id))
-    with _lock:
-        hit = _load_cache.get(player_id)
-        if hit is not None and hit[0] == fingerprint:
-            return hit[1]
-    # Owner keeps the no-arg call so load_history_data stays byte-for-byte identical.
-    value = _load_history_data() if player_id == OWNER_ID else _load_history_data(player_id=player_id)
-    with _lock:
-        _load_cache[player_id] = (fingerprint, value)
-    return value
+    while True:
+        fingerprint = tuple(_dir_sig(d) for d in _load_dirs(player_id))
+        with _lock:
+            hit = _load_cache.get(player_id)
+            if hit is not None and hit[0] == fingerprint:
+                return hit[1]
+            event = _load_inflight.get(player_id)
+            if event is None:
+                event = threading.Event()
+                _load_inflight[player_id] = event
+                leader = True
+            else:
+                leader = False
+        if not leader:
+            event.wait()
+            continue
+
+        error: BaseException | None = None
+        value: Any = None
+        try:
+            # Owner keeps the no-arg call so load_history_data stays byte-for-byte identical.
+            value = _load_history_data() if player_id == OWNER_ID else _load_history_data(player_id=player_id)
+        except BaseException as exc:  # never strand concurrent history consumers
+            error = exc
+        with _lock:
+            if error is None:
+                _load_cache[player_id] = (fingerprint, value)
+            if _load_inflight.get(player_id) is event:
+                del _load_inflight[player_id]
+            event.set()
+        if error is not None:
+            raise error
+        return value
 
 
 def cached_build_history_stats(
@@ -295,6 +481,7 @@ def cached_build_history_stats(
     )
     while True:
         fingerprint = _fingerprint(data, roots, player_id)
+        persistent_path = _persistent_cache_path(key)
         with _lock:
             hit = _cache.get(key)
             if hit is not None and hit[0] == fingerprint:
@@ -315,12 +502,15 @@ def cached_build_history_stats(
         try:
             # Distinct cache keys (player/window/root) still build independently. Only identical
             # consumers share this leader, which is the common phone + watch live-start case.
-            value = _build_history_stats(
-                _windowed_history_data(data, window),
-                data_mode=data_mode,
-                player_id=player_id,
-                **roots,
-            )
+            value = _read_persistent_value(persistent_path, fingerprint)
+            if value is None:
+                value = _build_history_stats(
+                    _windowed_history_data(data, window),
+                    data_mode=data_mode,
+                    player_id=player_id,
+                    **roots,
+                )
+                _enqueue_persistent_value(persistent_path, fingerprint, value)
         except BaseException as exc:  # never strand waiters after a failed stats build
             error = exc
         with _lock:
