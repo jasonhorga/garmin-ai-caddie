@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-13 03:22 UTC
+**Updated:** 2026-09-13 04:30 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; current internal-release source
 `29d0a0c7`; deployed backend tip
