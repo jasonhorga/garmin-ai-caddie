@@ -626,6 +626,23 @@ release/courseData 在缓存过期或缺失时允许同步 Garmin 外呼（cours
 
 当前不替产品决定 A–F；下一步只在产品选定方向后实施并重新测量同一套分段。
 
+**Homeserver Claude Opus 5 独立审查（2026-09-13）：** 只读快照
+`/dev/shm/garmin-ai-caddie-opus5-phone-ux4-20260913`（源提交
+`5c8461bd05f54a6d6c05ee41bddf93b93764824a`）已完成，报告归档于
+`docs/reviews/2026-09-13-claude-opus-5-phone-ux4-loading.md`，远端原始 JSON
+位于 `/home/jason/garmin-ai-caddie-data/operations/opus-phone-ux4-loading-20260913/opus-raw-attempt2.json`。
+会话 `08792db3-fe9c-4777-87e1-550b074e3903`，原始 JSON SHA-256
+`e1b0783a9948952ae8e04c52b70806bc72d296c253ff2fdcb4c9e6d086f0e9fe`，报告源文件
+SHA-256 `1f860648e88f6a6278edb2d3fa8ba3a3887fa9d7d642e7fa7928d039682cd40e`。
+主模型用量为 `claude-opus-5`（84,548 output、50,261 thinking、139 turns、无权限拒绝、无
+fallback 参数）；CLI 另记录 31-token 的内部 `claude-haiku-4-5` 辅助条目，已如实保留在
+原始元数据中，最终报告由 Opus 生成。Opus 复核指出 warm 12.858s 不是结束一局后再次开局的
+常态、公网 package 的额外约 7s 不能沿用逐请求 0.6–1.3s 估计、冷 prep/release 与后台争用仍需
+补测；推荐先做 D+（单次策略评估/memo）和冷 stats 预热，再做进程内 single-flight/裁剪与首洞
+预取，A-lite 仅在复测仍超 SLA 时实施，B/E/F 端上计算暂缓。报告定义了首屏、球童 ready、完整
+球场 ready 三个 SLA 及五种冷/热/公网/争用探针。审查未创建容器、卷、端口、隧道或服务；快照
+按 24 小时策略在本轮完成后清理。
+
 本轮承接 `PHONE-UX2` 的实体反馈，处理五个相互关联的产品问题：外层球道图放大拖动必须
 与目标点测距页一样实时跟手；障碍详情在缩放后要把地图、真实轮廓和固定尺寸的红点/距离
 标签分层渲染，默认一次只突出一个障碍；球路规划必须以每支球杆的实际 carry/离散度和
@@ -1873,6 +1890,13 @@ Native runs recorded above; it is retained only as historical diagnosis.
   master checklist from memory.
 
 ## State Changes
+
+- 2026-09-13: Homeserver `claude-opus-5` max-effort read-only review completed
+  from `/dev/shm/garmin-ai-caddie-opus5-phone-ux4-20260913` at source
+  `5c8461bd`; report `docs/reviews/2026-09-13-claude-opus-5-phone-ux4-loading.md`,
+  raw SHA-256 `e1b0783a9948952ae8e04c52b70806bc72d296c253ff2fdcb4c9e6d086f0e9fe`.
+  No code, service, deployment or TestFlight state changed; snapshot cleaned
+  after handoff.
 
 - 2026-09-12: TestFlight CD `34712702517` completed successfully and Apple
   processing finished for Build 58 (`0.1.0`). Read-only ASC run `34713289501`
