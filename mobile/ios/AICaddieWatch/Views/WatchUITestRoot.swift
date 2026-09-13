@@ -934,7 +934,9 @@ public struct WatchUITestRoot: View {
             teeBox: selection.teeBox,
             nine: "all"
         )
-        writeRealCourseTiming(
+        let timingURL = realCourseTimingURL()
+        Self.writeRealCourseTiming(
+            to: timingURL,
             stage: "local_round_shell",
             startedAt: startedAt,
             roundId: prepared.roundId,
@@ -944,17 +946,20 @@ public struct WatchUITestRoot: View {
         var packageFactsRecorded = false
         var firstMapRecorded = false
         var caddieRecorded = false
+        // `WatchUITestRoot` is a struct, so capture the reference-type model directly instead
+        // of trying to weakly capture `self` in the escaping progress callback.
+        let timingModel = model
         let upgraded = await library.upgradeCourseWhenReady(
             selection,
             roundId: prepared.roundId,
             config: config,
-            onProgress: { [weak self] states in
-                guard let self else { return }
-                self.model.applyCourseMapUpgrade(states)
+            onProgress: { states in
+                timingModel.applyCourseMapUpgrade(states)
                 guard let active = states.first(where: { $0.hole == 1 }) else { return }
                 if !packageFactsRecorded, active.distanceM != nil {
                     packageFactsRecorded = true
-                    self.writeRealCourseTiming(
+                    Self.writeRealCourseTiming(
+                        to: timingURL,
                         stage: "first_hole_facts",
                         startedAt: startedAt,
                         roundId: prepared.roundId,
@@ -963,7 +968,8 @@ public struct WatchUITestRoot: View {
                 }
                 if !firstMapRecorded, active.holeMap != nil {
                     firstMapRecorded = true
-                    self.writeRealCourseTiming(
+                    Self.writeRealCourseTiming(
+                        to: timingURL,
                         stage: "first_hole_map",
                         startedAt: startedAt,
                         roundId: prepared.roundId,
@@ -972,7 +978,8 @@ public struct WatchUITestRoot: View {
                 }
                 if !caddieRecorded, (!active.caddieOptions.isEmpty || active.suggestedClub != nil) {
                     caddieRecorded = true
-                    self.writeRealCourseTiming(
+                    Self.writeRealCourseTiming(
+                        to: timingURL,
                         stage: "first_hole_caddie",
                         startedAt: startedAt,
                         roundId: prepared.roundId,
@@ -986,7 +993,8 @@ public struct WatchUITestRoot: View {
             return
         }
         model.applyCourseMapUpgrade(upgraded.holeStates)
-        writeRealCourseTiming(
+        Self.writeRealCourseTiming(
+            to: timingURL,
             stage: "complete_course",
             startedAt: startedAt,
             roundId: prepared.roundId,
@@ -1501,7 +1509,8 @@ public struct WatchUITestRoot: View {
     }
 
     @MainActor
-    private func writeRealCourseTiming(
+    private static func writeRealCourseTiming(
+        to url: URL,
         stage: String,
         startedAt: Date,
         roundId: String,
@@ -1510,9 +1519,9 @@ public struct WatchUITestRoot: View {
         let elapsedMs = Int((Date().timeIntervalSince(startedAt) * 1000).rounded())
         let line = (["stage=\(stage)", "elapsed_ms=\(elapsedMs)", "round_id=\(roundId)"] + details)
             .joined(separator: "\n") + "\n"
-        let existing = (try? String(contentsOf: realCourseTimingURL(), encoding: .utf8)) ?? ""
+        let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         guard !existing.contains("stage=\(stage)\n") else { return }
-        try? Data((existing + line).utf8).write(to: realCourseTimingURL(), options: .atomic)
+        try? Data((existing + line).utf8).write(to: url, options: .atomic)
     }
 
     private func writeRealCourseTimingFailure(_ message: String) {
