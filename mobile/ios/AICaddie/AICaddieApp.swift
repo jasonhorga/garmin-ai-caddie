@@ -527,6 +527,10 @@ public final class LiveRoundAppModel: ObservableObject {
     /// First element is the initial post-activation delay; following elements are bounded retry
     /// delays. Tests inject zeroes so transient failures can be exercised without wall-clock waits.
     private let fastStartCourseRefreshDelaysNanoseconds: [UInt64]
+    /// The first-hole-only response is retained as an explicit migration/experiment path, but is
+    /// disabled for normal starts. The owner asked to restore the previous complete-package loading
+    /// flow while we measure its real bottlenecks before choosing another startup strategy.
+    private let fastStartCourseLoadingEnabled: Bool
     /// Keeps the Apple-session observer alive so the watch's standalone-sync auth tracks sign-in /
     /// refresh / sign-out (round-13 watch-auth).
     private var sessionCancellables = Set<AnyCancellable>()
@@ -546,7 +550,8 @@ public final class LiveRoundAppModel: ObservableObject {
         fastStartCourseRefreshDelaysNanoseconds: [UInt64] = [
             1_500_000_000, 2_000_000_000, 5_000_000_000, 10_000_000_000,
             20_000_000_000,
-        ]
+        ],
+        fastStartCourseLoadingEnabled: Bool = false
     ) {
         self.init(
             offlineStore: offlineStore,
@@ -557,7 +562,8 @@ public final class LiveRoundAppModel: ObservableObject {
             preferredRoundId: preferredRoundId,
             syncClient: syncClient,
             offlineGeometryRetryDelaysNanoseconds: offlineGeometryRetryDelaysNanoseconds,
-            fastStartCourseRefreshDelaysNanoseconds: fastStartCourseRefreshDelaysNanoseconds
+            fastStartCourseRefreshDelaysNanoseconds: fastStartCourseRefreshDelaysNanoseconds,
+            fastStartCourseLoadingEnabled: fastStartCourseLoadingEnabled
         )
     }
 
@@ -577,7 +583,8 @@ public final class LiveRoundAppModel: ObservableObject {
         fastStartCourseRefreshDelaysNanoseconds: [UInt64] = [
             1_500_000_000, 2_000_000_000, 5_000_000_000, 10_000_000_000,
             20_000_000_000,
-        ]
+        ],
+        fastStartCourseLoadingEnabled: Bool = false
     ) {
         let resolvedAPIBaseURL = apiBaseURL ?? Self.defaultAPIBaseURL()
         let resolvedAdminToken = adminToken ?? Self.defaultAdminToken()
@@ -592,6 +599,7 @@ public final class LiveRoundAppModel: ObservableObject {
             : Self.configuredLiveRoundId()
         self.offlineGeometryRetryDelaysNanoseconds = offlineGeometryRetryDelaysNanoseconds
         self.fastStartCourseRefreshDelaysNanoseconds = fastStartCourseRefreshDelaysNanoseconds
+        self.fastStartCourseLoadingEnabled = fastStartCourseLoadingEnabled
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
         self.mediaUploadClient = resolvedAPIBaseURL.map {
             MediaUploadClient(baseURL: $0, adminToken: resolvedAdminToken)
@@ -1179,7 +1187,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 nine: nine,
                 capturedAt: preparedAt,
                 preparationToken: preparationToken,
-                fastStart: isNewRound
+                fastStart: isNewRound && fastStartCourseLoadingEnabled
             )
             recordUITestLatency(
                 "course-start.fetch.end globalId=\(globalId) found=\(fetched != nil)"
@@ -1199,7 +1207,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 try activatePackage(persisted, status: "球场已就绪")
                 recordUITestLatency("course-start.activate.end globalId=\(globalId)")
                 if isNewRound {
-                    if persisted.holes.count <= 1 {
+                    if fastStartCourseLoadingEnabled, persisted.holes.count <= 1 {
                         scheduleFastStartCourseRefresh(
                             globalId: globalId,
                             roundId: requestedRoundId,

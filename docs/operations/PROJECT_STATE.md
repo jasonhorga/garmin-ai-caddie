@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-12 19:12 UTC
+**Updated:** 2026-09-13 03:22 UTC
 **Branch:** `integration/v2` (GitHub default; current product source tip
 `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; current internal-release source
 `29d0a0c7`; deployed backend tip
@@ -522,14 +522,115 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`PHONE-UX3` — 7959–7961 地图操控、障碍几何、球路安全与首洞加载** (`in-progress`)
+**`PHONE-UX4` — 恢复完整地图加载并完成启动耗时诊断** (`in-progress`)
+
+根据最新产品决定，本轮先恢复 `9132183e` 的完整球场包启动路径：新球局不再自动走
+“一洞 fast-start → 再补 18 洞”，而是沿用完整洞集包、首洞 prep/topo 的既有 loading 顺序。
+fast-start 协议和历史包补齐代码暂时保留为显式迁移/实验路径，默认关闭。障碍物和果岭的后续视觉改动
+暂停到本轮耗时报告完成并由产品选择优化方向。
+
+**Durable execution plan (persisted 2026-09-13 02:10 UTC; measured evidence updated 03:22 UTC):**
+1. 已完成：对照 `9132183e` 定位旧 loading 逻辑，给正常新球局关闭 fast-start；历史兼容开关保留。
+2. 已完成：在 homeserver 对候选服务测量完整地图加载的逐阶段耗时，覆盖冷/热缓存、请求大小、状态和首屏阻塞关系；证据见下方。
+3. 已完成：整理当前慢速原因、可选优化方向及可验证的 S70 架构对照；没有把 Garmin 未公开的毫秒数据写成事实。
+4. 待产品选择后：再实施选定优化、运行 Native gate，并按既定规则自动上传内部 TestFlight；本阶段不启动新的上传。
+
+### PHONE-UX4 loading measurement (2026-09-13)
+
+测量范围：候选 API `17ad4e66871126730c9fca9246fee884af309b2f`，homeserver
+loopback `127.0.0.1:39061`，公网 Quick Tunnel
+`https://right-exhibits-colleges-dated.trycloudflare.com`。HTTP 探针按顺序发出，
+所以表格用于拆解每一步的真实请求耗时，不能把所有行相加当作一次客户端时间；内部
+事件则是 package 请求自身的服务端分段。原始 JSONL、响应 body/header 和 manifest 保存在
+`/home/jason/garmin-ai-caddie-data/operations/phone-ux4-loading-20260913`。
+
+**外部 HTTP 分段（秒）**
+
+| 阶段 | 31917 loopback | 31917 Quick Tunnel | 31921 loopback | 说明 |
+|---|---:|---:|---:|---|
+| health | 0.005 | 1.119 | — | 纯健康检查 |
+| course options | 0.243 | 1.439 | — | 15 KB JSON |
+| tees (`ensure_release=true`) | 2.766 | 4.410 | 0.040 | 首次 release/tee 权威检查；31921 已热 |
+| 完整 18 洞 package，无后台 geometry | 13.532 | 20.515 | — | 31917 响应 645,039 B；`startMode=full`、18 洞 |
+| 完整 18 洞 package，带后台 geometry | 13.373 | 21.776 | 29.225 | 31921 响应 605,187 B；启动后台安装不降低同步计算成本 |
+| 首洞 prep `render=false` | 0.028 | 0.667 | 1.553 | 轻量事实 |
+| 首洞 prep `render=true` | 0.031 | 0.758 | — | 渲染 prep JSON |
+| 首洞 topo PNG | 0.015 | 0.784 | — | 256,517 B；并非瓶颈 |
+| 首洞 green PNG | 0.021 | 1.179 | — | 838,283 B；焦点果岭图 |
+| 球童 tee decision | 1.619 | 2.541 | — | 单独请求，不应阻塞地图首帧 |
+| install status | 0.010 | 0.562 | — | 状态查询 |
+| 2/3/4 洞 prep | 6.509 | 0.669 | — | 后续批量轻量 prep |
+| 2/3/4 洞 topo 并发 | 0.013–0.025/张 | 0.716–0.889/张 | — | 并发 burst；公网开销明显但仍低于 package |
+
+31917 的完整 package 外部探针是 warm-ish 状态；独立进程 cold 结果见下表，不能混用。
+公网相比 loopback 在同一探针上的额外成本约 0.6–1.3 秒/请求（TLS、边缘排队和链路），
+不是 10–30 秒的主因。
+
+**服务端 package 内部耗时（秒）**
+
+| 课程 | cold 总耗时 | warm 总耗时 | cold history load | cold stats build | cold 18 洞 caddie seeds | cold route + offline options |
+|---|---:|---:|---:|---:|---:|---:|
+| 31917 | 24.393 | 12.858 | 4.574 | 6.670 | 11.986 | 11.797（各 18 次） |
+| 31921 | 21.848 | 9.998 | 4.591 | 7.004 | 约 9.0 | 8.806（各 18 次） |
+
+内部事件显示 release lookup、CourseView geometry coverage、hazard 文件读取通常是毫秒级；
+topo PNG 本地命中约 15–25 ms。31921 的独立 sequence profile 还记录了 `_sequence_tail`
+238 次、约 73,552 次候选 chain cost、239,642 次 `_club_stability_cost`，sequence tail
+本身约 10.47 s。`_tee_candidate_routes` 与 `_offline_caddie_options` 对同一洞重复评估，
+是 package 组装的主要可优化重复工作。上表的 route/option 数字是事件累计值，部分事件
+嵌套在 seed/build 内，不能再与 history、stats、seed 总数直接相加。
+
+**后台安装时间线（不是全新冷课程基准）**
+
+课程 31921/Black 的独立 job：package `03:15:20.255Z → 03:15:37.597Z`，HTTP 200，
+17.321 s、665,650 B；首次 status 在 `03:15:37.654Z` 报 geometry `18/18`、topo `2/18`、
+`running`；`03:15:38.757Z` 报 `ready`、topo `18/18`。即该次从 package 返回到 ready 约
+1.10 s，但 geometry/topo 已基本命中缓存。历史 31921/Blue job 约 7 分 45 秒完成，
+31917 历史 job 最终在 geometry `16/18` 失败；两者不能当作稳定平均值。
+
+**已确认的慢速原因**
+
+1. 完整 package 同步加载历史数据（cold 约 4.6 s）。
+2. 首次 history stats 构建约 6.7–7.0 s。
+3. package 在返回前同步生成 18 洞 caddie context seeds。
+4. 每洞同时跑 `_tee_candidate_routes` 和 `_offline_caddie_options`，同一策略链重复排序/评估。
+5. `_sequence_tail` 使用 `combinations_with_replacement` 枚举球杆组合；剩余距离和可用杆数增加时组合数快速增长。
+6. package 完成后客户端才进入首洞 prep/topo；因此最长的球童计算直接成为首屏阻塞。
+7. 后台 geometry/topo 还有 provider、Draco、渲染和重试成本；单 worker/有限并发会拉长全课程 ready 时间。
+8. 网络、release lookup、hazard 读取和 topo 传输不是当前主要瓶颈；公网只是在每个请求上增加低秒级链路开销。
+
+**代码审计得到、但本次计时未触发的长尾风险**：完整 package 仍允许按新 round 拉取
+Open-Meteo（单次 transport timeout 10 s），且 `/prep`、`topo.png` 和 CourseView
+release/courseData 在缓存过期或缺失时允许同步 Garmin 外呼（courseData timeout 30 s）。
+本次候选数据命中缓存/快速返回，内部日志没有把这些外呼测成秒级，因此这里只记录为需要
+单独压测的 P1 风险，不把 10/30 s 写入本次实测总耗时。
+
+**与 Garmin Approach S70 的可验证对照**
+
+公开资料没有 S70 的逐阶段毫秒日志，不能给出精确数字。能确认的架构差异是：S70 首屏主要依赖设备内已经安装的 CourseView/courseData、几何和地图资源，
+不等待手机网络、Quick Tunnel、服务端 release 检查、18 洞球童 seed 或外部天气；更新和补齐在后台，首屏展示与后台安装解耦。S70 还把根页轻量推荐杆/当前一杆叠层与点击后完整 Virtual Caddie 分成两层，根页不常驻确定性的多杆路线。当前手机路径恰好相反：新球局在拿到同步完整 package 前被 package 计算阻塞，之后才请求首洞 prep/topo。
+
+**待选择的优化方向**
+
+| 选项 | 做法 | 预计收益 | 主要代价/风险 |
+|---|---|---|---|
+| A | 先返回轻量 18 洞 package；18 洞 caddie seed 后台生成 | 首屏从 10–24 s 降到地图/事实可用级别；最接近 S70 解耦 | 首屏先没有完整球童 seed；需缓存/版本合并 |
+| B | 首洞同步，其余洞后台 | 首洞更快，保留当前 API 形状 | 仍可能被首洞策略计算阻塞；后台状态要做可恢复 |
+| C | 持久化 history stats 与逐洞 seed，按 course/tee/revision/球包版本失效 | 重访同场接近 warm（约 10 s 以下），减少 4.6+7.0 s cold 成本 | 缓存失效、历史同步和数据新鲜度复杂 |
+| D | 复用每洞策略计算结果；`tee_candidate_routes`/`offline_caddie_options` 单次评估 | 直接消除约 8.8–11.8 s 的重复排序 | 需要保证两种输出契约一致 |
+| E | 将无界组合枚举改为有界候选/beam 或动态规划 | 针对 sequence tail，降低 73,552 chain cost 的 CPU | 可能漏掉极少数全局最优链，需离线回归 |
+| F | 预装/下载完整 CourseView 资源，手机端只做本地读取，网络仅做更新 | 体验最接近 S70，首屏不依赖网络 | 首次下载体积、存储、版本迁移和授权成本最高 |
+
+当前不替产品决定 A–F；下一步只在产品选定方向后实施并重新测量同一套分段。
 
 本轮承接 `PHONE-UX2` 的实体反馈，处理五个相互关联的产品问题：外层球道图放大拖动必须
 与目标点测距页一样实时跟手；障碍详情在缩放后要把地图、真实轮廓和固定尺寸的红点/距离
 标签分层渲染，默认一次只突出一个障碍；球路规划必须以每支球杆的实际 carry/离散度和
 障碍风险约束落点，不能把一号木画进水里，也不能无依据地产生“一号木接一号木”；发球台
 锚点、路线起点和目标点初始投影必须统一；新球场开局采用首洞优先的并行准备，先显示可玩的
-第一洞，剩余洞在后台队列加载。不得用杆名特判，必须复用现有逐杆表现模型和缓存协议。
+第一洞，剩余洞在后台队列加载（这是 PHONE-UX3 的历史实现目标；本切片已按最新决定暂时
+关闭该默认路径，恢复完整 package loading）。不得用杆名特判，必须复用现有逐杆表现模型和
+缓存协议。
 
 **Durable execution plan (persisted 2026-09-12 03:24 UTC):**
 1. 已完成：外层 `CurrentHoleView` 与目标点页采用同一套 transient drag/scale 状态，拖动实时

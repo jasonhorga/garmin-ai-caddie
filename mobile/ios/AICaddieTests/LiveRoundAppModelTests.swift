@@ -1822,6 +1822,74 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(requestLock.withLock { statusRequestCount }, 1)
     }
 
+    func testNewCourseStartUsesCompletePackageByDefault() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try multiHoleFixturePackage()
+        let roundId = "complete-package-default"
+        let complete = package(
+            source,
+            roundId: roundId,
+            recentRounds: [],
+            holes: source.holes
+        )
+        let completeData = try JSONEncoder().encode(complete)
+        let requestLock = NSLock()
+        var fastStartFlags: [Bool] = []
+        var packageRequestCount = 0
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertTrue(url.path.hasSuffix("/api/v2/mobile/courses/\(source.course.globalId)/package"))
+            let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let isFast = queryItems.first(where: { $0.name == "fast_start" })?.value == "true"
+            requestLock.withLock {
+                fastStartFlags.append(isFast)
+                packageRequestCount += 1
+            }
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                completeData
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        let client = SyncClient(
+            baseURL: URL(string: "https://complete-package-default.example.test")!,
+            session: session,
+            retrySleep: { _ in XCTFail("complete package fixture must not retry") }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: [],
+            fastStartCourseRefreshDelaysNanoseconds: []
+        )
+
+        await model.prepareCourseRound(
+            globalId: complete.course.globalId,
+            roundId: roundId,
+            teeBox: complete.course.teeBox,
+            nine: complete.nine ?? "all"
+        )
+
+        XCTAssertEqual(requestLock.withLock { packageRequestCount }, 1)
+        XCTAssertEqual(requestLock.withLock { fastStartFlags }, [false])
+        XCTAssertEqual(model.package?.holes.count, complete.holes.count)
+        XCTAssertFalse(model.package?.isFullCoursePending ?? true)
+    }
+
     func testFastStartRefreshPublishesFullPackageWithoutDowngradingPreciseFirstHole() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1890,7 +1958,8 @@ final class LiveRoundAppModelTests: XCTestCase {
             watchBridge: nil,
             garminSessionStore: nil,
             syncClient: client,
-            fastStartCourseRefreshDelaysNanoseconds: [0]
+            fastStartCourseRefreshDelaysNanoseconds: [0],
+            fastStartCourseLoadingEnabled: true
         )
 
         await model.prepareCourseRound(
@@ -1962,7 +2031,8 @@ final class LiveRoundAppModelTests: XCTestCase {
             watchBridge: nil,
             garminSessionStore: nil,
             syncClient: client,
-            fastStartCourseRefreshDelaysNanoseconds: []
+            fastStartCourseRefreshDelaysNanoseconds: [],
+            fastStartCourseLoadingEnabled: true
         )
 
         await model.prepareCourseRound(
@@ -2065,7 +2135,8 @@ final class LiveRoundAppModelTests: XCTestCase {
             watchBridge: nil,
             garminSessionStore: nil,
             syncClient: client,
-            fastStartCourseRefreshDelaysNanoseconds: [0, 0]
+            fastStartCourseRefreshDelaysNanoseconds: [0, 0],
+            fastStartCourseLoadingEnabled: true
         )
 
         await model.prepareCourseRound(
