@@ -661,7 +661,9 @@ fast-start 作为最终方案。
 Quick Tunnel）成功完成。Apple Watch Series 9 45mm **模拟器**在点开始边界后的单次阶段值为：
 本地 round shell `63 ms`；首洞事实 `1.369 s`；首洞可绘地图 `1.375 s`
 （coverage=`partial`）；球童状态 `1.376 s`（该捕获的 options=0，不能当作完整多方案已就绪）；
-完整 18 洞精确课程 `85.245 s`。详细口径、artifact digest 和局限见
+完整 18 洞精确课程 `85.245 s`。同一 artifact 的网络日志进一步拆出 package `1.258 s`、
+六批 prep 合计 `2.778 s`、18 张 topo 合计 `24.801 s`、18 张 green 合计 `54.863 s`；
+当前 Watch 管线按洞串行 topo→green，17/18 洞出现 5–15 秒长尾。详细口径、artifact digest 和局限见
 `docs/reviews/2026-09-13-watch-start-timing.md`。这不是实体 Watch、不是 S70 对比数字，也
 不是 p50/p95；S70 仍没有公开可复现的逐阶段秒数，必须用同一 ready 事件在实体设备上重复
 测量后再比较。

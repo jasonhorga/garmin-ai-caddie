@@ -21,6 +21,14 @@
 | `first_hole_caddie` | 1,376 | caddie state became available; this capture reported `options=0`, so it is not proof that a full multi-option list was ready |
 | `complete_course` | 85,245 | all 18 precise course states returned |
 
+The diagnostic log breaks the full-course tail down further: the package request
+took `1,258 ms`, the six three-hole prep requests took `2,778 ms` in total, 18
+topo PNG requests took `24,801 ms` in total, and 18 green PNG requests took
+`54,863 ms` in total. The current Watch pipeline requests topo and then green
+serially for each hole. Holes 17 and 18 had particularly long network tails
+(topo `5,192/4,562 ms`; green `13,545/14,990 ms`). These are diagnostic request
+durations from the same single run, not percentile measurements.
+
 The timing marker SHA-256 is
 `b0e6d831c5edddbed09f2aaa0cf9bac2fbddc665aaf98f373d1b23bac39481c2`.
 The uploaded `watch-runtime-evidence` artifact is ID `10315165738`, digest
