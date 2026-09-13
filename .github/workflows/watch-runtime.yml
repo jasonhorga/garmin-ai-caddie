@@ -389,7 +389,9 @@ jobs:
               | tee watch-runtime-artifacts/launch-real-course-start-timing.txt
             for _ in $(seq 1 180); do
               TIMING_CONTAINER=$(xcrun simctl get_app_container "$WATCH_UDID" "$BID" data 2>/dev/null || true)
-              if test -s "$TIMING_CONTAINER/Documents/watch-start-timing.txt"; then
+              timing_file="$TIMING_CONTAINER/Documents/watch-start-timing.txt"
+              if grep -q '^stage=complete_course$' "$timing_file" 2>/dev/null \
+                || grep -q '^stage=failed$' "$timing_file" 2>/dev/null; then
                 break
               fi
               sleep 1
