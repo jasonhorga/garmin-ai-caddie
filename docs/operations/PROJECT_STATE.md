@@ -684,6 +684,30 @@ Quick Tunnel）成功完成。Apple Watch Series 9 45mm **模拟器**在点开�
 首次打开非当前洞 View Green 可能先显示几何边界再补齐精细图；未访问过的球场精细图仍需网络。
 这些代价不改变显示事实或计分语义，且不包含“长期离线保存所有地图”的新增行为。
 
+**PERF-STARTUP candidate validation (2026-09-13 13:25–13:51 UTC):**
+
+- 已在 homeserver 独立部署精确提交 `70e74a6eb04bae1d656bc8cee81f534e0ae4f2b7`：容器
+  `aicaddie-release-70e74a6e-candidate-20260913`、loopback `39062`、镜像 digest
+  `sha256:d5f1cd2f877e90407b5959b4ffe8c5087d0153d8d2809ace0a1b24df046ffdfb`。现有
+  `39061` 及其 TestFlight/实体设备隧道未改动。新候选 Quick Tunnel 为
+  `https://family-heating-century-humanity.trycloudflare.com`，资源登记和日志在
+  `/home/jason/garmin-ai-caddie-data/operations/perf-startup-20260913-candidate/`。
+- 本机 API（课程 `31921`、Black、完整 18 洞、GZip）实测：重启后首次 package
+  `7.412s`、同 round warm `2.389s`；4 路相同 package 并发约 `2.793–2.936s`，均为
+  完整 18 洞且返回 200。公网 Quick Tunnel 同一候选 cold/warm 为 `3.171s/2.267s`。
+  648–650KB JSON 的 GZip wire body 约 `107KB`，解压后语义大小不变；压缩只降低传输，
+  不会改变首屏计算。
+- 复用 `ops/benchmark_course_install.py` 的 18 洞安装基准（课程 `31921` 已有完整 journal）：
+  package `1.922s`，首个状态/完整 ready 从选择边界 `10.718s`（其中已就绪资源不再重复下载）；
+  prep 冷批次 6 请求 `36.551s`、热批次 `148ms`；topo 冷并发 18 张 `524ms`、热 `199ms`。
+  课程 `31917` 的背景安装在 geometry 16/18 后因既有缺失文件失败，未把该失败误算为新代码回归。
+- 公网 health、course options、tees、topo、Native live catalogue preflight 均通过并报告精确
+  `70e74a6e` revision。Native Mobile CI `34759807648` 已派发，当前 live iOS XCUITest 进行中；
+  结果未完成前不得声称 Native 或 TestFlight 通过。
+- 本次测速实际会增加短时 CPU/内存、网络和电量峰值：候选使用共享数据库/私有数据卷，GZip 会占用
+  少量压缩 CPU；Watch 有界并发和手机首洞预取仍有前述峰值。没有新增“永久离线保存所有地图”，也
+  没有切换生产 Funnel/Caddy。
+
 本轮承接 `PHONE-UX2` 的实体反馈，处理五个相互关联的产品问题：外层球道图放大拖动必须
 与目标点测距页一样实时跟手；障碍详情在缩放后要把地图、真实轮廓和固定尺寸的红点/距离
 标签分层渲染，默认一次只突出一个障碍；球路规划必须以每支球杆的实际 carry/离散度和
