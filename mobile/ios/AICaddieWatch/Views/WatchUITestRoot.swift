@@ -51,6 +51,8 @@ public struct WatchUITestRoot: View {
              "standalone-course-last-shot", "standalone-course-caddie-last-shot",
              "standalone-course-live-home":
             standaloneCourseRound
+        case "real-course-start-timing":
+            realCourseStartTimingRound
         case "real-course-download-seed", "real-course-download-restore",
              "real-course-download-caddie",
              "real-course-map-measured", "real-course-view-green",
@@ -441,6 +443,35 @@ public struct WatchUITestRoot: View {
                     await restoreRealCourseOffline(selectHazardHole: isRealCourseHazardScreen)
                 }
             }
+        }
+    }
+
+    /// DEBUG-only startup measurement for the production Watch start path. Unlike the visual
+    /// download fixture, this records the exact user-facing sequence: local provisional round,
+    /// package facts, first drawable map/caddie state, and complete precise cache.
+    private var realCourseStartTimingRound: some View {
+        Group {
+            if model.round != nil {
+                WatchRoundContainerView(
+                    model: model,
+                    holeGeometry: realCourseGeometry,
+                    watchGreenYards: realCourseGreenYards,
+                    shotLocation: realCourseRuntimeFix
+                )
+            } else {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text("正在测量开局…")
+                        .font(.caption2)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(12)
+            }
+        }
+        .onAppear {
+            guard !realCourseTaskStarted else { return }
+            realCourseTaskStarted = true
+            Task { @MainActor in await measureRealCourseStart() }
         }
     }
 
@@ -861,6 +892,105 @@ public struct WatchUITestRoot: View {
         writeRealCourseMarker(
             "real-course-download-ready",
             contents: "global_id=\(Self.realCourseGlobalId)\nmapped_holes=18"
+        )
+    }
+
+    @MainActor
+    private func measureRealCourseStart() async {
+        removeRealCourseTimingMarker()
+        guard let config = realCourseRuntimeConfig else {
+            writeRealCourseTimingFailure("缺少真实 API 配置")
+            return
+        }
+
+        let library = WatchCourseLibrary()
+        await library.searchAllCourses(name: "Cypress Point", config: config)
+        guard let match = library.searchMatches.first(where: { $0.globalId == Self.realCourseGlobalId }),
+              let option = match.courseOption else {
+            writeRealCourseTimingFailure("真实球场搜索未返回 Cypress Point")
+            return
+        }
+        let tees = await library.loadCourseTees(globalId: Self.realCourseGlobalId, config: config)
+        guard let tee = tees.first(where: { $0.teeBox.caseInsensitiveCompare("championship") == .orderedSame })
+                ?? tees.first else {
+            writeRealCourseTimingFailure(library.diagnosticErrorMessage ?? "真实球场没有可用 Tee")
+            return
+        }
+
+        let selection = WatchCourseSelection(
+            front: option.withTees(tees, selectedTee: tee.teeBox),
+            teeBox: tee.teeBox,
+            ensureGeometry: true
+        )
+        // T0 is the moment the user taps Start, after course/search/Tee setup has completed.
+        let startedAt = Date()
+        let prepared = library.startCourseImmediately(selection)
+        model.seedRound(
+            prepared.holeStates,
+            activeHole: prepared.holeStates.first?.hole,
+            courseName: prepared.courseName,
+            courseGlobalId: selection.front.globalId,
+            backCourseGlobalId: selection.back?.globalId,
+            teeBox: selection.teeBox,
+            nine: "all"
+        )
+        writeRealCourseTiming(
+            stage: "local_round_shell",
+            startedAt: startedAt,
+            roundId: prepared.roundId,
+            details: ["holes=\(prepared.holeStates.count)"]
+        )
+
+        var packageFactsRecorded = false
+        var firstMapRecorded = false
+        var caddieRecorded = false
+        let upgraded = await library.upgradeCourseWhenReady(
+            selection,
+            roundId: prepared.roundId,
+            config: config,
+            onProgress: { [weak self] states in
+                guard let self else { return }
+                self.model.applyCourseMapUpgrade(states)
+                guard let active = states.first(where: { $0.hole == 1 }) else { return }
+                if !packageFactsRecorded, active.distanceM != nil {
+                    packageFactsRecorded = true
+                    self.writeRealCourseTiming(
+                        stage: "first_hole_facts",
+                        startedAt: startedAt,
+                        roundId: prepared.roundId,
+                        details: ["distance=true"]
+                    )
+                }
+                if !firstMapRecorded, active.holeMap != nil {
+                    firstMapRecorded = true
+                    self.writeRealCourseTiming(
+                        stage: "first_hole_map",
+                        startedAt: startedAt,
+                        roundId: prepared.roundId,
+                        details: ["coverage=\(active.geometryCoverage ?? "unknown")"]
+                    )
+                }
+                if !caddieRecorded, (!active.caddieOptions.isEmpty || active.suggestedClub != nil) {
+                    caddieRecorded = true
+                    self.writeRealCourseTiming(
+                        stage: "first_hole_caddie",
+                        startedAt: startedAt,
+                        roundId: prepared.roundId,
+                        details: ["options=\(active.caddieOptions.count)"]
+                    )
+                }
+            }
+        )
+        guard let upgraded else {
+            writeRealCourseTimingFailure("地图升级失败")
+            return
+        }
+        model.applyCourseMapUpgrade(upgraded.holeStates)
+        writeRealCourseTiming(
+            stage: "complete_course",
+            startedAt: startedAt,
+            roundId: prepared.roundId,
+            details: ["holes=\(upgraded.holeStates.count)"]
         )
     }
 
@@ -1360,6 +1490,34 @@ public struct WatchUITestRoot: View {
     private func realCourseMarkerURL(_ name: String) -> URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(name)
+    }
+
+    private func realCourseTimingURL() -> URL {
+        realCourseMarkerURL("watch-start-timing.txt")
+    }
+
+    private func removeRealCourseTimingMarker() {
+        try? FileManager.default.removeItem(at: realCourseTimingURL())
+    }
+
+    @MainActor
+    private func writeRealCourseTiming(
+        stage: String,
+        startedAt: Date,
+        roundId: String,
+        details: [String]
+    ) {
+        let elapsedMs = Int((Date().timeIntervalSince(startedAt) * 1000).rounded())
+        let line = (["stage=\(stage)", "elapsed_ms=\(elapsedMs)", "round_id=\(roundId)"] + details)
+            .joined(separator: "\n") + "\n"
+        let existing = (try? String(contentsOf: realCourseTimingURL(), encoding: .utf8)) ?? ""
+        guard !existing.contains("stage=\(stage)\n") else { return }
+        try? Data((existing + line).utf8).write(to: realCourseTimingURL(), options: .atomic)
+    }
+
+    private func writeRealCourseTimingFailure(_ message: String) {
+        try? Data("stage=failed\nmessage=\(message)\n".utf8)
+            .write(to: realCourseTimingURL(), options: .atomic)
     }
 
     private func writeRealCourseMarker(_ name: String, contents: String? = nil) {

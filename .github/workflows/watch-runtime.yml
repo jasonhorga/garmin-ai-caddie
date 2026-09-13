@@ -12,6 +12,7 @@ on:
           - full
           - setup-visual
           - real-course-visual
+          - startup-timing
           - recovery-only
           - web-only
       api_base_url:
@@ -374,6 +375,36 @@ jobs:
           fi
           mkdir -p watch-runtime-artifacts
           JOURNEY_ROUND_ID=""
+
+          if [[ "$WATCH_RUNTIME_SCOPE" == "startup-timing" ]]; then
+            TIMING_CONTAINER=$(xcrun simctl get_app_container "$WATCH_UDID" "$BID" data)
+            rm -f "$TIMING_CONTAINER/Documents/watch-start-timing.txt"
+            launch_started=$(date +%s.%N)
+            env \
+              SIMCTL_CHILD_UITEST_GPS_LAT=40.0454995 \
+              SIMCTL_CHILD_UITEST_GPS_LON=116.5461531 \
+              SIMCTL_CHILD_AI_CADDIE_API_BASE_URL="$REAL_COURSE_API_BASE_URL" \
+              SIMCTL_CHILD_AI_CADDIE_PLAYER_TOKEN="$REAL_COURSE_PLAYER_TOKEN" \
+              xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen real-course-start-timing \
+              | tee watch-runtime-artifacts/launch-real-course-start-timing.txt
+            for _ in $(seq 1 180); do
+              TIMING_CONTAINER=$(xcrun simctl get_app_container "$WATCH_UDID" "$BID" data 2>/dev/null || true)
+              if test -s "$TIMING_CONTAINER/Documents/watch-start-timing.txt"; then
+                break
+              fi
+              sleep 1
+            done
+            test -s "$TIMING_CONTAINER/Documents/watch-start-timing.txt"
+            cp "$TIMING_CONTAINER/Documents/watch-start-timing.txt" \
+              watch-runtime-artifacts/watch-start-timing.txt
+            printf 'ci_launch_epoch=%s\n' "$launch_started" \
+              >> watch-runtime-artifacts/watch-start-timing.txt
+            xcrun simctl io "$WATCH_UDID" screenshot \
+              watch-runtime-artifacts/watch-start-timing.png
+            xcrun simctl terminate "$WATCH_UDID" "$BID"
+            echo "Watch startup timing evidence complete"
+            exit 0
+          fi
 
           if [[ "$WATCH_RUNTIME_SCOPE" != "setup-visual" \
                 && "$WATCH_RUNTIME_SCOPE" != "recovery-only" ]]; then
