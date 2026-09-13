@@ -2006,6 +2006,13 @@ Native runs recorded above; it is retained only as historical diagnosis.
   stopped Apple upload. The successful replacement resolved the revision with
   `git rev-parse`; no duplicate Apple build was created by the failed run.
 
+- 2026-09-13: The temporary remote ref
+  `codex/perf-startup-release-20260913` used to preserve exact TestFlight
+  provenance was deleted after Build 59 Apple/group verification. Candidate
+  container `aicaddie-release-70e74a6e-candidate-20260913`, loopback `39062`,
+  Quick Tunnel and shared data volumes remain intentionally open for physical
+  validation; no other service or resource was removed.
+
 - 2026-09-13: Owner approved the `PERF-STARTUP` slice: implement all reviewed
   startup optimizations except storing every course's full map set offline.
   The implementation must preserve the complete 18-hole facts contract and
