@@ -529,7 +529,7 @@ code; do not restart the old multi-week plan tree.
 fast-start 协议和历史包补齐代码暂时保留为显式迁移/实验路径，默认关闭。障碍物和果岭的后续视觉改动
 暂停到本轮耗时报告完成并由产品选择优化方向。
 
-**Durable execution plan (persisted 2026-09-13 02:10 UTC; measured evidence updated 03:22 UTC):**
+**Durable execution plan (persisted 2026-09-13 02:10 UTC; measured evidence updated 08:45 UTC):**
 1. 已完成：对照 `9132183e` 定位旧 loading 逻辑，给正常新球局关闭 fast-start；历史兼容开关保留。实现与默认路径回归断言已保存于提交 `77f13d20`。
 2. 已完成：在 homeserver 对候选服务测量完整地图加载的逐阶段耗时，覆盖冷/热缓存、请求大小、状态和首屏阻塞关系；证据见下方。
 3. 已完成：整理当前慢速原因、可选优化方向及可验证的 S70 架构对照；没有把 Garmin 未公开的毫秒数据写成事实。
@@ -642,6 +642,34 @@ fallback 参数）；CLI 另记录 31-token 的内部 `claude-haiku-4-5` 辅助�
 预取，A-lite 仅在复测仍超 SLA 时实施，B/E/F 端上计算暂缓。报告定义了首屏、球童 ready、完整
 球场 ready 三个 SLA 及五种冷/热/公网/争用探针。审查未创建容器、卷、端口、隧道或服务；快照
 按 24 小时策略在本轮完成后清理。
+
+**Homeserver Claude Fable 5 max 独立审查（2026-09-13）：** 只读快照
+`/dev/shm/garmin-ai-caddie-fable5-phone-ux4-speed-20260913` 已清理；报告归档于
+`docs/reviews/2026-09-13-claude-fable-5-phone-ux4-speed.md`，源文件 SHA-256
+`8fe6fa6e0d974130edc4d60abee99ebc72d48855285afd29eb05cc86ba866400`。远端原始
+JSON、提示和证据位于
+`/home/jason/garmin-ai-caddie-data/operations/fable5-phone-ux4-speed-20260913/`；
+主模型为 `claude-fable-5`、effort `max`，无 fallback。Fable 独立复核同一组证据：
+`single_stock_no_sequence` 的 18 洞 package 约 `1.095 s`，完整 warm package 约 `12.9 s`
+的主要成本是策略枚举/重复计算；建议先做单次评估与 memo、stats 预热、single-flight 和
+Watch active-hole 优先并发，再考虑拆包/指纹缓存；不建议重新启用已被产品否掉的一洞
+fast-start 作为最终方案。
+
+### Watch startup timing (2026-09-13)
+
+远端 Watch Runtime run `34747551313`（测量分支提交 `ed879184`，候选 API `17ad4e66`，
+Quick Tunnel）成功完成。Apple Watch Series 9 45mm **模拟器**在点开始边界后的单次阶段值为：
+本地 round shell `63 ms`；首洞事实 `1.369 s`；首洞可绘地图 `1.375 s`
+（coverage=`partial`）；球童状态 `1.376 s`（该捕获的 options=0，不能当作完整多方案已就绪）；
+完整 18 洞精确课程 `85.245 s`。详细口径、artifact digest 和局限见
+`docs/reviews/2026-09-13-watch-start-timing.md`。这不是实体 Watch、不是 S70 对比数字，也
+不是 p50/p95；S70 仍没有公开可复现的逐阶段秒数，必须用同一 ready 事件在实体设备上重复
+测量后再比较。
+
+**当前待产品选择：** 优先建议先实施 D+（每洞策略单次评估、`_sequence_tail`/
+`_club_stability_cost` memo）和 stats 预热，再复测首屏/球童/完整课程三个 SLA；若完整课程尾部
+仍超目标，再决定是否做轻量事实包 + 后台 seed、持久化指纹缓存或本地 CourseView 资源。没有
+收到方向前不改生产算法、不重启 fast-start 默认路径，也不上传新的 TestFlight。
 
 本轮承接 `PHONE-UX2` 的实体反馈，处理五个相互关联的产品问题：外层球道图放大拖动必须
 与目标点测距页一样实时跟手；障碍详情在缩放后要把地图、真实轮廓和固定尺寸的红点/距离
