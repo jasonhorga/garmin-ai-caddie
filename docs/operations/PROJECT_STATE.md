@@ -530,10 +530,13 @@ fast-start 协议和历史包补齐代码暂时保留为显式迁移/实验路�
 暂停到本轮耗时报告完成并由产品选择优化方向。
 
 **Durable execution plan (persisted 2026-09-13 02:10 UTC; measured evidence updated 03:22 UTC):**
-1. 已完成：对照 `9132183e` 定位旧 loading 逻辑，给正常新球局关闭 fast-start；历史兼容开关保留。
+1. 已完成：对照 `9132183e` 定位旧 loading 逻辑，给正常新球局关闭 fast-start；历史兼容开关保留。实现与默认路径回归断言已保存于提交 `77f13d20`。
 2. 已完成：在 homeserver 对候选服务测量完整地图加载的逐阶段耗时，覆盖冷/热缓存、请求大小、状态和首屏阻塞关系；证据见下方。
 3. 已完成：整理当前慢速原因、可选优化方向及可验证的 S70 架构对照；没有把 Garmin 未公开的毫秒数据写成事实。
 4. 待产品选择后：再实施选定优化、运行 Native gate，并按既定规则自动上传内部 TestFlight；本阶段不启动新的上传。
+
+本轮提交后的验证边界：`git diff --check` 已通过；控制机没有 Xcode，因此未在本轮重跑
+Native Mobile gate。未上传 TestFlight，原因是当前切片只恢复旧路径并提供耗时证据，优化方向仍待产品选择。
 
 ### PHONE-UX4 loading measurement (2026-09-13)
 
