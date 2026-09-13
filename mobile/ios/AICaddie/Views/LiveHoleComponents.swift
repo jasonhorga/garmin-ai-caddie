@@ -1072,11 +1072,12 @@ struct LiveMapGreenDistanceOverlay: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .frame(width: 126, alignment: .leading)
-        .background(Color.black.opacity(0.67), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.white.opacity(0.16)))
-        .shadow(color: .black.opacity(0.38), radius: 5, y: 3)
+        .padding(.vertical, 5)
+        .frame(width: 112, alignment: .leading)
+        // Garmin's range instrument is text-first. A light shadow keeps the numbers legible while
+        // leaving the fairway visible underneath instead of placing a large opaque black tile on it.
+        .background(Color.black.opacity(0.16), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .shadow(color: .black.opacity(0.72), radius: 2, y: 1)
         .accessibilityHint(isLive ? "果岭数值根据当前位置实时计算。" : "果岭数值来自发球台到果岭的静态参考，不代表当前位置；可用于球童推荐。")
     }
 
@@ -1115,9 +1116,9 @@ struct LiveMapHazardRangeOverlay: View {
     let viewportSize: CGSize
 
     private var tint: Color {
-        kind == "water"
-            ? Color(red: 0.18, green: 0.58, blue: 0.94)
-            : Color(red: 0.95, green: 0.77, blue: 0.28)
+        // Boundary points are selection annotations, not a second hazard fill. Use one compact red
+        // language for both water and bunker so the underlying course material remains readable.
+        Color(red: 0.95, green: 0.16, blue: 0.14)
     }
 
     var body: some View {
@@ -1152,8 +1153,7 @@ struct LiveMapHazardRangeOverlay: View {
     private func boundaryMarker(at point: CGPoint) -> some View {
         Circle()
             .fill(tint)
-            .frame(width: 6, height: 6)
-            .overlay(Circle().stroke(Color.black.opacity(0.85), lineWidth: 0.8))
+            .frame(width: 5, height: 5)
             .position(point)
     }
 }
@@ -1276,6 +1276,51 @@ enum LiveHazardFocusRingLayout {
         return CGPoint(
             x: min(max(x, minX), maxX),
             y: min(max(y, minY), maxY)
+        )
+    }
+
+    /// Place a boundary label outside the selected polygon after the map transform has been
+    /// applied. A fixed side offset is not enough for curved bunkers: the centroid-facing vector
+    /// gives each edge its actual outward direction and keeps the text off the sand.
+    static func outsideLabelCenter(
+        for point: CGPoint,
+        isFront: Bool,
+        outline: [CGPoint],
+        viewportSize: CGSize
+    ) -> CGPoint {
+        guard !outline.isEmpty else {
+            return labelCenter(for: point, isFront: isFront, viewportSize: viewportSize)
+        }
+        let centroid = CGPoint(
+            x: outline.map(\.x).reduce(0, +) / CGFloat(outline.count),
+            y: outline.map(\.y).reduce(0, +) / CGFloat(outline.count)
+        )
+        var dx = point.x - centroid.x
+        var dy = point.y - centroid.y
+        let length = hypot(dx, dy)
+        if length < 0.001 {
+            dx = point.x <= viewportSize.width / 2 ? -1 : 1
+            dy = isFront ? -0.35 : 0.35
+        } else {
+            dx /= length
+            dy /= length
+        }
+        // Separate front/back labels slightly along the perpendicular so a narrow hazard does not
+        // make the two compact black tags overlap.
+        let perpendicular = CGPoint(x: -dy, y: dx)
+        let separation: CGFloat = isFront ? -2.5 : 2.5
+        let gap: CGFloat = 12
+        let desired = CGPoint(
+            x: point.x + dx * gap + perpendicular.x * separation,
+            y: point.y + dy * gap + perpendicular.y * separation
+        )
+        let minX = labelWidth / 2 + 4
+        let maxX = max(minX, viewportSize.width - labelWidth / 2 - 4)
+        let minY = labelHeight / 2 + 4
+        let maxY = max(minY, viewportSize.height - labelHeight / 2 - 4)
+        return CGPoint(
+            x: min(max(desired.x, minX), maxX),
+            y: min(max(desired.y, minY), maxY)
         )
     }
 }

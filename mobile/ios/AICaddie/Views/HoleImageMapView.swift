@@ -421,12 +421,14 @@ public struct HoleImageMapView: View {
             span.move(to: front)
             span.addLine(to: back)
             let color = detail.kind == "water"
-                ? Color(red: 0.18, green: 0.58, blue: 0.88)
-                : Color(red: 0.88, green: 0.76, blue: 0.48)
+                ? Color(red: 0.95, green: 0.28, blue: 0.24)
+                : Color(red: 0.95, green: 0.28, blue: 0.24)
             context.stroke(
                 span,
-                with: .color(color.opacity(0.95)),
-                style: StrokeStyle(lineWidth: detail.kind == "water" ? 14 : 12, lineCap: .round)
+                with: .color(color.opacity(0.9)),
+                // Partial geometry only knows the route span. Keep it as a small factual cue until
+                // the precise polygon arrives; the old 12–14 px stroke read as a solid red bunker.
+                style: StrokeStyle(lineWidth: 1.25, lineCap: .round, dash: [4, 3])
             )
         }
 

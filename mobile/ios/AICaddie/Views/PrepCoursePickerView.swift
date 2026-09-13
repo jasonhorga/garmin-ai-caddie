@@ -57,6 +57,7 @@ public struct PrepCoursePickerView: View {
             dismissAfterSelection: false,
             installedGlobalIds: [],
             installedCourseKeys: installedCourseKeys,
+            knownCourseOptions: courseOptions + downloadedCourseOptions,
             retainedDownloads: visibleDownloads,
             validatingDownloadID: validatingDownloadID,
             onSearch: searchCourses,

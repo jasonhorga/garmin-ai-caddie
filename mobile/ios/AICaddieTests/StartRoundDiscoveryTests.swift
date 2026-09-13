@@ -318,6 +318,28 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(match.subtitle, "顺义区 · 北京市 · 18 洞")
     }
 
+    func testNearbyCourseAliasesAndChineseSourceWinOverEnglishDuplicate() {
+        XCTAssertEqual(
+            MobileCourseDisplayLocalization.courseName("Red Flag Valley Golf Club"),
+            "红旗谷高尔夫球场"
+        )
+        XCTAssertEqual(
+            MobileCourseDisplayLocalization.courseName("West Park Golf & Country Club"),
+            "西郊高尔夫俱乐部"
+        )
+        XCTAssertEqual(
+            MobileCourseDisplayLocalization.courseName("Bangchuidao Golf Club"),
+            "棒棰岛高尔夫球场"
+        )
+        XCTAssertEqual(
+            MobileCourseDisplayLocalization.preferredCourseName(
+                ["Red Flag Valley Golf Club", "红旗谷高尔夫球场"],
+                globalId: 42_001
+            ),
+            "红旗谷高尔夫球场"
+        )
+    }
+
     func testRoundDisplayNameRetainsSingleAndCompositeLoopIdentity() {
         let loopA = MobileCourseOption(
             globalId: 31783,

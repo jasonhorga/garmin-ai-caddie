@@ -212,6 +212,7 @@ public struct StartRoundView: View {
                     // otherwise race SwiftUI's state transaction and lose the selected row.
                     dismissAfterSelection: false,
                     installedGlobalIds: Set(downloadedCourseOptions.map(\.globalId)),
+                    knownCourseOptions: courseOptions + downloadedCourseOptions,
                     onSearch: { query, city in
                         let coordinate = locationProvider.latestFix?.coordinate
                         return try await onSearchCourses(
@@ -1114,11 +1115,11 @@ public struct StartRoundView: View {
             names: [Optional(provider.name), catalogue?.name, downloaded?.name],
             segmentHoles: segmentHoles
         )
-        let retainedName = firstNonEmpty([
+        let retainedName = MobileCourseDisplayLocalization.preferredCourseName([
             catalogue?.name,
             Optional(provider.name),
             downloaded?.name,
-        ]) ?? venue
+        ], globalId: provider.globalId, fallback: venue)
         let displayName = label.map { "\(venue) ~ \($0)" } ?? retainedName
         let facts = catalogue ?? downloaded ?? provider
         let tees = firstNonEmptyList([catalogue?.tees, downloaded?.tees, provider.tees])

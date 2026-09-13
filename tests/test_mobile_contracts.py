@@ -2145,7 +2145,7 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn("geometryRevision: String? = nil", sync_client)
         self.assertIn("api/v2/courses/\\(globalId)/holes/\\(localHole)/topo.png", sync_client)
-        self.assertIn('public static let topoStyleVersion = "topo-v10"', sync_client)
+        self.assertIn('public static let topoStyleVersion = "topo-v11"', sync_client)
         self.assertIn('URLQueryItem(name: "v", value: topoStyleVersion)', sync_client)
         self.assertIn("TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)", hole_map_view)
         self.assertIn(
@@ -2160,7 +2160,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("baseURL: caddieBaseURL", current_hole)
         self.assertIn("geometryRevision: geometryRevision", current_hole)
         self.assertIn('"live-hole-map-partial"', current_hole)
-        self.assertIn("LiveMapPreparingSurface(holeNumber: holePrep.hole)", current_hole)
+        # Partial geometry must still expose the factual route/obstacle map. The old contract
+        # asserted a full opaque preparing surface here, which made the first hole look blank
+        # while the precise renderer and caddie request were still running.
+        self.assertIn("HoleImageMapView(hole: holePrep", current_hole)
+        self.assertIn("showsHazards: true", current_hole)
+        self.assertNotIn("LiveMapPreparingSurface(holeNumber: holePrep.hole)", current_hole)
         self.assertIn('accessibilityIdentifier("live-map-preparing-surface")', live_hole_components)
 
     def test_topo_style_version_invalidates_phone_watch_caches_and_transfers(self) -> None:
@@ -2177,7 +2182,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIsNotNone(watch_version)
         assert phone_version is not None and watch_version is not None
         self.assertEqual(phone_version.group(1), watch_version.group(1))
-        self.assertEqual(phone_version.group(1), "topo-v10")
+        self.assertEqual(phone_version.group(1), "topo-v11")
 
         phone_green_version = re.search(
             r'public static let greenDetailStyleVersion = "([^"]+)"', sync_client

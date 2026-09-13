@@ -242,7 +242,12 @@ public struct CurrentHoleView: View {
         let restoredClub = restoredHoleState.map { Self.normalizedSelectedClub($0.selectedClub) } ?? ""
         self._selectedClub = State(initialValue: restoredClub)
         self._hasUserSelectedClub = State(initialValue: !restoredClub.isEmpty)
-        self._selectedShotType = State(initialValue: restoredHoleState?.selectedShotType ?? seed?.shotTypes.first ?? "approach")
+        // A fresh hole starts from the tee even when an older seed happens to list approach first.
+        // The recorded event log remains authoritative for resumed holes.
+        let initialShotType = restoredHoleState?.selectedShotType
+            ?? seed?.shotTypes.first(where: { $0.caseInsensitiveCompare("tee") == .orderedSame })
+            ?? "tee"
+        self._selectedShotType = State(initialValue: initialShotType)
         self._selectedStrategyMode = State(initialValue: restoredHoleState?.selectedStrategyMode ?? "stock")
         self._distanceToPinText = State(initialValue: Self.validDistanceText(restoredHoleState?.distanceToPinM))
         self._selectedLie = State(initialValue: restoredHoleState?.lie ?? "fairway")
@@ -779,30 +784,16 @@ public struct CurrentHoleView: View {
         .frame(height: liveHeroHeight)
     }
 
-    /// The map, factual overlays, and live markers share one transform. Keeping this as a single
-    /// visual plane prevents hazard labels or the GPS point from drifting away from the bitmap when
-    /// the player pinches the live map.
+    /// The course bitmap and GPS marker share one transform. Fixed-size instruments stay in the
+    /// viewport plane so zooming cannot turn the distance panel into a giant opaque map blocker.
     private var heroMapVisual: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
-                liveMapBackdrop
-                    .padding(.top, LivePlayMapOverlayLayout.liveMapTopInset)
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
                 ZStack {
-                    LiveMapGreenDistanceOverlay(
-                        frontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
-                        middleYards: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
-                        backYards: liveGreenYards?.back ?? greenYards(liveGreenDistances?.backM),
-                        toPinYards: displayedTargetYards,
-                        isLive: isGreenRangeLive
-                    )
-                    .position(x: min(118, geo.size.width * 0.31), y: 137)
-
-                    if isPreciseHoleMapPending {
-                        LiveMapPreparingPill()
-                            .position(x: geo.size.width * 0.5, y: geo.size.height * 0.88)
-                    }
+                    liveMapBackdrop
+                        .padding(.top, LivePlayMapOverlayLayout.liveMapTopInset)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
                     if let player = livePlayerTarget(in: geo.size) {
                         LivePlayerPositionMarker()
                             .position(player)
@@ -810,10 +801,26 @@ public struct CurrentHoleView: View {
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
                 .allowsHitTesting(false)
+                .scaleEffect(heroDisplayedMapScale)
+                .offset(heroDisplayedMapOffset(in: geo.size))
+
+                LiveMapGreenDistanceOverlay(
+                    frontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
+                    middleYards: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
+                    backYards: liveGreenYards?.back ?? greenYards(liveGreenDistances?.backM),
+                    toPinYards: displayedTargetYards,
+                    isLive: isGreenRangeLive
+                )
+                .position(x: min(max(88, geo.size.width * 0.22), 112), y: 112)
+                .allowsHitTesting(false)
+
+                if isPreciseHoleMapPending {
+                    LiveMapPreparingPill()
+                        .position(x: geo.size.width * 0.5, y: geo.size.height * 0.88)
+                        .allowsHitTesting(false)
+                }
             }
             .frame(width: geo.size.width, height: geo.size.height)
-            .scaleEffect(heroDisplayedMapScale)
-            .offset(heroDisplayedMapOffset(in: geo.size))
             .animation(nil, value: heroMapTransientDragOffset)
         }
         .frame(height: liveHeroHeight)
@@ -1044,20 +1051,14 @@ public struct CurrentHoleView: View {
 
     /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时回退暗色渐变占位。
     @ViewBuilder private var liveMapBackdrop: some View {
-        if let holePrep, isPreciseHoleMapPending {
-            // The one-hole fast-start package is intentionally useful before prodgeometry arrives,
-            // but its coarse route/hazard strokes are not a finished visual map. Keep the first
-            // screen calm while the exact bitmap is fetched; the surrounding caddie and green
-            // distance instruments remain live and the same map slot swaps in place when ready.
-            LiveMapPreparingSurface(holeNumber: holePrep.hole)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("live-hole-map-partial")
-        } else if let holePrep, holePrep.resolvedMapOverlay != nil {
+        if let holePrep, holePrep.resolvedMapOverlay != nil {
+            // CourseView's partial vectors are already a useful factual map. Show them immediately
+            // while the precise bitmap is prepared; only the decorative upgrade is deferred.
             HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
                              pinOverlayPixel: effectiveMapPinPixel,
                              topoURL: liveTopoURL, showsCardChrome: false,
-                             showsRecommendedRoute: true,
-                             showsHazards: false,
+                             showsRecommendedRoute: caddieDecision != nil,
+                             showsHazards: true,
                              showsPrepClubLabel: false,
                              showsClubLabel: false,
                              teeDistanceArcYards: showsTeeDistanceArc ? teeDistanceArcYards : nil)
@@ -1906,20 +1907,24 @@ public struct CurrentHoleView: View {
 
     @MainActor
     private func loadCurrentHole() async {
-        let canPollForPreciseMap = await loadHoleMap()
-        guard !Task.isCancelled else {
-            return
-        }
         // Sync the selected club to the recommendation on a fresh hole; a hole the player already
         // recorded keeps their actual choice.
         let alreadyRecorded = liveRoundState?.holeState(for: hole.number)?.selectedClub.isEmpty == false
-        await loadCaddieDecision(
-            // A CourseView partial map still carries the authoritative tee/club context needed for
-            // the first recommendation. Do not leave the opening screen without a default Driver
-            // while the heavier prodgeometry bitmap is being fetched; the precise refresh below will
-            // reconcile the same selection once it arrives.
-            syncClub: !alreadyRecorded && !hasUserSelectedClub
-        )
+        let syncClub = !alreadyRecorded && !hasUserSelectedClub
+        let canPollForPreciseMap: Bool
+        if holePrep != nil {
+            // The package already contains the factual route/F-M-B context. Start the refresh in
+            // parallel, but let the first caddie response use that context immediately instead of
+            // making the player wait for a second prep GET/render request.
+            let mapTask = Task { await loadHoleMap() }
+            await loadCaddieDecision(syncClub: syncClub)
+            canPollForPreciseMap = await mapTask.value
+        } else {
+            canPollForPreciseMap = await loadHoleMap()
+            guard !Task.isCancelled else { return }
+            await loadCaddieDecision(syncClub: syncClub)
+        }
+        guard !Task.isCancelled else { return }
         #if DEBUG
         UITestEventLatencyTrace.record(
             "live-hole.initial-load-finished hole=\(hole.number) course=\(package.course.globalId)"
@@ -1944,6 +1949,13 @@ public struct CurrentHoleView: View {
         }
         #endif
         guard let caddieBaseURL else {
+            return false
+        }
+        // A ready retained package is already the authoritative map for this hole. Avoid paying a
+        // duplicate prep request during navigation; precise asset delivery remains an auxiliary
+        // Watch/cache task owned by retainThenPublishHolePrep.
+        if holePrep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
+           holePrep?.resolvedMapOverlay != nil {
             return false
         }
         // 每洞用自己的 source 球场 + 本地洞号(组合局后九在第二个环的 gid)。
@@ -3212,6 +3224,13 @@ public struct CurrentHoleView: View {
         UITestEventLatencyTrace.record("actual-club.handle.end hole=\(hole.number)")
         #endif
         pendingPhoneShot = nil
+        // The first recorded location is the opening tee shot. Subsequent advice must be based on
+        // the new lie/remaining distance instead of re-running the tee plan with the same driver.
+        if pendingShot.shotOrder == 1 {
+            selectedShotType = "approach"
+            selectedLie = "fairway"
+            Task { await loadCaddieDecision(syncClub: !hasUserSelectedClub) }
+        }
     }
 
     private func distanceToPinPayload() -> JSONValue {

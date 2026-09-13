@@ -2635,9 +2635,10 @@ public final class OfflineStore {
     }
 
     private func defaultShotType(package: LiveRoundPackage, hole: Int) -> String {
-        package.caddieContextSeeds.first { seed in
+        let types = package.caddieContextSeeds.first { seed in
             seed.hole == hole
-        }?.shotTypes.first ?? "approach"
+        }?.shotTypes ?? []
+        return types.first(where: { $0.caseInsensitiveCompare("tee") == .orderedSame }) ?? "tee"
     }
 
     private func numberPayload(_ key: String, in payload: [String: JSONValue]) -> Double? {

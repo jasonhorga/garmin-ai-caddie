@@ -38,6 +38,18 @@ public enum MobileCourseDisplayLocalization {
         "aoyuan sports club": "奥园体育俱乐部",
         "nicklaus club beijing": "北京尼克劳斯俱乐部",
         "beijing orient tianxing country club": "北京东方天星乡村俱乐部",
+        // Nearby CourseView rows sometimes arrive only with their English provider label. These
+        // three venues are already present in the player's catalogue/history, so keep one stable
+        // presentation alias regardless of whether the matching map package is downloaded yet.
+        "red flag valley golf club": "红旗谷高尔夫球场",
+        "red flag valley golf course": "红旗谷高尔夫球场",
+        "red flag valley": "红旗谷高尔夫球场",
+        "west park golf & country club": "西郊高尔夫俱乐部",
+        "west park golf and country club": "西郊高尔夫俱乐部",
+        "west park golf club": "西郊高尔夫俱乐部",
+        "bangchuidao golf club": "棒棰岛高尔夫球场",
+        "bangchuidao golf course": "棒棰岛高尔夫球场",
+        "bangchuidao": "棒棰岛高尔夫球场",
     ]
 
     private static let areaAliases: [String: String] = [
@@ -86,6 +98,27 @@ public enum MobileCourseDisplayLocalization {
             return nil
         }
         return areaAliases[normalized(value)] ?? value
+    }
+
+    /// Prefer an already-provided Chinese course name when several sources describe the same
+    /// global id. Provider/nearby rows are often English while a downloaded/history row already
+    /// carries the player's Chinese label; the latter must win without translating unknown venues.
+    public static func preferredCourseName(
+        _ rawNames: [String?],
+        globalId: Int? = nil,
+        fallback: String = "未知球场"
+    ) -> String {
+        let localized = rawNames.compactMap { raw -> String? in
+            guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return courseName(raw, globalId: globalId)
+        }
+        return localized.first(where: containsChinese) ?? localized.first ?? fallback
+    }
+
+    private static func containsChinese(_ value: String) -> Bool {
+        value.unicodeScalars.contains { scalar in
+            (0x3400...0x4DBF).contains(scalar.value) || (0x4E00...0x9FFF).contains(scalar.value)
+        }
     }
 
     private static func normalized(_ value: String) -> String {

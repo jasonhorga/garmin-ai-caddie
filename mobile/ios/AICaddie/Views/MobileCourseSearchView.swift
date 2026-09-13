@@ -17,6 +17,9 @@ public struct MobileCourseSearchView: View {
     public let dismissAfterSelection: Bool
     public let installedGlobalIds: Set<Int>
     public let installedCourseKeys: Set<String>?
+    /// Parent catalogue/download rows are the most authoritative presentation source for a global
+    /// id. Nearby/search responses can be provider-English even after the app has a Chinese row.
+    public let knownCourseOptions: [MobileCourseOption]
     public let retainedDownloads: [PrepCourseDownloadRecord]
     public let validatingDownloadID: String?
     public let onSearch: (String, String?) async throws -> [MobileCourseSearchMatch]
@@ -59,6 +62,7 @@ public struct MobileCourseSearchView: View {
         dismissAfterSelection: Bool = true,
         installedGlobalIds: Set<Int> = [],
         installedCourseKeys: Set<String>? = nil,
+        knownCourseOptions: [MobileCourseOption] = [],
         retainedDownloads: [PrepCourseDownloadRecord] = [],
         validatingDownloadID: String? = nil,
         onSearch: @escaping (String, String?) async throws -> [MobileCourseSearchMatch],
@@ -74,6 +78,7 @@ public struct MobileCourseSearchView: View {
         self.dismissAfterSelection = dismissAfterSelection
         self.installedGlobalIds = installedGlobalIds
         self.installedCourseKeys = installedCourseKeys
+        self.knownCourseOptions = knownCourseOptions
         self.retainedDownloads = retainedDownloads
         self.validatingDownloadID = validatingDownloadID
         self.onSearch = onSearch
@@ -212,7 +217,7 @@ public struct MobileCourseSearchView: View {
                                 Image(systemName: match.courseOption == nil ? "exclamationmark.triangle" : "flag.fill")
                                     .foregroundStyle(match.courseOption == nil ? .orange : LiveHoleStyle.green)
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(match.displayName)
+                                    Text(displayName(for: match))
                                         .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(.primary)
                                     Text(match.subtitle)
@@ -381,6 +386,22 @@ public struct MobileCourseSearchView: View {
             teeBox: tee?.isEmpty == false ? tee! : "blue",
             nine: "all"
         ))
+    }
+
+    private func displayName(for match: MobileCourseSearchMatch) -> String {
+        // Prefer a catalogue/download row with the same global id. This fixes the subtle state
+        // split where a downloaded row was Chinese but the fresh nearby row was English.
+        let knownNames = knownCourseOptions
+            .filter { $0.globalId == match.globalId }
+            .map { Optional($0.name) }
+        if !knownNames.isEmpty {
+            return MobileCourseDisplayLocalization.preferredCourseName(
+                knownNames + [match.name],
+                globalId: match.globalId,
+                fallback: match.displayName
+            )
+        }
+        return match.displayName
     }
 
     private func retainedDownloadIsInstalled(_ download: PrepCourseDownloadRecord) -> Bool {

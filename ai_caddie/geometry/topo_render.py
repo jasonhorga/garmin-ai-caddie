@@ -59,7 +59,9 @@ from ai_caddie.geometry.geometry_authority import authority_path, cache_token
 # topo-v2: fill-the-frame projection (#233) — the hole now fills the height (FRAME_H=1060, variable
 # width) instead of floating small in a fixed 720x1120 letterbox. Bump so the pre-#233 cached PNGs
 # are superseded and every hole re-renders with the tighter framing.
-STYLE_VERSION = "topo-v10"  # v10: dynamic client flag; no baked marker/rings/crosshair overlays
+# v11: factual course surfaces only; decorative turf/checker/sand grain is intentionally omitted so
+# green and bunker geometry stays legible when the phone zooms and render work is cheaper.
+STYLE_VERSION = "topo-v11"
 # The focused asset is a separate cache contract from the whole-hole bitmap.  Bump this when its
 # crop/compositing treatment changes; otherwise an installed Watch can keep the old, green-only
 # tile forever even though the server has learned to render a sharp surrounding apron.
@@ -430,87 +432,15 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         m = mask[..., None]
         np.copyto(base, base * (1 - m) + np.clip(base * lum, 0, 255) * m)
 
-    # ---- rough: two-tone fbm mottle + fine tufts ----
-    a_rough = alpha("Rough")
-    a_tree = alpha("TreeArea")
-    if a_rough is not None or a_tree is not None:
-        rough_all = np.clip((a_rough if a_rough is not None else 0) +
-                            (a_tree if a_tree is not None else 0), 0, 1)
-        n = _fbm(w, h, gid * 7 + 11, octaves=5, base_cells=5, persistence=0.58)
-        nf = _fbm(w, h, gid * 7 + 23, octaves=3, base_cells=30, persistence=0.5)
-        g = np.clip((n - 0.5) * 1.55 + 0.5, 0, 1)[..., None]
-        rc = PAL["rough_lo"] * (1 - g) + PAL["rough_hi"] * g
-        rc = np.clip(rc * (1 + 0.085 * (nf - 0.5) * 2)[..., None], 0, 255)
-        blend(rough_all, rc)
-        del rough_all, n, nf, g, rc
-    del a_rough, a_tree
+    # Material masks are deliberately rendered flat. Older versions added several full-frame
+    # noise passes here; on a phone those patterns read as unexplained stripes/grass and consumed
+    # most of the cold render time.
 
     # Coordinate rasters are shared only by the mow/checker/water passes.  Build them after the
     # rough pass instead of retaining them beside every material alpha mask.
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
 
-    # ---- fairway mow stripes (hard diagonal bands, +6% only) + fine turf grain ----
-    a_fair = alpha("Fairway")
-    if a_fair is not None:
-        th = math.radians(35)
-        coord = xx * math.cos(th) + yy * math.sin(th)
-        period = 40.0 * SS
-        band = np.floor(coord / (period / 2.0)) % 2
-        mul(a_fair, (1.0 + 0.06 * band)[..., None])
-        fg = _fbm(w, h, gid * 7 + 41, octaves=4, base_cells=20, persistence=0.5)
-        mul(a_fair, (1.0 + 0.035 * (fg - 0.5) * 2)[..., None])
-        del coord, band, fg
-    del a_fair
-
-    # ---- green + fringe: manicured checker ----
-    for material in ("Fringe", "Green"):
-        gm = alpha(material)
-        if gm is None:
-            continue
-        cell = 19.0 * SS
-        c1 = 0.5 + 0.5 * np.sin(2 * math.pi * (xx + yy) / cell)
-        c2 = 0.5 + 0.5 * np.sin(2 * math.pi * (xx - yy) / cell)
-        checker = c1 * c2
-        mul(gm, (1 + 0.13 * (checker - 0.32))[..., None])
-        del gm, c1, c2, checker
     del xx
-
-    # ---- bunker: sand grain + raked inner-edge depth shadow ----
-    bmask = mask_L("Bunker")
-    a_bunker = alpha("Bunker")
-    if bmask is not None and a_bunker is not None:
-        grain = _fbm(w, h, gid * 7 + 53, octaves=4, base_cells=55, persistence=0.5)
-        base += ((grain - 0.5) * 2 * 9.0)[..., None] * a_bunker[..., None]
-        ksize = int(6 * SS) | 1
-        er = bmask.filter(ImageFilter.MinFilter(ksize))
-        ring = ImageChops.subtract(bmask, er).filter(ImageFilter.GaussianBlur(2.2 * SS))
-        rim = np.asarray(ring, np.float32) / 255.0
-        base -= (rim * 30.0)[..., None]
-        depth = np.asarray(bmask.filter(ImageFilter.GaussianBlur(15 * SS)), np.float32) / 255.0
-        base += ((depth - 0.5) * 10.0)[..., None] * a_bunker[..., None]
-        del grain, er, ring, rim, depth
-    del a_bunker, bmask
-
-    # ---- decoded coast: warm beach grain + muted rock variation (never leave bg-blue holes) ----
-    a_beach = alpha("Beach")
-    if a_beach is not None:
-        beach_grain = _fbm(w, h, gid * 7 + 67, octaves=4, base_cells=42, persistence=0.5)
-        base += ((beach_grain - 0.5) * 2 * 8.0)[..., None] * a_beach[..., None]
-        del beach_grain
-    del a_beach
-    a_cliff = alpha("Cliff")
-    a_cliff_uv = alpha("CliffUV2")
-    if a_cliff is not None or a_cliff_uv is not None:
-        cliff_all = np.clip(
-            (a_cliff if a_cliff is not None else 0) +
-            (a_cliff_uv if a_cliff_uv is not None else 0),
-            0,
-            1,
-        )
-        rock = _fbm(w, h, gid * 7 + 71, octaves=4, base_cells=24, persistence=0.55)
-        mul(cliff_all, (0.91 + 0.17 * rock)[..., None])
-        del cliff_all, rock
-    del a_cliff, a_cliff_uv
 
     # ---- hillshade over land; DAMPED on mown surfaces so the fairway/green stay evenly flat-lit ----
     mown_L = Image.new("L", (w, h), 0)

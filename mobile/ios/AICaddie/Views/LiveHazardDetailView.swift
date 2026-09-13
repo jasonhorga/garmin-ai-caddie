@@ -584,63 +584,12 @@ struct LiveHazardDetailView: View {
         #endif
     }
 
-    /// Draw only the factual obstacle shape in the transformed map plane. Edge points and labels
-    /// are rendered separately so they retain a stable screen size while the map zooms.
+    /// The outline and edge annotations are both rendered in the fixed viewport layer below. Keeping
+    /// this map plane free of strokes prevents a 3x zoom from turning a 1 px boundary into a red bar.
     private func drawSelectedHazardGeometry(_ context: inout GraphicsContext, size: CGSize) {
-        guard let row = selectedHazard,
-              let overlay = hole.resolvedMapOverlay else { return }
-
-        let front = hazardPoint(
-            pixels: row.frontPx,
-            routeMetres: row.frontRouteM,
-            overlay: overlay,
-            size: size
-        )
-        let back = hazardPoint(
-            pixels: row.backPx,
-            routeMetres: row.backRouteM,
-            overlay: overlay,
-            size: size
-        )
-        // An outline is already in the topo-pixel frame. Never interpolate malformed outline
-        // points along the route: doing so can draw a false segment at the tee. Only the legacy
-        // front/back markers are allowed to use route interpolation below.
-        let outlinePoints = row.outlinePx.compactMap {
-            projectedHazardPixelPoint(pixels: $0, overlay: overlay, size: size)
-        }
-
-        // Precise prep carries the ordered mesh boundary. Follow it directly with a compact red
-        // line. A black halo used to swallow small bunkers at 3–4x zoom. Older packages have only
-        // two edge points, so use a restrained fallback ring without claiming exact geometry.
-        if outlinePoints.count >= 3 {
-            var outline = Path()
-            outline.move(to: outlinePoints[0])
-            for point in outlinePoints.dropFirst() {
-                outline.addLine(to: point)
-            }
-            outline.closeSubpath()
-            context.fill(outline, with: .color(Color(red: 0.95, green: 0.16, blue: 0.14).opacity(0.08)))
-            context.stroke(
-                outline,
-                with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)),
-                style: StrokeStyle(lineWidth: 2.5, lineJoin: .round)
-            )
-        } else if let ring = LiveHazardFocusRingLayout.rect(
-            front: front,
-            back: back,
-            viewportSize: size
-        ) {
-            let focus = Path(ellipseIn: ring.insetBy(dx: 3, dy: 3))
-            context.fill(
-                focus,
-                with: .color(Color(red: 0.95, green: 0.16, blue: 0.14).opacity(0.06))
-            )
-            context.stroke(
-                focus,
-                with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)),
-                style: StrokeStyle(lineWidth: 2.5)
-            )
-        }
+        // Intentionally empty; see `drawSelectedHazardAnnotations` for the fixed-pixel outline.
+        _ = context
+        _ = size
     }
 
     private func drawSelectedHazardAnnotations(
@@ -665,6 +614,30 @@ struct LiveHazardDetailView: View {
         )
         let front = baseFront.flatMap { transformed($0, in: size, scale: scale, offset: offset) }
         let back = baseBack.flatMap { transformed($0, in: size, scale: scale, offset: offset) }
+
+        let outline = row.outlinePx.compactMap { point -> CGPoint? in
+            guard let projected = projectedHazardPixelPoint(pixels: point, overlay: overlay, size: size) else {
+                return nil
+            }
+            return transformed(projected, in: size, scale: scale, offset: offset)
+        }
+        let red = Color(red: 0.95, green: 0.16, blue: 0.14)
+        if outline.count >= 3 {
+            var path = Path()
+            path.move(to: outline[0])
+            for point in outline.dropFirst() { path.addLine(to: point) }
+            path.closeSubpath()
+            // The canvas itself is not scaled, so this stays ~1 px at every map zoom.
+            context.stroke(path, with: .color(red), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
+        } else if let ring = LiveHazardFocusRingLayout.rect(
+            front: front,
+            back: back,
+            viewportSize: size
+        ) {
+            let focus = Path(ellipseIn: ring.insetBy(dx: 2, dy: 2))
+            context.stroke(focus, with: .color(red), style: StrokeStyle(lineWidth: 1.2))
+        }
+
         let edgeLabels: [(CGPoint?, String, Int?)] = [
             (front, "前", row.frontYards),
             (back, "后", row.backYards),
@@ -674,9 +647,10 @@ struct LiveHazardDetailView: View {
             // One small red point is enough; the previous white halo hid the actual boundary.
             let marker = Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7))
             context.fill(marker, with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)))
-            let labelCenter = LiveHazardFocusRingLayout.labelCenter(
+            let labelCenter = LiveHazardFocusRingLayout.outsideLabelCenter(
                 for: point,
                 isFront: label == "前",
+                outline: outline,
                 viewportSize: size
             )
             let labelText = yards.map { "\(label) \($0)" } ?? label
@@ -689,7 +663,7 @@ struct LiveHazardDetailView: View {
             )
             context.fill(
                 Path(roundedRect: labelRect, cornerRadius: 5),
-                with: .color(.black.opacity(0.72))
+                with: .color(.black.opacity(0.64))
             )
             context.draw(
                 Text(labelText)
