@@ -1123,7 +1123,9 @@ public struct StartRoundView: View {
         let label = resolvedSegmentLabel(
             explicit: [provider.segmentLabel, catalogue?.segmentLabel, downloaded?.segmentLabel],
             names: [Optional(provider.name), catalogue?.name, downloaded?.name],
-            segmentHoles: segmentHoles
+            segmentHoles: segmentHoles,
+            allowCompositePrefix: segmentHoles == 9
+                && (catalogue?.resolvedHoles == 9 || downloaded?.resolvedHoles == 9)
         )
         let retainedName = GarminCourseNameAuthority.mergedName(
             providerName: provider.name,
@@ -1191,7 +1193,8 @@ public struct StartRoundView: View {
     private static func resolvedSegmentLabel(
         explicit: [String?],
         names: [String?],
-        segmentHoles: Int
+        segmentHoles: Int,
+        allowCompositePrefix: Bool = false
     ) -> String? {
         for raw in explicit {
             if let label = normalizedSegmentLabel(raw, segmentHoles: segmentHoles) {
@@ -1203,11 +1206,39 @@ public struct StartRoundView: View {
             guard let name,
                   let suffix = MobileCourseDisplayLocalization.splitCourseName(name).suffix,
                   let label = normalizedSegmentLabel(suffix, segmentHoles: segmentHoles) else {
+                if allowCompositePrefix,
+                   let name,
+                   let suffix = MobileCourseDisplayLocalization.splitCourseName(name).suffix,
+                   let prefix = compositeSegmentPrefix(suffix),
+                   let label = normalizedSegmentLabel(prefix, segmentHoles: segmentHoles) {
+                    return label
+                }
                 continue
             }
             return label
         }
         return nil
+    }
+
+    /// Older Garmin history/package rows can retain the played route (`A/B`, `C/A`, `ABC`)
+    /// even though the current nine-hole catalogue row represents one loop. Recover only the
+    /// first single-loop code when a factual 9-hole structure is already available; never expose
+    /// the composite value itself as a selectable segment.
+    private static func compositeSegmentPrefix(_ raw: String) -> String? {
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !normalized.isEmpty else { return nil }
+        let first = normalized.split(whereSeparator: { $0 == "/" || $0 == "+" }).first.map(String.init)
+        let candidate = first ?? (normalized.count > 1 ? String(normalized.prefix(1)) : nil)
+        guard let candidate, candidate.count == 1,
+              candidate.unicodeScalars.allSatisfy({ (65...72).contains($0.value) }) else {
+            return nil
+        }
+        let compact = normalized.replacingOccurrences(of: " ", with: "")
+        guard compact.count > 1,
+              compact.unicodeScalars.allSatisfy({ (65...72).contains($0.value) }) else {
+            return nil
+        }
+        return candidate
     }
 
     private static func normalizedRoundSegmentLabel(_ option: MobileCourseOption) -> String? {
