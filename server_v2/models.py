@@ -1050,6 +1050,7 @@ class MobileCourseOption(BaseModel):
     courseKey: str | None = None
     name: str
     venueName: str | None = None
+    venueNameSource: str | None = None
     segmentLabel: str | None = None
     segmentHoles: int | None = None
     roundCount: int

@@ -1,4 +1,5 @@
 import SwiftUI
+import AICaddieDomain
 
 /// 开始一场 — GPS 先列附近球场；其他球场由玩家按城市或名称主动搜索。
 /// 附近只有一个球场时自动进入该球场的洞组/发球台选择，多个时由玩家选择。
@@ -294,20 +295,17 @@ public struct StartRoundView: View {
         front: MobileCourseOption,
         back: MobileCourseOption?
     ) -> String {
-        let venue = MobileCourseDisplayLocalization.courseName(
-            courseVenueName(front),
-            globalId: front.globalId
-        )
+        let venue = courseVenueName(front)
         let frontLabel = normalizedRoundSegmentLabel(front)
         guard let back else {
             // A single nine must not carry a stale played combination (for example `C/A`) from an
             // older package. Rebuild the visible identity from the current segment authority.
             return frontLabel.map { "\(venue) ~ \($0)" }
-                ?? MobileCourseDisplayLocalization.courseName(front.name, globalId: front.globalId)
+                ?? MobileCourseDisplayLocalization.selectableCourseName(front.name, globalId: front.globalId)
         }
         let backLabel = normalizedRoundSegmentLabel(back)
         guard let frontLabel, let backLabel else {
-            return MobileCourseDisplayLocalization.courseName(front.name, globalId: front.globalId)
+            return MobileCourseDisplayLocalization.selectableCourseName(front.name, globalId: front.globalId)
         }
         return "\(venue) ~ \(frontLabel)/\(backLabel)"
     }
@@ -1099,15 +1097,27 @@ public struct StartRoundView: View {
             catalogue?.holes,
             downloaded?.holes,
         ]) ?? provider.holes
-        let rawVenue = firstNonEmpty([
+        let trustedNames = [
             catalogue?.venueName,
             provider.venueName,
             downloaded?.venueName,
-            catalogue.map { courseVenueName($0) },
-            Optional(courseVenueName(provider)),
-            downloaded.map { courseVenueName($0) },
-        ]) ?? provider.name
-        let venue = MobileCourseDisplayLocalization.courseName(rawVenue, globalId: provider.globalId)
+            catalogue?.name,
+            provider.name,
+            downloaded?.name,
+        ]
+        let trustedNameSources = [
+            catalogue?.venueNameSource,
+            provider.venueNameSource,
+            downloaded?.venueNameSource,
+            catalogue?.venueNameSource,
+            provider.venueNameSource,
+            downloaded?.venueNameSource,
+        ]
+        let venue = GarminCourseNameAuthority.mergedVenue(
+            providerName: provider.name,
+            trustedNames: trustedNames,
+            trustedNameSources: trustedNameSources
+        )
         // The live provider row is the authority for a current loop label. Catalogue/downloaded
         // rows may contain an old played combination such as C/A; use them only as fallbacks.
         let label = resolvedSegmentLabel(
@@ -1115,12 +1125,25 @@ public struct StartRoundView: View {
             names: [Optional(provider.name), catalogue?.name, downloaded?.name],
             segmentHoles: segmentHoles
         )
-        let retainedName = MobileCourseDisplayLocalization.preferredCourseName([
-            catalogue?.name,
-            Optional(provider.name),
-            downloaded?.name,
-        ], globalId: provider.globalId, fallback: venue)
-        let displayName = label.map { "\(venue) ~ \($0)" } ?? retainedName
+        let retainedName = GarminCourseNameAuthority.mergedName(
+            providerName: provider.name,
+            trustedNames: [catalogue?.name, downloaded?.name],
+            trustedNameSources: [catalogue?.venueNameSource, downloaded?.venueNameSource]
+        )
+        let displayName: String
+        if let label {
+            displayName = "\(venue) ~ \(label)"
+        } else {
+            // A composite route is useful in round history, but is not a selectable single layout.
+            // Keep a factual single suffix (for example `Ocean`) when one exists.
+            let retainedSplit = MobileCourseDisplayLocalization.splitCourseName(retainedName)
+            if let suffix = retainedSplit.suffix,
+               !MobileCourseDisplayLocalization.isCompositeSegment(suffix) {
+                displayName = "\(venue) ~ \(suffix)"
+            } else {
+                displayName = venue
+            }
+        }
         let facts = catalogue ?? downloaded ?? provider
         let tees = firstNonEmptyList([catalogue?.tees, downloaded?.tees, provider.tees])
 
@@ -1178,8 +1201,8 @@ public struct StartRoundView: View {
         guard segmentHoles == 9 else { return nil }
         for name in names {
             guard let name,
-                  let suffix = name.components(separatedBy: "~").dropFirst().first,
-                  let label = normalizedSegmentLabel(String(suffix), segmentHoles: segmentHoles) else {
+                  let suffix = MobileCourseDisplayLocalization.splitCourseName(name).suffix,
+                  let label = normalizedSegmentLabel(suffix, segmentHoles: segmentHoles) else {
                 continue
             }
             return label
@@ -1188,10 +1211,10 @@ public struct StartRoundView: View {
     }
 
     private static func normalizedRoundSegmentLabel(_ option: MobileCourseOption) -> String? {
-        let nameSuffix = option.name.components(separatedBy: "~").dropFirst().first
+        let nameSuffix = MobileCourseDisplayLocalization.splitCourseName(option.name).suffix
         let explicit = option.segmentLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let rawLabel = (explicit?.isEmpty == false ? explicit : nil)
-            ?? nameSuffix.map { String($0) }
+            ?? nameSuffix
         return normalizedSegmentLabel(
             rawLabel,
             segmentHoles: option.resolvedHoles
@@ -1199,11 +1222,12 @@ public struct StartRoundView: View {
     }
 
     private static func normalizedSegmentLabel(_ raw: String?, segmentHoles: Int) -> String? {
-        guard var label = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+        _ = segmentHoles
+        guard let label = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               !label.isEmpty else { return nil }
-        if segmentHoles == 9, let first = label.split(separator: "/", maxSplits: 1).first {
-            label = String(first).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        // A/C, A+B, and compact AB/ABC values describe a played combination. Never truncate one
+        // into a misleading single loop; the current CourseView row must provide that authority.
+        guard !MobileCourseDisplayLocalization.isCompositeSegment(label) else { return nil }
         let wholeCourseLabels = Set(["all", "full", "全场", "整场"])
         guard !label.isEmpty, !wholeCourseLabels.contains(label.lowercased()) else { return nil }
         return label
@@ -1307,11 +1331,11 @@ public struct StartRoundView: View {
     /// each playable loop as a separate global ID, so comparing IDs here would incorrectly revoke
     /// the exception when the player changes A/B/C or chooses a second nine.
     static func courseVenueName(_ option: MobileCourseOption) -> String {
-        let raw = option.venueName
-            ?? option.name.components(separatedBy: "~").first?
-                .trimmingCharacters(in: .whitespaces)
-            ?? option.name
-        return MobileCourseDisplayLocalization.courseName(raw, globalId: option.globalId)
+        return GarminCourseNameAuthority.mergedVenue(
+            providerName: option.name,
+            trustedNames: [option.venueName],
+            trustedNameSources: [option.venueNameSource]
+        )
     }
 
     static func samePhysicalVenue(_ lhs: MobileCourseOption, _ rhs: MobileCourseOption) -> Bool {

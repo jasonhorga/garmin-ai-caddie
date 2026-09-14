@@ -24,8 +24,16 @@ PROVIDER = CourseMatch(
 )
 
 
-def _history(name: str = "北京丽宫体育公园高尔夫俱乐部", *, gid: int = 31793, lat: float = 40.0451, lon: float = 116.5467, city: str = "北京") -> dict:
-    return {
+def _history(
+    name: str = "北京丽宫体育公园高尔夫俱乐部",
+    *,
+    gid: int = 31793,
+    lat: float = 40.0451,
+    lon: float = 116.5467,
+    city: str = "北京",
+    garmin_snapshot_name: str | None = None,
+) -> dict:
+    row = {
         "id": "17342291",
         "date": "2026-05-18",
         "course": name,
@@ -35,7 +43,13 @@ def _history(name: str = "北京丽宫体育公园高尔夫俱乐部", *, gid: i
         "lon": lon,
         "city": city,
         "holesCompleted": 18,
+        "source": "garmin",
     }
+    # The localized spelling is authoritative only when the normalized Garmin
+    # snapshot field is present. Keep the helper's default equivalent to the
+    # real scorecard shape while allowing explicit manual-name regressions.
+    row["garminSnapshotName"] = garmin_snapshot_name or name
+    return row
 
 
 class CourseReconciliationTests(unittest.TestCase):
@@ -58,7 +72,7 @@ class CourseReconciliationTests(unittest.TestCase):
         self.assertTrue(match.provider_match)
         self.assertEqual(original[0].name, "Shadow Creek Golf Club")
 
-    def test_provider_name_query_keeps_provider_display_name(self) -> None:
+    def test_provider_name_query_still_prefers_garmin_snapshot_name(self) -> None:
         result = reconcile_course_matches(
             [PROVIDER],
             player_id="player-a",
@@ -66,11 +80,15 @@ class CourseReconciliationTests(unittest.TestCase):
             query="Shadow Creek",
             city="Beijing",
         )
-        self.assertEqual(result[0].name, "Shadow Creek Golf Club")
+        # The query controls matching, not which spelling wins presentation.
+        # A verified Garmin snapshot for this stable global id remains the
+        # authoritative Chinese display name even when the provider search
+        # returned an English spelling.
+        self.assertEqual(result[0].name, "北京丽宫体育公园高尔夫俱乐部")
         self.assertTrue(result[0].reconciliation_conflict)
         self.assertEqual(result[0].provider_name, "Shadow Creek Golf Club")
 
-    def test_distance_mismatch_does_not_overlay(self) -> None:
+    def test_distance_mismatch_keeps_provider_coordinates_but_overlays_name(self) -> None:
         result = reconcile_course_matches(
             [PROVIDER],
             player_id="player-a",
@@ -78,9 +96,14 @@ class CourseReconciliationTests(unittest.TestCase):
             query="北京丽宫",
             city="北京",
         )
-        self.assertEqual(result[0].name, PROVIDER.name)
-        self.assertIsNone(result[0].provider_name)
-        self.assertFalse(result[0].reconciliation_conflict)
+        # A stale player coordinate must not replace provider geometry, but a
+        # stable global id is still sufficient to show Garmin's native name.
+        self.assertEqual(result[0].name, "北京丽宫体育公园高尔夫俱乐部")
+        self.assertEqual(result[0].latitude, PROVIDER.latitude)
+        self.assertEqual(result[0].longitude, PROVIDER.longitude)
+        self.assertEqual(result[0].provider_name, PROVIDER.name)
+        self.assertTrue(result[0].reconciliation_conflict)
+        self.assertIsNone(result[0].display_coordinate_source)
 
     def test_geometry_without_played_history_cannot_create_evidence(self) -> None:
         evidence = build_player_course_evidence(
@@ -174,6 +197,51 @@ class CourseReconciliationTests(unittest.TestCase):
         )
         self.assertEqual(provider_result[0].name, "Shadow Creek Golf Club")
         self.assertIsNone(provider_result[0].provider_name)
+
+    def test_formal_garmin_snapshot_name_beats_legacy_english_canonical(self) -> None:
+        row = _history("West Park Golf & Country Club ~ A/C")
+        row["courseCanonical"] = "West Park Golf & Country Club"
+        row["garminSnapshotName"] = "西郊高尔夫俱乐部 ~ A/C"
+
+        evidence = build_player_course_evidence([row])
+
+        self.assertEqual(evidence[31793].name, "西郊高尔夫俱乐部")
+        self.assertIn("West Park Golf & Country Club", evidence[31793].aliases)
+        self.assertIn("西郊高尔夫俱乐部 ~ A/C", evidence[31793].aliases)
+
+    def test_unmarked_manual_chinese_name_does_not_relabel_provider(self) -> None:
+        row = _history(
+            "手填中文球场",
+            garmin_snapshot_name=None,
+        )
+        # Remove the helper's default marker and mark the row as manual to model
+        # the phone-ingest source explicitly.
+        row.pop("garminSnapshotName", None)
+        row["source"] = "manual"
+        result = reconcile_course_matches(
+            [PROVIDER],
+            player_id="player-a",
+            history_rows=[row],
+            query="Shadow Creek",
+            city="北京",
+        )
+        self.assertEqual(result[0].name, PROVIDER.name)
+        self.assertIsNone(result[0].display_name_source)
+
+    def test_legacy_garmin_connector_keeps_native_name_without_new_field(self) -> None:
+        row = _history("北京丽宫体育公园高尔夫俱乐部")
+        row.pop("source", None)
+        row.pop("garminSnapshotName", None)
+        row["provenance"] = {"sourceConnector": "garmin_cn_web_session"}
+        result = reconcile_course_matches(
+            [PROVIDER],
+            player_id="player-a",
+            history_rows=[row],
+            query="Shadow Creek",
+            city="北京",
+        )
+        self.assertEqual(result[0].name, "北京丽宫体育公园高尔夫俱乐部")
+        self.assertEqual(result[0].display_name_source, "garmin_scorecard_snapshot")
 
 
 class CourseReconciliationEndpointTests(unittest.TestCase):

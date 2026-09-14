@@ -5,6 +5,7 @@ from typing import Any
 
 from ai_caddie.rounds import players
 from ai_caddie.history.history import OWNER_ID, HistoryData, average
+from ai_caddie.courses.name_authority import preferred_garmin_source_name
 
 from .data_source import load_history_data_for_mode
 from .models import (
@@ -190,7 +191,7 @@ def round_card_for_row(row: dict[str, Any]) -> RoundCard:
     return RoundCard(
         id=str(row.get("id")),
         date=row.get("date"),
-        courseName=str(row.get("course") or "Unknown course"),
+        courseName=preferred_garmin_source_name(row) or str(row.get("course") or row.get("courseName") or "Unknown course"),
         courseKey=row.get("courseKey"),
         holesCompleted=row.get("holesCompleted"),
         score=strokes,

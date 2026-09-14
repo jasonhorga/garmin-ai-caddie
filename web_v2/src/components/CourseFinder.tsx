@@ -5,6 +5,7 @@ import type {
   MobileCourseOption,
   MobileCourseOptionsResponse,
 } from '../types'
+import { courseSegmentName, courseVenueName, displayCourseName } from '../courseName'
 
 // Shared 搜索球场 + 常打球场 building blocks (spec §5.3): the 概览 prep card and
 // the 备战 entry state render the same finder with different heading copy.
@@ -56,20 +57,16 @@ interface BaseCourse {
   variants: { globalId: number; nine: string | null; name: string; rounds: number }[]
 }
 
-function splitNine(name: string): { base: string; nine: string | null } {
-  const match = name.match(/^(.*?)\s*~\s*(.+)$/)
-  if (match) return { base: match[1].trim(), nine: match[2].trim() }
-  return { base: name.trim(), nine: null }
-}
-
 function frequentBaseCourses(courseOptions: MobileCourseOptionsResponse | null): BaseCourse[] {
   const byBase = new Map<string, BaseCourse>()
   for (const course of validCourses(courseOptions)) {
-    const { base, nine } = splitNine(course.name)
+    const base = courseVenueName(course)
+    const nine = courseSegmentName(course)
+    const name = displayCourseName(course)
     const rounds = asNumber(course.roundCount) ?? 0
     const group = byBase.get(base) ?? { base, rounds: 0, variants: [] }
     group.rounds += rounds
-    group.variants.push({ globalId: course.globalId, nine, name: course.name, rounds })
+    group.variants.push({ globalId: course.globalId, nine, name, rounds })
     byBase.set(base, group)
   }
   return [...byBase.values()]
@@ -180,8 +177,12 @@ export function CourseFinder({
         <ul className="home-search-results">
           {search.matches.map((match) => (
             <li key={match.globalId}>
-              <button type="button" className="home-search-match" onClick={() => onSelectCourse(match.globalId, match.name)}>
-                <span className="home-search-match-name">{match.name}</span>
+              <button
+                type="button"
+                className="home-search-match"
+                onClick={() => onSelectCourse(match.globalId, displayCourseName(match))}
+              >
+                <span className="home-search-match-name">{displayCourseName(match)}</span>
                 <span className="home-search-match-meta">{matchMeta(match)}</span>
               </button>
             </li>

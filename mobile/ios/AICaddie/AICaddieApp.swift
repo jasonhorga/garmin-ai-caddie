@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import os
 import SwiftUI
+import AICaddieDomain
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -4494,21 +4495,18 @@ public final class LiveRoundAppModel: ObservableObject {
                           seenTees.insert(tee.lowercased()).inserted else { return nil }
                     return tee
                 }
-                let parts = preferred.course.name.split(
-                    separator: "~",
-                    maxSplits: 1,
-                    omittingEmptySubsequences: false
-                )
-                let venue = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
-                let segment = parts.count > 1
-                    ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-                    : nil
+                let selectableName = GarminCourseNameAuthority.selectableName(preferred.course.name)
+                let parts = GarminCourseNameAuthority.split(selectableName)
+                let venue = parts.venue
+                let segment = parts.suffix.flatMap {
+                    GarminCourseNameAuthority.isCompositeSegment($0) ? nil : $0
+                }
                 let anchor = preferred.holes.first {
                     $0.teeLatitude != nil && $0.teeLongitude != nil
                 }
                 return MobileCourseOption(
                     globalId: preferred.course.globalId,
-                    name: preferred.course.name,
+                    name: segment.map { "\(venue) ~ \($0)" } ?? venue,
                     holes: preferred.holes.count,
                     teeBox: preferred.course.teeBox,
                     geometryCoverage: preferred.geometryCoverage.state.rawValue,

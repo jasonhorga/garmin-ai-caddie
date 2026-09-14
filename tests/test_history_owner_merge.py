@@ -113,6 +113,8 @@ class OwnerMergeTests(unittest.TestCase):
         self.assertEqual(set(by_id), {100, 900})
         self.assertEqual(by_id[100]["source"], "garmin")
         self.assertEqual(by_id[900]["source"], "manual")
+        self.assertIsNotNone(by_id[100].get("garminSnapshotName"))
+        self.assertIsNone(by_id[900].get("garminSnapshotName"))
         self.assertIsNone(by_id[100].get("supersededBy"))
         self.assertIsNone(by_id[900].get("supersededBy"))
         # Both distinct rounds survive the merge into data.rounds.
@@ -146,6 +148,7 @@ class OwnerMergeTests(unittest.TestCase):
         with mock.patch.object(history, "ROOT", self.root):
             rounds = history.load_raw_rounds(player_id="me")
         self.assertEqual(rounds[0]["source"], "manual")
+        self.assertIsNone(rounds[0].get("garminSnapshotName"))
 
     def test_two_local_nines_expose_one_canonical_round_and_back_nine_shot(self) -> None:
         _write_round(
@@ -173,6 +176,12 @@ class OwnerMergeTests(unittest.TestCase):
             data = history.load_history_data(player_id="me")
 
         self.assertEqual([row["id"] for row in data.rounds], ["merged_101_102"])
+        merged_row = data.rounds[0]
+        self.assertIsNone(merged_row.get("garminSnapshotName"))
+        self.assertEqual(
+            merged_row.get("garminSnapshotNames"),
+            ["Twin Links ~ Front", "Twin Links ~ Back"],
+        )
         self.assertEqual([shot["roundId"] for shot in data.shots], ["merged_101_102"] * 2)
         self.assertEqual([shot["scorecardId"] for shot in data.shots], [101, 102])
         self.assertEqual([shot["hole"] for shot in data.shots], [1, 10])

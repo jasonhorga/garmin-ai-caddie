@@ -1176,6 +1176,7 @@ def _reconcile_player_course_matches(
     city: str | None = None,
     nearby_origin: tuple[float, float] | None = None,
     nearby_radius_km: float | None = None,
+    overlay_coordinates: bool = True,
     append_history: bool = False,
 ) -> list[course_search.CourseMatch]:
     """Apply the player overlay without touching provider result/cache objects."""
@@ -1210,6 +1211,7 @@ def _reconcile_player_course_matches(
         nearby_origin=nearby_origin,
         nearby_radius_km=nearby_radius_km,
         geometry_locations=geometry_locations,
+        overlay_coordinates=overlay_coordinates,
         append_history=append_history,
     )
 
@@ -1237,6 +1239,9 @@ def _course_match_payload(match: course_search.CourseMatch) -> dict:
         "displayCoordinateSource": match.display_coordinate_source,
         "reconciliationDistanceKm": match.reconciliation_distance_km,
         "reconciliationConflict": True if match.reconciliation_conflict else None,
+        "venueName": match.venue_name,
+        "venueNameSource": match.venue_name_source,
+        "segmentLabel": match.segment_label,
     }
     for key, value in optional.items():
         if value is not None:
@@ -1247,6 +1252,8 @@ def _course_match_payload(match: course_search.CourseMatch) -> dict:
         or match.display_coordinate_source is not None
         or match.reconciliation_distance_km is not None
         or match.reconciliation_conflict
+        or match.venue_name is not None
+        or match.segment_label is not None
         or not match.provider_match
     ):
         payload["providerMatch"] = bool(match.provider_match)
@@ -1283,11 +1290,18 @@ def course_nearby_endpoint(
         partial_reason = None
         pages_fetched = 0
         cache_status = "adapter"
-    # Nearby discovery is provider truth.  Do not apply the player's historical display-name
-    # overlay or append history-only rows here: a played course can have a different localized
-    # name (and a stale A/B/C combination), but that does not make it a current nearby result.
-    # The iOS client may still use its local catalogue to localize the provider row while retaining
-    # the provider's loop suffix and coordinates.
+    # Nearby coordinates, distances, hole counts and loop suffixes remain provider truth.  A
+    # player's verified Garmin snapshot may supply the localized venue spelling for the same global
+    # id, but it must never replace the current provider geometry or turn a historical A/B/C route
+    # into one selectable loop.
+    matches = _reconcile_player_course_matches(
+        matches,
+        player_id=player_id,
+        nearby_origin=(latitude, longitude),
+        nearby_radius_km=radius_km,
+        overlay_coordinates=False,
+        append_history=False,
+    )
     return {
         "schema": "ai-caddie-course-nearby-v1",
         "radiusKm": radius_km,

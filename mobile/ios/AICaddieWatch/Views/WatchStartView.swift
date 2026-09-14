@@ -1,4 +1,5 @@
 import SwiftUI
+import AICaddieDomain
 
 struct WatchCourseRowPresentation: Equatable, Identifiable {
     var id: String { "\(course.globalId):\(course.segmentLabel ?? course.name)" }
@@ -381,7 +382,7 @@ public struct WatchStartView: View {
                     .fill(Color.orange)
                     .frame(width: 6, height: 6)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(match.name)
+                    Text(match.displayName)
                         .font(.system(size: 15, weight: .black))
                         .lineLimit(2)
                     Text(searchResultSubtitle(match))
@@ -655,10 +656,11 @@ public struct WatchStartView: View {
     }
 
     private func venueName(for course: WatchCourseOption) -> String {
-        let explicit = course.venueName?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let explicit, !explicit.isEmpty { return explicit }
-        return course.name.components(separatedBy: " ~ ").first?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? course.name
+        GarminCourseNameAuthority.mergedVenue(
+            providerName: course.name,
+            trustedNames: [course.venueName],
+            trustedNameSources: [course.venueNameSource]
+        )
     }
 
     private func nearbyVenueSubtitle(

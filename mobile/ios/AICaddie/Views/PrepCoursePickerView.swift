@@ -254,25 +254,10 @@ public struct PrepCoursePickerView: View {
         guard let known = knownOptions.first(where: { $0.globalId == match.globalId }) else {
             return provider
         }
-        return MobileCourseOption(
-            globalId: provider.globalId,
-            courseKey: known.courseKey,
-            name: provider.name,
-            roundCount: known.roundCount,
-            latestRoundId: known.latestRoundId,
-            latestRoundDate: known.latestRoundDate,
-            templateRoundId: known.templateRoundId,
-            suggestedLiveRoundId: known.suggestedLiveRoundId,
-            holes: provider.holes,
-            teeBox: known.teeBox,
-            geometryCoverage: known.geometryCoverage,
-            sourceRefs: known.sourceRefs,
-            venueName: provider.venueName ?? known.venueName,
-            segmentLabel: provider.segmentLabel ?? known.segmentLabel,
-            segmentHoles: provider.segmentHoles ?? known.segmentHoles,
-            latitude: provider.latitude ?? known.latitude,
-            longitude: provider.longitude ?? known.longitude,
-            tees: known.tees
+        return StartRoundView.reconciledCourseOption(
+            provider: provider,
+            catalogue: courseOptions.first { $0.globalId == match.globalId },
+            downloaded: downloadedCourseOptions.first { $0.globalId == match.globalId }
         )
     }
 }

@@ -9,6 +9,7 @@ from ai_caddie.reports.annotations import list_annotations
 from ai_caddie.caddie.decision import list_decision_audits
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
 from ai_caddie.history.history import HistoryData, OWNER_ID
+from ai_caddie.courses.name_authority import preferred_garmin_source_name
 from ai_caddie.reports.reports import iter_report_records
 from ai_caddie.llm.weather_context import list_weather_snapshots
 
@@ -169,7 +170,7 @@ def _round_summary(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": _round_id(row),
         "date": row.get("date"),
-        "courseName": row.get("course") or row.get("courseName") or "Unknown course",
+        "courseName": preferred_garmin_source_name(row) or row.get("course") or row.get("courseName") or "Unknown course",
         "courseKey": row.get("courseKey"),
         "score": score,
         "par": par,
@@ -231,7 +232,7 @@ def _round_detail(data: HistoryData, row: dict[str, Any], ref: str) -> dict[str,
         ref=ref,
         ref_type="round",
         found=True,
-        title=f"{row.get('course') or row.get('courseName') or 'Unknown course'} - {row.get('date') or 'unknown date'}",
+        title=f"{preferred_garmin_source_name(row) or row.get('course') or row.get('courseName') or 'Unknown course'} - {row.get('date') or 'unknown date'}",
         round_summary=_round_summary(row),
         hole=None,
         shot=None,
@@ -270,7 +271,7 @@ def _hole_detail(data: HistoryData, row: dict[str, Any], hole: dict[str, Any], r
         ref=ref,
         ref_type="hole",
         found=True,
-        title=f"{row.get('course') or row.get('courseName') or 'Unknown course'} H{hole_number}",
+        title=f"{preferred_garmin_source_name(row) or row.get('course') or row.get('courseName') or 'Unknown course'} H{hole_number}",
         round_summary=_round_summary(row),
         hole=_hole_summary(row, hole),
         shot=None,

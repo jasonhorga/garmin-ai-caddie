@@ -7,6 +7,7 @@ from typing import Any
 
 from ai_caddie.history.history import OWNER_ID, HistoryData, average
 from ai_caddie.reports.reports import iter_report_records
+from ai_caddie.courses.name_authority import preferred_garmin_source_name
 
 from .data_source import load_history_data_for_mode
 from .history_overview import round_card_for_row
@@ -81,7 +82,7 @@ def _available_courses(rounds: list[dict[str, Any]]) -> list[CourseFilterOption]
     for row in rounds:
         key = str(row.get("courseKey") or "")
         if key and key not in labels:
-            labels[key] = str(row.get("course") or row.get("courseName") or key)
+            labels[key] = preferred_garmin_source_name(row) or str(row.get("course") or row.get("courseName") or key)
     return [CourseFilterOption(key=key, label=label) for key, label in sorted(labels.items(), key=lambda kv: kv[1])]
 
 
@@ -117,7 +118,7 @@ def build_history_rounds_response(
         if needle:
             haystack = " ".join(
                 str(row.get(key) or "")
-                for key in ("course", "courseName", "courseKey", "date")
+                for key in ("course", "garminSnapshotName", "courseName", "courseKey", "date")
             ).casefold()
             if needle not in haystack:
                 return False

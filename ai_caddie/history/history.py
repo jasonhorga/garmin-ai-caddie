@@ -28,6 +28,12 @@ from ai_caddie.core.data import (
     semicircle_to_deg,
     wgs84_to_local,
 )
+from ai_caddie.courses.name_authority import (
+    is_garmin_source,
+    preferred_garmin_source_name,
+    preferred_garmin_venue,
+    split_garmin_course_name,
+)
 
 REPORT_DIR = ROOT / "output" / "ai_caddie"
 OLD_REVIEW_DIR = ROOT / "output" / "ai_reviews"
@@ -267,6 +273,22 @@ def _scorecard_to_round(
     cmp_ = detail.get("statsComparison", {}) or {}
     course_name = snap.get("name") or "Unknown course"
     canon = canonical_course_name(course_name)
+    source = raw.get("source") or default_source
+    # Keep the exact localized Garmin field alongside the normalized display
+    # values.  Composite route suffixes (for example ``A/C``) remain in
+    # ``course`` for round-history facts, while catalogue consumers can use
+    # this explicit source to choose the venue name without guessing.
+    # ``courseSnapshots[0].name`` is a Garmin authority only for a Garmin
+    # source. Manual phone rounds intentionally use the same scorecard-shaped
+    # envelope, but their snapshot name comes from ``meta.courseName`` and is
+    # user input. Never copy that value into the Garmin authority field.
+    garmin_snapshot_name = (
+        str(course_name).strip()
+        if is_garmin_source(source)
+        and str(course_name).strip()
+        and str(course_name).strip().casefold() not in {"unknown", "unknown course"}
+        else None
+    )
     sid = sc["id"]
     if shots_dir is None:
         # Default/owner path: keep using the module-level SHOT_DIR + data.load_shot_file
@@ -329,7 +351,8 @@ def _scorecard_to_round(
         "hasShotFile": shot_path.exists(),
         "hasShots": has_usable_shots,
         "shotStatus": shot_status,
-        "source": raw.get("source") or default_source,
+        "source": source,
+        "garminSnapshotName": garmin_snapshot_name,
         "merged": False,
     }
 
@@ -394,6 +417,23 @@ def merge_same_day_halves(rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if len(group) == 2 and all(r.get("holesCompleted") == 9 for r in group):
             front, back = group
 
+            # Keep the merged round's route factual while taking its venue from
+            # Garmin's localized snapshot when either half has one.  Older code
+            # rebuilt this string from ``front.courseCanonical`` and silently
+            # lost a Chinese snapshot whenever the front half was an English
+            # legacy row.
+            merged_venue = preferred_garmin_venue(group, fallback=canon)
+
+            def route_suffix(row: dict[str, Any]) -> str:
+                source_name = preferred_garmin_source_name(row)
+                _venue, suffix = split_garmin_course_name(source_name)
+                return suffix or ""
+
+            front_suffix = route_suffix(front)
+            back_suffix = route_suffix(back)
+            route = "+".join(value for value in (front_suffix, back_suffix) if value)
+            merged_display_name = f"{merged_venue} ~ {route}" if route else merged_venue
+
             def sum_field(field: str) -> int:
                 return int(front.get(field) or 0) + int(back.get(field) or 0)
 
@@ -417,7 +457,19 @@ def merge_same_day_halves(rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 ),
                 "strokes": sum_field("strokes"),
                 "holesCompleted": 18,
-                "course": f"{canon} ~ {front['course'].rsplit('~', 1)[-1].strip()}+{back['course'].rsplit('~', 1)[-1].strip()}",
+                "course": merged_display_name,
+                # Keep exact member snapshot names for the name authority. The
+                # merged route itself is derived factual history and must not be
+                # mislabeled as one raw Garmin snapshot.
+                "garminSnapshotName": None,
+                "garminSnapshotNames": [
+                    value
+                    for value in (
+                        front.get("garminSnapshotName"),
+                        back.get("garminSnapshotName"),
+                    )
+                    if value
+                ],
                 "par": sum_field("par"),
                 "holePars": str(front.get("holePars") or "") + str(back.get("holePars") or ""),
                 "holes": (front.get("holes") or []) + back_holes,
@@ -653,6 +705,7 @@ def load_shot_history(
                         "scorecardId": sid,
                         "date": round_row["date"][:10],
                         "course": round_row["course"],
+                        "garminSnapshotName": round_row.get("garminSnapshotName"),
                         "courseCanonical": round_row["courseCanonical"],
                         "courseKey": round_row["courseKey"],
                         "hole": hole_number,
@@ -703,7 +756,8 @@ def _round_public(row: dict[str, Any], include_holes: bool = False) -> dict[str,
         "id": row["id"],
         "ids": row.get("ids", [row["id"]]),
         "date": row.get("date"),
-        "course": row.get("course"),
+        "course": preferred_garmin_source_name(row) or row.get("course") or row.get("courseName"),
+        "garminSnapshotName": row.get("garminSnapshotName"),
         "courseCanonical": row.get("courseCanonical"),
         "courseKey": row.get("courseKey"),
         "courseId": row.get("courseId"),
@@ -793,7 +847,12 @@ def history_trends(data: HistoryData | None = None) -> dict[str, Any]:
     data = data or load_history_data()
     rounds18 = [r for r in data.rounds if r.get("holesCompleted") == 18 and r.get("strokes")]
     points = [
-        {"date": r["date"][:10], "score": r["strokes"], "course": r["course"], "id": r["id"]}
+        {
+            "date": r["date"][:10],
+            "score": r["strokes"],
+            "course": preferred_garmin_source_name(r) or r.get("course") or r.get("courseName"),
+            "id": r["id"],
+        }
         for r in sorted(rounds18, key=lambda row: row.get("date") or "")
     ]
     monthly: dict[str, list[int]] = defaultdict(list)
@@ -865,7 +924,10 @@ def history_courses(data: HistoryData | None = None) -> dict[str, Any]:
         key = row["courseKey"]
         item = by_course.setdefault(key, {
             "key": key,
-            "name": row["courseCanonical"],
+            "name": preferred_garmin_venue(
+                [row],
+                fallback=str(row.get("courseCanonical") or row.get("course") or "Unknown course"),
+            ),
             "lat": row.get("lat"),
             "lon": row.get("lon"),
             "city": row.get("city"),
@@ -886,7 +948,7 @@ def history_courses(data: HistoryData | None = None) -> dict[str, Any]:
         })
         item["count"] += 1
         item["totalHoles"] += int(row.get("holesCompleted") or 0)
-        item["variants"].add(row.get("course"))
+        item["variants"].add(preferred_garmin_source_name(row) or row.get("course") or row.get("courseName"))
         if row.get("courseId"):
             item["globalIds"].add(row["courseId"])
         for gid in (row.get("frontNineGlobalCourseId"), row.get("backNineGlobalCourseId")):
@@ -908,6 +970,11 @@ def history_courses(data: HistoryData | None = None) -> dict[str, Any]:
             item["lastHolesCompleted"] = row.get("holesCompleted")
     courses = []
     for item in by_course.values():
+        course_rows = [row for row in data.rounds if row.get("courseKey") == item["key"]]
+        item["name"] = preferred_garmin_venue(
+            course_rows,
+            fallback=str(item.get("name") or "Unknown course"),
+        )
         global_ids = sorted(item["globalIds"])
         geometry_holes = sum(1 for gid in global_ids for h in range(1, 19) if hazard_path(int(gid), h).exists())
         possible_geometry_holes = sum(18 if any(hazard_path(int(gid), h).exists() for h in range(10, 19)) else 9 for gid in global_ids)
@@ -983,7 +1050,10 @@ def history_course_detail(key: str, data: HistoryData | None = None) -> dict[str
         "schema": "ai-caddie-history-course-v1",
         "course": {
             "key": key,
-            "name": rows[0]["courseCanonical"],
+            "name": preferred_garmin_venue(
+                rows,
+                fallback=str(rows[0].get("courseCanonical") or rows[0].get("course") or "Unknown course"),
+            ),
             "city": rows[0].get("city"),
             "country": rows[0].get("country"),
             "lat": rows[0].get("lat"),
@@ -1008,7 +1078,13 @@ def history_course_detail(key: str, data: HistoryData | None = None) -> dict[str
             "geometryCoveragePct": round(geometry_holes / possible_geometry_holes * 100, 1) if possible_geometry_holes else 0,
             "variants": [
                 {"name": name, "rawScorecards": count}
-                for name, count in Counter(r["course"] for r in raw_rows).most_common()
+                for name, count in Counter(
+                    preferred_garmin_source_name(row)
+                    or row.get("course")
+                    or row.get("courseName")
+                    or "Unknown course"
+                    for row in raw_rows
+                ).most_common()
             ],
         },
         "rounds": [_round_public(r, include_holes=True) for r in rows[:120]],
@@ -1087,7 +1163,8 @@ def history_shots(
             "id": row.get("id"),
             "scorecardId": row.get("scorecardId"),
             "date": row.get("date"),
-            "course": row.get("course"),
+            "course": preferred_garmin_source_name(row) or row.get("course") or row.get("courseName"),
+            "garminSnapshotName": row.get("garminSnapshotName"),
             "courseKey": row.get("courseKey"),
             "hole": row.get("hole"),
             "globalId": row.get("globalId"),
@@ -1140,7 +1217,7 @@ def history_hole(global_id: int, local_hole: int, *, include_overlay: bool = Tru
         entry = by_round.setdefault(sid, {
             "scorecardId": sid,
             "date": round_row["date"],
-            "course": round_row["course"],
+            "course": preferred_garmin_source_name(round_row) or round_row.get("course") or round_row.get("courseName"),
             "hole": shot["hole"],
             "globalId": global_id,
             "localHole": local_hole,
@@ -1320,7 +1397,10 @@ def _played_geometry_coverage(data: HistoryData) -> dict[str, Any]:
             },
         )
         row["shotCount"] += 1
-        row["courseCounts"][str(shot.get("course") or "Unknown course")] += 1
+        row["courseCounts"][
+            preferred_garmin_source_name(shot)
+            or str(shot.get("course") or shot.get("courseName") or "Unknown course")
+        ] += 1
 
     courses: dict[int, dict[str, Any]] = {}
     ready_pairs = 0
@@ -1423,7 +1503,7 @@ def history_data_quality(data: HistoryData | None = None) -> dict[str, Any]:
                 missing_geometry.append({
                     "scorecardId": row["id"],
                     "date": row["date"],
-                    "course": row["course"],
+                    "course": preferred_garmin_source_name(row) or row.get("course") or row.get("courseName"),
                     "hole": hole,
                     "globalId": ref.global_id,
                     "localHole": ref.local_hole,

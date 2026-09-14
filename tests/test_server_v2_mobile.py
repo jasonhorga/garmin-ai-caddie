@@ -558,7 +558,13 @@ class ServerV2MobileTests(unittest.TestCase):
     def test_mobile_course_options_list_recent_courses_for_start_round(self) -> None:
         client = TestClient(app)
 
-        with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}):
+        # Keep this catalogue contract deterministic: the fixture has no
+        # CourseView release authority. Loop labels are covered separately by
+        # the injected resolver tests in test_mobile_course_segments.py.
+        with (
+            patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            patch("ai_caddie.caddie.mobile_live._courseview_segment_resolver", return_value=None),
+        ):
             response = client.get("/api/v2/mobile/courses/options")
 
         self.assertEqual(response.status_code, 200)
@@ -567,7 +573,12 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["dataMode"], "fixture")
         self.assertGreaterEqual(payload["total"], 2)
         black_knight = next(row for row in payload["courses"] if row["globalId"] == 31795)
-        self.assertEqual(black_knight["name"], "Black Knight B/C")
+        # A/B/C is a played combination, not a selectable venue name. The
+        # catalogue keeps the provider's venue spelling and exposes any real
+        # single-loop label separately when CourseView supplies one.
+        self.assertEqual(black_knight["name"], "Black Knight")
+        self.assertEqual(black_knight["venueName"], "Black Knight")
+        self.assertIsNone(black_knight.get("segmentLabel"))
         self.assertEqual(black_knight["courseKey"], "black_knight")
         self.assertEqual(black_knight["roundCount"], 2)
         self.assertEqual(black_knight["latestRoundId"], "900001")
@@ -1616,7 +1627,9 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         # The key fix: the course resolves instead of collapsing to "Unknown course".
-        self.assertEqual(payload["course"]["name"], "黑骑士 ~ C/A")  # real name, not "Unknown course"
+        # The route suffix belongs to round history; the course package title
+        # is the venue identity and must not expose a composite C/A label.
+        self.assertEqual(payload["course"]["name"], "黑骑士")  # real name, not "Unknown course"
         self.assertEqual(payload["course"]["globalId"], 31796)
         self.assertTrue(payload["sourceCoverage"]["courseFound"])
         self.assertEqual(len(payload["holes"]), 9)  # front nine in play

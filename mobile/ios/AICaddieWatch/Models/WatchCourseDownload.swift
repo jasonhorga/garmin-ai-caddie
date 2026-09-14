@@ -1,4 +1,5 @@
 import Foundation
+import AICaddieDomain
 
 /// The small course row the Watch needs before a round. The backend response contains more history
 /// metadata; Codable intentionally ignores it instead of copying the iPhone's full model graph.
@@ -10,6 +11,7 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
     public let holes: Int
     public let teeBox: String?
     public let venueName: String?
+    public let venueNameSource: String?
     public let segmentLabel: String?
     public let segmentHoles: Int?
     /// Course coordinates already supplied by `/mobile/courses/options`; retained so the Watch can
@@ -25,6 +27,7 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
         holes: Int,
         teeBox: String? = nil,
         venueName: String? = nil,
+        venueNameSource: String? = nil,
         segmentLabel: String? = nil,
         segmentHoles: Int? = nil,
         latitude: Double? = nil,
@@ -37,6 +40,7 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
         self.holes = holes
         self.teeBox = teeBox
         self.venueName = venueName
+        self.venueNameSource = venueNameSource
         self.segmentLabel = segmentLabel
         self.segmentHoles = segmentHoles
         self.latitude = latitude
@@ -46,7 +50,7 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case globalId, name, holes, teeBox, venueName, segmentLabel, segmentHoles
+        case globalId, name, holes, teeBox, venueName, venueNameSource, segmentLabel, segmentHoles
         case latitude, longitude, tees, roundCount
     }
 
@@ -57,6 +61,7 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
         holes = try container.decode(Int.self, forKey: .holes)
         teeBox = try container.decodeIfPresent(String.self, forKey: .teeBox)
         venueName = try container.decodeIfPresent(String.self, forKey: .venueName)
+        venueNameSource = try container.decodeIfPresent(String.self, forKey: .venueNameSource)
         segmentLabel = try container.decodeIfPresent(String.self, forKey: .segmentLabel)
         segmentHoles = try container.decodeIfPresent(Int.self, forKey: .segmentHoles)
         latitude = try container.decodeIfPresent(Double.self, forKey: .latitude)
@@ -66,8 +71,26 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
     }
 
     public var displayName: String {
-        guard let venueName, let segmentLabel, !segmentLabel.isEmpty else { return name }
-        return "\(venueName) · \(segmentLabel)"
+        let providerName: String = {
+            let split = GarminCourseNameAuthority.split(name)
+            if let suffix = split.suffix,
+               !GarminCourseNameAuthority.isCompositeSegment(suffix) {
+                return name
+            }
+            if let segmentLabel,
+               !segmentLabel.isEmpty,
+               !GarminCourseNameAuthority.isCompositeSegment(segmentLabel) {
+                return split.venue.isEmpty ? name : "\(split.venue) ~ \(segmentLabel)"
+            }
+            return name
+        }()
+        return GarminCourseNameAuthority.selectableName(
+            GarminCourseNameAuthority.mergedName(
+                providerName: providerName,
+                trustedNames: [venueName],
+                trustedNameSources: [venueNameSource]
+            )
+        )
     }
 
     public var playableHoleCount: Int { segmentHoles ?? holes }
@@ -94,6 +117,7 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
             holes: holes,
             teeBox: selectedTee ?? teeOptions.first(where: \.isDefault)?.teeBox ?? teeBox,
             venueName: venueName,
+            venueNameSource: venueNameSource,
             segmentLabel: segmentLabel,
             segmentHoles: segmentHoles,
             latitude: latitude,
@@ -118,6 +142,7 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
             holes: holes,
             teeBox: teeBox,
             venueName: venueName,
+            venueNameSource: venueNameSource,
             segmentLabel: segmentLabel,
             segmentHoles: segmentHoles,
             latitude: latitude,
@@ -142,6 +167,11 @@ public struct WatchCourseSearchMatch: Decodable, Equatable, Identifiable {
     public let latitude: Double?
     public let longitude: Double?
     public let distanceKm: Double?
+    /// Optional localized venue/loop facts from the player's Garmin-backed
+    /// history. Provider rows remain valid when omitted.
+    public let venueName: String?
+    public let venueNameSource: String?
+    public let segmentLabel: String?
 
     public init(
         globalId: Int,
@@ -152,7 +182,10 @@ public struct WatchCourseSearchMatch: Decodable, Equatable, Identifiable {
         ratio: Double,
         latitude: Double? = nil,
         longitude: Double? = nil,
-        distanceKm: Double? = nil
+        distanceKm: Double? = nil,
+        venueName: String? = nil,
+        venueNameSource: String? = nil,
+        segmentLabel: String? = nil
     ) {
         self.globalId = globalId
         self.name = name
@@ -163,24 +196,56 @@ public struct WatchCourseSearchMatch: Decodable, Equatable, Identifiable {
         self.latitude = latitude
         self.longitude = longitude
         self.distanceKm = distanceKm
+        self.venueName = venueName
+        self.venueNameSource = venueNameSource
+        self.segmentLabel = segmentLabel
     }
 
     public var courseOption: WatchCourseOption? {
         guard let holes, holes > 0 else { return nil }
-        let parts = name.split(separator: "~", maxSplits: 1, omittingEmptySubsequences: false)
-        let venue = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
-        let segment = parts.count > 1
-            ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-            : nil
+        let providerName: String = {
+            let split = GarminCourseNameAuthority.split(name)
+            if let suffix = split.suffix,
+               !GarminCourseNameAuthority.isCompositeSegment(suffix) {
+                return name
+            }
+            if let segmentLabel,
+               !segmentLabel.isEmpty,
+               !GarminCourseNameAuthority.isCompositeSegment(segmentLabel) {
+                return split.venue.isEmpty ? name : "\(split.venue) ~ \(segmentLabel)"
+            }
+            return name
+        }()
+        let merged = GarminCourseNameAuthority.mergedName(
+            providerName: providerName,
+            trustedNames: [venueName],
+            trustedNameSources: [venueNameSource]
+        )
+        let split = GarminCourseNameAuthority.split(merged)
+        let venue = split.venue
+        let segment = split.suffix.flatMap {
+            GarminCourseNameAuthority.isCompositeSegment($0) ? nil : $0
+        }
         return WatchCourseOption(
             globalId: globalId,
-            name: name,
+            name: merged,
             holes: holes,
             venueName: venue.isEmpty ? name : venue,
+            venueNameSource: venueNameSource,
             segmentLabel: segment?.isEmpty == false ? segment : nil,
             segmentHoles: holes,
             latitude: latitude,
             longitude: longitude
+        )
+    }
+
+    public var displayName: String {
+        GarminCourseNameAuthority.selectableName(
+            GarminCourseNameAuthority.mergedName(
+                providerName: name,
+                trustedNames: [venueName],
+                trustedNameSources: [venueNameSource]
+            )
         )
     }
 }

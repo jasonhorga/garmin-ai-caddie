@@ -1,57 +1,11 @@
 import Foundation
+import AICaddieDomain
 
-/// Provider metadata remains untouched on the wire. These aliases are presentation-only and cover
-/// stable catalogue names seen in the Chinese app; unknown names fall through instead of inventing
-/// a translation that could identify the wrong physical course.
+/// Provider metadata remains untouched on the wire. This type only normalises Garmin's separator
+/// formatting and chooses an already-provided Chinese value when more than one Garmin-backed source
+/// describes the same course. It never translates an English provider name or maps a global id to a
+/// guessed local name.
 public enum MobileCourseDisplayLocalization {
-    /// Stable CourseView identities verified from the player's catalogue/history. These aliases are
-    /// presentation-only: wire payloads and provider caches continue to retain their original names.
-    /// The fixture names below are intentionally left untouched by `courseName` so generic CI rows
-    /// such as `Fixture Links` do not get mistaken for a real course.
-    private static let stableCourseAliases: [Int: String] = [
-        31_790: "奥园体育俱乐部",
-        31_791: "翡翠湖高尔夫俱乐部",
-        31_792: "金色河畔高尔夫俱乐部",
-        31_793: "北京丽宫体育公园高尔夫俱乐部",
-        31_794: "北京天竺黑骑士球员俱乐部",
-        31_795: "北京天竺黑骑士球员俱乐部",
-        31_796: "北京天竺黑骑士球员俱乐部",
-    ]
-
-    private static let fixtureCourseNames: Set<String> = [
-        "fixture links",
-        "fixture open course",
-        "cypress point club",
-    ]
-
-    private static let courseAliases: [String: String] = [
-        "beijing riverside resort golf club": "北京河畔度假高尔夫俱乐部",
-        "beijing huanggang international golf club": "北京黄港国际高尔夫俱乐部",
-        "beijing black knight golf club": "北京黑骑士国际高尔夫俱乐部",
-        "beijing black knight international golf club": "北京黑骑士国际高尔夫俱乐部",
-        "black knight": "北京天竺黑骑士球员俱乐部",
-        "black knight golf club": "北京天竺黑骑士球员俱乐部",
-        "the black knight": "北京天竺黑骑士球员俱乐部",
-        "jade island golf club": "翡翠湖高尔夫俱乐部",
-        "jade lake golf club": "翡翠湖高尔夫俱乐部",
-        "golden riverside golf club": "金色河畔高尔夫俱乐部",
-        "aoyuan sports club": "奥园体育俱乐部",
-        "nicklaus club beijing": "北京尼克劳斯俱乐部",
-        "beijing orient tianxing country club": "北京东方天星乡村俱乐部",
-        // Nearby CourseView rows sometimes arrive only with their English provider label. These
-        // three venues are already present in the player's catalogue/history, so keep one stable
-        // presentation alias regardless of whether the matching map package is downloaded yet.
-        "red flag valley golf club": "红旗谷高尔夫球场",
-        "red flag valley golf course": "红旗谷高尔夫球场",
-        "red flag valley": "红旗谷高尔夫球场",
-        "west park golf & country club": "西郊高尔夫俱乐部",
-        "west park golf and country club": "西郊高尔夫俱乐部",
-        "west park golf club": "西郊高尔夫俱乐部",
-        "bangchuidao golf club": "棒棰岛高尔夫球场",
-        "bangchuidao golf course": "棒棰岛高尔夫球场",
-        "bangchuidao": "棒棰岛高尔夫球场",
-    ]
-
     private static let areaAliases: [String: String] = [
         "beijing": "北京市",
         "beijing city": "北京市",
@@ -72,25 +26,47 @@ public enum MobileCourseDisplayLocalization {
         "california": "加利福尼亚州",
     ]
 
+    /// Normalise only Garmin's course separator and incidental surrounding whitespace.
     public static func courseName(_ raw: String, globalId: Int? = nil) -> String {
-        // Provider responses are not consistent about spaces around `~`; normalising the separator
-        // here prevents a stale `C/A` suffix from becoming part of the venue key.
-        let parts = raw.components(separatedBy: "~")
-        let venue = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? raw
-        let localizedVenue: String
-        if globalId == 31_793 {
-            // This CourseView ID is provider-mislabeled as Shadow Creek; the repository's verified
-            // player history and geometry identify the Beijing venue without changing provider data.
-            localizedVenue = "北京丽宫体育公园高尔夫俱乐部"
-        } else if let stable = globalId.flatMap({ stableCourseAliases[$0] }),
-                  !fixtureCourseNames.contains(normalized(venue)) {
-            localizedVenue = stable
-        } else {
-            localizedVenue = courseAliases[normalized(venue)] ?? venue
-        }
-        guard parts.count > 1 else { return localizedVenue }
-        let suffixes = parts.dropFirst().map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        return ([localizedVenue] + suffixes).joined(separator: " ~ ")
+        _ = globalId
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        return trimmed
+            .split(separator: "~", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ~ ")
+    }
+
+    /// Split a Garmin display name into its venue and optional loop/layout suffix.
+    public static func splitCourseName(_ raw: String) -> (venue: String, suffix: String?) {
+        let normalized = courseName(raw)
+        guard !normalized.isEmpty else { return ("", nil) }
+        let parts = normalized.split(separator: "~", maxSplits: 1, omittingEmptySubsequences: true)
+        let venue = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard parts.count > 1 else { return (venue, nil) }
+        let suffix = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return (venue, suffix.isEmpty ? nil : suffix)
+    }
+
+    /// Garmin sometimes serialises a played route as `A/C`, `A+B`, or a compact `ABC`/`AC` code.
+    /// Those are combinations of loops, not the identity of one selectable segment.
+    public static func isCompositeSegment(_ raw: String?) -> Bool {
+        guard let raw else { return false }
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return false }
+        if value.contains("/") || value.contains("+") { return true }
+        let compact = value.replacingOccurrences(of: " ", with: "").uppercased()
+        return compact.range(of: "^[A-H]{2,4}$", options: .regularExpression) != nil
+    }
+
+    /// Name used for a selectable CourseView row. A factual single suffix is retained; a compact
+    /// or separated multi-loop route is shown only in round history, never as one segment.
+    public static func selectableCourseName(_ raw: String, globalId: Int? = nil) -> String {
+        let normalized = courseName(raw, globalId: globalId)
+        let split = splitCourseName(normalized)
+        guard let suffix = split.suffix, isCompositeSegment(suffix) else { return normalized }
+        return split.venue
     }
 
     public static func administrativeArea(_ raw: String?) -> String? {
@@ -106,13 +82,61 @@ public enum MobileCourseDisplayLocalization {
     public static func preferredCourseName(
         _ rawNames: [String?],
         globalId: Int? = nil,
-        fallback: String = "未知球场"
+        fallback: String = "未知球场",
+        trustedNameSources: [String?] = []
     ) -> String {
-        let localized = rawNames.compactMap { raw -> String? in
+        let normalizedNames = rawNames.compactMap { raw -> String? in
             guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             return courseName(raw, globalId: globalId)
         }
-        return localized.first(where: containsChinese) ?? localized.first ?? fallback
+        let trustedNames = rawNames.enumerated().compactMap { index, raw -> String? in
+            guard index < trustedNameSources.count,
+                  let source = trustedNameSources[index],
+                  source.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .caseInsensitiveCompare(GarminCourseNameAuthority.garminSnapshotNameSource) == .orderedSame,
+                  let raw,
+                  !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+            return courseName(raw, globalId: globalId)
+        }
+        // Unmarked values are history/provider facts, not localization evidence. Preserve their
+        // first spelling, while allowing an explicitly Garmin-backed Chinese value to win.
+        let selected = trustedNames.first(where: { containsChinese(splitCourseName($0).venue) })
+            ?? trustedNames.first
+            ?? normalizedNames.first
+            ?? fallback
+        return selectableCourseName(selected, globalId: globalId)
+    }
+
+    /// Prefer a Chinese venue already present in Garmin-backed rows, without inventing a translation.
+    public static func preferredVenueName(
+        _ rawNames: [String?],
+        globalId: Int? = nil,
+        fallback: String = "未知球场",
+        trustedNameSources: [String?] = []
+    ) -> String {
+        let venues = rawNames.compactMap { raw -> String? in
+            guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            let venue = splitCourseName(courseName(raw, globalId: globalId)).venue
+            return venue.isEmpty ? nil : venue
+        }
+        let trustedVenues = rawNames.enumerated().compactMap { index, raw -> String? in
+            guard index < trustedNameSources.count,
+                  let source = trustedNameSources[index],
+                  source.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .caseInsensitiveCompare(GarminCourseNameAuthority.garminSnapshotNameSource) == .orderedSame,
+                  let raw,
+                  !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+            let venue = splitCourseName(courseName(raw, globalId: globalId)).venue
+            return venue.isEmpty ? nil : venue
+        }
+        return trustedVenues.first(where: containsChinese)
+            ?? trustedVenues.first
+            ?? venues.first
+            ?? fallback
     }
 
     private static func containsChinese(_ value: String) -> Bool {
@@ -165,6 +189,11 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
     public let latitude: Double?
     public let longitude: Double?
     public let distanceKm: Double?
+    /// Optional player-scoped Garmin snapshot authority. Anonymous CourseView
+    /// rows remain valid when these fields are absent.
+    public let venueName: String?
+    public let venueNameSource: String?
+    public let segmentLabel: String?
 
     public init(
         globalId: Int,
@@ -175,7 +204,10 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
         ratio: Double,
         latitude: Double? = nil,
         longitude: Double? = nil,
-        distanceKm: Double? = nil
+        distanceKm: Double? = nil,
+        venueName: String? = nil,
+        venueNameSource: String? = nil,
+        segmentLabel: String? = nil
     ) {
         self.globalId = globalId
         self.name = name
@@ -186,30 +218,45 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
         self.latitude = latitude
         self.longitude = longitude
         self.distanceKm = distanceKm
+        self.venueName = venueName
+        self.venueNameSource = venueNameSource
+        self.segmentLabel = segmentLabel
     }
 
     /// A result without a factual hole count remains visible but cannot start a round. We do not
     /// guess 9/18, because that would also guess the loop composition and package request.
     public var courseOption: MobileCourseOption? {
         guard let holes, holes > 0 else { return nil }
-        let parts = name.split(separator: "~", maxSplits: 1, omittingEmptySubsequences: false)
-        let venue = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
-        let segment = parts.count > 1
-            ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-            : nil
-        let localizedVenue = MobileCourseDisplayLocalization.courseName(venue, globalId: globalId)
-        let localizedName: String
-        if let segment, !segment.isEmpty {
-            localizedName = "\(localizedVenue) ~ \(segment)"
-        } else {
-            localizedName = localizedVenue
+        let providerName: String = {
+            let split = MobileCourseDisplayLocalization.splitCourseName(name)
+            if let suffix = split.suffix,
+               !MobileCourseDisplayLocalization.isCompositeSegment(suffix) {
+                return name
+            }
+            if let segmentLabel,
+               !segmentLabel.isEmpty,
+               !MobileCourseDisplayLocalization.isCompositeSegment(segmentLabel) {
+                return split.venue.isEmpty ? name : "\(split.venue) ~ \(segmentLabel)"
+            }
+            return name
+        }()
+        let merged = GarminCourseNameAuthority.mergedName(
+            providerName: providerName,
+            trustedNames: [venueName],
+            trustedNameSources: [venueNameSource]
+        )
+        let split = MobileCourseDisplayLocalization.splitCourseName(merged)
+        let venue = split.venue
+        let segment = split.suffix.flatMap {
+            MobileCourseDisplayLocalization.isCompositeSegment($0) ? nil : $0
         }
         return MobileCourseOption(
             globalId: globalId,
-            name: localizedName,
+            name: merged,
             holes: holes,
             geometryCoverage: "missing",
-            venueName: localizedVenue,
+            venueName: venue,
+            venueNameSource: venueNameSource,
             segmentLabel: segment?.isEmpty == false ? segment : nil,
             segmentHoles: holes,
             latitude: latitude,
@@ -235,7 +282,14 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
     }
 
     public var displayName: String {
-        MobileCourseDisplayLocalization.courseName(name, globalId: globalId)
+        MobileCourseDisplayLocalization.selectableCourseName(
+            GarminCourseNameAuthority.mergedName(
+                providerName: name,
+                trustedNames: [venueName],
+                trustedNameSources: [venueNameSource]
+            ),
+            globalId: globalId
+        )
     }
 }
 
@@ -254,18 +308,29 @@ public struct MobileNearbyCoursesResponse: Codable, Equatable {
 public extension MobileCourseOption {
     /// Venue name without the loop suffix (falls back to stripping " ~ …" from `name`).
     var venueDisplayName: String {
-        let raw = venueName ?? (name.components(separatedBy: " ~ ").first?.trimmingCharacters(in: .whitespaces) ?? name)
-        return MobileCourseDisplayLocalization.courseName(raw, globalId: globalId)
+        return MobileCourseDisplayLocalization.preferredVenueName(
+            [venueNameSource == GarminCourseNameAuthority.garminSnapshotNameSource ? venueName : nil, name],
+            globalId: globalId
+        )
     }
 
     var localizedName: String {
-        MobileCourseDisplayLocalization.courseName(name, globalId: globalId)
+        MobileCourseDisplayLocalization.selectableCourseName(
+            GarminCourseNameAuthority.mergedName(
+                providerName: name,
+                trustedNames: [venueName],
+                trustedNameSources: [venueNameSource]
+            ),
+            globalId: globalId
+        )
     }
 
     /// Segment row title: a loop ("A 场") or a factual whole 18-hole course. A 9-hole row without
     /// a trustworthy loop label must not be presented as the whole course.
     var segmentDisplayTitle: String {
-        if let label = segmentLabel?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty {
+        if let label = segmentLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !label.isEmpty,
+           !MobileCourseDisplayLocalization.isCompositeSegment(label) {
             return "\(label) 场"
         }
         if resolvedHoles == 9 {
@@ -332,6 +397,9 @@ public struct MobileCourseOption: Codable, Equatable, Identifiable {
     /// venueName = Chinese venue without the '~ X' suffix; segmentLabel = loop letter/name
     /// (nil for a single whole course); segmentHoles = true 9/18. Optional → tolerate older payloads.
     public let venueName: String?
+    /// Source marker for venueName. Only Garmin's explicit scorecard snapshot is trusted for
+    /// relabeling an anonymous CourseView row; nil keeps legacy/cache rows conservative.
+    public let venueNameSource: String?
     public let segmentLabel: String?
     public let segmentHoles: Int?
     /// Course coordinates for GPS "nearby courses" sorting (nil when unknown).
@@ -355,6 +423,7 @@ public struct MobileCourseOption: Codable, Equatable, Identifiable {
         geometryCoverage: String = "missing",
         sourceRefs: [String] = [],
         venueName: String? = nil,
+        venueNameSource: String? = nil,
         segmentLabel: String? = nil,
         segmentHoles: Int? = nil,
         latitude: Double? = nil,
@@ -374,6 +443,7 @@ public struct MobileCourseOption: Codable, Equatable, Identifiable {
         self.geometryCoverage = geometryCoverage
         self.sourceRefs = sourceRefs
         self.venueName = venueName
+        self.venueNameSource = venueNameSource
         self.segmentLabel = segmentLabel
         self.segmentHoles = segmentHoles
         self.latitude = latitude

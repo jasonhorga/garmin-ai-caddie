@@ -378,7 +378,7 @@ class CourseSearchEndpointTests(unittest.TestCase):
         self.assertTrue(response.json()["complete"])
         nearby.assert_called_once_with(latitude=22.7401328, longitude=114.0714097, radius_km=50)
 
-    def test_nearby_endpoint_preserves_provider_loop_labels_without_history_reconciliation(self) -> None:
+    def test_nearby_endpoint_preserves_provider_loop_labels_with_name_only_reconciliation(self) -> None:
         from ai_caddie.courses import course_search
         from server_v2 import main as server_main
 
@@ -402,7 +402,7 @@ class CourseSearchEndpointTests(unittest.TestCase):
             patch.object(
                 server_main,
                 "_reconcile_player_course_matches",
-                side_effect=AssertionError("nearby discovery must not use player history"),
+                return_value=canned,
             ) as reconcile,
         ):
             response = self._client().get(
@@ -415,7 +415,10 @@ class CourseSearchEndpointTests(unittest.TestCase):
             [row["name"] for row in response.json()["matches"]],
             [f"{venue} ~ A", f"{venue} ~ B", f"{venue} ~ C"],
         )
-        reconcile.assert_not_called()
+        reconcile.assert_called_once()
+        kwargs = reconcile.call_args.kwargs
+        self.assertFalse(kwargs["overlay_coordinates"])
+        self.assertFalse(kwargs["append_history"])
 
     def test_nearby_endpoint_bounds_radius(self) -> None:
         response = self._client().get(

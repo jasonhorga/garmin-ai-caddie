@@ -1,4 +1,5 @@
 import SwiftUI
+import AICaddieDomain
 
 public enum MobileCourseSearchMode: Equatable {
     /// On-course entry: GPS nearby first, with manual catalogue search as the fallback.
@@ -393,15 +394,18 @@ public struct MobileCourseSearchView: View {
         // split where a downloaded row was Chinese but the fresh nearby row was English.
         let knownNames = knownCourseOptions
             .filter { $0.globalId == match.globalId }
-            .map { Optional($0.name) }
-        if !knownNames.isEmpty {
-            return MobileCourseDisplayLocalization.preferredCourseName(
-                knownNames + [match.name],
-                globalId: match.globalId,
-                fallback: match.displayName
-            )
-        }
-        return match.displayName
+            .flatMap { option -> [String?] in [option.name, option.venueName] }
+        let knownNameSources = knownCourseOptions
+            .filter { $0.globalId == match.globalId }
+            .flatMap { option -> [String?] in [option.venueNameSource, option.venueNameSource] }
+        return MobileCourseDisplayLocalization.selectableCourseName(
+            GarminCourseNameAuthority.mergedName(
+                providerName: match.name,
+                trustedNames: knownNames + [match.venueName],
+                trustedNameSources: knownNameSources + [match.venueNameSource]
+            ),
+            globalId: match.globalId
+        )
     }
 
     private func retainedDownloadIsInstalled(_ download: PrepCourseDownloadRecord) -> Bool {

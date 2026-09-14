@@ -8,6 +8,7 @@ from typing import Any
 from ai_caddie.core.data import OWNER_ID
 from ai_caddie.reports.annotations import list_annotations
 from ai_caddie.history.history import HistoryData, remap_shots_to_merged_rounds
+from ai_caddie.courses.name_authority import preferred_garmin_source_name
 
 
 CORRECTION_KINDS = {"club_correction", "lie_correction", "penalty_correction", "putt_correction", "score_correction"}
@@ -40,6 +41,8 @@ def build_history_round_detail(
             "ids",
             "date",
             "course",
+            "garminSnapshotName",
+            "garminSnapshotNames",
             "courseCanonical",
             "courseKey",
             "courseId",
@@ -330,7 +333,7 @@ def _round_summary(row: dict[str, Any], scorecard: list[dict[str, Any]], shots: 
     return {
         "id": _round_id(row),
         "date": row.get("date"),
-        "courseName": row.get("course") or row.get("courseName") or "Unknown course",
+        "courseName": preferred_garmin_source_name(row) or row.get("course") or row.get("courseName") or "Unknown course",
         "courseKey": row.get("courseKey"),
         "courseId": row.get("courseId"),
         "globalId": _round_global_id(row),

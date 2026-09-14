@@ -15,6 +15,7 @@ import type {
 import { CourseFinder } from './CourseFinder'
 import { PrepWorkbench } from './PrepWorkbench'
 import { asNumber, asRows, asString, type StatRow } from './statsValues'
+import { displayCourseName } from '../courseName'
 
 interface PrepPageProps {
   globalId: number | null // null → entry state (course finder)
@@ -227,12 +228,12 @@ function PrepCourseSearch({
               <button
                 type="button"
                 onClick={() => {
-                  onSelectCourse(match.globalId, match.name)
+                  onSelectCourse(match.globalId, displayCourseName(match))
                   setQuery('')
                   setSearch({ status: 'idle' })
                 }}
               >
-                <span className="prep-search-name">{match.name}</span>
+                <span className="prep-search-name">{displayCourseName(match)}</span>
                 <span className="prep-search-meta">{matchMeta(match)}</span>
               </button>
             </li>
@@ -360,7 +361,7 @@ export function PrepPage({
   // courseOptions (played, canonical) wins; the finder-handed search name covers
   // never-played courses; the bare gid is the last resort.
   const handedName = typeof selectedCourseName === 'string' && selectedCourseName.trim() ? selectedCourseName : null
-  const courseName = option?.name ?? handedName ?? `球场 ${globalId}`
+  const courseName = option ? displayCourseName(option) : handedName ? displayCourseName(handedName) : `球场 ${globalId}`
   const record = courseRecord(allStats, option)
   const totals = holeTotals(prepData)
   const holeRows = courseHoleRows(allStats, optionCourseKey(option))

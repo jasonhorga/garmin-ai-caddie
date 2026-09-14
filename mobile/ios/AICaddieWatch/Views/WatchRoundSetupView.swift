@@ -1,4 +1,5 @@
 import SwiftUI
+import AICaddieDomain
 
 struct WatchRoundSetupChoicePresentation: Equatable, Identifiable {
     let id: String
@@ -433,13 +434,17 @@ public struct WatchRoundSetupView: View {
     }
 
     private func venueName(_ option: WatchCourseOption) -> String {
-        option.venueName
-            ?? option.name.components(separatedBy: " ~ ").first
-            ?? option.name
+        GarminCourseNameAuthority.mergedVenue(
+            providerName: option.name,
+            trustedNames: [option.venueName],
+            trustedNameSources: [option.venueNameSource]
+        )
     }
 
     private func loopName(_ option: WatchCourseOption) -> String {
-        if let label = option.segmentLabel, !label.isEmpty { return label }
+        if let label = option.segmentLabel,
+           !label.isEmpty,
+           !GarminCourseNameAuthority.isCompositeSegment(label) { return label }
         return option.playableHoleCount == 18 ? "全场" : option.displayName
     }
 

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { MobileCourseOptionsResponse, RoundIngestEvent, RoundIngestRequestBody, RoundIngestResult } from '../types'
+import { displayCourseName } from '../courseName'
 
 interface RecordRoundPageProps {
   playerId: string
@@ -209,13 +210,13 @@ export function RecordRoundPage({ playerId, playerName, courseOptions, onIngest,
                   const gid = e.target.value ? Number(e.target.value) : null
                   setCourseGlobalId(gid)
                   const picked = courses.find((c) => c.globalId === gid)
-                  if (picked) setCourseName(picked.name)
+                  if (picked) setCourseName(displayCourseName(picked))
                 }}
               >
                 <option value="">不指定</option>
                 {courses.map((c) => (
                   <option key={c.globalId} value={c.globalId}>
-                    {c.name}
+                    {displayCourseName(c)}
                   </option>
                 ))}
               </select>

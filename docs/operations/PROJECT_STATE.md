@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-14 04:31 UTC
+**Updated:** 2026-09-14 05:18 UTC
 **Branch:** `integration/v2` (GitHub default; documentation tip
 `e1b9cfe70ed7e60f0778e5cad59de90b0fa6a380`; internal-release source
 `70e74a6eb04bae1d656bc8cee81f534e0ae4f2b7`; PERF-STARTUP backend candidate
@@ -565,15 +565,12 @@ interval-array decoding is data-protocol compatibility only; it shows factual ed
 claims or draws an obstacle outline. The full commit-by-commit audit is
 `docs/reviews/2026-09-14-hazard-rendering-history-audit.md`.
 
-**Durable execution plan (persisted 2026-09-14 04:31 UTC):**
-1. 已完成：统一搜索/附近/下载列表的中文名称解析，并补齐红旗谷、西郊、棒棰岛等已知别名。
+**Durable execution plan (persisted 2026-09-14 05:18 UTC):**
+1. 已完成：统一搜索/附近/下载/历史/开始一局的名称解析，移除所有手写球场别名；只有 Garmin 已提供的本地化字段可以覆盖 CourseView 英文名。
 2. 已完成：发布已有事实地图作为 partial fallback，球童请求不阻塞首帧，并避免 ready package 重复 prep 请求。
 3. 已完成：障碍轮廓和前后标签移到固定 viewport annotation layer，细线/小点/外侧标签随缩放重算；关闭服务端装饰纹理并递增 renderer 版本。
 4. 已完成：收紧左上距离面板，修正无恢复状态的 opening/tee shot context 和推荐序列去重。
-5. 已完成：homeserver focused tests、Native gate、内部 TestFlight 与 Apple processing 全部通过；
-   Source CI `34801161362`、Native Mobile CI `34801645659`、TestFlight CD `34805642853` 和
-   ASC 只读检查 `34806176386` 均为成功。Build 61 为 `VALID`、未过期、已进入
-   `Jason's friends` 内部组；实体设备缩放/拖动仍为 evidence-open。
+5. 进行中：兼容旧 normalized Garmin 快照的 `provenance.sourceConnector`，补齐来源门禁回归测试；随后运行 homeserver focused tests、Source/Native gates、内部 TestFlight 与 Apple processing 检查。先前 Source CI `34801161362`、Native Mobile CI `34801645659`、TestFlight CD `34805642853` 和 ASC 只读检查 `34806176386` 仅证明 hazard slice，不能替代本轮名称审计的新证据；实体设备缩放/拖动仍为 evidence-open。
 
 本轮开始前的已知基线：`PERF-STARTUP` 已完成实现并保持 `evidence-open`；其远端 focused suite、Source CI、
 Native Mobile CI 和 Build 59 上传证据不被本轮覆盖。所有重资源验证仍必须在 homeserver 执行。
@@ -1394,7 +1391,7 @@ project-level task list; historical plans are reference material.
 | `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Source CI `34663338160` and exact-SHA live Native Mobile CI `34663501590` at `70480f99` passed, including iOS/Watch builds, real iOS journey, dedicated hazard/caddie captures, Watch runtime screenshots, evidence and secret scans. Internal TestFlight CD `34666136884` uploaded Build 57; ASC read-only run `34666574292` confirmed `VALID` and `IN_BETA_TESTING`. Physical iPhone/Watch validation of map panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation remains open. |
 | `PHONE-UX3` | `evidence-open` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present at exact source `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; homeserver focused suite `296 passed, 2 skipped`, Python compileall, Source CI `34709596756`, and Native `34709800015` (full live iOS/Watch evidence) pass. Internal TestFlight CD `34712702517` uploaded Build 58; ASC run `34713289501` confirmed it is processed and in the internal group. Remaining evidence is physical iPhone/Watch verification of real-time panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation. |
 | `PERF-STARTUP` | `evidence-open` | Reduce complete-round startup latency without storing every course map offline: reuse server decision/package work, connect existing stats warm-up, keep full 18-hole facts while prioritizing the active hole on phone, and use bounded Watch topo concurrency with on-demand green detail. | Implementation and remote focused suite (`334 passed, 2 skipped`) are green; Python compileall and diff-check pass. Source CI `34757661927`, exact-SHA live Native Mobile CI `34759807648`, and internal TestFlight CD `34763656027` are green. Build 59 is Apple `VALID`/`IN_BETA_TESTING` and visible in the internal group; physical iPhone/Watch interaction and Garmin reconnect remain open. |
-| `PHONE-UX5` | `evidence-open` | Unify Chinese-first course naming, show the factual map before caddie computation, simplify hazard geometry/labels and map chrome, remove unnecessary topo texture, keep opening-hole recommendations tied to tee context, and remove stale/fake hazard geometry while preserving the enlarged hazard viewport. | Exact source `74423bd2ae65eca03c9eef0b8a003fca5f29c7ab`; focused homeserver suite (`148 passed, 2 skipped`), Source CI `34801161362`, exact-SHA Native Mobile CI `34801645659`, TestFlight CD `34805642853` (Build 61), and ASC read-only check `34806176386` are green. H07 overlay evidence has six real irregular outlines. Physical zoom/drag and hazard-switching behavior on iPhone/Watch remain open. |
+| `PHONE-UX5` | `in-progress` | Audit every course-name source and remove presentation aliases: use a real Garmin localized field when present, otherwise preserve Garmin's provider name exactly; keep loop labels separate and reject `ABC/AC/AF/AB` as venue names. Reconcile nearby, downloaded, history, and start-round display paths. | Started from exact source `85de1d7c`; production alias constants are removed and the audit is recorded in `docs/reviews/2026-09-14-course-name-authority-audit.md`. Legacy `provenance.sourceConnector` compatibility, focused tests, CI, and internal TestFlight evidence remain pending. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 | `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |
@@ -2115,6 +2112,20 @@ Native runs recorded above; it is retained only as historical diagnosis.
   outline data is absent. Physical zoom/drag, hazard switching, and Garmin
   reconnect remain open; no external distribution, production promotion, or
   data sync occurred.
+
+- 2026-09-14: `PHONE-UX5` reopened as the sole `in-progress` slice for
+  IMG_8061 course-name feedback. The current slice audits Garmin's formal
+  localized-name fields and removes synthetic iOS aliases and malformed loop
+  combinations; no manual translation or alias will be accepted as a data
+  source.
+
+- 2026-09-14: The course-name audit identified `8fe38011`, `9c37858a`, and
+  `d41fed9e` (all authored by `jasonhorga`) as the source of the former
+  presentation aliases. The aliases are removed from production paths. Legacy
+  normalized rows were found to carry Garmin provenance only in
+  `provenance.sourceConnector`; the resolver compatibility fix and focused
+  regression evidence are now the next action. Audit report:
+  `docs/reviews/2026-09-14-course-name-authority-audit.md`.
 
 - 2026-09-13: Corrected the stale current-slice marker: `PERF-STARTUP` remains
   `evidence-open`, and `PHONE-UX5` is now the sole `in-progress` slice. The

@@ -1013,13 +1013,27 @@ public final class WatchCourseLibrary: ObservableObject {
         guard let known = courses.first(where: { $0.globalId == match.globalId }) else {
             return provider
         }
+        let mergedName = GarminCourseNameAuthority.mergedName(
+            providerName: provider.name,
+            trustedNames: [provider.venueName, known.name, known.venueName],
+            trustedNameSources: [
+                provider.venueNameSource,
+                known.venueNameSource,
+                known.venueNameSource,
+            ]
+        )
+        let mergedSplit = GarminCourseNameAuthority.split(mergedName)
+        let mergedSegment = mergedSplit.suffix.flatMap {
+            GarminCourseNameAuthority.isCompositeSegment($0) ? nil : $0
+        }
         return WatchCourseOption(
             globalId: provider.globalId,
-            name: provider.name,
+            name: mergedName,
             holes: provider.holes,
             teeBox: known.teeBox,
-            venueName: provider.venueName ?? known.venueName,
-            segmentLabel: provider.segmentLabel ?? known.segmentLabel,
+            venueName: mergedSplit.venue.isEmpty ? (known.venueName ?? provider.venueName) : mergedSplit.venue,
+            venueNameSource: provider.venueNameSource ?? known.venueNameSource,
+            segmentLabel: mergedSegment ?? provider.segmentLabel ?? known.segmentLabel,
             segmentHoles: provider.segmentHoles ?? known.segmentHoles,
             latitude: provider.latitude ?? known.latitude,
             longitude: provider.longitude ?? known.longitude,

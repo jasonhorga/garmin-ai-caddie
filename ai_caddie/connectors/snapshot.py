@@ -223,6 +223,10 @@ def _normalize_scorecard(
     stats = detail.get("scorecardStats", {}).get("round", {}) or {}
     course_name = str(snapshot.get("name") or "Unknown course")
     canonical = canonical_course_name(course_name)
+    # This is Garmin's localized scorecard field, not a presentation alias.
+    # Preserve it explicitly so downstream catalogue reconciliation can tell it
+    # apart from a derived/legacy course label.
+    garmin_snapshot_name = course_name if course_name != "Unknown course" else None
     hole_pars = snapshot.get("holePars") or ""
     if isinstance(hole_pars, list):
         hole_pars = "".join(str(item) for item in hole_pars)
@@ -239,6 +243,7 @@ def _normalize_scorecard(
         "strokes": scorecard.get("strokes"),
         "holesCompleted": scorecard.get("holesCompleted"),
         "course": course_name,
+        "garminSnapshotName": garmin_snapshot_name,
         "courseCanonical": canonical,
         "courseKey": course_key(canonical),
         "courseId": scorecard.get("courseGlobalId"),
@@ -287,6 +292,7 @@ def _normalize_scorecard(
                 "holesCompleted": "scorecardDetails[0].scorecard.holesCompleted",
                 "courseGlobalId": "scorecardDetails[0].scorecard.courseGlobalId",
                 "courseSnapshot": "courseSnapshots[0]",
+                "garminSnapshotName": "courseSnapshots[0].name",
                 "roundStats": "scorecardDetails[0].scorecardStats.round",
             },
         ),
@@ -598,6 +604,7 @@ def _normalize_shot_file(
                     "scorecardId": scorecard_id,
                     "date": str(round_row.get("date") or "")[:10],
                     "course": round_row.get("course"),
+                    "garminSnapshotName": round_row.get("garminSnapshotName"),
                     "courseCanonical": round_row.get("courseCanonical"),
                     "courseKey": round_row.get("courseKey"),
                     "hole": hole,

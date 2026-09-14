@@ -10,7 +10,11 @@ from __future__ import annotations
 import unittest
 
 from ai_caddie.history.history import HistoryData
-from ai_caddie.caddie.mobile_live import _merge_nines, build_mobile_course_options
+from ai_caddie.caddie.mobile_live import (
+    _course_display_name,
+    _merge_nines,
+    build_mobile_course_options,
+)
 
 
 def _nine_package(label: str, ready: int) -> dict:
@@ -56,6 +60,7 @@ def _round(rid: str, gid: int, course: str) -> dict:
     return {
         "id": rid, "date": "2026-06-0" + rid[-1], "globalId": gid,
         "courseKey": f"gid_{gid}", "course": course, "courseName": course,
+        "source": "garmin",
         "holesCompleted": 18, "strokes": 90, "par": 72, "holePars": "4" * 18,
         "holes": [{"number": h, "par": 4} for h in range(1, 19)],
     }
@@ -159,6 +164,51 @@ class MobileCourseSegmentTests(unittest.TestCase):
         self.assertIsNone(course["segmentLabel"])
         self.assertEqual(course["segmentHoles"], course["holes"])
         self.assertEqual(course["venueName"], "某未知球场")
+
+    def test_garmin_snapshot_name_is_used_instead_of_legacy_english_canonical(self) -> None:
+        row = _round("r1", 42001, "West Park Golf & Country Club ~ A/C")
+        row["courseCanonical"] = "West Park Golf & Country Club"
+        row["garminSnapshotName"] = "西郊高尔夫俱乐部 ~ A/C"
+        data = HistoryData(raw_rounds=[], rounds=[row], shots=[])
+
+        resp = build_mobile_course_options(data, data_mode="played", segment_resolver=_resolver)
+        course = resp["courses"][0]
+        self.assertEqual(course["venueName"], "西郊高尔夫俱乐部")
+        self.assertEqual(course["name"], "西郊高尔夫俱乐部")
+        self.assertIsNone(course["segmentLabel"])
+
+    def test_course_display_name_matches_back_nine_global_id(self) -> None:
+        row = _round("r1", 42001, "West Park Golf & Country Club ~ A/C")
+        row["globalId"] = 42000
+        row["frontNineGlobalCourseId"] = 42000
+        row["backNineGlobalCourseId"] = 42001
+        row["garminSnapshotName"] = "西郊高尔夫俱乐部 ~ A/C"
+        data = HistoryData(raw_rounds=[], rounds=[row], shots=[])
+
+        self.assertEqual(_course_display_name(data, 42001), "西郊高尔夫俱乐部")
+
+    def test_manual_name_does_not_localize_courseview_option(self) -> None:
+        row = _round("r1", 42001, "用户填写的中文球场")
+        row["source"] = "manual"
+        row["garminSnapshotName"] = "用户填写的中文球场"
+        data = HistoryData(raw_rounds=[], rounds=[row], shots=[])
+
+        resp = build_mobile_course_options(
+            data,
+            data_mode="played",
+            segment_resolver=lambda gid: ("West Park Golf & Country Club ~ A", 9),
+        )
+        course = resp["courses"][0]
+        self.assertEqual(course["venueName"], "West Park Golf & Country Club")
+        self.assertIsNone(course["venueNameSource"])
+        self.assertEqual(course["name"], "West Park Golf & Country Club ~ A")
+
+    def test_manual_name_is_not_live_course_name_authority(self) -> None:
+        row = _round("r1", 42001, "用户填写的中文球场")
+        row["source"] = "manual"
+        row["garminSnapshotName"] = "用户填写的中文球场"
+        data = HistoryData(raw_rounds=[], rounds=[row], shots=[])
+        self.assertIsNone(_course_display_name(data, 42001))
 
 
 if __name__ == "__main__":

@@ -996,6 +996,13 @@ export interface MobileCourseOption {
   globalId: number
   courseKey?: string | null
   name: string
+  /** Garmin-backed venue identity; absent on legacy/provider-only rows. */
+  venueName?: string | null
+  /** Explicit source for venueName; only Garmin scorecard snapshots localize provider rows. */
+  venueNameSource?: string | null
+  /** One factual CourseView loop label; composite played routes are omitted. */
+  segmentLabel?: string | null
+  segmentHoles?: number | null
   roundCount: number
   latestRoundId?: string | null
   latestRoundDate?: string | null
@@ -1005,6 +1012,9 @@ export interface MobileCourseOption {
   teeBox?: string | null
   geometryCoverage: string
   sourceRefs: string[]
+  latitude?: number | null
+  longitude?: number | null
+  tees?: string[]
 }
 
 export interface MobileCourseOptionsResponse {
@@ -1279,6 +1289,9 @@ export type StatsWindow = 'all' | '12m' | 'last20' | 'last10'
 export interface CourseSearchMatch {
   globalId: number
   name: string
+  venueName?: string | null
+  venueNameSource?: string | null
+  segmentLabel?: string | null
   holes: number | null
   city: string | null
   province: string | null

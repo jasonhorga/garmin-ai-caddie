@@ -14,6 +14,15 @@ import time
 from typing import Any, Callable
 
 from ai_caddie.courses import course_prep
+from ai_caddie.courses.name_authority import (
+    is_composite_segment,
+    is_trusted_garmin_identity,
+    localized_provider_name,
+    normalize_course_text,
+    preferred_garmin_source_name,
+    select_garmin_name_identity,
+    split_garmin_course_name,
+)
 from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
 from ai_caddie.reports.annotations import annotations_for_target, list_annotations
 from ai_caddie.core.data import hazard_path, read_json
@@ -411,7 +420,7 @@ def _course_option_hole_count(rows: list[dict[str, Any]]) -> int:
 
 def _venue_base_name(name: str) -> str:
     """Venue name without the Garmin loop/combo suffix ('…黑骑士… ~ C/A' -> '…黑骑士…')."""
-    return str(name or "").split(" ~ ")[0].strip()
+    return split_garmin_course_name(name)[0]
 
 
 def _segment_label_from_courseview_name(clean_name: str | None) -> str | None:
@@ -419,10 +428,11 @@ def _segment_label_from_courseview_name(clean_name: str | None) -> str | None:
     a single whole course (no ' ~ ' suffix, e.g. a straight 18) — that course IS the segment."""
     if not clean_name:
         return None
-    parts = str(clean_name).split(" ~ ")
-    if len(parts) < 2:
+    _venue, suffix = split_garmin_course_name(clean_name)
+    suffix = normalize_course_text(suffix)
+    if not suffix or is_composite_segment(suffix):
         return None
-    return parts[-1].strip() or None
+    return suffix
 
 
 def _courseview_segment_resolver(global_id: int, *, allow_fetch: bool = False) -> tuple[str | None, int | None] | None:
@@ -527,7 +537,13 @@ def build_mobile_course_options(
             geometry_coverage = "ready"
         elif any(value == "partial" for value in geometry_rows):
             geometry_coverage = "partial"
-        display_name = str(latest.get("course") or latest.get("courseName") or f"Course {global_id}")
+        # ``course`` on an older merged row can be a played route such as
+        # ``黑骑士 ~ A/C``.  Choose the localized Garmin snapshot as the venue
+        # authority, then use the current CourseView row for one segment label.
+        # This keeps A/C as round history while never exposing it as a single
+        # selectable layout.
+        identity = select_garmin_name_identity(rows)
+        trusted_identity = identity if is_trusted_garmin_identity(identity) else None
         played_holes = _course_option_hole_count(rows_sorted)
         # Course coordinates (for GPS "nearby courses" sorting) — first round that carries them.
         latitude = next((_safe_float(row.get("lat")) for row in rows_sorted if _safe_float(row.get("lat")) is not None), None)
@@ -540,6 +556,27 @@ def build_mobile_course_options(
         except Exception:
             segment = None
         clean_name, segment_holes = segment if segment else (None, None)
+        courseview_label = _segment_label_from_courseview_name(clean_name)
+        if trusted_identity is not None:
+            venue_name = trusted_identity.venue
+        elif clean_name:
+            venue_name = _venue_base_name(str(clean_name))
+        else:
+            fallback = str(latest.get("course") or latest.get("courseName") or f"Course {global_id}")
+            venue_name = _venue_base_name(fallback) or normalize_course_text(fallback)
+        fallback_name = normalize_course_text(latest.get("course") or latest.get("courseName") or f"Course {global_id}")
+        fallback_venue = _venue_base_name(fallback_name) or fallback_name
+        segment_label = courseview_label or (
+            trusted_identity.segment if trusted_identity is not None else None
+        )
+        if segment_label and is_composite_segment(segment_label):
+            segment_label = None
+        display_name = (
+            f"{venue_name} ~ {segment_label}"
+            if venue_name and segment_label
+            else venue_name
+            or fallback_venue
+        )
         try:
             course_tees = resolve_tees(global_id)
         except Exception:
@@ -549,8 +586,11 @@ def build_mobile_course_options(
                 "globalId": global_id,
                 "courseKey": str(latest.get("courseKey") or ""),
                 "name": display_name,
-                "venueName": _venue_base_name(display_name),
-                "segmentLabel": _segment_label_from_courseview_name(clean_name),
+                "venueName": venue_name,
+                "venueNameSource": (
+                    trusted_identity.source if trusted_identity is not None else None
+                ),
+                "segmentLabel": segment_label,
                 "segmentHoles": int(segment_holes) if segment_holes else played_holes,
                 "latitude": latitude,
                 "longitude": longitude,
@@ -2116,6 +2156,12 @@ def _caddie_context_seeds(
     player_id: str = OWNER_ID,
 ) -> list[dict[str, Any]]:
     course_name = str(round_row.get("course") or round_row.get("courseName") or "Unknown course")
+    identity = select_garmin_name_identity([round_row])
+    if is_trusted_garmin_identity(identity):
+        # Caddie seed context is a live-layout label.  Keep historical
+        # composite routes in the round record, but don't repeat them as if
+        # they were the current single layout.
+        course_name = localized_provider_name("", identity, segment_override=identity.segment)
     decision_clubs = _decision_club_profiles(club_profiles)
     seeds: list[dict[str, Any]] = []
     for hole in holes:
@@ -2685,6 +2731,18 @@ def build_live_round_package(
         )
     )
     course_prep_package = _course_prep_package(course_global_id, holes, player_id=player_id) if (preparation_mode == "course" and include_course_prep) else None
+    course_display_name = str(round_row.get("course") or round_row.get("courseName") or "Unknown course")
+    if preparation_mode == "course" and requested_course_global_id is not None:
+        localized = _course_display_name(stats_data or data, int(requested_course_global_id))
+        if localized:
+            course_display_name = localized
+        else:
+            # A legacy/manual row may still be the selected package template, but its played
+            # combination is not a selectable CourseView layout. Keep the provider spelling and
+            # remove only a composite route suffix; a factual single loop suffix remains intact.
+            provider_venue, provider_suffix = split_garmin_course_name(course_display_name)
+            if provider_venue and provider_suffix and is_composite_segment(provider_suffix):
+                course_display_name = provider_venue
     return {
         "schema": "ai-caddie-live-round-package-v1",
         "roundId": round_id,
@@ -2694,7 +2752,7 @@ def build_live_round_package(
         "playerProfile": player_profile,
         "course": {
             "globalId": course_global_id,
-            "name": str(round_row.get("course") or round_row.get("courseName") or "Unknown course"),
+            "name": course_display_name,
             "teeBox": str(tee_box or round_row.get("teeBox") or "unknown"),
         },
         "holes": holes,
@@ -2885,17 +2943,74 @@ def _geometry_only_course_template(
 
 
 def _course_display_name(source: HistoryData, global_id: int) -> str | None:
-    """Real course name for a globalId from history (latest round on that course)."""
-    rows = [
-        row
-        for row in source.rounds
-        if _safe_int(row.get("globalId") or row.get("courseGlobalId") or row.get("courseId")) == global_id
-    ]
+    """Localized Garmin name for a globalId, with composite routes removed.
+
+    The raw round row remains untouched for historical review.  Live package
+    identity is a selectable layout, so a stale ``A/C`` suffix must not leak
+    into its title.
+    """
+    rows: list[dict[str, Any]] = []
+    seen_rows: set[tuple[str, int]] = set()
+    # ``raw_rounds`` retains the two member scorecards behind a merged 18-hole
+    # row. Search it first so a back-nine package can use that member's exact
+    # Garmin snapshot suffix instead of an arbitrary suffix selected from the
+    # combined route. The normalized rows remain a compatibility fallback for
+    # callers that construct HistoryData without raw members.
+    for collection in (source.raw_rounds, source.rounds):
+        for row in collection:
+            if not isinstance(row, dict):
+                continue
+            row_ids: set[int] = set()
+            for key in (
+                "globalId",
+                "courseGlobalId",
+                "courseId",
+                "frontNineGlobalCourseId",
+                "backNineGlobalCourseId",
+            ):
+                value = _safe_int(row.get(key))
+                if value is not None and value > 0:
+                    row_ids.add(value)
+            if global_id not in row_ids:
+                continue
+            row_key = (str(row.get("id") or ""), id(row))
+            if row_key in seen_rows:
+                continue
+            seen_rows.add(row_key)
+            rows.append(row)
     if not rows:
         return None
+    identity = select_garmin_name_identity(rows)
+    # A manually entered round may contain a Chinese ``course`` value, but it
+    # is not a localization authority for a CourseView/provider row. Keep that
+    # spelling in history; only an explicit Garmin snapshot may replace the
+    # name used by a live course package.
+    if identity is not None and not is_trusted_garmin_identity(identity):
+        return None
+    if identity is not None:
+        # A package built from a historical row may not have a CourseView name
+        # available yet. Keep a suffix only when the rows associated with this
+        # exact global id agree on one factual single loop; a merged A/B route
+        # must stay venue-only rather than exposing whichever loop happened to
+        # win a frequency/date tie.
+        suffixes: set[str] = set()
+        for row in rows:
+            source_name = preferred_garmin_source_name(row)
+            _venue, suffix = split_garmin_course_name(source_name)
+            if suffix and not is_composite_segment(suffix):
+                suffixes.add(normalize_course_text(suffix))
+        exact_suffix = next(iter(suffixes)) if len(suffixes) == 1 else None
+        return localized_provider_name(
+            "",
+            identity,
+            segment_override=exact_suffix,
+        )
     latest = max(rows, key=lambda row: str(row.get("date") or ""))
-    name = str(latest.get("course") or latest.get("courseName") or "").strip()
-    return name or None
+    name = normalize_course_text(latest.get("course") or latest.get("courseName"))
+    if not name:
+        return None
+    venue, suffix = split_garmin_course_name(name)
+    return f"{venue} ~ {suffix}" if suffix and not is_composite_segment(suffix) else venue
 
 
 def build_live_round_package_for_course(

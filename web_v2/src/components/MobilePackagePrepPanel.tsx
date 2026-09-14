@@ -9,6 +9,7 @@ import type {
   MobileCoursePackageParams,
   MobileRoundPackageParams,
 } from '../types'
+import { displayCourseName } from '../courseName'
 
 // 发球台颜色 key → 中文标签(镜像 iOS zhTeeLabel);接口返回的 name 作兜底(CourseView 自带名)。
 const TEE_BOX_ZH: Record<string, string> = {
@@ -352,7 +353,7 @@ export function MobilePackagePrepPanel({
                   <option value="">手动输入球场编号</option>
                   {courseOptions.map((option) => (
                     <option key={option.globalId} value={option.globalId}>
-                      {option.name} / {option.holes} 洞 / {option.roundCount} 场
+                      {displayCourseName(option)} / {option.holes} 洞 / {option.roundCount} 场
                     </option>
                   ))}
                 </select>
@@ -458,7 +459,7 @@ function PackageSummary({ data }: { data: LiveRoundPackageResponse }) {
       <div className="package-summary-grid" aria-label="离线包摘要">
         <article>
           <span>球场</span>
-          <strong>{data.course.name}</strong>
+          <strong>{displayCourseName(data.course)}</strong>
           <em>{data.course.globalId} / {data.course.teeBox}</em>
         </article>
         <article>

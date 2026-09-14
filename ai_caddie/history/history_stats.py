@@ -15,6 +15,10 @@ from ai_caddie.history.history_drilldown import build_drilldown_index
 from ai_caddie.caddie.issue_taxonomy import issue_record
 from ai_caddie.reports.reports import list_report_stats_records
 from ai_caddie.llm.weather_context import list_weather_snapshots
+from ai_caddie.courses.name_authority import (
+    preferred_garmin_source_name,
+    preferred_garmin_venue,
+)
 
 DataModeName = Literal["local", "fixture"]
 CORRECTION_KINDS = {"club_correction", "lie_correction", "penalty_correction", "putt_correction", "score_correction"}
@@ -2517,7 +2521,9 @@ def _courses(
         # different source) don't show as two rows. Falls under "全部" when a round has no nine suffix.
         nine_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for combo_row in rows_sorted:
-            nine_groups[_canonical_nine_label(str(combo_row.get("course") or "")) or "全部"].append(combo_row)
+            nine_groups[
+                _canonical_nine_label(preferred_garmin_source_name(combo_row)) or "全部"
+            ].append(combo_row)
         nine_breakdown = []
         for label, combo_rows in nine_groups.items():
             combo_scores = [int(r["strokes"]) for r in combo_rows if r.get("strokes") is not None]
@@ -2541,7 +2547,7 @@ def _courses(
                 "toPar": (int(r["strokes"]) - int(r["par"]))
                 if (r.get("strokes") is not None and r.get("par") is not None)
                 else None,
-                "nine": _canonical_nine_label(str(r.get("course") or "")),
+                "nine": _canonical_nine_label(preferred_garmin_source_name(r)),
             }
             for r in rows_sorted
         ]
@@ -2550,8 +2556,13 @@ def _courses(
                 {
                     "courseKey": course_key,
                     # BASE course name (collapsing the nine combo) — the count spans the whole course.
-                    "courseName": str(
-                        rows_sorted[0].get("courseCanonical") or rows_sorted[0].get("course") or "Unknown course"
+                    "courseName": preferred_garmin_venue(
+                        rows_sorted,
+                        fallback=str(
+                            rows_sorted[0].get("courseCanonical")
+                            or rows_sorted[0].get("course")
+                            or "Unknown course"
+                        ),
                     ),
                     "roundCount": len(rows),
                     "nineBreakdown": nine_breakdown,
@@ -2639,7 +2650,14 @@ def _course_distribution(data: HistoryData) -> list[dict[str, Any]]:
             _with_aggregate_contract(
                 {
                     "courseKey": course_key,
-                    "courseName": str(rows_sorted[0].get("course") or rows_sorted[0].get("courseName") or "Unknown course"),
+                    "courseName": preferred_garmin_venue(
+                        rows_sorted,
+                        fallback=str(
+                            rows_sorted[0].get("course")
+                            or rows_sorted[0].get("courseName")
+                            or "Unknown course"
+                        ),
+                    ),
                     "roundCount": len(course_rows),
                     "pct": round(len(course_rows) / total * 100, 1) if total else 0.0,
                     "roundRefs": round_refs,
@@ -2665,7 +2683,7 @@ def _round_record(row: dict[str, Any]) -> dict[str, Any]:
         {
             "roundRef": round_ref,
             "courseKey": row.get("courseKey"),
-            "courseName": str(row.get("course") or row.get("courseName") or "Unknown course"),
+            "courseName": preferred_garmin_source_name(row) or "Unknown course",
             "date": row.get("date"),
             "score": int(score) if score is not None else None,
             "par": int(par) if par is not None else None,
@@ -2707,7 +2725,7 @@ def _records(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
                     "holeRef": _hole_ref(row, number),
                     "roundRef": _round_id(row),
                     "courseKey": row.get("courseKey"),
-                    "courseName": str(row.get("course") or row.get("courseName") or "Unknown course"),
+                    "courseName": preferred_garmin_source_name(row) or "Unknown course",
                     "hole": number,
                     "score": int(score),
                     "par": int(par),

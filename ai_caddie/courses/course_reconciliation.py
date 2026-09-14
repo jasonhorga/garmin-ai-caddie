@@ -15,6 +15,16 @@ from typing import Any, Iterable, Mapping
 from ai_caddie.core.data import ROOT
 
 from .course_search import CourseMatch
+from .name_authority import (
+    GarminNameIdentity,
+    is_composite_segment,
+    is_placeholder_course_name,
+    is_trusted_garmin_identity,
+    localized_provider_name,
+    localized_names_by_global_id,
+    select_garmin_name_identity,
+    split_garmin_course_name,
+)
 
 
 DEFAULT_MATCH_DISTANCE_KM = 2.0
@@ -34,6 +44,7 @@ class PlayerCourseEvidence:
     holes: int | None = None
     source: str = "player_history"
     round_count: int = 0
+    identity: GarminNameIdentity | None = None
 
 
 def _coord(latitude: Any, longitude: Any) -> tuple[float, float] | None:
@@ -95,12 +106,42 @@ def _ids(row: Mapping[str, Any]) -> tuple[int, ...]:
 
 def _names(row: Mapping[str, Any]) -> tuple[str, ...]:
     out: list[str] = []
-    for key in ("courseCanonical", "course", "courseName", "name"):
+    # ``garminSnapshotName`` is the localized value from the scorecard itself.
+    # Keep it ahead of derived/legacy fields so a stale English canonical name
+    # cannot win merely because it was written first.
+    for key in (
+        "garminSnapshotName",
+        "courseSnapshotName",
+        "courseCanonical",
+        "course",
+        "courseName",
+        "name",
+    ):
         value = str(row.get(key) or "").strip()
-        if _norm(value) in _PLACEHOLDER_NAMES:
+        if is_placeholder_course_name(value) or _norm(value) in _PLACEHOLDER_NAMES:
             continue
         if value and value.casefold() not in {item.casefold() for item in out}:
             out.append(value)
+    # A raw scorecard can reach reconciliation before the history normalizer
+    # has materialized ``garminSnapshotName``. Include the exact nested Garmin
+    # field so a localized name is still searchable and authoritative.
+    snapshots = row.get("courseSnapshots")
+    if isinstance(snapshots, (list, tuple)) and snapshots:
+        first = snapshots[0]
+        if isinstance(first, Mapping):
+            value = str(first.get("name") or "").strip()
+            if value and not is_placeholder_course_name(value) and value.casefold() not in {
+                item.casefold() for item in out
+            }:
+                out.insert(0, value)
+    snapshot_names = row.get("garminSnapshotNames")
+    if isinstance(snapshot_names, (list, tuple)):
+        for raw in snapshot_names:
+            value = str(raw or "").strip()
+            if value and not is_placeholder_course_name(value) and value.casefold() not in {
+                item.casefold() for item in out
+            }:
+                out.insert(0, value)
     return tuple(out)
 
 
@@ -201,6 +242,7 @@ def build_player_course_evidence(
         if not names or not ids or not _played(row):
             continue
         observation = {
+            "row": dict(row),
             "names": names,
             "coord": _row_coord(row),
             "city": str(row.get("city") or "").strip() or None,
@@ -226,7 +268,21 @@ def build_player_course_evidence(
                 latest[key] = max(latest.get(key, ""), observation["date"])
         if not counts:
             continue
-        chosen_key = max(counts, key=lambda key: (counts[key], latest.get(key, ""), key))
+        # Prefer the exact Garmin localized snapshot when one is available. The
+        # helper strips a played route suffix, so evidence names a physical
+        # venue while aliases still retain the original round labels for search.
+        identity = select_garmin_name_identity(
+            observation["row"] for observation in observations if isinstance(observation.get("row"), Mapping)
+        )
+        if (
+            identity is not None
+            and is_trusted_garmin_identity(identity)
+            and identity.venue
+        ):
+            preferred_name = identity.venue
+        else:
+            chosen_key = max(counts, key=lambda key: (counts[key], latest.get(key, ""), key))
+            preferred_name = originals[chosen_key]
         history_coords = [item["coord"] for item in observations if item["coord"] is not None]
         history_coord = None
         if history_coords:
@@ -245,7 +301,7 @@ def build_player_course_evidence(
         holes = max((item["holes"] or 0 for item in observations), default=0) or None
         result[global_id] = PlayerCourseEvidence(
             global_id=global_id,
-            name=originals[chosen_key],
+            name=preferred_name,
             latitude=coordinate[0],
             longitude=coordinate[1],
             aliases=aliases,
@@ -254,6 +310,7 @@ def build_player_course_evidence(
             holes=holes,
             source="player_history+geometry" if geometry_coord is not None else "player_history",
             round_count=len({item["id"] for item in observations if item["id"]}) or len(observations),
+            identity=identity,
         )
     return result
 
@@ -300,6 +357,19 @@ def _history_only_match(evidence: PlayerCourseEvidence, origin: tuple[float, flo
         display_coordinate_source=evidence.source,
         reconciliation_distance_km=0.0,
         provider_match=False,
+        venue_name=(
+            evidence.identity.venue
+            if evidence.identity is not None
+            and is_trusted_garmin_identity(evidence.identity)
+            else evidence.name
+        ),
+        venue_name_source=(
+            evidence.identity.source
+            if evidence.identity is not None
+            and is_trusted_garmin_identity(evidence.identity)
+            else None
+        ),
+        segment_label=None,
     )
 
 
@@ -313,6 +383,7 @@ def reconcile_course_matches(
     nearby_origin: tuple[float, float] | None = None,
     nearby_radius_km: float | None = None,
     geometry_locations: Mapping[int, Any] | None = None,
+    overlay_coordinates: bool = True,
     max_distance_km: float = DEFAULT_MATCH_DISTANCE_KM,
     history_nearby_radius_km: float = DEFAULT_HISTORY_NEARBY_RADIUS_KM,
     append_history: bool = False,
@@ -327,8 +398,16 @@ def reconcile_course_matches(
         max_distance = DEFAULT_MATCH_DISTANCE_KM
     if not math.isfinite(max_distance) or max_distance < 0:
         max_distance = DEFAULT_MATCH_DISTANCE_KM
+    # Materialize once: coordinate evidence and name evidence intentionally
+    # have different requirements. A provider row may have no coordinates (or
+    # a stale coordinate) while its stable global id still identifies the same
+    # Garmin venue and should receive the native localized name.
+    materialized_history = [row for row in (history_rows or ()) if isinstance(row, Mapping)]
+    name_identities = localized_names_by_global_id(
+        row for row in materialized_history if _names(row) and _played(row)
+    )
     evidence = build_player_course_evidence(
-        history_rows,
+        materialized_history,
         geometry_locations=geometry_locations,
         geometry_tolerance_km=max_distance,
     )
@@ -336,12 +415,26 @@ def reconcile_course_matches(
     provider_ids = {int(match.global_id) for match in provider_matches}
     origin = _value_coord(nearby_origin)
     for match in provider_matches:
+        identity = name_identities.get(int(match.global_id))
+        # Only Garmin's explicit scorecard snapshot is allowed to relabel an
+        # anonymous provider row. A Chinese name in a manually entered legacy
+        # row is still useful in that round's history, but is not a translation
+        # authority for the catalogue.
+        if identity is not None and not is_trusted_garmin_identity(identity):
+            identity = None
         item = evidence.get(int(match.global_id))
-        if item is None or _coord(match.latitude, match.longitude) is None:
-            output.append(match)
-            continue
-        distance = _distance((float(match.latitude), float(match.longitude)), (item.latitude, item.longitude))
-        if distance > max_distance:
+        provider_coord = _coord(match.latitude, match.longitude)
+        coordinate_allowed = item is not None and provider_coord is not None
+        distance: float | None = None
+        if coordinate_allowed:
+            distance = _distance(provider_coord, (item.latitude, item.longitude))
+            coordinate_allowed = distance <= max_distance
+        # Name authority is keyed by Garmin's stable global id. It does not
+        # depend on a provider coordinate being present or agreeing; only the
+        # optional coordinate overlay is gated by the distance check above.
+        if identity is None and item is not None and is_trusted_garmin_identity(item.identity):
+            identity = item.identity
+        if identity is None and item is None:
             output.append(match)
             continue
         if match.provider_match:
@@ -354,29 +447,40 @@ def reconcile_course_matches(
             provider_latitude = match.provider_latitude
             provider_longitude = match.provider_longitude
             provider_distance = match.provider_distance_km
-        allowed = origin is not None or _query_matches(
-            item,
-            query,
-            city,
-            provider_name=provider_name,
-        )
-        conflict = bool(provider_name and _norm(provider_name) != _norm(item.name))
+        # The provider row and the player's Garmin record already agree on a
+        # stable global id. That is sufficient evidence for the display overlay
+        # even when the provider coordinate is absent/stale. Query/city matching
+        # remains relevant only when appending history-only rows below.
+        display_name = localized_provider_name(match.name, identity, holes=match.holes)
+        display_venue, display_suffix = split_garmin_course_name(display_name)
+        conflict = bool(provider_name and _norm(provider_name) != _norm(display_name))
         output.append(
             replace(
                 match,
-                name=item.name if allowed else match.name,
-                latitude=item.latitude if allowed else match.latitude,
-                longitude=item.longitude if allowed else match.longitude,
-                distance_km=round(_distance(origin, (item.latitude, item.longitude)), 1) if allowed and origin else match.distance_km,
+                name=display_name,
+                latitude=item.latitude if coordinate_allowed and overlay_coordinates else match.latitude,
+                longitude=item.longitude if coordinate_allowed and overlay_coordinates else match.longitude,
+                distance_km=(
+                    round(_distance(origin, (item.latitude, item.longitude)), 1)
+                    if coordinate_allowed and overlay_coordinates and origin and item is not None
+                    else match.distance_km
+                ),
                 provider_name=provider_name,
                 provider_latitude=provider_latitude,
                 provider_longitude=provider_longitude,
                 provider_distance_km=provider_distance,
-                display_name_source=item.source if allowed and conflict else None,
-                display_coordinate_source=item.source if allowed else None,
-                reconciliation_distance_km=round(distance, 3),
+                display_name_source=(identity.source if conflict and identity is not None else None),
+                display_coordinate_source=(item.source if coordinate_allowed and overlay_coordinates and item is not None else None),
+                reconciliation_distance_km=round(distance, 3) if distance is not None else None,
                 reconciliation_conflict=conflict,
                 provider_match=True,
+                venue_name=display_venue if display_venue else match.venue_name,
+                venue_name_source=(identity.source if identity is not None else match.venue_name_source),
+                segment_label=(
+                    display_suffix
+                    if display_suffix and not is_composite_segment(display_suffix)
+                    else match.segment_label
+                ),
             )
         )
 

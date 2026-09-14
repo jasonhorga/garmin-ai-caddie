@@ -180,9 +180,9 @@ final class StartRoundDiscoveryTests: XCTestCase {
     func testStableCourseDisplayNameRebuildsSingleLoopWithoutStaleCombination() {
         let selected = MobileCourseOption(
             globalId: 31_794,
-            name: "Black Knight ~ C/A",
+            name: "北京天竺黑骑士球员俱乐部 ~ C/A",
             holes: 9,
-            venueName: "Black Knight",
+            venueName: "北京天竺黑骑士球员俱乐部",
             segmentLabel: "C",
             segmentHoles: 9
         )
@@ -285,7 +285,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(state.teeBox, "white")
     }
 
-    func testCourseSearchPresentationLocalizesKnownChineseNamesAndAddressesWithoutChangingRawFacts() {
+    func testCourseSearchPresentationPreservesUnknownProviderNamesAndLocalizesAddressesOnly() {
         let match = MobileCourseSearchMatch(
             globalId: 40_001,
             name: "Nicklaus Club Beijing",
@@ -298,12 +298,12 @@ final class StartRoundDiscoveryTests: XCTestCase {
 
         XCTAssertEqual(match.name, "Nicklaus Club Beijing")
         XCTAssertEqual(match.city, "Chaoyang District")
-        XCTAssertEqual(match.displayName, "北京尼克劳斯俱乐部")
+        XCTAssertEqual(match.displayName, "Nicklaus Club Beijing")
         XCTAssertEqual(match.subtitle, "8.2 公里 · 朝阳区 · 北京市 · 18 洞")
-        XCTAssertEqual(match.courseOption?.name, "北京尼克劳斯俱乐部")
+        XCTAssertEqual(match.courseOption?.name, "Nicklaus Club Beijing")
     }
 
-    func testKnownProviderConflictUsesVerifiedChineseDisplayAliasOnlyAtPresentationBoundary() {
+    func testProviderNameIsPreservedWhenNoGarminChineseSourceIsPresent() {
         let match = MobileCourseSearchMatch(
             globalId: 31_793,
             name: "Shadow Creek Golf Club",
@@ -314,30 +314,100 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
 
         XCTAssertEqual(match.name, "Shadow Creek Golf Club")
-        XCTAssertEqual(match.displayName, "北京丽宫体育公园高尔夫俱乐部")
+        XCTAssertEqual(match.displayName, "Shadow Creek Golf Club")
         XCTAssertEqual(match.subtitle, "顺义区 · 北京市 · 18 洞")
     }
 
-    func testNearbyCourseAliasesAndChineseSourceWinOverEnglishDuplicate() {
+    func testGarminChineseSourceWinsOverEnglishDuplicateWithoutTranslation() {
         XCTAssertEqual(
             MobileCourseDisplayLocalization.courseName("Red Flag Valley Golf Club"),
-            "红旗谷高尔夫球场"
+            "Red Flag Valley Golf Club"
         )
         XCTAssertEqual(
             MobileCourseDisplayLocalization.courseName("West Park Golf & Country Club"),
-            "西郊高尔夫俱乐部"
+            "West Park Golf & Country Club"
         )
         XCTAssertEqual(
             MobileCourseDisplayLocalization.courseName("Bangchuidao Golf Club"),
-            "棒棰岛高尔夫球场"
+            "Bangchuidao Golf Club"
         )
         XCTAssertEqual(
             MobileCourseDisplayLocalization.preferredCourseName(
                 ["Red Flag Valley Golf Club", "红旗谷高尔夫球场"],
-                globalId: 42_001
+                globalId: 42_001,
+                trustedNameSources: [GarminCourseNameAuthority.garminSnapshotNameSource, GarminCourseNameAuthority.garminSnapshotNameSource]
             ),
             "红旗谷高尔夫球场"
         )
+        XCTAssertEqual(
+            MobileCourseDisplayLocalization.preferredCourseName(
+                ["Red Flag Valley Golf Club"],
+                globalId: 42_001
+            ),
+            "Red Flag Valley Golf Club"
+        )
+        XCTAssertTrue(MobileCourseDisplayLocalization.isCompositeSegment("A/C"))
+        XCTAssertTrue(MobileCourseDisplayLocalization.isCompositeSegment("ABC"))
+        XCTAssertTrue(MobileCourseDisplayLocalization.isCompositeSegment("AC"))
+        XCTAssertFalse(MobileCourseDisplayLocalization.isCompositeSegment("Ocean"))
+    }
+
+    func testCompositeLoopNamesAreNotExposedAsSelectableSegments() {
+        let match = MobileCourseSearchMatch(
+            globalId: 42_002,
+            name: "Example Golf Club ~ A/C",
+            holes: 9,
+            city: nil,
+            province: nil,
+            ratio: 1
+        )
+
+        XCTAssertEqual(match.displayName, "Example Golf Club")
+        XCTAssertEqual(match.courseOption?.name, "Example Golf Club")
+        XCTAssertNil(match.courseOption?.segmentLabel)
+    }
+
+    func testPreferredVenueUsesOnlyAnAlreadyProvidedChineseName() {
+        XCTAssertEqual(
+            MobileCourseDisplayLocalization.preferredVenueName(
+                ["West Park Golf & Country Club", "西郊高尔夫俱乐部"],
+                trustedNameSources: [GarminCourseNameAuthority.garminSnapshotNameSource, GarminCourseNameAuthority.garminSnapshotNameSource]
+            ),
+            "西郊高尔夫俱乐部"
+        )
+        XCTAssertEqual(
+            MobileCourseDisplayLocalization.preferredVenueName(["West Park Golf & Country Club"]),
+            "West Park Golf & Country Club"
+        )
+    }
+
+    func testUnmarkedChineseNameCannotOverrideProviderSpelling() {
+        XCTAssertEqual(
+            MobileCourseDisplayLocalization.preferredCourseName(
+                ["West Park Golf & Country Club", "手填中文球场"]
+            ),
+            "West Park Golf & Country Club"
+        )
+        XCTAssertEqual(
+            MobileCourseDisplayLocalization.preferredVenueName(
+                ["West Park Golf & Country Club", "手填中文球场"]
+            ),
+            "West Park Golf & Country Club"
+        )
+    }
+
+    func testUnmarkedVenueNameDoesNotLocalizeSearchResult() {
+        let match = MobileCourseSearchMatch(
+            globalId: 42_003,
+            name: "West Park Golf & Country Club",
+            holes: 18,
+            city: nil,
+            province: nil,
+            ratio: 1,
+            venueName: "手填中文球场"
+        )
+        XCTAssertEqual(match.displayName, "West Park Golf & Country Club")
+        XCTAssertEqual(match.courseOption?.name, "West Park Golf & Country Club")
     }
 
     func testRoundDisplayNameRetainsSingleAndCompositeLoopIdentity() {

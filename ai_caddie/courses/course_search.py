@@ -60,6 +60,12 @@ class CourseMatch:
     reconciliation_distance_km: float | None = None
     reconciliation_conflict: bool = False
     provider_match: bool = True
+    # Optional presentation facts supplied by the player-scoped name authority.
+    # They are additive so anonymous provider/cache rows keep the historical
+    # nine-field contract.
+    venue_name: str | None = None
+    venue_name_source: str | None = None
+    segment_label: str | None = None
 
 
 @dataclass(frozen=True)
