@@ -1109,20 +1109,35 @@ final class RealFlowUITests: XCTestCase {
             firstFactualMap.waitForExistence(timeout: 90),
             "a new course must render either factual CourseView vectors or an already-finished precise topo"
         )
-        let observedLightweightMap = partialMap.exists
+        let preparing = app.descendants(matching: .any)["live-map-preparing"].firstMatch
+        // `firstFactualMap` can observe the lightweight map just as the precise topo commits. A
+        // retained XCUI query may still report the old partial snapshot for one turn, so accept
+        // either the disclosure or the already-ready map before asserting partial-only details.
+        let observedLightweightMap = partialMap.exists && !topoReady.exists
         if observedLightweightMap {
+            let preparationOrReady = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in
+                    topoReady.exists || preparing.exists
+                },
+                object: firstFactualMap
+            )
             XCTAssertTrue(
-                app.descendants(matching: .any)["live-map-preparing"].firstMatch
-                    .waitForExistence(timeout: 5),
-                "a partial Garmin map must disclose that precise hazard facts are still preparing"
+                XCTWaiter.wait(for: [preparationOrReady], timeout: 5) == .completed,
+                "a partial Garmin map must disclose preparation until the precise topo is ready"
             )
-            XCTAssertFalse(
-                app.staticTexts.matching(
-                    NSPredicate(format: "label CONTAINS ' · 到 ' AND (label BEGINSWITH '水域' OR label BEGINSWITH '沙坑')")
-                ).firstMatch.exists,
-                "an incomplete CourseView hazard subset must not masquerade as the nearest precise hazard"
-            )
-            settle(1); save("09d-new-course-lightweight-map"); dump("09d-new-course-lightweight-map")
+            if !topoReady.exists {
+                XCTAssertTrue(
+                    preparing.exists,
+                    "a partial Garmin map must disclose that precise hazard facts are still preparing"
+                )
+                XCTAssertFalse(
+                    app.staticTexts.matching(
+                        NSPredicate(format: "label CONTAINS ' · 到 ' AND (label BEGINSWITH '水域' OR label BEGINSWITH '沙坑')")
+                    ).firstMatch.exists,
+                    "an incomplete CourseView hazard subset must not masquerade as the nearest precise hazard"
+                )
+                settle(1); save("09d-new-course-lightweight-map"); dump("09d-new-course-lightweight-map")
+            }
         }
 
         XCTAssertTrue(
