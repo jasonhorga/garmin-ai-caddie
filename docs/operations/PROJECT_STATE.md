@@ -9,17 +9,17 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-13 18:36 UTC
+**Updated:** 2026-09-14 04:31 UTC
 **Branch:** `integration/v2` (GitHub default; documentation tip
 `e1b9cfe70ed7e60f0778e5cad59de90b0fa6a380`; internal-release source
 `70e74a6eb04bae1d656bc8cee81f534e0ae4f2b7`; PERF-STARTUP backend candidate
 `70e74a6eb04bae1d656bc8cee81f534e0ae4f2b7` on loopback `39062`; MAP1
 product-code tip `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation
 merge `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
-**Source baseline:** `d41fed9ef65774ef0dceb430b3597ae0f040c70b` (PHONE-UX5
-product source; Source CI `34769988882`, Native Mobile CI `34770331525`, and
-internal TestFlight CD `34774424885` passed/uploaded; Apple read-only check
-`34774892396` confirmed Build 60; candidate Quick Tunnel is
+**Source baseline:** `74423bd2ae65eca03c9eef0b8a003fca5f29c7ab` (PHONE-UX5
+product source; Source CI `34801161362`, Native Mobile CI `34801645659`, and
+internal TestFlight CD `34805642853` passed/uploaded; Apple read-only check
+`34806176386` confirmed Build 61; candidate Quick Tunnel is
 `https://changed-carb-sampling-push.trycloudflare.com`; physical device
 evidence remains open; historical TestFlight builds remain recorded below).
 PERF-STARTUP baseline remains `70e74a6eb04bae1d656bc8cee81f534e0ae4f2b7`.
@@ -45,7 +45,7 @@ release-scope decision; do not pause for routine TestFlight execution.
 
 ## Current Work Summary
 
-- **PHONE-UX5 backend candidate (2026-09-13):** Revision
+- **PHONE-UX5 backend candidate (2026-09-14):** Revision
   `d41fed9ef65774ef0dceb430b3597ae0f040c70b` is healthy in container
   `aicaddie-release-d41fed9e-candidate-20260913` on loopback `39063`, image
   `garmin-ai-caddie-api:d41fed9ef65774ef0dceb430b3597ae0f040c70b-candidate-20260913`
@@ -541,7 +541,7 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`PHONE-UX5` — 球场目录、首屏地图、障碍标注与球童上下文修正** (`in-progress`)
+**`PHONE-UX5` — 球场目录、首屏地图、障碍标注与球童上下文修正** (`evidence-open`)
 
 本轮承接 IMG_8035–8040 反馈：所有球场名称统一中文优先；地图事实先于球童建议呈现；障碍物
 轮廓保持细线、标签避开障碍并在缩放后重新定位；移除无必要的果岭/沙坑纹理；缩短洞号切换的
@@ -551,14 +551,21 @@ code; do not restart the old multi-week plan tree.
 **Current implementation slice (2026-09-14):** address IMG_8050 on 棒棰岛左场第 7 洞. Do not
 synthesize oval/circular hazard geometry when a cached package has no `outlinePx`; refresh precise
 hazard data for such stale-ready packages without replacing usable ready data with a partial response.
-Switching hazards must preserve the current zoom and viewport so an already enlarged map stays enlarged.
+Switching hazards preserves the current zoom and viewport so an already enlarged map stays enlarged.
+The candidate API reports six H07 hazards (two water, four bunker), each with a real 64-point
+`outlinePx`; the inspected overlay is archived at
+`/home/jason/garmin-ai-caddie-data/operations/phone-ux5-img8050-20260914/bangchuidao-h07/outline-overlay.png`
+(SHA-256 `9534b7e47831a902a4370dd7d078191907f20aa971ad1faaed2499044b4a2004`).
 
-**Durable execution plan (persisted 2026-09-13 15:05 UTC):**
+**Durable execution plan (persisted 2026-09-14 04:31 UTC):**
 1. 已完成：统一搜索/附近/下载列表的中文名称解析，并补齐红旗谷、西郊、棒棰岛等已知别名。
 2. 已完成：发布已有事实地图作为 partial fallback，球童请求不阻塞首帧，并避免 ready package 重复 prep 请求。
 3. 已完成：障碍轮廓和前后标签移到固定 viewport annotation layer，细线/小点/外侧标签随缩放重算；关闭服务端装饰纹理并递增 renderer 版本。
 4. 已完成：收紧左上距离面板，修正无恢复状态的 opening/tee shot context 和推荐序列去重。
-5. 已完成：homeserver focused tests、Native gate、内部 TestFlight 与 Apple processing 全部通过；截图复核和资源代价记录见下方。实体设备缩放/拖动仍为 evidence-open。
+5. 已完成：homeserver focused tests、Native gate、内部 TestFlight 与 Apple processing 全部通过；
+   Source CI `34801161362`、Native Mobile CI `34801645659`、TestFlight CD `34805642853` 和
+   ASC 只读检查 `34806176386` 均为成功。Build 61 为 `VALID`、未过期、已进入
+   `Jason's friends` 内部组；实体设备缩放/拖动仍为 evidence-open。
 
 本轮开始前的已知基线：`PERF-STARTUP` 已完成实现并保持 `evidence-open`；其远端 focused suite、Source CI、
 Native Mobile CI 和 Build 59 上传证据不被本轮覆盖。所有重资源验证仍必须在 homeserver 执行。
@@ -1379,7 +1386,7 @@ project-level task list; historical plans are reference material.
 | `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Source CI `34663338160` and exact-SHA live Native Mobile CI `34663501590` at `70480f99` passed, including iOS/Watch builds, real iOS journey, dedicated hazard/caddie captures, Watch runtime screenshots, evidence and secret scans. Internal TestFlight CD `34666136884` uploaded Build 57; ASC read-only run `34666574292` confirmed `VALID` and `IN_BETA_TESTING`. Physical iPhone/Watch validation of map panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation remains open. |
 | `PHONE-UX3` | `evidence-open` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present at exact source `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; homeserver focused suite `296 passed, 2 skipped`, Python compileall, Source CI `34709596756`, and Native `34709800015` (full live iOS/Watch evidence) pass. Internal TestFlight CD `34712702517` uploaded Build 58; ASC run `34713289501` confirmed it is processed and in the internal group. Remaining evidence is physical iPhone/Watch verification of real-time panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation. |
 | `PERF-STARTUP` | `evidence-open` | Reduce complete-round startup latency without storing every course map offline: reuse server decision/package work, connect existing stats warm-up, keep full 18-hole facts while prioritizing the active hole on phone, and use bounded Watch topo concurrency with on-demand green detail. | Implementation and remote focused suite (`334 passed, 2 skipped`) are green; Python compileall and diff-check pass. Source CI `34757661927`, exact-SHA live Native Mobile CI `34759807648`, and internal TestFlight CD `34763656027` are green. Build 59 is Apple `VALID`/`IN_BETA_TESTING` and visible in the internal group; physical iPhone/Watch interaction and Garmin reconnect remain open. |
-| `PHONE-UX5` | `in-progress` | Unify Chinese-first course naming, show the factual map before caddie computation, simplify hazard geometry/labels and map chrome, remove unnecessary topo texture, keep opening-hole recommendations tied to tee context, and remove stale/fake hazard geometry while preserving the enlarged hazard viewport. | Prior focused tests, Source CI `34769988882`, exact-SHA Native Mobile CI `34770331525`, TestFlight CD `34774424885` (Build 60), and ASC read-only check `34774892396` are green; this IMG_8050 remediation still needs focused tests, CI, fresh internal upload, and physical zoom/drag evidence. |
+| `PHONE-UX5` | `evidence-open` | Unify Chinese-first course naming, show the factual map before caddie computation, simplify hazard geometry/labels and map chrome, remove unnecessary topo texture, keep opening-hole recommendations tied to tee context, and remove stale/fake hazard geometry while preserving the enlarged hazard viewport. | Exact source `74423bd2ae65eca03c9eef0b8a003fca5f29c7ab`; focused homeserver suite (`148 passed, 2 skipped`), Source CI `34801161362`, exact-SHA Native Mobile CI `34801645659`, TestFlight CD `34805642853` (Build 61), and ASC read-only check `34806176386` are green. H07 overlay evidence has six real irregular outlines. Physical zoom/drag and hazard-switching behavior on iPhone/Watch remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 | `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |
@@ -1394,6 +1401,42 @@ means a named external decision or prerequisite is missing; `done` and
 `cancelled` are terminal.
 
 ## Completed Evidence
+
+- `74423bd2` / `74423bd2ae65eca03c9eef0b8a003fca5f29c7ab`: PHONE-UX5 IMG_8050
+  remediation passed the homeserver focused suite (`148 passed`, `2 skipped`),
+  Python compileall, Source CI `34801161362`, and exact-SHA live Native Mobile
+  CI `34801645659` (`ios.status=watch.status=passed`, live iOS hazard journey,
+  Watch runtime/evidence and secret scans). Native artifacts are
+  `real-screenshots` `10332367521`
+  (`sha256:f56980ebb0f6db55a3ab59f31f2b400900a98658eb9c6cacbdad99a8b8315d69`),
+  `real-video` `10332677005`
+  (`sha256:6591cea56f19ceed82cf37ece0920c5dbbc43cdf5a37127e397d4d1e37bac20f`),
+  `watch-real-screenshots` `10333106981`
+  (`sha256:723864fd2f231984eab9ebbf186c800151bab232d3e3af388de9d07b8084aae1`),
+  `watch-snapshots` `10332193204`
+  (`sha256:c23b7d4a0b34ffb922b1659a5aa528777d89b59bf6c8ca921d3af62693ef7ff1`),
+  `design-snapshots` `10331941998`
+  (`sha256:1b643a3428ee17e0e9830dff3e594fe6ab401f5e45e75b9c691af6d35ffa13ef`),
+  and `native-build-evidence` `10333146557`
+  (`sha256:f2430020398638b8bd03d7f33ccca774526890e08af58a5db9ed4908e3e8fa5e`);
+  the inspected H07 real-outline overlay is archived at
+  `/home/jason/garmin-ai-caddie-data/operations/phone-ux5-img8050-20260914/bangchuidao-h07/outline-overlay.png`
+  (SHA-256 `9534b7e47831a902a4370dd7d078191907f20aa971ad1faaed2499044b4a2004`).
+  No synthetic oval/circle is drawn when `outlinePx` is absent, and selecting a
+  different hazard leaves the zoom/viewport state untouched.
+- `74423bd2`: TestFlight CD `34805642853` uploaded internal-only `0.1.0 (61)`
+  with `upload_to_testflight=true`, `test_environment_upload=true`, and
+  `external_distribution=false`. Release provenance binds source
+  `74423bd2`, API origin `https://changed-carb-sampling-push.trycloudflare.com`,
+  backend revision `d41fed9ef65774ef0dceb430b3597ae0f040c70b`, and IPA SHA-256
+  `e00786cb51314df9c501e4626c6e5bc7f9d02de625bf433fc839dad04e8d8abb`;
+  `AICaddie-ipa` artifact `10332223695` has ZIP digest
+  `sha256:8fe0f0041587d96979ee197ac58676ccd590d2e42e452bc8307af7d407eb5eeb`.
+  Read-only ASC run `34806176386` confirmed Build 61 id
+  `b5da0c8e-df09-461b-96d3-492835cc49e4`, `VALID`, unexpired,
+  `IN_BETA_TESTING`, processed arm64 app/Watch bundles, and inclusion in the
+  existing internal `Jason's friends` all-builds group. External `Private
+  Trial`, Beta Review, production, and data sync were unchanged.
 
 - `d41fed9e` / `d41fed9ef65774ef0dceb430b3597ae0f040c70b`: PHONE-UX5 focused
   homeserver suite passed (`282 tests`, `5 skipped`), Python compileall and
@@ -1983,7 +2026,7 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Install internal TestFlight Build 59 on the physical iPhone and paired Watch.
+1. Install internal TestFlight Build 61 on the physical iPhone and paired Watch.
    Measure cold/warm start-to-facts, start-to-current-hole-map, caddie-ready and
    complete-course-ready events on both devices; compare the same ready events
    with an S70 only when the same course/install state can be reproduced.
@@ -1991,10 +2034,10 @@ Native runs recorded above; it is retained only as historical diagnosis.
    contour/edge-label behavior at multiple zoom levels, pole-foot flag dragging
    along the green boundary, the tee-only distance arc, and one primary caddie
    recommendation with only materially distinct alternatives.
-3. In Build 59, create a fresh Garmin session and tap reconnect once; confirm
+3. In Build 61, create a fresh Garmin session and tap reconnect once; confirm
    the state reads “已连接 · 同步完成” and that no-GPS/manual-search map and
    caddie flows remain usable. Do not call the diagnostic refresh endpoint.
-4. Keep the `39062` candidate container, Quick Tunnel, shared data, rollback
+4. Keep the `39063` candidate container, Quick Tunnel, shared data, rollback
    services, backups and cleanup manifests until physical validation is done.
    Do not run external Beta Review, external tester distribution, production
    deployment or synchronization as part of this handoff.
@@ -2053,6 +2096,17 @@ Native runs recorded above; it is retained only as historical diagnosis.
   The current subtask removes synthetic oval hazard shapes, refreshes stale-ready
   packages that lack precise outlines without accepting partial replacement data,
   and preserves the enlarged hazard-detail viewport across selection changes.
+
+- 2026-09-14: `PHONE-UX5` moved to `evidence-open` after the IMG_8050 remediation
+  passed focused homeserver tests, Source CI `34801161362`, exact-SHA Native
+  Mobile CI `34801645659`, internal TestFlight CD `34805642853`, and ASC
+  read-only check `34806176386`. Build 61 (`0.1.0`) is Apple `VALID`,
+  unexpired, `IN_BETA_TESTING`, and present in the existing internal
+  `Jason's friends` all-builds group. The H07 overlay evidence confirms six
+  real irregular hazard outlines; no synthetic ellipse/circle is drawn when
+  outline data is absent. Physical zoom/drag, hazard switching, and Garmin
+  reconnect remain open; no external distribution, production promotion, or
+  data sync occurred.
 
 - 2026-09-13: Corrected the stale current-slice marker: `PERF-STARTUP` remains
   `evidence-open`, and `PHONE-UX5` is now the sole `in-progress` slice. The
