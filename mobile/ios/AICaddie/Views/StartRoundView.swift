@@ -1233,7 +1233,7 @@ public struct StartRoundView: View {
               candidate.unicodeScalars.allSatisfy({ (65...72).contains($0.value) }) else {
             return nil
         }
-        let compact = normalized.replacingOccurrences(of: " ", with: "")
+        let compact = normalized.filter { !$0.isWhitespace && $0 != "/" && $0 != "+" }
         guard compact.count > 1,
               compact.unicodeScalars.allSatisfy({ (65...72).contains($0.value) }) else {
             return nil
