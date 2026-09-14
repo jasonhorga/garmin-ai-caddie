@@ -10,7 +10,7 @@
 > before taking any action.
 
 **Updated:** 2026-09-14 23:08 UTC
-**Branch:** `integration/v2` (GitHub default; documentation tip
+**Branch:** `integration/v2` (GitHub default; Build 62 product source
 `65a6064f4061eb591bf5850f8b244e8725178904`; internal-release source
 `65a6064f4061eb591bf5850f8b244e8725178904`; PERF-STARTUP backend candidate
 `70e74a6eb04bae1d656bc8cee81f534e0ae4f2b7` on loopback `39062`; MAP1
