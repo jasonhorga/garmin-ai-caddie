@@ -716,6 +716,45 @@ public struct CoursePrepHole: Codable, Equatable {
         )
     }
 
+    /// Whether every player-facing bunker/water record has a trustworthy polygon boundary. A
+    /// package can be marked `ready` while still carrying the older two-point hazard contract, so
+    /// coverage alone is not enough to decide whether the detail page may draw a shape.
+    public var hasRenderableHazardOutlines: Bool {
+        let supported = playerFacingHazardDetails
+        guard !supported.isEmpty else {
+            // An empty course has no missing outline. Legacy interval arrays, however, mean that
+            // at least one obstacle exists without a polygon and must request precise prep again.
+            return hazards.waterCarry.isEmpty && hazards.bunkers.isEmpty
+        }
+        guard supported.allSatisfy({ Self.isRenderableHazardOutline($0) }) else { return false }
+
+        // Older payloads may expose an interval array alongside details. If that array contains a
+        // kind for which no detailed polygon was delivered, the hazard surface is still incomplete.
+        let kinds = Set(supported.map(\.kind))
+        if !hazards.waterCarry.isEmpty && !kinds.contains("water") { return false }
+        if !hazards.bunkers.isEmpty && !kinds.contains("bunker") { return false }
+        return true
+    }
+
+    /// Whether this prep carries any bunker/water facts at all. Used by the merge policy to avoid
+    /// replacing a populated precise response with a newer response that silently omitted hazards.
+    var hasPlayerFacingHazardFacts: Bool {
+        !playerFacingHazardDetails.isEmpty
+            || !hazards.waterCarry.isEmpty
+            || !hazards.bunkers.isEmpty
+    }
+
+    private var playerFacingHazardDetails: [CoursePrepHazardDetail] {
+        hazards.details.filter { $0.kind == "bunker" || $0.kind == "water" }
+    }
+
+    private static func isRenderableHazardOutline(_ detail: CoursePrepHazardDetail) -> Bool {
+        detail.outlinePx.count >= 3
+            && detail.outlinePx.allSatisfy { point in
+                point.count == 2 && point.allSatisfy(\.isFinite)
+            }
+    }
+
     /// Composite rounds renumber the second CourseView loop from local holes 1...9 to round holes
     /// 10...18. Retain every factual prep field while moving only that display/event identity.
     public func renumbered(to roundHole: Int) -> CoursePrepHole {
@@ -743,6 +782,31 @@ public struct CoursePrepHole: Codable, Equatable {
             holeImageProjection: holeImageProjection,
             greenOutline: greenOutline
         )
+    }
+}
+
+/// Merge policy for prep responses that can arrive out of order: a factual ready map and a precise
+/// hazard polygon must never be replaced by a later lightweight/legacy response.
+enum CoursePrepHoleAdoptionPolicy {
+    static func isReadyMap(_ hole: CoursePrepHole?) -> Bool {
+        guard let hole else { return false }
+        return hole.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
+            && hole.resolvedMapOverlay != nil
+    }
+
+    static func shouldAdopt(current: CoursePrepHole?, incoming: CoursePrepHole) -> Bool {
+        guard let current else { return true }
+        let currentReady = isReadyMap(current)
+        let incomingReady = isReadyMap(incoming)
+        if currentReady && !incomingReady { return false }
+        if !currentReady && incomingReady { return true }
+        if current.hasPlayerFacingHazardFacts && !incoming.hasPlayerFacingHazardFacts {
+            return false
+        }
+        if current.hasRenderableHazardOutlines && !incoming.hasRenderableHazardOutlines {
+            return false
+        }
+        return true
     }
 }
 

@@ -167,8 +167,9 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
     }
 }
 
-/// Dedicated one-at-a-time hazard browser. The selected obstacle is circled on the course image;
-/// its front and back edges are the only large numbers on screen.
+/// Dedicated one-at-a-time hazard browser. The selected obstacle is outlined only when the backend
+/// supplies its real polygon; legacy packages show the factual edge markers without inventing a
+/// shape. Its front and back edges are the only large numbers on screen.
 struct LiveHazardDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedHazardID: String?
@@ -573,12 +574,8 @@ struct LiveHazardDetailView: View {
     private func select(index: Int) {
         guard rows.indices.contains(index) else { return }
         selectedHazardID = rows[index].id
-        // Each obstacle is a separate inspection task. Refit when switching so the newly selected
-        // outline and its two edge labels are immediately visible instead of inheriting a pan from
-        // the previous obstacle.
-        mapScale = 1
-        mapOffset = .zero
-        transientMapOffset = .zero
+        // Keep the current zoom and viewport when moving through the list. The player can inspect
+        // the next obstacle in the same enlarged region and pan afterward if its boundary is offscreen.
         #if canImport(UIKit)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #endif
@@ -629,13 +626,6 @@ struct LiveHazardDetailView: View {
             path.closeSubpath()
             // The canvas itself is not scaled, so this stays ~1 px at every map zoom.
             context.stroke(path, with: .color(red), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
-        } else if let ring = LiveHazardFocusRingLayout.rect(
-            front: front,
-            back: back,
-            viewportSize: size
-        ) {
-            let focus = Path(ellipseIn: ring.insetBy(dx: 2, dy: 2))
-            context.stroke(focus, with: .color(red), style: StrokeStyle(lineWidth: 1.2))
         }
 
         let edgeLabels: [(CGPoint?, String, Int?)] = [

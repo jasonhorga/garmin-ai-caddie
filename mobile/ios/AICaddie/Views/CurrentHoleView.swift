@@ -352,11 +352,7 @@ public struct CurrentHoleView: View {
             // intentionally partial first-hole seed; otherwise adopt the new factual prep without
             // restarting the hole task or discarding zoom/flag interaction state.
             guard let incoming else { return }
-            let currentIsPrecise = holePrep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
-                && holePrep?.resolvedMapOverlay != nil
-            let incomingIsPrecise = incoming.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
-                && incoming.resolvedMapOverlay != nil
-            if !currentIsPrecise || incomingIsPrecise {
+            if CoursePrepHoleAdoptionPolicy.shouldAdopt(current: holePrep, incoming: incoming) {
                 holePrep = incoming
             }
         }
@@ -1951,11 +1947,12 @@ public struct CurrentHoleView: View {
         guard let caddieBaseURL else {
             return false
         }
-        // A ready retained package is already the authoritative map for this hole. Avoid paying a
-        // duplicate prep request during navigation; precise asset delivery remains an auxiliary
-        // Watch/cache task owned by retainThenPublishHolePrep.
-        if holePrep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
-           holePrep?.resolvedMapOverlay != nil {
+        // A ready retained package is authoritative only when its hazard records also carry the
+        // precise polygons used by the dedicated obstacle page. Older ready packages can have the
+        // map/overlay but no `outlinePx`; refresh those once so the UI never falls back to an oval.
+        if let existing = holePrep,
+           CoursePrepHoleAdoptionPolicy.isReadyMap(existing),
+           existing.hasRenderableHazardOutlines {
             return false
         }
         // 每洞用自己的 source 球场 + 本地洞号(组合局后九在第二个环的 gid)。
@@ -1995,12 +1992,13 @@ public struct CurrentHoleView: View {
         // already-resolved value so a hole transition cannot temporarily disable shot capture.
         moveSimulatedLocationToHoleTeeIfRequested(resolved)
         #endif
-        await retainThenPublishHolePrep(
+        let didPublish = await retainThenPublishHolePrep(
             resolved,
             globalId: mapGlobalId,
             sourceLocalHole: mapLocalHole,
             watchHole: hole.number
         )
+        guard didPublish else { return false }
         // Re-push to the watch now that F/M/B + plays-like are available. The ordered bootstrap will
         // fetch and push the matching caddie decision immediately after this map step.
         if let holePrep {
@@ -2043,12 +2041,13 @@ public struct CurrentHoleView: View {
             // Cache the matching bitmap and retain the precise prep before SwiftUI can publish the
             // ready map. A force-quit immediately after the map appears must therefore reopen the
             // same factual map instead of the partial package captured when the round started.
-            await retainThenPublishHolePrep(
+            let didPublish = await retainThenPublishHolePrep(
                 refreshed,
                 globalId: mapGlobalId,
                 sourceLocalHole: mapLocalHole,
                 watchHole: hole.number
             )
+            guard didPublish else { return }
             // Rehydrate the decision from precise geometry after the durable map state is visible.
             await loadCaddieDecision(syncClub: syncClub && !hasUserSelectedClub)
             guard !Task.isCancelled else { return }
@@ -2065,10 +2064,12 @@ public struct CurrentHoleView: View {
         globalId: Int,
         sourceLocalHole: Int,
         watchHole: Int
-    ) async {
+    ) async -> Bool {
+        guard CoursePrepHoleAdoptionPolicy.shouldAdopt(current: holePrep, incoming: prep) else {
+            return false
+        }
         holePrep = prep
-        guard prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
-              prep.resolvedMapOverlay != nil else { return }
+        guard CoursePrepHoleAdoptionPolicy.isReadyMap(prep) else { return true }
 
         // Publish the factual map immediately. Watch/cache asset delivery is auxiliary and must not
         // keep the caddie strip in a loading state or make the player stare at the previous club.
@@ -2087,6 +2088,7 @@ public struct CurrentHoleView: View {
             )
             onRetainReadyHolePrep(package.roundId, hole.number, prep)
         }
+        return true
     }
 
     #if DEBUG

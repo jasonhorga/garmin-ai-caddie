@@ -3561,6 +3561,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('identifier: "live-hazard-fit"', hazard_detail)
         self.assertIn('identifier: "hazard-next"', hazard_detail)
         self.assertIn('accessibilityIdentifier("selected-hazard-', hazard_detail)
+        self.assertNotIn("LiveHazardFocusRingLayout.rect", hazard_detail)
+        self.assertNotIn("Path(ellipseIn: ring", hazard_detail)
+
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        self.assertIn("hasRenderableHazardOutlines", current_hole)
+        self.assertIn("CoursePrepHoleAdoptionPolicy.shouldAdopt", current_hole)
 
     def test_live_green_detail_keeps_crop_interaction_when_detail_asset_is_unavailable(self) -> None:
         green_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveGreenDetailView.swift")

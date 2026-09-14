@@ -1204,62 +1204,11 @@ enum LiveHazardCalloutLayout {
     }
 }
 
-/// Compact selection geometry for downloaded packages that predate `outlinePx`. The two boundary
-/// points are factual, but they are not enough to claim the obstacle's exact shape. This ring makes
-/// the selected span obvious without drawing an invented oversized oval or reusing the whole-map
-/// hazard layer.
+/// Compact annotation layout shared by precise and legacy hazard packages. Legacy packages expose
+/// only two factual edge points; labels remain useful there, but no synthetic oval/circle is drawn.
 enum LiveHazardFocusRingLayout {
-    static let minimumWidth: CGFloat = 58
-    static let minimumHeight: CGFloat = 58
-    static let horizontalPadding: CGFloat = 20
-    static let verticalPadding: CGFloat = 20
     static let labelWidth: CGFloat = 22
     static let labelHeight: CGFloat = 16
-
-    static func rect(
-        front: CGPoint?,
-        back: CGPoint?,
-        viewportSize: CGSize
-    ) -> CGRect? {
-        guard viewportSize.width.isFinite,
-              viewportSize.height.isFinite,
-              viewportSize.width > 0,
-              viewportSize.height > 0 else {
-            return nil
-        }
-        let points = [front, back].compactMap { point -> CGPoint? in
-            guard let point,
-                  point.x.isFinite,
-                  point.y.isFinite else { return nil }
-            return point
-        }
-        guard let first = points.first else { return nil }
-
-        let bounds = points.dropFirst().reduce(CGRect(origin: first, size: .zero)) { partial, point in
-            partial.union(CGRect(origin: point, size: .zero))
-        }
-        let width = max(minimumWidth, bounds.width + horizontalPadding * 2)
-        let height = max(minimumHeight, bounds.height + verticalPadding * 2)
-        var ring = CGRect(
-            x: bounds.midX - width / 2,
-            y: bounds.midY - height / 2,
-            width: width,
-            height: height
-        )
-
-        // Keep the focus ring visible when an obstacle sits against the edge of the fitted map.
-        // This is a viewport presentation constraint, not a geometry correction.
-        let inset: CGFloat = 4
-        if ring.minX < inset { ring.origin.x = inset }
-        if ring.maxX > viewportSize.width - inset {
-            ring.origin.x = max(inset, viewportSize.width - inset - ring.width)
-        }
-        if ring.minY < inset { ring.origin.y = inset }
-        if ring.maxY > viewportSize.height - inset {
-            ring.origin.y = max(inset, viewportSize.height - inset - ring.height)
-        }
-        return ring
-    }
 
     static func labelCenter(
         for point: CGPoint,

@@ -92,6 +92,82 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertEqual(valid.outlinePx, [[10.0, 20.0], [14.0, 21.0], [12.0, 24.0]])
     }
 
+    func testHazardOutlineReadinessRejectsLegacyIntervalsAndAcceptsPrecisePolygons() {
+        func hole(
+            hazards: CoursePrepHazards,
+            coverage: String = "ready"
+        ) -> CoursePrepHole {
+            CoursePrepHole(
+                hole: 1,
+                par: 4,
+                parSource: "test",
+                blueYards: 400,
+                routeLenM: 360,
+                route: [[0, 0, 0], [0, 360, 360]],
+                geometryCoverage: coverage,
+                hazards: hazards,
+                map: CoursePrepMap(
+                    image: nil,
+                    overlay: CoursePrepOverlay(
+                        w: 240,
+                        h: 520,
+                        ppm: 1,
+                        ln: 360,
+                        route: [[120, 500, 0], [120, 20, 360]]
+                    )
+                )
+            )
+        }
+
+        func detail(outline: [[Double]]) -> CoursePrepHazardDetail {
+            CoursePrepHazardDetail(
+                kind: "bunker",
+                frontM: 100,
+                backM: 120,
+                frontRouteM: 100,
+                backRouteM: 120,
+                frontPx: [110, 360],
+                backPx: [112, 330],
+                outlinePx: outline,
+                sideM: nil
+            )
+        }
+
+        XCTAssertTrue(hole(hazards: CoursePrepHazards()).hasRenderableHazardOutlines)
+        XCTAssertFalse(
+            hole(hazards: CoursePrepHazards(bunkers: [[100, 12]])).hasRenderableHazardOutlines
+        )
+        XCTAssertFalse(
+            hole(hazards: CoursePrepHazards(details: [detail(outline: [])])).hasRenderableHazardOutlines
+        )
+        let precise = hole(
+            hazards: CoursePrepHazards(
+                details: [detail(outline: [[100, 300], [120, 300], [110, 280]])]
+            )
+        )
+        XCTAssertTrue(precise.hasRenderableHazardOutlines)
+
+        let stale = hole(hazards: CoursePrepHazards(details: [detail(outline: [])]))
+        XCTAssertFalse(
+            CoursePrepHoleAdoptionPolicy.shouldAdopt(current: precise, incoming: stale),
+            "a precise polygon must not be replaced by an older two-point response"
+        )
+        XCTAssertFalse(
+            CoursePrepHoleAdoptionPolicy.shouldAdopt(
+                current: precise,
+                incoming: hole(hazards: CoursePrepHazards(), coverage: "partial")
+            )
+        )
+        XCTAssertFalse(
+            CoursePrepHoleAdoptionPolicy.shouldAdopt(
+                current: precise,
+                incoming: hole(hazards: CoursePrepHazards(), coverage: "ready")
+            ),
+            "a response that silently omits populated hazard facts must not erase them"
+        )
+        XCTAssertTrue(CoursePrepHoleAdoptionPolicy.shouldAdopt(current: stale, incoming: precise))
+    }
+
     func testResolvesTopoOverlayFromLightweightRouteAndAffineProjection() throws {
         let json = """
         {"schema":"ai-caddie-course-prep-v1","globalId":3881,"holeCount":1,"clubs":[],
