@@ -335,7 +335,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
             MobileCourseDisplayLocalization.preferredCourseName(
                 ["Red Flag Valley Golf Club", "红旗谷高尔夫球场"],
                 globalId: 42_001,
-                trustedNameSources: [GarminCourseNameAuthority.garminSnapshotNameSource, GarminCourseNameAuthority.garminSnapshotNameSource]
+                trustedNameSources: [MobileCourseDisplayLocalization.garminSnapshotNameSource, MobileCourseDisplayLocalization.garminSnapshotNameSource]
             ),
             "红旗谷高尔夫球场"
         )
@@ -371,7 +371,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(
             MobileCourseDisplayLocalization.preferredVenueName(
                 ["West Park Golf & Country Club", "西郊高尔夫俱乐部"],
-                trustedNameSources: [GarminCourseNameAuthority.garminSnapshotNameSource, GarminCourseNameAuthority.garminSnapshotNameSource]
+                trustedNameSources: [MobileCourseDisplayLocalization.garminSnapshotNameSource, MobileCourseDisplayLocalization.garminSnapshotNameSource]
             ),
             "西郊高尔夫俱乐部"
         )

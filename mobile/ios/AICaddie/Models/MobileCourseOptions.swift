@@ -6,6 +6,8 @@ import AICaddieDomain
 /// describes the same course. It never translates an English provider name or maps a global id to a
 /// guessed local name.
 public enum MobileCourseDisplayLocalization {
+    public static let garminSnapshotNameSource = GarminCourseNameAuthority.garminSnapshotNameSource
+
     private static let areaAliases: [String: String] = [
         "beijing": "北京市",
         "beijing city": "北京市",
@@ -93,7 +95,7 @@ public enum MobileCourseDisplayLocalization {
             guard index < trustedNameSources.count,
                   let source = trustedNameSources[index],
                   source.trimmingCharacters(in: .whitespacesAndNewlines)
-                    .caseInsensitiveCompare(GarminCourseNameAuthority.garminSnapshotNameSource) == .orderedSame,
+                    .caseInsensitiveCompare(Self.garminSnapshotNameSource) == .orderedSame,
                   let raw,
                   !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return nil
@@ -125,7 +127,7 @@ public enum MobileCourseDisplayLocalization {
             guard index < trustedNameSources.count,
                   let source = trustedNameSources[index],
                   source.trimmingCharacters(in: .whitespacesAndNewlines)
-                    .caseInsensitiveCompare(GarminCourseNameAuthority.garminSnapshotNameSource) == .orderedSame,
+                    .caseInsensitiveCompare(Self.garminSnapshotNameSource) == .orderedSame,
                   let raw,
                   !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return nil
@@ -309,7 +311,7 @@ public extension MobileCourseOption {
     /// Venue name without the loop suffix (falls back to stripping " ~ …" from `name`).
     var venueDisplayName: String {
         return MobileCourseDisplayLocalization.preferredVenueName(
-            [venueNameSource == GarminCourseNameAuthority.garminSnapshotNameSource ? venueName : nil, name],
+            [venueNameSource == MobileCourseDisplayLocalization.garminSnapshotNameSource ? venueName : nil, name],
             globalId: globalId
         )
     }

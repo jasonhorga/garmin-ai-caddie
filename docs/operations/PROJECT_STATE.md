@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-14 05:18 UTC
+**Updated:** 2026-09-14 19:52 UTC
 **Branch:** `integration/v2` (GitHub default; documentation tip
 `e1b9cfe70ed7e60f0778e5cad59de90b0fa6a380`; internal-release source
 `70e74a6eb04bae1d656bc8cee81f534e0ae4f2b7`; PERF-STARTUP backend candidate
@@ -1391,7 +1391,7 @@ project-level task list; historical plans are reference material.
 | `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Source CI `34663338160` and exact-SHA live Native Mobile CI `34663501590` at `70480f99` passed, including iOS/Watch builds, real iOS journey, dedicated hazard/caddie captures, Watch runtime screenshots, evidence and secret scans. Internal TestFlight CD `34666136884` uploaded Build 57; ASC read-only run `34666574292` confirmed `VALID` and `IN_BETA_TESTING`. Physical iPhone/Watch validation of map panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation remains open. |
 | `PHONE-UX3` | `evidence-open` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present at exact source `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; homeserver focused suite `296 passed, 2 skipped`, Python compileall, Source CI `34709596756`, and Native `34709800015` (full live iOS/Watch evidence) pass. Internal TestFlight CD `34712702517` uploaded Build 58; ASC run `34713289501` confirmed it is processed and in the internal group. Remaining evidence is physical iPhone/Watch verification of real-time panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation. |
 | `PERF-STARTUP` | `evidence-open` | Reduce complete-round startup latency without storing every course map offline: reuse server decision/package work, connect existing stats warm-up, keep full 18-hole facts while prioritizing the active hole on phone, and use bounded Watch topo concurrency with on-demand green detail. | Implementation and remote focused suite (`334 passed, 2 skipped`) are green; Python compileall and diff-check pass. Source CI `34757661927`, exact-SHA live Native Mobile CI `34759807648`, and internal TestFlight CD `34763656027` are green. Build 59 is Apple `VALID`/`IN_BETA_TESTING` and visible in the internal group; physical iPhone/Watch interaction and Garmin reconnect remain open. |
-| `PHONE-UX5` | `in-progress` | Audit every course-name source and remove presentation aliases: use a real Garmin localized field when present, otherwise preserve Garmin's provider name exactly; keep loop labels separate and reject `ABC/AC/AF/AB` as venue names. Reconcile nearby, downloaded, history, and start-round display paths. | Started from exact source `85de1d7c`; production alias constants are removed and the audit is recorded in `docs/reviews/2026-09-14-course-name-authority-audit.md`. Legacy `provenance.sourceConnector` compatibility, focused tests, CI, and internal TestFlight evidence remain pending. |
+| `PHONE-UX5` | `in-progress` | Audit every course-name source and remove presentation aliases: use a real Garmin localized field when present, otherwise preserve Garmin's provider name exactly; keep loop labels separate and reject `ABC/AC/AF/AB` as venue names. Reconcile nearby, downloaded, history, and start-round display paths. | Product source `3bbe79df` removes all known production aliases; focused homeserver tests and Source CI pass. Native Mobile CI `34888179387` proved the Watch build/tests/runtime but its iOS test target failed to compile because one new test crossed the app/Domain module boundary. The bounded test-boundary fix is pending commit, fresh Native CI, and internal TestFlight evidence. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 | `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |
@@ -2088,6 +2088,14 @@ Native runs recorded above; it is retained only as historical diagnosis.
   master checklist from memory.
 
 ## State Changes
+
+- 2026-09-14: Native Mobile CI `34888179387` at `3bbe79df` completed with
+  Watch build/tests/runtime evidence green, but the iOS test target failed at
+  compile time: `StartRoundDiscoveryTests` directly referenced
+  `GarminCourseNameAuthority` outside its imported module. The product code
+  compiled. The bounded fix exposes the source marker through
+  `MobileCourseDisplayLocalization` and keeps the app tests on their own module
+  boundary; a fresh exact-SHA Native run is required before TestFlight.
 
 - 2026-09-13: `PHONE-UX5` moved from `in-progress` to `evidence-open` after
   Source CI `34769988882`, exact-SHA Native Mobile CI `34770331525`, internal
