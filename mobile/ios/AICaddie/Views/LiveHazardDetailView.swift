@@ -62,9 +62,9 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
         }
 
         let route = hole.resolvedMapOverlay?.route
-        // Precise rows need the overlay's topo-pixel route for lateral naming. Legacy interval
+        // Precise rows need the overlay's topo-pixel route for lateral naming. Interval-only
         // rows have no pixels, so their area label can safely use the raw cumulative route.
-        let legacyRoute = route ?? hole.route
+        let intervalRoute = route ?? hole.route
         let details = hole.hazards.details
             .filter {
                 ($0.kind == "bunker" || $0.kind == "water")
@@ -107,7 +107,7 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
             )
         }
 
-        // Legacy packages can still supply interval facts without map boundary pixels.
+        // Compatibility packages can still supply interval facts without map boundary pixels.
         let detailKinds = Set(details.map(\.kind))
         if !detailKinds.contains("water") {
             for (index, interval) in hole.hazards.waterCarry.enumerated() {
@@ -123,7 +123,7 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
                     Self(
                         id: "water-legacy-\(index)",
                         kind: "water",
-                        label: CoursePrepHazardNaming.legacyLabel(kind: "water", interval: interval, route: legacyRoute),
+                        label: CoursePrepHazardNaming.intervalLabel(kind: "water", interval: interval, route: intervalRoute),
                         frontYards: CoursePrepRoute.yards(fromMetres: front),
                         backYards: back.map { CoursePrepRoute.yards(fromMetres: $0) },
                         frontPx: [],
@@ -148,7 +148,7 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
                     Self(
                         id: "bunker-legacy-\(index)",
                         kind: "bunker",
-                        label: CoursePrepHazardNaming.legacyLabel(kind: "bunker", interval: interval, route: legacyRoute),
+                        label: CoursePrepHazardNaming.intervalLabel(kind: "bunker", interval: interval, route: intervalRoute),
                         frontYards: CoursePrepRoute.yards(fromMetres: front),
                         backYards: nil,
                         frontPx: [],
@@ -168,7 +168,7 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
 }
 
 /// Dedicated one-at-a-time hazard browser. The selected obstacle is outlined only when the backend
-/// supplies its real polygon; legacy packages show the factual edge markers without inventing a
+/// supplies its real polygon; compatibility packages show the factual edge markers without inventing a
 /// shape. Its front and back edges are the only large numbers on screen.
 struct LiveHazardDetailView: View {
     @Environment(\.dismiss) private var dismiss
@@ -637,19 +637,19 @@ struct LiveHazardDetailView: View {
             // One small red point is enough; the previous white halo hid the actual boundary.
             let marker = Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7))
             context.fill(marker, with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)))
-            let labelCenter = LiveHazardFocusRingLayout.outsideLabelCenter(
+            let labelCenter = LiveHazardAnnotationLayout.outsideLabelCenter(
                 for: point,
                 isFront: label == "前",
                 outline: outline,
                 viewportSize: size
             )
             let labelText = yards.map { "\(label) \($0)" } ?? label
-            let labelWidth: CGFloat = yards == nil ? LiveHazardFocusRingLayout.labelWidth : 52
+            let labelWidth: CGFloat = yards == nil ? LiveHazardAnnotationLayout.labelWidth : 52
             let labelRect = CGRect(
                 x: labelCenter.x - labelWidth / 2,
-                y: labelCenter.y - LiveHazardFocusRingLayout.labelHeight / 2,
+                y: labelCenter.y - LiveHazardAnnotationLayout.labelHeight / 2,
                 width: labelWidth,
-                height: LiveHazardFocusRingLayout.labelHeight
+                height: LiveHazardAnnotationLayout.labelHeight
             )
             context.fill(
                 Path(roundedRect: labelRect, cornerRadius: 5),

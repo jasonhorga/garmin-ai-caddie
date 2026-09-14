@@ -427,7 +427,7 @@ public struct HoleImageMapView: View {
                 span,
                 with: .color(color.opacity(0.9)),
                 // Partial geometry only knows the route span. Keep it as a small factual cue until
-                // the precise polygon arrives; the old 12–14 px stroke read as a solid red bunker.
+                // the precise polygon arrives; a wide stroke would read as a solid red bunker.
                 style: StrokeStyle(lineWidth: 1.25, lineCap: .round, dash: [4, 3])
             )
         }

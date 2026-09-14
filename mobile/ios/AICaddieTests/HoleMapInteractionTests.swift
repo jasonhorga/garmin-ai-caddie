@@ -168,15 +168,15 @@ final class HoleMapInteractionTests: XCTestCase {
         )
     }
 
-    func testLegacyHazardFocusLabelsSeparateFrontAndBackAtMapCenter() {
+    func testIntervalHazardLabelsSeparateFrontAndBackAtMapCenter() {
         let viewport = CGSize(width: 360, height: 540)
         let point = CGPoint(x: 170, y: 260)
-        let front = LiveHazardFocusRingLayout.labelCenter(
+        let front = LiveHazardAnnotationLayout.labelCenter(
             for: point,
             isFront: true,
             viewportSize: viewport
         )
-        let back = LiveHazardFocusRingLayout.labelCenter(
+        let back = LiveHazardAnnotationLayout.labelCenter(
             for: point,
             isFront: false,
             viewportSize: viewport
@@ -184,10 +184,10 @@ final class HoleMapInteractionTests: XCTestCase {
 
         XCTAssertGreaterThanOrEqual(
             abs(front.y - back.y),
-            LiveHazardFocusRingLayout.labelHeight
+            LiveHazardAnnotationLayout.labelHeight
         )
-        XCTAssertGreaterThanOrEqual(front.x, LiveHazardFocusRingLayout.labelWidth / 2)
-        XCTAssertLessThanOrEqual(back.x, viewport.width - LiveHazardFocusRingLayout.labelWidth / 2)
+        XCTAssertGreaterThanOrEqual(front.x, LiveHazardAnnotationLayout.labelWidth / 2)
+        XCTAssertLessThanOrEqual(back.x, viewport.width - LiveHazardAnnotationLayout.labelWidth / 2)
     }
 
     func testHorizontalHoleSwipeChangesOnlyToAnAdjacentHole() {

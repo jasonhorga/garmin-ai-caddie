@@ -557,6 +557,14 @@ The candidate API reports six H07 hazards (two water, four bunker), each with a 
 `/home/jason/garmin-ai-caddie-data/operations/phone-ux5-img8050-20260914/bangchuidao-h07/outline-overlay.png`
 (SHA-256 `9534b7e47831a902a4370dd7d078191907f20aa971ad1faaed2499044b4a2004`).
 
+**Hazard-history audit (2026-09-14):** The iPhone synthetic oval focus-ring implementation relevant
+to IMG_8050 was the `04adc25c` branch (`LiveHazardFocusRingLayout.rect`), present in the Build 56–60
+product lineage and removed by `74423bd2`; early Watch prototype highlights were separately removed
+by `cda8cfdc`. Build 61 is based on `74423bd2` and has no obstacle-shape oval fallback. The remaining
+interval-array decoding is data-protocol compatibility only; it shows factual edge points and never
+claims or draws an obstacle outline. The full commit-by-commit audit is
+`docs/reviews/2026-09-14-hazard-rendering-history-audit.md`.
+
 **Durable execution plan (persisted 2026-09-14 04:31 UTC):**
 1. 已完成：统一搜索/附近/下载列表的中文名称解析，并补齐红旗谷、西郊、棒棰岛等已知别名。
 2. 已完成：发布已有事实地图作为 partial fallback，球童请求不阻塞首帧，并避免 ready package 重复 prep 请求。

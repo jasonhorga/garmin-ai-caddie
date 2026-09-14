@@ -610,7 +610,7 @@ public enum WatchCourseTemplateBuilder {
             for interval in bunkers {
                 result.append(WatchHazard(
                     kind: "bunker",
-                    label: HazardDisplayNaming.legacyLabel(
+                    label: HazardDisplayNaming.intervalLabel(
                         kind: "bunker", interval: interval, route: route
                     ),
                     startM: interval.first,
@@ -652,7 +652,7 @@ public enum WatchCourseTemplateBuilder {
             for interval in water {
                 result.append(WatchHazard(
                     kind: "water",
-                    label: HazardDisplayNaming.legacyLabel(
+                    label: HazardDisplayNaming.intervalLabel(
                         kind: "water", interval: interval, route: route
                     ),
                     startM: interval.first,

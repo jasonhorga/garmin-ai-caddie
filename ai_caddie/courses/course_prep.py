@@ -206,7 +206,7 @@ def _water_component_intervals(lake, segments) -> list[dict]:
 
     ``water_carry`` remains a merged scalar contract for the decision engine. The component link is
     additive and exists only so the player-facing hazard detail can draw the actual lake boundary
-    instead of an ellipse around two route samples.
+    instead of a synthetic shape around two route samples.
     """
     if not lake:
         return []
@@ -577,7 +577,7 @@ def _route_point(segments, route_m: float):
 
 
 def _bunker_measurements(bunker, route) -> list[dict]:
-    """Internal measurement per bunker, retaining both legacy side gap and real front/back edges.
+    """Internal measurement per bunker, retaining the interval side gap and real front/back edges.
 
     Uses :func:`measure_prodgeometry_distances.point_triangle_distance` (exact point→triangle) from
     each densified route point to the bunker's triangles, so a long bunker whose near edge hugs the
@@ -1712,7 +1712,7 @@ def _lightweight_prep_hole(
                 "frontPx": [round(front_px[0], 1), round(front_px[1], 1)],
                 "backPx": [round(back_px[0], 1), round(back_px[1], 1)],
                 # CourseView exposes only a two-point hazard span. Do not invent a polygon from
-                # that line; the phone will use its restrained front/back fallback instead.
+                # that line; the phone shows the factual edge markers until precise geometry arrives.
                 "outlinePx": [],
             }
         )

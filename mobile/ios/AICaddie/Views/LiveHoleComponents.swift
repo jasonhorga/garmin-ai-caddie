@@ -1204,9 +1204,9 @@ enum LiveHazardCalloutLayout {
     }
 }
 
-/// Compact annotation layout shared by precise and legacy hazard packages. Legacy packages expose
-/// only two factual edge points; labels remain useful there, but no synthetic oval/circle is drawn.
-enum LiveHazardFocusRingLayout {
+/// Compact annotation layout shared by precise and interval-only hazard packages. When a package
+/// has only two factual edge points, labels remain useful there, but no synthetic shape is drawn.
+enum LiveHazardAnnotationLayout {
     static let labelWidth: CGFloat = 22
     static let labelHeight: CGFloat = 16
 

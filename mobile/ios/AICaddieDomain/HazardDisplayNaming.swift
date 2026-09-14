@@ -1,9 +1,9 @@
 import Foundation
 
-/// Shared player-facing naming for measured and legacy course hazards.
+/// Shared player-facing naming for measured hazards and interval-only compatibility payloads.
 ///
 /// Decoder order is not meaningful to a golfer. When geometry is available, name a hazard by its
-/// side of the intended route and whether it protects the fairway or green. Older cached intervals
+/// side of the intended route and whether it protects the fairway or green. Interval-only payloads
 /// can still distinguish fairway/green from route distance, but must not invent left/right.
 public enum HazardDisplayNaming {
     public static func label(
@@ -32,7 +32,7 @@ public enum HazardDisplayNaming {
         return side == "前方" ? "\(area)沙坑" : "\(side)\(area)沙坑"
     }
 
-    public static func legacyLabel(
+    public static func intervalLabel(
         kind: String,
         interval: [Double],
         route: [[Double]]?

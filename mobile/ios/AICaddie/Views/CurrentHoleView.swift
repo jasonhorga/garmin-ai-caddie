@@ -1949,7 +1949,7 @@ public struct CurrentHoleView: View {
         }
         // A ready retained package is authoritative only when its hazard records also carry the
         // precise polygons used by the dedicated obstacle page. Older ready packages can have the
-        // map/overlay but no `outlinePx`; refresh those once so the UI never falls back to an oval.
+        // map/overlay but no `outlinePx`; refresh those once so the UI can obtain the real boundary.
         if let existing = holePrep,
            CoursePrepHoleAdoptionPolicy.isReadyMap(existing),
            existing.hasRenderableHazardOutlines {
@@ -2354,7 +2354,7 @@ public struct CurrentHoleView: View {
             for interval in bunkers {
                 out.append(WatchHazard(
                     kind: "bunker",
-                    label: CoursePrepHazardNaming.legacyLabel(
+                    label: CoursePrepHazardNaming.intervalLabel(
                         kind: "bunker", interval: interval, route: route
                     ),
                     startM: interval.first,
@@ -2404,7 +2404,7 @@ public struct CurrentHoleView: View {
             for interval in water {
                 out.append(WatchHazard(
                     kind: "water",
-                    label: CoursePrepHazardNaming.legacyLabel(
+                    label: CoursePrepHazardNaming.intervalLabel(
                         kind: "water", interval: interval, route: route
                     ),
                     startM: interval.first,

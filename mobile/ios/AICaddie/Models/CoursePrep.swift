@@ -116,7 +116,7 @@ public struct CoursePrepLiveHazardReadout: Equatable {
     public let frontPx: [Double]
     public let backPx: [Double]
     /// Optional ordered exterior boundary in the same topo-pixel frame. Empty means the package
-    /// only carried legacy front/back points and the UI must use its restrained fallback.
+    /// carries only front/back facts; the UI shows those facts without inventing a shape.
     public let outlinePx: [[Double]]
     public let frontRouteM: Double
     public let backRouteM: Double
@@ -423,7 +423,7 @@ public struct CoursePrepHazardDetail: Codable, Equatable {
     public let frontPx: [Double]
     public let backPx: [Double]
     /// Ordered exterior boundary points in the shared topo-pixel frame. Optional on the wire for
-    /// compatibility with older downloaded packages that only know two edge points.
+    /// compatibility with interval-only packages that only know two edge points.
     public let outlinePx: [[Double]]
     public let sideM: Double?
 
@@ -466,7 +466,7 @@ public struct CoursePrepHazardDetail: Codable, Equatable {
         sideM = try container.decodeIfPresent(Double.self, forKey: .sideM)
     }
 
-    /// `outlinePx` was added after the first downloaded course packages. Treat it as an optional
+    /// `outlinePx` was added after interval-only course packages were already downloaded. Treat it as an optional
     /// rendering enhancement: a missing/null/wrongly-typed field must not discard the whole hole.
     /// Also fail closed for partial points so the map never draws a misleading polygon.
     private static func decodeOutlinePx(
@@ -507,12 +507,12 @@ enum CoursePrepHazardNaming {
         )
     }
 
-    static func legacyLabel(
+    static func intervalLabel(
         kind: String,
         interval: [Double],
         route: [[Double]]?
     ) -> String {
-        HazardDisplayNaming.legacyLabel(kind: kind, interval: interval, route: route)
+        HazardDisplayNaming.intervalLabel(kind: kind, interval: interval, route: route)
     }
 }
 
@@ -717,18 +717,18 @@ public struct CoursePrepHole: Codable, Equatable {
     }
 
     /// Whether every player-facing bunker/water record has a trustworthy polygon boundary. A
-    /// package can be marked `ready` while still carrying the older two-point hazard contract, so
+    /// package can be marked `ready` while still carrying the interval-only two-point hazard contract, so
     /// coverage alone is not enough to decide whether the detail page may draw a shape.
     public var hasRenderableHazardOutlines: Bool {
         let supported = playerFacingHazardDetails
         guard !supported.isEmpty else {
-            // An empty course has no missing outline. Legacy interval arrays, however, mean that
+            // An empty course has no missing outline. Interval arrays, however, mean that
             // at least one obstacle exists without a polygon and must request precise prep again.
             return hazards.waterCarry.isEmpty && hazards.bunkers.isEmpty
         }
         guard supported.allSatisfy({ Self.isRenderableHazardOutline($0) }) else { return false }
 
-        // Older payloads may expose an interval array alongside details. If that array contains a
+        // Compatibility payloads may expose an interval array alongside details. If that array contains a
         // kind for which no detailed polygon was delivered, the hazard surface is still incomplete.
         let kinds = Set(supported.map(\.kind))
         if !hazards.waterCarry.isEmpty && !kinds.contains("water") { return false }
@@ -786,7 +786,7 @@ public struct CoursePrepHole: Codable, Equatable {
 }
 
 /// Merge policy for prep responses that can arrive out of order: a factual ready map and a precise
-/// hazard polygon must never be replaced by a later lightweight/legacy response.
+/// hazard polygon must never be replaced by a later lightweight/compatibility response.
 enum CoursePrepHoleAdoptionPolicy {
     static func isReadyMap(_ hole: CoursePrepHole?) -> Bool {
         guard let hole else { return false }

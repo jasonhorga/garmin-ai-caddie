@@ -3561,7 +3561,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('identifier: "live-hazard-fit"', hazard_detail)
         self.assertIn('identifier: "hazard-next"', hazard_detail)
         self.assertIn('accessibilityIdentifier("selected-hazard-', hazard_detail)
-        self.assertNotIn("LiveHazardFocusRingLayout.rect", hazard_detail)
         self.assertNotIn("Path(ellipseIn: ring", hazard_detail)
 
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
