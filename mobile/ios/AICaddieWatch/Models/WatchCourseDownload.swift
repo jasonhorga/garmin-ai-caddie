@@ -682,7 +682,7 @@ public struct WatchCourseTemplate: Codable, Equatable, Identifiable {
             venueNameSource: option.venueNameSource,
             segmentLabel: option.segmentLabel
         )
-        WatchPreparedCourse(
+        return WatchPreparedCourse(
             roundId: roundId,
             courseName: roundName.isEmpty ? GarminCourseNameAuthority.selectableName(rawName) : roundName,
             holeStates: holeStates.map { $0.replacingRoundId(roundId) }
