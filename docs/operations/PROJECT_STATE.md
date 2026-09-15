@@ -549,10 +549,14 @@ code; do not restart the old multi-week plan tree.
 空白状态；修正首洞开球上下文，避免用 approach/错误球杆生成推荐。完整 18 洞事实协议和既有
 缓存语义保持不变，不把所有球场地图长期离线保存。
 
-**Current implementation slice (2026-09-15):** address IMG_8061 follow-up: the nearby picker splits
-one physical Garmin venue into Chinese and English rows when only one sibling layout has a verified
-Garmin localized snapshot. Reconcile only exact provider-base/coordinate/region/hole-count siblings;
-never add a translation or global-id alias. Keep Garmin-English-only venues unchanged.
+**Current implementation slice (2026-09-15):** address IMG_8061 and the
+`pasted-from-shellfish-20260915-071415.png` follow-up: the nearby picker split
+one physical Garmin venue into Chinese and English rows because `31718` (Xiali
+Left) had a verified Garmin localized snapshot while sibling `31953` (Xiali
+Right) did not. Reconcile only exact provider-base/coordinate/region/hole-count
+siblings; never add a translation or global-id alias. Keep Garmin-English-only
+venues unchanged. Commit `c8bbb1e2` contains the remediation and has passed
+Source CI; the old `3bbe79df` candidate still serves the screenshot behavior.
 
 **Previous implementation slice (2026-09-14):** address IMG_8050 on 棒棰岛左场第 7 洞. Do not
 synthesize oval/circular hazard geometry when a cached package has no `outlinePx`; refresh precise
@@ -577,7 +581,7 @@ claims or draws an obstacle outline. The full commit-by-commit audit is
 3. 已完成：障碍轮廓和前后标签移到固定 viewport annotation layer，细线/小点/外侧标签随缩放重算；关闭服务端装饰纹理并递增 renderer 版本。
 4. 已完成：收紧左上距离面板，修正无恢复状态的 opening/tee shot context 和推荐序列去重。
 5. 已完成：兼容旧 normalized Garmin 快照的 `provenance.sourceConnector`，补齐来源门禁回归测试；homeserver focused tests、Source/Native gates、内部 TestFlight 与 Apple processing 检查均通过。本轮实体设备缩放/拖动和 Garmin 重连仍为 evidence-open。
-6. 进行中：为同一 Garmin physical venue 的 sibling layout 做保守名称归一；只有唯一中文 Garmin 快照、provider 基础名/坐标/行政区/洞数一致时才共享 `venueName`，并补回归测试和新一轮发布验证。
+6. 进行中：为同一 Garmin physical venue 的 sibling layout 做保守名称归一；只有唯一中文 Garmin 快照、provider 基础名/坐标/行政区/洞数一致时才共享 `venueName`，并完成新候选、Native Mobile CI、内部 TestFlight 与 Apple processing 验证。
 
 本轮开始前的已知基线：`PERF-STARTUP` 已完成实现并保持 `evidence-open`；其远端 focused suite、Source CI、
 Native Mobile CI 和 Build 59 上传证据不被本轮覆盖。所有重资源验证仍必须在 homeserver 执行。
@@ -2139,6 +2143,15 @@ Native runs recorded above; it is retained only as historical diagnosis.
   service was changed. ASC read-only check `34907384887` confirmed Build 62 is
   `VALID`, unexpired, `IN_BETA_TESTING`, and in the existing internal
   `Jason's friends` group.
+
+- 2026-09-15: The follow-up screenshot still showed both `大连夏丽高尔夫俱乐部`
+  and `Dalian Xiali Country Club`. A direct probe of the old candidate confirmed
+  these are Garmin CourseView siblings `31718`/`31953`, with only `31718`
+  carrying the Garmin Chinese scorecard snapshot. Commit `c8bbb1e2` shares that
+  verified venue identity with `31953` under strict sibling guards; no manual
+  translation was added. Source CI `34912539031` passed. The next action is a
+  fresh candidate/Native/TestFlight verification; the old candidate remains the
+  rollback service until the new one is proven.
 
 - 2026-09-14: Native Mobile CI `34888179387` at `3bbe79df` completed with
   Watch build/tests/runtime evidence green, but the iOS test target failed at
