@@ -350,7 +350,7 @@ export function MobilePackagePrepPanel({
                   value={selectedCourseOption}
                   onChange={(event) => handleCourseOptionChange(event.target.value)}
                 >
-                  <option value="">手动输入球场编号</option>
+                  <option value="">选择 Garmin 球场</option>
                   {courseOptions.map((option) => (
                     <option key={option.globalId} value={option.globalId}>
                       {displayCourseName(option)}{courseSegmentName(option) ? ` · ${courseSegmentName(option)} 场` : ''} / {option.holes} 洞 / {option.roundCount} 场

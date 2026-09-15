@@ -11,8 +11,10 @@ aliases in the iOS client. Git identifies the commit author as
 `jasonhorga <jasonhe@gmail.com>`; Git cannot prove whether the author typed
 each literal personally, but it does establish who introduced the literals
 into the repository and why the code said it did so. This is separate from a
-`source=manual` phone round: a player may still record a one-off round name,
-but that value is not allowed to relabel the Garmin catalogue.
+`source=manual` phone round: the storage/API shape remains compatible with
+historical manual rows, but the current iPhone, Watch, Web, and legacy UI do
+not expose a free-form course-name field. A manual row cannot relabel the
+Garmin catalogue.
 
 The aliases were added as a short-term workaround after CourseView rows were
 observed returning English (and, for global id `31793`, a provider label that

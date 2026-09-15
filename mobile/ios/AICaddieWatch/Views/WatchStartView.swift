@@ -247,7 +247,7 @@ public struct WatchStartView: View {
                 }
                 .buttonStyle(.plain)
 
-                TextField("输入球场名称", text: $searchText)
+                TextField("搜索 Garmin 球场", text: $searchText)
                     .font(.system(size: 15, weight: .bold))
                     .textFieldStyle(.plain)
                     .submitLabel(.search)

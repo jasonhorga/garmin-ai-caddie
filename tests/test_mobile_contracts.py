@@ -113,6 +113,26 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("球场（来自 Garmin）", source)
         self.assertIn("courseName: selectedCourseName", source)
 
+        prep_source = _read_required_source(
+            self,
+            WEB_SOURCE_DIR / "components" / "MobilePackagePrepPanel.tsx",
+        )
+        self.assertNotIn("手动输入球场编号", prep_source)
+        self.assertIn("选择 Garmin 球场", prep_source)
+
+        legacy_source = _read_required_source(
+            self,
+            Path("tools") / "legacy" / "ai_caddie_web.py",
+        )
+        self.assertNotIn("manualCourseName", legacy_source)
+
+        watch_start = _read_required_source(
+            self,
+            WATCH_DIR / "Views" / "WatchStartView.swift",
+        )
+        self.assertNotIn("输入球场名称", watch_start)
+        self.assertIn("搜索 Garmin 球场", watch_start)
+
     def test_live_round_package_schema_accepts_optional_tee_coordinates(self) -> None:
         schema = _load_schema("live_round_package.schema.json")
         package = json.loads(

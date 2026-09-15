@@ -258,8 +258,7 @@ INDEX_HTML = r"""<!doctype html>
         <h2>Manual round</h2>
         <label for="holeGeometrySelect">Course / hole geometry</label>
         <select id="holeGeometrySelect"></select>
-        <label for="manualCourseName">Course name</label>
-        <input id="manualCourseName" placeholder="Optional">
+        <div class="muted">球场身份使用所选 Garmin 球场 / 洞。</div>
         <div class="actions">
           <button class="primary" id="createManualBtn">Create</button>
           <button id="manualAnalyzeBtn">Analyze manual</button>
@@ -1716,7 +1715,7 @@ function wireRoundButtons() {
 
 async function createManual() {
   const [globalId, holeNumber] = $("holeGeometrySelect").value.split(":").map(Number);
-  const row = await api("/api/manual-rounds", { method:"POST", body: JSON.stringify({ globalId, localHole: holeNumber, courseName: $("manualCourseName").value }) });
+  const row = await api("/api/manual-rounds", { method:"POST", body: JSON.stringify({ globalId, localHole: holeNumber }) });
   state.manualId = row.id;
   state.manualHole = row.localHole || row.hole;
   showStatus("manualStatus", `Created ${row.id}`);
