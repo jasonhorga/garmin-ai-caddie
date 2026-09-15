@@ -1093,7 +1093,6 @@ public struct StartRoundView: View {
         // still supply tee/geometry facts, but their names and loop labels are never merged into a
         // current provider row. This is what keeps search, nearby and package selection identical
         // after an old local package has been renamed or removed.
-        let providerName = provider.name
         let venue = MobileCourseDisplayLocalization.canonicalVenueName(
             providerName: provider.name,
             venueName: provider.venueName,
@@ -1101,9 +1100,16 @@ public struct StartRoundView: View {
             segmentLabel: provider.segmentLabel,
             globalId: provider.globalId
         )
-        let providerLabel = MobileCourseDisplayLocalization.canonicalSegment(
-            providerName: providerName,
-            segmentLabel: provider.segmentLabel
+        // Provider rows can retain Garmin's played route (for example A/B or C/A) in their
+        // display name while the current catalogue only contains one factual nine-hole loop.
+        // Recover the single-loop label from all factual sources without putting it back into the
+        // physical venue name shown to the player.
+        let providerLabel = resolvedSegmentLabel(
+            explicit: [provider.segmentLabel, catalogue?.segmentLabel, downloaded?.segmentLabel],
+            names: [provider.name, catalogue?.name, downloaded?.name],
+            segmentHoles: segmentHoles,
+            allowCompositePrefix: segmentHoles == 9
+                && (catalogue?.resolvedHoles == 9 || downloaded?.resolvedHoles == 9)
         )
         let displayName = venue
         let facts = catalogue ?? downloaded ?? provider

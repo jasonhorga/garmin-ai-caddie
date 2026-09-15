@@ -445,7 +445,7 @@ public enum WatchCourseTemplateBuilder {
     ) -> String {
         // The package is the backend authority for the round that was actually
         // prepared. A persisted catalogue option can be older (or carry a
-        // hand-entered alias), so it is only a fallback when the package has a
+        // legacy alias), so it is only a fallback when the package has a
         // generic placeholder.
         let packageName = package.course.name.trimmingCharacters(in: .whitespacesAndNewlines)
         let packageCanonicalName = GarminCourseNameAuthority.canonicalName(
@@ -456,15 +456,15 @@ public enum WatchCourseTemplateBuilder {
         )
         let packageVenue = GarminCourseNameAuthority.split(packageCanonicalName).venue
         if backOption != nil {
-            if !packageVenue.isEmpty { return packageVenue }
-            let venue = GarminCourseNameAuthority.split(packageCanonicalName).venue
-            if !venue.isEmpty, !isGenericCourseName(venue, globalId: package.course.globalId) {
-                return venue
+            if !packageVenue.isEmpty,
+               !isGenericCourseName(packageVenue, globalId: package.course.globalId) {
+                return packageVenue
             }
         } else if !packageVenue.isEmpty, !isGenericCourseName(packageVenue, globalId: package.course.globalId) {
             return packageVenue
         }
-        if !packageVenue.isEmpty {
+        if !packageVenue.isEmpty,
+           !isGenericCourseName(packageVenue, globalId: package.course.globalId) {
             if let segment = package.course.segmentLabel,
                !segment.isEmpty,
                !GarminCourseNameAuthority.isCompositeSegment(segment) {
