@@ -53,6 +53,157 @@ def _history(
 
 
 class CourseReconciliationTests(unittest.TestCase):
+    def test_unique_garmin_name_is_shared_by_same_venue_layout_sibling(self) -> None:
+        # CourseView assigns Xiali Left/Right separate ids and anchors only a
+        # few metres apart.  The player has a Garmin-native Chinese snapshot
+        # for Left; Right must use the same venue so the picker has one course.
+        left = CourseMatch(
+            31718,
+            "Dalian Xiali Country Club ~ Left",
+            18,
+            "Ganjingzi District, Dalian City",
+            "liaoning",
+            0.0,
+            39.036478,
+            121.524118,
+            0.1,
+        )
+        right = CourseMatch(
+            31953,
+            "Dalian Xiali Country Club ~ Right",
+            18,
+            "Ganjingzi District, Dalian City",
+            "liaoning",
+            0.0,
+            39.036490,
+            121.524118,
+            0.1,
+        )
+        history = _history(
+            "大连夏丽高尔夫俱乐部 ~ 左果岭",
+            gid=31718,
+            lat=39.036478,
+            lon=121.524118,
+            city="Ganjingzi District, Dalian City",
+        )
+
+        result = reconcile_course_matches(
+            [left, right],
+            player_id="player-a",
+            history_rows=[history],
+        )
+
+        self.assertEqual(result[0].name, "大连夏丽高尔夫俱乐部 ~ Left")
+        self.assertEqual(result[1].name, "大连夏丽高尔夫俱乐部 ~ Right")
+        self.assertEqual(result[1].venue_name, "大连夏丽高尔夫俱乐部")
+        self.assertEqual(result[1].venue_name_source, "garmin_scorecard_snapshot")
+        self.assertTrue(result[1].reconciliation_conflict)
+
+    def test_sibling_name_does_not_cross_region_or_hole_count(self) -> None:
+        source = CourseMatch(
+            31718,
+            "Dalian Xiali Country Club ~ Left",
+            18,
+            "Ganjingzi District, Dalian City",
+            "liaoning",
+            0.0,
+            39.036478,
+            121.524118,
+            0.1,
+        )
+        wrong_region = CourseMatch(
+            31953,
+            "Dalian Xiali Country Club ~ Right",
+            9,
+            "Jinzhou District, Dalian City",
+            "liaoning",
+            0.0,
+            39.036490,
+            121.524118,
+            0.1,
+        )
+        history = _history(
+            "大连夏丽高尔夫俱乐部 ~ 左果岭",
+            gid=31718,
+            lat=39.036478,
+            lon=121.524118,
+            city="Ganjingzi District, Dalian City",
+        )
+
+        result = reconcile_course_matches(
+            [source, wrong_region],
+            player_id="player-a",
+            history_rows=[history],
+        )
+
+        self.assertEqual(result[0].name, "大连夏丽高尔夫俱乐部 ~ Left")
+        self.assertEqual(result[1].name, wrong_region.name)
+        self.assertIsNone(result[1].venue_name)
+
+    def test_ambiguous_sibling_localized_names_are_not_collapsed(self) -> None:
+        left = CourseMatch(
+            31718,
+            "Dalian Xiali Country Club ~ Left",
+            18,
+            "Ganjingzi District, Dalian City",
+            "liaoning",
+            0.0,
+            39.036478,
+            121.524118,
+            0.1,
+        )
+        right = CourseMatch(
+            31953,
+            "Dalian Xiali Country Club ~ Right",
+            18,
+            "Ganjingzi District, Dalian City",
+            "liaoning",
+            0.0,
+            39.036490,
+            121.524118,
+            0.1,
+        )
+        other = CourseMatch(
+            31954,
+            "Dalian Xiali Country Club ~ Practice",
+            18,
+            "Ganjingzi District, Dalian City",
+            "liaoning",
+            0.0,
+            39.036492,
+            121.524118,
+            0.1,
+        )
+        history = [
+            _history(
+                "大连夏丽高尔夫俱乐部 ~ 左果岭",
+                gid=31718,
+                lat=39.036478,
+                lon=121.524118,
+                city="Ganjingzi District, Dalian City",
+            ),
+            _history(
+                "大连夏丽练习场",
+                gid=31954,
+                lat=39.036492,
+                lon=121.524118,
+                city="Ganjingzi District, Dalian City",
+            ),
+        ]
+
+        result = reconcile_course_matches(
+            [left, right, other],
+            player_id="player-a",
+            history_rows=history,
+        )
+
+        # The second Chinese identity has a different venue, so the anonymous
+        # Right layout is not allowed to inherit a guessed name.
+        self.assertEqual(result[1].name, right.name)
+        # The second localized source itself remains factual; ambiguity only
+        # blocks propagation to a different, otherwise anonymous layout.
+        self.assertEqual(result[2].venue_name, "大连夏丽练习场")
+
     def test_close_conflict_uses_alias_and_preserves_provider_facts(self) -> None:
         original = [PROVIDER]
         result = reconcile_course_matches(

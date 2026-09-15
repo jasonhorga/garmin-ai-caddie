@@ -17,6 +17,7 @@ from ai_caddie.core.data import ROOT
 from .course_search import CourseMatch
 from .name_authority import (
     GarminNameIdentity,
+    contains_cjk,
     is_composite_segment,
     is_placeholder_course_name,
     is_trusted_garmin_identity,
@@ -29,6 +30,11 @@ from .name_authority import (
 
 DEFAULT_MATCH_DISTANCE_KM = 2.0
 DEFAULT_HISTORY_NEARBY_RADIUS_KM = 2.0
+# CourseView gives each playable layout its own global id.  Layout anchors for
+# one physical venue are normally only a few metres apart; keep this threshold
+# deliberately tight so a nearby, similarly named venue cannot inherit a
+# player's localized Garmin snapshot.
+SIBLING_VENUE_MAX_DISTANCE_KM = 0.25
 _PLACEHOLDER_NAMES = {"unknown", "unknown course", "unnamed course", "n/a", "-"}
 
 
@@ -159,6 +165,105 @@ def _distance(a: tuple[float, float], b: tuple[float, float]) -> float:
     dlon = math.radians(b[1] - a[1])
     hav = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
     return 6371.0088 * 2 * math.asin(math.sqrt(min(1.0, max(0.0, hav))))
+
+
+def _same_provider_region(left: CourseMatch, right: CourseMatch) -> bool:
+    """Whether two provider rows agree on every region field they both expose."""
+    for left_value, right_value in (
+        (left.city, right.city),
+        (left.province, right.province),
+    ):
+        left_text = _norm(left_value)
+        right_text = _norm(right_value)
+        if not left_text or not right_text or _contains(left_text, right_text):
+            continue
+        # Garmin has emitted the same compound city in both orders (for
+        # example ``Dalian City, Ganjingzi District`` and the reverse).  Compare
+        # comma-separated provider components before treating it as a conflict.
+        left_parts = {part.strip() for part in left_text.replace(";", ",").split(",") if part.strip()}
+        right_parts = {part.strip() for part in right_text.replace(";", ",").split(",") if part.strip()}
+        if not left_parts.intersection(right_parts):
+            return False
+    return True
+
+
+def _sibling_localized_identities(
+    provider_matches: Iterable[CourseMatch],
+    identities: Mapping[int, GarminNameIdentity],
+) -> dict[int, GarminNameIdentity]:
+    """Fill missing layout identities from one unambiguous Garmin venue.
+
+    Garmin's CourseView catalogue represents a physical venue with several
+    layout ids (for example ``Left`` and ``Right``).  A played scorecard can
+    therefore provide a native Chinese venue name for only one of those ids.
+    This reconciliation is intentionally narrower than a translation table:
+    the provider base name, coordinates, region and hole count must all agree,
+    and exactly one Chinese Garmin identity may be eligible.  Existing trusted
+    identities are left untouched because an explicit layout snapshot remains
+    the strongest fact for that id.
+    """
+    rows = list(provider_matches or ())
+    result = dict(identities or {})
+    localized_sources: list[tuple[CourseMatch, GarminNameIdentity, str, tuple[float, float]]] = []
+    for row in rows:
+        try:
+            global_id = int(row.global_id)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        identity = identities.get(global_id)
+        if (
+            identity is None
+            or not is_trusted_garmin_identity(identity)
+            or not contains_cjk(identity.venue)
+        ):
+            continue
+        venue, _suffix = split_garmin_course_name(row.name)
+        coordinate = _coord(row.latitude, row.longitude)
+        if not venue or coordinate is None:
+            continue
+        localized_sources.append((row, identity, _norm(venue), coordinate))
+
+    if not localized_sources:
+        return result
+
+    for row in rows:
+        try:
+            global_id = int(row.global_id)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        existing = identities.get(global_id)
+        if existing is not None and is_trusted_garmin_identity(existing):
+            continue
+        venue, _suffix = split_garmin_course_name(row.name)
+        target_coordinate = _coord(row.latitude, row.longitude)
+        target_key = _norm(venue)
+        if not target_key or target_coordinate is None:
+            continue
+
+        candidates: list[GarminNameIdentity] = []
+        for source_row, source_identity, source_key, source_coordinate in localized_sources:
+            if int(source_row.global_id) == global_id or source_key != target_key:
+                continue
+            if source_row.holes is not None and row.holes is not None:
+                try:
+                    if int(source_row.holes) != int(row.holes):
+                        continue
+                except (TypeError, ValueError, OverflowError):
+                    continue
+            if not _same_provider_region(source_row, row):
+                continue
+            if _distance(source_coordinate, target_coordinate) > SIBLING_VENUE_MAX_DISTANCE_KM:
+                continue
+            candidates.append(source_identity)
+
+        # Multiple different Garmin Chinese venue names at one provider base
+        # are ambiguous.  Do not collapse them merely because their anchors
+        # happen to be close.
+        candidate_venues = {_norm(identity.venue) for identity in candidates if identity.venue}
+        if len(candidate_venues) != 1:
+            continue
+        result[global_id] = candidates[0]
+    return result
 
 
 def _holes(row: Mapping[str, Any]) -> int | None:
@@ -406,6 +511,11 @@ def reconcile_course_matches(
     name_identities = localized_names_by_global_id(
         row for row in materialized_history if _names(row) and _played(row)
     )
+    # A CourseView venue may expose several layout ids.  If one layout has a
+    # verified Garmin Chinese snapshot, safely share that venue identity with
+    # an otherwise anonymous sibling so the iOS venue picker does not split one
+    # physical course into Chinese and English rows.
+    name_identities = _sibling_localized_identities(provider_matches, name_identities)
     evidence = build_player_course_evidence(
         materialized_history,
         geometry_locations=geometry_locations,

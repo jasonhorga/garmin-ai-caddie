@@ -542,14 +542,19 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`PHONE-UX5` — 球场目录、首屏地图、障碍标注与球童上下文修正** (`evidence-open`)
+**`PHONE-UX5` — 球场目录、首屏地图、障碍标注与球童上下文修正** (`in-progress`)
 
 本轮承接 IMG_8035–8040 反馈：所有球场名称统一中文优先；地图事实先于球童建议呈现；障碍物
 轮廓保持细线、标签避开障碍并在缩放后重新定位；移除无必要的果岭/沙坑纹理；缩短洞号切换的
 空白状态；修正首洞开球上下文，避免用 approach/错误球杆生成推荐。完整 18 洞事实协议和既有
 缓存语义保持不变，不把所有球场地图长期离线保存。
 
-**Current implementation slice (2026-09-14):** address IMG_8050 on 棒棰岛左场第 7 洞. Do not
+**Current implementation slice (2026-09-15):** address IMG_8061 follow-up: the nearby picker splits
+one physical Garmin venue into Chinese and English rows when only one sibling layout has a verified
+Garmin localized snapshot. Reconcile only exact provider-base/coordinate/region/hole-count siblings;
+never add a translation or global-id alias. Keep Garmin-English-only venues unchanged.
+
+**Previous implementation slice (2026-09-14):** address IMG_8050 on 棒棰岛左场第 7 洞. Do not
 synthesize oval/circular hazard geometry when a cached package has no `outlinePx`; refresh precise
 hazard data for such stale-ready packages without replacing usable ready data with a partial response.
 Switching hazards preserves the current zoom and viewport so an already enlarged map stays enlarged.
@@ -572,6 +577,7 @@ claims or draws an obstacle outline. The full commit-by-commit audit is
 3. 已完成：障碍轮廓和前后标签移到固定 viewport annotation layer，细线/小点/外侧标签随缩放重算；关闭服务端装饰纹理并递增 renderer 版本。
 4. 已完成：收紧左上距离面板，修正无恢复状态的 opening/tee shot context 和推荐序列去重。
 5. 已完成：兼容旧 normalized Garmin 快照的 `provenance.sourceConnector`，补齐来源门禁回归测试；homeserver focused tests、Source/Native gates、内部 TestFlight 与 Apple processing 检查均通过。本轮实体设备缩放/拖动和 Garmin 重连仍为 evidence-open。
+6. 进行中：为同一 Garmin physical venue 的 sibling layout 做保守名称归一；只有唯一中文 Garmin 快照、provider 基础名/坐标/行政区/洞数一致时才共享 `venueName`，并补回归测试和新一轮发布验证。
 
 本轮开始前的已知基线：`PERF-STARTUP` 已完成实现并保持 `evidence-open`；其远端 focused suite、Source CI、
 Native Mobile CI 和 Build 59 上传证据不被本轮覆盖。所有重资源验证仍必须在 homeserver 执行。
