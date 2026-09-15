@@ -1217,9 +1217,36 @@ def _reconcile_player_course_matches(
 
 
 def _course_match_payload(match: course_search.CourseMatch) -> dict:
+    # ``reconcile_course_matches`` populates these fields for normal requests,
+    # but keep the serializer authoritative for adapters/tests that pass a raw
+    # provider row directly.  This guarantees every discovery endpoint exposes
+    # the same venue/segment decomposition.
+    from ai_caddie.courses.name_authority import (
+        GARMIN_SNAPSHOT_NAME_SOURCE,
+        GarminNameIdentity,
+        canonical_course_identity,
+    )
+
+    trusted_identity = None
+    if (
+        match.venue_name
+        and str(match.venue_name_source or "").strip().casefold()
+        == GARMIN_SNAPSHOT_NAME_SOURCE
+    ):
+        trusted_identity = GarminNameIdentity(
+            venue=str(match.venue_name),
+            segment=match.segment_label,
+            source=GARMIN_SNAPSHOT_NAME_SOURCE,
+        )
+    canonical = canonical_course_identity(
+        match.name,
+        trusted_identity,
+        segment_override=match.segment_label,
+        holes=match.holes,
+    )
     payload = {
         "globalId": match.global_id,
-        "name": match.name,
+        "name": canonical.name,
         "holes": match.holes,
         "city": match.city,
         "province": match.province,
@@ -1239,9 +1266,9 @@ def _course_match_payload(match: course_search.CourseMatch) -> dict:
         "displayCoordinateSource": match.display_coordinate_source,
         "reconciliationDistanceKm": match.reconciliation_distance_km,
         "reconciliationConflict": True if match.reconciliation_conflict else None,
-        "venueName": match.venue_name,
-        "venueNameSource": match.venue_name_source,
-        "segmentLabel": match.segment_label,
+        "venueName": canonical.venue,
+        "venueNameSource": canonical.source,
+        "segmentLabel": canonical.segment,
     }
     for key, value in optional.items():
         if value is not None:

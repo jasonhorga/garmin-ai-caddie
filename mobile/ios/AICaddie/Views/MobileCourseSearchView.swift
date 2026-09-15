@@ -281,7 +281,7 @@ public struct MobileCourseSearchView: View {
                         Text(download.course.localizedName)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
-                        Text(status)
+                        Text(download.course.resolvedSegmentLabel.map { "\($0) 场 · \(status)" } ?? status)
                             .font(.caption)
                             .foregroundStyle(download.phase == .failed ? .orange : .secondary)
                             .accessibilityHidden(true)
@@ -390,22 +390,9 @@ public struct MobileCourseSearchView: View {
     }
 
     private func displayName(for match: MobileCourseSearchMatch) -> String {
-        // Prefer a catalogue/download row with the same global id. This fixes the subtle state
-        // split where a downloaded row was Chinese but the fresh nearby row was English.
-        let knownNames = knownCourseOptions
-            .filter { $0.globalId == match.globalId }
-            .flatMap { option -> [String?] in [option.name, option.venueName] }
-        let knownNameSources = knownCourseOptions
-            .filter { $0.globalId == match.globalId }
-            .flatMap { option -> [String?] in [option.venueNameSource, option.venueNameSource] }
-        return MobileCourseDisplayLocalization.selectableCourseName(
-            GarminCourseNameAuthority.mergedName(
-                providerName: match.name,
-                trustedNames: knownNames + [match.venueName],
-                trustedNameSources: knownNameSources + [match.venueNameSource]
-            ),
-            globalId: match.globalId
-        )
+        // Search/nearby responses are backend-reconciled. A downloaded or
+        // historical row is metadata only and must not rename this result.
+        return match.displayName
     }
 
     private func retainedDownloadIsInstalled(_ download: PrepCourseDownloadRecord) -> Bool {

@@ -632,7 +632,7 @@ public struct CurrentHoleView: View {
 
     private var scorecardSurface: some View {
         LiveRoundScorecardView(
-            courseName: package.course.name,
+            courseName: package.course.venueDisplayName,
             holes: package.holes,
             liveRoundState: liveRoundState,
             recordedScoreHoles: recordedScoreHoles,
@@ -650,7 +650,7 @@ public struct CurrentHoleView: View {
 
     private var roundSummarySurface: some View {
         LiveRoundFinishSummaryView(
-            courseName: package.course.name,
+            courseName: package.course.venueDisplayName,
             holesCompleted: completedHoleStates.count,
             holeCount: package.holes.count,
             totalStrokes: completedHoleStates.reduce(0) { $0 + $1.state.score },
@@ -2647,11 +2647,11 @@ public struct CurrentHoleView: View {
         return courseOptions
             .filter { ($0.venueName ?? "") == venue
                 && ($0.segmentHoles ?? $0.holes) == 9 }
-            .sorted { ($0.segmentLabel ?? "~~") < ($1.segmentLabel ?? "~~") }
+            .sorted { ($0.resolvedSegmentLabel ?? "~~") < ($1.resolvedSegmentLabel ?? "~~") }
     }
 
     private func loopLabel(_ option: MobileCourseOption) -> String {
-        if let label = option.segmentLabel, !label.isEmpty {
+        if let label = option.resolvedSegmentLabel {
             return "\(label) 场"
         }
         return "另一个 9 洞"

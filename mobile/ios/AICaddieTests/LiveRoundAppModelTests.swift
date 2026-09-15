@@ -1403,11 +1403,10 @@ final class LiveRoundAppModelTests: XCTestCase {
             recentRounds: source.recentHistory.rounds,
             holes: revisedHoles
         )
-        let selectedDisplayName = "Nicklaus Club Beijing"
         let template = try offlineReadyPackage(
             revisedSource,
             geometryRevision: revision
-        ).replacingCourseDisplayName(selectedDisplayName)
+        )
         try store.saveCourseTemplate(template)
         for hole in template.holes {
             _ = try store.saveCourseTopoImage(
@@ -1423,7 +1422,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             roundId: roundId,
             recentRounds: template.recentHistory.rounds,
             holes: template.holes
-        ).replacingCourseDisplayName("北京尼克劳斯俱乐部")
+        )
         let remoteData = try JSONEncoder().encode(remote)
         let requestLock = NSLock()
         var paths: [String] = []
@@ -1489,11 +1488,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertFalse(requested.contains { $0.hasSuffix("/prep") })
         XCTAssertFalse(requested.contains { $0.hasSuffix("/topo.png") })
         XCTAssertTrue(store.hasCourseTopoImages(for: try XCTUnwrap(model.package)))
-        XCTAssertEqual(model.package?.course.name, selectedDisplayName)
+        XCTAssertEqual(model.package?.course.name, template.course.name)
         XCTAssertEqual(
             try store.loadRoundPackage(roundId: roundId)?.course.name,
-            selectedDisplayName,
-            "release revalidation must not replace the catalogue label selected by the player"
+            template.course.name,
+            "release revalidation must preserve the backend-owned physical venue name"
         )
     }
 
@@ -2285,12 +2284,6 @@ final class LiveRoundAppModelTests: XCTestCase {
             garminSessionStore: nil,
             syncClient: client
         )
-        let selectedDisplayName = "Nicklaus Club Beijing"
-        model.rememberSelectedCourseDisplayName(
-            globalId: online.course.globalId,
-            name: selectedDisplayName
-        )
-
         await model.prepareCourseRound(
             globalId: online.course.globalId,
             roundId: online.roundId,
@@ -2310,11 +2303,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         await model.waitForOfflineCourseDownloadForTesting()
 
         XCTAssertEqual(model.downloadedCourseOptions.map(\.globalId), [online.course.globalId])
-        XCTAssertEqual(model.package?.course.name, selectedDisplayName)
+        XCTAssertEqual(model.package?.course.name, online.course.name)
         XCTAssertEqual(
             try store.loadRoundPackage(roundId: online.roundId)?.course.name,
-            selectedDisplayName,
-            "the selected catalogue identity must already be durable before the first relaunch"
+            online.course.name,
+            "the backend-owned physical venue name must already be durable before the first relaunch"
         )
         XCTAssertTrue(model.package?.hasCompleteOfflineCoursePrep == true)
         XCTAssertTrue(store.hasCourseTopoImages(for: try XCTUnwrap(model.package)))

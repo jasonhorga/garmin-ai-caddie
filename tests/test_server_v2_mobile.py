@@ -1404,7 +1404,17 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(holes[0]["yards"], round(301.0 * 1.09361))
         self.assertEqual(holes[1]["yards"], round(302.0 * 1.09361))
         self.assertEqual(payload["roundId"], "live-new-course")
-        self.assertEqual(payload["course"], {"globalId": 55555, "name": "Course 55555", "teeBox": "blue"})
+        self.assertEqual(
+            payload["course"],
+            {
+                "globalId": 55555,
+                "name": "Course 55555",
+                "venueName": "Course 55555",
+                "venueNameSource": None,
+                "segmentLabel": None,
+                "teeBox": "blue",
+            },
+        )
         self.assertEqual(payload["sourceCoverage"]["state"], "ready")
         self.assertEqual(payload["sourceCoverage"]["preparationMode"], "course")
         self.assertEqual(payload["sourceCoverage"]["requestedCourseGlobalId"], 55555)
@@ -1605,6 +1615,7 @@ class ServerV2MobileTests(unittest.TestCase):
         round_row = {
             "id": "r-31796-1", "date": "2026-06-10", "course": "黑骑士 ~ C/A", "courseKey": "bk",
             "globalId": 31796, "holesCompleted": 18, "strokes": 89, "par": 72, "holes": [], "hasShots": True,
+            "source": "garmin",
         }
         data = HistoryData(raw_rounds=[{"id": "r-31796-1", "hasShots": True}], rounds=[round_row], shots=[])
 
@@ -1845,6 +1856,7 @@ class ServerV2MobileTests(unittest.TestCase):
         round_row = {
             "id": "r-31796-1", "date": "2026-06-10", "course": "黑骑士 ~ C/A", "courseKey": "bk",
             "globalId": 31796, "holesCompleted": 18, "strokes": 89, "par": 72, "holes": [], "hasShots": True,
+            "source": "garmin",
         }
         data = HistoryData(raw_rounds=[{"id": "r-31796-1", "hasShots": True}], rounds=[round_row], shots=[])
 
@@ -1872,8 +1884,16 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(len(payload["holes"]), 9)
         self.assertEqual([h["number"] for h in payload["holes"]], list(range(1, 10)))
         self.assertEqual(payload["nine"], "all")  # a complete 9-hole loop, not a partial of an 18
-        # Named as just this loop ("黑骑士 ~ C"), not the played combo ("黑骑士 ~ C/A").
-        self.assertEqual(payload["course"]["name"], "黑骑士 ~ C")
+        # The package identity is the physical venue; the selected loop stays
+        # structured beside it instead of becoming a second course name.
+        self.assertEqual(payload["course"]["name"], "黑骑士")
+        self.assertEqual(payload["course"]["segmentLabel"], "C")
+        self.assertTrue(
+            all(
+                seed.get("context", {}).get("courseName") == "黑骑士"
+                for seed in payload["caddieContextSeeds"]
+            )
+        )
 
     def test_composite_loop_round_name_has_no_duplicate_label(self) -> None:
         # 加打另一个9洞 (C + A): each loop is name-capped to its own label, so the composite reads
@@ -1885,9 +1905,9 @@ class ServerV2MobileTests(unittest.TestCase):
             raw_rounds=[],
             rounds=[
                 {"id": "rC", "course": "黑骑士 ~ C/A", "courseKey": "c", "globalId": 31796,
-                 "holesCompleted": 18, "par": 72, "holes": [], "hasShots": True},
+                 "holesCompleted": 18, "par": 72, "holes": [], "hasShots": True, "source": "garmin"},
                 {"id": "rA", "course": "黑骑士 ~ A/B", "courseKey": "a", "globalId": 31794,
-                 "holesCompleted": 18, "par": 72, "holes": [], "hasShots": True},
+                 "holesCompleted": 18, "par": 72, "holes": [], "hasShots": True, "source": "garmin"},
             ],
             shots=[],
         )
@@ -1911,7 +1931,7 @@ class ServerV2MobileTests(unittest.TestCase):
             )
 
         self.assertEqual([h["number"] for h in pkg["holes"]], list(range(1, 19)))
-        self.assertEqual(pkg["course"]["name"], "黑骑士 ~ C/A")
+        self.assertEqual(pkg["course"]["name"], "黑骑士")
         self.assertEqual(pkg["sourceCoverage"]["holeCount"], 18)
         self.assertEqual(
             [seed["hole"] for seed in pkg["caddieContextSeeds"]],
@@ -1957,6 +1977,7 @@ class ServerV2MobileTests(unittest.TestCase):
                     "par": 72,
                     "holes": [],
                     "hasShots": True,
+                    "source": "garmin",
                 }
             ],
             shots=[],
@@ -1992,7 +2013,7 @@ class ServerV2MobileTests(unittest.TestCase):
                 include_course_prep=False,
             )
 
-        self.assertEqual(package["course"]["name"], "黑骑士 ~ C/C")
+        self.assertEqual(package["course"]["name"], "黑骑士")
         self.assertEqual([hole["number"] for hole in package["holes"]], list(range(1, 19)))
         self.assertEqual(
             [hole["sourceGlobalId"] for hole in package["holes"]],

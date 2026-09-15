@@ -516,9 +516,6 @@ public final class LiveRoundAppModel: ObservableObject {
     /// the package release.  Optionality distinguishes "not deferred" from the normal false mode.
     private var deferredOfflineCourseDownloadRevalidation: Bool?
     private var roundPreparationToken: UUID?
-    /// Ephemeral selection intent. The selected name is written into the durable round/template
-    /// package before activation, so this dictionary never becomes a second persistence authority.
-    private var selectedCourseDisplayNames: [Int: String] = [:]
     private var courseOptionsRefreshSucceeded = false
     private var boundPlayerId: String?
     /// Optional DEBUG/CI round to open explicitly. Production and ordinary DEBUG launches must not
@@ -716,7 +713,6 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingLiveHole = nil
         startingNine = nil
         courseOptions = []
-        selectedCourseDisplayNames = [:]
         courseOptionsRefreshSucceeded = false
         syncStatus = "离线就绪"
         localEventUploadStatus = "自动上传已开启"
@@ -1111,17 +1107,29 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     public func rememberSelectedCourseDisplayName(globalId: Int, name rawName: String) {
-        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard globalId > 0, !name.isEmpty else { return }
-        selectedCourseDisplayNames[globalId] = name
+        // Kept as an API-compatible callback for older views.  A selected/search
+        // label is presentation input, never a name authority; the backend
+        // package/search contract owns the value shown on all three clients.
+        _ = globalId
+        _ = rawName
     }
 
     private func applyingSelectedCourseDisplayName(
         to package: LiveRoundPackage
     ) -> LiveRoundPackage {
-        package.replacingCourseDisplayName(
-            selectedCourseDisplayNames[package.course.globalId]
-        )
+        // Never let a local selection/cache alias replace the backend-owned
+        // course identity. Legacy packages keep their own provider spelling.
+        return package
+    }
+
+    private func applyingLegacyCourseDisplayName(
+        _ fallbackName: String?,
+        to package: LiveRoundPackage
+    ) -> LiveRoundPackage {
+        // A legacy fallback may be stale or manually entered. Preserve the
+        // package's own provider name instead of introducing a fourth authority.
+        _ = fallbackName
+        return package
     }
 
     public func prepareCourseRound(globalId: Int, roundId: String, teeBox: String, nine: String) async {
@@ -1664,7 +1672,7 @@ public final class LiveRoundAppModel: ObservableObject {
             return nil
         }
         guard remote.roundId == cached.roundId, !remote.holes.isEmpty else { return nil }
-        let remoteWithStableName = remote.replacingCourseDisplayName(cached.course.name)
+        let remoteWithStableName = applyingLegacyCourseDisplayName(cached.course.name, to: remote)
 
         var prepByHole = Dictionary(
             uniqueKeysWithValues: (remoteWithStableName.coursePrep?.holes ?? []).map { ($0.hole, $0) }
@@ -2674,7 +2682,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 event.kind == .score && event.hole > 0 ? event.hole : nil
             })
             let metadata = MobileRoundFinishMetadata(
-                courseName: package.course.name,
+                courseName: package.course.venueDisplayName,
                 holePars: package.holes.sorted { $0.number < $1.number }.map(\.par),
                 holesCompleted: completedHoles.count,
                 courseGlobalId: package.course.globalId
@@ -4162,10 +4170,11 @@ public final class LiveRoundAppModel: ObservableObject {
                 ensureGeometry: false,
                 backgroundGeometry: true,
                 includeEventCursor: false
-            ).replacingCourseDisplayName(record.course.name)
+            )
+            let canonicalFetched = applyingLegacyCourseDisplayName(record.course.name, to: fetched)
             guard !Task.isCancelled,
                   prepCourseDownloadGeneration == generation else { throw CancellationError() }
-            if courseInstallBackGlobalId(for: fetched) != nil {
+            if courseInstallBackGlobalId(for: canonicalFetched) != nil {
                 // The prep library currently installs one physical course. A composite 9+9
                 // package belongs to the live-round path; ending this job explicitly avoids a
                 // silent ready/failed/re-download loop while preserving the normal 9+9 scorer.
@@ -4184,16 +4193,16 @@ public final class LiveRoundAppModel: ObservableObject {
                 .requiredGeometryRevisions?
                 .isEmpty == false
             if !replacingExisting {
-                try offlineStore.saveCourseTemplate(fetched)
+                try offlineStore.saveCourseTemplate(canonicalFetched)
             }
             updatePrepCourseDownload(id: id, generation: generation) { state in
-                state.totalHoles = max(1, fetched.holes.count)
+                state.totalHoles = max(1, canonicalFetched.holes.count)
                 // A Garmin release can move again while the replacement is downloading. Bind this
                 // install to every revision carried by the package we actually fetched, rather
                 // than only the hole that triggered revalidation; mixed old/new topo is not a
                 // coherent offline package.
                 if replacingExisting {
-                    let fetchedRevisions = geometryRevisions(in: fetched)
+                    let fetchedRevisions = geometryRevisions(in: canonicalFetched)
                     if !fetchedRevisions.isEmpty {
                         var required = state.requiredGeometryRevisions ?? [:]
                         required.merge(fetchedRevisions) { _, fetchedRevision in fetchedRevision }
@@ -4202,7 +4211,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
             }
             let replacementCompleted = await downloadOfflineCourseAssets(
-                for: fetched,
+                for: canonicalFetched,
                 using: syncClient,
                 prepDownloadID: id,
                 prepDownloadGeneration: generation,
@@ -4495,23 +4504,24 @@ public final class LiveRoundAppModel: ObservableObject {
                           seenTees.insert(tee.lowercased()).inserted else { return nil }
                     return tee
                 }
-                let selectableName = GarminCourseNameAuthority.selectableName(preferred.course.name)
-                let parts = GarminCourseNameAuthority.split(selectableName)
-                let venue = parts.venue
-                let segment = parts.suffix.flatMap {
-                    GarminCourseNameAuthority.isCompositeSegment($0) ? nil : $0
-                }
+                // A downloaded template is a cache of a backend package, not a
+                // second name authority. Preserve its canonical wire fields
+                // verbatim; never rebuild a display name from stale local aliases.
+                let canonicalName = preferred.course.name
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !canonicalName.isEmpty else { return nil }
                 let anchor = preferred.holes.first {
                     $0.teeLatitude != nil && $0.teeLongitude != nil
                 }
                 return MobileCourseOption(
                     globalId: preferred.course.globalId,
-                    name: segment.map { "\(venue) ~ \($0)" } ?? venue,
+                    name: canonicalName,
                     holes: preferred.holes.count,
                     teeBox: preferred.course.teeBox,
                     geometryCoverage: preferred.geometryCoverage.state.rawValue,
-                    venueName: venue.isEmpty ? preferred.course.name : venue,
-                    segmentLabel: segment?.isEmpty == false ? segment : nil,
+                    venueName: preferred.course.venueName,
+                    venueNameSource: preferred.course.venueNameSource,
+                    segmentLabel: preferred.course.segmentLabel,
                     segmentHoles: preferred.holes.count,
                     latitude: anchor?.teeLatitude,
                     longitude: anchor?.teeLongitude,

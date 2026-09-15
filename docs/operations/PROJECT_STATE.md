@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-14 23:08 UTC
+**Updated:** 2026-09-15 16:02 UTC
 **Branch:** `integration/v2` (GitHub default; Build 62 product source
 `65a6064f4061eb591bf5850f8b244e8725178904`; internal-release source
 `65a6064f4061eb591bf5850f8b244e8725178904`; PERF-STARTUP backend candidate
@@ -549,14 +549,21 @@ code; do not restart the old multi-week plan tree.
 空白状态；修正首洞开球上下文，避免用 approach/错误球杆生成推荐。完整 18 洞事实协议和既有
 缓存语义保持不变，不把所有球场地图长期离线保存。
 
-**Current implementation slice (2026-09-15):** address IMG_8061 and the
-`pasted-from-shellfish-20260915-071415.png` follow-up: the nearby picker split
-one physical Garmin venue into Chinese and English rows because `31718` (Xiali
-Left) had a verified Garmin localized snapshot while sibling `31953` (Xiali
-Right) did not. Reconcile only exact provider-base/coordinate/region/hole-count
-siblings; never add a translation or global-id alias. Keep Garmin-English-only
-venues unchanged. Commit `c8bbb1e2` contains the remediation and has passed
-Source CI; the old `3bbe79df` candidate still serves the screenshot behavior.
+**Current implementation slice (2026-09-15):** finish the IMG_8061 and
+`pasted-from-shellfish-20260915-071415.png` course-name follow-up as one
+cross-platform contract. First verify whether the named Dalian venues have a
+Garmin device/app localized-name source distinct from the anonymous CourseView
+response. Then make the backend emit one canonical venue/display identity and
+have iPhone, Apple Watch, and Web consume that exact identity instead of each
+client independently choosing among provider/history/cache spellings. Layouts
+(`Left`/`Right`, A/B/C) remain separate labels, not venue names. All user-visible
+Chinese copy must say `球场`, never `课程`; internal wire/code identifiers may
+remain `courseName`. Do not introduce translations or global-id aliases without
+provider evidence. The Web GPS scorecard no longer exposes a free-form course-name
+field: a player may select a Garmin row, or the product records `未指定球场`;
+legacy/manual round fields remain compatibility data only and cannot rename a
+Garmin venue. Commit `c8bbb1e2` is only the completed conservative Xiali sibling
+reconciliation; it does not yet close this three-client contract.
 
 **Previous implementation slice (2026-09-14):** address IMG_8050 on 棒棰岛左场第 7 洞. Do not
 synthesize oval/circular hazard geometry when a cached package has no `outlinePx`; refresh precise
@@ -581,7 +588,8 @@ claims or draws an obstacle outline. The full commit-by-commit audit is
 3. 已完成：障碍轮廓和前后标签移到固定 viewport annotation layer，细线/小点/外侧标签随缩放重算；关闭服务端装饰纹理并递增 renderer 版本。
 4. 已完成：收紧左上距离面板，修正无恢复状态的 opening/tee shot context 和推荐序列去重。
 5. 已完成：兼容旧 normalized Garmin 快照的 `provenance.sourceConnector`，补齐来源门禁回归测试；homeserver focused tests、Source/Native gates、内部 TestFlight 与 Apple processing 检查均通过。本轮实体设备缩放/拖动和 Garmin 重连仍为 evidence-open。
-6. 进行中：为同一 Garmin physical venue 的 sibling layout 做保守名称归一；只有唯一中文 Garmin 快照、provider 基础名/坐标/行政区/洞数一致时才共享 `venueName`，并完成新候选、Native Mobile CI、内部 TestFlight 与 Apple processing 验证。
+6. 已完成：为同一 Garmin physical venue 的 sibling layout 做保守名称归一；只有唯一中文 Garmin 快照、provider 基础名/坐标/行政区/洞数一致时才共享 `venueName`（`c8bbb1e2`，Source CI 已通过）。
+7. 进行中：核实 Garmin 设备/App 是否另有中文名称来源；后端建立唯一 canonical 球场名称协议，iPhone、Watch、Web 原样消费同一字段，并用共享契约样例验证三端输出一致及生产 UI 不出现“课程”。本轮已收紧非 Garmin identity 门禁、复合路线拆分、普通 live package 的 snapshot 选择、iPhone 本地名称覆盖路径，并删除 Web 手填球场名入口；仍需完成提交后的 Source/Native 门禁、候选 TestFlight 与 Apple processing 检查。
 
 本轮开始前的已知基线：`PERF-STARTUP` 已完成实现并保持 `evidence-open`；其远端 focused suite、Source CI、
 Native Mobile CI 和 Build 59 上传证据不被本轮覆盖。所有重资源验证仍必须在 homeserver 执行。
@@ -1402,7 +1410,7 @@ project-level task list; historical plans are reference material.
 | `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Source CI `34663338160` and exact-SHA live Native Mobile CI `34663501590` at `70480f99` passed, including iOS/Watch builds, real iOS journey, dedicated hazard/caddie captures, Watch runtime screenshots, evidence and secret scans. Internal TestFlight CD `34666136884` uploaded Build 57; ASC read-only run `34666574292` confirmed `VALID` and `IN_BETA_TESTING`. Physical iPhone/Watch validation of map panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation remains open. |
 | `PHONE-UX3` | `evidence-open` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present at exact source `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; homeserver focused suite `296 passed, 2 skipped`, Python compileall, Source CI `34709596756`, and Native `34709800015` (full live iOS/Watch evidence) pass. Internal TestFlight CD `34712702517` uploaded Build 58; ASC run `34713289501` confirmed it is processed and in the internal group. Remaining evidence is physical iPhone/Watch verification of real-time panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation. |
 | `PERF-STARTUP` | `evidence-open` | Reduce complete-round startup latency without storing every course map offline: reuse server decision/package work, connect existing stats warm-up, keep full 18-hole facts while prioritizing the active hole on phone, and use bounded Watch topo concurrency with on-demand green detail. | Implementation and remote focused suite (`334 passed, 2 skipped`) are green; Python compileall and diff-check pass. Source CI `34757661927`, exact-SHA live Native Mobile CI `34759807648`, and internal TestFlight CD `34763656027` are green. Build 59 is Apple `VALID`/`IN_BETA_TESTING` and visible in the internal group; physical iPhone/Watch interaction and Garmin reconnect remain open. |
-| `PHONE-UX5` | `evidence-open` | Audit every course-name source and remove presentation aliases: use a real Garmin localized field when present, otherwise preserve Garmin's provider name exactly; keep loop labels separate and reject `ABC/AC/AF/AB` as venue names. Reconcile nearby, downloaded, history, and start-round display paths. | Parser correction is committed in `bc83b207`; targeted homeserver name/reconciliation/search/history/segment/mobile tests pass `164/164`. Source CI `34900999198` and exact-SHA live Native Mobile CI `34901057848` passed; internal TestFlight CD `34906576121` uploaded Build 62, and ASC read-only run `34907384887` confirmed `VALID`, unexpired, `IN_BETA_TESTING`, and visible in the existing internal group. Physical zoom/drag and Garmin reconnect remain evidence-open. |
+| `PHONE-UX5` | `in-progress` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Existing parser/name fixes and Build 62 evidence remain valid but do not close the new cross-platform contract. Exit requires per-ID provider evidence, shared backend contract tests, all three client gates, a fresh candidate, internal TestFlight, Apple processing, and physical-device confirmation. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 | `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |

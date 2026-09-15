@@ -93,8 +93,10 @@ class CourseReconciliationTests(unittest.TestCase):
             history_rows=[history],
         )
 
-        self.assertEqual(result[0].name, "大连夏丽高尔夫俱乐部 ~ Left")
-        self.assertEqual(result[1].name, "大连夏丽高尔夫俱乐部 ~ Right")
+        self.assertEqual(result[0].name, "大连夏丽高尔夫俱乐部")
+        self.assertEqual(result[1].name, "大连夏丽高尔夫俱乐部")
+        self.assertEqual(result[0].segment_label, "Left")
+        self.assertEqual(result[1].segment_label, "Right")
         self.assertEqual(result[1].venue_name, "大连夏丽高尔夫俱乐部")
         self.assertEqual(result[1].venue_name_source, "garmin_scorecard_snapshot")
         self.assertTrue(result[1].reconciliation_conflict)
@@ -136,8 +138,10 @@ class CourseReconciliationTests(unittest.TestCase):
             history_rows=[history],
         )
 
-        self.assertEqual(result[0].name, "大连夏丽高尔夫俱乐部 ~ Left")
-        self.assertEqual(result[1].name, wrong_region.name)
+        self.assertEqual(result[0].name, "大连夏丽高尔夫俱乐部")
+        self.assertEqual(result[0].segment_label, "Left")
+        self.assertEqual(result[1].name, "Dalian Xiali Country Club")
+        self.assertEqual(result[1].segment_label, "Right")
         self.assertIsNone(result[1].venue_name)
 
     def test_ambiguous_sibling_localized_names_are_not_collapsed(self) -> None:
@@ -199,7 +203,8 @@ class CourseReconciliationTests(unittest.TestCase):
 
         # The second Chinese identity has a different venue, so the anonymous
         # Right layout is not allowed to inherit a guessed name.
-        self.assertEqual(result[1].name, right.name)
+        self.assertEqual(result[1].name, "Dalian Xiali Country Club")
+        self.assertEqual(result[1].segment_label, "Right")
         # The second localized source itself remains factual; ambiguity only
         # blocks propagation to a different, otherwise anonymous layout.
         self.assertEqual(result[2].venue_name, "大连夏丽练习场")

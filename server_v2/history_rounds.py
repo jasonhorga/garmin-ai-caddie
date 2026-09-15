@@ -5,10 +5,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ai_caddie.history.history import OWNER_ID, HistoryData, average
+from ai_caddie.history.history import (
+    OWNER_ID,
+    HistoryData,
+    average,
+    history_course_venue_name,
+)
 from ai_caddie.reports.reports import iter_report_records
-from ai_caddie.courses.name_authority import preferred_garmin_source_name
-
 from .data_source import load_history_data_for_mode
 from .history_overview import round_card_for_row
 from .models import CourseFilterOption, EmptyState, HistoryRoundsResponse, MonthRoundGroup
@@ -33,7 +36,7 @@ def _month_label(key: str) -> str:
         return key
 
 
-def _month_group(key: str, rows: list[dict[str, Any]]) -> MonthRoundGroup:
+def _month_group(key: str, rows: list[dict[str, Any]], data: HistoryData) -> MonthRoundGroup:
     rounds18 = [row for row in rows if row.get("holesCompleted") == 18 and row.get("strokes") is not None]
     scores18 = [int(row["strokes"]) for row in rounds18]
     return MonthRoundGroup(
@@ -42,7 +45,7 @@ def _month_group(key: str, rows: list[dict[str, Any]]) -> MonthRoundGroup:
         count=len(rows),
         average18=average(scores18),
         bestScore=min(scores18) if scores18 else None,
-        rounds=[round_card_for_row(row) for row in rows],
+        rounds=[round_card_for_row(row, data) for row in rows],
     )
 
 
@@ -77,12 +80,12 @@ def _score_band(row: dict[str, Any]) -> str | None:
     return "100+"
 
 
-def _available_courses(rounds: list[dict[str, Any]]) -> list[CourseFilterOption]:
+def _available_courses(rounds: list[dict[str, Any]], data: HistoryData) -> list[CourseFilterOption]:
     labels: dict[str, str] = {}
     for row in rounds:
         key = str(row.get("courseKey") or "")
         if key and key not in labels:
-            labels[key] = preferred_garmin_source_name(row) or str(row.get("course") or row.get("courseName") or key)
+            labels[key] = history_course_venue_name(data, row, fallback=key)
     return [CourseFilterOption(key=key, label=label) for key, label in sorted(labels.items(), key=lambda kv: kv[1])]
 
 
@@ -130,7 +133,7 @@ def build_history_rounds_response(
     for row in rows:
         by_month[_month_key(row.get("date"))].append(row)
 
-    groups = [_month_group(key, by_month[key]) for key in sorted(by_month, reverse=True)]
+    groups = [_month_group(key, by_month[key], data) for key in sorted(by_month, reverse=True)]
     years = sorted({y for y in (_year_of(row) for row in data.rounds) if y}, reverse=True)
     return HistoryRoundsResponse(
         schema="ai-caddie-history-rounds-v2",
@@ -145,7 +148,7 @@ def build_history_rounds_response(
             ),
         ) if not data.rounds else None,
         availableYears=years,
-        availableCourses=_available_courses(data.rounds),
+        availableCourses=_available_courses(data.rounds, data),
         appliedFilters={
             "year": year,
             "course": course,

@@ -8,6 +8,7 @@ import { AggregateEvidence } from './AggregateEvidence'
 import { ShowAllToggle } from './ShowAllToggle'
 import { SourceRefs } from './SourceRefs'
 import { asNumber, asRows, asString, formatNumber, formatSigned, semanticClass, type StatRow } from './statsValues'
+import { physicalCourseName } from '../courseName'
 
 // 强弱分析 conclusions-first page. Replaces the old HoleStats/ClubStats/
 // IssueStats stack: 你最该练 (top weaknesses) + 总体数字 (fairway/GIR/putts) +
@@ -290,7 +291,8 @@ export function StrengthsPage({ data, onSelectRef }: StrengthsPageProps) {
   const courseNames = new Map(
     asRows(data.courses).flatMap((course) => {
       const key = asString(course.courseKey)
-      const name = asString(course.courseName)
+      const rawName = asString(course.courseName)
+      const name = rawName ? physicalCourseName(rawName) : null
       return key && name ? [[key, name] as const] : []
     }),
   )

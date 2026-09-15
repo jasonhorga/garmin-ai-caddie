@@ -60,6 +60,11 @@ export interface RoundCard {
   scoreStrip: ScoreStripCell[]
   badges: DataQualityBadge[]
   primaryIssue: string | null
+  /** Physical venue is in courseName; played nine/layout stays separate. */
+  nine?: string | null
+  globalId?: number | null
+  backGlobalId?: number | null
+  teeBox?: string | null
   // Optional / forward-compatible: absent on legacy payloads → treated as Garmin.
   source?: RoundSource | null
 }
@@ -966,6 +971,10 @@ export interface LiveRoundPackageResponse {
   course: {
     globalId: number
     name: string
+    /** Backend-owned physical venue identity; optional on legacy packages. */
+    venueName?: string | null
+    venueNameSource?: string | null
+    segmentLabel?: string | null
     teeBox: string
   }
   holes: Array<Record<string, unknown>>
@@ -995,6 +1004,7 @@ export interface LiveRoundPackageResponse {
 export interface MobileCourseOption {
   globalId: number
   courseKey?: string | null
+  /** Shared physical Garmin venue title; a loop belongs in segmentLabel. */
   name: string
   /** Garmin-backed venue identity; absent on legacy/provider-only rows. */
   venueName?: string | null

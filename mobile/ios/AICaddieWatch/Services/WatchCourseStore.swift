@@ -284,7 +284,11 @@ public enum WatchCourseTemplateBuilder {
         let template = WatchCourseTemplate(
             option: locatedOption,
             backOption: locatedBackOption,
-            courseName: resolvedCourseName(package: package, option: option),
+            courseName: resolvedCourseName(
+                package: package,
+                option: option,
+                backOption: backOption
+            ),
             teeBox: selectedTee ?? package.course.teeBox,
             holeStates: states,
             cachedAt: cachedAt
@@ -436,14 +440,61 @@ public enum WatchCourseTemplateBuilder {
 
     private static func resolvedCourseName(
         package: WatchCoursePackage,
-        option: WatchCourseOption
+        option: WatchCourseOption,
+        backOption: WatchCourseOption?
     ) -> String {
+        // The package is the backend authority for the round that was actually
+        // prepared. A persisted catalogue option can be older (or carry a
+        // hand-entered alias), so it is only a fallback when the package has a
+        // generic placeholder.
         let packageName = package.course.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let genericName = "Course \(package.course.globalId)"
-        if packageName.caseInsensitiveCompare(genericName) == .orderedSame {
-            return option.name
+        let packageCanonicalName = GarminCourseNameAuthority.canonicalName(
+            providerName: packageName,
+            venueName: package.course.venueName,
+            venueNameSource: package.course.venueNameSource,
+            segmentLabel: package.course.segmentLabel
+        )
+        let packageVenue = GarminCourseNameAuthority.split(packageCanonicalName).venue
+        if backOption != nil {
+            if !packageVenue.isEmpty { return packageVenue }
+            let venue = GarminCourseNameAuthority.split(packageCanonicalName).venue
+            if !venue.isEmpty, !isGenericCourseName(venue, globalId: package.course.globalId) {
+                return venue
+            }
+        } else if !packageVenue.isEmpty, !isGenericCourseName(packageVenue, globalId: package.course.globalId) {
+            return packageVenue
         }
-        return package.course.name
+        if !packageVenue.isEmpty {
+            if let segment = package.course.segmentLabel,
+               !segment.isEmpty,
+               !GarminCourseNameAuthority.isCompositeSegment(segment) {
+                return "\(packageVenue) ~ \(segment)"
+            }
+            return packageVenue
+        }
+
+        let optionName = GarminCourseNameAuthority.canonicalName(
+            providerName: option.name,
+            venueName: option.venueName,
+            venueNameSource: option.venueNameSource,
+            segmentLabel: option.segmentLabel
+        )
+        if backOption != nil {
+            let venue = GarminCourseNameAuthority.split(optionName).venue
+            if !venue.isEmpty { return venue }
+        } else if !optionName.isEmpty, !isGenericCourseName(optionName, globalId: option.globalId) {
+            // The selected loop is a catalogue fact, not the physical round
+            // identity. Keep the title aligned with the backend package and
+            // the iPhone/Web history surfaces when the package name is generic.
+            let venue = GarminCourseNameAuthority.split(optionName).venue
+            if !venue.isEmpty { return venue }
+        }
+        return option.displayName
+    }
+
+    private static func isGenericCourseName(_ raw: String, globalId: Int) -> Bool {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return value.isEmpty || value == "course \(globalId)" || value == "unknown course" || value == "unknown"
     }
 
     private static func watchProjection(_ value: WatchCoursePrepProjection?) -> WatchHoleImageProjection? {

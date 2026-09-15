@@ -2,9 +2,9 @@
  * Presentation helpers for names already supplied by Garmin.
  *
  * The web client must never translate a provider name or infer one from a
- * global id. It may only choose a localized venue field returned by the API,
- * retain a factual single-layout suffix, and hide a composite played route
- * (A/C, A+B, AB, ... ) from selectable-course labels.
+ * global id. The backend `name` field is the cross-client physical-venue
+ * authority; `segmentLabel` is independent layout metadata. Venue/segment
+ * fields remain compatibility fallbacks for older payloads.
  */
 
 export interface CourseNameFields {
@@ -36,9 +36,16 @@ export function normalizeCourseName(value: unknown): string {
 export function splitCourseName(value: unknown): { venue: string; suffix: string | null } {
   const normalized = normalizeCourseName(value)
   if (!normalized) return { venue: '', suffix: null }
-  const [venue, ...rest] = normalized.split(' ~ ')
-  const suffix = rest.join(' ~ ').trim()
-  return { venue: venue.trim(), suffix: suffix || null }
+  const [firstVenue, ...rest] = normalized.split(' ~ ')
+  let venue = firstVenue.trim()
+  let suffix = rest.join(' ~ ').trim() || null
+  const tokens = venue.split(/\s+/).filter(Boolean)
+  const trailing = tokens[tokens.length - 1]
+  if (tokens.length > 1 && trailing && isCompositeSegment(trailing)) {
+    venue = tokens.slice(0, -1).join(' ')
+    if (!suffix) suffix = trailing
+  }
+  return { venue, suffix }
 }
 
 export function containsCjk(value: unknown): boolean {
@@ -61,31 +68,26 @@ function safeSegment(value: unknown): string | null {
   return segment && !isCompositeSegment(segment) ? segment : null
 }
 
-/** Return the venue spelling Garmin already supplied, preferring an existing CJK value. */
+/** Return the venue part of the backend-owned display name. */
 export function courseVenueName(input: CourseNameInput, fallback = '未知球场'): string {
-  const fields = fieldsFor(input)
-  const nameParts = splitCourseName(fields.name)
-  const trustedVenue = text(fields.venueNameSource).toLowerCase() === GARMIN_SNAPSHOT_NAME_SOURCE
-    ? text(fields.venueName)
-    : ''
-  const venues = [trustedVenue, nameParts.venue].filter(Boolean)
-  return venues.find(containsCjk) ?? venues[0] ?? fallback
+  return canonicalCourseVenueName(input, fallback)
+}
+
+/** Physical venue title for round/history surfaces; layout labels belong beside it. */
+export function physicalCourseName(input: CourseNameInput, fallback = '未知球场'): string {
+  return canonicalCourseVenueName(input, fallback)
 }
 
 /** Return a single factual layout label; composite played routes are not selectable labels. */
 export function courseSegmentName(input: CourseNameInput): string | null {
   const fields = fieldsFor(input)
-  const providerSegment = safeSegment(splitCourseName(fields.name).suffix)
+  const providerSegment = safeSegment(splitCourseName(selectableCourseName(text(fields.name), '')).suffix)
   return providerSegment ?? safeSegment(fields.segmentLabel)
 }
 
-/** Build the user-visible selectable-course name without translating or inventing text. */
+/** Return the backend-owned selectable-course name without inventing a translation. */
 export function displayCourseName(input: CourseNameInput, fallback = '未知球场'): string {
-  const fields = fieldsFor(input)
-  const venue = courseVenueName(fields, fallback)
-  if (!venue || venue === fallback && !text(fields.name) && !text(fields.venueName)) return fallback
-  const segment = courseSegmentName(fields)
-  return segment ? `${venue} ~ ${segment}` : venue
+  return canonicalCourseName(input, fallback)
 }
 
 export function selectableCourseName(value: unknown, fallback = '未知球场'): string {
@@ -93,4 +95,27 @@ export function selectableCourseName(value: unknown, fallback = '未知球场'):
   if (!normalized) return fallback
   const split = splitCourseName(normalized)
   return split.suffix && isCompositeSegment(split.suffix) ? split.venue : normalized
+}
+
+/**
+ * Resolve the same backend-owned name contract used by iPhone and Watch.
+ * Only an explicitly marked Garmin snapshot may replace the provider venue;
+ * route/loop labels remain separate facts and composite routes are removed.
+ */
+export function canonicalCourseName(input: CourseNameInput, fallback = '未知球场'): string {
+  const fields = fieldsFor(input)
+  const provider = selectableCourseName(text(fields.name), fallback)
+  const providerParts = splitCourseName(provider)
+  const trustedVenue = text(fields.venueNameSource).toLowerCase() === GARMIN_SNAPSHOT_NAME_SOURCE
+    ? splitCourseName(fields.venueName).venue
+    : ''
+  // An unmarked venueName may be a stale/manual cache alias. It is never a
+  // fallback authority when the provider name is absent; only the explicit
+  // Garmin snapshot marker can replace the provider venue.
+  const venue = trustedVenue || providerParts.venue
+  return venue || provider
+}
+
+export function canonicalCourseVenueName(input: CourseNameInput, fallback = '未知球场'): string {
+  return splitCourseName(canonicalCourseName(input, fallback)).venue || fallback
 }

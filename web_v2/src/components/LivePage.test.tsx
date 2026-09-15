@@ -188,7 +188,7 @@ describe('LivePage tabs', () => {
     expect(screen.getByRole('heading', { name: '选择球场开始模拟' })).toBeInTheDocument()
     expect(screen.getByLabelText('搜索球场')).toBeInTheDocument()
     // courseOptions flow through to the finder's 常打球场 cards.
-    expect(screen.getByText('Black Knight B/C')).toBeInTheDocument()
+    expect(screen.getByText('Black Knight')).toBeInTheDocument()
     // The legacy dashboard must stay OFF the default tab.
     expect(screen.queryByRole('heading', { name: '智能球童' })).not.toBeInTheDocument()
   })

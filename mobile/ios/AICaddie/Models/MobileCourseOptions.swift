@@ -1,9 +1,9 @@
 import Foundation
 import AICaddieDomain
 
-/// Provider metadata remains untouched on the wire. This type only normalises Garmin's separator
-/// formatting and chooses an already-provided Chinese value when more than one Garmin-backed source
-/// describes the same course. It never translates an English provider name or maps a global id to a
+/// Provider metadata remains untouched on the wire. This type resolves the
+/// shared physical Garmin venue title; a playable loop stays in `segmentLabel`.
+/// It never translates an English provider name or maps a global id to a
 /// guessed local name.
 public enum MobileCourseDisplayLocalization {
     public static let garminSnapshotNameSource = GarminCourseNameAuthority.garminSnapshotNameSource
@@ -45,10 +45,21 @@ public enum MobileCourseDisplayLocalization {
         let normalized = courseName(raw)
         guard !normalized.isEmpty else { return ("", nil) }
         let parts = normalized.split(separator: "~", maxSplits: 1, omittingEmptySubsequences: true)
-        let venue = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard parts.count > 1 else { return (venue, nil) }
-        let suffix = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return (venue, suffix.isEmpty ? nil : suffix)
+        var venue = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+        var suffix: String? = parts.count > 1
+            ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            : nil
+        // Older synced rows may omit Garmin's `~` separator (`Black Knight B/C`,
+        // `Black Knight AC`). These are played loop combinations, never venue
+        // text. Strip only an unambiguous trailing composite token.
+        let tokens = venue.split(whereSeparator: { $0.isWhitespace })
+        if let last = tokens.last,
+           tokens.count > 1,
+           isCompositeSegment(String(last)) {
+            venue = tokens.dropLast().map(String.init).joined(separator: " ")
+            if suffix?.isEmpty != false { suffix = String(last) }
+        }
+        return (venue, suffix?.isEmpty == false ? suffix : nil)
     }
 
     /// Garmin sometimes serialises a played route as `A/C`, `A+B`, or a compact `ABC`/`AC` code.
@@ -69,6 +80,52 @@ public enum MobileCourseDisplayLocalization {
         let split = splitCourseName(normalized)
         guard let suffix = split.suffix, isCompositeSegment(suffix) else { return normalized }
         return split.venue
+    }
+
+    /// Consume the backend-owned name contract. This is intentionally a thin
+    /// wrapper around the domain implementation so iPhone and Watch apply the
+    /// same Garmin-source gate and route handling.
+    public static func canonicalCourseName(
+        providerName: String?,
+        venueName: String? = nil,
+        venueNameSource: String? = nil,
+        segmentLabel: String? = nil,
+        globalId: Int? = nil
+    ) -> String {
+        let name = GarminCourseNameAuthority.canonicalName(
+            providerName: providerName,
+            venueName: venueName,
+            venueNameSource: venueNameSource,
+            segmentLabel: segmentLabel
+        )
+        return selectableCourseName(name, globalId: globalId)
+    }
+
+    public static func canonicalSegment(
+        providerName: String?,
+        segmentLabel: String? = nil
+    ) -> String? {
+        GarminCourseNameAuthority.canonicalSegment(
+            providerName: providerName,
+            segmentLabel: segmentLabel
+        )
+    }
+
+    public static func canonicalVenueName(
+        providerName: String?,
+        venueName: String? = nil,
+        venueNameSource: String? = nil,
+        segmentLabel: String? = nil,
+        globalId: Int? = nil
+    ) -> String {
+        let name = canonicalCourseName(
+            providerName: providerName,
+            venueName: venueName,
+            venueNameSource: venueNameSource,
+            segmentLabel: segmentLabel,
+            globalId: globalId
+        )
+        return splitCourseName(name).venue
     }
 
     public static func administrativeArea(_ raw: String?) -> String? {
@@ -165,7 +222,10 @@ public func localizedCourseDisplayName(
     guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
         return fallback
     }
-    return MobileCourseDisplayLocalization.courseName(raw, globalId: globalId)
+    return MobileCourseDisplayLocalization.canonicalVenueName(
+        providerName: raw,
+        globalId: globalId
+    )
 }
 
 public struct MobileCourseOptionsResponse: Codable, Equatable {
@@ -229,32 +289,21 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
     /// guess 9/18, because that would also guess the loop composition and package request.
     public var courseOption: MobileCourseOption? {
         guard let holes, holes > 0 else { return nil }
-        let providerName: String = {
-            let split = MobileCourseDisplayLocalization.splitCourseName(name)
-            if let suffix = split.suffix,
-               !MobileCourseDisplayLocalization.isCompositeSegment(suffix) {
-                return name
-            }
-            if let segmentLabel,
-               !segmentLabel.isEmpty,
-               !MobileCourseDisplayLocalization.isCompositeSegment(segmentLabel) {
-                return split.venue.isEmpty ? name : "\(split.venue) ~ \(segmentLabel)"
-            }
-            return name
-        }()
-        let merged = GarminCourseNameAuthority.mergedName(
-            providerName: providerName,
-            trustedNames: [venueName],
-            trustedNameSources: [venueNameSource]
+        let canonical = MobileCourseDisplayLocalization.canonicalCourseName(
+            providerName: name,
+            venueName: venueName,
+            venueNameSource: venueNameSource,
+            segmentLabel: segmentLabel,
+            globalId: globalId
         )
-        let split = MobileCourseDisplayLocalization.splitCourseName(merged)
-        let venue = split.venue
-        let segment = split.suffix.flatMap {
-            MobileCourseDisplayLocalization.isCompositeSegment($0) ? nil : $0
-        }
+        let venue = canonical
+        let segment = MobileCourseDisplayLocalization.canonicalSegment(
+            providerName: name,
+            segmentLabel: segmentLabel
+        )
         return MobileCourseOption(
             globalId: globalId,
-            name: merged,
+            name: canonical,
             holes: holes,
             geometryCoverage: "missing",
             venueName: venue,
@@ -280,16 +329,19 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
             }
         }
         let holeText = holes.flatMap { $0 > 0 ? "\($0) 洞" : nil } ?? "洞数未知"
-        return (location + [holeText]).joined(separator: " · ")
+        let segmentText = MobileCourseDisplayLocalization.canonicalSegment(
+            providerName: name,
+            segmentLabel: segmentLabel
+        ).map { "\($0) 场" }
+        return ([segmentText].compactMap { $0 } + location + [holeText]).joined(separator: " · ")
     }
 
     public var displayName: String {
-        MobileCourseDisplayLocalization.selectableCourseName(
-            GarminCourseNameAuthority.mergedName(
-                providerName: name,
-                trustedNames: [venueName],
-                trustedNameSources: [venueNameSource]
-            ),
+        MobileCourseDisplayLocalization.canonicalCourseName(
+            providerName: name,
+            venueName: venueName,
+            venueNameSource: venueNameSource,
+            segmentLabel: segmentLabel,
             globalId: globalId
         )
     }
@@ -308,31 +360,41 @@ public struct MobileNearbyCoursesResponse: Codable, Equatable {
 }
 
 public extension MobileCourseOption {
-    /// Venue name without the loop suffix (falls back to stripping " ~ …" from `name`).
+    /// Shared physical venue title; legacy `name` values with a loop suffix are
+    /// normalized here without changing the stored route fact.
     var venueDisplayName: String {
-        return MobileCourseDisplayLocalization.preferredVenueName(
-            [venueNameSource == MobileCourseDisplayLocalization.garminSnapshotNameSource ? venueName : nil, name],
+        MobileCourseDisplayLocalization.canonicalVenueName(
+            providerName: name,
+            venueName: venueName,
+            venueNameSource: venueNameSource,
+            segmentLabel: segmentLabel,
             globalId: globalId
         )
     }
 
     var localizedName: String {
-        MobileCourseDisplayLocalization.selectableCourseName(
-            GarminCourseNameAuthority.mergedName(
-                providerName: name,
-                trustedNames: [venueName],
-                trustedNameSources: [venueNameSource]
-            ),
+        MobileCourseDisplayLocalization.canonicalCourseName(
+            providerName: name,
+            venueName: venueName,
+            venueNameSource: venueNameSource,
+            segmentLabel: segmentLabel,
             globalId: globalId
+        )
+    }
+
+    /// Factual single-loop label, recovered from legacy `name` values when the
+    /// additive `segmentLabel` field is absent.
+    var resolvedSegmentLabel: String? {
+        MobileCourseDisplayLocalization.canonicalSegment(
+            providerName: name,
+            segmentLabel: segmentLabel
         )
     }
 
     /// Segment row title: a loop ("A 场") or a factual whole 18-hole course. A 9-hole row without
     /// a trustworthy loop label must not be presented as the whole course.
     var segmentDisplayTitle: String {
-        if let label = segmentLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !label.isEmpty,
-           !MobileCourseDisplayLocalization.isCompositeSegment(label) {
+        if let label = resolvedSegmentLabel {
             return "\(label) 场"
         }
         if resolvedHoles == 9 {
@@ -349,20 +411,29 @@ public extension MobileCourseOption {
 
 public extension RecentRoundSummary {
     var localizedCourseDisplayName: String {
-        MobileCourseDisplayLocalization.courseName(courseName, globalId: globalId)
+        MobileCourseDisplayLocalization.canonicalVenueName(
+            providerName: courseName,
+            globalId: globalId
+        )
     }
 }
 
 public extension HistoryRoundCard {
     var localizedCourseDisplayName: String {
-        MobileCourseDisplayLocalization.courseName(courseName, globalId: globalId)
+        MobileCourseDisplayLocalization.canonicalVenueName(
+            providerName: courseName,
+            globalId: globalId
+        )
     }
 }
 
 public extension StatsCourse {
     var localizedCourseDisplayName: String {
         guard let courseName else { return courseKey }
-        return MobileCourseDisplayLocalization.courseName(courseName, globalId: globalId)
+        return MobileCourseDisplayLocalization.canonicalVenueName(
+            providerName: courseName,
+            globalId: globalId
+        )
     }
 }
 
@@ -375,7 +446,7 @@ public func courseVenueGroups(_ options: [MobileCourseOption]) -> [(venue: Strin
     }
     return byVenue
         .map { entry in
-            (venue: entry.key, segments: entry.value.sorted { ($0.segmentLabel ?? "~~") < ($1.segmentLabel ?? "~~") })
+            (venue: entry.key, segments: entry.value.sorted { ($0.resolvedSegmentLabel ?? "~~") < ($1.resolvedSegmentLabel ?? "~~") })
         }
         .sorted { ($0.segments.map(\.roundCount).max() ?? 0) > ($1.segments.map(\.roundCount).max() ?? 0) }
 }

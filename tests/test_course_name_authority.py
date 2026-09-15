@@ -3,6 +3,9 @@ from __future__ import annotations
 import unittest
 
 from ai_caddie.courses.name_authority import (
+    GARMIN_SNAPSHOT_NAME_SOURCE,
+    GarminNameIdentity,
+    canonical_course_identity,
     is_trusted_garmin_identity,
     is_composite_segment,
     localized_names_by_global_id,
@@ -73,6 +76,35 @@ class GarminNameAuthorityTests(unittest.TestCase):
             split_garmin_course_name("  Dalian Xiali Country Club~Left  "),
             ("Dalian Xiali Country Club", "Left"),
         )
+
+    def test_split_removes_compact_and_separated_routes_from_venue(self) -> None:
+        for raw, expected in (
+            ("Black Knight B/C", ("Black Knight", "B/C")),
+            ("Black Knight AC", ("Black Knight", "AC")),
+            ("Black Knight ~ A/C", ("Black Knight", "A/C")),
+        ):
+            self.assertEqual(split_garmin_course_name(raw), expected)
+
+    def test_canonical_identity_rejects_untrusted_manual_name(self) -> None:
+        identity = GarminNameIdentity(
+            venue="手填中文球场",
+            source="manual",
+        )
+        canonical = canonical_course_identity("Provider Golf Club ~ A", identity)
+        self.assertEqual(canonical.name, "Provider Golf Club")
+        self.assertEqual(canonical.venue, "Provider Golf Club")
+        self.assertIsNone(canonical.source)
+
+    def test_canonical_identity_accepts_only_explicit_garmin_snapshot_name(self) -> None:
+        identity = GarminNameIdentity(
+            venue="Garmin 中文球场",
+            source=GARMIN_SNAPSHOT_NAME_SOURCE,
+        )
+        canonical = canonical_course_identity("Provider Golf Club ~ A", identity)
+        self.assertEqual(canonical.name, "Garmin 中文球场")
+        self.assertEqual(canonical.venue, "Garmin 中文球场")
+        self.assertEqual(canonical.segment, "A")
+        self.assertEqual(canonical.source, GARMIN_SNAPSHOT_NAME_SOURCE)
 
     def test_raw_garmin_snapshot_shape_is_an_explicit_name_source(self) -> None:
         identity = select_garmin_name_identity(

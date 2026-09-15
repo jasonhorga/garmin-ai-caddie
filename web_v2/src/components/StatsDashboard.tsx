@@ -1,6 +1,7 @@
 import type { HistoryStatsResponse, MobileStatsResponse, StatsWindow } from '../types'
 import { phaseZh, missDirectionZh } from '../zhLabels'
 import { asNumber, asRows, asString } from './statsValues'
+import { physicalCourseName } from '../courseName'
 
 interface StatsDashboardProps {
   // The 统计 dashboard renders from the compact window-aware mobile stats (fast first paint);
@@ -453,7 +454,7 @@ export function StatsDashboard({ stats, allStats, window: statsWindow, onWindowC
                   const roundCount = asNumber(course.roundCount)
                   return (
                     <tr key={asString(course.courseKey) ?? asString(course.courseName) ?? `course-${index}`}>
-                      <td>{asString(course.courseName) ?? '未知球场'}</td>
+                      <td>{asString(course.courseName) ? physicalCourseName(asString(course.courseName) as string) : '未知球场'}</td>
                       <td className="statsx-num">{roundCount ?? '—'}</td>
                       <td className="statsx-num">{average18 === null ? '—' : fmt1(average18)}</td>
                       <td className="statsx-num">{bestScore ?? '—'}</td>

@@ -18,7 +18,7 @@ import { CourseFinder } from './CourseFinder'
 import { HoleBaseImage } from './HoleBaseImage'
 import { atCum, layoutHazardLabels, nearestCum, resolveCoursePrepOverlay, routeIntervalReadout } from './coursePrepPanelLogic'
 import { asNumber, asRows, asString } from './statsValues'
-import { displayCourseName } from '../courseName'
+import { courseVenueName } from '../courseName'
 
 // 决策沙盘 (spec §5.4 web scope, W3 T3+T4): pick a course (CourseFinder entry)
 // → fetch its prep facts (default holes, shared topo projection) → pick a hole →
@@ -395,8 +395,8 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
   // covers never-played courses; the bare gid is the last resort (W2 idiom).
   const courseName = (() => {
     const option = findCourseOption(courseOptions, course.globalId)
-    if (option) return displayCourseName(option)
-    return course.name ? displayCourseName(course.name) : `球场 ${course.globalId}`
+    if (option) return courseVenueName(option)
+    return course.name ? courseVenueName(course) : `球场 ${course.globalId}`
   })()
 
   const overlay = hole === null ? null : resolveCoursePrepOverlay(hole)

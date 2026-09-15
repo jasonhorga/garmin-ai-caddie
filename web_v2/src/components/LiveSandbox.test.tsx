@@ -386,7 +386,7 @@ describe('LiveSandbox course pick', () => {
     // First course's prep hangs; switch course while it is still in flight.
     await userEvent.click(screen.getByRole('button', { name: '开始模拟 观澜湖·奥拉沙宝场' }))
     await userEvent.click(screen.getByRole('button', { name: '换球场' }))
-    await userEvent.click(screen.getByRole('button', { name: '开始模拟 Black Knight B/C' }))
+    await userEvent.click(screen.getByRole('button', { name: '开始模拟 Black Knight' }))
     const chips = within(await screen.findByLabelText('选洞'))
     expect(chips.getByRole('button', { name: '第1洞' })).toBeInTheDocument()
 
@@ -396,7 +396,7 @@ describe('LiveSandbox course pick', () => {
       await first
     })
 
-    expect(screen.getByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Black Knight' })).toBeInTheDocument()
     expect(within(screen.getByLabelText('选洞')).queryByRole('button', { name: '第7洞' })).not.toBeInTheDocument()
     expect(within(screen.getByLabelText('选洞')).getByRole('button', { name: '第1洞' })).toBeInTheDocument()
   })
@@ -635,7 +635,7 @@ describe('LiveSandbox 沙盘建议 inputs + sourceRef rule', () => {
 
   it('prefers the course option latestRoundId over its sourceRefs head', async () => {
     renderSandbox()
-    await openCourse('开始模拟 Black Knight B/C')
+    await openCourse('开始模拟 Black Knight')
 
     await userEvent.click(screen.getByRole('button', { name: '要建议' }))
 
@@ -739,7 +739,7 @@ describe('LiveSandbox unresolved sourceRef fallback', () => {
   it('retries an unresolved hole ref ONCE with the bare on-course round ref and renders from it', async () => {
     fetchCaddieContextMock.mockImplementationOnce(async (params) => missingContextFixture(params.sourceRef))
     renderSandbox()
-    await openCourse('开始模拟 Black Knight B/C')
+    await openCourse('开始模拟 Black Knight')
 
     await userEvent.click(screen.getByRole('button', { name: '要建议' }))
 
@@ -762,7 +762,7 @@ describe('LiveSandbox unresolved sourceRef fallback', () => {
       params.sourceRef === '900050' ? caddieContextFixture() : missingContextFixture(params.sourceRef),
     )
     renderSandbox()
-    await openCourse('开始模拟 Black Knight B/C')
+    await openCourse('开始模拟 Black Knight')
 
     await userEvent.click(screen.getByRole('button', { name: '要建议' }))
 
@@ -774,7 +774,7 @@ describe('LiveSandbox unresolved sourceRef fallback', () => {
   it('stops after the documented chain with a zh error when nothing resolves', async () => {
     fetchCaddieContextMock.mockImplementation(async (params) => missingContextFixture(params.sourceRef))
     renderSandbox()
-    await openCourse('开始模拟 Black Knight B/C')
+    await openCourse('开始模拟 Black Knight')
 
     await userEvent.click(screen.getByRole('button', { name: '要建议' }))
 
@@ -793,7 +793,7 @@ describe('LiveSandbox unresolved sourceRef fallback', () => {
     })
     fetchCaddieContextMock.mockImplementationOnce(() => first)
     renderSandbox()
-    await openCourse('开始模拟 Black Knight B/C')
+    await openCourse('开始模拟 Black Knight')
 
     await userEvent.click(screen.getByRole('button', { name: '要建议' }))
     await userEvent.click(screen.getByRole('button', { name: '换球场' }))

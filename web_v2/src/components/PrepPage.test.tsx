@@ -254,7 +254,7 @@ describe('PrepPage workbench', () => {
   it('renders the course crumb, hole-list totals + record, and requests the shot scatter', async () => {
     renderPrep()
 
-    expect(screen.getByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Black Knight' })).toBeInTheDocument()
     expect(await screen.findByText('PAR 9 · 900 码')).toBeInTheDocument()
     // 你的战绩 joins stats.courses via the option's courseKey (5 rounds), not the
     // option's own roundCount (2).
@@ -356,7 +356,7 @@ describe('PrepPage workbench', () => {
   it('header prefers the courseOptions name over the handed-down search name', async () => {
     renderPrep({ globalId: 31795, selectedCourseName: '搜索结果名' })
 
-    expect(screen.getByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Black Knight' })).toBeInTheDocument()
     expect(screen.queryByText('搜索结果名')).not.toBeInTheDocument()
     await screen.findByText('PAR 9 · 900 码')
   })

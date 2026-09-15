@@ -34,6 +34,7 @@ _MANUAL_SOURCE_NAMES = {
 _COMPOSITE_SEGMENT_RE = re.compile(r"[+/]")
 _COMPACT_COMPOSITE_SEGMENT_RE = re.compile(r"^[A-H]{2,4}$", re.IGNORECASE)
 _TRAILING_ROUTE_RE = re.compile(r"(?i)([A-H](?:\s*[/+]\s*[A-H]){1,3})$")
+_TRAILING_COMPACT_ROUTE_RE = re.compile(r"(?i)\s+([A-H]{2,4})$")
 _SEPARATOR_RE = re.compile(r"\s*~\s*")
 
 
@@ -45,6 +46,61 @@ class GarminNameIdentity:
     segment: str | None = None
     source: str = "history_fallback"
     aliases: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CanonicalCourseIdentity:
+    """The backend-owned identity shared by every catalogue/client surface.
+
+    ``name`` is always the physical venue title.  A selectable CourseView loop
+    is carried separately in ``segment``; it is never appended to the venue
+    title.  No value in this object is translated or inferred from a global id.
+    """
+
+    name: str
+    venue: str
+    segment: str | None = None
+    source: str | None = None
+
+
+def canonical_course_identity(
+    provider_name: Any,
+    identity: GarminNameIdentity | None = None,
+    *,
+    segment_override: str | None = None,
+    holes: int | None = None,
+) -> CanonicalCourseIdentity:
+    """Resolve one stable display identity from already-observed Garmin values.
+
+    Callers must pass only a trusted identity when it is intended to replace a
+    provider spelling.  The guard is repeated here rather than relying on each
+    caller: a manually entered Chinese round must never become a catalogue
+    translation merely because it was wrapped in ``GarminNameIdentity``.
+    """
+    trusted_identity = identity if is_trusted_garmin_identity(identity) else None
+    display = localized_provider_name(
+        provider_name,
+        trusted_identity,
+        segment_override=segment_override,
+        holes=holes,
+    )
+    venue, suffix = split_garmin_course_name(display)
+    venue = normalize_course_text(venue)
+    display = normalize_course_text(display)
+    segment = normalize_course_text(suffix)
+    if not segment or is_composite_segment(segment):
+        segment = None
+    source = trusted_identity.source if trusted_identity is not None else None
+    physical_venue = venue or normalize_course_text(provider_name)
+    return CanonicalCourseIdentity(
+        # The wire-level `name` is deliberately venue-only.  Keep the factual
+        # single-loop suffix in `segment`, where all three clients can render
+        # it as independent selection metadata.
+        name=physical_venue,
+        venue=physical_venue,
+        segment=segment,
+        source=source,
+    )
 
 
 def is_trusted_garmin_identity(identity: GarminNameIdentity | None) -> bool:
@@ -173,7 +229,13 @@ def _allows_garmin_snapshot_name(row: Mapping[str, Any]) -> bool:
 
 
 def split_garmin_course_name(value: Any) -> tuple[str, str | None]:
-    """Return ``(venue, suffix)`` using Garmin's ``~`` presentation separator."""
+    """Return ``(venue, suffix)`` using Garmin's separator and route spellings.
+
+    Older Garmin exports sometimes omit ``~`` and emit names such as
+    ``Black Knight B/C`` or ``Black Knight AC``.  Those trailing values are
+    played routes, not venue text.  Normalising them here keeps every backend
+    endpoint and client from independently leaking a route as the venue.
+    """
     text = normalize_course_text(value)
     if not text:
         return "", None
@@ -182,6 +244,23 @@ def split_garmin_course_name(value: Any) -> tuple[str, str | None]:
         return "", None
     venue = parts[0]
     suffix = " ~ ".join(parts[1:]) if len(parts) > 1 else None
+    # A malformed/legacy row can carry a composite route in the venue portion
+    # even when another suffix is present.  Strip only unambiguous multi-loop
+    # spellings; ordinary names ending in a single letter remain untouched.
+    route_match = _TRAILING_ROUTE_RE.search(venue)
+    if route_match:
+        base = normalize_course_text(venue[: route_match.start()])
+        if base:
+            venue = base
+            if not suffix:
+                suffix = normalize_course_text(route_match.group(1))
+    elif not suffix:
+        compact_match = _TRAILING_COMPACT_ROUTE_RE.search(venue)
+        if compact_match and is_composite_segment(compact_match.group(1)):
+            base = normalize_course_text(venue[: compact_match.start()])
+            if base:
+                venue = base
+                suffix = normalize_course_text(compact_match.group(1))
     return venue, suffix or None
 
 

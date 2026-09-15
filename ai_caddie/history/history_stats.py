@@ -10,7 +10,14 @@ import math
 from ai_caddie.reports.annotations import list_annotations
 from ai_caddie.caddie.decision import list_decision_audits
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_course, geometry_coverage_for_hole
-from ai_caddie.history.history import HistoryData, OWNER_ID, average, percentile
+from ai_caddie.history.history import (
+    HistoryData,
+    OWNER_ID,
+    average,
+    history_course_segment,
+    history_course_venue_name,
+    percentile,
+)
 from ai_caddie.history.history_drilldown import build_drilldown_index
 from ai_caddie.caddie.issue_taxonomy import issue_record
 from ai_caddie.reports.reports import list_report_stats_records
@@ -2675,7 +2682,7 @@ def _course_distribution(data: HistoryData) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: (-row["roundCount"], row["courseName"]))
 
 
-def _round_record(row: dict[str, Any]) -> dict[str, Any]:
+def _round_record(data: HistoryData, row: dict[str, Any]) -> dict[str, Any]:
     score = row.get("strokes")
     par = row.get("par")
     round_ref = _round_id(row)
@@ -2683,7 +2690,8 @@ def _round_record(row: dict[str, Any]) -> dict[str, Any]:
         {
             "roundRef": round_ref,
             "courseKey": row.get("courseKey"),
-            "courseName": preferred_garmin_source_name(row) or "Unknown course",
+            "courseName": history_course_venue_name(data, row),
+            "nine": history_course_segment(row),
             "date": row.get("date"),
             "score": int(score) if score is not None else None,
             "par": int(par) if par is not None else None,
@@ -2725,7 +2733,8 @@ def _records(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
                     "holeRef": _hole_ref(row, number),
                     "roundRef": _round_id(row),
                     "courseKey": row.get("courseKey"),
-                    "courseName": preferred_garmin_source_name(row) or "Unknown course",
+                    "courseName": history_course_venue_name(data, row),
+                    "nine": history_course_segment(row),
                     "hole": number,
                     "score": int(score),
                     "par": int(par),
@@ -2733,9 +2742,9 @@ def _records(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
                 }
             )
     return {
-        "best18": _round_record(min(rounds18, key=lambda row: (int(row["strokes"]), str(row.get("date") or "")))) if rounds18 else None,
-        "worst18": _round_record(max(rounds18, key=lambda row: (int(row["strokes"]), str(row.get("date") or "")))) if rounds18 else None,
-        "bestNine": _round_record(min(rounds9, key=lambda row: (int(row["strokes"]), str(row.get("date") or "")))) if rounds9 else None,
+        "best18": _round_record(data, min(rounds18, key=lambda row: (int(row["strokes"]), str(row.get("date") or "")))) if rounds18 else None,
+        "worst18": _round_record(data, max(rounds18, key=lambda row: (int(row["strokes"]), str(row.get("date") or "")))) if rounds18 else None,
+        "bestNine": _round_record(data, min(rounds9, key=lambda row: (int(row["strokes"]), str(row.get("date") or "")))) if rounds9 else None,
         "mostPlayedCourse": courses[0] if courses else None,
         "longestShots": [
             _with_aggregate_contract(

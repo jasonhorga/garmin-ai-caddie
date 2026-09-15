@@ -232,7 +232,18 @@
           "type": "integer"
         },
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "Physical Garmin venue name shared by iPhone, Apple Watch, and Web; a loop/route belongs in segmentLabel."
+        },
+        "venueName": {
+          "type": ["string", "null"]
+        },
+        "venueNameSource": {
+          "type": ["string", "null"]
+        },
+        "segmentLabel": {
+          "type": ["string", "null"],
+          "description": "Optional single CourseView loop label; composite played routes are never encoded here."
         },
         "teeBox": {
           "type": "string"
@@ -704,6 +715,15 @@
               },
               "globalId": {
                 "type": ["integer", "null"]
+              },
+              "backGlobalId": {
+                "type": ["integer", "null"]
+              },
+              "nine": {
+                "type": ["string", "null"]
+              },
+              "teeBox": {
+                "type": ["string", "null"]
               },
               "sourceRefs": {
                 "type": "array",

@@ -8,6 +8,26 @@ function ingestResult(over: Partial<RoundIngestResult> = {}): RoundIngestResult 
   return { id: 555, playerId: 'me', source: 'manual', holesCompleted: 1, strokes: 5, shotCount: 2, idempotent: false, ...over }
 }
 
+const courseOptions = {
+  schema: 'ai-caddie-mobile-course-options-v1' as const,
+  dataMode: 'local' as const,
+  total: 1,
+  emptyState: null,
+  generatedAt: '2026-09-15T00:00:00Z',
+  courses: [{
+    globalId: 31793,
+    name: 'West Park Golf & Country Club',
+    venueName: '西郊高尔夫俱乐部',
+    venueNameSource: 'garmin_scorecard_snapshot',
+    segmentLabel: 'A',
+    segmentHoles: 9,
+    roundCount: 2,
+    holes: 9,
+    geometryCoverage: 'ready',
+    sourceRefs: ['r1'],
+  }],
+}
+
 function renderRecord(over: Partial<Parameters<typeof RecordRoundPage>[0]> = {}) {
   const onIngest = vi.fn(async () => ingestResult())
   const onExit = vi.fn()
@@ -28,10 +48,11 @@ function renderRecord(over: Partial<Parameters<typeof RecordRoundPage>[0]> = {})
 
 describe('RecordRoundPage', () => {
   it('records a shot via GPS, captures a score, and submits a manual round', async () => {
-    const { onIngest } = renderRecord()
+    const { onIngest } = renderRecord({ courseOptions })
 
     // setup → recording
-    await userEvent.type(screen.getByLabelText('球场名称'), '北京丽宫')
+    expect(screen.queryByLabelText('球场名称')).toBeNull()
+    await userEvent.selectOptions(screen.getByLabelText('常打球场'), '31793')
     await userEvent.click(screen.getByRole('button', { name: '开始记分' }))
 
     expect(screen.getByRole('heading', { name: '第 1 洞' })).toBeInTheDocument()
@@ -50,12 +71,26 @@ describe('RecordRoundPage', () => {
     expect(onIngest).toHaveBeenCalledTimes(1)
     const [playerId, body] = onIngest.mock.calls[0] as unknown as [string, RoundIngestRequestBody]
     expect(playerId).toBe('me')
-    expect(body.meta).toMatchObject({ courseName: '北京丽宫', holesCompleted: 1 })
+    expect(body.meta).toMatchObject({ courseName: '西郊高尔夫俱乐部', courseGlobalId: 31793, holesCompleted: 1 })
     expect(body.events).toEqual([
       { hole: 1, kind: 'club', payload: { clubName: '7i', source: 'web' } },
       { hole: 1, kind: 'location', payload: { latitude: 39.91, longitude: 116.41, horizontalAccuracyM: 4, source: 'web' } },
       { hole: 1, kind: 'score', payload: { strokes: 5 } },
     ])
+  })
+
+  it('does not expose a free-form course-name field when no Garmin course is available', async () => {
+    const { onIngest } = renderRecord()
+    expect(screen.queryByLabelText('球场名称')).toBeNull()
+    expect(screen.getByText('没有可用的 Garmin 球场，本次记录将保存为未指定球场。')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '开始记分' }))
+    await userEvent.type(screen.getByLabelText('本洞杆数'), '4')
+    await userEvent.click(screen.getByRole('button', { name: '结束并提交' }))
+    await screen.findByRole('heading', { name: '已提交 ✅' })
+
+    const [, body] = onIngest.mock.calls[0] as unknown as [string, RoundIngestRequestBody]
+    expect(body.meta).toMatchObject({ courseName: '未指定球场' })
   })
 
   it('uses a unique clientRoundId per round so identical rounds never collide', async () => {

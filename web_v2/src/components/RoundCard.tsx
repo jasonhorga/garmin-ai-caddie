@@ -1,6 +1,7 @@
 import type { RoundCard as RoundCardType } from '../types'
 import { useDiagnostics } from '../diagnosticsContext'
-import { cleanCourseName, shortRoundDate } from '../units'
+import { physicalCourseName } from '../courseName'
+import { shortRoundDate } from '../units'
 import { DataQualityChips } from './DataQualityChips'
 import { ScoreStrip } from './ScoreStrip'
 import { SourceRefs } from './SourceRefs'
@@ -17,7 +18,7 @@ function toParTone(value: number | null): string {
 }
 
 function roundActionLabel(round: RoundCardType) {
-  return `打开球局 ${cleanCourseName(round.courseName)}，${shortRoundDate(round.date)}，成绩 ${round.score ?? '-'}`
+  return `打开球局 ${physicalCourseName(round.courseName)}，${shortRoundDate(round.date)}，成绩 ${round.score ?? '-'}`
 }
 
 interface RoundCardProps {
@@ -33,7 +34,7 @@ export function RoundCard({ round, onSelectRef, onOpenRoundDetail }: RoundCardPr
     <article className="round-card">
       <div className="round-card-head">
         <div className="round-card-identity">
-          <h3>{cleanCourseName(round.courseName)}</h3>
+          <h3>{physicalCourseName(round.courseName)}</h3>
           <p>
             {shortRoundDate(round.date)} · {round.holesCompleted ?? '-'} 洞
           </p>

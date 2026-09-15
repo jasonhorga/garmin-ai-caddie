@@ -379,7 +379,7 @@ function mobileCourseOptionsPayload() {
       {
         globalId: 31795,
         courseKey: 'black_knight',
-        name: 'Black Knight B/C',
+        name: 'Black Knight',
         roundCount: 2,
         latestRoundId: '900001',
         latestRoundDate: '2026-05-18',
@@ -1509,10 +1509,10 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: '成绩' })).toBeInTheDocument()
     // 备战 is its own section now; the course finder lives on the PrepPage entry.
     await userEvent.click(screen.getByRole('button', { name: '备战' }))
-    await userEvent.click(await screen.findByRole('button', { name: '去备战 Black Knight B/C' }))
+    await userEvent.click(await screen.findByRole('button', { name: '去备战 Black Knight' }))
 
     // PrepPage header resolves the chosen globalId against course options.
-    expect(await screen.findByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Black Knight' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?render=false&include_shots=true')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep-tips')
     expect(await screen.findByText('PAR 9 · 930 码')).toBeInTheDocument()
@@ -1574,8 +1574,8 @@ describe('App navigation', () => {
     await userEvent.click(await screen.findByText('Black Knight B'))
     await userEvent.click(await screen.findByRole('button', { name: '去备战 Black Knight B' }))
 
-    // PrepPage header resolves 31795 against courseOptions → 'Black Knight B/C'
-    expect(await screen.findByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
+    // PrepPage header resolves 31795 against courseOptions → the physical venue name.
+    expect(await screen.findByRole('heading', { name: 'Black Knight' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?render=false&include_shots=true')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep-tips')
   })
@@ -1874,13 +1874,13 @@ describe('App navigation', () => {
     // card (courseOptions failed) and no replay rows (overview failed).
     await userEvent.click(screen.getByRole('button', { name: '球童沙盘' }))
     expect(await screen.findByRole('heading', { name: '选择球场开始模拟' })).toBeInTheDocument()
-    expect(screen.queryByText('Black Knight B/C')).not.toBeInTheDocument()
+    expect(screen.queryByText('Black Knight')).not.toBeInTheDocument()
 
     // Backend recovers → tapping 实战 again retries BOTH boot failures the
     // way 概览/备战 already do (options reload + keep-ready overview refresh).
     bootBroken = false
     await userEvent.click(screen.getByRole('button', { name: '球童沙盘' }))
-    expect(await screen.findByText('Black Knight B/C')).toBeInTheDocument()
+    expect(await screen.findByText('Black Knight')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '最近回放' }))
     expect(await screen.findByRole('button', { name: '回放 Black Knight B 05-20' })).toBeInTheDocument()
@@ -1904,7 +1904,7 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '备战' }))
 
     expect(await screen.findByRole('heading', { name: '选择球场开始备战' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '去备战 Black Knight B/C' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '去备战 Black Knight' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '趋势总览' })).toBeNull()
     expect(fetchMock.mock.calls.some(([path]) => String(path).includes('/prep'))).toBe(false)
   })

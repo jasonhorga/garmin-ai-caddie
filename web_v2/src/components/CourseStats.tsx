@@ -9,6 +9,7 @@ import { ShowAllToggle } from './ShowAllToggle'
 import { SourceRefs } from './SourceRefs'
 import { StatsQualityChips } from './StatsQualityChips'
 import { asNumber, asRows, asString, formatNumber, formatSigned, semanticClass } from './statsValues'
+import { physicalCourseName } from '../courseName'
 
 interface CourseStatsProps {
   data: HistoryStatsResponse
@@ -121,7 +122,9 @@ function CourseRow({ course, prepGlobalId, onSelectRef, onPrepCourse }: CourseRo
   const teeMissPct = dominantMiss ? asNumber(teeDirection[`${dominantMiss}Pct`]) : null
   const showApproachMiss = Boolean(dominantApproachMiss) && dominantApproachMiss !== 'unknown' && dominantApproachMiss !== 'none'
   const approachMissPct = dominantApproachMiss ? asNumber(approachMiss[`${dominantApproachMiss}Pct`]) : null
-  const courseName = asString(course.courseName) ?? '球场'
+  const courseName = asString(course.courseName)
+    ? physicalCourseName(asString(course.courseName) as string)
+    : '球场'
   const courseKey = asString(course.courseKey)
   const hasDifficultyAdjusted = Object.keys(difficultyAdjusted).length > 0
   const breakdownParts = [
@@ -132,10 +135,10 @@ function CourseRow({ course, prepGlobalId, onSelectRef, onPrepCourse }: CourseRo
   return (
     <article className="stats-item">
       <div className="stats-item-main">
-        <h2>{asString(course.courseName) ?? '未知球场'}</h2>
+        <h2>{courseName === '球场' ? '未知球场' : courseName}</h2>
         {diagnostics ? <p className="stats-item-key">{courseKey ?? 'unknown'}</p> : null}
       </div>
-      <div className="stats-item-facts" aria-label={`${asString(course.courseName) ?? '球场'} 数据`}>
+      <div className="stats-item-facts" aria-label={`${courseName} 数据`}>
         <span>{formatNumber(course.roundCount)} 场次</span>
         <span>平均 {formatNumber(course.average18)}</span>
         <span>最好 {formatNumber(course.bestScore)}</span>

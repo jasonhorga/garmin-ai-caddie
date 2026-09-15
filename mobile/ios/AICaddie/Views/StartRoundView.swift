@@ -21,7 +21,7 @@ public struct StartRoundView: View {
     public let onPrepareCourseRound: (Int, String, String, String) -> Void
     /// 组合 18 洞:(front 环 globalId, back 环 globalId, teeBox, roundId)。选了第二个环时调用。
     public let onPrepareCompositeRound: (Int, Int, String, String) -> Void
-    /// Persist only the player's chosen catalogue label; package/globalId/release facts stay server-owned.
+    /// Legacy callback retained for source compatibility; course names remain backend-owned.
     public let onRememberCourseDisplayName: (Int, String) -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
@@ -295,19 +295,11 @@ public struct StartRoundView: View {
         front: MobileCourseOption,
         back: MobileCourseOption?
     ) -> String {
-        let venue = courseVenueName(front)
-        let frontLabel = normalizedRoundSegmentLabel(front)
-        guard let back else {
-            // A single nine must not carry a stale played combination (for example `C/A`) from an
-            // older package. Rebuild the visible identity from the current segment authority.
-            return frontLabel.map { "\(venue) ~ \($0)" }
-                ?? MobileCourseDisplayLocalization.selectableCourseName(front.name, globalId: front.globalId)
-        }
-        let backLabel = normalizedRoundSegmentLabel(back)
-        guard let frontLabel, let backLabel else {
-            return MobileCourseDisplayLocalization.selectableCourseName(front.name, globalId: front.globalId)
-        }
-        return "\(venue) ~ \(frontLabel)/\(backLabel)"
+        // The active round keeps its selected loop(s) in the structured `nine`
+        // fields. Its visible course title is always the physical venue so it
+        // matches search, Watch and Web.
+        _ = back
+        return courseVenueName(front)
     }
 
     /// Keep "no venue selected" as a real Picker value. Falling back to the first venue here used
@@ -957,7 +949,7 @@ public struct StartRoundView: View {
 
     private func segmentSortKey(_ segment: MobileCourseOption) -> String {
         // Labelled loops first (A < B < C), a single whole course (nil label) last.
-        segment.segmentLabel ?? "~~"
+        segment.resolvedSegmentLabel ?? "~~"
     }
 
     private func baseCourseName(_ name: String) -> String {
@@ -1097,55 +1089,23 @@ public struct StartRoundView: View {
             catalogue?.holes,
             downloaded?.holes,
         ]) ?? provider.holes
-        let trustedNames = [
-            catalogue?.venueName,
-            provider.venueName,
-            downloaded?.venueName,
-            catalogue?.name,
-            provider.name,
-            downloaded?.name,
-        ]
-        let trustedNameSources = [
-            catalogue?.venueNameSource,
-            provider.venueNameSource,
-            downloaded?.venueNameSource,
-            catalogue?.venueNameSource,
-            provider.venueNameSource,
-            downloaded?.venueNameSource,
-        ]
-        let venue = GarminCourseNameAuthority.mergedVenue(
+        // The fresh backend row is the sole name authority. Catalogue and downloaded rows may
+        // still supply tee/geometry facts, but their names and loop labels are never merged into a
+        // current provider row. This is what keeps search, nearby and package selection identical
+        // after an old local package has been renamed or removed.
+        let providerName = provider.name
+        let venue = MobileCourseDisplayLocalization.canonicalVenueName(
             providerName: provider.name,
-            trustedNames: trustedNames,
-            trustedNameSources: trustedNameSources
+            venueName: provider.venueName,
+            venueNameSource: provider.venueNameSource,
+            segmentLabel: provider.segmentLabel,
+            globalId: provider.globalId
         )
-        // The live provider row is the authority for a current loop label. Catalogue/downloaded
-        // rows may contain an old played combination such as C/A; use them only as fallbacks.
-        let label = resolvedSegmentLabel(
-            explicit: [provider.segmentLabel, catalogue?.segmentLabel, downloaded?.segmentLabel],
-            names: [Optional(provider.name), catalogue?.name, downloaded?.name],
-            segmentHoles: segmentHoles,
-            allowCompositePrefix: segmentHoles == 9
-                && (catalogue?.resolvedHoles == 9 || downloaded?.resolvedHoles == 9)
+        let providerLabel = MobileCourseDisplayLocalization.canonicalSegment(
+            providerName: providerName,
+            segmentLabel: provider.segmentLabel
         )
-        let retainedName = GarminCourseNameAuthority.mergedName(
-            providerName: provider.name,
-            trustedNames: [catalogue?.name, downloaded?.name],
-            trustedNameSources: [catalogue?.venueNameSource, downloaded?.venueNameSource]
-        )
-        let displayName: String
-        if let label {
-            displayName = "\(venue) ~ \(label)"
-        } else {
-            // A composite route is useful in round history, but is not a selectable single layout.
-            // Keep a factual single suffix (for example `Ocean`) when one exists.
-            let retainedSplit = MobileCourseDisplayLocalization.splitCourseName(retainedName)
-            if let suffix = retainedSplit.suffix,
-               !MobileCourseDisplayLocalization.isCompositeSegment(suffix) {
-                displayName = "\(venue) ~ \(suffix)"
-            } else {
-                displayName = venue
-            }
-        }
+        let displayName = venue
         let facts = catalogue ?? downloaded ?? provider
         let tees = firstNonEmptyList([catalogue?.tees, downloaded?.tees, provider.tees])
 
@@ -1163,7 +1123,8 @@ public struct StartRoundView: View {
             geometryCoverage: facts.geometryCoverage,
             sourceRefs: facts.sourceRefs,
             venueName: venue,
-            segmentLabel: label,
+            venueNameSource: provider.venueNameSource,
+            segmentLabel: providerLabel,
             segmentHoles: segmentHoles,
             latitude: provider.latitude ?? catalogue?.latitude ?? downloaded?.latitude,
             longitude: provider.longitude ?? catalogue?.longitude ?? downloaded?.longitude,
@@ -1239,17 +1200,6 @@ public struct StartRoundView: View {
             return nil
         }
         return candidate
-    }
-
-    private static func normalizedRoundSegmentLabel(_ option: MobileCourseOption) -> String? {
-        let nameSuffix = MobileCourseDisplayLocalization.splitCourseName(option.name).suffix
-        let explicit = option.segmentLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let rawLabel = (explicit?.isEmpty == false ? explicit : nil)
-            ?? nameSuffix
-        return normalizedSegmentLabel(
-            rawLabel,
-            segmentHoles: option.resolvedHoles
-        )
     }
 
     private static func normalizedSegmentLabel(_ raw: String?, segmentHoles: Int) -> String? {
@@ -1355,17 +1305,19 @@ public struct StartRoundView: View {
     }
 
     private static func segmentSortKeyStatic(_ segment: MobileCourseOption) -> String {
-        segment.segmentLabel ?? "~~"
+        segment.resolvedSegmentLabel ?? "~~"
     }
 
     /// Keep the manual-search start exception scoped to one physical venue. The provider models
     /// each playable loop as a separate global ID, so comparing IDs here would incorrectly revoke
     /// the exception when the player changes A/B/C or chooses a second nine.
     static func courseVenueName(_ option: MobileCourseOption) -> String {
-        return GarminCourseNameAuthority.mergedVenue(
+        MobileCourseDisplayLocalization.canonicalVenueName(
             providerName: option.name,
-            trustedNames: [option.venueName],
-            trustedNameSources: [option.venueNameSource]
+            venueName: option.venueName,
+            venueNameSource: option.venueNameSource,
+            segmentLabel: option.segmentLabel,
+            globalId: option.globalId
         )
     }
 

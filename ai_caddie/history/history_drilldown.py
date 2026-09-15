@@ -8,8 +8,12 @@ from typing import Any, Literal
 from ai_caddie.reports.annotations import list_annotations
 from ai_caddie.caddie.decision import list_decision_audits
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
-from ai_caddie.history.history import HistoryData, OWNER_ID
-from ai_caddie.courses.name_authority import preferred_garmin_source_name
+from ai_caddie.history.history import (
+    HistoryData,
+    OWNER_ID,
+    history_course_segment,
+    history_course_venue_name,
+)
 from ai_caddie.reports.reports import iter_report_records
 from ai_caddie.llm.weather_context import list_weather_snapshots
 
@@ -142,7 +146,14 @@ def resolve_history_ref(
         row = rounds_by_id.get(_shot_round_id(shot))
         hole = _find_hole(row, str(shot.get("hole") or "")) if row else None
         if row:
-            return _attach_evidence(_shot_detail(row, hole, shot, index, ref), annotations_root, reports_root, weather_root, decision_audit_root, player_id=player_id)
+            return _attach_evidence(
+                _shot_detail(data, row, hole, shot, index, ref),
+                annotations_root,
+                reports_root,
+                weather_root,
+                decision_audit_root,
+                player_id=player_id,
+            )
 
     if ref_type == "round" and parts:
         row = rounds_by_id.get(parts[0])
@@ -159,18 +170,19 @@ def resolve_history_ref(
         hole = _find_hole(row, parts[1]) if row else None
         if item and row:
             index, shot = item
-            return _attach_evidence(_shot_detail(row, hole, shot, index, ref), annotations_root, reports_root, weather_root, decision_audit_root, player_id=player_id)
+            return _attach_evidence(_shot_detail(data, row, hole, shot, index, ref), annotations_root, reports_root, weather_root, decision_audit_root, player_id=player_id)
 
     return _attach_evidence(_missing_detail(ref, ref_type), annotations_root, reports_root, weather_root, decision_audit_root, player_id=player_id)
 
 
-def _round_summary(row: dict[str, Any]) -> dict[str, Any]:
+def _round_summary(data: HistoryData, row: dict[str, Any]) -> dict[str, Any]:
     score = row.get("strokes")
     par = row.get("par")
     return {
         "id": _round_id(row),
         "date": row.get("date"),
-        "courseName": preferred_garmin_source_name(row) or row.get("course") or row.get("courseName") or "Unknown course",
+        "courseName": history_course_venue_name(data, row),
+        "nine": history_course_segment(row),
         "courseKey": row.get("courseKey"),
         "score": score,
         "par": par,
@@ -232,8 +244,8 @@ def _round_detail(data: HistoryData, row: dict[str, Any], ref: str) -> dict[str,
         ref=ref,
         ref_type="round",
         found=True,
-        title=f"{preferred_garmin_source_name(row) or row.get('course') or row.get('courseName') or 'Unknown course'} - {row.get('date') or 'unknown date'}",
-        round_summary=_round_summary(row),
+        title=f"{history_course_venue_name(data, row)} - {row.get('date') or 'unknown date'}",
+        round_summary=_round_summary(data, row),
         hole=None,
         shot=None,
         related_refs={"roundRefs": [round_ref], "holeRefs": hole_refs, "shotRefs": shot_refs},
@@ -271,8 +283,8 @@ def _hole_detail(data: HistoryData, row: dict[str, Any], hole: dict[str, Any], r
         ref=ref,
         ref_type="hole",
         found=True,
-        title=f"{preferred_garmin_source_name(row) or row.get('course') or row.get('courseName') or 'Unknown course'} H{hole_number}",
-        round_summary=_round_summary(row),
+        title=f"{history_course_venue_name(data, row)} H{hole_number}",
+        round_summary=_round_summary(data, row),
         hole=_hole_summary(row, hole),
         shot=None,
         related_refs={"roundRefs": [round_ref], "holeRefs": [ref], "shotRefs": shot_refs},
@@ -281,6 +293,7 @@ def _hole_detail(data: HistoryData, row: dict[str, Any], hole: dict[str, Any], r
 
 
 def _shot_detail(
+    data: HistoryData,
     row: dict[str, Any],
     hole: dict[str, Any] | None,
     shot: dict[str, Any],
@@ -304,7 +317,7 @@ def _shot_detail(
         ref_type="shot",
         found=True,
         title=f"{shot_summary.get('club') or 'Shot'} on H{hole_number}",
-        round_summary=_round_summary(row),
+        round_summary=_round_summary(data, row),
         hole=_hole_summary(row, hole) if hole else None,
         shot=shot_summary,
         related_refs={"roundRefs": [round_ref], "holeRefs": [_hole_ref(round_ref, hole_number)], "shotRefs": [ref]},

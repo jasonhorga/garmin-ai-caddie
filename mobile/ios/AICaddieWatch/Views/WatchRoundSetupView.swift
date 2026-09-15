@@ -434,17 +434,16 @@ public struct WatchRoundSetupView: View {
     }
 
     private func venueName(_ option: WatchCourseOption) -> String {
-        GarminCourseNameAuthority.mergedVenue(
+        GarminCourseNameAuthority.canonicalVenueName(
             providerName: option.name,
-            trustedNames: [option.venueName],
-            trustedNameSources: [option.venueNameSource]
+            venueName: option.venueName,
+            venueNameSource: option.venueNameSource,
+            segmentLabel: option.segmentLabel
         )
     }
 
     private func loopName(_ option: WatchCourseOption) -> String {
-        if let label = option.segmentLabel,
-           !label.isEmpty,
-           !GarminCourseNameAuthority.isCompositeSegment(label) { return label }
+        if let label = option.resolvedSegmentLabel { return label }
         return option.playableHoleCount == 18 ? "全场" : option.displayName
     }
 

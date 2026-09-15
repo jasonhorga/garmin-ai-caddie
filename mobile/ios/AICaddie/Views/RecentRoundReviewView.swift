@@ -50,9 +50,11 @@ struct RecentReviewContent: View {
     private var courseFormCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("球场近况").font(.caption).foregroundStyle(.secondary)
-            // Base course name (黑骑士), not the "~ A" nine combo — course form spans all loops.
+            // The live package is the cross-surface authority. History is only a
+            // fallback for legacy packages, so an old route/alias cannot replace
+            // the current physical venue name.
             Text(localizedCourseDisplayName(
-                courseHistory.courseName ?? package.course.name,
+                package.course.venueDisplayName,
                 globalId: package.course.globalId
             )).font(.title3.weight(.bold))
             HStack(spacing: 10) {

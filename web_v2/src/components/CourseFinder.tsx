@@ -77,7 +77,10 @@ function frequentBaseCourses(courseOptions: MobileCourseOptionsResponse | null):
 
 function matchMeta(match: CourseSearchMatch): string {
   const holes = asNumber(match.holes)
-  return [asString(match.city), holes === null ? null : `${holes}洞`].filter(Boolean).join(' · ')
+  const segment = courseSegmentName(match)
+  return [segment ? `${segment} 场` : null, asString(match.city), holes === null ? null : `${holes}洞`]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 export function CourseFinder({

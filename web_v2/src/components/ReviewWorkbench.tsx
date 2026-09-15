@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { RoundCard, RoundCorrectionRequest, RoundHoleShot, RoundHoleShotMapResponse, ScoreStripCell } from '../types'
 import { prefetchTopoImage, topoImageUrl } from '../api'
-import { cleanCourseName, shortRoundDate } from '../units'
+import { physicalCourseName } from '../courseName'
+import { shortRoundDate } from '../units'
 import { ReviewHoleCanvas, type ReviewShotMapState } from './ReviewHoleCanvas'
 import { ReviewInspector } from './ReviewInspector'
 import { buildTimeline, chipShape, chipShapeZh, type ChipShape } from './reviewShotMapLogic'
@@ -421,7 +422,7 @@ export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection, playerNa
           >
             {rounds.map((round) => (
               <option key={round.id} value={round.id}>
-                {cleanCourseName(round.courseName)} · {shortRoundDate(round.date)}
+                {physicalCourseName(round.courseName)} · {shortRoundDate(round.date)}
                 {round.score !== null ? `（${round.score}）` : ''}
               </option>
             ))}

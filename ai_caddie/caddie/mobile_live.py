@@ -11,10 +11,13 @@ import math
 from pathlib import Path
 import threading
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from ai_caddie.courses import course_prep
 from ai_caddie.courses.name_authority import (
+    GARMIN_SNAPSHOT_NAME_SOURCE,
+    GarminNameIdentity,
+    canonical_course_identity,
     is_composite_segment,
     is_trusted_garmin_identity,
     localized_provider_name,
@@ -165,7 +168,12 @@ def _hole_issue_label_zh(issue: dict[str, Any]) -> str:
 
 
 def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[str, Any]) -> dict[str, Any]:
-    from ai_caddie.history.history import canonical_course_name, course_key as _course_key
+    from ai_caddie.history.history import (
+        canonical_course_name,
+        course_key as _course_key,
+        history_course_segment,
+        history_course_venue_name,
+    )
     from ai_caddie.rounds.round_shot_map import _geometry_target
 
     course_key = str(round_row.get("courseKey") or "")
@@ -217,12 +225,18 @@ def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[
             {
                 "roundId": round_id,
                 "date": str(row.get("date") or ""),
-                "courseName": str(row.get("course") or row.get("courseName") or "Unknown course"),
+                # Keep this mobile package summary on the same physical-course
+                # authority as history/search/options. The played route stays
+                # beside it instead of leaking into the course title.
+                "courseName": history_course_venue_name(source, row),
                 "score": score_int,
                 "par": par_int,
                 "toPar": score_int - par_int if par_int is not None else None,
                 "holesCompleted": int(row.get("holesCompleted") or row.get("holesPlayed") or len(row.get("holes") or []) or 0),
                 "globalId": int(recent_gid) if recent_gid else None,
+                "backGlobalId": row.get("backNineGlobalCourseId"),
+                "nine": history_course_segment(row),
+                "teeBox": row.get("teeBox") or row.get("tee"),
                 "sourceRefs": source_refs,
             }
         )
@@ -557,26 +571,17 @@ def build_mobile_course_options(
             segment = None
         clean_name, segment_holes = segment if segment else (None, None)
         courseview_label = _segment_label_from_courseview_name(clean_name)
-        if trusted_identity is not None:
-            venue_name = trusted_identity.venue
-        elif clean_name:
-            venue_name = _venue_base_name(str(clean_name))
-        else:
-            fallback = str(latest.get("course") or latest.get("courseName") or f"Course {global_id}")
-            venue_name = _venue_base_name(fallback) or normalize_course_text(fallback)
         fallback_name = normalize_course_text(latest.get("course") or latest.get("courseName") or f"Course {global_id}")
-        fallback_venue = _venue_base_name(fallback_name) or fallback_name
-        segment_label = courseview_label or (
-            trusted_identity.segment if trusted_identity is not None else None
+        provider_name = normalize_course_text(clean_name) or fallback_name
+        canonical = canonical_course_identity(
+            provider_name,
+            trusted_identity,
+            segment_override=courseview_label,
+            holes=int(segment_holes) if segment_holes else played_holes,
         )
-        if segment_label and is_composite_segment(segment_label):
-            segment_label = None
-        display_name = (
-            f"{venue_name} ~ {segment_label}"
-            if venue_name and segment_label
-            else venue_name
-            or fallback_venue
-        )
+        venue_name = canonical.venue
+        segment_label = canonical.segment
+        display_name = canonical.name
         try:
             course_tees = resolve_tees(global_id)
         except Exception:
@@ -588,7 +593,7 @@ def build_mobile_course_options(
                 "name": display_name,
                 "venueName": venue_name,
                 "venueNameSource": (
-                    trusted_identity.source if trusted_identity is not None else None
+                    canonical.source
                 ),
                 "segmentLabel": segment_label,
                 "segmentHoles": int(segment_holes) if segment_holes else played_holes,
@@ -2157,11 +2162,13 @@ def _caddie_context_seeds(
 ) -> list[dict[str, Any]]:
     course_name = str(round_row.get("course") or round_row.get("courseName") or "Unknown course")
     identity = select_garmin_name_identity([round_row])
-    if is_trusted_garmin_identity(identity):
-        # Caddie seed context is a live-layout label.  Keep historical
-        # composite routes in the round record, but don't repeat them as if
-        # they were the current single layout.
-        course_name = localized_provider_name("", identity, segment_override=identity.segment)
+    # Use the same canonical course identity as the package/search surfaces.
+    # A seed is persisted and can be rendered independently by any client, so
+    # leaving the raw `A/C` route here would reintroduce a fourth spelling.
+    course_name = canonical_course_identity(
+        course_name,
+        identity if is_trusted_garmin_identity(identity) else None,
+    ).name
     decision_clubs = _decision_club_profiles(club_profiles)
     seeds: list[dict[str, Any]] = []
     for hole in holes:
@@ -2302,6 +2309,24 @@ def _caddie_context_seeds(
             }
         )
     return seeds
+
+
+def _rewrite_seed_course_name(seeds: list[dict[str, Any]], course_name: str) -> list[dict[str, Any]]:
+    """Keep persisted seed context on the same backend-owned course name."""
+    normalized = normalize_course_text(course_name)
+    if not normalized:
+        return seeds
+    rewritten: list[dict[str, Any]] = []
+    for raw in seeds:
+        if not isinstance(raw, dict):
+            rewritten.append(raw)
+            continue
+        seed = dict(raw)
+        context = dict(seed.get("context") or {})
+        context["courseName"] = normalized
+        seed["context"] = context
+        rewritten.append(seed)
+    return rewritten
 
 
 def _manual_notes_for_seed(
@@ -2732,8 +2757,22 @@ def build_live_round_package(
     )
     course_prep_package = _course_prep_package(course_global_id, holes, player_id=player_id) if (preparation_mode == "course" and include_course_prep) else None
     course_display_name = str(round_row.get("course") or round_row.get("courseName") or "Unknown course")
+    course_identity = None
     if preparation_mode == "course" and requested_course_global_id is not None:
-        localized = _course_display_name(stats_data or data, int(requested_course_global_id))
+        # Stats may be a derived HistoryData without the raw Garmin snapshot
+        # fields. Prefer the first source that actually carries a trusted
+        # snapshot, rather than letting an always-truthy derived object hide it.
+        candidate_sources = [candidate for candidate in (data, stats_data, source) if candidate is not None]
+        name_source = candidate_sources[0] if candidate_sources else source
+        for candidate in candidate_sources:
+            candidate_identity = select_garmin_name_identity(
+                _course_name_rows(candidate, int(requested_course_global_id))
+            )
+            if is_trusted_garmin_identity(candidate_identity):
+                name_source = candidate
+                course_identity = candidate_identity
+                break
+        localized = _course_display_name(name_source, int(requested_course_global_id))
         if localized:
             course_display_name = localized
         else:
@@ -2743,6 +2782,24 @@ def build_live_round_package(
             provider_venue, provider_suffix = split_garmin_course_name(course_display_name)
             if provider_venue and provider_suffix and is_composite_segment(provider_suffix):
                 course_display_name = provider_venue
+        if course_identity is None:
+            history_identity = select_garmin_name_identity(
+                _course_name_rows(name_source, int(requested_course_global_id))
+            )
+            if is_trusted_garmin_identity(history_identity):
+                course_identity = history_identity
+    else:
+        round_identity = select_garmin_name_identity(
+            [round_row, *_course_name_rows(source, course_global_id)]
+        )
+        if is_trusted_garmin_identity(round_identity):
+            course_identity = round_identity
+    canonical_course = canonical_course_identity(course_display_name, course_identity)
+    package_course_name = canonical_course.venue or canonical_course.name
+    caddie_context_seeds = _rewrite_seed_course_name(
+        caddie_context_seeds,
+        package_course_name,
+    )
     return {
         "schema": "ai-caddie-live-round-package-v1",
         "roundId": round_id,
@@ -2752,7 +2809,10 @@ def build_live_round_package(
         "playerProfile": player_profile,
         "course": {
             "globalId": course_global_id,
-            "name": course_display_name,
+            "name": package_course_name,
+            "venueName": canonical_course.venue,
+            "venueNameSource": canonical_course.source,
+            "segmentLabel": canonical_course.segment,
             "teeBox": str(tee_box or round_row.get("teeBox") or "unknown"),
         },
         "holes": holes,
@@ -2942,13 +3002,8 @@ def _geometry_only_course_template(
     }
 
 
-def _course_display_name(source: HistoryData, global_id: int) -> str | None:
-    """Localized Garmin name for a globalId, with composite routes removed.
-
-    The raw round row remains untouched for historical review.  Live package
-    identity is a selectable layout, so a stale ``A/C`` suffix must not leak
-    into its title.
-    """
+def _course_name_rows(source: HistoryData, global_id: int) -> list[dict[str, Any]]:
+    """Return unique Garmin/history rows that identify one CourseView id."""
     rows: list[dict[str, Any]] = []
     seen_rows: set[tuple[str, int]] = set()
     # ``raw_rounds`` retains the two member scorecards behind a merged 18-hole
@@ -2978,6 +3033,17 @@ def _course_display_name(source: HistoryData, global_id: int) -> str | None:
                 continue
             seen_rows.add(row_key)
             rows.append(row)
+    return rows
+
+
+def _course_display_name(source: HistoryData, global_id: int) -> str | None:
+    """Localized Garmin name for a globalId, with composite routes removed.
+
+    The raw round row remains untouched for historical review.  Live package
+    identity is a selectable layout, so a stale ``A/C`` suffix must not leak
+    into its title.
+    """
+    rows = _course_name_rows(source, global_id)
     if not rows:
         return None
     identity = select_garmin_name_identity(rows)
@@ -3011,6 +3077,45 @@ def _course_display_name(source: HistoryData, global_id: int) -> str | None:
         return None
     venue, suffix = split_garmin_course_name(name)
     return f"{venue} ~ {suffix}" if suffix and not is_composite_segment(suffix) else venue
+
+
+def _canonicalize_course_payload(
+    course: Mapping[str, Any],
+    *,
+    source: HistoryData,
+    global_id: int,
+    provider_name: str | None = None,
+    segment_label: str | None = None,
+    segment_holes: int | None = None,
+) -> dict[str, Any]:
+    """Apply the shared Garmin venue/layout identity to a package course row.
+
+    ``provider_name`` is a CourseView spelling for the selected global id. A
+    verified Garmin scorecard snapshot can replace only its venue portion; the
+    provider's single layout suffix remains authoritative. This is deliberately
+    kept at the backend package boundary so iPhone, Watch, and Web never make
+    independent name choices from cached fields.
+    """
+    result = dict(course or {})
+    current_name = normalize_course_text(result.get("name"))
+    rows = _course_name_rows(source, int(global_id))
+    identity = select_garmin_name_identity(rows)
+    if not is_trusted_garmin_identity(identity):
+        identity = None
+    base_name = normalize_course_text(provider_name) or current_name or f"Course {int(global_id)}"
+    canonical = canonical_course_identity(
+        base_name,
+        identity,
+        segment_override=segment_label,
+        holes=segment_holes,
+    )
+    # Live package identity is the physical venue; the selected loop remains
+    # a separate ``segmentLabel`` fact for the picker.
+    result["name"] = canonical.venue or canonical.name
+    result["venueName"] = canonical.venue
+    result["venueNameSource"] = canonical.source
+    result["segmentLabel"] = canonical.segment
+    return result
 
 
 def build_live_round_package_for_course(
@@ -3121,29 +3226,37 @@ def build_live_round_package_for_course(
     # opens 18 holes (and holes 10–18 are bogus, which also broke "随便选一个洞进去").
     effective_nine = nine
     is_loop_cap = False
-    if nine == "all":
+    segment = None
+    try:
+        segment = _courseview_segment_resolver(int(global_id))
+    except Exception:
         segment = None
-        try:
-            segment = _courseview_segment_resolver(int(global_id))
-        except Exception:
-            segment = None
-        if segment and segment[1] == 9:
-            effective_nine = "front"
-            is_loop_cap = True
+    if nine == "all" and segment and segment[1] == 9:
+        effective_nine = "front"
+        is_loop_cap = True
     front_package = _filter_package_to_nine(package, effective_nine)
+    # CourseView owns the selected layout suffix; a Garmin scorecard snapshot may
+    # only contribute the localized physical-venue spelling. Apply both facts at
+    # one backend boundary so package/search/options expose the same identity.
+    provider_name = segment[0] if segment and segment[0] else None
+    provider_holes = segment[1] if segment else None
+    provider_label = _segment_label_from_courseview_name(provider_name)
+    front_course = dict(front_package.get("course") or {})
+    front_course = _canonicalize_course_payload(
+        front_course,
+        source=source,
+        global_id=int(global_id),
+        provider_name=provider_name,
+        segment_label=provider_label,
+        segment_holes=provider_holes,
+    )
+    front_package["course"] = front_course
     if is_loop_cap:
         # A 9-hole loop is a complete round in itself, not "the front of an 18" — label it "all"
         # so the app offers "加打另一个9洞" (a second loop) rather than a front/back toggle.
         front_package["nine"] = "all"
-        # Name it as just this loop ("…黑骑士… ~ C"), not the played combo ("…~ C/A"): the round
-        # name is the historical combo, but we're only playing this loop. Use the Chinese venue base
-        # (from the round name) + the loop label from CourseView (its clean name is English, so take
-        # only the label). This also yields a correct composite name "…~ C/A" (front "C" + back "A")
-        # instead of "…~ C/A/A".
-        loop_label = _segment_label_from_courseview_name(segment[0]) if segment else None
-        base = _venue_base_name(str((front_package.get("course") or {}).get("name") or ""))
-        if loop_label and base:
-            front_package["course"] = {**front_package["course"], "name": f"{base} ~ {loop_label}"}
+        # The canonicalization above already removed a played combination such as
+        # `C/A` and retained only the current CourseView loop (`C`).
     if back_global_id is None or fast_start:
         return front_package
     # Composite 18: this loop (holes 1–9) + a second loop (holes 10–18). Each loop is its own
@@ -3319,6 +3432,27 @@ def _merge_nines(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:
         str((front.get("course") or {}).get("name") or ""),
         str((back.get("course") or {}).get("name") or ""),
     )
+    # Resolve the physical venue before rebuilding caddie seeds.  The two loop
+    # labels are facts of the selected layouts, not a third course name; a
+    # merged package must therefore carry one venue name everywhere its seeds
+    # can be rendered independently.
+    trusted_course_identity = None
+    for package_course in (front.get("course") or {}, back.get("course") or {}):
+        if not isinstance(package_course, dict):
+            continue
+        if (
+            package_course.get("venueName")
+            and str(package_course.get("venueNameSource") or "").strip().casefold()
+            == GARMIN_SNAPSHOT_NAME_SOURCE
+        ):
+            trusted_course_identity = GarminNameIdentity(
+                venue=str(package_course["venueName"]),
+                segment=package_course.get("segmentLabel"),
+                source=GARMIN_SNAPSHOT_NAME_SOURCE,
+            )
+            break
+    canonical_course = canonical_course_identity(course_name, trusted_course_identity)
+    course_name = canonical_course.venue or canonical_course.name
     ref_replacements: dict[str, str] = {}
     for seed in back.get("caddieContextSeeds") or []:
         if not isinstance(seed, dict):
@@ -3381,7 +3515,12 @@ def _merge_nines(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:
     merged["recentHistory"] = recent_history
 
     course = dict(front.get("course") or {})
-    course["name"] = course_name
+    course["name"] = canonical_course.venue or canonical_course.name
+    course["venueName"] = canonical_course.venue
+    course["venueNameSource"] = canonical_course.source
+    # A composite package has one physical venue. The selected loop ids remain
+    # available on each hole; no derived A/B/C route is used as the course name.
+    course["segmentLabel"] = canonical_course.segment
     merged["course"] = course
     merged["nine"] = "all"
 

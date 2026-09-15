@@ -22,10 +22,21 @@ public enum GarminCourseNameAuthority {
         let normalized = normalize(raw)
         guard !normalized.isEmpty else { return ("", nil) }
         let parts = normalized.split(separator: "~", maxSplits: 1, omittingEmptySubsequences: true)
-        let venue = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard parts.count > 1 else { return (venue, nil) }
-        let suffix = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return (venue, suffix.isEmpty ? nil : suffix)
+        var venue = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+        var suffix: String? = parts.count > 1
+            ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            : nil
+        // Legacy Garmin rows sometimes omit the `~` separator, e.g. `Black
+        // Knight B/C` or `Black Knight AC`. Treat that trailing combination as
+        // a route label, never as part of the physical venue.
+        let tokens = venue.split(whereSeparator: { $0.isWhitespace })
+        if let last = tokens.last,
+           tokens.count > 1,
+           isCompositeSegment(String(last)) {
+            venue = tokens.dropLast().map(String.init).joined(separator: " ")
+            if suffix?.isEmpty != false { suffix = String(last) }
+        }
+        return (venue, suffix?.isEmpty == false ? suffix : nil)
     }
 
     public static func containsChinese(_ raw: String?) -> Bool {
@@ -52,6 +63,64 @@ public enum GarminCourseNameAuthority {
         let parts = split(normalized)
         guard let suffix = parts.suffix, isCompositeSegment(suffix) else { return normalized }
         return parts.venue
+    }
+
+    /// Resolve the backend course-name contract for a catalogue/package row.
+    ///
+    /// The returned value is always the physical venue title. A playable loop
+    /// is separate metadata (`canonicalSegment`); it is never appended to the
+    /// shared course title. `venueName` can replace the provider spelling only
+    /// when its source is the explicit Garmin scorecard snapshot marker. A
+    /// manual or unmarked cached value is never allowed to relabel a CourseView
+    /// row. The same rule is mirrored by the Web helper and Python authority.
+    public static func canonicalName(
+        providerName: String?,
+        venueName: String? = nil,
+        venueNameSource: String? = nil,
+        segmentLabel: String? = nil
+    ) -> String {
+        _ = segmentLabel
+        let provider = selectableName(providerName)
+        let providerParts = split(provider)
+        let source = normalize(venueNameSource).lowercased()
+        let trustedVenue: String = source == garminSnapshotNameSource
+            ? split(venueName).venue
+            : ""
+        let venue = trustedVenue.isEmpty ? providerParts.venue : trustedVenue
+        guard !venue.isEmpty else { return provider }
+
+        return venue
+    }
+
+    /// Return the factual single-loop label without allowing a played
+    /// combination (`A/C`, `AB`, ...) to masquerade as one selectable loop.
+    public static func canonicalSegment(
+        providerName: String?,
+        segmentLabel: String? = nil
+    ) -> String? {
+        let providerSuffix = split(selectableName(providerName)).suffix.flatMap { suffix in
+            isCompositeSegment(suffix) ? nil : suffix
+        }
+        if let providerSuffix, !providerSuffix.isEmpty { return providerSuffix }
+        guard let segmentLabel else { return nil }
+        let normalized = normalize(segmentLabel)
+        guard !normalized.isEmpty, !isCompositeSegment(normalized) else { return nil }
+        return normalized
+    }
+
+    /// Physical venue portion of `canonicalName`, used for round/history titles.
+    public static func canonicalVenueName(
+        providerName: String?,
+        venueName: String? = nil,
+        venueNameSource: String? = nil,
+        segmentLabel: String? = nil
+    ) -> String {
+        split(canonicalName(
+            providerName: providerName,
+            venueName: venueName,
+            venueNameSource: venueNameSource,
+            segmentLabel: segmentLabel
+        )).venue
     }
 
     /// Use a trusted Garmin-backed venue and the provider row's current single

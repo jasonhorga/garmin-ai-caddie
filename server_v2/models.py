@@ -268,6 +268,12 @@ class RoundCard(BaseModel):
     scoreStrip: list[ScoreStripCell]
     badges: list[DataQualityBadge]
     primaryIssue: str | None = None
+    # Physical course name stays in courseName; played route/layout is a
+    # separate fact so A/C, AB, etc. cannot masquerade as a venue.
+    nine: str | None = None
+    globalId: int | None = None
+    backGlobalId: int | None = None
+    teeBox: str | None = None
     # "manual" = phone-logged补录; "garmin" (or None on legacy rows) = watch sync.
     # Display-only marker — engines treat both sources alike.
     source: str | None = None

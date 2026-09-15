@@ -3,6 +3,37 @@ import XCTest
 
 @MainActor
 final class WatchCourseDownloadTests: XCTestCase {
+    func testBackendGarminVenueIsSharedBySearchAndWatchOption() {
+        let match = WatchCourseSearchMatch(
+            globalId: 42_004,
+            name: "West Park Golf & Country Club ~ West",
+            holes: 9,
+            city: nil,
+            province: nil,
+            ratio: 1,
+            venueName: "西郊高尔夫俱乐部",
+            venueNameSource: GarminCourseNameAuthority.garminSnapshotNameSource,
+            segmentLabel: "West"
+        )
+
+        XCTAssertEqual(match.displayName, "西郊高尔夫俱乐部")
+        XCTAssertEqual(match.courseOption?.displayName, "西郊高尔夫俱乐部")
+        XCTAssertEqual(match.courseOption?.segmentLabel, "West")
+        XCTAssertEqual(match.courseOption?.venueDisplayName, "西郊高尔夫俱乐部")
+    }
+
+    func testManualVenueCannotReplaceWatchProviderName() {
+        let option = WatchCourseOption(
+            globalId: 42_005,
+            name: "Red Flag Valley Golf Club",
+            holes: 18,
+            venueName: "手填中文球场",
+            venueNameSource: "manual"
+        )
+        XCTAssertEqual(option.displayName, "Red Flag Valley Golf Club")
+        XCTAssertEqual(option.venueDisplayName, "Red Flag Valley Golf Club")
+    }
+
     func testCourseAssetConcurrencyIsBoundedForWatchRadio() {
         XCTAssertEqual(WatchCourseLibrary.courseAssetConcurrency, 2)
     }
@@ -588,7 +619,7 @@ final class WatchCourseDownloadTests: XCTestCase {
         )
     }
 
-    func testNewCourseTemplateKeepsSearchResultNameWhenPackageOnlyHasGenericIdName() throws {
+    func testNewCourseTemplateKeepsPhysicalVenueWhenPackageOnlyHasGenericIdName() throws {
         let option = WatchCourseOption(
             globalId: 31870,
             name: "Mission Hills ~ A",
@@ -609,7 +640,7 @@ final class WatchCourseDownloadTests: XCTestCase {
             cachedAt: "2026-07-27T00:00:00Z"
         )
 
-        XCTAssertEqual(download.template.courseName, "Mission Hills ~ A")
+        XCTAssertEqual(download.template.courseName, "Mission Hills")
     }
 
     func testCachedTemplatePersistsAndCreatesANewRoundIdentityEachTime() throws {

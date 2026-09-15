@@ -42,7 +42,10 @@ class CompositeNineMergeTests(unittest.TestCase):
     def test_merge_combines_geometry_names_and_recomputes_shared_weather(self) -> None:
         merged = _merge_nines(_nine_package("C", 9), _nine_package("A", 4))
         self.assertEqual(merged["geometryCoverage"], {"state": "partial", "readyHoles": 13, "totalHoles": 18})
-        self.assertEqual(merged["course"]["name"], "黑骑士 ~ C/A")
+        # A merged 9+9 package has one physical venue. The two loop ids remain
+        # on the selected holes; their derived C/A route is not a course name.
+        self.assertEqual(merged["course"]["name"], "黑骑士")
+        self.assertIsNone(merged["course"].get("segmentLabel"))
         # The front snapshot remains the display/provenance base, but a composite package must not
         # retain a misleading nine-hole coverage summary. This deliberately sparse fixture has no
         # per-hole weather rows, so the recomputed 18-hole view is honestly empty rather than copied
@@ -201,7 +204,8 @@ class MobileCourseSegmentTests(unittest.TestCase):
         course = resp["courses"][0]
         self.assertEqual(course["venueName"], "West Park Golf & Country Club")
         self.assertIsNone(course["venueNameSource"])
-        self.assertEqual(course["name"], "West Park Golf & Country Club ~ A")
+        self.assertEqual(course["name"], "West Park Golf & Country Club")
+        self.assertEqual(course["segmentLabel"], "A")
 
     def test_manual_name_is_not_live_course_name_authority(self) -> None:
         row = _round("r1", 42001, "用户填写的中文球场")

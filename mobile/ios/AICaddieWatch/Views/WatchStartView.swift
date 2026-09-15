@@ -656,10 +656,11 @@ public struct WatchStartView: View {
     }
 
     private func venueName(for course: WatchCourseOption) -> String {
-        GarminCourseNameAuthority.mergedVenue(
+        GarminCourseNameAuthority.canonicalVenueName(
             providerName: course.name,
-            trustedNames: [course.venueName],
-            trustedNameSources: [course.venueNameSource]
+            venueName: course.venueName,
+            venueNameSource: course.venueNameSource,
+            segmentLabel: course.segmentLabel
         )
     }
 
@@ -693,6 +694,8 @@ public struct WatchStartView: View {
             }
             .joined(separator: " · ")
         let holeText = match.holes.flatMap { $0 > 0 ? "\($0) 洞" : nil } ?? "洞数未知"
-        return location.isEmpty ? holeText : "\(location) · \(holeText)"
+        let segment = match.resolvedSegmentLabel.map { "\($0) 场" }
+        let facts = ([segment, location.isEmpty ? nil : location, holeText]).compactMap { $0 }
+        return facts.joined(separator: " · ")
     }
 }

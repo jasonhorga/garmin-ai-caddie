@@ -18,6 +18,7 @@ from .course_search import CourseMatch
 from .name_authority import (
     GarminNameIdentity,
     contains_cjk,
+    canonical_course_identity,
     is_composite_segment,
     is_placeholder_course_name,
     is_trusted_garmin_identity,
@@ -448,9 +449,14 @@ def _query_matches(
 
 
 def _history_only_match(evidence: PlayerCourseEvidence, origin: tuple[float, float] | None = None) -> CourseMatch:
+    canonical = canonical_course_identity(
+        evidence.name,
+        evidence.identity if is_trusted_garmin_identity(evidence.identity) else None,
+        holes=evidence.holes,
+    )
     return CourseMatch(
         global_id=evidence.global_id,
-        name=evidence.name,
+        name=canonical.name,
         holes=evidence.holes,
         city=evidence.city,
         province=evidence.province,
@@ -462,19 +468,9 @@ def _history_only_match(evidence: PlayerCourseEvidence, origin: tuple[float, flo
         display_coordinate_source=evidence.source,
         reconciliation_distance_km=0.0,
         provider_match=False,
-        venue_name=(
-            evidence.identity.venue
-            if evidence.identity is not None
-            and is_trusted_garmin_identity(evidence.identity)
-            else evidence.name
-        ),
-        venue_name_source=(
-            evidence.identity.source
-            if evidence.identity is not None
-            and is_trusted_garmin_identity(evidence.identity)
-            else None
-        ),
-        segment_label=None,
+        venue_name=canonical.venue,
+        venue_name_source=canonical.source,
+        segment_label=canonical.segment,
     )
 
 
@@ -545,7 +541,28 @@ def reconcile_course_matches(
         if identity is None and item is not None and is_trusted_garmin_identity(item.identity):
             identity = item.identity
         if identity is None and item is None:
-            output.append(match)
+            # Normalize the provider display spelling even when there is no
+            # player-backed identity. The endpoint serializer derives the
+            # decomposed venue/segment fields from this same value.
+            canonical = canonical_course_identity(
+                match.name,
+                segment_override=match.segment_label,
+                holes=match.holes,
+            )
+            output.append(
+                replace(
+                    match,
+                    name=canonical.name,
+                    # Keep the internal overlay fields empty for an unmatched
+                    # provider row. The endpoint serializer derives the same
+                    # canonical venue/segment fields for the wire contract;
+                    # populating them here would make an anonymous provider
+                    # look as though it had player-backed localization.
+                    venue_name=match.venue_name,
+                    venue_name_source=match.venue_name_source,
+                    segment_label=canonical.segment,
+                )
+            )
             continue
         if match.provider_match:
             provider_name = match.provider_name if match.provider_name is not None else match.name
@@ -561,9 +578,20 @@ def reconcile_course_matches(
         # stable global id. That is sufficient evidence for the display overlay
         # even when the provider coordinate is absent/stale. Query/city matching
         # remains relevant only when appending history-only rows below.
-        display_name = localized_provider_name(match.name, identity, holes=match.holes)
-        display_venue, display_suffix = split_garmin_course_name(display_name)
-        conflict = bool(provider_name and _norm(provider_name) != _norm(display_name))
+        canonical = canonical_course_identity(
+            match.name,
+            identity,
+            segment_override=match.segment_label,
+            holes=match.holes,
+        )
+        display_name = canonical.name
+        display_venue = canonical.venue
+        display_suffix = canonical.segment
+        # A single-loop provider suffix is layout metadata, not a name
+        # conflict. Only compare the physical venue portions so `Venue ~ A`
+        # does not look like a localization disagreement with `Venue`.
+        provider_venue, _provider_suffix = split_garmin_course_name(provider_name)
+        conflict = bool(provider_name and _norm(provider_venue) != _norm(display_name))
         output.append(
             replace(
                 match,
@@ -585,12 +613,8 @@ def reconcile_course_matches(
                 reconciliation_conflict=conflict,
                 provider_match=True,
                 venue_name=display_venue if display_venue else match.venue_name,
-                venue_name_source=(identity.source if identity is not None else match.venue_name_source),
-                segment_label=(
-                    display_suffix
-                    if display_suffix and not is_composite_segment(display_suffix)
-                    else match.segment_label
-                ),
+                venue_name_source=(canonical.source or match.venue_name_source),
+                segment_label=display_suffix,
             )
         )
 

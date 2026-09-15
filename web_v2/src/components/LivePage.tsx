@@ -5,6 +5,7 @@ import { CaddiePage } from './CaddiePage'
 import { HistoryRoundDetailPanel, type HistoryRoundDetailPanelState } from './HistoryRoundDetailPanel'
 import { LiveSandbox } from './LiveSandbox'
 import { useDiagnostics } from '../diagnosticsContext'
+import { physicalCourseName } from '../courseName'
 
 // 实战 page shell (spec §5.4 web scope), three inner tabs in the PrepPage idiom
 // (local tab state + subnav--inner classes, NOT SubNav — these tabs are not
@@ -162,10 +163,10 @@ export function LivePage({
               className={round.id === replayRoundRef ? 'trends-round-row selected' : 'trends-round-row'}
               aria-current={round.id === replayRoundRef ? 'true' : undefined}
               onClick={() => setReplayRoundRef(round.id)}
-              aria-label={`回放 ${round.courseName} ${dateLabel(round.date)}`}
+              aria-label={`回放 ${physicalCourseName(round.courseName)} ${dateLabel(round.date)}`}
             >
               <span className="trends-round-date">{dateLabel(round.date)}</span>
-              <span className="trends-round-course">{round.courseName}</span>
+              <span className="trends-round-course">{physicalCourseName(round.courseName)}</span>
               <span className="trends-round-score">{round.score ?? '—'}</span>
               <span className={`trends-pchip ${toParChipClass(round.toPar)}`}>{formatToPar(round.toPar)}</span>
             </button>

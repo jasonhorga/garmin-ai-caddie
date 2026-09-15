@@ -618,7 +618,7 @@ public final class WatchEventBridge: NSObject {
     ) -> WatchRoundSeedPayload {
         WatchRoundSeedPayload(
             roundId: package.roundId,
-            courseName: package.course.name,
+            courseName: package.course.venueDisplayName,
             activeHole: activeHole,
             holes: package.holes
                 .sorted { $0.number < $1.number }

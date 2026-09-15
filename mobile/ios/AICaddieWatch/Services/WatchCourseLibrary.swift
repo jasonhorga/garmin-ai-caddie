@@ -268,7 +268,13 @@ public final class WatchCourseLibrary: ObservableObject {
                 return nil
             }
             errorMessage = nil
-            return cached.makeRound(roundId: makeRoundId())
+            // The selected option is the current backend catalogue row. A cached
+            // template may predate the canonical-name contract, so never let its
+            // persisted display string override the current selection.
+            return cached.makeRound(
+                roundId: makeRoundId(),
+                courseName: Self.immediateCourseName(selection, fallback: cached.courseName)
+            )
         }
         guard let config else {
             errorMessage = "这个洞组和发球台尚未下载，请联网后重试"
@@ -308,7 +314,10 @@ public final class WatchCourseLibrary: ObservableObject {
             if Self.preciseTemplateReady(cached, imageStore: imageStore) {
                 errorMessage = nil
                 diagnosticErrorMessage = nil
-                return cached.makeRound(roundId: makeRoundId())
+                return cached.makeRound(
+                    roundId: makeRoundId(),
+                    courseName: Self.immediateCourseName(selection, fallback: cached.courseName)
+                )
             }
             // A partial package is still immediately playable. Rebase the existing template onto
             // this round instead of replacing its already-downloaded hole maps with an all-pending
@@ -320,7 +329,10 @@ public final class WatchCourseLibrary: ObservableObject {
                 ? "球场数据后台补齐中"
                 : "球场数据后台补齐中：第 \(Self.holeList(incompleteCachedHoles)) 洞"
             courses = Self.uniqueOptions(from: [cached.option, cached.backOption].compactMap { $0 } + courses)
-            return cached.makeRound(roundId: makeRoundId())
+            return cached.makeRound(
+                roundId: makeRoundId(),
+                courseName: Self.immediateCourseName(selection, fallback: cached.courseName)
+            )
         }
 
         let roundId = makeRoundId()
@@ -348,9 +360,10 @@ public final class WatchCourseLibrary: ObservableObject {
                 caddieConfidence: "pending"
             )
         }
-        let courseName = selection.back == nil
-            ? selection.front.displayName
-            : "\(selection.front.displayName) + \(selection.back!.displayName)"
+        // A 9+9 selection has two layout rows but one physical venue. Keep the
+        // venue as the round identity; the two loop ids remain structured facts
+        // on the template and are never concatenated into a fake course name.
+        let courseName = Self.immediateCourseName(selection)
         let template = WatchCourseTemplate(
             option: frontOption,
             backOption: backOption,
@@ -367,6 +380,33 @@ public final class WatchCourseLibrary: ObservableObject {
             ? "球场数据后台补齐中"
             : "球场数据后台补齐中：第 \(Self.holeList(incompleteCachedHoles)) 洞"
         return template.makeRound(roundId: roundId)
+    }
+
+    /// Resolve the provisional name used before the backend package arrives.
+    /// `WatchCourseOption.name` is already the backend canonical display value;
+    /// only the composite 9+9 case needs to collapse two layout labels to one
+    /// physical venue, matching the package builder and iPhone/Web surfaces.
+    private static func immediateCourseName(
+        _ selection: WatchCourseSelection,
+        fallback: String? = nil
+    ) -> String {
+        let frontName = GarminCourseNameAuthority.canonicalName(
+            providerName: selection.front.name,
+            venueName: selection.front.venueName,
+            venueNameSource: selection.front.venueNameSource,
+            segmentLabel: selection.front.segmentLabel
+        )
+        if selection.back != nil {
+            let venue = GarminCourseNameAuthority.split(frontName).venue
+            if !venue.isEmpty { return venue }
+        }
+        // The persisted round/template identity is the physical venue. The
+        // selected loop remains on the option/template facts, so never leak
+        // ``~ A`` into the round title on Watch.
+        let frontVenue = GarminCourseNameAuthority.split(frontName).venue
+        if !frontVenue.isEmpty { return frontVenue }
+        let fallbackName = fallback.map(GarminCourseNameAuthority.selectableName) ?? ""
+        return fallbackName.isEmpty ? "未知球场" : fallbackName
     }
 
     /// Continue the already-queued precise download without holding up play. The caller applies the
@@ -1010,35 +1050,23 @@ public final class WatchCourseLibrary: ObservableObject {
 
     private func resolvedNearbyOption(_ match: WatchCourseSearchMatch) -> WatchCourseOption? {
         guard let provider = match.courseOption else { return nil }
-        guard let known = courses.first(where: { $0.globalId == match.globalId }) else {
-            return provider
-        }
-        let mergedName = GarminCourseNameAuthority.mergedName(
-            providerName: provider.name,
-            trustedNames: [provider.venueName, known.name, known.venueName],
-            trustedNameSources: [
-                provider.venueNameSource,
-                known.venueNameSource,
-                known.venueNameSource,
-            ]
-        )
-        let mergedSplit = GarminCourseNameAuthority.split(mergedName)
-        let mergedSegment = mergedSplit.suffix.flatMap {
-            GarminCourseNameAuthority.isCompositeSegment($0) ? nil : $0
-        }
+        // The nearby response is already reconciled by the backend. Local
+        // cached/history rows may contribute tee metadata, but never rename
+        // the provider row.
+        let known = courses.first(where: { $0.globalId == match.globalId })
         return WatchCourseOption(
             globalId: provider.globalId,
-            name: mergedName,
+            name: provider.name,
             holes: provider.holes,
-            teeBox: known.teeBox,
-            venueName: mergedSplit.venue.isEmpty ? (known.venueName ?? provider.venueName) : mergedSplit.venue,
-            venueNameSource: provider.venueNameSource ?? known.venueNameSource,
-            segmentLabel: mergedSegment ?? provider.segmentLabel ?? known.segmentLabel,
-            segmentHoles: provider.segmentHoles ?? known.segmentHoles,
-            latitude: provider.latitude ?? known.latitude,
-            longitude: provider.longitude ?? known.longitude,
-            tees: known.tees,
-            roundCount: known.roundCount
+            teeBox: known?.teeBox ?? provider.teeBox,
+            venueName: provider.venueName,
+            venueNameSource: provider.venueNameSource,
+            segmentLabel: provider.segmentLabel,
+            segmentHoles: provider.segmentHoles ?? known?.segmentHoles,
+            latitude: provider.latitude ?? known?.latitude,
+            longitude: provider.longitude ?? known?.longitude,
+            tees: known?.tees ?? [],
+            roundCount: known?.roundCount ?? 0
         )
     }
 }

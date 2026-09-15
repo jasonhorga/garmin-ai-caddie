@@ -15,7 +15,7 @@ import type {
 import { CourseFinder } from './CourseFinder'
 import { PrepWorkbench } from './PrepWorkbench'
 import { asNumber, asRows, asString, type StatRow } from './statsValues'
-import { displayCourseName } from '../courseName'
+import { courseSegmentName, courseVenueName, displayCourseName } from '../courseName'
 
 interface PrepPageProps {
   globalId: number | null // null → entry state (course finder)
@@ -174,7 +174,10 @@ type SearchState =
 
 function matchMeta(match: CourseSearchMatch): string {
   const holes = asNumber(match.holes)
-  return [asString(match.city), holes === null ? null : `${holes}洞`].filter(Boolean).join(' · ')
+  const segment = courseSegmentName(match)
+  return [segment ? `${segment} 场` : null, asString(match.city), holes === null ? null : `${holes}洞`]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 // Inline top-bar course search — the same onSearchCourses wiring as the entry
@@ -358,10 +361,10 @@ export function PrepPage({
   }
 
   const option = findCourseOption(courseOptions, globalId)
-  // courseOptions (played, canonical) wins; the finder-handed search name covers
-  // never-played courses; the bare gid is the last resort.
+  // The backend mobile options row is canonical. The finder-handed name is only
+  // an entry-state fallback for a course that has no history/options row yet.
   const handedName = typeof selectedCourseName === 'string' && selectedCourseName.trim() ? selectedCourseName : null
-  const courseName = option ? displayCourseName(option) : handedName ? displayCourseName(handedName) : `球场 ${globalId}`
+  const courseName = option ? courseVenueName(option) : handedName ? courseVenueName(handedName) : `球场 ${globalId}`
   const record = courseRecord(allStats, option)
   const totals = holeTotals(prepData)
   const holeRows = courseHoleRows(allStats, optionCourseKey(option))

@@ -29,9 +29,12 @@ from ai_caddie.core.data import (
     wgs84_to_local,
 )
 from ai_caddie.courses.name_authority import (
+    is_composite_segment,
     is_garmin_source,
+    is_trusted_garmin_identity,
     preferred_garmin_source_name,
     preferred_garmin_venue,
+    select_garmin_name_identity,
     split_garmin_course_name,
 )
 
@@ -101,10 +104,92 @@ def millionths_to_deg(value: int | float | None) -> float | None:
 def canonical_course_name(name: str | None) -> str:
     if not name:
         return "Unknown course"
-    for sep in (" ~ ", " ~", "~"):
-        if sep in name:
-            return name.split(sep)[0].strip()
-    return name.strip()
+    venue, _suffix = split_garmin_course_name(name)
+    return venue or "Unknown course"
+
+
+def _history_course_ids(row: dict[str, Any]) -> set[int]:
+    ids: set[int] = set()
+    for key in (
+        "globalId",
+        "courseGlobalId",
+        "courseId",
+        "frontNineGlobalCourseId",
+        "backNineGlobalCourseId",
+    ):
+        try:
+            value = int(row.get(key))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if value > 0:
+            ids.add(value)
+    return ids
+
+
+def _related_course_name_rows(data: HistoryData, row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Collect all source rows that can establish one physical venue name.
+
+    A merged 18-hole row may contain only the front loop's localized snapshot,
+    while its back-nine member carries the other layout id.  Conversely, a
+    stale normalized row may have a useful ``courseKey`` but no raw snapshot.
+    Matching both the stable ids and the normalized physical-course key lets a
+    trusted Garmin snapshot win without importing a name from an unrelated
+    nearby venue.
+    """
+    target_ids = _history_course_ids(row)
+    target_key = str(row.get("courseKey") or "").strip()
+    related: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for candidate in [*data.raw_rounds, *data.rounds, row]:
+        if not isinstance(candidate, dict):
+            continue
+        candidate_ids = _history_course_ids(candidate)
+        same_key = bool(target_key and str(candidate.get("courseKey") or "").strip() == target_key)
+        if candidate is not row and not same_key and not target_ids.intersection(candidate_ids):
+            continue
+        marker = id(candidate)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        related.append(candidate)
+    return related or [row]
+
+
+def history_course_venue_name(
+    data: HistoryData,
+    row: dict[str, Any],
+    *,
+    fallback: str = "Unknown course",
+) -> str:
+    """Return the canonical physical venue name for a history-facing payload.
+
+    Only a Garmin scorecard snapshot can replace a provider spelling.  Manual
+    rows remain usable as their own history fallback, but cannot become a
+    catalogue translation.  Route labels such as ``A/C`` are intentionally
+    removed from this value and can be exposed separately via
+    :func:`history_course_segment`.
+    """
+    related = _related_course_name_rows(data, row)
+    identity = select_garmin_name_identity(related)
+    if is_trusted_garmin_identity(identity) and identity is not None and identity.venue:
+        return identity.venue
+    source_name = preferred_garmin_source_name(row, preserve_suffix=False)
+    venue, _suffix = split_garmin_course_name(
+        source_name
+        or row.get("courseCanonical")
+        or row.get("course")
+        or row.get("courseName")
+        or fallback
+    )
+    return venue or fallback
+
+
+def history_course_segment(row: dict[str, Any]) -> str | None:
+    """Return the factual played route/layout label kept beside a venue name."""
+    source_name = preferred_garmin_source_name(row, preserve_suffix=True)
+    _venue, suffix = split_garmin_course_name(source_name)
+    suffix = str(suffix or "").strip()
+    return suffix or None
 
 
 def course_key(name: str | None) -> str:
@@ -749,14 +834,30 @@ def load_history_data(player_id: str = OWNER_ID) -> HistoryData:
     return HistoryData(raw_rounds=active_raw, rounds=rounds, shots=shots)
 
 
-def _round_public(row: dict[str, Any], include_holes: bool = False) -> dict[str, Any]:
+def _round_public(
+    row: dict[str, Any],
+    include_holes: bool = False,
+    *,
+    data: HistoryData | None = None,
+) -> dict[str, Any]:
     par = row.get("par")
     strokes = row.get("strokes")
+    course_name = (
+        history_course_venue_name(data, row)
+        if data is not None
+        else canonical_course_name(
+            preferred_garmin_source_name(row)
+            or row.get("course")
+            or row.get("courseName")
+        )
+    )
     out = {
         "id": row["id"],
         "ids": row.get("ids", [row["id"]]),
         "date": row.get("date"),
-        "course": preferred_garmin_source_name(row) or row.get("course") or row.get("courseName"),
+        "course": course_name,
+        "courseName": course_name,
+        "nine": history_course_segment(row),
         "garminSnapshotName": row.get("garminSnapshotName"),
         "courseCanonical": row.get("courseCanonical"),
         "courseKey": row.get("courseKey"),
@@ -803,8 +904,8 @@ def history_overview(data: HistoryData | None = None) -> dict[str, Any]:
         "geometryHoleCount": len(list(HAZARD_DIR.glob("gid*_h*_hazards.json"))),
         "reportCount": reports["total"],
         "average18": average(scores),
-        "bestRound": _round_public(min(rounds18, key=lambda r: r["strokes"])) if rounds18 else None,
-        "latestRound": _round_public(max(data.rounds, key=lambda r: r.get("date") or "")) if data.rounds else None,
+        "bestRound": _round_public(min(rounds18, key=lambda r: r["strokes"]), data=data) if rounds18 else None,
+        "latestRound": _round_public(max(data.rounds, key=lambda r: r.get("date") or ""), data=data) if data.rounds else None,
         "recentTrend": {
             "last5Avg": average(recent5),
             "previous5Avg": average(previous5),
@@ -831,7 +932,7 @@ def history_rounds(
     return {
         "schema": "ai-caddie-history-rounds-v1",
         "total": len(rows),
-        "rounds": [_round_public(r, include_holes=include_holes) for r in rows[:limit]],
+        "rounds": [_round_public(r, include_holes=include_holes, data=data) for r in rows[:limit]],
     }
 
 
@@ -850,7 +951,7 @@ def history_trends(data: HistoryData | None = None) -> dict[str, Any]:
         {
             "date": r["date"][:10],
             "score": r["strokes"],
-            "course": preferred_garmin_source_name(r) or r.get("course") or r.get("courseName"),
+            "course": history_course_venue_name(data, r),
             "id": r["id"],
         }
         for r in sorted(rounds18, key=lambda row: row.get("date") or "")
@@ -1087,7 +1188,7 @@ def history_course_detail(key: str, data: HistoryData | None = None) -> dict[str
                 ).most_common()
             ],
         },
-        "rounds": [_round_public(r, include_holes=True) for r in rows[:120]],
+        "rounds": [_round_public(r, include_holes=True, data=data) for r in rows[:120]],
         "trend": [
             {"date": r["date"][:10], "score": r["strokes"], "id": r["id"]}
             for r in sorted(rows, key=lambda r: r.get("date") or "")
@@ -1163,7 +1264,7 @@ def history_shots(
             "id": row.get("id"),
             "scorecardId": row.get("scorecardId"),
             "date": row.get("date"),
-            "course": preferred_garmin_source_name(row) or row.get("course") or row.get("courseName"),
+            "course": history_course_venue_name(data, row),
             "garminSnapshotName": row.get("garminSnapshotName"),
             "courseKey": row.get("courseKey"),
             "hole": row.get("hole"),
@@ -1217,7 +1318,7 @@ def history_hole(global_id: int, local_hole: int, *, include_overlay: bool = Tru
         entry = by_round.setdefault(sid, {
             "scorecardId": sid,
             "date": round_row["date"],
-            "course": preferred_garmin_source_name(round_row) or round_row.get("course") or round_row.get("courseName"),
+            "course": history_course_venue_name(data, round_row),
             "hole": shot["hole"],
             "globalId": global_id,
             "localHole": local_hole,
@@ -1397,10 +1498,16 @@ def _played_geometry_coverage(data: HistoryData) -> dict[str, Any]:
             },
         )
         row["shotCount"] += 1
-        row["courseCounts"][
-            preferred_garmin_source_name(shot)
-            or str(shot.get("course") or shot.get("courseName") or "Unknown course")
-        ] += 1
+        shot_round = next(
+            (
+                candidate
+                for candidate in data.rounds
+                if str(candidate.get("id"))
+                == str(shot.get("roundId") or shot.get("scorecardId"))
+            ),
+            shot,
+        )
+        row["courseCounts"][history_course_venue_name(data, shot_round)] += 1
 
     courses: dict[int, dict[str, Any]] = {}
     ready_pairs = 0
@@ -1503,7 +1610,7 @@ def history_data_quality(data: HistoryData | None = None) -> dict[str, Any]:
                 missing_geometry.append({
                     "scorecardId": row["id"],
                     "date": row["date"],
-                    "course": preferred_garmin_source_name(row) or row.get("course") or row.get("courseName"),
+                    "course": history_course_venue_name(data, row),
                     "hole": hole,
                     "globalId": ref.global_id,
                     "localHole": ref.local_hole,
@@ -1522,9 +1629,9 @@ def history_data_quality(data: HistoryData | None = None) -> dict[str, Any]:
             "missingReports": len(missing_reports),
             "lowClubSamples": len(low_club_samples),
         },
-        "missingShots": [_round_public(r) for r in sorted(missing_shots, key=lambda r: r.get("date") or "", reverse=True)[:120]],
+        "missingShots": [_round_public(r, data=data) for r in sorted(missing_shots, key=lambda r: r.get("date") or "", reverse=True)[:120]],
         "missingGeometry": missing_geometry[:200],
-        "missingReports": [_round_public(r) for r in sorted(missing_reports, key=lambda r: r.get("date") or "", reverse=True)[:120]],
+        "missingReports": [_round_public(r, data=data) for r in sorted(missing_reports, key=lambda r: r.get("date") or "", reverse=True)[:120]],
         "lowClubSamples": low_club_samples,
         "playedGeometryCoverage": _played_geometry_coverage(data),
         "coveredGeometry": [

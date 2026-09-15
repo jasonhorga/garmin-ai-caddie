@@ -1,6 +1,7 @@
 import type { HistoryOverviewResponse, HistoryStatsSummaryResponse, MobileStatsResponse, RoundCard } from '../types'
 import type { ProductPage } from '../navigation'
-import { cleanCourseName, shortRoundDate } from '../units'
+import { physicalCourseName } from '../courseName'
+import { shortRoundDate } from '../units'
 import { asNumber, asRows } from './statsValues'
 
 interface ResultsLandingProps {
@@ -26,7 +27,7 @@ function RecentRound({ round, onOpen }: { round: RoundCard; onOpen: () => void }
   return (
     <button type="button" className="results-round-row" onClick={onOpen}>
       <span>
-        <strong>{cleanCourseName(round.courseName)}</strong>
+        <strong>{physicalCourseName(round.courseName)}</strong>
         <small>{shortRoundDate(round.date)} · {round.holesCompleted ?? '—'} 洞</small>
       </span>
       <b>{round.score ?? '—'}</b>

@@ -1,8 +1,9 @@
 import Foundation
 import AICaddieDomain
 
-/// The small course row the Watch needs before a round. The backend response contains more history
-/// metadata; Codable intentionally ignores it instead of copying the iPhone's full model graph.
+/// The small physical-venue row the Watch needs before a round. The backend
+/// response contains more history metadata; Codable intentionally ignores it
+/// instead of copying the iPhone's full model graph. Loop facts stay separate.
 public struct WatchCourseOption: Codable, Equatable, Identifiable {
     public var id: Int { globalId }
 
@@ -71,25 +72,27 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
     }
 
     public var displayName: String {
-        let providerName: String = {
-            let split = GarminCourseNameAuthority.split(name)
-            if let suffix = split.suffix,
-               !GarminCourseNameAuthority.isCompositeSegment(suffix) {
-                return name
-            }
-            if let segmentLabel,
-               !segmentLabel.isEmpty,
-               !GarminCourseNameAuthority.isCompositeSegment(segmentLabel) {
-                return split.venue.isEmpty ? name : "\(split.venue) ~ \(segmentLabel)"
-            }
-            return name
-        }()
-        return GarminCourseNameAuthority.selectableName(
-            GarminCourseNameAuthority.mergedName(
-                providerName: providerName,
-                trustedNames: [venueName],
-                trustedNameSources: [venueNameSource]
-            )
+        GarminCourseNameAuthority.canonicalName(
+            providerName: name,
+            venueName: venueName,
+            venueNameSource: venueNameSource,
+            segmentLabel: segmentLabel
+        )
+    }
+
+    public var resolvedSegmentLabel: String? {
+        GarminCourseNameAuthority.canonicalSegment(
+            providerName: name,
+            segmentLabel: segmentLabel
+        )
+    }
+
+    public var venueDisplayName: String {
+        GarminCourseNameAuthority.canonicalVenueName(
+            providerName: name,
+            venueName: venueName,
+            venueNameSource: venueNameSource,
+            segmentLabel: segmentLabel
         )
     }
 
@@ -203,34 +206,22 @@ public struct WatchCourseSearchMatch: Decodable, Equatable, Identifiable {
 
     public var courseOption: WatchCourseOption? {
         guard let holes, holes > 0 else { return nil }
-        let providerName: String = {
-            let split = GarminCourseNameAuthority.split(name)
-            if let suffix = split.suffix,
-               !GarminCourseNameAuthority.isCompositeSegment(suffix) {
-                return name
-            }
-            if let segmentLabel,
-               !segmentLabel.isEmpty,
-               !GarminCourseNameAuthority.isCompositeSegment(segmentLabel) {
-                return split.venue.isEmpty ? name : "\(split.venue) ~ \(segmentLabel)"
-            }
-            return name
-        }()
-        let merged = GarminCourseNameAuthority.mergedName(
-            providerName: providerName,
-            trustedNames: [venueName],
-            trustedNameSources: [venueNameSource]
+        let canonical = GarminCourseNameAuthority.canonicalName(
+            providerName: name,
+            venueName: venueName,
+            venueNameSource: venueNameSource,
+            segmentLabel: segmentLabel
         )
-        let split = GarminCourseNameAuthority.split(merged)
-        let venue = split.venue
-        let segment = split.suffix.flatMap {
-            GarminCourseNameAuthority.isCompositeSegment($0) ? nil : $0
-        }
+        let venue = canonical
+        let segment = GarminCourseNameAuthority.canonicalSegment(
+            providerName: name,
+            segmentLabel: segmentLabel
+        )
         return WatchCourseOption(
             globalId: globalId,
-            name: merged,
+            name: canonical,
             holes: holes,
-            venueName: venue.isEmpty ? name : venue,
+            venueName: venue,
             venueNameSource: venueNameSource,
             segmentLabel: segment?.isEmpty == false ? segment : nil,
             segmentHoles: holes,
@@ -240,12 +231,18 @@ public struct WatchCourseSearchMatch: Decodable, Equatable, Identifiable {
     }
 
     public var displayName: String {
-        GarminCourseNameAuthority.selectableName(
-            GarminCourseNameAuthority.mergedName(
-                providerName: name,
-                trustedNames: [venueName],
-                trustedNameSources: [venueNameSource]
-            )
+        GarminCourseNameAuthority.canonicalName(
+            providerName: name,
+            venueName: venueName,
+            venueNameSource: venueNameSource,
+            segmentLabel: segmentLabel
+        )
+    }
+
+    public var resolvedSegmentLabel: String? {
+        GarminCourseNameAuthority.canonicalSegment(
+            providerName: name,
+            segmentLabel: segmentLabel
         )
     }
 }
@@ -367,7 +364,21 @@ public struct WatchCoursePackage: Decodable, Equatable {
 public struct WatchCoursePackageCourse: Decodable, Equatable {
     public let globalId: Int
     public let name: String
+    public let venueName: String?
+    public let venueNameSource: String?
+    public let segmentLabel: String?
     public let teeBox: String
+
+    /// Physical venue title shared with iPhone/Web. A trusted Garmin snapshot
+    /// is the only local field allowed to replace the package name.
+    public var venueDisplayName: String {
+        GarminCourseNameAuthority.canonicalVenueName(
+            providerName: name,
+            venueName: venueName,
+            venueNameSource: venueNameSource,
+            segmentLabel: segmentLabel
+        )
+    }
 }
 
 public struct WatchCoursePackageHole: Decodable, Equatable {
@@ -663,10 +674,17 @@ public struct WatchCourseTemplate: Codable, Equatable, Identifiable {
         "\(frontGlobalId)|\(backGlobalId.map(String.init) ?? "-")|\(WatchCourseSelection.normalizedTeeKey(teeBox))"
     }
 
-    public func makeRound(roundId: String) -> WatchPreparedCourse {
+    public func makeRound(roundId: String, courseName overrideName: String? = nil) -> WatchPreparedCourse {
+        let rawName = overrideName ?? courseName
+        let roundName = GarminCourseNameAuthority.canonicalVenueName(
+            providerName: rawName,
+            venueName: option.venueName,
+            venueNameSource: option.venueNameSource,
+            segmentLabel: option.segmentLabel
+        )
         WatchPreparedCourse(
             roundId: roundId,
-            courseName: courseName,
+            courseName: roundName.isEmpty ? GarminCourseNameAuthority.selectableName(rawName) : roundName,
             holeStates: holeStates.map { $0.replacingRoundId(roundId) }
         )
     }

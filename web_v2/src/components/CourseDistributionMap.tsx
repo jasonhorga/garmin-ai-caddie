@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { SourceRefs } from './SourceRefs'
 import { asNumber, asRows, asString, formatNumber } from './statsValues'
+import { physicalCourseName } from '../courseName'
 
 interface CourseDistributionMapProps {
   rows: unknown
@@ -96,7 +97,7 @@ export function CourseDistributionMap({ rows, onSelectRef, metricMode = 'split',
             <div key={key} className="course-distribution-row">
               <span className={location ? 'course-map-pin' : 'course-map-pin missing'} aria-hidden="true" />
               <div>
-                <strong>{asString(row.courseName) ?? key}</strong>
+                <strong>{asString(row.courseName) ? physicalCourseName(asString(row.courseName) as string) : key}</strong>
                 {metricMode === 'combined' ? (
                   <span>
                     {formatNumber(row.pct)}% / {roundLabel(row.roundCount)}
@@ -134,7 +135,9 @@ function projectPoints(points: Array<{ row: Record<string, unknown>; latitude: n
     const key = asString(point.row.courseKey) ?? asString(point.row.courseName) ?? `${point.latitude}:${point.longitude}`
     return {
       key,
-      name: asString(point.row.courseName) ?? key,
+      name: asString(point.row.courseName)
+        ? physicalCourseName(asString(point.row.courseName) as string)
+        : key,
       row: point.row,
       latitude: point.latitude,
       longitude: point.longitude,

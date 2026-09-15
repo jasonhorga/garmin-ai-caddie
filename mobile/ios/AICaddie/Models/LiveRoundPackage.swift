@@ -169,7 +169,14 @@ public struct LiveRoundPackage: Codable, Equatable {
             sourceCoverage: sourceCoverage,
             missingData: missingData,
             playerProfile: playerProfile,
-            course: Course(globalId: course.globalId, name: name, teeBox: course.teeBox),
+            course: Course(
+                globalId: course.globalId,
+                name: name,
+                teeBox: course.teeBox,
+                venueName: course.venueName,
+                venueNameSource: course.venueNameSource,
+                segmentLabel: course.segmentLabel
+            ),
             holes: holes,
             nine: nine,
             startMode: startMode,
@@ -319,7 +326,41 @@ public struct PlayerProfileCoverage: Codable, Equatable {
 public struct Course: Codable, Equatable {
     public let globalId: Int
     public let name: String
+    /// Backend-owned physical venue identity. Optional for packages cached
+    /// before the canonical course-name contract was introduced.
+    public let venueName: String?
+    public let venueNameSource: String?
+    public let segmentLabel: String?
     public let teeBox: String
+
+    /// One physical venue title for user-facing round surfaces. A trusted
+    /// Garmin snapshot may replace the provider spelling; a cached unmarked
+    /// venue field never outranks the package's canonical `name`.
+    public var venueDisplayName: String {
+        MobileCourseDisplayLocalization.canonicalVenueName(
+            providerName: name,
+            venueName: venueName,
+            venueNameSource: venueNameSource,
+            segmentLabel: segmentLabel,
+            globalId: globalId
+        )
+    }
+
+    public init(
+        globalId: Int,
+        name: String,
+        teeBox: String,
+        venueName: String? = nil,
+        venueNameSource: String? = nil,
+        segmentLabel: String? = nil
+    ) {
+        self.globalId = globalId
+        self.name = name
+        self.venueName = venueName
+        self.venueNameSource = venueNameSource
+        self.segmentLabel = segmentLabel
+        self.teeBox = teeBox
+    }
 }
 
 public struct Hole: Codable, Equatable, Identifiable {

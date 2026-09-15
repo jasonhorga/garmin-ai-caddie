@@ -189,7 +189,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
 
         XCTAssertEqual(
             StartRoundView.roundDisplayName(front: selected, back: nil),
-            "北京天竺黑骑士球员俱乐部 ~ C"
+            "北京天竺黑骑士球员俱乐部"
         )
         XCTAssertEqual(
             StartRoundView.courseVenueName(selected),
@@ -410,7 +410,46 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(match.courseOption?.name, "West Park Golf & Country Club")
     }
 
-    func testRoundDisplayNameRetainsSingleAndCompositeLoopIdentity() {
+    func testBackendGarminVenueKeepsTheSameNameAcrossSearchAndSelection() {
+        let match = MobileCourseSearchMatch(
+            globalId: 42_004,
+            name: "West Park Golf & Country Club ~ West",
+            holes: 9,
+            city: nil,
+            province: nil,
+            ratio: 1,
+            venueName: "西郊高尔夫俱乐部",
+            venueNameSource: MobileCourseDisplayLocalization.garminSnapshotNameSource,
+            segmentLabel: "West"
+        )
+
+        XCTAssertEqual(match.displayName, "西郊高尔夫俱乐部")
+        XCTAssertEqual(match.courseOption?.name, "西郊高尔夫俱乐部")
+        XCTAssertEqual(match.courseOption?.segmentLabel, "West")
+        XCTAssertEqual(match.courseOption?.venueDisplayName, "西郊高尔夫俱乐部")
+    }
+
+    func testManualVenueCannotReplaceProviderNameButGarminSnapshotCan() {
+        let manual = MobileCourseOption(
+            globalId: 42_005,
+            name: "Red Flag Valley Golf Club",
+            holes: 18,
+            venueName: "手填中文球场",
+            venueNameSource: "manual"
+        )
+        XCTAssertEqual(manual.venueDisplayName, "Red Flag Valley Golf Club")
+
+        let garmin = MobileCourseOption(
+            globalId: 42_005,
+            name: "Red Flag Valley Golf Club",
+            holes: 18,
+            venueName: "红旗谷高尔夫球场",
+            venueNameSource: MobileCourseDisplayLocalization.garminSnapshotNameSource
+        )
+        XCTAssertEqual(garmin.venueDisplayName, "红旗谷高尔夫球场")
+    }
+
+    func testRoundDisplayNameUsesPhysicalVenueForSingleAndCompositeLoops() {
         let loopA = MobileCourseOption(
             globalId: 31783,
             name: "Tian An Holiday Sports Club ~ A",
@@ -430,15 +469,15 @@ final class StartRoundDiscoveryTests: XCTestCase {
 
         XCTAssertEqual(
             StartRoundView.roundDisplayName(front: loopA, back: nil),
-            "Tian An Holiday Sports Club ~ A"
+            "Tian An Holiday Sports Club"
         )
         XCTAssertEqual(
             StartRoundView.roundDisplayName(front: loopA, back: loopB),
-            "Tian An Holiday Sports Club ~ A/B"
+            "Tian An Holiday Sports Club"
         )
         XCTAssertEqual(
             StartRoundView.roundDisplayName(front: loopA, back: loopA),
-            "Tian An Holiday Sports Club ~ A/A"
+            "Tian An Holiday Sports Club"
         )
     }
 
@@ -490,7 +529,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(group?.segments.map(\.segmentDisplayTitle), ["A 场", "B 场", "C 场"])
         XCTAssertEqual(
             group?.segments.map(\.name),
-            ["\(venue) ~ A", "\(venue) ~ B", "\(venue) ~ C"]
+            [venue, venue, venue]
         )
         XCTAssertEqual(group?.segments.map(\.resolvedHoles), [9, 9, 9])
     }

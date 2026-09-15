@@ -4,9 +4,14 @@ from collections import Counter
 from typing import Any
 
 from ai_caddie.rounds import players
-from ai_caddie.history.history import OWNER_ID, HistoryData, average
-from ai_caddie.courses.name_authority import preferred_garmin_source_name
-
+from ai_caddie.history.history import (
+    OWNER_ID,
+    HistoryData,
+    average,
+    canonical_course_name,
+    history_course_segment,
+    history_course_venue_name,
+)
 from .data_source import load_history_data_for_mode
 from .models import (
     CurrentPlayer,
@@ -185,13 +190,19 @@ def _round_badges(row: dict[str, Any]) -> list[DataQualityBadge]:
     ]
 
 
-def round_card_for_row(row: dict[str, Any]) -> RoundCard:
+def round_card_for_row(row: dict[str, Any], data: HistoryData | None = None) -> RoundCard:
     strokes = row.get("strokes")
     par = row.get("par")
     return RoundCard(
         id=str(row.get("id")),
         date=row.get("date"),
-        courseName=preferred_garmin_source_name(row) or str(row.get("course") or row.get("courseName") or "Unknown course"),
+        courseName=(
+            history_course_venue_name(data, row)
+            if data is not None
+            else canonical_course_name(
+                str(row.get("courseCanonical") or row.get("course") or row.get("courseName") or "Unknown course")
+            )
+        ),
         courseKey=row.get("courseKey"),
         holesCompleted=row.get("holesCompleted"),
         score=strokes,
@@ -200,6 +211,10 @@ def round_card_for_row(row: dict[str, Any]) -> RoundCard:
         scoreStrip=score_strip_for_round(row),
         badges=_round_badges(row),
         primaryIssue=None if row.get("hasShots") else "missing_shots",
+        nine=history_course_segment(row),
+        globalId=row.get("globalId") or row.get("courseId") or row.get("frontNineGlobalCourseId"),
+        backGlobalId=row.get("backNineGlobalCourseId"),
+        teeBox=row.get("teeBox") or row.get("tee"),
         source=row.get("source"),
     )
 
@@ -240,7 +255,7 @@ def build_history_overview_response(
             recent20Average=average(recent20_scores),
             bestScore=min(scores18) if scores18 else None,
         ),
-        recentRounds=[round_card_for_row(row) for row in recent_rounds],
+        recentRounds=[round_card_for_row(row, data) for row in recent_rounds],
         distribution=_score_distribution(rounds18),
         dataQuality=_quality_badges(data),
         currentPlayer=current_player,

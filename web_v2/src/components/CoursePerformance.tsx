@@ -1,5 +1,6 @@
 import type { MobileCourseOptionsResponse, MobileStatsResponse, StatsWindow } from '../types'
 import { cleanCourseName } from '../units'
+import { physicalCourseName } from '../courseName'
 import { asNumber, asRows, asString } from './statsValues'
 
 interface CoursePerformanceProps {
@@ -45,7 +46,7 @@ export function CoursePerformance({ stats, courseOptions = null, window, onWindo
       <section className="panel course-performance-list">
         {courses.length ? courses.map((course, index) => {
           const key = asString(course.courseKey) ?? String(index)
-          const name = cleanCourseName(asString(course.courseName) ?? key)
+          const name = physicalCourseName(asString(course.courseName) ?? key)
           const recentRoundId = asString(course.recentRoundId)
           const globalId = globalIds.get(key)
           const nines = asRows(course.nineBreakdown)

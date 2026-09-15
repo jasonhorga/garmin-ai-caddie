@@ -24,6 +24,7 @@ from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_
 CONTRACT_DIR = Path("mobile") / "contracts"
 IOS_DIR = Path("mobile") / "ios" / "AICaddie"
 WATCH_DIR = Path("mobile") / "ios" / "AICaddieWatch"
+WEB_SOURCE_DIR = Path("web_v2") / "src"
 
 
 def _load_schema(name: str) -> dict[str, object]:
@@ -86,6 +87,32 @@ def _assert_json_schema_rejects(testcase: unittest.TestCase, schema: dict[str, o
 
 
 class MobileContractTests(unittest.TestCase):
+    def test_user_facing_course_copy_never_uses_curriculum_wording(self) -> None:
+        """Golf-course UI says 球场; internal `course` identifiers stay unchanged."""
+        source_paths = [
+            *IOS_DIR.rglob("*.swift"),
+            *WATCH_DIR.rglob("*.swift"),
+            *WEB_SOURCE_DIR.rglob("*.ts"),
+            *WEB_SOURCE_DIR.rglob("*.tsx"),
+        ]
+        offenders: list[str] = []
+        for path in source_paths:
+            if "Tests" in path.parts or ".test." in path.name:
+                continue
+            if "课程" in path.read_text(encoding="utf-8"):
+                offenders.append(str(path))
+        self.assertEqual([], offenders, f"production UI still contains 课程: {offenders}")
+
+    def test_web_manual_round_has_no_free_form_course_name_entry(self) -> None:
+        source = _read_required_source(
+            self,
+            WEB_SOURCE_DIR / "components" / "RecordRoundPage.tsx",
+        )
+        self.assertNotIn('aria-label="球场名称"', source)
+        self.assertNotIn("setCourseName", source)
+        self.assertIn("球场（来自 Garmin）", source)
+        self.assertIn("courseName: selectedCourseName", source)
+
     def test_live_round_package_schema_accepts_optional_tee_coordinates(self) -> None:
         schema = _load_schema("live_round_package.schema.json")
         package = json.loads(
@@ -859,13 +886,16 @@ class MobileContractTests(unittest.TestCase):
             {
                 "roundId": "900001",
                 "date": "2026-05-18",
-                "courseName": "Black Knight B/C",
+                "courseName": "Black Knight",
                 "score": 77,
                 "par": 72,
                 "toPar": 5,
                 "holesCompleted": 18,
-                # 该盘球场第 1 洞的物理 gid(前九感知)→ 首页「上一场」卡取真实地形缩略图用。
                 "globalId": 31795,
+                "backGlobalId": None,
+                "nine": "B/C",
+                "teeBox": None,
+                # 该盘球场第 1 洞的物理 gid(前九感知)→ 首页「上一场」卡取真实地形缩略图用。
                 "sourceRefs": ["900001"],
             },
         )
@@ -1688,7 +1718,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("await discoverNearbyCourses()", start_view)
         self.assertIn("makeVenueGroups", start_view)
         self.assertIn("func segmentRow(", start_view)
-        self.assertIn("segment.segmentLabel", start_view)
+        self.assertIn("segment.resolvedSegmentLabel", start_view)
         # 球场用下拉菜单选(#2a),GPS 可用时按距离排序、否则最常打在前(#4a)。
         self.assertIn('Picker("球场", selection: selectedVenueBinding)', start_view)
         self.assertIn("displayVenues", start_view)
