@@ -304,7 +304,7 @@ const mobileCourseOptionsPayload = {
     {
       globalId: 31795,
       courseKey: 'black_knight',
-      name: 'Black Knight B/C',
+      name: 'Black Knight',
       roundCount: 2,
       latestRoundId: '900001',
       latestRoundDate: '2026-05-18',
@@ -477,7 +477,7 @@ const annotationsPayload = {
   ],
 }
 
-// 备战 walk fixtures for globalId 31795 ('Black Knight B/C' in the mobile
+// 备战 walk fixtures for globalId 31795 ('Black Knight' in the mobile
 // course options above). The package is installed (all requested holes carry
 // geometryCoverage=ready), so it can enter the full workbench gate. Hole 1
 // deliberately carries a 1x1 legacy fallback under the realistic Topo response
@@ -900,10 +900,10 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   // the round-review workbench) → course header → 三页签.
   await page.getByRole('button', { name: '备战', exact: true }).click()
   await expect(page.getByRole('heading', { name: '选择球场开始备战' })).toBeVisible()
-  await page.getByRole('button', { name: '去备战 Black Knight B/C' }).click()
+  await page.getByRole('button', { name: '去备战 Black Knight' }).click()
 
   // Workbench: crumb (course name) + hole-list totals + stats record.
-  await expect(page.getByRole('heading', { name: 'Black Knight B/C' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Black Knight' })).toBeVisible()
   await expect(page.getByText('PAR 11 · 1020 码')).toBeVisible()
   await expect(page.getByText('你的战绩:打过 5 次 · 均杆 80.5')).toBeVisible()
 
@@ -978,8 +978,8 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   const sandboxPrepStart = prepIncludeShots.length
   await page.getByRole('button', { name: '球童沙盘' }).click()
   await expect(page.getByRole('heading', { name: '选择球场开始模拟' })).toBeVisible()
-  await page.getByRole('button', { name: '开始模拟 Black Knight B/C' }).click()
-  await expect(page.getByRole('heading', { name: 'Black Knight B/C' })).toBeVisible()
+  await page.getByRole('button', { name: '开始模拟 Black Knight' }).click()
+  await expect(page.getByRole('heading', { name: 'Black Knight' })).toBeVisible()
 
   // Hole chips come from the prep payload (1/2/7); hole 1 is active by default
   // and carries the rendered map. Hole 7 has no rendered overlay in this fixture,

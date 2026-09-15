@@ -378,7 +378,7 @@ class CourseSearchEndpointTests(unittest.TestCase):
         self.assertTrue(response.json()["complete"])
         nearby.assert_called_once_with(latitude=22.7401328, longitude=114.0714097, radius_km=50)
 
-    def test_nearby_endpoint_preserves_provider_loop_labels_with_name_only_reconciliation(self) -> None:
+    def test_nearby_endpoint_splits_provider_loop_labels_from_physical_name(self) -> None:
         from ai_caddie.courses import course_search
         from server_v2 import main as server_main
 
@@ -413,7 +413,11 @@ class CourseSearchEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             [row["name"] for row in response.json()["matches"]],
-            [f"{venue} ~ A", f"{venue} ~ B", f"{venue} ~ C"],
+            [venue, venue, venue],
+        )
+        self.assertEqual(
+            [row["segmentLabel"] for row in response.json()["matches"]],
+            ["A", "B", "C"],
         )
         reconcile.assert_called_once()
         kwargs = reconcile.call_args.kwargs
