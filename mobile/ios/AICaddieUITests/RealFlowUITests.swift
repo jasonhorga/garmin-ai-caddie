@@ -1110,14 +1110,18 @@ final class RealFlowUITests: XCTestCase {
             "a new course must render either factual CourseView vectors or an already-finished precise topo"
         )
         let preparing = app.descendants(matching: .any)["live-map-preparing"].firstMatch
+        let topoLoading = app.descendants(matching: .any)
+            .matching(identifier: "topo-hole-base-loading").firstMatch
         // `firstFactualMap` can observe the lightweight map just as the precise topo commits. A
-        // retained XCUI query may still report the old partial snapshot for one turn, so accept
-        // either the disclosure or the already-ready map before asserting partial-only details.
+        // retained XCUI query may still report the old partial snapshot for one turn. The precise
+        // geometry can also publish before its revision-bound PNG is decoded; that intermediate
+        // state has an explicit topo loading element and is just as valid as the map-preparing
+        // disclosure. Accept either state before asserting partial-only details.
         let observedLightweightMap = partialMap.exists && !topoReady.exists
         if observedLightweightMap {
             let preparationOrReady = XCTNSPredicateExpectation(
                 predicate: NSPredicate { _, _ in
-                    topoReady.exists || preparing.exists
+                    topoReady.exists || topoLoading.exists || preparing.exists
                 },
                 object: firstFactualMap
             )
@@ -1125,7 +1129,7 @@ final class RealFlowUITests: XCTestCase {
                 XCTWaiter.wait(for: [preparationOrReady], timeout: 5) == .completed,
                 "a partial Garmin map must disclose preparation until the precise topo is ready"
             )
-            if !topoReady.exists {
+            if !topoReady.exists && !topoLoading.exists {
                 XCTAssertTrue(
                     preparing.exists,
                     "a partial Garmin map must disclose that precise hazard facts are still preparing"
