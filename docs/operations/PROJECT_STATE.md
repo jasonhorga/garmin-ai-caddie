@@ -1516,6 +1516,10 @@ means a named external decision or prerequisite is missing; `done` and
   `77bd1137e7b892dd48d89b3df04ed0e3f12e31feff38eeac34dfb3fa20e59bf5`; the
   readable report SHA-256 is
   `c98ae2b63b76ba8521a597412634958e855540c65252c3e6ab0db46db77dcddb`.
+  The read-only snapshot was removed after review; its allow-list and
+  before/after capacity record are under
+  `/home/jason/garmin-ai-caddie-data/cleanup-manifests/opus5-net-priority-20260916/`
+  (`22,360 KiB` removed, candidate health rechecked successfully).
   Internal CD `35121179159` uploaded Build `0.1.0 (64)` using the explicit
   test-environment degraded-readiness fallback; the first normal-path attempt
   `35120211023` stopped before upload when readiness was degraded. Apple check
