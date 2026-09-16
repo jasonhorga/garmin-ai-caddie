@@ -31,6 +31,7 @@ from ai_caddie.llm.weather_context import WeatherTransport
 
 from .data_source import load_history_data_for_mode
 from .history_stats import warm_stats_cache_in_background
+from .timing import mark as mark_request_stage
 from .models import (
     LiveRoundEventBatchRequest,
     LiveRoundEventBatchResponse,
@@ -216,6 +217,7 @@ def build_mobile_round_package_response(
     player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
     data, mode = load_history_data_for_mode(player_id=player_id)
+    mark_request_stage("history_load")
     key = (
         "round",
         player_id,
@@ -227,6 +229,7 @@ def build_mobile_round_package_response(
 
     def build() -> LiveRoundPackageResponse:
         _refresh_course_release_authority(_round_release_global_ids(data, round_id))
+        mark_request_stage("release_lookup")
         return LiveRoundPackageResponse(
             **build_live_round_package(
                 round_id,
@@ -244,6 +247,7 @@ def build_mobile_round_package_response(
         )
 
     package = _package_singleflight(key, build)
+    mark_request_stage("serialization")
     return _bind_package_event_cursor(
         package,
         round_id=str(round_id),
@@ -264,10 +268,10 @@ def build_mobile_course_package_response(
     nine: str = "all",
     back_global_id: int | None = None,
     include_event_cursor: bool = True,
-    fast_start: bool = False,
     player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
     data, mode = load_history_data_for_mode(player_id=player_id)
+    mark_request_stage("history_load")
     key = (
         "course",
         player_id,
@@ -277,7 +281,6 @@ def build_mobile_course_package_response(
         str(nine),
         int(back_global_id) if back_global_id is not None else None,
         bool(ensure_geometry),
-        bool(fast_start),
         _package_time_bucket(captured_at),
         _history_package_signature(data),
     )
@@ -287,8 +290,9 @@ def build_mobile_course_package_response(
         # evaluated. This applies equally to played and never-played catalogue courses.
         _refresh_course_release_authority(
             [int(global_id), *([int(back_global_id)] if back_global_id is not None else [])],
-            allow_fetch=not fast_start,
+            allow_fetch=False,
         )
+        mark_request_stage("release_lookup")
         package = build_live_round_package_for_course(
             global_id,
             round_id=round_id,
@@ -304,27 +308,25 @@ def build_mobile_course_package_response(
             ensure_geometry=ensure_geometry,
             nine=nine,
             back_global_id=back_global_id,
-            # Live start must be fast: skip the heavy all-hole course_prep build (per-hole route /
-            # hazard point-in-polygon over big meshes).  One forced-lightweight first-hole seed is
-            # attached below so the live screen is factual before precise background work begins.
+            # The package contract is always a complete 18-hole fact set.  Expensive precise
+            # geometry installation remains a separate durable job queued by the route below.
             include_course_prep=False,
             include_event_cursor=False,
             ensure_lightweight=True,
-            fast_start=fast_start,
-            # The first-hole response may only consult already-cached CourseView bytes. A complete
-            # follow-up request is allowed to refresh Garmin release/courseData authority in the
-            # background, so provider latency never blocks the initial playable surface.
-            allow_lightweight_fetch=not fast_start,
+            allow_lightweight_fetch=False,
         )
+        mark_request_stage("facts_package")
+        # Keep one immediately drawable factual seed for the first hole while the durable install
+        # job prepares precise assets. This is an enrichment detail, never a second package mode.
         package["coursePrep"] = first_hole_lightweight_course_prep(
             package,
             player_id=player_id,
         )
-        package["startMode"] = "first_hole_fast" if fast_start else "full"
-        package["fullCoursePending"] = bool(fast_start and len(package.get("holes") or []) <= 1)
+        mark_request_stage("caddie_seed")
         return LiveRoundPackageResponse(**package)
 
     package = _package_singleflight(key, build)
+    mark_request_stage("serialization")
     return _bind_package_event_cursor(
         package,
         round_id=str(package.roundId),

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import tempfile
+import threading
+import time
+from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 
@@ -8,59 +12,90 @@ from fastapi.testclient import TestClient
 from ai_caddie.connectors.base import ConnectorRunResult, SnapshotManifest
 from server_v2 import main
 from server_v2.main import app
+from server_v2.sync_jobs import GarminSyncJobStore
 
 
 class ServerV2SyncRunTests(unittest.TestCase):
+    """The sync POST is a short enqueue operation; provider work is polled separately."""
+
     def setUp(self) -> None:
-        # A successful sync (state="ready") now warms the stats cache on a background
-        # thread. Stub it so these tests don't spawn a real ~10s warm thread that mutates
-        # the global cache mid-suite; individual tests assert against this mock.
-        patcher = patch("server_v2.main.warm_stats_cache_in_background")
-        self.warm_mock = patcher.start()
-        self.addCleanup(patcher.stop)
+        self._tmp = tempfile.TemporaryDirectory()
+        self.store = GarminSyncJobStore(root=Path(self._tmp.name))
+        self.store_patch = patch.object(main, "_garmin_sync_jobs", self.store)
+        self.store_patch.start()
+        self.addCleanup(self.store_patch.stop)
+        self.addCleanup(self._tmp.cleanup)
+        self.warm_patch = patch("server_v2.main.warm_stats_cache_in_background")
+        self.warm_mock = self.warm_patch.start()
+        self.addCleanup(self.warm_patch.stop)
+        self.recent_patch = patch("server_v2.main._prepare_recent_bg")
+        self.recent_mock = self.recent_patch.start()
+        self.addCleanup(self.recent_patch.stop)
+        self.status_patch = patch("server_v2.main._mark_garmin_sync_running")
+        self.status_patch.start()
+        self.addCleanup(self.status_patch.stop)
+
+    def _post(self, query: str = "", headers: dict[str, str] | None = None):
+        return TestClient(app).post(f"/api/v2/sync/garmin{query}", headers=headers or {})
+
+    def _wait_for_terminal(self, job_id: str, *, timeout: float = 3.0) -> dict:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            row = self.store.get(job_id)
+            if row and row.get("state") not in {"queued", "running"}:
+                return row
+            time.sleep(0.01)
+        self.fail(f"sync job {job_id} did not reach a terminal state")
+
+    def _post_and_wait(self, query: str = "") -> tuple[object, dict]:
+        response = self._post(query)
+        self.assertEqual(response.status_code, 202)
+        payload = response.json()
+        self.assertEqual(payload["schema"], "ai-caddie-sync-run-v2")
+        terminal = self._wait_for_terminal(payload["jobId"])
+        return response, terminal
 
     def test_sync_garmin_endpoint_requires_admin_token_when_configured(self) -> None:
         connector = Mock()
-
         with (
             patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}),
             patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector),
         ):
-            response = TestClient(app).post("/api/v2/sync/garmin")
+            response = self._post()
 
         self.assertEqual(response.status_code, 401)
         connector.sync.assert_not_called()
         self.assertNotIn("admin-secret", response.text)
 
-    def test_sync_garmin_endpoint_accepts_admin_token_header_when_configured(self) -> None:
-        manifest = SnapshotManifest(
-            snapshot_id="snap_api",
-            scorecard_count=1,
-            shot_file_count=0,
-            summary_present=True,
-            files=["data/summary.json"],
-        )
+    def test_sync_post_returns_job_before_provider_finishes(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
         connector = Mock()
-        connector.sync.return_value = ConnectorRunResult(
-            connector="garmin_cn_web_session",
-            state="ready",
-            detail="Garmin CN sync completed.",
-            snapshot=manifest,
-        )
 
-        with (
-            patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}),
-            patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector),
-        ):
-            response = TestClient(app).post(
-                "/api/v2/sync/garmin",
-                headers={"X-AI-Caddie-Admin-Token": "admin-secret"},
+        def blocked_sync(**_kwargs):
+            started.set()
+            self.assertTrue(release.wait(2))
+            return ConnectorRunResult(
+                connector="garmin_cn_web_session",
+                state="ready",
+                detail="done",
             )
 
-        self.assertEqual(response.status_code, 200)
-        connector.sync.assert_called_once()
+        connector.sync.side_effect = blocked_sync
+        with patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector):
+            response = self._post()
+            self.assertEqual(response.status_code, 202)
+            payload = response.json()
+            self.assertTrue(started.wait(1))
+            self.assertIn(payload["state"], {"queued", "running"})
+            release.set()
+            terminal = self._wait_for_terminal(payload["jobId"])
 
-    def test_sync_garmin_endpoint_returns_snapshot_payload(self) -> None:
+        self.assertEqual(terminal["state"], "ready")
+        self.assertIsNotNone(terminal["startedAt"])
+        self.assertIsNotNone(terminal["completedAt"])
+
+    def test_sync_job_status_returns_snapshot_payload_and_request_flags(self) -> None:
         manifest = SnapshotManifest(
             snapshot_id="snap_api",
             scorecard_count=2,
@@ -68,77 +103,50 @@ class ServerV2SyncRunTests(unittest.TestCase):
             summary_present=True,
             files=["data/summary.json", "data/scorecards/1.json"],
         )
-        result = ConnectorRunResult(
+        connector = Mock()
+        connector.sync.return_value = ConnectorRunResult(
             connector="garmin_cn_web_session",
             state="ready",
             detail="Garmin CN sync completed.",
             snapshot=manifest,
             safe_meta={"withShots": True},
         )
-        connector = Mock()
-        connector.sync.return_value = result
-
         with patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector):
-            response = TestClient(app).post("/api/v2/sync/garmin?with_shots=true")
-            payload = response.json()
+            response, terminal = self._post_and_wait("?with_shots=true")
+            status = TestClient(app).get(response.json()["statusUrl"])
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(payload["schema"], "ai-caddie-sync-run-v2")
+        self.assertEqual(status.status_code, 200)
+        payload = status.json()
         self.assertEqual(payload["state"], "ready")
         self.assertEqual(payload["snapshot"]["snapshotId"], "snap_api")
         self.assertEqual(payload["safeMeta"], {"withShots": True})
-        connector.sync.assert_called_once_with(with_shots=True, force_refresh_auth=False, ensure_geometry=False)
+        self.assertEqual(terminal["snapshot"]["snapshotId"], "snap_api")
+        connector.sync.assert_called_once_with(
+            with_shots=True,
+            force_refresh_auth=False,
+            ensure_geometry=False,
+        )
 
-    def test_sync_garmin_endpoint_passes_force_refresh_auth_query(self) -> None:
+    def test_sync_post_forwards_force_refresh_auth_and_geometry(self) -> None:
         connector = Mock()
         connector.sync.return_value = ConnectorRunResult(
             connector="garmin_cn_web_session",
             state="no_data",
-            detail="Garmin sync completed, but no scorecards were returned.",
+            detail="no scorecards",
             safe_meta={"forceRefreshAuth": True},
         )
-
         with patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector):
-            response = TestClient(app).post("/api/v2/sync/garmin?force_refresh_auth=true&with_shots=false")
-            payload = response.json()
+            _, terminal = self._post_and_wait("?force_refresh_auth=true&ensure_geometry=true&with_shots=false")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(payload["safeMeta"]["forceRefreshAuth"], True)
-        connector.sync.assert_called_once_with(with_shots=False, force_refresh_auth=True, ensure_geometry=False)
-
-    def test_sync_garmin_endpoint_can_request_geometry_ensure(self) -> None:
-        manifest = SnapshotManifest(
-            snapshot_id="snap_api",
-            scorecard_count=1,
-            shot_file_count=0,
-            summary_present=True,
-            files=["data/scorecards/1.json"],
-            geometry_dependencies=[
-                {"globalId": 31795, "localHole": 1, "status": "missing", "sourceRefs": ["data/scorecards/1.json"]}
-            ],
-            geometry_dependency_count=1,
-            geometry_ready_count=0,
-            geometry_missing_count=1,
-        )
-        connector = Mock()
-        connector.sync.return_value = ConnectorRunResult(
-            connector="garmin_cn_web_session",
-            state="ready",
-            detail="Garmin CN sync completed.",
-            snapshot=manifest,
-            safe_meta={"geometryEnsure": {"attempted": 1, "downloaded": 1, "failed": 0}},
+        self.assertEqual(terminal["state"], "no_data")
+        self.assertEqual(terminal["safeMeta"]["forceRefreshAuth"], True)
+        connector.sync.assert_called_once_with(
+            with_shots=False,
+            force_refresh_auth=True,
+            ensure_geometry=True,
         )
 
-        with patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector):
-            response = TestClient(app).post("/api/v2/sync/garmin?ensure_geometry=true")
-            payload = response.json()
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(payload["snapshot"]["geometryDependencyCount"], 1)
-        self.assertEqual(payload["snapshot"]["geometryMissingCount"], 1)
-        connector.sync.assert_called_once_with(with_shots=True, force_refresh_auth=False, ensure_geometry=True)
-
-    def test_sync_garmin_endpoint_returns_409_for_reauth_required(self) -> None:
+    def test_sync_job_reauth_is_reported_by_polling_not_post_status(self) -> None:
         connector = Mock()
         connector.sync.return_value = ConnectorRunResult(
             connector="garmin_cn_web_session",
@@ -146,51 +154,39 @@ class ServerV2SyncRunTests(unittest.TestCase):
             detail="Garmin CN session expired or missing. Reconnect Garmin and retry.",
             error_code="auth_failed",
         )
-
         with patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector):
-            response = TestClient(app).post("/api/v2/sync/garmin")
-            payload = response.json()
+            response, terminal = self._post_and_wait()
 
-        self.assertEqual(response.status_code, 409)
-        self.assertEqual(payload["schema"], "ai-caddie-sync-run-v2")
-        self.assertEqual(payload["state"], "reauth_required")
-        self.assertTrue(payload["reauthRequired"])
-        self.assertNotIn("cookie", str(payload).lower())
-        self.assertNotIn("csrf", str(payload).lower())
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(terminal["state"], "reauth_required")
+        self.assertTrue(terminal["reauthRequired"])
+        self.assertNotIn("cookie", str(terminal).lower())
+        self.assertNotIn("csrf", str(terminal).lower())
 
-    def test_sync_garmin_endpoint_returns_typed_running_payload_when_lock_is_busy(self) -> None:
-        with main._SYNC_LOCK:
-            response = TestClient(app).post("/api/v2/sync/garmin")
-
-        self.assertEqual(response.status_code, 409)
-        payload = response.json()
-        self.assertEqual(payload["state"], "running")
-        self.assertEqual(payload["errorCode"], "sync_in_progress")
-        self.assertFalse(payload["reauthRequired"])
-        self.assertIsNone(payload["snapshot"])
-
-    def test_sync_garmin_endpoint_redacts_secret_terms_from_response(self) -> None:
+    def test_duplicate_sync_click_reuses_active_job(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
         connector = Mock()
-        connector.sync.return_value = ConnectorRunResult(
-            connector="garmin_cn_web_session",
-            state="error",
-            detail="Failed with token abc cookie xyz csrf q secret s authorization bearer",
-            error_code="sync_failed",
-        )
 
+        def blocked_sync(**_kwargs):
+            started.set()
+            self.assertTrue(release.wait(2))
+            return ConnectorRunResult(connector="garmin_cn_web_session", state="ready", detail="done")
+
+        connector.sync.side_effect = blocked_sync
         with patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector):
-            response = TestClient(app).post("/api/v2/sync/garmin")
-            payload = response.json()
+            first = self._post()
+            second = self._post("?with_shots=false")
+            self.assertTrue(started.wait(1))
+            release.set()
+            self._wait_for_terminal(first.json()["jobId"])
 
-        self.assertEqual(response.status_code, 500)
-        text = str(payload).lower()
-        self.assertNotIn("cookie", text)
-        self.assertNotIn("csrf", text)
-        self.assertNotIn("token", text)
-        self.assertNotIn("secret", text)
-        self.assertNotIn("authorization", text)
+        self.assertEqual(first.status_code, 202)
+        self.assertEqual(second.status_code, 202)
+        self.assertEqual(first.json()["jobId"], second.json()["jobId"])
+        connector.sync.assert_called_once()
 
-    def test_sync_garmin_endpoint_redacts_secret_terms_from_safe_meta(self) -> None:
+    def test_sync_job_redacts_secret_terms_from_terminal_payload(self) -> None:
         connector = Mock()
         connector.sync.return_value = ConnectorRunResult(
             connector="garmin_cn_web_session",
@@ -203,52 +199,42 @@ class ServerV2SyncRunTests(unittest.TestCase):
                 "authorizationHeader": "bearer abc",
             },
         )
-
         with patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector):
-            response = TestClient(app).post("/api/v2/sync/garmin")
-            payload = response.json()
+            _, terminal = self._post_and_wait()
 
-        self.assertEqual(response.status_code, 500)
-        text = str(payload).lower()
-        # P1-9: the secret VALUES must never leak — the free-text detail is scrubbed and every
-        # secret-named meta field has its value redacted (including a private path inside a value).
+        text = str(terminal).lower()
         for secret_value in ("sessionid=abc", "csrf-value", "bearer abc", "xyz", ".garmin_tokens", "/home/"):
             self.assertNotIn(secret_value, text)
-        # ...while the (non-secret) schema KEY names are kept, so the audit meta stays legible.
-        safe_meta = payload["safeMeta"]
-        self.assertEqual(safe_meta["cookie"], "[redacted]")
-        self.assertEqual(safe_meta["nested"]["csrf"], "[redacted]")
-        self.assertEqual(safe_meta["nested"]["path"], "<redacted>")
-        self.assertEqual(safe_meta["authorizationHeader"], "[redacted]")
-        self.assertIn("redacted", str(payload["detail"]).lower())
+        self.assertEqual(terminal["safeMeta"]["cookie"], "[redacted]")
+        self.assertEqual(terminal["safeMeta"]["nested"]["csrf"], "[redacted]")
+        self.assertEqual(terminal["safeMeta"]["nested"]["path"], "<redacted>")
+        self.assertEqual(terminal["safeMeta"]["authorizationHeader"], "[redacted]")
 
-    def test_sync_garmin_warms_stats_cache_on_successful_sync(self) -> None:
-        manifest = SnapshotManifest(
-            snapshot_id="snap_api",
-            scorecard_count=3,
-            shot_file_count=2,
-            summary_present=True,
-            files=["data/summary.json"],
-        )
+    def test_sync_garmin_warms_stats_cache_after_successful_background_job(self) -> None:
         connector = Mock()
         connector.sync.return_value = ConnectorRunResult(
             connector="garmin_cn_web_session",
             state="ready",
             detail="Garmin CN sync completed.",
-            snapshot=manifest,
+            snapshot=SnapshotManifest(
+                snapshot_id="snap_api",
+                scorecard_count=3,
+                shot_file_count=2,
+                summary_present=True,
+                files=["data/summary.json"],
+            ),
         )
-
         with patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector):
-            response = TestClient(app).post("/api/v2/sync/garmin")
+            self._post_and_wait()
 
-        self.assertEqual(response.status_code, 200)
-        # The sync landed new data -> the cache must be warmed (off the request path).
-        self.warm_mock.assert_called_once_with()
+        self.warm_mock.assert_called_once_with(player_id="me")
+        self.recent_mock.assert_called_once_with("me")
 
-    def test_sync_garmin_does_not_warm_when_sync_does_not_succeed(self) -> None:
+    def test_sync_does_not_warm_when_job_does_not_succeed(self) -> None:
         for state, error_code in (("reauth_required", "auth_failed"), ("error", "sync_failed")):
             with self.subTest(state=state):
                 self.warm_mock.reset_mock()
+                self.recent_mock.reset_mock()
                 connector = Mock()
                 connector.sync.return_value = ConnectorRunResult(
                     connector="garmin_cn_web_session",
@@ -256,12 +242,10 @@ class ServerV2SyncRunTests(unittest.TestCase):
                     detail="Garmin sync did not complete.",
                     error_code=error_code,
                 )
-
                 with patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector):
-                    TestClient(app).post("/api/v2/sync/garmin")
-
-                # No new data landed -> no warm.
+                    self._post_and_wait()
                 self.warm_mock.assert_not_called()
+                self.recent_mock.assert_not_called()
 
 
 if __name__ == "__main__":

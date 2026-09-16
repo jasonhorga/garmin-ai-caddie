@@ -78,11 +78,13 @@ function playerTokenHeader(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-async function getJson<T>(path: string, adminToken?: string): Promise<T> {
+async function getJson<T>(path: string, adminToken?: string, signal?: AbortSignal): Promise<T> {
   const url = apiUrl(path)
   const headers = { ...adminTokenHeader(adminToken), ...playerTokenHeader() }
-  const init = Object.keys(headers).length ? { headers } : undefined
-  const response = init ? await fetch(url, init) : await fetch(url)
+  const init: RequestInit = {}
+  if (Object.keys(headers).length) init.headers = headers
+  if (signal) init.signal = signal
+  const response = Object.keys(init).length ? await fetch(url, init) : await fetch(url)
   if (!response.ok) {
     throw new Error(`GET ${url} failed: ${response.status} ${response.statusText}`)
   }
@@ -150,12 +152,16 @@ export async function signInWithApple(identityToken: string, displayName?: strin
   return postJson<AppleSignInResponse>('/api/v2/auth/apple', { identityToken, displayName })
 }
 
-async function postJson<T>(path: string, body: unknown, adminToken?: string): Promise<T> {
+async function postJson<T>(path: string, body: unknown, adminToken?: string, signal?: AbortSignal): Promise<T> {
   const url = apiUrl(path)
-  const response = await fetch(url, {
+  const init: RequestInit = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...adminTokenHeader(adminToken), ...playerTokenHeader() },
     body: JSON.stringify(body),
+  }
+  if (signal) init.signal = signal
+  const response = await fetch(url, {
+    ...init,
   })
   if (!response.ok) {
     throw new Error(`POST ${url} failed: ${response.status} ${response.statusText}`)
@@ -217,8 +223,8 @@ function appendParam(query: URLSearchParams, key: string, value: string | number
   if (value !== undefined) query.append(key, String(value))
 }
 
-export function fetchHistoryOverview(adminToken?: string): Promise<HistoryOverviewResponse> {
-  return getJson<HistoryOverviewResponse>('/api/v2/history/overview', adminToken)
+export function fetchHistoryOverview(adminToken?: string, signal?: AbortSignal): Promise<HistoryOverviewResponse> {
+  return getJson<HistoryOverviewResponse>('/api/v2/history/overview', adminToken, signal)
 }
 
 export function fetchCoursePrep(
@@ -358,6 +364,7 @@ export function fetchHistoryRounds(
   adminToken?: string,
   filters?: RoundsFilters,
   limit: number = ROUNDS_FIRST_PAGE,
+  signal?: AbortSignal,
 ): Promise<HistoryRoundsResponse> {
   const params = new URLSearchParams()
   if (filters?.year) params.set('year', filters.year)
@@ -368,7 +375,7 @@ export function fetchHistoryRounds(
   if (filters?.scoreBand) params.set('scoreBand', filters.scoreBand)
   if (filters?.query?.trim()) params.set('search', filters.query.trim())
   params.set('limit', String(limit))
-  return getJson<HistoryRoundsResponse>(`/api/v2/history/rounds?${params.toString()}`, adminToken)
+  return getJson<HistoryRoundsResponse>(`/api/v2/history/rounds?${params.toString()}`, adminToken, signal)
 }
 
 export function fetchHistoryRoundDetail(roundRef: string, adminToken?: string): Promise<HistoryRoundDetailResponse> {
@@ -398,22 +405,22 @@ export function postRoundCorrection(
   )
 }
 
-export function fetchHistoryStats(adminToken?: string, window: StatsWindow = 'all'): Promise<HistoryStatsResponse> {
+export function fetchHistoryStats(adminToken?: string, window: StatsWindow = 'all', signal?: AbortSignal): Promise<HistoryStatsResponse> {
   const qs = window !== 'all' ? `?window=${window}` : ''
-  return getJson<HistoryStatsResponse>(`/api/v2/history/stats${qs}`, adminToken)
+  return getJson<HistoryStatsResponse>(`/api/v2/history/stats${qs}`, adminToken, signal)
 }
 
 // Compact 统计 payload (window-aware) for the GolfLive 趋势 landing — ~246KB vs the ~11MB full
 // /history/stats, so first paint is fast. Deep tabs (强弱/球场/报告) still use the full stats lazily.
-export function fetchMobileStats(adminToken?: string, window: StatsWindow = 'all'): Promise<MobileStatsResponse> {
+export function fetchMobileStats(adminToken?: string, window: StatsWindow = 'all', signal?: AbortSignal): Promise<MobileStatsResponse> {
   const qs = window !== 'all' ? `?window=${window}` : ''
-  return getJson<MobileStatsResponse>(`/api/v2/history/stats/mobile${qs}`, adminToken)
+  return getJson<MobileStatsResponse>(`/api/v2/history/stats/mobile${qs}`, adminToken, signal)
 }
 
 // 概览 landing only needs summary + top issue; this slim endpoint avoids pulling
 // the ~20MB full /history/stats on first paint (full stats stays lazy per page).
-export function fetchHistorySummary(adminToken?: string): Promise<HistoryStatsSummaryResponse> {
-  return getJson<HistoryStatsSummaryResponse>('/api/v2/history/summary', adminToken)
+export function fetchHistorySummary(adminToken?: string, signal?: AbortSignal): Promise<HistoryStatsSummaryResponse> {
+  return getJson<HistoryStatsSummaryResponse>('/api/v2/history/summary', adminToken, signal)
 }
 
 // Land a manual ("phone") round captured by the web GPS recorder. A player
@@ -536,8 +543,8 @@ export function fetchRoundReport(roundId: string, adminToken?: string): Promise<
   return getJson<ReviewReportResponse>(`/api/v2/reports/round/${encodeURIComponent(roundId)}`, adminToken)
 }
 
-export function fetchReportIndex(adminToken?: string): Promise<ReviewReportIndexResponse> {
-  return getJson<ReviewReportIndexResponse>('/api/v2/reports', adminToken)
+export function fetchReportIndex(adminToken?: string, signal?: AbortSignal): Promise<ReviewReportIndexResponse> {
+  return getJson<ReviewReportIndexResponse>('/api/v2/reports', adminToken, signal)
 }
 
 export function generateRoundReport(roundId: string, adminToken?: string): Promise<ReviewReportResponse> {
@@ -582,20 +589,20 @@ export function generateTrendReport(period: string, adminToken?: string): Promis
   return postEmpty<ReviewReportResponse>(`/api/v2/reports/trend/${encodeURIComponent(period)}/generate`, adminToken)
 }
 
-export function fetchSyncStatus(): Promise<SyncStatusResponse> {
-  return getJson<SyncStatusResponse>('/api/v2/sync/status')
+export function fetchSyncStatus(_adminToken?: string, signal?: AbortSignal): Promise<SyncStatusResponse> {
+  return getJson<SyncStatusResponse>('/api/v2/sync/status', _adminToken, signal)
 }
 
-export function fetchReadiness(): Promise<ReadinessResponse> {
-  return getJson<ReadinessResponse>('/api/v2/readiness')
+export function fetchReadiness(signal?: AbortSignal): Promise<ReadinessResponse> {
+  return getJson<ReadinessResponse>('/api/v2/readiness', undefined, signal)
 }
 
 export function fetchProductSettings(): Promise<ProductSettingsResponse> {
   return getJson<ProductSettingsResponse>('/api/v2/settings/product')
 }
 
-export function fetchMobileCourseOptions(adminToken?: string): Promise<MobileCourseOptionsResponse> {
-  return getJson<MobileCourseOptionsResponse>('/api/v2/mobile/courses/options', adminToken)
+export function fetchMobileCourseOptions(adminToken?: string, signal?: AbortSignal): Promise<MobileCourseOptionsResponse> {
+  return getJson<MobileCourseOptionsResponse>('/api/v2/mobile/courses/options', adminToken, signal)
 }
 
 export function fetchMobileReconciliation(roundId: string, adminToken?: string): Promise<MobileReconciliationResponse> {
@@ -651,16 +658,22 @@ export function applyMobileReconciliationSuggestions(
   )
 }
 
-export function runGarminSync(options: { withShots: boolean; forceRefreshAuth: boolean; adminToken?: string }): Promise<SyncRunResponse> {
+export function runGarminSync(options: { withShots: boolean; forceRefreshAuth: boolean; adminToken?: string; signal?: AbortSignal }): Promise<SyncRunResponse> {
+  const session = currentSession()
+  const isMember = Boolean(session && session.playerId !== OWNER_PLAYER_ID)
   const params = new URLSearchParams({
     with_shots: String(options.withShots),
-    force_refresh_auth: String(options.forceRefreshAuth),
   })
-  const path = `/api/v2/sync/garmin?${params.toString()}`
+  if (!isMember) params.set('force_refresh_auth', String(options.forceRefreshAuth))
+  const endpoint = isMember
+    ? `/api/v2/players/${encodeURIComponent(session!.playerId)}/sync/garmin`
+    : '/api/v2/sync/garmin'
+  const path = `${endpoint}?${params.toString()}`
   const url = apiUrl(path)
   const headers = { ...adminTokenHeader(options.adminToken), ...playerTokenHeader() }
   const init: RequestInit = { method: 'POST' }
   if (Object.keys(headers).length) init.headers = headers
+  if (options.signal) init.signal = options.signal
   return fetch(url, init).then((response) => {
     if (!response.ok) {
       throw new Error(`POST ${url} failed: ${response.status} ${response.statusText}`)
@@ -669,8 +682,23 @@ export function runGarminSync(options: { withShots: boolean; forceRefreshAuth: b
   })
 }
 
-export function saveGarminSession(request: GarminSessionImportRequest, adminToken?: string): Promise<GarminSessionImportResponse> {
-  return postJson<GarminSessionImportResponse>('/api/v2/sync/garmin/session', request, adminToken)
+export function fetchGarminSyncJob(statusUrl: string, adminToken?: string, signal?: AbortSignal): Promise<SyncRunResponse> {
+  // The server owns two account-scoped polling paths. Reject absolute, protocol-relative, and
+  // unrelated API URLs before they reach apiUrl so a malformed job record cannot redirect
+  // credentials to another same-origin endpoint.
+  const isGarminJobPath = /^\/api\/v2\/(?:sync\/garmin\/jobs\/[^/?#]+|players\/[^/?#]+\/sync\/garmin\/jobs\/[^/?#]+)$/.test(statusUrl)
+  if (!isGarminJobPath) {
+    return Promise.reject(new Error('Invalid Garmin sync job URL'))
+  }
+  return getJson<SyncRunResponse>(statusUrl, adminToken, signal)
+}
+
+export function saveGarminSession(
+  request: GarminSessionImportRequest,
+  adminToken?: string,
+  signal?: AbortSignal,
+): Promise<GarminSessionImportResponse> {
+  return postJson<GarminSessionImportResponse>('/api/v2/sync/garmin/session', request, adminToken, signal)
 }
 
 // Owner-side player management (admin token). These hit /api/v2/admin/players,

@@ -89,6 +89,7 @@ def _parsed_datetime(value: object) -> datetime | None:
 
 def _next_action(state: str) -> str | None:
     return {
+        "queued": "wait_for_sync",
         "no_data": "connect_garmin",
         "ready": "review_history",
         "running": "wait_for_sync",

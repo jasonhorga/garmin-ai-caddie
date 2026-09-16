@@ -279,6 +279,7 @@ def is_player_scoped_route(method: str, path: str) -> bool:
             # The member-scoped manual club-bag READ; the handler enforces owner/own-player. The PUT is
             # not a GET so it never matches here — it is handler-authed (like POST /players/{id}/rounds).
             or (path.startswith("/api/v2/players/") and path.endswith("/clubs/bag"))
+            or (path.startswith("/api/v2/players/") and "/sync/garmin/jobs/" in path)
             # Media + vision-findings READS — the media store is now per-player partitioned
             # (``server_v2.media._media_root(player_id)``), so a member sees only their own.
             or path.startswith("/api/v2/media/target/")

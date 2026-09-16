@@ -24,9 +24,6 @@ public struct LiveRoundPackage: Codable, Equatable {
     public let holes: [Hole]
     /// 当前视图的起始九洞:"front" / "back" / "all"(缺省视为 all)。后端按此过滤 holes/seeds。
     public let nine: String?
-    /// Fast-start metadata is optional for compatibility with older cached packages/servers.
-    public let startMode: String?
-    public let fullCoursePending: Bool?
     public let coursePrep: CoursePrepPackage?
     public let geometryCoverage: GeometryCoverage
     public let readinessChecks: [PackageReadinessCheck]
@@ -52,8 +49,6 @@ public struct LiveRoundPackage: Codable, Equatable {
         course: Course,
         holes: [Hole],
         nine: String? = nil,
-        startMode: String? = nil,
-        fullCoursePending: Bool? = nil,
         coursePrep: CoursePrepPackage? = nil,
         geometryCoverage: GeometryCoverage,
         readinessChecks: [PackageReadinessCheck],
@@ -77,8 +72,6 @@ public struct LiveRoundPackage: Codable, Equatable {
         self.course = course
         self.holes = holes
         self.nine = nine
-        self.startMode = startMode
-        self.fullCoursePending = fullCoursePending
         self.coursePrep = coursePrep
         self.geometryCoverage = geometryCoverage
         self.readinessChecks = readinessChecks
@@ -98,9 +91,10 @@ public struct LiveRoundPackage: Codable, Equatable {
         offlinePackageStatus.cacheState(now: now)
     }
 
-    /// A fast live package intentionally omits all-hole prep. Once the phone's background download
-    /// fills it, every round hole must have both a retained route/projection and precise geometry.
-    /// A CourseView-only outline remains useful for online play, but is not a complete offline map.
+    /// A live package may start with factual route data while precise assets are prepared separately.
+    /// Once the background download fills it, every round hole must have both a retained
+    /// route/projection and precise geometry. A CourseView-only outline remains useful for online
+    /// play, but is not a complete offline map.
     public var hasCompleteOfflineCoursePrep: Bool {
         guard !holes.isEmpty, let preparedHoles = coursePrep?.holes else { return false }
         let preciseDrawable: Set<Int> = Set(preparedHoles.compactMap { prep -> Int? in
@@ -136,8 +130,6 @@ public struct LiveRoundPackage: Codable, Equatable {
             course: course,
             holes: holes,
             nine: nine,
-            startMode: startMode,
-            fullCoursePending: fullCoursePending,
             coursePrep: nextCoursePrep,
             geometryCoverage: geometryCoverage,
             readinessChecks: readinessChecks,
@@ -179,8 +171,6 @@ public struct LiveRoundPackage: Codable, Equatable {
             ),
             holes: holes,
             nine: nine,
-            startMode: startMode,
-            fullCoursePending: fullCoursePending,
             coursePrep: coursePrep,
             geometryCoverage: geometryCoverage,
             readinessChecks: readinessChecks,
@@ -227,8 +217,6 @@ public struct LiveRoundPackage: Codable, Equatable {
             course: course,
             holes: holes,
             nine: nine,
-            startMode: "full",
-            fullCoursePending: false,
             coursePrep: coursePrep,
             geometryCoverage: geometryCoverage,
             readinessChecks: readinessChecks.map { check in
@@ -263,12 +251,6 @@ public struct LiveRoundPackage: Codable, Equatable {
         )
     }
 
-    /// Explicit server state wins. The fallback keeps a package from an older server safe when it
-    /// still carries the fast-start mode but predates the boolean hand-off field.
-    public var isFullCoursePending: Bool {
-        if fullCoursePending == true { return true }
-        return startMode == "first_hole_fast" && holes.count <= 1
-    }
 }
 
 public struct SourceCoverage: Codable, Equatable {

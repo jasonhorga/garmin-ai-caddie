@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -24,7 +25,9 @@ from fastapi.testclient import TestClient
 from ai_caddie.rounds import players
 from server_v2 import db
 from server_v2 import identity_repo as repo
+import server_v2.main as main
 from server_v2.main import app
+from server_v2.sync_jobs import GarminSyncJobStore
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ADMIN = "admin-secret"
@@ -41,6 +44,12 @@ class AdminOwnerSessionTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
+        self._jobs_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._jobs_tmp.cleanup)
+        self._jobs = GarminSyncJobStore(root=Path(self._jobs_tmp.name))
+        self._jobs_patch = mock.patch.object(main, "_garmin_sync_jobs", self._jobs)
+        self._jobs_patch.start()
+        self.addCleanup(self._jobs_patch.stop)
         url = f"sqlite:///{self.root / 'identity.db'}"
         self._env = mock.patch.dict(os.environ, {
             "AI_CADDIE_DATABASE_URL": url,
@@ -108,8 +117,19 @@ class AdminOwnerSessionTests(unittest.TestCase):
             resp = self.client.post(
                 "/api/v2/sync/garmin", headers={"Authorization": f"Bearer {self.owner_token}"}
             )
-        self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertEqual(resp.json()["state"], "ready")
+            self.assertEqual(resp.status_code, 202, resp.text)
+            payload = resp.json()
+            self.assertEqual(payload["schema"], "ai-caddie-sync-run-v2")
+            self.assertTrue(payload["jobId"])
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                row = self._jobs.get(payload["jobId"])
+                if row and row.get("state") == "ready":
+                    break
+                time.sleep(0.01)
+            row = self._jobs.get(payload["jobId"])
+            self.assertIsNotNone(row)
+            self.assertEqual(row["state"], "ready")
 
     def test_member_session_is_forbidden_on_sync_trigger(self) -> None:
         with mock.patch("server_v2.main.GarminCnWebSessionConnector") as conn:

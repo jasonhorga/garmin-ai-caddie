@@ -52,6 +52,12 @@ public struct GarminSyncRunResponse: Codable, Equatable {
     public let schema: String
     public let connector: String
     public let state: String
+    public let jobId: String
+    public let statusUrl: String
+    public let createdAt: String
+    public let updatedAt: String
+    public let startedAt: String?
+    public let completedAt: String?
     public let detail: String
     public let reauthRequired: Bool
     public let errorCode: String?
@@ -389,10 +395,6 @@ public final class SyncClient {
     public static let greenDetailImageSize = 1280
     static let courseReleaseTimeoutInterval: TimeInterval = 180
     static let coursePackageTimeoutInterval: TimeInterval = 120
-    /// Fast-start only needs the first playable hole. A cold full-course build that cannot answer
-    /// within this window should fall back to the local seed/cache while the bounded refresh retries
-    /// in the background; ordinary package requests retain the longer cold-course budget above.
-    static let fastStartPackageTimeoutInterval: TimeInterval = 15
     static let coursePrepTimeoutInterval: TimeInterval = 90
     static let courseTopoTimeoutInterval: TimeInterval = 60
     static let courseCoverageTimeoutInterval: TimeInterval = 15
@@ -463,7 +465,7 @@ public final class SyncClient {
         return try decoder.decode(LiveRoundPackage.self, from: data)
     }
 
-    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, nine: String = "all", capturedAt: Date = Date(), ensureGeometry: Bool = false, backgroundGeometry: Bool = false, backGlobalId: Int? = nil, includeEventCursor: Bool = true, fastStart: Bool = false) async throws -> LiveRoundPackage {
+    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, nine: String = "all", capturedAt: Date = Date(), ensureGeometry: Bool = false, backgroundGeometry: Bool = false, backGlobalId: Int? = nil, includeEventCursor: Bool = true) async throws -> LiveRoundPackage {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
             resolvingAgainstBaseURL: false
@@ -480,9 +482,6 @@ public final class SyncClient {
             URLQueryItem(name: "background_geometry", value: backgroundGeometry ? "true" : "false"),
             URLQueryItem(name: "include_event_cursor", value: includeEventCursor ? "true" : "false"),
         ]
-        if fastStart {
-            items.append(URLQueryItem(name: "fast_start", value: "true"))
-        }
         if let backGlobalId {
             // Composite 18: play this loop (holes 1–9) + a second loop (holes 10–18).
             items.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId)))
@@ -498,16 +497,11 @@ public final class SyncClient {
         // geometry window, and give the lightweight package the same bounded cold-course window as
         // Tee metadata. This GET is idempotent, so a transient timeout can safely retry and then hit
         // the completed server cache.
-        request.timeoutInterval = ensureGeometry
-            ? 900
-            : (fastStart ? Self.fastStartPackageTimeoutInterval : Self.coursePackageTimeoutInterval)
+        request.timeoutInterval = ensureGeometry ? 900 : Self.coursePackageTimeoutInterval
         applyAuth(to: &request)
         let data = try await fetchRetriableGetData(
             request,
-            // A first-hole fast start must yield to the local/cache fallback within its short
-            // opening budget. The background refresh owns the later bounded retries; repeating a
-            // timed-out opening request here would silently stretch the tap to 30+ seconds.
-            maximumAttempts: fastStart ? 1 : Self.courseAssetMaximumAttempts
+            maximumAttempts: Self.courseAssetMaximumAttempts
         )
         return try decoder.decode(LiveRoundPackage.self, from: data)
     }
@@ -620,22 +614,48 @@ public final class SyncClient {
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 300
+        // POST only enqueues durable work. Keep the connection short so a provider pull can never
+        // hold the settings screen or a foreground lifecycle callback open.
+        request.timeoutInterval = 20
         applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
 
-        // The backend returns the typed run payload for re-auth and connector failures even though
-        // their HTTP status is non-2xx. Preserve that actionable state for the consumer UI; an
-        // A typed 409 is still actionable: re-auth, connector failure, and an occupied
-        // sync lock each have a state the UI can present without guessing from text.
-        if let http = response as? HTTPURLResponse,
-           !(200..<300).contains(http.statusCode),
-           let run = try? decoder.decode(GarminSyncRunResponse.self, from: data),
-           ["reauth_required", "error", "running", "syncing"].contains(run.state) {
-            return run
-        }
         try validate(response: response, data: data)
         return try decoder.decode(GarminSyncRunResponse.self, from: data)
+    }
+
+    /// Poll the durable Garmin job returned by ``runGarminSync``. The URL comes from the server so
+    /// owner/member routes remain account-scoped and the client never reconstructs a job identity.
+    public func fetchGarminSyncJob(statusURL: String) async throws -> GarminSyncRunResponse {
+        guard statusURL.hasPrefix("/api/v2/"), !statusURL.hasPrefix("//"),
+              let url = URL(string: statusURL, relativeTo: baseURL)?.absoluteURL,
+              url.host == baseURL.host, url.scheme == baseURL.scheme else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        applyAuth(to: &request)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(GarminSyncRunResponse.self, from: data)
+    }
+
+    /// Wait for a queued job using cancellable, bounded polling. This is a client-side wait over
+    /// short status requests; the Garmin provider connection remains owned by the server worker.
+    public func waitForGarminSyncJob(
+        _ initial: GarminSyncRunResponse,
+        maximumPolls: Int = 60
+    ) async throws -> GarminSyncRunResponse {
+        var current = initial
+        guard ["queued", "running"].contains(current.state) else { return current }
+        for attempt in 0..<max(0, maximumPolls) {
+            try Task.checkCancellation()
+            let delay = UInt64(min(5, max(1, attempt + 1))) * 500_000_000
+            try await retrySleep(delay)
+            current = try await fetchGarminSyncJob(statusURL: current.statusUrl)
+            if !["queued", "running"].contains(current.state) { return current }
+        }
+        return current
     }
 
     public func fetchGarminSyncStatus() async throws -> GarminSyncStatusResponse {

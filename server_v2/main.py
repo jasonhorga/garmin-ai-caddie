@@ -162,6 +162,8 @@ from .readiness import build_readiness_response
 from .product_settings import build_product_settings_response
 from .session import save_garmin_session_response
 from .sync_status import load_sync_status_response
+from .timing import RequestTiming, bind as bind_request_timing, mark as mark_request_stage, request_id as request_id_for
+from .sync_jobs import GarminSyncJobStore, RetrySyncJob
 
 
 @contextlib.asynccontextmanager
@@ -178,6 +180,7 @@ async def _lifespan(_app: FastAPI):
     # before serving any request — the per-request path already fail-closes, this makes it audible at boot.
     assert_admin_security_config()
     warm_stats_cache_in_background()
+    _garmin_sync_jobs.start(_run_garmin_sync_job)
     threading.Thread(
         target=course_install.resume_pending_jobs,
         name="course-install-resume",
@@ -189,6 +192,27 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="AI Caddie v2", version="0.1.0", lifespan=_lifespan)
+
+
+@app.middleware("http")
+async def request_timing_middleware(request: Request, call_next):
+    """Expose safe request correlation and stage timing for startup diagnostics."""
+    timing = RequestTiming(request_id_for(request.headers.get("X-AI-Caddie-Request-ID")))
+    request.state.request_id = timing.request_id
+    with bind_request_timing(timing):
+        try:
+            response = await call_next(request)
+        except Exception:
+            timing.mark("error")
+            timing.finish(method=request.method, path=request.url.path, status=500)
+            raise
+    timing.mark("response")
+    response.headers["X-AI-Caddie-Request-ID"] = timing.request_id
+    response.headers["Server-Timing"] = timing.server_timing()
+    timing.finish(method=request.method, path=request.url.path, status=response.status_code)
+    return response
+
+
 if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
     # Fixture routes are absent from production processes; this prevents a fixture response from
     # shadowing the real loaders when the environment is not explicitly opted in.
@@ -218,6 +242,8 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
             r"/api/v2/geometry/hole/[0-9]+/[0-9]+",
             r"/api/v2/mobile/courses/[0-9]+/package",
             r"/api/v2/mobile/rounds/[^/]+/package",
+            r"/api/v2/sync/garmin/jobs/[^/]+",
+            r"/api/v2/players/[^/]+/sync/garmin/jobs/[^/]+",
             r"/api/v2/media/target/[^/]+/[^/]+",
             r"/api/v2/reports/round/[^/]+",
         )
@@ -351,6 +377,13 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
             )
             or path == "/api/v2/courses/search"
             or path == "/api/v2/courses/nearby"
+            # Owner Garmin jobs are exposed through the non-player route. Keep their
+            # status private just like the enqueue route; member jobs use the
+            # player-scoped sibling below.
+            or (
+                path.startswith("/api/v2/sync/garmin/jobs/")
+                and "/" not in path.removeprefix("/api/v2/sync/garmin/jobs/")
+            )
             # codex HIGH #1: a geometry/hole request WITH source_ref loads the owner's real shot
             # routes/clubs/distances (geometry.py) — gate it. Pure course geometry (no source_ref)
             # stays public (course knowledge); only the source-bound private evidence requires auth.
@@ -1919,7 +1952,6 @@ def mobile_course_package(
     ensure_geometry: bool = False,
     background_geometry: bool = False,
     include_event_cursor: bool = True,
-    fast_start: bool = False,
     nine: str = Query(default="all", pattern="^(all|front|back)$"),
     back_global_id: int | None = None,
     player_id: str = Depends(current_player_id),
@@ -1932,11 +1964,11 @@ def mobile_course_package(
         client_id=client_id,
         ensure_geometry=ensure_geometry,
         include_event_cursor=include_event_cursor,
-        fast_start=fast_start,
         nine=nine,
         back_global_id=back_global_id,
         player_id=player_id,
     )
+    mark_request_stage("package_route")
     if not background_geometry or ensure_geometry:
         return package
 
@@ -1980,6 +2012,7 @@ def mobile_course_package(
         ready=ready,
         back_global_id=back_global_id,
     )
+    mark_request_stage("background_enqueue")
     # Pydantic response models are mutable in the current contract, but use model_copy when
     # available so this remains safe if the model becomes frozen later.
     if hasattr(package, "model_copy"):
@@ -2273,6 +2306,7 @@ _SYNC_LOCK = threading.Lock()
 # Repo root for the per-player connector (data/players/<id>/ lives under it). Module-level
 # so tests can repoint it; production = the real data root, so the member route is byte-for-byte.
 SYNC_ROOT = ROOT
+_garmin_sync_jobs = GarminSyncJobStore(root=SYNC_ROOT)
 
 
 @contextlib.contextmanager
@@ -2306,18 +2340,102 @@ def _mark_garmin_sync_running(*, player_id: str = OWNER_ID) -> None:
     )
 
 
-def _sync_in_progress_response(response: Response) -> SyncRunResponse:
-    response.status_code = 409
+def _sync_job_response(record: dict[str, Any]) -> SyncRunResponse:
+    """Convert a durable job row into the redacted wire contract."""
+    job_id = str(record.get("jobId") or "")
+    status_url = str(record.get("statusUrl") or "").replace("{job_id}", job_id)
     return SyncRunResponse(
         schema="ai-caddie-sync-run-v2",
         connector="garmin_cn_web_session",
-        state="running",
-        detail="已有一次 Garmin 同步正在进行，请稍后查看结果。",
-        reauthRequired=False,
-        errorCode="sync_in_progress",
-        snapshot=None,
-        safeMeta={},
+        state=str(record.get("state") or "error"),
+        jobId=job_id,
+        statusUrl=status_url,
+        createdAt=str(record.get("createdAt") or ""),
+        updatedAt=str(record.get("updatedAt") or ""),
+        startedAt=record.get("startedAt"),
+        completedAt=record.get("completedAt"),
+        detail=sanitize_error(record.get("detail") or ""),
+        reauthRequired=bool(record.get("reauthRequired")),
+        errorCode=record.get("errorCode"),
+        snapshot=record.get("snapshot"),
+        safeMeta=sanitize_safe_meta(record.get("safeMeta") or {}),
     )
+
+
+def _run_garmin_sync_job(job: dict[str, Any]) -> dict[str, Any]:
+    """Execute one queued Garmin pull and schedule all non-critical follow-up work."""
+    player_id = str(job.get("playerId") or OWNER_ID)
+    request = job.get("request") if isinstance(job.get("request"), dict) else {}
+    with_shots = bool(request.get("withShots", True))
+    force_refresh_auth = bool(request.get("forceRefreshAuth", False)) if player_id == OWNER_ID else False
+    ensure_geometry = bool(request.get("ensureGeometry", False)) if player_id == OWNER_ID else False
+    try:
+        with _acquire_garmin_sync_lock():
+            _mark_garmin_sync_running(player_id=player_id)
+            connector = GarminCnWebSessionConnector(root=SYNC_ROOT, player_id=player_id)
+            result = connector.sync(
+                with_shots=with_shots,
+                force_refresh_auth=force_refresh_auth,
+                ensure_geometry=ensure_geometry,
+            )
+    except SyncInProgress as exc:
+        raise RetrySyncJob() from exc
+
+    detail = result.detail
+    if result.state == "reauth_required" and player_id != OWNER_ID:
+        detail = "Garmin session missing or expired for this player. Re-bind your Garmin, then sync again."
+    if result.state == "ready":
+        # All expensive consumers are independent of the provider socket. Invalidate only the
+        # affected player's projections, then let bounded background warmers prepare them.
+        # These are best-effort follow-ups. A read-only/test data root or a temporary cache
+        # failure must never rewrite a successful provider pull as a terminal sync error.
+        try:
+            stats_cache.clear(player_id)
+        except Exception:
+            logger.warning("Garmin sync stats cache invalidation deferred", exc_info=True)
+        try:
+            warm_stats_cache_in_background(player_id=player_id)
+        except Exception:
+            logger.warning("Garmin sync stats warm-up deferred", exc_info=True)
+        try:
+            threading.Thread(
+                target=_prepare_recent_bg,
+                args=(player_id,),
+                name=f"prepare-recent-sync-{player_id}",
+                daemon=True,
+            ).start()
+        except Exception:
+            logger.warning("Garmin sync recent-course warm-up deferred", exc_info=True)
+
+    return {
+        "state": result.state,
+        "detail": sanitize_error(detail),
+        "reauthRequired": result.state == "reauth_required",
+        "errorCode": result.error_code,
+        "snapshot": snapshot_to_payload(result.snapshot) if result.snapshot else None,
+        "safeMeta": sanitize_safe_meta(result.safe_meta),
+    }
+
+
+def _enqueue_garmin_sync_job(
+    *,
+    player_id: str,
+    with_shots: bool,
+    force_refresh_auth: bool,
+    ensure_geometry: bool,
+    status_url: str,
+    response: Response,
+) -> SyncRunResponse:
+    record = _garmin_sync_jobs.enqueue(
+        player_id=player_id,
+        with_shots=with_shots,
+        force_refresh_auth=force_refresh_auth,
+        ensure_geometry=ensure_geometry,
+        status_url=status_url,
+        runner=_run_garmin_sync_job,
+    )
+    response.status_code = 202
+    return _sync_job_response(record)
 
 
 @app.post("/api/v2/sync/garmin", response_model=SyncRunResponse)
@@ -2331,37 +2449,13 @@ def sync_garmin(
     # Owner-only sync of the flat owner tree; an OWNER Apple session authorizes it (a member uses
     # the per-member /api/v2/players/{id}/sync/garmin route instead, and is 403 here).
     enforce_admin_or_owner(http_request)
-    try:
-        with _acquire_garmin_sync_lock():
-            _mark_garmin_sync_running()
-            result = GarminCnWebSessionConnector().sync(
-                with_shots=with_shots,
-                force_refresh_auth=force_refresh_auth,
-                ensure_geometry=ensure_geometry,
-            )
-    except SyncInProgress:
-        return _sync_in_progress_response(response)
-    if result.state == "reauth_required":
-        response.status_code = 409
-    elif result.state == "error":
-        response.status_code = 500
-    elif result.state == "ready":
-        # The sync just wrote new scorecards/shots to disk, invalidating the stats-cache
-        # fingerprint. Warm it on a daemon thread so the FIRST user request after the
-        # sync is a cache hit instead of a ~10s cold recompute. Failure-isolated inside
-        # warm_stats_cache, so it can never break this response.
-        warm_stats_cache_in_background()
-        # 「打开即用」:Garmin 新数据落地,后台顺带准备 owner 最近一盘(预热其 topo)。
-        threading.Thread(target=_prepare_recent_bg, args=(OWNER_ID,), name="prepare-recent-sync", daemon=True).start()
-    return SyncRunResponse(
-        schema="ai-caddie-sync-run-v2",
-        connector=result.connector,
-        state=result.state,
-        detail=sanitize_error(result.detail),
-        reauthRequired=result.state == "reauth_required",
-        errorCode=result.error_code,
-        snapshot=snapshot_to_payload(result.snapshot) if result.snapshot else None,
-        safeMeta=sanitize_safe_meta(result.safe_meta),
+    return _enqueue_garmin_sync_job(
+        player_id=OWNER_ID,
+        with_shots=with_shots,
+        force_refresh_auth=force_refresh_auth,
+        ensure_geometry=ensure_geometry,
+        status_url="/api/v2/sync/garmin/jobs/{job_id}",
+        response=response,
     )
 
 
@@ -2412,37 +2506,39 @@ def sync_player_garmin(
     self-heal + geometry-ensure stay on the legacy owner-only route."""
     if acting_player_id != OWNER_ID and acting_player_id != player_id:
         raise HTTPException(status_code=403, detail="cannot sync Garmin for another player")
-    try:
-        with _acquire_garmin_sync_lock():
-            _mark_garmin_sync_running(player_id=player_id)
-            result = GarminCnWebSessionConnector(root=SYNC_ROOT, player_id=player_id).sync(
-                with_shots=with_shots,
-                force_refresh_auth=False,
-            )
-    except SyncInProgress:
-        return _sync_in_progress_response(response)
-    detail = result.detail
-    if result.state == "reauth_required":
-        response.status_code = 409
-        detail = "Garmin session missing or expired for this player. Re-bind your Garmin, then sync again."
-    elif result.state == "error":
-        response.status_code = 500
-    elif result.state == "ready":
-        # New scorecards landed in the player's partition -> invalidate ONLY that player's
-        # stats cache so their next history/stats read recomputes, without evicting other
-        # players' caches (mirrors round_ingest._invalidate_cache, but player-scoped).
-        stats_cache.clear(player_id)
-        # Keep the first post-sync history/package request off the cold stats path. The warmer is
-        # player-scoped and single-flight, so a repeated sync callback cannot create duplicate CPU
-        # workers for this partition.
-        warm_stats_cache_in_background(player_id=player_id)
-    return SyncRunResponse(
-        schema="ai-caddie-sync-run-v2",
-        connector=result.connector,
-        state=result.state,
-        detail=sanitize_error(detail),
-        reauthRequired=result.state == "reauth_required",
-        errorCode=result.error_code,
-        snapshot=snapshot_to_payload(result.snapshot) if result.snapshot else None,
-        safeMeta=sanitize_safe_meta(result.safe_meta),
+    return _enqueue_garmin_sync_job(
+        player_id=player_id,
+        with_shots=with_shots,
+        force_refresh_auth=False,
+        ensure_geometry=False,
+        status_url=f"/api/v2/players/{player_id}/sync/garmin/jobs/{{job_id}}",
+        response=response,
     )
+
+
+def _load_sync_job_for_player(job_id: str, player_id: str) -> dict[str, Any]:
+    record = _garmin_sync_jobs.get(job_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="sync job not found")
+    owner = str(record.get("playerId") or "")
+    if player_id != OWNER_ID and owner != player_id:
+        raise HTTPException(status_code=403, detail="cannot inspect another player's sync job")
+    return record
+
+
+@app.get("/api/v2/sync/garmin/jobs/{job_id}", response_model=SyncRunResponse)
+def get_garmin_sync_job(job_id: str, http_request: Request) -> SyncRunResponse:
+    """Poll an owner Garmin job without reopening the provider connection."""
+    enforce_admin_or_owner(http_request)
+    return _sync_job_response(_load_sync_job_for_player(job_id, OWNER_ID))
+
+
+@app.get("/api/v2/players/{player_id}/sync/garmin/jobs/{job_id}", response_model=SyncRunResponse)
+def get_player_garmin_sync_job(
+    player_id: str,
+    job_id: str,
+    acting_player_id: str = Depends(current_player_id),
+) -> SyncRunResponse:
+    if acting_player_id != OWNER_ID and acting_player_id != player_id:
+        raise HTTPException(status_code=403, detail="cannot inspect another player's sync job")
+    return _sync_job_response(_load_sync_job_for_player(job_id, player_id))

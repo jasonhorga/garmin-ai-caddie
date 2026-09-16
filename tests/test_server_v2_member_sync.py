@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -29,6 +30,7 @@ from ai_caddie.rounds import players
 from server_v2 import data_source, session as session_mod
 import server_v2.main as main_mod
 from server_v2.main import app
+from server_v2.sync_jobs import GarminSyncJobStore
 
 ADMIN_HEADER = {"X-AI-Caddie-Admin-Token": "admin-secret"}
 # A fixture course (owner local_or_fixture fallback) that must NEVER surface for a member.
@@ -71,6 +73,9 @@ class MemberSyncRoutesTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
+        self._jobs_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._jobs_tmp.cleanup)
+        self.store = GarminSyncJobStore(root=Path(self._jobs_tmp.name))
         self._env = mock.patch.dict(os.environ, {
             "AI_CADDIE_ADMIN_TOKEN": "admin-secret",
             "AI_CADDIE_DATA_MODE": "local_or_fixture",
@@ -84,6 +89,7 @@ class MemberSyncRoutesTests(unittest.TestCase):
             mock.patch.object(stats_cache, "_PLAYERS_DIR", self.root / "data" / "players"),
             mock.patch.object(session_mod, "SESSION_ROOT", self.root),
             mock.patch.object(main_mod, "SYNC_ROOT", self.root),
+            mock.patch.object(main_mod, "_garmin_sync_jobs", self.store),
             # Force the owner's fixture fallback deterministically (never read the real repo snapshot).
             mock.patch.object(data_source, "load_latest_snapshot_history", return_value=None),
         ]
@@ -103,6 +109,18 @@ class MemberSyncRoutesTests(unittest.TestCase):
 
     def _member_token_dir(self, player_id: str) -> Path:
         return self.root / "data" / "players" / player_id / ".garmin_tokens"
+
+    def _wait_for_terminal(self, response, *, timeout: float = 5.0) -> dict:
+        self.assertEqual(response.status_code, 202, response.text)
+        payload = response.json()
+        self.assertEqual(payload["schema"], "ai-caddie-sync-run-v2")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            row = self.store.get(payload["jobId"])
+            if row and row.get("state") not in {"queued", "running"}:
+                return row
+            time.sleep(0.01)
+        self.fail(f"sync job {payload['jobId']} did not reach a terminal state")
 
     # --- bind ---------------------------------------------------------------------
     def test_member_binds_own_garmin_into_partition(self) -> None:
@@ -165,9 +183,8 @@ class MemberSyncRoutesTests(unittest.TestCase):
                 f"/api/v2/players/{self.alice['id']}/sync/garmin",
                 headers=self._auth(self.alice["token"]),
             )
-
-        self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertEqual(resp.json()["state"], "ready")
+            terminal = self._wait_for_terminal(resp)
+        self.assertEqual(terminal["state"], "ready")
         # Round landed in the member partition.
         self.assertTrue(
             (self.root / "data" / "players" / self.alice["id"] / "scorecards" / "7.json").exists()
@@ -205,11 +222,11 @@ class MemberSyncRoutesTests(unittest.TestCase):
                 f"/api/v2/players/{self.alice['id']}/sync/garmin",
                 headers=self._auth(self.alice["token"]),
             )
-
-        self.assertEqual(resp.status_code, 409, resp.text)  # clear 4xx, not a 500
-        self.assertTrue(resp.json()["reauthRequired"])
-        self.assertIn("re-bind", resp.text.lower())
-        fetch_summary.assert_not_called()  # auth failed before any network fetch
+            terminal = self._wait_for_terminal(resp)
+            self.assertEqual(terminal["state"], "reauth_required")
+            self.assertTrue(terminal["reauthRequired"])
+            self.assertIn("re-bind", terminal["detail"].lower())
+            fetch_summary.assert_not_called()  # auth failed before any network fetch
         self.assertNotIn("OWNER-SECRET", resp.text)
         self.assertFalse(
             (self.root / "data" / "players" / self.alice["id"] / "scorecards").exists()

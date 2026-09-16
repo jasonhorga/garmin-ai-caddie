@@ -152,6 +152,8 @@ describe('coverageZh', () => {
 
 describe('stateZh', () => {
   it('maps data/connector states to Chinese', () => {
+    expect(stateZh('queued')).toBe('等待同步')
+    expect(stateZh('running')).toBe('同步中')
     expect(stateZh('ready')).toBe('就绪')
     expect(stateZh('error')).toBe('错误')
     expect(stateZh('no_data')).toBe('无数据')

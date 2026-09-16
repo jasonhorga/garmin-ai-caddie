@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-15 19:36 UTC
+**Updated:** 2026-09-16 12:18 UTC
 **Branch:** `integration/v2` (GitHub default; Build 63 product source
 `d8769916d4b7ea1fc8b2bdcfb151a67f944a6eb0`; internal-release source
 `d8769916d4b7ea1fc8b2bdcfb151a67f944a6eb0`; PERF-STARTUP backend candidate
@@ -550,7 +550,35 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`PHONE-UX5` — 球场目录、首屏地图、障碍标注与球童上下文修正** (`evidence-open`)
+**`NET-PRIORITY` — 全链路网络调度、首屏地图与 Garmin 重连性能** (`in-progress`)
+
+本轮承接用户反馈：球场地图、历史成绩、重新连接 Garmin 和开始一场都可能长时间空白或互相等待；黄港、天安等 Garmin App 已有中文名，但本产品仍显示英文。目标是建立明确的 P0/P1/P2 生命周期，让本地可用内容和当前洞地图先呈现，历史、同步、完整 18 洞资源、球童建议等后台任务不再阻塞彼此；同时只使用 Garmin 原始权威本地化字段，不添加手填翻译或别名。
+
+**Durable execution plan (2026-09-16):**
+1. 进行 homeserver 容量门禁和冷/热、loopback/公网分段测量，记录请求关联 ID、服务端阶段和客户端可见里程碑。
+2. 审计 iOS/Web/Watch 的请求依赖与取消语义，先修复串行 Garmin sync、重复 package/release 请求和首屏等待链。
+3. 审计服务端 package/history/sync 的重计算和增量边界，实施缓存复用、single-flight、后台化非关键阶段和当前洞优先响应。
+4. 核实黄港/天安原始 Garmin 快照的 localized/display/name 字段，修正字段选择并加跨三端契约测试。
+5. 在 homeserver 运行聚焦测试与分段基准；门禁通过后自动走内部 TestFlight 上传和 Apple 状态检查，实体设备耗时仍单独标记为 evidence-open。
+
+**Implementation checkpoint (2026-09-16 11:20 UTC):** the durable asynchronous Garmin job
+contract is present in the backend, iOS, and Web paths; the old
+`fast_start`/`first_hole_fast` compatibility path is being removed from fixtures and tests as well.
+The owner job-status route now has an explicit admin policy, member/owner tests use isolated durable
+stores and poll terminal state, and iOS requires the new job fields instead of decoding the retired
+terminal/409 payload. The remote focused backend contract set is green (`36 passed, 2 subtests`).
+Remaining in this slice: full source verification, exact-SHA Source/Native gates, one Opus read-only
+review, and the automatic internal TestFlight upload/status check. No production service has changed.
+
+**Owner decisions (2026-09-16):**
+- 并行可以用于独立的网络/计算阶段，但必须有界、可取消、可观测；不得用无界并发把首屏和后台任务互相争抢。
+- 不新增“下载全部地图离线存储”方案。本轮保留当前精确资源按需/后台准备能力。
+- 不保留旧的“一洞 fast-start”或双协议兼容路径作为产品行为。新路径直接返回完整 18 洞事实，策略、统计、天气和精确资源作为独立增强阶段；迁移完成后删除旧参数/旧分支及其测试，不靠兼容层掩盖错误。
+- Garmin 同步必须触发即返回 job 状态，历史/统计/球场准备各自独立；三端只消费后端的 Garmin 权威球场名称。
+- 本轮实现结束后只做一次 homeserver Claude Opus 5 `xhigh` 只读审查，不再调用 Fable。
+
+**Previous slice:** `PHONE-UX5` remains `evidence-open` for physical name parity and
+interaction evidence; its source and Build 63 release evidence remain valid.
 
 本轮承接 IMG_8035–8040 反馈：所有球场名称统一中文优先；地图事实先于球童建议呈现；障碍物
 轮廓保持细线、标签避开障碍并在缩放后重新定位；移除无必要的果岭/沙坑纹理；缩短洞号切换的
@@ -1418,6 +1446,7 @@ project-level task list; historical plans are reference material.
 | `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Source CI `34663338160` and exact-SHA live Native Mobile CI `34663501590` at `70480f99` passed, including iOS/Watch builds, real iOS journey, dedicated hazard/caddie captures, Watch runtime screenshots, evidence and secret scans. Internal TestFlight CD `34666136884` uploaded Build 57; ASC read-only run `34666574292` confirmed `VALID` and `IN_BETA_TESTING`. Physical iPhone/Watch validation of map panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation remains open. |
 | `PHONE-UX3` | `evidence-open` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present at exact source `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; homeserver focused suite `296 passed, 2 skipped`, Python compileall, Source CI `34709596756`, and Native `34709800015` (full live iOS/Watch evidence) pass. Internal TestFlight CD `34712702517` uploaded Build 58; ASC run `34713289501` confirmed it is processed and in the internal group. Remaining evidence is physical iPhone/Watch verification of real-time panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation. |
 | `PERF-STARTUP` | `evidence-open` | Reduce complete-round startup latency without storing every course map offline: reuse server decision/package work, connect existing stats warm-up, keep full 18-hole facts while prioritizing the active hole on phone, and use bounded Watch topo concurrency with on-demand green detail. | Implementation and remote focused suite (`334 passed, 2 skipped`) are green; Python compileall and diff-check pass. Source CI `34757661927`, exact-SHA live Native Mobile CI `34759807648`, and internal TestFlight CD `34763656027` are green. Build 59 is Apple `VALID`/`IN_BETA_TESTING` and visible in the internal group; physical iPhone/Watch interaction and Garmin reconnect remain open. |
+| `NET-PRIORITY` | `in-progress` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Pending homeserver timing matrix, dependency audit, implementation, focused tests, and internal release evidence. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `d8769916` removes the user-facing manual course-name entry and completes the shared Garmin identity contract. Source CI `35005531664`, Native Mobile CI `35005819951`, TestFlight CD `35013065767`, and Apple read-only check `35014393530` are green; Build 63 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |

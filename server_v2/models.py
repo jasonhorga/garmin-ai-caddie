@@ -18,7 +18,7 @@ def _reject_oversized(value: Any, *, label: str, max_bytes: int = 131_072) -> An
 DataQualityState = Literal["good", "partial", "missing"]
 ScoreClass = Literal["eagle", "birdie", "par", "bogey", "double", "missing"]
 DistributionClass = Literal["eagle", "birdie", "bogey", "double"]
-ConnectorState = Literal["ready", "no_data", "running", "reauth_required", "error", "not_available"]
+ConnectorState = Literal["queued", "ready", "no_data", "running", "reauth_required", "error", "not_available"]
 ConnectorName = Literal["garmin_cn_web_session", "garmin_oauth_feasibility"]
 ConnectorNextAction = Literal[
     "connect_garmin",
@@ -637,6 +637,12 @@ class SyncRunResponse(BaseModel):
     schema_: Literal["ai-caddie-sync-run-v2"] = Field(alias="schema")
     connector: Literal["garmin_cn_web_session"]
     state: ConnectorState
+    jobId: str
+    statusUrl: str
+    createdAt: str
+    updatedAt: str
+    startedAt: str | None = None
+    completedAt: str | None = None
     detail: str
     reauthRequired: bool
     errorCode: str | None
@@ -1028,10 +1034,6 @@ class LiveRoundPackageResponse(BaseModel):
     playerProfile: dict[str, Any]
     course: dict[str, Any]
     holes: list[dict[str, Any]]
-    # A first-hole fast-start response deliberately contains only the priority hole. Keep the
-    # hand-off state on the wire so mobile clients never infer "end of round" from a short package.
-    startMode: Literal["first_hole_fast", "full"] = "full"
-    fullCoursePending: bool = False
     coursePrep: dict[str, Any] | None = None
     geometryCoverage: dict[str, Any]
     readinessChecks: list[dict[str, Any]] = Field(default_factory=list)

@@ -436,6 +436,13 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Login completion, foreground refresh and the manual button share one in-flight operation.
     /// This prevents duplicate Garmin jobs and avoids reporting a coalesced call as a failure.
     private var garminSyncTask: Task<GarminSyncOutcome, Never>?
+    /// Polling the durable server job is its own cancellable lifecycle. It is kept separate from
+    /// post-sync catalogue/history refreshes so a slow provider job never owns the home screen.
+    private var garminSyncMonitorTask: Task<GarminSyncRunResponse, Error>?
+    /// Local event upload and post-sync read models can continue independently of the Garmin job.
+    /// Both are cancelled on account change/forget so a late response cannot repaint another user.
+    private var garminLocalUploadTask: Task<Void, Never>?
+    private var garminPostSyncRefreshTasks: [Task<Void, Never>] = []
     /// A cancelled/account-scoped sync must not clear or repaint a newer account's operation when
     /// its URLSession continuation eventually unwinds.
     private var garminSyncOperationGeneration = 0
@@ -496,15 +503,6 @@ public final class LiveRoundAppModel: ObservableObject {
     private var deferredRoundFinishGeneration: UUID?
     private var deferredRoundFinishRetryRequested = false
     private var offlineCourseDownloadTask: Task<Void, Never>?
-    /// A fast-start response contains only the first playable hole. This task replaces it with the
-    /// complete round package after the first map is on screen; it is cancelled whenever the player
-    /// changes course/round so a stale response cannot overwrite a newer selection.
-    private var fastStartCourseRefreshTask: Task<Void, Never>?
-    /// Keep the refresh task handle for test/lifecycle synchronization while separately tracking
-    /// whether a request/retry loop is still active. A foreground transition can restart an
-    /// exhausted loop without duplicating one that is already in flight.
-    private var fastStartCourseRefreshInFlight = false
-    private var fastStartCourseRefreshGeneration = UUID()
     private var prepCourseDownloadTask: Task<Void, Never>?
     private var prepCourseDownloadGeneration: UUID?
     private var activePrepCourseDownloadID: String?
@@ -522,13 +520,6 @@ public final class LiveRoundAppModel: ObservableObject {
     /// invent a demo round: with no configured id bootstrap lands on the normal home package.
     private let preferredRoundId: String?
     private let offlineGeometryRetryDelaysNanoseconds: [UInt64]
-    /// First element is the initial post-activation delay; following elements are bounded retry
-    /// delays. Tests inject zeroes so transient failures can be exercised without wall-clock waits.
-    private let fastStartCourseRefreshDelaysNanoseconds: [UInt64]
-    /// The first-hole-only response is retained as an explicit migration/experiment path, but is
-    /// disabled for normal starts. The owner asked to restore the previous complete-package loading
-    /// flow while we measure its real bottlenecks before choosing another startup strategy.
-    private let fastStartCourseLoadingEnabled: Bool
     /// Keeps the Apple-session observer alive so the watch's standalone-sync auth tracks sign-in /
     /// refresh / sign-out (round-13 watch-auth).
     private var sessionCancellables = Set<AnyCancellable>()
@@ -544,12 +535,7 @@ public final class LiveRoundAppModel: ObservableObject {
             2_000_000_000, 3_000_000_000, 5_000_000_000, 8_000_000_000,
             12_000_000_000, 20_000_000_000, 30_000_000_000, 45_000_000_000,
             60_000_000_000, 60_000_000_000,
-        ],
-        fastStartCourseRefreshDelaysNanoseconds: [UInt64] = [
-            1_500_000_000, 2_000_000_000, 5_000_000_000, 10_000_000_000,
-            20_000_000_000,
-        ],
-        fastStartCourseLoadingEnabled: Bool = false
+        ]
     ) {
         self.init(
             offlineStore: offlineStore,
@@ -559,9 +545,7 @@ public final class LiveRoundAppModel: ObservableObject {
             garminSessionStore: garminSessionStore,
             preferredRoundId: preferredRoundId,
             syncClient: syncClient,
-            offlineGeometryRetryDelaysNanoseconds: offlineGeometryRetryDelaysNanoseconds,
-            fastStartCourseRefreshDelaysNanoseconds: fastStartCourseRefreshDelaysNanoseconds,
-            fastStartCourseLoadingEnabled: fastStartCourseLoadingEnabled
+            offlineGeometryRetryDelaysNanoseconds: offlineGeometryRetryDelaysNanoseconds
         )
     }
 
@@ -577,12 +561,7 @@ public final class LiveRoundAppModel: ObservableObject {
             2_000_000_000, 3_000_000_000, 5_000_000_000, 8_000_000_000,
             12_000_000_000, 20_000_000_000, 30_000_000_000, 45_000_000_000,
             60_000_000_000, 60_000_000_000,
-        ],
-        fastStartCourseRefreshDelaysNanoseconds: [UInt64] = [
-            1_500_000_000, 2_000_000_000, 5_000_000_000, 10_000_000_000,
-            20_000_000_000,
-        ],
-        fastStartCourseLoadingEnabled: Bool = false
+        ]
     ) {
         let resolvedAPIBaseURL = apiBaseURL ?? Self.defaultAPIBaseURL()
         let resolvedAdminToken = adminToken ?? Self.defaultAdminToken()
@@ -596,8 +575,6 @@ public final class LiveRoundAppModel: ObservableObject {
             ? requestedRoundId
             : Self.configuredLiveRoundId()
         self.offlineGeometryRetryDelaysNanoseconds = offlineGeometryRetryDelaysNanoseconds
-        self.fastStartCourseRefreshDelaysNanoseconds = fastStartCourseRefreshDelaysNanoseconds
-        self.fastStartCourseLoadingEnabled = fastStartCourseLoadingEnabled
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
         self.mediaUploadClient = resolvedAPIBaseURL.map {
             MediaUploadClient(baseURL: $0, adminToken: resolvedAdminToken)
@@ -624,13 +601,6 @@ public final class LiveRoundAppModel: ObservableObject {
         observeSessionForWatch()
         restorePrepCourseDownloadsFromDisk()
         refreshDownloadedCourseOptions()
-    }
-
-    deinit {
-        // A fast-start refresh is deliberately detached from the first-hole view so the remaining
-        // holes can arrive while the player is already playing. Explicit cancellation is required
-        // because dropping a Task handle does not cancel the underlying URLSession request.
-        fastStartCourseRefreshTask?.cancel()
     }
 
     /// round-12 P3.4 (Watch standalone): hand the watch this phone's backend config so a standalone
@@ -682,7 +652,6 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
-        cancelFastStartCourseRefresh()
         pausePrepCourseDownload()
         watchFinishedRoundReconciliationTask?.cancel()
         watchFinishedRoundReconciliationTask = nil
@@ -692,8 +661,7 @@ public final class LiveRoundAppModel: ObservableObject {
         deferredRoundFinishTask = nil
         deferredRoundFinishGeneration = nil
         deferredRoundFinishRetryRequested = false
-        garminSyncTask?.cancel()
-        garminSyncTask = nil
+        cancelGarminLifecycleTasks()
         garminSyncOperationGeneration += 1
         garminSyncPresentationLockedUntil = nil
         garminSyncPresentationWatermark = nil
@@ -722,6 +690,19 @@ public final class LiveRoundAppModel: ObservableObject {
         restorePrepCourseDownloadsFromDisk()
         refreshDownloadedCourseOptions()
         syncConfigToWatch()
+    }
+
+    /// Cancel every account-scoped Garmin task before rebinding local state. URLSession cancellation
+    /// is cooperative, so the operation generation checks below remain the final stale-write guard.
+    private func cancelGarminLifecycleTasks() {
+        garminSyncTask?.cancel()
+        garminSyncTask = nil
+        garminSyncMonitorTask?.cancel()
+        garminSyncMonitorTask = nil
+        garminLocalUploadTask?.cancel()
+        garminLocalUploadTask = nil
+        garminPostSyncRefreshTasks.forEach { $0.cancel() }
+        garminPostSyncRefreshTasks.removeAll()
     }
 
     public func bootstrap() async {
@@ -1033,7 +1014,6 @@ public final class LiveRoundAppModel: ObservableObject {
         roundPreparationToken = token
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
-        cancelFastStartCourseRefresh()
         deferredOfflineCourseDownloadRevalidation = nil
         isPreparingRound = true
         return token
@@ -1114,24 +1094,6 @@ public final class LiveRoundAppModel: ObservableObject {
         _ = rawName
     }
 
-    private func applyingSelectedCourseDisplayName(
-        to package: LiveRoundPackage
-    ) -> LiveRoundPackage {
-        // Never let a local selection/cache alias replace the backend-owned
-        // course identity. Legacy packages keep their own provider spelling.
-        return package
-    }
-
-    private func applyingLegacyCourseDisplayName(
-        _ fallbackName: String?,
-        to package: LiveRoundPackage
-    ) -> LiveRoundPackage {
-        // A legacy fallback may be stale or manually entered. Preserve the
-        // package's own provider name instead of introducing a fourth authority.
-        _ = fallbackName
-        return package
-    }
-
     public func prepareCourseRound(globalId: Int, roundId: String, teeBox: String, nine: String) async {
         let requestedRoundId = roundId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requestedRoundId.isEmpty else {
@@ -1173,10 +1135,10 @@ public final class LiveRoundAppModel: ObservableObject {
                template.hasCompleteOfflineCoursePrep,
                offlineStore.hasCourseTopoImages(for: template),
                template.hasCaddieContextForEveryHole {
-                let offlinePackage = applyingSelectedCourseDisplayName(to: template.rebasedForOfflineStart(
+                let offlinePackage = template.rebasedForOfflineStart(
                     roundId: requestedRoundId,
                     generatedAt: preparedAt
-                ))
+                )
                 let persisted = try offlineStore.saveRoundPackage(
                     offlinePackage,
                     allowHoleCountDecrease: isIntentionalHoleSetChange
@@ -1196,14 +1158,12 @@ public final class LiveRoundAppModel: ObservableObject {
                 nine: nine,
                 capturedAt: preparedAt,
                 preparationToken: preparationToken,
-                fastStart: isNewRound && fastStartCourseLoadingEnabled
             )
             recordUITestLatency(
                 "course-start.fetch.end globalId=\(globalId) found=\(fetched != nil)"
             )
             guard isCurrentRoundPreparation(preparationToken) else { return }
             if let remotePackage = fetched {
-                let remotePackage = applyingSelectedCourseDisplayName(to: remotePackage)
                 // Warm only the first playable topo while the package is being persisted and the
                 // live view is entering. This shares TopoHoleImageStore's in-flight request with
                 // CurrentHoleView; it is a transient cache, not a full-course offline download.
@@ -1220,14 +1180,6 @@ public final class LiveRoundAppModel: ObservableObject {
                 try activatePackage(persisted, status: "球场已就绪")
                 recordUITestLatency("course-start.activate.end globalId=\(globalId)")
                 if isNewRound {
-                    if fastStartCourseLoadingEnabled, persisted.holes.count <= 1 {
-                        scheduleFastStartCourseRefresh(
-                            globalId: globalId,
-                            roundId: requestedRoundId,
-                            teeBox: teeBox,
-                            nine: nine
-                        )
-                    }
                     recordUITestLatency("course-start.signal.begin globalId=\(globalId)")
                     signalFreshRoundEntry(cacheOfflineAssets: true)
                     recordUITestLatency("course-start.signal.end globalId=\(globalId)")
@@ -1239,7 +1191,6 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
-                let cachedPackage = applyingSelectedCourseDisplayName(to: cachedPackage)
                 // Persist the active-round pointer for the offline/cached start too, so a round
                 // started without network still resumes on relaunch (continue card survives quit).
                 let persisted = try offlineStore.saveRoundPackage(
@@ -1257,10 +1208,10 @@ public final class LiveRoundAppModel: ObservableObject {
                 teeBox: teeBox,
                 nine: nine
             ) {
-                let offlinePackage = applyingSelectedCourseDisplayName(to: template.rebasedForOfflineStart(
+                let offlinePackage = template.rebasedForOfflineStart(
                     roundId: requestedRoundId,
                     generatedAt: preparedAt
-                ))
+                )
                 let persisted = try offlineStore.saveRoundPackage(
                     offlinePackage,
                     allowHoleCountDecrease: isIntentionalHoleSetChange
@@ -1278,133 +1229,6 @@ public final class LiveRoundAppModel: ObservableObject {
             AICaddieLog.network.error("Course package prepare failed: \(String(describing: error), privacy: .public)")
             syncStatus = "开始失败,稍后重试"
         }
-    }
-
-    /// Replace the one-hole fast-start package as soon as it is activated. The refresh intentionally
-    /// does not wait for precise topology: the existing per-hole installer owns those assets, while
-    /// this request restores scorecard/navigation metadata while the first hole is on screen.
-    private func scheduleFastStartCourseRefresh(
-        globalId: Int,
-        roundId: String,
-        teeBox: String,
-        nine: String
-    ) {
-        guard !fastStartCourseRefreshInFlight else { return }
-        fastStartCourseRefreshTask?.cancel()
-        guard let syncClient else { return }
-        let offlineStore = self.offlineStore
-        let generation = UUID()
-        fastStartCourseRefreshGeneration = generation
-        fastStartCourseRefreshInFlight = true
-        let delays = fastStartCourseRefreshDelaysNanoseconds.isEmpty
-            ? [UInt64(0)]
-            : fastStartCourseRefreshDelaysNanoseconds
-        fastStartCourseRefreshTask = Task { @MainActor [weak self, syncClient, offlineStore] in
-            defer {
-                // A newer round may have replaced this task. Its completion must not clear the new
-                // task's in-flight marker or make foreground recovery skip a needed retry.
-                if let self, self.fastStartCourseRefreshGeneration == generation {
-                    self.fastStartCourseRefreshInFlight = false
-                }
-            }
-
-            for (attempt, delay) in delays.enumerated() {
-                do {
-                    try await Task.sleep(nanoseconds: delay)
-                    guard !Task.isCancelled, let self,
-                          self.fastStartCourseRefreshGeneration == generation,
-                          self.liveRoundState?.roundId == roundId,
-                          self.package?.course.globalId == globalId else { return }
-
-                    let complete = try await syncClient.fetchCoursePackage(
-                        globalId: globalId,
-                        roundId: roundId,
-                        teeBox: teeBox,
-                        nine: nine,
-                        capturedAt: Date(),
-                        ensureGeometry: false,
-                        backgroundGeometry: true,
-                        includeEventCursor: false,
-                        fastStart: false
-                    )
-                    guard !Task.isCancelled,
-                          self.fastStartCourseRefreshGeneration == generation,
-                          self.liveRoundState?.roundId == roundId,
-                          self.package?.course.globalId == globalId else { return }
-
-                    // The complete response is allowed to carry the server's lightweight first-hole
-                    // seed. Merge any precise prep that the live view already retained before
-                    // publishing it, so the handoff cannot downgrade the visible map or caddie state.
-                    let stable = self.mergingForegroundPrep(
-                        in: self.applyingSelectedCourseDisplayName(to: complete)
-                    )
-                    // A response that is still one hole is a transient server state, not a valid
-                    // scorecard authority. Continue through the bounded retry schedule instead of
-                    // stranding the player at hole 1.
-                    guard stable.holes.count > 1 else {
-                        AICaddieLog.network.info(
-                            "Fast-start full package still partial (attempt \(attempt + 1, privacy: .public)/\(delays.count, privacy: .public))"
-                        )
-                        continue
-                    }
-
-                    let persisted = try offlineStore.saveRoundPackage(stable)
-                    let activeHole = self.liveRoundState?.activeHole
-                    self.package = persisted
-                    if let activeHole, persisted.holes.contains(where: { $0.number == activeHole }) {
-                        try offlineStore.saveActiveHole(roundId: roundId, hole: activeHole)
-                        self.liveRoundState = try offlineStore.restoreLiveRoundState(
-                            roundId: roundId,
-                            package: persisted
-                        )
-                    }
-                    self.syncStatus = "其余球洞已在后台就绪"
-                    return
-                } catch is CancellationError {
-                    return
-                } catch {
-                    AICaddieLog.network.info(
-                        "Fast-start full package refresh attempt \(attempt + 1, privacy: .public)/\(delays.count, privacy: .public) deferred: \(String(describing: error), privacy: .public)"
-                    )
-                }
-            }
-
-            guard let self,
-                  self.fastStartCourseRefreshGeneration == generation,
-                  self.liveRoundState?.roundId == roundId,
-                  (self.package?.holes.count ?? 0) <= 1 else { return }
-            self.syncStatus = "其余球洞仍在后台准备中"
-            AICaddieLog.network.info(
-                "Fast-start full package refresh exhausted retries for \(globalId, privacy: .public)/\(roundId, privacy: .public)"
-            )
-        }
-    }
-
-    /// Cancel and invalidate every outstanding fast-start request before the model changes account
-    /// or leaves live play. URLSession cancellation is cooperative; the generation guard closes the
-    /// window where a late response could otherwise publish into a newly bound round.
-    private func cancelFastStartCourseRefresh() {
-        fastStartCourseRefreshTask?.cancel()
-        fastStartCourseRefreshTask = nil
-        fastStartCourseRefreshGeneration = UUID()
-        fastStartCourseRefreshInFlight = false
-    }
-
-    /// Restart an exhausted fast-start loop when the app becomes active or the player advances.
-    /// The current one-hole package remains playable while this task runs in the background.
-    private func retryPendingFastStartCourseRefreshIfNeeded() {
-        guard !fastStartCourseRefreshInFlight,
-              let current = package,
-              current.holes.count <= 1,
-              current.isFullCoursePending,
-              let live = liveRoundState,
-              live.roundId == current.roundId else { return }
-        scheduleFastStartCourseRefresh(
-            globalId: current.course.globalId,
-            roundId: current.roundId,
-            teeBox: current.course.teeBox,
-            nine: current.nine ?? "all"
-        )
     }
 
     /// After a fresh round is prepared, point the UI at its first hole so it enters the live screen.
@@ -1447,8 +1271,8 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     /// `CurrentHoleView` calls this after its initial map and caddie request have settled. The cache
-    /// pipeline starts here; the fast-start package refresh is already running independently so the
-    /// scorecard can gain the remaining holes without delaying the first playable facts.
+    /// pipeline starts here so precise assets can be retained without delaying the first playable
+    /// facts.
     func liveHoleInitialLoadDidFinish() {
         guard let revalidatePackage = deferredOfflineCourseDownloadRevalidation else { return }
         deferredOfflineCourseDownloadRevalidation = nil
@@ -1457,7 +1281,6 @@ public final class LiveRoundAppModel: ObservableObject {
         )
         // This pipeline downloads every topo itself. Running the server-wide prewarmer at the same
         // time makes both jobs parse/render the same 18 holes and more than doubles server work.
-        retryPendingFastStartCourseRefreshIfNeeded()
         beginOfflineCourseDownload(revalidatePackage: revalidatePackage)
     }
 
@@ -1468,30 +1291,12 @@ public final class LiveRoundAppModel: ObservableObject {
         guard let initial = package, let syncClient else { return }
         let expectedRoundId = initial.roundId
         let expectedGlobalId = initial.course.globalId
-        let expectedTeeBox = initial.course.teeBox
-        let expectedNine = initial.nine ?? "all"
-        // An explicit same-round refresh supersedes any one-shot fresh-entry release still pending.
+        // An explicit same-round refresh supersedes any earlier fresh-entry release still pending.
         deferredOfflineCourseDownloadRevalidation = nil
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = Task { @MainActor [weak self, syncClient, initial] in
             guard let self else { return }
-            // Fast-start intentionally publishes one hole first. Never let the all-hole installer
-            // capture that transient package: wait for the refresh task, then verify the live model
-            // still belongs to this round. A failed/short refresh gets one explicit full-package
-            // request so a stale one-hole snapshot cannot strand the prep queue at 0/N forever.
-            let downloadSnapshot = await self.completeCourseSnapshotForOfflineDownload(
-                initial: initial,
-                expectedRoundId: expectedRoundId,
-                expectedGlobalId: expectedGlobalId,
-                teeBox: expectedTeeBox,
-                nine: expectedNine,
-                using: syncClient
-            )
-            guard let downloadSnapshot else {
-                self.syncStatus = "其余球洞仍在后台准备中"
-                self.startPrepCourseDownloadQueueIfNeeded()
-                return
-            }
+            let downloadSnapshot = initial
             guard !Task.isCancelled,
                   self.liveRoundState?.roundId == expectedRoundId,
                   self.package?.course.globalId == expectedGlobalId else { return }
@@ -1518,90 +1323,12 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    /// Resolve the complete package before starting the all-hole cache pipeline. The fast-start
-    /// response is deliberately allowed to remain on screen, but it is not a valid installer
-    /// snapshot because it contains only the first displayed hole.
-    private func completeCourseSnapshotForOfflineDownload(
-        initial: LiveRoundPackage,
-        expectedRoundId: String,
-        expectedGlobalId: Int,
-        teeBox: String,
-        nine: String,
-        using syncClient: SyncClient
-    ) async -> LiveRoundPackage? {
-        await fastStartCourseRefreshTask?.value
-        guard !Task.isCancelled,
-              liveRoundState?.roundId == expectedRoundId,
-              package?.course.globalId == expectedGlobalId else { return nil }
-        if let current = package, current.roundId == expectedRoundId, current.holes.count > 1 {
-            return current
-        }
-
-        // The background refresh may have failed or may have been served a cached fast response.
-        // Make one bounded, explicit full request. It is idempotent and normally hits the server's
-        // completed release cache, while preserving the first-hole UI if the network is unavailable.
-        do {
-            let complete = try await syncClient.fetchCoursePackage(
-                globalId: expectedGlobalId,
-                roundId: expectedRoundId,
-                teeBox: teeBox,
-                nine: nine,
-                capturedAt: Date(),
-                ensureGeometry: false,
-                backgroundGeometry: true,
-                includeEventCursor: false,
-                fastStart: false
-            )
-            guard !Task.isCancelled,
-                  complete.roundId == expectedRoundId,
-                  complete.course.globalId == expectedGlobalId else { return package ?? initial }
-            if complete.holes.count > initial.holes.count, complete.holes.count > 1 {
-                let stable = mergingForegroundPrep(
-                    in: applyingSelectedCourseDisplayName(to: complete)
-                )
-                let persisted = try? offlineStore.saveRoundPackage(stable)
-                guard let persisted else { return package ?? initial }
-                package = persisted
-                if let activeHole = liveRoundState?.activeHole,
-                   persisted.holes.contains(where: { $0.number == activeHole }) {
-                    try? offlineStore.saveActiveHole(roundId: expectedRoundId, hole: activeHole)
-                    liveRoundState = try? offlineStore.restoreLiveRoundState(
-                        roundId: expectedRoundId,
-                        package: persisted
-                    )
-                }
-                return persisted
-            }
-            // A full request that still contains one hole is a transient server response, not a
-            // valid all-hole installer snapshot. Returning it here would turn the durable progress
-            // row into a permanent 0/1 course. Leave the playable seed in place and let the next
-            // foreground pass retry the completion request.
-            if initial.holes.count <= 1 {
-                AICaddieLog.network.info(
-                    "Full course snapshot still partial; deferring offline install for \(expectedGlobalId, privacy: .public)"
-                )
-                return nil
-            }
-        } catch is CancellationError {
-            return nil
-        } catch {
-            AICaddieLog.network.info(
-                "Full course snapshot deferred: \(String(describing: error), privacy: .public)"
-            )
-        }
-        return package ?? initial
-    }
-
     #if DEBUG
     /// Test-only synchronization point. Course preparation intentionally returns before the
     /// complete-course cache finishes, but a test must not let that background work escape into
     /// the next test's process-wide URLProtocol handler.
     func waitForOfflineCourseDownloadForTesting() async {
         await offlineCourseDownloadTask?.value
-        // Fast-start package replacement is intentionally separate from the topo/prep pipeline, but
-        // it still owns a URLSession request. Keep it inside the test's lifetime so a later test
-        // cannot observe the previous model's request through the process-wide URLProtocol stub.
-        await fastStartCourseRefreshTask?.value
     }
 
     /// Test-only synchronization point for the app-owned prep queue. Production views never await
@@ -1672,7 +1399,7 @@ public final class LiveRoundAppModel: ObservableObject {
             return nil
         }
         guard remote.roundId == cached.roundId, !remote.holes.isEmpty else { return nil }
-        let remoteWithStableName = applyingLegacyCourseDisplayName(cached.course.name, to: remote)
+        let remoteWithStableName = remote
 
         var prepByHole = Dictionary(
             uniqueKeysWithValues: (remoteWithStableName.coursePrep?.holes ?? []).map { ($0.hole, $0) }
@@ -1772,13 +1499,6 @@ public final class LiveRoundAppModel: ObservableObject {
             holes: merged.values.sorted { $0.hole < $1.hole },
             missingData: base?.missingData ?? currentPrep.missingData
         ))
-    }
-
-    /// Package handoff helper used by the fast-start refresh and the durable installer. Keeping it
-    /// separate makes the downgrade guard explicit at every boundary where a one-hole seed can be
-    /// replaced by a server response.
-    private func mergingForegroundPrep(in candidate: LiveRoundPackage) -> LiveRoundPackage {
-        preservingForegroundPrecisePrep(in: candidate)
     }
 
     /// Course prep cost grows non-linearly when one request parses all 18 large meshes. Keep the
@@ -2595,7 +2315,6 @@ public final class LiveRoundAppModel: ObservableObject {
             )
             guard isCurrentRoundPreparation(preparationToken) else { return }
             if let remotePackage = fetched {
-                let remotePackage = applyingSelectedCourseDisplayName(to: remotePackage)
                 let persisted = try offlineStore.saveRoundPackage(
                     remotePackage,
                     allowHoleCountDecrease: !isNewRound
@@ -2609,7 +2328,6 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
-                let cachedPackage = applyingSelectedCourseDisplayName(to: cachedPackage)
                 // Persist the active-round pointer for the offline/cached start too, so a round
                 // started without network still resumes on relaunch (continue card survives quit).
                 let persisted = try offlineStore.saveRoundPackage(
@@ -2705,7 +2423,6 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func leaveSealedRoundLocally(package sealedPackage: LiveRoundPackage) throws {
-        cancelFastStartCourseRefresh()
         if let cachedHome = try offlineStore.loadHomePackage() {
             try activateHomePackage(cachedHome, status: "本场已保存 · 后台同步中")
         } else {
@@ -2822,7 +2539,6 @@ public final class LiveRoundAppModel: ObservableObject {
         guard try offlineStore.loadPendingMedia(roundId: roundId).isEmpty else {
             throw LiveRoundFinishError.pendingMedia
         }
-        cancelFastStartCourseRefresh()
         let homePackage = package
         watchRoundStartRetryTasks.removeValue(forKey: roundId)?.cancel()
         try offlineStore.discardRound(roundId: roundId)
@@ -3050,7 +2766,6 @@ public final class LiveRoundAppModel: ObservableObject {
     /// the Watch only after the matching phone data has been removed.
     public func discardActiveRound() {
         guard let package, liveRoundState?.roundId == package.roundId else { return }
-        cancelFastStartCourseRefresh()
         watchRoundStartRetryTasks.removeValue(forKey: package.roundId)?.cancel()
         do {
             try offlineStore.discardRound(roundId: package.roundId)
@@ -3089,7 +2804,6 @@ public final class LiveRoundAppModel: ObservableObject {
                     watchBridge.makeWatchRoundSeedPayload(package: package, activeHole: hole)
                 )
             }
-            retryPendingFastStartCourseRefreshIfNeeded()
         } catch {
             AICaddieLog.storage.error("Active-hole save failed: \(String(describing: error), privacy: .public)")
             syncStatus = "当前洞保存失败,请重试"
@@ -3145,15 +2859,9 @@ public final class LiveRoundAppModel: ObservableObject {
         endPrepBackgroundTask()
         resumePrepCourseDownloads(retryFailed: true)
         retryDeferredRoundFinishes()
-        // A fast-start course can remain on its playable one-hole seed when the server is still
-        // materializing the full package. Retry that completion on the next foreground, but never
-        // replace a multi-hole package or block the foreground event uploader on the request.
-        if !isPreparingRound,
-           liveRoundState != nil,
-           (package?.holes.count ?? 0) <= 1 {
-            retryPendingFastStartCourseRefreshIfNeeded()
-            beginOfflineCourseDownload()
-        }
+        // Retry local course asset preparation on the next foreground, but never block the event
+        // uploader on that background work.
+        if !isPreparingRound, liveRoundState != nil { beginOfflineCourseDownload() }
         Task { @MainActor [weak self] in
             await self?.autoSyncGarminIfNeeded()
         }
@@ -3229,8 +2937,16 @@ public final class LiveRoundAppModel: ObservableObject {
             }
         }
 
+        // Local phone/watch events are already durable. Upload them in a separate cancellable task;
+        // a slow event/media request must never delay the Garmin POST or its job monitor.
         if liveRoundState != nil || pendingEventCount > 0 {
-            await syncPendingEvents()
+            garminLocalUploadTask?.cancel()
+            garminLocalUploadTask = Task { @MainActor [weak self] in
+                guard let self,
+                      self.garminSyncOperationGeneration == operationGeneration,
+                      !Task.isCancelled else { return }
+                await self.syncPendingEvents()
+            }
         } else {
             localEventUploadStatus = "没有待上传的本机记录"
         }
@@ -3243,13 +2959,27 @@ public final class LiveRoundAppModel: ObservableObject {
             return .failed
         }
         do {
-            let result = try await syncClient.runGarminSync(withShots: true)
+            var result = try await syncClient.runGarminSync(withShots: true)
             guard operationGeneration == garminSyncOperationGeneration,
                   !Task.isCancelled else {
                 if operationGeneration == garminSyncOperationGeneration {
                     garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
                 }
                 return .failed
+            }
+            if result.state == "queued" || result.state == "running" {
+                // The POST only enqueues work. The monitor owns short, cancellable status traffic;
+                // provider work stays on the server and never blocks local course/history content.
+                let monitor = Task { try await syncClient.waitForGarminSyncJob(result) }
+                garminSyncMonitorTask = monitor
+                defer {
+                    if operationGeneration == garminSyncOperationGeneration {
+                        garminSyncMonitorTask = nil
+                    }
+                }
+                result = try await monitor.value
+                guard operationGeneration == garminSyncOperationGeneration,
+                      !Task.isCancelled else { return .failed }
             }
             if result.reauthRequired || result.state == "reauth_required" {
                 clearStoredGarminSessionAfterAuthFailure()
@@ -3264,7 +2994,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 garminSyncPresentationWatermark = Date()
                 return .inProgress
             }
-            if result.state == "running" || result.state == "syncing" {
+            if result.state == "queued" || result.state == "running" {
                 garminConnectionState = hadVerifiedGarminSession ? .syncing : .verifying
                 garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
                 garminSyncPresentationWatermark = Date()
@@ -3277,19 +3007,13 @@ public final class LiveRoundAppModel: ObservableObject {
                 return .failed
             }
 
-            await refreshCourseOptions()
-            if liveRoundState == nil, let home = await fetchHomePackage() {
-                // Keep the generic home-sync banner separate from the Garmin section. The latter is
-                // the sole owner of "Garmin 数据已更新", so the settings page cannot show two success
-                // labels while a later status poll is still resolving.
-                try? activateHomePackage(home, status: "主页数据已刷新")
-            }
-            if let bag = try? await syncClient.fetchClubBag(), bag.found {
-                let names = resolvedBagNames(bag)
-                if !names.isEmpty {
-                    ClubBagStore.saveRealBag(names)
-                }
-            }
+            // These are independent read models. Start them together and keep their writes guarded
+            // by the operation generation; a slow package or club-bag response cannot hold the
+            // terminal Garmin state hostage.
+            scheduleGarminPostSyncRefresh(
+                operationGeneration: operationGeneration,
+                syncClient: syncClient
+            )
             let refreshedStatus = try? await syncClient.fetchGarminSyncStatus()
             let completedAt = refreshedStatus?.lastRun?.updatedAt
                 .flatMap { ISO8601DateFormatter().date(from: $0) }
@@ -3311,21 +3035,6 @@ public final class LiveRoundAppModel: ObservableObject {
             garminSyncPresentationWatermark = Date()
             NotificationCenter.default.post(name: .garminDataDidRefresh, object: nil)
             return .completed
-        } catch let error as SyncClientError {
-            guard operationGeneration == garminSyncOperationGeneration else { return .failed }
-            if case .http(let status, _) = error, status == 409 {
-                garminConnectionState = hadVerifiedGarminSession ? .syncing : .verifying
-                garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
-                garminSyncPresentationWatermark = Date()
-                AICaddieLog.network.info("Garmin pull is already in progress")
-                return .inProgress
-            } else {
-                garminConnectionState = hadVerifiedGarminSession ? .syncFailed : .verificationFailed
-            }
-            garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
-            garminSyncPresentationWatermark = Date()
-            AICaddieLog.network.error("Garmin pull failed: \(String(describing: error), privacy: .public)")
-            return .failed
         } catch {
             guard operationGeneration == garminSyncOperationGeneration else { return .failed }
             garminConnectionState = hadVerifiedGarminSession ? .syncFailed : .verificationFailed
@@ -3334,6 +3043,42 @@ public final class LiveRoundAppModel: ObservableObject {
             AICaddieLog.network.error("Garmin pull failed: \(String(describing: error), privacy: .public)")
             return .failed
         }
+    }
+
+    /// Refresh course options, the cached home package, and the real club bag in parallel after a
+    /// successful Garmin job. Each request publishes independently and retains its own cancellation
+    /// handle, so a slow home package cannot delay course names or club data.
+    private func scheduleGarminPostSyncRefresh(
+        operationGeneration: Int,
+        syncClient: SyncClient
+    ) {
+        garminPostSyncRefreshTasks.forEach { $0.cancel() }
+        garminPostSyncRefreshTasks = [
+            Task { @MainActor [weak self] in
+                let options = try? await syncClient.fetchCourseOptions()
+                guard let self, !Task.isCancelled,
+                      self.garminSyncOperationGeneration == operationGeneration,
+                      let options else { return }
+                self.courseOptions = options.courses
+                self.courseOptionsRefreshSucceeded = true
+            },
+            Task { @MainActor [weak self] in
+                let bag = try? await syncClient.fetchClubBag()
+                guard let self, !Task.isCancelled,
+                      self.garminSyncOperationGeneration == operationGeneration,
+                      let bag, bag.found else { return }
+                let names = self.resolvedBagNames(bag)
+                if !names.isEmpty { ClubBagStore.saveRealBag(names) }
+            },
+            Task { @MainActor [weak self] in
+                guard let self, self.liveRoundState == nil else { return }
+                let home = await self.fetchHomePackage()
+                guard !Task.isCancelled,
+                      self.garminSyncOperationGeneration == operationGeneration,
+                      self.liveRoundState == nil, let home else { return }
+                try? self.activateHomePackage(home, status: "主页数据已刷新")
+            },
+        ]
     }
 
     private func hasVerifiedGarminSession() -> Bool {
@@ -3352,8 +3097,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// The account screen owns the explicit Keychain delete gesture; this method reconciles the
     /// model immediately so every other surface stops presenting the old connection in the same run.
     public func didForgetGarminSession() {
-        garminSyncTask?.cancel()
-        garminSyncTask = nil
+        cancelGarminLifecycleTasks()
         garminSyncOperationGeneration += 1
         garminSyncPresentationGeneration += 1
         garminSyncPresentationLockedUntil = nil
@@ -3737,8 +3481,7 @@ public final class LiveRoundAppModel: ObservableObject {
         teeBox: String,
         nine: String = "all",
         capturedAt: Date = Date(),
-        preparationToken: UUID? = nil,
-        fastStart: Bool = false
+        preparationToken: UUID? = nil
     ) async -> LiveRoundPackage? {
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_COURSE_PACKAGE_FAILURE"] == "1"
@@ -3758,7 +3501,7 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             // A newly generated round has no server events yet. Replay/ACK owns recovery later;
             // scanning the owner's historical event log here only delays the first-hole screen.
-            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false, fastStart: fastStart)
+            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false)
         } catch {
             AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             if preparationToken == nil || preparationToken == roundPreparationToken {
@@ -4171,7 +3914,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 backgroundGeometry: true,
                 includeEventCursor: false
             )
-            let canonicalFetched = applyingLegacyCourseDisplayName(record.course.name, to: fetched)
+            let canonicalFetched = fetched
             guard !Task.isCancelled,
                   prepCourseDownloadGeneration == generation else { throw CancellationError() }
             if courseInstallBackGlobalId(for: canonicalFetched) != nil {
@@ -4442,7 +4185,6 @@ public final class LiveRoundAppModel: ObservableObject {
     /// marking an active round — liveRoundState stays nil (no 进行中 card) and it is not the
     /// current-round pointer. Cached to home_package.json for offline relaunch.
     private func activateHomePackage(_ nextPackage: LiveRoundPackage, status: String) throws {
-        cancelFastStartCourseRefresh()
         package = nextPackage
         liveRoundState = nil
         startingNine = nil

@@ -48,6 +48,7 @@ import {
   generateTrendReport,
   applyMobileReconciliationSuggestions,
   fetchSyncStatus,
+  fetchGarminSyncJob,
   redactMedia,
   runGarminSync,
   saveGarminSession,
@@ -127,6 +128,7 @@ import type {
   ProductSettingsResponse,
   StatsWindow,
   SyncStatusResponse,
+  SyncRunResponse,
   WeatherSnapshotParams,
   WeatherSnapshotResponse,
   VisionConfirmationState,
@@ -222,6 +224,10 @@ export default function App() {
   const adminTokenRefreshTimer = useRef<number | null>(null)
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
+  const syncRunGeneration = useRef(0)
+  const syncRunController = useRef<AbortController | null>(null)
+  const syncRefreshController = useRef<AbortController | null>(null)
+  const sessionSaveController = useRef<AbortController | null>(null)
   const [sessionSaveState, setSessionSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null)
   // Hydrate the owner's admin token (P1-1 N2): a token carried in the URL (`?admin=<token>`, like the
@@ -246,6 +252,7 @@ export default function App() {
     }
 
     let cancelled = false
+    const controller = new AbortController()
     const bootPlayerToken = readPlayerToken()
     // currentAdminToken() reads the hydrated admin-token state, so the owner's
     // first boot fetch carries it (api.ts still auto-injects the player bearer
@@ -253,12 +260,12 @@ export default function App() {
     // present this is undefined and behavior is unchanged.
     const bootAdminToken = currentAdminToken()
 
-    fetchHistoryOverview(bootAdminToken)
+    fetchHistoryOverview(bootAdminToken, controller.signal)
       .then((data) => {
-        if (!cancelled) setOverviewState({ status: 'ready', data })
+        if (!cancelled && !controller.signal.aborted) setOverviewState({ status: 'ready', data })
       })
       .catch((error: unknown) => {
-        if (cancelled) return
+        if (cancelled || controller.signal.aborted || isAbortError(error)) return
         // An invalid/expired player link must not surface the owner recovery
         // panel — show the clean invalid-link page instead.
         if (bootPlayerToken && isUnauthorized(error)) {
@@ -272,19 +279,21 @@ export default function App() {
     // The ~11MB full statsState is NOT fetched on boot (see below) — it lazy-loads on first
     // entry to a deep analysis tab / 备战, so those pages show a brief spinner the first time.
     setHomeSummaryState({ status: 'loading' })
-    fetchHistorySummary(bootAdminToken)
+    fetchHistorySummary(bootAdminToken, controller.signal)
       .then((data) => {
-        if (!cancelled) setHomeSummaryState({ status: 'ready', data })
+        if (!cancelled && !controller.signal.aborted) setHomeSummaryState({ status: 'ready', data })
       })
       .catch((error: unknown) => {
-        if (!cancelled) setHomeSummaryState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+        if (!cancelled && !controller.signal.aborted && !isAbortError(error)) {
+          setHomeSummaryState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+        }
       })
 
     // One compact all-history payload gives the 成绩 landing its real course/club/
     // period counts without pulling the multi-megabyte full analysis response.
-    fetchMobileStats(bootAdminToken, 'all')
+    fetchMobileStats(bootAdminToken, 'all', controller.signal)
       .then((data) => {
-        if (!cancelled) setTrendsAllStats(data)
+        if (!cancelled && !controller.signal.aborted) setTrendsAllStats(data)
       })
       .catch(() => {
         // Optional landing enrichment; overview + summary remain usable.
@@ -296,24 +305,30 @@ export default function App() {
     // the compact window-aware mobile stats instead.
 
     setMobileCourseOptionsState({ status: 'loading' })
-    fetchMobileCourseOptions(bootAdminToken)
+    fetchMobileCourseOptions(bootAdminToken, controller.signal)
       .then((data) => {
-        if (!cancelled) setMobileCourseOptionsState({ status: 'ready', data })
+        if (!cancelled && !controller.signal.aborted) setMobileCourseOptionsState({ status: 'ready', data })
       })
       .catch((error: unknown) => {
-        if (!cancelled) setMobileCourseOptionsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+        if (!cancelled && !controller.signal.aborted && !isAbortError(error)) {
+          setMobileCourseOptionsState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
+        }
       })
 
-    fetchSyncStatus()
+    fetchSyncStatus(bootAdminToken, controller.signal)
       .then((data) => {
-        if (!cancelled) setSyncStatus(data)
+        if (!cancelled && !controller.signal.aborted) setSyncStatus(data)
       })
       .catch(() => {
-        if (!cancelled) setSyncStatus(null)
+        if (!cancelled && !controller.signal.aborted) setSyncStatus(null)
       })
 
     return () => {
       cancelled = true
+      controller.abort()
+      syncRunController.current?.abort()
+      syncRefreshController.current?.abort()
+      sessionSaveController.current?.abort()
       if (adminTokenRefreshTimer.current !== null) {
         window.clearTimeout(adminTokenRefreshTimer.current)
         adminTokenRefreshTimer.current = null
@@ -333,16 +348,26 @@ export default function App() {
     return error instanceof Error ? error.message : 'Unknown error'
   }
 
+  function isAbortError(error: unknown): boolean {
+    return error instanceof DOMException && error.name === 'AbortError'
+      || error instanceof Error && error.name === 'AbortError'
+  }
+
   // zh surfaces (W1b 概览/趋势) fall back to a Chinese string; legacy English panels keep errorMessage.
   function zhErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : '未知错误'
   }
 
-  async function refreshOverviewState(adminTokenOverride: string | undefined = currentAdminToken()) {
+  async function refreshOverviewState(
+    adminTokenOverride: string | undefined = currentAdminToken(),
+    signal?: AbortSignal,
+  ) {
     try {
-      const data = await fetchHistoryOverview(adminTokenOverride)
+      const data = await fetchHistoryOverview(adminTokenOverride, signal)
+      if (signal?.aborted) return
       setOverviewState({ status: 'ready', data })
     } catch (error: unknown) {
+      if (signal?.aborted || isAbortError(error)) return
       setOverviewState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
     }
   }
@@ -381,14 +406,19 @@ export default function App() {
     }
   }
 
-  async function refreshRoundsState(adminTokenOverride: string | undefined = currentAdminToken()) {
+  async function refreshRoundsState(
+    adminTokenOverride: string | undefined = currentAdminToken(),
+    signal?: AbortSignal,
+  ) {
     // Re-pull at the depth the visitor had reached so a background refresh never
     // silently re-collapses an already-expanded archive back to the first page.
     const limit = roundsFullLoaded.current ? ROUNDS_FULL_LIMIT : undefined
     try {
-      const data = await fetchHistoryRounds(adminTokenOverride, roundsFilters, limit)
+      const data = await fetchHistoryRounds(adminTokenOverride, roundsFilters, limit, signal)
+      if (signal?.aborted) return
       setRoundsState({ status: 'ready', data })
     } catch (error: unknown) {
+      if (signal?.aborted || isAbortError(error)) return
       setRoundsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
     }
   }
@@ -403,11 +433,16 @@ export default function App() {
     }
   }
 
-  async function refreshStatsState(adminTokenOverride: string | undefined = currentAdminToken()) {
+  async function refreshStatsState(
+    adminTokenOverride: string | undefined = currentAdminToken(),
+    signal?: AbortSignal,
+  ) {
     try {
-      const data = await fetchHistoryStats(adminTokenOverride)
+      const data = await fetchHistoryStats(adminTokenOverride, 'all', signal)
+      if (signal?.aborted) return
       setStatsState({ status: 'ready', data })
     } catch (error: unknown) {
+      if (signal?.aborted || isAbortError(error)) return
       setStatsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
     }
   }
@@ -422,11 +457,16 @@ export default function App() {
     }
   }
 
-  async function refreshHomeSummary(adminTokenOverride: string | undefined = currentAdminToken()) {
+  async function refreshHomeSummary(
+    adminTokenOverride: string | undefined = currentAdminToken(),
+    signal?: AbortSignal,
+  ) {
     try {
-      const data = await fetchHistorySummary(adminTokenOverride)
+      const data = await fetchHistorySummary(adminTokenOverride, signal)
+      if (signal?.aborted) return
       setHomeSummaryState({ status: 'ready', data })
     } catch (error: unknown) {
+      if (signal?.aborted || isAbortError(error)) return
       setHomeSummaryState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
     }
   }
@@ -444,13 +484,18 @@ export default function App() {
     }
   }
 
-  async function refreshTrendsState(adminTokenOverride: string | undefined = currentAdminToken()) {
+  async function refreshTrendsState(
+    adminTokenOverride: string | undefined = currentAdminToken(),
+    signal?: AbortSignal,
+  ) {
     const seq = ++trendsSeq.current
     try {
-      const data = await fetchMobileStats(adminTokenOverride, trendsWindowRef.current)
+      const data = await fetchMobileStats(adminTokenOverride, trendsWindowRef.current, signal)
       if (trendsSeq.current !== seq) return
+      if (signal?.aborted) return
       setTrendsState({ status: 'ready', data })
     } catch (error: unknown) {
+      if (signal?.aborted || isAbortError(error)) return
       if (trendsSeq.current !== seq) return
       setTrendsState((current) => (current.status === 'ready' ? current : { status: 'error', message: zhErrorMessage(error) }))
     }
@@ -464,20 +509,26 @@ export default function App() {
 
   // The all-window baseline for the trends "vs 全部" deltas. Window-independent, so it is fetched
   // once on history entry (and refreshed with the other surfaces); failures just hide the deltas.
-  async function loadTrendsAllStats(adminTokenOverride: string | undefined = currentAdminToken()) {
+  async function loadTrendsAllStats(
+    adminTokenOverride: string | undefined = currentAdminToken(),
+    signal?: AbortSignal,
+  ) {
     try {
-      setTrendsAllStats(await fetchMobileStats(adminTokenOverride, 'all'))
+      const data = await fetchMobileStats(adminTokenOverride, 'all', signal)
+      if (!signal?.aborted) setTrendsAllStats(data)
     } catch {
       // deltas are optional context — leave the baseline null on failure
     }
   }
 
-  async function loadReadinessState() {
+  async function loadReadinessState(signal?: AbortSignal) {
     setReadinessState({ status: 'loading' })
     try {
-      const data = await fetchReadiness()
+      const data = await fetchReadiness(signal)
+      if (signal?.aborted) return
       setReadinessState({ status: 'ready', data })
     } catch (error: unknown) {
+      if (signal?.aborted || isAbortError(error)) return
       setReadinessState({ status: 'error', message: errorMessage(error) })
     }
   }
@@ -492,11 +543,13 @@ export default function App() {
     }
   }
 
-  async function refreshReadinessState() {
+  async function refreshReadinessState(signal?: AbortSignal) {
     try {
-      const data = await fetchReadiness()
+      const data = await fetchReadiness(signal)
+      if (signal?.aborted) return
       setReadinessState({ status: 'ready', data })
     } catch (error: unknown) {
+      if (signal?.aborted || isAbortError(error)) return
       setReadinessState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
     }
   }
@@ -511,25 +564,34 @@ export default function App() {
     }
   }
 
-  async function refreshMobileCourseOptionsState(adminTokenOverride: string | undefined = currentAdminToken()) {
+  async function refreshMobileCourseOptionsState(
+    adminTokenOverride: string | undefined = currentAdminToken(),
+    signal?: AbortSignal,
+  ) {
     try {
-      const data = await fetchMobileCourseOptions(adminTokenOverride)
+      const data = await fetchMobileCourseOptions(adminTokenOverride, signal)
+      if (signal?.aborted) return
       setMobileCourseOptionsState({ status: 'ready', data })
     } catch (error: unknown) {
+      if (signal?.aborted || isAbortError(error)) return
       setMobileCourseOptionsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
     }
   }
 
-  function refreshLoadedHistorySurfaces(adminTokenOverride: string | undefined = currentAdminToken()) {
-    void refreshOverviewState(adminTokenOverride)
-    if (homeSummaryState.status !== 'idle') void refreshHomeSummary(adminTokenOverride)
-    if (roundsState.status !== 'idle') void refreshRoundsState(adminTokenOverride)
-    if (statsState.status !== 'idle') void refreshStatsState(adminTokenOverride)
-    if (trendsState.status !== 'idle') void refreshTrendsState(adminTokenOverride)
-    if (trendsAllStats !== null) void loadTrendsAllStats(adminTokenOverride)
-    if (readinessState.status !== 'idle') void refreshReadinessState()
-    if (mobileCourseOptionsState.status !== 'idle') void refreshMobileCourseOptionsState(adminTokenOverride)
-    if (reportIndexState.status !== 'idle') loadReportIndex()
+  async function refreshLoadedHistorySurfaces(
+    adminTokenOverride: string | undefined = currentAdminToken(),
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const tasks: Array<Promise<unknown>> = [refreshOverviewState(adminTokenOverride, signal)]
+    if (homeSummaryState.status !== 'idle') tasks.push(refreshHomeSummary(adminTokenOverride, signal))
+    if (roundsState.status !== 'idle') tasks.push(refreshRoundsState(adminTokenOverride, signal))
+    if (statsState.status !== 'idle') tasks.push(refreshStatsState(adminTokenOverride, signal))
+    if (trendsState.status !== 'idle') tasks.push(refreshTrendsState(adminTokenOverride, signal))
+    if (trendsAllStats !== null) tasks.push(loadTrendsAllStats(adminTokenOverride, signal))
+    if (readinessState.status !== 'idle') tasks.push(refreshReadinessState(signal))
+    if (mobileCourseOptionsState.status !== 'idle') tasks.push(refreshMobileCourseOptionsState(adminTokenOverride, signal))
+    if (reportIndexState.status !== 'idle') tasks.push(loadReportIndex(adminTokenOverride, signal, true))
+    await Promise.all(tasks)
   }
 
   // Re-fetch only the history surfaces that errored on the token-less boot, using
@@ -638,7 +700,7 @@ export default function App() {
         )
     }
     if (page === 'reports' && reportIndexState.status === 'idle') {
-      loadReportIndex()
+      void loadReportIndex()
     }
   }
 
@@ -716,13 +778,24 @@ export default function App() {
     void loadRoundsState(filters)
   }
 
-  function loadReportIndex() {
-    setReportIndexState({ status: 'loading' })
-    fetchReportIndex(currentAdminToken())
-      .then((data) => setReportIndexState({ status: 'ready', data }))
-      .catch((error: unknown) =>
-        setReportIndexState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }),
-      )
+  async function loadReportIndex(
+    adminTokenOverride: string | undefined = currentAdminToken(),
+    signal?: AbortSignal,
+    keepReady = false,
+  ): Promise<void> {
+    if (!keepReady) setReportIndexState({ status: 'loading' })
+    try {
+      const data = await fetchReportIndex(adminTokenOverride, signal)
+      if (signal?.aborted) return
+      setReportIndexState({ status: 'ready', data })
+    } catch (error: unknown) {
+      if (signal?.aborted || isAbortError(error)) return
+      setReportIndexState((current) => (
+        keepReady && current.status === 'ready'
+          ? current
+          : { status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }
+      ))
+    }
   }
 
   async function handleCreateAnnotation(request: AnnotationCreateRequest): Promise<AnnotationCreateResponse> {
@@ -847,34 +920,154 @@ export default function App() {
     }
   }
 
+  function waitForSyncPoll(delayMs: number, signal: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new DOMException('The operation was aborted.', 'AbortError'))
+        return
+      }
+      const timer = window.setTimeout(() => {
+        signal.removeEventListener('abort', onAbort)
+        resolve()
+      }, delayMs)
+      const onAbort = () => {
+        window.clearTimeout(timer)
+        signal.removeEventListener('abort', onAbort)
+        reject(new DOMException('The operation was aborted.', 'AbortError'))
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+    })
+  }
+
+  async function refreshAfterGarminSync(
+    generation: number,
+    token: string | undefined,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (generation !== syncRunGeneration.current || signal.aborted) return
+    syncRefreshController.current?.abort()
+    const refreshController = new AbortController()
+    syncRefreshController.current = refreshController
+    const propagateAbort = () => refreshController.abort()
+    signal.addEventListener('abort', propagateAbort, { once: true })
+    // The terminal job is already durable. Keep the status read and all loaded data surfaces
+    // independent: a slow stats rebuild must not keep the sync button spinning or delay the fresh
+    // course catalogue. Each request carries the same refresh signal and generation guard.
+    try {
+      await Promise.all([
+        fetchSyncStatus(token, refreshController.signal).then((status) => {
+          if (generation === syncRunGeneration.current && !refreshController.signal.aborted) setSyncStatus(status)
+        }).catch(() => undefined),
+        refreshLoadedHistorySurfaces(token, refreshController.signal),
+      ])
+    } finally {
+      signal.removeEventListener('abort', propagateAbort)
+      if (syncRefreshController.current === refreshController) syncRefreshController.current = null
+    }
+  }
+
+  async function monitorGarminSyncJob(
+    initialRun: SyncRunResponse,
+    token: string | undefined,
+    generation: number,
+    controller: AbortController,
+  ): Promise<void> {
+    let run = initialRun
+    try {
+      for (let attempt = 0; (run.state === 'queued' || run.state === 'running') && attempt < 120; attempt += 1) {
+        await waitForSyncPoll(Math.min(5000, 500 + attempt * 250), controller.signal)
+        if (generation !== syncRunGeneration.current) return
+        run = await fetchGarminSyncJob(run.statusUrl, token, controller.signal)
+      }
+      if (generation !== syncRunGeneration.current || controller.signal.aborted) return
+      if (run.state === 'queued' || run.state === 'running') {
+        // The durable server job may outlive the browser monitor. Stop presenting a spinner, but
+        // reconcile connector state once before handing control back to the foreground. The durable
+        // job keeps running and a later sync click reuses it instead of opening a second provider pull.
+        setSyncRunState('idle')
+        const status = await fetchSyncStatus(token, controller.signal).catch(() => null)
+        if (status && generation === syncRunGeneration.current && !controller.signal.aborted) setSyncStatus(status)
+        return
+      }
+      if (run.state === 'error' || run.state === 'reauth_required') {
+        setSyncRunState('error')
+        await refreshAfterGarminSync(generation, token, controller.signal)
+        return
+      }
+      setSyncRunState('idle')
+      // Do not await history/course refreshes from the monitor's lifecycle. They are independently
+      // cancellable and may complete in any order without changing the terminal sync state.
+      void refreshAfterGarminSync(generation, token, controller.signal)
+    } catch (error: unknown) {
+      if (generation !== syncRunGeneration.current || controller.signal.aborted || isAbortError(error)) return
+      setSyncRunState('error')
+      void fetchSyncStatus(token, controller.signal).then((status) => {
+        if (generation === syncRunGeneration.current && !controller.signal.aborted) setSyncStatus(status)
+      }).catch(() => undefined)
+    } finally {
+      if (syncRunController.current === controller) syncRunController.current = null
+    }
+  }
+
   async function handleRunSync(adminToken?: string) {
+    const generation = ++syncRunGeneration.current
+    syncRunController.current?.abort()
+    syncRefreshController.current?.abort()
+    const controller = new AbortController()
+    syncRunController.current = controller
     setSyncRunState('running')
     try {
-      await runGarminSync({ withShots: true, forceRefreshAuth: false, adminToken: adminToken ?? currentAdminToken() })
-      const status = await fetchSyncStatus()
-      setSyncStatus(status)
-      refreshLoadedHistorySurfaces()
-      setSyncRunState('idle')
-    } catch {
-      const status = await fetchSyncStatus().catch(() => null)
-      if (status) setSyncStatus(status)
+      const token = adminToken ?? currentAdminToken()
+      const run = await runGarminSync({
+        withShots: true,
+        forceRefreshAuth: false,
+        adminToken: token,
+        signal: controller.signal,
+      })
+      if (generation !== syncRunGeneration.current || controller.signal.aborted) return
+      if (run.state === 'queued' || run.state === 'running') {
+        // The POST is intentionally the only foreground request. Polling is detached so the rest of
+        // the Web app remains responsive while Garmin imports history in the background.
+        void monitorGarminSyncJob(run, token, generation, controller)
+        return
+      }
+      await monitorGarminSyncJob(run, token, generation, controller)
+    } catch (error: unknown) {
+      if (generation !== syncRunGeneration.current || controller.signal.aborted || isAbortError(error)) return
       setSyncRunState('error')
+      const status = await fetchSyncStatus(adminToken ?? currentAdminToken(), controller.signal).catch(() => null)
+      if (status && generation === syncRunGeneration.current && !controller.signal.aborted) setSyncStatus(status)
     }
   }
 
   async function handleSaveGarminSession(request: GarminSessionImportRequest, adminToken?: string) {
+    sessionSaveController.current?.abort()
+    syncRefreshController.current?.abort()
+    const controller = new AbortController()
+    sessionSaveController.current = controller
     setSessionSaveState('saving')
     setSessionSaveError(null)
     try {
-      await saveGarminSession(request, adminToken ?? currentAdminToken())
-      const status = await fetchSyncStatus()
-      setSyncStatus(status)
-      refreshLoadedHistorySurfaces()
+      await saveGarminSession(request, adminToken ?? currentAdminToken(), controller.signal)
+      if (controller.signal.aborted) return
+      const token = adminToken ?? currentAdminToken()
+      const statusPromise = fetchSyncStatus(token, controller.signal)
+      const refreshPromise = refreshLoadedHistorySurfaces(token, controller.signal)
+      await Promise.all([
+        statusPromise.then((status) => {
+          if (!controller.signal.aborted) setSyncStatus(status)
+        }),
+        refreshPromise,
+      ])
+      if (controller.signal.aborted) return
       setSessionSaveState('saved')
     } catch (error: unknown) {
+      if (controller.signal.aborted || isAbortError(error)) return
       setSessionSaveError(error instanceof Error ? error.message : 'Unknown error')
       setSessionSaveState('error')
       throw error
+    } finally {
+      if (sessionSaveController.current === controller) sessionSaveController.current = null
     }
   }
 
@@ -1043,7 +1236,7 @@ export default function App() {
     try {
       const data = await loader()
       setReportState({ status: 'ready', data })
-      if (refreshIndex) loadReportIndex()
+      if (refreshIndex) void loadReportIndex()
     } catch (error: unknown) {
       setReportState({ status: 'error', message: error instanceof Error ? error.message : 'Unknown error' })
     }

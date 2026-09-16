@@ -196,6 +196,12 @@ function syncRunPayload() {
     schema: 'ai-caddie-sync-run-v2',
     connector: 'garmin_cn_web_session',
     state: 'ready',
+    jobId: 'garmin-sync-test',
+    statusUrl: '/api/v2/sync/garmin/jobs/garmin-sync-test',
+    createdAt: '2026-08-20T12:30:00Z',
+    updatedAt: '2026-08-20T12:30:01Z',
+    startedAt: '2026-08-20T12:30:00Z',
+    completedAt: '2026-08-20T12:30:01Z',
     detail: 'Sync completed.',
     reauthRequired: false,
     errorCode: null,
@@ -1110,9 +1116,10 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: '成绩' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '需要有效链接' })).not.toBeInTheDocument()
     // The player token rides on every request as a bearer credential.
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', expect.objectContaining({
       headers: { Authorization: 'Bearer good-token' },
-    })
+      signal: expect.any(AbortSignal),
+    }))
   })
 
   it('exposes the master spec IA and opens the rounds timeline', async () => {
@@ -1158,7 +1165,9 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: '球局', level: 1 })).toBeInTheDocument()
     expect(screen.getByText('2026年5月')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds?limit=120')
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/status')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/status', expect.objectContaining({
+      signal: expect.any(AbortSignal),
+    }))
     await waitFor(() => expect(screen.queryByText('还看不到你的数据')).not.toBeInTheDocument())
   })
 
@@ -1254,13 +1263,15 @@ describe('App navigation', () => {
 
     expect(await screen.findByLabelText('成绩主页')).toBeInTheDocument()
     expect(screen.queryByText('还看不到你的数据')).not.toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', expect.objectContaining({
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
-    })
+      signal: expect.any(AbortSignal),
+    }))
     // Boot pulls the slim summary (not the ~11MB full stats); it must carry the hydrated token.
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/summary', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/summary', expect.objectContaining({
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
-    })
+      signal: expect.any(AbortSignal),
+    }))
   })
 
   it('boots an admin-token owner into their data on a link-required deployment (no stuck 历史数据加载中)', async () => {
@@ -1296,9 +1307,10 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: '成绩' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Apple/ })).not.toBeInTheDocument()
     expect(screen.queryByText('历史数据加载中')).not.toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/overview', expect.objectContaining({
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
-    })
+      signal: expect.any(AbortSignal),
+    }))
   })
 
   it('persists the admin token and refetches errored owner surfaces the moment it is entered', async () => {
@@ -2403,7 +2415,7 @@ describe('App navigation', () => {
 
   it('reloads protected mobile course options after the admin token is entered', async () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
-      if (path === '/api/v2/mobile/courses/options' && !init) {
+      if (path === '/api/v2/mobile/courses/options' && !init?.headers) {
         return { ok: false, status: 401, statusText: 'Unauthorized', json: async () => ({}) }
       }
       return {
@@ -2463,7 +2475,10 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     await userEvent.click(await screen.findByRole('button', { name: '立即同步' }))
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/garmin?with_shots=true&force_refresh_auth=false', { method: 'POST' })
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/garmin?with_shots=true&force_refresh_auth=false', expect.objectContaining({
+      method: 'POST',
+      signal: expect.any(AbortSignal),
+    }))
     await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats/mobile?window=last10')).toHaveLength(2))
   })
 

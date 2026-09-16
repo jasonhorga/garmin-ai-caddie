@@ -683,7 +683,7 @@ final class SyncClientTests: XCTestCase {
         )
     }
 
-    func testFastStartCoursePackageUsesShortOpeningTimeout() async throws {
+    func testCoursePackageUsesCompletePackageTimeoutWithoutLegacyQuery() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -697,8 +697,8 @@ final class SyncClientTests: XCTestCase {
                 url: try XCTUnwrap(request.url),
                 resolvingAgainstBaseURL: false
             )?.queryItems
-            XCTAssertEqual(queryItems?.first { $0.name == "fast_start" }?.value, "true")
-            XCTAssertEqual(request.timeoutInterval, SyncClient.fastStartPackageTimeoutInterval)
+            XCTAssertNil(queryItems?.first { $0.name == "fast_start" })
+            XCTAssertEqual(request.timeoutInterval, SyncClient.coursePackageTimeoutInterval)
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
                 statusCode: 200,
@@ -715,10 +715,9 @@ final class SyncClientTests: XCTestCase {
 
         _ = try await client.fetchCoursePackage(
             globalId: 10283,
-            roundId: "live-round-fast-start",
+            roundId: "live-round-complete",
             teeBox: "blue",
-            backgroundGeometry: true,
-            fastStart: true
+            backgroundGeometry: true
         )
     }
 
@@ -1108,7 +1107,7 @@ final class SyncClientTests: XCTestCase {
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
         let payload = Data(
-            #"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"ready","detail":"done","reauthRequired":false,"errorCode":null}"#.utf8
+            #"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"queued","jobId":"garmin-sync-owner","statusUrl":"/api/v2/sync/garmin/jobs/garmin-sync-owner","createdAt":"2026-08-20T12:30:00Z","updatedAt":"2026-08-20T12:30:00Z","startedAt":null,"completedAt":null,"detail":"queued","reauthRequired":false,"errorCode":null,"snapshot":null,"safeMeta":{}}"#.utf8
         )
         CapturingURLProtocol.requestHandler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
@@ -1121,7 +1120,7 @@ final class SyncClientTests: XCTestCase {
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
-                statusCode: 200,
+                statusCode: 202,
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]
             )!
@@ -1136,8 +1135,9 @@ final class SyncClientTests: XCTestCase {
 
         let result = try await client.runGarminSync()
 
-        XCTAssertEqual(result.state, "ready")
+        XCTAssertEqual(result.state, "queued")
         XCTAssertFalse(result.reauthRequired)
+        XCTAssertEqual(result.jobId, "garmin-sync-owner")
     }
 
     func testRunGarminSyncUsesSignedInMembersOwnRoute() async throws {
@@ -1149,7 +1149,7 @@ final class SyncClientTests: XCTestCase {
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
         let payload = Data(
-            #"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"ready","detail":"done","reauthRequired":false,"errorCode":null}"#.utf8
+            #"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"queued","jobId":"garmin-sync-member","statusUrl":"/api/v2/players/p_member/sync/garmin/jobs/garmin-sync-member","createdAt":"2026-08-20T12:30:00Z","updatedAt":"2026-08-20T12:30:00Z","startedAt":null,"completedAt":null,"detail":"queued","reauthRequired":false,"errorCode":null,"snapshot":null,"safeMeta":{}}"#.utf8
         )
         CapturingURLProtocol.requestHandler = { request in
             XCTAssertEqual(request.url?.path, "/api/v2/players/p_member/sync/garmin")
@@ -1157,7 +1157,7 @@ final class SyncClientTests: XCTestCase {
             XCTAssertNil(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"))
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
-                statusCode: 200,
+                statusCode: 202,
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]
             )!
@@ -1172,22 +1172,23 @@ final class SyncClientTests: XCTestCase {
 
         let result = try await client.runGarminSync()
 
-        XCTAssertEqual(result.state, "ready")
+        XCTAssertEqual(result.state, "queued")
+        XCTAssertEqual(result.statusUrl, "/api/v2/players/p_member/sync/garmin/jobs/garmin-sync-member")
         await MainActor.run { SessionStore.shared.signOut() }
     }
 
-    func testRunGarminSyncPreservesTypedReauthenticationResponseFrom409() async throws {
+    func testRunGarminSyncDecodesTerminalReauthenticationJob() async throws {
         await MainActor.run { SessionStore.shared.signOut() }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
         let payload = Data(
-            #"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"reauth_required","detail":"expired","reauthRequired":true,"errorCode":"reauth_required"}"#.utf8
+            #"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"reauth_required","jobId":"garmin-sync-reauth","statusUrl":"/api/v2/sync/garmin/jobs/garmin-sync-reauth","createdAt":"2026-08-20T12:30:00Z","updatedAt":"2026-08-20T12:30:01Z","startedAt":"2026-08-20T12:30:00Z","completedAt":"2026-08-20T12:30:01Z","detail":"expired","reauthRequired":true,"errorCode":"reauth_required","snapshot":null,"safeMeta":{}}"#.utf8
         )
         CapturingURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
-                statusCode: 409,
+                statusCode: 202,
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]
             )!
@@ -1205,22 +1206,18 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(result.state, "reauth_required")
     }
 
-    func testRunGarminSyncPreservesTypedRunningResponseFrom409() async throws {
+    func testWaitForGarminSyncJobPollsUntilTerminal() async throws {
         await MainActor.run { SessionStore.shared.signOut() }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
-        let payload = Data(
-            #"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"running","detail":"busy","reauthRequired":false,"errorCode":"sync_in_progress"}"#.utf8
-        )
+        let queued = Data(#"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"queued","jobId":"garmin-sync-poll","statusUrl":"/api/v2/sync/garmin/jobs/garmin-sync-poll","createdAt":"2026-08-20T12:30:00Z","updatedAt":"2026-08-20T12:30:00Z","startedAt":null,"completedAt":null,"detail":"queued","reauthRequired":false,"errorCode":null,"snapshot":null,"safeMeta":{}}"#.utf8)
+        let ready = Data(#"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"ready","jobId":"garmin-sync-poll","statusUrl":"/api/v2/sync/garmin/jobs/garmin-sync-poll","createdAt":"2026-08-20T12:30:00Z","updatedAt":"2026-08-20T12:30:02Z","startedAt":"2026-08-20T12:30:00Z","completedAt":"2026-08-20T12:30:02Z","detail":"done","reauthRequired":false,"errorCode":null,"snapshot":null,"safeMeta":{}}"#.utf8)
+        var pollCount = 0
         CapturingURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(
-                url: try XCTUnwrap(request.url),
-                statusCode: 409,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            )!
-            return (response, payload)
+            pollCount += 1
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+            return (response, pollCount == 1 ? queued : ready)
         }
         defer { CapturingURLProtocol.requestHandler = nil }
         let client = SyncClient(
@@ -1228,11 +1225,12 @@ final class SyncClientTests: XCTestCase {
             session: session
         )
 
-        let result = try await client.runGarminSync()
+        let initial = try JSONDecoder().decode(GarminSyncRunResponse.self, from: queued)
+        let result = try await client.waitForGarminSyncJob(initial, maximumPolls: 2)
 
-        XCTAssertEqual(result.state, "running")
-        XCTAssertEqual(result.errorCode, "sync_in_progress")
-        XCTAssertFalse(result.reauthRequired)
+        XCTAssertEqual(result.state, "ready")
+        XCTAssertEqual(result.completedAt, "2026-08-20T12:30:02Z")
+        XCTAssertEqual(pollCount, 2)
     }
 
     func testFetchGarminSyncStatusDecodesAuthoritativeLastRun() async throws {

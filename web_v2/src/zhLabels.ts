@@ -63,6 +63,8 @@ const COVERAGE_ZH: Record<string, string> = {
 // missing/partial extend the connector vocabulary for phase-summary rows
 // (history_round_detail) and offline-package readiness checks (mobile_live).
 const STATE_ZH: Record<string, string> = {
+  queued: '等待同步',
+  running: '同步中',
   ready: '就绪',
   error: '错误',
   no_data: '无数据',

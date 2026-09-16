@@ -66,13 +66,18 @@ class CodexSec1Tests(unittest.TestCase):
             resp = self.client.post("/api/v2/caddie/decision", json=body, headers=_ADMIN_HEADER)
             self.assertEqual(resp.status_code, 422)
 
-    # #2 — a second concurrent Garmin sync is rejected (409) rather than racing the in-flight one.
-    def test_concurrent_sync_is_rejected(self) -> None:
+    # #2 — a concurrent Garmin sync is represented by a durable queued job rather than racing
+    # the in-flight provider pull. The enqueue request itself is always short (202).
+    def test_concurrent_sync_is_queued_while_lock_is_busy(self) -> None:
         with mock.patch.dict("os.environ", _ADMIN_ENV):
             self.assertTrue(main._SYNC_LOCK.acquire(blocking=False))
             try:
                 resp = self.client.post("/api/v2/sync/garmin", headers=_ADMIN_HEADER)
-                self.assertEqual(resp.status_code, 409)
+                self.assertEqual(resp.status_code, 202)
+                payload = resp.json()
+                self.assertEqual(payload["schema"], "ai-caddie-sync-run-v2")
+                self.assertIn(payload["state"], {"queued", "running"})
+                self.assertTrue(payload["jobId"])
             finally:
                 main._SYNC_LOCK.release()
 

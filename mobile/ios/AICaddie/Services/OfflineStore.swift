@@ -811,9 +811,8 @@ public final class OfflineStore {
         if !allowHoleCountDecrease,
            let existing = try? loadRoundPackage(roundId: package.roundId),
            existing.holes.count > package.holes.count {
-            // A late background installer can still be holding the one-hole fast-start seed while
-            // the full package has already arrived through another request. Keep the richer round
-            // authority; the caller can retry the missing assets without shrinking the scorecard.
+            // A late background write must not replace a richer round authority with a partial
+            // response. Keep the larger factual scorecard while the caller retries missing assets.
             persistedPackage = existing
             AICaddieLog.storage.info(
                 "Ignored round package downgrade \(package.roundId, privacy: .public): \(package.holes.count, privacy: .public) < \(existing.holes.count, privacy: .public) holes"

@@ -1624,7 +1624,7 @@ struct LiveMapPreparingPill: View {
     }
 }
 
-/// Fast-start may have the first hole's factual route before the precise topo bitmap is ready.
+/// A factual package may arrive before the precise topo bitmap is ready.
 /// Keep that handoff visually quiet: the player can already see the hole/caddie surface, while a
 /// coarse route sketch is deliberately withheld from the primary map because it reads like a
 /// finished course drawing and is hard to interpret on a phone.

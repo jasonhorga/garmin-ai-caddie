@@ -46,6 +46,7 @@ const probeStateLabel = {
 const nextActionLabel = {
   connect_garmin: '连接 Garmin',
   review_history: '查看历史',
+  wait_for_sync: '等待同步完成',
   reauthenticate_garmin: '重新登录 Garmin',
   inspect_sync_error: '检查同步错误',
 }
@@ -101,11 +102,12 @@ export function SyncStatusPanel({
 
   const adminToken = adminTokenValue ?? localAdminToken
   const isRunning = syncState === 'running'
-  const canRun = Boolean(onSync) && status.connector.canSync && !status.connector.reauthRequired && !isRunning
+  const canRun = Boolean(onSync) && status.connector.canSync && !status.connector.reauthRequired && !isRunning && sessionSaveState !== 'saving'
   const connectors = status.connectors && status.connectors.length ? status.connectors : [status.connector]
   const canSaveSession =
     Boolean(onSaveSession) &&
     sessionSaveState !== 'saving' &&
+    !isRunning &&
     webSessionHeader.trim().length > 0 &&
     antiForgeryValue.trim().length > 0
 

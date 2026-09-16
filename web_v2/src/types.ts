@@ -716,8 +716,8 @@ export interface ReviewReportIndexResponse {
   reports: ReviewReportIndexItem[]
 }
 
-export type ConnectorState = 'ready' | 'no_data' | 'reauth_required' | 'error' | 'not_available'
-export type ConnectorNextAction = 'connect_garmin' | 'review_history' | 'reauthenticate_garmin' | 'inspect_sync_error'
+export type ConnectorState = 'queued' | 'running' | 'ready' | 'no_data' | 'reauth_required' | 'error' | 'not_available'
+export type ConnectorNextAction = 'connect_garmin' | 'review_history' | 'wait_for_sync' | 'reauthenticate_garmin' | 'inspect_sync_error'
 export type ResolvedDataMode = 'local' | 'fixture'
 
 export type ConnectorCapabilityState = 'unproven' | 'not_available' | 'possible' | 'proven' | 'needs_golf_fit_validation' | 'not_replacement'
@@ -817,6 +817,12 @@ export interface SyncRunResponse {
   schema: 'ai-caddie-sync-run-v2'
   connector: 'garmin_cn_web_session'
   state: ConnectorState
+  jobId: string
+  statusUrl: string
+  createdAt: string
+  updatedAt: string
+  startedAt: string | null
+  completedAt: string | null
   detail: string
   reauthRequired: boolean
   errorCode: string | null
@@ -978,9 +984,6 @@ export interface LiveRoundPackageResponse {
     teeBox: string
   }
   holes: Array<Record<string, unknown>>
-  /** `first_hole_fast` contains only the priority hole until the full package is ready. */
-  startMode?: 'first_hole_fast' | 'full'
-  fullCoursePending?: boolean
   geometryCoverage: {
     state: GeometryCoverageState
     readyHoles: number

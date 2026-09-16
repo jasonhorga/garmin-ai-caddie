@@ -1443,7 +1443,7 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn("fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)", app_swift)
         self.assertIn(
-            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false, fastStart: fastStart)",
+            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false)",
             app_swift,
         )
         self.assertIn(
@@ -1667,9 +1667,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func liveHoleInitialLoadDidFinish()", app_swift)
         self.assertIn("onLiveHoleInitialLoadDidFinish: {", app_swift)
         package_model = _read_required_source(self, IOS_DIR / "Models" / "LiveRoundPackage.swift")
-        self.assertIn("let startMode: String?", package_model)
-        self.assertIn("let fullCoursePending: Bool?", package_model)
-        self.assertIn("var isFullCoursePending: Bool", package_model)
+        self.assertNotIn("startMode", package_model)
+        self.assertNotIn("fullCoursePending", package_model)
         # The selected course installer owns each factual prep/topo download. It must not launch a
         # competing whole-course server prewarm while the same holes are being fetched for offline use.
         self.assertIn("beginOfflineCourseDownload()", app_swift)
@@ -1691,10 +1690,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("serverTopoReadyKeys.contains", app_swift)
         self.assertIn("let expectedGlobalIds = Set(snapshot.holes.map", app_swift)
         self.assertIn("positive globalId from another course must never match", app_swift)
-        self.assertIn("complete.holes.count > initial.holes.count, complete.holes.count > 1", app_swift)
-        self.assertIn("Full course snapshot still partial; deferring offline install", app_swift)
-        self.assertIn("mergingForegroundPrep", app_swift)
-        self.assertIn("stable.holes.count > 1", app_swift)
+        self.assertIn("beginOfflineCourseDownload(revalidatePackage:", app_swift)
+        self.assertIn("hasCompleteOfflineCoursePrep", app_swift)
+        self.assertIn("saveCourseTemplate", app_swift)
         self.assertNotIn("prewarmRoundTopo()", app_swift)
         self.assertNotIn("prewarmCourseTopo(globalId:", app_swift)
         self.assertIn("enum HubRoute", round_home)
@@ -1853,11 +1851,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("onDiscardRound:", app_swift)
         self.assertIn("model.discardActiveRound()", app_swift)
 
-        # A one-hole fast-start package is not the end of a round. The live view keeps the score
-        # advance intent and resumes it when the complete package arrives.
+        # A complete package is the only live-round contract. Advancing the last factual hole
+        # finishes the round; there is no hidden one-hole hand-off state.
         self.assertIn("LiveHoleAdvanceResolution", current_hole)
-        self.assertIn("waitForFullCourse(nextHole:", current_hole)
-        self.assertIn("package.isFullCoursePending", current_hole)
+        self.assertIn("case .finish:", current_hole)
+        self.assertNotIn("waitForFullCourse", current_hole)
+        self.assertNotIn("isFullCoursePending", current_hole)
 
     def test_ios_course_option_models_and_fetcher_match_backend_endpoint(self) -> None:
         course_options = _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift")
@@ -3506,7 +3505,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)", current_hole)
         self.assertIn("response: caddieDecision", current_hole)
         self.assertIn("seed: caddieContextSeed", current_hole)
-        # Live package no longer embeds all-hole coursePrep (fast start); the dedicated obstacle
+        # Live package no longer embeds all-hole coursePrep; the dedicated obstacle
         # browser consumes the per-hole prep fetched on demand alongside the 2D map.
         self.assertIn("LiveHazardDisplayItem.rows(for: holePrep", current_hole)
         self.assertIn("liveHazardDisplayRows", current_hole)

@@ -50,6 +50,7 @@ import {
   applyMobileReconciliationSuggestions,
   redactMedia,
   runGarminSync,
+  fetchGarminSyncJob,
   saveGarminSession,
   fetchAdminPlayers,
   createAdminPlayer,
@@ -246,7 +247,7 @@ describe('admin token header suppression for member sessions', () => {
 
     await runGarminSync({ withShots: false, forceRefreshAuth: false, adminToken: 'admin-secret' })
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/garmin?with_shots=false&force_refresh_auth=false', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/players/p_member/sync/garmin?with_shots=false', {
       method: 'POST',
       headers: { Authorization: 'Bearer session-bearer' },
     })
@@ -903,6 +904,22 @@ describe('report API helpers', () => {
     expect(payload.schema).toBe('ai-caddie-review-report-index-v1')
     expect(payload.reports[0].subjectId).toBe('recent_10')
     expect(fetch).toHaveBeenCalledWith('/api/v2/reports')
+  })
+
+  it('passes an abort signal through report-index refreshes', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ schema: 'ai-caddie-review-report-index-v1', total: 0, reports: [] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+
+    await fetchReportIndex('admin-secret', controller.signal)
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/reports', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+      signal: controller.signal,
+    })
   })
 
   it('sends admin token headers for protected report generation', async () => {
@@ -1842,6 +1859,19 @@ describe('fetchReadiness', () => {
     expect(data.schema).toBe('ai-caddie-readiness-v1')
     expect(data.checks[0].label).toBe('history')
   })
+
+  it('passes an abort signal through readiness refreshes', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ schema: 'ai-caddie-readiness-v1', status: 'ready', checks: [] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+
+    await fetchReadiness(controller.signal)
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/readiness', { signal: controller.signal })
+  })
 })
 
 describe('mobile reconciliation API helpers', () => {
@@ -2212,6 +2242,34 @@ describe('runGarminSync', () => {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
   })
+
+  it('rejects a job status URL outside the API path', async () => {
+    await expect(fetchGarminSyncJob('https://example.invalid/api/v2/sync/garmin/jobs/x')).rejects.toThrow(
+      'Invalid Garmin sync job URL',
+    )
+    await expect(fetchGarminSyncJob('//example.invalid/api/v2/sync/garmin/jobs/x')).rejects.toThrow(
+      'Invalid Garmin sync job URL',
+    )
+    await expect(fetchGarminSyncJob('/api/v2/history/overview')).rejects.toThrow(
+      'Invalid Garmin sync job URL',
+    )
+  })
+
+  it('polls a server-generated owner job URL with the abort signal', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ schema: 'ai-caddie-sync-run-v2', state: 'running' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+
+    await fetchGarminSyncJob('/api/v2/sync/garmin/jobs/garmin-sync-1', 'admin-secret', controller.signal)
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/garmin/jobs/garmin-sync-1', {
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+      signal: controller.signal,
+    })
+  })
 })
 
 describe('saveGarminSession', () => {
@@ -2276,6 +2334,33 @@ describe('saveGarminSession', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-AI-Caddie-Admin-Token': 'admin-secret' },
       body: JSON.stringify(request),
+    })
+  })
+
+  it('passes an abort signal through Garmin session imports', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-garmin-session-import-v1',
+        connector: 'garmin_cn_web_session',
+        state: 'stored',
+        detail: 'stored',
+        sessionFieldCount: 1,
+        antiForgeryPresent: true,
+        source: 'manual_paste',
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    const request = { webSessionHeader: 'Cookie: x', antiForgeryValue: 'csrf: y' }
+
+    await saveGarminSession(request, undefined, controller.signal)
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/sync/garmin/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+      signal: controller.signal,
     })
   })
 })

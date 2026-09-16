@@ -897,13 +897,12 @@ class ServerV2MobileTests(unittest.TestCase):
                 31796,
                 background_tasks=BackgroundTasks(),
                 include_event_cursor=False,
-                fast_start=True,
                 player_id="owner",
             )
 
         self.assertIs(actual, expected)
         self.assertFalse(build_package.call_args.kwargs["include_event_cursor"])
-        self.assertTrue(build_package.call_args.kwargs["fast_start"])
+        self.assertNotIn("fast_start", build_package.call_args.kwargs)
 
     def test_course_package_queues_only_missing_source_holes_for_background_upgrade(self) -> None:
         from server_v2 import main as server_main
@@ -1730,10 +1729,9 @@ class ServerV2MobileTests(unittest.TestCase):
         )
         self.assertEqual(invalid.status_code, 422)
 
-    def test_mobile_course_package_seeds_only_lightweight_first_hole_for_fast_start(self) -> None:
-        # Live start must not embed the heavy all-hole course_prep.  It does retain one forced
-        # CourseView-only first-hole seed so precise background geometry can never leave an empty
-        # hero while winning the on-demand request race.
+    def test_mobile_course_package_returns_complete_facts_with_lightweight_first_hole_seed(self) -> None:
+        # The wire package is always the complete factual course.  Precise geometry is an
+        # independent install job, while a compact first-hole seed keeps the opening map drawable.
         client = TestClient(app)
 
         seed = {
@@ -1748,17 +1746,18 @@ class ServerV2MobileTests(unittest.TestCase):
                 patch("server_v2.mobile.first_hole_lightweight_course_prep", return_value=seed) as first_seed:
             response = client.get(
                 "/api/v2/mobile/courses/31795/package",
-                params={"round_id": "live-31795", "fast_start": "true"},
+                params={"round_id": "live-31795"},
             )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["coursePrep"], seed)
-        self.assertEqual(response.json()["startMode"], "first_hole_fast")
-        self.assertTrue(response.json()["fullCoursePending"])
+        self.assertNotIn("startMode", response.json())
+        self.assertNotIn("fullCoursePending", response.json())
+        self.assertGreaterEqual(len(response.json()["holes"]), 1)
         prep_nine.assert_not_called()
         first_seed.assert_called_once()
 
-    def test_fast_start_course_template_and_weather_are_cache_only(self) -> None:
+    def test_course_template_and_weather_are_cache_only(self) -> None:
         """The first playable response must not block on Garmin/CourseView or Open-Meteo."""
         from ai_caddie.caddie import mobile_live
         from ai_caddie.courses import course_reference, courseview_core

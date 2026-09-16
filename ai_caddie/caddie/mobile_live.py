@@ -307,9 +307,8 @@ def _weather_snapshot_for_package(
     cached = weather_snapshot_for_time(round_id, captured_at=captured_at, root=root, exact_hole=True, player_id=player_id)
     if cached:
         return cached
-    # A first-hole fast-start package must not wait on Open-Meteo.  It is still useful to return a
-    # truthful missing snapshot; the complete package request refreshes weather after the map is on
-    # screen.  This keeps provider latency out of the critical start path without fabricating values.
+    # A cache-only package path must not wait on Open-Meteo. Return a truthful missing snapshot;
+    # the independent enrichment job can refresh weather after the map is on screen.
     if not allow_fetch:
         return build_weather_snapshot(
             round_id=round_id,
@@ -1844,7 +1843,7 @@ def _geometry_seed(global_id: int, local_hole: int, fallback_coverage: str) -> t
     try:
         # The offline seed only needs compact hazard identity. Building a full WGS84 hole-map DTO
         # expanded every fairway/rough/green mesh into GeoJSON, then immediately discarded every
-        # non-hazard feature. On a real 18-hole course that made the fast start package take about
+        # non-hazard feature. On a real 18-hole course that made the initial package take about
         # 25 seconds on every request. Read the authority-bound compact hazard/Tee export instead.
         coverage = geometry_coverage_for_hole(
             global_id,
@@ -3136,7 +3135,6 @@ def build_live_round_package_for_course(
     include_course_prep: bool = True,
     include_event_cursor: bool = True,
     ensure_lightweight: bool = False,
-    fast_start: bool = False,
     allow_lightweight_fetch: bool | None = None,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
@@ -3152,10 +3150,6 @@ def build_live_round_package_for_course(
     template_round = None
     package_source = source
     geometry_ensure = None
-    priority_holes = None
-    if fast_start:
-        # A front-nine/all start enters hole 1; a back-nine start enters its first displayed hole.
-        priority_holes = [10] if str(nine).strip().lower() == "back" else [1]
     if selected_round_id is None:
         template_round = _geometry_only_course_template(
             int(global_id),
@@ -3164,7 +3158,7 @@ def build_live_round_package_for_course(
             course_name=_course_display_name(source, int(global_id)),
             ensure_lightweight=ensure_lightweight,
             allow_lightweight_fetch=allow_lightweight_fetch,
-            priority_holes=priority_holes,
+            priority_holes=None,
             root=root,
         )
         # Resolve the release-bound lightweight route before generating precise
@@ -3197,8 +3191,8 @@ def build_live_round_package_for_course(
         geometry_ensure=geometry_ensure,
         include_course_prep=include_course_prep,
         include_event_cursor=include_event_cursor,
-        hole_numbers_override=priority_holes,
-        allow_weather_fetch=not fast_start,
+        hole_numbers_override=None,
+        allow_weather_fetch=True,
         # Build stats from the ORIGINAL history (not the template-augmented package_source) so the
         # stats cache stays warm across every course/round — see note in build_live_round_package.
         stats_data=source,
@@ -3257,7 +3251,7 @@ def build_live_round_package_for_course(
         front_package["nine"] = "all"
         # The canonicalization above already removed a played combination such as
         # `C/A` and retained only the current CourseView loop (`C`).
-    if back_global_id is None or fast_start:
+    if back_global_id is None:
         return front_package
     # Composite 18: this loop (holes 1–9) + a second loop (holes 10–18). Each loop is its own
     # CourseView course with its own holes/par/geometry; merge them into one round.
@@ -3277,7 +3271,6 @@ def build_live_round_package_for_course(
         include_course_prep=include_course_prep,
         include_event_cursor=include_event_cursor,
         ensure_lightweight=ensure_lightweight,
-        fast_start=False,
         player_id=player_id,
     )
     return _merge_nines(front_package, back_package)
