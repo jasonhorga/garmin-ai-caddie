@@ -3067,7 +3067,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 guard let self, !Task.isCancelled,
                       self.garminSyncOperationGeneration == operationGeneration,
                       let bag, bag.found else { return }
-                let names = self.resolvedBagNames(bag)
+                let names = resolvedBagNames(bag)
                 if !names.isEmpty { ClubBagStore.saveRealBag(names) }
             },
             Task { @MainActor [weak self] in

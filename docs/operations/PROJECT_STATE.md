@@ -9,8 +9,10 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-16 12:18 UTC
-**Branch:** `integration/v2` (GitHub default; Build 63 product source
+**Updated:** 2026-09-16 13:58 UTC
+**Branch:** `integration/v2` (GitHub default; current network-lifecycle source
+`41eb8e1ae237490b88757669bcde845640bb5e42`; Source CI `35095464869`; Build 63
+product source
 `d8769916d4b7ea1fc8b2bdcfb151a67f944a6eb0`; internal-release source
 `d8769916d4b7ea1fc8b2bdcfb151a67f944a6eb0`; PERF-STARTUP backend candidate
 `70e74a6eb04bae1d656bc8cee81f534e0ae4f2b7` on loopback `39062`; MAP1
@@ -54,6 +56,23 @@ release-scope decision; do not pause for routine TestFlight execution.
   Apple `VALID`, unexpired, `IN_BETA_TESTING`, and present in the existing
   internal `Jason's friends` group per read-only check `35014393530`; no external
   distribution or tester mutation was performed.
+- **NET-PRIORITY network-lifecycle release (2026-09-16):** Commit
+  `41eb8e1ae237490b88757669bcde845640bb5e42` decouples Garmin sync from
+  foreground refresh, adds durable queued/running/terminal sync jobs with
+  restart recovery and owner/member isolation, wires cancellable polling and
+  generation guards across iOS/Web, and adds request correlation plus
+  `Server-Timing` segments. Source CI `35095464869` passed; remote focused
+  backend/Web suites (`166` backend/cross-client, `172` Web key, `625` full Web,
+  7 skipped), lint, production build, and diff-check passed. Native live
+  validation and the single required Opus read-only review remain pending.
+- **NET-PRIORITY Native gate diagnosis (2026-09-16):** Exact-SHA live Native
+  run `35103422335` reached the Watch evidence stages and passed the backend
+  preflight setup, but the iOS target failed to compile because
+  `LiveRoundAppModel` called the file-level `resolvedBagNames` helper as an
+  instance member. The minimal correction is applied in the working tree;
+  no TestFlight upload followed the failed gate and the backend candidate
+  remains healthy on loopback `39066` with Quick Tunnel
+  `https://response-breed-live-represent.trycloudflare.com`.
 - **PHONE-UX5 backend candidate (2026-09-14):** Revision
   `3bbe79df0f645a4d9e1410c62110a3ad8991e7e9` is healthy in container
   `aicaddie-release-3bbe79df-candidate-20260914` on loopback `39064`, image
