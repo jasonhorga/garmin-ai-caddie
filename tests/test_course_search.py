@@ -50,6 +50,51 @@ class ParseCourseSearchTests(unittest.TestCase):
     def test_empty_bytes_yields_no_records(self) -> None:
         self.assertEqual(cs.parse_course_search(b""), [])
 
+    def test_parses_garmin_zh_chs_native_cjk_name(self) -> None:
+        # Keep a tiny wire-level fixture in the test so the locale contract is
+        # exercised through the real protobuf decoder, without adding a binary
+        # artifact that can drift from the provider response.
+        def varint(value: int) -> bytes:
+            out = bytearray()
+            value = int(value)
+            while value >= 0x80:
+                out.append((value & 0x7F) | 0x80)
+                value >>= 7
+            out.append(value)
+            return bytes(out)
+
+        def field(number: int, wire: int, value: bytes | int) -> bytes:
+            key = varint((number << 3) | wire)
+            if wire == 0:
+                return key + varint(int(value))
+            raw = value if isinstance(value, bytes) else bytes(value)
+            return key + varint(len(raw)) + raw
+
+        record = b"".join(
+            (
+                field(7, 0, 32842),
+                field(12, 2, "北京黄港国际高尔夫俱乐部".encode("utf-8")),
+                field(13, 0, 18),
+            )
+        )
+        rows = cs.parse_course_search(field(4, 2, record))
+        self.assertEqual(rows, [
+            {
+                "global_id": 32842,
+                "name": "北京黄港国际高尔夫俱乐部",
+                "holes": 18,
+                "build_id": None,
+                "city": None,
+                "province": None,
+                "latitude": None,
+                "longitude": None,
+                "supports_nine_plus_nine": None,
+                "number_of_nine_hole_courses": None,
+                "associated_dual_green_course_layout_id": None,
+                "has_green_contour": None,
+            }
+        ])
+
 
 class CourseviewSearchTests(unittest.TestCase):
     def setUp(self) -> None:

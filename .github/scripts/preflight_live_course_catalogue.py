@@ -48,9 +48,12 @@ def validate_matches(
     schema: str,
     expected_global_id: int | None = None,
     require_distance_order: bool = False,
+    require_complete: bool = False,
 ) -> list[dict[str, Any]]:
     _require(isinstance(payload, dict), f"{schema} response must be an object")
     _require(payload.get("schema") == schema, f"expected schema {schema}")
+    if require_complete:
+        _require(payload.get("complete") is True, f"{schema} response is partial")
     matches = payload.get("matches")
     _require(isinstance(matches, list), f"{schema}.matches must be an array")
     _require(bool(matches), f"{schema}.matches must not be empty for the CI probe")
@@ -85,6 +88,7 @@ def validate_localized_names(
     *,
     schema: str,
     expected_names: dict[int, str],
+    require_complete: bool = False,
 ) -> None:
     """Require selected live Garmin rows to carry their native CJK names.
 
@@ -94,23 +98,33 @@ def validate_localized_names(
     an old backend image, or a client/backend provenance regression before native
     simulator and TestFlight evidence begins.
     """
-    matches = validate_matches(payload, schema=schema)
+    matches = validate_matches(
+        payload,
+        schema=schema,
+        require_complete=require_complete,
+    )
     by_id = {int(row["globalId"]): row for row in matches}
     for global_id, expected in expected_names.items():
         row = by_id.get(int(global_id))
         _require(row is not None, f"localized-name row {global_id} is missing")
-        actual = row.get("name")
+        # Reconciliation may expose a player's historical Garmin snapshot as
+        # ``name`` while retaining the raw catalogue spelling in
+        # ``providerName``. Validate the raw provider value whenever it is
+        # present, otherwise a bad OMT locale can be hidden by history.
+        provider_name = row.get("providerName")
+        actual_key = "providerName" if isinstance(provider_name, str) and provider_name.strip() else "name"
+        actual = row.get(actual_key)
         _require(
             isinstance(actual, str) and actual.strip(),
-            f"localized-name row {global_id} has no display name",
+            f"localized-name row {global_id} has no {actual_key}",
         )
         _require(
             _contains_cjk(actual),
-            f"localized-name row {global_id} is not native CJK: {actual!r}",
+            f"localized-name row {global_id} {actual_key} is not native CJK: {actual!r}",
         )
         _require(
             expected in actual,
-            f"localized-name row {global_id} mismatch: expected {expected!r}, got {actual!r}",
+            f"localized-name row {global_id} {actual_key} mismatch: expected {expected!r}, got {actual!r}",
         )
 
 
@@ -138,6 +152,7 @@ def validate_empty_nearby(payload: Any) -> None:
     _require(isinstance(payload, dict), "empty nearby response must be an object")
     _require(payload.get("schema") == "ai-caddie-course-nearby-v1", "empty nearby schema mismatch")
     _require(payload.get("radiusKm") == 50, "empty nearby radius mismatch")
+    _require(payload.get("complete") is True, "empty nearby response is partial")
     _require(payload.get("matches") == [], "open-ocean nearby probe must return no courses")
 
 
@@ -201,6 +216,7 @@ def main() -> int:
         schema="ai-caddie-course-nearby-v1",
         expected_global_id=nearby_gid,
         require_distance_order=True,
+        require_complete=True,
     )
     nearby_localized = _parse_expected_names(
         os.environ.get("AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY", "")
@@ -210,6 +226,7 @@ def main() -> int:
             nearby,
             schema="ai-caddie-course-nearby-v1",
             expected_names=nearby_localized,
+            require_complete=True,
         )
     empty_nearby = _get_json(
         base_url,

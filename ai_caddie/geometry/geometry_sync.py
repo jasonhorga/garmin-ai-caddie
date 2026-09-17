@@ -25,6 +25,7 @@ from ai_caddie.geometry.geometry_authority import (
 )
 from ai_caddie.geometry.inspect_courseview_release import (
     COURSEVIEW,
+    GARMIN_OMT_SIMPLIFIED_CHINESE,
     inspect_valid_release,
     load_layout_by_date,
     load_release_pb,
@@ -124,10 +125,21 @@ def _release(course_id: int, *, live: bool | None = None) -> tuple[dict[str, Any
     modes = (live,) if live is not None else (False, True)
     for mode in modes:
         try:
-            pb = load_release_pb(course_id, bool(mode))
+            pb = load_release_pb(
+                course_id,
+                bool(mode),
+                language_code=GARMIN_OMT_SIMPLIFIED_CHINESE,
+            )
             release = inspect_valid_release(pb, expected_course_id=course_id)
             if mode:
                 _atomic_write_bytes(COURSEVIEW / f"{course_id}_releases.pb", pb)
+                # Keep the shared course-reference authority aware that this
+                # release was fetched with Garmin's zh_CHS locale. Otherwise
+                # the next package request would refetch an otherwise fresh
+                # release solely because the sidecar is missing.
+                from ai_caddie.courses.course_reference import record_release_language
+
+                record_release_language(course_id, pb)
             return release, "live" if mode else "cache"
         except Exception as exc:
             errors.append(f"{'live' if mode else 'cache'}: {exc}")

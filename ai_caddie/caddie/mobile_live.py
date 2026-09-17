@@ -454,23 +454,19 @@ def _courseview_segment_resolver(global_id: int, *, allow_fetch: bool = False) -
     9 holes => a playable nine (loop); 18 => a whole course. None when the CourseView release is
     not cached and ``allow_fetch`` is False (request-time path stays offline-safe)."""
     try:
-        from pathlib import Path
+        # Use the shared release authority so this resolver observes the same
+        # zh_CHS-localized cache and migration marker as package/par/tee readers.
+        from ai_caddie.courses.course_reference import (
+            courseview_release_info,
+            localized_courseview_name,
+        )
 
-        from ai_caddie.core.data import ROOT
-        from ai_caddie.geometry.inspect_courseview_release import inspect_release, load_release_pb
-
-        path = Path(ROOT) / "data" / "courseview" / f"{int(global_id)}_releases.pb"
-        if path.exists():
-            pb = path.read_bytes()
-        elif allow_fetch:
-            pb = load_release_pb(int(global_id), True)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(pb)
-        else:
+        info = courseview_release_info(int(global_id), allow_fetch=allow_fetch)
+        name = localized_courseview_name(int(global_id), info=info)
+        if not info and not name:
             return None
-        info = inspect_release(pb)
-        holes = info.get("holes") or []
-        return (info.get("course_name"), len(holes) or None)
+        holes = (info or {}).get("holes") or []
+        return (name, len(holes) or None)
     except Exception:
         return None
 
@@ -480,21 +476,12 @@ def _courseview_tee_names(global_id: int, *, allow_fetch: bool = False) -> list[
     the same list Garmin's own 'new round' tee picker shows. MEN tees, deduped, ordered by index.
     Empty when the release is not cached and allow_fetch is False."""
     try:
-        from pathlib import Path
+        from ai_caddie.courses.course_reference import courseview_release_info
 
-        from ai_caddie.core.data import ROOT
-        from ai_caddie.geometry.inspect_courseview_release import inspect_release, load_release_pb
-
-        path = Path(ROOT) / "data" / "courseview" / f"{int(global_id)}_releases.pb"
-        if path.exists():
-            pb = path.read_bytes()
-        elif allow_fetch:
-            pb = load_release_pb(int(global_id), True)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(pb)
-        else:
+        info = courseview_release_info(int(global_id), allow_fetch=allow_fetch)
+        if not info:
             return []
-        tees = inspect_release(pb).get("tees") or []
+        tees = info.get("tees") or []
         men = sorted(
             (t for t in tees if str(t.get("gender") or "").upper() == "MEN"),
             key=lambda t: t.get("index") or 0,
@@ -2888,7 +2875,13 @@ def _geometry_only_course_template(
         )
     except Exception:
         release = None
-    resolved_course_name = course_name or str((release or {}).get("course_name") or "").strip() or None
+    from ai_caddie.courses.course_reference import localized_courseview_name
+
+    resolved_course_name = course_name or localized_courseview_name(
+        int(global_id),
+        info=release,
+        root=package_root,
+    )
     has_geometry_source = False
     available_hole_numbers = sorted(lightweight_holes) or list(range(1, len(cv_par or []) + 1)) or list(range(1, 19))
     requested_priority = [

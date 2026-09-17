@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -49,6 +50,84 @@ class EstimateTests(unittest.TestCase):
 
 
 class PersistenceTests(unittest.TestCase):
+    def test_catalogue_name_cache_accepts_only_native_garmin_cjk_rows(self) -> None:
+        from ai_caddie.courses.course_search import CourseMatch
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cr.record_courseview_catalogue_names(
+                [
+                    CourseMatch(32842, "北京黄港国际高尔夫俱乐部", 18, "beijing", "beijing", 0.0),
+                    CourseMatch(3881, "Cypress Point Club", 18, "Monterey", "california", 0.0),
+                ],
+                root=root,
+            )
+            self.assertEqual(
+                cr.courseview_catalogue_name(32842, root=root),
+                "北京黄港国际高尔夫俱乐部",
+            )
+            self.assertIsNone(cr.courseview_catalogue_name(3881, root=root))
+
+    def test_localized_courseview_name_prefers_observed_catalogue_over_old_release(self) -> None:
+        from ai_caddie.courses.course_search import CourseMatch
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cr.record_courseview_catalogue_names(
+                [
+                    CourseMatch(
+                        32842,
+                        "北京黄港国际高尔夫俱乐部",
+                        18,
+                        "北京",
+                        "北京",
+                        0.0,
+                    )
+                ],
+                root=root,
+            )
+            self.assertEqual(
+                cr.localized_courseview_name(
+                    32842,
+                    info={
+                        "course_name": "Beijing Huanggang International Golf Club",
+                        "_localized": False,
+                    },
+                    root=root,
+                ),
+                "北京黄港国际高尔夫俱乐部",
+            )
+
+    def test_localized_courseview_name_keeps_current_localized_release(self) -> None:
+        from ai_caddie.courses.course_search import CourseMatch
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cr.record_courseview_catalogue_names(
+                [
+                    CourseMatch(
+                        32842,
+                        "北京黄港旧名",
+                        18,
+                        "北京",
+                        "北京",
+                        0.0,
+                    )
+                ],
+                root=root,
+            )
+            self.assertEqual(
+                cr.localized_courseview_name(
+                    32842,
+                    info={
+                        "course_name": "北京黄港新名",
+                        "_localized": True,
+                    },
+                    root=root,
+                ),
+                "北京黄港新名",
+            )
+
     def test_concurrent_stale_release_refresh_is_singleflight(self) -> None:
         old_fixture = Path(__file__).parent / "fixtures" / "courseview_release_31870.pb"
         new_fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
@@ -62,7 +141,11 @@ class PersistenceTests(unittest.TestCase):
                 with ThreadPoolExecutor(max_workers=8) as pool:
                     rows = list(pool.map(lambda _: cr.courseview_release_info(31936, root=root), range(8)))
 
-            fetch.assert_called_once_with(31936, True)
+            fetch.assert_called_once_with(
+                31936,
+                True,
+                language_code=cr.COURSEVIEW_RELEASE_LANGUAGE_CODE,
+            )
             self.assertTrue(all(row and row["course_id"] == 31936 for row in rows))
 
     def test_stale_release_cache_refreshes_atomically_when_online(self) -> None:
@@ -77,7 +160,11 @@ class PersistenceTests(unittest.TestCase):
             with patch.object(cr, "load_release_pb", return_value=new_fixture.read_bytes()) as fetch:
                 info = cr.courseview_release_info(31936, root=root)
 
-            fetch.assert_called_once_with(31936, True)
+            fetch.assert_called_once_with(
+                31936,
+                True,
+                language_code=cr.COURSEVIEW_RELEASE_LANGUAGE_CODE,
+            )
             self.assertEqual(info["course_id"], 31936)
             self.assertEqual(release_path.read_bytes(), new_fixture.read_bytes())
 
@@ -92,6 +179,49 @@ class PersistenceTests(unittest.TestCase):
             with patch.object(cr, "load_release_pb", side_effect=OSError("offline")):
                 info = cr.courseview_release_info(31936, root=root)
 
+            self.assertEqual(info["course_id"], 31936)
+
+    def test_fresh_release_without_locale_marker_is_upgraded_once(self) -> None:
+        """A pre-zh_CHS protobuf must not keep an English name forever."""
+        fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            release_path = root / "data" / "courseview" / "31936_releases.pb"
+            release_path.parent.mkdir(parents=True)
+            release_path.write_bytes(fixture.read_bytes())
+            with patch.object(cr, "load_release_pb", return_value=fixture.read_bytes()) as fetch:
+                info = cr.courseview_release_info(31936, root=root)
+
+            fetch.assert_called_once_with(
+                31936,
+                True,
+                language_code=cr.COURSEVIEW_RELEASE_LANGUAGE_CODE,
+            )
+            marker = json.loads(
+                (root / "data" / "courseview" / "31936_releases.meta.json").read_text()
+            )
+            self.assertEqual(marker["languageCode"], cr.COURSEVIEW_RELEASE_LANGUAGE_CODE)
+            self.assertEqual(info["course_id"], 31936)
+
+    def test_localized_release_marker_keeps_fresh_cache_offline(self) -> None:
+        fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            release_dir = root / "data" / "courseview"
+            release_dir.mkdir(parents=True)
+            (release_dir / "31936_releases.pb").write_bytes(fixture.read_bytes())
+            (release_dir / "31936_releases.meta.json").write_text(
+                json.dumps({
+                    "globalId": 31936,
+                    "languageCode": cr.COURSEVIEW_RELEASE_LANGUAGE_CODE,
+                    "sha256": hashlib.sha256(fixture.read_bytes()).hexdigest(),
+                }),
+                encoding="utf-8",
+            )
+            with patch.object(cr, "load_release_pb") as fetch:
+                info = cr.courseview_release_info(31936, root=root)
+
+            fetch.assert_not_called()
             self.assertEqual(info["course_id"], 31936)
 
     def test_malformed_refresh_never_replaces_last_valid_release(self) -> None:

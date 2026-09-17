@@ -658,6 +658,23 @@ pagination. Focused tests and the live OMT regression pass; the localized-name
 preflight, simulator row-by-row evidence, release gates, and a fresh internal
 TestFlight upload remain open.
 
+**Course-name candidate live verification (2026-09-17 16:38 UTC):** backend
+image `garmin-ai-caddie-api:1e350be5-candidate-20260917` is running at exact
+source `1e350be5ce3dbc9e5199733401b4fdc07d4ef51a` in container
+`aicaddie-release-1e350be5-candidate-20260917` on loopback `39067`, reusing the
+existing private data volume without changing any prior candidate. Health
+returned `ai-caddie-health-v2` with the exact revision. The dedicated Quick
+Tunnel is `https://alaska-metropolitan-showcase-clients.trycloudflare.com`.
+The live catalogue preflight exited 0 and recorded
+`course-catalogue-preflight ok ... nearby=66 empty=0 search=6
+localizedNearby=4 localizedSearch=3` in
+`/home/jason/garmin-ai-caddie-data/operations/course-name-candidate-20260917/preflight.log`.
+The captured nearby/search payloads are retained in that same persistent
+operations directory; rows `32842`, `31793`-`31796`, and `31783`-`31785` carry
+Garmin-native Chinese venue names while A/B/C remains a separate segment label.
+No client-side translation or alias table was used. Exact-SHA Native simulator
+catalogue row assertions and the fresh internal TestFlight upload remain open.
+
 **Owner decisions (2026-09-16):**
 - 并行可以用于独立的网络/计算阶段，但必须有界、可取消、可观测；不得用无界并发把首屏和后台任务互相争抢。
 - 不新增“下载全部地图离线存储”方案。本轮保留当前精确资源按需/后台准备能力。

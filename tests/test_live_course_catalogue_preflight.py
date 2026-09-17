@@ -19,6 +19,7 @@ class LiveCourseCataloguePreflightTests(unittest.TestCase):
         rows = preflight.validate_matches(
             {
                 "schema": "ai-caddie-course-nearby-v1",
+                "complete": True,
                 "matches": [
                     {"globalId": 31793, "distanceKm": 0.2},
                     {"globalId": 31794, "distanceKm": 4.1},
@@ -58,6 +59,7 @@ class LiveCourseCataloguePreflightTests(unittest.TestCase):
     def test_localized_name_gate_requires_native_cjk_name_for_expected_rows(self) -> None:
         payload = {
             "schema": "ai-caddie-course-nearby-v1",
+            "complete": True,
             "matches": [
                 {"globalId": 32842, "name": "北京黄港国际高尔夫俱乐部"},
                 {"globalId": 31783, "name": "天安假日高尔夫俱乐部 ~ A"},
@@ -81,6 +83,23 @@ class LiveCourseCataloguePreflightTests(unittest.TestCase):
                     expected_names={32842: "北京黄港"},
                 )
 
+        # A historical snapshot may make `name` Chinese while the raw provider
+        # value is still English. The gate must inspect providerName first.
+        masked = {
+            **payload,
+            "matches": [{
+                "globalId": 32842,
+                "name": "北京黄港国际高尔夫俱乐部",
+                "providerName": "Beijing Huanggang International Golf Club",
+            }],
+        }
+        with self.assertRaisesRegex(ValueError, "providerName"):
+            preflight.validate_localized_names(
+                masked,
+                schema="ai-caddie-course-nearby-v1",
+                expected_names={32842: "北京黄港"},
+            )
+
         with self.assertRaises(ValueError):
             preflight.validate_localized_names(
                 payload,
@@ -102,13 +121,14 @@ class LiveCourseCataloguePreflightTests(unittest.TestCase):
             {
                 "schema": "ai-caddie-course-nearby-v1",
                 "radiusKm": 50,
+                "complete": True,
                 "matches": [],
             }
         )
         invalid_payloads = [
             {"schema": "ai-caddie-course-nearby-v1", "radiusKm": 50, "matches": [{}]},
             {"schema": "wrong", "radiusKm": 50, "matches": []},
-            {"schema": "ai-caddie-course-nearby-v1", "radiusKm": 200, "matches": []},
+            {"schema": "ai-caddie-course-nearby-v1", "radiusKm": 200, "complete": True, "matches": []},
         ]
         for payload in invalid_payloads:
             with self.subTest(payload=payload), self.assertRaises(ValueError):

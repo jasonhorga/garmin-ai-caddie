@@ -2,10 +2,10 @@ import Foundation
 
 /// Presentation-only helpers for Garmin course names.
 ///
-/// Garmin's scorecard snapshot can contain a localized venue name while the
-/// anonymous CourseView catalogue returns an English spelling for the same
-/// global id.  This type combines those two already-provided values; it never
-/// translates an English name and never uses a global id as a name lookup.
+/// Garmin's scorecard snapshot and its locale-aware CourseView catalogue can
+/// provide localized venue names for the same global id. This type combines
+/// those already-provided values; it never translates an English name and never
+/// uses a global id as a name lookup.
 public enum GarminCourseNameAuthority {
     public static let garminSnapshotNameSource = "garmin_scorecard_snapshot"
 

@@ -3,9 +3,10 @@
 Garmin exposes two related but different names:
 
 * ``courseSnapshots[0].name`` is the localized name attached to a played
-  scorecard (and is the only trusted source for a localized venue name).
+  scorecard and remains trusted for a venue already present in history.
 * CourseView ``name`` identifies one playable layout and may contain its
-  single loop label.
+  single loop label. Requests made with Garmin's ``zh_CHS`` locale can also
+  provide the native localized venue name for a never-played course.
 
 Played 18-hole scorecards sometimes append a route such as ``A/C`` or
 ``A+B``.  That route is a fact about that round, not the identity of one

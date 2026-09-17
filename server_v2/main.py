@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
 
 from ai_caddie.courses import course_reconciliation, course_search
+from ai_caddie.courses.course_reference import record_courseview_catalogue_names
 from ai_caddie.history import stats_cache
 from ai_caddie.history.stats_cache import cached_load_history_data
 from ai_caddie.rounds import round_corrections, round_ingest
@@ -1170,6 +1171,10 @@ def course_search_endpoint(
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Garmin course catalogue unavailable") from exc
+    # Persist only names that Garmin's zh_CHS provider response already supplied. This tiny
+    # metadata cache keeps the same factual spelling available to a subsequent package request;
+    # it is not a translation table and is never keyed by a hand-entered alias.
+    record_courseview_catalogue_names(provider_matches, root=ROOT)
     matches = _reconcile_player_course_matches(
         provider_matches,
         player_id=player_id,
@@ -1350,6 +1355,7 @@ def course_nearby_endpoint(
         partial_reason = None
         pages_fetched = 0
         cache_status = "adapter"
+    record_courseview_catalogue_names(matches, root=ROOT)
     # Nearby coordinates, distances, hole counts and loop suffixes remain provider truth.  A
     # player's verified Garmin snapshot may supply the localized venue spelling for the same global
     # id, but it must never replace the current provider geometry or turn a historical A/B/C route

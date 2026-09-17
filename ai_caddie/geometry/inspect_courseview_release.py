@@ -10,12 +10,16 @@ import json
 import re
 import struct
 from pathlib import Path
+import urllib.parse
 from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[2]
 COURSEVIEW = ROOT / "data" / "courseview"
 BASE = "https://omt.garmin.cn/CourseViewData"
+# Garmin Golf's Android client uses this exact OMT language code for Simplified
+# Chinese. Keep it shared by release/package consumers as well as catalogue search.
+GARMIN_OMT_SIMPLIFIED_CHINESE = "zh_CHS"
 
 
 def read_varint(buf: bytes, pos: int) -> tuple[int, int]:
@@ -83,9 +87,15 @@ def fetch_bytes(url: str, *, timeout: float = 30) -> bytes:
         return response.read()
 
 
-def load_release_pb(course_id: int, live: bool) -> bytes:
+def load_release_pb(
+    course_id: int,
+    live: bool,
+    *,
+    language_code: str = GARMIN_OMT_SIMPLIFIED_CHINESE,
+) -> bytes:
     if live:
-        return fetch_bytes(f"{BASE}/course-layouts/{course_id}/releases/")
+        query = urllib.parse.urlencode({"languageCode": language_code})
+        return fetch_bytes(f"{BASE}/course-layouts/{course_id}/releases/?{query}")
     return (COURSEVIEW / f"{course_id}_releases.pb").read_bytes()
 
 

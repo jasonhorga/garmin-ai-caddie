@@ -11,17 +11,24 @@ UI can show provenance and a course the user later plays auto-supersedes an esti
 from __future__ import annotations
 
 import os
+import hashlib
 import threading
 import time
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from ai_caddie.core.data import ROOT, read_json, write_json
-from ai_caddie.geometry.inspect_courseview_release import inspect_valid_release, load_release_pb
+from ai_caddie.core.data import ROOT, atomic_write_json, read_json, safe_read_json, write_json
+from ai_caddie.courses.name_authority import contains_cjk, normalize_course_text
+from ai_caddie.geometry.inspect_courseview_release import (
+    GARMIN_OMT_SIMPLIFIED_CHINESE,
+    inspect_valid_release,
+    load_release_pb,
+)
 
 COURSE_DIR = ROOT / "data" / "courses"
 COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S = 3600.0
+COURSEVIEW_RELEASE_LANGUAGE_CODE = GARMIN_OMT_SIMPLIFIED_CHINESE
 _RELEASE_LOCKS = tuple(threading.Lock() for _ in range(64))
 
 PAR_SOURCES = ("played", "courseview", "estimate")
@@ -120,6 +127,111 @@ def _course_dir(root: Path = ROOT) -> Path:
 
 def _courseview_dir(root: Path = ROOT) -> Path:
     return Path(root) / "data" / "courseview"
+
+
+def _release_language_meta_path(global_id: int, *, root: Path = ROOT) -> Path:
+    """Sidecar recording the OMT locale used for a cached release protobuf.
+
+    Release bytes are Garmin's opaque protobuf and have no locale field. The sidecar lets an
+    existing English cache be upgraded exactly once after the locale contract changes, without
+    forcing every overseas/English-named course to refetch on every package request.
+    """
+    return _courseview_dir(root) / f"{int(global_id)}_releases.meta.json"
+
+
+def _release_cache_is_localized(global_id: int, pb: bytes, *, root: Path = ROOT) -> bool:
+    payload = safe_read_json(_release_language_meta_path(global_id, root=root), default={})
+    return (
+        isinstance(payload, dict)
+        and payload.get("globalId") == int(global_id)
+        and payload.get("languageCode") == COURSEVIEW_RELEASE_LANGUAGE_CODE
+        and payload.get("sha256") == hashlib.sha256(pb).hexdigest()
+    )
+
+
+def record_release_language(global_id: int, pb: bytes, *, root: Path = ROOT) -> None:
+    try:
+        atomic_write_json(
+            _release_language_meta_path(global_id, root=root),
+            {
+                "schema": "garmin-courseview-release-cache-v1",
+                "globalId": int(global_id),
+                "languageCode": COURSEVIEW_RELEASE_LANGUAGE_CODE,
+                "sha256": hashlib.sha256(pb).hexdigest(),
+            },
+        )
+    except (OSError, TypeError, ValueError):
+        # A missing marker only costs one later refresh; it must never discard a valid release.
+        pass
+
+
+def _catalogue_name_path(global_id: int, *, root: Path = ROOT) -> Path:
+    return _courseview_dir(root) / f"{int(global_id)}_catalogue_name.json"
+
+
+def courseview_catalogue_name(global_id: int, *, root: Path = ROOT) -> str | None:
+    """A previously observed zh_CHS Garmin catalogue row, never a client alias."""
+    payload = safe_read_json(_catalogue_name_path(global_id, root=root), default={})
+    if (
+        isinstance(payload, dict)
+        and payload.get("globalId") == int(global_id)
+        and payload.get("languageCode") == COURSEVIEW_RELEASE_LANGUAGE_CODE
+        and isinstance(payload.get("name"), str)
+        and contains_cjk(payload["name"])
+    ):
+        return payload["name"]
+    return None
+
+
+def localized_courseview_name(
+    global_id: int,
+    *,
+    info: dict | None = None,
+    root: Path = ROOT,
+) -> str | None:
+    """Return the best Garmin-provided CourseView venue spelling for one id.
+
+    ``info`` is normally the release object already loaded by the caller.  A
+    release fetched before the ``zh_CHS`` contract (or a release whose marker
+    is absent) must not overwrite a native CJK name captured from discovery.
+    The catalogue sidecar is only accepted when it was itself observed from a
+    CJK provider row; it is never a client translation or an id alias.
+    """
+    release_name = normalize_course_text((info or {}).get("course_name"))
+    catalogue_name = courseview_catalogue_name(global_id, root=root)
+    if catalogue_name and (
+        not info
+        or not bool((info or {}).get("_localized"))
+        or not contains_cjk(release_name)
+    ):
+        return catalogue_name
+    return release_name or catalogue_name
+
+
+def record_courseview_catalogue_names(matches: object, *, root: Path = ROOT) -> None:
+    """Persist only native Garmin CJK provider rows already returned by discovery.
+
+    This is metadata, not a translation or a map download. It preserves the same
+    selected venue across discovery and a fast, cache-only package response while
+    an earlier English release cache is refreshed separately by the Tee endpoint.
+    """
+    for match in matches or ():
+        try:
+            global_id = int(match.global_id)
+            name = str(match.name).strip()
+            if global_id <= 0 or len(name) > 256 or not contains_cjk(name):
+                continue
+            path = _catalogue_name_path(global_id, root=root)
+            if courseview_catalogue_name(global_id, root=root) != name:
+                atomic_write_json(path, {
+                    "schema": "garmin-courseview-catalogue-name-v1",
+                    "globalId": global_id,
+                    "languageCode": COURSEVIEW_RELEASE_LANGUAGE_CODE,
+                    "name": name,
+                })
+        except (AttributeError, OSError, TypeError, ValueError, OverflowError):
+            # Discovery must remain usable even when a metadata cache is read-only.
+            continue
 
 
 def _rounds_from_files(*, root: Path = ROOT) -> list[dict]:
@@ -275,16 +387,27 @@ def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT
             try:
                 pb = path.read_bytes()
                 cached_info = inspect_valid_release(pb, expected_course_id=gid)
-                stale = time.time() - path.stat().st_mtime > COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S
+                localized = _release_cache_is_localized(gid, pb, root=root)
+                cached_info["_localized"] = localized
+                stale = (
+                    time.time() - path.stat().st_mtime > COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S
+                    or not localized
+                )
             except (OSError, ValueError):
                 stale = True
         if allow_fetch and (stale or cached_info is None):
             try:
-                candidate = load_release_pb(gid, True)  # live fetch (anonymous)
+                candidate = load_release_pb(
+                    gid,
+                    True,
+                    language_code=COURSEVIEW_RELEASE_LANGUAGE_CODE,
+                )  # live fetch (anonymous, Garmin OMT locale)
                 info = inspect_valid_release(candidate, expected_course_id=gid)
             except Exception:
                 return cached_info  # offline: the last complete release remains usable
             _atomic_write_bytes(path, candidate)
+            record_release_language(gid, candidate, root=root)
+            info["_localized"] = True
             return info
         return cached_info
 

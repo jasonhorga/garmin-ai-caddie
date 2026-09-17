@@ -164,13 +164,20 @@ final class NewCourseEvidenceResolver {
         return nil
     }
 
-    /// Prefer a full ASCII name (reliable simulator keyboard input), then distinctive long tokens.
+    /// Prefer the provider's full name. Garmin's localized catalogue now returns native CJK names,
+    /// which are valid search input just like the older ASCII spellings; distinctive ASCII tokens
+    /// remain useful for mixed/legacy rows when a full-name query is too broad.
     private func searchQueries(for name: String) -> [String] {
         var values: [String] = []
-        if name.unicodeScalars.allSatisfy(\.isASCII), name.count >= 2 {
-            values.append(name)
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let containsCJK = trimmedName.unicodeScalars.contains { scalar in
+            (0x3400...0x4DBF).contains(scalar.value) || (0x4E00...0x9FFF).contains(scalar.value)
         }
-        let tokens = name.components(separatedBy: CharacterSet.alphanumerics.inverted)
+        if trimmedName.count >= 2,
+           (trimmedName.unicodeScalars.allSatisfy(\.isASCII) || containsCJK) {
+            values.append(trimmedName)
+        }
+        let tokens = trimmedName.components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { token in
                 token.count >= 4 && token.unicodeScalars.contains {
                     CharacterSet.letters.contains($0) && $0.isASCII

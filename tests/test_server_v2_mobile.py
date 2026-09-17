@@ -1644,6 +1644,25 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertTrue(payload["sourceCoverage"]["courseFound"])
         self.assertEqual(len(payload["holes"]), 9)  # front nine in play
 
+    def test_course_package_boundary_uses_zh_chs_catalogue_for_unplayed_course(self) -> None:
+        """A never-played package must keep the Garmin discovery spelling."""
+        from ai_caddie.caddie import mobile_live
+
+        source = HistoryData(raw_rounds=[], rounds=[], shots=[])
+        result = mobile_live._canonicalize_course_payload(
+            {
+                "globalId": 32842,
+                "name": "Beijing Huanggang International Golf Club",
+            },
+            source=source,
+            global_id=32842,
+            provider_name="北京黄港国际高尔夫俱乐部",
+            segment_holes=18,
+        )
+        self.assertEqual(result["name"], "北京黄港国际高尔夫俱乐部")
+        self.assertEqual(result["venueName"], "北京黄港国际高尔夫俱乐部")
+        self.assertIsNone(result["venueNameSource"])
+
     def client_get_course_package(self, global_id: int, *, round_id: str, nine: str):
         return TestClient(app).get(f"/api/v2/mobile/courses/{global_id}/package", params={"round_id": round_id, "nine": nine})
 

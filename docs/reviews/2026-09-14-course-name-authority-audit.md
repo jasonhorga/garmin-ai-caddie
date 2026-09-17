@@ -73,10 +73,11 @@ than invent a Chinese translation:
 | `32235` | Sentosa Golf Club ~ Serapong |
 | `30249` / `30250` | Belle Mare Plage Resort ~ Links Course / Legend Course |
 
-The sampled CourseView responses for Red Flag Valley, West Park, and
-Bangchuidao still contain English provider names and no separate localized
-field. They therefore remain English until Garmin supplies a Chinese field;
-the old hand-written translations are intentionally not restored.
+The sampled CourseView responses in this historical audit contained English
+provider names because they were fetched before the Garmin OMT locale was
+corrected. Current requests use Garmin's `zh_CHS` language code; when Garmin
+still supplies only English for a venue, the product keeps that factual English
+name and does not invent a translation.
 
 ## Current authority rules
 

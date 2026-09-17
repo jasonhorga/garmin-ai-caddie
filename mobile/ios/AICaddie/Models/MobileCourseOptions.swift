@@ -135,9 +135,9 @@ public enum MobileCourseDisplayLocalization {
         return areaAliases[normalized(value)] ?? value
     }
 
-    /// Prefer an already-provided Chinese course name when several sources describe the same
-    /// global id. Provider/nearby rows are often English while a downloaded/history row already
-    /// carries the player's Chinese label; the latter must win without translating unknown venues.
+    /// Prefer an already-provided Garmin Chinese course name when several sources describe the
+    /// same global id. A locale-aware provider row may already be Chinese; a downloaded/history
+    /// row remains useful evidence for older caches, but no unknown venue is translated locally.
     public static func preferredCourseName(
         _ rawNames: [String?],
         globalId: Int? = nil,

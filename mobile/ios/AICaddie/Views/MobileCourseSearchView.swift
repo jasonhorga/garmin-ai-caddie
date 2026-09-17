@@ -18,8 +18,8 @@ public struct MobileCourseSearchView: View {
     public let dismissAfterSelection: Bool
     public let installedGlobalIds: Set<Int>
     public let installedCourseKeys: Set<String>?
-    /// Parent catalogue/download rows are the most authoritative presentation source for a global
-    /// id. Nearby/search responses can be provider-English even after the app has a Chinese row.
+    /// Parent catalogue/download rows retain the same Garmin identity across refreshes. Nearby and
+    /// search responses are expected to use Garmin's locale-aware provider spelling as well.
     public let knownCourseOptions: [MobileCourseOption]
     public let retainedDownloads: [PrepCourseDownloadRecord]
     public let validatingDownloadID: String?

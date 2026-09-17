@@ -228,7 +228,13 @@ def build_mobile_round_package_response(
     )
 
     def build() -> LiveRoundPackageResponse:
-        _refresh_course_release_authority(_round_release_global_ids(data, round_id))
+        # The round package is on the first-screen path. Use only already-cached
+        # release bytes here; Tee/course-install workers own any zh_CHS refresh
+        # so Garmin latency cannot hold the playable package hostage.
+        _refresh_course_release_authority(
+            _round_release_global_ids(data, round_id),
+            allow_fetch=False,
+        )
         mark_request_stage("release_lookup")
         return LiveRoundPackageResponse(
             **build_live_round_package(

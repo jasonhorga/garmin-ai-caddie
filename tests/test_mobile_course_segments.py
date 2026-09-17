@@ -8,6 +8,7 @@ CourseView resolver is INJECTED here so the test is hermetic (no network / no da
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from ai_caddie.history.history import HistoryData
 from ai_caddie.caddie.mobile_live import (
@@ -83,6 +84,22 @@ def _resolver(gid: int, *, allow_fetch: bool = False):
 
 
 class MobileCourseSegmentTests(unittest.TestCase):
+    def test_segment_resolver_prefers_cached_zh_chs_catalogue_name_over_old_release(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        with (
+            patch("ai_caddie.courses.course_reference.courseview_release_info", return_value={
+                "course_name": "Beijing Huanggang International Golf Club",
+                "holes": [{"hole": 1}],
+                "_localized": False,
+            }),
+            patch("ai_caddie.courses.course_reference.courseview_catalogue_name", return_value="北京黄港国际高尔夫俱乐部"),
+        ):
+            self.assertEqual(
+                mobile_live._courseview_segment_resolver(32842),
+                ("北京黄港国际高尔夫俱乐部", 1),
+            )
+
     def _options(self) -> dict[int, dict]:
         data = HistoryData(
             raw_rounds=[],

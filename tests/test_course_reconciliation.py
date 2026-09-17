@@ -244,6 +244,73 @@ class CourseReconciliationTests(unittest.TestCase):
         self.assertTrue(result[0].reconciliation_conflict)
         self.assertEqual(result[0].provider_name, "Shadow Creek Golf Club")
 
+    def test_cjk_provider_name_and_matching_snapshot_have_no_conflict(self) -> None:
+        provider = CourseMatch(
+            31793,
+            "北京丽宫体育公园高尔夫俱乐部",
+            18,
+            "北京",
+            "北京",
+            1.0,
+            40.0451,
+            116.5467,
+            0.1,
+        )
+        result = reconcile_course_matches(
+            [provider],
+            player_id="player-a",
+            history_rows=[_history("北京丽宫体育公园高尔夫俱乐部")],
+        )
+        self.assertEqual(result[0].name, provider.name)
+        self.assertEqual(result[0].provider_name, provider.name)
+        self.assertFalse(result[0].reconciliation_conflict)
+        self.assertIsNone(result[0].display_name_source)
+
+    def test_cjk_provider_name_still_yields_to_explicit_snapshot(self) -> None:
+        provider = CourseMatch(
+            31793,
+            "北京丽宫体育公园高尔夫俱乐部",
+            18,
+            "北京",
+            "北京",
+            1.0,
+            40.0451,
+            116.5467,
+            0.1,
+        )
+        result = reconcile_course_matches(
+            [provider],
+            player_id="player-a",
+            history_rows=[_history("北京丽宫高尔夫俱乐部")],
+        )
+        self.assertEqual(result[0].name, "北京丽宫高尔夫俱乐部")
+        self.assertEqual(result[0].provider_name, provider.name)
+        self.assertTrue(result[0].reconciliation_conflict)
+        self.assertEqual(result[0].display_name_source, "garmin_scorecard_snapshot")
+
+    def test_manual_cjk_name_cannot_replace_cjk_provider_name(self) -> None:
+        provider = CourseMatch(
+            31793,
+            "北京丽宫体育公园高尔夫俱乐部",
+            18,
+            "北京",
+            "北京",
+            1.0,
+            40.0451,
+            116.5467,
+            0.1,
+        )
+        row = _history("手填中文球场")
+        row.pop("garminSnapshotName", None)
+        row["source"] = "manual"
+        result = reconcile_course_matches(
+            [provider],
+            player_id="player-a",
+            history_rows=[row],
+        )
+        self.assertEqual(result[0].name, provider.name)
+        self.assertIsNone(result[0].display_name_source)
+
     def test_distance_mismatch_keeps_provider_coordinates_but_overlays_name(self) -> None:
         result = reconcile_course_matches(
             [PROVIDER],
