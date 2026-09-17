@@ -9,17 +9,14 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-17 08:17 UTC
-**Branch:** `integration/v2` (GitHub default; current network-lifecycle app
-source `fc5152ab77ef0566c66d5dda601a194b72fee55f`, backend
-`41eb8e1ae237490b88757669bcde845640bb5e42`; Source CI `35105911252`; Native
-Mobile CI `35106347996`; internal TestFlight Build 64 source
-`fc5152ab77ef0566c66d5dda601a194b72fee55f`; previous product/internal-release
-source
-`d8769916d4b7ea1fc8b2bdcfb151a67f944a6eb0`; PERF-STARTUP backend candidate
-`70e74a6eb04bae1d656bc8cee81f534e0ae4f2b7` on loopback `39062`; MAP1
-product-code tip `5628cc6db31dde310ee5691c3683f750e51b27d8`; reconciliation
-merge `1775d87a7a3eb2ac3c879bb81f07406ef28dd760`)
+**Updated:** 2026-09-17 22:16 UTC
+**Branch:** `integration/v2` (GitHub default; current localized-course-name
+source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI
+`35267621896`; Native Mobile CI `35270792248` attempt 2; internal TestFlight
+Build 65 source `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; API candidate
+`https://creature-dramatic-acne-power.trycloudflare.com` on loopback `39068`;
+prior network-lifecycle source/backend `fc5152ab77ef0566c66d5dda601a194b72fee55f`
+and `41eb8e1ae237490b88757669bcde845640bb5e42` remain recorded below)
 **Source baseline:** `d8769916d4b7ea1fc8b2bdcfb151a67f944a6eb0` (PHONE-UX5
 course-name source; Source CI `35005531664`, Native Mobile CI `35005819951`,
 and internal TestFlight CD `35013065767` passed/uploaded; Apple read-only check
@@ -92,6 +89,21 @@ release-scope decision; do not pause for routine TestFlight execution.
   diagnostic `35122912635` passed strict/deep signing, bundle/profile,
   Team-ID, version/build, expiry, and arm64 checks. No external group,
   tester, production service, or production data was changed.
+- **PHONE-UX5 localized-name release (2026-09-17):** Commit
+  `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` makes Garmin's `zh_CHS` OMT name
+  the single iPhone/Watch/Web venue identity and removes manual/client-side
+  naming choices. Source CI `35267621896` and exact-SHA Native Mobile CI
+  `35270792248` (attempt 2) passed; the Native run exercised nearby/search
+  catalogue rows in the iOS simulator and completed iOS/Watch runtime evidence
+  and secret scans. Internal TestFlight CD `35279960708` uploaded Build
+  `0.1.0 (65)` with the exact source/backend and candidate API origin. Apple
+  read-only status check `35281034084` confirmed Build 65 `VALID`, unexpired,
+  `IN_BETA_TESTING`, `usesNonExemptEncryption=false`, iOS `arm64`, and membership
+  in the existing internal `Jason's friends` all-builds group. Exact IPA/Watch
+  diagnostic `35281036748` passed strict/deep signing, bundle/profile and Team
+  ID matching, version/build parity, profile expiry, and arm64 checks. No
+  external distribution, tester mutation, production service, or production
+  data was changed.
 - **PHONE-UX5 backend candidate (2026-09-14):** Revision
   `3bbe79df0f645a4d9e1410c62110a3ad8991e7e9` is healthy in container
   `aicaddie-release-3bbe79df-candidate-20260914` on loopback `39064`, image
@@ -588,7 +600,7 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`NET-PRIORITY` — 全链路网络调度、首屏地图与 Garmin 重连性能** (`in-progress`)
+**`NET-PRIORITY` — 全链路网络调度、首屏地图与 Garmin 重连性能** (`evidence-open`)
 
 本轮承接用户反馈：球场地图、历史成绩、重新连接 Garmin 和开始一场都可能长时间空白或互相等待；黄港、天安等 Garmin App 已有中文名，但本产品仍显示英文。目标是建立明确的 P0/P1/P2 生命周期，让本地可用内容和当前洞地图先呈现，历史、同步、完整 18 洞资源、球童建议等后台任务不再阻塞彼此；同时只使用 Garmin 原始权威本地化字段，不添加手填翻译或别名。
 
@@ -618,10 +630,9 @@ run the real iPhone/Watch simulators successfully and produced
 `TeeSelectionUITests` assertion only required one known row (`31793`) to appear
 and be selectable; it did not enumerate or validate every nearby row's Garmin
 name source. The new gate adds captured-name assertions for the nearby and
-search responses, and the next Native run must exercise the same rows through
-the iOS picker. This is specifically intended to catch a mixed-language list
-like `IMG_8111`, without putting translations or global-id aliases in product
-code.
+search responses. Native run `35270792248` attempt 2 exercised the same rows
+through the iOS picker and passed. This catches a mixed-language list like
+`IMG_8111` without putting translations or global-id aliases in product code.
 
 **Garmin App localization evidence (2026-09-17):** `IMG_8115` is Garmin
 Golf's own nearby-course picker and shows Garmin-supplied Chinese venue names
@@ -655,8 +666,9 @@ returns the English name. The `zh_CHS` Tian An response is 567 bytes, SHA-256
 returns IDs `31783`/`31784`/`31785` as `天安假日高尔夫俱乐部 ~ A/B/C`.
 The working tree now sends `zh_CHS` on plain search, located search, and nearby
 pagination. Focused tests and the live OMT regression pass; the localized-name
-preflight, simulator row-by-row evidence, release gates, and a fresh internal
-TestFlight upload remain open.
+preflight, simulator row-by-row evidence, release gates, and fresh internal
+TestFlight upload are complete in the evidence below. Physical-device name
+parity and a fresh Garmin reconnect remain evidence-open.
 
 **Course-name candidate live verification (2026-09-17 16:38 UTC):** backend
 image `garmin-ai-caddie-api:1e350be5-candidate-20260917` is running at exact
@@ -673,7 +685,8 @@ The captured nearby/search payloads are retained in that same persistent
 operations directory; rows `32842`, `31793`-`31796`, and `31783`-`31785` carry
 Garmin-native Chinese venue names while A/B/C remains a separate segment label.
 No client-side translation or alias table was used. Exact-SHA Native simulator
-catalogue row assertions and the fresh internal TestFlight upload remain open.
+catalogue row assertions and the fresh internal TestFlight upload are complete;
+physical-device name parity and a fresh Garmin reconnect remain evidence-open.
 
 **Owner decisions (2026-09-16):**
 - 并行可以用于独立的网络/计算阶段，但必须有界、可取消、可观测；不得用无界并发把首屏和后台任务互相争抢。
@@ -1551,8 +1564,8 @@ project-level task list; historical plans are reference material.
 | `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Source CI `34663338160` and exact-SHA live Native Mobile CI `34663501590` at `70480f99` passed, including iOS/Watch builds, real iOS journey, dedicated hazard/caddie captures, Watch runtime screenshots, evidence and secret scans. Internal TestFlight CD `34666136884` uploaded Build 57; ASC read-only run `34666574292` confirmed `VALID` and `IN_BETA_TESTING`. Physical iPhone/Watch validation of map panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation remains open. |
 | `PHONE-UX3` | `evidence-open` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present at exact source `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; homeserver focused suite `296 passed, 2 skipped`, Python compileall, Source CI `34709596756`, and Native `34709800015` (full live iOS/Watch evidence) pass. Internal TestFlight CD `34712702517` uploaded Build 58; ASC run `34713289501` confirmed it is processed and in the internal group. Remaining evidence is physical iPhone/Watch verification of real-time panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation. |
 | `PERF-STARTUP` | `evidence-open` | Reduce complete-round startup latency without storing every course map offline: reuse server decision/package work, connect existing stats warm-up, keep full 18-hole facts while prioritizing the active hole on phone, and use bounded Watch topo concurrency with on-demand green detail. | Implementation and remote focused suite (`334 passed, 2 skipped`) are green; Python compileall and diff-check pass. Source CI `34757661927`, exact-SHA live Native Mobile CI `34759807648`, and internal TestFlight CD `34763656027` are green. Build 59 is Apple `VALID`/`IN_BETA_TESTING` and visible in the internal group; physical iPhone/Watch interaction and Garmin reconnect remain open. |
-| `NET-PRIORITY` | `in-progress` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`; Source CI `35105911252`; Native Mobile CI `35106347996`; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md` (raw SHA-256 `77bd1137e7b892dd48d89b3df04ed0e3f12e31feff38eeac34dfb3fa20e59bf5`, report SHA-256 `c98ae2b63b76ba8521a597412634958e855540c65252c3e6ab0db46db77dcddb`); TestFlight CD `35121179159` uploaded Build 64; ASC check `35122318337`; IPA diagnostic `35122912635`. Remaining proof is physical iPhone/Watch and Garmin reconnect evidence. |
-| `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `d8769916` removes the user-facing manual course-name entry and completes the shared Garmin identity contract. Source CI `35005531664`, Native Mobile CI `35005819951`, TestFlight CD `35013065767`, and Apple read-only check `35014393530` are green; Build 63 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
+| `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
+| `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
 | `FABLE-AUDIT` | `done` | Homeserver Claude Fable 5.1 whole-repository read-only audit; findings feed MAP1/REL gates. | `docs/reviews/2026-09-04-claude-fable-5-1-whole-repository-audit.md`; session `98bd77e3-c841-4ca2-86ee-91a1001b5382`; raw JSON SHA-256 `50b56130e2b9c29920bf9061b461a539b0cad08902d47d13aad460c416553440`; report source-copy SHA-256 `4ee5814afad50fbb085803da3c8cfcef50c343255b9cc52397b8035aed98e603`; model usage only `claude-fable-5-1`; temporary resources cleaned. |
 | `SNAPSHOT-BLOAT` | `done` | Remove reproducible `output/prodgeometry*` from durable Garmin snapshots and portable exports while preserving dependency metadata and legacy import compatibility. | Commits `ca3f505c`/`6d130528`; Source CI `34330414405`; focused remote tests `31/31`; cleanup manifest `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260909-snapshot-geometry-exclusion`; 16 directories and `34,241,567,932` bytes removed, nine snapshots retained, post-sync geometry count zero. |
@@ -1567,6 +1580,28 @@ means a named external decision or prerequisite is missing; `done` and
 `cancelled` are terminal.
 
 ## Completed Evidence
+
+- `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`: localized Garmin course-name
+  contract and current internal candidate. Source CI `35267621896` and Native
+  Mobile CI `35270792248` attempt 2 passed at the exact SHA, including iOS and
+  Watch builds/tests, nearby/search catalogue-name assertions, simulator
+  runtime evidence, and secret scans. The candidate API is revision-matched on
+  loopback `39068` in container
+  `aicaddie-release-7ef3fcc8-candidate-20260917`, with public Quick Tunnel
+  `https://creature-dramatic-acne-power.trycloudflare.com`; keep it for physical
+  iPhone/Watch and Garmin reconnect validation. TestFlight CD
+  `35279960708` uploaded internal-only Build `0.1.0 (65)`; IPA SHA-256 is
+  `f9574a76a4c159d3c33f0708fe9442f3332f70af6024a27d8d92188bda644da4`, and
+  artifact `AICaddie-ipa` is ID `10522761554` with ZIP SHA-256
+  `8a5150f6bba84146f27840e34d4b082256f0240463c0efd1deb10c3ab9f9023a`.
+  Apple read-only status check `35281034084` confirmed Build 65 id
+  `93b44970-d21d-4f56-aba6-fced5f94830f` is `VALID`, unexpired,
+  `IN_BETA_TESTING`, `usesNonExemptEncryption=false`, and assigned to the
+  existing internal `Jason's friends` all-builds group. Exact artifact
+  diagnostic `35281036748` downloaded that IPA and passed deep/strict iOS and
+  Watch signing, bundle/profile and Team ID checks, version/build parity,
+  profile expiry, and arm64 checks. No external distribution, tester mutation,
+  production service, or production data was changed.
 
 - `fc5152ab77ef0566c66d5dda601a194b72fee55f` / `41eb8e1ae237490b88757669bcde845640bb5e42`:
   NET-PRIORITY network-lifecycle release. Source CI `35105911252` and exact-SHA
