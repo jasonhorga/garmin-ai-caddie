@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-16 16:37 UTC
+**Updated:** 2026-09-17 08:17 UTC
 **Branch:** `integration/v2` (GitHub default; current network-lifecycle app
 source `fc5152ab77ef0566c66d5dda601a194b72fee55f`, backend
 `41eb8e1ae237490b88757669bcde845640bb5e42`; Source CI `35105911252`; Native
@@ -596,7 +596,7 @@ code; do not restart the old multi-week plan tree.
 1. 进行 homeserver 容量门禁和冷/热、loopback/公网分段测量，记录请求关联 ID、服务端阶段和客户端可见里程碑。
 2. 审计 iOS/Web/Watch 的请求依赖与取消语义，先修复串行 Garmin sync、重复 package/release 请求和首屏等待链。
 3. 审计服务端 package/history/sync 的重计算和增量边界，实施缓存复用、single-flight、后台化非关键阶段和当前洞优先响应。
-4. 核实黄港/天安原始 Garmin 快照的 localized/display/name 字段，修正字段选择并加跨三端契约测试。
+4. 使用 Garmin Golf App 的 OMT 语言映射修正附近/搜索目录请求，并加真实目录与跨三端契约测试；历史球局快照只能作为已打球场的补充证据，不建立手工翻译或 Garmin ID 别名表。
 5. 在 homeserver 运行聚焦测试与分段基准；门禁通过后自动走内部 TestFlight 上传和 Apple 状态检查，实体设备耗时仍单独标记为 evidence-open。
 
 **Implementation checkpoint (2026-09-16 16:37 UTC):** the durable asynchronous Garmin job
@@ -611,6 +611,52 @@ CD `35121179159`, Apple status check `35122318337`, and IPA diagnostic
 `35122912635` are complete. The candidate backend is exact-revision matched;
 no production service has changed. Physical iPhone/Watch interaction,
 GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open.
+
+**Simulator coverage finding (2026-09-17):** Native Mobile CI `35106347996` did
+run the real iPhone/Watch simulators successfully and produced
+`real-screenshots`/`ios-app.log`, including the nearby-course flow. Its
+`TeeSelectionUITests` assertion only required one known row (`31793`) to appear
+and be selectable; it did not enumerate or validate every nearby row's Garmin
+name source. The new gate adds captured-name assertions for the nearby and
+search responses, and the next Native run must exercise the same rows through
+the iOS picker. This is specifically intended to catch a mixed-language list
+like `IMG_8111`, without putting translations or global-id aliases in product
+code.
+
+**Garmin App localization evidence (2026-09-17):** `IMG_8115` is Garmin
+Golf's own nearby-course picker and shows Garmin-supplied Chinese venue names
+for Beijing Huanggang, Tian An Holiday, Beijing Black Knight, Beijing Laffitte,
+Golden Riverside, Jade Lake, and Beijing Nicklaus; A/B/C remains a separate
+layout line. The OMT endpoint returns those same native names when requested
+with Garmin's `zh_CHS` code. The backend now passes that code for plain search,
+location-ranked search, and nearby pagination; iPhone, Watch, and Web continue
+to consume the backend `name`/`venueName` contract rather than maintaining
+client-side translations.
+
+**Garmin OMT localization root cause (2026-09-17 08:17 UTC):** the earlier
+provider conclusion was wrong because every probe used a non-Garmin language
+code. Garmin Golf Android 3.9 calls
+`LanguageUtil.getGarminOMTServerLanguageCode()` and maps Simplified Chinese to
+`zh_CHS` (`zh_CHT` for Traditional Chinese), not `zh-CN` or `zh_CN`. The
+persisted XAPK is
+`/home/jason/garmin-ai-caddie-data/sources/garmin-golf-android-3.9/Garmin_Golf_3.9_apkcombo.xapk`
+(SHA-256 `f96acae68a5eb9f6531862cdfde17fd239ac3c5c4cdd44e3248d43d0cfe01847`);
+the main APK SHA-256 is
+`cbe3a1c671397b519897ff1f676f5520a18edf5eaebe4921e27f66bf0eaf6ce5`.
+Live OMT evidence is retained under
+`/home/jason/garmin-ai-caddie-data/operations/net-priority-course-name-20260917/`:
+the `zh_CHS` Huanggang response is 181 bytes, SHA-256
+`6bad161c66bab05884e324b50df59dee755cfdd59b1e9c25dd0f01b859316cb0`, and
+decodes global ID `32842` as `北京黄港国际高尔夫俱乐部`; the `zh-CN` response is
+186 bytes, SHA-256
+`ff91a2b0b501d453e06a63fcd743ffc95210fad2d65ca7d132eecd3463dd8662`, and
+returns the English name. The `zh_CHS` Tian An response is 567 bytes, SHA-256
+`ade77be100ee5587e56e3952ddbe7e0813c707c92492fa2696b381942e09ec30`, and
+returns IDs `31783`/`31784`/`31785` as `天安假日高尔夫俱乐部 ~ A/B/C`.
+The working tree now sends `zh_CHS` on plain search, located search, and nearby
+pagination. Focused tests and the live OMT regression pass; the localized-name
+preflight, simulator row-by-row evidence, release gates, and a fresh internal
+TestFlight upload remain open.
 
 **Owner decisions (2026-09-16):**
 - 并行可以用于独立的网络/计算阶段，但必须有界、可取消、可观测；不得用无界并发把首屏和后台任务互相争抢。

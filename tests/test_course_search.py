@@ -124,6 +124,8 @@ class CourseviewSearchTests(unittest.TestCase):
         url = fetch.call_args.args[0]
         self.assertIn("/Boundaries/1360924928,271300352,32/Courses", url)
         self.assertIn("courseName=Mission%20Hills", url)
+        self.assertIn("languageCode=zh_CHS", url)
+        self.assertNotIn("languageCode=zh-CN", url)
 
     def test_plain_name_url_uses_explicit_provider_pagination(self) -> None:
         with patch.object(cs, "fetch_bytes", return_value=b"ok") as fetch:
@@ -133,6 +135,8 @@ class CourseviewSearchTests(unittest.TestCase):
         self.assertIn("bits=23", url)
         self.assertIn("pageSize=50", url)
         self.assertIn("page=3", url)
+        self.assertIn("languageCode=zh_CHS", url)
+        self.assertNotIn("languageCode=zh-CN", url)
 
     def test_name_search_collects_every_provider_page_and_deduplicates(self) -> None:
         pages = {
@@ -277,6 +281,8 @@ class CourseviewSearchTests(unittest.TestCase):
         self.assertIn("/Boundaries/1360924928,271300352,50000,32/Courses", url)
         self.assertIn("pageSize=50", url)
         self.assertIn("page=2", url)
+        self.assertIn("languageCode=zh_CHS", url)
+        self.assertNotIn("languageCode=zh-CN", url)
 
     def test_nearby_rejects_invalid_location_or_radius_without_fetch(self) -> None:
         with patch.object(cs, "_fetch_nearby_page") as fetch:

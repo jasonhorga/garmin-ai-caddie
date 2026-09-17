@@ -55,6 +55,48 @@ class LiveCourseCataloguePreflightTests(unittest.TestCase):
                     require_distance_order=True,
                 )
 
+    def test_localized_name_gate_requires_native_cjk_name_for_expected_rows(self) -> None:
+        payload = {
+            "schema": "ai-caddie-course-nearby-v1",
+            "matches": [
+                {"globalId": 32842, "name": "北京黄港国际高尔夫俱乐部"},
+                {"globalId": 31783, "name": "天安假日高尔夫俱乐部 ~ A"},
+            ],
+        }
+        preflight.validate_localized_names(
+            payload,
+            schema="ai-caddie-course-nearby-v1",
+            expected_names={32842: "北京黄港", 31783: "天安假日"},
+        )
+        for bad_name in (
+            "Beijing Huanggang International Golf Club",
+            "",
+            "北京另一座球场",
+        ):
+            invalid = {**payload, "matches": [{"globalId": 32842, "name": bad_name}]}
+            with self.subTest(bad_name=bad_name), self.assertRaises(ValueError):
+                preflight.validate_localized_names(
+                    invalid,
+                    schema="ai-caddie-course-nearby-v1",
+                    expected_names={32842: "北京黄港"},
+                )
+
+        with self.assertRaises(ValueError):
+            preflight.validate_localized_names(
+                payload,
+                schema="ai-caddie-course-search-v1",
+                expected_names={32842: "北京黄港"},
+            )
+
+    def test_localized_name_expectation_parser_rejects_ambiguous_input(self) -> None:
+        self.assertEqual(
+            preflight._parse_expected_names("32842=北京黄港;31783=天安假日"),
+            {32842: "北京黄港", 31783: "天安假日"},
+        )
+        for raw in ("32842", "0=坏", "32842=甲;32842=乙", "bad=名称"):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                preflight._parse_expected_names(raw)
+
     def test_empty_nearby_requires_a_real_zero_result_contract(self) -> None:
         preflight.validate_empty_nearby(
             {

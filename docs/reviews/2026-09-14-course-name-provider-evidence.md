@@ -1,5 +1,13 @@
 # CourseView 球场名称来源补充证据
 
+> **2026-09-17 更正：本文原结论无效。** Garmin Golf Android 3.9 的
+> `LanguageUtil.getGarminOMTServerLanguageCode()` 明确把简体中文映射为
+> `zh_CHS`，不是本文测试的 `zh-CN` 或 `zh_CN`。使用正确参数后，同一 OMT
+> 接口对 global ID `32842` 返回 `北京黄港国际高尔夫俱乐部`，对
+> `31783`/`31784`/`31785` 返回 `天安假日高尔夫俱乐部 ~ A/B/C`。下文保留为
+> 失败调查记录，不能再作为“CourseView 没有中文名称”的证据；产品不得据此添加
+> 手工翻译或 ID 别名。
+
 日期：2026-09-14 UTC  
 范围：PHONE-UX5 最新附近球场名称混用反馈；Red Flag Valley、West Park、
 Bangchuidao、Dalian Wanshan、Blue Ocean。本文是只读调查，不修改产品代码。

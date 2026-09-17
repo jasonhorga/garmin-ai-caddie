@@ -22,6 +22,7 @@ from dataclasses import dataclass, replace
 from ai_caddie.geometry.inspect_courseview_release import BASE, fetch_bytes, parse_fields
 
 _MIN_QUERY = 2  # the endpoint requires >=3 ascii or >=2 CJK chars
+_GARMIN_OMT_SIMPLIFIED_CHINESE = "zh_CHS"
 _NEARBY_PAGE_SIZE = 50
 _SEARCH_MAX_PAGES = 100
 _NEARBY_MAX_PAGES = 8  # 400 rows is already far beyond a truthful 200 km nearby result
@@ -174,11 +175,13 @@ def _fetch_search(
             f"{BASE}/Boundaries/{lon_sc},{lat_sc},32/Courses"
             f"?courseName={encoded_query}&pageSize={int(page_size)}&page={int(page)}"
             "&filterDualGreen=false&filter3dOnly=false"
+            f"&languageCode={_GARMIN_OMT_SIMPLIFIED_CHINESE}"
         )
     else:
         url = (
             f"{BASE}/Courses?courseName={encoded_query}&bits=23"
-            f"&pageSize={int(page_size)}&page={int(page)}&languageCode=zh-CN"
+            f"&pageSize={int(page_size)}&page={int(page)}"
+            f"&languageCode={_GARMIN_OMT_SIMPLIFIED_CHINESE}"
         )
     return fetch_bytes(url)
 
@@ -198,7 +201,8 @@ def _fetch_nearby_page(
     radius_m = int(round(radius_km * 1_000))
     url = (
         f"{BASE}/Boundaries/{lon_sc},{lat_sc},{radius_m},32/Courses"
-        f"?pageSize={int(page_size)}&page={int(page)}&languageCode=zh-CN"
+        f"?pageSize={int(page_size)}&page={int(page)}"
+        f"&languageCode={_GARMIN_OMT_SIMPLIFIED_CHINESE}"
     )
     return fetch_bytes(url, timeout=timeout_seconds)
 

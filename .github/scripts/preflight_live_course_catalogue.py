@@ -70,6 +70,69 @@ def validate_matches(
     return matches
 
 
+def _contains_cjk(value: Any) -> bool:
+    text = value if isinstance(value, str) else ""
+    return any(
+        (0x3400 <= ord(char) <= 0x4DBF)
+        or (0x4E00 <= ord(char) <= 0x9FFF)
+        or (0x20000 <= ord(char) <= 0x2FA1F)
+        for char in text
+    )
+
+
+def validate_localized_names(
+    payload: Any,
+    *,
+    schema: str,
+    expected_names: dict[int, str],
+) -> None:
+    """Require selected live Garmin rows to carry their native CJK names.
+
+    This is deliberately an evidence gate, not a translation table: the expected
+    values identify rows captured from Garmin's OMT response and are never used
+    to rewrite a response. Keeping the assertion here catches a wrong OMT locale,
+    an old backend image, or a client/backend provenance regression before native
+    simulator and TestFlight evidence begins.
+    """
+    matches = validate_matches(payload, schema=schema)
+    by_id = {int(row["globalId"]): row for row in matches}
+    for global_id, expected in expected_names.items():
+        row = by_id.get(int(global_id))
+        _require(row is not None, f"localized-name row {global_id} is missing")
+        actual = row.get("name")
+        _require(
+            isinstance(actual, str) and actual.strip(),
+            f"localized-name row {global_id} has no display name",
+        )
+        _require(
+            _contains_cjk(actual),
+            f"localized-name row {global_id} is not native CJK: {actual!r}",
+        )
+        _require(
+            expected in actual,
+            f"localized-name row {global_id} mismatch: expected {expected!r}, got {actual!r}",
+        )
+
+
+def _parse_expected_names(raw: str) -> dict[int, str]:
+    """Parse ``gid=name;gid=name`` evidence input without accepting ambiguity."""
+    result: dict[int, str] = {}
+    for item in (raw or "").split(";"):
+        item = item.strip()
+        if not item:
+            continue
+        global_id_text, separator, expected = item.partition("=")
+        _require(separator and expected.strip(), "localized-name expectations must use gid=name")
+        try:
+            global_id = int(global_id_text.strip())
+        except (TypeError, ValueError):
+            raise ValueError(f"localized-name globalId is invalid: {global_id_text!r}") from None
+        _require(global_id > 0, "localized-name globalId must be positive")
+        _require(global_id not in result, f"duplicate localized-name globalId: {global_id}")
+        result[global_id] = expected.strip()
+    return result
+
+
 def validate_empty_nearby(payload: Any) -> None:
     """The open-ocean probe is the live proof for the honest zero-result branch."""
     _require(isinstance(payload, dict), "empty nearby response must be an object")
@@ -139,6 +202,15 @@ def main() -> int:
         expected_global_id=nearby_gid,
         require_distance_order=True,
     )
+    nearby_localized = _parse_expected_names(
+        os.environ.get("AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY", "")
+    )
+    if nearby_localized:
+        validate_localized_names(
+            nearby,
+            schema="ai-caddie-course-nearby-v1",
+            expected_names=nearby_localized,
+        )
     empty_nearby = _get_json(
         base_url,
         "/api/v2/courses/nearby",
@@ -157,10 +229,20 @@ def main() -> int:
         schema="ai-caddie-course-search-v1",
         expected_global_id=search_gid,
     )
+    search_localized = _parse_expected_names(
+        os.environ.get("AI_CADDIE_PREFLIGHT_LOCALIZED_SEARCH", "")
+    )
+    if search_localized:
+        validate_localized_names(
+            search,
+            schema="ai-caddie-course-search-v1",
+            expected_names=search_localized,
+        )
     print(
         "course-catalogue-preflight ok "
         f"app={app_revision} backend={expected_revision} health={health['schema']} "
-        f"nearby={len(nearby_matches)} empty=0 search={len(search_matches)}"
+        f"nearby={len(nearby_matches)} empty=0 search={len(search_matches)} "
+        f"localizedNearby={len(nearby_localized)} localizedSearch={len(search_localized)}"
     )
     return 0
 

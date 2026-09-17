@@ -775,6 +775,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("/api/v2/courses/nearby", script)
         self.assertIn("/api/v2/courses/search", script)
         self.assertIn("require_distance_order=True", script)
+        self.assertIn("validate_localized_names", script)
 
         native = yaml.safe_load(
             Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8")
@@ -792,6 +793,9 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual("bearer", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_AUTH_MODE"])
         self.assertIn("AI_CADDIE_ADMIN_TOKEN", native_preflight["env"]["AI_CADDIE_PREFLIGHT_TOKEN"])
         self.assertIn("AI_CADDIE_CI_PLAYER_TOKEN", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_TOKEN"])
+        self.assertIn("AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY", native_preflight["env"])
+        self.assertIn("32842=北京黄港国际高尔夫俱乐部", native_preflight["env"]["AI_CADDIE_PREFLIGHT_LOCALIZED_NEARBY"])
+        self.assertIn("AI_CADDIE_PREFLIGHT_LOCALIZED_SEARCH", native_preflight["env"])
         self.assertIn("github.event.inputs.backend_revision", native_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"])
         self.assertIn("vars.AI_CADDIE_BACKEND_REVISION", native_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"])
         self.assertNotIn("github.sha", native_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"])
