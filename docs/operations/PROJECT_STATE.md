@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-18 04:32 UTC
+**Updated:** 2026-09-18 05:16 UTC
 **Branch:** `integration/v2` (GitHub default; current localized-course-name
 source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI
 `35267621896`; Native Mobile CI `35270792248` attempt 2; internal TestFlight
@@ -600,18 +600,49 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`NET-AUDIT` — 全项目网络生命周期与可取消进度审计** (`in-progress`)
+**`NET-AUDIT` — 全项目网络生命周期与可取消进度审计** (`evidence-open`)
 
-本轮由 `IMG_8119` 触发：网络任务没有可见进度，也无法停止。需要以
+本轮由 `IMG_8119` 触发：网络任务没有可见进度，也无法停止。已以
 Garmin 服务、homeserver API/任务队列、iPhone、Apple Watch 的缓存与请求
 生命周期为一条完整链路，重新梳理球场资料、地图/障碍物、历史成绩、开球、
-复盘、Garmin 账户登录/重连、后台下载和失败恢复。先完成 Claude Fable 5.1
-`xhigh` 只读全仓审计，再决定实现切片；审计期间不直接改产品网络逻辑。
+复盘、Garmin 账户登录/重连、后台下载和失败恢复。Claude Fable 5.1
+`xhigh` 只读全仓审计已经完成；本轮没有直接改产品网络逻辑。
 
-**Audit acceptance:** 报告必须逐条给出每个联网入口的 owner、数据权威、缓存
+**Audit acceptance:** 报告已逐条给出每个联网入口的 owner、数据权威、缓存
 层、任务状态机、进度事件、取消/超时/重试语义、前后台恢复行为、UI 呈现和
 跨端一致性；必须定位 `IMG_8119` 的无进度/不可停止根因，并按 P0/P1/P2
-给出可执行的统一架构，而不是只列局部优化建议。
+给出可执行的统一架构，而不是只列局部优化建议。该验收条件已满足，但
+实现尚未开始。
+
+**Fable audit evidence (2026-09-18):** homeserver 只读临时快照由
+`claude-fable-5-1` 以 `xhigh` 完成，session
+`55cb6a7e-c930-4ac3-94e9-0dc21823af80`，218 turns，约 20.8 分钟，exit 0，
+无权限拒绝。报告位于
+`/home/jason/garmin-ai-caddie-data/operations/fable-net-audit-20260918/fable-report.md`
+（SHA-256 `151d22f845a3b03426de688e15b90cd52297f38a9d62fbdedbc674b87b4847b2`），
+原始 JSON 位于同目录的 `fable-raw.json`（SHA-256
+`44c1594a1603e945ef0cc03ad726b2d1779a7a0561556384d907bf273d098c05`）。CLI
+metadata 如实记录了一个 `claude-haiku-4-5-20251001` WebSearch helper；本轮
+不能宣称为纯单模型执行。快照
+`/dev/shm/garmin-ai-caddie-fable-net-audit-20260918` 已清理，无容器、卷、
+端口、worktree、依赖环境或服务遗留；清理记录和 `IMG_8119.png` 均保留在
+上述 operations 目录。
+
+**Fable verdict:** `NO-GO` for “网络生命周期已解决”。服务端已有内部
+journal/job 恢复语义，但用户仍看不到可靠进度，也不能停止任务。`IMG_8119`
+的直接根因是：iOS 只显示本地精确洞计数而丢弃服务端
+`geometryReady/topoReady`；几何与 topo 退避累计可达约 245 秒且可无限重排；
+队列按 `updatedAt` 倒序造成饥饿；iOS 备战、Garmin sync、Web 轮询和 Watch
+地图补齐都没有用户可达的服务端取消；Web `AbortController` 只停止轮询；
+跨端 package/topo 缓存 key 绑定不同 `round_id`，会重复下载。Garmin 球场
+目录、release/courseData/精确几何、账户历史也应拆成独立数据/权限任务，不能
+让“连接 Garmin”成为串行总任务。
+
+**Next implementation slice (queued, not started):** `NET-TASKS-P0`。进入
+实现前需按 owner 决策确认范围；建议先做两个服务端 cancel API（course-install
+和 Garmin sync）及可持久化取消检查点，再做 iOS 服务端进度回写、暂停/移除
+UI、FIFO/有界重试，最后移除 Web 备战页隐式整场安装。审计报告中的 P1/P2
+统一任务契约、SSE、缓存去重、优先级隔离和可观测性暂不视为已实现。
 
 **Previous implementation slice:** `NET-PRIORITY` remains `evidence-open` below;
 its code and release evidence are not treated as proof that this broader audit is
@@ -1580,7 +1611,7 @@ project-level task list; historical plans are reference material.
 | `PHONE-UX2` | `evidence-open` | Apply Build 53 screenshot feedback plus the Build 55 rejection: selectable one-at-a-time hazards with a red selected outline and primary front/back distances; one deduplicated primary caddie recommendation whose full-shot sequence accounts for club-specific reliability/dispersion and preferred next-shot distance, with materially different alternatives behind a secondary entry. | Focused homeserver tests (`95/95` mobile contracts; prior focused suite `359 passed, 2 skipped`) and complete discovery (`2072 passed, 13 skipped`) pass. Source CI `34663338160` and exact-SHA live Native Mobile CI `34663501590` at `70480f99` passed, including iOS/Watch builds, real iOS journey, dedicated hazard/caddie captures, Watch runtime screenshots, evidence and secret scans. Internal TestFlight CD `34666136884` uploaded Build 57; ASC read-only run `34666574292` confirmed `VALID` and `IN_BETA_TESTING`. Physical iPhone/Watch validation of map panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation remains open. |
 | `PHONE-UX3` | `evidence-open` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present at exact source `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; homeserver focused suite `296 passed, 2 skipped`, Python compileall, Source CI `34709596756`, and Native `34709800015` (full live iOS/Watch evidence) pass. Internal TestFlight CD `34712702517` uploaded Build 58; ASC run `34713289501` confirmed it is processed and in the internal group. Remaining evidence is physical iPhone/Watch verification of real-time panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation. |
 | `PERF-STARTUP` | `evidence-open` | Reduce complete-round startup latency without storing every course map offline: reuse server decision/package work, connect existing stats warm-up, keep full 18-hole facts while prioritizing the active hole on phone, and use bounded Watch topo concurrency with on-demand green detail. | Implementation and remote focused suite (`334 passed, 2 skipped`) are green; Python compileall and diff-check pass. Source CI `34757661927`, exact-SHA live Native Mobile CI `34759807648`, and internal TestFlight CD `34763656027` are green. Build 59 is Apple `VALID`/`IN_BETA_TESTING` and visible in the internal group; physical iPhone/Watch interaction and Garmin reconnect remain open. |
-| `NET-AUDIT` | `in-progress` | Full read-only audit of every networked lifecycle across Garmin services, homeserver API/jobs, iPhone, Watch, and caches: account/auth purpose, course assets, history, start-round, review, progress, cancellation, retry, resume, and UI priority. Root-cause `IMG_8119`'s missing progress and uncancellable task, then propose one coherent P0/P1/P2 architecture. | Awaiting Claude Fable 5.1 `xhigh` report from a temporary read-only snapshot; no product implementation is authorized by this audit task yet. |
+| `NET-AUDIT` | `evidence-open` | Full read-only audit of every networked lifecycle across Garmin services, homeserver API/jobs, iPhone, Watch, and caches: account/auth purpose, course assets, history, start-round, review, progress, cancellation, retry, resume, and UI priority. Root-cause `IMG_8119`'s missing progress and uncancellable task, then propose one coherent P0/P1/P2 architecture. | Fable 5.1 `xhigh` report and raw JSON are retained under `/home/jason/garmin-ai-caddie-data/operations/fable-net-audit-20260918/`; verdict `NO-GO` for the current lifecycle. Snapshot and all temporary resources are cleaned. Implementation remains queued as `NET-TASKS-P0`; no product code is claimed fixed. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
