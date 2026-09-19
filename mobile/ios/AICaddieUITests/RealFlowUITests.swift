@@ -1576,11 +1576,20 @@ final class RealFlowUITests: XCTestCase {
             "the first recorded shot order must reset to 1 on every hole"
         )
         if selectActualClub {
-            let recommendedClub = app.buttons.matching(
+            let promptChoices = app.buttons.matching(
+                NSPredicate(format: "identifier BEGINSWITH %@", "actual-club-choice-")
+            )
+            let recommendedClub = promptChoices.matching(
                 NSPredicate(format: "label CONTAINS %@", "球童建议")
             ).firstMatch
-            XCTAssertTrue(recommendedClub.waitForExistence(timeout: 5), "actual-club prompt must expose a recommendation")
-            recommendedClub.tap()
+            let actualClub = recommendedClub.waitForExistence(timeout: 1)
+                ? recommendedClub
+                : promptChoices.firstMatch
+            XCTAssertTrue(
+                scrollTo(actualClub, maxSwipes: 6),
+                "actual-club prompt must expose a selectable bag club even when the route is infeasible"
+            )
+            actualClub.tap()
         } else {
             let skip = app.buttons["跳过球杆（位置已记录）"]
             XCTAssertTrue(skip.waitForExistence(timeout: 5))

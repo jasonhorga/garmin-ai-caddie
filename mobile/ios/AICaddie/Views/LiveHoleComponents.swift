@@ -926,6 +926,7 @@ struct LiveActualClubPromptView: View {
                                 .accessibilityLabel(
                                     choice.isRecommended ? "\(choice.name)，球童建议" : choice.name
                                 )
+                                .accessibilityIdentifier("actual-club-choice-\(choice.name)")
                             }
                         }
                     }
