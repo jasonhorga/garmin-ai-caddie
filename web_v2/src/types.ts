@@ -1096,6 +1096,14 @@ export interface CourseInstallStatus {
   nine: string
   phase: string
   stage: string
+  progress?: number
+  heartbeatAt?: string | null
+  cancelRequested?: boolean
+  cancelRequestedAt?: string | null
+  terminalReason?: string | null
+  retryCount?: number
+  generation?: number
+  cancellable?: boolean
   totalHoles: number
   geometryReady: number
   topoReady: number
@@ -1319,7 +1327,7 @@ export interface CoursePrepResponse {
 }
 
 /** Web prep is intentionally staged: precise geometry is not enough to open the workbench. */
-export type PrepReadinessState = 'metadata' | 'preparing' | 'precise_ready' | 'offline_installed'
+export type PrepReadinessState = 'metadata' | 'preparing' | 'precise_ready' | 'offline_installed' | 'cancelled'
 
 export type StatsWindow = 'all' | '12m' | 'last20' | 'last10'
 

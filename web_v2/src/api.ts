@@ -456,17 +456,47 @@ export function fetchNearbyCourses(
 
 export function fetchCourseInstallStatus(
   globalId: number,
-  params: { teeBox?: string; nine?: string } = {},
+  params: { teeBox?: string; nine?: string; backGlobalId?: number } = {},
   adminToken?: string,
 ): Promise<CourseInstallStatus> {
   const query = new URLSearchParams()
   if (params.teeBox?.trim()) query.set('tee_box', params.teeBox.trim())
   if (params.nine?.trim()) query.set('nine', params.nine.trim())
+  if (params.backGlobalId && params.backGlobalId > 0) query.set('back_global_id', String(params.backGlobalId))
   const suffix = query.toString()
   return getJson<CourseInstallStatus>(
     `/api/v2/courses/${encodeURIComponent(String(globalId))}/install/status${suffix ? `?${suffix}` : ''}`,
     adminToken,
   )
+}
+
+async function postCourseInstallAction(
+  globalId: number,
+  jobId: string,
+  action: 'cancel' | 'retry',
+  adminToken?: string,
+): Promise<CourseInstallStatus> {
+  return postJson<CourseInstallStatus>(
+    `/api/v2/courses/${encodeURIComponent(String(globalId))}/install/jobs/${encodeURIComponent(jobId)}/${action}`,
+    {},
+    adminToken,
+  )
+}
+
+export function cancelCourseInstall(
+  globalId: number,
+  jobId: string,
+  adminToken?: string,
+): Promise<CourseInstallStatus> {
+  return postCourseInstallAction(globalId, jobId, 'cancel', adminToken)
+}
+
+export function retryCourseInstall(
+  globalId: number,
+  jobId: string,
+  adminToken?: string,
+): Promise<CourseInstallStatus> {
+  return postCourseInstallAction(globalId, jobId, 'retry', adminToken)
 }
 
 export function fetchHistoryDrilldown(sourceRef: string, adminToken?: string): Promise<HistoryDrilldownResponse> {

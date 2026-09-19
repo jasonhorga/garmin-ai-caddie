@@ -374,12 +374,66 @@ public struct CourseInstallStatus: Codable, Equatable {
     public let nine: String
     public let phase: String
     public let stage: String
+    public let progress: Int?
+    public let heartbeatAt: String?
+    public let cancelRequested: Bool?
+    public let cancelRequestedAt: String?
+    public let terminalReason: String?
+    public let retryCount: Int?
+    public let generation: Int?
+    public let cancellable: Bool?
     public let totalHoles: Int
     public let geometryReady: Int
     public let topoReady: Int
     public let updatedAt: String?
     public let error: String?
     public let holes: [CourseInstallHoleStatus]
+
+    public init(
+        schema: String,
+        jobId: String,
+        globalId: Int,
+        teeBox: String,
+        nine: String,
+        phase: String,
+        stage: String,
+        progress: Int? = nil,
+        heartbeatAt: String? = nil,
+        cancelRequested: Bool? = nil,
+        cancelRequestedAt: String? = nil,
+        terminalReason: String? = nil,
+        retryCount: Int? = nil,
+        generation: Int? = nil,
+        cancellable: Bool? = nil,
+        totalHoles: Int,
+        geometryReady: Int,
+        topoReady: Int,
+        updatedAt: String? = nil,
+        error: String? = nil,
+        holes: [CourseInstallHoleStatus] = []
+    ) {
+        self.schema = schema
+        self.jobId = jobId
+        self.globalId = globalId
+        self.teeBox = teeBox
+        self.nine = nine
+        self.phase = phase
+        self.stage = stage
+        self.progress = progress
+        self.heartbeatAt = heartbeatAt
+        self.cancelRequested = cancelRequested
+        self.cancelRequestedAt = cancelRequestedAt
+        self.terminalReason = terminalReason
+        self.retryCount = retryCount
+        self.generation = generation
+        self.cancellable = cancellable
+        self.totalHoles = totalHoles
+        self.geometryReady = geometryReady
+        self.topoReady = topoReady
+        self.updatedAt = updatedAt
+        self.error = error
+        self.holes = holes
+    }
 }
 
 private struct MobileRoundFinishRequest: Codable {
@@ -591,6 +645,36 @@ public final class SyncClient {
             if case .http(status: 404, body: _) = error { return nil }
             throw error
         }
+    }
+
+    public func cancelCourseInstallJob(globalId: Int, jobId: String) async throws -> CourseInstallStatus {
+        try await postCourseInstallJobAction(globalId: globalId, jobId: jobId, action: "cancel")
+    }
+
+    public func retryCourseInstallJob(globalId: Int, jobId: String) async throws -> CourseInstallStatus {
+        try await postCourseInstallJobAction(globalId: globalId, jobId: jobId, action: "retry")
+    }
+
+    private func postCourseInstallJobAction(
+        globalId: Int,
+        jobId: String,
+        action: String
+    ) async throws -> CourseInstallStatus {
+        guard !jobId.isEmpty,
+              !jobId.contains("/"),
+              ["cancel", "retry"].contains(action),
+              let url = URL(string: "/api/v2/courses/\(globalId)/install/jobs/\(jobId)/\(action)", relativeTo: baseURL)?.absoluteURL,
+              url.host == baseURL.host,
+              url.scheme == baseURL.scheme else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        applyAuth(to: &request)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(CourseInstallStatus.self, from: data)
     }
 
     public func fetchCourseOptions() async throws -> MobileCourseOptionsResponse {

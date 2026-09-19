@@ -18,6 +18,19 @@ vi.mock('../api', () => ({
   fetchCoursePrep: vi.fn(),
   fetchMobileCoursePackage: vi.fn(),
   fetchPrepTips: vi.fn(),
+  cancelCourseInstall: vi.fn(async (globalId: number, jobId: string) => ({
+    schema: 'ai-caddie-course-install-v1', jobId, globalId, teeBox: 'blue', nine: 'all',
+    phase: 'cancelled', stage: 'cancelled', totalHoles: 2, geometryReady: 2, topoReady: 1,
+    holes: [],
+  })),
+  retryCourseInstall: vi.fn(async (globalId: number, jobId: string) => ({
+    schema: 'ai-caddie-course-install-v1', jobId, globalId, teeBox: 'blue', nine: 'all',
+    phase: 'ready', stage: 'complete', totalHoles: 2, geometryReady: 2, topoReady: 2,
+    holes: [
+      { globalId, localHole: 1, displayHole: 1, geometry: 'ready', topo: 'ready' },
+      { globalId, localHole: 2, displayHole: 2, geometry: 'ready', topo: 'ready' },
+    ],
+  })),
   topoImageUrl: (gid: number, hole: number) => `/api/v2/courses/${gid}/holes/${hole}/topo.png`,
   prewarmCourseTopo: vi.fn(async () => undefined),
   prefetchTopoImage: vi.fn(),

@@ -767,8 +767,16 @@ class CourseInstallStatusResponse(BaseModel):
     globalId: int
     teeBox: str
     nine: Literal["all", "front", "back"]
-    phase: Literal["queued", "running", "ready", "failed"]
+    phase: Literal["queued", "running", "ready", "failed", "cancelled"]
     stage: str
+    progress: int = Field(default=0, ge=0, le=100)
+    heartbeatAt: str | None = None
+    cancelRequested: bool = False
+    cancelRequestedAt: str | None = None
+    terminalReason: str | None = None
+    retryCount: int = Field(default=0, ge=0)
+    generation: int = Field(default=1, ge=1)
+    cancellable: bool = False
     totalHoles: int
     geometryReady: int
     topoReady: int

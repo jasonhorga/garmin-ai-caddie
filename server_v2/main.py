@@ -237,6 +237,7 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
             r"/api/v2/history/rounds/[^/]+",
             r"/api/v2/history/rounds/[^/]+/holes/[0-9]+/shotmap",
             r"/api/v2/courses/[0-9]+/(?:prep|tees|install/status)",
+            r"/api/v2/courses/[0-9]+/install/jobs/[^/]+/(?:cancel|retry)",
             r"/api/v2/courses/[0-9]+/holes/[0-9]+/(?:topo|green)\.png",
             r"/api/v2/players/[^/]+/clubs/bag",
             r"/api/v2/geometry/course/[0-9]+/coverage",
@@ -407,6 +408,8 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
     # admin/owner gate as the enqueue and status endpoints. The player-scoped siblings
     # below are deliberately excluded and authenticate in their handlers.
     if bool(re.fullmatch(r"/api/v2/sync/garmin/jobs/[^/]+/(?:cancel|retry)", path)):
+        return True
+    if bool(re.fullmatch(r"/api/v2/courses/[0-9]+/install/jobs/[^/]+/(?:cancel|retry)", path)):
         return True
     protected_prefix_suffix = (
         ("/api/v2/caddie/decisions/", "/audit"),
@@ -1737,6 +1740,8 @@ def run_course_install_job(identifier: str) -> None:
         geometry_revision: str,
         work_revision: int,
     ) -> None:
+        if course_install.cancellation_requested(identifier):
+            return
         try:
             result = future.result()
         except Exception:  # noqa: BLE001 - persist a retryable hole state
@@ -1766,6 +1771,8 @@ def run_course_install_job(identifier: str) -> None:
         )
 
     def queue_topo(row: dict[str, Any]) -> None:
+        if course_install.cancellation_requested(identifier):
+            return
         gid = int(row.get("globalId") or 0)
         hole = int(row.get("localHole") or 0)
         if gid <= 0 or hole <= 0:
@@ -1842,6 +1849,8 @@ def run_course_install_job(identifier: str) -> None:
     }
 
     def on_geometry_complete(result: dict[str, Any]) -> None:
+        if course_install.cancellation_requested(identifier):
+            return
         gid = int(result.get("globalId") or 0)
         hole = int(result.get("localHole") or 0)
         if gid <= 0 or hole <= 0:
@@ -1892,6 +1901,8 @@ def run_course_install_job(identifier: str) -> None:
             })
 
     for gid, holes in sorted(pending_by_gid.items()):
+        if course_install.cancellation_requested(identifier):
+            return
         try:
             summary = _ensure_geometry_for_course(
                 gid,
@@ -1923,6 +1934,8 @@ def run_course_install_job(identifier: str) -> None:
     # Wait for every submitted topo *and its journal callback*. Future.result() alone is not a
     # callback barrier: CPython notifies result waiters before invoking callbacks.
     for future, (_gid, _hole, _revision, _work_revision) in list(topo_futures.items()):
+        if course_install.cancellation_requested(identifier):
+            return
         try:
             future.result()
         except Exception:  # noqa: BLE001
@@ -1930,6 +1943,8 @@ def run_course_install_job(identifier: str) -> None:
         topo_completion_events[future].wait()
 
     final = course_install.state_for_worker(identifier) or {}
+    if course_install.cancellation_requested(identifier):
+        return
     final_rows = [row for row in (final.get("holes") or {}).values() if isinstance(row, dict)]
     if final_rows and course_install._all_assets_ready(final):
         course_install.update(identifier, phase="ready", stage="complete", clear_error=True)
@@ -2049,6 +2064,54 @@ def course_install_status(
     )
     if state is None:
         raise HTTPException(status_code=404, detail="course install job not found")
+    return CourseInstallStatusResponse(**state)
+
+
+def _course_install_job_for_owner(job_id: str, global_id: int) -> dict[str, Any]:
+    state = course_install.state_for_player(job_id, OWNER_ID)
+    if state is None or int(state.get("globalId") or 0) != int(global_id):
+        raise HTTPException(status_code=404, detail="course install job not found")
+    return state
+
+
+@app.post(
+    "/api/v2/courses/{global_id}/install/jobs/{job_id}/cancel",
+    response_model=CourseInstallStatusResponse,
+)
+def cancel_course_install_job(
+    global_id: int,
+    job_id: str,
+    http_request: Request,
+) -> CourseInstallStatusResponse:
+    """Cancel a durable course-install worker without pretending a local poll stopped it."""
+    enforce_admin_or_owner(http_request)
+    _course_install_job_for_owner(job_id, global_id)
+    state = course_install.cancel(job_id, player_id=OWNER_ID)
+    if state is None:
+        raise HTTPException(status_code=404, detail="course install job not found")
+    return CourseInstallStatusResponse(**state)
+
+
+@app.post(
+    "/api/v2/courses/{global_id}/install/jobs/{job_id}/retry",
+    response_model=CourseInstallStatusResponse,
+)
+def retry_course_install_job(
+    global_id: int,
+    job_id: str,
+    http_request: Request,
+    response: Response,
+) -> CourseInstallStatusResponse:
+    """Retry a failed/cancelled course install as a new durable generation."""
+    enforce_admin_or_owner(http_request)
+    _course_install_job_for_owner(job_id, global_id)
+    try:
+        state = course_install.retry(job_id, player_id=OWNER_ID)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if state is None:
+        raise HTTPException(status_code=404, detail="course install job not found")
+    response.status_code = 202
     return CourseInstallStatusResponse(**state)
 
 

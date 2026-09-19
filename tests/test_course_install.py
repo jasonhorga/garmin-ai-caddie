@@ -8,7 +8,111 @@ import unittest
 from unittest.mock import Mock, patch
 from types import SimpleNamespace
 
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, HTTPException
+from starlette.requests import Request
+from starlette.responses import Response
+
+
+def _course_install_status_payload(*, phase: str = "queued", stage: str = "queued") -> dict:
+    return {
+        "schema": "ai-caddie-course-install-v1",
+        "jobId": "course-route-test",
+        "globalId": 123,
+        "teeBox": "blue",
+        "nine": "all",
+        "phase": phase,
+        "stage": stage,
+        "progress": 0,
+        "heartbeatAt": "2026-09-19T00:00:00Z",
+        "cancelRequested": phase == "cancelled",
+        "cancelRequestedAt": "2026-09-19T00:00:00Z" if phase == "cancelled" else None,
+        "terminalReason": "user_cancelled" if phase == "cancelled" else None,
+        "retryCount": 0,
+        "generation": 1,
+        "cancellable": phase in {"queued", "running"},
+        "totalHoles": 1,
+        "geometryReady": 0,
+        "topoReady": 0,
+        "updatedAt": "2026-09-19T00:00:00Z",
+        "error": None,
+        "holes": [],
+    }
+
+
+def _admin_request(token: str | None = None) -> Request:
+    headers = [] if token is None else [(b"x-ai-caddie-admin-token", token.encode("utf-8"))]
+    return Request({
+        "type": "http",
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/api/v2/courses/123/install/jobs/course-route-test/cancel",
+        "raw_path": b"/api/v2/courses/123/install/jobs/course-route-test/cancel",
+        "query_string": b"",
+        "headers": headers,
+        "server": ("testserver", 80),
+        "client": ("127.0.0.1", 1234),
+    })
+
+
+class CourseInstallRouteContractTests(unittest.TestCase):
+    def test_cancel_route_requires_admin_or_owner(self) -> None:
+        from server_v2 import main as server_main
+
+        with patch.dict(os.environ, {"AI_CADDIE_ADMIN_TOKEN": "route-secret"}, clear=False):
+            with self.assertRaises(HTTPException) as raised:
+                server_main.cancel_course_install_job(
+                    123, "course-route-test", _admin_request(),
+                )
+
+        self.assertEqual(raised.exception.status_code, 401)
+
+    def test_cancel_route_returns_terminal_status_contract(self) -> None:
+        from server_v2 import main as server_main
+
+        payload = _course_install_status_payload(phase="cancelled", stage="cancelled")
+        with (
+            patch.dict(os.environ, {"AI_CADDIE_ADMIN_TOKEN": "route-secret"}, clear=False),
+            patch.object(server_main.course_install, "state_for_player", return_value={"globalId": 123}),
+            patch.object(server_main.course_install, "cancel", return_value=payload) as cancel,
+        ):
+            result = server_main.cancel_course_install_job(
+                123, "course-route-test", _admin_request("route-secret"),
+            )
+
+        self.assertEqual(result.phase, "cancelled")
+        self.assertTrue(result.cancelRequested)
+        self.assertFalse(result.cancellable)
+        cancel.assert_called_once_with("course-route-test", player_id=server_main.OWNER_ID)
+
+    def test_retry_route_is_accepted_and_running_retry_maps_to_conflict(self) -> None:
+        from server_v2 import main as server_main
+
+        payload = _course_install_status_payload()
+        with (
+            patch.dict(os.environ, {"AI_CADDIE_ADMIN_TOKEN": "route-secret"}, clear=False),
+            patch.object(server_main.course_install, "state_for_player", return_value={"globalId": 123}),
+            patch.object(server_main.course_install, "retry", return_value=payload),
+        ):
+            response = Response()
+            result = server_main.retry_course_install_job(
+                123, "course-route-test", _admin_request("route-secret"), response,
+            )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(result.phase, "queued")
+
+        with (
+            patch.dict(os.environ, {"AI_CADDIE_ADMIN_TOKEN": "route-secret"}, clear=False),
+            patch.object(server_main.course_install, "state_for_player", return_value={"globalId": 123}),
+            patch.object(server_main.course_install, "retry", side_effect=ValueError("course install is still running")),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                server_main.retry_course_install_job(
+                    123, "course-route-test", _admin_request("route-secret"), Response(),
+                )
+
+        self.assertEqual(raised.exception.status_code, 409)
 
 
 class CourseInstallJournalTests(unittest.TestCase):
@@ -116,6 +220,98 @@ class CourseInstallJournalTests(unittest.TestCase):
         self.assertNotIn("private-player-id", repr(second))
         self.assertEqual(second["totalHoles"], 2)
         self.assertEqual(launch.call_count, 2)
+
+    def test_cancel_is_terminal_and_stale_worker_updates_are_ignored(self) -> None:
+        from server_v2 import course_install
+
+        with TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}
+        ), patch.object(course_install, "_launch") as launch:
+            queued = course_install.enqueue(
+                global_id=123,
+                tee_box="blue",
+                nine="all",
+                player_id="private-player-id",
+                refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
+                requested={123: [1]},
+                ready={},
+            )
+            cancelled = course_install.cancel(queued["jobId"], player_id="private-player-id")
+            self.assertIsNotNone(cancelled)
+            assert cancelled is not None
+            self.assertEqual(cancelled["phase"], "cancelled")
+            self.assertEqual(cancelled["terminalReason"], "user_cancelled")
+            self.assertFalse(cancelled["cancellable"])
+            self.assertTrue(cancelled["cancelRequested"])
+            self.assertFalse(
+                course_install.update(
+                    queued["jobId"],
+                    phase="running",
+                    stage="geometry",
+                    global_id=123,
+                    local_hole=1,
+                    geometry="running",
+                )
+            )
+            retried = course_install.retry(queued["jobId"], player_id="private-player-id")
+
+        self.assertIsNotNone(retried)
+        assert retried is not None
+        self.assertEqual(retried["phase"], "queued")
+        self.assertEqual(retried["generation"], 2)
+        self.assertEqual(retried["retryCount"], 1)
+        self.assertTrue(retried["cancellable"])
+        self.assertEqual(launch.call_count, 2)
+
+    def test_progress_is_durable_and_heartbeat_does_not_change_completed_counts(self) -> None:
+        from server_v2 import course_install
+
+        with TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}
+        ), patch.object(course_install, "_launch"):
+            queued = course_install.enqueue(
+                global_id=123,
+                tee_box="blue",
+                nine="all",
+                player_id="private-player-id",
+                refs=[
+                    {"globalId": 123, "localHole": 1, "displayHole": 1},
+                    {"globalId": 123, "localHole": 2, "displayHole": 2},
+                ],
+                requested={123: [1, 2]},
+                ready={},
+            )
+            self.assertEqual(queued["progress"], 0)
+            course_install.update(
+                queued["jobId"],
+                global_id=123,
+                local_hole=1,
+                geometry="ready",
+                geometry_revision="revision-1",
+            )
+            halfway = course_install.status(
+                global_id=123,
+                tee_box="blue",
+                nine="all",
+                player_id="private-player-id",
+            )
+            self.assertIsNotNone(halfway)
+            assert halfway is not None
+            self.assertEqual(halfway["geometryReady"], 1)
+            self.assertEqual(halfway["topoReady"], 0)
+            self.assertEqual(halfway["progress"], 25)
+            self.assertTrue(course_install.heartbeat(queued["jobId"]))
+            after = course_install.status(
+                global_id=123,
+                tee_box="blue",
+                nine="all",
+                player_id="private-player-id",
+            )
+
+        self.assertIsNotNone(after)
+        assert after is not None
+        self.assertEqual(after["progress"], 25)
+        self.assertIsNotNone(after["heartbeatAt"])
 
     def test_package_route_attaches_job_to_real_response_model(self) -> None:
         from server_v2 import main as server_main

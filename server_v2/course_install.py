@@ -35,6 +35,8 @@ _RETRY_ATTEMPTS: dict[str, int] = {}
 # A persistent authority/provider outage should become an actionable failed row rather than
 # consuming a worker forever. An explicit enqueue/retry resets this counter below.
 _MAX_RETRY_ATTEMPTS = 8
+_HEARTBEAT_INTERVAL_SECONDS = 5.0
+_TERMINAL_PHASES = frozenset({"ready", "failed", "cancelled"})
 # One job coordinator at a time keeps a four-core shared homeserver from multiplying the existing
 # two-hole geometry pool and one-hole topo pipeline across simultaneous course selections.
 _WORKER = ThreadPoolExecutor(max_workers=1, thread_name_prefix="course-install-job")
@@ -79,6 +81,12 @@ def _path(identifier: str) -> Path:
 def _write(state: dict[str, Any]) -> None:
     path = _path(str(state["jobId"]))
     path.parent.mkdir(parents=True, exist_ok=True)
+    # ``heartbeatAt`` is durable evidence that a worker is still alive.  Keep it separate from
+    # ``progress``: a provider can be slow for one hole without making the UI claim that work has
+    # stopped.  Every journal write is a heartbeat, including terminal transitions.
+    now = _now()
+    state["heartbeatAt"] = now
+    state["updatedAt"] = now
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(
         json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
@@ -153,6 +161,14 @@ def _initial_state(
         "playerKey": _player_key(player_id),
         "phase": "queued",
         "stage": "queued",
+        "progress": 0,
+        "heartbeatAt": _now(),
+        "cancelRequested": False,
+        "cancelRequestedAt": None,
+        "terminalReason": None,
+        "retryCount": 0,
+        "generation": 1,
+        "cancellable": True,
         "totalHoles": len(holes),
         "geometryReady": 0,
         "topoReady": 0,
@@ -203,6 +219,12 @@ def _recount(state: dict[str, Any]) -> None:
     state["totalHoles"] = len(rows)
     state["geometryReady"] = sum(_geometry_ready(row) for row in rows)
     state["topoReady"] = sum(_topo_ready(row) for row in rows)
+    total_units = max(1, len(rows) * 2)
+    completed_units = int(state["geometryReady"]) + int(state["topoReady"])
+    computed = min(100, int(round(completed_units * 100 / total_units)))
+    # Progress is monotonic inside a generation. A release rebind or explicit retry increments
+    # ``generation`` and may intentionally reset it before new work starts.
+    state["progress"] = max(0, min(100, max(int(state.get("progress") or 0), computed)))
 
 
 def _all_assets_ready(state: dict[str, Any]) -> bool:
@@ -247,6 +269,9 @@ def _launch(identifier: str) -> None:
             timer.cancel()
         if identifier in _ACTIVE:
             return
+        state = _read(identifier)
+        if not state or state.get("phase") in _TERMINAL_PHASES or state.get("cancelRequested"):
+            return
         _ACTIVE.add(identifier)
     _WORKER.submit(_run, identifier)
 
@@ -261,7 +286,13 @@ def _schedule_retry(identifier: str) -> None:
     """
     with _LOCK:
         state = _read(identifier)
-        if not state or not _has_queued_work(state) or identifier in _ACTIVE:
+        if (
+            not state
+            or state.get("phase") in _TERMINAL_PHASES
+            or state.get("cancelRequested")
+            or not _has_queued_work(state)
+            or identifier in _ACTIVE
+        ):
             return
         if identifier in _RETRY_TIMERS:
             return
@@ -481,17 +512,23 @@ def enqueue(
                 state["workRevision"] = next_revision
                 # A new enqueue is an explicit retry after a prior terminal or stale attempt.
                 _RETRY_ATTEMPTS.pop(identifier, None)
-            if state.get("phase") in {"ready", "failed"} and not _all_assets_ready(state):
+            if state.get("phase") in {"ready", "failed", "cancelled"} and not _all_assets_ready(state):
                 state["phase"] = "queued"
                 state["stage"] = "queued"
                 state["error"] = None
+                state["cancelRequested"] = False
+                state["cancelRequestedAt"] = None
+                state["terminalReason"] = None
+                state["cancellable"] = True
+                state["generation"] = max(1, int(state.get("generation") or 1)) + 1
+                state["progress"] = 0
         _recount(state)
         if _all_assets_ready(state):
             state["phase"] = "ready"
             state["stage"] = "complete"
             state["error"] = None
             should_launch = False
-        state["updatedAt"] = _now()
+        state["cancellable"] = state.get("phase") not in _TERMINAL_PHASES
         _write(state)
     if should_launch:
         _launch(identifier)
@@ -523,6 +560,14 @@ def public_state(state: dict[str, Any]) -> dict[str, Any]:
         "nine": state.get("nine"),
         "phase": state.get("phase"),
         "stage": state.get("stage"),
+        "progress": max(0, min(100, int(state.get("progress") or 0))),
+        "heartbeatAt": state.get("heartbeatAt"),
+        "cancelRequested": bool(state.get("cancelRequested")),
+        "cancelRequestedAt": state.get("cancelRequestedAt"),
+        "terminalReason": state.get("terminalReason"),
+        "retryCount": max(0, int(state.get("retryCount") or 0)),
+        "generation": max(1, int(state.get("generation") or 1)),
+        "cancellable": bool(state.get("cancellable")) and state.get("phase") not in _TERMINAL_PHASES,
         "totalHoles": int(state.get("totalHoles") or 0),
         "geometryReady": int(state.get("geometryReady") or 0),
         "topoReady": int(state.get("topoReady") or 0),
@@ -552,6 +597,112 @@ def status(
     return public_state(state) if state else None
 
 
+def state_for_player(identifier: str, player_id: str) -> dict[str, Any] | None:
+    """Read a job by its opaque id while enforcing the journal's player partition."""
+    with _LOCK:
+        state = _read(identifier)
+    if state is None or str(state.get("playerKey") or "") != _player_key(player_id):
+        return None
+    return state
+
+
+def status_by_job(identifier: str, *, player_id: str) -> dict[str, Any] | None:
+    state = state_for_player(identifier, player_id)
+    return public_state(state) if state else None
+
+
+def _remove_from_resume_backlog(identifier: str) -> None:
+    global _RESUME_BACKLOG
+    _RESUME_BACKLOG = [item for item in _RESUME_BACKLOG if item != identifier]
+
+
+def cancel(identifier: str, *, player_id: str) -> dict[str, Any] | None:
+    """Request cancellation and publish a terminal state immediately.
+
+    The current geometry/provider call is cooperative and may finish in the background, but all
+    callbacks are generation/phase guarded and can no longer change the public result.
+    """
+    with _LOCK:
+        state = _read(identifier)
+        if state is None or str(state.get("playerKey") or "") != _player_key(player_id):
+            return None
+        timer = _RETRY_TIMERS.pop(identifier, None)
+        if timer is not None:
+            timer.cancel()
+        _remove_from_resume_backlog(identifier)
+        if state.get("phase") not in _TERMINAL_PHASES:
+            now = _now()
+            state["phase"] = "cancelled"
+            state["stage"] = "cancelled"
+            state["cancelRequested"] = True
+            state["cancelRequestedAt"] = now
+            state["terminalReason"] = "user_cancelled"
+            state["cancellable"] = False
+            state["error"] = None
+        _write(state)
+        return public_state(state)
+
+
+def retry(identifier: str, *, player_id: str) -> dict[str, Any] | None:
+    """Start a fresh generation for a failed/cancelled job, preserving completed assets."""
+    with _LOCK:
+        state = _read(identifier)
+        if state is None or str(state.get("playerKey") or "") != _player_key(player_id):
+            return None
+        if state.get("phase") == "ready":
+            raise ValueError("course install is already ready")
+        if state.get("phase") not in {"failed", "cancelled"}:
+            raise ValueError("course install is still running")
+        timer = _RETRY_TIMERS.pop(identifier, None)
+        if timer is not None:
+            timer.cancel()
+        state["generation"] = max(1, int(state.get("generation") or 1)) + 1
+        state["retryCount"] = max(0, int(state.get("retryCount") or 0)) + 1
+        state["phase"] = "queued"
+        state["stage"] = "queued"
+        state["cancelRequested"] = False
+        state["cancelRequestedAt"] = None
+        state["terminalReason"] = None
+        state["cancellable"] = True
+        state["error"] = None
+        # Keep ready geometry/topo rows; every incomplete row gets another cooperative pass.
+        for row in (state.get("holes") or {}).values():
+            if not isinstance(row, dict):
+                continue
+            if not (_geometry_ready(row) and _topo_ready(row)):
+                row["geometry"] = "queued"
+                row["topo"] = "queued"
+                row["error"] = None
+                row["workRevision"] = max(1, int(row.get("workRevision") or 1)) + 1
+        completed = sum(
+            1
+            for row in (state.get("holes") or {}).values()
+            if isinstance(row, dict) and _geometry_ready(row) and _topo_ready(row)
+        )
+        total = max(1, len(state.get("holes") or {}) * 2)
+        state["progress"] = min(100, int(round(completed * 200 / total)))
+        _recount(state)
+        _write(state)
+        result = public_state(state)
+    _launch(identifier)
+    return result
+
+
+def heartbeat(identifier: str) -> bool:
+    with _LOCK:
+        state = _read(identifier)
+        if state is None or state.get("phase") in _TERMINAL_PHASES:
+            return False
+        _write(state)
+        return True
+
+
+def cancellation_requested(identifier: str) -> bool:
+    with _LOCK:
+        state = _read(identifier)
+    return bool(state and (state.get("cancelRequested") or state.get("phase") == "cancelled"))
+
+
 def update(
     identifier: str,
     *,
@@ -570,6 +721,9 @@ def update(
     with _LOCK:
         state = _read(identifier)
         if state is None:
+            return False
+        if state.get("phase") == "cancelled" and phase != "cancelled":
+            # A provider callback from a pre-cancel generation must never resurrect a cancelled job.
             return False
         guarded_row: dict[str, Any] | None = None
         if global_id is not None and local_hole is not None:
@@ -614,7 +768,6 @@ def update(
             elif error is not None:
                 row["error"] = error[:240]
         _recount(state)
-        state["updatedAt"] = _now()
         _write(state)
     return True
 
@@ -622,10 +775,14 @@ def update(
 def _run(identifier: str) -> None:
     relaunch = False
     initial_progress = (0, 0)
+    heartbeat_stop = threading.Event()
+    heartbeat_thread: threading.Thread | None = None
     try:
         with _LOCK:
             state = _read(identifier)
             if state is None:
+                return
+            if state.get("phase") in _TERMINAL_PHASES or state.get("cancelRequested"):
                 return
             initial_progress = (
                 int(state.get("geometryReady") or 0),
@@ -634,8 +791,19 @@ def _run(identifier: str) -> None:
             state["phase"] = "running"
             state["stage"] = "geometry"
             state["error"] = None
-            state["updatedAt"] = _now()
             _write(state)
+
+        def publish_heartbeat() -> None:
+            while not heartbeat_stop.wait(_HEARTBEAT_INTERVAL_SECONDS):
+                if not heartbeat(identifier):
+                    return
+
+        heartbeat_thread = threading.Thread(
+            target=publish_heartbeat,
+            name=f"course-install-heartbeat-{identifier[-8:]}",
+            daemon=True,
+        )
+        heartbeat_thread.start()
         # Import only after the worker starts: main imports this module during app construction and
         # importing it back at module load would create a circular import.
         from .main import run_course_install_job
@@ -646,24 +814,31 @@ def _run(identifier: str) -> None:
         # inspected/backed up independently of the process.
         update(identifier, phase="failed", stage="error", error="course install failed")
     finally:
+        heartbeat_stop.set()
+        if heartbeat_thread is not None and heartbeat_thread is not threading.current_thread():
+            heartbeat_thread.join(timeout=0.2)
         with _LOCK:
             _ACTIVE.discard(identifier)
             state = _read(identifier)
-            made_progress = bool(state) and (
-                int(state.get("geometryReady") or 0),
-                int(state.get("topoReady") or 0),
-            ) > initial_progress
-            if made_progress:
-                # A slow course that completes some holes on each pass is healthy progress; do not
-                # spend its entire retry budget merely because other holes are still waiting.
+            if state and (state.get("phase") == "cancelled" or state.get("cancelRequested")):
+                relaunch = False
                 _RETRY_ATTEMPTS.pop(identifier, None)
-            # ``enqueue`` can append/rebind a hole while the worker is in its final topo wait. It
-            # sees the active worker and therefore cannot launch a second one; hand the queued row
-            # off after releasing the active slot so it is never stranded.
-            relaunch = bool(state and _has_queued_work(state))
+            else:
+                made_progress = bool(state) and (
+                    int(state.get("geometryReady") or 0),
+                    int(state.get("topoReady") or 0),
+                ) > initial_progress
+                if made_progress:
+                    # A slow course that completes some holes on each pass is healthy progress; do not
+                    # spend its entire retry budget merely because other holes are still waiting.
+                    _RETRY_ATTEMPTS.pop(identifier, None)
+                # ``enqueue`` can append/rebind a hole while the worker is in its final topo wait. It
+                # sees the active worker and therefore cannot launch a second one; hand the queued row
+                # off after releasing the active slot so it is never stranded.
+                relaunch = bool(state and _has_queued_work(state))
         if relaunch:
             _schedule_retry(identifier)
-        else:
+        elif not state or state.get("phase") != "cancelled":
             with _LOCK:
                 _RETRY_ATTEMPTS.pop(identifier, None)
         # A terminal retry or a delayed retry must not strand other jobs recovered after restart.

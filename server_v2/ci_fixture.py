@@ -700,8 +700,29 @@ def install_status(global_id: int, tee_box: str = "blue", nine: str = "all", bac
     rows = [{"globalId": course, "localHole": local, "displayHole": display, "geometry": "ready", "geometryRevision": FIXTURE_REVISION, "topo": "ready", "topoRevision": FIXTURE_REVISION, "error": None} for display, local, course in (_resolve_hole(nine, hole, requested_course, requested_back) for hole in segment_holes)]
     return _with_markers({"schema": "ai-caddie-course-install-v1", "jobId": "fixture-install", "globalId": requested_course,
                           "teeBox": requested_tee, "nine": nine, "phase": "ready", "stage": "complete",
+                          "progress": 100, "heartbeatAt": "2026-08-27T00:00:00Z", "cancelRequested": False,
+                          "cancelRequestedAt": None, "terminalReason": "provider_complete", "retryCount": 0,
+                          "generation": 1, "cancellable": False,
                           "totalHoles": len(segment_holes), "geometryReady": len(segment_holes), "topoReady": len(segment_holes), "updatedAt": "2026-08-27T00:00:00Z",
                           "error": None, "holes": rows})
+
+
+@ROUTE.post("/api/v2/courses/{global_id}/install/jobs/{job_id}/cancel")
+def cancel_install(global_id: int, job_id: str, tee_box: str = "blue", nine: str = "all", back_global_id: int | None = None) -> dict:
+    payload = install_status(global_id, tee_box=tee_box, nine=nine, back_global_id=back_global_id)
+    payload.update({"jobId": job_id, "phase": "cancelled", "stage": "cancelled", "progress": payload.get("progress", 0),
+                    "cancelRequested": True, "cancelRequestedAt": "2026-08-27T00:00:00Z",
+                    "terminalReason": "user_cancelled", "cancellable": False})
+    return payload
+
+
+@ROUTE.post("/api/v2/courses/{global_id}/install/jobs/{job_id}/retry")
+def retry_install(global_id: int, job_id: str, tee_box: str = "blue", nine: str = "all", back_global_id: int | None = None) -> dict:
+    payload = install_status(global_id, tee_box=tee_box, nine=nine, back_global_id=back_global_id)
+    payload.update({"jobId": job_id, "phase": "queued", "stage": "queued", "progress": 0,
+                    "cancelRequested": False, "cancelRequestedAt": None, "terminalReason": None,
+                    "retryCount": 1, "generation": 2, "cancellable": True})
+    return payload
 
 
 def _fixture_png(global_id: int, hole: int, width: int = 64, height: int = 64) -> Response:

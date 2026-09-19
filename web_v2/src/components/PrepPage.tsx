@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { fetchCourseInstallStatus, fetchCoursePrep, fetchMobileCoursePackage, fetchPrepTips, prewarmCourseTopo } from '../api'
+import {
+  cancelCourseInstall,
+  fetchCourseInstallStatus,
+  fetchCoursePrep,
+  fetchMobileCoursePackage,
+  fetchPrepTips,
+  prewarmCourseTopo,
+  retryCourseInstall,
+} from '../api'
 import type {
   CoursePrepResponse,
   CourseSearchMatch,
@@ -37,7 +45,7 @@ type PrepDone<T> = { key: string; result: PrepResult<T> }
 
 type InstallDone = { key: string; data: CourseInstallStatus | null }
 
-const PRECISE_MAP_POLL_MS = 30_000
+const PRECISE_MAP_POLL_MS = 5_000
 
 function packageHoleNumbers(data: LiveRoundPackageResponse, globalId: number): number[] {
   const holes = new Set<number>()
@@ -149,6 +157,7 @@ export function prepReadinessState(
   install: CourseInstallStatus | null,
 ): PrepReadinessState {
   if (!data) return 'metadata'
+  if (install?.phase === 'cancelled') return 'cancelled'
   const precise = courseReadyForWorkbench(data)
   if (!precise) return 'preparing'
   if (
@@ -263,6 +272,7 @@ export function PrepPage({
   const [tipsDone, setTipsDone] = useState<PrepDone<PrepTipsResponse> | null>(null)
   const [prepAttempt, setPrepAttempt] = useState(0)
   const [tipsAttempt, setTipsAttempt] = useState(0)
+  const [installActionError, setInstallActionError] = useState<string | null>(null)
   // The W1b seq-ref race guard (HomeOverview searchSeq idiom): stale responses
   // from an earlier course/attempt must never clobber the latest request.
   const prepSeq = useRef(0)
@@ -303,7 +313,7 @@ export function PrepPage({
   // workbench. Poll the durable install journal and factual prep until the offline package is
   // complete. A missing status remains recoverable rather than opening on geometry alone.
   useEffect(() => {
-    if (globalId === null || prepKey === null || readiness === 'offline_installed') return
+    if (globalId === null || prepKey === null || readiness === 'offline_installed' || readiness === 'cancelled') return
     const holes = prepData?.holes.map((hole) => hole.hole) ?? []
     const timer = window.setTimeout(() => {
       if (holes.length > 0 && readiness !== 'precise_ready') {
@@ -375,6 +385,22 @@ export function PrepPage({
     if (typeof window !== 'undefined' && typeof window.print === 'function') window.print()
   }
 
+  const handleInstallAction = async (action: 'cancel' | 'retry') => {
+    if (!globalId || !installCurrent?.jobId) {
+      setPrepAttempt((attempt) => attempt + 1)
+      return
+    }
+    setInstallActionError(null)
+    try {
+      const next = action === 'cancel'
+        ? await cancelCourseInstall(globalId, installCurrent.jobId, adminToken)
+        : await retryCourseInstall(globalId, installCurrent.jobId, adminToken)
+      if (prepKey) setInstallDone({ key: prepKey, data: next })
+    } catch (error: unknown) {
+      setInstallActionError(error instanceof Error ? error.message : '任务操作失败')
+    }
+  }
+
   return (
     <section className="prep-page prep-workbench-page" aria-label="备战">
       <div className="prep-topbar">
@@ -404,11 +430,19 @@ export function PrepPage({
             重试
           </button>
         </section>
+      ) : installCurrent?.phase === 'cancelled' ? (
+        <section className="panel empty-state prep-load-error" aria-label="球场包准备已取消">
+          <h2>球场包准备已取消</h2>
+          <p>已停止服务器上的地图准备任务，已完成的洞仍会保留。</p>
+          {installActionError ? <p>{installActionError}</p> : null}
+          <button type="button" onClick={() => void handleInstallAction('retry')}>继续下载</button>
+        </section>
       ) : installCurrent?.phase === 'failed' ? (
         <section className="panel empty-state prep-load-error" aria-label="球场包准备失败">
           <h2>球场包准备失败</h2>
           <p>{installCurrent.error ?? '离线球场包安装失败'}</p>
-          <button type="button" onClick={() => setPrepAttempt((attempt) => attempt + 1)}>
+          {installActionError ? <p>{installActionError}</p> : null}
+          <button type="button" onClick={() => void handleInstallAction('retry')}>
             重试下载
           </button>
         </section>
@@ -425,7 +459,11 @@ export function PrepPage({
       ) : prepData ? (
         <section className="panel prep-loading" aria-label="球场包准备中">
           <p>{readiness === 'precise_ready' ? '精确地图已就绪，正在安装离线球场包…' : '球场地图准备中，完成后进入备战…'}</p>
-          <p>{installCurrent ? `${installCurrent.topoReady}/${installCurrent.totalHoles} 洞离线地图已完成` : `${prepData.holes.filter((hole) => hole.geometryCoverage === 'ready').length}/${prepData.holes.length} 洞已完成`}</p>
+          <p>{installCurrent ? `${installCurrent.topoReady}/${installCurrent.totalHoles} 洞离线地图已完成 · ${installCurrent.progress ?? 0}%` : `${prepData.holes.filter((hole) => hole.geometryCoverage === 'ready').length}/${prepData.holes.length} 洞已完成`}</p>
+          {installCurrent?.cancellable ? (
+            <button type="button" onClick={() => void handleInstallAction('cancel')}>停止地图准备</button>
+          ) : null}
+          {installActionError ? <p>{installActionError}</p> : null}
         </section>
       ) : (
         <section className="panel prep-loading" aria-label="球场攻略加载中">
