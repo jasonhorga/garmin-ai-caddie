@@ -1007,7 +1007,16 @@ final class RealFlowUITests: XCTestCase {
         let openSearch = app.buttons["start-round-search-all-courses"]
         XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20), "start form must expose full-catalogue search")
         openSearch.tap()
-        let openedCourseSearch = app.navigationBars["找球场"].waitForExistence(timeout: 8)
+        let courseSearchNavigationBar = app.navigationBars["找球场"]
+        var openedCourseSearch = courseSearchNavigationBar.waitForExistence(timeout: 8)
+        if !openedCourseSearch, scrollTo(openSearch, maxSwipes: 2) {
+            // A long XCUITest journey can occasionally synthesize the first tap while SwiftUI is
+            // committing the start screen's live nearby update. Retry the still-visible user action
+            // once, but keep the same sheet assertion so a real presentation failure remains fatal.
+            settle(1)
+            openSearch.tap()
+            openedCourseSearch = courseSearchNavigationBar.waitForExistence(timeout: 8)
+        }
         if !openedCourseSearch {
             save("09-course-search-sheet-missing")
             dump("09-course-search-sheet-missing")

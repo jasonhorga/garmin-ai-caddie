@@ -9,14 +9,15 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-19 20:06 UTC
+**Updated:** 2026-09-19 20:58 UTC
 **Branch:** `integration/v2` (GitHub default; current CADDIE-P0 backend source
 `aa05695f063d0d2d8b855e76c10174d6e4d1902f`, code
 `27ece0943a99bffc9fee3e520dba26a0750b17d9`; Source CI `35462771563`; API
 candidate `https://robbie-afford-couple-testimonials.trycloudflare.com` on
-loopback `39072`; first exact-SHA Native run `35463569818` failed one stale
-actual-club selector after otherwise completing iOS/Watch evidence; the bounded
-selector correction is in the working tree; current network-lifecycle source
+loopback `39072`; exact-SHA Native runs `35463569818` and `35466542942` each
+completed all non-live-iOS evidence but exposed separate stale/flaky XCUITest
+interactions; the first correction is committed at `4d56cd56`, and the second
+has a bounded one-retry test correction in the working tree; current network-lifecycle source
 `05761a41efa63d810abe66c4630325eeb03e7289`, backend
 `86378a0bfe726c4106caa06c404fc61cb2443124`, internal TestFlight Build 67 via
 CD `35457421840`, Apple read-only check `35457991975`; prior localized-course-name
@@ -71,10 +72,18 @@ release-scope decision; do not pause for routine TestFlight execution.
   iOS/Watch builds, unit tests, live catalogue, 10/11 live UI tests, Watch
   runtime evidence and all artifact scans; the one failure was an old UI-test
   selector that matched the covered `live-caddie-entry` when the new explicit
-  no-route result correctly supplied no recommended club. The working tree adds
-  a stable actual-club choice identifier and selects a real bag club when no
-  recommendation exists. Fresh Source/Native CI, internal TestFlight upload and
-  Apple status verification remain.
+  no-route result correctly supplied no recommended club. Correction `4d56cd56`
+  adds a stable actual-club choice identifier and selects a real bag club when no
+  recommendation exists; Source CI `35466407538` passed. Exact-SHA Native rerun
+  `35466542942` then passed iOS unit tests,
+  live catalogue preflight, 10/11 live UI tests, all Watch tests/runtime captures,
+  artifact uploads and secret scans. Its only failure occurred later in the long
+  real-app journey: XCTest delivered one tap to the visible full-catalogue action,
+  but the SwiftUI search sheet did not present; the saved screenshot/tree remained
+  on the unobstructed start screen, while all seven subsequent TeeSelection tests
+  opened the same sheet successfully. A bounded test-only retry keeps the same
+  fatal presentation assertion. Fresh Source/Native CI, internal TestFlight upload
+  and Apple status verification remain.
 - **PHONE-UX5 course-name release (2026-09-15):** The iPhone, Apple Watch, and
   Web paths now consume the Garmin-authoritative course identity. The user-facing
   manual Chinese-name entry has been removed; unmarked/manual cached labels cannot
@@ -633,12 +642,14 @@ code; do not restart the old multi-week plan tree.
 `NET-TASKS-P0` 已完成实现、Source/Native 门禁、内部 TestFlight Build 67 上传与
 Apple 状态确认，转为 `evidence-open` 等待实体 iPhone/Watch 验证。现在只推进
 球童 P0。实现和 homeserver 回归已在代码提交 `27ece094` 完成，Source CI 和
-revision-matched 后端候选/公网 preflight 已通过。Native `35463569818` 的唯一失败
-是旧测试把弹层后方的“球童建议”入口误当成实际球杆：2 号洞明确无可行推荐时，
-弹层仍有可记录的真实球包，但没有推荐标签。工作树中的最小修复为这些真实球杆
-加稳定 identifier，并在无推荐时选择第一个球包杆。唯一下一步是提交/推送该修复，
-依次重跑 Source 与 exact-SHA Native；绿色后自动上传内部 TestFlight 并做 Apple
-只读状态核验。实体 iPhone/Watch 的最终推荐体验仍保留为 `evidence-open`。
+revision-matched 后端候选/公网 preflight 已通过。第一次 Native 失败的实际球杆
+selector 修复已提交为 `4d56cd56`，Source CI `35466407538` 通过。Native rerun
+`35466542942` 的 iOS 单测、live catalogue、10/11 live UI、Watch runtime、artifacts
+和 secret scans 均通过；唯一红项是完整旅程后段的一次 XCUITest 丢点击，同一按钮
+无遮挡且后续七个 TeeSelection 用例全部成功打开搜索页。工作树只为该仍可见按钮
+增加一次有界重试，第二次仍不出现就保留截图并失败。唯一下一步是提交/推送，依次
+重跑 Source 与 exact-SHA Native；绿色后自动上传内部 TestFlight 并做 Apple 只读
+状态核验。实体 iPhone/Watch 的最终推荐体验仍保留为 `evidence-open`。
 
 **`DIRECT-CADDIE-AUDIT` — 直连链路与球童算法专项复审** (`done`)
 
@@ -1846,7 +1857,7 @@ project-level task list; historical plans are reference material.
 | `NET-FIRST-PRINCIPLES` | `done` | Re-evaluate the network/course-data system from first principles before implementation; verify Garmin evidence boundaries, define the minimum playable closure, compare architectures, and establish invariants and measurements. | `docs/reviews/2026-09-18-network-first-principles-review.md`; Fable 5.1 `xhigh` session `52b87e1b-1ba4-41a5-b60f-0512bd702cc4`; report/raw hashes above; snapshot and local temporary copy cleaned. No product implementation or release action. |
 | `NET-TASKS-P0` | `evidence-open` | Implement the first selected P0 network-lifecycle slice: L1 course facts, package deduplication, foreground/background priority, and durable progress/cancel semantics. | Backend/network commit `86378a0b` plus iOS recovery follow-ups through `05761a41` are released. Focused backend `226/226`, Web `24/24`, Source CI `35454224823`, exact-SHA live Native Mobile CI `35454368985`, internal TestFlight CD `35457421840`, and Apple check `35457991975` passed. Build 67 is `VALID`, unexpired, `IN_BETA_TESTING`, arm64 and visible in the existing internal all-builds group. Physical iPhone/Watch Garmin reconnect, cancellation/recovery and startup evidence remains open. |
 | `DIRECT-CADDIE-VALIDATION` | `evidence-open` | Close the empirical follow-up left open by the read-only Fable report: measure entity S70/iPhone/Watch/Web startup stages and direct-vs-homeserver paths under matched conditions, benchmark normal-server queue/compute impact, then replay the 12 caddie golden cases before implementation claims. | Homeserver capacity passed; cold/warm loopback/public package timings, full-history versus `last20` profiling, and 12-case replay are recorded in `/home/jason/garmin-ai-caddie-data/operations/direct-caddie-validation-20260919/`. Replay fixture/test: `tests/fixtures/caddie_golden_cases.json`, `tests/test_caddie_golden_replay.py`; baseline SHA `070e67386609951c08d57a521d01599e821ea33775cf0bf6bf9adf3b0fecf90b`. Physical S70/iPhone/Watch timing and Garmin runtime concurrency remain evidence-open. |
-| `CADDIE-P0` | `in-progress` | Add the 12 caddie golden regressions, then enforce hard feasibility, segmented hazards, filtered club-set consistency, non-Tee Driver prohibition, per-shot re-projection, explicit infeasible reasons, and risk/stability ranking. | Code commit `27ece094`; homeserver focused `194/194`, expanded `275/275` with 2 skips, changed-file compile, 12/12 blocking golden replay and warm performance gates pass; evidence SHA-256 `9b9c5833d256c20ab057238bedf1a337bd0cd18b9428d64a3122525d9808196c`. Source CI `35462771563` and the `aa05695f` backend candidate/public preflight pass. Native `35463569818` passed all but one stale actual-club UI selector; the working-tree correction preserves explicit no-route behavior and selects a real bag club when no recommendation exists. Next action is commit/push, fresh Source/Native, then automatic internal TestFlight/Apple verification; physical evidence remains open. |
+| `CADDIE-P0` | `in-progress` | Add the 12 caddie golden regressions, then enforce hard feasibility, segmented hazards, filtered club-set consistency, non-Tee Driver prohibition, per-shot re-projection, explicit infeasible reasons, and risk/stability ranking. | Code commit `27ece094`; homeserver focused `194/194`, expanded `275/275` with 2 skips, changed-file compile, 12/12 blocking golden replay and warm performance gates pass; evidence SHA-256 `9b9c5833d256c20ab057238bedf1a337bd0cd18b9428d64a3122525d9808196c`. Source CI `35462771563`, selector-fix Source CI `35466407538`, and the `aa05695f` backend candidate/public preflight pass. Native `35463569818` isolated the no-route selector; correction `4d56cd56` preserves explicit no-route behavior. Native `35466542942` then passed every non-live-iOS stage and 10/11 live UI tests; its only failure was a single dropped search-button tap despite an unobstructed target and 7/7 subsequent same-path tests passing. A bounded test-only retry is pending commit/push, fresh Source/Native, then automatic internal TestFlight/Apple verification; physical evidence remains open. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
@@ -2580,8 +2591,8 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Commit/push the bounded actual-club selector correction and this ledger at a
-   new exact app source SHA; keep backend revision `aa05695f` and its healthy
+1. Commit/push the bounded full-catalogue presentation retry and this ledger at
+   a new exact app source SHA; keep backend revision `aa05695f` and its healthy
    `39072` candidate/tunnel because no backend code changed.
 2. Require Source CI and a fresh exact-app-SHA Native Mobile CI against
    `https://robbie-afford-couple-testimonials.trycloudflare.com`, with backend
@@ -4659,3 +4670,14 @@ Native runs recorded above; it is retained only as historical diagnosis.
   per-hole decision worst p50/p95 was `6.479/9.134 ms`. Source/Native/backend/
   TestFlight/Apple gates are next; no production or external-distribution side
   effect has occurred.
+- 2026-09-19: The actual-club selector correction was committed as `4d56cd56`
+  and Source CI `35466407538` passed. Exact-SHA Native rerun `35466542942`
+  completed iOS unit tests, live catalogue preflight, 10/11 live UI tests,
+  Watch tests/runtime captures, all artifact uploads and all secret scans. Its
+  sole failure was `RealFlowUITests.swift:1015`: after a 474-second live journey,
+  XCTest synthesized one tap on the visible `start-round-search-all-courses`
+  button but the sheet did not present. The retained screenshot and accessibility
+  tree show the unobstructed start screen; all seven later TeeSelection tests
+  opened the same `找球场` sheet successfully. The working tree retries that
+  still-visible user action once while preserving the fatal sheet assertion.
+  No TestFlight upload followed the failed gate.
