@@ -9,8 +9,9 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-19 17:26 UTC
-**Branch:** `integration/v2` (GitHub default; current network-lifecycle source
+**Updated:** 2026-09-19 18:54 UTC
+**Branch:** `integration/v2` (GitHub default; current CADDIE-P0 code
+`27ece0943a99bffc9fee3e520dba26a0750b17d9`; current network-lifecycle source
 `05761a41efa63d810abe66c4630325eeb03e7289`, backend
 `86378a0bfe726c4106caa06c404fc61cb2443124`; Source CI `35454224823`;
 Native Mobile CI `35454368985`; internal TestFlight Build 67 via CD
@@ -48,6 +49,21 @@ release-scope decision; do not pause for routine TestFlight execution.
 
 ## Current Work Summary
 
+- **CADDIE-P0 implementation (2026-09-19):** Code commit `27ece094` makes the
+  12-case production replay blocking, forbids Driver after the tee, evaluates
+  full p10-p90 water and measured two-sided OB constraints, reprojects hazards
+  after each shot, removes duplicate/dominated strategy cards, and returns an
+  explicit no-route result instead of silently restoring an unsafe club. The
+  final approach/recovery pass also applies hazards before club selection and
+  prevents an infeasible option or unrelated sequence from remaining selected.
+  Homeserver focused tests pass `194/194`; the expanded course-prep/mobile/
+  readiness/geometry suite passes `275/275` with 2 conditional skips; changed
+  files compile. Golden evidence has 12/12 passing cases, zero unchecked
+  expectations and zero option/sequence mismatches at SHA-256
+  `9b9c5833d256c20ab057238bedf1a337bd0cd18b9428d64a3122525d9808196c`.
+  Warm per-hole decision p50/p95 remain below the 50/200 ms gates (worst
+  `6.479/9.134 ms`). Push, Source/Native CI, a revision-matched backend
+  candidate, internal TestFlight upload and Apple status verification remain.
 - **PHONE-UX5 course-name release (2026-09-15):** The iPhone, Apple Watch, and
   Web paths now consume the Garmin-authoritative course identity. The user-facing
   manual Chinese-name entry has been removed; unmarked/manual cached labels cannot
@@ -605,8 +621,10 @@ code; do not restart the old multi-week plan tree.
 
 `NET-TASKS-P0` 已完成实现、Source/Native 门禁、内部 TestFlight Build 67 上传与
 Apple 状态确认，转为 `evidence-open` 等待实体 iPhone/Watch 验证。现在只推进
-球童 P0：以已落盘的 12 个 golden replay 为回归基线，先消灭不可行路线和
-“短铁后接一号木”，再加入逐杆重投影、显式无解原因及风险/稳定性排序。
+球童 P0。实现和 homeserver 回归已在代码提交 `27ece094` 完成；唯一下一步是
+推送账本提交并依次完成 Source CI、revision-matched 后端候选、exact-SHA Native
+Mobile CI、内部 TestFlight 上传和 Apple 只读状态核验。实体 iPhone/Watch 的最终
+推荐体验仍保留为 `evidence-open`，不冒充自动化证据。
 
 **`DIRECT-CADDIE-AUDIT` — 直连链路与球童算法专项复审** (`done`)
 
@@ -1814,7 +1832,7 @@ project-level task list; historical plans are reference material.
 | `NET-FIRST-PRINCIPLES` | `done` | Re-evaluate the network/course-data system from first principles before implementation; verify Garmin evidence boundaries, define the minimum playable closure, compare architectures, and establish invariants and measurements. | `docs/reviews/2026-09-18-network-first-principles-review.md`; Fable 5.1 `xhigh` session `52b87e1b-1ba4-41a5-b60f-0512bd702cc4`; report/raw hashes above; snapshot and local temporary copy cleaned. No product implementation or release action. |
 | `NET-TASKS-P0` | `evidence-open` | Implement the first selected P0 network-lifecycle slice: L1 course facts, package deduplication, foreground/background priority, and durable progress/cancel semantics. | Backend/network commit `86378a0b` plus iOS recovery follow-ups through `05761a41` are released. Focused backend `226/226`, Web `24/24`, Source CI `35454224823`, exact-SHA live Native Mobile CI `35454368985`, internal TestFlight CD `35457421840`, and Apple check `35457991975` passed. Build 67 is `VALID`, unexpired, `IN_BETA_TESTING`, arm64 and visible in the existing internal all-builds group. Physical iPhone/Watch Garmin reconnect, cancellation/recovery and startup evidence remains open. |
 | `DIRECT-CADDIE-VALIDATION` | `evidence-open` | Close the empirical follow-up left open by the read-only Fable report: measure entity S70/iPhone/Watch/Web startup stages and direct-vs-homeserver paths under matched conditions, benchmark normal-server queue/compute impact, then replay the 12 caddie golden cases before implementation claims. | Homeserver capacity passed; cold/warm loopback/public package timings, full-history versus `last20` profiling, and 12-case replay are recorded in `/home/jason/garmin-ai-caddie-data/operations/direct-caddie-validation-20260919/`. Replay fixture/test: `tests/fixtures/caddie_golden_cases.json`, `tests/test_caddie_golden_replay.py`; baseline SHA `070e67386609951c08d57a521d01599e821ea33775cf0bf6bf9adf3b0fecf90b`. Physical S70/iPhone/Watch timing and Garmin runtime concurrency remain evidence-open. |
-| `CADDIE-P0` | `in-progress` | Add the 12 caddie golden regressions, then enforce hard feasibility, segmented hazards, filtered club-set consistency, non-Tee Driver prohibition, per-shot re-projection, explicit infeasible reasons, and risk/stability ranking. | Started after the Build 67 network release on 2026-09-19. The direct-caddie audit identified the M1-M7 generation chain; first action is to inspect the persisted 12-case replay and current generation code before changing the algorithm. |
+| `CADDIE-P0` | `in-progress` | Add the 12 caddie golden regressions, then enforce hard feasibility, segmented hazards, filtered club-set consistency, non-Tee Driver prohibition, per-shot re-projection, explicit infeasible reasons, and risk/stability ranking. | Code commit `27ece094` is complete locally. Homeserver focused `194/194`, expanded `275/275` with 2 skips, changed-file compile, 12/12 blocking golden replay and warm performance gates pass; evidence SHA-256 is `9b9c5833d256c20ab057238bedf1a337bd0cd18b9428d64a3122525d9808196c`. Next action is push and ordered Source/backend/Native/TestFlight/Apple verification; physical device evidence remains open. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
@@ -2548,27 +2566,16 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Complete `NET-TASKS-P0` on the homeserver: close the composite-back-nine
-   `allow_lightweight_fetch` leak, split L1/current-hole facts from player/package
-   work, remove duplicate single-flight keys, and move non-critical work off T0.
-2. Add durable task progress/heartbeat/cancel/retry/resume assertions across the
-   API and client contracts. A task must have a monotonic progress record and a
-   terminal state; cancellation must not leave a foreground request waiting on a
-   stale generation. Do not add an all-maps-offline requirement.
-3. Run the focused backend/mobile contract suites and the package timing harness
-   against the existing candidate without stopping it. Record queue/CPU/request
-   segments and compare the post-change output with the validation baseline.
-4. Follow with `CADDIE-P0`: turn the 12-case fixture into blocking regressions,
-   then implement the hard feasibility and re-projection contract. Verify zero
-   Driver-on-non-Tee, zero silent global-bag fallback, zero impossible
-   second-shot sequence, and complete reason/confidence fields.
-5. Keep Build 65 and its `39068` candidate/Quick Tunnel available for physical
-   evidence. On the real iPhone/Watch, verify map panning, hazard contour labels,
-   pole-foot flag dragging, tee-only distance arc, canonical Garmin names, and a
-   fresh Garmin reconnect. Once source/Native/backend gates pass, the internal
-   TestFlight upload and Apple status check proceed automatically; external
-   distribution, production deployment and production synchronization remain
-   excluded.
+1. Commit this ledger update and push `integration/v2` with CADDIE-P0 code
+   `27ece094`; run Source CI at the resulting exact source SHA.
+2. Build and start a revision-matched backend candidate on a new loopback port
+   without stopping the Build 67 candidate; verify health/revision and the live
+   caddie preflight through a fresh Quick Tunnel.
+3. Run exact-SHA Native Mobile CI against that candidate. When it passes, start
+   the internal-only TestFlight build/upload automatically and then run Apple's
+   read-only processing/group-status check.
+4. Keep external distribution, production promotion and tester mutation off.
+   Preserve physical iPhone/Watch recommendation validation as `evidence-open`.
 
 ## Open Blockers / Facts
 
@@ -4614,3 +4621,17 @@ Native runs recorded above; it is retained only as historical diagnosis.
   `IN_BETA_TESTING`, `usesNonExemptEncryption=false`, arm64, and visible in the
   existing internal all-builds group. No external distribution, tester
   mutation, production service or production data change occurred.
+- 2026-09-19: `CADDIE-P0` code commit `27ece094` completed the 12-case blocking
+  production replay and hard-feasibility/stability planner. It prohibits Driver
+  after the tee, applies full carry distributions to water, measured lateral
+  dispersion to two-sided OB corridors, reprojects every continuation, removes
+  dominated strategy cards, and exposes explicit infeasible results. The final
+  review closed approach/recovery hazard filtering and selected-option/sequence
+  alignment. Homeserver focused tests passed `194/194`; the expanded suite
+  passed `275/275` with 2 skips; changed-file compilation passed. Golden evidence
+  remains deterministic at SHA-256
+  `9b9c5833d256c20ab057238bedf1a337bd0cd18b9428d64a3122525d9808196c`
+  with 12 cases, no failed/unchecked checks and no selection mismatch. Warm
+  per-hole decision worst p50/p95 was `6.479/9.134 ms`. Source/Native/backend/
+  TestFlight/Apple gates are next; no production or external-distribution side
+  effect has occurred.
