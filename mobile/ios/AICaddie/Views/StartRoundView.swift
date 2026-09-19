@@ -1468,6 +1468,18 @@ public struct StartRoundView: View {
         "\(Int(floor(latitude * 100))):\(Int(floor(longitude * 100)))"
     }
 
+    static func shouldApplyNearbyDiscoveryResult(
+        isCancelled: Bool,
+        requestToken: UUID,
+        activeRequestToken: UUID?,
+        requestKey: String,
+        currentRequestKey: String
+    ) -> Bool {
+        !isCancelled
+            && activeRequestToken == requestToken
+            && currentRequestKey == requestKey
+    }
+
     static func nearbyDiscoveryErrorMessage(_ error: Error) -> String {
         if case let SyncClientError.http(status, _) = error {
             switch status {
@@ -1553,9 +1565,13 @@ public struct StartRoundView: View {
                 fix.coordinate.longitude,
                 50
             )
-            guard !Task.isCancelled,
-                  nearbyRequestToken == requestToken,
-                  locationDiscoveryKey == requestKey else { return }
+            guard Self.shouldApplyNearbyDiscoveryResult(
+                isCancelled: Task.isCancelled,
+                requestToken: requestToken,
+                activeRequestToken: nearbyRequestToken,
+                requestKey: requestKey,
+                currentRequestKey: locationDiscoveryKey
+            ) else { return }
             var seen = Set<Int>()
             let providerNearby = matches.compactMap { resolvedOption(for: $0) }
             nearbyCourseOptions = providerNearby.filter {
@@ -1579,9 +1595,13 @@ public struct StartRoundView: View {
                 }
             }
         } catch {
-            guard !Task.isCancelled,
-                  nearbyRequestToken == requestToken,
-                  locationDiscoveryKey == requestKey else { return }
+            guard Self.shouldApplyNearbyDiscoveryResult(
+                isCancelled: Task.isCancelled,
+                requestToken: requestToken,
+                activeRequestToken: nearbyRequestToken,
+                requestKey: requestKey,
+                currentRequestKey: locationDiscoveryKey
+            ) else { return }
             nearbyCourseOptions = []
             // Keep a verified local package usable even when its older package format has no
             // per-hole Tee anchor. Rows with factual coordinates still need to be within 50 km;

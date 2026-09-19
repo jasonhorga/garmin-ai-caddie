@@ -463,9 +463,12 @@ public final class SyncClient {
     static let courseTopoTimeoutInterval: TimeInterval = 60
     static let courseCoverageTimeoutInterval: TimeInterval = 15
     static let courseInstallRevalidationTimeoutInterval: TimeInterval = 8
+    static let courseInstallStatusTimeoutInterval: TimeInterval = 30
     static let courseReleaseMaximumAttempts = 3
     static let courseAssetMaximumAttempts = 2
-    static let nearbyDiscoveryTimeoutInterval: TimeInterval = 30
+    static let courseDiscoveryRequestTimeoutInterval: TimeInterval = 15
+    static let courseDiscoveryForegroundBudgetInterval: TimeInterval = 25
+    static let courseDiscoveryMaximumAttempts = 2
     static let transientCourseReleaseHTTPStatuses: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
 
     /// The configured API base (e.g. `https://caddie…ts.net`). Public so views can build the
@@ -477,6 +480,7 @@ public final class SyncClient {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let retrySleep: (UInt64) async throws -> Void
+    private let monotonicNow: () -> TimeInterval
 
     public init(baseURL: URL, adminToken: String? = nil, clientId: String = "ios-phone", session: URLSession = .shared) {
         self.baseURL = baseURL
@@ -486,6 +490,7 @@ public final class SyncClient {
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
         self.retrySleep = { try await Task.sleep(nanoseconds: $0) }
+        self.monotonicNow = { ProcessInfo.processInfo.systemUptime }
     }
 
     init(
@@ -493,7 +498,8 @@ public final class SyncClient {
         adminToken: String? = nil,
         clientId: String = "ios-phone",
         session: URLSession = .shared,
-        retrySleep: @escaping (UInt64) async throws -> Void
+        retrySleep: @escaping (UInt64) async throws -> Void,
+        monotonicNow: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
         self.baseURL = baseURL
         self.adminToken = adminToken
@@ -502,6 +508,7 @@ public final class SyncClient {
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
         self.retrySleep = retrySleep
+        self.monotonicNow = monotonicNow
     }
 
     public func fetchRoundPackage(roundId: String, capturedAt: Date = Date(), ensureGeometry: Bool = false) async throws -> LiveRoundPackage {
@@ -584,7 +591,7 @@ public final class SyncClient {
             teeBox: teeBox,
             nine: nine,
             backGlobalId: backGlobalId,
-            timeoutInterval: Self.nearbyDiscoveryTimeoutInterval,
+            timeoutInterval: Self.courseInstallStatusTimeoutInterval,
             maximumAttempts: Self.courseReleaseMaximumAttempts
         )
     }
@@ -832,9 +839,13 @@ public final class SyncClient {
         // budget and use the same transient-only retry policy as nearby discovery. In particular,
         // a one-off TLS transport handshake failure may retry; certificate validation failures may
         // not (see `isTransientCourseReleaseError`).
-        request.timeoutInterval = Self.nearbyDiscoveryTimeoutInterval
+        request.timeoutInterval = Self.courseDiscoveryRequestTimeoutInterval
         applyAuth(to: &request)
-        let data = try await fetchRetriableGetData(request)
+        let data = try await fetchRetriableGetData(
+            request,
+            maximumAttempts: Self.courseDiscoveryMaximumAttempts,
+            totalTimeoutInterval: Self.courseDiscoveryForegroundBudgetInterval
+        )
         return try decoder.decode(MobileCourseSearchResponse.self, from: data).matches
     }
 
@@ -864,11 +875,15 @@ public final class SyncClient {
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         // The backend bounds its Garmin pagination to 12 s and can return an explicitly marked
-        // partial/cache result. Leave enough transport budget for that response plus Funnel/DNS
-        // latency, then retry the idempotent GET using the transient-only metadata policy.
-        request.timeoutInterval = Self.nearbyDiscoveryTimeoutInterval
+        // partial/cache result. One transient failure may retry, but both attempts share one
+        // foreground budget so Start Round always reaches its recoverable state promptly.
+        request.timeoutInterval = Self.courseDiscoveryRequestTimeoutInterval
         applyAuth(to: &request)
-        let data = try await fetchRetriableGetData(request)
+        let data = try await fetchRetriableGetData(
+            request,
+            maximumAttempts: Self.courseDiscoveryMaximumAttempts,
+            totalTimeoutInterval: Self.courseDiscoveryForegroundBudgetInterval
+        )
         return try decoder.decode(MobileNearbyCoursesResponse.self, from: data).matches
     }
 
@@ -1376,13 +1391,21 @@ public final class SyncClient {
 
     private func fetchRetriableGetData(
         _ request: URLRequest,
-        maximumAttempts: Int = SyncClient.courseReleaseMaximumAttempts
+        maximumAttempts: Int = SyncClient.courseReleaseMaximumAttempts,
+        totalTimeoutInterval: TimeInterval? = nil
     ) async throws -> Data {
+        let deadline = totalTimeoutInterval.map { monotonicNow() + max(0, $0) }
         var attempt = 1
         while true {
             try Task.checkCancellation()
+            var attemptRequest = request
+            if let deadline {
+                let remaining = deadline - monotonicNow()
+                guard remaining > 0 else { throw URLError(.timedOut) }
+                attemptRequest.timeoutInterval = min(request.timeoutInterval, remaining)
+            }
             do {
-                let (data, response) = try await session.data(for: request)
+                let (data, response) = try await session.data(for: attemptRequest)
                 try validate(response: response, data: data)
                 return data
             } catch {
@@ -1393,7 +1416,14 @@ public final class SyncClient {
                       Self.isTransientCourseReleaseError(error) else {
                     throw error
                 }
-                try await retrySleep(Self.courseReleaseRetryDelayNanoseconds(afterAttempt: attempt))
+                let retryDelay = Self.courseReleaseRetryDelayNanoseconds(afterAttempt: attempt)
+                if let deadline {
+                    let retryDelaySeconds = TimeInterval(retryDelay) / 1_000_000_000
+                    guard deadline - monotonicNow() > retryDelaySeconds else {
+                        throw URLError(.timedOut)
+                    }
+                }
+                try await retrySleep(retryDelay)
                 attempt += 1
             }
         }

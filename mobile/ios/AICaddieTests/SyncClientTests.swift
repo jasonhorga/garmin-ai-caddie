@@ -259,7 +259,7 @@ final class SyncClientTests: XCTestCase {
         var attempts = 0
         CapturingURLProtocol.requestHandler = { request in
             attempts += 1
-            XCTAssertEqual(request.timeoutInterval, SyncClient.nearbyDiscoveryTimeoutInterval)
+            XCTAssertEqual(request.timeoutInterval, SyncClient.courseDiscoveryRequestTimeoutInterval)
             if attempts == 1 {
                 throw URLError(.secureConnectionFailed)
             }
@@ -329,8 +329,11 @@ final class SyncClientTests: XCTestCase {
         XCTAssertNotNil(matches.first?.courseOption)
     }
 
-    func testNearbyCoursesRetriesATransientFailureWithoutDelayingTheFallback() async throws {
-        XCTAssertGreaterThanOrEqual(SyncClient.nearbyDiscoveryTimeoutInterval, 30)
+    func testNearbyCoursesRetriesFirstTimeoutWithinForegroundBudget() async throws {
+        XCTAssertLessThan(
+            SyncClient.courseDiscoveryForegroundBudgetInterval,
+            SyncClient.courseDiscoveryRequestTimeoutInterval * 2
+        )
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -340,9 +343,9 @@ final class SyncClientTests: XCTestCase {
         var attempts = 0
         CapturingURLProtocol.requestHandler = { request in
             attempts += 1
-            XCTAssertEqual(request.timeoutInterval, SyncClient.nearbyDiscoveryTimeoutInterval)
+            XCTAssertEqual(request.timeoutInterval, SyncClient.courseDiscoveryRequestTimeoutInterval)
             if attempts == 1 {
-                throw URLError(.networkConnectionLost)
+                throw URLError(.timedOut)
             }
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
@@ -363,6 +366,69 @@ final class SyncClientTests: XCTestCase {
 
         XCTAssertTrue(matches.isEmpty)
         XCTAssertEqual(attempts, 2)
+    }
+
+    func testNearbyCoursesCapsTheRetryAtTheRemainingForegroundBudget() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var now: TimeInterval = 100
+        var attemptTimeouts: [TimeInterval] = []
+        CapturingURLProtocol.requestHandler = { request in
+            attemptTimeouts.append(request.timeoutInterval)
+            now += request.timeoutInterval
+            throw URLError(.timedOut)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session,
+            retrySleep: { nanoseconds in
+                now += TimeInterval(nanoseconds) / 1_000_000_000
+            },
+            monotonicNow: { now }
+        )
+
+        do {
+            _ = try await client.nearbyCourses(latitude: 0, longitude: 0, radiusKm: 50)
+            XCTFail("the foreground discovery budget must terminate an unresponsive request")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .timedOut)
+        }
+
+        XCTAssertEqual(attemptTimeouts.count, 2)
+        XCTAssertEqual(
+            attemptTimeouts[0],
+            SyncClient.courseDiscoveryRequestTimeoutInterval,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(attemptTimeouts[1], 9.5, accuracy: 0.001)
+        XCTAssertEqual(now, 125, accuracy: 0.001)
+    }
+
+    func testNearbyCoursesStopsWhenTheRetryDelayIsCancelled() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var attempts = 0
+        CapturingURLProtocol.requestHandler = { _ in
+            attempts += 1
+            throw URLError(.networkConnectionLost)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session,
+            retrySleep: { _ in throw CancellationError() }
+        )
+
+        do {
+            _ = try await client.nearbyCourses(latitude: 0, longitude: 0, radiusKm: 50)
+            XCTFail("cancellation must stop discovery before a second request")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertEqual(attempts, 1)
     }
 
     func testFetchCoursePrepCanRequestSmallHoleBatch() async throws {
@@ -1024,6 +1090,7 @@ final class SyncClientTests: XCTestCase {
         )
         CapturingURLProtocol.requestHandler = { request in
             XCTAssertEqual(request.url?.path, "/api/v2/courses/31870/install/status")
+            XCTAssertEqual(request.timeoutInterval, SyncClient.courseInstallStatusTimeoutInterval)
             let queryItems = URLComponents(
                 url: try XCTUnwrap(request.url),
                 resolvingAgainstBaseURL: false

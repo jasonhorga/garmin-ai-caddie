@@ -186,6 +186,48 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertNotEqual(initial, afterMeaningfulTravel)
     }
 
+    func testNearbyDiscoveryAppliesOnlyTheCurrentUncancelledGeneration() {
+        let current = UUID()
+        let superseded = UUID()
+
+        XCTAssertTrue(
+            StartRoundView.shouldApplyNearbyDiscoveryResult(
+                isCancelled: false,
+                requestToken: current,
+                activeRequestToken: current,
+                requestKey: "4004:11654",
+                currentRequestKey: "4004:11654"
+            )
+        )
+        XCTAssertFalse(
+            StartRoundView.shouldApplyNearbyDiscoveryResult(
+                isCancelled: true,
+                requestToken: current,
+                activeRequestToken: current,
+                requestKey: "4004:11654",
+                currentRequestKey: "4004:11654"
+            )
+        )
+        XCTAssertFalse(
+            StartRoundView.shouldApplyNearbyDiscoveryResult(
+                isCancelled: false,
+                requestToken: superseded,
+                activeRequestToken: current,
+                requestKey: "4004:11654",
+                currentRequestKey: "4004:11654"
+            )
+        )
+        XCTAssertFalse(
+            StartRoundView.shouldApplyNearbyDiscoveryResult(
+                isCancelled: false,
+                requestToken: current,
+                activeRequestToken: current,
+                requestKey: "4004:11654",
+                currentRequestKey: "4006:11656"
+            )
+        )
+    }
+
     func testSelectingASearchResultRetainsOnlyItsSiblingLoops() {
         let selected = MobileCourseOption(
             globalId: 31670,
@@ -648,7 +690,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
-    func testNearbyTransportFailureExplainsCityOrCourseSearchRecovery() {
+    func testNearbyTimeoutHasAnHonestRecoverableTerminalState() {
         XCTAssertEqual(
             StartRoundView.nearbyDiscoveryErrorMessage(URLError(.timedOut)),
             "附近球场暂时无法读取；可重试，或按城市或球场名搜索。"
