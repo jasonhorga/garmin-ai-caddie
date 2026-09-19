@@ -89,6 +89,31 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(try store.loadCurrentRoundPackage()?.roundId, package.roundId)
     }
 
+    func testRecentCourseSelectionRoundTripsAndStaysAccountScoped() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let course = MobileCourseOption(
+            globalId: 31793,
+            name: "北京丽宫体育公园高尔夫俱乐部",
+            holes: 18,
+            teeBox: "blue",
+            venueName: "北京丽宫体育公园高尔夫俱乐部",
+            venueNameSource: MobileCourseDisplayLocalization.garminSnapshotNameSource,
+            tees: ["blue"]
+        )
+
+        store.bindAccount(playerId: "player-a", migrateLegacyData: false)
+        try store.saveRecentCourseSelection(course)
+        XCTAssertEqual(try store.loadRecentCourseSelection(), course)
+
+        store.bindAccount(playerId: "player-b", migrateLegacyData: false)
+        XCTAssertNil(try store.loadRecentCourseSelection())
+
+        store.bindAccount(playerId: "player-a", migrateLegacyData: false)
+        XCTAssertEqual(try store.loadRecentCourseSelection(), course)
+    }
+
     func testRoundPackageSaveCannotDowngradeAFullSnapshot() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

@@ -79,6 +79,7 @@ public struct AICaddieApp: App {
                         pendingWatchRoundStart: model.pendingWatchRoundStart,
                         courseOptions: model.courseOptions,
                         downloadedCourseOptions: model.downloadedCourseOptions,
+                        recentCourseOption: model.recentCourseOption,
                         downloadedCourseKeys: model.downloadedCourseKeys,
                         prepCourseDownloads: model.prepCourseDownloads,
                         prepCourseDownloadPresentation: model.prepCourseDownloadPresentation,
@@ -319,6 +320,7 @@ private struct NoPackageHubView: View {
         StartRoundView(
             courseOptions: model.courseOptions,
             downloadedCourseOptions: model.downloadedCourseOptions,
+            recentCourseOption: model.recentCourseOption,
             syncStatus: model.syncStatus,
             isPreparing: model.isPreparingRound,
             apiBaseURL: model.apiBaseURL,
@@ -476,6 +478,9 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var courseOptions: [MobileCourseOption] = []
     @Published public private(set) var downloadedCourseOptions: [MobileCourseOption] = []
     @Published public private(set) var downloadedCourseKeys: Set<String> = []
+    /// The last course explicitly started by this account. It is a separate source from Garmin's
+    /// GPS-nearby response: a successful HTTP 200 may still omit a recently played venue.
+    @Published public private(set) var recentCourseOption: MobileCourseOption?
     public let prepCourseDownloadPresentation = PrepCourseDownloadPresentationState()
     @Published public private(set) var prepCourseDownloads: [PrepCourseDownloadRecord] = [] {
         didSet {
@@ -606,6 +611,7 @@ public final class LiveRoundAppModel: ObservableObject {
         observeSessionForWatch()
         restorePrepCourseDownloadsFromDisk()
         refreshDownloadedCourseOptions()
+        recentCourseOption = try? offlineStore.loadRecentCourseSelection()
     }
 
     /// round-12 P3.4 (Watch standalone): hand the watch this phone's backend config so a standalone
@@ -686,6 +692,7 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingLiveHole = nil
         startingNine = nil
         courseOptions = []
+        recentCourseOption = try? offlineStore.loadRecentCourseSelection()
         courseOptionsRefreshSucceeded = false
         syncStatus = "离线就绪"
         localEventUploadStatus = "自动上传已开启"
@@ -1064,25 +1071,25 @@ public final class LiveRoundAppModel: ObservableObject {
             guard isCurrentRoundPreparation(preparationToken) else { return }
             if let remotePackage = fetched {
                 let persisted = try offlineStore.saveRoundPackage(remotePackage)
-                try activatePackage(persisted, status: "已下载离线")
+                try activatePackage(persisted, status: "已下载离线", rememberAsRecent: true)
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
                 switch cachedPackage.cacheState() {
                 case .expired:
                     if try canContinueExpiredPackage(cachedPackage) {
-                        try activatePackage(cachedPackage, status: "离线继续本场")
+                        try activatePackage(cachedPackage, status: "离线继续本场", rememberAsRecent: true)
                         return
                     }
                     syncStatus = "离线数据已过期,稍后重试"
                 case .stale:
-                    try activatePackage(cachedPackage, status: "已下载离线")
+                    try activatePackage(cachedPackage, status: "已下载离线", rememberAsRecent: true)
                     return
                 case .ready:
-                    try activatePackage(cachedPackage, status: "已下载离线")
+                    try activatePackage(cachedPackage, status: "已下载离线", rememberAsRecent: true)
                     return
                 case .degraded:
-                    try activatePackage(cachedPackage, status: "已下载离线")
+                    try activatePackage(cachedPackage, status: "已下载离线", rememberAsRecent: true)
                     return
                 }
             } else {
@@ -1151,7 +1158,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     offlinePackage,
                     allowHoleCountDecrease: isIntentionalHoleSetChange
                 )
-                try activatePackage(persisted, status: "本地球场已就绪")
+                try activatePackage(persisted, status: "本地球场已就绪", rememberAsRecent: true)
                 signalFreshRoundEntry(revalidatePackage: true)
                 // Enter immediately from local facts, then verify the Garmin release in the
                 // background. Matching revisions reuse every byte; changed holes refresh only
@@ -1185,7 +1192,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 )
                 recordUITestLatency("course-start.save.end globalId=\(globalId)")
                 recordUITestLatency("course-start.activate.begin globalId=\(globalId)")
-                try activatePackage(persisted, status: "球场已就绪")
+                try activatePackage(persisted, status: "球场已就绪", rememberAsRecent: true)
                 recordUITestLatency("course-start.activate.end globalId=\(globalId)")
                 if isNewRound {
                     recordUITestLatency("course-start.signal.begin globalId=\(globalId)")
@@ -1205,7 +1212,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     cachedPackage,
                     allowHoleCountDecrease: isIntentionalHoleSetChange
                 )
-                try activatePackage(persisted, status: "已下载离线")
+                try activatePackage(persisted, status: "已下载离线", rememberAsRecent: true)
                 if isNewRound {
                     signalFreshRoundEntry(revalidatePackage: true)
                 } else {
@@ -1224,7 +1231,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     offlinePackage,
                     allowHoleCountDecrease: isIntentionalHoleSetChange
                 )
-                try activatePackage(persisted, status: "离线球场已就绪")
+                try activatePackage(persisted, status: "离线球场已就绪", rememberAsRecent: true)
                 if isNewRound {
                     signalFreshRoundEntry(revalidatePackage: true)
                 } else {
@@ -2327,7 +2334,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     remotePackage,
                     allowHoleCountDecrease: !isNewRound
                 )
-                try activatePackage(persisted, status: "球场已就绪")
+                try activatePackage(persisted, status: "球场已就绪", rememberAsRecent: true)
                 if isNewRound {
                     signalFreshRoundEntry(cacheOfflineAssets: true)
                 } else {
@@ -2342,7 +2349,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     cachedPackage,
                     allowHoleCountDecrease: !isNewRound
                 )
-                try activatePackage(persisted, status: "已下载离线")
+                try activatePackage(persisted, status: "已下载离线", rememberAsRecent: true)
                 if isNewRound {
                     signalFreshRoundEntry(revalidatePackage: true)
                 } else {
@@ -2635,7 +2642,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             let persisted = try offlineStore.saveRoundPackage(nextPackage)
-            try activatePackage(persisted, status: "手表已开始 · iPhone 已同步")
+            try activatePackage(persisted, status: "手表已开始 · iPhone 已同步", rememberAsRecent: true)
             if persisted.holes.contains(where: { $0.number == start.activeHole }) {
                 try offlineStore.saveActiveHole(roundId: roundId, hole: start.activeHole)
                 liveRoundState = try offlineStore.restoreLiveRoundState(
@@ -4181,7 +4188,11 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    private func activatePackage(_ nextPackage: LiveRoundPackage, status: String) throws {
+    private func activatePackage(
+        _ nextPackage: LiveRoundPackage,
+        status: String,
+        rememberAsRecent: Bool = false
+    ) throws {
         recordUITestLatency("activate.template.begin globalId=\(nextPackage.course.globalId)")
         try? offlineStore.saveCourseTemplate(nextPackage)
         recordUITestLatency("activate.template.end globalId=\(nextPackage.course.globalId)")
@@ -4202,6 +4213,9 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingEventCount = try offlineStore.loadPendingEvents(roundId: nextPackage.roundId).count
         recordUITestLatency("activate.pending-events.end globalId=\(nextPackage.course.globalId)")
         syncStatus = status
+        if rememberAsRecent {
+            rememberRecentCourseSelection(from: nextPackage)
+        }
         if let watchBridge,
            let activeHole = liveRoundState?.activeHole ?? nextPackage.holes.first?.number {
             recordUITestLatency("activate.watch-seed.begin globalId=\(nextPackage.course.globalId)")
@@ -4211,6 +4225,46 @@ public final class LiveRoundAppModel: ObservableObject {
             )
             watchBridge.sendRoundSeedToWatch(seed)
             recordUITestLatency("activate.watch-seed.end globalId=\(nextPackage.course.globalId)")
+        }
+    }
+
+    /// Convert a successfully activated Garmin package into the small, account-scoped recovery
+    /// row used by StartRoundView. This records facts already accepted by the package contract; it
+    /// never invents a localized name or turns the row into a nearby/GPS result.
+    private func rememberRecentCourseSelection(from package: LiveRoundPackage) {
+        let anchor = package.holes.first {
+            $0.teeLatitude != nil && $0.teeLongitude != nil
+        }
+        let tee = package.course.teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
+        let option = MobileCourseOption(
+            globalId: package.course.globalId,
+            courseKey: package.recentHistory.course.courseKey,
+            name: package.course.name,
+            roundCount: package.recentHistory.course.roundCount,
+            latestRoundId: package.recentHistory.rounds.first?.roundId,
+            latestRoundDate: package.recentHistory.rounds.first?.date,
+            holes: package.holes.count,
+            teeBox: package.course.teeBox,
+            geometryCoverage: package.geometryCoverage.state.rawValue,
+            venueName: package.course.venueName,
+            venueNameSource: package.course.venueNameSource,
+            segmentLabel: package.course.segmentLabel,
+            segmentHoles: package.holes.count,
+            latitude: anchor?.teeLatitude,
+            longitude: anchor?.teeLongitude,
+            tees: tee.isEmpty || tee.caseInsensitiveCompare("unknown") == .orderedSame ? nil : [tee]
+        )
+        guard option.globalId > 0 else { return }
+        recentCourseOption = option
+        do {
+            try offlineStore.saveRecentCourseSelection(option)
+        } catch {
+            // The in-memory row still protects the current session; a later launch can recover it
+            // from the home/package cache. Never turn a successful round start into an error solely
+            // because this convenience record could not be written.
+            AICaddieLog.storage.info(
+                "Recent course selection cache skipped: \(String(describing: error), privacy: .public)"
+            )
         }
     }
 

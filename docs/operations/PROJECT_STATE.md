@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-19 02:32 UTC
+**Updated:** 2026-09-19 13:25 UTC
 **Branch:** `integration/v2` (GitHub default; current localized-course-name
 source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI
 `35267621896`; Native Mobile CI `35270792248` attempt 2; internal TestFlight
@@ -4560,3 +4560,46 @@ Native runs recorded above; it is retained only as historical diagnosis.
   it as the public upstream; images and volumes were retained. Post-cleanup
   health checks for both APIs, Caddy, Build 65 Quick Tunnel, and PostgreSQL
   passed, with four active containers and about `5.1 GiB` available memory.
+- 2026-09-19: `NET-TASKS-P0` implementation commit `86378a0b` passed Source CI
+  (`35435953078`), backend focused tests (`226/226`), Web focused tests
+  (`24/24`), production build, compileall, and diff-check. Exact-SHA Native
+  run `35436334138` reached all iOS/Watch stages but two live catalogue UI
+  assertions failed because the transient Garmin nearby/city response did not
+  expose segment `31793`; the service returned HTTP 200 and subsequent live
+  requests exposed the row. Evidence is retained at
+  `/home/jason/garmin-ai-caddie-data/operations/native-86378a0b-20260919/`.
+  The candidate is healthy at `39071` with tunnel
+  `https://washer-unsubscribe-correlation-controversy.trycloudflare.com`.
+  An identical-source Native rerun `35439474990` is now in progress; no product
+  change was made for the transient failure and no TestFlight upload has been
+  claimed yet.
+- 2026-09-19: Native rerun `35439474990` completed with iOS live-evidence
+  failures but Watch/evidence/secret-scan stages passed. `RealFlowUITests` timed
+  out waiting for `topo-hole-base-ready` after the history review's cold
+  shotmap/topo fan-out; `ReviewEditUITests` timed out on
+  `/api/v2/history/rounds/17684836/holes/1/shotmap`. The candidate access log
+  shows HTTP 200 responses and no backend exception; direct post-run probes
+  returned the same endpoints in under one second after caches warmed. This is
+  recorded as a transient cold-cache/concurrency diagnosis, not a product pass;
+  TestFlight remains prohibited. Next action is one same-SHA Native rerun
+  against the warmed candidate before considering a code change.
+- 2026-09-19: Same-SHA Native rerun `35441590502` completed. ReviewEdit,
+  TeeSelection (7/7), Watch build/runtime evidence, artifact uploads and secret
+  scans passed. The only failure was the iOS `RealFlowUITests` prep-search step:
+  `RealFlowUITests.swift:301` could not synthesize `typeText("北京丽宫")` because
+  the tapped field had momentarily lost keyboard focus. Candidate access logs
+  still show HTTP 200 responses and no server exception; this is a UI-test
+  focus flake, not evidence of a product/API regression. TestFlight remains
+  prohibited. Next action is a fresh same-SHA full Native rerun; if it repeats,
+  make a bounded test-only focus stabilization and rerun the source/native gates.
+- 2026-09-19: Fresh same-SHA full Native run `35444184858` was dispatched against
+  the healthy `86378a0b` candidate and exact Quick Tunnel. It is queued; no
+  source/product change or TestFlight upload has been made while it runs.
+- 2026-09-19: The Native evidence isolated a real product gap rather than a
+  transport error: nearby returned HTTP 200 but omitted the just-finished
+  Garmin global id `31793`. The iOS fix now persists the last explicitly
+  activated Garmin course per account, renders it as a separate `最近使用`
+  recovery row marked `不代表当前位置`, and keeps it out of nearby/GPS
+  provenance. Store, duplicate-suppression, and account-isolation regressions
+  are added. Source/Native gates must run at the new commit before any
+  TestFlight action.

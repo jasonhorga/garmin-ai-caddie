@@ -13,6 +13,9 @@ public struct StartRoundView: View {
     public let defaultRoundId: String
     public let courseOptions: [MobileCourseOption]
     public let downloadedCourseOptions: [MobileCourseOption]
+    /// The last explicitly started Garmin course. It is shown separately when nearby omits it;
+    /// this source never contributes to the nearby/GPS result set.
+    public let recentCourseOption: MobileCourseOption?
     public let syncStatus: String
     public let isPreparing: Bool
     public let apiBaseURL: URL?
@@ -72,6 +75,7 @@ public struct StartRoundView: View {
         defaultTeeBox: String = "unknown",
         courseOptions: [MobileCourseOption] = [],
         downloadedCourseOptions: [MobileCourseOption] = [],
+        recentCourseOption: MobileCourseOption? = nil,
         syncStatus: String = "Offline ready",
         isPreparing: Bool = false,
         apiBaseURL: URL? = nil,
@@ -90,6 +94,7 @@ public struct StartRoundView: View {
         self.defaultRoundId = defaultRoundId
         self.courseOptions = courseOptions
         self.downloadedCourseOptions = downloadedCourseOptions
+        self.recentCourseOption = recentCourseOption
         self.syncStatus = syncStatus
         self.isPreparing = isPreparing
         self.apiBaseURL = apiBaseURL
@@ -177,6 +182,7 @@ public struct StartRoundView: View {
                 VStack(spacing: 0) {
                     VStack(spacing: 12) {
                         courseCard
+                        recentCourseCard
                         offlineCourseCard
                         secondNineCard
                     }
@@ -238,6 +244,16 @@ public struct StartRoundView: View {
         guard let globalId = courseGlobalId else {
             isLoadingTees = false
             teeLoadFailed = false
+            return
+        }
+        // A recent row was produced from a successfully activated package and already carries
+        // the accepted Tee authority. Do not make the recovery action wait behind a second Tee
+        // request when the nearby catalogue is the thing that was incomplete.
+        if recentResolvedCourseOption?.globalId == globalId,
+           recentResolvedCourseOption?.tees?.isEmpty == false {
+            isLoadingTees = false
+            teeLoadFailed = false
+            fetchedTees = []
             return
         }
         let requiresRemoteTees = selectedCourseRequiresRemoteTees
@@ -673,6 +689,34 @@ public struct StartRoundView: View {
         return "这些球场来自本机；选择后可直接开始离线球局。"
     }
 
+    /// Keep a recently started course visible when Garmin's nearby response is valid but transiently
+    /// incomplete. The row is intentionally separate from the nearby picker and never claims that
+    /// the course is within the current GPS radius.
+    @ViewBuilder private var recentCourseCard: some View {
+        if let recent = recentCourseFallbackOption {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("最近使用")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("start-round-recent-course")
+                    Spacer()
+                    Text("不代表当前位置")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Text("上次明确开始过的球场，可直接重新开始。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                // Keep the same selectable-row identity as a nearby result so existing start
+                // journeys can recover the course without a second selection protocol. The card
+                // header carries the provenance marker; the row itself remains the same action.
+                segmentRow(recent)
+            }
+            .liveCard()
+        }
+    }
+
     /// 单个可打段(9 洞环 / 整场)的可选行;选中绿描边高亮。
     @ViewBuilder private func segmentRow(
         _ segment: MobileCourseOption,
@@ -732,6 +776,7 @@ public struct StartRoundView: View {
         return availableCourseOptions.first { $0.globalId == globalId }
             ?? offlineResolvedCourseOptions.first { $0.globalId == globalId }
             ?? explicitCourseOptions.first { $0.globalId == globalId }
+            ?? recentResolvedCourseOption.flatMap { $0.globalId == globalId ? $0 : nil }
     }
 
     private var segmentSelectionHelp: String {
@@ -998,6 +1043,50 @@ public struct StartRoundView: View {
         )
     }
 
+    /// Reconcile the persisted recovery row with any current Garmin facts for the same global id,
+    /// while keeping the persisted row as the explicit source that made it visible.
+    private var recentResolvedCourseOption: MobileCourseOption? {
+        guard let recentCourseOption,
+              recentCourseOption.globalId > 0 else { return nil }
+        return Self.reconciledCourseOption(
+            provider: recentCourseOption,
+            catalogue: courseOptions.first { $0.globalId == recentCourseOption.globalId },
+            downloaded: downloadedCourseOptions.first { $0.globalId == recentCourseOption.globalId }
+        )
+    }
+
+    /// A recent row is only needed when the current provider response does not contain that global
+    /// id. Search results and nearby rows win automatically, so this never duplicates a live row.
+    private var recentCourseFallbackOption: MobileCourseOption? {
+        Self.recentCourseFallback(
+            recent: recentCourseOption,
+            provider: nearbyCourseOptions + remoteCourseOptions,
+            catalogue: courseOptions,
+            downloaded: downloadedCourseOptions
+        )
+    }
+
+    /// Pure source-selection rule for the recent-course recovery row. Provider rows always win;
+    /// catalogue/downloaded facts can enrich the row but can never turn it into nearby evidence.
+    static func recentCourseFallback(
+        recent: MobileCourseOption?,
+        provider: [MobileCourseOption],
+        catalogue: [MobileCourseOption] = [],
+        downloaded: [MobileCourseOption] = []
+    ) -> MobileCourseOption? {
+        guard let recent,
+              recent.globalId > 0,
+              !recent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        guard !Set(provider.map(\.globalId)).contains(recent.globalId) else { return nil }
+        return reconciledCourseOption(
+            provider: recent,
+            catalogue: catalogue.first { $0.globalId == recent.globalId },
+            downloaded: downloaded.first { $0.globalId == recent.globalId }
+        )
+    }
+
     private var offlineResolvedCourseOptions: [MobileCourseOption] {
         Self.reconciledCourseOptions(
             primary: offlineCourseOptions,
@@ -1016,7 +1105,10 @@ public struct StartRoundView: View {
 
     private var courseLookupOptions: [MobileCourseOption] {
         Self.reconciledCourseOptions(
-            primary: availableCourseOptions + offlineResolvedCourseOptions + explicitCourseOptions,
+            primary: availableCourseOptions
+                + offlineResolvedCourseOptions
+                + explicitCourseOptions
+                + (recentResolvedCourseOption.map { [$0] } ?? []),
             catalogue: courseOptions,
             downloaded: downloadedCourseOptions
         )
@@ -1043,6 +1135,14 @@ public struct StartRoundView: View {
         }
         if offlineCourseOptions.contains(where: { $0.globalId == selectedID }) {
             return offlineResolvedCourseOptions
+        }
+        if recentCourseOption?.globalId == selectedID,
+           let recent = recentResolvedCourseOption {
+            return Self.reconciledCourseOptions(
+                primary: [recent] + courseOptions + downloadedCourseOptions,
+                catalogue: courseOptions,
+                downloaded: downloadedCourseOptions
+            )
         }
         return explicitCourseOptions.filter { Self.samePhysicalVenue($0, selectedSegment) }
     }
@@ -1224,6 +1324,7 @@ public struct StartRoundView: View {
         guard let courseGlobalId else { return false }
         return !courseOptions.contains { $0.globalId == courseGlobalId }
             && !downloadedCourseOptions.contains { $0.globalId == courseGlobalId }
+            && recentResolvedCourseOption?.globalId != courseGlobalId
     }
 
     private func selectSearchResult(

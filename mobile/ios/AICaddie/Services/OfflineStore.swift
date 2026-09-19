@@ -593,6 +593,7 @@ public final class OfflineStore {
     private let courseTopoDirectoryURL: URL
     private var currentPackageURL: URL
     private var homePackageURL: URL
+    private var recentCourseSelectionURL: URL
     private var liveProgressURL: URL
     private var prepCourseDownloadsURL: URL
     private var historyRoundsURL: URL
@@ -685,6 +686,7 @@ public final class OfflineStore {
         )
         self.currentPackageURL = resolvedDirectory.appendingPathComponent("current_package.json")
         self.homePackageURL = resolvedDirectory.appendingPathComponent("home_package.json")
+        self.recentCourseSelectionURL = resolvedDirectory.appendingPathComponent("recent_course_selection.json")
         self.liveProgressURL = resolvedDirectory.appendingPathComponent("live_progress.json")
         self.prepCourseDownloadsURL = resolvedDirectory.appendingPathComponent("prep_course_downloads.json")
         self.historyRoundsURL = resolvedDirectory.appendingPathComponent("history_rounds.json")
@@ -747,6 +749,7 @@ public final class OfflineStore {
         )
         currentPackageURL = directory.appendingPathComponent("current_package.json")
         homePackageURL = directory.appendingPathComponent("home_package.json")
+        recentCourseSelectionURL = directory.appendingPathComponent("recent_course_selection.json")
         liveProgressURL = directory.appendingPathComponent("live_progress.json")
         prepCourseDownloadsURL = directory.appendingPathComponent("prep_course_downloads.json")
         historyRoundsURL = directory.appendingPathComponent("history_rounds.json")
@@ -768,6 +771,7 @@ public final class OfflineStore {
             "course_templates",
             "current_package.json",
             "home_package.json",
+            "recent_course_selection.json",
             "live_progress.json",
             "prep_course_downloads.json",
             "history_rounds.json",
@@ -905,6 +909,34 @@ public final class OfflineStore {
             return nil
         }
         return try decoder.decode(LiveRoundPackage.self, from: Data(contentsOf: homePackageURL))
+    }
+
+    /// The last course the player explicitly started. This is deliberately separate from the
+    /// home package and nearby catalogue: it is a recovery affordance when a successful nearby
+    /// response temporarily omits the last playable Garmin global id, not evidence that the venue
+    /// is currently within GPS range.
+    public func saveRecentCourseSelection(_ course: MobileCourseOption) throws {
+        guard course.globalId > 0,
+              !course.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try encoder.encode(course).write(to: recentCourseSelectionURL, options: [.atomic])
+    }
+
+    public func loadRecentCourseSelection() throws -> MobileCourseOption? {
+        guard FileManager.default.fileExists(atPath: recentCourseSelectionURL.path) else {
+            return nil
+        }
+        let course = try decoder.decode(
+            MobileCourseOption.self,
+            from: Data(contentsOf: recentCourseSelectionURL)
+        )
+        guard course.globalId > 0,
+              !course.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return course
     }
 
     /// History is user-owned data, so keep it inside the account directory and replace it in one

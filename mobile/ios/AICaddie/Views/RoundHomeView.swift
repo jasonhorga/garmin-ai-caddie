@@ -36,6 +36,8 @@ public struct RoundHomeView: View {
     public let pendingWatchRoundStart: WatchRoundStartPayload?
     public let courseOptions: [MobileCourseOption]
     public let downloadedCourseOptions: [MobileCourseOption]
+    /// Explicitly started course fallback; this is not nearby/GPS evidence.
+    public let recentCourseOption: MobileCourseOption?
     public let downloadedCourseKeys: Set<String>
     public let prepCourseDownloads: [PrepCourseDownloadRecord]
     public let prepCourseDownloadPresentation: PrepCourseDownloadPresentationState?
@@ -102,6 +104,7 @@ public struct RoundHomeView: View {
         pendingWatchRoundStart: WatchRoundStartPayload? = nil,
         courseOptions: [MobileCourseOption] = [],
         downloadedCourseOptions: [MobileCourseOption] = [],
+        recentCourseOption: MobileCourseOption? = nil,
         downloadedCourseKeys: Set<String> = [],
         prepCourseDownloads: [PrepCourseDownloadRecord] = [],
         prepCourseDownloadPresentation: PrepCourseDownloadPresentationState? = nil,
@@ -157,6 +160,7 @@ public struct RoundHomeView: View {
         self.pendingWatchRoundStart = pendingWatchRoundStart
         self.courseOptions = courseOptions
         self.downloadedCourseOptions = downloadedCourseOptions
+        self.recentCourseOption = recentCourseOption
         self.downloadedCourseKeys = downloadedCourseKeys
         self.prepCourseDownloads = prepCourseDownloads
         self.prepCourseDownloadPresentation = prepCourseDownloadPresentation
@@ -373,6 +377,7 @@ public struct RoundHomeView: View {
         StartRoundView(
             courseOptions: courseOptions,
             downloadedCourseOptions: downloadedCourseOptions,
+            recentCourseOption: recentCourseOption,
             syncStatus: syncStatus,
             isPreparing: isPreparingRound,
             apiBaseURL: apiBaseURL,

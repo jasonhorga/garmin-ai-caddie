@@ -126,6 +126,48 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(fallback.map(\.globalId), [31793])
     }
 
+    func testSuccessfulNearbyResponseCanExposeTheExplicitRecentCourseWhenItOmitsIt() {
+        let recent = option(
+            globalId: 31793,
+            name: "北京丽宫体育公园高尔夫俱乐部",
+            latitude: 40.0456,
+            longitude: 116.5462,
+            roundCount: 1
+        )
+        let nearby = option(
+            globalId: 31870,
+            name: "附近另一个球场",
+            latitude: 40.06,
+            longitude: 116.55,
+            roundCount: 0
+        )
+
+        let fallback = StartRoundView.recentCourseFallback(
+            recent: recent,
+            provider: [nearby]
+        )
+
+        XCTAssertEqual(fallback?.globalId, 31793)
+        XCTAssertEqual(fallback?.name, "北京丽宫体育公园高尔夫俱乐部")
+    }
+
+    func testRecentCourseIsNotDuplicatedWhenNearbyContainsTheSameGarminGlobalId() {
+        let recent = option(
+            globalId: 31793,
+            name: "北京丽宫体育公园高尔夫俱乐部",
+            latitude: 40.0456,
+            longitude: 116.5462,
+            roundCount: 1
+        )
+
+        XCTAssertNil(
+            StartRoundView.recentCourseFallback(
+                recent: recent,
+                provider: [recent]
+            )
+        )
+    }
+
     func testNearbyDiscoveryDoesNotRestartForNormalWalkingGPSUpdates() {
         let initial = StartRoundView.nearbyDiscoveryBucket(
             latitude: 40.0454995,
