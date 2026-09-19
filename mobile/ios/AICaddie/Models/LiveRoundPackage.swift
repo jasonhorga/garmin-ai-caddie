@@ -151,8 +151,6 @@ public struct LiveRoundPackage: Codable, Equatable {
             geometryCoverage: geometryCoverage,
             readinessChecks: readinessChecks,
             caddieContextSeeds: caddieContextSeeds,
-            readinessState: readinessState,
-            enrichmentState: enrichmentState,
             weatherSnapshot: weatherSnapshot,
             clubProfiles: clubProfiles,
             caddieDecisionEndpoint: caddieDecisionEndpoint,
@@ -160,7 +158,9 @@ public struct LiveRoundPackage: Codable, Equatable {
             eventCursor: eventCursor,
             recentHistory: recentHistory,
             cachedCaddieRules: cachedCaddieRules,
-            generatedAt: generatedAt
+            generatedAt: generatedAt,
+            readinessState: readinessState,
+            enrichmentState: enrichmentState
         )
     }
 
@@ -193,8 +193,6 @@ public struct LiveRoundPackage: Codable, Equatable {
             geometryCoverage: geometryCoverage,
             readinessChecks: readinessChecks,
             caddieContextSeeds: caddieContextSeeds,
-            readinessState: readinessState,
-            enrichmentState: enrichmentState,
             weatherSnapshot: weatherSnapshot,
             clubProfiles: clubProfiles,
             caddieDecisionEndpoint: caddieDecisionEndpoint,
@@ -202,7 +200,9 @@ public struct LiveRoundPackage: Codable, Equatable {
             eventCursor: eventCursor,
             recentHistory: recentHistory,
             cachedCaddieRules: cachedCaddieRules,
-            generatedAt: generatedAt
+            generatedAt: generatedAt,
+            readinessState: readinessState,
+            enrichmentState: enrichmentState
         )
     }
 
@@ -250,8 +250,6 @@ public struct LiveRoundPackage: Codable, Equatable {
                 )
             },
             caddieContextSeeds: rebasedSeeds,
-            readinessState: readinessState,
-            enrichmentState: enrichmentState,
             // A course template can live for weeks. Its map, clubs and historical evidence remain
             // reusable, but its weather does not. Online revalidation supplies a fresh snapshot;
             // an offline start stays honest and makes no wind adjustment from prep-day conditions.
@@ -268,7 +266,9 @@ public struct LiveRoundPackage: Codable, Equatable {
             ),
             recentHistory: recentHistory,
             cachedCaddieRules: cachedCaddieRules,
-            generatedAt: ISO8601DateFormatter().string(from: generatedAt)
+            generatedAt: ISO8601DateFormatter().string(from: generatedAt),
+            readinessState: readinessState,
+            enrichmentState: enrichmentState
         )
     }
 
