@@ -69,6 +69,7 @@ const STATE_ZH: Record<string, string> = {
   error: '错误',
   no_data: '无数据',
   reauth_required: '需重新登录',
+  cancelled: '已取消',
   not_available: '不可用',
   degraded: '降级',
   missing: '缺失',

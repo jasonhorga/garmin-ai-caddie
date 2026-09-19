@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import copy
 from datetime import UTC, datetime
 import fcntl
 from concurrent.futures import Future
@@ -21,13 +22,14 @@ from ai_caddie.caddie.mobile_live import (
     build_round_state,
     _event_cursor,
     first_hole_lightweight_course_prep,
+    _manual_notes_for_seed,
     replay_event_log,
     round_events,
 )
 from ai_caddie.history.history import OWNER_ID
 from ai_caddie.rounds import round_ingest
 from ai_caddie.caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
-from ai_caddie.llm.weather_context import WeatherTransport
+from ai_caddie.llm.weather_context import WeatherTransport, weather_snapshot_for_time
 
 from .data_source import load_history_data_for_mode
 from .history_stats import warm_stats_cache_in_background
@@ -135,6 +137,131 @@ def _bind_package_event_cursor(
             )
         }
     )
+
+
+def _rebind_course_package_round_identity(
+    package: LiveRoundPackageResponse,
+    round_id: str | None,
+    *,
+    captured_at: str | None = None,
+    player_id: str = OWNER_ID,
+) -> LiveRoundPackageResponse:
+    """Attach a caller's round identity after sharing the course-fact projection.
+
+    Course packages contain reusable map/club/history facts, while ``roundId`` and seed
+    ``sourceRef`` values are runtime identities. Keeping those layers separate lets two devices or
+    two rounds share one CPU-heavy build without leaking event cursors or writing a seed under the
+    wrong round. The event cursor itself is rebound separately by ``_bind_package_event_cursor``.
+    """
+    requested = str(round_id or "").strip()
+    if not requested or requested == str(package.roundId):
+        return package
+    payload = copy.deepcopy(package.model_dump(by_alias=True))
+    previous = str(payload.get("roundId") or "")
+    payload["roundId"] = requested
+    source_coverage = payload.get("sourceCoverage")
+    if isinstance(source_coverage, dict):
+        source_coverage["requestedRoundId"] = requested
+
+    def replace_runtime_ref(value: Any) -> Any:
+        text = str(value or "")
+        if previous and text == previous:
+            return requested
+        if previous and text.startswith(f"{previous}:"):
+            return f"{requested}{text[len(previous):]}"
+        return value
+
+    def rebind_seed(value: Any, key: str | None = None) -> Any:
+        if isinstance(value, dict):
+            return {
+                child_key: rebind_seed(child_value, child_key)
+                for child_key, child_value in value.items()
+            }
+        if isinstance(value, list):
+            return [rebind_seed(item, key) for item in value]
+        if key in {"roundId", "sourceRef"} and isinstance(value, str):
+            return replace_runtime_ref(value)
+        return value
+
+    seeds = payload.get("caddieContextSeeds")
+    if isinstance(seeds, list):
+        rebound_seeds = [rebind_seed(seed) for seed in seeds]
+        # The shared course projection intentionally has no caller round identity. Rehydrate only
+        # the small player/round evidence layer after single-flight: this keeps map/stats/geometry
+        # CPU shared while preserving owner/member isolation for annotations and cached weather.
+        weather_by_hole: dict[int, dict[str, Any]] = {}
+        for seed in rebound_seeds:
+            if not isinstance(seed, dict):
+                continue
+            try:
+                hole = int(seed.get("hole") or 0)
+            except (TypeError, ValueError):
+                hole = 0
+            if hole <= 0:
+                continue
+            context = dict(seed.get("context") or {})
+            notes = _manual_notes_for_seed(
+                annotations_root=ANNOTATION_ROOT,
+                round_id=requested,
+                hole_ref=f"{requested}:{hole}",
+                player_id=player_id,
+            )
+            if notes:
+                context["manualNotes"] = notes
+            else:
+                context.pop("manualNotes", None)
+            snapshot = weather_snapshot_for_time(
+                requested,
+                hole,
+                captured_at=captured_at,
+                root=MOBILE_ROOT,
+                exact_hole=True,
+                player_id=player_id,
+            )
+            if snapshot is not None:
+                weather_by_hole[hole] = snapshot
+                seed["weatherSnapshot"] = snapshot
+                context["weatherSnapshot"] = snapshot
+            seed["context"] = context
+        payload["caddieContextSeeds"] = rebound_seeds
+
+        top_snapshot = weather_snapshot_for_time(
+            requested,
+            captured_at=captured_at,
+            root=MOBILE_ROOT,
+            exact_hole=False,
+            player_id=player_id,
+        )
+        if top_snapshot is not None:
+            holes = [
+                int(row.get("number") or 0)
+                for row in payload.get("holes") or []
+                if isinstance(row, dict) and int(row.get("number") or 0) > 0
+            ]
+            coverage_rows = []
+            for hole in holes:
+                snapshot = weather_by_hole.get(hole)
+                row: dict[str, Any] = {
+                    "hole": hole,
+                    "sourceRef": f"{requested}:{hole}",
+                    "state": "ready" if snapshot else "missing",
+                }
+                if snapshot:
+                    row["capturedAt"] = snapshot.get("capturedAt")
+                    row["source"] = snapshot.get("source")
+                coverage_rows.append(row)
+            ready = sum(1 for row in coverage_rows if row["state"] == "ready")
+            total = len(coverage_rows)
+            payload["weatherSnapshot"] = {
+                **top_snapshot,
+                "coverage": {
+                    "ready": ready,
+                    "total": total,
+                    "pct": round((ready / total) * 100.0, 1) if total else 0.0,
+                },
+                "holeCoverage": coverage_rows,
+            }
+    return LiveRoundPackageResponse(**payload)
 
 
 @contextmanager
@@ -249,6 +376,10 @@ def build_mobile_round_package_response(
                 client_id=None,
                 ensure_geometry=ensure_geometry,
                 include_event_cursor=False,
+                # The first-screen contract needs recent player carry evidence, not the complete
+                # history/geometry quality report. The all-history projection is warmed by the
+                # background stats path and remains available to history/review routes.
+                stats_window="last20",
             )
         )
 
@@ -282,7 +413,6 @@ def build_mobile_course_package_response(
         "course",
         player_id,
         int(global_id),
-        str(round_id or ""),
         str(tee_box or ""),
         str(nine),
         int(back_global_id) if back_global_id is not None else None,
@@ -301,7 +431,9 @@ def build_mobile_course_package_response(
         mark_request_stage("release_lookup")
         package = build_live_round_package_for_course(
             global_id,
-            round_id=round_id,
+            # The shared projection deliberately has no caller-specific round identity. It is
+            # rebound after the single-flight result is obtained below.
+            round_id=None,
             tee_box=tee_box,
             data=data,
             data_mode=mode,
@@ -320,6 +452,12 @@ def build_mobile_course_package_response(
             include_event_cursor=False,
             ensure_lightweight=True,
             allow_lightweight_fetch=False,
+            # Bound startup CPU to the recent history window. This keeps a cold round from waiting
+            # on the full historical per-hole geometry audit; the package records the scope under
+            # sourceCoverage.playerStatsWindow.
+            stats_window="last20",
+            priority_holes=[10] if str(nine).lower() == "back" else [1],
+            defer_non_priority_enrichment=True,
         )
         mark_request_stage("facts_package")
         # Keep one immediately drawable factual seed for the first hole while the durable install
@@ -332,6 +470,12 @@ def build_mobile_course_package_response(
         return LiveRoundPackageResponse(**package)
 
     package = _package_singleflight(key, build)
+    package = _rebind_course_package_round_identity(
+        package,
+        round_id,
+        captured_at=captured_at,
+        player_id=player_id,
+    )
     mark_request_stage("serialization")
     return _bind_package_event_cursor(
         package,

@@ -186,6 +186,46 @@ class ServerV2SyncRunTests(unittest.TestCase):
         self.assertEqual(first.json()["jobId"], second.json()["jobId"])
         connector.sync.assert_called_once()
 
+    def test_cancel_endpoint_marks_job_terminal_and_blocks_late_result(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+        connector = Mock()
+
+        def blocked_sync(**_kwargs):
+            started.set()
+            self.assertTrue(release.wait(2))
+            return ConnectorRunResult(connector="garmin_cn_web_session", state="ready", detail="late")
+
+        connector.sync.side_effect = blocked_sync
+        with patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector):
+            response = self._post()
+            self.assertTrue(started.wait(1))
+            job_id = response.json()["jobId"]
+            cancelled = TestClient(app).post(f"/api/v2/sync/garmin/jobs/{job_id}/cancel")
+            self.assertEqual(cancelled.status_code, 200)
+            self.assertEqual(cancelled.json()["state"], "cancelled")
+            self.assertEqual(cancelled.json()["terminalReason"], "user_cancelled")
+            release.set()
+            time.sleep(0.1)
+            self.assertEqual(self.store.get(job_id)["state"], "cancelled")
+
+    def test_retry_endpoint_starts_a_new_generation(self) -> None:
+        connector = Mock()
+        connector.sync.return_value = ConnectorRunResult(
+            connector="garmin_cn_web_session",
+            state="error",
+            detail="failed",
+            error_code="sync_failed",
+        )
+        with patch("server_v2.main.GarminCnWebSessionConnector", return_value=connector):
+            response, terminal = self._post_and_wait()
+            job_id = response.json()["jobId"]
+            retried = TestClient(app).post(f"/api/v2/sync/garmin/jobs/{job_id}/retry")
+            self.assertEqual(retried.status_code, 202)
+            self.assertIn(retried.json()["state"], {"queued", "running"})
+            self.assertGreater(retried.json()["generation"], terminal["generation"])
+            self.assertEqual(self._wait_for_terminal(job_id)["state"], "error")
+
     def test_sync_job_redacts_secret_terms_from_terminal_payload(self) -> None:
         connector = Mock()
         connector.sync.return_value = ConnectorRunResult(

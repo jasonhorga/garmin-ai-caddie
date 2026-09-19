@@ -968,7 +968,7 @@ def _package_holes(
             except (OSError, TypeError, ValueError, OverflowError):
                 pass
         # A prior round's `ready` describes what existed when that round was ingested; it is not
-        # authority for today's Garmin release.  Always resolve the physical hole against the
+        # authority for today's Garmin release.  Resolve the physical hole against the current
         # current cached release before advertising precise facts to a live client.
         geometry_evidence = _geometry_evidence_for_package_hole(round_row, number)
         coverage = str(geometry_evidence.get("coverage") or "missing")
@@ -1446,6 +1446,7 @@ def _shot_option_clubs(
         _club_hazard_cost,
         _club_stability_cost,
         _club_water_safety,
+        _water_zones,
         _whole_hole_sequence_key,
     )
     decision_memo: dict[Any, Any] = {}
@@ -1468,12 +1469,14 @@ def _shot_option_clubs(
         # from winning without an arbitrary "four longest" cutoff.
         # Water is a hard feasibility constraint. A club is eligible only when its measured
         # p10-p90 window is wholly before the front edge or wholly beyond the clear edge. If the
-        # bag has no such club, retain all rows as a low-confidence fallback instead of returning
-        # an empty caddie result.
+        # bag has no such club, return no route: a visibly infeasible recommendation is safer than
+        # silently falling back to a global/nearest club and drawing it into the lake.
         water_safe_rows = [
             row for row in rows
             if _club_water_safety(row, avoid_zones) != "risk"
         ]
+        if avoid_zones and _water_zones(avoid_zones) and not water_safe_rows:
+            return None, None, None
         ranked_rows = water_safe_rows or rows
         ranked = sorted(
             ranked_rows,
@@ -1972,7 +1975,7 @@ def hydrate_live_caddie_geometry_context(context: dict[str, Any]) -> dict[str, A
         club_profiles = []
 
     source_ref = str(context.get("sourceRef") or f"live-course-{global_id}:{local_hole}")
-    route_evidence, _route_evidence_rows, _route_missing = _route_evidence_seed(
+    route_evidence, _route_evidence_rows, route_missing = _route_evidence_seed(
         global_id,
         local_hole,
         {"yards": context.get("yards")},
@@ -1996,8 +1999,23 @@ def hydrate_live_caddie_geometry_context(context: dict[str, Any]) -> dict[str, A
             target_m=target_distance_m,
             avoid_zones=route_evidence.get("avoidZones") or [],
         )
-        if candidate_routes:
-            refreshed["candidateRoutes"] = candidate_routes
+        # Replace the old seed even when no route is feasible. Keeping a stale candidate here
+        # would let the phone display a pre-geometry shot that the precise water constraints have
+        # invalidated. The decision endpoint can still derive a safe layup from route evidence;
+        # until then the empty list is an explicit, honest no-route state.
+        refreshed["candidateRoutes"] = candidate_routes
+        missing_data = [
+            row for row in (refreshed.get("missingData") or []) if isinstance(row, dict)
+        ]
+        missing_data.extend(row for row in route_missing if isinstance(row, dict))
+        if not candidate_routes and not any(row.get("label") == "caddie_feasibility" for row in missing_data):
+            missing_data.append(
+                {
+                    "label": "caddie_feasibility",
+                    "reason": "no measured club can safely satisfy the current route hazards",
+                }
+            )
+        refreshed["missingData"] = missing_data
     return refreshed
 
 
@@ -2132,6 +2150,120 @@ def _hazards_from_geometry(geometry: dict[str, Any]) -> list[dict[str, Any]]:
     return hazards
 
 
+def _deferred_caddie_context_seed(
+    *,
+    round_id: str,
+    round_row: dict[str, Any],
+    stats: dict[str, Any],
+    hole: dict[str, Any],
+    course_key: str,
+    course_name: str,
+    decision_clubs: dict[str, dict[str, Any]],
+    weather_snapshot: dict[str, Any],
+    player_profile: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build the cheap, on-demand half of a non-priority hole seed.
+
+    Startup packages still carry enough factual input to render a club strip and issue a live
+    decision request. Route evidence, hazard geometry and diagnostic joins are deliberately left to
+    ``hydrate_live_caddie_geometry_context`` when that hole becomes active. Keeping this explicit
+    in the seed prevents a client from mistaking a distance-only fallback for a fully prepared
+    offline recommendation.
+    """
+    number = int(hole.get("number") or 0)
+    geometry_global_id, local_hole = _round_hole_geometry_ref(round_row, number)
+    geometry_global_id = geometry_global_id or 0
+    source_ref = f"{round_id}:{number}"
+    hole_stats = _hole_stats_row(stats, course_key=course_key, hole=number)
+    course_form = _course_form_context(stats, course_key=course_key)
+    par_value = int(hole.get("par") or 4)
+    hole_yards = hole.get("yards")
+    target_distance_m = (
+        round(float(hole_yards) / 1.09361, 1) if hole_yards else 0.0
+    )
+    shot_option_clubs = _shot_option_clubs(
+        list(decision_clubs.values()),
+        par=par_value,
+        target_m=target_distance_m,
+        avoid_zones=[],
+    )
+    offline_options = _offline_caddie_options(
+        list(decision_clubs.values()),
+        source_ref=source_ref,
+        hazards=[],
+        par=par_value,
+        target_m=target_distance_m,
+        avoid_zones=[],
+        shot_option_clubs=shot_option_clubs,
+    )
+    context: dict[str, Any] = {
+        "roundId": round_id,
+        "source": "live_round_package",
+        "sourceRef": source_ref,
+        "courseName": course_name,
+        "hole": number,
+        "globalId": geometry_global_id or None,
+        "localHole": local_hole,
+        "teeBox": str(round_row.get("teeBox") or round_row.get("tee") or "unknown"),
+        "par": hole.get("par"),
+        "yards": hole.get("yards"),
+        "geometry": {
+            "coverage": str(hole.get("geometryCoverage") or "missing"),
+            "hasHazards": False,
+            "hasMeshes": False,
+            "hazardCount": 0,
+            "hazards": [],
+        },
+        "hazards": [],
+        "weatherSnapshot": weather_snapshot,
+        "clubProfiles": decision_clubs,
+        "playerProfile": player_profile or {},
+        "candidateRoutes": [],
+        "historicalHole": {
+            "courseKey": hole_stats.get("courseKey") or course_key,
+            "hole": number,
+            "sampleCount": int(hole_stats.get("sampleCount") or 0),
+            "averageToPar": hole_stats.get("averageToPar"),
+            "worstToPar": hole_stats.get("worstToPar"),
+            "scoreDistribution": hole_stats.get("scoreDistribution") or [],
+            "holeRefs": hole_stats.get("holeRefs") or hole_stats.get("refs") or [],
+        },
+        "historicalHoleIssues": hole_stats.get("repeatedIssues") or [],
+    }
+    if target_distance_m > 0:
+        context["holeRemaining_m"] = round(target_distance_m, 1)
+    if course_form:
+        context["courseForm"] = course_form
+    return {
+        "hole": number,
+        "sourceRef": source_ref,
+        "shotTypes": list(LIVE_SHOT_TYPES),
+        "requiredLiveInputs": ["currentLocation", "lie"],
+        "enrichmentState": "deferred",
+        "context": context,
+        "selectedOfflineOptionId": "stock" if offline_options else None,
+        "offlineOptions": offline_options,
+        "evidence": [
+            {"label": "live_round_package", "value": "offline_seed_deferred"},
+            {"label": "history_ref", "value": source_ref},
+        ],
+        "missingData": [
+            {
+                "label": "caddie_enrichment",
+                "reason": "route and hazard evidence will be hydrated when this hole opens",
+            },
+            {
+                "label": "current_location",
+                "reason": "live GPS fixes distance and angle at decision time",
+            },
+            {
+                "label": "lie",
+                "reason": "live input or vision context fixes lie for approach and recovery decisions",
+            },
+        ],
+    }
+
+
 def _caddie_context_seeds(
     *,
     round_id: str,
@@ -2145,6 +2277,8 @@ def _caddie_context_seeds(
     player_profile: dict[str, Any] | None = None,
     annotations_root: Path | str | None = None,
     player_id: str = OWNER_ID,
+    priority_holes: list[int] | None = None,
+    defer_non_priority_enrichment: bool = False,
 ) -> list[dict[str, Any]]:
     course_name = str(round_row.get("course") or round_row.get("courseName") or "Unknown course")
     identity = select_garmin_name_identity([round_row])
@@ -2156,10 +2290,34 @@ def _caddie_context_seeds(
         identity if is_trusted_garmin_identity(identity) else None,
     ).name
     decision_clubs = _decision_club_profiles(club_profiles)
+    priority = {
+        int(number)
+        for number in (priority_holes or [])
+        if isinstance(number, int) and int(number) > 0
+    }
+    if defer_non_priority_enrichment and not priority:
+        first_hole = next((int(row.get("number") or 0) for row in holes if row.get("number")), 0)
+        if first_hole:
+            priority.add(first_hole)
     seeds: list[dict[str, Any]] = []
     for hole in holes:
         number = int(hole.get("number") or 0)
         if not number:
+            continue
+        if defer_non_priority_enrichment and number not in priority:
+            seeds.append(
+                _deferred_caddie_context_seed(
+                    round_id=round_id,
+                    round_row=round_row,
+                    stats=stats,
+                    hole=hole,
+                    course_key=course_key,
+                    course_name=course_name,
+                    decision_clubs=decision_clubs,
+                    weather_snapshot=(weather_by_hole or {}).get(number, weather_snapshot),
+                    player_profile=player_profile,
+                )
+            )
             continue
         seed_weather_snapshot = (weather_by_hole or {}).get(number, weather_snapshot)
         geometry_global_id, local_hole = _round_hole_geometry_ref(round_row, number)
@@ -2287,6 +2445,7 @@ def _caddie_context_seeds(
                 "sourceRef": source_ref,
                 "shotTypes": list(LIVE_SHOT_TYPES),
                 "requiredLiveInputs": ["currentLocation", "lie"],
+                "enrichmentState": "ready",
                 "context": context,
                 "selectedOfflineOptionId": "stock" if offline_options else None,
                 "offlineOptions": offline_options,
@@ -2295,6 +2454,63 @@ def _caddie_context_seeds(
             }
         )
     return seeds
+
+
+def _package_enrichment_state(
+    holes: list[dict[str, Any]],
+    seeds: list[dict[str, Any]],
+    *,
+    priority_holes: list[int] | None = None,
+) -> dict[str, Any]:
+    """Describe which optional caddie work is ready without changing the package protocol."""
+    hole_numbers = sorted(
+        {
+            number
+            for row in holes
+            if isinstance(row, dict)
+            if (number := _safe_int(row.get("number"))) is not None and number > 0
+        }
+    )
+    seed_by_hole = {
+        number: seed
+        for seed in seeds
+        if isinstance(seed, dict)
+        if (number := _safe_int(seed.get("hole"))) is not None and number > 0
+    }
+    priorities = sorted(
+        {
+            int(number)
+            for number in (priority_holes or [])
+            if (parsed := _safe_int(number)) is not None and parsed in hole_numbers
+        }
+    )
+    if not priorities and hole_numbers:
+        priorities = [hole_numbers[0]]
+    pending_holes = [
+        number
+        for number in hole_numbers
+        if str((seed_by_hole.get(number) or {}).get("enrichmentState") or "ready") == "deferred"
+    ]
+    ready_holes = [number for number in hole_numbers if number not in pending_holes]
+    pending = [
+        {
+            "hole": number,
+            "sourceRef": str((seed_by_hole.get(number) or {}).get("sourceRef") or ""),
+            "kind": "caddie_context",
+            "state": "deferred",
+        }
+        for number in pending_holes
+    ]
+    return {
+        "schema": "ai-caddie-enrichment-v1",
+        "state": "deferred" if pending_holes else "ready",
+        "strategy": "priority_holes_then_on_demand",
+        "priorityHoles": priorities,
+        "readyHoles": ready_holes,
+        "pendingHoles": pending_holes,
+        "pendingEnrichment": pending,
+        "onDemandEndpoint": "/api/v2/caddie/decision",
+    }
 
 
 def _rewrite_seed_course_name(seeds: list[dict[str, Any]], course_name: str) -> list[dict[str, Any]]:
@@ -2406,6 +2622,7 @@ def _package_readiness_checks(
         1
         for seed in caddie_context_seeds
         if isinstance(seed, dict)
+        and str(seed.get("enrichmentState") or "ready") != "deferred"
         and seed.get("offlineOptions")
         and isinstance(seed.get("context"), dict)
         and (seed.get("context") or {}).get("clubProfiles")
@@ -2543,6 +2760,9 @@ def build_live_round_package(
     hole_numbers_override: list[int] | None = None,
     allow_weather_fetch: bool = True,
     stats_data: HistoryData | None = None,
+    stats_window: str = "all",
+    priority_holes: list[int] | None = None,
+    defer_non_priority_enrichment: bool = False,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     annotation_lookup_root = annotations_root or Path("/nonexistent-ai-caddie-annotations")
@@ -2563,6 +2783,7 @@ def build_live_round_package(
         weather_root=root,
         reports_root=root,
         decision_audit_root=root,
+        window=stats_window,
     )
     requested_id = str(round_id)
     lookup_id = str(template_round_id or requested_id)
@@ -2673,6 +2894,10 @@ def build_live_round_package(
         "availableRoundCount": len(source.rounds),
         "holeCount": len(round_row.get("holes") or []),
         "clubProfileCount": len(club_profiles),
+        # Startup packages intentionally use a bounded player-history window. The complete
+        # history projection remains available from the history/statistics routes and is warmed
+        # independently, so a cold full-history geometry audit can never block the first hole.
+        "playerStatsWindow": str(stats_window or "all"),
     }
     if preparation_mode != "round":
         source_coverage.update(
@@ -2697,6 +2922,13 @@ def build_live_round_package(
         player_profile=player_profile,
         annotations_root=annotations_root,
         player_id=player_id,
+        priority_holes=priority_holes,
+        defer_non_priority_enrichment=defer_non_priority_enrichment,
+    )
+    enrichment_state = _package_enrichment_state(
+        holes,
+        caddie_context_seeds,
+        priority_holes=priority_holes,
     )
     readiness_checks = _package_readiness_checks(
         source_coverage=source_coverage,
@@ -2708,7 +2940,22 @@ def build_live_round_package(
         holes=holes,
     )
     caddie_seed_check = next((row for row in readiness_checks if row["label"] == "caddie_seeds"), None)
-    if caddie_seed_check and caddie_seed_check["state"] != "ready":
+    priority_seed_holes = set(enrichment_state.get("priorityHoles") or [])
+    priority_seed_ready = all(
+        any(
+            int(seed.get("hole") or 0) == hole_number
+            and str(seed.get("enrichmentState") or "ready") != "deferred"
+            and bool(seed.get("offlineOptions"))
+            for seed in caddie_context_seeds
+            if isinstance(seed, dict)
+        )
+        for hole_number in priority_seed_holes
+    )
+    if (
+        caddie_seed_check
+        and caddie_seed_check["state"] != "ready"
+        and not (defer_non_priority_enrichment and priority_seed_ready)
+    ):
         package_missing_data = _dedupe_missing(
             [
                 *package_missing_data,
@@ -2718,7 +2965,14 @@ def build_live_round_package(
                 },
             ]
         )
-    package_state = "ready" if not package_missing_data and all(row["state"] == "ready" for row in readiness_checks) else "degraded"
+    blocking_checks = [row for row in readiness_checks if row["label"] != "caddie_seeds"]
+    package_state = (
+        "ready"
+        if not package_missing_data
+        and all(row["state"] == "ready" for row in blocking_checks)
+        and priority_seed_ready
+        else "degraded"
+    )
     # Garmin's real scorecard rows do not always carry the convenience ``globalId`` field.  In
     # particular, combined/nine-hole rounds can expose only the physical loop ids.  Every package
     # hole already resolves that authority through ``_round_hole_geometry_ref``; keep the package's
@@ -2806,6 +3060,7 @@ def build_live_round_package(
         "geometryCoverage": geometry_coverage,
         "readinessChecks": readiness_checks,
         "caddieContextSeeds": caddie_context_seeds,
+        "enrichmentState": enrichment_state,
         "weatherSnapshot": weather_snapshot,
         "clubProfiles": club_profiles,
         "caddieDecisionEndpoint": "/api/v2/caddie/decision",
@@ -2840,7 +3095,6 @@ def _geometry_only_course_template(
     course_name: str | None = None,
     ensure_lightweight: bool = False,
     allow_lightweight_fetch: bool | None = None,
-    priority_holes: list[int] | None = None,
     root: Path | str | None = None,
 ) -> dict[str, Any] | None:
     from ai_caddie.caddie.analysis import _selected_tee
@@ -2884,13 +3138,7 @@ def _geometry_only_course_template(
     )
     has_geometry_source = False
     available_hole_numbers = sorted(lightweight_holes) or list(range(1, len(cv_par or []) + 1)) or list(range(1, 19))
-    requested_priority = [
-        int(number)
-        for number in (priority_holes or [])
-        if isinstance(number, int) and int(number) in set(available_hole_numbers)
-    ]
-    hole_numbers = requested_priority or available_hole_numbers
-    for local_hole in hole_numbers:
+    for local_hole in available_hole_numbers:
         try:
             coverage = geometry_coverage_for_hole(
                 int(global_id),
@@ -3129,6 +3377,9 @@ def build_live_round_package_for_course(
     include_event_cursor: bool = True,
     ensure_lightweight: bool = False,
     allow_lightweight_fetch: bool | None = None,
+    stats_window: str = "all",
+    priority_holes: list[int] | None = None,
+    defer_non_priority_enrichment: bool = False,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
@@ -3151,7 +3402,6 @@ def build_live_round_package_for_course(
             course_name=_course_display_name(source, int(global_id)),
             ensure_lightweight=ensure_lightweight,
             allow_lightweight_fetch=allow_lightweight_fetch,
-            priority_holes=None,
             root=root,
         )
         # Resolve the release-bound lightweight route before generating precise
@@ -3189,6 +3439,9 @@ def build_live_round_package_for_course(
         # Build stats from the ORIGINAL history (not the template-augmented package_source) so the
         # stats cache stays warm across every course/round — see note in build_live_round_package.
         stats_data=source,
+        stats_window=stats_window,
+        priority_holes=priority_holes,
+        defer_non_priority_enrichment=defer_non_priority_enrichment,
     )
     if template_round is not None and selected_round_id is None:
         package["sourceCoverage"] = {
@@ -3264,6 +3517,10 @@ def build_live_round_package_for_course(
         include_course_prep=include_course_prep,
         include_event_cursor=include_event_cursor,
         ensure_lightweight=ensure_lightweight,
+        allow_lightweight_fetch=allow_lightweight_fetch,
+        stats_window=stats_window,
+        priority_holes=priority_holes,
+        defer_non_priority_enrichment=defer_non_priority_enrichment,
         player_id=player_id,
     )
     return _merge_nines(front_package, back_package)
@@ -3480,6 +3737,21 @@ def _merge_nines(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:
             for seed in back.get("caddieContextSeeds") or []
         ]
     )
+    front_enrichment = front.get("enrichmentState") or {}
+    back_enrichment = back.get("enrichmentState") or {}
+    merged_priority_holes = [
+        *[int(number) for number in (front_enrichment.get("priorityHoles") or []) if _safe_int(number)],
+        *[
+            int(number) + offset
+            for number in (back_enrichment.get("priorityHoles") or [])
+            if _safe_int(number)
+        ],
+    ]
+    merged["enrichmentState"] = _package_enrichment_state(
+        list(merged.get("holes") or []),
+        list(merged.get("caddieContextSeeds") or []),
+        priority_holes=merged_priority_holes,
+    )
     front_prep = dict(front.get("coursePrep") or {})
     front_prep["holes"] = list(front_prep.get("holes") or []) + _shift((back.get("coursePrep") or {}).get("holes"), "hole")
     merged["coursePrep"] = front_prep
@@ -3538,7 +3810,18 @@ def _merge_nines(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:
         (row for row in readiness_checks if row.get("label") == "caddie_seeds"),
         None,
     )
-    if caddie_check and caddie_check.get("state") != "ready":
+    priority_holes = set((merged.get("enrichmentState") or {}).get("priorityHoles") or [])
+    priority_seed_ready = all(
+        any(
+            int(seed.get("hole") or 0) == hole_number
+            and str(seed.get("enrichmentState") or "ready") != "deferred"
+            and bool(seed.get("offlineOptions"))
+            for seed in merged.get("caddieContextSeeds") or []
+            if isinstance(seed, dict)
+        )
+        for hole_number in priority_holes
+    )
+    if caddie_check and caddie_check.get("state") != "ready" and not priority_seed_ready:
         merged["missingData"] = _dedupe_missing(
             [
                 *merged["missingData"],
@@ -3546,10 +3829,12 @@ def _merge_nines(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:
             ]
         )
     status = dict(merged.get("offlinePackageStatus") or {})
+    blocking_checks = [row for row in readiness_checks if row.get("label") != "caddie_seeds"]
     status["state"] = (
         "ready"
         if not merged["missingData"]
-        and all(row.get("state") == "ready" for row in readiness_checks)
+        and all(row.get("state") == "ready" for row in blocking_checks)
+        and priority_seed_ready
         else "degraded"
     )
     merged["offlinePackageStatus"] = status
@@ -3666,6 +3951,16 @@ def _filter_package_to_nine(package: dict[str, Any], nine: str) -> dict[str, Any
     filtered["caddieContextSeeds"] = normalized_seeds
 
     filtered_holes = list(filtered.get("holes") or [])
+    existing_enrichment = package.get("enrichmentState") or {}
+    filtered["enrichmentState"] = _package_enrichment_state(
+        filtered_holes,
+        normalized_seeds,
+        priority_holes=[
+            int(number)
+            for number in (existing_enrichment.get("priorityHoles") or [])
+            if _safe_int(number) and in_range(number)
+        ],
+    )
     geometry_ready = sum(
         1 for row in filtered_holes
         if isinstance(row, dict) and row.get("geometryCoverage") == "ready"
@@ -3714,7 +4009,18 @@ def _filter_package_to_nine(package: dict[str, Any], nine: str) -> dict[str, Any
         (row for row in readiness_checks if row.get("label") == "caddie_seeds"),
         None,
     )
-    if caddie_check and caddie_check.get("state") != "ready":
+    priority_holes = set((filtered.get("enrichmentState") or {}).get("priorityHoles") or [])
+    priority_seed_ready = all(
+        any(
+            int(seed.get("hole") or 0) == hole_number
+            and str(seed.get("enrichmentState") or "ready") != "deferred"
+            and bool(seed.get("offlineOptions"))
+            for seed in filtered.get("caddieContextSeeds") or []
+            if isinstance(seed, dict)
+        )
+        for hole_number in priority_holes
+    )
+    if caddie_check and caddie_check.get("state") != "ready" and not priority_seed_ready:
         filtered["missingData"] = _dedupe_missing(
             [
                 *filtered["missingData"],
@@ -3722,10 +4028,12 @@ def _filter_package_to_nine(package: dict[str, Any], nine: str) -> dict[str, Any
             ]
         )
     status = dict(filtered.get("offlinePackageStatus") or {})
+    blocking_checks = [row for row in readiness_checks if row.get("label") != "caddie_seeds"]
     status["state"] = (
         "ready"
         if not filtered["missingData"]
-        and all(row.get("state") == "ready" for row in readiness_checks)
+        and all(row.get("state") == "ready" for row in blocking_checks)
+        and priority_seed_ready
         else "degraded"
     )
     filtered["offlinePackageStatus"] = status

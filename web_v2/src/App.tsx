@@ -49,6 +49,8 @@ import {
   applyMobileReconciliationSuggestions,
   fetchSyncStatus,
   fetchGarminSyncJob,
+  cancelGarminSyncJob,
+  retryGarminSyncJob,
   redactMedia,
   runGarminSync,
   saveGarminSession,
@@ -224,6 +226,7 @@ export default function App() {
   const adminTokenRefreshTimer = useRef<number | null>(null)
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [syncRunState, setSyncRunState] = useState<'idle' | 'running' | 'error'>('idle')
+  const [syncRun, setSyncRun] = useState<SyncRunResponse | null>(null)
   const syncRunGeneration = useRef(0)
   const syncRunController = useRef<AbortController | null>(null)
   const syncRefreshController = useRef<AbortController | null>(null)
@@ -973,11 +976,13 @@ export default function App() {
     controller: AbortController,
   ): Promise<void> {
     let run = initialRun
+    setSyncRun(run)
     try {
       for (let attempt = 0; (run.state === 'queued' || run.state === 'running') && attempt < 120; attempt += 1) {
         await waitForSyncPoll(Math.min(5000, 500 + attempt * 250), controller.signal)
         if (generation !== syncRunGeneration.current) return
         run = await fetchGarminSyncJob(run.statusUrl, token, controller.signal)
+        if (generation === syncRunGeneration.current && !controller.signal.aborted) setSyncRun(run)
       }
       if (generation !== syncRunGeneration.current || controller.signal.aborted) return
       if (run.state === 'queued' || run.state === 'running') {
@@ -1025,6 +1030,7 @@ export default function App() {
         signal: controller.signal,
       })
       if (generation !== syncRunGeneration.current || controller.signal.aborted) return
+      setSyncRun(run)
       if (run.state === 'queued' || run.state === 'running') {
         // The POST is intentionally the only foreground request. Polling is detached so the rest of
         // the Web app remains responsive while Garmin imports history in the background.
@@ -1037,6 +1043,48 @@ export default function App() {
       setSyncRunState('error')
       const status = await fetchSyncStatus(adminToken ?? currentAdminToken(), controller.signal).catch(() => null)
       if (status && generation === syncRunGeneration.current && !controller.signal.aborted) setSyncStatus(status)
+    }
+  }
+
+  async function handleCancelSync() {
+    const run = syncRun
+    if (!run || (run.state !== 'queued' && run.state !== 'running')) return
+    const token = currentAdminToken()
+    const controller = syncRunController.current
+    try {
+      const cancelled = await cancelGarminSyncJob(run.statusUrl, token)
+      setSyncRun(cancelled)
+    } catch {
+      // Keep the monitor alive when the cancel request itself loses connectivity; the durable
+      // server job remains authoritative and the next poll will reconcile it.
+      return
+    }
+    syncRunGeneration.current += 1
+    controller?.abort()
+    syncRunController.current = null
+    setSyncRunState('idle')
+    const status = await fetchSyncStatus(token).catch(() => null)
+    if (status) setSyncStatus(status)
+  }
+
+  async function handleRetrySync() {
+    const run = syncRun
+    if (!run || (run.state !== 'error' && run.state !== 'cancelled')) return
+    const token = currentAdminToken()
+    syncRunGeneration.current += 1
+    const generation = syncRunGeneration.current
+    syncRunController.current?.abort()
+    const controller = new AbortController()
+    syncRunController.current = controller
+    setSyncRunState('running')
+    try {
+      const retried = await retryGarminSyncJob(run.statusUrl, token, controller.signal)
+      if (generation !== syncRunGeneration.current || controller.signal.aborted) return
+      setSyncRun(retried)
+      void monitorGarminSyncJob(retried, token, generation, controller)
+    } catch (error: unknown) {
+      if (generation !== syncRunGeneration.current || controller.signal.aborted || isAbortError(error)) return
+      setSyncRunState('error')
     }
   }
 
@@ -1178,6 +1226,9 @@ export default function App() {
             status={syncStatus}
             onSync={handleRunSync}
             syncState={syncRunState}
+            syncRun={syncRun}
+            onCancelSync={handleCancelSync}
+            onRetrySync={handleRetrySync}
             onSaveSession={handleSaveGarminSession}
             sessionSaveState={sessionSaveState}
             sessionSaveError={sessionSaveError}

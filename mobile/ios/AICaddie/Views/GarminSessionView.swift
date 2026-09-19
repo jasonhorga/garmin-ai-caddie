@@ -326,6 +326,7 @@ public struct GarminSessionView: View {
             || connectionState == .awaitingVerification
             || connectionState == .verificationFailed
             || connectionState == .syncFailed
+            || connectionState == .cancelled
             || connectionState == .persistenceFailed else {
             return
         }
@@ -361,6 +362,8 @@ public struct GarminSessionView: View {
             transientErrorText = nil
         case .inProgress:
             transientErrorText = nil
+        case .cancelled:
+            transientErrorText = GarminConnectionState.cancelled.statusText
         case .reauthRequired:
             transientErrorText = GarminConnectionState.reauthRequired.statusText
         case .failed:

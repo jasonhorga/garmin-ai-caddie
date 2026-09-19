@@ -131,6 +131,9 @@ public struct AICaddieApp: App {
                                 await model.syncGarminData()
                             }
                         },
+                        onCancelGarminSync: {
+                            await model.cancelGarminSync()
+                        },
                         onGarminSessionImported: {
                             await model.syncGarminDataAfterSessionImport() == .completed
                         },
@@ -439,6 +442,8 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Polling the durable server job is its own cancellable lifecycle. It is kept separate from
     /// post-sync catalogue/history refreshes so a slow provider job never owns the home screen.
     private var garminSyncMonitorTask: Task<GarminSyncRunResponse, Error>?
+    /// Server URL for the active job, used by the explicit cancel control.
+    private var activeGarminSyncStatusURL: String?
     /// Local event upload and post-sync read models can continue independently of the Garmin job.
     /// Both are cancelled on account change/forget so a late response cannot repaint another user.
     private var garminLocalUploadTask: Task<Void, Never>?
@@ -703,6 +708,7 @@ public final class LiveRoundAppModel: ObservableObject {
         garminLocalUploadTask = nil
         garminPostSyncRefreshTasks.forEach { $0.cancel() }
         garminPostSyncRefreshTasks.removeAll()
+        activeGarminSyncStatusURL = nil
     }
 
     public func bootstrap() async {
@@ -891,6 +897,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 garminConnectionState = .connectedNoChanges
             case "running", "syncing":
                 garminConnectionState = hasVerifiedGarminSession() ? .syncing : .verifying
+            case "cancelled":
+                garminConnectionState = .cancelled
             case "reauth_required":
                 clearStoredGarminSessionAfterAuthFailure()
                 garminConnectionState = .reauthRequired
@@ -2897,6 +2905,29 @@ public final class LiveRoundAppModel: ObservableObject {
         await syncGarminDataOutcome() == .completed
     }
 
+    /// Cancel the durable server job as well as its local monitor. Cancelling only the Swift Task
+    /// would stop polling while Garmin kept running on the homeserver.
+    public func cancelGarminSync() async {
+        guard let statusURL = activeGarminSyncStatusURL, let syncClient else { return }
+        do {
+            _ = try await syncClient.cancelGarminSyncJob(statusURL: statusURL)
+        } catch {
+            // A lost cancel request must not claim success; leave the monitor alive to reconcile
+            // the durable job on the next poll.
+            return
+        }
+        garminSyncOperationGeneration += 1
+        garminSyncMonitorTask?.cancel()
+        garminSyncMonitorTask = nil
+        garminSyncTask?.cancel()
+        garminSyncTask = nil
+        activeGarminSyncStatusURL = nil
+        isGarminSyncing = false
+        garminConnectionState = .cancelled
+        garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
+        garminSyncPresentationWatermark = Date()
+    }
+
     /// User-initiated data refresh. Phone/watch event upload and Garmin import are deliberately two
     /// independent stages: a local upload failure must not suppress a Garmin pull, and vice versa.
     @discardableResult
@@ -2968,6 +2999,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 return .failed
             }
             if result.state == "queued" || result.state == "running" {
+                activeGarminSyncStatusURL = result.statusUrl
                 // The POST only enqueues work. The monitor owns short, cancellable status traffic;
                 // provider work stays on the server and never blocks local course/history content.
                 let monitor = Task { try await syncClient.waitForGarminSyncJob(result) }
@@ -2981,12 +3013,21 @@ public final class LiveRoundAppModel: ObservableObject {
                 guard operationGeneration == garminSyncOperationGeneration,
                       !Task.isCancelled else { return .failed }
             }
+            if operationGeneration == garminSyncOperationGeneration {
+                activeGarminSyncStatusURL = nil
+            }
             if result.reauthRequired || result.state == "reauth_required" {
                 clearStoredGarminSessionAfterAuthFailure()
                 garminConnectionState = .reauthRequired
                 garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
                 garminSyncPresentationWatermark = Date()
                 return .reauthRequired
+            }
+            if result.state == "cancelled" || result.terminalReason == "user_cancelled" {
+                garminConnectionState = .cancelled
+                garminSyncPresentationLockedUntil = Date().addingTimeInterval(3)
+                garminSyncPresentationWatermark = Date()
+                return .cancelled
             }
             if result.errorCode == "session_stored" {
                 garminConnectionState = .awaitingVerification

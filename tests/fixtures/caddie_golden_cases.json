@@ -1,0 +1,172 @@
+{
+  "schema": "ai-caddie-caddie-golden-v1",
+  "source": "docs/reviews/2026-09-18-direct-caddie-audit.md",
+  "profileSets": {
+    "owner": [
+      {"clubName": "Driver", "sampleSize": 2970, "median": 197.5, "p10": 170.7, "p90": 221.6},
+      {"clubName": "3W", "sampleSize": 473, "median": 175.3, "p10": 115.1, "p90": 208.6},
+      {"clubName": "3H", "sampleSize": 180, "median": 161.9, "p10": 122.1, "p90": 188.1},
+      {"clubName": "5I", "sampleSize": 160, "median": 146.4, "p10": 113.2, "p90": 164.6},
+      {"clubName": "6I", "sampleSize": 160, "median": 137.4, "p10": 99.5, "p90": 159.5},
+      {"clubName": "7I", "sampleSize": 160, "median": 130.9, "p10": 93.0, "p90": 152.2},
+      {"clubName": "9I", "sampleSize": 160, "median": 114.3, "p10": 80.0, "p90": 132.3},
+      {"clubName": "Aw", "sampleSize": 160, "median": 103.2, "p10": 73.6, "p90": 120.7},
+      {"clubName": "50°", "sampleSize": 120, "median": 85.5, "p10": 54.8, "p90": 102.0},
+      {"clubName": "54°", "sampleSize": 120, "median": 46.2, "p10": 20.0, "p90": 84.5}
+    ],
+    "cold": [
+      {"clubName": "Driver", "sampleSize": 0, "median": 200.0},
+      {"clubName": "7I", "sampleSize": 0, "median": 130.0},
+      {"clubName": "Aw", "sampleSize": 0, "median": 100.0}
+    ],
+    "no_driver": [
+      {"clubName": "3W", "sampleSize": 473, "median": 175.3, "p10": 145.0, "p90": 198.0},
+      {"clubName": "3H", "sampleSize": 180, "median": 161.9, "p10": 140.0, "p90": 182.0},
+      {"clubName": "5I", "sampleSize": 160, "median": 146.4, "p10": 125.0, "p90": 164.6},
+      {"clubName": "Aw", "sampleSize": 160, "median": 103.2, "p10": 88.0, "p90": 118.0}
+    ],
+    "unstable_driver": [
+      {"clubName": "Driver", "sampleSize": 5, "median": 197.5, "p10": 150.0, "p90": 230.0},
+      {"clubName": "3W", "sampleSize": 473, "median": 175.3, "p10": 145.0, "p90": 198.0},
+      {"clubName": "5I", "sampleSize": 160, "median": 146.4, "p10": 125.0, "p90": 164.6},
+      {"clubName": "Aw", "sampleSize": 160, "median": 103.2, "p10": 88.0, "p90": 118.0}
+    ]
+  },
+  "cases": [
+    {
+      "id": "01_normal_par4",
+      "kind": "tee_decision",
+      "profileSet": "owner",
+      "par": 4,
+      "distanceM": 355,
+      "candidateClubs": ["Driver", "3W", "3H"],
+      "hazards": [],
+      "expect": {"firstClub": "Driver", "driverNonTee": 0, "maxSteps": 3}
+    },
+    {
+      "id": "02_five_iron_driver_regression",
+      "kind": "tee_decision",
+      "profileSet": "owner",
+      "par": 4,
+      "distanceM": 309,
+      "candidateClubs": ["5I", "3H", "Driver"],
+      "hazards": [{"id": "tree_window", "kind": "tree_area", "carryToFrontM": 153, "carryToClearM": 199}],
+      "expect": {"driverNonTee": 0, "secondLongerThanFirstByM": 15, "reasonRequired": true}
+    },
+    {
+      "id": "03_water_layup",
+      "kind": "tee_decision",
+      "profileSet": "owner",
+      "par": 5,
+      "distanceM": 426,
+      "candidateClubs": ["Driver", "3W", "5I", "50°"],
+      "hazards": [{"id": "water_crossing", "kind": "water", "carryToFrontM": 121.6, "carryToClearM": 190.1}],
+      "expect": {"waterCrossings": 0, "reasonRequired": true}
+    },
+    {
+      "id": "04_short_par4_green_bunker",
+      "kind": "tee_decision",
+      "profileSet": "owner",
+      "par": 4,
+      "distanceM": 280,
+      "candidateClubs": ["Driver", "3H", "Aw", "50°"],
+      "hazards": [{"id": "green_bunker", "kind": "bunker", "carryToFrontM": 250, "carryToClearM": 265}],
+      "expect": {"firstClub": "Driver", "distinctAlternatives": true}
+    },
+    {
+      "id": "05_par3_water",
+      "kind": "tee_decision",
+      "profileSet": "owner",
+      "par": 3,
+      "distanceM": 160,
+      "candidateClubs": ["3W", "3H", "5I", "Driver"],
+      "hazards": [{"id": "front_water", "kind": "water", "carryToFrontM": 44, "carryToClearM": 118}],
+      "expect": {"driverNonTee": 0, "labelsMonotonic": true}
+    },
+    {
+      "id": "06_narrow_ob_both_sides",
+      "kind": "tee_decision",
+      "profileSet": "owner",
+      "par": 4,
+      "distanceM": 370,
+      "candidateClubs": ["Driver", "3H", "5I", "9I"],
+      "hazards": [
+        {"id": "ob_left", "kind": "out_of_bounds", "carryToFrontM": 0, "carryToClearM": 370},
+        {"id": "ob_right", "kind": "out_of_bounds", "carryToFrontM": 0, "carryToClearM": 370}
+      ],
+      "courseWidthM": 30,
+      "driverLateralP10P90M": 45,
+      "expect": {"driverNonTee": 0, "reasonRequired": true}
+    },
+    {
+      "id": "07_ob_and_center_bunker",
+      "kind": "tee_decision",
+      "profileSet": "owner",
+      "par": 4,
+      "distanceM": 355,
+      "candidateClubs": ["Driver", "3W", "3H", "5I"],
+      "hazards": [
+        {"id": "ob_right", "kind": "out_of_bounds", "carryToFrontM": 180, "carryToClearM": 240},
+        {"id": "center_bunker", "kind": "bunker", "carryToFrontM": 200, "carryToClearM": 215}
+      ],
+      "expect": {"waterCrossings": 0, "reasonRequired": true}
+    },
+    {
+      "id": "08_cold_start",
+      "kind": "tee_decision",
+      "profileSet": "cold",
+      "par": 4,
+      "distanceM": 350,
+      "candidateClubs": ["Driver", "7I", "Aw"],
+      "hazards": [],
+      "expect": {"confidenceNotHigh": true, "maxSteps": 2}
+    },
+    {
+      "id": "09_compound_back_nine",
+      "kind": "tee_decision",
+      "profileSet": "owner",
+      "par": 4,
+      "distanceM": 365,
+      "globalId": 900001,
+      "backGlobalId": 900002,
+      "candidateClubs": ["Driver", "3H", "5I"],
+      "hazards": [],
+      "expect": {"driverNonTee": 0, "backNineMustKeepOrigin": true}
+    },
+    {
+      "id": "10_no_driver_or_unstable_driver",
+      "kind": "tee_decision",
+      "profileSet": "unstable_driver",
+      "par": 4,
+      "distanceM": 365,
+      "candidateClubs": ["Driver", "3W", "5I"],
+      "hazards": [],
+      "expect": {"firstClubNot": "Driver", "driverNonTee": 0, "reasonRequired": true}
+    },
+    {
+      "id": "11_lie_wind_slope_replan",
+      "kind": "tee_decision",
+      "profileSet": "owner",
+      "par": 4,
+      "distanceM": 330,
+      "lie": "rough",
+      "windSpeedMps": 6,
+      "slopeAdjustmentM": 8,
+      "candidateClubs": ["Driver", "3H", "5I", "9I"],
+      "hazards": [{"id": "front_bunker", "kind": "bunker", "carryToFrontM": 80, "carryToClearM": 95}],
+      "expect": {"driverNonTee": 0, "reprojected": true, "reasonRequired": true}
+    },
+    {
+      "id": "12_disjoint_water_intervals",
+      "kind": "hazard_projection",
+      "profileSet": "owner",
+      "par": 5,
+      "distanceM": 500,
+      "hazards": [
+        {"id": "water", "kind": "water", "carryToFrontM": 53, "carryToClearM": 70},
+        {"id": "water", "kind": "water", "carryToFrontM": 290, "carryToClearM": 302}
+      ],
+      "expect": {"waterIntervals": 2, "mergedIntervals": false}
+    }
+  ]
+}

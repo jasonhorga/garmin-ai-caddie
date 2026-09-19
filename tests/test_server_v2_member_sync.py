@@ -236,6 +236,41 @@ class MemberSyncRoutesTests(unittest.TestCase):
         resp = self.client.post(f"/api/v2/players/{self.alice['id']}/sync/garmin")
         self.assertEqual(resp.status_code, 401, resp.text)
 
+    def test_member_cannot_cancel_another_players_job_before_mutation(self) -> None:
+        job = self.store.enqueue(
+            player_id=self.bob["id"],
+            with_shots=True,
+            force_refresh_auth=False,
+            ensure_geometry=False,
+            status_url=f"/api/v2/players/{self.bob['id']}/sync/garmin/jobs/{{job_id}}",
+        )
+        resp = self.client.post(
+            f"/api/v2/players/{self.alice['id']}/sync/garmin/jobs/{job['jobId']}/cancel",
+            headers=self._auth(self.alice["token"]),
+        )
+        self.assertEqual(resp.status_code, 403, resp.text)
+        self.assertEqual(self.store.get(job["jobId"])["state"], "queued")
+
+    def test_member_cannot_retry_another_players_job_before_mutation(self) -> None:
+        job = self.store.enqueue(
+            player_id=self.bob["id"],
+            with_shots=True,
+            force_refresh_auth=False,
+            ensure_geometry=False,
+            status_url=f"/api/v2/players/{self.bob['id']}/sync/garmin/jobs/{{job_id}}",
+        )
+        cancelled = self.store.cancel(job["jobId"])
+        self.assertEqual(cancelled["state"], "cancelled")
+        generation = cancelled["generation"]
+        resp = self.client.post(
+            f"/api/v2/players/{self.alice['id']}/sync/garmin/jobs/{job['jobId']}/retry",
+            headers=self._auth(self.alice["token"]),
+        )
+        self.assertEqual(resp.status_code, 403, resp.text)
+        current = self.store.get(job["jobId"])
+        self.assertEqual(current["state"], "cancelled")
+        self.assertEqual(current["generation"], generation)
+
 
 if __name__ == "__main__":
     unittest.main()

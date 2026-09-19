@@ -21,6 +21,87 @@ from server_v2.main import app
 
 
 class ServerV2MobileTests(unittest.TestCase):
+    def test_course_start_defers_non_priority_caddie_enrichment_explicitly(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.core.fixtures import fixture_history_data
+
+        geometry = {
+            "coverage": "ready",
+            "hasHazards": True,
+            "hasMeshes": True,
+            "hazardCount": 0,
+            "hazards": [],
+        }
+        with patch.object(
+            mobile_live,
+            "_geometry_seed",
+            return_value=(geometry, [{"label": "geometry", "value": "ready"}], []),
+        ) as geometry_seed, patch.object(
+            mobile_live,
+            "_route_evidence_seed",
+            return_value=(
+                {"routeLength_m": 100.0, "avoidZones": [], "sourceRefs": ["live:1"]},
+                [{"label": "route_geometry", "value": "route length 100.0m"}],
+                [],
+            ),
+        ) as route_seed:
+            package = mobile_live.build_live_round_package(
+                "900001",
+                data=fixture_history_data(),
+                data_mode="fixture",
+                allow_weather_fetch=False,
+                priority_holes=[1],
+                defer_non_priority_enrichment=True,
+            )
+
+        state = package["enrichmentState"]
+        self.assertEqual(state["state"], "deferred")
+        self.assertEqual(state["priorityHoles"], [1])
+        self.assertEqual(state["pendingHoles"], list(range(2, 19)))
+        seeds = {row["hole"]: row for row in package["caddieContextSeeds"]}
+        self.assertEqual(seeds[1]["enrichmentState"], "ready")
+        self.assertEqual(seeds[2]["enrichmentState"], "deferred")
+        self.assertTrue(seeds[2]["offlineOptions"])
+        self.assertEqual(seeds[2]["context"]["candidateRoutes"], [])
+        self.assertEqual(geometry_seed.call_count, 1)
+        self.assertEqual(route_seed.call_count, 1)
+
+    def test_composite_enrichment_prioritizes_each_physical_loop_first_hole(self) -> None:
+        from ai_caddie.caddie.mobile_live import _merge_nines
+
+        def package(start: int, deferred: list[int]) -> dict[str, object]:
+            holes = [{"number": number} for number in range(start, start + 9)]
+            seeds = [
+                {
+                    "hole": number,
+                    "sourceRef": f"round:{number}",
+                    "enrichmentState": "deferred" if number in deferred else "ready",
+                    "context": {"weatherSnapshot": {}},
+                    "offlineOptions": [{"id": "stock"}],
+                }
+                for number in range(start, start + 9)
+            ]
+            return {
+                "roundId": "round",
+                "holes": holes,
+                "caddieContextSeeds": seeds,
+                "enrichmentState": {
+                    "priorityHoles": [start],
+                },
+                "course": {"name": "Test"},
+                "weatherSnapshot": {"holeCoverage": []},
+                "geometryCoverage": {"readyHoles": 9, "totalHoles": 9, "state": "ready"},
+                "sourceCoverage": {},
+                "recentHistory": {"holes": []},
+                "clubProfiles": [],
+                "missingData": [],
+                "offlinePackageStatus": {"state": "ready"},
+            }
+
+        merged = _merge_nines(package(1, list(range(2, 10))), package(1, list(range(2, 10))))
+        self.assertEqual(merged["enrichmentState"]["priorityHoles"], [1, 10])
+        self.assertEqual(merged["enrichmentState"]["pendingHoles"], list(range(2, 10)) + list(range(11, 19)))
+
     def test_live_package_does_not_trust_historical_ready_geometry(self) -> None:
         from ai_caddie.caddie import mobile_live
 
@@ -141,16 +222,11 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(refreshed["hazards"], geometry["hazards"])
         self.assertEqual(refreshed["routeEvidence"], route)
         self.assertEqual(refreshed["holeRemaining_m"], 313.1)
-        self.assertEqual(
-            [row["id"] for row in refreshed["candidateRoutes"]],
-            ["stock_line", "aggressive_line"],
-        )
-        self.assertEqual(
-            [row["club"] for row in refreshed["candidateRoutes"]],
-            ["3W", "1W"],
-        )
-        self.assertEqual(refreshed["candidateRoutes"][1]["lineRisks"][0]["id"], "water-near")
-        self.assertEqual(refreshed["candidateRoutes"][1]["lineRisks"][0]["carryToClear_m"], 200.0)
+        # Both measured distributions overlap the water span once the required buffers are
+        # applied. Precise geometry must replace the stale seed with an explicit no-route state,
+        # never leave the old route visible or invent a risky club.
+        self.assertEqual(refreshed["candidateRoutes"], [])
+        self.assertIn("caddie_feasibility", {row["label"] for row in refreshed["missingData"]})
 
     def test_mobile_live_paths_do_not_repeat_driver_for_sparse_par4_bag(self) -> None:
         from ai_caddie.caddie import mobile_live

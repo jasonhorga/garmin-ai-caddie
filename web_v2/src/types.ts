@@ -716,7 +716,7 @@ export interface ReviewReportIndexResponse {
   reports: ReviewReportIndexItem[]
 }
 
-export type ConnectorState = 'queued' | 'running' | 'ready' | 'no_data' | 'reauth_required' | 'error' | 'not_available'
+export type ConnectorState = 'queued' | 'running' | 'ready' | 'no_data' | 'reauth_required' | 'error' | 'cancelled' | 'not_available'
 export type ConnectorNextAction = 'connect_garmin' | 'review_history' | 'wait_for_sync' | 'reauthenticate_garmin' | 'inspect_sync_error'
 export type ResolvedDataMode = 'local' | 'fixture'
 
@@ -828,6 +828,12 @@ export interface SyncRunResponse {
   errorCode: string | null
   snapshot: SyncSnapshotPayload | null
   safeMeta?: Record<string, unknown>
+  generation?: number
+  phase?: string
+  progress?: number
+  heartbeatAt?: string | null
+  cancelRequested?: boolean
+  terminalReason?: string | null
 }
 
 export interface GarminSessionImportRequest {
@@ -904,6 +910,7 @@ export interface LiveRoundSourceCoverage {
   availableRoundCount: number
   holeCount: number
   clubProfileCount: number
+  playerStatsWindow?: string
   preparationMode?: LiveRoundPreparationMode
   requestedCourseGlobalId?: number | null
   courseFound?: boolean
@@ -967,6 +974,22 @@ export interface PackageReadinessCheck {
   sourceRefs: string[]
 }
 
+export interface PackageEnrichmentState {
+  schema: 'ai-caddie-enrichment-v1'
+  state: 'ready' | 'deferred'
+  strategy: 'priority_holes_then_on_demand'
+  priorityHoles: number[]
+  readyHoles: number[]
+  pendingHoles: number[]
+  pendingEnrichment: Array<{
+    hole: number
+    sourceRef: string
+    kind: 'caddie_context'
+    state: 'deferred'
+  }>
+  onDemandEndpoint: string
+}
+
 export interface LiveRoundPackageResponse {
   schema: 'ai-caddie-live-round-package-v1'
   roundId: string
@@ -991,6 +1014,7 @@ export interface LiveRoundPackageResponse {
   }
   readinessChecks: PackageReadinessCheck[]
   caddieContextSeeds: Array<Record<string, unknown>>
+  enrichmentState?: PackageEnrichmentState | null
   weatherSnapshot: LiveRoundWeatherSnapshot
   clubProfiles: Array<Record<string, unknown>>
   caddieDecisionEndpoint: string

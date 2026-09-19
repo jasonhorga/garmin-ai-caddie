@@ -306,6 +306,14 @@ def is_player_scoped_route(method: str, path: str) -> bool:
             or (path.startswith("/api/v2/caddie/decisions/") and path.endswith("/audit"))
             or path == "/api/v2/annotations"
             or (path.startswith("/api/v2/reports/") and path.endswith("/generate"))
+            # Garmin sync job mutations validate the resolved player identity in the handler
+            # before touching the durable store. Keep them explicitly player-scoped so the
+            # route-policy audit cannot mistake a newly-added cancel/retry route for public.
+            or (
+                path.startswith("/api/v2/players/")
+                and "/sync/garmin/jobs/" in path
+                and (path.endswith("/cancel") or path.endswith("/retry"))
+            )
             # 复盘修改 WRITE — corrections 存在调用者自己的分区(data/players/<id>/corrections/),
             # 成员只写自己的(handler 线程 current_player_id)。路径无 target-player → 天然自限,
             # 分类同 POST /api/v2/annotations。

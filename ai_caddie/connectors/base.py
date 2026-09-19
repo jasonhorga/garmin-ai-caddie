@@ -4,7 +4,16 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 ConnectorName = Literal["garmin_cn_web_session", "garmin_oauth_feasibility"]
-ConnectorState = Literal["queued", "ready", "no_data", "running", "reauth_required", "error", "not_available"]
+ConnectorState = Literal[
+    "queued",
+    "ready",
+    "no_data",
+    "running",
+    "reauth_required",
+    "error",
+    "cancelled",
+    "not_available",
+]
 
 
 @dataclass(frozen=True)

@@ -76,6 +76,9 @@
         "clubProfileCount": {
           "type": "integer"
         },
+        "playerStatsWindow": {
+          "type": "string"
+        },
         "preparationMode": {
           "type": "string",
           "enum": ["round", "course"]
@@ -444,6 +447,10 @@
               "type": "string"
             }
           },
+          "enrichmentState": {
+            "type": "string",
+            "enum": ["ready", "deferred"]
+          },
           "context": {
             "type": "object",
             "additionalProperties": true
@@ -561,6 +568,63 @@
               "additionalProperties": true
             }
           }
+        }
+      }
+    },
+    "enrichmentState": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "state",
+        "strategy",
+        "priorityHoles",
+        "readyHoles",
+        "pendingHoles",
+        "pendingEnrichment",
+        "onDemandEndpoint"
+      ],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "const": "ai-caddie-enrichment-v1"
+        },
+        "state": {
+          "type": "string",
+          "enum": ["ready", "deferred"]
+        },
+        "strategy": {
+          "type": "string",
+          "const": "priority_holes_then_on_demand"
+        },
+        "priorityHoles": {
+          "type": "array",
+          "items": {"type": "integer"}
+        },
+        "readyHoles": {
+          "type": "array",
+          "items": {"type": "integer"}
+        },
+        "pendingHoles": {
+          "type": "array",
+          "items": {"type": "integer"}
+        },
+        "pendingEnrichment": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["hole", "sourceRef", "kind", "state"],
+            "properties": {
+              "hole": {"type": "integer"},
+              "sourceRef": {"type": "string"},
+              "kind": {"type": "string", "const": "caddie_context"},
+              "state": {"type": "string", "const": "deferred"}
+            }
+          }
+        },
+        "onDemandEndpoint": {
+          "type": "string"
         }
       }
     },

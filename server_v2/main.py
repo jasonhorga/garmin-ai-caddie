@@ -164,7 +164,7 @@ from .product_settings import build_product_settings_response
 from .session import save_garmin_session_response
 from .sync_status import load_sync_status_response
 from .timing import RequestTiming, bind as bind_request_timing, mark as mark_request_stage, request_id as request_id_for
-from .sync_jobs import GarminSyncJobStore, RetrySyncJob
+from .sync_jobs import CancelledSyncJob, GarminSyncJobStore, RetrySyncJob
 
 
 @contextlib.asynccontextmanager
@@ -243,8 +243,8 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
             r"/api/v2/geometry/hole/[0-9]+/[0-9]+",
             r"/api/v2/mobile/courses/[0-9]+/package",
             r"/api/v2/mobile/rounds/[^/]+/package",
-            r"/api/v2/sync/garmin/jobs/[^/]+",
-            r"/api/v2/players/[^/]+/sync/garmin/jobs/[^/]+",
+            r"/api/v2/sync/garmin/jobs/[^/]+(?:/(?:cancel|retry))?",
+            r"/api/v2/players/[^/]+/sync/garmin/jobs/[^/]+(?:/(?:cancel|retry))?",
             r"/api/v2/media/target/[^/]+/[^/]+",
             r"/api/v2/reports/round/[^/]+",
         )
@@ -381,10 +381,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
             # Owner Garmin jobs are exposed through the non-player route. Keep their
             # status private just like the enqueue route; member jobs use the
             # player-scoped sibling below.
-            or (
-                path.startswith("/api/v2/sync/garmin/jobs/")
-                and "/" not in path.removeprefix("/api/v2/sync/garmin/jobs/")
-            )
+            or bool(re.fullmatch(r"/api/v2/sync/garmin/jobs/[^/]+(?:/(?:cancel|retry))?", path))
             # codex HIGH #1: a geometry/hole request WITH source_ref loads the owner's real shot
             # routes/clubs/distances (geometry.py) — gate it. Pure course geometry (no source_ref)
             # stays public (course knowledge); only the source-bound private evidence requires auth.
@@ -405,6 +402,11 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
         "/api/v2/auth/apple/link",
     }
     if path in exact_paths:
+        return True
+    # Owner Garmin job mutations use the non-player route and must retain the same
+    # admin/owner gate as the enqueue and status endpoints. The player-scoped siblings
+    # below are deliberately excluded and authenticate in their handlers.
+    if bool(re.fullmatch(r"/api/v2/sync/garmin/jobs/[^/]+/(?:cancel|retry)", path)):
         return True
     protected_prefix_suffix = (
         ("/api/v2/caddie/decisions/", "/audit"),
@@ -2346,6 +2348,26 @@ def _mark_garmin_sync_running(*, player_id: str = OWNER_ID) -> None:
     )
 
 
+def _mark_garmin_sync_cancelled(*, player_id: str = OWNER_ID) -> None:
+    """Publish an explicit cancelled terminal state for the affected partition.
+
+    The provider connector may have written a running/ready status just before the durable job was
+    cancelled. Persisting the cancellation after the generation is invalidated keeps the status
+    endpoint aligned with the job users actually see; a later retry or fresh sync will overwrite it.
+    """
+    data_dir = None
+    if player_id != OWNER_ID:
+        data_dir = SYNC_ROOT / "data" / "players" / player_id
+    write_connector_status(
+        root=SYNC_ROOT,
+        state="cancelled",
+        detail="同步任务已取消。",
+        snapshot_id=None,
+        error_code="user_cancelled",
+        data_dir=data_dir,
+    )
+
+
 def _sync_job_response(record: dict[str, Any]) -> SyncRunResponse:
     """Convert a durable job row into the redacted wire contract."""
     job_id = str(record.get("jobId") or "")
@@ -2365,6 +2387,12 @@ def _sync_job_response(record: dict[str, Any]) -> SyncRunResponse:
         errorCode=record.get("errorCode"),
         snapshot=record.get("snapshot"),
         safeMeta=sanitize_safe_meta(record.get("safeMeta") or {}),
+        generation=int(record.get("generation") or 1),
+        phase=str(record.get("phase") or "queued"),
+        progress=max(0, min(100, int(record.get("progress") or 0))),
+        heartbeatAt=record.get("heartbeatAt"),
+        cancelRequested=bool(record.get("cancelRequested")),
+        terminalReason=record.get("terminalReason"),
     )
 
 
@@ -2375,18 +2403,35 @@ def _run_garmin_sync_job(job: dict[str, Any]) -> dict[str, Any]:
     with_shots = bool(request.get("withShots", True))
     force_refresh_auth = bool(request.get("forceRefreshAuth", False)) if player_id == OWNER_ID else False
     ensure_geometry = bool(request.get("ensureGeometry", False)) if player_id == OWNER_ID else False
+    report_progress = job.get("_report_progress")
+    cancellation_requested = job.get("_cancellation_requested")
+
+    def report(*, phase: str, progress: int, detail: str | None = None) -> None:
+        if callable(report_progress):
+            report_progress(phase=phase, progress=progress, detail=detail)
+
+    def cancelled() -> bool:
+        return bool(callable(cancellation_requested) and cancellation_requested())
+
     try:
+        report(phase="provider_auth", progress=10, detail="正在验证 Garmin 会话。")
         with _acquire_garmin_sync_lock():
+            if cancelled():
+                raise CancelledSyncJob()
             _mark_garmin_sync_running(player_id=player_id)
             connector = GarminCnWebSessionConnector(root=SYNC_ROOT, player_id=player_id)
+            report(phase="provider_fetch", progress=25, detail="正在从 Garmin 获取球局数据。")
             result = connector.sync(
                 with_shots=with_shots,
                 force_refresh_auth=force_refresh_auth,
                 ensure_geometry=ensure_geometry,
             )
+            if cancelled():
+                raise CancelledSyncJob()
     except SyncInProgress as exc:
         raise RetrySyncJob() from exc
 
+    report(phase="snapshot", progress=72, detail="正在整理同步快照。")
     detail = result.detail
     if result.state == "reauth_required" and player_id != OWNER_ID:
         detail = "Garmin session missing or expired for this player. Re-bind your Garmin, then sync again."
@@ -2396,6 +2441,7 @@ def _run_garmin_sync_job(job: dict[str, Any]) -> dict[str, Any]:
         # These are best-effort follow-ups. A read-only/test data root or a temporary cache
         # failure must never rewrite a successful provider pull as a terminal sync error.
         try:
+            report(phase="warm_cache", progress=88, detail="正在刷新本地数据索引。")
             stats_cache.clear(player_id)
         except Exception:
             logger.warning("Garmin sync stats cache invalidation deferred", exc_info=True)
@@ -2413,6 +2459,9 @@ def _run_garmin_sync_job(job: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             logger.warning("Garmin sync recent-course warm-up deferred", exc_info=True)
 
+    if cancelled():
+        raise CancelledSyncJob()
+
     return {
         "state": result.state,
         "detail": sanitize_error(detail),
@@ -2420,6 +2469,7 @@ def _run_garmin_sync_job(job: dict[str, Any]) -> dict[str, Any]:
         "errorCode": result.error_code,
         "snapshot": snapshot_to_payload(result.snapshot) if result.snapshot else None,
         "safeMeta": sanitize_safe_meta(result.safe_meta),
+        "terminalReason": "provider_complete" if result.state in {"ready", "no_data"} else result.state,
     }
 
 
@@ -2547,4 +2597,72 @@ def get_player_garmin_sync_job(
 ) -> SyncRunResponse:
     if acting_player_id != OWNER_ID and acting_player_id != player_id:
         raise HTTPException(status_code=403, detail="cannot inspect another player's sync job")
+    return _sync_job_response(_load_sync_job_for_player(job_id, player_id))
+
+
+@app.post("/api/v2/sync/garmin/jobs/{job_id}/cancel", response_model=SyncRunResponse)
+def cancel_garmin_sync_job(job_id: str, http_request: Request) -> SyncRunResponse:
+    """Cancel an owner job without pretending that a local poll cancellation stopped the worker."""
+    enforce_admin_or_owner(http_request)
+    record = _garmin_sync_jobs.cancel(job_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="sync job not found")
+    if record.get("state") == "cancelled":
+        _mark_garmin_sync_cancelled(player_id=OWNER_ID)
+    return _sync_job_response(_load_sync_job_for_player(job_id, OWNER_ID))
+
+
+@app.post("/api/v2/sync/garmin/jobs/{job_id}/retry", response_model=SyncRunResponse)
+def retry_garmin_sync_job(job_id: str, http_request: Request, response: Response) -> SyncRunResponse:
+    """Retry a terminal owner job as a fresh generation with the original request flags."""
+    enforce_admin_or_owner(http_request)
+    try:
+        record = _garmin_sync_jobs.retry(job_id, runner=_run_garmin_sync_job)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if record is None:
+        raise HTTPException(status_code=404, detail="sync job not found")
+    response.status_code = 202
+    return _sync_job_response(record)
+
+
+@app.post("/api/v2/players/{player_id}/sync/garmin/jobs/{job_id}/cancel", response_model=SyncRunResponse)
+def cancel_player_garmin_sync_job(
+    player_id: str,
+    job_id: str,
+    acting_player_id: str = Depends(current_player_id),
+) -> SyncRunResponse:
+    if acting_player_id != OWNER_ID and acting_player_id != player_id:
+        raise HTTPException(status_code=403, detail="cannot cancel another player's sync job")
+    # Validate ownership before mutating the durable record. A member who guesses another job id
+    # must not be able to cancel it and only then receive the 403 from the response lookup.
+    _load_sync_job_for_player(job_id, player_id)
+    record = _garmin_sync_jobs.cancel(job_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="sync job not found")
+    if record.get("state") == "cancelled":
+        _mark_garmin_sync_cancelled(player_id=player_id)
+    return _sync_job_response(_load_sync_job_for_player(job_id, player_id))
+
+
+@app.post("/api/v2/players/{player_id}/sync/garmin/jobs/{job_id}/retry", response_model=SyncRunResponse)
+def retry_player_garmin_sync_job(
+    player_id: str,
+    job_id: str,
+    response: Response,
+    acting_player_id: str = Depends(current_player_id),
+) -> SyncRunResponse:
+    if acting_player_id != OWNER_ID and acting_player_id != player_id:
+        raise HTTPException(status_code=403, detail="cannot retry another player's sync job")
+    # The ownership check must precede retry: retry increments the generation and enqueues work,
+    # so doing it after the check would still let a member mutate another player's terminal job.
+    _load_sync_job_for_player(job_id, player_id)
+    try:
+        record = _garmin_sync_jobs.retry(job_id, runner=_run_garmin_sync_job)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if record is None:
+        raise HTTPException(status_code=404, detail="sync job not found")
+    # The store lookup also enforces that a member cannot use a job id from another partition.
+    response.status_code = 202
     return _sync_job_response(_load_sync_job_for_player(job_id, player_id))

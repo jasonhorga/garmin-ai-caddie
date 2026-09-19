@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import type { GarminSessionImportRequest, SyncStatusResponse } from '../types'
+import type { GarminSessionImportRequest, SyncRunResponse, SyncStatusResponse } from '../types'
 import { dataModeZh, oauthCapabilityZh, stateZh } from '../zhLabels'
 
 const connectorLabel = {
@@ -55,6 +55,9 @@ interface SyncStatusPanelProps {
   status: SyncStatusResponse
   onSync?: (adminToken?: string) => void
   syncState?: 'idle' | 'running' | 'error'
+  syncRun?: SyncRunResponse | null
+  onCancelSync?: () => void | Promise<void>
+  onRetrySync?: () => void | Promise<void>
   onSaveSession?: (request: GarminSessionImportRequest, adminToken?: string) => void | Promise<void>
   sessionSaveState?: 'idle' | 'saving' | 'saved' | 'error'
   sessionSaveError?: string | null
@@ -72,6 +75,9 @@ export function SyncStatusPanel({
   status,
   onSync,
   syncState = 'idle',
+  syncRun = null,
+  onCancelSync,
+  onRetrySync,
   onSaveSession,
   sessionSaveState = 'idle',
   sessionSaveError = null,
@@ -255,6 +261,25 @@ export function SyncStatusPanel({
       <button className="sync-action" type="button" onClick={handleSyncClick} disabled={!canRun}>
         {isRunning ? '同步中' : '立即同步'}
       </button>
+      {syncRun && (syncRun.state === 'queued' || syncRun.state === 'running') ? (
+        <div className="sync-run-progress" aria-label="Garmin 同步进度">
+          <div className="sync-run-progress__head">
+            <span>{syncRun.detail || (syncRun.state === 'queued' ? '等待后台执行' : '同步中')}</span>
+            <strong>{Math.max(0, Math.min(100, syncRun.progress ?? 0))}%</strong>
+          </div>
+          <progress max={100} value={Math.max(0, Math.min(100, syncRun.progress ?? 0))} />
+          {onCancelSync ? (
+            <button type="button" className="sync-secondary-action" onClick={() => void onCancelSync()}>
+              取消同步
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {syncRun && (syncRun.state === 'error' || syncRun.state === 'cancelled') && onRetrySync ? (
+        <button type="button" className="sync-secondary-action" onClick={() => void onRetrySync()}>
+          重新同步
+        </button>
+      ) : null}
       {onSaveSession ? (
         <form className="sync-session-form" aria-label="Garmin 会话导入" onSubmit={handleSessionSubmit}>
           <label htmlFor="web-session-header">网页会话头</label>

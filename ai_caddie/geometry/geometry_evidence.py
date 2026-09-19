@@ -522,26 +522,56 @@ def build_route_geometry_evidence(
             hazard_id = str(hazard.get("id") or f"hazard-{index + 1}")
             if route_rows:
                 line_intersections.extend(route_rows)
-                distances = [float(row["distanceFromStart_m"]) for row in route_rows]
-                clear = {
-                    "hazardId": hazard_id,
-                    "kind": kind,
-                    "carryToFront_m": round(min(distances), 1),
-                    "carryToClear_m": round(max(distances), 1),
-                    "intersectionCount": len(route_rows),
-                }
-                if used_authority_distances:
-                    clear["source"] = "authority_tee_distances"
-                hazard_clearances.append(clear)
-                avoid_zone = {
-                    "id": hazard_id,
-                    "kind": kind,
-                    "carryToFront_m": clear["carryToFront_m"],
-                    "carryToClear_m": clear["carryToClear_m"],
-                }
-                if used_authority_distances:
-                    avoid_zone["source"] = "authority_tee_distances"
-                avoid_zones.append(avoid_zone)
+                # A hazard can cross the route more than once (for example two separated lake
+                # lobes). Keep each interval independent. The former min/max reduction turned
+                # [40, 60] + [180, 200] into one impossible [40, 200] lake and distorted every
+                # downstream club choice.
+                if not all(row.get("intervalIndex") is not None for row in route_rows):
+                    ordered_rows = sorted(
+                        route_rows,
+                        key=lambda row: float(row.get("distanceFromStart_m") or 0.0),
+                    )
+                    for row_index, row in enumerate(ordered_rows):
+                        row["intervalIndex"] = row_index // 2
+                by_interval: dict[int, list[dict[str, Any]]] = {}
+                for row in route_rows:
+                    try:
+                        interval_index = int(row.get("intervalIndex") or 0)
+                    except (TypeError, ValueError):
+                        interval_index = 0
+                    by_interval.setdefault(interval_index, []).append(row)
+                include_interval_metadata = len(by_interval) > 1
+                for interval_index, interval_rows in sorted(by_interval.items()):
+                    distances = [
+                        float(row["distanceFromStart_m"])
+                        for row in interval_rows
+                        if row.get("distanceFromStart_m") is not None
+                    ]
+                    if not distances:
+                        continue
+                    clear = {
+                        "hazardId": hazard_id,
+                        "kind": kind,
+                        "carryToFront_m": round(min(distances), 1),
+                        "carryToClear_m": round(max(distances), 1),
+                        "intersectionCount": len(interval_rows),
+                    }
+                    if include_interval_metadata:
+                        clear["intervalIndex"] = interval_index
+                    if used_authority_distances:
+                        clear["source"] = "authority_tee_distances"
+                    hazard_clearances.append(clear)
+                    avoid_zone = {
+                        "id": hazard_id,
+                        "kind": kind,
+                        "carryToFront_m": clear["carryToFront_m"],
+                        "carryToClear_m": clear["carryToClear_m"],
+                    }
+                    if include_interval_metadata:
+                        avoid_zone["intervalIndex"] = interval_index
+                    if used_authority_distances:
+                        avoid_zone["source"] = "authority_tee_distances"
+                    avoid_zones.append(avoid_zone)
             if landing_risk:
                 landing_window_risks.append(landing_risk)
                 existing_avoid_zone = next((row for row in avoid_zones if row.get("id") == hazard_id), None)
@@ -688,24 +718,38 @@ def _authority_tee_route_intersections(
     if not intervals:
         return []
 
-    boundary_distances = [min(row[0] for row in intervals), max(row[1] for row in intervals)]
+    # Adjacent records can be split at a mesh/route vertex. They describe one continuous crossing
+    # and should remain one interval; only a real positive gap is preserved as a second hazard
+    # span.
+    merged_intervals: list[tuple[float, float]] = []
+    for front, back in sorted(intervals):
+        if merged_intervals and front <= merged_intervals[-1][1] + 1e-6:
+            merged_intervals[-1] = (merged_intervals[-1][0], max(merged_intervals[-1][1], back))
+        else:
+            merged_intervals.append((front, back))
+    intervals = merged_intervals
+
     hazard_id = str(hazard.get("id") or fallback_id)
     kind = _surface_kind(hazard, "hazard")
     rows: list[dict[str, Any]] = []
-    for distance in dict.fromkeys(round(value, 6) for value in boundary_distances):
-        fraction = max(0.0, min(1.0, float(distance) / float(route_length)))
-        x = float(start[0]) + fraction * (float(target[0]) - float(start[0]))
-        y = float(start[1]) + fraction * (float(target[1]) - float(start[1]))
-        rows.append(
-            {
-                "hazardId": hazard_id,
-                "kind": kind,
-                "local": [round(x, 3), round(y, 3)],
-                "routeFraction": round(fraction, 4),
-                "distanceFromStart_m": round(float(distance), 1),
-                "source": "authority_tee_distances",
-            }
-        )
+    include_interval_metadata = len(intervals) > 1
+    for interval_index, (front, back) in enumerate(sorted(intervals)):
+        for edge, distance in (("front", front), ("back", back)):
+            fraction = max(0.0, min(1.0, float(distance) / float(route_length)))
+            x = float(start[0]) + fraction * (float(target[0]) - float(start[0]))
+            y = float(start[1]) + fraction * (float(target[1]) - float(start[1]))
+            row = {
+                    "hazardId": hazard_id,
+                    "kind": kind,
+                    "edge": edge,
+                    "local": [round(x, 3), round(y, 3)],
+                    "routeFraction": round(fraction, 4),
+                    "distanceFromStart_m": round(float(distance), 1),
+                    "source": "authority_tee_distances",
+                }
+            if include_interval_metadata:
+                row["intervalIndex"] = interval_index
+            rows.append(row)
     return rows
 
 

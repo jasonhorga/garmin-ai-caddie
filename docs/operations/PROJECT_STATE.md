@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-18 05:16 UTC
+**Updated:** 2026-09-19 02:32 UTC
 **Branch:** `integration/v2` (GitHub default; current localized-course-name
 source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI
 `35267621896`; Native Mobile CI `35270792248` attempt 2; internal TestFlight
@@ -600,7 +600,182 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`NET-AUDIT` — 全项目网络生命周期与可取消进度审计** (`evidence-open`)
+**`NET-TASKS-P0` — 网络生命周期与开局优先级** (`in-progress`)
+
+`DIRECT-CADDIE-VALIDATION` 的 homeserver 分段基线和 12 个 caddie golden replay
+已完成并落盘；实体 S70/iPhone/Watch 的真实秒数继续保持 `evidence-open`，不以模拟器
+或服务器数字代替。现在只推进网络 P0：先让 L1/当前洞可用，再把历史、完整 seed、
+精确资源和 Garmin 同步作为可观测、可取消、可恢复的独立任务。
+
+**`DIRECT-CADDIE-AUDIT` — 直连链路与球童算法专项复审** (`done`)
+
+本轮由产品负责人要求只聚焦两个问题：
+
+1. 比较 iPhone、Watch、Web 直接访问 Garmin 与经 homeserver 中转的真实边界、
+   往返时间、服务端计算/设备算力、认证/CORS/隐私和未来迁移到正常 server 后的
+   变化；不得把“少一跳”直接等同于一定更快。
+2. 重新审计球童推荐为何会出现“5 号铁接 1 号木”，参考 Garmin 可验证的
+   Virtual Caddie/球场数据能力但不臆测私有算法，建立硬约束、风险/稳定性模型、
+   推荐目标、解释和回归案例。
+
+本轮只读，不修改产品代码、不构建、不部署、不上传 TestFlight。必须把可确认的
+事实、估计和未知分开；尤其要说明直连能省掉哪一段、不能省掉哪一段，以及换 server
+后哪些瓶颈仍会存在。
+
+**Acceptance:** Fable 5.1 `xhigh` 输出一份独立报告，至少包含直连/中转的链路
+方程与可复现实验、当前 homeserver 与正常 server 的算力影响、三端权限边界，
+以及当前球童代码的错误链、可行算法、硬约束、数据需求、Garmin insight 边界和
+最小回归测试矩阵。实现切片 `NET-TASKS-P0` 保持 queued。
+
+**Audit execution:** 使用 homeserver source-only 临时快照和已有 APK/历史测量；
+禁止构建、安装依赖、启动服务、抓取大文件或修改 canonical checkout。资源清单、
+报告、raw JSON、handoff 和清理记录写入
+`/home/jason/garmin-ai-caddie-data/operations/fable-direct-caddie-20260918/`。
+
+**Previous slice:** `NET-FIRST-PRINCIPLES` 已完成，报告为
+`docs/reviews/2026-09-18-network-first-principles-review.md`；本轮针对新增的
+直连和球童问题，不把上一轮推荐当作结论。
+
+本轮由产品负责人要求在实施 P0 前跳出现有 package、缓存、首洞优先和
+homeserver 中转的局部格局，从“用户要在什么时间点获得什么能力、哪一层拥有
+什么权威、哪些数据必须本地、哪些工作不应发生在开局路径”重新设计系统边界。
+要求 Fable 5.1 `xhigh` 对现有 NET-AUDIT/NET-COMPARE 结论进行反证，不默认
+Garmin 的客户端顺序，不默认我们必须保留当前 API/package 形状，并尽可能通过
+APK、公开文档、现有历史测量和源码交叉确认；无法确认的事实必须明确列为未知。
+本轮只读，不修改产品代码、不构建、不部署、不上传 TestFlight。
+
+**Homeserver capacity cleanup (2026-09-18):** 只读盘点发现当前实际运行的
+API 只有 `39055`、`39067`、`39068` 三个实例；其中 `39067` 的
+`aicaddie-release-1e350be5-candidate-20260917` 已被当前 Build 65 的
+`7ef3fcc8` 候选取代，约占 389 MiB。第一阶段按精确 allow-list 停止了该容器及其
+专用 `codex-course-name-20260917-tunnel`（仅 stop，不删 image/volume/data）。
+`39055` 仍是 Caddy upstream，`39068` 仍是 Build 65 物理验证入口，二者均保留；
+PostgreSQL、Caddy、Tailscale 路由未改。停止后的 `39055/api/v2/health`、
+`39068/api/v2/health`、Caddy 公网和 Build 65 Quick Tunnel 均为 HTTP 200，
+可用内存约 4.6 GiB。allow-list、前后容量和结果保存在
+`docs/operations/cleanup-20260918-stale-candidate.md` 以及 homeserver
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260918T143500Z-stale-candidate/`。
+其余会话逐个核对用途；旧 Build 52 的
+`codex-aicaddie-quicktunnel-http2-20260907` 已在后续清理中停止，其他项目的
+`rc` 会话和当前 Build 65 隧道未改。
+
+**Expired-resource cleanup (2026-09-18 15:02 UTC):** 在确认 Build 65
+`39068` 是当前物理验证入口后，按独立 allow-list 停止了遗留的
+`codex-aicaddie-quicktunnel-http2-20260907`（旧 Build 52/`39055` 入口），并
+移除了已经 `Exited (143)` 的 `aicaddie-release-1e350be5-candidate-20260917`
+容器元数据。`39055` 本体仍作为 Caddy upstream/回滚保留；Build 65 隧道、
+镜像、共享卷、数据库和其他项目会话均未改。清理记录和远端 manifest 在
+`docs/operations/cleanup-20260918-expired-quicktunnel.md` 与
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260918T150000Z-expired-quicktunnel/`
+中；清理后四个容器全部运行，可用内存约 `5.1 GiB`，健康检查全部通过。
+
+**Acceptance:** 输出一份独立的第一性原理报告，至少回答：
+1. “开一场球”真正的最小可用产品状态和数据闭包是什么；18 洞完整事实、地图、
+   球童建议、历史同步、天气、账户认证之间哪些必须同步、哪些可以异步；
+2. Garmin Golf App、S70、homeserver、iPhone、Watch、Web 的真实边界和数据
+   权威分别是什么，是否存在不应经过 homeserver 的直连路径；
+3. 本项目是否应该继续以 PNG/package 为核心，还是改为版本化球场数据、端上
+   渲染、事件/任务系统或其他架构；给出至少两种替代架构及代价；
+4. 逐条核验当前“Garmin 更快”“公网不是主因”“L1/L2/L3 分层”“不恢复
+   first-hole-fast”等判断，明确证据、反例和需要实机确认的项目；
+5. 给出不可妥协的产品不变量、测量设计、迁移顺序和会损伤体验的地方，不把
+   建议目标写成已测事实。
+
+**Audit execution:** 使用 homeserver 只读临时快照；快照及资源清单必须记录在
+`/home/jason/garmin-ai-caddie-data/operations/`，审计结束后按 allow-list 清理。
+
+**Previous slice:** `NET-COMPARE` 已完成，报告与证据保留在
+`docs/reviews/2026-09-18-garmin-client-network-compare.md`；其结论是输入而非
+本轮前提。实现切片 `NET-TASKS-P0` 在复审期间保持 queued；复审完成后仍未自动开始实现。
+
+**DIRECT-CADDIE report completion (2026-09-18):** Claude Fable 5.1 `xhigh`
+专项审计报告保存在
+`/home/jason/garmin-ai-caddie-data/operations/fable-direct-caddie-20260918/fable-report.md`
+（SHA-256 `c875c2d853d456ad8804bb8d70ac6d337f884994bfaf2e6d94a5ca5f4d53bb64`），
+raw JSON SHA-256 `77d8b0fb6b9ac4cc57c48fb513cacd5cff85e3b37c8825cf2a5b8c8330ddb5fb`；
+本地摘要为 `docs/reviews/2026-09-18-direct-caddie-audit.md`。Fable 快照、临时
+资源和会话已清理；这证明只读报告已经完整交付，不等于实体设备/服务器的实测闭环
+已经完成。报告明确保留了实体 S70/iPhone/Watch 对照、正常 server 队列收益、Garmin
+运行时顺序/TTL/并发和算法回放为 `unknown/open`；未修改产品代码、构建、部署或
+TestFlight，`NET-TASKS-P0` 保持 queued。
+
+**Completion evidence (2026-09-18):** Claude Fable 5.1 `xhigh` 第二轮独立审计
+完成（session `52b87e1b-1ba4-41a5-b60f-0512bd702cc4`, 144 turns, exit 0）。
+持久化摘要为 `docs/reviews/2026-09-18-network-first-principles-review.md`；
+完整 homeserver 报告为
+`/home/jason/garmin-ai-caddie-data/operations/fable-net-first-principles-20260918/fable-report.md`
+（SHA-256 `3297f5d6127f0dc3b7b7517f176814d38bac3692cec2ade10a888b7650a32b25`），
+raw JSON SHA-256 `2c5a7637b9c12f6618d45133f63e0c3f0fa813b26780db2f04b6f368c75c4ae5`。
+本轮确认推荐 C 型混合架构：版本化 L1 球场事实、事件驱动玩家层、客户端缓存
+与矢量首屏、服务端 PNG 精确层；不推荐纯端上重写、客户端直连 Garmin 或恢复
+旧一洞 fast-start。最小开局闭包是约 20KB 的 L1 事实与本地 GPS，18 洞事实与
+首洞同源；天气、历史、精确 PNG、完整策略异步。Fable 没有新增 HTTP 探测，
+S70 秒数仍未知。snapshot `/dev/shm/garmin-ai-caddie-fable-net-first-principles-20260918`
+已按 allow-list 清理（约 29MiB），operations 证据保留；无容器、端口、隧道、
+服务或依赖环境遗留。`NET-TASKS-P0` 仍 queued，未修改产品代码。
+
+**Integrated next-step plan (2026-09-18 16:48 UTC):** 最近几轮关于 Garmin
+客户端速度、Home Server 中转/算力、球童错误序列、球场中文名、旧容器清理和
+TestFlight 行为已合并为一条顺序。当前没有产品实现切片在执行；审计已完成，
+但实测和实现不能互相冒充。
+
+1. **验证切片（`DIRECT-CADDIE-VALIDATION`, queued）：** 在 homeserver 先做
+   同场景 cold/warm、已安装/新球场、历史/新开局、Garmin 重连的分段基准；分别
+   记录 L1、当前洞、18 洞事实、精确资源、球童 ready、渲染和队列/CPU 时间，
+   再比较直连与中转、当前 homeserver 与正常 server 的差异。同步回放 12 个
+   球童 golden case。实体 S70/iPhone/Watch 的秒数、Garmin 客户端真实并发/TTL
+   仍标为 evidence-open，拿不到设备时不伪造数字，也不因此阻塞可在服务器完成
+   的代码修复。
+2. **唯一下一项实现切片（`NET-TASKS-P0`, queued）：** 先补复合后九的
+   `allow_lightweight_fetch=False` 漏传和回归；把 L1 球场事实、玩家统计、18 洞
+   seed、天气、历史和精确几何从同步 package 拆开；去掉 `round_id` 导致的
+   single-flight 重复；开局只等 L1/当前洞，非关键工作转 durable background
+   job；统一进度、心跳、取消、重试、恢复和跨端缓存键。完整离线保存所有地图
+   不在本计划内。
+3. **随后实现切片（`CADDIE-P0`, queued）：** 先落 12 个回归，再修硬可行性
+   筛选、分段障碍区间、静默全球球包 fallback、过滤后球包一致性、非 Tee 禁止
+   Driver、每杆按新落点/lie 重投影和无解原因返回；再做风险调整的期望杆数与
+   稳定性排序。目标是从算法上消灭“5 号铁接 1 号木”，不是调 safe/attack
+   文案或权重掩盖它。
+4. **P1/P2 性能与体验：** L1 物化/ETag 或对象分发、事件驱动玩家层、统一
+   iPhone/Watch/Web 缓存、矢量首屏、精确 PNG/果岭按需、预渲染和有限并发；
+   再验证障碍轮廓、放大拖动、旗杆底部拖动、首杆弧线及 loading UI。任何会让
+   首屏变慢或破坏交互的改动先用分段指标和回归截图拦截。
+5. **门禁与交付：** 每个实现切片只在 homeserver 完成 focused tests、Source/
+   Native CI 和 backend preflight 后，按既定规则自动上传新的内部 TestFlight；
+   Apple 状态和真机证据单独记录。常规构建/上传不再停下来等产品决策，只有
+   需要改变产品范围、外部分发或真实设备权限时才暂停。
+
+本轮承接用户对 `IMG_8119` 和 Garmin Golf 客户端速度差异的追问。目标不是
+继续在现有取消/进度问题上打补丁，而是从可验证证据重新回答：Garmin
+客户端是否直连哪些服务、哪些球场资产随客户端/设备预置、哪些请求按需发生，
+以及它如何组织缓存、预取、并发、超时和首屏优先级；再将这些事实与本项目
+的 iPhone、Watch、Web、homeserver、Garmin 出站请求逐跳对照，找出重复工作、
+串行等待、错误缓存边界和历史改动留下的冲突协议。历史球局、新开一场、球场
+目录、地图/障碍物、账户同步都必须纳入同一张依赖图。
+
+本轮只读审计，不修改产品网络代码、不重启现有服务、不上传 TestFlight。
+没有足够证据的 Garmin 内部行为必须标为未知，不能用“手表内置地图”或“同一
+服务器”作为未经验证的解释。
+
+**NET-COMPARE acceptance:**
+1. 给出 Garmin 客户端可复核的网络/资产/缓存证据，并区分 Android APK 反编译、
+   官方文档/公开流量证据与推断；不能把客户端体验直接当成服务器速度证明。
+2. 对同一条用户流程分别画出 Garmin 与本项目的阶段、依赖、并发边界和等待点，
+   明确手机直连、homeserver 中转、Garmin 出站和本地缓存各自增加的时间。
+3. 逐条盘点现有历史改动的协议冲突（package、prep、release、topo、sync、
+   round_id、fast-start、后台预热、账户/球场权限），给出保留、合并或删除的
+   唯一建议；不能再通过兼容分支掩盖矛盾。
+4. 输出可测量的冷/热/新装/重连/历史/开局基准方案和分段指标，之后才决定
+   是否需要取消按钮；“Garmin 没有取消按钮”只能作为设计约束，不能替代速度
+   根因分析。
+
+**Audit execution record:** 计划使用 homeserver 的只读临时快照和已持久化的
+Garmin Golf Android 包；快照、工具、网络抓包/反编译产物和清理记录必须写入
+`/home/jason/garmin-ai-caddie-data/operations/`，不得污染 canonical checkout。
+
+**Previous slice:** `NET-AUDIT` remains `evidence-open`; its Fable report and
+P0 findings remain valid inputs, but do not satisfy this Garmin speed comparison.
 
 本轮由 `IMG_8119` 触发：网络任务没有可见进度，也无法停止。已以
 Garmin 服务、homeserver API/任务队列、iPhone、Apple Watch 的缓存与请求
@@ -614,7 +789,29 @@ Garmin 服务、homeserver API/任务队列、iPhone、Apple Watch 的缓存与�
 给出可执行的统一架构，而不是只列局部优化建议。该验收条件已满足，但
 实现尚未开始。
 
-**Fable audit evidence (2026-09-18):** homeserver 只读临时快照由
+**NET-COMPARE completion evidence (2026-09-18):** Fable 5.1 `xhigh` 的
+Garmin Golf Android 3.9 与本项目逐跳对照已完成，完整审计文档为
+`docs/reviews/2026-09-18-garmin-client-network-compare.md`；homeserver 原始
+报告为 `/home/jason/garmin-ai-caddie-data/operations/fable-net-compare-20260918/fable-report.md`
+（SHA-256 `0dde9c0bbe8a5e542011823ac2a947d17e74baff9c6b80049c914dc6cb338717`），
+raw JSON SHA-256 `09dbfe143e872168172363c7c8eda9b08d67e5d42c17de2346e66bad7a8ddd40`。
+报告确认主要瓶颈是服务端 package 的 history/stats/18 洞 seed 计算、重复
+single-flight key 和后台几何争用；公网额外传输约 0.8 秒，不能解释 12–20 秒
+的主体等待。S70 没有公开可复现的开局秒数，当前 Watch 数字只有旧模拟器单次
+记录，不能作为硬 SLA。
+
+本轮额外核验修正了 Fable 报告中的范围：普通 package 顶层传入
+`allow_lightweight_fetch=False`，但复合 9+9 后九递归在
+`ai_caddie/caddie/mobile_live.py:3251-3267` 漏传该参数，可能同步抓取
+courseData/release。因此账本不写“所有运行期路径都不抓 courseData”，而写成
+“普通路径 cache-only，复合后九存在参数漏口”。Fable snapshot 已按精确路径
+清理；无容器、端口、隧道、依赖环境、服务或 worktree 遗留。
+
+**Next implementation slice (queued):** `NET-TASKS-P0`。本轮没有自动进入实现，
+因为 P0 是缓存/任务协议的产品范围选择；完整 P0/P1/P2 顺序已写入审计文档，
+不能把报告中的建议误报为已修复。
+
+**Previous NET-AUDIT evidence (2026-09-18):** homeserver 只读临时快照由
 `claude-fable-5-1` 以 `xhigh` 完成，session
 `55cb6a7e-c930-4ac3-94e9-0dc21823af80`，218 turns，约 20.8 分钟，exit 0，
 无权限拒绝。报告位于
@@ -638,7 +835,7 @@ journal/job 恢复语义，但用户仍看不到可靠进度，也不能停止�
 目录、release/courseData/精确几何、账户历史也应拆成独立数据/权限任务，不能
 让“连接 Garmin”成为串行总任务。
 
-**Next implementation slice (queued, not started):** `NET-TASKS-P0`。进入
+**NET-AUDIT follow-up (queued, not started):** `NET-TASKS-P0`。进入
 实现前需按 owner 决策确认范围；建议先做两个服务端 cancel API（course-install
 和 Garmin sync）及可持久化取消检查点，再做 iOS 服务端进度回写、暂停/移除
 UI、FIFO/有界重试，最后移除 Web 备战页隐式整场安装。审计报告中的 P1/P2
@@ -1612,6 +1809,11 @@ project-level task list; historical plans are reference material.
 | `PHONE-UX3` | `evidence-open` | Address the 7959–7961 feedback: real-time outer-map panning, one-at-a-time precise hazard geometry, water-safe club/route planning, unified tee anchor and opening distance arc, plus first-hole-priority startup without an ugly partial-map sketch. | Implementation is present at exact source `29d0a0c7a3fe8df73d7466e3765a60596996b03d`; homeserver focused suite `296 passed, 2 skipped`, Python compileall, Source CI `34709596756`, and Native `34709800015` (full live iOS/Watch evidence) pass. Internal TestFlight CD `34712702517` uploaded Build 58; ASC run `34713289501` confirmed it is processed and in the internal group. Remaining evidence is physical iPhone/Watch verification of real-time panning, pole-foot flag dragging, Garmin reconnect, and the final caddie recommendation. |
 | `PERF-STARTUP` | `evidence-open` | Reduce complete-round startup latency without storing every course map offline: reuse server decision/package work, connect existing stats warm-up, keep full 18-hole facts while prioritizing the active hole on phone, and use bounded Watch topo concurrency with on-demand green detail. | Implementation and remote focused suite (`334 passed, 2 skipped`) are green; Python compileall and diff-check pass. Source CI `34757661927`, exact-SHA live Native Mobile CI `34759807648`, and internal TestFlight CD `34763656027` are green. Build 59 is Apple `VALID`/`IN_BETA_TESTING` and visible in the internal group; physical iPhone/Watch interaction and Garmin reconnect remain open. |
 | `NET-AUDIT` | `evidence-open` | Full read-only audit of every networked lifecycle across Garmin services, homeserver API/jobs, iPhone, Watch, and caches: account/auth purpose, course assets, history, start-round, review, progress, cancellation, retry, resume, and UI priority. Root-cause `IMG_8119`'s missing progress and uncancellable task, then propose one coherent P0/P1/P2 architecture. | Fable 5.1 `xhigh` report and raw JSON are retained under `/home/jason/garmin-ai-caddie-data/operations/fable-net-audit-20260918/`; verdict `NO-GO` for the current lifecycle. Snapshot and all temporary resources are cleaned. Implementation remains queued as `NET-TASKS-P0`; no product code is claimed fixed. |
+| `NET-COMPARE` | `done` | Read-only Garmin Golf client versus our full network path comparison: client/server boundaries, preinstalled versus on-demand assets, cache and prefetch policy, concurrency, cold/warm startup, history sync, new-round startup, and conflicts across prior package/prep/release/topo/sync protocols. | `docs/reviews/2026-09-18-garmin-client-network-compare.md`; Fable 5.1 `xhigh` report/raw hashes recorded above; ordinary package cache-only versus composite back-course parameter leak explicitly corrected; snapshot cleaned. No product implementation or TestFlight claim. |
+| `NET-FIRST-PRINCIPLES` | `done` | Re-evaluate the network/course-data system from first principles before implementation; verify Garmin evidence boundaries, define the minimum playable closure, compare architectures, and establish invariants and measurements. | `docs/reviews/2026-09-18-network-first-principles-review.md`; Fable 5.1 `xhigh` session `52b87e1b-1ba4-41a5-b60f-0512bd702cc4`; report/raw hashes above; snapshot and local temporary copy cleaned. No product implementation or release action. |
+| `NET-TASKS-P0` | `in-progress` | Implement the first selected P0 network-lifecycle slice: L1 course facts, package deduplication, foreground/background priority, and durable progress/cancel semantics. | Started after validation on 2026-09-19. Existing lifecycle code remains the baseline; this slice must close the composite back-nine parameter leak, remove duplicate single-flight keys, and expose durable progress/heartbeat/cancel/retry/resume evidence before release. |
+| `DIRECT-CADDIE-VALIDATION` | `evidence-open` | Close the empirical follow-up left open by the read-only Fable report: measure entity S70/iPhone/Watch/Web startup stages and direct-vs-homeserver paths under matched conditions, benchmark normal-server queue/compute impact, then replay the 12 caddie golden cases before implementation claims. | Homeserver capacity passed; cold/warm loopback/public package timings, full-history versus `last20` profiling, and 12-case replay are recorded in `/home/jason/garmin-ai-caddie-data/operations/direct-caddie-validation-20260919/`. Replay fixture/test: `tests/fixtures/caddie_golden_cases.json`, `tests/test_caddie_golden_replay.py`; baseline SHA `070e67386609951c08d57a521d01599e821ea33775cf0bf6bf9adf3b0fecf90b`. Physical S70/iPhone/Watch timing and Garmin runtime concurrency remain evidence-open. |
+| `CADDIE-P0` | `queued` | Add the 12 caddie golden regressions, then enforce hard feasibility, segmented hazards, filtered club-set consistency, non-Tee Driver prohibition, per-shot re-projection, explicit infeasible reasons, and risk/stability ranking. | Not started. The direct-caddie audit identified the M1-M7 generation chain; no algorithm fix or replay result is claimed. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
@@ -2345,22 +2547,27 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Install internal TestFlight Build 63 on the physical iPhone and paired Watch.
-   Measure cold/warm start-to-facts, start-to-current-hole-map, caddie-ready and
-   complete-course-ready events on both devices; compare the same ready events
-   with an S70 only when the same course/install state can be reproduced.
-2. On the physical iPhone, verify live map panning after zoom, selected-hazard
-   contour/edge-label behavior at multiple zoom levels, pole-foot flag dragging
-   along the green boundary, the tee-only distance arc, one primary caddie
-   recommendation with only materially distinct alternatives, and that course
-   names match Garmin on the iPhone, Watch, and Web with no manual-name entry.
-3. In Build 63, create a fresh Garmin session and tap reconnect once; confirm
-   the state reads “已连接 · 同步完成” and that no-GPS/manual-search map and
-   caddie flows remain usable. Do not call the diagnostic refresh endpoint.
-4. Keep the `7efd9853` candidate container, Quick Tunnel, shared data, rollback
-   services, backups and cleanup manifests until physical validation is done.
-   Do not run external Beta Review, external tester distribution, production
-   deployment or synchronization as part of this handoff.
+1. Complete `NET-TASKS-P0` on the homeserver: close the composite-back-nine
+   `allow_lightweight_fetch` leak, split L1/current-hole facts from player/package
+   work, remove duplicate single-flight keys, and move non-critical work off T0.
+2. Add durable task progress/heartbeat/cancel/retry/resume assertions across the
+   API and client contracts. A task must have a monotonic progress record and a
+   terminal state; cancellation must not leave a foreground request waiting on a
+   stale generation. Do not add an all-maps-offline requirement.
+3. Run the focused backend/mobile contract suites and the package timing harness
+   against the existing candidate without stopping it. Record queue/CPU/request
+   segments and compare the post-change output with the validation baseline.
+4. Follow with `CADDIE-P0`: turn the 12-case fixture into blocking regressions,
+   then implement the hard feasibility and re-projection contract. Verify zero
+   Driver-on-non-Tee, zero silent global-bag fallback, zero impossible
+   second-shot sequence, and complete reason/confidence fields.
+5. Keep Build 65 and its `39068` candidate/Quick Tunnel available for physical
+   evidence. On the real iPhone/Watch, verify map panning, hazard contour labels,
+   pole-foot flag dragging, tee-only distance arc, canonical Garmin names, and a
+   fresh Garmin reconnect. Once source/Native/backend gates pass, the internal
+   TestFlight upload and Apple status check proceed automatically; external
+   distribution, production deployment and production synchronization remain
+   excluded.
 
 ## Open Blockers / Facts
 
@@ -2403,6 +2610,12 @@ Native runs recorded above; it is retained only as historical diagnosis.
   master checklist from memory.
 
 ## State Changes
+
+- 2026-09-18: 综合最近的 Garmin 客户端速度、Home Server 直连/中转、球童算法、
+  中文球场名和旧资源清理反馈，补齐唯一执行顺序：先做
+  `DIRECT-CADDIE-VALIDATION` 的分段实测与 12 个 golden 回放，再做
+  `NET-TASKS-P0`，随后做新增的 `CADDIE-P0`；明确完整离线保存所有地图不在范围内，
+  S70/实体设备秒数仍是 evidence-open，未将建议或审计写成已修复。
 
 - 2026-09-14: Exact-SHA Native Mobile CI `34901057848` completed successfully
   at `65a6064f`, with iOS/Watch compilation and tests, live course discovery,
@@ -4319,3 +4532,31 @@ Native runs recorded above; it is retained only as historical diagnosis.
   `IN_BETA_TESTING`, and visibility in `Jason's friends`. The PHONE-UX5 slice
   is now `evidence-open`: the user-facing manual course-name entry is removed,
   while physical iPhone/Watch name parity and Garmin reconnect remain open.
+- 2026-09-18: Completed the read-only `NET-COMPARE` slice with Claude Fable 5.1
+  `xhigh`. The archived report compares Garmin Golf Android 3.9's local course
+  DAO/version/download capabilities with the iPhone, Watch, Web, homeserver,
+  Garmin sync, package, prep, topo and history paths. It records historical
+  package timings (public `20.515s`, loopback `13.532s`) and the evidence boundary
+  that S70 has no public reproducible startup seconds. A source-level recheck
+  corrected one over-broad report claim: only the ordinary package is forced
+  cache-only; composite back-nine recursion can still inherit fetch-enabled
+  lightweight data. The persistent review is
+  `docs/reviews/2026-09-18-garmin-client-network-compare.md`; the temporary
+  Fable snapshot was removed, and no product code, build, deployment, or
+  TestFlight state changed. `NET-TASKS-P0` is queued pending scope selection.
+- 2026-09-18: Completed `NET-FIRST-PRINCIPLES` with a second independent Claude
+  Fable 5.1 `xhigh` review. The durable result defines R0 local shell, R1 first-hole
+  facts, R2 interactive vector/recommendation, R3 same-source 18-hole facts, and
+  R4 asynchronous precise resources; it rejects both pure client-side rewrites and
+  direct Garmin OMT access as the target architecture. It recommends the C-type
+  hybrid model and records eight non-negotiable invariants, the three-way resource
+  layering, entity-device measurement buckets, and P0/P1/P2 migration order.
+  The Fable snapshot was checked for handles and removed by exact allow-list; report,
+  raw JSON, handoff and cleanup evidence remain under the persistent operations
+  directory. No source, build, deployment, or TestFlight state changed.
+- 2026-09-18: Closed the expired Build 52 Quick Tunnel and removed the already
+  stopped `39067` candidate container metadata after Build 65 became the active
+  physical-validation entry. `39055` remains protected because Caddy still uses
+  it as the public upstream; images and volumes were retained. Post-cleanup
+  health checks for both APIs, Caddy, Build 65 Quick Tunnel, and PostgreSQL
+  passed, with four active containers and about `5.1 GiB` available memory.

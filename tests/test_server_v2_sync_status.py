@@ -147,6 +147,25 @@ class ServerV2SyncStatusTests(unittest.TestCase):
         self.assertEqual(payload["connector"]["nextAction"], "wait_for_sync")
         self.assertEqual(payload["lastRun"]["state"], "running")
 
+    def test_build_sync_status_preserves_cancelled_terminal_state(self) -> None:
+        from ai_caddie.connectors.snapshot import write_connector_status
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_connector_status(
+                root=root,
+                state="cancelled",
+                detail="同步任务已取消。",
+                snapshot_id=None,
+                error_code="user_cancelled",
+            )
+            payload = build_sync_status_response(root=root, data_mode="local").model_dump()
+
+        self.assertEqual(payload["connector"]["state"], "cancelled")
+        self.assertEqual(payload["connector"]["nextAction"], "inspect_sync_error")
+        self.assertTrue(payload["connector"]["canSync"])
+        self.assertEqual(payload["lastRun"]["state"], "cancelled")
+
     def test_reauth_required_status_preserves_last_successful_snapshot_metadata(self) -> None:
         from ai_caddie.connectors.snapshot import write_connector_status
 
@@ -354,7 +373,7 @@ class ServerV2SyncStatusTests(unittest.TestCase):
         self.assertNotIn("schema_", payload)
         self.assertIn(
             payload["connector"]["state"],
-            ["ready", "no_data", "running", "reauth_required", "error"],
+            ["ready", "no_data", "running", "reauth_required", "error", "cancelled"],
         )
 
 

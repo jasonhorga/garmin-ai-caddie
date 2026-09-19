@@ -54,6 +54,7 @@ public struct RoundHomeView: View {
     public let onSetActiveHole: (Int) -> Void
     public let onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void
     public let onSync: () -> Void
+    public let onCancelGarminSync: () async -> Void
     public let onGarminSessionImported: () async -> Bool
     /// Typed variant used by the Garmin account screen. The Bool callback remains as a compatibility
     /// bridge for older snapshot/test callers.
@@ -119,6 +120,7 @@ public struct RoundHomeView: View {
         onSetActiveHole: @escaping (Int) -> Void = { _ in },
         onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
         onSync: @escaping () -> Void = {},
+        onCancelGarminSync: @escaping () async -> Void = {},
         onGarminSessionImported: @escaping () async -> Bool = { false },
         onGarminSessionImportedOutcome: (() async -> GarminSyncOutcome)? = nil,
         onRefreshGarminSyncStatus: @escaping () async -> Void = {},
@@ -173,6 +175,7 @@ public struct RoundHomeView: View {
         self.onSetActiveHole = onSetActiveHole
         self.onRetainReadyHolePrep = onRetainReadyHolePrep
         self.onSync = onSync
+        self.onCancelGarminSync = onCancelGarminSync
         self.onGarminSessionImported = onGarminSessionImported
         self.onGarminSessionImportedOutcome = onGarminSessionImportedOutcome
         self.onRefreshGarminSyncStatus = onRefreshGarminSyncStatus
@@ -554,15 +557,19 @@ public struct RoundHomeView: View {
                         }
                     }
                     Button {
-                        onSync()
+                        if isGarminSyncing {
+                            Task { await onCancelGarminSync() }
+                        } else {
+                            onSync()
+                        }
                     } label: {
                         Label(
-                            "立即同步 Garmin",
-                            systemImage: "arrow.clockwise"
+                            isGarminSyncing ? "取消同步" : "立即同步 Garmin",
+                            systemImage: isGarminSyncing ? "xmark.circle" : "arrow.clockwise"
                         )
                     }
                     .foregroundStyle(LiveHoleStyle.green)
-                    .disabled(isGarminSyncing || apiBaseURL == nil)
+                    .disabled(apiBaseURL == nil)
                     .accessibilityIdentifier("settings-sync-garmin")
                 } header: {
                     Text("Garmin 数据")

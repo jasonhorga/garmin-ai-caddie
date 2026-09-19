@@ -61,6 +61,12 @@ public struct GarminSyncRunResponse: Codable, Equatable {
     public let detail: String
     public let reauthRequired: Bool
     public let errorCode: String?
+    public let generation: Int?
+    public let phase: String?
+    public let progress: Int?
+    public let heartbeatAt: String?
+    public let cancelRequested: Bool?
+    public let terminalReason: String?
 }
 
 /// Result of a user-visible Garmin pull. A saved web session is not a successful
@@ -69,6 +75,7 @@ public struct GarminSyncRunResponse: Codable, Equatable {
 public enum GarminSyncOutcome: Equatable {
     case completed
     case inProgress
+    case cancelled
     case reauthRequired
     case failed
 }
@@ -83,6 +90,7 @@ public enum GarminConnectionState: Equatable {
     case connected
     case connectedNoChanges
     case connectedUpdated
+    case cancelled
     case verificationFailed
     case syncFailed
     case reauthRequired
@@ -104,6 +112,8 @@ public enum GarminConnectionState: Equatable {
             return "Garmin 已同步，暂无新球局"
         case .connectedUpdated:
             return "Garmin 数据已更新"
+        case .cancelled:
+            return "Garmin 同步已取消，可重试"
         case .verificationFailed:
             return "Garmin 登录已保存，暂时无法验证；可重试"
         case .syncFailed:
@@ -129,7 +139,7 @@ public enum GarminConnectionState: Equatable {
     }
 
     public var canRetrySavedSession: Bool {
-        self == .awaitingVerification || self == .verificationFailed || self == .syncFailed
+        self == .awaitingVerification || self == .verificationFailed || self == .syncFailed || self == .cancelled
             || self == .persistenceFailed
     }
 }
@@ -633,6 +643,45 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        applyAuth(to: &request)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(GarminSyncRunResponse.self, from: data)
+    }
+
+    /// Ask the server to cancel the durable provider job. Cancelling a local polling task alone
+    /// would leave Garmin work running, so callers use this endpoint before dismissing progress.
+    public func cancelGarminSyncJob(statusURL: String) async throws -> GarminSyncRunResponse {
+        try await postGarminSyncJobAction(statusURL: statusURL, action: "cancel")
+    }
+
+    /// Requeue a terminal job as a new server generation, preserving its original request flags.
+    public func retryGarminSyncJob(statusURL: String) async throws -> GarminSyncRunResponse {
+        try await postGarminSyncJobAction(statusURL: statusURL, action: "retry")
+    }
+
+    private func postGarminSyncJobAction(
+        statusURL: String,
+        action: String
+    ) async throws -> GarminSyncRunResponse {
+        let components = statusURL.split(separator: "/", omittingEmptySubsequences: true)
+        let ownerShape = components.count == 6
+            && components[0] == "api" && components[1] == "v2"
+            && components[2] == "sync" && components[3] == "garmin"
+            && components[4] == "jobs"
+        let memberShape = components.count == 8
+            && components[0] == "api" && components[1] == "v2"
+            && components[2] == "players" && components[4] == "sync"
+            && components[5] == "garmin" && components[6] == "jobs"
+        guard (ownerShape || memberShape), !components.contains(where: { $0.isEmpty }),
+              ["cancel", "retry"].contains(action),
+              let url = URL(string: "\(statusURL)/\(action)", relativeTo: baseURL)?.absoluteURL,
+              url.host == baseURL.host, url.scheme == baseURL.scheme else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
         request.timeoutInterval = 15
         applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)

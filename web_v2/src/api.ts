@@ -169,11 +169,12 @@ async function postJson<T>(path: string, body: unknown, adminToken?: string, sig
   return response.json() as Promise<T>
 }
 
-async function postEmpty<T>(path: string, adminToken?: string): Promise<T> {
+async function postEmpty<T>(path: string, adminToken?: string, signal?: AbortSignal): Promise<T> {
   const url = apiUrl(path)
   const headers = { ...adminTokenHeader(adminToken), ...playerTokenHeader() }
   const init: RequestInit = { method: 'POST' }
   if (Object.keys(headers).length) init.headers = headers
+  if (signal) init.signal = signal
   const response = await fetch(url, init)
   if (!response.ok) {
     throw new Error(`POST ${url} failed: ${response.status} ${response.statusText}`)
@@ -691,6 +692,20 @@ export function fetchGarminSyncJob(statusUrl: string, adminToken?: string, signa
     return Promise.reject(new Error('Invalid Garmin sync job URL'))
   }
   return getJson<SyncRunResponse>(statusUrl, adminToken, signal)
+}
+
+function garminJobActionPath(statusUrl: string, action: 'cancel' | 'retry'): string {
+  const isGarminJobPath = /^\/api\/v2\/(?:sync\/garmin\/jobs\/[^/?#]+|players\/[^/?#]+\/sync\/garmin\/jobs\/[^/?#]+)$/.test(statusUrl)
+  if (!isGarminJobPath) throw new Error('Invalid Garmin sync job URL')
+  return `${statusUrl}/${action}`
+}
+
+export function cancelGarminSyncJob(statusUrl: string, adminToken?: string, signal?: AbortSignal): Promise<SyncRunResponse> {
+  return postEmpty<SyncRunResponse>(garminJobActionPath(statusUrl, 'cancel'), adminToken, signal)
+}
+
+export function retryGarminSyncJob(statusUrl: string, adminToken?: string, signal?: AbortSignal): Promise<SyncRunResponse> {
+  return postEmpty<SyncRunResponse>(garminJobActionPath(statusUrl, 'retry'), adminToken, signal)
 }
 
 export function saveGarminSession(

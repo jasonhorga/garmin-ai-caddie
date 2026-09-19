@@ -95,6 +95,9 @@ def _next_action(state: str) -> str | None:
         "running": "wait_for_sync",
         "reauth_required": "reauthenticate_garmin",
         "error": "inspect_sync_error",
+        # Cancellation is a terminal, user-directed outcome. Keep the existing action vocabulary
+        # stable while directing the UI to its retry/error affordance.
+        "cancelled": "inspect_sync_error",
     }.get(state)
 
 
@@ -149,9 +152,10 @@ def build_sync_status_response(
     if persisted_state == "running":
         state = "running"
         detail = sanitize_secret_text(persisted.get("detail") or "Garmin sync is in progress.")
-    elif persisted_state in {"reauth_required", "error"}:
+    elif persisted_state in {"reauth_required", "error", "cancelled"}:
         state = persisted_state
-        detail = sanitize_secret_text(persisted.get("detail") or "Garmin connector needs attention.")
+        fallback = "Garmin sync was cancelled." if persisted_state == "cancelled" else "Garmin connector needs attention."
+        detail = sanitize_secret_text(persisted.get("detail") or fallback)
     else:
         state = "ready" if has_data else "no_data"
         detail = (

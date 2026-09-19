@@ -1374,6 +1374,10 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
             for name, distance in usable_ladder
             if club_bag_service.canonical_club_name(name)
             != club_bag_service.canonical_club_name(tee_club)
+            # Driver is a tee-only club in the planning contract. If water forced a shorter
+            # opening club, the old "longest approach" branch could put Driver back into the
+            # second shot and produce sequences such as 5I -> 1W.
+            and club_bag_service.canonical_club_name(name) != "driver"
         ]
         # Plan a complete Par 4/5 chain. A long Par 5 remainder is not one imaginary approach; use
         # the longest playable non-driver until a normal scoring club can cover what remains.

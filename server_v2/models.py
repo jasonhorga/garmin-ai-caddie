@@ -18,7 +18,16 @@ def _reject_oversized(value: Any, *, label: str, max_bytes: int = 131_072) -> An
 DataQualityState = Literal["good", "partial", "missing"]
 ScoreClass = Literal["eagle", "birdie", "par", "bogey", "double", "missing"]
 DistributionClass = Literal["eagle", "birdie", "bogey", "double"]
-ConnectorState = Literal["queued", "ready", "no_data", "running", "reauth_required", "error", "not_available"]
+ConnectorState = Literal[
+    "queued",
+    "ready",
+    "no_data",
+    "running",
+    "reauth_required",
+    "error",
+    "cancelled",
+    "not_available",
+]
 ConnectorName = Literal["garmin_cn_web_session", "garmin_oauth_feasibility"]
 ConnectorNextAction = Literal[
     "connect_garmin",
@@ -648,6 +657,12 @@ class SyncRunResponse(BaseModel):
     errorCode: str | None
     snapshot: SyncSnapshotPayload | None
     safeMeta: dict[str, Any] = Field(default_factory=dict)
+    generation: int = 1
+    phase: str = "queued"
+    progress: int = Field(default=0, ge=0, le=100)
+    heartbeatAt: str | None = None
+    cancelRequested: bool = False
+    terminalReason: str | None = None
 
 
 class GarminSessionImportRequest(BaseModel):
@@ -1039,6 +1054,7 @@ class LiveRoundPackageResponse(BaseModel):
     readinessChecks: list[dict[str, Any]] = Field(default_factory=list)
     nine: Literal["all", "front", "back"] = "all"
     caddieContextSeeds: list[dict[str, Any]]
+    enrichmentState: dict[str, Any] | None = None
     weatherSnapshot: dict[str, Any]
     clubProfiles: list[dict[str, Any]]
     caddieDecisionEndpoint: str

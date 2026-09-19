@@ -13,6 +13,20 @@ public enum OfflinePackageCacheState: String, Equatable {
     case degraded
 }
 
+/// Optional caddie work that is intentionally hydrated when a later hole opens. The factual
+/// course package remains one protocol; this metadata only tells clients which seed details are
+/// provisional and must not be presented as complete offline hazard evidence.
+public struct PackageEnrichmentState: Codable, Equatable {
+    public let schema: String
+    public let state: String
+    public let strategy: String
+    public let priorityHoles: [Int]
+    public let readyHoles: [Int]
+    public let pendingHoles: [Int]
+    public let pendingEnrichment: [[String: JSONValue]]
+    public let onDemandEndpoint: String
+}
+
 public struct LiveRoundPackage: Codable, Equatable {
     public let schema: String
     public let roundId: String
@@ -28,6 +42,7 @@ public struct LiveRoundPackage: Codable, Equatable {
     public let geometryCoverage: GeometryCoverage
     public let readinessChecks: [PackageReadinessCheck]
     public let caddieContextSeeds: [CaddieContextSeed]
+    public let enrichmentState: PackageEnrichmentState?
     public let weatherSnapshot: WeatherSnapshot
     public let clubProfiles: [ClubProfile]
     public let caddieDecisionEndpoint: String
@@ -61,7 +76,8 @@ public struct LiveRoundPackage: Codable, Equatable {
         recentHistory: RecentHistory,
         cachedCaddieRules: CachedCaddieRules,
         generatedAt: String,
-        readinessState: String? = nil
+        readinessState: String? = nil,
+        enrichmentState: PackageEnrichmentState? = nil
     ) {
         self.schema = schema
         self.roundId = roundId
@@ -76,6 +92,7 @@ public struct LiveRoundPackage: Codable, Equatable {
         self.geometryCoverage = geometryCoverage
         self.readinessChecks = readinessChecks
         self.caddieContextSeeds = caddieContextSeeds
+        self.enrichmentState = enrichmentState
         self.weatherSnapshot = weatherSnapshot
         self.clubProfiles = clubProfiles
         self.caddieDecisionEndpoint = caddieDecisionEndpoint
@@ -134,6 +151,7 @@ public struct LiveRoundPackage: Codable, Equatable {
             geometryCoverage: geometryCoverage,
             readinessChecks: readinessChecks,
             caddieContextSeeds: caddieContextSeeds,
+            enrichmentState: enrichmentState,
             weatherSnapshot: weatherSnapshot,
             clubProfiles: clubProfiles,
             caddieDecisionEndpoint: caddieDecisionEndpoint,
@@ -175,6 +193,7 @@ public struct LiveRoundPackage: Codable, Equatable {
             geometryCoverage: geometryCoverage,
             readinessChecks: readinessChecks,
             caddieContextSeeds: caddieContextSeeds,
+            enrichmentState: enrichmentState,
             weatherSnapshot: weatherSnapshot,
             clubProfiles: clubProfiles,
             caddieDecisionEndpoint: caddieDecisionEndpoint,
@@ -210,7 +229,8 @@ public struct LiveRoundPackage: Codable, Equatable {
                 roundFound: false,
                 availableRoundCount: sourceCoverage.availableRoundCount,
                 holeCount: holes.count,
-                clubProfileCount: sourceCoverage.clubProfileCount
+                clubProfileCount: sourceCoverage.clubProfileCount,
+                playerStatsWindow: sourceCoverage.playerStatsWindow
             ),
             missingData: missingData,
             playerProfile: playerProfile,
@@ -230,6 +250,7 @@ public struct LiveRoundPackage: Codable, Equatable {
                 )
             },
             caddieContextSeeds: rebasedSeeds,
+            enrichmentState: enrichmentState,
             // A course template can live for weeks. Its map, clubs and historical evidence remain
             // reusable, but its weather does not. Online revalidation supplies a fresh snapshot;
             // an offline start stays honest and makes no wind adjustment from prep-day conditions.
@@ -262,6 +283,9 @@ public struct SourceCoverage: Codable, Equatable {
     public let availableRoundCount: Int
     public let holeCount: Int
     public let clubProfileCount: Int
+    /// The bounded history projection used to make this startup package.
+    /// Older cached packages may omit it, so decoding remains backward-compatible.
+    public let playerStatsWindow: String?
 }
 
 public struct PlayerProfile: Codable, Equatable {
@@ -413,6 +437,7 @@ public struct CaddieContextSeed: Codable, Equatable, Identifiable {
     public let sourceRef: String
     public let shotTypes: [String]
     public let requiredLiveInputs: [String]
+    public let enrichmentState: String?
     public let context: [String: JSONValue]
     public let selectedOfflineOptionId: String?
     public let offlineOptions: [OfflineCaddieOption]
@@ -424,6 +449,7 @@ public struct CaddieContextSeed: Codable, Equatable, Identifiable {
         case sourceRef
         case shotTypes
         case requiredLiveInputs
+        case enrichmentState
         case context
         case selectedOfflineOptionId
         case offlineOptions
@@ -436,6 +462,7 @@ public struct CaddieContextSeed: Codable, Equatable, Identifiable {
         sourceRef: String,
         shotTypes: [String],
         requiredLiveInputs: [String],
+        enrichmentState: String? = nil,
         context: [String: JSONValue],
         selectedOfflineOptionId: String?,
         offlineOptions: [OfflineCaddieOption],
@@ -446,6 +473,7 @@ public struct CaddieContextSeed: Codable, Equatable, Identifiable {
         self.sourceRef = sourceRef
         self.shotTypes = shotTypes
         self.requiredLiveInputs = requiredLiveInputs
+        self.enrichmentState = enrichmentState
         self.context = context
         self.selectedOfflineOptionId = selectedOfflineOptionId
         self.offlineOptions = offlineOptions
@@ -459,6 +487,7 @@ public struct CaddieContextSeed: Codable, Equatable, Identifiable {
         self.sourceRef = try container.decode(String.self, forKey: .sourceRef)
         self.shotTypes = try container.decode([String].self, forKey: .shotTypes)
         self.requiredLiveInputs = try container.decode([String].self, forKey: .requiredLiveInputs)
+        self.enrichmentState = try container.decodeIfPresent(String.self, forKey: .enrichmentState)
         self.context = try container.decode([String: JSONValue].self, forKey: .context)
         self.selectedOfflineOptionId = try container.decodeIfPresent(String.self, forKey: .selectedOfflineOptionId)
         let offlineOptions = try container.decodeIfPresent([OfflineCaddieOption].self, forKey: .offlineOptions)
@@ -500,6 +529,7 @@ public struct CaddieContextSeed: Codable, Equatable, Identifiable {
             sourceRef: nextSourceRef,
             shotTypes: shotTypes,
             requiredLiveInputs: requiredLiveInputs,
+            enrichmentState: enrichmentState,
             context: nextContext,
             selectedOfflineOptionId: selectedOfflineOptionId,
             offlineOptions: offlineOptions.map {
