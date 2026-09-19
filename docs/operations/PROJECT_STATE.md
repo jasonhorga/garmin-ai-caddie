@@ -9,21 +9,17 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-19 22:07 UTC
-**Branch:** `integration/v2` (GitHub default; current CADDIE-P0 backend source
-`aa05695f063d0d2d8b855e76c10174d6e4d1902f`, code
-`27ece0943a99bffc9fee3e520dba26a0750b17d9`; Source CI `35462771563`; API
-candidate `https://robbie-afford-couple-testimonials.trycloudflare.com` on
-loopback `39072`; exact-SHA Native runs `35463569818`, `35466542942`, and
-`35469148080` each completed the non-failing iOS/Watch/evidence stages while
-isolating, respectively, a stale no-route selector, one dropped XCUITest tap,
-and intermittent Quick Tunnel timeouts during nearby discovery. The selector
-and tap corrections are committed at `4d56cd56` and `2cdeb436`; a bounded
-foreground discovery budget is now under verification. Current network-lifecycle source
-`05761a41efa63d810abe66c4630325eeb03e7289`, backend
-`86378a0bfe726c4106caa06c404fc61cb2443124`, internal TestFlight Build 67 via
-CD `35457421840`, Apple read-only check `35457991975`; prior localized-course-name
-and network releases remain recorded below)
+**Updated:** 2026-09-19 23:26 UTC
+**Branch:** `integration/v2` (GitHub default; current `CADDIE-P0` source
+`327048e1eb49a1fafc4f10ce6534627d3bc27122`, backend
+`aa05695f063d0d2d8b855e76c10174d6e4d1902f`; Source CI `35472469464` and
+exact-SHA Native Mobile CI `35472611538` passed; API candidate
+`https://robbie-afford-couple-testimonials.trycloudflare.com` remains on
+loopback `39072`; internal TestFlight CD `35475506127` uploaded Build 68 and
+Apple read-only check `35475956794` confirmed it valid and available to the
+existing internal all-builds group. `CADDIE-P0` is `evidence-open` only for
+physical iPhone/Watch validation; prior localized-course-name and network
+releases remain recorded below)
 **Source baseline:** `d8769916d4b7ea1fc8b2bdcfb151a67f944a6eb0` (PHONE-UX5
 course-name source; Source CI `35005531664`, Native Mobile CI `35005819951`,
 and internal TestFlight CD `35013065767` passed/uploaded; Apple read-only check
@@ -91,10 +87,15 @@ release-scope decision; do not pause for routine TestFlight execution.
   healthy and returned HTTP 200 for every request it received. This exposed a
   product defect: automatic nearby discovery could spend 30 seconds per attempt
   across the default three-attempt retry policy and remain loading beyond the
-  UI's 60-second recoverable-state gate. The current correction gives catalogue
+  UI's 60-second recoverable-state gate. Correction `327048e1` gives catalogue
   discovery two transient-only attempts sharing a 25-second foreground budget,
-  with stale/cancelled generation coverage. Fresh Source/Native CI, internal
-  TestFlight upload and Apple status verification remain.
+  with stale/cancelled generation coverage. Source CI `35472469464` and
+  exact-SHA Native Mobile CI `35472611538` passed; the latter completed all 11
+  real iOS UI tests and all 332 Watch tests. Internal TestFlight CD
+  `35475506127` uploaded Build 68, and Apple read-only check `35475956794`
+  confirmed it `VALID`, unexpired, `IN_BETA_TESTING`, arm64, and visible in the
+  existing internal all-builds group. Physical iPhone/Watch validation remains
+  open; no external distribution or production promotion occurred.
 - **PHONE-UX5 course-name release (2026-09-15):** The iPhone, Apple Watch, and
   Web paths now consume the Garmin-authoritative course identity. The user-facing
   manual Chinese-name entry has been removed; unmarked/manual cached labels cannot
@@ -648,23 +649,18 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`CADDIE-P0` — 球童硬可行性与稳定性排序** (`in-progress`)
+**`CADDIE-P0` — 球童硬可行性与稳定性排序** (`evidence-open`)
 
 `NET-TASKS-P0` 已完成实现、Source/Native 门禁、内部 TestFlight Build 67 上传与
 Apple 状态确认，转为 `evidence-open` 等待实体 iPhone/Watch 验证。现在只推进
-球童 P0。实现和 homeserver 回归已在代码提交 `27ece094` 完成，Source CI 和
-revision-matched 后端候选/公网 preflight 已通过。第一次 Native 失败的实际球杆
-selector 修复已提交为 `4d56cd56`，Source CI `35466407538` 通过。Native rerun
-`35466542942` 的 iOS 单测、live catalogue、10/11 live UI、Watch runtime、artifacts
-和 secret scans 均通过；唯一红项的一次 XCUITest 丢点击已由 `2cdeb436` 的有界重试
-处理。随后 exact-SHA Native `35469148080` 通过 iOS app/design/live/review、332/332
-Watch、runtime artifacts 和 secret scans，只在三个后段 TeeSelection 场景失败。
-日志证明候选容器始终健康且所有到达请求均为 HTTP 200；失败窗口的 nearby 请求有些
-根本未到容器，客户端记录 Quick Tunnel `-1001` timeout 和 TLS `Broken pipe`。
-当前工作树修复真正的产品问题：球场目录请求最多两次、单次 15 秒且共享 25 秒前台
-总预算，并保持取消/GPS generation 防护；不再靠延长 UI 测试掩盖。唯一下一步是
-提交/推送，依次重跑 Source 与 exact-SHA Native；绿色后自动上传内部 TestFlight
-并做 Apple 只读状态核验。实体 iPhone/Watch 的最终推荐体验仍为 `evidence-open`。
+球童 P0。实现和 homeserver 回归在 `27ece094` 完成；`4d56cd56` 修正无路线时的实际
+球杆选择器，`2cdeb436` 稳定一次丢失的目录按钮点击，`327048e1` 将前台球场目录请求
+限制为最多两次、单次 15 秒且共享 25 秒总预算，并保留取消和 GPS generation 防护。
+Source CI `35472469464`、exact-SHA Native Mobile CI `35472611538`、内部 TestFlight
+CD `35475506127` 和 Apple 只读状态检查 `35475956794` 全部通过。Build 68 已在现有
+内部 all-builds group 中，后端候选仍是 `aa05695f`/`39072`。唯一下一步是实体
+iPhone/Watch 验证球场发现的可恢复状态、最终球童推荐和真实触控体验；不得据此声称
+实体证据已闭环。没有外部分发、tester 变更或生产提升。
 
 **`DIRECT-CADDIE-AUDIT` — 直连链路与球童算法专项复审** (`done`)
 
@@ -4710,3 +4706,31 @@ Native runs recorded above; it is retained only as historical diagnosis.
   course discovery 15 seconds per attempt and one shared 25-second foreground
   budget, plus cancellation and stale-generation coverage. Source/Native gates
   must pass before the automatic internal TestFlight upload.
+- 2026-09-19: The bounded foreground-discovery correction was committed and
+  pushed as `327048e1eb49a1fafc4f10ce6534627d3bc27122`. Source CI
+  `35472469464` passed. Exact-SHA Native Mobile CI `35472611538` passed iOS app
+  tests, SwiftJCS, live preflight, all 11 real iOS UI tests in `1926.9s`, all
+  332 Watch tests, runtime captures, evidence writing, artifact scans and secret
+  scans. Its artifact IDs and ZIP digests are: `real-screenshots` `10593888647`
+  (`sha256:ead8572a08cd7c0a08fd83b4545a53566d8d8a17f46d8f5731d6d7c9c2c31b7e`),
+  `real-video` `10594063550`
+  (`sha256:00ce795a1b286c9e8334cf9e076b3a7437a164b9df0070d6817856a5799caae1`),
+  `native-build-evidence` `10593869645`
+  (`sha256:04369befed2fc933ba3e2429eddd8e2b9ae7495e1c746c2f7821ccb07d0a1d79`),
+  `watch-real-screenshots` `10593724737`
+  (`sha256:1d107f48f994f07167aa806b35c064bc2e4623a55eec14f4105dd448ca43f479`),
+  `watch-snapshots` `10593053783`
+  (`sha256:94dd40db437f2e293b0b34dde304d579d7209295fbffb891e882041a46e8ceb7`),
+  and `design-snapshots` `10593516533`
+  (`sha256:9bdd354a8ea0bf29f2c69a5c95567d43ce4022a219709d0e8dd758a3be063f66`).
+  Internal TestFlight CD `35475506127` then uploaded Build `0.1.0 (68)` from
+  that exact source with backend `aa05695f063d0d2d8b855e76c10174d6e4d1902f`;
+  the IPA SHA-256 is
+  `ae9536dd781b69463b17cea72ed180c8e09c3a219a478dd373a232f1c85beec2`, and
+  artifact `AICaddie-ipa` `10593089416` has ZIP digest
+  `sha256:7a55572ab6cb57f06a60768de2182b0aa3ce05e187c406e991f10ad42c26c366`.
+  Apple read-only check `35475956794` confirmed `VALID`, unexpired,
+  `usesNonExemptEncryption=false`, `IN_BETA_TESTING`, iOS arm64, and visibility
+  through the existing internal all-builds group. `CADDIE-P0` therefore moved
+  to `evidence-open`; only physical iPhone/Watch validation remains. No external
+  distribution, tester mutation, or production promotion occurred.
