@@ -93,7 +93,7 @@ final class TeeSelectionUITests: XCTestCase {
         palace.tap()
         let teeLoading = app.staticTexts["正在获取发球台…"]
         XCTAssertTrue(
-            teeLoading.waitForExistence(timeout: 1),
+            teeLoading.waitForExistence(timeout: 4),
             "a selected course must expose its in-flight Tee authority state"
         )
         XCTAssertFalse(

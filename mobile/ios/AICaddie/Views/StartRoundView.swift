@@ -708,10 +708,9 @@ public struct StartRoundView: View {
                 Text("上次明确开始过的球场，可直接重新开始。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                // Keep the same selectable-row identity as a nearby result so existing start
-                // journeys can recover the course without a second selection protocol. The card
-                // header carries the provenance marker; the row itself remains the same action.
-                segmentRow(recent)
+                // Keep the same selection action, but expose a distinct accessibility identity:
+                // this row is a recovery affordance, never evidence that the course is nearby.
+                segmentRow(recent, identifierPrefix: "start-round-recent-course-segment")
             }
             .liveCard()
         }
