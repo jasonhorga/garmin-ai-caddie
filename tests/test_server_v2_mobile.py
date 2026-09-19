@@ -390,7 +390,7 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(sum(row["club"] == "Driver" for row in clear), 1)
         self.assertNotEqual(guarded_primary["club"], "Driver")
 
-    def test_equal_distance_physical_clubs_are_modeled_independently(self) -> None:
+    def test_equal_distance_physical_clubs_are_compared_without_a_dominated_mode(self) -> None:
         from ai_caddie.caddie import mobile_live
 
         rows = mobile_live._caddie_clean_rows([
@@ -404,7 +404,7 @@ class ServerV2MobileTests(unittest.TestCase):
             },
         ])
 
-        alternative, primary, _ = mobile_live._shot_option_clubs(
+        safe, primary, attack = mobile_live._shot_option_clubs(
             rows,
             par=3,
             target_m=180.0,
@@ -412,7 +412,123 @@ class ServerV2MobileTests(unittest.TestCase):
         )
 
         self.assertEqual(primary["clubName"], "Beta Club")
-        self.assertEqual(alternative["clubName"], "Alpha Club")
+        self.assertIsNone(safe)
+        self.assertIsNone(attack)
+
+    def test_par3_water_removes_every_overlapping_club_instead_of_labeling_it_attack(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        profiles = [
+            {"clubName": "Driver", "median_m": 197.5, "p10_m": 170.7, "p90_m": 221.6, "sampleSize": 2970},
+            {"clubName": "3W", "median_m": 175.3, "p10_m": 115.1, "p90_m": 208.6, "sampleSize": 473},
+            {"clubName": "3H", "median_m": 161.9, "p10_m": 122.1, "p90_m": 188.1, "sampleSize": 180},
+            {"clubName": "5I", "median_m": 146.4, "p10_m": 113.2, "p90_m": 164.6, "sampleSize": 160},
+        ]
+        water = [{"id": "front-water", "kind": "water", "carryToFront_m": 44.0, "carryToClear_m": 118.0}]
+
+        routes = mobile_live._tee_candidate_routes(
+            {"yards": 175},
+            profiles,
+            [{"id": "front-water", "kind": "water"}],
+            par=3,
+            target_m=160.0,
+            avoid_zones=water,
+        )
+
+        self.assertEqual([(row["id"], row["club"]) for row in routes], [("stock_line", "Driver")])
+        self.assertEqual(routes[0]["planningHazards"], water)
+
+    def test_low_sample_wide_driver_yields_to_stable_three_wood(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        rows = mobile_live._caddie_clean_rows(
+            [
+                {"clubName": "Driver", "median_m": 197.5, "p10_m": 150.0, "p90_m": 230.0, "sampleSize": 5},
+                {"clubName": "3W", "median_m": 175.3, "p10_m": 145.0, "p90_m": 198.0, "sampleSize": 473},
+                {"clubName": "5I", "median_m": 146.4, "p10_m": 125.0, "p90_m": 164.6, "sampleSize": 160},
+                {"clubName": "Aw", "median_m": 103.2, "p10_m": 88.0, "p90_m": 118.0, "sampleSize": 160},
+            ]
+        )
+
+        safe, stock, attack = mobile_live._shot_option_clubs(
+            rows,
+            par=4,
+            target_m=365.0,
+            avoid_zones=[],
+        )
+
+        self.assertEqual(stock["clubName"], "3W")
+        self.assertEqual(safe["clubName"], "5I")
+        self.assertEqual(attack["clubName"], "Driver")
+
+    def test_two_sided_ob_corridor_excludes_club_wider_than_the_corridor(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        profiles = [
+            {
+                "clubName": "Driver",
+                "median_m": 197.5,
+                "p10_m": 170.7,
+                "p90_m": 221.6,
+                "lateralP10P90_m": 45.0,
+                "sampleSize": 2970,
+            },
+            {
+                "clubName": "3H",
+                "median_m": 161.9,
+                "p10_m": 122.1,
+                "p90_m": 188.1,
+                "sampleSize": 180,
+            },
+            {
+                "clubName": "5I",
+                "median_m": 146.4,
+                "p10_m": 113.2,
+                "p90_m": 164.6,
+                "sampleSize": 160,
+            },
+            {
+                "clubName": "9I",
+                "median_m": 114.3,
+                "p10_m": 80.0,
+                "p90_m": 132.3,
+                "sampleSize": 160,
+            },
+        ]
+        ob_corridor = [
+            {
+                "id": "ob-left",
+                "kind": "out_of_bounds",
+                "side": "left",
+                "corridorWidth_m": 30.0,
+                "carryToFront_m": 0.0,
+                "carryToClear_m": 370.0,
+            },
+            {
+                "id": "ob-right",
+                "kind": "out_of_bounds",
+                "side": "right",
+                "corridorWidth_m": 30.0,
+                "carryToFront_m": 0.0,
+                "carryToClear_m": 370.0,
+            },
+        ]
+
+        routes = mobile_live._tee_candidate_routes(
+            {"yards": 405},
+            profiles,
+            ob_corridor,
+            par=4,
+            target_m=370.0,
+            avoid_zones=ob_corridor,
+        )
+
+        self.assertTrue(routes)
+        self.assertNotIn("Driver", {row["club"] for row in routes})
+        self.assertIn(
+            next(row for row in routes if row["id"] == "stock_line")["club"],
+            {"3H", "5I", "9I"},
+        )
 
     def test_non_live_decision_context_is_not_rehydrated(self) -> None:
         from ai_caddie.caddie import mobile_live
@@ -2373,8 +2489,13 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(decision_response.status_code, 200)
         payload = decision_response.json()
         self.assertEqual(payload["shotType"], "tee")
-        self.assertEqual([row["id"] for row in payload["options"]], ["safe", "stock", "attack"])
-        self.assertIn(payload["selectedOptionId"], {"safe", "stock", "attack"})
+        option_ids = [row["id"] for row in payload["options"]]
+        self.assertIn("stock", option_ids)
+        self.assertEqual(len(option_ids), len(set(option_ids)))
+        self.assertLessEqual(len(option_ids), 3)
+        self.assertIn(payload["selectedOptionId"], set(option_ids))
+        risks = [float(row["riskScore"]) for row in payload["options"]]
+        self.assertEqual(risks, sorted(risks))
         self.assertGreaterEqual(len(payload["evidence"]), 1)
 
     def test_mobile_round_package_seed_includes_route_evidence_for_tee_fallback(self) -> None:

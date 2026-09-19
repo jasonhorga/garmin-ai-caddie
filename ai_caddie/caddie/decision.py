@@ -26,10 +26,10 @@ OPTION_LABELS = {
     "attack": "Attack",
 }
 OPTION_ORDER = {"safe": 0, "stock": 1, "attack": 2}
-RISK_KINDS = {"bunker", "water", "water_edge", "tree_area"}
-BAD_SURFACES = {"bunker", "water", "water_edge", "tree_area"}
+RISK_KINDS = {"bunker", "water", "water_edge", "tree_area", "out_of_bounds", "ob"}
+BAD_SURFACES = {"bunker", "water", "water_edge", "tree_area", "out_of_bounds", "ob"}
 EXCLUDED_TEE_CLUBS = {"unknown", "?", "putter"}
-MIN_STRONG_CLUB_SAMPLE = 5
+MIN_STRONG_CLUB_SAMPLE = 10
 MIN_SEQUENCE_DISTANCE_M = 260.0
 MAX_SEQUENCE_OVERSHOOT_M = 10.0
 # A cold package can legitimately omit short-game clubs. Keep the resulting full-hole
@@ -37,6 +37,7 @@ MAX_SEQUENCE_OVERSHOOT_M = 10.0
 MAX_SEQUENCE_REPLAN_GAP_M = 50.0
 SHORT_GAME_PROFILE_MAX_M = 110.0
 MAX_SEQUENCE_STEPS = 5
+MAX_SEQUENCE_CARRY_INCREASE_M = 15.0
 EXTRA_SEQUENCE_STEP_COST_M = 25.0
 # These weights rank deterministic club combinations; they are not exposed as calibrated strokes.
 # The final full swing carries the most weight because planning a preferred approach distance is
@@ -44,6 +45,7 @@ EXTRA_SEQUENCE_STEP_COST_M = 25.0
 FINAL_SHOT_STABILITY_WEIGHT = 0.55
 POSITION_SHOT_STABILITY_WEIGHT = 0.10
 TEE_ADVANCEMENT_WEIGHT = 0.18
+TEE_UNCERTAINTY_COST_WEIGHT_M = 10.0
 MISSING_DISPERSION_RATIO = 0.22
 CLUB_RATE_PRIOR_SHOTS = 12
 CLUB_RISK_RATE_PRIOR = 0.08
@@ -54,8 +56,22 @@ CLUB_UNUSABLE_COST_WEIGHT_M = 6.0
 CLUB_SCORING_MISS_COST_WEIGHT_M = 12.0
 CLUB_POSITION_MISS_COST_WEIGHT_M = 4.0
 CLUB_SAMPLE_QUALITY_COST_WEIGHT_M = 5.0
-HAZARD_DEFAULT_WIDTH_M = {"water": 20.0, "water_edge": 18.0, "bunker": 14.0, "tree_area": 22.0}
-HAZARD_EXPOSURE_COST_M = {"water": 36.0, "water_edge": 32.0, "bunker": 20.0, "tree_area": 26.0}
+HAZARD_DEFAULT_WIDTH_M = {
+    "water": 20.0,
+    "water_edge": 18.0,
+    "bunker": 14.0,
+    "tree_area": 22.0,
+    "out_of_bounds": 22.0,
+    "ob": 22.0,
+}
+HAZARD_EXPOSURE_COST_M = {
+    "water": 36.0,
+    "water_edge": 32.0,
+    "bunker": 20.0,
+    "tree_area": 26.0,
+    "out_of_bounds": 42.0,
+    "ob": 42.0,
+}
 CLUB_PERFORMANCE_FIELDS = (
     "hazardRate",
     "riskRate",
@@ -70,6 +86,7 @@ CLUB_PERFORMANCE_FIELDS = (
     "outlierCount",
     "consistency",
     "dispersionRange",
+    "lateralP10P90_m",
 )
 VISION_USABLE_CONFIDENCE = {"medium", "high"}
 VISION_HAZARD_TYPES = {
@@ -1025,6 +1042,65 @@ def _club_distribution_bounds(row: dict[str, Any]) -> tuple[float, float, float]
     return low_m, median_m, high_m
 
 
+def _club_lateral_dispersion_width(row: dict[str, Any]) -> float | None:
+    """Return a measured central lateral landing width when one is available."""
+    for key in ("lateralP10P90_m", "lateralDispersion_m"):
+        value = _float(row.get(key), math.nan)
+        if math.isfinite(value) and value >= 0.0:
+            return value
+    return None
+
+
+def _two_sided_ob_corridor_width(zones: list[dict[str, Any]] | None) -> float | None:
+    """Return the narrowest explicitly measured corridor bounded by OB on both sides."""
+    sides: set[str] = set()
+    widths: list[float] = []
+    for zone in zones or []:
+        if not isinstance(zone, dict):
+            continue
+        if str(zone.get("kind") or "").strip().lower() not in {"out_of_bounds", "ob"}:
+            continue
+        side = str(zone.get("side") or "").strip().lower()
+        if side not in {"left", "right"}:
+            continue
+        width_m = _float(zone.get("corridorWidth_m"), math.nan)
+        if not math.isfinite(width_m) or width_m <= 0.0:
+            continue
+        sides.add(side)
+        widths.append(width_m)
+    if sides != {"left", "right"} or not widths:
+        return None
+    return min(widths)
+
+
+def _club_corridor_safety(row: dict[str, Any], zones: list[dict[str, Any]] | None) -> str:
+    """Classify measured lateral dispersion against a two-sided penalty corridor."""
+    corridor_width_m = _two_sided_ob_corridor_width(zones)
+    lateral_width_m = _club_lateral_dispersion_width(row)
+    if corridor_width_m is None or lateral_width_m is None:
+        return "unknown"
+    return "risk" if lateral_width_m > corridor_width_m else "safe"
+
+
+def _club_hard_hazard_safe(row: dict[str, Any], zones: list[dict[str, Any]] | None) -> bool:
+    """Return whether one club satisfies every measured water and two-sided OB constraint."""
+    return (
+        _club_water_safety(row, zones) != "risk"
+        and _club_corridor_safety(row, zones) != "risk"
+    )
+
+
+def _has_hard_hazard_constraint(
+    rows: list[dict[str, Any]],
+    zones: list[dict[str, Any]] | None,
+) -> bool:
+    """Return whether the inputs contain a hard constraint that can actually be evaluated."""
+    return bool(
+        _water_zones(zones)
+        or any(_club_corridor_safety(row, zones) != "unknown" for row in rows)
+    )
+
+
 def _hazard_zone_span(zone: dict[str, Any]) -> tuple[float, float] | None:
     clear = _float(zone.get("carryToClear_m"), math.nan)
     if not math.isfinite(clear):
@@ -1073,6 +1149,14 @@ def _shift_hazard_zones(
 
 def _driver_row(row: dict[str, Any]) -> bool:
     return _club_identity(row) == "driver"
+
+
+def _non_tee_context(context: dict[str, Any]) -> bool:
+    shot_type = str(context.get("shotType") or context.get("shot_type") or "").strip().lower()
+    if shot_type in {"approach", "recovery"}:
+        return True
+    lie = str(context.get("lie") or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return bool(lie and lie not in {"tee", "tee_box", "teebox", "unknown"})
 
 
 WATER_SAFE_LAYUP_BUFFER_M = 8.0
@@ -1206,6 +1290,7 @@ def _sequence_tail(
     avoid_zones: list[dict[str, Any]] | None = None,
     travelled_m: float = 0.0,
     forbid_driver: bool = False,
+    maximum_carry_m: float | None = None,
     allow_replan_gap: bool = False,
     memo: dict[Any, Any] | None = None,
 ) -> list[dict[str, Any]]:
@@ -1223,12 +1308,15 @@ def _sequence_tail(
                 str(zone.get("kind") or ""),
                 round(_float(zone.get("carryToFront_m"), -1.0), 1),
                 round(_float(zone.get("carryToClear_m"), -1.0), 1),
+                str(zone.get("side") or ""),
+                round(_float(zone.get("corridorWidth_m"), -1.0), 1),
             )
             for zone in avoid_zones or []
             if isinstance(zone, dict)
         ),
         round(float(travelled_m), 1),
         bool(forbid_driver),
+        round(float(maximum_carry_m), 1) if maximum_carry_m is not None else None,
         bool(allow_replan_gap),
     )
     if memo is not None and tail_key in memo:
@@ -1239,6 +1327,7 @@ def _sequence_tail(
         if _is_playable_club(row)
         and _club_identity(row) not in excluded
         and (not forbid_driver or not _driver_row(row))
+        and (maximum_carry_m is None or _float(row.get("median_m")) <= maximum_carry_m)
     ]
     if not playable:
         return []
@@ -1258,7 +1347,10 @@ def _sequence_tail(
     ]
     names_by_index = [str(row.get("clubName") or "") for row in playable]
     longest_m = max(_float(row.get("median_m")) for row in playable)
-    minimum_steps = max(1, math.ceil(max(0.0, remaining_m - MAX_SEQUENCE_OVERSHOOT_M) / longest_m))
+    # A leave of up to 20 m is already the scoring-window contract. Using only the overshoot
+    # tolerance here forced an unnecessary extra full swing (for example 3W -> 3W -> 5I instead
+    # of 3W -> 3W with a 14 m leave), which in turn made a sparse Driver look artificially better.
+    minimum_steps = max(1, math.ceil(max(0.0, remaining_m - 20.0) / longest_m))
     first_candidate_steps = max(1, minimum_steps - 1) if allow_replan_gap else minimum_steps
     maximum_steps = min(MAX_SEQUENCE_STEPS - 1, minimum_steps + 1)
     best: tuple[tuple[float, ...], list[dict[str, Any]]] | None = None
@@ -1272,7 +1364,7 @@ def _sequence_tail(
             feasible = True
             for row in candidate:
                 projected_zones = _shift_hazard_zones(avoid_zones, position_m)
-                if not _carry_water_safe(_float(row.get("median_m")), projected_zones):
+                if not _club_hard_hazard_safe(row, projected_zones):
                     feasible = False
                     break
                 position_m += _float(row.get("median_m"))
@@ -1337,24 +1429,33 @@ def _whole_hole_sequence_key(
     while a materially steadier or safer chain can still leave a more reliable scoring club.
     """
     first_carry_m = _float(first.get("median_m"))
+    first_metrics = _club_performance_metrics(first)
+    tee_uncertainty_cost = (
+        1.0 - _float(first_metrics.get("evidenceStrength"), 0.0)
+    ) * TEE_UNCERTAINTY_COST_WEIGHT_M
     if not math.isfinite(distance_m) or distance_m <= 0:
         score = (
             _club_stability_cost(first, scoring_shot=False, memo=memo)
             + _club_hazard_cost(first, avoid_zones)
+            + tee_uncertainty_cost
             + EXTRA_SEQUENCE_STEP_COST_M
             - first_carry_m * TEE_ADVANCEMENT_WEIGHT
         )
         return (0.0, round(score, 4), 1.0, 0.0, -float(first.get("sampleSize") or 0), -first_carry_m)
-    # A physical club can be used again later in a real round, but a cold tee plan must not claim
-    # the same opening club twice in a row (for example Driver -> Driver). Re-planning after the
-    # next lie is the product contract; the first preview therefore reserves the opening identity.
+    # Repeating a control club can be the most coherent plan (for example 5I -> 5I). Driver is the
+    # only hard non-Tee exclusion, enforced independently for every continuation step.
     tail = _sequence_tail(
         rows,
         distance_m - first_carry_m,
-        exclude_club_keys={_club_identity(first)},
+        exclude_club_keys=set(),
         avoid_zones=avoid_zones,
         travelled_m=first_carry_m,
         forbid_driver=True,
+        maximum_carry_m=(
+            None
+            if _club_water_safety(first, avoid_zones) == "safe_before"
+            else first_carry_m + MAX_SEQUENCE_CARRY_INCREASE_M
+        ),
         memo=memo,
     )
     planned = [first, *tail]
@@ -1364,6 +1465,7 @@ def _whole_hole_sequence_key(
     score = (
         _planned_chain_cost(planned, leave_m, memo=memo)
         + _club_hazard_cost(first, avoid_zones)
+        + tee_uncertainty_cost
         + len(planned) * EXTRA_SEQUENCE_STEP_COST_M
         - min(first_carry_m, distance_m) * TEE_ADVANCEMENT_WEIGHT
     )
@@ -1425,18 +1527,62 @@ def _sequence_option(
     if first is None:
         return None
     first_carry = _float(first.get("median_m"))
-    if not _carry_water_safe(first_carry, avoid_zones):
+    if not _club_hard_hazard_safe(first, avoid_zones):
         return None
+
+    cold_start = not any(
+        _effective_club_sample_size(row) >= MIN_STRONG_CLUB_SAMPLE
+        for row in club_rows
+    )
+
+    def cold_next_club() -> dict[str, Any] | None:
+        remaining_m = distance_m - first_carry
+        if remaining_m <= 20.0:
+            return None
+        projected_zones = _shift_hazard_zones(avoid_zones, first_carry)
+        maximum_carry_m = (
+            None
+            if _club_water_safety(first, avoid_zones) == "safe_before"
+            else first_carry + MAX_SEQUENCE_CARRY_INCREASE_M
+        )
+        candidates = [
+            row
+            for row in club_rows
+            if not _driver_row(row)
+            and _club_hard_hazard_safe(row, projected_zones)
+            and (maximum_carry_m is None or _float(row.get("median_m")) <= maximum_carry_m)
+        ]
+        if not candidates:
+            return None
+        return min(
+            candidates,
+            key=lambda row: (
+                1.0 if _float(row.get("median_m")) - remaining_m > MAX_SEQUENCE_OVERSHOOT_M else 0.0,
+                abs(remaining_m - _float(row.get("median_m"))),
+                _club_stability_cost(row, scoring_shot=True, memo=memo),
+                -_effective_club_sample_size(row),
+                str(row.get("clubName") or ""),
+            ),
+        )
+
     def build_rows(*, allow_replan_gap: bool = False) -> list[dict[str, Any]]:
+        if cold_start:
+            next_club = cold_next_club()
+            return [first, *([next_club] if next_club is not None else [])]
         return [
             first,
             *_sequence_tail(
                 club_rows,
                 distance_m - first_carry,
-                exclude_club_keys={_club_identity(first)},
+                exclude_club_keys=set(),
                 avoid_zones=avoid_zones,
                 travelled_m=first_carry,
                 forbid_driver=True,
+                maximum_carry_m=(
+                    None
+                    if _club_water_safety(first, avoid_zones) == "safe_before"
+                    else first_carry + MAX_SEQUENCE_CARRY_INCREASE_M
+                ),
                 allow_replan_gap=allow_replan_gap,
                 memo=memo,
             ),
@@ -1444,11 +1590,45 @@ def _sequence_option(
 
     def build_steps(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], float]:
         remaining_m = distance_m
+        travelled_m = 0.0
         steps: list[dict[str, Any]] = []
         for index, row in enumerate(rows):
-            role = "advance" if index == 0 else ("scoring" if index == len(rows) - 1 else "position")
-            steps.append(_sequence_step(row, remaining_m, role))
+            role = (
+                "advance"
+                if index == 0
+                else "position"
+                if cold_start
+                else "scoring"
+                if index == len(rows) - 1
+                else "position"
+            )
+            projected_zones = _shift_hazard_zones(avoid_zones, travelled_m)
+            step = _sequence_step(row, remaining_m, role)
+            step["hazardProjection"] = {
+                "originOffset_m": round(travelled_m, 1),
+                "waterSafety": _club_water_safety(row, projected_zones),
+                "corridorSafety": _club_corridor_safety(row, projected_zones),
+                "zones": [
+                    {
+                        key: zone[key]
+                        for key in (
+                            "id",
+                            "kind",
+                            "intervalIndex",
+                            "carryToFront_m",
+                            "carryToClear_m",
+                            "side",
+                            "corridorWidth_m",
+                            "source",
+                        )
+                        if zone.get(key) is not None
+                    }
+                    for zone in projected_zones
+                ],
+            }
+            steps.append(step)
             remaining_m = steps[-1]["expectedRemaining_m"]
+            travelled_m += _float(row.get("median_m"))
         return steps, remaining_m
 
     planned_rows = build_rows()
@@ -1457,11 +1637,11 @@ def _sequence_option(
         _float(row.get("median_m"), math.inf) <= SHORT_GAME_PROFILE_MAX_M
         for row in club_rows
     )
-    partial = (
+    partial = cold_start or (
         not short_game_available
         and 20.0 < remaining <= MAX_SEQUENCE_REPLAN_GAP_M
     )
-    if remaining > 20.0 or remaining < -MAX_SEQUENCE_OVERSHOOT_M:
+    if not cold_start and (remaining > 20.0 or remaining < -MAX_SEQUENCE_OVERSHOOT_M):
         # If the exact scoring window is unavailable, consider one fewer full swing. This is a
         # bounded short-game data gap; water feasibility and the non-Tee Driver prohibition still
         # apply to every candidate.
@@ -1499,7 +1679,12 @@ def _sequence_option(
         "rationale": (
             "Uses each club's recorded carry distribution, outcome rates, and sample strength; "
             "re-plan after the next lie."
-            + (" Short-game club evidence is missing; re-plan the final gap from the next lie." if partial else "")
+            + (" Club history is cold, so the preview stops after the next shot." if cold_start else "")
+            + (
+                " Short-game club evidence is missing; re-plan the final gap from the next lie."
+                if partial and not cold_start
+                else ""
+            )
         ),
         "completion": "replan_required" if partial else "scoring_window",
         "sourceRefs": source_refs,
@@ -1513,6 +1698,8 @@ def _club_sequences(context: dict[str, Any], options: list[dict[str, Any]]) -> l
     if distance_m < MIN_SEQUENCE_DISTANCE_M:
         return []
     rows = _club_profile_rows(context.get("clubProfiles") or {})
+    if _non_tee_context(context):
+        rows = [row for row in rows if not _driver_row(row)]
     if len(rows) < 2 or not options:
         return []
     memo: dict[Any, Any] = {}
@@ -1524,7 +1711,12 @@ def _club_sequences(context: dict[str, Any], options: list[dict[str, Any]]) -> l
                 option=option,
                 distance_m=distance_m,
                 club_rows=rows,
-                avoid_zones=option.get("avoidZones") or option.get("forbiddenZones") or [],
+                avoid_zones=(
+                    option.get("planningHazards")
+                    or option.get("avoidZones")
+                    or option.get("forbiddenZones")
+                    or []
+                ),
                 memo=memo,
             )
         )
@@ -1535,8 +1727,184 @@ def _club_sequences(context: dict[str, Any], options: list[dict[str, Any]]) -> l
 def _selected_sequence(sequences: list[dict[str, Any]], selected: dict[str, Any] | None) -> dict[str, Any] | None:
     if not sequences:
         return None
-    selected_id = selected.get("id") if selected else "stock"
-    return next((sequence for sequence in sequences if sequence.get("id") == selected_id), sequences[0])
+    if selected is None:
+        return next((sequence for sequence in sequences if sequence.get("id") == "stock"), sequences[0])
+    selected_id = selected.get("id")
+    return next((sequence for sequence in sequences if sequence.get("id") == selected_id), None)
+
+
+def _align_selected_sequence(
+    options: list[dict[str, Any]],
+    sequences: list[dict[str, Any]],
+    selected: dict[str, Any] | None,
+    context: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    if selected is None:
+        return None, None
+    selected_sequence = _selected_sequence(sequences, selected)
+    if selected_sequence is not None or not sequences:
+        return selected, selected_sequence
+    sequence_ids = {str(sequence.get("id") or "") for sequence in sequences}
+    viable_options = [option for option in options if str(option.get("id") or "") in sequence_ids]
+    aligned = _select_option(viable_options, _strategy_mode(context), context)
+    if aligned is None and viable_options:
+        aligned = viable_options[0]
+    return aligned, _selected_sequence(sequences, aligned)
+
+
+def _selection_reasons(
+    context: dict[str, Any],
+    selected: dict[str, Any] | None,
+    selected_sequence: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if selected is None:
+        if str(context.get("candidateRoutesState") or "") == "infeasible":
+            return [
+                {
+                    "code": "no_feasible_route",
+                    "reason": str(
+                        context.get("candidateRoutesReason")
+                        or "No measured club satisfies the current route constraints."
+                    ),
+                }
+            ]
+        return []
+
+    rows = _club_profile_rows(context.get("clubProfiles") or {})
+    if _non_tee_context(context):
+        rows = [row for row in rows if not _driver_row(row)]
+    first = _sequence_first_club(selected, rows)
+    reasons: list[dict[str, Any]] = []
+    planning_hazards = selected.get("planningHazards") or selected.get("avoidZones") or []
+
+    if first is not None:
+        for zone in planning_hazards:
+            if not isinstance(zone, dict):
+                continue
+            kind = str(zone.get("kind") or "hazard")
+            zone_id = str(zone.get("id") or "hazard")
+            if kind in {"water", "water_edge", "water_hazard"}:
+                state = _club_water_safety(first, [zone])
+                if state == "safe_before":
+                    reasons.append(
+                        {
+                            "code": "water_layup",
+                            "reason": f"{first.get('clubName')} keeps its carry window before {zone_id}.",
+                            "hazardId": zone_id,
+                        }
+                    )
+                elif state in {"safe_over", "safe_mixed"}:
+                    reasons.append(
+                        {
+                            "code": "water_clear",
+                            "reason": f"{first.get('clubName')} clears the mapped water interval {zone_id} with buffer.",
+                            "hazardId": zone_id,
+                        }
+                    )
+            elif _club_hazard_exposure(first, zone) > 0:
+                reasons.append(
+                    {
+                        "code": "mapped_hazard",
+                        "reason": f"The selected landing window accounts for mapped {kind} {zone_id}.",
+                        "hazardId": zone_id,
+                    }
+                )
+
+        corridor_width_m = _two_sided_ob_corridor_width(planning_hazards)
+        corridor_exclusions = sorted(
+            (
+                row
+                for row in rows
+                if _club_corridor_safety(row, planning_hazards) == "risk"
+            ),
+            key=lambda row: (
+                _float(row.get("median_m")),
+                str(row.get("clubName") or ""),
+            ),
+            reverse=True,
+        )
+        if corridor_width_m is not None and corridor_exclusions:
+            excluded = corridor_exclusions[0]
+            lateral_width_m = _club_lateral_dispersion_width(excluded) or 0.0
+            reasons.append(
+                {
+                    "code": "ob_corridor_exclusion",
+                    "reason": (
+                        f"{excluded.get('clubName')} is excluded because its {lateral_width_m:.1f}m "
+                        f"lateral window is wider than the {corridor_width_m:.1f}m two-sided OB corridor."
+                    ),
+                    "comparedClub": excluded.get("clubName"),
+                }
+            )
+
+        selected_cost = _club_stability_cost(first, scoring_shot=False)
+        selected_carry = _float(first.get("median_m"))
+        less_stable_longer = sorted(
+            (
+                row
+                for row in rows
+                if _float(row.get("median_m")) > selected_carry + 0.5
+                and _club_stability_cost(row, scoring_shot=False) > selected_cost + 1.0
+            ),
+            key=lambda row: (
+                _club_stability_cost(row, scoring_shot=False) - selected_cost,
+                _float(row.get("median_m")),
+            ),
+            reverse=True,
+        )
+        if less_stable_longer:
+            longer = less_stable_longer[0]
+            reasons.append(
+                {
+                    "code": "stability_over_distance",
+                    "reason": (
+                        f"{first.get('clubName')} is preferred over longer {longer.get('clubName')} "
+                        "because its measured dispersion, outcomes, and sample strength are steadier."
+                    ),
+                    "comparedClub": longer.get("clubName"),
+                }
+            )
+
+    if not any(_effective_club_sample_size(row) >= MIN_STRONG_CLUB_SAMPLE for row in rows):
+        reasons.append(
+            {
+                "code": "cold_club_history",
+                "reason": "Club history is sparse, so confidence is reduced and the preview stops after the next shot.",
+            }
+        )
+    if _non_tee_context(context):
+        reasons.append(
+            {
+                "code": "current_lie_replan",
+                "reason": f"The recommendation is recalculated from the current {context.get('lie') or 'non-tee'} lie; Driver is excluded.",
+            }
+        )
+    wind = _weather_snapshot(context)
+    slope_adjustment = _float(context.get("slopeAdjustmentM"), 0.0)
+    if (wind and _float(wind.get("windSpeedMps"), 0.0) > 0) or slope_adjustment:
+        reasons.append(
+            {
+                "code": "conditions_replan",
+                "reason": "Wind, slope, and the current lie are included in this re-plan.",
+            }
+        )
+    if selected_sequence and selected_sequence.get("completion") == "replan_required":
+        reasons.append(
+            {
+                "code": "next_lie_replan",
+                "reason": "Only the next playable shot is previewed; recalculate after the resulting lie.",
+            }
+        )
+
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for reason in reasons:
+        key = (str(reason.get("code") or ""), str(reason.get("reason") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(reason)
+    return deduped
 
 
 def _sequence_evidence(sequences: list[dict[str, Any]], selected_sequence: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -1558,10 +1926,10 @@ def _sequence_evidence(sequences: list[dict[str, Any]], selected_sequence: dict[
 def _fallback_club(route: dict[str, Any], analysis: dict[str, Any]) -> list[dict[str, Any]]:
     first_club = ((analysis.get("shots") or [{}])[0] or {}).get("clubName")
     route_club = route.get("club") or route.get("clubName")
-    label = str(route.get("label") or "")
-    label_token = label.split(" ", 1)[0].strip()
-    club = route_club or first_club or (label_token if label_token and label_token.lower() not in {"safe", "stock", "attack"} else None)
+    club = route_club or first_club
     if not club:
+        return []
+    if _non_tee_context(analysis) and _driver_row({"clubName": club}):
         return []
     return [{"clubName": str(club), "sampleSize": 0, "source": "fallback"}]
 
@@ -1569,14 +1937,25 @@ def _fallback_club(route: dict[str, Any], analysis: dict[str, Any]) -> list[dict
 def _club_recommendation(route: dict[str, Any], analysis: dict[str, Any]) -> dict[str, Any]:
     carry_m = _float(route.get("carry_m"))
     clubs = _club_profiles_for_carry(analysis.get("clubProfiles") or {}, carry_m)
-    avoid_zones = route.get("avoidZones") or route.get("forbiddenZones") or []
+    non_tee = _non_tee_context(analysis)
+    if non_tee:
+        clubs = [row for row in clubs if not _driver_row(row)]
+    avoid_zones = (
+        route.get("planningHazards")
+        or route.get("avoidZones")
+        or route.get("forbiddenZones")
+        or []
+    )
+    available_rows = _club_profile_rows(analysis.get("clubProfiles") or {})
+    if non_tee:
+        available_rows = [row for row in available_rows if not _driver_row(row)]
     water_zones = _water_zones(avoid_zones)
-    if water_zones:
-        # A route whose measured carry window intersects water has no honest club recommendation
-        # unless a physical club can either lay up short or clear the far edge. Never replace that
-        # fact with a globally nearest club: doing so is how a safe/attack card became a shot into
-        # the lake.
-        clubs = [row for row in clubs if _club_water_safety(row, water_zones) != "risk"]
+    hard_constraint = _has_hard_hazard_constraint(available_rows, avoid_zones)
+    if hard_constraint:
+        # A measured penalty constraint has no honest recommendation unless the physical club's
+        # carry and lateral landing window satisfy it. Never replace that fact with a globally
+        # nearest club: doing so is how an apparently safe card became a shot into a penalty area.
+        clubs = [row for row in clubs if _club_hard_hazard_safe(row, avoid_zones)]
     explicit_name = str(route.get("club") or route.get("clubName") or "").strip()
     if explicit_name:
         explicit_identity = _club_identity(explicit_name)
@@ -1588,7 +1967,11 @@ def _club_recommendation(route: dict[str, Any], analysis: dict[str, Any]) -> dic
             ),
             None,
         )
-        if exact is not None and (not water_zones or _club_water_safety(exact, water_zones) != "risk"):
+        if (
+            exact is not None
+            and (not non_tee or not _driver_row(exact))
+            and (not hard_constraint or _club_hard_hazard_safe(exact, avoid_zones))
+        ):
             exact = {
                 **exact,
                 "deltaToCarry_m": round(_float(exact.get("median_m")) - carry_m, 1),
@@ -1596,16 +1979,28 @@ def _club_recommendation(route: dict[str, Any], analysis: dict[str, Any]) -> dic
             clubs = [exact, *(row for row in clubs if _club_identity(row) != explicit_identity)]
     source = "club_profiles"
     if not clubs:
+        if non_tee and explicit_name and _driver_row({"clubName": explicit_name}):
+            return {
+                "source": "infeasible",
+                "carry_m": round(carry_m, 1),
+                "clubs": [],
+                "infeasibleReason": "Driver is not eligible away from the tee; re-plan from the current lie",
+            }
         # A missing profile is different from permission to invent a club. Keep the legacy route
         # fallback only when no hazard constraint is present; constrained routes expose an explicit
         # infeasible reason that the UI can render and the caller can retry with better data.
-        if water_zones:
+        if hard_constraint:
             source = "infeasible"
+            reason = (
+                "no measured club can safely lay up before or clear every water interval"
+                if water_zones
+                else "no measured club fits the mapped two-sided out-of-bounds corridor"
+            )
             return {
                 "source": source,
                 "carry_m": round(carry_m, 1),
                 "clubs": [],
-                "infeasibleReason": "no measured club can safely lay up before or clear every water interval",
+                "infeasibleReason": reason,
             }
         clubs = _fallback_club(route, analysis)
         source = "fallback" if clubs else "missing"
@@ -1633,6 +2028,10 @@ def _forbidden_zones_from_route(route: dict[str, Any]) -> list[dict[str, Any]]:
                 zone["carryToFront_m"] = risk.get("carryToFront_m")
             if risk.get("intervalIndex") is not None:
                 zone["intervalIndex"] = risk.get("intervalIndex")
+            if risk.get("side") is not None:
+                zone["side"] = risk.get("side")
+            if risk.get("corridorWidth_m") is not None:
+                zone["corridorWidth_m"] = risk.get("corridorWidth_m")
             zones.append(zone)
     for risk in route.get("nearRisks") or []:
         kind = risk.get("kind")
@@ -1648,6 +2047,10 @@ def _forbidden_zones_from_route(route: dict[str, Any]) -> list[dict[str, Any]]:
                 zone["carryToClear_m"] = risk.get("carryToClear_m")
             if risk.get("intervalIndex") is not None:
                 zone["intervalIndex"] = risk.get("intervalIndex")
+            if risk.get("side") is not None:
+                zone["side"] = risk.get("side")
+            if risk.get("corridorWidth_m") is not None:
+                zone["corridorWidth_m"] = risk.get("corridorWidth_m")
             zones.append(zone)
     return zones
 
@@ -1710,6 +2113,12 @@ def _route_evidence_zones(route_evidence: dict[str, Any]) -> list[dict[str, Any]
                 zone[field] = value
         for field in ("distanceToCenter_m", "landingRadius_m", "overlap_m"):
             value = row.get(field)
+            if value is not None:
+                zone[field] = value
+        for field in ("side", "corridorWidth_m"):
+            value = row.get(field)
+            if value is None:
+                value = clearance.get(field)
             if value is not None:
                 zone[field] = value
 
@@ -1834,6 +2243,7 @@ def _routes_from_route_evidence(analysis: dict[str, Any]) -> list[dict[str, Any]
                 "expectedSurface": {"kind": "layup" if clipped_to_layup else "fairway"},
                 "nearRisks": [],
                 "lineRisks": option_zones,
+                "planningHazards": zones,
                 "waterConstraint": "layup_before_water" if clipped_to_layup else "clear_or_no_water",
                 "riskScore": _route_evidence_risk_score(
                     option_id,
@@ -1884,6 +2294,7 @@ def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[
         "clubSurfaceRisk": club_surface_risk,
         "forbiddenZones": forbidden,
         "avoidZones": forbidden,
+        "planningHazards": route.get("planningHazards") or forbidden,
         "hazardClearance": hazard_clearance,
         "dispersion": dispersion,
         "scoreImpact": _score_impact(
@@ -2147,13 +2558,19 @@ def _select_option(
     strategy_mode: str | None = None,
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    if not options:
+    selectable_options = [
+        option
+        for option in options
+        if str((option.get("clubRecommendation") or {}).get("source") or "").strip().lower()
+        != "infeasible"
+    ]
+    if not selectable_options:
         return None
     constraints = _strategy_constraints(context or {})
     blocked_ids = set(constraints.get("blockedOptionIds") or [])
-    constrained_options = [option for option in options if option.get("id") not in blocked_ids]
+    constrained_options = [option for option in selectable_options if option.get("id") not in blocked_ids]
     if not constrained_options:
-        constrained_options = options
+        constrained_options = selectable_options
     safest = min(constrained_options, key=lambda row: (row["riskScore"], row["carry_m"]))
     # The one-at-a-time club picker sends an exact option identity. This is distinct from the
     # legacy risk-appetite mode: if the player taps a displayed physical alternative, honor that
@@ -2373,7 +2790,36 @@ def _missing_data(analysis: dict[str, Any], options: list[dict[str, Any]], selec
     if not geometry.get("hasMeshes"):
         rows.append({"label": "meshes", "reason": "prodgeometry mesh data missing"})
     if not options:
-        rows.append({"label": "routes", "reason": "candidate route data missing"})
+        if str(analysis.get("candidateRoutesState") or "") == "infeasible":
+            rows.append(
+                {
+                    "label": "feasibility",
+                    "reason": str(
+                        analysis.get("candidateRoutesReason")
+                        or "no measured club satisfies the current route constraints"
+                    ),
+                }
+            )
+        else:
+            rows.append({"label": "routes", "reason": "candidate route data missing"})
+    elif selected is None:
+        infeasible_reasons = _dedupe(
+            [
+                str(recommendation.get("infeasibleReason") or "").strip()
+                for option in options
+                if isinstance(option, dict)
+                and isinstance((recommendation := option.get("clubRecommendation")), dict)
+                and str(recommendation.get("source") or "").strip().lower() == "infeasible"
+                and str(recommendation.get("infeasibleReason") or "").strip()
+            ]
+        )
+        if infeasible_reasons:
+            rows.append(
+                {
+                    "label": "feasibility",
+                    "reason": "; ".join(infeasible_reasons),
+                }
+            )
     if selected and _has_weak_club_sample(selected):
         rows.append({"label": "club_profiles", "reason": "matching club sample data missing or weak"})
     weather = _weather_snapshot(analysis)
@@ -3212,6 +3658,8 @@ def _merge_zone(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any
         "distanceToCenter_m",
         "landingRadius_m",
         "overlap_m",
+        "side",
+        "corridorWidth_m",
     ):
         value = incoming.get(field)
         if value is not None:
@@ -3241,7 +3689,10 @@ def _hazard_avoid_zones(context: dict[str, Any]) -> list[dict[str, Any]]:
             "kind": kind,
             "id": hazard.get("id"),
             "distance_m": hazard.get("distance_m"),
+            "carryToFront_m": hazard.get("carryToFront_m"),
             "carryToClear_m": hazard.get("carryToClear_m"),
+            "side": hazard.get("side"),
+            "corridorWidth_m": hazard.get("corridorWidth_m"),
             "reason": "known hazard in approach context",
         })
     route_evidence = context.get("routeEvidence")
@@ -3696,6 +4147,7 @@ def _shot_option(
     intent: str,
     target: str,
 ) -> dict[str, Any]:
+    decision_context = {**context, "shotType": shot_type}
     wind_adjustment = _wind_adjustment_m(context)
     history_carry_adjustment = _issue_carry_adjustment_m(context, shot_type=shot_type, option_id=option_id)
     adjusted_carry_m = max(
@@ -3705,19 +4157,23 @@ def _shot_option(
         + _float(history_carry_adjustment.get("meters"), 0.0),
     )
     history_adjustment = _history_risk_adjustment(context, option_id)
+    target_local = _target_local_from_route_evidence(context, adjusted_carry_m)
+    route_evidence = context.get("routeEvidence") if isinstance(context.get("routeEvidence"), dict) else None
+    planning_hazards = _hazard_avoid_zones(decision_context)
+    avoid_zones = _avoid_zones_for_target(
+        planning_hazards,
+        route_evidence=route_evidence,
+        target_local=target_local,
+    )
     route = {
         "id": f"{shot_type}_{option_id}",
         "label": label,
         "carry_m": adjusted_carry_m,
+        "forbiddenZones": avoid_zones,
+        "avoidZones": avoid_zones,
+        "planningHazards": planning_hazards,
     }
-    target_local = _target_local_from_route_evidence(context, adjusted_carry_m)
-    route_evidence = context.get("routeEvidence") if isinstance(context.get("routeEvidence"), dict) else None
-    avoid_zones = _avoid_zones_for_target(
-        _hazard_avoid_zones(context),
-        route_evidence=route_evidence,
-        target_local=target_local,
-    )
-    club_recommendation = _club_recommendation(route, context)
+    club_recommendation = _club_recommendation(route, decision_context)
     club_surface_risk = _club_surface_risk_adjustment(club_recommendation)
     adjusted_risk_score = (
         risk_score
@@ -3748,6 +4204,7 @@ def _shot_option(
         "intent": intent,
         "forbiddenZones": avoid_zones,
         "avoidZones": avoid_zones,
+        "planningHazards": planning_hazards,
         "hazardClearance": hazard_clearance,
         "dispersion": dispersion,
         "scoreImpact": _score_impact(
@@ -3759,7 +4216,7 @@ def _shot_option(
         ),
         "clubRecommendation": club_recommendation,
     }
-    return _with_option_contract(option, context, source="structured_context")
+    return _with_option_contract(option, decision_context, source="structured_context")
 
 
 def _approach_options(context: dict[str, Any]) -> list[dict[str, Any]]:
@@ -3996,9 +4453,11 @@ def _safe_manual_notes(analysis: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _build_shot_decision(analysis: dict[str, Any], shot_type: str, options: list[dict[str, Any]]) -> dict[str, Any]:
     selected = _select_option(options, _strategy_mode(analysis), analysis)
-    avoid_zones = selected.get("avoidZones", []) if selected else []
     sequences = _club_sequences(analysis, options)
-    selected_sequence = _selected_sequence(sequences, selected)
+    selected, selected_sequence = _align_selected_sequence(options, sequences, selected, analysis)
+    avoid_zones = selected.get("avoidZones", []) if selected else []
+    if selected is not None:
+        selected["selectionReasons"] = _selection_reasons(analysis, selected, selected_sequence)
     evidence = _shot_evidence(analysis, selected)
     sequence_evidence = _sequence_evidence(sequences, selected_sequence)
     if sequence_evidence:
@@ -4042,15 +4501,29 @@ def recommend_recovery(context: dict[str, Any]) -> dict[str, Any]:
 
 def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     """Build a tee-shot decision plan from an existing hole analysis."""
-    candidate_routes = analysis.get("candidateRoutes") or []
-    used_route_evidence = not candidate_routes
-    routes = candidate_routes or _routes_from_route_evidence(analysis)
+    candidate_routes = analysis.get("candidateRoutes")
+    candidate_state = str(analysis.get("candidateRoutesState") or "")
+    explicitly_infeasible = candidate_state == "infeasible"
+    if isinstance(candidate_routes, list) and (candidate_routes or explicitly_infeasible):
+        routes = candidate_routes
+        used_route_evidence = False
+    else:
+        routes = _routes_from_route_evidence(analysis)
+        used_route_evidence = True
+    if _non_tee_context(analysis):
+        routes = [
+            route
+            for route in routes
+            if not _driver_row({"clubName": route.get("club") or route.get("clubName")})
+        ]
     options = [_option_from_route(route, analysis) for route in routes]
     options = _dedupe_strategy_options(options)
     selected = _select_option(options, _strategy_mode(analysis), analysis)
-    forbidden = selected.get("forbiddenZones", []) if selected else []
     sequences = _club_sequences(analysis, options)
-    selected_sequence = _selected_sequence(sequences, selected)
+    selected, selected_sequence = _align_selected_sequence(options, sequences, selected, analysis)
+    forbidden = selected.get("forbiddenZones", []) if selected else []
+    if selected is not None:
+        selected["selectionReasons"] = _selection_reasons(analysis, selected, selected_sequence)
     evidence = _evidence(analysis, selected, include_route_geometry=used_route_evidence)
     sequence_evidence = _sequence_evidence(sequences, selected_sequence)
     if sequence_evidence:
@@ -4066,6 +4539,8 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
         "globalId": analysis.get("globalId"),
         "localHole": analysis.get("localHole"),
         "teeBox": analysis.get("teeBox"),
+        "lie": analysis.get("lie"),
+        "slopeAdjustmentM": analysis.get("slopeAdjustmentM"),
         "manualNotes": _safe_manual_notes(analysis),
     }
     constraints = _strategy_constraints(analysis)

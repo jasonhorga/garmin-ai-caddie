@@ -91,12 +91,12 @@
       "distanceM": 370,
       "candidateClubs": ["Driver", "3H", "5I", "9I"],
       "hazards": [
-        {"id": "ob_left", "kind": "out_of_bounds", "carryToFrontM": 0, "carryToClearM": 370},
-        {"id": "ob_right", "kind": "out_of_bounds", "carryToFrontM": 0, "carryToClearM": 370}
+        {"id": "ob_left", "kind": "out_of_bounds", "side": "left", "carryToFrontM": 0, "carryToClearM": 370},
+        {"id": "ob_right", "kind": "out_of_bounds", "side": "right", "carryToFrontM": 0, "carryToClearM": 370}
       ],
       "courseWidthM": 30,
       "driverLateralP10P90M": 45,
-      "expect": {"driverNonTee": 0, "reasonRequired": true}
+      "expect": {"firstClubNot": "Driver", "driverNonTee": 0, "reasonRequired": true}
     },
     {
       "id": "07_ob_and_center_bunker",

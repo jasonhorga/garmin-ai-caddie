@@ -59,7 +59,8 @@ OFFLINE_OPTION_STRONG_SAMPLE = 10
 OFFLINE_OPTION_SAMPLE_REF_LIMIT = 6
 DECISION_CLUB_REF_LIMIT = 6
 DECISION_CLUB_SURFACE_LIMIT = 8
-MOBILE_CADDIE_RISK_KINDS = {"bunker", "water", "water_edge", "tree_area"}
+MOBILE_CADDIE_RISK_KINDS = {"bunker", "water", "water_edge", "tree_area", "out_of_bounds", "ob"}
+CADDIE_ALTERNATIVE_CARRY_GAP_M = 45.0
 
 # A cold 18-hole course performs independent network/download/Draco jobs per hole.  Keep a little
 # overlap so the precise upgrade completes in the background, but leave half of a four-core shared
@@ -1300,6 +1301,7 @@ def _compact_decision_club_profile(
         "topSurface",
         "consistency",
         "dispersionRange",
+        "lateralP10P90_m",
         "rawSampleCount",
         "validSampleCount",
         "invalidSampleCount",
@@ -1443,10 +1445,12 @@ def _shot_option_clubs(
         return None, None, None
 
     from ai_caddie.caddie.decision import (
+        MIN_STRONG_CLUB_SAMPLE,
+        _club_hard_hazard_safe,
         _club_hazard_cost,
         _club_stability_cost,
         _club_water_safety,
-        _water_zones,
+        _has_hard_hazard_constraint,
         _whole_hole_sequence_key,
     )
     decision_memo: dict[Any, Any] = {}
@@ -1463,6 +1467,75 @@ def _shot_option_clubs(
         available = [row for row in candidates if key(row) not in (excluded or set())]
         return _club_nearest(available, target) if available else None
 
+    feasible_rows = [
+        row for row in rows
+        if _club_hard_hazard_safe(row, avoid_zones)
+    ]
+    has_hard_constraint = _has_hard_hazard_constraint(rows, avoid_zones)
+    if has_hard_constraint and not feasible_rows:
+        return None, None, None
+    ranked_rows = feasible_rows or rows
+
+    def modeled_risk(profile: dict[str, Any], *, scoring_shot: bool) -> float:
+        return _club_stability_cost(
+            profile,
+            scoring_shot=scoring_shot,
+            memo=decision_memo,
+        ) + _club_hazard_cost(profile, avoid_zones)
+
+    def semantic_alternatives(
+        stock: dict[str, Any],
+        ranked: list[dict[str, Any]],
+        *,
+        scoring_shot: bool,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        stock_carry = float(stock.get("median_m") or 0)
+        stock_risk = modeled_risk(stock, scoring_shot=scoring_shot)
+        remaining = [row for row in ranked if row is not stock]
+        safe_candidates = [
+            row
+            for row in remaining
+            if float(row.get("median_m") or 0) < stock_carry - 0.5
+            and stock_carry - float(row.get("median_m") or 0) <= CADDIE_ALTERNATIVE_CARRY_GAP_M
+            and modeled_risk(row, scoring_shot=scoring_shot) <= stock_risk + 1e-9
+        ]
+        attack_candidates = [
+            row
+            for row in remaining
+            if float(row.get("median_m") or 0) > stock_carry + 0.5
+            and float(row.get("median_m") or 0) - stock_carry <= CADDIE_ALTERNATIVE_CARRY_GAP_M
+            and modeled_risk(row, scoring_shot=scoring_shot) >= stock_risk - 1e-9
+        ]
+        safe = min(
+            safe_candidates,
+            key=lambda row: (
+                modeled_risk(row, scoring_shot=scoring_shot),
+                abs(float(row.get("median_m") or 0) - stock_carry),
+                key(row),
+            ),
+            default=None,
+        )
+        attack = min(
+            attack_candidates,
+            key=lambda row: (
+                _whole_hole_sequence_key(
+                    row,
+                    ranked_rows,
+                    target_m,
+                    avoid_zones,
+                    memo=decision_memo,
+                )
+                if par in {4, 5}
+                else (
+                    abs(float(row.get("median_m") or 0) - target_m)
+                    + modeled_risk(row, scoring_shot=True),
+                ),
+                key(row),
+            ),
+            default=None,
+        )
+        return safe, attack
+
     if par in {4, 5}:
         # Evaluate the whole physical bag. Shot-count, advancement, each club's own distribution,
         # sample uncertainty, outcome surfaces, and mapped exposure keep implausibly short tee clubs
@@ -1471,13 +1544,6 @@ def _shot_option_clubs(
         # p10-p90 window is wholly before the front edge or wholly beyond the clear edge. If the
         # bag has no such club, return no route: a visibly infeasible recommendation is safer than
         # silently falling back to a global/nearest club and drawing it into the lake.
-        water_safe_rows = [
-            row for row in rows
-            if _club_water_safety(row, avoid_zones) != "risk"
-        ]
-        if avoid_zones and _water_zones(avoid_zones) and not water_safe_rows:
-            return None, None, None
-        ranked_rows = water_safe_rows or rows
         ranked = sorted(
             ranked_rows,
             key=lambda profile: (
@@ -1491,77 +1557,40 @@ def _shot_option_clubs(
                 key(profile),
             ),
         )
-        stock = ranked[0]
-        stock_carry = float(stock.get("median_m") or 0)
-        remaining = ranked[1:]
-        safe = next(
-            (row for row in remaining if float(row.get("median_m") or 0) < stock_carry - 0.5),
-            None,
+        cold_start = not any(
+            int(row.get("sampleSize") or 0) >= MIN_STRONG_CLUB_SAMPLE
+            for row in ranked_rows
         )
-        attack = next(
-            (
-                row
-                for row in remaining
-                if row is not safe and float(row.get("median_m") or 0) > stock_carry + 0.5
-            ),
-            None,
-        )
-        # Two distinct clubs can have the same carry, and both must remain independently modeled.
-        # Fill an empty transport slot with the next best unrepresented physical alternative.
-        if safe is None:
-            safe = next((row for row in remaining if row is not attack), None)
-        if attack is None:
-            attack = next((row for row in remaining if row is not safe), None)
+        stock = max(ranked_rows, key=lambda row: (float(row.get("median_m") or 0), key(row))) if cold_start else ranked[0]
+        safe, attack = semantic_alternatives(stock, ranked, scoring_shot=False)
         return safe, stock, attack
 
     if par == 3:
-        target = target_m if target_m and target_m > 0 else float(rows[0].get("median_m") or 0)
+        target = target_m if target_m and target_m > 0 else float(ranked_rows[0].get("median_m") or 0)
         ranked = sorted(
-            rows,
+            ranked_rows,
             key=lambda profile: (
                 abs(float(profile.get("median_m") or 0) - target)
-                + _club_stability_cost(
-                    profile,
-                    scoring_shot=True,
-                    memo=decision_memo,
-                )
-                + _club_hazard_cost(profile, avoid_zones),
+                + modeled_risk(profile, scoring_shot=True),
                 -int(profile.get("sampleSize") or 0),
                 key(profile),
             ),
         )
         stock = ranked[0]
-        stock_carry = float(stock.get("median_m") or 0)
-        remaining = ranked[1:]
-        safe = next(
-            (row for row in remaining if float(row.get("median_m") or 0) > stock_carry + 0.5),
-            None,
-        )
-        attack = next(
-            (
-                row
-                for row in remaining
-                if row is not safe and float(row.get("median_m") or 0) < stock_carry - 0.5
-            ),
-            None,
-        )
-        if safe is None:
-            safe = next((row for row in remaining if row is not attack), None)
-        if attack is None:
-            attack = next((row for row in remaining if row is not safe), None)
+        safe, attack = semantic_alternatives(stock, ranked, scoring_shot=True)
         return safe, stock, attack
 
-    longest = rows[0]
-    if len(rows) >= 3:
+    longest = ranked_rows[0]
+    if len(ranked_rows) >= 3:
         # rows are longest-first; reserve the middle tier for the standard line so the attack route
         # is a real longer club instead of the same Driver at a fabricated second distance.
         attack = longest
-        stock = rows[1]
-        safe = nearest(rows[2:], float(longest.get("median_m") or 0) * 0.82) or rows[-1]
+        stock = ranked_rows[1]
+        safe = nearest(ranked_rows[2:], float(longest.get("median_m") or 0) * 0.82) or ranked_rows[-1]
         return safe, stock, attack
-    if len(rows) == 2:
-        return rows[1], rows[0], None
-    return None, rows[0], None
+    if len(ranked_rows) == 2:
+        return ranked_rows[1], ranked_rows[0], None
+    return None, ranked_rows[0], None
 
 
 def _option_risks(
@@ -1582,6 +1611,8 @@ def _option_risks(
             "distanceToCenter_m",
             "landingRadius_m",
             "overlap_m",
+            "side",
+            "corridorWidth_m",
             "source",
         ):
             if zone.get(key) is not None:
@@ -1693,6 +1724,7 @@ def _tee_candidate_routes(
                 "expectedSurface": surface,
                 "nearRisks": near_risks,
                 "lineRisks": line_risks,
+                "planningHazards": [dict(zone) for zone in avoid_zones or [] if isinstance(zone, dict)],
                 "riskScore": round(
                     (
                         _club_stability_cost(
@@ -2001,9 +2033,16 @@ def hydrate_live_caddie_geometry_context(context: dict[str, Any]) -> dict[str, A
         )
         # Replace the old seed even when no route is feasible. Keeping a stale candidate here
         # would let the phone display a pre-geometry shot that the precise water constraints have
-        # invalidated. The decision endpoint can still derive a safe layup from route evidence;
-        # until then the empty list is an explicit, honest no-route state.
+        # invalidated. Preserve the empty list as an authoritative no-route state; the decision
+        # endpoint must expose that reason instead of rebuilding an unconstrained legacy route.
         refreshed["candidateRoutes"] = candidate_routes
+        refreshed["candidateRoutesState"] = "ready" if candidate_routes else "infeasible"
+        if not candidate_routes:
+            refreshed["candidateRoutesReason"] = (
+                "No measured club can safely satisfy the current route hazards."
+            )
+        else:
+            refreshed.pop("candidateRoutesReason", None)
         missing_data = [
             row for row in (refreshed.get("missingData") or []) if isinstance(row, dict)
         ]
@@ -2360,6 +2399,25 @@ def _caddie_context_seeds(
             target_m=target_distance_m,
             avoid_zones=avoid_zones,
         )
+        candidate_routes = _tee_candidate_routes(
+            hole,
+            club_profiles,
+            geometry.get("hazards") or [],
+            par=par_value,
+            target_m=target_distance_m,
+            avoid_zones=avoid_zones,
+            shot_option_clubs=shot_option_clubs,
+        )
+        candidate_routes_state = "ready" if candidate_routes else "missing"
+        from ai_caddie.caddie.decision import _has_hard_hazard_constraint
+
+        constraint_rows = _caddie_clean_rows(club_profiles)
+        if (
+            constraint_rows
+            and _has_hard_hazard_constraint(constraint_rows, avoid_zones)
+            and not any(shot_option_clubs)
+        ):
+            candidate_routes_state = "infeasible"
         manual_notes = _manual_notes_for_seed(
             annotations_root=annotations_root,
             round_id=round_id,
@@ -2388,13 +2446,8 @@ def _caddie_context_seeds(
             "weatherSnapshot": seed_weather_snapshot,
             "clubProfiles": decision_clubs,
             "playerProfile": player_profile or {},
-            "candidateRoutes": _tee_candidate_routes(
-                hole, club_profiles, geometry.get("hazards") or [],
-                par=par_value,
-                target_m=target_distance_m,
-                avoid_zones=avoid_zones,
-                shot_option_clubs=shot_option_clubs,
-            ),
+            "candidateRoutes": candidate_routes,
+            "candidateRoutesState": candidate_routes_state,
             "historicalHole": {
                 "courseKey": hole_stats.get("courseKey") or course_key,
                 "hole": number,
@@ -2408,6 +2461,16 @@ def _caddie_context_seeds(
         }
         if target_distance_m > 0:
             context["holeRemaining_m"] = round(target_distance_m, 1)
+        if candidate_routes_state == "infeasible":
+            context["candidateRoutesReason"] = (
+                "No measured club can safely satisfy the current route hazards."
+            )
+            missing_data.append(
+                {
+                    "label": "caddie_feasibility",
+                    "reason": context["candidateRoutesReason"],
+                }
+            )
         if course_form:
             context["courseForm"] = course_form
         if diagnostic_context:

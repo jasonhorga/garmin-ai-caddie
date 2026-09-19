@@ -188,6 +188,38 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertTrue(tail)
         self.assertEqual([row["clubName"] for row in tail], ["Driver"])
 
+    def test_continuation_rejects_lateral_window_wider_than_two_sided_ob_corridor(self) -> None:
+        from ai_caddie.caddie.decision import _sequence_tail
+
+        rows = [
+            {
+                "clubName": "Wide Control",
+                "median_m": 200.0,
+                "p10_m": 190.0,
+                "p90_m": 210.0,
+                "lateralP10P90_m": 45.0,
+                "sampleSize": 80,
+            },
+            {
+                "clubName": "Narrow Control",
+                "median_m": 170.0,
+                "p10_m": 160.0,
+                "p90_m": 180.0,
+                "lateralP10P90_m": 22.0,
+                "sampleSize": 80,
+            },
+        ]
+        ob_corridor = [
+            {"id": "ob-left", "kind": "ob", "side": "left", "corridorWidth_m": 30.0},
+            {"id": "ob-right", "kind": "ob", "side": "right", "corridorWidth_m": 30.0},
+        ]
+
+        tail = _sequence_tail(rows, 200.0, avoid_zones=ob_corridor)
+
+        self.assertTrue(tail)
+        self.assertNotIn("Wide Control", {row["clubName"] for row in tail})
+        self.assertEqual(tail[0]["clubName"], "Narrow Control")
+
     def test_decision_payload_uses_v2_contract(self) -> None:
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
 
@@ -491,6 +523,72 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertNotIn("shots", sequence_evidence["text"].lower())
         self.assertNotIn("expected strokes", sequence_evidence["text"].lower())
 
+    def test_sequence_reprojects_all_planning_hazards_from_each_new_lie(self) -> None:
+        context = long_hole_fixture()
+        planning_hazards = [
+            {
+                "id": "fairway-bunker",
+                "kind": "bunker",
+                "intervalIndex": 0,
+                "carryToFront_m": 260.0,
+                "carryToClear_m": 278.0,
+            }
+        ]
+        for route in context["candidateRoutes"]:
+            route["planningHazards"] = planning_hazards
+
+        plan = build_decision_plan(context)
+
+        self.assertTrue(plan["sequences"])
+        for sequence in plan["sequences"]:
+            travelled = 0.0
+            for step in sequence["clubs"]:
+                projection = step["hazardProjection"]
+                self.assertEqual(projection["originOffset_m"], round(travelled, 1))
+                if travelled == 0:
+                    self.assertEqual(projection["zones"][0]["carryToFront_m"], 260.0)
+                travelled += step["targetCarry_m"]
+
+    def test_explicit_infeasible_candidates_never_fall_back_to_route_geometry(self) -> None:
+        context = analysis_fixture(stock_risk=1)
+        context["candidateRoutes"] = []
+        context["candidateRoutesState"] = "infeasible"
+        context["candidateRoutesReason"] = "No measured club can clear the mapped water."
+        context["routeEvidence"] = {
+            "routeLength_m": 320.0,
+            "avoidZones": [
+                {"id": "water", "kind": "water", "carryToFront_m": 120.0, "carryToClear_m": 230.0}
+            ],
+        }
+
+        plan = build_decision_plan(context)
+
+        self.assertEqual(plan["options"], [])
+        self.assertIsNone(plan["selected"])
+        feasibility = next(row for row in plan["missingData"] if row["label"] == "feasibility")
+        self.assertEqual(feasibility["reason"], context["candidateRoutesReason"])
+
+    def test_non_tee_plan_excludes_driver_and_explains_current_lie(self) -> None:
+        context = long_hole_fixture()
+        context["lie"] = "rough"
+        context["candidateRoutes"] = [
+            {
+                **route,
+                "club": {"conservative_layup": "5I", "stock_line": "1D", "aggressive_line": "3W"}[route["id"]],
+            }
+            for route in context["candidateRoutes"]
+        ]
+
+        plan = build_decision_plan(context)
+
+        self.assertNotIn("1D", [option.get("club") for option in plan["options"]])
+        self.assertTrue(plan["selectedSequence"])
+        self.assertNotIn("1D", [step["clubName"] for step in plan["selectedSequence"]["clubs"]])
+        self.assertIn(
+            "current_lie_replan",
+            {row["code"] for row in plan["selected"]["selectionReasons"]},
+        )
+
     def test_recommend_approach_uses_green_and_hazard_evidence(self) -> None:
         context = approach_fixture()
         context["weatherSnapshot"] = ready_weather_snapshot()
@@ -504,6 +602,71 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIn("water", {zone["kind"] for zone in plan["avoidZones"]})
         self.assertEqual(plan["confidence"]["level"], "high")
 
+    def test_approach_applies_hard_water_constraint_before_selecting_club(self) -> None:
+        context = approach_fixture()
+
+        plan = recommend_approach(context)
+
+        safe = next(option for option in plan["options"] if option["id"] == "safe")
+        self.assertEqual(safe["clubRecommendation"]["source"], "infeasible")
+        self.assertEqual(plan["selectedOptionId"], "stock")
+        self.assertEqual(
+            plan["selected"]["clubRecommendation"]["clubs"][0]["clubName"],
+            "7I",
+        )
+
+    def test_short_approach_and_recovery_do_not_select_infeasible_options(self) -> None:
+        for shot_type, recommend in (
+            ("approach", recommend_approach),
+            ("recovery", recommend_recovery),
+        ):
+            with self.subTest(shot_type=shot_type):
+                context = approach_fixture()
+                context.update(
+                    {
+                        "shotType": shot_type,
+                        "distanceToPin_m": 178.0 if shot_type == "recovery" else 142.0,
+                        "lie": "rough" if shot_type == "recovery" else "fairway",
+                        "hazards": [
+                            {
+                                "kind": "water",
+                                "id": "unclearable-water",
+                                "carryToFront_m": 80.0,
+                                "carryToClear_m": 200.0,
+                            }
+                        ],
+                    }
+                )
+
+                plan = recommend(context)
+
+                self.assertLess(context["distanceToPin_m"], 260.0)
+                self.assertTrue(plan["options"])
+                self.assertTrue(
+                    all(
+                        option["clubRecommendation"]["source"] == "infeasible"
+                        for option in plan["options"]
+                    )
+                )
+                self.assertIsNone(plan["selected"])
+                self.assertIsNone(plan["selectedOptionId"])
+                self.assertIsNone(plan["selectedSequence"])
+                self.assertEqual(plan["sequences"], [])
+                self.assertIn("feasibility", {row["label"] for row in plan["missingData"]})
+
+    def test_missing_selected_option_cannot_retain_an_unrelated_sequence(self) -> None:
+        from ai_caddie.caddie.decision import _align_selected_sequence
+
+        selected, sequence = _align_selected_sequence(
+            [],
+            [{"id": "stock", "clubs": [{"clubName": "5I"}]}],
+            None,
+            {},
+        )
+
+        self.assertIsNone(selected)
+        self.assertIsNone(sequence)
+
     def test_each_decision_option_exposes_quality_and_source_contract(self) -> None:
         context = approach_fixture()
         context["weatherSnapshot"] = ready_weather_snapshot()
@@ -516,7 +679,12 @@ class DecisionLayerTests(unittest.TestCase):
             self.assertIn("round-1:4", option["sourceRefs"])
             self.assertEqual(option["coverage"]["total"], 4)
             self.assertGreaterEqual(option["coverage"]["ready"], 3)
-            self.assertEqual(option["confidence"], "high")
+            recommendation = option["clubRecommendation"]
+            if recommendation["source"] == "infeasible":
+                self.assertEqual(option["confidence"], "medium")
+                self.assertIn("feasibility", {row["label"] for row in option["missingData"]})
+            else:
+                self.assertEqual(option["confidence"], "high")
             self.assertIsInstance(option["missingData"], list)
 
     def test_tee_and_recovery_options_expose_quality_and_source_contract(self) -> None:
@@ -574,6 +742,13 @@ class DecisionLayerTests(unittest.TestCase):
         }
         context["targetLocation"] = {"latitude": 22.2799, "longitude": 114.162, "source": "pin"}
         context["strategyMode"] = "protect_score"
+        context["clubProfiles"]["PW"] = {
+            "clubName": "PW",
+            "sampleSize": 24,
+            "median": 90.0,
+            "p10": 84.0,
+            "p90": 96.0,
+        }
 
         plan = recommend_approach(context)
 
@@ -680,9 +855,9 @@ class DecisionLayerTests(unittest.TestCase):
         stock = next(option for option in plan["options"] if option["id"] == "stock")
         self.assertEqual(stock["hazardClearance"]["minimumClearance_m"], 16.0)
         self.assertEqual(stock["hazardClearance"]["criticalHazardId"], "water_front")
-        self.assertEqual(stock["dispersion"]["clubName"], "8I")
-        self.assertEqual(stock["dispersion"]["carryP10_m"], 132.0)
-        self.assertEqual(stock["dispersion"]["carryP90_m"], 153.0)
+        self.assertEqual(stock["dispersion"]["clubName"], "7I")
+        self.assertEqual(stock["dispersion"]["carryP10_m"], 142.0)
+        self.assertEqual(stock["dispersion"]["carryP90_m"], 168.0)
         self.assertEqual(stock["targetWindow"]["frontCarry_m"], 137.0)
         self.assertEqual(stock["targetWindow"]["backCarry_m"], 147.0)
         self.assertEqual(stock["scoreImpact"]["baselineStrokes"], 1.0)
@@ -693,15 +868,15 @@ class DecisionLayerTests(unittest.TestCase):
 
     def test_club_surface_risk_adjusts_option_risk_with_source_refs(self) -> None:
         context = approach_fixture()
-        context["clubProfiles"]["8I"].update(
+        context["clubProfiles"]["7I"].update(
             {
                 "hazardRate": 50.0,
                 "riskRate": 50.0,
                 "usableRate": 50.0,
-                "riskShotRefs": ["8i-risk-1", "8i-risk-2"],
+                "riskShotRefs": ["7i-risk-1", "7i-risk-2"],
                 "surfaceDistribution": [
-                    {"surface": "green", "count": 6, "pct": 50.0},
-                    {"surface": "rough", "count": 6, "pct": 50.0},
+                    {"surface": "green", "count": 12, "pct": 50.0},
+                    {"surface": "rough", "count": 12, "pct": 50.0},
                 ],
             }
         )
@@ -710,10 +885,10 @@ class DecisionLayerTests(unittest.TestCase):
 
         stock = next(option for option in plan["options"] if option["id"] == "stock")
         club = stock["clubRecommendation"]["clubs"][0]
-        self.assertEqual(club["clubName"], "8I")
+        self.assertEqual(club["clubName"], "7I")
         self.assertEqual(club["riskRate"], 50.0)
         self.assertEqual(stock["clubSurfaceRisk"]["riskScoreDelta"], 1.0)
-        self.assertEqual(stock["clubSurfaceRisk"]["sourceRefs"], ["8i-risk-1", "8i-risk-2"])
+        self.assertEqual(stock["clubSurfaceRisk"]["sourceRefs"], ["7i-risk-1", "7i-risk-2"])
         self.assertGreater(stock["riskScore"], stock["baseRiskScore"])
         self.assertEqual(stock["scoreImpact"]["clubSurfaceRisk"]["expectedStrokesDelta"], 0.05)
 

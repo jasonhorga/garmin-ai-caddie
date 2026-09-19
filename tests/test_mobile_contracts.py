@@ -882,7 +882,15 @@ class MobileContractTests(unittest.TestCase):
         self.assertGreaterEqual(len(seed["evidence"]), 1)
         self.assertIn("current_location", {row["label"] for row in seed["missingData"]})
         self.assertEqual(seed["selectedOfflineOptionId"], "stock")
-        self.assertEqual([row["id"] for row in seed["offlineOptions"]], ["safe", "stock", "attack"])
+        option_ids = [row["id"] for row in seed["offlineOptions"]]
+        option_signatures = {
+            (str(row["clubName"]).casefold(), round(float(row["carryM"]), 1))
+            for row in seed["offlineOptions"]
+        }
+        self.assertIn(seed["selectedOfflineOptionId"], option_ids)
+        self.assertEqual(len(option_ids), len(set(option_ids)))
+        self.assertEqual(len(option_signatures), len(seed["offlineOptions"]))
+        self.assertLessEqual(len(option_ids), 3)
         self.assertTrue(all(row["clubName"] for row in seed["offlineOptions"]))
         self.assertTrue(all(float(row["carryM"]) > 0 for row in seed["offlineOptions"]))
         self.assertTrue(all(row["sourceRefs"] == [seed["sourceRef"]] for row in seed["offlineOptions"]))
