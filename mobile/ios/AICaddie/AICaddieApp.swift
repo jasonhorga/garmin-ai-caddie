@@ -1071,25 +1071,30 @@ public final class LiveRoundAppModel: ObservableObject {
             guard isCurrentRoundPreparation(preparationToken) else { return }
             if let remotePackage = fetched {
                 let persisted = try offlineStore.saveRoundPackage(remotePackage)
-                try activatePackage(persisted, status: "已下载离线", rememberAsRecent: true)
+                try activatePackage(persisted, status: "已下载离线")
+                rememberRecentCourseSelection(from: persisted)
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
                 switch cachedPackage.cacheState() {
                 case .expired:
                     if try canContinueExpiredPackage(cachedPackage) {
-                        try activatePackage(cachedPackage, status: "离线继续本场", rememberAsRecent: true)
+                        try activatePackage(cachedPackage, status: "离线继续本场")
+                        rememberRecentCourseSelection(from: cachedPackage)
                         return
                     }
                     syncStatus = "离线数据已过期,稍后重试"
                 case .stale:
-                    try activatePackage(cachedPackage, status: "已下载离线", rememberAsRecent: true)
+                    try activatePackage(cachedPackage, status: "已下载离线")
+                    rememberRecentCourseSelection(from: cachedPackage)
                     return
                 case .ready:
-                    try activatePackage(cachedPackage, status: "已下载离线", rememberAsRecent: true)
+                    try activatePackage(cachedPackage, status: "已下载离线")
+                    rememberRecentCourseSelection(from: cachedPackage)
                     return
                 case .degraded:
-                    try activatePackage(cachedPackage, status: "已下载离线", rememberAsRecent: true)
+                    try activatePackage(cachedPackage, status: "已下载离线")
+                    rememberRecentCourseSelection(from: cachedPackage)
                     return
                 }
             } else {
