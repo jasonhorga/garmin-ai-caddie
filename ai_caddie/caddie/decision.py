@@ -32,6 +32,10 @@ EXCLUDED_TEE_CLUBS = {"unknown", "?", "putter"}
 MIN_STRONG_CLUB_SAMPLE = 5
 MIN_SEQUENCE_DISTANCE_M = 260.0
 MAX_SEQUENCE_OVERSHOOT_M = 10.0
+# A cold package can legitimately omit short-game clubs. Keep the resulting full-hole
+# preview bounded and explicit instead of inventing a full-swing continuation.
+MAX_SEQUENCE_REPLAN_GAP_M = 50.0
+SHORT_GAME_PROFILE_MAX_M = 110.0
 MAX_SEQUENCE_STEPS = 5
 EXTRA_SEQUENCE_STEP_COST_M = 25.0
 # These weights rank deterministic club combinations; they are not exposed as calibrated strokes.
@@ -1202,6 +1206,7 @@ def _sequence_tail(
     avoid_zones: list[dict[str, Any]] | None = None,
     travelled_m: float = 0.0,
     forbid_driver: bool = False,
+    allow_replan_gap: bool = False,
     memo: dict[Any, Any] | None = None,
 ) -> list[dict[str, Any]]:
     if remaining_m <= 20.0:
@@ -1224,6 +1229,7 @@ def _sequence_tail(
         ),
         round(float(travelled_m), 1),
         bool(forbid_driver),
+        bool(allow_replan_gap),
     )
     if memo is not None and tail_key in memo:
         return memo[tail_key]
@@ -1253,9 +1259,10 @@ def _sequence_tail(
     names_by_index = [str(row.get("clubName") or "") for row in playable]
     longest_m = max(_float(row.get("median_m")) for row in playable)
     minimum_steps = max(1, math.ceil(max(0.0, remaining_m - MAX_SEQUENCE_OVERSHOOT_M) / longest_m))
+    first_candidate_steps = max(1, minimum_steps - 1) if allow_replan_gap else minimum_steps
     maximum_steps = min(MAX_SEQUENCE_STEPS - 1, minimum_steps + 1)
     best: tuple[tuple[float, ...], list[dict[str, Any]]] | None = None
-    for step_count in range(minimum_steps, maximum_steps + 1):
+    for step_count in range(first_candidate_steps, maximum_steps + 1):
         for indexes in combinations_with_replacement(range(len(playable)), step_count):
             candidate = [playable[index] for index in indexes]
             # Every continuation step is checked against the hazard interval as it exists from
@@ -1275,8 +1282,9 @@ def _sequence_tail(
             leave_m = round(remaining_m - carry_total, 1)
             overshoot_m = max(0.0, -leave_m)
             excessive_overshoot = 1.0 if overshoot_m > MAX_SEQUENCE_OVERSHOOT_M else 0.0
-            unresolved_leave = 1.0 if leave_m > 20.0 else 0.0
-            extra_step_cost = (step_count - minimum_steps) * EXTRA_SEQUENCE_STEP_COST_M
+            unresolved_limit = MAX_SEQUENCE_REPLAN_GAP_M if allow_replan_gap else 20.0
+            unresolved_leave = 1.0 if leave_m > unresolved_limit else 0.0
+            extra_step_cost = max(0, step_count - minimum_steps) * EXTRA_SEQUENCE_STEP_COST_M
             sample_strength = sum(sample_by_index[index] for index in indexes)
             last_index = indexes[-1]
             chain_cost = (
@@ -1284,14 +1292,27 @@ def _sequence_tail(
                 + sum(position_cost_by_index[index] for index in indexes[:-1])
                 + scoring_cost_by_index[last_index]
             )
-            key = (
-                excessive_overshoot,
-                unresolved_leave,
-                chain_cost + extra_step_cost,
-                overshoot_m,
-                -float(sample_strength),
-                *tuple(names_by_index[index] for index in indexes),
-            )
+            if allow_replan_gap:
+                # In degraded mode prefer a bounded shortfall to a large overshoot. A missing
+                # wedge is a reason to re-plan from the next lie, never a reason to add another
+                # arbitrary full swing.
+                key = (
+                    excessive_overshoot,
+                    unresolved_leave,
+                    abs(leave_m),
+                    chain_cost + extra_step_cost,
+                    -float(sample_strength),
+                    *tuple(names_by_index[index] for index in indexes),
+                )
+            else:
+                key = (
+                    excessive_overshoot,
+                    unresolved_leave,
+                    chain_cost + extra_step_cost,
+                    overshoot_m,
+                    -float(sample_strength),
+                    *tuple(names_by_index[index] for index in indexes),
+                )
             if best is None or key < best[0]:
                 best = (key, candidate)
     result = best[1] if best else []
@@ -1406,29 +1427,66 @@ def _sequence_option(
     first_carry = _float(first.get("median_m"))
     if not _carry_water_safe(first_carry, avoid_zones):
         return None
-    planned_rows = [
-        first,
-        *_sequence_tail(
-            club_rows,
-            distance_m - first_carry,
-            exclude_club_keys={_club_identity(first)},
-            avoid_zones=avoid_zones,
-            travelled_m=first_carry,
-            forbid_driver=True,
-            memo=memo,
-        ),
-    ]
-    remaining = distance_m
-    steps = []
-    for index, row in enumerate(planned_rows):
-        role = "advance" if index == 0 else ("scoring" if index == len(planned_rows) - 1 else "position")
-        steps.append(_sequence_step(row, remaining, role))
-        remaining = steps[-1]["expectedRemaining_m"]
+    def build_rows(*, allow_replan_gap: bool = False) -> list[dict[str, Any]]:
+        return [
+            first,
+            *_sequence_tail(
+                club_rows,
+                distance_m - first_carry,
+                exclude_club_keys={_club_identity(first)},
+                avoid_zones=avoid_zones,
+                travelled_m=first_carry,
+                forbid_driver=True,
+                allow_replan_gap=allow_replan_gap,
+                memo=memo,
+            ),
+        ]
+
+    def build_steps(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], float]:
+        remaining_m = distance_m
+        steps: list[dict[str, Any]] = []
+        for index, row in enumerate(rows):
+            role = "advance" if index == 0 else ("scoring" if index == len(rows) - 1 else "position")
+            steps.append(_sequence_step(row, remaining_m, role))
+            remaining_m = steps[-1]["expectedRemaining_m"]
+        return steps, remaining_m
+
+    planned_rows = build_rows()
+    steps, remaining = build_steps(planned_rows)
+    short_game_available = any(
+        _float(row.get("median_m"), math.inf) <= SHORT_GAME_PROFILE_MAX_M
+        for row in club_rows
+    )
+    partial = (
+        not short_game_available
+        and 20.0 < remaining <= MAX_SEQUENCE_REPLAN_GAP_M
+    )
     if remaining > 20.0 or remaining < -MAX_SEQUENCE_OVERSHOOT_M:
-        # A sequence that cannot reach a scoring distance is not an alternative. Returning no
-        # sequence lets the caller expose an explicit infeasible/missing-data reason instead of
-        # displaying a misleading short-club -> Driver chain.
-        return None
+        # If the exact scoring window is unavailable, consider one fewer full swing. This is a
+        # bounded short-game data gap; water feasibility and the non-Tee Driver prohibition still
+        # apply to every candidate.
+        fallback_rows = build_rows(allow_replan_gap=True)
+        fallback_steps, fallback_remaining = build_steps(fallback_rows)
+        fallback_complete = (
+            fallback_rows
+            and fallback_remaining >= -MAX_SEQUENCE_OVERSHOOT_M
+            and fallback_remaining <= 20.0
+        )
+        fallback_partial = (
+            fallback_rows
+            and not short_game_available
+            and fallback_remaining > 20.0
+            and fallback_remaining <= MAX_SEQUENCE_REPLAN_GAP_M
+        )
+        if fallback_complete or fallback_partial:
+            planned_rows, steps, remaining = fallback_rows, fallback_steps, fallback_remaining
+            partial = remaining > 20.0
+        if remaining > 20.0 and short_game_available:
+            return None
+        if remaining > MAX_SEQUENCE_REPLAN_GAP_M or remaining < -MAX_SEQUENCE_OVERSHOOT_M:
+            # A chain outside the bounded gap is not an alternative. Return no sequence so the
+            # caller exposes missing data instead of displaying an unsafe fabricated continuation.
+            return None
     source_refs = _dedupe([ref for step in steps for ref in _sanitize_ref_list(step.get("sourceRefs"))])
     return {
         "id": option.get("id"),
@@ -1438,7 +1496,12 @@ def _sequence_option(
         "totalPlannedCarry_m": round(sum(_float(step.get("targetCarry_m")) for step in steps), 1),
         "expectedRemaining_m": round(remaining, 1),
         "riskScore": _float(option.get("riskScore")),
-        "rationale": "Uses each club's recorded carry distribution, outcome rates, and sample strength; re-plan after the next lie.",
+        "rationale": (
+            "Uses each club's recorded carry distribution, outcome rates, and sample strength; "
+            "re-plan after the next lie."
+            + (" Short-game club evidence is missing; re-plan the final gap from the next lie." if partial else "")
+        ),
+        "completion": "replan_required" if partial else "scoring_window",
         "sourceRefs": source_refs,
         "coverage": _sequence_coverage(steps),
         "confidence": _sequence_confidence(steps),

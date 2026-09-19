@@ -331,6 +331,14 @@ class CIFixtureContractTests(unittest.TestCase):
         sequences = decision["sequences"]
         self.assertTrue(sequences)
         self.assertTrue(all(len(sequence["clubs"]) >= 2 for sequence in sequences))
+        self.assertTrue(all(-10.0 <= sequence["expectedRemaining_m"] <= 50.0 for sequence in sequences))
+        self.assertTrue(
+            all(
+                str(step["clubName"]).casefold() not in {"driver", "1d", "1w"}
+                for sequence in sequences
+                for step in sequence["clubs"][1:]
+            )
+        )
         signatures = {
             tuple((club["clubName"], club["targetCarry_m"]) for club in sequence["clubs"])
             for sequence in sequences

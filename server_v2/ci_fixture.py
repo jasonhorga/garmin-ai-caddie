@@ -780,7 +780,16 @@ def caddie_decision(body: dict) -> dict:
         **context,
     }
     if shot_type == "tee":
-        context.setdefault("distanceToPin_m", 520.0)
+        distance = context.get("distanceToPin_m")
+        try:
+            valid_distance = distance is not None and 0.0 < float(distance) <= 1000.0
+        except (TypeError, ValueError):
+            valid_distance = False
+        if not valid_distance:
+            # The fixture seed intentionally leaves live GPS distance unset. Use the same
+            # deterministic green midpoint as the prep route so a seed round-trip exercises the
+            # decision contract instead of silently producing an empty sequence.
+            context["distanceToPin_m"] = _GREEN_DISTANCES_M[1]
         if not context.get("candidateRoutes"):
             context["candidateRoutes"] = _tee_candidate_routes()
     payload = {"shotType": shot_type, "context": context, "includeExplanation": False}
