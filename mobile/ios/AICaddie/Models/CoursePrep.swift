@@ -872,8 +872,34 @@ enum CoursePrepHoleAdoptionPolicy {
             && hole.resolvedMapOverlay != nil
     }
 
-    static func shouldAdopt(current: CoursePrepHole?, incoming: CoursePrepHole) -> Bool {
+    static func revisionMatches(_ lhs: String?, _ rhs: String?) -> Bool {
+        let left = lhs?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let right = rhs?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let left, let right, !left.isEmpty, !right.isEmpty {
+            return left == right
+        }
+        return (left?.isEmpty ?? true) && (right?.isEmpty ?? true)
+    }
+
+    static func shouldAdopt(
+        current: CoursePrepHole?,
+        incoming: CoursePrepHole,
+        authoritativeRevision: String? = nil
+    ) -> Bool {
         guard let current else { return true }
+        // A Garmin release revision is an identity, not an ordered version. When the package says
+        // which revision is current, a precise map from another revision must not block the new
+        // lightweight facts while that revision's polygons/topo finish downloading.
+        if let authoritativeRevision,
+           revisionMatches(incoming.geometryRevision, authoritativeRevision),
+           !revisionMatches(current.geometryRevision, authoritativeRevision) {
+            return true
+        }
+        if let authoritativeRevision,
+           revisionMatches(current.geometryRevision, authoritativeRevision),
+           !revisionMatches(incoming.geometryRevision, authoritativeRevision) {
+            return false
+        }
         let currentReady = isReadyMap(current)
         let incomingReady = isReadyMap(incoming)
         if currentReady && !incomingReady { return false }

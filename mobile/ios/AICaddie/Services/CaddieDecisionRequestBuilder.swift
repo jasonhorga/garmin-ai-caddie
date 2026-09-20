@@ -99,6 +99,10 @@ public final class CaddieDecisionRequestBuilder {
                 location["capturedAt"] = .string(capturedAt)
             }
             context["currentLocation"] = .object(location)
+            // The server has the authoritative surface polygons. Mark the initial UI value as an
+            // automatic fallback so precise GPS classification may replace it with tee/fairway/
+            // rough/bunker without treating the default picker value as a manual instruction.
+            context["lieSource"] = .string("gps_auto")
         }
         if let targetCoordinate = input.targetCoordinate {
             var targetLocation: [String: JSONValue] = [
@@ -123,5 +127,268 @@ public final class CaddieDecisionRequestBuilder {
         }
 
         return CaddieDecisionRequest(shotType: input.shotType, context: context)
+    }
+}
+
+/// A live hole must remain playable even when an older/lightweight package omitted its deferred
+/// caddie seed. The current package already carries the factual hole, bag and (once available)
+/// CoursePrep shot chain, so synthesize only the bounded decision input that the normal seed would
+/// have transported. This does not run a second planner on the phone.
+public enum LiveCaddieSeedFactory {
+    public static func resolve(
+        package: LiveRoundPackage,
+        hole: Hole,
+        prep: CoursePrepHole?
+    ) -> CaddieContextSeed? {
+        if let installed = package.caddieContextSeeds.first(where: { $0.hole == hole.number }) {
+            return installed
+        }
+        return synthesize(package: package, hole: hole, prep: prep)
+    }
+
+    public static func synthesize(
+        package: LiveRoundPackage,
+        hole: Hole,
+        prep: CoursePrepHole?
+    ) -> CaddieContextSeed? {
+        let sourceRef = "\(package.roundId):\(hole.number)"
+        let profiles = package.clubProfiles.filter {
+            $0.medianM.isFinite && $0.medianM > 0
+        }
+        let steps = canonicalSteps(prep?.steps ?? [], profiles: profiles)
+        let firstStep = steps.first
+        let fallbackProfile = fallbackProfile(for: hole, prep: prep, profiles: profiles)
+        let primaryName = string(firstStep?["clubName"]) ?? fallbackProfile?.clubName
+        let primaryCarry = number(firstStep?["targetCarryM"]) ?? fallbackProfile?.medianM
+        guard let primaryName,
+              !primaryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let primaryCarry,
+              primaryCarry.isFinite,
+              primaryCarry > 0 else {
+            return nil
+        }
+
+        var context: [String: JSONValue] = [
+            "roundId": .string(package.roundId),
+            "sourceRef": .string(sourceRef),
+            "courseName": .string(package.course.venueDisplayName),
+            "globalId": .number(Double(hole.sourceGlobalId ?? package.course.globalId)),
+            "localHole": .number(Double(hole.sourceLocalHole ?? hole.number)),
+            "hole": .number(Double(hole.number)),
+            "displayHole": .number(Double(hole.number)),
+            "par": .number(Double(hole.par)),
+            "teeBox": .string(package.course.teeBox),
+            "clubProfiles": .array(profiles.map { profile in
+                .object([
+                    "clubName": .string(profile.clubName),
+                    "sampleSize": .number(Double(profile.sampleSize)),
+                    "median_m": .number(profile.medianM),
+                    "p10_m": .number(profile.p10M),
+                    "p90_m": .number(profile.p90M),
+                ])
+            }),
+            "geometry": .object([
+                "coverage": .string(prep?.geometryCoverage ?? hole.geometryCoverage.rawValue),
+                "geometryRevision": (prep?.geometryRevision ?? hole.geometryRevision).map(JSONValue.string) ?? .null,
+            ]),
+            "candidateRoutesState": .string("ready"),
+        ]
+        if let yards = hole.yards, yards > 0 {
+            context["yards"] = .number(Double(yards))
+        }
+        if !steps.isEmpty {
+            context["canonicalShotPlan"] = .array(steps.map(JSONValue.object))
+            context["canonicalPlanSource"] = .string("course_prep")
+            context["canonicalPlanVersion"] = .string("ai-caddie-shot-plan-v1")
+        }
+        if let routeLength = prep?.routeLenM, routeLength.isFinite, routeLength > 0 {
+            context["canonicalPlanRouteLength_m"] = .number(routeLength)
+            context["holeRemaining_m"] = .number(routeLength)
+        }
+
+        let options = offlineOptions(
+            sourceRef: sourceRef,
+            primaryName: primaryName,
+            primaryCarry: primaryCarry,
+            prep: prep,
+            profiles: profiles
+        )
+        context["candidateRoutes"] = .array(options.map { option in
+            .object([
+                "id": .string(option.optionId),
+                "label": .string(option.label),
+                "club": .string(option.clubName),
+                "carry_m": .number(option.carryM),
+                "riskScore": .number(option.riskScore),
+            ])
+        })
+
+        return CaddieContextSeed(
+            hole: hole.number,
+            sourceRef: sourceRef,
+            shotTypes: ["tee", "approach", "recovery"],
+            requiredLiveInputs: ["currentLocation", "lie"],
+            enrichmentState: "local_factual_fallback",
+            context: context,
+            selectedOfflineOptionId: options.first?.optionId,
+            offlineOptions: options,
+            evidence: [[
+                "label": .string("local_caddie_seed"),
+                "value": .string(prep == nil ? "hole_and_bag" : "course_prep"),
+                "sourceRef": .string(sourceRef),
+            ]],
+            missingData: [[
+                "label": .string("server_caddie_seed"),
+                "reason": .string("package omitted this hole's deferred seed; using factual local course and bag data"),
+            ]]
+        )
+    }
+
+    private static func canonicalSteps(
+        _ source: [CoursePrepStep],
+        profiles: [ClubProfile]
+    ) -> [[String: JSONValue]] {
+        source.enumerated().compactMap { index, step in
+            let rawName = (step.clubName ?? step.club ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !rawName.isEmpty, rawName != "-" else { return nil }
+            let profile = matchingProfile(rawName, in: profiles)
+            var row: [String: JSONValue] = [
+                "clubName": .string(rawName),
+                "planIndex": .number(Double(step.planIndex ?? index)),
+            ]
+            if let carry = step.targetCarryM ?? profile?.medianM,
+               carry.isFinite, carry > 0 {
+                row["targetCarryM"] = .number(carry)
+            }
+            if let value = step.routeOffsetM, value.isFinite, value >= 0 {
+                row["routeOffsetM"] = .number(value)
+            }
+            if let value = step.landingM, value.isFinite, value >= 0 {
+                row["landingM"] = .number(value)
+            }
+            if let value = step.expectedRemainingM, value.isFinite {
+                row["expectedRemainingM"] = .number(value)
+            }
+            if let role = step.role, !role.isEmpty { row["role"] = .string(role) }
+            row["planVersion"] = .string(step.planVersion ?? "ai-caddie-shot-plan-v1")
+            return row
+        }
+    }
+
+    private static func offlineOptions(
+        sourceRef: String,
+        primaryName: String,
+        primaryCarry: Double,
+        prep: CoursePrepHole?,
+        profiles: [ClubProfile]
+    ) -> [OfflineCaddieOption] {
+        var rows: [(id: String, label: String, club: String, carry: Double, risk: Double)] = [
+            ("stock", "推荐", primaryName, primaryCarry, 0),
+        ]
+        for route in prep?.candidateRoutes ?? [] {
+            guard let club = route.club?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !club.isEmpty,
+                  let carry = route.carryM ?? matchingProfile(club, in: profiles)?.medianM,
+                  carry.isFinite,
+                  carry > 0 else { continue }
+            let rawID = route.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            rows.append((rawID.isEmpty ? "route-\(rows.count)" : rawID, "备选", club, carry, route.riskScore ?? 0))
+        }
+
+        var seen = Set<String>()
+        return rows.compactMap { row in
+            let signature = "\(normalizedClub(row.club)):\(Int(row.carry.rounded()))"
+            guard seen.insert(signature).inserted else { return nil }
+            let profile = matchingProfile(row.club, in: profiles)
+            return OfflineCaddieOption(
+                optionId: row.id,
+                label: row.label,
+                clubName: row.club,
+                carryM: row.carry,
+                p10M: profile?.p10M,
+                p90M: profile?.p90M,
+                sampleSize: profile?.sampleSize,
+                confidence: (profile?.sampleSize ?? 0) >= 10 ? "medium" : "low",
+                riskScore: row.risk,
+                source: "ios_local_factual_seed",
+                sourceRefs: [sourceRef]
+            )
+        }
+    }
+
+    private static func fallbackProfile(
+        for hole: Hole,
+        prep: CoursePrepHole?,
+        profiles: [ClubProfile]
+    ) -> ClubProfile? {
+        if let teeClub = prep?.teeClub,
+           let match = matchingProfile(teeClub, in: profiles) {
+            return match
+        }
+        guard !profiles.isEmpty else { return nil }
+        if hole.par >= 4 {
+            return profiles.max(by: { $0.medianM < $1.medianM })
+        }
+        let target = prep?.routeLenM
+            ?? hole.yards.map { CoursePrepRoute.metres(fromYards: Double($0)) }
+            ?? profiles.map(\.medianM).max()
+            ?? 0
+        return profiles.min(by: { abs($0.medianM - target) < abs($1.medianM - target) })
+    }
+
+    private static func matchingProfile(_ name: String, in profiles: [ClubProfile]) -> ClubProfile? {
+        let key = normalizedClub(name)
+        return profiles.first { normalizedClub($0.clubName) == key }
+    }
+
+    private static func normalizedClub(_ value: String) -> String {
+        zhClubDisplayName(zhClubName(value))
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
+    }
+
+    private static func string(_ value: JSONValue?) -> String? {
+        guard case .string(let raw) = value else { return nil }
+        return raw
+    }
+
+    private static func number(_ value: JSONValue?) -> Double? {
+        guard case .number(let raw) = value else { return nil }
+        return raw
+    }
+}
+
+public enum LiveCaddieDecisionUsability {
+    public static func hasRecommendation(_ response: CaddieDecisionResponse) -> Bool {
+        if sequenceHasClub(response.selectedSequence) { return true }
+        if optionHasClub(response.selectedOption ?? response.selected) { return true }
+        if (response.sequences ?? []).contains(where: sequenceHasClub) { return true }
+        return response.options.contains(where: optionHasClub)
+    }
+
+    private static func sequenceHasClub(_ row: [String: JSONValue]?) -> Bool {
+        guard let row, case .array(let clubs) = row["clubs"] else { return false }
+        return clubs.contains { value in
+            guard case .object(let club) = value else { return false }
+            return usableString(club["clubName"] ?? club["club"])
+        }
+    }
+
+    private static func optionHasClub(_ row: [String: JSONValue]?) -> Bool {
+        guard let row else { return false }
+        if usableString(row["clubName"] ?? row["club"]) { return true }
+        guard case .object(let recommendation) = row["clubRecommendation"],
+              case .array(let clubs) = recommendation["clubs"] else { return false }
+        return clubs.contains { value in
+            guard case .object(let club) = value else { return false }
+            return usableString(club["clubName"] ?? club["club"])
+        }
+    }
+
+    private static func usableString(_ value: JSONValue?) -> Bool {
+        guard case .string(let raw) = value else { return false }
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !normalized.isEmpty && normalized != "-"
     }
 }

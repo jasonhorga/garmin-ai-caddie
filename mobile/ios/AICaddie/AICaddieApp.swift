@@ -1036,10 +1036,9 @@ public final class LiveRoundAppModel: ObservableObject {
         guard roundPreparationToken == token else { return }
         roundPreparationToken = nil
         isPreparingRound = false
-        // Live-course assets keep priority after a successful start: a fresh round has a deferred
-        // installer, and a same-round nine change already owns `offlineCourseDownloadTask`. If the
-        // start failed (or `prepareRound` did not create an installer), release the prep-library
-        // queue here instead of leaving its durable jobs paused until the next app foreground.
+        // Live-course assets keep priority after a successful start or hole-set change: their
+        // installer is deferred until the replacement live surface has settled. If preparation
+        // failed, release the prep-library queue instead of leaving durable jobs paused.
         if deferredOfflineCourseDownloadRevalidation == nil,
            offlineCourseDownloadTask == nil {
             startPrepCourseDownloadQueueIfNeeded()
@@ -1127,6 +1126,28 @@ public final class LiveRoundAppModel: ObservableObject {
         let preparedAt = Date()
 
         do {
+            // Removing a locally-added physical loop is a hole-set mutation, not a course
+            // download. Publish the retained front loop synchronously; immutable geometry/topo
+            // for both loops remains cached and the normal background pass only revalidates it.
+            if !isNewRound,
+               nine.caseInsensitiveCompare("all") == .orderedSame,
+               let current = package,
+               current.roundId == requestedRoundId,
+               current.course.globalId == globalId,
+               let trimmed = current.removingCompositeBackNine() {
+                let persisted = try offlineStore.saveRoundPackage(
+                    trimmed,
+                    allowHoleCountDecrease: true
+                )
+                try activatePackage(
+                    persisted,
+                    status: "已移除后 9 洞",
+                    rememberAsRecent: true
+                )
+                deferredOfflineCourseDownloadRevalidation = true
+                return
+            }
+
             // A course advertised as downloaded already has the exact Tee/hole-set facts and every
             // precise topo bitmap on disk.  Starting that new round must not sit behind a slow or
             // unavailable package request: rebase its immutable template to the new round identity
@@ -1311,7 +1332,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 globalId: snapshot.course.globalId,
                 teeBox: snapshot.course.teeBox,
                 nine: snapshot.nine ?? "all"
-            ), retained.hasCompleteOfflineCoursePrep {
+            ), retained.hasCompleteOfflineCoursePrep,
+               retained.holeSetIdentity == snapshot.holeSetIdentity {
                 snapshot = snapshot.replacingCoursePrep(retained.coursePrep)
             }
             self.recordUITestLatency(
@@ -1358,6 +1380,14 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private func courseInstallBackGlobalId(for snapshot: LiveRoundPackage) -> Int? {
         let primaryGlobalId = snapshot.course.globalId
+        if snapshot.isCompositeNineRound,
+           let firstBack = snapshot.holes.sorted(by: { $0.number < $1.number }).first(where: {
+               $0.number > 9 && ($0.sourceLocalHole ?? $0.number) <= 9
+           }) {
+            // Same-loop rounds (A+A) deliberately return the primary gid here. The reset local
+            // hole number is the composite fact; gid inequality only detects A+B/A+C.
+            return firstBack.sourceGlobalId ?? primaryGlobalId
+        }
         return snapshot.holes
             .map { $0.sourceGlobalId ?? primaryGlobalId }
             .first { $0 != primaryGlobalId }
@@ -1488,13 +1518,15 @@ public final class LiveRoundAppModel: ObservableObject {
         )
         for retained in currentPrep.holes {
             let replacement = merged[retained.hole]
-            let retainedOwnsNewerPreciseFacts = offlinePrepIsPrecise(retained)
-                && (!offlinePrepIsPrecise(replacement)
-                    || !geometryRevisionMatches(
-                        retained.geometryRevision,
-                        replacement?.geometryRevision
-                    ))
-            if replacement == nil || retainedOwnsNewerPreciseFacts {
+            let authorityRevision = candidate.holes.first(where: {
+                $0.number == retained.hole
+            })?.geometryRevision ?? replacement?.geometryRevision
+            let retainedMatchesAuthority = authorityRevision == nil
+                || geometryRevisionMatches(retained.geometryRevision, authorityRevision)
+            let retainedOwnsPreciseFacts = offlinePrepIsPrecise(retained)
+                && retainedMatchesAuthority
+                && !offlinePrepIsPrecise(replacement)
+            if retainedOwnsPreciseFacts {
                 merged[retained.hole] = retained
             }
         }
@@ -2311,6 +2343,37 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         let preparedAt = Date()
         do {
+            if !isNewRound,
+               let current = package,
+               current.roundId == requestedRoundId,
+               current.course.globalId == globalId,
+               !current.isCompositeNineRound {
+                let installedBack: LiveRoundPackage?
+                if backGlobalId == globalId {
+                    installedBack = current
+                } else {
+                    installedBack = try offlineStore.loadCourseTemplate(
+                        globalId: backGlobalId,
+                        teeBox: teeBox,
+                        nine: "all"
+                    )
+                }
+                if let installedBack,
+                   let localComposite = current.composingBackNine(
+                       from: installedBack,
+                       roundId: requestedRoundId
+                   ) {
+                    let persisted = try offlineStore.saveRoundPackage(localComposite)
+                    try activatePackage(
+                        persisted,
+                        status: "已加打后 9 洞",
+                        rememberAsRecent: true
+                    )
+                    deferredOfflineCourseDownloadRevalidation = true
+                    return
+                }
+            }
+
             let fetched = await fetchRemoteCompositePackage(
                 globalId: globalId,
                 backGlobalId: backGlobalId,
@@ -2365,6 +2428,39 @@ public final class LiveRoundAppModel: ObservableObject {
         if nine == "all", startingNine == nil {
             let current = package.nine ?? "all"
             startingNine = (current == "all") ? nil : current
+        }
+        do {
+            let localSelection: LiveRoundPackage?
+            if nine.caseInsensitiveCompare("all") == .orderedSame,
+               package.holes.count <= 9 {
+                localSelection = try offlineStore.loadCourseTemplate(
+                    globalId: package.course.globalId,
+                    teeBox: package.course.teeBox,
+                    nine: "all"
+                )?.rebasedForOfflineStart(roundId: package.roundId)
+            } else {
+                localSelection = package.selectingExistingNine(nine)
+            }
+            if let localSelection,
+               localSelection.holeSetIdentity != package.holeSetIdentity {
+                let preparationToken = beginRoundPreparation()
+                defer { finishRoundPreparation(preparationToken) }
+                let persisted = try offlineStore.saveRoundPackage(
+                    localSelection,
+                    allowHoleCountDecrease: localSelection.holes.count < package.holes.count
+                )
+                try activatePackage(
+                    persisted,
+                    status: nine == "all" ? "已加打后 9 洞" : "已调整本场洞数",
+                    rememberAsRecent: true
+                )
+                deferredOfflineCourseDownloadRevalidation = true
+                return
+            }
+        } catch {
+            AICaddieLog.storage.info(
+                "Local nine-hole update deferred to network: \(String(describing: error), privacy: .public)"
+            )
         }
         await prepareCourseRound(
             globalId: package.course.globalId,
@@ -4190,8 +4286,6 @@ public final class LiveRoundAppModel: ObservableObject {
         recordUITestLatency("activate.downloaded-options.begin globalId=\(nextPackage.course.globalId)")
         refreshDownloadedCourseOptions()
         recordUITestLatency("activate.downloaded-options.end globalId=\(nextPackage.course.globalId)")
-        package = nextPackage
-        recordUITestLatency("activate.package-published globalId=\(nextPackage.course.globalId)")
         recordUITestLatency("activate.restore.begin globalId=\(nextPackage.course.globalId)")
         let restored = try offlineStore.restoreLiveRoundState(roundId: nextPackage.roundId, package: nextPackage)
         recordUITestLatency("activate.restore.end globalId=\(nextPackage.course.globalId)")
@@ -4200,6 +4294,8 @@ public final class LiveRoundAppModel: ObservableObject {
         recordUITestLatency("activate.cursor-save.end globalId=\(nextPackage.course.globalId)")
         liveRoundState = restored
         recordUITestLatency("activate.live-state-published globalId=\(nextPackage.course.globalId)")
+        package = nextPackage
+        recordUITestLatency("activate.package-published globalId=\(nextPackage.course.globalId)")
         recordUITestLatency("activate.pending-events.begin globalId=\(nextPackage.course.globalId)")
         pendingEventCount = try offlineStore.loadPendingEvents(roundId: nextPackage.roundId).count
         recordUITestLatency("activate.pending-events.end globalId=\(nextPackage.course.globalId)")

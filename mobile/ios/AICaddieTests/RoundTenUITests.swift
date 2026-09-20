@@ -162,6 +162,146 @@ final class RoundTenUITests: XCTestCase {
         XCTAssertNil(caddieStrategyMode(forRouteId: "unknown_route"))
     }
 
+    func testCaddiePresentationShowsOnlyPhysicallyDistinctClubChains() {
+        func route(_ id: String, firstLanding: Double, riskID: String) -> [String: JSONValue] {
+            [
+                "id": .string(id),
+                "label": .string(id),
+                "clubs": .array([
+                    .object([
+                        "clubName": .string("1W"), "role": .string("tee"),
+                        "targetCarryM": .number(210), "routeOffsetM": .number(firstLanding),
+                        "landingM": .number(firstLanding), "expectedRemainingM": .number(145),
+                        "planIndex": .number(0),
+                    ]),
+                    .object([
+                        "clubName": .string("7I"), "role": .string("approach"),
+                        "targetCarryM": .number(145), "routeOffsetM": .number(355),
+                        "landingM": .number(355), "expectedRemainingM": .number(0),
+                        "planIndex": .number(1),
+                    ]),
+                ]),
+                "nearRisks": .array([
+                    .object(["kind": .string("bunker"), "id": .string(riskID)])
+                ]),
+                "hazardClearance": .object([
+                    "state": .string(riskID), "minimumClearance_m": .number(riskID == "left" ? 8 : 15)
+                ]),
+            ]
+        }
+
+        let stock = route("stock_line", firstLanding: 210, riskID: "left")
+        let duplicate = route("safe_line", firstLanding: 210, riskID: "right")
+        let different = route("aggressive_line", firstLanding: 218, riskID: "right")
+        let response = CaddieDecisionResponse(
+            schema: "ai-caddie-decision-v2",
+            decisionId: "physical-route-dedup",
+            sourceRef: "round:1",
+            evidenceRefs: [],
+            shotType: "tee",
+            phase: "Tee",
+            context: [:],
+            options: [],
+            selected: nil,
+            selectedOptionId: "stock_line",
+            selectedOption: nil,
+            sequences: [stock, duplicate, different],
+            selectedSequence: stock,
+            avoidZones: [],
+            forbiddenZones: [],
+            acceptableMiss: [:],
+            evidence: [],
+            confidence: [:],
+            missingData: [],
+            auditCriteria: []
+        )
+        let visible = CaddiePlanPresentation.distinctSequences(
+            from: response,
+            preferredFirst: false
+        )
+
+        XCTAssertEqual(visible.map(\.id), ["stock_line", "aggressive_line"])
+    }
+
+    func testBlackKnightA4KeepsBothGreensideBunkersAndEveryRealOutline() throws {
+        func outline(centerX: Double, centerY: Double, radiusX: Double, radiusY: Double) -> [[Double]] {
+            (0..<64).map { index in
+                let angle = Double(index) / 64 * 2 * Double.pi
+                return [
+                    centerX + cos(angle) * radiusX,
+                    centerY + sin(angle) * radiusY,
+                ]
+            }
+        }
+        let details = [
+            CoursePrepHazardDetail(
+                kind: "water", frontM: 11.3, backM: 134.5,
+                frontRouteM: 11.3, backRouteM: 134.5,
+                frontPx: [305, 1010], backPx: [330, 760],
+                outlinePx: outline(centerX: 320, centerY: 870, radiusX: 55, radiusY: 145), sideM: -18
+            ),
+            CoursePrepHazardDetail(
+                kind: "water", frontM: 314.4, backM: 328.3,
+                frontRouteM: 320.8, backRouteM: 335.3,
+                frontPx: [350, 390], backPx: [365, 360],
+                outlinePx: outline(centerX: 358, centerY: 375, radiusX: 28, radiusY: 22), sideM: 12
+            ),
+            CoursePrepHazardDetail(
+                kind: "bunker", frontM: 427.1, backM: 441.3,
+                frontRouteM: 454.7, backRouteM: 460.4,
+                frontPx: [382.2, 159.7], backPx: [389.8, 135.5],
+                outlinePx: outline(centerX: 386, centerY: 148, radiusX: 13, radiusY: 17), sideM: -22
+            ),
+            CoursePrepHazardDetail(
+                kind: "bunker", frontM: 425.5, backM: 439.2,
+                frontRouteM: 460.4, backRouteM: 460.4,
+                frontPx: [435.5, 163.2], backPx: [440.1, 140.2],
+                outlinePx: outline(centerX: 438, centerY: 151, radiusX: 11, radiusY: 16), sideM: 24
+            ),
+        ]
+        let route: [[Double]] = [[360, 1040, 0], [360, 90, 460.4]]
+        let hole = makeHole(
+            hazards: CoursePrepHazards(details: details),
+            route: route,
+            map: CoursePrepMap(
+                image: nil,
+                overlay: CoursePrepOverlay(w: 720, h: 1120, ppm: 1, ln: 460.4, route: route)
+            )
+        )
+
+        let rows = LiveHazardDisplayItem.rows(for: hole, liveReadouts: nil)
+        let bunkers = rows.filter { $0.kind == "bunker" }
+
+        XCTAssertEqual(rows.count, 4)
+        XCTAssertEqual(bunkers.count, 2)
+        XCTAssertTrue(rows.allSatisfy { $0.outlinePx.count == 64 })
+        XCTAssertEqual(bunkers.map(\.frontRouteM), [454.7, 460.4])
+        XCTAssertEqual(bunkers[0].frontPx, [382.2, 159.7])
+        XCTAssertEqual(bunkers[0].backPx, [389.8, 135.5])
+        XCTAssertEqual(bunkers[1].frontPx, [435.5, 163.2])
+        XCTAssertEqual(bunkers[1].backPx, [440.1, 140.2])
+    }
+
+    func testLiveHoleRouteReconciliationKeepsValidHoleAndRepairsRemovedHole() {
+        XCTAssertNil(
+            LiveHoleRouteReconciliation.target(
+                routedHole: 4, packageHoles: Array(1...9), restoredActiveHole: 7
+            )
+        )
+        XCTAssertEqual(
+            LiveHoleRouteReconciliation.target(
+                routedHole: 12, packageHoles: Array(1...9), restoredActiveHole: 9
+            ),
+            9
+        )
+        XCTAssertEqual(
+            LiveHoleRouteReconciliation.target(
+                routedHole: 12, packageHoles: Array(1...9), restoredActiveHole: 12
+            ),
+            1
+        )
+    }
+
     private func makeHole(
         hazards: CoursePrepHazards,
         route: [[Double]] = [[100, 500, 0], [100, 100, 300]],

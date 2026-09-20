@@ -2073,6 +2073,57 @@ def hydrate_live_caddie_geometry_context(context: dict[str, Any]) -> dict[str, A
 
     refreshed["geometry"] = geometry
     refreshed["hazards"] = geometry.get("hazards") or []
+    current_location = context.get("currentLocation")
+    if isinstance(current_location, dict):
+        latitude = _safe_float(current_location.get("latitude"))
+        longitude = _safe_float(current_location.get("longitude"))
+        if latitude is not None and longitude is not None:
+            try:
+                from ai_caddie.geometry.geometry_evidence import classify_shot_surface
+
+                classification = classify_shot_surface(
+                    global_id,
+                    local_hole,
+                    {
+                        "ref": f"live-gps:{source_ref}",
+                        "position": {"lat": latitude, "lon": longitude},
+                    },
+                )
+            except (OSError, TypeError, ValueError, OverflowError):
+                classification = None
+            surface = (
+                classification.get("surface")
+                if isinstance(classification, dict)
+                and isinstance(classification.get("surface"), dict)
+                else {}
+            )
+            surface_kind = str(surface.get("kind") or "").strip().lower()
+            lie_by_surface = {
+                "teebox": "tee",
+                "fairway": "fairway",
+                "rough": "rough",
+                "bunker": "bunker",
+                "green": "green",
+                "water": "recovery",
+                "water_edge": "recovery",
+                "tree_area": "recovery",
+            }
+            shot_type_by_surface = {
+                "teebox": "tee",
+                "fairway": "approach",
+                "rough": "approach",
+                "green": "approach",
+                "playable_bounds": "approach",
+                "bunker": "recovery",
+                "water": "recovery",
+                "water_edge": "recovery",
+                "tree_area": "recovery",
+            }
+            if surface_kind in lie_by_surface:
+                refreshed["lie"] = lie_by_surface[surface_kind]
+                refreshed["lieSource"] = "prodgeometry_gps"
+                refreshed["gpsSuggestedShotType"] = shot_type_by_surface[surface_kind]
+                refreshed["gpsSurfaceClassification"] = classification
     if route_evidence:
         refreshed["routeEvidence"] = route_evidence
         target_distance_m = float(route_evidence.get("routeLength_m") or 0.0)

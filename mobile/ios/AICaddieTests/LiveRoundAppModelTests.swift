@@ -1228,6 +1228,146 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
+    func testLocalCompositeAndRemovalReuseInstalledHoleGeometryWithoutInventingSourceIds() throws {
+        let source = try localFixturePackage()
+        let front = try blackKnightLoopPackage(source: source, globalId: 31794, label: "A")
+        let back = try blackKnightLoopPackage(source: source, globalId: 31795, label: "B")
+        let composite = try XCTUnwrap(
+            front.composingBackNine(from: back, roundId: "black-knight-live")
+        )
+
+        XCTAssertEqual(composite.holes.count, 18)
+        XCTAssertTrue(composite.isCompositeNineRound)
+        XCTAssertEqual(composite.holes.first(where: { $0.number == 10 })?.sourceGlobalId, 31795)
+        XCTAssertEqual(composite.holes.first(where: { $0.number == 10 })?.sourceLocalHole, 1)
+        XCTAssertEqual(composite.coursePrep?.holes.map(\.hole), Array(1...18))
+        XCTAssertEqual(composite.caddieContextSeeds.first(where: { $0.hole == 10 })?.sourceRef, "black-knight-live:10")
+        XCTAssertEqual(
+            composite.caddieContextSeeds.first(where: { $0.hole == 10 })?.context["globalId"],
+            .number(31795)
+        )
+
+        let trimmed = try XCTUnwrap(composite.removingCompositeBackNine())
+        XCTAssertEqual(trimmed.holes.map(\.number), Array(1...9))
+        XCTAssertEqual(trimmed.coursePrep?.holes.map(\.hole), Array(1...9))
+        XCTAssertNotEqual(trimmed.holeSetIdentity, composite.holeSetIdentity)
+
+        let sameLoop = try XCTUnwrap(
+            front.composingBackNine(from: front, roundId: "black-knight-a-again")
+        )
+        XCTAssertTrue(sameLoop.isCompositeNineRound)
+        XCTAssertEqual(sameLoop.holes.first(where: { $0.number == 10 })?.sourceGlobalId, 31794)
+        XCTAssertEqual(sameLoop.holes.first(where: { $0.number == 10 })?.sourceLocalHole, 1)
+    }
+
+    func testActiveRoundAddsAndRemovesInstalledBackNineWithoutForegroundNetwork() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let frontTemplate = try blackKnightLoopPackage(source: source, globalId: 31794, label: "A")
+        let backTemplate = try blackKnightLoopPackage(source: source, globalId: 31795, label: "B")
+        try store.saveCourseTemplate(frontTemplate)
+        try store.saveCourseTemplate(backTemplate)
+        for template in [frontTemplate, backTemplate] {
+            for hole in template.holes {
+                _ = try store.saveCourseTopoImage(
+                    minimalPNGData(),
+                    globalId: hole.sourceGlobalId ?? template.course.globalId,
+                    localHole: hole.sourceLocalHole ?? hole.number,
+                    geometryRevision: hole.geometryRevision
+                )
+            }
+        }
+
+        let roundId = "black-knight-local-nine-change"
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let requestLock = NSLock()
+        var requestedPaths: [String] = []
+        CapturingURLProtocol.requestHandler = { request in
+            requestLock.withLock {
+                requestedPaths.append(request.url?.path ?? "")
+            }
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 503,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"detail":"offline"}"#.utf8)
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://offline.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            preferredRoundId: roundId,
+            syncClient: client
+        )
+
+        await model.prepareCourseRound(
+            globalId: 31794,
+            roundId: roundId,
+            teeBox: "blue",
+            nine: "all"
+        )
+
+        XCTAssertEqual(model.package?.holes.map(\.number), Array(1...9))
+        XCTAssertTrue(
+            requestLock.withLock { requestedPaths }.isEmpty,
+            "starting an installed physical loop must use its local template"
+        )
+
+        await model.prepareCompositeRound(
+            globalId: 31794,
+            backGlobalId: 31795,
+            roundId: roundId,
+            teeBox: "blue"
+        )
+
+        XCTAssertEqual(model.package?.holes.map(\.number), Array(1...18))
+        XCTAssertEqual(model.package?.holes.first(where: { $0.number == 10 })?.sourceGlobalId, 31795)
+        XCTAssertEqual(model.package?.holes.first(where: { $0.number == 10 })?.sourceLocalHole, 1)
+        XCTAssertEqual(
+            requestLock.withLock { requestedPaths },
+            [],
+            "adding an installed physical loop must publish locally before any revision check"
+        )
+
+        await model.prepareCourseRound(
+            globalId: 31794,
+            roundId: roundId,
+            teeBox: "blue",
+            nine: "all"
+        )
+
+        XCTAssertEqual(model.package?.holes.map(\.number), Array(1...9))
+        XCTAssertEqual(model.liveRoundState?.activeHole, 1)
+        XCTAssertEqual(
+            requestLock.withLock { requestedPaths },
+            [],
+            "removing the added loop must not refetch an already-installed course"
+        )
+        XCTAssertNotNil(
+            store.loadCourseTopoImageURL(
+                globalId: 31795,
+                localHole: 1,
+                geometryRevision: backTemplate.holes[0].geometryRevision
+            ),
+            "removing a loop from this round must leave its immutable installed topo available"
+        )
+    }
+
     func testPrepareCourseRoundEntersDownloadedTemplateBeforeRevalidatingInBackground() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -4010,6 +4150,144 @@ final class LiveRoundAppModelTests: XCTestCase {
         let fixture = try String(contentsOf: url, encoding: .utf8)
             .replacingOccurrences(of: #""dataMode": "fixture""#, with: #""dataMode": "local""#)
         return try JSONDecoder().decode(LiveRoundPackage.self, from: Data(fixture.utf8))
+    }
+
+    private func blackKnightLoopPackage(
+        source: LiveRoundPackage,
+        globalId: Int,
+        label: String
+    ) throws -> LiveRoundPackage {
+        let roundId = "black-knight-template-\(globalId)"
+        let holes = (1...9).map { localHole in
+            Hole(
+                number: localHole,
+                par: localHole == 3 ? 5 : 4,
+                yards: localHole == 3 ? 510 : 410,
+                geometryCoverage: .ready,
+                geometryRevision: "black-knight-\(globalId)-\(localHole)-r1",
+                sourceGlobalId: globalId,
+                sourceLocalHole: localHole
+            )
+        }
+        let prepHoles = holes.map { hole in
+            let routeLength = hole.par == 5 ? 466.0 : 375.0
+            return CoursePrepHole(
+                hole: hole.number,
+                par: hole.par,
+                parSource: "courseview",
+                blueYards: hole.yards ?? 0,
+                routeLenM: routeLength,
+                route: [[0, 0, 0], [0, routeLength, routeLength]],
+                geometryCoverage: "ready",
+                geometryRevision: hole.geometryRevision,
+                steps: [
+                    CoursePrepStep(
+                        club: "1W", note: "", clubName: "1W", targetCarryM: 205,
+                        routeOffsetM: 205, landingM: 205,
+                        expectedRemainingM: max(0, routeLength - 205), role: "tee", planIndex: 0
+                    ),
+                    CoursePrepStep(
+                        club: "7I", note: "", clubName: "7I",
+                        targetCarryM: max(0, routeLength - 205), routeOffsetM: routeLength,
+                        landingM: routeLength, expectedRemainingM: 0,
+                        role: "approach", planIndex: 1
+                    ),
+                ],
+                hazards: CoursePrepHazards(),
+                map: CoursePrepMap(
+                    image: nil,
+                    overlay: CoursePrepOverlay(
+                        w: 720,
+                        h: 1120,
+                        ppm: 1,
+                        ln: routeLength,
+                        route: [[360, 1000, 0], [360, 100, routeLength]]
+                    )
+                )
+            )
+        }
+        let seeds = holes.map { hole in
+            let sourceRef = "\(roundId):\(hole.number)"
+            return CaddieContextSeed(
+                hole: hole.number,
+                sourceRef: sourceRef,
+                shotTypes: ["tee", "approach", "recovery"],
+                requiredLiveInputs: ["currentLocation", "lie"],
+                context: [
+                    "roundId": .string(roundId),
+                    "sourceRef": .string(sourceRef),
+                    "courseName": .string("北京天竺黑骑士球员俱乐部"),
+                    "globalId": .number(Double(globalId)),
+                    "localHole": .number(Double(hole.number)),
+                    "hole": .number(Double(hole.number)),
+                    "displayHole": .number(Double(hole.number)),
+                ],
+                selectedOfflineOptionId: "stock",
+                offlineOptions: [
+                    OfflineCaddieOption(
+                        optionId: "stock",
+                        label: "推荐",
+                        clubName: "1W",
+                        carryM: 205,
+                        riskScore: 0,
+                        source: "test",
+                        sourceRefs: [sourceRef]
+                    )
+                ],
+                evidence: [],
+                missingData: []
+            )
+        }
+
+        return LiveRoundPackage(
+            schema: source.schema,
+            roundId: roundId,
+            dataMode: "local",
+            sourceCoverage: SourceCoverage(
+                state: "ready",
+                dataMode: "local",
+                requestedRoundId: roundId,
+                selectedRoundId: nil,
+                roundFound: false,
+                availableRoundCount: 0,
+                holeCount: holes.count,
+                clubProfileCount: source.clubProfiles.count,
+                playerStatsWindow: nil
+            ),
+            missingData: [],
+            playerProfile: source.playerProfile,
+            course: Course(
+                globalId: globalId,
+                name: "北京天竺黑骑士球员俱乐部 ~ \(label)",
+                teeBox: "blue",
+                venueName: "北京天竺黑骑士球员俱乐部",
+                venueNameSource: "garmin_courseview_zh_chs",
+                segmentLabel: label
+            ),
+            holes: holes,
+            nine: "all",
+            coursePrep: CoursePrepPackage(
+                schema: "ai-caddie-course-prep-v1",
+                globalId: globalId,
+                holes: prepHoles,
+                missingData: nil
+            ),
+            geometryCoverage: GeometryCoverage(
+                state: .ready,
+                readyHoles: holes.count,
+                totalHoles: holes.count
+            ),
+            readinessChecks: source.readinessChecks,
+            caddieContextSeeds: seeds,
+            weatherSnapshot: source.weatherSnapshot,
+            clubProfiles: source.clubProfiles,
+            caddieDecisionEndpoint: source.caddieDecisionEndpoint,
+            offlinePackageStatus: source.offlinePackageStatus,
+            eventCursor: source.eventCursor,
+            recentHistory: source.recentHistory,
+            cachedCaddieRules: source.cachedCaddieRules,
+            generatedAt: source.generatedAt
+        )
     }
 
     /// The shared fixture models one hole; multi-hole navigation tests need a second factual hole.

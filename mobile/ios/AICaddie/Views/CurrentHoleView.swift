@@ -137,10 +137,9 @@ public struct CurrentHoleView: View {
     @State private var showManage = false
     @State private var showRoundSummary = false
     @State private var showDiscardConfirmation = false
-    @State private var showCaddieDetail = false
     @State private var showMapDetail = false
     @State private var showGreenDetail = false
-    @State private var showHazardDetail = false
+    @State private var selectedHazardID: String?
     @State private var scoreDraft: LiveScoreDraft?
     @State private var showScorecard = false
     @State private var gpsHoleCandidate: LiveHoleGPSCandidate?
@@ -312,6 +311,7 @@ public struct CurrentHoleView: View {
             // this transient override always starts in automatic mode for a new hole.
             requestedStrategyMode = nil
             selectedPlanIndex = nil
+            selectedHazardID = nil
             preciseMapTimedOut = false
             heroMapScale = 1
             heroMapOffset = .zero
@@ -344,21 +344,24 @@ public struct CurrentHoleView: View {
             // still carries lightweight prep; otherwise adopt the new factual prep without
             // restarting the hole task or discarding zoom/flag interaction state.
             guard let incoming else { return }
-            if CoursePrepHoleAdoptionPolicy.shouldAdopt(current: holePrep, incoming: incoming) {
+            if CoursePrepHoleAdoptionPolicy.shouldAdopt(
+                current: holePrep,
+                incoming: incoming,
+                authoritativeRevision: hole.geometryRevision
+            ) {
                 holePrep = incoming
             }
         }
-        .fullScreenCover(isPresented: $showCaddieDetail) {
-            caddieDetailSurface
+        .onChange(of: liveHazardDisplayRows.map(\.id)) { _, ids in
+            if selectedHazardID == nil || !ids.contains(selectedHazardID ?? "") {
+                selectedHazardID = ids.first
+            }
         }
         .fullScreenCover(isPresented: $showMapDetail) {
             mapDetailSurface
         }
         .fullScreenCover(isPresented: $showGreenDetail) {
             greenDetailSurface
-        }
-        .fullScreenCover(isPresented: $showHazardDetail) {
-            hazardDetailSurface
         }
         .sheet(item: $scoreDraft) { presentedDraft in
             scoreConfirmationSurface(for: presentedDraft)
@@ -436,21 +439,34 @@ public struct CurrentHoleView: View {
     }
 
     private var livePrimaryPanel: some View {
-        // Keep the live root task-focused: one caddie destination, two play actions, one scorecard.
+        // The map and its two spatial instruments stay on one surface: complete shot plan first,
+        // then one selected obstacle, followed by the two high-frequency play actions.
         LivePlayPanel {
-            LiveCaddieEntry(
+            LiveCaddiePlanPanel(
                 isLoading: isLoadingCaddieDecision,
-                isReady: caddieDecision != nil
-                    && !isLoadingCaddieDecision,
-                nextShotText: liveRecommendedNextShotText,
-                onTap: { showCaddieDetail = true }
+                routes: liveCaddieRoutes,
+                selectedRouteID: selectedLiveCaddieRoute?.id,
+                selectedPlanIndex: selectedPlanIndex,
+                errorText: caddieErrorMessage,
+                onSelectRoute: { route in
+                    selectStrategyMode(CaddiePlanPresentation.selectionToken(for: route))
+                },
+                onSelectStep: selectPlanStep,
+                onRefresh: { Task { await loadCaddieDecision() } }
             )
-            if !isPreciseHoleMapPending && !liveHazardDisplayRows.isEmpty {
-                LiveHazardEntry(
+            if !isPreciseHoleMapPending,
+               let selectedLiveHazard,
+               let selectedLiveHazardIndex {
+                Divider().overlay(LivePlayStyle.stroke10)
+                LiveHazardBrowserPanel(
+                    row: selectedLiveHazard,
+                    index: selectedLiveHazardIndex,
                     count: liveHazardDisplayRows.count,
-                    onTap: { showHazardDetail = true }
+                    onPrevious: { selectHazard(at: selectedLiveHazardIndex - 1) },
+                    onNext: { selectHazard(at: selectedLiveHazardIndex + 1) }
                 )
             }
+            Divider().overlay(LivePlayStyle.stroke10)
             LiveHolePrimaryActions(
                 canRecordShot: liveCoordinateForCurrentHole != nil,
                 recordedShotCount: recordedNonPuttShotCount,
@@ -564,24 +580,6 @@ public struct CurrentHoleView: View {
         }
     }
 
-    @ViewBuilder
-    private var hazardDetailSurface: some View {
-        if let holePrep, !isPreciseHoleMapPending {
-            LiveHazardDetailView(
-                hole: holePrep,
-                topoURL: liveTopoURL,
-                liveReadouts: liveHazardReadouts
-            )
-        } else {
-            ZStack {
-                LivePlayStyle.base.ignoresSafeArea()
-                ProgressView("精确障碍物图准备中…")
-                    .tint(.white)
-                    .foregroundStyle(.white)
-            }
-        }
-    }
-
     private func scoreConfirmationSurface(for presentedDraft: LiveScoreDraft) -> some View {
         LiveScoreConfirmationView(
             draft: Binding(
@@ -658,7 +656,7 @@ public struct CurrentHoleView: View {
     }
 
     private var caddieContextSeed: CaddieContextSeed? {
-        package.caddieContextSeeds.first { $0.hole == hole.number }
+        LiveCaddieSeedFactory.resolve(package: package, hole: hole, prep: holePrep)
     }
 
     /// Apply a strategy tap immediately. The network request that follows refreshes the authoritative
@@ -778,6 +776,23 @@ public struct CurrentHoleView: View {
                 .allowsHitTesting(false)
                 .scaleEffect(heroDisplayedMapScale)
                 .offset(heroDisplayedMapOffset(in: geo.size))
+
+                if let holePrep, let selectedLiveHazard {
+                    Canvas { context, size in
+                        LiveHazardOverlayRenderer.draw(
+                            &context,
+                            size: size,
+                            hole: holePrep,
+                            row: selectedLiveHazard,
+                            scale: heroDisplayedMapScale,
+                            offset: heroDisplayedMapOffset(in: size),
+                            topInset: LivePlayMapOverlayLayout.liveMapTopInset
+                        )
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
 
                 LiveMapGreenDistanceOverlay(
                     frontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
@@ -1070,117 +1085,6 @@ public struct CurrentHoleView: View {
         return distance.isFinite && distance <= 45
     }
 
-    // MARK: - Focused caddie plan + secondary dark cards
-
-    /// One focused recommendation plus genuinely different club combinations. Hazard ranging has
-    /// its own map instrument and is intentionally absent from this surface.
-    private var caddieDetailSurface: some View {
-        ZStack {
-            Color.white.ignoresSafeArea()
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
-                    if let caddieDecision {
-                        CaddiePlanView(
-                            response: caddieDecision,
-                            selectedStrategyMode: requestedStrategyMode,
-                            onSelectStrategyMode: selectStrategyMode,
-                            onSelectPlanStep: selectPlanStep
-                        )
-                    } else {
-                        CaddiePlanView(
-                            seed: caddieContextSeed,
-                            selectedStrategyMode: requestedStrategyMode,
-                            onSelectStrategyMode: selectStrategyMode,
-                            onSelectPlanStep: nil
-                        )
-                    }
-                    caddieInputControls
-                    if isLoadingCaddieDecision {
-                        ProgressView("更新球童建议…")
-                    }
-                    if let caddieErrorMessage {
-                        Text(caddieErrorMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Button {
-                        Task { await loadCaddieDecision() }
-                    } label: {
-                        Label("刷新球童", systemImage: "arrow.clockwise")
-                            .font(.subheadline)
-                    }
-                    .disabled(isLoadingCaddieDecision)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .safeAreaPadding(.bottom, 12)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("球童建议")
-                        .font(.title2.weight(.bold))
-                        .accessibilityIdentifier("caddie-plan-heading")
-                    Text("第 \(hole.number) 洞 · Par \(hole.par)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-                Button {
-                    showCaddieDetail = false
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("关闭球童方案")
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white)
-            .overlay(alignment: .bottom) { Divider() }
-        }
-        .tint(LiveHoleStyle.green)
-        .preferredColorScheme(.light)
-    }
-
-    /// Low-frequency inputs belong with the full caddie plan, not in the live map instrument. Any
-    /// change that affects the decision immediately requests a fresh plan; score-only fields stay in
-    /// the score confirmation sheet.
-    private var caddieInputControls: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("球童条件")
-                .font(.headline)
-            Picker("打法", selection: $selectedShotType) {
-                ForEach(shotTypeOptions, id: \.self) { Text(zhShotType($0)).tag($0) }
-            }
-            Picker("球位", selection: $selectedLie) {
-                ForEach(lieOptions, id: \.self) { Text(zhLie($0)).tag($0) }
-            }
-            TextField("到旗杆距离(码)", text: $distanceToPinText)
-                .keyboardType(.decimalPad)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit {
-                    Task { await loadCaddieDecision() }
-                }
-        }
-        .padding(12)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
-        .onChange(of: selectedShotType) { _, _ in
-            Task { await loadCaddieDecision(syncClub: !hasUserSelectedClub) }
-        }
-        .onChange(of: selectedLie) { _, _ in
-            Task { await loadCaddieDecision(syncClub: !hasUserSelectedClub) }
-        }
-    }
-
     /// Less-frequent scoring inputs remain here. Map target and flag placement live directly on the
     /// map above, matching the interaction instead of duplicating it as explanatory rows.
     private var moreAdjustCard: some View {
@@ -1284,16 +1188,100 @@ public struct CurrentHoleView: View {
         return "坡度修正 \(deltaYd > 0 ? "+" : "")\(deltaYd) 码 · \(deltaYd > 0 ? "上坡" : "下坡")"
     }
 
-    /// The live root states the next action in plain language. Full club selection remains in the
-    /// caddie sheet's bag menu, so a player does not have to infer the recommendation from a tiny
-    /// chip or a multi-shot route label.
-    private var liveRecommendedNextShotText: String? {
-        guard let recommendation = recommendedClubChoice else { return nil }
-        let name = zhClubDisplayName(recommendation.name)
-        if let carry = recommendation.carryMetres {
-            return "下一杆：\(name) · \(CoursePrepRoute.yards(fromMetres: carry)) 码"
+    /// The live panel and map consume the same ordered, physically distinct routes. A response with
+    /// only legacy single-club options is represented as a one-leg route; while the request is in
+    /// flight, installed CoursePrep steps keep the full factual chain visible.
+    private var liveCaddieRoutes: [CaddiePlanSequence] {
+        if let decision = caddieDecision {
+            let sequences = CaddiePlanPresentation.distinctSequences(
+                from: decision,
+                selectedStrategyMode: requestedStrategyMode,
+                preferredFirst: false
+            )
+            if !sequences.isEmpty { return sequences }
+            if let installedCaddieRoute { return [installedCaddieRoute] }
+
+            let options = CaddiePlanPresentation.distinctOptions(
+                CaddiePlanOption.options(from: decision),
+                selectedOptionId: decision.selectedOptionId ?? "stock",
+                selectedStrategyMode: requestedStrategyMode
+            )
+            return options.compactMap { option in
+                let club = option.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !club.isEmpty, club != "-", option.carryM.isFinite, option.carryM > 0 else {
+                    return nil
+                }
+                return CaddiePlanSequence(
+                    id: option.id,
+                    label: option.label,
+                    expectedRemainingM: nil,
+                    riskScore: option.riskScore,
+                    confidence: option.confidence,
+                    coverageText: option.coverageText,
+                    sourceRefs: option.sourceRefs,
+                    steps: [
+                        CaddiePlanSequenceStep(
+                            id: "\(option.id)-0-\(club)",
+                            role: selectedShotType,
+                            clubName: club,
+                            targetCarryM: option.carryM,
+                            expectedRemainingM: nil,
+                            sampleSize: option.sampleSize,
+                            confidence: option.confidence,
+                            sourceRefs: option.sourceRefs,
+                            planIndex: 0
+                        )
+                    ],
+                    semanticSignature: option.semanticSignature
+                )
+            }
         }
-        return "下一杆：\(name)"
+
+        return installedCaddieRoute.map { [$0] } ?? []
+    }
+
+    private var installedCaddieRoute: CaddiePlanSequence? {
+        guard selectedShotType.caseInsensitiveCompare("tee") == .orderedSame else { return nil }
+        let steps = (holePrep?.steps ?? []).enumerated().compactMap { index, step -> CaddiePlanSequenceStep? in
+            let club = (step.clubName ?? step.club ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !club.isEmpty, club != "-" else { return nil }
+            return CaddiePlanSequenceStep(
+                id: "prep-\(step.planIndex ?? index)-\(club)",
+                role: step.role ?? (index == 0 ? selectedShotType : "advance"),
+                clubName: club,
+                targetCarryM: step.targetCarryM,
+                expectedRemainingM: step.expectedRemainingM,
+                sampleSize: nil,
+                confidence: nil,
+                sourceRefs: [],
+                routeOffsetM: step.routeOffsetM,
+                landingM: step.landingM,
+                planIndex: step.planIndex ?? index
+            )
+        }
+        guard !steps.isEmpty else { return nil }
+        return CaddiePlanSequence(
+            id: "installed-course-plan",
+            label: "本洞路线",
+            expectedRemainingM: steps.last?.expectedRemainingM,
+            riskScore: nil,
+            confidence: nil,
+            coverageText: nil,
+            sourceRefs: [],
+            steps: steps
+        )
+    }
+
+    private var selectedLiveCaddieRoute: CaddiePlanSequence? {
+        if let decision = caddieDecision,
+           let selected = CaddiePlanSequence.selectedSequence(
+               from: decision,
+               strategyMode: requestedStrategyMode
+           ), let visible = liveCaddieRoutes.first(where: { $0.id == selected.id }) {
+            return visible
+        }
+        return liveCaddieRoutes.first
     }
 
     /// All relevant mapped hazards belong to the dedicated obstacle instrument. Keeping this count
@@ -1301,6 +1289,24 @@ public struct CurrentHoleView: View {
     private var liveHazardDisplayRows: [LiveHazardDisplayItem] {
         guard let holePrep else { return [] }
         return LiveHazardDisplayItem.rows(for: holePrep, liveReadouts: liveHazardReadouts)
+    }
+
+    private var selectedLiveHazardIndex: Int? {
+        guard !liveHazardDisplayRows.isEmpty else { return nil }
+        return liveHazardDisplayRows.firstIndex(where: { $0.id == selectedHazardID }) ?? 0
+    }
+
+    private var selectedLiveHazard: LiveHazardDisplayItem? {
+        guard let selectedLiveHazardIndex else { return nil }
+        return liveHazardDisplayRows[selectedLiveHazardIndex]
+    }
+
+    private func selectHazard(at index: Int) {
+        guard liveHazardDisplayRows.indices.contains(index) else { return }
+        selectedHazardID = liveHazardDisplayRows[index].id
+        #if canImport(UIKit)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
     }
 
     /// CourseView's small package is a factual drawing source, but its hazard spans are not a
@@ -1950,7 +1956,11 @@ public struct CurrentHoleView: View {
         // map/overlay but no `outlinePx`; refresh those once so the UI can obtain the real boundary.
         if let existing = holePrep,
            CoursePrepHoleAdoptionPolicy.isReadyMap(existing),
-           existing.hasRenderableHazardOutlines {
+           existing.hasRenderableHazardOutlines,
+           CoursePrepHoleAdoptionPolicy.revisionMatches(
+               existing.geometryRevision,
+               hole.geometryRevision
+           ) {
             return false
         }
         // 每洞用自己的 source 球场 + 本地洞号(组合局后九在第二个环的 gid)。
@@ -2076,7 +2086,11 @@ public struct CurrentHoleView: View {
         sourceLocalHole: Int,
         watchHole: Int
     ) async -> Bool {
-        guard CoursePrepHoleAdoptionPolicy.shouldAdopt(current: holePrep, incoming: prep) else {
+        guard CoursePrepHoleAdoptionPolicy.shouldAdopt(
+            current: holePrep,
+            incoming: prep,
+            authoritativeRevision: hole.geometryRevision
+        ) else {
             return false
         }
         holePrep = prep
@@ -2503,33 +2517,12 @@ public struct CurrentHoleView: View {
     /// The map and the caddie sheet consume one selected sequence.  A missing sequence is a valid
     /// short-hole/legacy response and intentionally leaves the map on its single-club fallback.
     private var livePlannedShots: [MapPlannedShot] {
-        if let decision = caddieDecision,
-           let sequence = CaddiePlanSequence.selectedSequence(
-               from: decision,
-               strategyMode: requestedStrategyMode
-           ) {
-            return sequence.steps.enumerated().compactMap { index, step in
-                let name = step.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !name.isEmpty, name != "-" else { return nil }
-                return MapPlannedShot(
-                    id: "live-\(sequence.id)-\(step.id)",
-                    clubName: name,
-                    carryM: step.targetCarryM,
-                    routeOffsetM: step.routeOffsetM ?? step.landingM,
-                    role: step.role,
-                    planIndex: step.planIndex ?? index
-                )
-            }
-        }
-        // The installed CoursePrep chain is the same opening-plan authority used by the first
-        // live request. Keep its factual landings visible during the short recommendation request
-        // and in offline mode instead of collapsing the map to a single club marker.
-        guard selectedShotType.caseInsensitiveCompare("tee") == .orderedSame else { return [] }
-        return (holePrep?.steps ?? []).enumerated().compactMap { index, step in
-            let name = (step.clubName ?? step.club ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let sequence = selectedLiveCaddieRoute else { return [] }
+        return sequence.steps.enumerated().compactMap { index, step in
+            let name = step.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty, name != "-" else { return nil }
             return MapPlannedShot(
-                id: "prep-\(step.planIndex ?? index)-\(name)",
+                id: "live-\(sequence.id)-\(step.id)",
                 clubName: name,
                 carryM: step.targetCarryM,
                 routeOffsetM: step.routeOffsetM ?? step.landingM,
@@ -2541,8 +2534,7 @@ public struct CurrentHoleView: View {
 
     private func selectPlanStep(_ index: Int) {
         guard livePlannedShots.contains(where: { $0.planIndex == index }) else { return }
-        selectedPlanIndex = index
-        showCaddieDetail = false
+        selectedPlanIndex = selectedPlanIndex == index ? nil : index
     }
 
     /// round-12: full-bag dropdown — pick ANY club + its distance; recommended club marked; defaults
@@ -2621,27 +2613,18 @@ public struct CurrentHoleView: View {
         selectedClub = club
     }
 
-    // MARK: - 球局调整(加打 / 减九洞 / 结束本场)— round-11 从首页移入实战屏
+    // MARK: - 球局洞数调整
 
-    /// 收在实战屏底部的折叠区:加打/减九洞 + 结束本场。控件与闭包与原首页一致。
+    /// The header menu is the single finish entry. This section only mutates the playable hole set.
     @ViewBuilder private var manageSection: some View {
         DisclosureGroup(isExpanded: $showManage) {
             VStack(spacing: 8) {
                 nineControl
                 loopAddControl
-                if let live = liveRoundState, package.holes.contains(where: { $0.number == live.activeHole }) {
-                    Button {
-                        showRoundSummary = true
-                    } label: {
-                        Text("结束本场").font(.subheadline).frame(maxWidth: .infinity).padding(.vertical, 6)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color(red: 185 / 255, green: 50 / 255, blue: 40 / 255))
-                }
             }
             .padding(.top, 8)
         } label: {
-            Label("球局调整 · 加打 / 结束本场", systemImage: "slider.horizontal.3")
+            Label("球洞调整 · 加打 / 移除", systemImage: "slider.horizontal.3")
                 .font(.subheadline).foregroundStyle(.secondary)
         }
         .livePlayAuxiliaryCard()
@@ -2929,12 +2912,20 @@ public struct CurrentHoleView: View {
             // bootstrap will launch the context-complete request next. Never let the stale answer
             // overwrite it.
             guard !(requestedBeforePrep && holePrep != nil) else { return }
-            caddieDecision = response
-            caddieErrorMessage = nil
+            if LiveCaddieDecisionUsability.hasRecommendation(response) {
+                caddieDecision = response
+                caddieErrorMessage = nil
+            } else if let offlineDecision = makeOfflineCaddieDecision() {
+                caddieDecision = offlineDecision
+                caddieErrorMessage = "在线方案尚未完成 · 已显示本机杆序。"
+            } else {
+                caddieDecision = nil
+                caddieErrorMessage = "球场资料准备中，请稍后刷新。"
+            }
             // The server has now resolved the requested route (including any safety constraints).
             // Return the UI and club strip to the authoritative selectedOptionId instead of
             // continuing to shadow a rejected/manual transport preference.
-            syncStrategyModeToDecision(response)
+            syncStrategyModeToDecision(caddieDecision)
             if syncClub { syncSelectedClubToRecommendation() }
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
         } catch let error where LiveCaddieLoadFailure.isCancellation(error) {

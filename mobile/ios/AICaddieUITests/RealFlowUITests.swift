@@ -599,16 +599,11 @@ final class RealFlowUITests: XCTestCase {
                 "settled live-hole evidence must retain all three identified green distances"
             )
         }
-        let hazardEntry = app.buttons["live-hazard-entry"]
-        XCTAssertTrue(
-            hazardEntry.waitForExistence(timeout: 8) && fullyVisible(hazardEntry),
-            "the live hole must expose its dedicated one-at-a-time obstacle browser"
-        )
-        hazardEntry.tap()
-        let hazardDetail = app.descendants(matching: .any)["live-hazard-detail"].firstMatch
-        XCTAssertTrue(hazardDetail.waitForExistence(timeout: 5))
         let firstSelectedHazard = app.descendants(matching: .any)["selected-hazard-1"].firstMatch
-        XCTAssertTrue(firstSelectedHazard.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            firstSelectedHazard.waitForExistence(timeout: 8),
+            "the live hole must expose its selected obstacle without navigating away"
+        )
         XCTAssertFalse(
             app.descendants(matching: .any)["selected-hazard-2"].firstMatch.exists,
             "only the selected obstacle may have an active distance panel"
@@ -623,40 +618,22 @@ final class RealFlowUITests: XCTestCase {
             XCTAssertFalse(firstSelectedHazard.exists)
         }
         settle(1); save("10b-live-hazard"); dump("10b-live-hazard")
-        let closeHazards = app.buttons["关闭障碍物"]
-        XCTAssertTrue(closeHazards.waitForExistence(timeout: 3))
-        closeHazards.tap()
-        XCTAssertTrue(waitUntilGone(hazardDetail, timeout: 3))
         let planHeading = openCaddiePlan(timeout: 75)
         XCTAssertTrue(
             fullyVisible(planHeading),
-            "the focused caddie plan must be visible after opening the live caddie entry"
+            "the complete caddie plan must remain visible on the live surface"
         )
         XCTAssertFalse(
             app.staticTexts["联网球童暂不可用 · 已切换到离线缓存建议。"].exists,
             "the real course screenshot must prove the online structured decision, not an offline fallback"
         )
-        let closeCaddiePlan = app.buttons["关闭球童方案"]
         XCTAssertTrue(
-            closeCaddiePlan.waitForExistence(timeout: 3),
-            "the complete caddie plan must be its own focused surface instead of an inline extension below the live controls"
+            app.descendants(matching: .any)["live-caddie-complete-route"].firstMatch.waitForExistence(timeout: 5),
+            "the live surface must show the complete remaining club chain"
         )
-        XCTAssertLessThan(
-            planHeading.frame.minY,
-            120,
-            "the complete caddie plan heading must start in the first-glance band, not below a duplicated distance panel"
-        )
-        let primaryRecommendation = app.descendants(matching: .any)["caddie-primary-recommendation"].firstMatch
         XCTAssertTrue(
-            primaryRecommendation.waitForExistence(timeout: 5),
-            "the caddie must answer with one primary next-club recommendation"
-        )
-        XCTAssertEqual(
-            app.descendants(matching: .any).matching(
-                NSPredicate(format: "identifier == %@", "caddie-primary-recommendation")
-            ).count,
-            1,
-            "the primary recommendation must not be repeated as three strategy cards"
+            app.buttons["live-caddie-step-1"].waitForExistence(timeout: 5),
+            "every route must expose its first landing as an in-place map selection"
         )
         for label in ["推荐打法", "保守打法", "进攻打法"] {
             XCTAssertFalse(app.staticTexts[label].exists, "legacy strategy labels must not replace physical club choices")
@@ -666,12 +643,6 @@ final class RealFlowUITests: XCTestCase {
             "legacy strategy modes must not consume the focused recommendation surface"
         )
         settle(1); save("11-caddie-plan"); dump("11-caddie-plan")
-
-        closeCaddiePlan.tap()
-        XCTAssertTrue(
-            waitUntilGone(planHeading, timeout: 3),
-            "closing the caddie plan must return to the same live-hole controls"
-        )
 
         let recordShotButton = app.buttons["记一杆"]
         XCTAssertTrue(scrollTo(recordShotButton, maxSwipes: 14), "real hole must expose independent shot capture")
@@ -823,11 +794,11 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("17-scorecard-after-edit"); dump("17-scorecard-after-edit")
 
         app.buttons["关闭计分卡"].tap()
-        let manageRound = app.buttons["球局调整 · 加打 / 结束本场"]
-        XCTAssertTrue(scrollTo(manageRound, maxSwipes: 16), "test round must expose local cleanup")
-        manageRound.tap()
+        let endMenu = app.buttons["live-round-end-menu"]
+        XCTAssertTrue(scrollTo(endMenu, maxSwipes: 16), "the header must expose the single finish entry")
+        endMenu.tap()
         let finishRound = app.buttons["结束本场"].firstMatch
-        XCTAssertTrue(scrollTo(finishRound, maxSwipes: 4), "menu finish must open the shared round summary")
+        XCTAssertTrue(finishRound.waitForExistence(timeout: 4), "the header menu must expose finish")
         finishRound.tap()
         XCTAssertTrue(
             app.staticTexts["本场汇总"].waitForExistence(timeout: 5),
@@ -1208,11 +1179,6 @@ final class RealFlowUITests: XCTestCase {
             fullyVisible(restoredPlan),
             "a searched course without GPS must still expose the static-map caddie recommendation"
         )
-        let restoredPlanClose = app.buttons["关闭球童方案"]
-        XCTAssertTrue(restoredPlanClose.waitForExistence(timeout: 5))
-        restoredPlanClose.tap()
-        XCTAssertTrue(waitUntilGone(restoredPlan, timeout: 5))
-
         let parText = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Par '")).firstMatch
         XCTAssertTrue(parText.waitForExistence(timeout: 8))
         let par = try XCTUnwrap(
@@ -1283,11 +1249,11 @@ final class RealFlowUITests: XCTestCase {
         app.buttons["取消"].tap()
         XCTAssertTrue(app.staticTexts["第 2 洞"].waitForExistence(timeout: 8))
 
-        let manageRound = app.buttons["球局调整 · 加打 / 结束本场"]
-        XCTAssertTrue(scrollTo(manageRound, maxSwipes: 18))
-        manageRound.tap()
+        let endMenu = app.buttons["live-round-end-menu"]
+        XCTAssertTrue(scrollTo(endMenu, maxSwipes: 18))
+        endMenu.tap()
         let finishRound = app.buttons["结束本场"].firstMatch
-        XCTAssertTrue(scrollTo(finishRound, maxSwipes: 6))
+        XCTAssertTrue(finishRound.waitForExistence(timeout: 4))
         finishRound.tap()
         XCTAssertTrue(app.staticTexts["本场汇总"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["已完成 1/\(evidence.holes) 洞"].exists)
@@ -1494,14 +1460,7 @@ final class RealFlowUITests: XCTestCase {
             waitUntilGone(loading, timeout: 75),
             "hole \(hole) must settle its real structured caddie response before capture"
         )
-        let caddiePlan = openCaddiePlan(timeout: 75)
-        let closeCaddiePlan = app.buttons["关闭球童方案"]
-        XCTAssertTrue(closeCaddiePlan.waitForExistence(timeout: 5))
-        closeCaddiePlan.tap()
-        XCTAssertTrue(
-            waitUntilGone(caddiePlan, timeout: 5),
-            "hole \(hole) must return to the same live surface after caddie inspection"
-        )
+        _ = openCaddiePlan(timeout: 75)
         XCTAssertFalse(
             app.staticTexts["联网球童暂不可用 · 已切换到离线缓存建议。"].exists,
             "hole \(hole) must not silently replace the real journey with an offline suggestion"
@@ -1509,28 +1468,26 @@ final class RealFlowUITests: XCTestCase {
         return par
     }
 
-    /// The live root now exposes one focused caddie destination. Opening it is the product-level
-    /// readiness assertion; the old inline "球童建议已就绪" accessibility node no longer exists.
+    /// The live root exposes the complete route directly; readiness never depends on presenting a
+    /// second sheet or returning from it before the golfer can record the next shot.
     @discardableResult
     private func openCaddiePlan(timeout: TimeInterval) -> XCUIElement {
-        let entry = app.buttons["live-caddie-entry"]
+        let panel = app.descendants(matching: .any)["live-caddie-panel"].firstMatch
         XCTAssertTrue(
-            scrollTo(entry, maxSwipes: 18),
-            "the live root must expose the focused caddie entry"
-        )
-        entry.tap()
-        let heading = app.staticTexts["caddie-plan-heading"]
-        XCTAssertTrue(
-            heading.waitForExistence(timeout: timeout),
-            "opening the caddie entry must present the complete plan"
+            scrollTo(panel, maxSwipes: 18),
+            "the live root must expose the inline caddie plan"
         )
         let loading = app.activityIndicators["正在更新球童建议"]
         _ = loading.waitForExistence(timeout: 2)
         XCTAssertTrue(
             waitUntilGone(loading, timeout: timeout),
-            "the focused caddie plan must settle its structured recommendation"
+            "the inline caddie plan must settle its structured recommendation"
         )
-        return heading
+        XCTAssertTrue(
+            app.descendants(matching: .any)["live-caddie-complete-route"].firstMatch.waitForExistence(timeout: timeout),
+            "the inline caddie plan must expose every remaining leg"
+        )
+        return panel
     }
 
     private func waitForWholeYardValue(_ element: XCUIElement, timeout: TimeInterval) -> Bool {

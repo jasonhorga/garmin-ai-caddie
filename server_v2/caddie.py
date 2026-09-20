@@ -41,6 +41,9 @@ def build_caddie_decision_response(
 ) -> CaddieDecisionResponse:
     payload = request.model_dump()
     payload["context"] = hydrate_live_caddie_geometry_context(payload.get("context") or {})
+    gps_shot_type = payload["context"].get("gpsSuggestedShotType")
+    if gps_shot_type in {"tee", "approach", "recovery"}:
+        payload["shotType"] = gps_shot_type
     decision = build_decision_from_request(payload)
     # Member-scoped: the decision lands in the caller's evidence partition (evidence_root(player_id));
     # the owner stays flat / byte-identical.

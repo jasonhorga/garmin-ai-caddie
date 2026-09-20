@@ -339,13 +339,9 @@ final class TeeSelectionUITests: XCTestCase {
         )
         let caddiePlan = openCaddiePlan(timeout: 90)
         XCTAssertTrue(
-            caddiePlan.isHittable,
+            fullyVisible(caddiePlan),
             "the no-GPS start must still expose the static-map caddie recommendation"
         )
-        let closeCaddiePlan = app.buttons["关闭球童方案"]
-        XCTAssertTrue(closeCaddiePlan.waitForExistence(timeout: 5))
-        closeCaddiePlan.tap()
-        XCTAssertTrue(waitUntilGone(caddiePlan, timeout: 5))
         let teeReference = app.descendants(matching: .any).matching(
             NSPredicate(format: "label CONTAINS %@", "发球台 → 果岭")
         ).firstMatch
@@ -614,12 +610,15 @@ final class TeeSelectionUITests: XCTestCase {
             app.descendants(matching: .any)["topo-hole-base-ready"].waitForExistence(timeout: 10),
             "the offline first hole must render the retained topo bitmap, not a network loading state"
         )
-        let offlineCaddieEntry = app.buttons["live-caddie-entry"]
+        let offlineCaddiePanel = app.descendants(matching: .any)["live-caddie-panel"].firstMatch
         XCTAssertTrue(
-            offlineCaddieEntry.waitForExistence(timeout: 10),
-            "the live caddie must expose the retained offline decision through its stable entry"
+            offlineCaddiePanel.waitForExistence(timeout: 10),
+            "the live caddie must expose the retained offline decision inline"
         )
-        XCTAssertEqual(offlineCaddieEntry.label, "球童建议")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["live-caddie-complete-route"].firstMatch.waitForExistence(timeout: 10),
+            "the offline decision must retain its complete club chain"
+        )
         XCTAssertFalse(
             app.buttons["编辑第 1 洞成绩"].exists,
             "rebasing a downloaded course must not inherit a previous round's score events"
@@ -674,28 +673,25 @@ final class TeeSelectionUITests: XCTestCase {
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 
-    /// The live root now exposes one focused caddie destination. The former inline readiness label
-    /// was intentionally removed with the S70-style information hierarchy.
+    /// The live root exposes the complete route directly without a second presentation layer.
     @discardableResult
     private func openCaddiePlan(timeout: TimeInterval) -> XCUIElement {
-        let entry = app.buttons["live-caddie-entry"]
+        let panel = app.descendants(matching: .any)["live-caddie-panel"].firstMatch
         XCTAssertTrue(
-            bringIntoView(entry, maxSwipes: 18),
-            "the live root must expose the focused caddie entry"
-        )
-        entry.tap()
-        let heading = app.staticTexts["caddie-plan-heading"]
-        XCTAssertTrue(
-            heading.waitForExistence(timeout: timeout),
-            "opening the caddie entry must present the complete plan"
+            bringIntoView(panel, maxSwipes: 18),
+            "the live root must expose the inline caddie plan"
         )
         let loading = app.activityIndicators["正在更新球童建议"]
         _ = loading.waitForExistence(timeout: 2)
         XCTAssertTrue(
             waitUntilGone(loading, timeout: timeout),
-            "the focused caddie plan must settle its structured recommendation"
+            "the inline caddie plan must settle its structured recommendation"
         )
-        return heading
+        XCTAssertTrue(
+            app.descendants(matching: .any)["live-caddie-complete-route"].firstMatch.waitForExistence(timeout: timeout),
+            "the inline caddie plan must expose every remaining leg"
+        )
+        return panel
     }
 
     private func searchAndSelectBeijingPalace(field identifier: String, text: String) throws {

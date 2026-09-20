@@ -14,6 +14,20 @@ public enum HubRoute: Hashable {
     case roundReview(roundRef: String, courseName: String?, globalId: Int?, backGlobalId: Int?, nine: String?, teeBox: String?)
 }
 
+enum LiveHoleRouteReconciliation {
+    static func target(
+        routedHole: Int,
+        packageHoles: [Int],
+        restoredActiveHole: Int?
+    ) -> Int? {
+        guard !packageHoles.contains(routedHole) else { return nil }
+        if let restoredActiveHole, packageHoles.contains(restoredActiveHole) {
+            return restoredActiveHole
+        }
+        return packageHoles.first
+    }
+}
+
 public struct RoundHomeView: View {
     public let package: LiveRoundPackage
     public let pendingEventCount: Int
@@ -295,6 +309,12 @@ public struct RoundHomeView: View {
                 path = []
             }
         }
+        .onChange(of: package.holeSetIdentity) { _, _ in
+            reconcileLiveHoleRouteWithPackage()
+        }
+        .onChange(of: liveRoundState?.activeHole) { _, _ in
+            reconcileLiveHoleRouteWithPackage()
+        }
         .onChange(of: path) { _, routes in
             onLiveAppearanceChanged(Self.isLiveHoleRoute(routes.last))
         }
@@ -317,6 +337,19 @@ public struct RoundHomeView: View {
     private static func isLiveHoleRoute(_ route: HubRoute?) -> Bool {
         guard case .hole = route else { return false }
         return true
+    }
+
+    /// Adding/removing a physical nine changes the destination's valid hole set without ending the
+    /// round. Keep the current hole when it still exists; otherwise move immediately to the restored
+    /// active hole (or the first retained hole) instead of leaving an empty NavigationStack page.
+    private func reconcileLiveHoleRouteWithPackage() {
+        guard case .hole(let routedHole) = path.last,
+              let target = LiveHoleRouteReconciliation.target(
+                  routedHole: routedHole,
+                  packageHoles: package.holes.map(\.number),
+                  restoredActiveHole: liveRoundState?.activeHole
+              ) else { return }
+        path = [.hole(target)]
     }
 
     /// 开始记分后直接进实战屏:把刚开的洞设为唯一路径(替换掉「开始一场」),不弹回 Hub。
@@ -366,7 +399,7 @@ public struct RoundHomeView: View {
             // the background. Keep the live destination identity stable across that handoff so its
             // precise map, zoom and pole-drag state are not discarded; the value update still gives
             // the surface the new adjacent-hole navigation metadata.
-            .id("\(package.roundId):\(hole.number):\(package.nine ?? "all")")
+            .id("\(package.roundId):\(hole.number):\(package.holeSetIdentity)")
         }
     }
 

@@ -172,6 +172,81 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertTrue(CoursePrepHoleAdoptionPolicy.shouldAdopt(current: stale, incoming: precise))
     }
 
+    func testCurrentGarminRevisionOutranksPreciseGeometryFromPriorRevision() {
+        func hole(revision: String, coverage: String, hazards: CoursePrepHazards) -> CoursePrepHole {
+            CoursePrepHole(
+                hole: 4,
+                par: 4,
+                parSource: "courseview",
+                blueYards: 420,
+                routeLenM: 384,
+                route: [[0, 0, 0], [0, 384, 384]],
+                geometryCoverage: coverage,
+                geometryRevision: revision,
+                hazards: hazards,
+                map: CoursePrepMap(
+                    image: nil,
+                    overlay: CoursePrepOverlay(
+                        w: 240, h: 520, ppm: 1, ln: 384,
+                        route: [[120, 500, 0], [120, 20, 384]]
+                    )
+                )
+            )
+        }
+        let oldBunker = CoursePrepHazardDetail(
+            kind: "bunker", frontM: 330, backM: 350,
+            frontRouteM: 330, backRouteM: 350,
+            frontPx: [90, 90], backPx: [110, 70],
+            outlinePx: [[80, 90], [110, 95], [115, 70], [85, 68]], sideM: -25
+        )
+        let retained = hole(
+            revision: "garmin-old",
+            coverage: "ready",
+            hazards: CoursePrepHazards(details: [oldBunker])
+        )
+        let current = hole(
+            revision: "garmin-current",
+            coverage: "partial",
+            hazards: CoursePrepHazards()
+        )
+
+        XCTAssertTrue(CoursePrepHoleAdoptionPolicy.shouldAdopt(
+            current: retained,
+            incoming: current,
+            authoritativeRevision: "garmin-current"
+        ))
+        XCTAssertFalse(CoursePrepHoleAdoptionPolicy.shouldAdopt(
+            current: current,
+            incoming: retained,
+            authoritativeRevision: "garmin-current"
+        ))
+
+        let currentBunkers = (0..<4).map { index in
+            CoursePrepHazardDetail(
+                kind: index < 2 ? "water" : "bunker",
+                frontM: 300 + Double(index * 10),
+                backM: 306 + Double(index * 10),
+                frontRouteM: 300 + Double(index * 10),
+                backRouteM: 306 + Double(index * 10),
+                frontPx: [90 + Double(index * 8), 120 - Double(index * 8)],
+                backPx: [94 + Double(index * 8), 112 - Double(index * 8)],
+                outlinePx: [[88, 122], [98, 122], [98, 108], [88, 108]],
+                sideM: Double(index - 2) * 10
+            )
+        }
+        let currentPrecise = hole(
+            revision: "garmin-current",
+            coverage: "ready",
+            hazards: CoursePrepHazards(details: currentBunkers)
+        )
+        XCTAssertTrue(CoursePrepHoleAdoptionPolicy.shouldAdopt(
+            current: current,
+            incoming: currentPrecise,
+            authoritativeRevision: "garmin-current"
+        ))
+        XCTAssertEqual(currentPrecise.hazards.details.count, 4)
+    }
+
     func testResolvesTopoOverlayFromLightweightRouteAndAffineProjection() throws {
         let json = """
         {"schema":"ai-caddie-course-prep-v1","globalId":3881,"holeCount":1,"clubs":[],

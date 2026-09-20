@@ -15,6 +15,33 @@ from server_v2.main import app
 
 
 class ServerV2CaddieTests(unittest.TestCase):
+    def test_live_gps_surface_phase_overrides_stale_client_default(self) -> None:
+        from ai_caddie.caddie.decision_api import build_decision_from_request
+        from server_v2 import caddie
+        from server_v2.models import CaddieDecisionRequest
+
+        decision = build_decision_from_request(build_decision_request_from_fixture("recovery"))
+        request = CaddieDecisionRequest(
+            shotType="tee",
+            context={"source": "ios_live", "globalId": 31794, "localHole": 3},
+            includeExplanation=False,
+        )
+        hydrated = {
+            **request.context,
+            "gpsSuggestedShotType": "recovery",
+            "lie": "bunker",
+        }
+        with (
+            patch.object(caddie, "hydrate_live_caddie_geometry_context", return_value=hydrated),
+            patch.object(caddie, "build_decision_from_request", return_value=decision) as build,
+            patch.object(caddie, "store_decision"),
+        ):
+            response = caddie.build_caddie_decision_response(request)
+
+        self.assertEqual(response.shotType, "recovery")
+        self.assertEqual(build.call_args.args[0]["shotType"], "recovery")
+        self.assertEqual(build.call_args.args[0]["context"]["lie"], "bunker")
+
     def test_decision_endpoint_returns_approach_contract(self) -> None:
         client = TestClient(app)
 

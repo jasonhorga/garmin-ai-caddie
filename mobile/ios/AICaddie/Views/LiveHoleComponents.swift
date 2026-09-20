@@ -643,110 +643,255 @@ struct LiveCaddieStrip: View {
     }
 }
 
-/// The live root only exposes one S70-style caddie destination. Club choices and decision status
-/// belong inside that destination so they cannot compete with shot and scoring controls.
-struct LiveCaddieEntry: View {
+/// The full remaining shot chain belongs on the live map screen. Distinct routes are switched in
+/// place and tapping a leg highlights the same landing point on the map above.
+struct LiveCaddiePlanPanel: View {
     let isLoading: Bool
-    let isReady: Bool
-    /// The single actionable answer belongs on the live root. The full strategy sheet remains the
-    /// place for comparing lines and choosing another club, so this text never becomes a second
-    /// club-picker row competing with the scoring controls.
-    var nextShotText: String? = nil
-    var onTap: () -> Void = {}
+    let routes: [CaddiePlanSequence]
+    let selectedRouteID: String?
+    let selectedPlanIndex: Int?
+    let errorText: String?
+    let onSelectRoute: (CaddiePlanSequence) -> Void
+    let onSelectStep: (Int) -> Void
+    let onRefresh: () -> Void
+
+    private var selectedRoute: CaddiePlanSequence? {
+        selectedRouteID.flatMap { selectedID in
+            routes.first { $0.id == selectedID }
+        } ?? routes.first
+    }
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 9) {
                 Image(systemName: "figure.golf")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(LivePlayStyle.greenLabel)
                     .frame(width: 30, height: 30)
                     .background(LivePlayStyle.fill08, in: Circle())
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("球童建议")
-                        .font(.system(size: 14, weight: .heavy))
-                        .foregroundStyle(LivePlayStyle.ink)
-                    if let nextShotText {
-                        Text(nextShotText)
-                            .font(.system(size: 15, weight: .heavy, design: .rounded))
-                            .foregroundStyle(LivePlayStyle.ink)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.62)
-                    } else {
-                        Text(isReady ? "查看本洞策略与选杆" : "打开后查看或重试")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(LivePlayStyle.ink45)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
-                    }
-                }
+                Text("球童建议")
+                    .font(.system(size: 14, weight: .heavy))
+                    .foregroundStyle(LivePlayStyle.ink)
                 Spacer(minLength: 0)
                 if isLoading {
                     ProgressView()
                         .controlSize(.small)
                         .tint(LivePlayStyle.ink60)
+                        .accessibilityLabel("正在更新球童建议")
                 }
-                Image(systemName: "chevron.forward")
-                    .font(.system(size: 11, weight: .bold))
+                Button(action: onRefresh) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .bold))
+                        .frame(width: 34, height: 34)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isLoading)
+                .foregroundStyle(LivePlayStyle.ink60)
+                .accessibilityLabel("刷新球童建议")
+                .accessibilityIdentifier("live-caddie-refresh")
+            }
+
+            if routes.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 18) {
+                        ForEach(Array(routes.enumerated()), id: \.element.id) { index, route in
+                            Button {
+                                onSelectRoute(route)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("方案 \(index + 1)")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(routeIsSelected(route) ? LivePlayStyle.greenLabel : LivePlayStyle.ink45)
+                                    Text(routeClubChain(route))
+                                        .font(.system(size: 12.5, weight: .bold))
+                                        .foregroundStyle(LivePlayStyle.ink)
+                                        .lineLimit(1)
+                                    Rectangle()
+                                        .fill(routeIsSelected(route) ? LivePlayStyle.greenLabel : Color.clear)
+                                        .frame(height: 2)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("切换到方案 \(index + 1)，\(routeClubChain(route))")
+                            .accessibilityIdentifier("live-caddie-route-\(index + 1)")
+                        }
+                    }
+                }
+            }
+
+            if let selectedRoute, !selectedRoute.steps.isEmpty {
+                HStack(alignment: .center, spacing: 4) {
+                    ForEach(Array(selectedRoute.steps.enumerated()), id: \.element.id) { index, step in
+                        if index > 0 {
+                            Image(systemName: "chevron.forward")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(LivePlayStyle.ink45)
+                                .accessibilityHidden(true)
+                        }
+                        Button {
+                            onSelectStep(step.planIndex ?? index)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("第 \(index + 1) 杆")
+                                    .font(.system(size: 10.5, weight: .semibold))
+                                    .foregroundStyle(LivePlayStyle.ink45)
+                                Text(zhClubDisplayName(zhClubName(step.clubName)))
+                                    .font(.system(size: 14, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(LivePlayStyle.ink)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.72)
+                                Text(stepDistanceText(step))
+                                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(LivePlayStyle.ink60)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.72)
+                                Rectangle()
+                                    .fill(isSelected(step, fallbackIndex: index)
+                                        ? LivePlayStyle.greenLabel
+                                        : Color.clear)
+                                    .frame(height: 2)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("第 \(index + 1) 杆，\(step.summaryText)")
+                        .accessibilityIdentifier("live-caddie-step-\(index + 1)")
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("live-caddie-complete-route")
+            } else {
+                Text(isLoading ? "正在生成本洞路线" : "暂无可用建议")
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(LivePlayStyle.ink45)
             }
-            .padding(.vertical, 9)
-            .padding(.horizontal, 11)
-            .frame(maxWidth: .infinity)
-            .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(LivePlayStyle.stroke10))
+
+            if let errorText, !errorText.isEmpty {
+                Text(errorText)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(LivePlayStyle.ink45)
+                    .lineLimit(2)
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 4)
         .accessibilityLabel("球童建议")
-        .accessibilityValue(nextShotText ?? (isReady ? "查看本洞策略与选杆" : "打开后查看或重试"))
-        .accessibilityHint("查看本洞完整策略和推荐球杆")
-        .accessibilityIdentifier("live-caddie-entry")
+        .accessibilityIdentifier("live-caddie-panel")
+    }
+
+    private func routeClubChain(_ route: CaddiePlanSequence) -> String {
+        route.steps
+            .map { zhClubDisplayName(zhClubName($0.clubName)) }
+            .filter { !$0.isEmpty && $0 != "-" }
+            .joined(separator: " → ")
+    }
+
+    private func routeIsSelected(_ route: CaddiePlanSequence) -> Bool {
+        route.id == selectedRoute?.id
+    }
+
+    private func stepDistanceText(_ step: CaddiePlanSequenceStep) -> String {
+        guard let metres = step.targetCarryM, metres.isFinite, metres > 0 else { return "落点" }
+        return "\(CoursePrepRoute.yards(fromMetres: metres)) 码"
+    }
+
+    private func isSelected(_ step: CaddiePlanSequenceStep, fallbackIndex: Int) -> Bool {
+        guard let selectedPlanIndex else { return false }
+        return selectedPlanIndex == (step.planIndex ?? fallbackIndex)
     }
 }
 
-/// One compact route into the complete obstacle instrument. Whole-hole maps stay visually clean;
-/// this entry makes the Garmin-style front/back list reachable without hiding it in the caddie text.
-struct LiveHazardEntry: View {
+/// A one-at-a-time obstacle browser that remains on the live hole screen. The selected row is also
+/// the selected real polygon on the map, so the controls never navigate away from play.
+struct LiveHazardBrowserPanel: View {
+    let row: LiveHazardDisplayItem
+    let index: Int
     let count: Int
-    let onTap: () -> Void
+    let onPrevious: () -> Void
+    let onNext: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill")
+                Image(systemName: row.isWater ? "drop.fill" : "square.grid.2x2.fill")
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color(red: 0.95, green: 0.69, blue: 0.20))
+                    .foregroundStyle(row.isWater ? Color.blue : Color(red: 0.82, green: 0.63, blue: 0.12))
                     .frame(width: 30, height: 30)
-                    .background(Color(red: 0.95, green: 0.69, blue: 0.20).opacity(0.14), in: Circle())
+                    .background(LivePlayStyle.fill08, in: Circle())
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("障碍物")
+                    Text(row.label)
                         .font(.system(size: 14, weight: .heavy))
                         .foregroundStyle(LivePlayStyle.ink)
-                    Text("水障碍与沙坑 · 到前沿 / 过后沿")
+                    Text("障碍物 \(index + 1) / \(count)")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(LivePlayStyle.ink45)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
                 }
-                Spacer(minLength: 8)
-                Text("\(count)")
-                    .font(.system(size: 14, weight: .heavy, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(LivePlayStyle.ink60)
-                Image(systemName: "chevron.forward")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(LivePlayStyle.ink45)
+                Spacer(minLength: 0)
+                hazardNavigationButton(
+                    systemName: "chevron.backward",
+                    label: "上一个障碍",
+                    identifier: "hazard-previous",
+                    disabled: index == 0,
+                    action: onPrevious
+                )
+                hazardNavigationButton(
+                    systemName: "chevron.forward",
+                    label: "下一个障碍",
+                    identifier: "hazard-next",
+                    disabled: index >= count - 1,
+                    action: onNext
+                )
             }
-            .padding(.vertical, 9)
-            .padding(.horizontal, 11)
-            .frame(maxWidth: .infinity)
-            .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(LivePlayStyle.stroke10))
+
+            HStack(spacing: 0) {
+                hazardDistance(title: "到前沿", value: row.frontYards)
+                Rectangle()
+                    .fill(LivePlayStyle.stroke10)
+                    .frame(width: 1, height: 34)
+                hazardDistance(title: "过后沿", value: row.backYards)
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("selected-hazard-\(index + 1)")
+    }
+
+    private func hazardDistance(title: String, value: Int?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(LivePlayStyle.ink45)
+            Text(value.map(String.init) ?? "—")
+                .font(.system(size: 21, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(LivePlayStyle.ink)
+            Text("码")
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(LivePlayStyle.ink45)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private func hazardNavigationButton(
+        systemName: String,
+        label: String,
+        identifier: String,
+        disabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .bold))
+                .frame(width: 34, height: 34)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("障碍物，\(count) 个")
-        .accessibilityHint("查看所有障碍物的前沿和后沿距离")
-        .accessibilityIdentifier("live-hazard-entry")
+        .disabled(disabled)
+        .foregroundStyle(LivePlayStyle.ink60)
+        .opacity(disabled ? 0.28 : 1)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
     }
 }
 

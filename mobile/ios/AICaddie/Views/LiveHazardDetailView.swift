@@ -167,6 +167,153 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
     }
 }
 
+/// Draws one selected factual obstacle in the viewport plane. Map pixels are transformed first, so
+/// the polygon follows pan/zoom while its red stroke, edge points and labels remain the same screen
+/// size at every scale.
+enum LiveHazardOverlayRenderer {
+    static func draw(
+        _ context: inout GraphicsContext,
+        size: CGSize,
+        hole: CoursePrepHole,
+        row: LiveHazardDisplayItem,
+        scale: CGFloat,
+        offset: CGSize,
+        topInset: CGFloat = 0
+    ) {
+        guard let overlay = hole.resolvedMapOverlay else { return }
+        let baseFront = hazardPoint(
+            pixels: row.frontPx,
+            routeMetres: row.frontRouteM,
+            overlay: overlay,
+            size: size,
+            topInset: topInset
+        )
+        let baseBack = hazardPoint(
+            pixels: row.backPx,
+            routeMetres: row.backRouteM,
+            overlay: overlay,
+            size: size,
+            topInset: topInset
+        )
+        let front = baseFront.flatMap { transformed($0, in: size, scale: scale, offset: offset) }
+        let back = baseBack.flatMap { transformed($0, in: size, scale: scale, offset: offset) }
+        let outline = row.outlinePx.compactMap { point -> CGPoint? in
+            guard let projected = projectedHazardPixelPoint(
+                pixels: point,
+                overlay: overlay,
+                size: size,
+                topInset: topInset
+            ) else { return nil }
+            return transformed(projected, in: size, scale: scale, offset: offset)
+        }
+
+        let red = Color(red: 0.95, green: 0.16, blue: 0.14)
+        if outline.count >= 3 {
+            var path = Path()
+            path.move(to: outline[0])
+            for point in outline.dropFirst() { path.addLine(to: point) }
+            path.closeSubpath()
+            context.stroke(path, with: .color(red), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
+        }
+
+        let annotations: [(point: CGPoint?, label: String, yards: Int?)] = [
+            (front, "前", Optional(row.frontYards)),
+            (back, "后", row.backYards),
+        ]
+        for (point, label, yards) in annotations {
+            guard let point else { continue }
+            context.fill(
+                Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)),
+                with: .color(red)
+            )
+            let labelCenter = LiveHazardAnnotationLayout.outsideLabelCenter(
+                for: point,
+                isFront: label == "前",
+                outline: outline,
+                viewportSize: size
+            )
+            let labelText = yards.map { "\(label) \($0)" } ?? label
+            let labelWidth: CGFloat = yards == nil ? LiveHazardAnnotationLayout.labelWidth : 52
+            let labelRect = CGRect(
+                x: labelCenter.x - labelWidth / 2,
+                y: labelCenter.y - LiveHazardAnnotationLayout.labelHeight / 2,
+                width: labelWidth,
+                height: LiveHazardAnnotationLayout.labelHeight
+            )
+            context.fill(
+                Path(roundedRect: labelRect, cornerRadius: 5),
+                with: .color(.black.opacity(0.64))
+            )
+            context.draw(
+                Text(labelText)
+                    .font(.system(size: 10, weight: .heavy, design: .rounded))
+                    .foregroundColor(.white),
+                at: labelCenter
+            )
+        }
+    }
+
+    private static func transformed(
+        _ point: CGPoint,
+        in size: CGSize,
+        scale: CGFloat,
+        offset: CGSize
+    ) -> CGPoint? {
+        guard point.x.isFinite, point.y.isFinite,
+              size.width > 0, size.height > 0,
+              scale.isFinite, scale > 0 else { return nil }
+        return CGPoint(
+            x: (point.x - size.width / 2) * scale + size.width / 2 + offset.width,
+            y: (point.y - size.height / 2) * scale + size.height / 2 + offset.height
+        )
+    }
+
+    private static func hazardPoint(
+        pixels: [Double],
+        routeMetres: Double,
+        overlay: CoursePrepOverlay,
+        size: CGSize,
+        topInset: CGFloat
+    ) -> CGPoint? {
+        if let projected = projectedHazardPixelPoint(
+            pixels: pixels,
+            overlay: overlay,
+            size: size,
+            topInset: topInset
+        ) {
+            return projected
+        }
+        guard let overlayPoint = HoleImageMapView.landingOverlayPoint(
+            overlay,
+            targetMetres: routeMetres
+        ) else { return nil }
+        return LivePlayMapOverlayLayout.project(
+            overlayPoint: overlayPoint,
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            into: size,
+            topInset: topInset
+        )
+    }
+
+    private static func projectedHazardPixelPoint(
+        pixels: [Double],
+        overlay: CoursePrepOverlay,
+        size: CGSize,
+        topInset: CGFloat
+    ) -> CGPoint? {
+        guard pixels.count >= 2,
+              pixels.prefix(2).allSatisfy(\.isFinite) else { return nil }
+        return LivePlayMapOverlayLayout.project(
+            overlayPoint: pixels,
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            into: size,
+            topInset: topInset
+        )
+    }
+}
+
 /// Dedicated one-at-a-time hazard browser. The selected obstacle is outlined only when the backend
 /// supplies its real polygon; compatibility packages show the factual edge markers without inventing a
 /// shape. Its front and back edges are the only large numbers on screen.
@@ -595,129 +742,14 @@ struct LiveHazardDetailView: View {
         scale: CGFloat,
         offset: CGSize
     ) {
-        guard let row = selectedHazard,
-              let overlay = hole.resolvedMapOverlay else { return }
-        let baseFront = hazardPoint(
-            pixels: row.frontPx,
-            routeMetres: row.frontRouteM,
-            overlay: overlay,
-            size: size
-        )
-        let baseBack = hazardPoint(
-            pixels: row.backPx,
-            routeMetres: row.backRouteM,
-            overlay: overlay,
-            size: size
-        )
-        let front = baseFront.flatMap { transformed($0, in: size, scale: scale, offset: offset) }
-        let back = baseBack.flatMap { transformed($0, in: size, scale: scale, offset: offset) }
-
-        let outline = row.outlinePx.compactMap { point -> CGPoint? in
-            guard let projected = projectedHazardPixelPoint(pixels: point, overlay: overlay, size: size) else {
-                return nil
-            }
-            return transformed(projected, in: size, scale: scale, offset: offset)
-        }
-        let red = Color(red: 0.95, green: 0.16, blue: 0.14)
-        if outline.count >= 3 {
-            var path = Path()
-            path.move(to: outline[0])
-            for point in outline.dropFirst() { path.addLine(to: point) }
-            path.closeSubpath()
-            // The canvas itself is not scaled, so this stays ~1 px at every map zoom.
-            context.stroke(path, with: .color(red), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
-        }
-
-        let edgeLabels: [(CGPoint?, String, Int?)] = [
-            (front, "前", row.frontYards),
-            (back, "后", row.backYards),
-        ]
-        for (point, label, yards) in edgeLabels {
-            guard let point else { continue }
-            // One small red point is enough; the previous white halo hid the actual boundary.
-            let marker = Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7))
-            context.fill(marker, with: .color(Color(red: 0.95, green: 0.16, blue: 0.14)))
-            let labelCenter = LiveHazardAnnotationLayout.outsideLabelCenter(
-                for: point,
-                isFront: label == "前",
-                outline: outline,
-                viewportSize: size
-            )
-            let labelText = yards.map { "\(label) \($0)" } ?? label
-            let labelWidth: CGFloat = yards == nil ? LiveHazardAnnotationLayout.labelWidth : 52
-            let labelRect = CGRect(
-                x: labelCenter.x - labelWidth / 2,
-                y: labelCenter.y - LiveHazardAnnotationLayout.labelHeight / 2,
-                width: labelWidth,
-                height: LiveHazardAnnotationLayout.labelHeight
-            )
-            context.fill(
-                Path(roundedRect: labelRect, cornerRadius: 5),
-                with: .color(.black.opacity(0.64))
-            )
-            context.draw(
-                Text(labelText)
-                    .font(.system(size: 10, weight: .heavy, design: .rounded))
-                    .foregroundColor(.white),
-                at: labelCenter
-            )
-        }
-    }
-
-    private func transformed(
-        _ point: CGPoint,
-        in size: CGSize,
-        scale: CGFloat,
-        offset: CGSize
-    ) -> CGPoint? {
-        guard point.x.isFinite,
-              point.y.isFinite,
-              size.width > 0,
-              size.height > 0,
-              scale.isFinite,
-              scale > 0 else { return nil }
-        return CGPoint(
-            x: (point.x - size.width / 2) * scale + size.width / 2 + offset.width,
-            y: (point.y - size.height / 2) * scale + size.height / 2 + offset.height
-        )
-    }
-
-    /// Precise prep supplies real boundary pixels. Legacy packages only know the interval along the
-    /// measured route, so interpolate that route rather than leaving the selected obstacle unmarked.
-    private func hazardPoint(
-        pixels: [Double],
-        routeMetres: Double,
-        overlay: CoursePrepOverlay,
-        size: CGSize
-    ) -> CGPoint? {
-        if let projected = projectedHazardPixelPoint(pixels: pixels, overlay: overlay, size: size) {
-            return projected
-        }
-        guard let overlayPoint = HoleImageMapView.landingOverlayPoint(overlay, targetMetres: routeMetres) else {
-            return nil
-        }
-        return LivePlayMapOverlayLayout.project(
-            overlayPoint: overlayPoint,
-            overlayWidth: overlay.w,
-            overlayHeight: overlay.h,
-            into: size
-        )
-    }
-
-    private func projectedHazardPixelPoint(
-        pixels: [Double],
-        overlay: CoursePrepOverlay,
-        size: CGSize
-    ) -> CGPoint? {
-        guard pixels.count >= 2,
-              pixels.prefix(2).allSatisfy(\.isFinite) else {
-            return nil
-        }
-        return LivePlayMapOverlayLayout.project(
-            overlayPoint: pixels,
-            overlayWidth: overlay.w,
-            overlayHeight: overlay.h,
-            into: size
+        guard let row = selectedHazard else { return }
+        LiveHazardOverlayRenderer.draw(
+            &context,
+            size: size,
+            hole: hole,
+            row: row,
+            scale: scale,
+            offset: offset
         )
     }
 }

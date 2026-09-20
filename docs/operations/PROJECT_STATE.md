@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-20 18:21 UTC
+**Updated:** 2026-09-20 21:15 UTC
 **Branch:** `integration/v2` (GitHub default; current `PHONE-UX6` source
 `df83de64ac4778b3e05fd89c528301ef8b00b336`, backend
 `aa05695f063d0d2d8b855e76c10174d6e4d1902f`; Source CI `35525485383` and
@@ -50,16 +50,46 @@ release-scope decision; do not pause for routine TestFlight execution.
 
 ## Current Work Summary
 
-**Current slice (2026-09-20):** `PHONE-UX6` is the single active implementation
-slice for the `IMG_8135`-`IMG_8139` feedback. User screenshots are stored at
-`/home/ubuntu/IMG_8135.png` through `/home/ubuntu/IMG_8139.png`; future
-user-provided screenshots must be searched under `/home/ubuntu/IMG_*` before
-repository paths. Scope: one canonical structured per-hole caddie plan shared
-by prep/live/Watch, render every planned landing and selectable leg, remove the
-offline-ready banner, replace fragmented first-hole loading with one bounded
-state, and keep iPhone/Watch course identity and interaction semantics aligned.
-Download-speed measurement remains a separate evidence item; no claim of a
-speed fix is made until a homeserver timing run identifies the bottleneck.
+**Current slice (2026-09-20):** `PHONE-UX7` is the single active implementation
+slice for the post-Build-70 live-round feedback. First reproduce and correct
+Black Knight A3's missing caddie recommendation, Black Knight A4's omitted
+left-green bunker, and the add/remove-back-nine path that reloads downloaded
+geometry and fails to publish UI changes immediately. The live fairway map is
+the operational center: live decisions must not depend on prep having run, and
+existing package geometry must be reused. The owner also requested a separate
+game-like visual redesign for review; produce a proposal grounded in the real
+live screen, but do not broadly replace the production visual system until the
+owner confirms that direction. `PHONE-UX6` release evidence remains open for
+physical-device confirmation. User screenshots are resolved from
+`/home/ubuntu/IMG_*` before repository paths.
+
+- **PHONE-UX7 verification resource (2026-09-20 20:51 UTC):** Homeserver capacity
+  passed with about 100 GiB disk free and 5.0 GiB available memory. This session
+  owns one temporary source snapshot at
+  `/home/jason/codex-runs/garmin-ai-caddie-phone-ux7-20260920-a` for focused
+  backend verification and the bounded visual-proposal review. Focused Python
+  tests use the existing project API image through one auto-removed container named
+  `codex-phone-ux7-tests-20260920`; no virtualenv, volume, port, tunnel or
+  service is created. The snapshot expires 2026-09-21 20:51 UTC and must be
+  removed after the evidence is copied back into this ledger.
+
+- **PHONE-UX7 implementation checkpoint (2026-09-20 21:15 UTC):** The current
+  working tree synthesizes a factual live caddie seed when a hole has no deferred
+  seed, falls back to that complete local route when an online response has no
+  usable recommendation, classifies tee/fairway/rough/bunker state from current
+  GPS geometry, presents distinct complete routes and selectable landing legs on
+  the live map, browses every precise hazard inline with the selected real polygon,
+  and composes/removes an installed back nine locally without a foreground package
+  request. Concrete regressions cover Black Knight A3 (`1W -> 3H -> 7I`), all four
+  Black Knight A4 hazards including both greenside bunkers, authoritative geometry
+  revision adoption, route deduplication, route reconciliation after hole removal,
+  and the installed A -> A+B -> A flow with zero foreground HTTP requests. The
+  homeserver focused command passed `111 tests` in `7.583s`; its auto-removed
+  container left no resource. The separate game-like proposal is
+  `docs/design/phone-ux7-live-gameplay-proposal.html`; the real course bitmap is
+  self-contained, and Playwright review at 736px/360px verified route, shot-leg and
+  hazard switching, 12 rendered icons, no horizontal overflow and zero page errors.
+  Source and exact-SHA Native Mobile gates remain pending; no release claim exists.
 
 - **PHONE-UX6 implementation checkpoint (2026-09-20):** The canonical prep/live/Watch
   caddie chain now renders all planned legs and keeps plan selection synchronized;
@@ -1977,7 +2007,8 @@ project-level task list; historical plans are reference material.
 | `NET-TASKS-P0` | `evidence-open` | Implement the first selected P0 network-lifecycle slice: L1 course facts, package deduplication, foreground/background priority, and durable progress/cancel semantics. | Backend/network commit `86378a0b` plus iOS recovery follow-ups through `05761a41` are released. Focused backend `226/226`, Web `24/24`, Source CI `35454224823`, exact-SHA live Native Mobile CI `35454368985`, internal TestFlight CD `35457421840`, and Apple check `35457991975` passed. Build 67 is `VALID`, unexpired, `IN_BETA_TESTING`, arm64 and visible in the existing internal all-builds group. Physical iPhone/Watch Garmin reconnect, cancellation/recovery and startup evidence remains open. |
 | `DIRECT-CADDIE-VALIDATION` | `evidence-open` | Close the empirical follow-up left open by the read-only Fable report: measure entity S70/iPhone/Watch/Web startup stages and direct-vs-homeserver paths under matched conditions, benchmark normal-server queue/compute impact, then replay the 12 caddie golden cases before implementation claims. | Homeserver capacity passed; cold/warm loopback/public package timings, full-history versus `last20` profiling, and 12-case replay are recorded in `/home/jason/garmin-ai-caddie-data/operations/direct-caddie-validation-20260919/`. Replay fixture/test: `tests/fixtures/caddie_golden_cases.json`, `tests/test_caddie_golden_replay.py`; baseline SHA `070e67386609951c08d57a521d01599e821ea33775cf0bf6bf9adf3b0fecf90b`. Physical S70/iPhone/Watch timing and Garmin runtime concurrency remain evidence-open. |
 | `CADDIE-P0` | `evidence-open` | Add the 12 caddie golden regressions, then enforce hard feasibility, segmented hazards, filtered club-set consistency, non-Tee Driver prohibition, per-shot re-projection, explicit infeasible reasons, and risk/stability ranking. | Code commit `27ece094`; homeserver focused `194/194`, expanded `275/275` with 2 skips, changed-file compile, 12/12 blocking golden replay and warm performance gates pass; evidence SHA-256 `9b9c5833d256c20ab057238bedf1a337bd0cd18b9428d64a3122525d9808196c`. Source CI `35462771563`, selector-fix Source CI `35466407538`, and the `aa05695f` backend candidate/public preflight pass. Native `35472611538` and Build 68/TestFlight `35475506127` are green; physical evidence remains open. |
-| `PHONE-UX6` | `in-progress` | Implement the `IMG_8135`-`IMG_8139` slice: canonical structured prep/live caddie plans with all landing legs, selectable plan-map state, removal of the offline-ready banner, coherent local-first round loading, and iPhone/Watch identity/interaction parity. Keep download-speed diagnosis measured and separate from UI claims. | Build 70 from source `df83de64` is `VALID`, `IN_BETA_TESTING`, and available to the existing internal all-builds group. It preserves factual A/B/C and named course-area labels, appends `场` at most once, and removes the erroneous ordinal conversion. Source CI `35525485383`, Native `35525505845`, CD `35528165601`, and Apple check `35528692568` passed; physical iPhone/Watch confirmation remains open. Screenshots live under `/home/ubuntu/IMG_*`. |
+| `PHONE-UX6` | `evidence-open` | Implement the `IMG_8135`-`IMG_8139` slice: canonical structured prep/live caddie plans with all landing legs, selectable plan-map state, removal of the offline-ready banner, coherent local-first round loading, and iPhone/Watch identity/interaction parity. Keep download-speed diagnosis measured and separate from UI claims. | Build 70 from source `df83de64` is `VALID`, `IN_BETA_TESTING`, and available to the existing internal all-builds group. It preserves factual A/B/C and named course-area labels, appends `场` at most once, and removes the erroneous ordinal conversion. Source CI `35525485383`, Native `35525505845`, CD `35528165601`, and Apple check `35528692568` passed; physical iPhone/Watch confirmation remains open. Screenshots live under `/home/ubuntu/IMG_*`. |
+| `PHONE-UX7` | `in-progress` | Correct live-round truth and immediate interaction after Build 70: diagnose Black Knight A3's no-advice state, include every factual A4 hazard, make add/remove back nine local-first and immediately observable, remove duplicate round actions, and establish inline caddie/hazard state on the fairway map without requiring prep data. Produce a separate game-like visual proposal for owner review before broad production UI restyling. | Pending. Required evidence: concrete A3/A4 fixture reproduction, focused backend/model/UI regressions, immediate add/remove runtime proof without package redownload, homeserver gates, iPhone/Watch runtime captures, and internal TestFlight only after all release gates pass. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |

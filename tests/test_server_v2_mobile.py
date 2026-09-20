@@ -228,6 +228,58 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(refreshed["candidateRoutes"], [])
         self.assertIn("caddie_feasibility", {row["label"] for row in refreshed["missingData"]})
 
+    def test_live_gps_surface_sets_automatic_lie_and_shot_phase(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        context = {
+            "source": "ios_live",
+            "sourceRef": "black-knight-a:3",
+            "globalId": 31794,
+            "localHole": 3,
+            "teeBox": "blue",
+            "par": 4,
+            "yards": 410,
+            "lie": "fairway",
+            "lieSource": "gps_auto",
+            "currentLocation": {"latitude": 40.01, "longitude": 116.49, "source": "ios_gps"},
+            "clubProfiles": [],
+        }
+        geometry = {
+            "coverage": "ready",
+            "hasHazards": True,
+            "hasMeshes": True,
+            "hazardCount": 1,
+            "hazards": [{"id": "left-bunker", "kind": "bunker"}],
+        }
+        classification = {
+            "schema": "ai-caddie-shot-surface-classification-v1",
+            "surface": {"kind": "bunker", "source": "hazard", "id": "left-bunker"},
+            "evidence": [],
+            "missingData": [],
+        }
+        with (
+            patch("ai_caddie.caddie.mobile_live._geometry_seed", return_value=(geometry, [], [])),
+            patch("ai_caddie.caddie.mobile_live._route_evidence_seed", return_value=({}, [], [])),
+            patch(
+                "ai_caddie.geometry.geometry_evidence.classify_shot_surface",
+                return_value=classification,
+            ) as classify,
+        ):
+            refreshed = mobile_live.hydrate_live_caddie_geometry_context(context)
+
+        self.assertEqual(refreshed["lie"], "bunker")
+        self.assertEqual(refreshed["lieSource"], "prodgeometry_gps")
+        self.assertEqual(refreshed["gpsSuggestedShotType"], "recovery")
+        self.assertEqual(refreshed["gpsSurfaceClassification"], classification)
+        classify.assert_called_once_with(
+            31794,
+            3,
+            {
+                "ref": "live-gps:black-knight-a:3",
+                "position": {"lat": 40.01, "lon": 116.49},
+            },
+        )
+
     def test_mobile_live_paths_do_not_repeat_driver_for_sparse_par4_bag(self) -> None:
         from ai_caddie.caddie import mobile_live
 

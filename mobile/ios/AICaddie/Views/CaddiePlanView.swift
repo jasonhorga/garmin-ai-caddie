@@ -398,51 +398,23 @@ public struct CaddiePlanOption: Identifiable, Equatable {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             return trimmed.isEmpty ? nil : trimmed
         }
-        func object(_ value: JSONValue?) -> [String: JSONValue]? {
-            guard case .object(let row) = value else { return nil }
-            return row
-        }
         func point(_ value: JSONValue?) -> String? {
             guard case .array(let values) = value else { return nil }
             let points = values.prefix(2).compactMap(number)
             return points.count == 2 ? points.joined(separator: ",") : nil
         }
-        func riskRows(_ value: JSONValue?) -> String? {
-            guard case .array(let values) = value else { return nil }
-            let rows = values.compactMap { value -> String? in
-                guard let row = object(value) else { return nil }
-                return [
-                    "kind=\(string(row["kind"]) ?? "")",
-                    "id=\(string(row["id"]) ?? "")",
-                    "front=\(number(row["carryToFront_m"]) ?? "")",
-                    "clear=\(number(row["carryToClear_m"]) ?? "")",
-                    "center=\(number(row["distanceToCenter_m"]) ?? "")",
-                    "overlap=\(number(row["overlap_m"]) ?? "")",
-                    "exposure=\(number(row["modeledExposure"]) ?? "")",
-                ].joined(separator: ",")
-            }.sorted()
-            return rows.isEmpty ? nil : rows.joined(separator: ";")
-        }
 
+        // Only the physical target may keep two single-club choices separate. Risk rows,
+        // confidence and clearance explain a route; they do not create another route on screen.
         var parts: [String] = []
         if let target = string(option["target"]) { parts.append("target=\(target)") }
         if let targetLocal = point(option["targetLocal"] ?? option["landingLocal"]) {
             parts.append("local=\(targetLocal)")
         }
-        if let surface = object(option["expectedSurface"]) {
-            let kind = string(surface["kind"]) ?? ""
-            let id = string(surface["id"]) ?? ""
-            if !kind.isEmpty || !id.isEmpty { parts.append("surface=\(kind):\(id)") }
+        if case .object(let surface) = option["expectedSurface"] {
+            if let kind = string(surface["kind"]) { parts.append("surface=\(kind)") }
         } else if let surface = string(option["expectedSurface"]) {
             parts.append("surface=\(surface)")
-        }
-        for key in ["nearRisks", "lineRisks", "avoidZones", "forbiddenZones"] {
-            if let risks = riskRows(option[key]) { parts.append("\(key)=\(risks)") }
-        }
-        if let clearance = object(option["hazardClearance"]) {
-            let state = string(clearance["state"]) ?? ""
-            let minimum = number(clearance["minimumClearance_m"]) ?? ""
-            if !state.isEmpty || !minimum.isEmpty { parts.append("clearance=\(state):\(minimum)") }
         }
         return parts.sorted().joined(separator: "|")
     }
@@ -705,16 +677,150 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
             }
         }
         var parts: [String] = []
-        if let remaining = canonical(row["expectedRemaining_m"] ?? row["expectedRemainingM"]) {
-            parts.append("remaining=\(remaining)")
-        }
+        // Sequence risk/clearance metadata may differ while the actual line remains identical.
+        // Keep only physical target facts here; per-leg clubs and route stations are signed below.
         for key in [
-            "target", "targetLocal", "landingLocal", "expectedSurface", "nearRisks", "lineRisks",
-            "avoidZones", "forbiddenZones", "hazardClearance",
+            "target", "targetLocal", "landingLocal", "expectedSurface",
         ] {
             if let value = canonical(row[key]) { parts.append("\(key)=\(value)") }
         }
         return parts.sorted().joined(separator: "|")
+    }
+}
+
+/// One presentation authority for every caddie surface. Older payloads can expose several labels
+/// for the same physical club chain; the player should see a choice only when the clubs, carries or
+/// material route facts actually differ.
+public enum CaddiePlanPresentation {
+    public static func distinctSequences(
+        _ sequences: [CaddiePlanSequence],
+        selectedSequenceId: String? = nil,
+        selectedStrategyMode: String? = nil,
+        preferredFirst: Bool = true
+    ) -> [CaddiePlanSequence] {
+        let preferred = preferredSequence(
+            in: sequences,
+            selectedSequenceId: selectedSequenceId,
+            selectedStrategyMode: selectedStrategyMode
+        )
+        var candidates = sequences
+        if preferredFirst, let preferred {
+            candidates.removeAll { $0.id == preferred.id }
+            candidates.insert(preferred, at: 0)
+        }
+        var seen = Set<String>()
+        return candidates.filter { seen.insert(sequenceSignature($0)).inserted }
+    }
+
+    public static func distinctSequences(
+        from response: CaddieDecisionResponse,
+        selectedStrategyMode: String? = nil,
+        preferredFirst: Bool = true
+    ) -> [CaddiePlanSequence] {
+        distinctSequences(
+            CaddiePlanSequence.sequences(from: response),
+            selectedSequenceId: CaddiePlanSequence.selectedSequenceId(from: response)
+                ?? response.selectedOptionId,
+            selectedStrategyMode: selectedStrategyMode,
+            preferredFirst: preferredFirst
+        )
+    }
+
+    public static func distinctOptions(
+        _ options: [CaddiePlanOption],
+        selectedOptionId: String,
+        selectedStrategyMode: String? = nil
+    ) -> [CaddiePlanOption] {
+        let normalizedMode = selectedStrategyMode.flatMap { normalizedSelectionToken($0) }
+        let preferred = normalizedMode.flatMap { mode in
+            options.first { optionSelectionToken($0) == mode }
+        } ?? options.first { $0.id == selectedOptionId } ?? options.first
+        var candidates = options
+        if let preferred {
+            candidates.removeAll { $0.id == preferred.id }
+            candidates.insert(preferred, at: 0)
+        }
+        var seen = Set<String>()
+        return candidates.filter { seen.insert(optionSignature($0)).inserted }
+    }
+
+    public static func selectionToken(for sequence: CaddiePlanSequence) -> String {
+        sequenceSelectionToken(sequence) ?? sequence.id
+    }
+
+    private static func preferredSequence(
+        in sequences: [CaddiePlanSequence],
+        selectedSequenceId: String?,
+        selectedStrategyMode: String?
+    ) -> CaddiePlanSequence? {
+        if let mode = selectedStrategyMode.flatMap({ normalizedSelectionToken($0) }),
+           let selected = sequences.first(where: { sequenceSelectionToken($0) == mode }) {
+            return selected
+        }
+        if let selectedSequenceId,
+           let selected = sequences.first(where: { $0.id == selectedSequenceId }) {
+            return selected
+        }
+        return sequences.first
+    }
+
+    private static func normalizedSelectionToken(_ value: String) -> String? {
+        caddieSelectionToken(forRouteId: value)
+            ?? caddieStrategyMode(forRouteId: value)
+            ?? value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func sequenceSelectionToken(_ sequence: CaddiePlanSequence) -> String? {
+        caddieSelectionToken(forRouteId: sequence.id)
+            ?? caddieSelectionToken(forRouteId: sequence.label)
+    }
+
+    private static func optionSelectionToken(_ option: CaddiePlanOption) -> String? {
+        caddieSelectionToken(forRouteId: option.id)
+            ?? caddieSelectionToken(forRouteId: option.label)
+    }
+
+    private static func optionSignature(_ option: CaddiePlanOption) -> String {
+        let club = normalizedClub(option.clubName)
+        let carry = signatureDistance(option.carryM)
+        let semantic = option.semanticSignature
+        let suffix = semantic.isEmpty ? "" : ":\(semantic)"
+        return club.isEmpty || club == "-"
+            ? "option:\(carry ?? "-")\(suffix)"
+            : "club:\(club):\(carry ?? "-")\(suffix)"
+    }
+
+    private static func sequenceSignature(_ sequence: CaddiePlanSequence) -> String {
+        let clubs = sequence.steps.compactMap { step -> String? in
+            let club = normalizedClub(step.clubName)
+            guard !club.isEmpty, club != "-" else { return nil }
+            let carry = step.targetCarryM.flatMap { signatureDistance($0) } ?? "-"
+            let routeOffset = step.routeOffsetM.flatMap { signaturePosition($0) } ?? "-"
+            let landing = step.landingM.flatMap { signaturePosition($0) } ?? "-"
+            let remaining = step.expectedRemainingM.flatMap { signaturePosition(abs($0)) } ?? "-"
+            return "\(club):\(carry):\(step.role.lowercased()):\(routeOffset):\(landing):\(remaining)"
+        }
+        let semantic = sequence.semanticSignature
+        let suffix = semantic.isEmpty ? "" : "|\(semantic)"
+        return clubs.isEmpty
+            ? "sequence:\(sequence.id)\(suffix)"
+            : clubs.joined(separator: "|") + suffix
+    }
+
+    private static func normalizedClub(_ value: String) -> String {
+        zhClubDisplayName(zhClubName(value))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private static func signatureDistance(_ metres: Double) -> String? {
+        guard metres.isFinite, metres > 0 else { return nil }
+        return String(Int(metres.rounded()))
+    }
+
+    private static func signaturePosition(_ metres: Double) -> String? {
+        guard metres.isFinite, metres >= 0 else { return nil }
+        return String(Int(metres.rounded()))
     }
 }
 
@@ -818,60 +924,22 @@ public struct CaddiePlanView: View {
             ?? caddieSelectionToken(forRouteId: option.label)
     }
 
-    private func optionSignature(_ option: CaddiePlanOption) -> String {
-        let club = zhClubDisplayName(zhClubName(option.clubName))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let carry = signatureCarry(option.carryM)
-        let semantic = option.semanticSignature
-        let suffix = semantic.isEmpty ? "" : ":\(semantic)"
-        return club.isEmpty || club == "-"
-            ? "option:\(carry ?? "-")\(suffix)"
-            : "club:\(club):\(carry ?? "-")\(suffix)"
-    }
-
-    private func sequenceSignature(_ sequence: CaddiePlanSequence) -> String {
-        let clubs = sequence.steps.map {
-            let club = zhClubDisplayName(zhClubName($0.clubName))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-            guard !club.isEmpty, club != "-" else { return "" }
-            let carry = $0.targetCarryM.flatMap { signatureCarry($0) } ?? "-"
-            let remaining = $0.expectedRemainingM.flatMap { signatureCarry(abs($0)) } ?? "-"
-            return "\(club):\(carry):\($0.role.lowercased()):\(remaining)"
-        }.filter { !$0.isEmpty }
-        let semantic = sequence.semanticSignature
-        let suffix = semantic.isEmpty ? "" : "|\(semantic)"
-        return clubs.isEmpty
-            ? "sequence:\(sequence.id)\(suffix)"
-            : clubs.joined(separator: "|") + suffix
-    }
-
-    private func signatureCarry(_ metres: Double) -> String? {
-        guard metres.isFinite, metres > 0 else { return nil }
-        return String(Int(metres.rounded()))
-    }
-
     /// Old packages may still contain three labels for one physical club/club combination. Start
     /// with the selected recommendation, then retain only genuinely different physical choices.
     private var distinctOptions: [CaddiePlanOption] {
-        var candidates = options
-        if let preferredOption {
-            candidates.removeAll { $0.id == preferredOption.id }
-            candidates.insert(preferredOption, at: 0)
-        }
-        var seen = Set<String>()
-        return candidates.filter { seen.insert(optionSignature($0)).inserted }
+        CaddiePlanPresentation.distinctOptions(
+            options,
+            selectedOptionId: selectedOptionId,
+            selectedStrategyMode: selectedStrategyMode
+        )
     }
 
     private var distinctSequences: [CaddiePlanSequence] {
-        var candidates = sequences
-        if let preferredSequence {
-            candidates.removeAll { $0.id == preferredSequence.id }
-            candidates.insert(preferredSequence, at: 0)
-        }
-        var seen = Set<String>()
-        return candidates.filter { seen.insert(sequenceSignature($0)).inserted }
+        CaddiePlanPresentation.distinctSequences(
+            sequences,
+            selectedSequenceId: selectedSequenceId,
+            selectedStrategyMode: selectedStrategyMode
+        )
     }
 
     private var primarySequence: CaddiePlanSequence? { distinctSequences.first }
