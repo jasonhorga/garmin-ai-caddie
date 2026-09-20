@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-20 11:41 UTC
+**Updated:** 2026-09-20 14:12 UTC
 **Branch:** `integration/v2` (GitHub default; current `CADDIE-P0` source
 `327048e1eb49a1fafc4f10ce6534627d3bc27122`, backend
 `aa05695f063d0d2d8b855e76c10174d6e4d1902f`; Source CI `35472469464` and
@@ -84,6 +84,38 @@ speed fix is made until a homeserver timing run identifies the bottleneck.
   `LiveMapPreparingSurface` exposed a second `第 2 洞` accessibility node inside the loading
   overlay. The loading surface now ignores its visual children and remains one status element;
   another source/Native gate is required before any TestFlight claim.
+
+- **PHONE-UX6 evidence checkpoint (2026-09-20 12:41 UTC):** Exact-SHA Native
+  run `35509252052` completed with iOS live-flow failures while iOS compilation,
+  unit/design stages, all Watch tests/runtime captures, artifact uploads and
+  secret scans passed. The failures were caused by transient candidate Quick
+  Tunnel/API availability during the run (`/api/v2/history/rounds` returned 502
+  once and Garmin nearby/catalogue requests timed out or omitted segment
+  `31793`); the candidate remained healthy on loopback and public health checks
+  after the run. This is not a passing release gate and no new TestFlight upload
+  is authorized from this run. The durable screenshot lookup rule is: resolve
+  user-provided `IMG_*`/`pasted-from-shellfish-*` files from `/home/ubuntu` first
+  (the repository is only a fallback); current PHONE-UX6 evidence is
+  `/home/ubuntu/IMG_8135.png` through `/home/ubuntu/IMG_8139.png`.
+
+- **PHONE-UX6 rerun resource (2026-09-20 13:20 UTC):** To isolate the
+  candidate Quick Tunnel's observed 530/truncated-response flake, the next
+  exact-SHA gate may use one temporary HTTP/2 tunnel owned by this session:
+  tmux `codex-phone-ux6-tunnel-20260920`, log directory
+  `/home/jason/garmin-ai-caddie-data/operations/phone-ux6-tunnel-20260920`,
+  forwarding only to candidate loopback `39072`. Expiry is 2026-09-21 13:20
+  UTC; remove this session and log only after the rerun and evidence handoff.
+
+- **PHONE-UX6 Native diagnosis (2026-09-20 14:12 UTC):** Native run
+  `35513434171` used the temporary HTTP/2 origin
+  `https://mat-propecia-bidder-suppliers.trycloudflare.com`. Its live preflight,
+  iOS compile/unit stages, and candidate API requests passed without 5xx; the
+  remaining iOS failure was a real accessibility regression at
+  `RealFlowUITests.swift:1363`: the loading surface exposed a second visual
+  `第 2 洞` child beneath `live-map-preparing-surface`. The source fix removes
+  that redundant visual hole label while retaining the single status label and
+  page header. A fresh Source/Native gate is required at the resulting commit;
+  no TestFlight upload follows the failed run.
 
 - **CADDIE-P0 implementation (2026-09-19):** Code commit `27ece094` makes the
   12-case production replay blocking, forbids Driver after the tee, evaluates
