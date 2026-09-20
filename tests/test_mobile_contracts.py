@@ -1347,7 +1347,11 @@ class MobileContractTests(unittest.TestCase):
         package_swift = _read_required_source(self, IOS_DIR / "Models" / "LiveRoundPackage.swift")
         call_bodies = re.findall(r"LiveRoundPackage\(\n(.*?)\n        \)", package_swift, flags=re.DOTALL)
 
-        self.assertEqual(3, len(call_bodies))
+        self.assertGreaterEqual(
+            len(call_bodies),
+            5,
+            "offline rebase, local composition and local hole-set selection must all preserve initializer order",
+        )
         for body in call_bodies:
             self.assertLess(body.index("generatedAt:"), body.index("readinessState:"))
 
@@ -1709,7 +1713,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish", round_home)
         self.assertIn("onLiveHoleInitialLoadDidFinish()", current_hole)
         self.assertIn("精确球道图准备中", current_hole)
-        self.assertIn("!isPreciseHoleMapPending && !liveHazardDisplayRows.isEmpty", current_hole)
+        self.assertIn("if !isPreciseHoleMapPending,", current_hole)
+        self.assertIn("let selectedLiveHazard", current_hole)
+        self.assertIn("LiveHazardBrowserPanel(", current_hole)
         self.assertIn("var delaySeconds: UInt64 = 2", current_hole)
         self.assertIn("min(delaySeconds * 2, 15)", current_hole)
         self.assertNotIn(":\\(package.holes.count):", round_home)
@@ -3502,7 +3508,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("@State private var requestedStrategyMode: String? = nil", current_hole)
         self.assertIn("requestedStrategyMode = nil", current_hole)
         self.assertNotIn('Picker("策略"', current_hole)
-        self.assertIn("onSelectStrategyMode: selectStrategyMode", current_hole)
+        self.assertIn("LiveCaddiePlanPanel(", current_hole)
+        self.assertIn("routes: liveCaddieRoutes", current_hole)
+        self.assertIn(
+            "selectStrategyMode(CaddiePlanPresentation.selectionToken(for: route))",
+            current_hole,
+        )
+        self.assertIn("onSelectStep: selectPlanStep", current_hole)
+        self.assertNotIn("showCaddieDetail", current_hole)
         self.assertIn("strategyMode: requestedStrategyMode", current_hole)
         self.assertIn("selectedStrategyMode: requestedStrategyMode", current_hole)
         self.assertIn("requestedStrategyMode = nil", current_hole)
@@ -3514,12 +3527,15 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("await loadCaddieDecision()", current_hole)
         self.assertIn("fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)", current_hole)
-        self.assertIn("response: caddieDecision", current_hole)
-        self.assertIn("seed: caddieContextSeed", current_hole)
-        # Live package no longer embeds all-hole coursePrep; the dedicated obstacle
-        # browser consumes the per-hole prep fetched on demand alongside the 2D map.
+        self.assertIn("LiveCaddieSeedFactory.resolve", current_hole)
+        self.assertIn("LiveCaddieDecisionUsability.hasRecommendation", current_hole)
+        # The live map owns the one-at-a-time obstacle browser and selected factual
+        # outline. There is no second navigation surface that can drift from it.
         self.assertIn("LiveHazardDisplayItem.rows(for: holePrep", current_hole)
         self.assertIn("liveHazardDisplayRows", current_hole)
+        self.assertIn("LiveHazardBrowserPanel(", current_hole)
+        self.assertIn("LiveHazardOverlayRenderer.draw(", current_hole)
+        self.assertNotIn("showHazardDetail", current_hole)
         self.assertIn("selectedOfflineOption", current_hole)
         self.assertIn("sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)", current_hole)
         green_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveGreenDetailView.swift")
