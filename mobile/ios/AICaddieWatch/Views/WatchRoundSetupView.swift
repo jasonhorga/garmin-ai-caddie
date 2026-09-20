@@ -450,24 +450,6 @@ public struct WatchRoundSetupView: View {
         option.segmentDisplayTitle
     }
 
-    /// Garmin's A/B/C segment token is an identity field, not player-facing course language. Keep
-    /// it only for deterministic ordering; the setup UI describes the selectable physical loops by
-    /// ordinal so the phone and Watch never expose provider package labels as a venue name.
-    private func loopOrdinal(_ option: WatchCourseOption) -> Int {
-        let ordered = ([front] + courses)
-            .filter { $0.playableHoleCount == 9 && venueName($0) == venueName(front) }
-            .reduce(into: [WatchCourseOption]()) { rows, candidate in
-                guard !rows.contains(where: { $0.globalId == candidate.globalId }) else { return }
-                rows.append(candidate)
-            }
-            .sorted { lhs, rhs in
-                let left = loopSortKey(lhs)
-                let right = loopSortKey(rhs)
-                return left == right ? lhs.globalId < rhs.globalId : left < right
-            }
-        return (ordered.firstIndex(where: { $0.globalId == option.globalId }) ?? 0) + 1
-    }
-
     private func loopSortKey(_ option: WatchCourseOption) -> String {
         option.resolvedSegmentLabel?.lowercased() ?? ""
     }

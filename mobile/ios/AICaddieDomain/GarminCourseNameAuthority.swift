@@ -108,28 +108,16 @@ public enum GarminCourseNameAuthority {
         return normalized
     }
 
-    /// User-facing description for a playable nine-hole loop. Garmin's A/B/C token is
-    /// useful identity metadata, but it is not meaningful course language in the picker.
-    /// Keep the token for ordering/requests and expose a stable ordinal instead.
+    /// Preserve Garmin's factual single-loop name and add the Chinese suffix once.
+    /// `A` becomes `A 场`, while an existing name such as `老球场` remains unchanged.
     public static func userFacingSegmentTitle(label: String?, holes: Int?) -> String {
         if holes == 18 { return "全场" }
         guard holes == 9 else { return "洞组" }
         guard let label else { return "9 洞组" }
         let normalized = normalize(label)
         guard !normalized.isEmpty else { return "9 洞组" }
-        let compact = normalized
-            .replacingOccurrences(of: "场", with: "")
-            .replacingOccurrences(of: "组", with: "")
-            .replacingOccurrences(of: "loop", with: "", options: [.caseInsensitive])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .uppercased()
-        let letters = Array("ABCDEFGH")
-        if compact.count == 1,
-           let scalar = compact.unicodeScalars.first,
-           let ordinal = letters.firstIndex(where: { String($0) == String(scalar) }) {
-            return "第 \(ordinal + 1) 个 9 洞组"
-        }
-        return "9 洞组"
+        guard !isCompositeSegment(normalized) else { return "9 洞组" }
+        return normalized.hasSuffix("场") ? normalized : "\(normalized) 场"
     }
 
     /// Physical venue portion of `canonicalName`, used for round/history titles.

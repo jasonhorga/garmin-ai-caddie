@@ -613,7 +613,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(group?.segments.map(\.globalId), [31794, 31795, 31796])
         XCTAssertEqual(
             group?.segments.map(\.segmentDisplayTitle),
-            ["第 1 个 9 洞组", "第 2 个 9 洞组", "第 3 个 9 洞组"]
+            ["A 场", "B 场", "C 场"]
         )
         XCTAssertEqual(
             group?.segments.map(\.name),
@@ -642,10 +642,30 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(wholeEighteen.segmentDisplayTitle, "全场")
     }
 
-    func testProviderCompositeLoopTokensStayOutOfUserFacingTitles() {
+    func testSegmentTitlesPreserveNamesAndAppendFieldSuffixOnlyOnce() {
         XCTAssertEqual(
             GarminCourseNameAuthority.userFacingSegmentTitle(label: "A", holes: 9),
-            "第 1 个 9 洞组"
+            "A 场"
+        )
+        XCTAssertEqual(
+            GarminCourseNameAuthority.userFacingSegmentTitle(label: "B", holes: 9),
+            "B 场"
+        )
+        XCTAssertEqual(
+            GarminCourseNameAuthority.userFacingSegmentTitle(label: "C", holes: 9),
+            "C 场"
+        )
+        XCTAssertEqual(
+            GarminCourseNameAuthority.userFacingSegmentTitle(label: "老球场", holes: 9),
+            "老球场"
+        )
+        XCTAssertEqual(
+            GarminCourseNameAuthority.userFacingSegmentTitle(label: "新球场", holes: 9),
+            "新球场"
+        )
+        XCTAssertEqual(
+            GarminCourseNameAuthority.userFacingSegmentTitle(label: "A 场", holes: 9),
+            "A 场"
         )
         XCTAssertEqual(
             GarminCourseNameAuthority.userFacingSegmentTitle(label: "AC", holes: 9),

@@ -674,7 +674,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
         XCTAssertEqual(
             view.loopChoices.map(\.title),
-            ["第 1 个 9 洞组 + 第 1 个 9 洞组", "第 1 个 9 洞组 + 第 2 个 9 洞组", "第 1 个 9 洞组 + 第 3 个 9 洞组", "只打第 1 个 9 洞组", "只打第 2 个 9 洞组", "只打第 3 个 9 洞组"]
+            ["A 场 + A 场", "A 场 + B 场", "A 场 + C 场", "只打A 场", "只打B 场", "只打C 场"]
         )
         XCTAssertEqual(view.loopChoices.map(\.detail), ["18 洞", "18 洞", "18 洞", "9 洞", "9 洞", "9 洞"])
         XCTAssertEqual(view.loopChoices.map(\.isSelected), [false, false, false, true, false, false])
@@ -705,7 +705,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
         let view = WatchRoundSetupView(front: front, courses: [front, back])
 
-        XCTAssertEqual(view.loopChoices.map(\.title), ["第 1 个 9 洞组 + 第 1 个 9 洞组", "第 1 个 9 洞组 + 第 2 个 9 洞组", "只打第 1 个 9 洞组", "只打第 2 个 9 洞组"])
+        XCTAssertEqual(view.loopChoices.map(\.title), ["A 场 + A 场", "A 场 + B 场", "只打A 场", "只打B 场"])
         XCTAssertEqual(view.loopChoices.map(\.detail), ["18 洞", "18 洞", "9 洞", "9 洞"])
         XCTAssertEqual(view.loopChoices.map(\.isSelected), [false, false, true, false])
     }
@@ -726,7 +726,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
         XCTAssertEqual(view.initialStage, .holes)
         XCTAssertEqual(view.loopChoices.map(\.title), ["全 18 洞", "只打 9 洞"])
-        XCTAssertEqual(view.loopChoices.map(\.detail), ["同一球场打两轮", "第 1 个 9 洞组"])
+        XCTAssertEqual(view.loopChoices.map(\.detail), ["同一球场打两轮", "A 场"])
         XCTAssertEqual(view.teeChoices.map(\.title), ["蓝 T", "白 T"])
         XCTAssertEqual(view.teeChoices.map(\.detail), ["码数未知", "码数未知"])
         XCTAssertEqual(view.teeChoices.map(\.isSelected), [true, false])
