@@ -9,15 +9,15 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-20 17:17 UTC
+**Updated:** 2026-09-20 18:21 UTC
 **Branch:** `integration/v2` (GitHub default; current `PHONE-UX6` source
-`dea94d91969a57656a673cf5c6604b8ae13e2043`, backend
-`aa05695f063d0d2d8b855e76c10174d6e4d1902f`; Source CI `35472469464` and
-exact-SHA Native Mobile CI `35516168534` passed, including iOS/Watch runtime
+`df83de64ac4778b3e05fd89c528301ef8b00b336`, backend
+`aa05695f063d0d2d8b855e76c10174d6e4d1902f`; Source CI `35525485383` and
+exact-SHA Native Mobile CI `35525505845` passed, including iOS/Watch runtime
 evidence; API candidate
 `https://mat-propecia-bidder-suppliers.trycloudflare.com` remains on loopback
-`39072`; internal TestFlight CD `35520038871` uploaded Build 69 and Apple
-read-only check `35520601732` confirmed it valid and available to the existing
+`39072`; internal TestFlight CD `35528165601` uploaded Build 70 and Apple
+read-only check `35528692568` confirmed it valid and available to the existing
 internal all-builds group. Physical iPhone/Watch validation remains open; prior
 localized-course-name and network releases remain recorded below)
 **Source baseline:** `d8769916d4b7ea1fc8b2bdcfb151a67f944a6eb0` (PHONE-UX5
@@ -138,15 +138,25 @@ speed fix is made until a homeserver timing run identifies the bottleneck.
   was changed. User screenshots remain under `/home/ubuntu/IMG_*`
   (repository paths are fallback only).
 
-- **PHONE-UX6 segment-name correction (2026-09-20 17:17 UTC):** The owner
+- **PHONE-UX6 segment-name correction release (2026-09-20 18:20 UTC):** The owner
   clarified that A/B/C are factual course-area names, not internal ordinals. The
-  working tree now removes the ordinal conversion and its unused Watch helper;
+  released source `df83de64ac4778b3e05fd89c528301ef8b00b336` removes the ordinal
+  conversion and its unused Watch helper;
   a normalized nine-hole label already ending in `场` is preserved, while other
   factual single-loop labels receive exactly one ` 场` suffix (`A` -> `A 场`,
   `老球场` -> `老球场`). iPhone and Watch use this shared authority. Focused
   regressions cover A/B/C, `老球场`, `新球场`, an existing `A 场`, composite
-  tokens, and Watch presentation. Source/Native evidence and a replacement
-  internal TestFlight build remain pending for this correction.
+  tokens, and Watch presentation. Source CI `35525485383` passed. Exact-SHA
+  Native Mobile CI `35525505845` passed the iOS and Watch targets, real iPhone
+  journey, Watch start/restore runtime captures, design snapshots, evidence
+  uploads, and secret scans. Internal CD `35528165601` uploaded Build 70 with
+  backend `aa05695f063d0d2d8b855e76c10174d6e4d1902f`; IPA SHA-256 is
+  `8af1faa94a55ceecc88efb78c5e46991aa6bc1ebfffdb488fa2ddb2db862f661`
+  and artifact `AICaddie-ipa` is `10610940540`. Apple read-only check
+  `35528692568` reports Build 70 `VALID`, unexpired, `IN_BETA_TESTING`,
+  `usesNonExemptEncryption=false`, processed arm64, and visible in the existing
+  internal all-builds group. No external group or production service changed;
+  physical iPhone/Watch confirmation remains open.
 
 - **CADDIE-P0 implementation (2026-09-19):** Code commit `27ece094` makes the
   12-case production replay blocking, forbids Driver after the tee, evaluates
@@ -1967,7 +1977,7 @@ project-level task list; historical plans are reference material.
 | `NET-TASKS-P0` | `evidence-open` | Implement the first selected P0 network-lifecycle slice: L1 course facts, package deduplication, foreground/background priority, and durable progress/cancel semantics. | Backend/network commit `86378a0b` plus iOS recovery follow-ups through `05761a41` are released. Focused backend `226/226`, Web `24/24`, Source CI `35454224823`, exact-SHA live Native Mobile CI `35454368985`, internal TestFlight CD `35457421840`, and Apple check `35457991975` passed. Build 67 is `VALID`, unexpired, `IN_BETA_TESTING`, arm64 and visible in the existing internal all-builds group. Physical iPhone/Watch Garmin reconnect, cancellation/recovery and startup evidence remains open. |
 | `DIRECT-CADDIE-VALIDATION` | `evidence-open` | Close the empirical follow-up left open by the read-only Fable report: measure entity S70/iPhone/Watch/Web startup stages and direct-vs-homeserver paths under matched conditions, benchmark normal-server queue/compute impact, then replay the 12 caddie golden cases before implementation claims. | Homeserver capacity passed; cold/warm loopback/public package timings, full-history versus `last20` profiling, and 12-case replay are recorded in `/home/jason/garmin-ai-caddie-data/operations/direct-caddie-validation-20260919/`. Replay fixture/test: `tests/fixtures/caddie_golden_cases.json`, `tests/test_caddie_golden_replay.py`; baseline SHA `070e67386609951c08d57a521d01599e821ea33775cf0bf6bf9adf3b0fecf90b`. Physical S70/iPhone/Watch timing and Garmin runtime concurrency remain evidence-open. |
 | `CADDIE-P0` | `evidence-open` | Add the 12 caddie golden regressions, then enforce hard feasibility, segmented hazards, filtered club-set consistency, non-Tee Driver prohibition, per-shot re-projection, explicit infeasible reasons, and risk/stability ranking. | Code commit `27ece094`; homeserver focused `194/194`, expanded `275/275` with 2 skips, changed-file compile, 12/12 blocking golden replay and warm performance gates pass; evidence SHA-256 `9b9c5833d256c20ab057238bedf1a337bd0cd18b9428d64a3122525d9808196c`. Source CI `35462771563`, selector-fix Source CI `35466407538`, and the `aa05695f` backend candidate/public preflight pass. Native `35472611538` and Build 68/TestFlight `35475506127` are green; physical evidence remains open. |
-| `PHONE-UX6` | `in-progress` | Implement the `IMG_8135`-`IMG_8139` slice: canonical structured prep/live caddie plans with all landing legs, selectable plan-map state, removal of the offline-ready banner, coherent local-first round loading, and iPhone/Watch identity/interaction parity. Keep download-speed diagnosis measured and separate from UI claims. | Build 69 is valid and internally available for the prior checkpoint. The current correction preserves factual A/B/C and named course-area labels, appends `场` at most once, and removes the erroneous ordinal conversion; focused Source/Native gates and a replacement internal TestFlight build are next. Screenshots live under `/home/ubuntu/IMG_*`. |
+| `PHONE-UX6` | `in-progress` | Implement the `IMG_8135`-`IMG_8139` slice: canonical structured prep/live caddie plans with all landing legs, selectable plan-map state, removal of the offline-ready banner, coherent local-first round loading, and iPhone/Watch identity/interaction parity. Keep download-speed diagnosis measured and separate from UI claims. | Build 70 from source `df83de64` is `VALID`, `IN_BETA_TESTING`, and available to the existing internal all-builds group. It preserves factual A/B/C and named course-area labels, appends `场` at most once, and removes the erroneous ordinal conversion. Source CI `35525485383`, Native `35525505845`, CD `35528165601`, and Apple check `35528692568` passed; physical iPhone/Watch confirmation remains open. Screenshots live under `/home/ubuntu/IMG_*`. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
