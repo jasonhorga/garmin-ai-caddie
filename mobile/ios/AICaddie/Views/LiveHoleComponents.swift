@@ -1649,7 +1649,9 @@ struct LiveMapPreparingSurface: View {
                     .foregroundStyle(.white.opacity(0.62))
             }
         }
-        .accessibilityElement(children: .combine)
+        // The page header already exposes the hole number. Keep this loading surface as one
+        // status element so its visual hole label is not reported as a second "第 N 洞" heading.
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("第 \(holeNumber) 洞地图准备中")
         .accessibilityIdentifier("live-map-preparing-surface")
     }
