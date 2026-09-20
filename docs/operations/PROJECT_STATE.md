@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-20 21:15 UTC
+**Updated:** 2026-09-20 22:30 UTC
 **Branch:** `integration/v2` (GitHub default; current `PHONE-UX6` source
 `df83de64ac4778b3e05fd89c528301ef8b00b336`, backend
 `aa05695f063d0d2d8b855e76c10174d6e4d1902f`; Source CI `35525485383` and
@@ -90,6 +90,27 @@ physical-device confirmation. User screenshots are resolved from
   self-contained, and Playwright review at 736px/360px verified route, shot-leg and
   hazard switching, 12 rendered icons, no horizontal overflow and zero page errors.
   Source and exact-SHA Native Mobile gates remain pending; no release claim exists.
+
+- **PHONE-UX7 source/native checkpoint (2026-09-20 22:23 UTC):** Product commit
+  `d66ac4fd` plus static-contract commit `83d4d510` are pushed. Source CI
+  `35538501127` passed every backend, frontend and Docker job. Exact-SHA Native
+  Mobile CI `35539174040` passed the iOS compile/unit/design stages, live catalogue
+  preflight, all Watch tests and runtime captures, artifact uploads and secret
+  scans. The iPhone XCUITest stage failed three assertions because
+  `live-caddie-complete-route` was absent from the accessibility tree, so no
+  TestFlight upload was authorized. The saved offline tree proves that the product
+  rendered both factual legs (`Driver -> 3H`); the outer
+  `live-caddie-panel` identifier propagated through SwiftUI and replaced the route
+  container's identifier. Candidate traffic remained HTTP 200 throughout.
+
+- **PHONE-UX7 accessibility correction (2026-09-20 22:30 UTC):** The working
+  correction moves `live-caddie-panel` from the outer plan container onto the
+  visible title, leaving the complete-route group and every landing button with
+  independent accessibility identities. A static regression forbids restoring the
+  identifier to the propagating parent. The homeserver candidate image passed all
+  `99` mobile contract tests in `6.734s`; the auto-removed test container left no
+  resource. A commit, Source CI and fresh exact-SHA full Native run are still
+  required before TestFlight.
 
 - **PHONE-UX6 implementation checkpoint (2026-09-20):** The canonical prep/live/Watch
   caddie chain now renders all planned legs and keeps plan selection synchronized;
@@ -2742,17 +2763,18 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Commit/push the bounded full-catalogue presentation retry and this ledger at
-   a new exact app source SHA; keep backend revision `aa05695f` and its healthy
-   `39072` candidate/tunnel because no backend code changed.
-2. Require Source CI and a fresh exact-app-SHA Native Mobile CI against
-   `https://robbie-afford-couple-testimonials.trycloudflare.com`, with backend
-   revision `aa05695f`, full live capture and preflight enabled.
-3. When Native passes, start the internal-only TestFlight build/upload
-   automatically with the same backend origin/revision, then run Apple's
-   read-only processing/group-status check.
-4. Keep external distribution, production promotion and tester mutation off.
-   Preserve physical iPhone/Watch recommendation validation as `evidence-open`.
+1. Commit/push the bounded SwiftUI accessibility correction and this ledger at
+   one new exact app source SHA. No backend rebuild is required because the
+   correction is iOS-only; retain the healthy `83d4d510` candidate on `39073`.
+2. Require Source CI and a fresh exact-app-SHA full Native Mobile CI against
+   `https://readings-quad-come-layout.trycloudflare.com`, with backend revision
+   `83d4d510aec5dc9ecbe9db82deba691d32e564ba`, live preflight and full captures.
+3. Inspect `10-live-hole`, `10b-live-hazard`, `11-caddie-plan`, offline-cache and
+   Watch evidence. Only when every gate passes, automatically start the
+   internal-only TestFlight upload and Apple's read-only processing/group check.
+4. Record final evidence, move `PHONE-UX7` to `evidence-open`, and remove only
+   the exact expired PHONE-UX7 snapshot per its allow-list. Keep external
+   distribution, production promotion and tester mutation off.
 
 ## Open Blockers / Facts
 

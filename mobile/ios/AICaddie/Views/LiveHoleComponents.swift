@@ -672,6 +672,7 @@ struct LiveCaddiePlanPanel: View {
                 Text("球童建议")
                     .font(.system(size: 14, weight: .heavy))
                     .foregroundStyle(LivePlayStyle.ink)
+                    .accessibilityIdentifier("live-caddie-panel")
                 Spacer(minLength: 0)
                 if isLoading {
                     ProgressView()
@@ -776,8 +777,6 @@ struct LiveCaddiePlanPanel: View {
             }
         }
         .padding(.vertical, 4)
-        .accessibilityLabel("球童建议")
-        .accessibilityIdentifier("live-caddie-panel")
     }
 
     private func routeClubChain(_ route: CaddiePlanSequence) -> String {

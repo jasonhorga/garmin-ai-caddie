@@ -3510,6 +3510,18 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn('Picker("策略"', current_hole)
         self.assertIn("LiveCaddiePlanPanel(", current_hole)
         self.assertIn("routes: liveCaddieRoutes", current_hole)
+        # A container identifier propagates through SwiftUI and overwrites the route/leg
+        # identifiers. Keep the panel anchor on its title so assistive tech and UI tests can
+        # address the complete route and every landing independently.
+        live_caddie_panel = live_components.split("struct LiveCaddiePlanPanel: View", 1)[1].split(
+            "struct LiveHazardBrowserPanel: View", 1
+        )[0]
+        self.assertEqual(live_caddie_panel.count('accessibilityIdentifier("live-caddie-panel")'), 1)
+        self.assertIn('accessibilityIdentifier("live-caddie-complete-route")', live_caddie_panel)
+        self.assertNotIn(
+            '.padding(.vertical, 4)\n        .accessibilityLabel("球童建议")',
+            live_caddie_panel,
+        )
         self.assertIn(
             "selectStrategyMode(CaddiePlanPresentation.selectionToken(for: route))",
             current_hole,
