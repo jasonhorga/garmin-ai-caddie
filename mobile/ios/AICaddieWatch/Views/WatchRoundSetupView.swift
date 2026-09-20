@@ -310,14 +310,14 @@ public struct WatchRoundSetupView: View {
         }
         let frontChoice = WatchRoundSetupChoicePresentation(
             id: "loop:front:\(front.globalId)",
-            title: repeatsOnly ? "只打 9 洞" : "只打 \(loopName(front))",
+            title: repeatsOnly ? "只打 9 洞" : "只打\(loopName(front))",
             detail: repeatsOnly ? loopName(front) : "\(front.playableHoleCount) 洞",
             isSelected: selectedPrimaryGlobalId == front.globalId && selectedBackGlobalId == nil
         )
         let backChoices = backOptions.filter { $0.globalId != front.globalId }.map { option in
             WatchRoundSetupChoicePresentation(
                 id: "loop:back:\(option.globalId)",
-                title: "只打 \(loopName(option))",
+                title: "只打\(loopName(option))",
                 detail: "\(option.playableHoleCount) 洞",
                 isSelected: selectedPrimaryGlobalId == option.globalId && selectedBackGlobalId == nil
             )

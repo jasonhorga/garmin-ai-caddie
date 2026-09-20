@@ -114,6 +114,20 @@ public struct CoursePrepStep: Codable, Equatable {
         planIndex = try container.decodeIfPresent(Int.self, forKey: .planIndex)
         planVersion = try container.decodeIfPresent(String.self, forKey: .planVersion)
     }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(club, forKey: .club)
+        try container.encode(note, forKey: .note)
+        try container.encodeIfPresent(clubName, forKey: .clubName)
+        try container.encodeIfPresent(targetCarryM, forKey: .targetCarryM)
+        try container.encodeIfPresent(routeOffsetM, forKey: .routeOffsetM)
+        try container.encodeIfPresent(landingM, forKey: .landingM)
+        try container.encodeIfPresent(expectedRemainingM, forKey: .expectedRemainingM)
+        try container.encodeIfPresent(role, forKey: .role)
+        try container.encodeIfPresent(planIndex, forKey: .planIndex)
+        try container.encodeIfPresent(planVersion, forKey: .planVersion)
+    }
 }
 
 public struct CoursePrepMissingData: Codable, Equatable {
