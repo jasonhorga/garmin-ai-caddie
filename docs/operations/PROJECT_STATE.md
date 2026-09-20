@@ -9,17 +9,17 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-20 14:12 UTC
-**Branch:** `integration/v2` (GitHub default; current `CADDIE-P0` source
-`327048e1eb49a1fafc4f10ce6534627d3bc27122`, backend
+**Updated:** 2026-09-20 15:35 UTC
+**Branch:** `integration/v2` (GitHub default; current `PHONE-UX6` source
+`dea94d91969a57656a673cf5c6604b8ae13e2043`, backend
 `aa05695f063d0d2d8b855e76c10174d6e4d1902f`; Source CI `35472469464` and
-exact-SHA Native Mobile CI `35472611538` passed; API candidate
-`https://robbie-afford-couple-testimonials.trycloudflare.com` remains on
-loopback `39072`; internal TestFlight CD `35475506127` uploaded Build 68 and
-Apple read-only check `35475956794` confirmed it valid and available to the
-existing internal all-builds group. `CADDIE-P0` is `evidence-open` only for
-physical iPhone/Watch validation; prior localized-course-name and network
-releases remain recorded below)
+exact-SHA Native Mobile CI `35516168534` passed, including iOS/Watch runtime
+evidence; API candidate
+`https://mat-propecia-bidder-suppliers.trycloudflare.com` remains on loopback
+`39072`; internal TestFlight CD `35520038871` uploaded Build 69 and Apple
+read-only check `35520601732` confirmed it valid and available to the existing
+internal all-builds group. Physical iPhone/Watch validation remains open; prior
+localized-course-name and network releases remain recorded below)
 **Source baseline:** `d8769916d4b7ea1fc8b2bdcfb151a67f944a6eb0` (PHONE-UX5
 course-name source; Source CI `35005531664`, Native Mobile CI `35005819951`,
 and internal TestFlight CD `35013065767` passed/uploaded; Apple read-only check
@@ -116,6 +116,25 @@ speed fix is made until a homeserver timing run identifies the bottleneck.
   that redundant visual hole label while retaining the single status label and
   page header. A fresh Source/Native gate is required at the resulting commit;
   no TestFlight upload follows the failed run.
+
+- **PHONE-UX6 completed Native gate (2026-09-20 15:32 UTC):** Exact-SHA Native
+  Mobile CI `35516168534` passed iOS compile/unit/design/live-flow tests, all
+  real iOS UI screenshots/video and secret scans, all Watch tests/design/runtime
+  screenshots and secret scans. The live preflight used the HTTP/2 candidate
+  `https://mat-propecia-bidder-suppliers.trycloudflare.com` and the exact
+  backend revision above. Internal TestFlight CD `35520038871` was dispatched
+  with `upload_to_testflight=true`, `test_environment_upload=true`, and
+  `external_distribution=false`; it uploaded internal TestFlight Build 69.
+  Provenance binds API origin
+  `https://mat-propecia-bidder-suppliers.trycloudflare.com` to backend revision
+  `aa05695f063d0d2d8b855e76c10174d6e4d1902f` and reports IPA SHA-256
+  `fcf4ae3a27ffc583975974bff8adb4549048a3e95e808ce8b010560b4eb4c284`.
+  Artifact `AICaddie-ipa` is `10608355225`. Apple read-only check
+  `35520601732` reports Build 69 `VALID`, unexpired, `IN_BETA_TESTING`,
+  `usesNonExemptEncryption=false`, processed arm64, and visible in the
+  existing internal all-builds group; no external group or production service
+  was changed. User screenshots remain under `/home/ubuntu/IMG_*`
+  (repository paths are fallback only).
 
 - **CADDIE-P0 implementation (2026-09-19):** Code commit `27ece094` makes the
   12-case production replay blocking, forbids Driver after the tee, evaluates
