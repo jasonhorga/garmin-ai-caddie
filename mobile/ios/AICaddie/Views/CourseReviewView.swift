@@ -388,9 +388,9 @@ struct HolePrepCard: View {
                     showsPrepFactOverlays: true,
                     // The plan rows below are the readable club summary. Keep the map focused on
                     // route/landing facts instead of painting a large "一号木" label over fairway.
+                    allowsRotation: true,
                     showsPrepClubLabel: false,
-                    showsClubLabel: false,
-                    allowsRotation: true
+                    showsClubLabel: false
                 )
                     // Keep the AsyncImage loading/ready children in the accessibility tree while
                     // retaining this hole-specific container identifier for UI navigation.
