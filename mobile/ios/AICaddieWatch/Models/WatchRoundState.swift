@@ -83,10 +83,25 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
 public struct WatchCaddiePlanStep: Codable, Equatable {
     public let clubName: String
     public let carryM: Double?
+    public let routeOffsetM: Double?
+    public let expectedRemainingM: Double?
+    public let role: String?
+    public let planIndex: Int?
 
-    public init(clubName: String, carryM: Double? = nil) {
+    public init(
+        clubName: String,
+        carryM: Double? = nil,
+        routeOffsetM: Double? = nil,
+        expectedRemainingM: Double? = nil,
+        role: String? = nil,
+        planIndex: Int? = nil
+    ) {
         self.clubName = clubName
         self.carryM = carryM
+        self.routeOffsetM = routeOffsetM
+        self.expectedRemainingM = expectedRemainingM
+        self.role = role
+        self.planIndex = planIndex
     }
 }
 

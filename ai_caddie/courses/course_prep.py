@@ -1354,9 +1354,60 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
     driver_row = selected_tee_row or real_driver_row or (usable_ladder[0] if usable_ladder else (None, 200))
     driver_name, driver = driver_row
     landing = None
+
+    # Keep the old ``club``/``note`` display fields, but attach the same structured shot-plan
+    # facts consumed by the live decision engine.  ``routeOffset_m`` is the cumulative planned
+    # landing along the hole route (not a straight-line GPS distance), so clients can project every
+    # leg onto the shared topo overlay without parsing localized copy.
+    route_offset_m = 0.0
+
+    def append_step(
+        club: str | None,
+        note: str,
+        carry_m: float,
+        *,
+        role: str,
+        route_landing_m: float | None = None,
+    ) -> None:
+        nonlocal route_offset_m
+        try:
+            raw_carry = float(carry_m)
+        except (TypeError, ValueError):
+            raw_carry = 0.0
+        carry = max(0.0, raw_carry) if math.isfinite(raw_carry) else 0.0
+        route_offset_m = min(route_len_m, route_offset_m + carry)
+        if route_landing_m is None:
+            landing_m = route_offset_m
+        else:
+            try:
+                raw_landing = float(route_landing_m)
+            except (TypeError, ValueError):
+                raw_landing = route_offset_m
+            landing_m = min(route_len_m, max(0.0, raw_landing))
+        steps.append(
+            {
+                "club": club,
+                "clubName": club,
+                "note": note,
+                "targetCarry_m": round(carry, 1),
+                "routeOffset_m": round(landing_m, 1),
+                "landing_m": round(landing_m, 1),
+                "expectedRemaining_m": round(max(0.0, route_len_m - landing_m), 1),
+                "role": role,
+                "planIndex": len(steps),
+                "planVersion": "ai-caddie-shot-plan-v1",
+            }
+        )
+
     if par == 3:
         club, _ = club_for(route_len_m, usable_ladder)
-        steps.append({"club": club, "note": f"约 {yd(route_len_m)}y 到果岭中心，一杆上果岭"})
+        append_step(
+            club,
+            f"约 {yd(route_len_m)}y 到果岭中心，一杆上果岭",
+            route_len_m,
+            role="scoring",
+            route_landing_m=route_len_m,
+        )
     else:
         landing = min(driver, route_len_m - 8) if route_len_m > driver else route_len_m * 0.55
         # The factual Driver row owns the tee carry. Looking it up again by a free-form display name
@@ -1367,7 +1418,13 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
         # caddie appear to forbid the club the golfer normally tees with.  Keep the landing target
         # conservative for a short hole, but keep the physical tee club honest.
         tee_club = driver_name
-        steps.append({"club": tee_club, "note": f"开球落点约 {yd(landing)}y"})
+        append_step(
+            tee_club,
+            f"开球落点约 {yd(landing)}y",
+            landing,
+            role="advance",
+            route_landing_m=landing,
+        )
         remaining = route_len_m - landing
         approach_ladder = [
             (name, distance)
@@ -1399,7 +1456,12 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
                 note = f"剩约 {yd(before)}y 上果岭"
             else:
                 note = f"推进约 {yd(approach_distance)}y，剩约 {yd(remaining)}y"
-            steps.append({"club": approach_club, "note": note})
+            append_step(
+                approach_club,
+                note,
+                approach_distance,
+                role="scoring" if remaining <= 15 else "position",
+            )
     for w in hazards.get("water_carry") or []:
         if w[0] < route_len_m - 5:
             cautions.append(f"水障碍：进水前约 {yd(w[0])}y，过水需 {yd(w[1])}y")

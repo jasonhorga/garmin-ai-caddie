@@ -154,6 +154,10 @@ public struct CurrentHoleView: View {
     /// only on finger-up on some iOS releases.
     @State private var heroMapTransientDragOffset: CGSize = .zero
     @GestureState private var heroMapPinchScale: CGFloat = 1
+    @State private var preciseMapTimedOut = false
+    /// Highlighted leg from the complete caddie sequence.  The map keeps all legs visible; this
+    /// only changes the emphasized landing after a player taps a step in the detail sheet.
+    @State private var selectedPlanIndex: Int?
     @AppStorage("liveTeeDistanceArcYards") private var teeDistanceArcYards: Int = 220
 
     private static let holeRootScrollAnchor = "live-hole-root"
@@ -307,6 +311,8 @@ public struct CurrentHoleView: View {
             // persisted `selectedStrategyMode` remains available for legacy event replay, while
             // this transient override always starts in automatic mode for a new hole.
             requestedStrategyMode = nil
+            selectedPlanIndex = nil
+            preciseMapTimedOut = false
             heroMapScale = 1
             heroMapOffset = .zero
             heroMapTransientDragOffset = .zero
@@ -662,6 +668,7 @@ public struct CurrentHoleView: View {
         guard !normalized.isEmpty else { return }
         requestedStrategyMode = normalized
         selectedStrategyMode = normalized
+        selectedPlanIndex = nil
         hasUserSelectedClub = false
         caddieErrorMessage = nil
         if let decision = caddieDecision,
@@ -782,7 +789,9 @@ public struct CurrentHoleView: View {
                 .position(x: min(max(88, geo.size.width * 0.22), 112), y: 112)
                 .allowsHitTesting(false)
 
-                if isPreciseHoleMapPending {
+                // A cached topo image is already a usable map.  Do not cover it with the old
+                // "hazards later" pill while a background metadata refresh catches up.
+                if holePrep == nil {
                     LiveMapPreparingPill()
                         .position(x: geo.size.width * 0.5, y: geo.size.height * 0.88)
                         .allowsHitTesting(false)
@@ -1019,28 +1028,29 @@ public struct CurrentHoleView: View {
 
     /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时回退暗色渐变占位。
     @ViewBuilder private var liveMapBackdrop: some View {
-        if let holePrep, holePrep.resolvedMapOverlay != nil {
-            // CourseView's partial vectors are already a useful factual map. Show them immediately
-            // while the precise bitmap is prepared; only the decorative upgrade is deferred.
+        if let holePrep, holePrep.resolvedMapOverlay != nil, !isPreciseHoleMapPending {
             HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
                              pinOverlayPixel: effectiveMapPinPixel,
                              topoURL: liveTopoURL, showsCardChrome: false,
-                             showsRecommendedRoute: caddieDecision != nil,
+                             showsRecommendedRoute: caddieDecision != nil || !livePlannedShots.isEmpty,
                              showsHazards: true,
                              showsPrepClubLabel: false,
                              showsClubLabel: false,
-                             teeDistanceArcYards: showsTeeDistanceArc ? teeDistanceArcYards : nil)
+                             teeDistanceArcYards: showsTeeDistanceArc ? teeDistanceArcYards : nil,
+                             plannedShots: livePlannedShots,
+                             selectedPlanIndex: selectedPlanIndex)
                 .accessibilityElement(children: .contain)
-                .accessibilityIdentifier(
-                    holePrep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
-                        ? "live-hole-map-partial"
-                        : "live-hole-map-\(holePrep.geometryCoverage.lowercased())"
-                )
+                    .accessibilityIdentifier(
+                        holePrep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
+                            ? "live-hole-map-partial"
+                            : "live-hole-map-\(holePrep.geometryCoverage.lowercased())"
+                    )
+        } else if isPreciseHoleMapPending {
+            // Do not expose the provisional line drawing as a half-rendered course. One bounded
+            // loading surface remains until the authoritative topo is installed.
+            LiveMapPreparingSurface(holeNumber: hole.number)
         } else {
-            LinearGradient(
-                colors: [Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255), LivePlayStyle.base],
-                startPoint: .top, endPoint: .bottom
-            )
+            LiveMapPreparingSurface(holeNumber: hole.number)
         }
     }
 
@@ -1073,13 +1083,15 @@ public struct CurrentHoleView: View {
                         CaddiePlanView(
                             response: caddieDecision,
                             selectedStrategyMode: requestedStrategyMode,
-                            onSelectStrategyMode: selectStrategyMode
+                            onSelectStrategyMode: selectStrategyMode,
+                            onSelectPlanStep: selectPlanStep
                         )
                     } else {
                         CaddiePlanView(
                             seed: caddieContextSeed,
                             selectedStrategyMode: requestedStrategyMode,
-                            onSelectStrategyMode: selectStrategyMode
+                            onSelectStrategyMode: selectStrategyMode,
+                            onSelectPlanStep: nil
                         )
                     }
                     caddieInputControls
@@ -1295,15 +1307,27 @@ public struct CurrentHoleView: View {
     /// completeness guarantee.  Keep map/distance play available while prodgeometry downloads,
     /// without presenting that provisional subset as the nearest-hazard or final caddie answer.
     private var isPreciseHoleMapPending: Bool {
-        holePrep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
+        guard holePrep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame else {
+            return false
+        }
+        return !preciseMapTimedOut && caddieBaseURL != nil && !hasCachedTopoForCurrentHole
+    }
+
+    private var hasCachedTopoForCurrentHole: Bool {
+        guard let holePrep,
+              let offlineStore else { return false }
+        let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
+        let mapLocalHole = hole.sourceLocalHole ?? hole.number
+        return offlineStore.loadCourseTopoImageURL(
+            globalId: mapGlobalId,
+            localHole: mapLocalHole,
+            geometryRevision: holePrep.geometryRevision ?? hole.geometryRevision
+        ) != nil
     }
 
     /// 本洞真实地形底图 URL(与 `loadHoleMap` 用同一 source 球场 + 本地洞号:组合局后九在第二个环的
     /// gid)。给 `HoleImageMapView` 当底图;无后端地址/占位球场时为 nil → 回退到 payload flat 渲染图。
     private var liveTopoURL: URL? {
-        guard holePrep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
-            return nil
-        }
         let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
         let mapLocalHole = hole.sourceLocalHole ?? hole.number
         let geometryRevision = holePrep?.geometryRevision ?? hole.geometryRevision
@@ -1313,6 +1337,9 @@ public struct CurrentHoleView: View {
             geometryRevision: geometryRevision
         ) {
             return local
+        }
+        guard holePrep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
+            return nil
         }
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
@@ -1879,16 +1906,15 @@ public struct CurrentHoleView: View {
         // recorded keeps their actual choice.
         let alreadyRecorded = liveRoundState?.holeState(for: hole.number)?.selectedClub.isEmpty == false
         let syncClub = !alreadyRecorded && !hasUserSelectedClub
-        let canPollForPreciseMap: Bool
         if holePrep != nil {
             // The package already contains the factual route/F-M-B context. Start the refresh in
             // parallel, but let the first caddie response use that context immediately instead of
             // making the player wait for a second prep GET/render request.
             let mapTask = Task { await loadHoleMap() }
             await loadCaddieDecision(syncClub: syncClub)
-            canPollForPreciseMap = await mapTask.value
+            _ = await mapTask.value
         } else {
-            canPollForPreciseMap = await loadHoleMap()
+            _ = await loadHoleMap()
             guard !Task.isCancelled else { return }
             await loadCaddieDecision(syncClub: syncClub)
         }
@@ -1904,8 +1930,8 @@ public struct CurrentHoleView: View {
         // vectors usable now, then replace only this hole's map facts when the precise mesh arrives.
         // The structured `.task(id: hole.number)` owns this loop, so changing holes or leaving the
         // screen cancels it without leaving a detached poller behind.
-        if canPollForPreciseMap,
-           holePrep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
+        if holePrep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame,
+           !hasCachedTopoForCurrentHole {
             await waitForPreciseHoleMap(syncClub: !alreadyRecorded)
         }
     }
@@ -1981,17 +2007,30 @@ public struct CurrentHoleView: View {
 
     @MainActor
     private func waitForPreciseHoleMap(syncClub: Bool) async {
-        guard let caddieBaseURL else { return }
+        guard let caddieBaseURL else {
+            preciseMapTimedOut = true
+            return
+        }
         let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
         let mapLocalHole = hole.sourceLocalHole ?? hole.number
-        guard mapGlobalId != 0 else { return }
+        guard mapGlobalId != 0 else {
+            preciseMapTimedOut = true
+            return
+        }
         let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
         // The server-side install journal is already doing the expensive work. Keep the active
         // hole responsive with a short bounded probe instead of making a player wait through a
         // 60-second exponential slot after geometry has become ready.
         var delaySeconds: UInt64 = 2
+        let deadline = Date().addingTimeInterval(30)
 
         while !Task.isCancelled {
+            guard Date() < deadline else {
+                // Keep the lightweight route usable after a bounded wait. A later foreground or
+                // hole refresh may retry; the player is never trapped behind an unbounded spinner.
+                preciseMapTimedOut = true
+                return
+            }
             do {
                 try await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
             } catch {
@@ -2461,6 +2500,51 @@ public struct CurrentHoleView: View {
         )
     }
 
+    /// The map and the caddie sheet consume one selected sequence.  A missing sequence is a valid
+    /// short-hole/legacy response and intentionally leaves the map on its single-club fallback.
+    private var livePlannedShots: [MapPlannedShot] {
+        if let decision = caddieDecision,
+           let sequence = CaddiePlanSequence.selectedSequence(
+               from: decision,
+               strategyMode: requestedStrategyMode
+           ) {
+            return sequence.steps.enumerated().compactMap { index, step in
+                let name = step.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty, name != "-" else { return nil }
+                return MapPlannedShot(
+                    id: "live-\(sequence.id)-\(step.id)",
+                    clubName: name,
+                    carryM: step.targetCarryM,
+                    routeOffsetM: step.routeOffsetM ?? step.landingM,
+                    role: step.role,
+                    planIndex: step.planIndex ?? index
+                )
+            }
+        }
+        // The installed CoursePrep chain is the same opening-plan authority used by the first
+        // live request. Keep its factual landings visible during the short recommendation request
+        // and in offline mode instead of collapsing the map to a single club marker.
+        guard selectedShotType.caseInsensitiveCompare("tee") == .orderedSame else { return [] }
+        return (holePrep?.steps ?? []).enumerated().compactMap { index, step in
+            let name = (step.clubName ?? step.club ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, name != "-" else { return nil }
+            return MapPlannedShot(
+                id: "prep-\(step.planIndex ?? index)-\(name)",
+                clubName: name,
+                carryM: step.targetCarryM,
+                routeOffsetM: step.routeOffsetM ?? step.landingM,
+                role: step.role,
+                planIndex: step.planIndex ?? index
+            )
+        }
+    }
+
+    private func selectPlanStep(_ index: Int) {
+        guard livePlannedShots.contains(where: { $0.planIndex == index }) else { return }
+        selectedPlanIndex = index
+        showCaddieDetail = false
+    }
+
     /// round-12: full-bag dropdown — pick ANY club + its distance; recommended club marked; defaults
     /// to the recommendation (selectedClub is synced to it). Selecting records the pick (选完即记).
     @ViewBuilder private var clubPickerMenu: some View {
@@ -2623,10 +2707,7 @@ public struct CurrentHoleView: View {
     }
 
     private func loopLabel(_ option: MobileCourseOption) -> String {
-        if let label = option.resolvedSegmentLabel {
-            return "\(label) 场"
-        }
-        return "另一个 9 洞"
+        option.segmentDisplayTitle
     }
 
     @ViewBuilder private var loopAddControl: some View {
@@ -2718,7 +2799,7 @@ public struct CurrentHoleView: View {
         guard let caddieContextSeed else {
             return nil
         }
-        return requestBuilder.makeDecisionRequest(
+        let baseRequest = requestBuilder.makeDecisionRequest(
             seed: caddieContextSeed,
             input: LiveCaddieInput(
                 shotType: selectedShotType,
@@ -2734,6 +2815,61 @@ public struct CurrentHoleView: View {
                 visionFindings: visionFindings
             )
         )
+        // A package created before PHONE-UX6 may have the prep chain in the course payload but not
+        // in its caddie seed. Fill that one missing transport fact locally so an offline/older
+        // package cannot resurrect the independent ``3H -> 3H`` planner on the first tee request.
+        guard baseRequest.context["canonicalShotPlan"] == nil,
+              let steps = canonicalPlanJSON(from: holePrep?.steps),
+              !steps.isEmpty else {
+            return baseRequest
+        }
+        var context = baseRequest.context
+        context["canonicalShotPlan"] = .array(steps.map { .object($0) })
+        context["canonicalPlanSource"] = .string("course_prep")
+        context["canonicalPlanVersion"] = .string("ai-caddie-shot-plan-v1")
+        if let routeLength = holePrep?.routeLenM, routeLength.isFinite, routeLength > 0 {
+            context["canonicalPlanRouteLength_m"] = .number(routeLength)
+        }
+        return CaddieDecisionRequest(
+            shotType: baseRequest.shotType,
+            context: context,
+            includeExplanation: baseRequest.includeExplanation
+        )
+    }
+
+    private func canonicalPlanJSON(
+        from steps: [CoursePrepStep]?
+    ) -> [[String: JSONValue]]? {
+        guard let steps else { return nil }
+        let rows = steps.enumerated().compactMap { index, step -> [String: JSONValue]? in
+            let name = (step.clubName ?? step.club ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, name != "-" else { return nil }
+            var row: [String: JSONValue] = [
+                "clubName": .string(name),
+                "planIndex": .number(Double(step.planIndex ?? index)),
+            ]
+            if let value = step.targetCarryM, value.isFinite, value > 0 {
+                row["targetCarryM"] = .number(value)
+            }
+            if let value = step.routeOffsetM, value.isFinite, value >= 0 {
+                row["routeOffsetM"] = .number(value)
+            }
+            if let value = step.landingM, value.isFinite, value >= 0 {
+                row["landingM"] = .number(value)
+            }
+            if let value = step.expectedRemainingM, value.isFinite {
+                row["expectedRemainingM"] = .number(value)
+            }
+            if let role = step.role?.trimmingCharacters(in: .whitespacesAndNewlines), !role.isEmpty {
+                row["role"] = .string(role)
+            }
+            if let version = step.planVersion?.trimmingCharacters(in: .whitespacesAndNewlines), !version.isEmpty {
+                row["planVersion"] = .string(version)
+            }
+            return row
+        }
+        return rows.isEmpty ? nil : rows
     }
 
     /// Adopt the route the decision engine actually selected. The request's strategy/option is a

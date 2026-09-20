@@ -504,6 +504,12 @@ class DecisionLayerTests(unittest.TestCase):
                     remaining = round(remaining - step["targetCarry_m"], 1)
                     self.assertEqual(step["expectedRemaining_m"], remaining)
                 self.assertEqual(sequence["expectedRemaining_m"], remaining)
+                offsets = [step["routeOffset_m"] for step in sequence["clubs"]]
+                self.assertEqual(offsets, sorted(offsets))
+                self.assertEqual(
+                    [step["planIndex"] for step in sequence["clubs"]],
+                    list(range(len(sequence["clubs"])))
+                )
 
         selected_sequence = next(
             sequence for sequence in plan["sequences"] if sequence["id"] == selected_sequence_payload["id"]
@@ -522,6 +528,26 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIn(selected_first_ref, sequence_evidence["sourceRefs"])
         self.assertNotIn("shots", sequence_evidence["text"].lower())
         self.assertNotIn("expected strokes", sequence_evidence["text"].lower())
+
+    def test_course_prep_chain_is_the_live_stock_chain_and_first_club(self) -> None:
+        context = long_hole_fixture()
+        context["canonicalShotPlan"] = [
+            {"clubName": "1D", "targetCarry_m": 245.0, "routeOffset_m": 245.0, "planIndex": 0},
+            {"clubName": "3W", "targetCarry_m": 218.0, "routeOffset_m": 463.0, "planIndex": 1},
+            {"clubName": "5I", "targetCarry_m": 50.0, "routeOffset_m": 513.0, "planIndex": 2},
+        ]
+        context["canonicalPlanRouteLength_m"] = 520.0
+        plan = build_decision_plan(context)
+
+        stock = next(option for option in plan["options"] if option["id"] == "stock")
+        stock_sequence = next(sequence for sequence in plan["sequences"] if sequence["id"] == "stock")
+        self.assertEqual(stock["clubRecommendation"]["clubs"][0]["clubName"], "1D")
+        self.assertEqual(
+            [step["clubName"] for step in stock_sequence["clubs"]],
+            ["1D", "3W", "5I"],
+        )
+        self.assertEqual(plan["selectedSequence"]["id"], "stock")
+        self.assertEqual(plan["selectedSequence"]["planSource"], "course_prep")
 
     def test_sequence_reprojects_all_planning_hazards_from_each_new_lie(self) -> None:
         context = long_hole_fixture()

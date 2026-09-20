@@ -21,6 +21,7 @@ from ai_caddie.caddie.mobile_live import (
     build_mobile_course_options,
     build_round_state,
     _event_cursor,
+    attach_canonical_prep_plan_to_caddie_seeds,
     first_hole_lightweight_course_prep,
     _manual_notes_for_seed,
     replay_event_log,
@@ -466,6 +467,11 @@ def build_mobile_course_package_response(
             package,
             player_id=player_id,
         )
+        if package.get("coursePrep"):
+            package["caddieContextSeeds"] = attach_canonical_prep_plan_to_caddie_seeds(
+                package.get("caddieContextSeeds"),
+                package.get("coursePrep"),
+            )
         mark_request_stage("caddie_seed")
         return LiveRoundPackageResponse(**package)
 

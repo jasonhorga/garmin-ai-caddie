@@ -103,9 +103,6 @@ public struct AICaddieApp: App {
                                 await model.prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)
                             }
                         },
-                        onRememberCourseDisplayName: { globalId, name in
-                            model.rememberSelectedCourseDisplayName(globalId: globalId, name: name)
-                        },
                         onChangeNine: { nine in
                             Task {
                                 await model.setActiveNine(nine)
@@ -331,9 +328,6 @@ private struct NoPackageHubView: View {
             },
             onPrepareCompositeRound: { globalId, backGlobalId, teeBox, roundId in
                 Task { await model.prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox) }
-            },
-            onRememberCourseDisplayName: { globalId, name in
-                model.rememberSelectedCourseDisplayName(globalId: globalId, name: name)
             },
             onSaveBackendConfiguration: { baseURL, token in
                 Task { await model.saveBackendConfiguration(apiBaseURLText: baseURL, adminTokenText: token) }
@@ -1104,14 +1098,6 @@ public final class LiveRoundAppModel: ObservableObject {
             AICaddieLog.network.error("Round package prepare failed: \(String(describing: error), privacy: .public)")
             syncStatus = "开始失败,稍后重试"
         }
-    }
-
-    public func rememberSelectedCourseDisplayName(globalId: Int, name rawName: String) {
-        // Kept as an API-compatible callback for older views.  A selected/search
-        // label is presentation input, never a name authority; the backend
-        // package/search contract owns the value shown on all three clients.
-        _ = globalId
-        _ = rawName
     }
 
     public func prepareCourseRound(globalId: Int, roundId: String, teeBox: String, nine: String) async {

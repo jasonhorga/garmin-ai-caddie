@@ -363,6 +363,9 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(len(steps), 1)
         self.assertEqual(steps[0]["club"], "7I")
         self.assertIsNone(landing)
+        self.assertEqual(steps[0]["planIndex"], 0)
+        self.assertEqual(steps[0]["routeOffset_m"], 128.0)
+        self.assertEqual(steps[0]["expectedRemaining_m"], 0.0)
 
     def test_par4_strategy_tee_then_approach(self) -> None:
         ladder = [("1W", 200), ("7I", 128), ("PW", 102)]
@@ -387,6 +390,10 @@ class PureLogicTests(unittest.TestCase):
             cp.club_bag_service.canonical_club_name(step["club"]) != "driver"
             for step in steps[1:]
         ))
+        self.assertEqual([step["planIndex"] for step in steps], list(range(len(steps))))
+        offsets = [step["routeOffset_m"] for step in steps]
+        self.assertEqual(offsets, sorted(offsets))
+        self.assertTrue(all(step["planVersion"] == "ai-caddie-shot-plan-v1" for step in steps))
 
     def test_in_triangle(self) -> None:
         a, b, c = (0, 0), (10, 0), (0, 10)

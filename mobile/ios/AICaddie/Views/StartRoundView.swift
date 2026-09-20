@@ -24,8 +24,6 @@ public struct StartRoundView: View {
     public let onPrepareCourseRound: (Int, String, String, String) -> Void
     /// 组合 18 洞:(front 环 globalId, back 环 globalId, teeBox, roundId)。选了第二个环时调用。
     public let onPrepareCompositeRound: (Int, Int, String, String) -> Void
-    /// Legacy callback retained for source compatibility; course names remain backend-owned.
-    public let onRememberCourseDisplayName: (Int, String) -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
     /// 还没有球场时的「连接 Garmin」CTA:由 app 注入(打开 Garmin 连接流程),拉取球场后就能记分。
@@ -83,7 +81,6 @@ public struct StartRoundView: View {
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
-        onRememberCourseDisplayName: @escaping (Int, String) -> Void = { _, _ in },
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
         onConnectGarmin: @escaping () -> Void = {},
@@ -102,7 +99,6 @@ public struct StartRoundView: View {
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onPrepareCompositeRound = onPrepareCompositeRound
-        self.onRememberCourseDisplayName = onRememberCourseDisplayName
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
         self.onConnectGarmin = onConnectGarmin
@@ -294,17 +290,6 @@ public struct StartRoundView: View {
             ?? displayVenues.first?.venue
             ?? offlineVenues.first?.venue
             ?? ""
-    }
-
-    /// The active-round identity must retain the chosen playable segment, not just its physical
-    /// venue.  A 27-hole venue's A/B/C loops are different Garmin courses, and a resumed card that
-    /// says only the venue cannot tell the player which nine (or which 9+9 combination) is active.
-    private var selectedRoundDisplayName: String {
-        guard let front = selectedSegment else { return selectedVenueName }
-        let back = Int(backGlobalIdText).flatMap { backGlobalId in
-            courseLookupOptions.first { $0.globalId == backGlobalId }
-        }
-        return Self.roundDisplayName(front: front, back: back)
     }
 
     static func roundDisplayName(
@@ -927,7 +912,6 @@ public struct StartRoundView: View {
         VStack(spacing: 8) {
             Button {
                 if let courseGlobalId {
-                    onRememberCourseDisplayName(courseGlobalId, selectedRoundDisplayName)
                     if let backGlobalId = Int(backGlobalIdText), backGlobalId != 0 {
                         onPrepareCompositeRound(courseGlobalId, backGlobalId, teeBox, roundId)
                     } else {

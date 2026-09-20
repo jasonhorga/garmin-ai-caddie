@@ -453,10 +453,39 @@ public struct CaddiePlanSequenceStep: Identifiable, Equatable {
     public let role: String
     public let clubName: String
     public let targetCarryM: Double?
+    public let routeOffsetM: Double?
+    public let landingM: Double?
+    public let planIndex: Int?
     public let expectedRemainingM: Double?
     public let sampleSize: Int?
     public let confidence: String?
     public let sourceRefs: [String]
+
+    public init(
+        id: String,
+        role: String,
+        clubName: String,
+        targetCarryM: Double?,
+        expectedRemainingM: Double?,
+        sampleSize: Int?,
+        confidence: String?,
+        sourceRefs: [String],
+        routeOffsetM: Double? = nil,
+        landingM: Double? = nil,
+        planIndex: Int? = nil
+    ) {
+        self.id = id
+        self.role = role
+        self.clubName = clubName
+        self.targetCarryM = targetCarryM
+        self.routeOffsetM = routeOffsetM
+        self.landingM = landingM
+        self.planIndex = planIndex
+        self.expectedRemainingM = expectedRemainingM
+        self.sampleSize = sampleSize
+        self.confidence = confidence
+        self.sourceRefs = sourceRefs
+    }
 
     public var summaryText: String {
         var parts: [String] = [clubName]
@@ -582,9 +611,35 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
                 ),
                 sampleSize: integer(row["sampleSize"]),
                 confidence: string(row["confidence"]),
-                sourceRefs: stringArray(row["sourceRefs"])
+                sourceRefs: stringArray(row["sourceRefs"]),
+                routeOffsetM: number(row["routeOffset_m"]) ?? number(row["routeOffsetM"]),
+                landingM: number(row["landing_m"]) ?? number(row["landingM"]),
+                planIndex: integer(row["planIndex"])
             )
         }
+    }
+
+    /// Resolve the same route used by the live strip and Watch bridge. Keeping this lookup here
+    /// prevents each surface from independently falling back to a different sequence.
+    public static func selectedSequence(
+        from response: CaddieDecisionResponse,
+        strategyMode: String? = nil
+    ) -> CaddiePlanSequence? {
+        let all = sequences(from: response)
+        if let strategyMode {
+            let normalized = caddieStrategyMode(forRouteId: strategyMode) ?? strategyMode.lowercased()
+            if let match = all.first(where: {
+               caddieSelectionToken(forRouteId: $0.id) == normalized
+                   || caddieSelectionToken(forRouteId: $0.label) == normalized
+            }) {
+                return match
+            }
+        }
+        if let selectedID = selectedSequenceId(from: response),
+           let selected = all.first(where: { $0.id == selectedID }) {
+            return selected
+        }
+        return all.first
     }
 
     private static func string(_ value: JSONValue?) -> String? {
@@ -672,6 +727,7 @@ public struct CaddiePlanView: View {
     /// distances, not the legacy safe/stock/attack enum.
     public let selectedStrategyMode: String?
     public let onSelectStrategyMode: (String) -> Void
+    public let onSelectPlanStep: ((Int) -> Void)?
 
     public init(
         options: [CaddiePlanOption],
@@ -679,7 +735,8 @@ public struct CaddiePlanView: View {
         sequences: [CaddiePlanSequence] = [],
         selectedSequenceId: String? = nil,
         selectedStrategyMode: String? = nil,
-        onSelectStrategyMode: @escaping (String) -> Void = { _ in }
+        onSelectStrategyMode: @escaping (String) -> Void = { _ in },
+        onSelectPlanStep: ((Int) -> Void)? = nil
     ) {
         self.options = options
         self.selectedOptionId = selectedOptionId
@@ -687,12 +744,14 @@ public struct CaddiePlanView: View {
         self.selectedSequenceId = selectedSequenceId
         self.selectedStrategyMode = selectedStrategyMode
         self.onSelectStrategyMode = onSelectStrategyMode
+        self.onSelectPlanStep = onSelectPlanStep
     }
 
     public init(
         response: CaddieDecisionResponse,
         selectedStrategyMode: String? = nil,
-        onSelectStrategyMode: @escaping (String) -> Void = { _ in }
+        onSelectStrategyMode: @escaping (String) -> Void = { _ in },
+        onSelectPlanStep: ((Int) -> Void)? = nil
     ) {
         let responseOptions = CaddiePlanOption.options(from: response)
         let responseSequences = CaddiePlanSequence.sequences(from: response)
@@ -702,12 +761,14 @@ public struct CaddiePlanView: View {
         self.selectedSequenceId = CaddiePlanSequence.selectedSequenceId(from: response) ?? response.selectedOptionId
         self.selectedStrategyMode = selectedStrategyMode
         self.onSelectStrategyMode = onSelectStrategyMode
+        self.onSelectPlanStep = onSelectPlanStep
     }
 
     public init(
         seed: CaddieContextSeed?,
         selectedStrategyMode: String? = nil,
-        onSelectStrategyMode: @escaping (String) -> Void = { _ in }
+        onSelectStrategyMode: @escaping (String) -> Void = { _ in },
+        onSelectPlanStep: ((Int) -> Void)? = nil
     ) {
         let seedOptions = CaddiePlanOption.options(from: seed)
         self.options = seedOptions
@@ -716,6 +777,7 @@ public struct CaddiePlanView: View {
         self.selectedSequenceId = nil
         self.selectedStrategyMode = selectedStrategyMode
         self.onSelectStrategyMode = onSelectStrategyMode
+        self.onSelectPlanStep = onSelectPlanStep
     }
 
     private var activeStrategyMode: String? {
@@ -877,6 +939,9 @@ public struct CaddiePlanView: View {
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(.primary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if onSelectPlanStep != nil {
+                        planStepPicker(sequence.steps)
+                    }
                     if let leave = CaddiePlanSequence.actionableDistance(first.expectedRemainingM),
                        let next = sequence.steps.dropFirst().first {
                         Text("打完预计剩 \(CoursePrepRoute.yards(fromMetres: max(0, leave))) 码，下一杆 \(zhClubDisplayName(zhClubName(next.clubName)))")
@@ -898,6 +963,39 @@ public struct CaddiePlanView: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(LiveHoleStyle.green.opacity(0.28), lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("caddie-primary-recommendation")
+    }
+
+    private func planStepPicker(_ steps: [CaddiePlanSequenceStep]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
+                    Button {
+                        onSelectPlanStep?(index)
+                    } label: {
+                        VStack(spacing: 2) {
+                            Text("第 \(index + 1) 杆")
+                                .font(.caption2.weight(.semibold))
+                            Text(zhClubDisplayName(zhClubName(step.clubName)))
+                                .font(.caption.weight(.bold))
+                                .lineLimit(1)
+                            if let carry = step.targetCarryM, carry > 0 {
+                                Text("\(CoursePrepRoute.yards(fromMetres: carry))码")
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(minWidth: 64)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(LiveHoleStyle.green.opacity(0.28)))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("查看第 \(index + 1) 杆落点")
+                    .accessibilityIdentifier("caddie-plan-step-\(index)")
+                }
+            }
+        }
     }
 
     private func primaryRecommendation(option: CaddiePlanOption) -> some View {

@@ -15,7 +15,7 @@ final class CoursePrepTests: XCTestCase {
            "missingData":[],
            "candidateRoutes":[{"id":"stock","club":"1W","carryM":200.0,"riskScore":1.0}],
            "carryTargets":[{"kind":"landing","distanceM":200.0}],
-           "steps":[{"club":"1W","note":"开球落点约 219y"},{"club":"7I","note":"剩约 140y 上果岭"}],
+           "steps":[{"club":"1W","clubName":"1W","note":"开球落点约 219y","targetCarry_m":200.0,"routeOffset_m":200.0,"landing_m":200.0,"expectedRemaining_m":278.4,"role":"advance","planIndex":0,"planVersion":"ai-caddie-shot-plan-v1"},{"club":"7I","clubName":"7I","note":"剩约 140y 上果岭","targetCarry_m":128.0,"routeOffset_m":328.0,"landing_m":328.0,"expectedRemaining_m":150.4,"role":"scoring","planIndex":1,"planVersion":"ai-caddie-shot-plan-v1"}],
            "cautions":["果岭边沙坑（约 480y）——别短别偏"],
            "landing_m":200.0,"tee_club":"1W",
            "hazards":{"water_carry":[],"bunkers":[[440.0,12.0]]},
@@ -37,6 +37,9 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertEqual(hole.blueYards, 523)
         XCTAssertEqual(hole.teeClub, "1W")
         XCTAssertEqual(hole.steps.count, 2)
+        XCTAssertEqual(hole.steps[1].routeOffsetM, 328.0, accuracy: 0.01)
+        XCTAssertEqual(hole.steps[1].planIndex, 1)
+        XCTAssertEqual(hole.steps[1].clubName, "7I")
         XCTAssertEqual(hole.hazards.bunkers.first, [440.0, 12.0])
         XCTAssertEqual(hole.geometryCoverage, "ready")
         XCTAssertEqual(hole.geometryRevision, "0123456789abcdef")

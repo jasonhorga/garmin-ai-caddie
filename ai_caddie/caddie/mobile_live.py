@@ -1105,6 +1105,61 @@ def first_hole_lightweight_course_prep(
     }
 
 
+def attach_canonical_prep_plan_to_caddie_seeds(
+    seeds: list[dict[str, Any]] | None,
+    prep_package: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Carry the exact CoursePrep shot chain into the live decision context.
+
+    Prep and live used to calculate the same opening hole independently.  A cold package could
+    therefore show ``1W -> 3W -> 7I`` in the workbench while the first live request selected a
+    different candidate route.  The prep chain is now a structured, versioned input to the live
+    planner; the decision layer still validates every leg against current hazard constraints before
+    accepting it.
+    """
+    if not seeds or not isinstance(prep_package, dict):
+        return list(seeds or [])
+    prep_by_hole = {
+        int(row.get("hole")): row
+        for row in prep_package.get("holes") or []
+        if isinstance(row, dict)
+        and str(row.get("hole") or "").strip().isdigit()
+        and int(row.get("hole") or 0) > 0
+    }
+    if not prep_by_hole:
+        return list(seeds)
+
+    out: list[dict[str, Any]] = []
+    for raw_seed in seeds:
+        if not isinstance(raw_seed, dict):
+            out.append(raw_seed)
+            continue
+        try:
+            hole_number = int(raw_seed.get("hole") or 0)
+        except (TypeError, ValueError, OverflowError):
+            hole_number = 0
+        prep = prep_by_hole.get(hole_number)
+        steps = prep.get("steps") if isinstance(prep, dict) else None
+        if not isinstance(steps, list) or not steps:
+            out.append(raw_seed)
+            continue
+        normalized_steps = [dict(step) for step in steps if isinstance(step, dict)]
+        if not normalized_steps:
+            out.append(raw_seed)
+            continue
+        seed = dict(raw_seed)
+        context = dict(seed.get("context") or {})
+        context["canonicalShotPlan"] = normalized_steps
+        context["canonicalPlanSource"] = "course_prep"
+        context["canonicalPlanVersion"] = "ai-caddie-shot-plan-v1"
+        route_length = prep.get("route_len_m")
+        if route_length is not None:
+            context["canonicalPlanRouteLength_m"] = route_length
+        seed["context"] = context
+        out.append(seed)
+    return out
+
+
 def _dedupe_strings(values: list[Any]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -3059,6 +3114,14 @@ def build_live_round_package(
         )
     )
     course_prep_package = _course_prep_package(course_global_id, holes, player_id=player_id) if (preparation_mode == "course" and include_course_prep) else None
+    # A course package may omit full prep while still attaching a first-hole lightweight package
+    # at the API boundary.  When prep is available here, make its structured shot chain the same
+    # source consumed by the live decision planner.
+    if course_prep_package is not None:
+        caddie_context_seeds = attach_canonical_prep_plan_to_caddie_seeds(
+            caddie_context_seeds,
+            course_prep_package,
+        )
     course_display_name = str(round_row.get("course") or round_row.get("courseName") or "Unknown course")
     course_identity = None
     if preparation_mode == "course" and requested_course_global_id is not None:

@@ -332,7 +332,9 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
         let segmentText = MobileCourseDisplayLocalization.canonicalSegment(
             providerName: name,
             segmentLabel: segmentLabel
-        ).map { "\($0) 场" }
+        ).map {
+            GarminCourseNameAuthority.userFacingSegmentTitle(label: $0, holes: holes)
+        }
         return ([segmentText].compactMap { $0 } + location + [holeText]).joined(separator: " · ")
     }
 
@@ -391,16 +393,13 @@ public extension MobileCourseOption {
         )
     }
 
-    /// Segment row title: a loop ("A 场") or a factual whole 18-hole course. A 9-hole row without
-    /// a trustworthy loop label must not be presented as the whole course.
+    /// Segment row title. Garmin's internal loop token stays in the model for identity/sorting, but
+    /// the picker uses a stable ordinal rather than exposing A/B/C package names.
     var segmentDisplayTitle: String {
-        if let label = resolvedSegmentLabel {
-            return "\(label) 场"
-        }
-        if resolvedHoles == 9 {
-            return "未标注场区"
-        }
-        return "全场"
+        GarminCourseNameAuthority.userFacingSegmentTitle(
+            label: resolvedSegmentLabel,
+            holes: resolvedHoles
+        )
     }
 
     /// True 9/18 hole count for this segment (CourseView), falling back to the played count.

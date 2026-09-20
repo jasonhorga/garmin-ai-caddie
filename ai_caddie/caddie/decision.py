@@ -39,6 +39,10 @@ SHORT_GAME_PROFILE_MAX_M = 110.0
 MAX_SEQUENCE_STEPS = 5
 MAX_SEQUENCE_CARRY_INCREASE_M = 15.0
 EXTRA_SEQUENCE_STEP_COST_M = 25.0
+# Repeating one physical club can be correct, but a materially different measured club should win
+# when the leave/risk is otherwise comparable.  This small cost prevents opaque 3W -> 3W -> 3W
+# previews without forbidding a repeat when it is the only feasible route.
+REPEATED_CLUB_PENALTY_M = 12.0
 # These weights rank deterministic club combinations; they are not exposed as calibrated strokes.
 # The final full swing carries the most weight because planning a preferred approach distance is
 # more useful than merely minimizing a few metres of arithmetic remainder.
@@ -809,6 +813,178 @@ def _sequence_step(row: dict[str, Any], remaining_before_m: float, role: str) ->
     }
 
 
+def _canonical_shot_plan(context: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the structured CoursePrep chain, when this request carries one.
+
+    The plan is an input fact, not a UI string.  Only tee requests use it; approach/recovery
+    requests must be recalculated from the current lie and never replay a stale opening chain.
+    """
+    if _non_tee_context(context):
+        return []
+    raw = context.get("canonicalShotPlan") or context.get("canonicalPlan")
+    if not isinstance(raw, list):
+        return []
+    return [row for row in raw if isinstance(row, dict)][:MAX_SEQUENCE_STEPS]
+
+
+def _canonical_value(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if row.get(key) is not None:
+            return row.get(key)
+    return None
+
+
+def _canonical_sequence(
+    context: dict[str, Any],
+    options: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Validate and materialize the CoursePrep chain as the live stock sequence.
+
+    CoursePrep is intentionally simple and fast, while the live planner has the richer hazard
+    model.  Reusing the chain is therefore conditional: every named club must exist in the current
+    measured bag, Driver cannot appear after the tee, and each projected leg must satisfy the same
+    hard water/OB checks as a generated sequence.  A failed check returns ``None`` so the richer
+    planner can produce an honest alternative instead of displaying an unsafe preview.
+    """
+    raw_plan = _canonical_shot_plan(context)
+    if not raw_plan:
+        return None
+    rows = _club_profile_rows(context.get("clubProfiles") or {})
+    if not rows:
+        return None
+    row_by_identity = {_club_identity(row): row for row in rows}
+    stock = next((option for option in options if str(option.get("id") or "") == "stock"), None)
+    avoid_zones = (
+        (stock or {}).get("planningHazards")
+        or (stock or {}).get("avoidZones")
+        or ((context.get("routeEvidence") or {}).get("avoidZones") if isinstance(context.get("routeEvidence"), dict) else [])
+        or []
+    )
+    distance_m = _sequence_distance(context)
+    if distance_m <= 0:
+        distance_m = _float(context.get("canonicalPlanRouteLength_m"), 0.0)
+    if distance_m <= 0:
+        distance_m = max(
+            _float(_canonical_value(row, "routeOffset_m", "routeOffsetM", "landing_m", "landingM"), 0.0)
+            for row in raw_plan
+        )
+    if distance_m <= 0:
+        return None
+
+    travelled_m = 0.0
+    steps: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_plan):
+        name = str(_canonical_value(raw, "clubName", "club") or "").strip()
+        club = row_by_identity.get(_club_identity(name))
+        if club is None or (index > 0 and _driver_row(club)):
+            return None
+        projected_zones = _shift_hazard_zones(avoid_zones, travelled_m)
+        if not _club_hard_hazard_safe(club, projected_zones):
+            return None
+        carry = _float(
+            _canonical_value(raw, "targetCarry_m", "targetCarryM", "carry_m", "carryM"),
+            _float(club.get("median_m")),
+        )
+        if not math.isfinite(carry) or carry <= 0:
+            return None
+        raw_offset = _canonical_value(raw, "routeOffset_m", "routeOffsetM", "landing_m", "landingM")
+        offset = _float(raw_offset, travelled_m + carry)
+        if not math.isfinite(offset):
+            offset = travelled_m + carry
+        # A malformed/stale prep row must not move a later landing backwards. Keep its measured
+        # carry as the minimum progress, then cap only to the known hole length.
+        offset = max(travelled_m + carry, offset)
+        if distance_m > 0:
+            offset = min(distance_m, offset)
+        remaining_before = max(0.0, distance_m - travelled_m)
+        role = str(raw.get("role") or ("advance" if index == 0 else "scoring" if index == len(raw_plan) - 1 else "position"))
+        step = _sequence_step(club, remaining_before, role)
+        step["clubName"] = name or club.get("clubName")
+        step["targetCarry_m"] = round(carry, 1)
+        step["routeOffset_m"] = round(offset, 1)
+        step["landing_m"] = round(offset, 1)
+        step["expectedRemaining_m"] = round(max(0.0, distance_m - offset), 1)
+        step["planIndex"] = int(_canonical_value(raw, "planIndex") or index)
+        step["planVersion"] = str(raw.get("planVersion") or "ai-caddie-shot-plan-v1")
+        step["planSource"] = str(context.get("canonicalPlanSource") or "course_prep")
+        steps.append(step)
+        travelled_m = offset
+
+    if not steps:
+        return None
+    source_refs = _dedupe([ref for step in steps for ref in _sanitize_ref_list(step.get("sourceRefs"))])
+    remaining = _float(steps[-1].get("expectedRemaining_m"), max(0.0, distance_m - travelled_m))
+    return {
+        "id": "stock",
+        "label": "-".join(str(step.get("clubName") or "") for step in steps),
+        "strategyLabel": (stock or {}).get("label") or "Stock",
+        "clubs": steps,
+        "totalPlannedCarry_m": round(sum(_float(step.get("targetCarry_m")) for step in steps), 1),
+        "expectedRemaining_m": round(remaining, 1),
+        "riskScore": _float((stock or {}).get("riskScore")),
+        "rationale": "Uses the CoursePrep opening plan and revalidates each landing against the current measured hazard model.",
+        "completion": "replan_required" if remaining > 20.0 else "scoring_window",
+        "sourceRefs": source_refs,
+        "coverage": _sequence_coverage(steps),
+        "confidence": _sequence_confidence(steps),
+        "planSource": str(context.get("canonicalPlanSource") or "course_prep"),
+    }
+
+
+def _apply_canonical_stock_option(
+    options: list[dict[str, Any]],
+    canonical: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Make the stock card's first-club fact agree with the accepted prep chain.
+
+    The sequence and the option are rendered by different client components.  Updating only the
+    sequence would still leave the large ``下一杆`` line showing the old nearest-by-carry club.
+    Keep the route/risk fields untouched, but replace the stock recommendation's physical club
+    with the first validated CoursePrep step so both surfaces have one answer.
+    """
+    if not canonical:
+        return options
+    clubs = canonical.get("clubs")
+    if not isinstance(clubs, list) or not clubs or not isinstance(clubs[0], dict):
+        return options
+    first = clubs[0]
+    first_name = str(first.get("clubName") or "").strip()
+    if not first_name:
+        return options
+    out: list[dict[str, Any]] = []
+    for raw in options:
+        if str(raw.get("id") or "").strip().lower() != "stock":
+            out.append(raw)
+            continue
+        option = dict(raw)
+        recommendation = dict(option.get("clubRecommendation") or {})
+        first_club = dict(first)
+        first_club["clubName"] = first_name
+        # The option contract uses the profile spelling/fields, while the sequence uses the
+        # structured plan fields. Preserve the richer measured values already present in the
+        # option when the plan row does not carry them.
+        existing = next(
+            (
+                row
+                for row in (recommendation.get("clubs") or [])
+                if isinstance(row, dict) and _club_identity(row) == _club_identity(first_name)
+            ),
+            None,
+        )
+        if isinstance(existing, dict):
+            merged = dict(existing)
+            merged.update(first_club)
+            first_club = merged
+        recommendation["source"] = "course_prep"
+        recommendation["clubs"] = [first_club]
+        option["club"] = first_name
+        option["clubName"] = first_name
+        option["clubRecommendation"] = recommendation
+        option["canonicalPlanSource"] = canonical.get("planSource") or "course_prep"
+        out.append(option)
+    return out
+
+
 def _sequence_coverage(steps: list[dict[str, Any]]) -> dict[str, Any]:
     ready = 0
     total = 0
@@ -1384,6 +1560,11 @@ def _sequence_tail(
                 + sum(position_cost_by_index[index] for index in indexes[:-1])
                 + scoring_cost_by_index[last_index]
             )
+            repeated_clubs = sum(
+                _club_identity(candidate[position - 1]) == _club_identity(candidate[position])
+                for position in range(1, len(candidate))
+            )
+            chain_cost += repeated_clubs * REPEATED_CLUB_PENALTY_M
             if allow_replan_gap:
                 # In degraded mode prefer a bounded shortfall to a large overshoot. A missing
                 # wedge is a reason to re-plan from the next lie, never a reason to add another
@@ -1604,6 +1785,16 @@ def _sequence_option(
             )
             projected_zones = _shift_hazard_zones(avoid_zones, travelled_m)
             step = _sequence_step(row, remaining_m, role)
+            # The prep and live surfaces share this cumulative route-offset contract.  It is a
+            # display/projection fact, not a claim about straight-line GPS distance: clients use it
+            # to place each planned landing on the same topo route without re-running the planner.
+            step["routeOffset_m"] = round(
+                max(0.0, min(distance_m, travelled_m + _float(row.get("median_m")))),
+                1,
+            )
+            step["landing_m"] = step["routeOffset_m"]
+            step["planIndex"] = index
+            step["planVersion"] = "ai-caddie-shot-plan-v1"
             step["hazardProjection"] = {
                 "originOffset_m": round(travelled_m, 1),
                 "waterSafety": _club_water_safety(row, projected_zones),
@@ -1703,7 +1894,7 @@ def _club_sequences(context: dict[str, Any], options: list[dict[str, Any]]) -> l
     if len(rows) < 2 or not options:
         return []
     memo: dict[Any, Any] = {}
-    sequences = [
+    generated = [
         sequence
         for option in options
         if (
@@ -1721,6 +1912,14 @@ def _club_sequences(context: dict[str, Any], options: list[dict[str, Any]]) -> l
             )
         )
     ]
+    # CoursePrep is the opening-plan authority. Replace only the stock sequence; safe/attack remain
+    # independently selectable alternatives and are still checked against the richer live hazard
+    # model. This prevents the prep page and the first live request from inventing two plans.
+    canonical = _canonical_sequence(context, options)
+    if canonical is not None:
+        generated = [sequence for sequence in generated if sequence.get("id") != "stock"]
+        generated.insert(0, canonical)
+    sequences = generated
     return _dedupe_sequences(sequences)
 
 
@@ -4518,6 +4717,8 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
         ]
     options = [_option_from_route(route, analysis) for route in routes]
     options = _dedupe_strategy_options(options)
+    canonical = _canonical_sequence(analysis, options)
+    options = _apply_canonical_stock_option(options, canonical)
     selected = _select_option(options, _strategy_mode(analysis), analysis)
     sequences = _club_sequences(analysis, options)
     selected, selected_sequence = _align_selected_sequence(options, sequences, selected, analysis)

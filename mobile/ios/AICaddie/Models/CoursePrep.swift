@@ -50,6 +50,70 @@ public struct CoursePrepClub: Codable, Equatable {
 public struct CoursePrepStep: Codable, Equatable {
     public let club: String?
     public let note: String
+
+    /// Structured shot-plan facts are additive to the original localized `club`/`note` pair.  The
+    /// route offset is measured along the hole centreline, so every client can place the same leg
+    /// without parsing copy or re-running the planner.
+    public let clubName: String?
+    public let targetCarryM: Double?
+    public let routeOffsetM: Double?
+    public let landingM: Double?
+    public let expectedRemainingM: Double?
+    public let role: String?
+    public let planIndex: Int?
+    public let planVersion: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case club, note, clubName, targetCarryM, routeOffsetM, landingM, expectedRemainingM, role, planIndex, planVersion
+        case targetCarrySnake = "targetCarry_m"
+        case routeOffsetSnake = "routeOffset_m"
+        case landingSnake = "landing_m"
+        case expectedRemainingSnake = "expectedRemaining_m"
+    }
+
+    public init(
+        club: String?,
+        note: String,
+        clubName: String? = nil,
+        targetCarryM: Double? = nil,
+        routeOffsetM: Double? = nil,
+        landingM: Double? = nil,
+        expectedRemainingM: Double? = nil,
+        role: String? = nil,
+        planIndex: Int? = nil,
+        planVersion: String? = nil
+    ) {
+        self.club = club
+        self.note = note
+        self.clubName = clubName
+        self.targetCarryM = targetCarryM
+        self.routeOffsetM = routeOffsetM
+        self.landingM = landingM
+        self.expectedRemainingM = expectedRemainingM
+        self.role = role
+        self.planIndex = planIndex
+        self.planVersion = planVersion
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        club = try container.decodeIfPresent(String.self, forKey: .club)
+        note = try container.decodeIfPresent(String.self, forKey: .note) ?? ""
+        clubName = try container.decodeIfPresent(String.self, forKey: .clubName) ?? club
+        func optionalDouble(_ primary: CodingKeys, _ fallback: CodingKeys) throws -> Double? {
+            if let value = try container.decodeIfPresent(Double.self, forKey: primary) {
+                return value
+            }
+            return try container.decodeIfPresent(Double.self, forKey: fallback)
+        }
+        targetCarryM = try optionalDouble(.targetCarryM, .targetCarrySnake)
+        routeOffsetM = try optionalDouble(.routeOffsetM, .routeOffsetSnake)
+        landingM = try optionalDouble(.landingM, .landingSnake)
+        expectedRemainingM = try optionalDouble(.expectedRemainingM, .expectedRemainingSnake)
+        role = try container.decodeIfPresent(String.self, forKey: .role)
+        planIndex = try container.decodeIfPresent(Int.self, forKey: .planIndex)
+        planVersion = try container.decodeIfPresent(String.self, forKey: .planVersion)
+    }
 }
 
 public struct CoursePrepMissingData: Codable, Equatable {

@@ -87,6 +87,13 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
         )
     }
 
+    public var segmentDisplayTitle: String {
+        GarminCourseNameAuthority.userFacingSegmentTitle(
+            label: resolvedSegmentLabel,
+            holes: playableHoleCount
+        )
+    }
+
     public var venueDisplayName: String {
         GarminCourseNameAuthority.canonicalVenueName(
             providerName: name,
@@ -243,6 +250,13 @@ public struct WatchCourseSearchMatch: Decodable, Equatable, Identifiable {
         GarminCourseNameAuthority.canonicalSegment(
             providerName: name,
             segmentLabel: segmentLabel
+        )
+    }
+
+    public var segmentDisplayTitle: String {
+        GarminCourseNameAuthority.userFacingSegmentTitle(
+            label: resolvedSegmentLabel,
+            holes: holes
         )
     }
 }
@@ -438,6 +452,7 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
     public let geometryRevision: String?
     public let landingM: Double?
     public let teeClub: String?
+    public let steps: [WatchCoursePrepStep]
     public let route: [[Double]]
     public let hazards: WatchCoursePrepHazards
     public let map: WatchCoursePrepMap?
@@ -447,7 +462,7 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
     public let greenOutline: WatchCoursePrepGreenOutline?
 
     private enum CodingKeys: String, CodingKey {
-        case hole, par, geometryCoverage, geometryRevision, route, hazards, map, greenDistances, playsLike, holeImageProjection, greenOutline
+        case hole, par, geometryCoverage, geometryRevision, route, hazards, map, greenDistances, playsLike, holeImageProjection, greenOutline, steps
         case landingM = "landing_m"
         case teeClub = "tee_club"
     }
@@ -459,6 +474,7 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
         geometryRevision: String? = nil,
         landingM: Double? = nil,
         teeClub: String? = nil,
+        steps: [WatchCoursePrepStep] = [],
         route: [[Double]] = [],
         hazards: WatchCoursePrepHazards = WatchCoursePrepHazards(),
         map: WatchCoursePrepMap? = nil,
@@ -473,6 +489,7 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
         self.geometryRevision = geometryRevision
         self.landingM = landingM
         self.teeClub = teeClub
+        self.steps = steps
         self.route = route
         self.hazards = hazards
         self.map = map
@@ -490,6 +507,7 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
         geometryRevision = try container.decodeIfPresent(String.self, forKey: .geometryRevision)
         landingM = try container.decodeIfPresent(Double.self, forKey: .landingM)
         teeClub = try container.decodeIfPresent(String.self, forKey: .teeClub)
+        steps = try container.decodeIfPresent([WatchCoursePrepStep].self, forKey: .steps) ?? []
         route = try container.decodeIfPresent([[Double]].self, forKey: .route) ?? []
         hazards = try container.decodeIfPresent(WatchCoursePrepHazards.self, forKey: .hazards)
             ?? WatchCoursePrepHazards()
@@ -510,6 +528,7 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
             geometryRevision: geometryRevision,
             landingM: landingM,
             teeClub: teeClub,
+            steps: steps,
             route: route,
             hazards: hazards,
             map: map,
@@ -518,6 +537,43 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
             holeImageProjection: holeImageProjection,
             greenOutline: greenOutline
         )
+    }
+}
+
+public struct WatchCoursePrepStep: Decodable, Equatable {
+    public let club: String?
+    public let clubName: String?
+    public let targetCarryM: Double?
+    public let routeOffsetM: Double?
+    public let landingM: Double?
+    public let expectedRemainingM: Double?
+    public let role: String?
+    public let planIndex: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case club, clubName, targetCarryM, routeOffsetM, landingM, expectedRemainingM, role, planIndex
+        case targetCarrySnake = "targetCarry_m"
+        case routeOffsetSnake = "routeOffset_m"
+        case landingSnake = "landing_m"
+        case expectedRemainingSnake = "expectedRemaining_m"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        club = try container.decodeIfPresent(String.self, forKey: .club)
+        clubName = try container.decodeIfPresent(String.self, forKey: .clubName) ?? club
+        func optionalDouble(_ primary: CodingKeys, _ fallback: CodingKeys) throws -> Double? {
+            if let value = try container.decodeIfPresent(Double.self, forKey: primary) {
+                return value
+            }
+            return try container.decodeIfPresent(Double.self, forKey: fallback)
+        }
+        targetCarryM = try optionalDouble(.targetCarryM, .targetCarrySnake)
+        routeOffsetM = try optionalDouble(.routeOffsetM, .routeOffsetSnake)
+        landingM = try optionalDouble(.landingM, .landingSnake)
+        expectedRemainingM = try optionalDouble(.expectedRemainingM, .expectedRemainingSnake)
+        role = try container.decodeIfPresent(String.self, forKey: .role)
+        planIndex = try container.decodeIfPresent(Int.self, forKey: .planIndex)
     }
 }
 

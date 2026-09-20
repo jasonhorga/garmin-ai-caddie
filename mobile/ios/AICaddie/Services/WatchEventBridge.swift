@@ -72,10 +72,25 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
 public struct WatchCaddiePlanStep: Codable, Equatable {
     public let clubName: String
     public let carryM: Double?
+    public let routeOffsetM: Double?
+    public let expectedRemainingM: Double?
+    public let role: String?
+    public let planIndex: Int?
 
-    public init(clubName: String, carryM: Double? = nil) {
+    public init(
+        clubName: String,
+        carryM: Double? = nil,
+        routeOffsetM: Double? = nil,
+        expectedRemainingM: Double? = nil,
+        role: String? = nil,
+        planIndex: Int? = nil
+    ) {
         self.clubName = clubName
         self.carryM = carryM
+        self.routeOffsetM = routeOffsetM
+        self.expectedRemainingM = expectedRemainingM
+        self.role = role
+        self.planIndex = planIndex
     }
 }
 
@@ -1234,6 +1249,10 @@ public final class WatchEventBridge: NSObject {
         let sequences = CaddiePlanSequence.sequences(from: decision)
         return CaddiePlanOption.options(from: decision).map { option in
             let sequence = sequences.first { $0.id == option.id }
+                ?? sequences.first {
+                    caddieSelectionToken(forRouteId: $0.id)
+                        == caddieSelectionToken(forRouteId: option.id)
+                }
             let clubName = option.clubName == "-" ? nil : option.clubName
             return WatchCaddieOption(
                 optionId: option.id,
@@ -1243,7 +1262,16 @@ public final class WatchEventBridge: NSObject {
                 carryP10M: option.p10M,
                 carryP90M: option.p90M,
                 sampleSize: option.sampleSize,
-                plan: sequence?.steps.map { WatchCaddiePlanStep(clubName: $0.clubName, carryM: $0.targetCarryM) },
+                plan: sequence?.steps.enumerated().map { index, step in
+                    WatchCaddiePlanStep(
+                        clubName: step.clubName,
+                        carryM: step.targetCarryM,
+                        routeOffsetM: step.routeOffsetM ?? step.landingM,
+                        expectedRemainingM: step.expectedRemainingM,
+                        role: step.role,
+                        planIndex: step.planIndex ?? index
+                    )
+                },
                 confidence: sequence?.confidence ?? option.confidence
             )
         }
@@ -1459,7 +1487,12 @@ public final class WatchEventBridge: NSObject {
             else { return nil }
             return WatchCaddiePlanStep(
                 clubName: clubName,
-                carryM: number(row["targetCarry_m"]) ?? number(row["targetCarryM"])
+                carryM: number(row["targetCarry_m"]) ?? number(row["targetCarryM"]),
+                routeOffsetM: number(row["routeOffset_m"]) ?? number(row["routeOffsetM"])
+                    ?? number(row["landing_m"]) ?? number(row["landingM"]),
+                expectedRemainingM: number(row["expectedRemaining_m"]) ?? number(row["expectedRemainingM"]),
+                role: string(row["role"]),
+                planIndex: integer(row["planIndex"])
             )
         }
     }
@@ -1494,6 +1527,10 @@ public final class WatchEventBridge: NSObject {
             return raw
         }
         return nil
+    }
+
+    private func integer(_ value: JSONValue?) -> Int? {
+        number(value).map { Int($0) }
     }
 }
 

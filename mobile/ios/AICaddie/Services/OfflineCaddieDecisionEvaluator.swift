@@ -42,8 +42,21 @@ public final class OfflineCaddieDecisionEvaluator {
         ) else {
             return nil
         }
-        let optionRows = seed.offlineOptions.map(optionPayload)
-        let selectedRow = optionPayload(selected)
+        let canonicalSteps = canonicalPlanSteps(from: request.context) ?? canonicalPlanSteps(from: seed.context)
+        let canonicalFirst = canonicalSteps?.first
+        let optionRows = seed.offlineOptions.map { option in
+            optionPayload(
+                option,
+                canonicalFirstStep: option.optionId == "stock" ? canonicalFirst : nil
+            )
+        }
+        let selectedRow = optionPayload(
+            selected,
+            canonicalFirstStep: selected.optionId == "stock" ? canonicalFirst : nil
+        )
+        let canonicalSequence = canonicalSteps.flatMap {
+            canonicalSequencePayload(steps: $0, selected: selected.optionId == "stock")
+        }
         let evidenceRefs = uniqueRefs([seed.sourceRef] + selected.sourceRefs + (selected.sampleRefs ?? []))
         let missingData = seed.missingData + (selected.missingData ?? [])
         let decisionId = offlineDecisionId(seed: seed, request: request, selected: selected)
@@ -60,8 +73,8 @@ public final class OfflineCaddieDecisionEvaluator {
             selected: selectedRow,
             selectedOptionId: selected.optionId,
             selectedOption: selectedRow,
-            sequences: nil,
-            selectedSequence: nil,
+            sequences: canonicalSequence.map { [$0] },
+            selectedSequence: canonicalSequence,
             avoidZones: [],
             forbiddenZones: [],
             acceptableMiss: [
@@ -88,28 +101,38 @@ public final class OfflineCaddieDecisionEvaluator {
         }
     }
 
-    private func optionPayload(_ option: OfflineCaddieOption) -> [String: JSONValue] {
+    private func optionPayload(
+        _ option: OfflineCaddieOption,
+        canonicalFirstStep: [String: JSONValue]? = nil
+    ) -> [String: JSONValue] {
+        let canonicalName = canonicalFirstStep.flatMap { string($0["clubName"] ?? $0["club"]) }
+        let clubName = canonicalName ?? option.clubName
+        let carry = canonicalFirstStep.flatMap { number($0["targetCarry_m"] ?? $0["targetCarryM"]) }
+            ?? option.carryM
+        var clubRow: [String: JSONValue] = [
+            "clubName": .string(clubName),
+            "median_m": .number(carry),
+            "p10_m": jsonNumberOrNull(option.p10M),
+            "p90_m": jsonNumberOrNull(option.p90M),
+            "sampleSize": .number(Double(option.sampleSize ?? 0)),
+            "confidence": .string(option.confidence ?? "low"),
+            "sourceRefs": .array(option.sourceRefs.map { .string($0) }),
+        ]
+        if let canonicalFirstStep {
+            clubRow["planIndex"] = canonicalFirstStep["planIndex"] ?? .number(0)
+        }
         var row: [String: JSONValue] = [
             "id": .string(option.optionId),
             "label": .string(option.label),
-            "clubName": .string(option.clubName),
-            "carryM": .number(option.carryM),
-            "carry_m": .number(option.carryM),
+            "clubName": .string(clubName),
+            "carryM": .number(carry),
+            "carry_m": .number(carry),
             "riskScore": .number(option.riskScore),
             "source": .string(option.source),
             "sourceRefs": .array(option.sourceRefs.map { .string($0) }),
             "clubRecommendation": .object([
-                "clubs": .array([
-                    .object([
-                        "clubName": .string(option.clubName),
-                        "median_m": .number(option.carryM),
-                        "p10_m": jsonNumberOrNull(option.p10M),
-                        "p90_m": jsonNumberOrNull(option.p90M),
-                        "sampleSize": .number(Double(option.sampleSize ?? 0)),
-                        "confidence": .string(option.confidence ?? "low"),
-                        "sourceRefs": .array(option.sourceRefs.map { .string($0) }),
-                    ])
-                ])
+                "source": canonicalFirstStep == nil ? .string(option.source) : .string("course_prep"),
+                "clubs": .array([.object(clubRow)])
             ]),
         ]
         if let p10M = option.p10M {
@@ -134,6 +157,65 @@ public final class OfflineCaddieDecisionEvaluator {
             row["missingData"] = .array(missingData.map { .object($0) })
         }
         return row
+    }
+
+    private func canonicalPlanSteps(
+        from context: [String: JSONValue]
+    ) -> [[String: JSONValue]]? {
+        guard case .array(let values) = context["canonicalShotPlan"] else { return nil }
+        let rows = values.compactMap { value -> [String: JSONValue]? in
+            guard case .object(let row) = value,
+                  let rawName = string(row["clubName"] ?? row["club"]),
+                  !rawName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+            return row
+        }
+        return rows.isEmpty ? nil : rows
+    }
+
+    private func canonicalSequencePayload(
+        steps: [[String: JSONValue]],
+        selected: Bool
+    ) -> [String: JSONValue]? {
+        guard selected, !steps.isEmpty else { return nil }
+        let clubs: [JSONValue] = steps.enumerated().compactMap { index, raw in
+            guard let name = string(raw["clubName"] ?? raw["club"]) else { return nil }
+            var row: [String: JSONValue] = [
+                "clubName": .string(name),
+                "role": raw["role"] ?? .string(index == 0 ? "advance" : "position"),
+                "planIndex": raw["planIndex"] ?? .number(Double(index)),
+            ]
+            for key in [
+                "targetCarry_m", "targetCarryM", "routeOffset_m", "routeOffsetM",
+                "landing_m", "landingM", "expectedRemaining_m", "expectedRemainingM",
+                "planVersion",
+            ] {
+                if let value = raw[key] { row[key] = value }
+            }
+            return .object(row)
+        }
+        guard !clubs.isEmpty else { return nil }
+        let label = steps.compactMap { string($0["clubName"] ?? $0["club"]) }.joined(separator: "-")
+        return [
+            "id": .string("stock"),
+            "label": .string(label),
+            "strategyLabel": .string("推荐"),
+            "clubs": .array(clubs),
+            "planSource": .string("course_prep"),
+            "planVersion": .string("ai-caddie-shot-plan-v1"),
+        ]
+    }
+
+    private func string(_ value: JSONValue?) -> String? {
+        guard case .string(let raw) = value else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func number(_ value: JSONValue?) -> Double? {
+        guard case .number(let raw) = value, raw.isFinite else { return nil }
+        return raw
     }
 
     private func offlineEvidence(seed: CaddieContextSeed, selected: OfflineCaddieOption) -> [[String: JSONValue]] {

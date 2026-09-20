@@ -17,6 +17,34 @@ struct MapFlightArc: Equatable {
     let end: CGPoint
 }
 
+/// One planned leg in the shared prep/live map. `routeOffsetM` is cumulative along the hole route;
+/// `carryM` remains the club's own target carry and is used only as a compatibility fallback when
+/// an older package has no cumulative offset.
+public struct MapPlannedShot: Identifiable, Equatable {
+    public let id: String
+    public let clubName: String
+    public let carryM: Double?
+    public let routeOffsetM: Double?
+    public let role: String?
+    public let planIndex: Int
+
+    public init(
+        id: String,
+        clubName: String,
+        carryM: Double? = nil,
+        routeOffsetM: Double? = nil,
+        role: String? = nil,
+        planIndex: Int = 0
+    ) {
+        self.id = id
+        self.clubName = clubName
+        self.carryM = carryM
+        self.routeOffsetM = routeOffsetM
+        self.role = role
+        self.planIndex = planIndex
+    }
+}
+
 /// 球洞 2D 俯视图:服务端渲染的真实球场图(球道/果岭/沙坑/水)+ 推荐打法叠加(两段飞行弧线 +
 /// 落点 + 球杆 + 旗杆)。备战和实战共用 —— 给它一个 `CoursePrepHole` 即可。
 /// 实战时可传 `selectedClub` + 该杆距离:切球杆/换策略时落点标记与球杆标签**实时联动**。
@@ -46,6 +74,11 @@ public struct HoleImageMapView: View {
     /// Live play can keep the factual landing marker/route while presenting the club answer in the
     /// caddie panel. This prevents a tiny map label from competing with the prominent "下一杆" copy.
     public let showsClubLabel: Bool
+    /// Complete caddie route. When present every leg is projected and selectable; an empty value
+    /// falls back to the historical single selected-club marker.
+    public let plannedShots: [MapPlannedShot]
+    /// Optional highlighted leg from the caddie detail sheet.
+    public let selectedPlanIndex: Int?
     /// Opening-tee distance reference. A non-nil value draws one S70-style cross-fairway arc at
     /// that carry distance; callers pass nil as soon as the player leaves the tee/records a shot.
     public let teeDistanceArcYards: Int?
@@ -63,7 +96,8 @@ public struct HoleImageMapView: View {
                 showsRecommendedRoute: Bool = true, showsHazards: Bool = true,
                 showsPrepFactOverlays: Bool = false, allowsRotation: Bool = false,
                 showsPrepClubLabel: Bool = true, showsClubLabel: Bool = true,
-                teeDistanceArcYards: Int? = nil) {
+                teeDistanceArcYards: Int? = nil,
+                plannedShots: [MapPlannedShot] = [], selectedPlanIndex: Int? = nil) {
         self.hole = hole
         self.selectedClub = selectedClub
         self.selectedClubMetres = selectedClubMetres
@@ -77,6 +111,8 @@ public struct HoleImageMapView: View {
         self.showsPrepClubLabel = showsPrepClubLabel
         self.showsClubLabel = showsClubLabel
         self.teeDistanceArcYards = teeDistanceArcYards
+        self.plannedShots = plannedShots
+        self.selectedPlanIndex = selectedPlanIndex
     }
 
     public var body: some View {
@@ -130,7 +166,9 @@ public struct HoleImageMapView: View {
     }
 
     private var preciseTopoURL: URL? {
-        hole.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame ? topoURL : nil
+        // A locally installed raster is authoritative even while the lightweight JSON row still
+        // says `partial`; only callers that have no local asset pass a remote URL for a ready row.
+        topoURL
     }
     #endif
 
@@ -141,6 +179,7 @@ public struct HoleImageMapView: View {
             row.count >= 2 ? CGPoint(x: row[0] * sx, y: row[1] * sy) : nil
         }
         let pin = resolvedPinPoint(overlay: overlay, sx: sx, sy: sy) ?? routePoints.last
+        let projectedPlan = projectedPlannedShots(overlay: overlay, sx: sx, sy: sy)
         let landingTargetMetres: Double? = {
             if selectedClub != nil { return selectedClubMetres }
             return showsPrepClubLabel ? hole.landingM : nil
@@ -161,19 +200,25 @@ public struct HoleImageMapView: View {
         // from Tee/current origin to the selected club's landing and another from landing to flag.
         // Until an authoritative landing distance exists, leave the flight plan absent instead of
         // drawing a misleading tee-to-flag line that looks like a recommendation.
-        if showsRecommendedRoute, let tee = routePoints.first, let landing, let pin {
-            for arc in Self.flightArcs(tee: tee, landing: landing, pin: pin) {
-                let path = Self.path(for: arc)
-                context.stroke(
-                    path,
-                    with: .color(.black.opacity(0.58)),
-                    style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
+        if showsRecommendedRoute, let tee = routePoints.first {
+            if !projectedPlan.isEmpty {
+                drawPlannedRoute(
+                    &context,
+                    tee: tee,
+                    pin: pin,
+                    shots: projectedPlan
                 )
-                context.stroke(
-                    path,
-                    with: .color(.white.opacity(0.96)),
-                    style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
-                )
+            } else if let landing, let pin {
+                for arc in Self.flightArcs(tee: tee, landing: landing, pin: pin) {
+                    drawFlightArc(&context, arc: arc)
+                }
+                drawPlanMarker(&context, at: landing, selected: true)
+                if showsClubLabel, let club = clubLabel {
+                    context.draw(
+                        Text(club).font(.caption2.weight(.bold)).foregroundColor(.white),
+                        at: Self.clubLabelPoint(landing: landing, pin: pin)
+                    )
+                }
             }
             context.fill(Path(ellipseIn: CGRect(x: tee.x - 5, y: tee.y - 5, width: 10, height: 10)), with: .color(.white))
         }
@@ -214,22 +259,114 @@ public struct HoleImageMapView: View {
                 at: labelPoint
             )
         }
-        // Landing point + club label: live (selected club's distance) when playing, else the prep's
-        // recommended landing. Switching clubs mid-shot moves the marker here.
-        if showsRecommendedRoute, let center = landing {
-            context.fill(Path(ellipseIn: CGRect(x: center.x - 8, y: center.y - 8, width: 16, height: 16)), with: .color(LiveHoleStyle.green))
-            context.fill(Path(ellipseIn: CGRect(x: center.x - 3, y: center.y - 3, width: 6, height: 6)), with: .color(.white))
-            if showsClubLabel, let club = clubLabel {
-                context.draw(
-                    Text(club).font(.caption2.weight(.bold)).foregroundColor(.white),
-                    at: Self.clubLabelPoint(landing: center, pin: pin)
-                )
-            }
-        }
         // Pin (green end of the route): a compact flag, never a target ring or crosshair.
         if showsRecommendedRoute, let pin {
             drawPinFlag(&context, at: pin)
         }
+    }
+
+    private func projectedPlannedShots(
+        overlay: CoursePrepOverlay,
+        sx: CGFloat,
+        sy: CGFloat
+    ) -> [(shot: MapPlannedShot, point: CGPoint)] {
+        let source: [MapPlannedShot]
+        if !plannedShots.isEmpty {
+            source = plannedShots
+        } else {
+            // The structured prep chain is also the map geometry source. Whether its club names
+            // are printed is a separate presentation decision; hiding labels must not remove the
+            // landing markers/flight path from the prep map.
+            source = hole.steps.enumerated().compactMap { index, step in
+                let name = step.clubName ?? step.club
+                guard let name, !name.isEmpty else { return nil }
+                return MapPlannedShot(
+                    id: "prep-\(step.planIndex ?? index)-\(name)",
+                    clubName: name,
+                    carryM: step.targetCarryM,
+                    routeOffsetM: step.routeOffsetM ?? step.landingM,
+                    role: step.role,
+                    planIndex: step.planIndex ?? index
+                )
+            }
+        }
+        guard !source.isEmpty else { return [] }
+        var cumulative = 0.0
+        return source.compactMap { shot in
+            let carry = shot.carryM.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+            if let carry { cumulative += carry }
+            let target = shot.routeOffsetM.flatMap { $0.isFinite ? $0 : nil } ?? cumulative
+            guard let row = Self.landingOverlayPoint(overlay, targetMetres: Self.safeTarget(target, overlay: overlay)) else {
+                return nil
+            }
+            return (
+                shot,
+                CGPoint(x: row[0] * sx, y: row[1] * sy)
+            )
+        }
+    }
+
+    private static func safeTarget(_ value: Double, overlay: CoursePrepOverlay) -> Double {
+        let end = overlay.route.last.flatMap { $0.count >= 3 ? $0[2] : nil } ?? overlay.ln
+        return min(max(value, 0), max(end, 0))
+    }
+
+    private func drawPlannedRoute(
+        _ context: inout GraphicsContext,
+        tee: CGPoint,
+        pin: CGPoint?,
+        shots: [(shot: MapPlannedShot, point: CGPoint)]
+    ) {
+        var origin = tee
+        for (position, item) in shots.enumerated() {
+            guard hypot(item.point.x - origin.x, item.point.y - origin.y) > 1 else { continue }
+            drawFlightArc(&context, arc: Self.flightArc(from: origin, to: item.point))
+            drawPlanMarker(
+                &context,
+                at: item.point,
+                selected: selectedPlanIndex == nil || selectedPlanIndex == item.shot.planIndex
+            )
+            if showsClubLabel && (selectedPlanIndex == nil || selectedPlanIndex == item.shot.planIndex) {
+                let label = zhClubDisplayName(zhClubName(item.shot.clubName))
+                context.draw(
+                    Text(label).font(.caption2.weight(.bold)).foregroundColor(.white),
+                    at: Self.clubLabelPoint(landing: item.point, pin: pin)
+                )
+            }
+            origin = item.point
+            // A plan can contain a final scoring leg that already reaches the flag. Avoid a duplicate
+            // full-width arc when the route offset and pin are effectively the same point.
+            if position == shots.count - 1, let pin,
+               hypot(pin.x - origin.x, pin.y - origin.y) > 3 {
+                drawFlightArc(&context, arc: Self.flightArc(from: origin, to: pin))
+            }
+        }
+    }
+
+    private func drawFlightArc(_ context: inout GraphicsContext, arc: MapFlightArc) {
+        let path = Self.path(for: arc)
+        context.stroke(
+            path,
+            with: .color(.black.opacity(0.58)),
+            style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
+        )
+        context.stroke(
+            path,
+            with: .color(.white.opacity(0.96)),
+            style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
+        )
+    }
+
+    private func drawPlanMarker(_ context: inout GraphicsContext, at point: CGPoint, selected: Bool) {
+        let outer = selected ? LiveHoleStyle.green : Color.white.opacity(0.64)
+        context.fill(
+            Path(ellipseIn: CGRect(x: point.x - 8, y: point.y - 8, width: 16, height: 16)),
+            with: .color(outer)
+        )
+        context.fill(
+            Path(ellipseIn: CGRect(x: point.x - 3, y: point.y - 3, width: 6, height: 6)),
+            with: .color(.white)
+        )
     }
 
     private func drawPinFlag(_ context: inout GraphicsContext, at point: CGPoint) {
@@ -766,10 +903,10 @@ struct RotatableMapViewport<Content: View>: View {
             .simultaneousGesture(
                 DragGesture(minimumDistance: 8)
                     .updating($dragOffset) { value, state, _ in
-                        if zoomScale > 1.01 { state = value.translation }
+                        if zoomScale * pinchScale > 1.01 { state = value.translation }
                     }
                     .onEnded { value in
-                        guard zoomScale > 1.01 else { return }
+                        guard zoomScale * pinchScale > 1.01 else { return }
                         let proposed = CGSize(
                             width: offset.width + value.translation.width,
                             height: offset.height + value.translation.height
@@ -784,7 +921,7 @@ struct RotatableMapViewport<Content: View>: View {
                     },
                 // Disable only this added drag while the map is at its fitted scale. The pinch and
                 // rotation gestures above remain enabled from the initial state.
-                including: zoomScale > 1.01 ? .all : .subviews
+                including: zoomScale * pinchScale > 1.01 ? .all : .subviews
             )
             .frame(width: width, height: height)
             .clipped()

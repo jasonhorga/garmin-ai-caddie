@@ -281,7 +281,7 @@ public struct MobileCourseSearchView: View {
                         Text(download.course.localizedName)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
-                        Text(download.course.resolvedSegmentLabel.map { "\($0) 场 · \(status)" } ?? status)
+                        Text("\(download.course.segmentDisplayTitle) · \(status)")
                             .font(.caption)
                             .foregroundStyle(download.phase == .failed ? .orange : .secondary)
                             .accessibilityHidden(true)

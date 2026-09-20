@@ -49,7 +49,6 @@ public struct RoundHomeView: View {
     public let onPrepareRound: (String) -> Void
     public let onPrepareCourseRound: (Int, String, String, String) -> Void
     public let onPrepareCompositeRound: (Int, Int, String, String) -> Void
-    public let onRememberCourseDisplayName: (Int, String) -> Void
     public let onChangeNine: (String) -> Void
     public let onFinishRound: () async -> Bool
     public let onDiscardRound: () -> Void
@@ -116,7 +115,6 @@ public struct RoundHomeView: View {
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
-        onRememberCourseDisplayName: @escaping (Int, String) -> Void = { _, _ in },
         onChangeNine: @escaping (String) -> Void = { _ in },
         onFinishRound: @escaping () async -> Bool = { false },
         onDiscardRound: @escaping () -> Void = {},
@@ -172,7 +170,6 @@ public struct RoundHomeView: View {
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onPrepareCompositeRound = onPrepareCompositeRound
-        self.onRememberCourseDisplayName = onRememberCourseDisplayName
         self.onChangeNine = onChangeNine
         self.onFinishRound = onFinishRound
         self.onDiscardRound = onDiscardRound
@@ -385,7 +382,6 @@ public struct RoundHomeView: View {
             onPrepareRound: onPrepareRound,
             onPrepareCourseRound: onPrepareCourseRound,
             onPrepareCompositeRound: onPrepareCompositeRound,
-            onRememberCourseDisplayName: onRememberCourseDisplayName,
             onSaveBackendConfiguration: onSaveBackendConfiguration,
             onClearBackendConfiguration: onClearBackendConfiguration,
             onConnectGarmin: { showSettings = true },

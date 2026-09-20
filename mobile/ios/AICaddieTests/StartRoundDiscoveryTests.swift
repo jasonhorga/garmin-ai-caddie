@@ -1,4 +1,5 @@
 import XCTest
+import AICaddieDomain
 @testable import AICaddie
 
 final class StartRoundDiscoveryTests: XCTestCase {
@@ -610,7 +611,10 @@ final class StartRoundDiscoveryTests: XCTestCase {
 
         XCTAssertEqual(group?.venue, venue)
         XCTAssertEqual(group?.segments.map(\.globalId), [31794, 31795, 31796])
-        XCTAssertEqual(group?.segments.map(\.segmentDisplayTitle), ["A 场", "B 场", "C 场"])
+        XCTAssertEqual(
+            group?.segments.map(\.segmentDisplayTitle),
+            ["第 1 个 9 洞组", "第 2 个 9 洞组", "第 3 个 9 洞组"]
+        )
         XCTAssertEqual(
             group?.segments.map(\.name),
             [venue, venue, venue]
@@ -634,8 +638,23 @@ final class StartRoundDiscoveryTests: XCTestCase {
             segmentHoles: 18
         )
 
-        XCTAssertEqual(unlabeledNine.segmentDisplayTitle, "未标注场区")
+        XCTAssertEqual(unlabeledNine.segmentDisplayTitle, "9 洞组")
         XCTAssertEqual(wholeEighteen.segmentDisplayTitle, "全场")
+    }
+
+    func testProviderCompositeLoopTokensStayOutOfUserFacingTitles() {
+        XCTAssertEqual(
+            GarminCourseNameAuthority.userFacingSegmentTitle(label: "A", holes: 9),
+            "第 1 个 9 洞组"
+        )
+        XCTAssertEqual(
+            GarminCourseNameAuthority.userFacingSegmentTitle(label: "AC", holes: 9),
+            "9 洞组"
+        )
+        XCTAssertEqual(
+            GarminCourseNameAuthority.userFacingSegmentTitle(label: nil, holes: 18),
+            "全场"
+        )
     }
 
     func testSecondNineCandidatesKeepOnlySameVenueNineHoleRows() {

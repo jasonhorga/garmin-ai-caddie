@@ -51,7 +51,7 @@ public struct CourseReviewView: View {
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                if let download {
+                if let download, download.phase != .ready {
                     downloadBanner(download)
                 }
                 // The prep contract is intentionally all-or-nothing: a download row may be
@@ -76,7 +76,8 @@ public struct CourseReviewView: View {
                                 initialHole: hole,
                                 offlineStore: offlineStore,
                                 managedDownload: download != nil,
-                                managedDownloadFailed: download?.phase == .failed
+                                managedDownloadFailed: download?.phase == .failed,
+                                onSwipeHole: { delta in moveHole(by: delta) }
                             )
                             .id("\(globalId):\(hole.hole)")
                         } else {
@@ -271,7 +272,7 @@ public struct CourseReviewView: View {
         case .queued: return "等待下载"
         case .preparing: return "准备地图 \(download.preparedHoles)/\(download.totalHoles) 洞"
         case .downloading: return "保存到本机 \(download.downloadedHoles)/\(download.totalHoles) 洞"
-        case .ready: return "球场已完整保存在本机"
+        case .ready: return ""
         case .failed: return download.errorText ?? "下载中断，返回上一页可继续"
         }
     }
@@ -341,6 +342,7 @@ private struct CourseReviewHoleCard: View {
     let offlineStore: OfflineStore?
     let managedDownload: Bool
     let managedDownloadFailed: Bool
+    let onSwipeHole: (Int) -> Void
 
     private var hole: CoursePrepHole { initialHole }
 
@@ -350,7 +352,8 @@ private struct CourseReviewHoleCard: View {
             topoURL: topoURL,
             isLoadingMap: false,
             mapUnavailable: managedDownloadFailed || topoURL == nil,
-            onRetryMap: nil
+            onRetryMap: nil,
+            onSwipeHole: onSwipeHole
         )
     }
 
@@ -373,6 +376,7 @@ struct HolePrepCard: View {
     var isLoadingMap = false
     var mapUnavailable = false
     var onRetryMap: (() -> Void)? = nil
+    var onSwipeHole: ((Int) -> Void)? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // This card is reached only after the complete local package gate. A missing local PNG
@@ -382,6 +386,10 @@ struct HolePrepCard: View {
                     hole: hole,
                     topoURL: topoURL,
                     showsPrepFactOverlays: true,
+                    // The plan rows below are the readable club summary. Keep the map focused on
+                    // route/landing facts instead of painting a large "一号木" label over fairway.
+                    showsPrepClubLabel: false,
+                    showsClubLabel: false,
                     allowsRotation: true
                 )
                     // Keep the AsyncImage loading/ready children in the accessibility tree while
@@ -412,6 +420,14 @@ struct HolePrepCard: View {
             if !cautionSummaries.isEmpty { cautionDisclosure }
         }
         .hubCard()
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 72)
+                .onEnded { value in
+                    guard let onSwipeHole,
+                          abs(value.translation.height) > abs(value.translation.width) * 1.35 else { return }
+                    onSwipeHole(value.translation.height > 0 ? 1 : -1)
+                }
+        )
     }
 
     private var pendingPreciseFacts: some View {
@@ -499,7 +515,7 @@ struct HolePrepCard: View {
             VStack(alignment: .leading, spacing: 7) {
                 ForEach(Array(hole.steps.enumerated()), id: \.offset) { _, step in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        if let club = step.club, !club.isEmpty {
+                        if let club = step.clubName ?? step.club, !club.isEmpty {
                             Text(zhClubName(club))
                                 .font(.caption.weight(.semibold))
                                 .padding(.horizontal, 7).padding(.vertical, 2)
@@ -540,7 +556,8 @@ struct HolePrepCard: View {
 
     /// 推荐(开球)球杆:优先 tee_club,其次首个 step 的球杆;转中文名。无则 nil。
     private var recommendedClub: String? {
-        guard let raw = hole.teeClub ?? hole.steps.first?.club, !raw.isEmpty else { return nil }
+        guard let raw = hole.teeClub ?? hole.steps.first?.clubName ?? hole.steps.first?.club,
+              !raw.isEmpty else { return nil }
         return zhClubName(raw)
     }
 

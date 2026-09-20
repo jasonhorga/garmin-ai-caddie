@@ -194,7 +194,8 @@ public enum WatchCourseTemplateBuilder {
                     clubs: clubs,
                     suggestedClub: prep?.teeClub,
                     routeDistanceM: $0,
-                    landingM: prep?.landingM
+                    landingM: prep?.landingM,
+                    preparedSteps: prep?.steps ?? []
                 )
             } ?? []
             let preparedNote = preparedTargetNote(
@@ -303,7 +304,8 @@ public enum WatchCourseTemplateBuilder {
         clubs: [WatchClubOption],
         suggestedClub: String?,
         routeDistanceM: Double,
-        landingM: Double?
+        landingM: Double?,
+        preparedSteps: [WatchCoursePrepStep] = []
     ) -> [WatchCaddieOption] {
         let measured = clubs
             .filter { option in
@@ -342,6 +344,18 @@ public enum WatchCourseTemplateBuilder {
             return lhsDelta < rhsDelta
         }
         let stockIndex = suggestedIndex ?? nearestIndex ?? usable.startIndex
+        let canonicalPlan = preparedSteps.enumerated().compactMap { index, step -> WatchCaddiePlanStep? in
+            let name = (step.clubName ?? step.club ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, name != "-" else { return nil }
+            return WatchCaddiePlanStep(
+                clubName: name,
+                carryM: step.targetCarryM,
+                routeOffsetM: step.routeOffsetM ?? step.landingM,
+                expectedRemainingM: step.expectedRemainingM,
+                role: step.role,
+                planIndex: step.planIndex ?? index
+            )
+        }
         var variants: [(id: String, label: String, first: WatchClubOption, bias: Double)] = []
         // ``usable`` is longest-first.  The immediate shorter/longer clubs are the factual safe and
         // attack alternatives around the standard recommendation.  At an edge, omit the missing
@@ -355,12 +369,15 @@ public enum WatchCourseTemplateBuilder {
         }
 
         return variants.map { variant in
-            let plan = preparedPlan(
-                first: variant.first,
-                clubs: usable,
-                routeDistanceM: routeDistanceM,
-                completionBias: variant.bias
-            )
+            let generatedPlan = preparedPlan(
+                    first: variant.first,
+                    clubs: usable,
+                    routeDistanceM: routeDistanceM,
+                    completionBias: variant.bias
+                )
+            let plan = variant.id == "stock" && !canonicalPlan.isEmpty
+                ? canonicalPlan
+                : generatedPlan
             return WatchCaddieOption(
                 optionId: variant.id,
                 label: variant.label,
@@ -390,17 +407,31 @@ public enum WatchCourseTemplateBuilder {
         var remaining = routeDistanceM
         var selected = first
         var plan: [WatchCaddiePlanStep] = []
+        var routeOffset = 0.0
         // Driver is a Tee-shot choice, never a follow-up recommendation. Without this separate
         // tail bag a long Par 5 could independently reconstruct 1W → 1W on Watch even though the
         // server and iPhone had already excluded that impossible route.
         let followUpClubs = clubs.filter { !isDriver($0.clubName) }
 
         while remaining > 25, plan.count < 3, let carry = selected.medianM {
-            plan.append(WatchCaddiePlanStep(clubName: selected.clubName, carryM: carry))
+            routeOffset = min(routeDistanceM, routeOffset + carry)
+            plan.append(
+                WatchCaddiePlanStep(
+                    clubName: selected.clubName,
+                    carryM: carry,
+                    routeOffsetM: routeOffset,
+                    expectedRemainingM: max(0, routeDistanceM - routeOffset),
+                    role: plan.isEmpty ? "advance" : "position",
+                    planIndex: plan.count
+                )
+            )
             remaining -= carry
             guard remaining > 25, !followUpClubs.isEmpty else { break }
             let target = remaining * completionBias
-            selected = followUpClubs.min {
+            let alternatives = followUpClubs.filter {
+                strategyClubKey($0.clubName) != strategyClubKey(selected.clubName)
+            }
+            selected = (alternatives.isEmpty ? followUpClubs : alternatives).min {
                 abs(($0.medianM ?? 0) - target) < abs(($1.medianM ?? 0) - target)
             } ?? selected
         }

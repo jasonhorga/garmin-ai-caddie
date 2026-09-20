@@ -1749,10 +1749,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('Picker("球场", selection: selectedVenueBinding)', start_view)
         self.assertIn("displayVenues", start_view)
         self.assertIn("selectedVenueName", start_view)  # venue derived from the selected segment (no desync)
-        self.assertIn(
+        self.assertNotIn(
             "onRememberCourseDisplayName(courseGlobalId, selectedRoundDisplayName)",
             start_view,
-        )  # resume/history must retain A/B/C or A+B, not collapse to the venue
+        )  # Garmin owns the venue title; starting a round must not write a manual label.
         self.assertIn("locationProvider.latestFix", start_view)
         self.assertIn("haversineMetres(", start_view)
         # 发球台用所选球场的真实 Tee(Garmin CourseView 颜色:金/黑/蓝/白/红…),#2d。
@@ -2175,6 +2175,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("hole: hole,", course_review)
         self.assertIn("topoURL: topoURL,", course_review)
         self.assertIn("showsPrepFactOverlays: true", course_review)
+        self.assertIn("showsClubLabel: false", course_review)
         self.assertIn("hole.sourceGlobalId ?? package.course.globalId", current_hole)
         self.assertIn("func loadHoleMap()", current_hole)
         # Play line is a smooth curve, not a polyline; landing marker + club label track the
@@ -2182,6 +2183,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("static func smoothPath(through points: [CGPoint]) -> Path", hole_map_view)
         self.assertIn("if selectedClub != nil { return selectedClubMetres }", hole_map_view)
         self.assertIn("return showsPrepClubLabel ? hole.landingM : nil", hole_map_view)
+        self.assertIn(
+            "if showsClubLabel && (selectedPlanIndex == nil || selectedPlanIndex == item.shot.planIndex)",
+            hole_map_view,
+        )
         self.assertIn(
             "HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,",
             current_hole,
@@ -2205,10 +2210,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('public static let topoStyleVersion = "topo-v11"', sync_client)
         self.assertIn('URLQueryItem(name: "v", value: topoStyleVersion)', sync_client)
         self.assertIn("TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)", hole_map_view)
-        self.assertIn(
-            'hole.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame ? topoURL : nil',
-            hole_map_view,
-        )
+        self.assertIn("TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)", hole_map_view)
         self.assertIn("enum MapSurfaceStyle", hub_style)
         self.assertIn("func mapSurface() -> some View", hub_style)
         self.assertIn("map.mapSurface()", hole_map_view)
@@ -2217,12 +2219,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("baseURL: caddieBaseURL", current_hole)
         self.assertIn("geometryRevision: geometryRevision", current_hole)
         self.assertIn('"live-hole-map-partial"', current_hole)
-        # Partial geometry must still expose the factual route/obstacle map. The old contract
-        # asserted a full opaque preparing surface here, which made the first hole look blank
-        # while the precise renderer and caddie request were still running.
+        # Partial geometry is held behind one bounded loading surface. Once the timeout expires,
+        # the factual lightweight map is allowed through as a stable fallback.
         self.assertIn("HoleImageMapView(hole: holePrep", current_hole)
         self.assertIn("showsHazards: true", current_hole)
-        self.assertNotIn("LiveMapPreparingSurface(holeNumber: holePrep.hole)", current_hole)
+        self.assertIn("LiveMapPreparingSurface(holeNumber: hole.number)", current_hole)
+        self.assertIn("preciseMapTimedOut", current_hole)
         self.assertIn('accessibilityIdentifier("live-map-preparing-surface")', live_hole_components)
 
     def test_topo_style_version_invalidates_phone_watch_caches_and_transfers(self) -> None:
@@ -3049,8 +3051,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('evidenceRefs: evidenceRefs', evaluator)
         self.assertIn("selectedOptionId: selected.optionId", evaluator)
         self.assertIn("selectedOption: selectedRow", evaluator)
-        self.assertIn("sequences: nil", evaluator)
-        self.assertIn("selectedSequence: nil", evaluator)
+        self.assertIn("sequences: canonicalSequence.map { [$0] }", evaluator)
+        self.assertIn("selectedSequence: canonicalSequence", evaluator)
+        self.assertIn("canonicalPlanSteps(from: request.context)", evaluator)
         self.assertIn('"offline_caddie"', evaluator)
         self.assertIn('"offline_selected_option"', evaluator)
         self.assertIn('"club_profile_confidence"', evaluator)

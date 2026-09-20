@@ -694,8 +694,9 @@ public struct WatchStartView: View {
             }
             .joined(separator: " · ")
         let holeText = match.holes.flatMap { $0 > 0 ? "\($0) 洞" : nil } ?? "洞数未知"
-        let segment = match.resolvedSegmentLabel.map { "\($0) 场" }
-        let facts = ([segment, location.isEmpty ? nil : location, holeText]).compactMap { $0 }
+        // A/B/C is Garmin's internal loop identity, not a course name. Keep search results
+        // consistent with round setup by showing only provider location and hole-count facts.
+        let facts = ([location.isEmpty ? nil : location, holeText]).compactMap { $0 }
         return facts.joined(separator: " · ")
     }
 }

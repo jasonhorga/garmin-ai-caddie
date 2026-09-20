@@ -247,7 +247,7 @@ public struct WatchCaddieOptionsView: View {
     ) -> [CGPoint] {
         guard let plan = option.plan,
               plan.count > 1,
-              let firstCarry = plan.first?.carryM ?? option.carryM,
+              let firstCarry = plan.first?.routeOffsetM ?? plan.first?.carryM ?? option.carryM,
               firstCarry.isFinite,
               firstCarry > 0,
               let progress = WatchHazardMapLayout.playerProgressMetres(
@@ -263,9 +263,17 @@ public struct WatchCaddieOptionsView: View {
         var targets: [CGPoint] = []
         if plan.count > 2 {
             for step in plan.dropFirst().dropLast() {
-                guard let carry = step.carryM, carry.isFinite, carry > 0 else { continue }
-                cumulative += carry
-                guard let target = WatchHazardMapLayout.imagePoint(on: route, atMetres: cumulative),
+                let targetMetres: Double
+                if let routeOffset = step.routeOffsetM, routeOffset.isFinite, routeOffset > 0 {
+                    targetMetres = progress + routeOffset
+                    cumulative = targetMetres
+                } else if let carry = step.carryM, carry.isFinite, carry > 0 {
+                    cumulative += carry
+                    targetMetres = cumulative
+                } else {
+                    continue
+                }
+                guard let target = WatchHazardMapLayout.imagePoint(on: route, atMetres: targetMetres),
                       hypot(target.x - previous.x, target.y - previous.y) > 1 else { continue }
                 targets.append(target)
                 previous = target
@@ -287,7 +295,10 @@ public struct WatchCaddieOptionsView: View {
                 on: route,
                 playerImagePoint: base.youPx
               ),
-              let target = WatchHazardMapLayout.imagePoint(on: route, atMetres: progress + carry)
+              let target = WatchHazardMapLayout.imagePoint(
+                  on: route,
+                  atMetres: progress + (option.plan?.first?.routeOffsetM ?? carry)
+              )
         else { return base }
 
         let apex = WatchHazardMapLayout.imagePoint(on: route, atMetres: progress + carry * 0.5)
@@ -321,7 +332,7 @@ public struct WatchCaddieOptionsView: View {
     }
 
     private func firstCarry(_ option: WatchCaddieOption) -> Double? {
-        option.plan?.first?.carryM ?? option.carryM
+        option.plan?.first?.routeOffsetM ?? option.plan?.first?.carryM ?? option.carryM
     }
 
     static func clubChain(_ option: WatchCaddieOption, compact: Bool) -> String {

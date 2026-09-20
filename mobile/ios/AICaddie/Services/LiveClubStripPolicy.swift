@@ -21,14 +21,12 @@ enum LiveClubStripPolicy {
         from decision: CaddieDecisionResponse,
         strategyMode requestedStrategyMode: String? = nil
     ) -> Recommendation? {
-        let sequences = CaddiePlanSequence.sequences(from: decision)
         let options = CaddiePlanOption.options(from: decision)
         let requestedMode = normalizedStrategyMode(requestedStrategyMode)
-        let selectedID = CaddiePlanSequence.selectedSequenceId(from: decision) ?? decision.selectedOptionId
-        let selectedSequence = sequences.first(where: { $0.id == selectedID })
-        let sequence = requestedMode.flatMap { mode in
-            sequences.first(where: { strategyMode(for: $0) == mode })
-        } ?? selectedSequence ?? sequences.first
+        let sequence = CaddiePlanSequence.selectedSequence(
+            from: decision,
+            strategyMode: requestedMode
+        )
         let selectedOption = options.first { $0.id == decision.selectedOptionId }
         let option = requestedMode.flatMap { mode in
             options.first(where: { strategyMode(for: $0) == mode })
