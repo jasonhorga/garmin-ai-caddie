@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-20 22:30 UTC
+**Updated:** 2026-09-20 23:34 UTC
 **Branch:** `integration/v2` (GitHub default; current `PHONE-UX6` source
 `df83de64ac4778b3e05fd89c528301ef8b00b336`, backend
 `aa05695f063d0d2d8b855e76c10174d6e4d1902f`; Source CI `35525485383` and
@@ -111,6 +111,23 @@ physical-device confirmation. User screenshots are resolved from
   `99` mobile contract tests in `6.734s`; the auto-removed test container left no
   resource. A commit, Source CI and fresh exact-SHA full Native run are still
   required before TestFlight.
+
+- **PHONE-UX7 exact-SHA Native checkpoint (2026-09-20 23:34 UTC):** Commit
+  `a8294c01` is pushed and Source CI `35541789309` passed. Exact-SHA Native run
+  `35541944918` passed iOS compile/unit/design, live catalogue, all seven
+  TeeSelection journeys, all Watch compile/test/design/runtime stages, artifact
+  scans, and both offline recovery routes. The independent identifiers are proven
+  in the saved trees with complete `Driver -> 3H` routes. Its sole failure is
+  `RealFlowUITests.swift:576`: the now-variable inline caddie and selected-hazard
+  rows push `记一杆`, `完成本洞`, and `计分卡` below the first glance. The run video
+  was inspected under
+  `/home/jason/garmin-ai-caddie-data/operations/phone-ux7-native-35541944918/real-video`;
+  it confirms a product layout defect rather than stale test semantics. The working
+  correction moves those three high-frequency actions into a fixed bottom safe-area
+  HUD while leaving complete routes and one-at-a-time hazards inline and scrollable.
+  The homeserver mobile contract suite passes `99/99` in `7.429s`; its auto-removed
+  container `codex-phone-ux7-layout-tests-20260920` left no resource. Commit, Source
+  CI, another exact-SHA Native run and internal TestFlight remain required.
 
 - **PHONE-UX6 implementation checkpoint (2026-09-20):** The canonical prep/live/Watch
   caddie chain now renders all planned legs and keeps plan selection synchronized;

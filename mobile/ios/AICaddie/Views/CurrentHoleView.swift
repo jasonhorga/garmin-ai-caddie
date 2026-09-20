@@ -405,6 +405,9 @@ public struct CurrentHoleView: View {
             offlineReadyMarker
             #endif
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            liveActionDock
+        }
     }
 
     private var liveHoleScrollView: some View {
@@ -440,7 +443,7 @@ public struct CurrentHoleView: View {
 
     private var livePrimaryPanel: some View {
         // The map and its two spatial instruments stay on one surface: complete shot plan first,
-        // then one selected obstacle, followed by the two high-frequency play actions.
+        // then one selected obstacle. High-frequency actions remain fixed in the bottom HUD.
         LivePlayPanel {
             LiveCaddiePlanPanel(
                 isLoading: isLoadingCaddieDecision,
@@ -466,7 +469,16 @@ public struct CurrentHoleView: View {
                     onNext: { selectHazard(at: selectedLiveHazardIndex + 1) }
                 )
             }
-            Divider().overlay(LivePlayStyle.stroke10)
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, -22)
+        .zIndex(2)
+    }
+
+    /// Route and hazard rows can grow without pushing the two playing actions or scorecard below
+    /// the first glance. Keep those controls in one fixed HUD while the map instrument scrolls.
+    private var liveActionDock: some View {
+        VStack(spacing: 6) {
             LiveHolePrimaryActions(
                 canRecordShot: liveCoordinateForCurrentHole != nil,
                 recordedShotCount: recordedNonPuttShotCount,
@@ -475,9 +487,17 @@ public struct CurrentHoleView: View {
             )
             LiveScorecardButton(onTap: { showScorecard = true })
         }
-        .padding(.horizontal, 10)
-        .padding(.top, -22)
-        .zIndex(2)
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+        .background(LivePlayStyle.panelFill.opacity(0.98).ignoresSafeArea(edges: .bottom))
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(LivePlayStyle.stroke10)
+                .frame(height: 1)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("live-action-dock")
     }
 
     private var liveSecondaryCards: some View {

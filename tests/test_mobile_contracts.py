@@ -3510,6 +3510,21 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn('Picker("策略"', current_hole)
         self.assertIn("LiveCaddiePlanPanel(", current_hole)
         self.assertIn("routes: liveCaddieRoutes", current_hole)
+        # Complete routes and inline hazards vary in height. High-frequency play actions belong to a
+        # fixed safe-area HUD, never below those variable rows in the scrolling primary panel.
+        self.assertIn(".safeAreaInset(edge: .bottom, spacing: 0)", current_hole)
+        self.assertIn("private var liveActionDock: some View", current_hole)
+        self.assertIn('accessibilityIdentifier("live-action-dock")', current_hole)
+        primary_panel = current_hole.split("private var livePrimaryPanel: some View", 1)[1].split(
+            "private var liveActionDock: some View", 1
+        )[0]
+        self.assertNotIn("LiveHolePrimaryActions(", primary_panel)
+        self.assertNotIn("LiveScorecardButton(", primary_panel)
+        action_dock = current_hole.split("private var liveActionDock: some View", 1)[1].split(
+            "private var liveSecondaryCards: some View", 1
+        )[0]
+        self.assertIn("LiveHolePrimaryActions(", action_dock)
+        self.assertIn("LiveScorecardButton(", action_dock)
         # A container identifier propagates through SwiftUI and overwrites the route/leg
         # identifiers. Keep the panel anchor on its title so assistive tech and UI tests can
         # address the complete route and every landing independently.
