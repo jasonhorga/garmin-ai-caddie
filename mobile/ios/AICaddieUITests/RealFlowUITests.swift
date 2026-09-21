@@ -667,7 +667,7 @@ final class RealFlowUITests: XCTestCase {
         let skipClub = app.buttons["跳过球杆（位置已记录）"]
         XCTAssertTrue(skipClub.waitForExistence(timeout: 3), "club may be skipped without discarding the GPS shot")
         skipClub.tap()
-        XCTAssertTrue(app.staticTexts["已记第 1 杆"].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForValue("已记第 1 杆", on: recordShotButton, timeout: 5))
         let recordedShotHoleHeading = app.staticTexts["第 1 洞"]
         XCTAssertTrue(
             recordedShotHoleHeading.waitForExistence(timeout: 5) && fullyVisible(recordedShotHoleHeading),
@@ -696,7 +696,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(cancelScore.waitForExistence(timeout: 3))
         cancelScore.tap()
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["已记第 1 杆"].exists)
+        XCTAssertEqual(recordShotButton.value as? String, "已记第 1 杆")
         XCTAssertTrue(saveHoleButton.waitForExistence(timeout: 5) && saveHoleButton.isHittable)
         settle(1); save("12b-score-cancelled"); dump("12b-score-cancelled")
         saveHoleButton.tap()
@@ -717,8 +717,9 @@ final class RealFlowUITests: XCTestCase {
             nextHoleShotButton.isEnabled,
             "changing holes must retain the latest GPS fix instead of leaving shot capture permanently disabled"
         )
-        XCTAssertFalse(
-            app.staticTexts["等待 GPS 定位后即可记杆"].exists,
+        XCTAssertNotEqual(
+            nextHoleShotButton.value as? String,
+            "等待 GPS",
             "a valid simulated live GPS fix must remain available after changing holes"
         )
 
@@ -1207,7 +1208,7 @@ final class RealFlowUITests: XCTestCase {
             "a no-GPS round must not record a fabricated current position"
         )
         XCTAssertTrue(
-            app.staticTexts["等待 GPS 定位后即可记杆"].waitForExistence(timeout: 5),
+            waitForValue("等待 GPS", on: noGPSRecord, timeout: 5),
             "the disabled shot action must explain that a factual GPS fix is required"
         )
         XCTAssertFalse(
@@ -1573,7 +1574,7 @@ final class RealFlowUITests: XCTestCase {
             XCTAssertTrue(skip.waitForExistence(timeout: 5))
             skip.tap()
         }
-        XCTAssertTrue(app.staticTexts["已记第 1 杆"].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForValue("已记第 1 杆", on: record, timeout: 5))
     }
 
     /// Complete one hole either through the one-tap recommendation or the locked manual order:

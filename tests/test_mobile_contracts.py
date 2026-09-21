@@ -3527,6 +3527,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("LiveHolePrimaryActions(", action_dock)
         self.assertNotIn("LiveScorecardButton(", action_dock)
         self.assertNotIn("在线方案尚未完成", current_hole)
+        self.assertIn('.accessibilityValue(Text(subtitle ?? ""))', live_components)
         # A container identifier propagates through SwiftUI and overwrites the route/leg
         # identifiers. Keep the panel anchor on its title so assistive tech and UI tests can
         # address the complete route and every landing independently.

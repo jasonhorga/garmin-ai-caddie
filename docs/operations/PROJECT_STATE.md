@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-21 00:36 UTC
+**Updated:** 2026-09-21 02:29 UTC
 **Branch:** `integration/v2` (GitHub default; current `PHONE-UX6` source
 `df83de64ac4778b3e05fd89c528301ef8b00b336`, backend
 `aa05695f063d0d2d8b855e76c10174d6e4d1902f`; Source CI `35525485383` and
@@ -153,6 +153,47 @@ physical-device confirmation. User screenshots are resolved from
   container `codex-phone-ux7-compact-hud-tests-20260921` left no resource. A new
   product commit, Source CI, exact-SHA Native Mobile run, screenshot inspection
   and internal TestFlight upload remain required.
+
+- **PHONE-UX7 compact-HUD gate (2026-09-21 00:47 UTC):** Product commit
+  `21f1167d` is pushed and Source CI `35548279782` passed all backend, frontend,
+  visual-smoke and Docker jobs. Candidate loopback and public health both report
+  backend revision `83d4d510aec5dc9ecbe9db82deba691d32e564ba`. Exact-app-SHA
+  Native Mobile CI `35548414629` is running against that candidate; iPhone
+  compile/unit/design and live catalogue preflight have passed, and the complete
+  live XCUITest journey is in progress. No TestFlight upload is authorized until
+  the new real screenshots prove the selected obstacle ranges remain above the
+  compact HUD and all Watch/runtime stages pass.
+
+- **PHONE-UX7 compact-HUD Native attempt 1 (2026-09-21 01:25 UTC):** Exact-SHA
+  run `35548414629` passed iPhone compile/unit/design, live catalogue preflight,
+  the dedicated review-edit journey, all seven TeeSelection journeys, all Watch
+  compile/test/design/runtime stages, artifact scans and secret scans. The broad
+  iPhone journey failed only at `RealFlowUITests.swift:162`: its single tap on the
+  already-loaded historical hole did not present the shot-map sheet within 12s,
+  before reaching the live-hole/HUD assertions. The saved screen tree proves the
+  selected 西郊 round and `round-review-hole-1` button were loaded and hittable;
+  the run video shows the review remaining unchanged after that tap, while the
+  independent review-edit journey opened and exercised the same map successfully.
+  No production/review code changed between this and passing run `35545624832`.
+  This is treated as a transient UI-automation input miss, not a passing gate and
+  not a reason to weaken product behavior or the assertion. Screenshots and video
+  are retained at
+  `/home/jason/garmin-ai-caddie-data/operations/phone-ux7-native-35548414629`;
+  rerun the complete exact-SHA gate before inspecting the new live-hole captures.
+
+- **PHONE-UX7 compact-HUD Native attempt 2 (2026-09-21 02:29 UTC):** Exact-SHA
+  rerun `35550953213` passed the historical-hole interaction that flaked in
+  attempt 1, iPhone compile/unit/design and live catalogue stages, all Watch
+  compile/test/design/runtime stages, artifact scans and secret scans. Its only
+  failure was the expected stale assertion at `RealFlowUITests.swift:1209`:
+  after the product moved shot state into the compact one-row HUD, the test still
+  searched for the removed standalone text `等待 GPS 定位后即可记杆`. The working
+  correction exposes the compact subtitle (`等待 GPS` or `已记第 1 杆`) as the
+  `记一杆` button's accessibility value and updates every affected XCUITest plus
+  a static contract. Homeserver mobile contracts pass `99/99` in `7.026s`; the
+  auto-removed container `codex-phone-ux7-action-state-tests-20260921` left no
+  resource. Swift compilation, Source CI, a fresh exact-SHA full Native run,
+  screenshot inspection and internal TestFlight remain required.
 
 - **PHONE-UX6 implementation checkpoint (2026-09-20):** The canonical prep/live/Watch
   caddie chain now renders all planned legs and keeps plan selection synchronized;

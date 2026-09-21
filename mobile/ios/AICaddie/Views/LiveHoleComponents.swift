@@ -1021,6 +1021,7 @@ struct LiveHoleActionDock: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+        .accessibilityValue(Text(subtitle ?? ""))
     }
 }
 
