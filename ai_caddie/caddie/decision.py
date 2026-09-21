@@ -888,7 +888,15 @@ def _canonical_sequence(
     travelled_m = 0.0
     seen_identities: set[str] = set()
     steps: list[dict[str, Any]] = []
+    truncated = False
     for index, raw in enumerate(raw_plan):
+        # CoursePrep is often produced from a slightly different centerline than the live
+        # distance. Once the accepted prefix is already within the tee overshoot tolerance, do
+        # not append the next prep leg: that leg would be drawn through or beyond the green. The
+        # next live lie must be recalculated instead of replaying a stale wedge/short iron.
+        if steps and travelled_m >= distance_m - CANONICAL_PLAN_MAX_OVERSHOOT_M:
+            truncated = index < len(raw_plan)
+            break
         name = str(_canonical_value(raw, "clubName", "club") or "").strip()
         club = row_by_identity.get(_club_identity(name))
         if club is None or (index > 0 and _driver_row(club)):
@@ -910,10 +918,10 @@ def _canonical_sequence(
         if not math.isfinite(carry) or carry <= 0:
             return None
         next_travelled_m = travelled_m + carry
-        # CoursePrep and live route geometry can use different path lengths (especially on doglegs),
-        # but a prep chain that places a later full swing materially past the live pin is stale. The
-        # old code clamped that row to the pin and still displayed the extra club, which produced
-        # routes such as Driver -> 3H -> 58 on a 345 m live hole. Re-plan instead.
+        # CoursePrep and live route geometry can use different path lengths (especially on doglegs).
+        # If the first leg itself is materially past the live pin, the chain is unusable. If an
+        # earlier accepted prefix is already near the pin, the guard above stops before this stale
+        # leg and keeps the safe prefix instead.
         if next_travelled_m > distance_m + CANONICAL_PLAN_MAX_OVERSHOOT_M:
             return None
         offset = min(distance_m, next_travelled_m)
@@ -930,11 +938,19 @@ def _canonical_sequence(
         step["planSource"] = str(context.get("canonicalPlanSource") or "course_prep")
         steps.append(step)
         travelled_m = next_travelled_m
+        if travelled_m >= distance_m - CANONICAL_PLAN_MAX_OVERSHOOT_M and index < len(raw_plan) - 1:
+            truncated = True
+            break
 
     if not steps:
         return None
     source_refs = _dedupe([ref for step in steps for ref in _sanitize_ref_list(step.get("sourceRefs"))])
     remaining = _float(steps[-1].get("expectedRemaining_m"), max(0.0, distance_m - travelled_m))
+    plan_source = str(context.get("canonicalPlanSource") or "course_prep")
+    if truncated:
+        plan_source = f"{plan_source}_prefix"
+        for step in steps:
+            step["planSource"] = plan_source
     return {
         "id": "stock",
         "label": "-".join(str(step.get("clubName") or "") for step in steps),
@@ -943,12 +959,17 @@ def _canonical_sequence(
         "totalPlannedCarry_m": round(sum(_float(step.get("targetCarry_m")) for step in steps), 1),
         "expectedRemaining_m": round(remaining, 1),
         "riskScore": _float((stock or {}).get("riskScore")),
-        "rationale": "Uses the CoursePrep opening plan and revalidates each landing against the current measured hazard model.",
-        "completion": "replan_required" if remaining > 20.0 else "scoring_window",
+        "rationale": (
+            "Uses the CoursePrep opening plan and revalidates each landing against the current "
+            "measured hazard model."
+            + (" The live route is shorter than the prep centerline; recalculate after this prefix." if truncated else "")
+        ),
+        "completion": "replan_required" if truncated or remaining > 20.0 else "scoring_window",
         "sourceRefs": source_refs,
         "coverage": _sequence_coverage(steps),
         "confidence": _sequence_confidence(steps),
-        "planSource": str(context.get("canonicalPlanSource") or "course_prep"),
+        "planSource": plan_source,
+        "truncated": truncated,
     }
 
 

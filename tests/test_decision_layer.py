@@ -594,6 +594,17 @@ class DecisionLayerTests(unittest.TestCase):
                 "riskRate": 10.0,
                 "usableRate": 90.0,
             },
+            # A single cold 8I sample happens to close the arithmetic gap almost exactly. It must
+            # not displace the validated CoursePrep prefix merely because it leaves 1-2 metres.
+            "8I": {
+                "clubName": "8I",
+                "sampleSize": 1,
+                "median": 147.4,
+                "p10": 147.4,
+                "p90": 147.4,
+                "riskRate": 100.0,
+                "usableRate": 0.0,
+            },
         }
         context["candidateRoutes"] = [
             {
@@ -644,7 +655,9 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIsNotNone(selected)
         self.assertEqual([step["clubName"] for step in selected["clubs"]], ["1W", "3H"])
         self.assertNotEqual([step["clubName"] for step in selected["clubs"]], ["3H", "3H"])
-        self.assertNotEqual(selected.get("planSource"), "course_prep")
+        self.assertEqual(selected.get("planSource"), "course_prep_prefix")
+        self.assertTrue(selected.get("truncated"))
+        self.assertEqual(selected.get("completion"), "replan_required")
         self.assertIn("tee_advancement", {row["code"] for row in plan["selected"]["selectionReasons"]})
 
     def test_sequence_reprojects_all_planning_hazards_from_each_new_lie(self) -> None:

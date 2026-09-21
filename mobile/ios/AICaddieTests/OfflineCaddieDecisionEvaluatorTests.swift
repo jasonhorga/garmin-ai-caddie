@@ -283,7 +283,11 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
             missingData: nil
         )
         let packageWithPrep = package.replacingCoursePrep(packagedPrep)
-        let seed = try XCTUnwrap(LiveCaddieSeedFactory.resolve(package: packageWithPrep, hole: hole, prep: nil))
+        // Resolve against the current package hole, not the fixture source hole. The source
+        // fixture intentionally carries a different yardage so this test proves that the
+        // installed package facts replace an older sparse seed.
+        let currentHole = try XCTUnwrap(packageWithPrep.holes.first)
+        let seed = try XCTUnwrap(LiveCaddieSeedFactory.resolve(package: packageWithPrep, hole: currentHole, prep: nil))
         if case .array(let rows)? = seed.context["clubProfiles"] {
             XCTAssertEqual(rows.count, 3)
         } else {

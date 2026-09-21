@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-21 11:42 UTC
+**Updated:** 2026-09-21 14:34 UTC
 **Branch:** `integration/v2` (GitHub default; current `PHONE-UX7` source
 `7d2834c0de74b55604533975e0fb6e2686a0d029`, backend candidate
 `83d4d510aec5dc9ecbe9db82deba691d32e564ba`; Source CI `35557799840` and
@@ -123,6 +123,63 @@ hazard switching, 12 rendered icons, no horizontal overflow and zero page errors
   server caddie `14/14`, mobile integration `96/96`, and changed-file
   compilation all pass. No commit, CI, deployment or TestFlight claim has been
   made yet.
+
+- **IMG-8160 live-seed boundary fix (2026-09-21 14:20 UTC):** Commit
+  `ec93c0f11e124db3e05ca35421da24abda4f5f8b` is pushed on
+  `integration/v2`. The post-Build-71 screenshot was also reproduced as an old
+  sparse live seed: it carried only course/hole/lie identity and omitted the
+  player club profiles, hole distance, canonical CoursePrep route and route
+  evidence. iOS now hydrates those missing facts from the installed package
+  before sending a decision request, including when the deferred per-hole prep
+  has not published on the first frame. The backend has a player-scoped,
+  cached compatibility hydration path for old clients/caches. Regressions
+  prove that a sparse Black Knight A1 request recovers `1W -> 3H`, not
+  `3H -> 3H`. Homeserver suites pass caddie/mobile/decision/golden `199/199`
+  and mobile contracts `99/99`; Source CI `35608955482` passed all jobs.
+  Candidate container `aicaddie-release-ec93c0f1-candidate-20260921` is
+  healthy on loopback `39075` from image
+  `garmin-ai-caddie-api:ec93c0f11e124db3e05ca35421da24abda4f5f8b-candidate-20260921`.
+  Its source snapshot is
+  `/home/jason/codex-runs/garmin-ai-caddie-ec93c0f1-candidate-20260921` and
+  verification scratch is
+  `/home/jason/codex-runs/garmin-ai-caddie-img8160-seedfix-20260921`; both are
+  tracked by cleanup manifest
+  `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260921T1405Z-img8160-seedfix/manifest.tsv`.
+  Keep the prior `2688d107` candidate on `39074` and its tunnel unchanged.
+  Next action is an authenticated sparse live-request proof against `39075`,
+  then a fresh Quick Tunnel and exact-SHA full Native Mobile run with manual
+  iPhone/Watch screenshot and decision-ledger inspection. Only after those
+  gates pass may the standing internal TestFlight upload and Apple status check
+  run automatically.
+
+- **IMG-8160 Native verification (2026-09-21 14:34 UTC):** Homeserver
+  capacity check passed (`94 GiB` free, `3.7 GiB` available memory). A new
+  HTTP/2 Quick Tunnel owned by this session forwards only
+  `127.0.0.1:39075`: public origin
+  `https://hours-assure-graphical-end.trycloudflare.com`, tmux session
+  `codex-img8160-seedfix-tunnel-20260921`, metrics port `20249`, logs at
+  `/home/jason/garmin-ai-caddie-data/operations/img8160-seedfix-tunnel-20260921`.
+  Expiry is 2026-09-22 14:24 UTC; the prior `codex-img8160-tunnel-20260921`
+  session still forwards the old `39074` candidate and is intentionally
+  untouched. Exact-SHA Native Mobile run `35612232849` was dispatched from
+  `integration/v2` with `capture_scope=full`, `fixture_mode=false`,
+  `require_live_preflight=true`, API origin above and expected backend
+  revision `ec93c0f11e124db3e05ca35421da24abda4f5f8b`; GitHub reports that
+  exact head SHA and the run is currently in the iOS app-target stage. No
+  screenshot or TestFlight success is claimed until the run completes and its
+  real evidence is inspected.
+
+- **IMG-8160 Native attempt 1 (2026-09-21 14:49 UTC):** Run `35612232849`
+  checked out exact `ec93c0f11e124db3e05ca35421da24abda4f5f8b`. The live API
+  preflight, iOS compile, 339/340 iOS unit tests, design/secret scans, all Watch
+  tests/runtime screenshots and artifact uploads completed; the iOS target was
+  failed only by `OfflineCaddieDecisionEvaluatorTests.testOldMinimalSeedIsAugmentedFromCurrentPackageFacts`.
+  The assertion expected 377 yards while the test passed the fixture's old
+  410-yard source hole into a separately constructed 377-yard package. This is
+  a test-fixture identity mistake, not a production failure; the working test
+  now resolves with `packageWithPrep.holes.first`. No TestFlight upload was
+  authorized. The decision-layer canonical-prefix change is still uncommitted
+  and requires a fresh Source/Native gate.
 
 - **PHONE-UX7 source/native checkpoint (2026-09-20 22:23 UTC):** Product commit
   `d66ac4fd` plus static-contract commit `83d4d510` are pushed. Source CI
