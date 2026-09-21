@@ -2026,7 +2026,87 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
-def hydrate_live_caddie_geometry_context(context: dict[str, Any]) -> dict[str, Any]:
+@lru_cache(maxsize=128)
+def _minimal_live_course_facts(
+    global_id: int,
+    local_hole: int,
+    player_id: str,
+    tee_box: str,
+) -> dict[str, Any]:
+    """Recover factual bag/route inputs for an old, underspecified live seed.
+
+    This is deliberately a last-resort compatibility path. Current packages carry these facts
+    already, so normal requests do no extra work. A stale iOS cache can contain only identity and
+    one short club; using the same player-scoped ladder and lightweight CourseView prep that builds
+    a fresh package prevents the decision endpoint from inventing a repeated short-club route.
+    Only compact facts are cached, never the rendered map bytes.
+    """
+    try:
+        ladder = course_prep.effective_club_ladder(player_id)
+    except Exception:
+        ladder = []
+    profiles = [
+        {
+            "clubName": str(name),
+            "sampleSize": 0,
+            "median_m": float(distance),
+            "p10_m": round(float(distance) * 0.85, 1),
+            "p90_m": round(float(distance) * 1.10, 1),
+            "fallbackSource": "player_ladder_default",
+        }
+        for name, distance in (ladder or [])
+        if str(name).strip() and _safe_float(distance) and _safe_float(distance) > 0
+    ]
+    prep_facts: dict[str, Any] = {}
+    try:
+        prep = course_prep.lightweight_prep_hole(
+            int(global_id),
+            int(local_hole),
+            ladder=ladder or None,
+            player_id=player_id,
+        )
+    except Exception:
+        prep = None
+    if isinstance(prep, dict):
+        for key in ("blue_yards", "route_len_m", "par", "par_source", "tee_club"):
+            if prep.get(key) is not None:
+                prep_facts[key] = prep[key]
+        steps = [dict(row) for row in (prep.get("steps") or []) if isinstance(row, dict)]
+        if steps:
+            prep_facts["steps"] = steps
+        routes = [dict(row) for row in (prep.get("candidateRoutes") or []) if isinstance(row, dict)]
+        if routes:
+            prep_facts["candidateRoutes"] = routes
+    return {"clubProfiles": profiles, "prep": prep_facts}
+
+
+def _merge_live_club_profiles(
+    existing: list[dict[str, Any]],
+    fallback: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Fill missing physical clubs without overwriting measured values from the request."""
+    from ai_caddie.caddie.club_bag import canonical_club_name
+
+    merged = [dict(row) for row in existing if isinstance(row, dict)]
+    seen = {
+        canonical_club_name(str(row.get("clubName") or row.get("club") or ""))
+        or str(row.get("clubName") or row.get("club") or "").strip().casefold()
+        for row in merged
+    }
+    for row in fallback:
+        name = str(row.get("clubName") or row.get("club") or "").strip()
+        key = canonical_club_name(name) or name.casefold()
+        if name and key not in seen:
+            merged.append(dict(row))
+            seen.add(key)
+    return merged
+
+
+def hydrate_live_caddie_geometry_context(
+    context: dict[str, Any],
+    *,
+    player_id: str = OWNER_ID,
+) -> dict[str, Any]:
     """Refresh a cold iOS decision seed once precise geometry finishes.
 
     A new course intentionally starts from the small CourseView package while prodgeometry is
@@ -2061,11 +2141,56 @@ def hydrate_live_caddie_geometry_context(context: dict[str, Any]) -> dict[str, A
     else:
         club_profiles = []
 
+    # Older installed packages can carry no bag, no yardage, and no CoursePrep chain even though
+    # the server has all three facts. Hydrate those facts once, before route evidence and candidate
+    # generation; otherwise the decision layer sees one stale 3H and is forced to repeat it.
+    usable_profile_count = sum(
+        1
+        for row in club_profiles
+        if (_safe_float(row.get("median_m") if row.get("median_m") is not None else row.get("median")) or 0) > 0
+    )
+    needs_fallback_facts = usable_profile_count < 2 or not (
+        (_safe_float(context.get("yards")) or 0) > 0
+        or (_safe_float(context.get("holeRemaining_m")) or 0) > 0
+    )
+    fallback_facts = _minimal_live_course_facts(
+        int(global_id),
+        int(local_hole),
+        str(player_id or OWNER_ID),
+        str(context.get("teeBox") or "unknown"),
+    ) if needs_fallback_facts else {}
+    fallback_profiles = fallback_facts.get("clubProfiles") if isinstance(fallback_facts, dict) else []
+    if isinstance(fallback_profiles, list) and fallback_profiles:
+        club_profiles = _merge_live_club_profiles(club_profiles, fallback_profiles)
+        # The decision layer's compact profile surface is a name-keyed map. Normalize here even
+        # when the stale request omitted the field entirely; leaving a list makes option rendering
+        # fail after hydration has otherwise recovered the missing facts.
+        refreshed["clubProfiles"] = _decision_club_profiles(club_profiles)
+        refreshed["liveFactsFallback"] = "player_ladder_and_lightweight_prep"
+    prep_facts = fallback_facts.get("prep") if isinstance(fallback_facts, dict) else {}
+    if isinstance(prep_facts, dict):
+        if not (_safe_float(refreshed.get("yards")) or 0) and (_safe_float(prep_facts.get("blue_yards")) or 0) > 0:
+            refreshed["yards"] = int(round(float(prep_facts["blue_yards"])))
+        if not (_safe_float(refreshed.get("par")) or 0) and (_safe_float(prep_facts.get("par")) or 0) > 0:
+            refreshed["par"] = int(round(float(prep_facts["par"])))
+        if not isinstance(context.get("canonicalShotPlan"), list) or not context.get("canonicalShotPlan"):
+            if prep_facts.get("steps"):
+                refreshed["canonicalShotPlan"] = list(prep_facts["steps"])
+                refreshed["canonicalPlanSource"] = "course_prep_compatibility"
+                refreshed["canonicalPlanVersion"] = "ai-caddie-shot-plan-v1"
+        if not (_safe_float(refreshed.get("canonicalPlanRouteLength_m")) or 0) and (
+            _safe_float(prep_facts.get("route_len_m")) or 0
+        ) > 0:
+            refreshed["canonicalPlanRouteLength_m"] = float(prep_facts["route_len_m"])
+
+    if club_profiles and not isinstance(raw_profiles, dict):
+        refreshed["clubProfiles"] = _decision_club_profiles(club_profiles)
+
     source_ref = str(context.get("sourceRef") or f"live-course-{global_id}:{local_hole}")
     route_evidence, _route_evidence_rows, route_missing = _route_evidence_seed(
         global_id,
         local_hole,
-        {"yards": context.get("yards")},
+        {"yards": refreshed.get("yards")},
         source_ref,
         club_profiles,
         str(context.get("teeBox") or "unknown"),
@@ -2130,10 +2255,10 @@ def hydrate_live_caddie_geometry_context(context: dict[str, Any]) -> dict[str, A
         if target_distance_m > 0:
             refreshed["holeRemaining_m"] = round(target_distance_m, 1)
         candidate_routes = _tee_candidate_routes(
-            {"yards": context.get("yards")},
+            {"yards": refreshed.get("yards")},
             club_profiles,
             geometry.get("hazards") or [],
-            par=_safe_int(context.get("par")) or 4,
+            par=_safe_int(refreshed.get("par")) or 4,
             target_m=target_distance_m,
             avoid_zones=route_evidence.get("avoidZones") or [],
         )

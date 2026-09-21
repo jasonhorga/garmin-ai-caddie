@@ -15,6 +15,72 @@ from server_v2.main import app
 
 
 class ServerV2CaddieTests(unittest.TestCase):
+    def test_minimal_old_ios_seed_recovers_full_black_knight_tee_plan(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from server_v2 import caddie
+        from server_v2.models import CaddieDecisionRequest
+
+        request = CaddieDecisionRequest(
+            shotType="tee",
+            context={
+                "source": "ios_live",
+                "sourceRef": "live-31794:1",
+                "roundId": "live-31794",
+                "courseName": "北京天竺黑骑士球员俱乐部",
+                "globalId": 31794,
+                "localHole": 1,
+                "hole": 1,
+                "lie": "tee",
+                "teeBox": "blue",
+            },
+            includeExplanation=False,
+        )
+        facts = {
+            "clubProfiles": [
+                {"clubName": "1W", "sampleSize": 160, "median_m": 199.2, "p10_m": 150.0, "p90_m": 232.0},
+                {"clubName": "3H", "sampleSize": 25, "median_m": 164.6, "p10_m": 145.0, "p90_m": 183.0},
+                {"clubName": "7I", "sampleSize": 40, "median_m": 128.0, "p10_m": 112.0, "p90_m": 140.0},
+            ],
+            "prep": {
+                "blue_yards": 377,
+                "route_len_m": 344.7,
+                "par": 4,
+                "steps": [
+                    {"clubName": "1W", "targetCarry_m": 199.2, "routeOffset_m": 199.2, "planIndex": 0},
+                    {"clubName": "3H", "targetCarry_m": 164.6, "routeOffset_m": 363.8, "planIndex": 1},
+                ],
+            },
+        }
+        geometry = {
+            "coverage": "ready",
+            "hasHazards": True,
+            "hasMeshes": True,
+            "hazardCount": 1,
+            "hazards": [{"id": "bunker-left", "kind": "bunker"}],
+        }
+        route = {"routeLength_m": 344.7, "avoidZones": [], "missingData": []}
+        with (
+            patch.object(mobile_live, "_minimal_live_course_facts", return_value=facts),
+            patch.object(mobile_live, "_geometry_seed", return_value=(geometry, [], [])),
+            patch.object(mobile_live, "_route_evidence_seed", return_value=(route, [], [])),
+            patch.object(caddie, "store_decision"),
+            patch.object(caddie, "build_decision_from_request", wraps=caddie.build_decision_from_request) as build,
+        ):
+            response = caddie.build_caddie_decision_response(request)
+
+        self.assertEqual(response.selectedOptionId, "stock")
+        self.assertEqual(
+            [row["clubName"] for row in response.selectedSequence["clubs"]],
+            ["1W", "3H"],
+        )
+        self.assertNotEqual(
+            [row["clubName"] for row in response.selectedSequence["clubs"]],
+            ["3H", "3H"],
+        )
+        hydrated = build.call_args.args[0]["context"]
+        self.assertEqual(hydrated["yards"], 377)
+        self.assertEqual(len(hydrated["clubProfiles"]), 3)
+
     def test_live_gps_surface_phase_overrides_stale_client_default(self) -> None:
         from ai_caddie.caddie.decision_api import build_decision_from_request
         from server_v2 import caddie

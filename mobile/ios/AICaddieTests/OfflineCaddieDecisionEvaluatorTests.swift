@@ -200,6 +200,112 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         XCTAssertTrue(LiveCaddieDecisionUsability.hasRecommendation(decision))
     }
 
+    func testOldMinimalSeedIsAugmentedFromCurrentPackageFacts() throws {
+        let source = try fixturePackage()
+        let hole = try XCTUnwrap(source.holes.first)
+        let profiles = [
+            ClubProfile(clubName: "1W", sampleSize: 120, medianM: 199.2, p10M: 150, p90M: 232),
+            ClubProfile(clubName: "3H", sampleSize: 25, medianM: 164.6, p10M: 145, p90M: 183),
+            ClubProfile(clubName: "7I", sampleSize: 40, medianM: 83, p10M: 74, p90M: 92),
+        ]
+        let package = LiveRoundPackage(
+            schema: source.schema,
+            roundId: "black-knight-a-live",
+            dataMode: source.dataMode,
+            sourceCoverage: source.sourceCoverage,
+            missingData: source.missingData,
+            playerProfile: source.playerProfile,
+            course: Course(globalId: 31794, name: "北京天竺黑骑士球员俱乐部 ~ A", teeBox: "blue"),
+            holes: [Hole(
+                number: 1,
+                par: 4,
+                yards: 377,
+                geometryCoverage: .ready,
+                sourceGlobalId: 31794,
+                sourceLocalHole: 1
+            )],
+            nine: "all",
+            coursePrep: nil,
+            geometryCoverage: GeometryCoverage(state: .ready, readyHoles: 1, totalHoles: 1),
+            readinessChecks: source.readinessChecks,
+            caddieContextSeeds: [CaddieContextSeed(
+                hole: 1,
+                sourceRef: "black-knight-a-live:1",
+                shotTypes: ["tee"],
+                requiredLiveInputs: ["currentLocation"],
+                enrichmentState: "deferred",
+                context: [
+                    "courseName": .string("北京天竺黑骑士球员俱乐部"),
+                    "globalId": .number(31794),
+                    "localHole": .number(1),
+                    "hole": .number(1),
+                    "lie": .string("tee"),
+                ],
+                selectedOfflineOptionId: "stock",
+                offlineOptions: [],
+                evidence: [],
+                missingData: []
+            )],
+            weatherSnapshot: source.weatherSnapshot,
+            clubProfiles: profiles,
+            caddieDecisionEndpoint: source.caddieDecisionEndpoint,
+            offlinePackageStatus: source.offlinePackageStatus,
+            eventCursor: source.eventCursor,
+            recentHistory: source.recentHistory,
+            cachedCaddieRules: source.cachedCaddieRules,
+            generatedAt: source.generatedAt
+        )
+        let prep = CoursePrepHole(
+            hole: 1,
+            par: 4,
+            parSource: "courseview",
+            blueYards: 377,
+            routeLenM: 344.7,
+            geometryCoverage: "ready",
+            steps: [
+                CoursePrepStep(
+                    club: "1W", note: "", clubName: "1W", targetCarryM: 199.2,
+                    routeOffsetM: 199.2, landingM: 199.2, expectedRemainingM: 145.5,
+                    role: "tee", planIndex: 0
+                ),
+                CoursePrepStep(
+                    club: "3H", note: "", clubName: "3H", targetCarryM: 164.6,
+                    routeOffsetM: 363.8, landingM: 363.8, expectedRemainingM: 0,
+                    role: "advance", planIndex: 1
+                ),
+            ]
+        )
+
+        let packagedPrep = CoursePrepPackage(
+            schema: "ai-caddie-course-prep-package-v1",
+            globalId: 31794,
+            holes: [prep],
+            missingData: nil
+        )
+        let packageWithPrep = package.replacingCoursePrep(packagedPrep)
+        let seed = try XCTUnwrap(LiveCaddieSeedFactory.resolve(package: packageWithPrep, hole: hole, prep: nil))
+        if case .array(let rows)? = seed.context["clubProfiles"] {
+            XCTAssertEqual(rows.count, 3)
+        } else {
+            XCTFail("augmented seed must carry the current package club profiles")
+        }
+        if case .array(let rows)? = seed.context["canonicalShotPlan"] {
+            XCTAssertEqual(rows.count, 2)
+        } else {
+            XCTFail("augmented seed must carry the current CoursePrep chain")
+        }
+        XCTAssertEqual(seed.context["yards"], .number(377))
+        XCTAssertEqual(seed.context["canonicalPlanRouteLength_m"], .number(344.7))
+
+        let request = CaddieDecisionRequestBuilder().makeDecisionRequest(
+            seed: seed,
+            input: LiveCaddieInput(shotType: "tee", distanceToPinM: 344.7)
+        )
+        XCTAssertEqual(request.context["source"], .string("ios_live"))
+        XCTAssertEqual(request.context["clubProfiles"], seed.context["clubProfiles"])
+        XCTAssertEqual(request.context["canonicalShotPlan"], seed.context["canonicalShotPlan"])
+    }
+
     func testEmptyOnlineDecisionIsNotUsableAndMustFallBack() {
         let empty = CaddieDecisionResponse(
             schema: "ai-caddie-decision-v2",

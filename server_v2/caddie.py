@@ -40,7 +40,10 @@ def build_caddie_decision_response(
     request: CaddieDecisionRequest, *, player_id: str = OWNER_ID
 ) -> CaddieDecisionResponse:
     payload = request.model_dump()
-    payload["context"] = hydrate_live_caddie_geometry_context(payload.get("context") or {})
+    payload["context"] = hydrate_live_caddie_geometry_context(
+        payload.get("context") or {},
+        player_id=player_id,
+    )
     gps_shot_type = payload["context"].get("gpsSuggestedShotType")
     if gps_shot_type in {"tee", "approach", "recovery"}:
         payload["shotType"] = gps_shot_type
