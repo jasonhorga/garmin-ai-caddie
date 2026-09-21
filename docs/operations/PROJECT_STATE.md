@@ -9,17 +9,19 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-21 03:29 UTC
-**Branch:** `integration/v2` (GitHub default; current `PHONE-UX6` source
-`df83de64ac4778b3e05fd89c528301ef8b00b336`, backend
-`aa05695f063d0d2d8b855e76c10174d6e4d1902f`; Source CI `35525485383` and
-exact-SHA Native Mobile CI `35525505845` passed, including iOS/Watch runtime
-evidence; API candidate
-`https://mat-propecia-bidder-suppliers.trycloudflare.com` remains on loopback
-`39072`; internal TestFlight CD `35528165601` uploaded Build 70 and Apple
-read-only check `35528692568` confirmed it valid and available to the existing
-internal all-builds group. Physical iPhone/Watch validation remains open; prior
-localized-course-name and network releases remain recorded below)
+**Updated:** 2026-09-21 05:52 UTC
+**Branch:** `integration/v2` (GitHub default; current `PHONE-UX7` source
+`7d2834c0de74b55604533975e0fb6e2686a0d029`, backend candidate
+`83d4d510aec5dc9ecbe9db82deba691d32e564ba`; Source CI `35557799840` and
+exact-SHA Native Mobile CI `35561635024` passed, including iPhone/Watch
+runtime evidence; API candidate
+`https://readings-quad-come-layout.trycloudflare.com` remains on loopback
+`39073`; internal TestFlight CD `35564616252` uploaded Build 71 and Apple
+read-only check `35565388266` confirmed `VALID`, unexpired,
+`IN_BETA_TESTING`, and visible to the existing internal all-builds group.
+Apple reported `internalReady=false`; physical iPhone/Watch installation and
+interaction validation remain open; prior localized-course-name and network
+releases remain recorded below)
 **Source baseline:** `d8769916d4b7ea1fc8b2bdcfb151a67f944a6eb0` (PHONE-UX5
 course-name source; Source CI `35005531664`, Native Mobile CI `35005819951`,
 and internal TestFlight CD `35013065767` passed/uploaded; Apple read-only check
@@ -50,17 +52,16 @@ release-scope decision; do not pause for routine TestFlight execution.
 
 ## Current Work Summary
 
-**Current slice (2026-09-20):** `PHONE-UX7` is the single active implementation
-slice for the post-Build-70 live-round feedback. First reproduce and correct
-Black Knight A3's missing caddie recommendation, Black Knight A4's omitted
-left-green bunker, and the add/remove-back-nine path that reloads downloaded
-geometry and fails to publish UI changes immediately. The live fairway map is
-the operational center: live decisions must not depend on prep having run, and
-existing package geometry must be reused. The owner also requested a separate
-game-like visual redesign for review; produce a proposal grounded in the real
-live screen, but do not broadly replace the production visual system until the
-owner confirms that direction. `PHONE-UX6` release evidence remains open for
-physical-device confirmation. User screenshots are resolved from
+**Current slice (2026-09-21):** `PHONE-UX7` is now `evidence-open` after the
+post-Build-70 live-round fixes passed source, iPhone, Watch, backend, and
+internal TestFlight gates. Black Knight A3 now has a complete local caddie
+route when no prep seed exists, Black Knight A4 enumerates every precise
+hazard including both greenside bunkers, and installed back-nine add/remove is
+local-first with immediate UI publication. The owner also requested a separate
+game-like visual redesign for review; the proposal is published, but the
+production visual system must not be replaced until the owner confirms that
+direction. Physical iPhone/Watch installation and interaction evidence remains
+open. User screenshots are resolved from
 `/home/ubuntu/IMG_*` before repository paths.
 
 - **PHONE-UX7 verification resource (2026-09-20 20:51 UTC):** Homeserver capacity
@@ -70,8 +71,10 @@ physical-device confirmation. User screenshots are resolved from
   backend verification and the bounded visual-proposal review. Focused Python
   tests use the existing project API image through one auto-removed container named
   `codex-phone-ux7-tests-20260920`; no virtualenv, volume, port, tunnel or
-  service is created. The snapshot expires 2026-09-21 20:51 UTC and must be
-  removed after the evidence is copied back into this ledger.
+  service is created. The snapshot expired 2026-09-21 20:51 UTC and was
+  removed after the evidence was copied back into this ledger; the exact
+  cleanup manifest is retained under
+  `/home/jason/garmin-ai-caddie-data/cleanup-manifests/`.
 
 - **PHONE-UX7 implementation checkpoint (2026-09-20 21:15 UTC):** The current
   working tree synthesizes a factual live caddie seed when a hole has no deferred
@@ -212,6 +215,56 @@ physical-device confirmation. User screenshots are resolved from
   `codex-phone-ux7-hud-overlap-tests-20260921` left no resource. A new product
   commit, Source CI, exact-SHA full Native run, screenshot inspection and
   internal TestFlight remain required.
+
+- **PHONE-UX7 compact-HUD Native attempt 4 (2026-09-21 04:36 UTC):** Commit
+  `7d2834c0` and Source CI `35557799840` passed. Exact-SHA Native run
+  `35557970380` passed the complete 1210.078-second RealFlow journey, all seven
+  TeeSelection journeys, iPhone compile/unit/design/live-catalogue stages, all
+  Watch compile/test/design/runtime stages, artifact scans and secret scans.
+  Manual inspection of `10-live-hole`, `10b-live-hazard` and `11-caddie-plan`
+  confirms the complete `Driver -> 3H` route, selectable obstacle `2/4`, and
+  front/back ranges above the one-row HUD. Its only failure occurred before the
+  independent ReviewEdit UI launched: a direct setup request to
+  `/api/v2/history/rounds` received one Cloudflare HTTP 502. Candidate health
+  immediately remained HTTP 200 at backend revision `83d4d510`; this is a
+  transient tunnel response rather than a product assertion failure. The 157
+  iPhone evidence files are retained at
+  `/home/jason/garmin-ai-caddie-data/operations/phone-ux7-native-35557970380/real-screenshots`
+  with `10-live-hole.png` SHA-256
+  `dfaaca3c11d6b1d32387c0656eecbcb9b120192daefe705dd4ccde1cec4e446f`;
+  the verified local temporary copy was removed. Fresh exact-SHA full Native
+  rerun `35561635024` is in progress against the same candidate. TestFlight
+  remains gated on that full rerun passing.
+
+- **PHONE-UX7 release gate (2026-09-21 05:28 UTC):** Exact-SHA full Native run
+  `35561635024` passed iPhone compile/unit/design, live catalogue preflight,
+  all 11 real iPhone UI journeys, Watch compile/tests/design/runtime,
+  secret scans and artifact uploads. `10-live-hole`, `10b-live-hazard`,
+  `11-caddie-plan` and offline-cache screenshots were manually inspected:
+  the full `1W -> 3H` route and selectable bunker front/back values stay
+  visible above the one-row HUD. All 179 iPhone evidence files are retained at
+  `/home/jason/garmin-ai-caddie-data/operations/phone-ux7-native-35561635024/real-screenshots`;
+  the `10-live-hole.png` SHA-256 is
+  `8e27ba43a9106843dafa0a41fcfbfbb97d1337b1c564fe8de82b22c9150ed2e0`.
+  Both candidate loopback and public health return backend revision
+  `83d4d510aec5dc9ecbe9db82deba691d32e564ba`. The internal-only
+  TestFlight CD workflow `35564616252` completed from exact app source
+  `7d2834c0` with `upload_to_testflight=true` and
+  `test_environment_upload=true`; no external distribution or production
+  change is authorized. The standalone game-like UI review is published at
+  `https://caddie.taile36706.ts.net/demos/phone-ux7-live-gameplay-proposal-20260921.html`;
+  it is a separate proposal, not a production UI replacement.
+
+- **PHONE-UX7 TestFlight/Apple closeout (2026-09-21 05:40 UTC):** CD run
+  `35564616252` completed successfully and uploaded `0.1.0 (71)` from exact
+  source `7d2834c0de74b55604533975e0fb6e2686a0d029`, with candidate backend
+  `83d4d510aec5dc9ecbe9db82deba691d32e564ba` and API origin
+  `https://readings-quad-come-layout.trycloudflare.com`. IPA SHA-256 is
+  `04c53e0d66dfa68d7e5d812b448cec7b08da97fb7e0da096ee966575670198ab`.
+  Apple read-only run `35565388266` reports Build 71 `VALID`, unexpired,
+  arm64 with the Watch bundle, `IN_BETA_TESTING`, and present in the existing
+  internal all-builds group. `internalReady=false` is retained as an Apple
+  status fact; no physical install or interaction has been claimed.
 
 - **PHONE-UX6 implementation checkpoint (2026-09-20):** The canonical prep/live/Watch
   caddie chain now renders all planned legs and keeps plan selection synchronized;
@@ -2130,7 +2183,7 @@ project-level task list; historical plans are reference material.
 | `DIRECT-CADDIE-VALIDATION` | `evidence-open` | Close the empirical follow-up left open by the read-only Fable report: measure entity S70/iPhone/Watch/Web startup stages and direct-vs-homeserver paths under matched conditions, benchmark normal-server queue/compute impact, then replay the 12 caddie golden cases before implementation claims. | Homeserver capacity passed; cold/warm loopback/public package timings, full-history versus `last20` profiling, and 12-case replay are recorded in `/home/jason/garmin-ai-caddie-data/operations/direct-caddie-validation-20260919/`. Replay fixture/test: `tests/fixtures/caddie_golden_cases.json`, `tests/test_caddie_golden_replay.py`; baseline SHA `070e67386609951c08d57a521d01599e821ea33775cf0bf6bf9adf3b0fecf90b`. Physical S70/iPhone/Watch timing and Garmin runtime concurrency remain evidence-open. |
 | `CADDIE-P0` | `evidence-open` | Add the 12 caddie golden regressions, then enforce hard feasibility, segmented hazards, filtered club-set consistency, non-Tee Driver prohibition, per-shot re-projection, explicit infeasible reasons, and risk/stability ranking. | Code commit `27ece094`; homeserver focused `194/194`, expanded `275/275` with 2 skips, changed-file compile, 12/12 blocking golden replay and warm performance gates pass; evidence SHA-256 `9b9c5833d256c20ab057238bedf1a337bd0cd18b9428d64a3122525d9808196c`. Source CI `35462771563`, selector-fix Source CI `35466407538`, and the `aa05695f` backend candidate/public preflight pass. Native `35472611538` and Build 68/TestFlight `35475506127` are green; physical evidence remains open. |
 | `PHONE-UX6` | `evidence-open` | Implement the `IMG_8135`-`IMG_8139` slice: canonical structured prep/live caddie plans with all landing legs, selectable plan-map state, removal of the offline-ready banner, coherent local-first round loading, and iPhone/Watch identity/interaction parity. Keep download-speed diagnosis measured and separate from UI claims. | Build 70 from source `df83de64` is `VALID`, `IN_BETA_TESTING`, and available to the existing internal all-builds group. It preserves factual A/B/C and named course-area labels, appends `场` at most once, and removes the erroneous ordinal conversion. Source CI `35525485383`, Native `35525505845`, CD `35528165601`, and Apple check `35528692568` passed; physical iPhone/Watch confirmation remains open. Screenshots live under `/home/ubuntu/IMG_*`. |
-| `PHONE-UX7` | `in-progress` | Correct live-round truth and immediate interaction after Build 70: diagnose Black Knight A3's no-advice state, include every factual A4 hazard, make add/remove back nine local-first and immediately observable, remove duplicate round actions, and establish inline caddie/hazard state on the fairway map without requiring prep data. Produce a separate game-like visual proposal for owner review before broad production UI restyling. | Pending. Required evidence: concrete A3/A4 fixture reproduction, focused backend/model/UI regressions, immediate add/remove runtime proof without package redownload, homeserver gates, iPhone/Watch runtime captures, and internal TestFlight only after all release gates pass. |
+| `PHONE-UX7` | `evidence-open` | Correct live-round truth and immediate interaction after Build 70: diagnose Black Knight A3's no-advice state, include every factual A4 hazard, make add/remove back nine local-first and immediately observable, remove duplicate round actions, and establish inline caddie/hazard state on the fairway map without requiring prep data. Produce a separate game-like visual proposal for owner review before broad production UI restyling. | Product source `7d2834c0`, backend candidate `83d4d510`, focused regressions, Source CI `35557799840`, exact-SHA Native Mobile CI `35561635024`, Build 71/TestFlight CD `35564616252`, and Apple check `35565388266` are green. Proposal is published at `https://caddie.taile36706.ts.net/demos/phone-ux7-live-gameplay-proposal-20260921.html`; physical iPhone/Watch installation and owner visual-direction approval remain open. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
@@ -2864,18 +2917,15 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Commit/push the bounded SwiftUI accessibility correction and this ledger at
-   one new exact app source SHA. No backend rebuild is required because the
-   correction is iOS-only; retain the healthy `83d4d510` candidate on `39073`.
-2. Require Source CI and a fresh exact-app-SHA full Native Mobile CI against
-   `https://readings-quad-come-layout.trycloudflare.com`, with backend revision
-   `83d4d510aec5dc9ecbe9db82deba691d32e564ba`, live preflight and full captures.
-3. Inspect `10-live-hole`, `10b-live-hazard`, `11-caddie-plan`, offline-cache and
-   Watch evidence. Only when every gate passes, automatically start the
-   internal-only TestFlight upload and Apple's read-only processing/group check.
-4. Record final evidence, move `PHONE-UX7` to `evidence-open`, and remove only
-   the exact expired PHONE-UX7 snapshot per its allow-list. Keep external
-   distribution, production promotion and tester mutation off.
+1. Install Build 71 on the physical iPhone and Watch and capture the live
+   A3/A4 caddie, hazard, and local add/remove flows; do not treat simulator or
+   Apple processing evidence as hardware proof.
+2. Get the owner's decision on the published game-like proposal before making
+   any broad production UI restyle. Keep the current production UI unchanged
+   until that decision.
+3. Retain the candidate backend/tunnel for physical validation. No external
+   distribution, tester mutation, or production promotion is authorized by
+   this slice.
 
 ## Open Blockers / Facts
 
