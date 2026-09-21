@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-21 02:29 UTC
+**Updated:** 2026-09-21 03:29 UTC
 **Branch:** `integration/v2` (GitHub default; current `PHONE-UX6` source
 `df83de64ac4778b3e05fd89c528301ef8b00b336`, backend
 `aa05695f063d0d2d8b855e76c10174d6e4d1902f`; Source CI `35525485383` and
@@ -194,6 +194,24 @@ physical-device confirmation. User screenshots are resolved from
   auto-removed container `codex-phone-ux7-action-state-tests-20260921` left no
   resource. Swift compilation, Source CI, a fresh exact-SHA full Native run,
   screenshot inspection and internal TestFlight remain required.
+
+- **PHONE-UX7 compact-HUD Native attempt 3 (2026-09-21 03:29 UTC):** Commit
+  `34abc105` and Source CI `35554220760` passed. Exact-SHA Native run
+  `35554342892` then passed iPhone compile/unit/design and live catalogue,
+  10 of 11 iPhone UI journeys, all Watch compile/test/design/runtime stages,
+  artifact scans and secret scans. Its only failure was the deliberate geometry
+  gate at `RealFlowUITests.swift:609`: the first selected obstacle ended at
+  `782pt` while the compact HUD began at `757pt`, a real `25pt` overlap visible
+  in `10-live-hole.png`. Evidence is retained under
+  `/home/jason/garmin-ai-caddie-data/operations/phone-ux7-native-35554342892/`.
+  The working correction increases the gameplay panel's overlap onto the quiet
+  map footer from `22pt` to `54pt`, preserving the map-first threshold while
+  placing the complete obstacle range above the HUD; long obstacle names are
+  constrained to one shrinking line. Homeserver mobile contracts pass `99/99`
+  in `7.175s`; the auto-removed container
+  `codex-phone-ux7-hud-overlap-tests-20260921` left no resource. A new product
+  commit, Source CI, exact-SHA full Native run, screenshot inspection and
+  internal TestFlight remain required.
 
 - **PHONE-UX6 implementation checkpoint (2026-09-20):** The canonical prep/live/Watch
   caddie chain now renders all planned legs and keeps plan selection synchronized;

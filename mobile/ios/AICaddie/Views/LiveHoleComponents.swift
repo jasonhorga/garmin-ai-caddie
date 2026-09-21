@@ -822,6 +822,8 @@ struct LiveHazardBrowserPanel: View {
                     Text(row.label)
                         .font(.system(size: 14, weight: .heavy))
                         .foregroundStyle(LivePlayStyle.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                     Text("障碍物 \(index + 1) / \(count)")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(LivePlayStyle.ink45)

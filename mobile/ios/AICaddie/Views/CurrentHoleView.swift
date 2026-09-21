@@ -471,7 +471,9 @@ public struct CurrentHoleView: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.top, -22)
+        // Let the gameplay sheet overlap the quiet map footer enough to keep the selected
+        // obstacle's complete front/back row above the fixed command HUD on a standard phone.
+        .padding(.top, -54)
         .zIndex(2)
     }
 
