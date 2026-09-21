@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-21 16:21 UTC
+**Updated:** 2026-09-21 16:36 UTC
 **Branch:** `integration/v2` (GitHub default; current `PHONE-UX7` source and
 backend candidate are `837c0d9a26bcfc6a4990e0778664135408d792e4`;
 Source CI `35615806302` and exact-SHA Native Mobile CI `35617605192` passed,
@@ -17,11 +17,13 @@ including live iPhone and Watch runtime evidence; API candidate
 `https://battery-chan-metro-liverpool.trycloudflare.com` is on loopback
 `39076`. The preceding internal TestFlight CD `35564616252` uploaded Build 71
 and Apple read-only check `35565388266` confirmed `VALID`, unexpired,
-`IN_BETA_TESTING`, and visible to the existing internal all-builds group; a
-fresh internal build containing the IMG-8160 correction is the next automatic
-gate. Apple reported `internalReady=false`; physical iPhone/Watch installation
-and interaction validation remain open; prior localized-course-name and
-network releases remain recorded below)
+`IN_BETA_TESTING`, and visible to the existing internal all-builds group. Fresh
+internal Build 72 containing the IMG-8160 correction is now Apple `VALID`,
+unexpired, `IN_BETA_TESTING`, and visible through the existing all-builds
+internal group. Apple reports `internalReady=false` even though the build is
+group-visible; physical iPhone/Watch installation and interaction validation
+remain open; prior localized-course-name and network releases remain recorded
+below)
 **Source baseline:** `d8769916d4b7ea1fc8b2bdcfb151a67f944a6eb0` (PHONE-UX5
 course-name source; Source CI `35005531664`, Native Mobile CI `35005819951`,
 and internal TestFlight CD `35013065767` passed/uploaded; Apple read-only check
@@ -52,16 +54,18 @@ release-scope decision; do not pause for routine TestFlight execution.
 
 ## Current Work Summary
 
-**Current slice (2026-09-21):** `PHONE-UX7` remains `in-progress` for the fresh
-internal TestFlight/Apple gates after the post-Build-71 screenshot exposed a
+**Current slice (2026-09-21):** `PHONE-UX7` is now `evidence-open` only for
+physical iPhone/Watch installation and interaction after the fresh internal
+TestFlight/Apple gates passed. The post-Build-71 screenshot exposed a
 live-route planning defect: a 377-yard Par 4 was rendered as `3H -> 3H`
 (179 yd each), with the second full swing drawn through the green. The source
 correction now hydrates stale live seeds from installed package facts and
 preserves only the verified CoursePrep prefix when the measured live route is
 shorter. The real Black Knight A1 package returns `Driver -> 3H`, omits the
 stale through-green leg, and preserves shorter tee clubs when measured
-water/OB/dispersion constraints justify them. Source and exact-SHA Native gates
-are green. The screenshot is `/home/ubuntu/IMG_8160.png`.
+water/OB/dispersion constraints justify them. Source, exact-SHA Native,
+TestFlight upload, and Apple status gates are green. The screenshot is
+`/home/ubuntu/IMG_8160.png`.
 
 `PHONE-UX7` was previously `evidence-open` after the
 post-Build-70 live-round fixes passed source, iPhone, Watch, backend, and
@@ -213,18 +217,38 @@ hazard switching, 12 rendered icons, no horizontal overflow and zero page errors
   `completion=replan_required`, so no third leg is drawn through the green.
   Native artifacts are `real-screenshots` `10650142949`, `real-video`
   `10649718144`, `watch-real-screenshots` `10651205404`, and
-  `native-build-evidence` `10651660086`. The next automatic gate is a fresh
-  internal-only TestFlight build/upload against the same candidate, followed
-  by Apple processing/status verification; no fresh TestFlight success is
-  claimed yet.
+  `native-build-evidence` `10651660086`. The subsequent TestFlight and Apple
+  gates are recorded below.
 
 - **IMG-8160 TestFlight gate (2026-09-21 16:24 UTC):** Internal-only CD run
   `35625370999` was dispatched from exact source
   `837c0d9a26bcfc6a4990e0778664135408d792e4` with API origin
   `https://battery-chan-metro-liverpool.trycloudflare.com`, expected backend
   revision pinned to the same SHA, `upload_to_testflight=true`, and the
-  owner-approved `test_environment_upload=true` fallback. The run is currently
-  `in_progress`; IPA provenance and Apple processing/status are still open.
+  owner-approved `test_environment_upload=true` fallback. The run completed
+  successfully; its IPA provenance and Apple processing/status are recorded in
+  the following entries.
+
+- **IMG-8160 TestFlight upload (2026-09-21 16:32 UTC):** CD run
+  `35625370999` completed successfully in 8m03s. It uploaded Build `0.1.0
+  (72)` from exact source/backend `837c0d9a26bcfc6a4990e0778664135408d792e4`;
+  the retained `release-provenance.json` records `uploadCompleted=true`,
+  `uploadToTestflight=true`, and IPA SHA-256
+  `011c2d7cb0204c326c461e946f92ddc8691b01a7d4cf041daa5618d7a46a4f8b`.
+  Read-only Apple status workflow `35626544584` is now running for Build 72
+  and the existing internal `Jason's friends` group; no tester or distribution
+  mutation was requested.
+
+- **IMG-8160 Apple closeout (2026-09-21 16:36 UTC):** Read-only status workflow
+  `35626544584` confirmed Build `0.1.0 (72)`, id
+  `1d15906e-5795-409b-8e05-a3a540d855a2`, is `VALID`, unexpired,
+  `usesNonExemptEncryption=false`, arm64, and `IN_BETA_TESTING`; the Apple-
+  processed bundle includes the iOS app and embedded Watch bundle. The
+  existing internal `Jason's friends` group is `internal=true`, `allBuilds=true`,
+  and includes Build 72. Apple still reports `internalReady=false`; this is
+  retained as a physical-installation caveat, not an upload failure. No
+  external distribution or tester mutation occurred. `PHONE-UX7` now moves to
+  `evidence-open` for physical iPhone/Watch interaction only.
 
 - **IMG-8160 candidate rebuild queued (2026-09-21 15:03 UTC):** After the
   fixture-identity correction and canonical-prefix decision fix, the next
@@ -2327,7 +2351,7 @@ project-level task list; historical plans are reference material.
 | `DIRECT-CADDIE-VALIDATION` | `evidence-open` | Close the empirical follow-up left open by the read-only Fable report: measure entity S70/iPhone/Watch/Web startup stages and direct-vs-homeserver paths under matched conditions, benchmark normal-server queue/compute impact, then replay the 12 caddie golden cases before implementation claims. | Homeserver capacity passed; cold/warm loopback/public package timings, full-history versus `last20` profiling, and 12-case replay are recorded in `/home/jason/garmin-ai-caddie-data/operations/direct-caddie-validation-20260919/`. Replay fixture/test: `tests/fixtures/caddie_golden_cases.json`, `tests/test_caddie_golden_replay.py`; baseline SHA `070e67386609951c08d57a521d01599e821ea33775cf0bf6bf9adf3b0fecf90b`. Physical S70/iPhone/Watch timing and Garmin runtime concurrency remain evidence-open. |
 | `CADDIE-P0` | `evidence-open` | Add the 12 caddie golden regressions, then enforce hard feasibility, segmented hazards, filtered club-set consistency, non-Tee Driver prohibition, per-shot re-projection, explicit infeasible reasons, and risk/stability ranking. | Code commit `27ece094`; homeserver focused `194/194`, expanded `275/275` with 2 skips, changed-file compile, 12/12 blocking golden replay and warm performance gates pass; evidence SHA-256 `9b9c5833d256c20ab057238bedf1a337bd0cd18b9428d64a3122525d9808196c`. Source CI `35462771563`, selector-fix Source CI `35466407538`, and the `aa05695f` backend candidate/public preflight pass. Native `35472611538` and Build 68/TestFlight `35475506127` are green; physical evidence remains open. |
 | `PHONE-UX6` | `evidence-open` | Implement the `IMG_8135`-`IMG_8139` slice: canonical structured prep/live caddie plans with all landing legs, selectable plan-map state, removal of the offline-ready banner, coherent local-first round loading, and iPhone/Watch identity/interaction parity. Keep download-speed diagnosis measured and separate from UI claims. | Build 70 from source `df83de64` is `VALID`, `IN_BETA_TESTING`, and available to the existing internal all-builds group. It preserves factual A/B/C and named course-area labels, appends `场` at most once, and removes the erroneous ordinal conversion. Source CI `35525485383`, Native `35525505845`, CD `35528165601`, and Apple check `35528692568` passed; physical iPhone/Watch confirmation remains open. Screenshots live under `/home/ubuntu/IMG_*`. |
-| `PHONE-UX7` | `in-progress` | Correct live-round truth and immediate interaction after Build 70, now including the real live-route regression shown by `IMG_8160`: a normal Par 4 must not default to a repeated short tee club merely because two median carries add up. Keep hard hazard/dispersion constraints and explain a shorter tee choice when it is genuinely safer. | Source/backend `837c0d9a`, Source CI `35615806302`, exact-SHA Native Mobile CI `35617605192`, authenticated decision evidence, and iPhone/Watch runtime gates are green. Black Knight A1 now resolves to the validated `Driver -> 3H` prefix with no through-green leg. Fresh internal TestFlight upload and Apple status verification are next; physical-device validation remains open. |
+| `PHONE-UX7` | `evidence-open` | Correct live-round truth and immediate interaction after Build 70, including the real live-route regression shown by `IMG_8160`: a normal Par 4 must not default to a repeated short tee club merely because two median carries add up. Keep hard hazard/dispersion constraints and explain a shorter tee choice when it is genuinely safer. | Source/backend `837c0d9a`, Source CI `35615806302`, exact-SHA Native Mobile CI `35617605192`, authenticated decision evidence, TestFlight CD `35625370999`, and Apple check `35626544584` are green. Build 72 is `VALID`/`IN_BETA_TESTING` and group-visible. Black Knight A1 now resolves to the validated `Driver -> 3H` prefix with no through-green leg. Only physical iPhone/Watch installation and interaction evidence remains open. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
