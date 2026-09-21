@@ -3523,8 +3523,10 @@ class MobileContractTests(unittest.TestCase):
         action_dock = current_hole.split("private var liveActionDock: some View", 1)[1].split(
             "private var liveSecondaryCards: some View", 1
         )[0]
-        self.assertIn("LiveHolePrimaryActions(", action_dock)
-        self.assertIn("LiveScorecardButton(", action_dock)
+        self.assertIn("LiveHoleActionDock(", action_dock)
+        self.assertNotIn("LiveHolePrimaryActions(", action_dock)
+        self.assertNotIn("LiveScorecardButton(", action_dock)
+        self.assertNotIn("在线方案尚未完成", current_hole)
         # A container identifier propagates through SwiftUI and overwrites the route/leg
         # identifiers. Keep the panel anchor on its title so assistive tech and UI tests can
         # address the complete route and every landing independently.

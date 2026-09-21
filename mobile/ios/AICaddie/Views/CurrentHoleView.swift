@@ -475,20 +475,18 @@ public struct CurrentHoleView: View {
         .zIndex(2)
     }
 
-    /// Route and hazard rows can grow without pushing the two playing actions or scorecard below
-    /// the first glance. Keep those controls in one fixed HUD while the map instrument scrolls.
+    /// Route and hazard rows can grow without pushing the playing actions below the first glance.
+    /// Keep one compact HUD row fixed above the home indicator so it never covers hazard ranges.
     private var liveActionDock: some View {
-        VStack(spacing: 6) {
-            LiveHolePrimaryActions(
-                canRecordShot: liveCoordinateForCurrentHole != nil,
-                recordedShotCount: recordedNonPuttShotCount,
-                onRecordShot: recordShotLocation,
-                onConfirmScore: beginScoreConfirmation
-            )
-            LiveScorecardButton(onTap: { showScorecard = true })
-        }
+        LiveHoleActionDock(
+            canRecordShot: liveCoordinateForCurrentHole != nil,
+            recordedShotCount: recordedNonPuttShotCount,
+            onRecordShot: recordShotLocation,
+            onConfirmScore: beginScoreConfirmation,
+            onOpenScorecard: { showScorecard = true }
+        )
         .padding(.horizontal, 12)
-        .padding(.top, 8)
+        .padding(.top, 7)
         .padding(.bottom, 6)
         .background(LivePlayStyle.panelFill.opacity(0.98).ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) {
@@ -2937,7 +2935,9 @@ public struct CurrentHoleView: View {
                 caddieErrorMessage = nil
             } else if let offlineDecision = makeOfflineCaddieDecision() {
                 caddieDecision = offlineDecision
-                caddieErrorMessage = "在线方案尚未完成 · 已显示本机杆序。"
+                // A complete local route is a usable recommendation. Transport provenance is an
+                // implementation detail and should not displace live playing information.
+                caddieErrorMessage = nil
             } else {
                 caddieDecision = nil
                 caddieErrorMessage = "球场资料准备中，请稍后刷新。"

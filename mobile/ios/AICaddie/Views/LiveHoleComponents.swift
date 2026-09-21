@@ -936,52 +936,63 @@ struct LivePlayScoreSteppers: View {
     }
 }
 
-/// The two high-frequency actions stay side by side: save the current shot location now, or confirm
-/// the completed hole. A location remains a recorded shot even when its optional club is skipped.
-struct LiveHolePrimaryActions: View {
+/// One stable, game-like command row keeps all live actions reachable without covering the selected
+/// route or obstacle. A location remains recorded even when its optional club is skipped.
+struct LiveHoleActionDock: View {
     let canRecordShot: Bool
     let recordedShotCount: Int
     var onRecordShot: () -> Void = {}
     var onConfirmScore: () -> Void = {}
+    var onOpenScorecard: () -> Void = {}
 
     var body: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 9) {
-                actionButton(
-                    title: "记一杆",
-                    systemImage: "location.fill",
-                    foreground: LivePlayStyle.ink,
-                    background: LivePlayStyle.fill12,
-                    border: LivePlayStyle.stroke14,
-                    action: onRecordShot
-                )
-                .disabled(!canRecordShot)
-                .opacity(canRecordShot ? 1 : 0.55)
+        HStack(spacing: 8) {
+            actionButton(
+                title: "记一杆",
+                subtitle: recordedShotStatus,
+                systemImage: "location.fill",
+                foreground: LivePlayStyle.ink,
+                background: LivePlayStyle.fill12,
+                border: LivePlayStyle.stroke14,
+                action: onRecordShot
+            )
+            .disabled(!canRecordShot)
+            .opacity(canRecordShot ? 1 : 0.55)
 
-                actionButton(
-                    title: "完成本洞",
-                    systemImage: "checkmark.circle.fill",
-                    foreground: LivePlayStyle.onAccent,
-                    background: LivePlayStyle.accent,
-                    border: LivePlayStyle.accent,
-                    action: onConfirmScore
-                )
-            }
-            if recordedShotCount > 0 {
-                Text("已记第 \(recordedShotCount) 杆")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(LivePlayStyle.greenLabel)
-                    .monospacedDigit()
-            } else if !canRecordShot {
-                Text("等待 GPS 定位后即可记杆")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(LivePlayStyle.ink45)
-            }
+            actionButton(
+                title: "完成本洞",
+                systemImage: "checkmark.circle.fill",
+                foreground: LivePlayStyle.onAccent,
+                background: LivePlayStyle.accent,
+                border: LivePlayStyle.accent,
+                action: onConfirmScore
+            )
+
+            actionButton(
+                title: "计分卡",
+                systemImage: "list.bullet.rectangle",
+                foreground: LivePlayStyle.ink,
+                background: LivePlayStyle.fill08,
+                border: LivePlayStyle.stroke10,
+                action: onOpenScorecard
+            )
+            .accessibilityHint("查看并修改每洞成绩")
         }
+    }
+
+    private var recordedShotStatus: String? {
+        if recordedShotCount > 0 {
+            return "已记第 \(recordedShotCount) 杆"
+        }
+        if !canRecordShot {
+            return "等待 GPS"
+        }
+        return nil
     }
 
     private func actionButton(
         title: String,
+        subtitle: String? = nil,
         systemImage: String,
         foreground: Color,
         background: Color,
@@ -989,15 +1000,24 @@ struct LiveHolePrimaryActions: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 14, weight: .heavy))
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 13)
-                .foregroundStyle(foreground)
-                .background(background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(border))
+            VStack(spacing: 1) {
+                Label(title, systemImage: systemImage)
+                    .font(.system(size: 13, weight: .heavy))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .monospacedDigit()
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .foregroundStyle(foreground)
+            .background(background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(border))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
@@ -1119,39 +1139,6 @@ struct LiveSaveButton: View {
                     .frame(maxWidth: .infinity, alignment: .center)
             }
         }
-    }
-}
-
-/// The live hole is already the map root, with caddie and real secondary tools embedded below it.
-/// Keep only the one separate high-frequency destination instead of presenting four inert tabs.
-struct LiveScorecardButton: View {
-    var onTap: () -> Void = {}
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 9) {
-                Image(systemName: "list.bullet.rectangle")
-                    .font(.system(size: 16, weight: .semibold))
-                Text("计分卡")
-                    .font(.system(size: 14, weight: .bold))
-                Spacer(minLength: 0)
-                Text("查看全场")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(LivePlayStyle.ink45)
-                Image(systemName: "chevron.forward")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(LivePlayStyle.ink45)
-            }
-            .foregroundStyle(LivePlayStyle.ink)
-            .padding(.vertical, 9)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity)
-            .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(LivePlayStyle.stroke10))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("计分卡")
-        .accessibilityHint("查看并修改每洞成绩")
     }
 }
 

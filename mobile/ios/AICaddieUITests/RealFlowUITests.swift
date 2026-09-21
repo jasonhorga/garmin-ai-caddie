@@ -604,6 +604,13 @@ final class RealFlowUITests: XCTestCase {
             firstSelectedHazard.waitForExistence(timeout: 8),
             "the live hole must expose its selected obstacle without navigating away"
         )
+        let actionDock = app.descendants(matching: .any)["live-action-dock"].firstMatch
+        XCTAssertTrue(actionDock.waitForExistence(timeout: 3))
+        XCTAssertLessThanOrEqual(
+            firstSelectedHazard.frame.maxY,
+            actionDock.frame.minY + 1,
+            "the fixed action HUD must not cover any selected-hazard distance"
+        )
         XCTAssertFalse(
             app.descendants(matching: .any)["selected-hazard-2"].firstMatch.exists,
             "only the selected obstacle may have an active distance panel"
@@ -614,6 +621,11 @@ final class RealFlowUITests: XCTestCase {
             XCTAssertTrue(
                 app.descendants(matching: .any)["selected-hazard-2"].firstMatch.waitForExistence(timeout: 3),
                 "down navigation must replace the selected obstacle instead of stacking another one"
+            )
+            XCTAssertLessThanOrEqual(
+                app.descendants(matching: .any)["selected-hazard-2"].firstMatch.frame.maxY,
+                actionDock.frame.minY + 1,
+                "switching obstacles must keep the replacement distance panel above the HUD"
             )
             XCTAssertFalse(firstSelectedHazard.exists)
         }

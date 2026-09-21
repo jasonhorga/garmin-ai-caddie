@@ -99,8 +99,7 @@ final class DesignSnapshotTests: XCTestCase {
                         ],
                         playsText: "实打约 +8 码(上坡)· 打球道左中,避右侧水"
                     )
-                    LiveHolePrimaryActions(canRecordShot: true, recordedShotCount: 1)
-                    LiveScorecardButton()
+                    LiveHoleActionDock(canRecordShot: true, recordedShotCount: 1)
                 }
                 .padding(.horizontal, 10)
                 .padding(.bottom, 10)

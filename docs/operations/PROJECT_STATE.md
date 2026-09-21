@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-20 23:34 UTC
+**Updated:** 2026-09-21 00:36 UTC
 **Branch:** `integration/v2` (GitHub default; current `PHONE-UX6` source
 `df83de64ac4778b3e05fd89c528301ef8b00b336`, backend
 `aa05695f063d0d2d8b855e76c10174d6e4d1902f`; Source CI `35525485383` and
@@ -128,6 +128,31 @@ physical-device confirmation. User screenshots are resolved from
   The homeserver mobile contract suite passes `99/99` in `7.429s`; its auto-removed
   container `codex-phone-ux7-layout-tests-20260920` left no resource. Commit, Source
   CI, another exact-SHA Native run and internal TestFlight remain required.
+
+- **PHONE-UX7 fixed-action verification (2026-09-20 23:47 UTC):** Product commit
+  `621840c3` is pushed. Source CI `35545386379` passed frontend component/lint/build/
+  visual-smoke, backend tests/private-trial smoke, and both Docker image/runtime
+  jobs. Candidate loopback and public health both report backend revision
+  `83d4d510aec5dc9ecbe9db82deba691d32e564ba`. Exact-app-SHA full Native Mobile CI
+  `35545624832` is in progress against that candidate; it must pass the complete
+  iPhone journey, all TeeSelection cases, and Watch/runtime evidence before an
+  internal TestFlight upload is authorized.
+
+- **PHONE-UX7 screenshot rejection and compact-HUD correction (2026-09-21
+  00:36 UTC):** Exact-SHA Native Mobile CI `35545624832` passed every iPhone and
+  Watch build, test, runtime-capture, artifact and secret-scan stage at
+  `621840c3`. Manual inspection of its real `10-live-hole`, `10b-live-hazard`,
+  and `11-caddie-plan` captures nevertheless rejected that candidate: the
+  two-row fixed action dock covered the selected obstacle's front/back range,
+  and the live panel exposed the transport-status copy `在线方案尚未完成`. The
+  working correction compresses shot, hole-complete and scorecard commands into
+  one stable HUD row, keeps the recorded-shot status inside that row, suppresses
+  transport provenance when a complete local recommendation is available, and
+  adds an XCUITest geometry assertion that every selected-hazard panel ends above
+  the HUD. Homeserver mobile contracts pass `99/99` in `6.854s`; the auto-removed
+  container `codex-phone-ux7-compact-hud-tests-20260921` left no resource. A new
+  product commit, Source CI, exact-SHA Native Mobile run, screenshot inspection
+  and internal TestFlight upload remain required.
 
 - **PHONE-UX6 implementation checkpoint (2026-09-20):** The canonical prep/live/Watch
   caddie chain now renders all planned legs and keeps plan selection synchronized;
