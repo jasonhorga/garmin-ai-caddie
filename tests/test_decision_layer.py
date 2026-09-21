@@ -549,6 +549,104 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertEqual(plan["selectedSequence"]["id"], "stock")
         self.assertEqual(plan["selectedSequence"]["planSource"], "course_prep")
 
+    def test_live_par4_rejects_stale_repeat_short_club_route(self) -> None:
+        """A live 377-yard tee shot must not become ``3H -> 3H`` by arithmetic coincidence.
+
+        The prep package for the reported Black Knight A1 screenshot was longer than the live
+        GPS route and ended with an extra wedge.  The old path clamped that stale chain to the
+        pin, then selected the shorter option from its first-shot risk score and allowed the same
+        hybrid to repeat.  This fixture keeps the measured club/risk shape while asserting the
+        general rule rather than hard-coding a course or club preference.
+        """
+        context = analysis_fixture(stock_risk=1)
+        context.update({
+            "courseName": "Black Knight A",
+            "globalId": 31794,
+            "localHole": 1,
+            "par": 4,
+            "distanceToPin_m": 344.7,
+        })
+        context["clubProfiles"] = {
+            "1W": {
+                "clubName": "1W",
+                "sampleSize": 160,
+                "median": 199.2,
+                "p10": 150.0,
+                "p90": 232.0,
+                "riskRate": 38.8,
+                "usableRate": 61.2,
+            },
+            "3H": {
+                "clubName": "3H",
+                "sampleSize": 25,
+                "median": 164.6,
+                "p10": 145.0,
+                "p90": 183.0,
+                "riskRate": 36.0,
+                "usableRate": 64.0,
+            },
+            "58": {
+                "clubName": "58",
+                "sampleSize": 35,
+                "median": 52.0,
+                "p10": 42.0,
+                "p90": 62.0,
+                "riskRate": 10.0,
+                "usableRate": 90.0,
+            },
+        }
+        context["candidateRoutes"] = [
+            {
+                "id": "conservative_layup",
+                "label": "safe",
+                "club": "3H",
+                "carry_m": 164.6,
+                "landingLocal": [0.0, 164.6],
+                "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 3.14,
+            },
+            {
+                "id": "stock_line",
+                "label": "stock",
+                "club": "1W",
+                "carry_m": 199.2,
+                "landingLocal": [0.0, 199.2],
+                "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 4.78,
+            },
+            {
+                "id": "aggressive_line",
+                "label": "attack",
+                "club": "1W",
+                "carry_m": 199.2,
+                "landingLocal": [0.0, 199.2],
+                "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 5.5,
+            },
+        ]
+        context["canonicalShotPlan"] = [
+            {"clubName": "1W", "targetCarry_m": 199.2, "routeOffset_m": 199.2, "planIndex": 0},
+            {"clubName": "3H", "targetCarry_m": 164.6, "routeOffset_m": 363.8, "planIndex": 1},
+            {"clubName": "58", "targetCarry_m": 32.2, "routeOffset_m": 396.0, "planIndex": 2},
+        ]
+        context["canonicalPlanRouteLength_m"] = 396.0
+
+        plan = build_decision_plan(context)
+
+        self.assertEqual(plan["selectedOptionId"], "stock")
+        selected = plan["selectedSequence"]
+        self.assertIsNotNone(selected)
+        self.assertEqual([step["clubName"] for step in selected["clubs"]], ["1W", "3H"])
+        self.assertNotEqual([step["clubName"] for step in selected["clubs"]], ["3H", "3H"])
+        self.assertNotEqual(selected.get("planSource"), "course_prep")
+        self.assertIn("tee_advancement", {row["code"] for row in plan["selected"]["selectionReasons"]})
+
     def test_sequence_reprojects_all_planning_hazards_from_each_new_lie(self) -> None:
         context = long_hole_fixture()
         planning_hazards = [

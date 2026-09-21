@@ -39,10 +39,24 @@ SHORT_GAME_PROFILE_MAX_M = 110.0
 MAX_SEQUENCE_STEPS = 5
 MAX_SEQUENCE_CARRY_INCREASE_M = 15.0
 EXTRA_SEQUENCE_STEP_COST_M = 25.0
+# A tee route can legitimately finish a little past the pin because the measured route is a
+# centerline while club carries include roll and landing dispersion.  Keep the tighter scoring
+# tolerance for approach/recovery sequences, but do not discard a normal two-shot tee line merely
+# because its median carries overshoot the live centerline by 10-20 m.
+TEE_SEQUENCE_MAX_OVERSHOOT_M = 20.0
+# A prep route is a useful opening hint, not permission to clamp a stale route to a live pin.  A
+# small overshoot is normal when the last measured club is the closest scoring window; anything
+# larger must be re-planned against the live route distance.
+CANONICAL_PLAN_MAX_OVERSHOOT_M = 20.0
 # Repeating one physical club can be correct, but a materially different measured club should win
-# when the leave/risk is otherwise comparable.  This small cost prevents opaque 3W -> 3W -> 3W
-# previews without forbidding a repeat when it is the only feasible route.
+# when the leave/risk is otherwise comparable.  The tee planner now tries a no-repeat continuation
+# first; this cost remains for the explicit, last-resort repeat fallback.
 REPEATED_CLUB_PENALTY_M = 12.0
+# ``riskScore`` is an ordinal planning score, not a calibrated stroke value.  On a normal Par 4/5
+# tee, a modest risk advantage cannot justify giving up a full advancement shot.  The selected
+# route may still be shorter whenever a hard water/OB constraint or a materially larger risk gap
+# makes it the better plan.
+TEE_STOCK_RISK_MARGIN = 2.0
 # These weights rank deterministic club combinations; they are not exposed as calibrated strokes.
 # The final full swing carries the most weight because planning a preferred approach distance is
 # more useful than merely minimizing a few metres of arithmetic remainder.
@@ -872,12 +886,20 @@ def _canonical_sequence(
         return None
 
     travelled_m = 0.0
+    seen_identities: set[str] = set()
     steps: list[dict[str, Any]] = []
     for index, raw in enumerate(raw_plan):
         name = str(_canonical_value(raw, "clubName", "club") or "").strip()
         club = row_by_identity.get(_club_identity(name))
         if club is None or (index > 0 and _driver_row(club)):
             return None
+        identity = _club_identity(club)
+        # A prep chain is consumed as a sequence of distinct physical clubs.  Repeating a club is
+        # only allowed by the explicit live fallback planner, where it can be explained as the
+        # only measured option left after the next lie.
+        if identity in seen_identities:
+            return None
+        seen_identities.add(identity)
         projected_zones = _shift_hazard_zones(avoid_zones, travelled_m)
         if not _club_hard_hazard_safe(club, projected_zones):
             return None
@@ -887,15 +909,14 @@ def _canonical_sequence(
         )
         if not math.isfinite(carry) or carry <= 0:
             return None
-        raw_offset = _canonical_value(raw, "routeOffset_m", "routeOffsetM", "landing_m", "landingM")
-        offset = _float(raw_offset, travelled_m + carry)
-        if not math.isfinite(offset):
-            offset = travelled_m + carry
-        # A malformed/stale prep row must not move a later landing backwards. Keep its measured
-        # carry as the minimum progress, then cap only to the known hole length.
-        offset = max(travelled_m + carry, offset)
-        if distance_m > 0:
-            offset = min(distance_m, offset)
+        next_travelled_m = travelled_m + carry
+        # CoursePrep and live route geometry can use different path lengths (especially on doglegs),
+        # but a prep chain that places a later full swing materially past the live pin is stale. The
+        # old code clamped that row to the pin and still displayed the extra club, which produced
+        # routes such as Driver -> 3H -> 58 on a 345 m live hole. Re-plan instead.
+        if next_travelled_m > distance_m + CANONICAL_PLAN_MAX_OVERSHOOT_M:
+            return None
+        offset = min(distance_m, next_travelled_m)
         remaining_before = max(0.0, distance_m - travelled_m)
         role = str(raw.get("role") or ("advance" if index == 0 else "scoring" if index == len(raw_plan) - 1 else "position"))
         step = _sequence_step(club, remaining_before, role)
@@ -908,7 +929,7 @@ def _canonical_sequence(
         step["planVersion"] = str(raw.get("planVersion") or "ai-caddie-shot-plan-v1")
         step["planSource"] = str(context.get("canonicalPlanSource") or "course_prep")
         steps.append(step)
-        travelled_m = offset
+        travelled_m = next_travelled_m
 
     if not steps:
         return None
@@ -1468,6 +1489,8 @@ def _sequence_tail(
     forbid_driver: bool = False,
     maximum_carry_m: float | None = None,
     allow_replan_gap: bool = False,
+    forbid_repeated_clubs: bool = False,
+    max_overshoot_m: float = MAX_SEQUENCE_OVERSHOOT_M,
     memo: dict[Any, Any] | None = None,
 ) -> list[dict[str, Any]]:
     if remaining_m <= 20.0:
@@ -1494,6 +1517,8 @@ def _sequence_tail(
         bool(forbid_driver),
         round(float(maximum_carry_m), 1) if maximum_carry_m is not None else None,
         bool(allow_replan_gap),
+        bool(forbid_repeated_clubs),
+        round(float(max_overshoot_m), 1),
     )
     if memo is not None and tail_key in memo:
         return memo[tail_key]
@@ -1513,6 +1538,7 @@ def _sequence_tail(
     playable = sorted(playable, key=lambda row: -_float(row.get("median_m")))
     carry_by_index = [_float(row.get("median_m")) for row in playable]
     sample_by_index = [_effective_club_sample_size(row) for row in playable]
+    identity_by_index = [_club_identity(row) for row in playable]
     position_cost_by_index = [
         _club_stability_cost(row, scoring_shot=False, memo=memo)
         for row in playable
@@ -1532,6 +1558,8 @@ def _sequence_tail(
     best: tuple[tuple[float, ...], list[dict[str, Any]]] | None = None
     for step_count in range(first_candidate_steps, maximum_steps + 1):
         for indexes in combinations_with_replacement(range(len(playable)), step_count):
+            if forbid_repeated_clubs and len({identity_by_index[index] for index in indexes}) != len(indexes):
+                continue
             candidate = [playable[index] for index in indexes]
             # Every continuation step is checked against the hazard interval as it exists from
             # that step's lie. This rejects both an immediate water landing and a later club that
@@ -1549,7 +1577,7 @@ def _sequence_tail(
             carry_total = sum(carry_by_index[index] for index in indexes)
             leave_m = round(remaining_m - carry_total, 1)
             overshoot_m = max(0.0, -leave_m)
-            excessive_overshoot = 1.0 if overshoot_m > MAX_SEQUENCE_OVERSHOOT_M else 0.0
+            excessive_overshoot = 1.0 if overshoot_m > max_overshoot_m else 0.0
             unresolved_limit = MAX_SEQUENCE_REPLAN_GAP_M if allow_replan_gap else 20.0
             unresolved_leave = 1.0 if leave_m > unresolved_limit else 0.0
             extra_step_cost = max(0, step_count - minimum_steps) * EXTRA_SEQUENCE_STEP_COST_M
@@ -1702,6 +1730,7 @@ def _sequence_option(
     distance_m: float,
     club_rows: list[dict[str, Any]],
     avoid_zones: list[dict[str, Any]] | None = None,
+    max_overshoot_m: float = MAX_SEQUENCE_OVERSHOOT_M,
     memo: dict[Any, Any] | None = None,
 ) -> dict[str, Any] | None:
     first = _sequence_first_club(option, club_rows)
@@ -1710,13 +1739,14 @@ def _sequence_option(
     first_carry = _float(first.get("median_m"))
     if not _club_hard_hazard_safe(first, avoid_zones):
         return None
+    first_identity = _club_identity(first)
 
     cold_start = not any(
         _effective_club_sample_size(row) >= MIN_STRONG_CLUB_SAMPLE
         for row in club_rows
     )
 
-    def cold_next_club() -> dict[str, Any] | None:
+    def cold_next_club(*, allow_repeats: bool = False) -> dict[str, Any] | None:
         remaining_m = distance_m - first_carry
         if remaining_m <= 20.0:
             return None
@@ -1730,6 +1760,7 @@ def _sequence_option(
             row
             for row in club_rows
             if not _driver_row(row)
+            and (allow_repeats or _club_identity(row) != first_identity)
             and _club_hard_hazard_safe(row, projected_zones)
             and (maximum_carry_m is None or _float(row.get("median_m")) <= maximum_carry_m)
         ]
@@ -1746,16 +1777,16 @@ def _sequence_option(
             ),
         )
 
-    def build_rows(*, allow_replan_gap: bool = False) -> list[dict[str, Any]]:
+    def build_rows(*, allow_replan_gap: bool = False, allow_repeats: bool = False) -> list[dict[str, Any]]:
         if cold_start:
-            next_club = cold_next_club()
+            next_club = cold_next_club(allow_repeats=allow_repeats)
             return [first, *([next_club] if next_club is not None else [])]
         return [
             first,
             *_sequence_tail(
                 club_rows,
                 distance_m - first_carry,
-                exclude_club_keys=set(),
+                exclude_club_keys=set() if allow_repeats else {first_identity},
                 avoid_zones=avoid_zones,
                 travelled_m=first_carry,
                 forbid_driver=True,
@@ -1765,6 +1796,8 @@ def _sequence_option(
                     else first_carry + MAX_SEQUENCE_CARRY_INCREASE_M
                 ),
                 allow_replan_gap=allow_replan_gap,
+                forbid_repeated_clubs=not allow_repeats,
+                max_overshoot_m=max_overshoot_m,
                 memo=memo,
             ),
         ]
@@ -1828,11 +1861,12 @@ def _sequence_option(
         _float(row.get("median_m"), math.inf) <= SHORT_GAME_PROFILE_MAX_M
         for row in club_rows
     )
+    repeat_fallback_used = False
     partial = cold_start or (
         not short_game_available
         and 20.0 < remaining <= MAX_SEQUENCE_REPLAN_GAP_M
     )
-    if not cold_start and (remaining > 20.0 or remaining < -MAX_SEQUENCE_OVERSHOOT_M):
+    if not cold_start and (remaining > 20.0 or remaining < -max_overshoot_m):
         # If the exact scoring window is unavailable, consider one fewer full swing. This is a
         # bounded short-game data gap; water feasibility and the non-Tee Driver prohibition still
         # apply to every candidate.
@@ -1840,7 +1874,7 @@ def _sequence_option(
         fallback_steps, fallback_remaining = build_steps(fallback_rows)
         fallback_complete = (
             fallback_rows
-            and fallback_remaining >= -MAX_SEQUENCE_OVERSHOOT_M
+            and fallback_remaining >= -max_overshoot_m
             and fallback_remaining <= 20.0
         )
         fallback_partial = (
@@ -1849,12 +1883,40 @@ def _sequence_option(
             and fallback_remaining > 20.0
             and fallback_remaining <= MAX_SEQUENCE_REPLAN_GAP_M
         )
+        distinct_route_accepted = bool(fallback_complete or fallback_partial)
         if fallback_complete or fallback_partial:
             planned_rows, steps, remaining = fallback_rows, fallback_steps, fallback_remaining
             partial = remaining > 20.0
+        # Do not turn a modestly shorter tee into an opaque X -> X route merely to force the
+        # arithmetic remainder into the scoring window. Repeating the first club is a last resort
+        # only when no distinct continuation can produce an accepted complete/explicitly-partial
+        # route under the same hazard and carry limits. This still permits a sparse long-hole bag
+        # to use 5I -> 5I when every distinct continuation is too short, while a normal 1W -> 3H
+        # route wins over an opaque 3H -> 3H preview whenever both are feasible.
+        if (
+            (remaining > 20.0 or remaining < -max_overshoot_m)
+            and not distinct_route_accepted
+        ):
+            repeat_rows = build_rows(allow_replan_gap=True, allow_repeats=True)
+            repeat_steps, repeat_remaining = build_steps(repeat_rows)
+            repeat_complete = (
+                repeat_rows
+                and repeat_remaining >= -max_overshoot_m
+                and repeat_remaining <= 20.0
+            )
+            repeat_partial = (
+                repeat_rows
+                and not short_game_available
+                and repeat_remaining > 20.0
+                and repeat_remaining <= MAX_SEQUENCE_REPLAN_GAP_M
+            )
+            if repeat_complete or repeat_partial:
+                planned_rows, steps, remaining = repeat_rows, repeat_steps, repeat_remaining
+                partial = repeat_remaining > 20.0
+                repeat_fallback_used = True
         if remaining > 20.0 and short_game_available:
             return None
-        if remaining > MAX_SEQUENCE_REPLAN_GAP_M or remaining < -MAX_SEQUENCE_OVERSHOOT_M:
+        if remaining > MAX_SEQUENCE_REPLAN_GAP_M or remaining < -max_overshoot_m:
             # A chain outside the bounded gap is not an alternative. Return no sequence so the
             # caller exposes missing data instead of displaying an unsafe fabricated continuation.
             return None
@@ -1874,6 +1936,12 @@ def _sequence_option(
             + (
                 " Short-game club evidence is missing; re-plan the final gap from the next lie."
                 if partial and not cold_start
+                else ""
+            )
+            + (
+                " No different measured continuation club was available, so the same club is a "
+                "last-resort repeat; re-plan from the next lie."
+                if repeat_fallback_used
                 else ""
             )
         ),
@@ -1907,6 +1975,11 @@ def _club_sequences(context: dict[str, Any], options: list[dict[str, Any]]) -> l
                     or option.get("avoidZones")
                     or option.get("forbiddenZones")
                     or []
+                ),
+                max_overshoot_m=(
+                    TEE_SEQUENCE_MAX_OVERSHOOT_M
+                    if not _non_tee_context(context)
+                    else MAX_SEQUENCE_OVERSHOOT_M
                 ),
                 memo=memo,
             )
@@ -1945,7 +2018,12 @@ def _align_selected_sequence(
         return selected, selected_sequence
     sequence_ids = {str(sequence.get("id") or "") for sequence in sequences}
     viable_options = [option for option in options if str(option.get("id") or "") in sequence_ids]
-    aligned = _select_option(viable_options, _strategy_mode(context), context)
+    aligned = _select_option(
+        viable_options,
+        _strategy_mode(context),
+        context,
+        sequences=sequences,
+    )
     if aligned is None and viable_options:
         aligned = viable_options[0]
     return aligned, _selected_sequence(sequences, aligned)
@@ -2063,6 +2141,37 @@ def _selection_reasons(
                     "comparedClub": longer.get("clubName"),
                 }
             )
+
+        if (
+            str(selected.get("id") or "") == "stock"
+            and not context.get("requestedOptionId")
+            and str(context.get("strategyMode") or context.get("strategy") or "stock").strip().lower()
+            not in {"protect_score", "conservative", "safe", "attack", "aggressive"}
+        ):
+            try:
+                par = int(context.get("par") or 0)
+            except (TypeError, ValueError):
+                par = 0
+            shorter = next(
+                (
+                    row
+                    for row in rows
+                    if _float(row.get("median_m")) < selected_carry - 0.5
+                ),
+                None,
+            )
+            if par in {4, 5} and shorter is not None:
+                reasons.append(
+                    {
+                        "code": "tee_advancement",
+                        "reason": (
+                            f"{first.get('clubName')} keeps the normal tee-shot advancement; "
+                            "the shorter club's stability advantage does not justify giving up a "
+                            "full approach opportunity."
+                        ),
+                        "comparedClub": shorter.get("clubName"),
+                    }
+                )
 
     if not any(_effective_club_sample_size(row) >= MIN_STRONG_CLUB_SAMPLE for row in rows):
         reasons.append(
@@ -2752,10 +2861,72 @@ def _attack_option_is_playable(
     return _float(attack.get("riskScore")) <= _float(baseline.get("riskScore")) + 3.0
 
 
+def _sequence_club_identities(sequence: dict[str, Any] | None) -> list[str]:
+    if not isinstance(sequence, dict):
+        return []
+    return [
+        _club_identity(step)
+        for step in sequence.get("clubs") or []
+        if isinstance(step, dict)
+    ]
+
+
+def _tee_stock_advancement_margin(
+    *,
+    context: dict[str, Any],
+    safest: dict[str, Any],
+    stock: dict[str, Any] | None,
+    sequences: list[dict[str, Any]] | None,
+) -> float:
+    """Return the risk-score headroom allowed for a normal tee advancement choice.
+
+    The risk score is ordinal and intentionally not treated as strokes.  A small first-shot risk
+    advantage therefore must not erase a full advancement shot on an open Par 4/5.  If the shorter
+    option also needs an extra full swing or a repeat, the headroom grows because the route itself
+    supplies stronger evidence for the longer tee line.  Explicit safe/attack/requested modes are
+    handled before this helper and are never overridden here.
+    """
+    if stock is None or _non_tee_context(context):
+        return 0.0
+    try:
+        par = int(context.get("par") or 0)
+    except (TypeError, ValueError):
+        par = 0
+    if par not in {4, 5}:
+        return 0.0
+    stock_carry = _float(stock.get("carry_m"), 0.0)
+    safe_carry = _float(safest.get("carry_m"), 0.0)
+    if stock_carry <= safe_carry + 0.5:
+        return 0.0
+    margin = TEE_STOCK_RISK_MARGIN
+    by_id = {
+        str(sequence.get("id") or ""): sequence
+        for sequence in sequences or []
+        if isinstance(sequence, dict)
+    }
+    stock_sequence = by_id.get(str(stock.get("id") or "stock"))
+    safe_sequence = by_id.get(str(safest.get("id") or "safe"))
+    if stock_sequence and safe_sequence:
+        stock_steps = len(stock_sequence.get("clubs") or [])
+        safe_steps = len(safe_sequence.get("clubs") or [])
+        if safe_steps > stock_steps:
+            margin += 1.0
+        identities = _sequence_club_identities(safe_sequence)
+        if len(set(identities)) < len(identities):
+            margin += 1.5
+        if (
+            safe_sequence.get("completion") == "replan_required"
+            and stock_sequence.get("completion") == "scoring_window"
+        ):
+            margin += 0.5
+    return margin
+
+
 def _select_option(
     options: list[dict[str, Any]],
     strategy_mode: str | None = None,
     context: dict[str, Any] | None = None,
+    sequences: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     selectable_options = [
         option
@@ -2809,7 +2980,16 @@ def _select_option(
     # The mobile tee producer already folds each club's dispersion, outcome rates, sample quality,
     # whole-hole leave, and mapped hazard exposure into this same risk score, so this guard does not
     # encode a preference for any club name or category.
-    if stock and _float(stock.get("riskScore")) <= _float(safest.get("riskScore")) + 1.0:
+    stock_margin = _tee_stock_advancement_margin(
+        context=context or {},
+        safest=safest,
+        stock=stock,
+        sequences=sequences,
+    )
+    if stock and (
+        _float(stock.get("riskScore"))
+        <= _float(safest.get("riskScore")) + max(1.0, stock_margin)
+    ):
         return stock
     return safest
 
@@ -4651,8 +4831,13 @@ def _safe_manual_notes(analysis: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _build_shot_decision(analysis: dict[str, Any], shot_type: str, options: list[dict[str, Any]]) -> dict[str, Any]:
-    selected = _select_option(options, _strategy_mode(analysis), analysis)
     sequences = _club_sequences(analysis, options)
+    selected = _select_option(
+        options,
+        _strategy_mode(analysis),
+        analysis,
+        sequences=sequences,
+    )
     selected, selected_sequence = _align_selected_sequence(options, sequences, selected, analysis)
     avoid_zones = selected.get("avoidZones", []) if selected else []
     if selected is not None:
@@ -4719,8 +4904,13 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     options = _dedupe_strategy_options(options)
     canonical = _canonical_sequence(analysis, options)
     options = _apply_canonical_stock_option(options, canonical)
-    selected = _select_option(options, _strategy_mode(analysis), analysis)
     sequences = _club_sequences(analysis, options)
+    selected = _select_option(
+        options,
+        _strategy_mode(analysis),
+        analysis,
+        sequences=sequences,
+    )
     selected, selected_sequence = _align_selected_sequence(options, sequences, selected, analysis)
     forbidden = selected.get("forbiddenZones", []) if selected else []
     if selected is not None:
