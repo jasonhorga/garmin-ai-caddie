@@ -77,14 +77,27 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
         // Merge them individually, rather than checking only whether a kind exists: a package may
         // have precise data for one bunker while its second greenside bunker survives only in the
         // legacy interval list.
-        func hasDetail(kind: String, frontRouteM: Double) -> Bool {
-            details.contains {
-                $0.kind == kind && abs($0.frontRouteM - frontRouteM) <= 3.0
+        func hasDetail(kind: String, interval: [Double]) -> Bool {
+            guard let start = interval.first, start.isFinite else { return false }
+            let end = interval.dropFirst().first(where: { $0.isFinite }) ?? start
+            let legacyNear = min(start, end)
+            let legacyFar = max(start, end)
+            let compatibilityTolerance = 8.0
+            return details.contains { detail in
+                guard detail.kind == kind else { return false }
+                let detailNear = min(detail.frontRouteM, detail.backRouteM)
+                let detailFar = max(detail.frontRouteM, detail.backRouteM)
+                // Legacy bunker rows only carry one route station; treating that station as a
+                // point inside the precise span avoids duplicating the same bunker when the two
+                // encoders differ by a few metres. Water rows carry both edges, so the same gap
+                // test naturally handles either representation.
+                let gap = max(detailNear - legacyFar, legacyNear - detailFar, 0)
+                return gap <= compatibilityTolerance
             }
         }
         for (index, interval) in hole.hazards.waterCarry.enumerated() {
             guard let front = interval.first,
-                  !hasDetail(kind: "water", frontRouteM: front) else { continue }
+                  !hasDetail(kind: "water", interval: interval) else { continue }
             let back = interval.dropFirst().first
             guard CoursePrepHazardRelevance.isRelevant(
                 kind: "water",
@@ -109,7 +122,7 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
         }
         for (index, interval) in hole.hazards.bunkers.enumerated() {
             guard let front = interval.first,
-                  !hasDetail(kind: "bunker", frontRouteM: front),
+                  !hasDetail(kind: "bunker", interval: interval),
                   CoursePrepHazardRelevance.isRelevant(
                     kind: "bunker",
                     frontRouteM: front,

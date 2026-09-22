@@ -195,7 +195,7 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         XCTAssertEqual(sequence.steps.map(\.routeOffsetM), [205, 383, 466])
         XCTAssertEqual(sequence.steps.map(\.landingM), [205, 383, 466])
         XCTAssertEqual(sequence.steps.map(\.expectedRemainingM), [261, 83, 0])
-        XCTAssertEqual(sequence.steps.map(\.role), ["tee", "advance", "approach"])
+        XCTAssertEqual(sequence.steps.map(\.role), ["tee", "advance", "scoring"])
         XCTAssertEqual(sequence.steps.map(\.planIndex), [0, 1, 2])
         XCTAssertTrue(LiveCaddieDecisionUsability.hasRecommendation(decision))
     }
