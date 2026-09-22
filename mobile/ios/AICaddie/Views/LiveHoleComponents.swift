@@ -822,24 +822,33 @@ struct LiveHazardBrowserPanel: View {
     let onNext: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+        HStack(spacing: 8) {
+            HStack(spacing: 8) {
                 Image(systemName: row.isWater ? "drop.fill" : "square.grid.2x2.fill")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(row.isWater ? Color.blue : Color(red: 0.82, green: 0.63, blue: 0.12))
-                    .frame(width: 30, height: 30)
+                    .frame(width: 28, height: 28)
                     .background(LivePlayStyle.fill08, in: Circle())
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.label)
-                        .font(.system(size: 14, weight: .heavy))
+                        .font(.system(size: 12.5, weight: .heavy))
                         .foregroundStyle(LivePlayStyle.ink)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.75)
+                        .minimumScaleFactor(0.7)
                     Text("障碍物 \(index + 1) / \(count)")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 9.5, weight: .semibold))
                         .foregroundStyle(LivePlayStyle.ink45)
                 }
-                Spacer(minLength: 0)
+            }
+            .frame(minWidth: 112, alignment: .leading)
+
+            HStack(spacing: 7) {
+                compactHazardDistance(title: "前", value: row.frontYards)
+                compactHazardDistance(title: "后", value: row.backYards)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 0) {
                 hazardNavigationButton(
                     systemName: "chevron.backward",
                     label: "上一个障碍",
@@ -855,34 +864,28 @@ struct LiveHazardBrowserPanel: View {
                     action: onNext
                 )
             }
-
-            HStack(spacing: 0) {
-                hazardDistance(title: "到前沿", value: row.frontYards)
-                Rectangle()
-                    .fill(LivePlayStyle.stroke10)
-                    .frame(width: 1, height: 34)
-                hazardDistance(title: "过后沿", value: row.backYards)
-            }
         }
-        .padding(.vertical, 4)
+        .frame(minHeight: 42)
+        .padding(.vertical, 2)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("selected-hazard-\(index + 1)")
     }
 
-    private func hazardDistance(title: String, value: Int?) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
+    private func compactHazardDistance(title: String, value: Int?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 2) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(LivePlayStyle.ink45)
             Text(value.map(String.init) ?? "—")
-                .font(.system(size: 21, weight: .heavy, design: .rounded))
+                .font(.system(size: 17, weight: .heavy, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(LivePlayStyle.ink)
             Text("码")
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(.system(size: 8.5, weight: .semibold))
                 .foregroundStyle(LivePlayStyle.ink45)
         }
-        .frame(maxWidth: .infinity, alignment: .center)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title == "前" ? "到前沿" : "过后沿") \(value.map(String.init) ?? "—") 码")
     }
 
     private func hazardNavigationButton(
@@ -895,7 +898,7 @@ struct LiveHazardBrowserPanel: View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 13, weight: .bold))
-                .frame(width: 34, height: 34)
+                .frame(width: 30, height: 30)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -415,13 +415,18 @@ public struct CurrentHoleView: View {
     private var liveHoleContent: some View {
         ZStack {
             LivePlayStyle.base.ignoresSafeArea()
-            liveHoleScrollView
+            // Keep the command dock in the layout tree instead of overlaying it with
+            // safeAreaInset. The latter left the scroll view at full-window height on
+            // recent iOS runtimes, allowing the selected hazard distances to sit under
+            // the fixed buttons.
+            VStack(spacing: 0) {
+                liveHoleScrollView
+                    .frame(maxHeight: .infinity)
+                liveActionDock
+            }
             #if DEBUG
             offlineReadyMarker
             #endif
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            liveActionDock
         }
     }
 
