@@ -277,8 +277,8 @@ final class RoundTenUITests: XCTestCase {
         let baseline = route("stock", offsets: [199, 364])
         let refreshed = route(
             "safe",
-            carries: [225, 191],
-            offsets: [225, 416]
+            offsets: [225, 416],
+            carries: [225, 191]
         )
 
         XCTAssertTrue(LiveCaddieRouteAuthority.sameVisibleRoute(baseline, refreshed))
