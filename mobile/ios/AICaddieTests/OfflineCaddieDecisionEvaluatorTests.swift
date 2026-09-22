@@ -364,7 +364,8 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         XCTAssertEqual(sequence.steps.count, 1)
         XCTAssertEqual(sequence.steps.first?.clubName, "7I")
         XCTAssertEqual(sequence.steps.first?.role, "scoring")
-        XCTAssertEqual(sequence.steps.first?.routeOffsetM, 151, accuracy: 0.001)
+        let routeOffsetM = try XCTUnwrap(sequence.steps.first?.routeOffsetM)
+        XCTAssertEqual(routeOffsetM, 151, accuracy: 0.001)
         XCTAssertTrue(LiveCaddieDecisionUsability.hasCompleteRoute(decision, par: 3, shotType: "tee"))
     }
 
