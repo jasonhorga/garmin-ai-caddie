@@ -80,8 +80,10 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
         func hasDetail(kind: String, interval: [Double]) -> Bool {
             guard let start = interval.first, start.isFinite else { return false }
             let end = interval.dropFirst().first(where: { $0.isFinite }) ?? start
-            let legacyNear = min(start, end)
-            let legacyFar = max(start, end)
+            // Legacy bunker tuples are [route station, lateral side], while water tuples are
+            // [front route, back route]. Never let a bunker side value turn into a huge route span.
+            let legacyNear = start
+            let legacyFar = kind == "water" ? max(start, end) : start
             let compatibilityTolerance = 8.0
             return details.contains { detail in
                 guard detail.kind == kind else { return false }
