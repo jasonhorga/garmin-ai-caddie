@@ -3516,8 +3516,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("LiveCaddiePlanPanel(", current_hole)
         self.assertIn("routes: liveCaddieRoutes", current_hole)
         # Complete routes and inline hazards vary in height. High-frequency play actions belong to a
-        # fixed safe-area HUD, never below those variable rows in the scrolling primary panel.
-        self.assertIn(".safeAreaInset(edge: .bottom, spacing: 0)", current_hole)
+        # sibling layout row, so the scrolling primary panel cannot render underneath the HUD.
+        self.assertIn("VStack(spacing: 0)", current_hole)
+        self.assertIn("liveHoleScrollView", current_hole)
+        self.assertIn(".frame(maxHeight: .infinity)", current_hole)
+        self.assertNotIn(".safeAreaInset(edge: .bottom, spacing: 0)", current_hole)
         self.assertIn("private var liveActionDock: some View", current_hole)
         self.assertIn('accessibilityIdentifier("live-action-dock")', current_hole)
         primary_panel = current_hole.split("private var livePrimaryPanel: some View", 1)[1].split(

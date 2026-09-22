@@ -9,9 +9,9 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-22 11:21 UTC
-**Branch:** `integration/v2` (GitHub default; current `PHONE-UX7` source and
-backend candidate are `837c0d9a26bcfc6a4990e0778664135408d792e4`;
+**Updated:** 2026-09-22 15:24 UTC
+**Branch:** `integration/v2` (GitHub default; current `PHONE-UX7-ROUTE2` source
+and backend candidate are `3297b219`;
 Source CI `35615806302` and exact-SHA Native Mobile CI `35617605192` passed,
 including live iPhone and Watch runtime evidence; API candidate
 `https://battery-chan-metro-liverpool.trycloudflare.com` is on loopback
@@ -63,14 +63,18 @@ deterministic route data, final-leg/Par-3 map rendering, tee-club policy, refres
 authority, and complete hazard enumeration. Existing Build 72/TestFlight evidence
 is not evidence for this new slice. Current implementation checkpoint: expose
 green front/middle/back facts in live decision context, add GIR metadata to route
-sequences, and keep map endpoints at the green window rather than forcing every
-scoring leg to the flag. Focused homeserver verification is now `303/303` passing
-in `11.224s` using one auto-removed container against scratch
+sequences, keep map endpoints at the green window rather than forcing every
+scoring leg to the flag, and keep the selected live hazard panel above the fixed
+action dock. Focused homeserver verification is now `303/303` passing in
+`11.224s` using one auto-removed container against scratch
 `/home/jason/codex-runs/garmin-ai-caddie-route2-20260922-c`; it created no service,
 port, tunnel, dependency environment, or persistent volume. A final Swift access-
 control correction and route-authority consistency test are included in the
-uncommitted tree. Next action is commit/push, Source CI, then exact-SHA Native
-Mobile CI; no new release claim exists.
+committed tree. Native run `35736853794` reached all Watch/evidence stages but
+failed one real iOS assertion because selected hazard distances were covered by
+the bottom action dock; commit `3297b219` moves the dock into the layout tree and
+compresses the hazard browser to one row. Next action is Source CI, then a fresh
+exact-SHA Native Mobile run; no new release claim exists.
 
 `PHONE-UX7` is now `evidence-open` only for
 physical iPhone/Watch installation and interaction after the fresh internal
