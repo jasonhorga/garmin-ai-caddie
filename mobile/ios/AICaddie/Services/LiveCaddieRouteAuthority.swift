@@ -137,24 +137,27 @@ enum LiveCaddieRouteAuthority {
         physicalSignature(lhs) == physicalSignature(rhs)
     }
 
-    /// Return true when two routes would be indistinguishable in the live strip. Backend refreshes
-    /// can round carries or route stations differently while retaining the same club chain. Those
-    /// near-identical rows should not become duplicate tabs; a materially different landing still
-    /// remains selectable.
+    /// Return true when two routes would be indistinguishable to the player.
+    ///
+    /// The live route strip exposes the club chain and whether its final leg is a position/layup
+    /// or a scoring/GIR leg. It does not expose the planner's hidden carry/route-offset values in
+    /// the route tabs. Treating those hidden values as identity produced duplicate choices such as
+    /// two separate `3H -> 3W` tabs after a refresh. Physical values remain available on the
+    /// selected route and `samePhysicalRoute` still handles refresh retention; they must not create
+    /// another player-facing strategy by themselves.
     static func sameVisibleRoute(_ lhs: CaddiePlanSequence, _ rhs: CaddiePlanSequence) -> Bool {
         guard lhs.steps.count == rhs.steps.count, !lhs.steps.isEmpty else { return false }
         for (index, pair) in zip(lhs.steps, rhs.steps).enumerated() {
             let (left, right) = pair
             guard normalizedClub(left.clubName) == normalizedClub(right.clubName) else { return false }
-            if let leftCarry = left.targetCarryM, let rightCarry = right.targetCarryM,
-               abs(leftCarry - rightCarry) > 10 { return false }
-            if let leftOffset = left.routeOffsetM, let rightOffset = right.routeOffsetM,
-               abs(leftOffset - rightOffset) > 15 { return false }
             if index == lhs.steps.count - 1 {
-                // A role/green marker change can move the map endpoint from a layup prefix to the
+                // A role/green marker change moves the map endpoint from a layup prefix to the
                 // green. Keep those routes separate even when their club labels match.
                 if endpointClass(left.role) != endpointClass(right.role) { return false }
-                if left.greenInRegulation != right.greenInRegulation { return false }
+                // Missing and explicit-false GIR metadata have the same player-facing meaning.
+                if (left.greenInRegulation == true) != (right.greenInRegulation == true) {
+                    return false
+                }
             }
         }
         return true

@@ -252,13 +252,17 @@ final class RoundTenUITests: XCTestCase {
         XCTAssertTrue(LiveCaddieRouteAuthority.isComplete(drivable, par: 4, shotType: "tee"))
     }
 
-    func testNearDuplicateVisibleRouteIsCollapsedButMaterialLandingChangeRemains() {
-        func route(_ id: String, offsets: [Double]) -> CaddiePlanSequence {
+    func testSameVisibleClubChainCollapsesHiddenLandingDifferences() {
+        func route(
+            _ id: String,
+            offsets: [Double],
+            carries: [Double] = [199, 165]
+        ) -> CaddiePlanSequence {
             let clubs = ["1W", "3H"]
             let steps = clubs.enumerated().map { index, club in
                 CaddiePlanSequenceStep(
                     id: "\(id)-\(index)", role: index == 1 ? "scoring" : "tee", clubName: club,
-                    targetCarryM: index == 0 ? 199 : 165, expectedRemainingM: index == 1 ? 0 : 165,
+                    targetCarryM: carries[index], expectedRemainingM: index == 1 ? 0 : 165,
                     sampleSize: 40, confidence: "high", sourceRefs: [],
                     routeOffsetM: offsets[index], landingM: offsets[index], planIndex: index,
                     greenInRegulation: index == 1, shotsToGreen: index == 1 ? 2 : nil
@@ -271,11 +275,39 @@ final class RoundTenUITests: XCTestCase {
         }
 
         let baseline = route("stock", offsets: [199, 364])
-        let roundedRefresh = route("safe", offsets: [201, 366])
-        let materiallyDifferent = route("attack", offsets: [199, 390])
+        let refreshed = route(
+            "safe",
+            carries: [225, 191],
+            offsets: [225, 416]
+        )
 
-        XCTAssertTrue(LiveCaddieRouteAuthority.sameVisibleRoute(baseline, roundedRefresh))
-        XCTAssertFalse(LiveCaddieRouteAuthority.sameVisibleRoute(baseline, materiallyDifferent))
+        XCTAssertTrue(LiveCaddieRouteAuthority.sameVisibleRoute(baseline, refreshed))
+    }
+
+    func testDifferentVisibleEndpointSemanticsRemainSeparate() {
+        func route(_ id: String, finalRole: String, gir: Bool) -> CaddiePlanSequence {
+            let steps = [
+                CaddiePlanSequenceStep(
+                    id: "\(id)-0", role: "tee", clubName: "1W", targetCarryM: 199,
+                    expectedRemainingM: 165, sampleSize: 40, confidence: "high", sourceRefs: [],
+                    routeOffsetM: 199, landingM: 199, planIndex: 0
+                ),
+                CaddiePlanSequenceStep(
+                    id: "\(id)-1", role: finalRole, clubName: "3H", targetCarryM: 165,
+                    expectedRemainingM: gir ? 0 : 32, sampleSize: 40, confidence: "high", sourceRefs: [],
+                    routeOffsetM: gir ? 364 : 332, landingM: gir ? 364 : 332, planIndex: 1,
+                    greenInRegulation: gir, shotsToGreen: gir ? 2 : nil
+                ),
+            ]
+            return CaddiePlanSequence(
+                id: id, label: "1W-3H", expectedRemainingM: gir ? 0 : 32,
+                riskScore: 1, confidence: "high", coverageText: nil, sourceRefs: [], steps: steps
+            )
+        }
+
+        let scoring = route("stock", finalRole: "scoring", gir: true)
+        let position = route("safe", finalRole: "position", gir: false)
+        XCTAssertFalse(LiveCaddieRouteAuthority.sameVisibleRoute(scoring, position))
     }
 
     func testBlackKnightA4KeepsBothGreensideBunkersAndEveryRealOutline() throws {
