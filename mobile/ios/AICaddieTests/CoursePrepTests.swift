@@ -76,10 +76,10 @@ final class CoursePrepTests: XCTestCase {
             CoursePrepGreenDistances.self,
             from: Data(json.utf8)
         )
-        XCTAssertEqual(green.frontM, 358.9, accuracy: 0.01)
-        XCTAssertEqual(green.backM, 386.1, accuracy: 0.01)
-        XCTAssertEqual(green.frontRouteM, 380.3, accuracy: 0.01)
-        XCTAssertEqual(green.backRouteM, 396.0, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(green.frontM), 358.9, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(green.backM), 386.1, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(green.frontRouteM), 380.3, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(green.backRouteM), 396.0, accuracy: 0.01)
 
         let legacy = try JSONDecoder().decode(
             CoursePrepGreenDistances.self,
