@@ -17,9 +17,19 @@ enum LiveCaddieRouteAuthority {
     ) -> [CaddiePlanSequence] {
         // The installed chain is the first-frame visual authority even when it is an explicit
         // CoursePrep prefix (`completion=replan_required`). Keeping that prefix prevents a refresh
-        // from replacing `1W -> 3H` with an unrelated sparse planner chain. Completeness is only a
-        // gate for *additional* remote alternatives.
-        let installedRoute = installed?.steps.isEmpty == false ? installed : nil
+        // from replacing `1W -> 3H` with an unrelated sparse planner chain. A bare Par 4/5 tee card
+        // is filtered below; a measured multi-leg prefix remains useful while its next lie is
+        // being re-planned.
+        let installedRoute: CaddiePlanSequence? = {
+            guard let installed, !installed.steps.isEmpty else { return nil }
+            // Keep a useful CoursePrep prefix, but never expose a bare Par 4/5 tee club as a
+            // complete route.  A single-club route is retained only when its final step carries
+            // the explicit factual GIR marker (for example a genuinely drivable Par 4).
+            if !isDisplayable(installed, par: par, shotType: shotType) {
+                return nil
+            }
+            return installed
+        }()
         let onlineRoutes = completeDistinctRoutes(
             CaddiePlanPresentation.distinctSequences(from: online ?? emptyDecision),
             par: par,
@@ -41,7 +51,7 @@ enum LiveCaddieRouteAuthority {
         // CoursePrep route yet, the complete online route becomes the first authority.
         let candidates = onlineRoutes + offlineRoutes
         for route in candidates {
-            if result.contains(where: { samePhysicalRoute($0, route) }) { continue }
+            if result.contains(where: { sameVisibleRoute($0, route) }) { continue }
             result.append(route)
         }
 
@@ -86,6 +96,18 @@ enum LiveCaddieRouteAuthority {
             return true
         }
         guard let last = route.steps.last else { return false }
+        if shotType.caseInsensitiveCompare("tee") == .orderedSame, par >= 4 {
+            // A single tee club is not a complete Par 4/5 recommendation merely because an old
+            // payload called it `scoring` or reported a zero leave.  It is complete only when the
+            // planner explicitly proved a factual GIR landing, or when the route contains the
+            // normal Par - 2 shot budget.  This prevents the live tabs from exposing a bare
+            // `1W` card as if it were the whole hole while still allowing a genuine drivable
+            // Par 4 (whose final step carries greenInRegulation) to remain one shot.
+            let explicitGIR = route.steps.contains { $0.greenInRegulation == true }
+            if !explicitGIR && route.steps.count < max(1, par - 2) {
+                return false
+            }
+        }
         let role = last.role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if role == "scoring" || role == "approach" { return true }
         if let remaining = last.expectedRemainingM, remaining.isFinite, remaining <= 20 {
@@ -96,8 +118,46 @@ enum LiveCaddieRouteAuthority {
         return false
     }
 
+    /// A route may be a useful multi-leg prefix while the final lie still needs re-planning, but a
+    /// lone Par 4/5 tee club is too little information to put on the player-facing route strip.
+    static func isDisplayable(
+        _ route: CaddiePlanSequence,
+        par: Int,
+        shotType: String
+    ) -> Bool {
+        guard !route.steps.isEmpty else { return false }
+        guard shotType.caseInsensitiveCompare("tee") == .orderedSame, par >= 4 else { return true }
+        // Two or more measured legs are useful as an honest prefix even on a Par 5; the stricter
+        // Par - 2 budget is reserved for routes advertised as complete by `isComplete`.
+        return route.steps.count >= 2
+            || route.steps.contains { $0.greenInRegulation == true }
+    }
+
     static func samePhysicalRoute(_ lhs: CaddiePlanSequence, _ rhs: CaddiePlanSequence) -> Bool {
         physicalSignature(lhs) == physicalSignature(rhs)
+    }
+
+    /// Return true when two routes would be indistinguishable in the live strip. Backend refreshes
+    /// can round carries or route stations differently while retaining the same club chain. Those
+    /// near-identical rows should not become duplicate tabs; a materially different landing still
+    /// remains selectable.
+    static func sameVisibleRoute(_ lhs: CaddiePlanSequence, _ rhs: CaddiePlanSequence) -> Bool {
+        guard lhs.steps.count == rhs.steps.count, !lhs.steps.isEmpty else { return false }
+        for (index, pair) in zip(lhs.steps, rhs.steps).enumerated() {
+            let (left, right) = pair
+            guard normalizedClub(left.clubName) == normalizedClub(right.clubName) else { return false }
+            if let leftCarry = left.targetCarryM, let rightCarry = right.targetCarryM,
+               abs(leftCarry - rightCarry) > 10 { return false }
+            if let leftOffset = left.routeOffsetM, let rightOffset = right.routeOffsetM,
+               abs(leftOffset - rightOffset) > 15 { return false }
+            if index == lhs.steps.count - 1 {
+                // A role/green marker change can move the map endpoint from a layup prefix to the
+                // green. Keep those routes separate even when their club labels match.
+                if endpointClass(left.role) != endpointClass(right.role) { return false }
+                if left.greenInRegulation != right.greenInRegulation { return false }
+            }
+        }
+        return true
     }
 
     /// Stable UI identity for a route version. Roles are included because changing a position leg
@@ -136,15 +196,29 @@ enum LiveCaddieRouteAuthority {
     ) -> [CaddiePlanSequence] {
         routes.filter { isComplete($0, par: par, shotType: shotType) }
             .reduce(into: []) { result, route in
-                guard !result.contains(where: { samePhysicalRoute($0, route) }) else { return }
+                guard !result.contains(where: { sameVisibleRoute($0, route) }) else { return }
                 result.append(route)
             }
     }
 
     private static func deduplicated(_ routes: [CaddiePlanSequence]) -> [CaddiePlanSequence] {
         routes.reduce(into: []) { result, route in
-            guard !result.contains(where: { samePhysicalRoute($0, route) }) else { return }
+            guard !result.contains(where: { sameVisibleRoute($0, route) }) else { return }
             result.append(route)
+        }
+    }
+
+    private static func normalizedClub(_ value: String) -> String {
+        zhClubDisplayName(zhClubName(value))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private static func endpointClass(_ role: String) -> String {
+        switch role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "scoring", "approach": return "scoring"
+        case "tee", "advance", "position", "layup": return "position"
+        default: return role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         }
     }
 

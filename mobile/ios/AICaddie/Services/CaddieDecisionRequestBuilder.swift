@@ -743,6 +743,15 @@ public enum LiveCaddieDecisionUsability {
             return true
         }
         let last = steps.last ?? [:]
+        if shotType.caseInsensitiveCompare("tee") == .orderedSame,
+           let par, par >= 4,
+           steps.count < max(1, par - 2) {
+            // A role/zero-leave value alone is not proof that a Par 4/5 tee club reached the
+            // green.  Require the explicit factual GIR marker for a genuine one-shot hole.
+            let greenInRegulation = boolValue(last["greenInRegulation"])
+                || boolValue(metadata["greenInRegulation"])
+            if !greenInRegulation { return false }
+        }
         let role = stringValue(last["role"]).lowercased()
         let remaining = numberValue(last["expectedRemaining_m"] ?? last["expectedRemainingM"])
         let scoring = role == "scoring" || role == "approach"

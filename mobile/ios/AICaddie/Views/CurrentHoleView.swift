@@ -1306,7 +1306,9 @@ public struct CurrentHoleView: View {
     private func reconcileCaddieRoutes() {
         let incoming = resolvedCaddieRoutes()
         guard !incoming.isEmpty else { return }
-        let existing = caddieRoutesByHole[hole.number] ?? []
+        let existing = (caddieRoutesByHole[hole.number] ?? []).filter {
+            LiveCaddieRouteAuthority.isDisplayable($0, par: hole.par, shotType: selectedShotType)
+        }
         let installed = installedCaddieRoute
         let retained = retainedCaddieRouteByHole[hole.number]
 
@@ -1348,7 +1350,7 @@ public struct CurrentHoleView: View {
         // refresh cannot reshuffle the plan tabs either.
         var merged: [CaddiePlanSequence] = [first]
         for route in existing + incoming {
-            guard !merged.contains(where: { LiveCaddieRouteAuthority.samePhysicalRoute($0, route) }) else { continue }
+            guard !merged.contains(where: { LiveCaddieRouteAuthority.sameVisibleRoute($0, route) }) else { continue }
             merged.append(route)
         }
         caddieRoutesByHole[hole.number] = merged
@@ -1503,7 +1505,9 @@ public struct CurrentHoleView: View {
                 sourceRefs: [],
                 routeOffsetM: pinEndpoint ? routeEnd : actualOffset,
                 landingM: pinEndpoint ? routeEnd : actualOffset,
-                planIndex: step.planIndex ?? index
+                planIndex: step.planIndex ?? index,
+                greenInRegulation: girLanding,
+                shotsToGreen: girLanding ? index + 1 : nil
             )
         }
         guard !steps.isEmpty else { return nil }

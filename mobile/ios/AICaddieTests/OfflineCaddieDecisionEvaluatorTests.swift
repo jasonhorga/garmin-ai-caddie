@@ -434,6 +434,18 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         )
     }
 
+    func testBarePar4ScoringCardIsNotACompleteRouteWithoutGIRFact() {
+        let response = sequenceDecision(clubs: [[
+            "clubName": .string("1W"),
+            "role": .string("scoring"),
+            "expectedRemaining_m": .number(0),
+        ]])
+
+        XCTAssertFalse(
+            LiveCaddieDecisionUsability.hasCompleteRoute(response, par: 4, shotType: "tee")
+        )
+    }
+
     func testCompleteRemoteGeometryRouteWinsOverInstalledPrepPrefix() {
         let local = sequenceDecision(
             clubs: [
