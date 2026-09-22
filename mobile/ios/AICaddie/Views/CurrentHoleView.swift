@@ -2777,7 +2777,7 @@ public struct CurrentHoleView: View {
     /// structured sequence still gets a direct tee-to-pin scoring leg below.
     private var livePlannedShots: [MapPlannedShot] {
         if let sequence = selectedLiveCaddieRoute {
-            let shots = sequence.steps.enumerated().compactMap { index, step in
+            let shots = sequence.steps.enumerated().compactMap { index, step -> MapPlannedShot? in
                 let name = step.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !name.isEmpty, name != "-" else { return nil }
                 let routeEnd = holePrep?.resolvedMapOverlay?.ln
