@@ -99,6 +99,8 @@ Swift test passed optional `Double?` values directly to precision assertions;
 that test-only compile error is fixed in `a13724e1`. Native run
 `35783509011` passed the real iOS and Watch stages; its `real-screenshots`,
 `watch-real-screenshots`, and `native-build-evidence` artifacts were inspected.
+The local 182 MiB artifact scratch was removed after inspection; GitHub
+artifacts remain available under the run.
 The iOS live evidence shows a two-shot Par 4 route (`一号木 -> 三号混合杆`)
 whose second endpoint is the factual green window, and a three-shot Par 5 route
 with the selected water contour and front/back distances. The candidate health
