@@ -708,17 +708,18 @@ struct LiveCaddiePlanPanel: View {
                                     Text("方案 \(index + 1)")
                                         .font(.system(size: 11, weight: .semibold))
                                         .foregroundStyle(routeIsSelected(route) ? LivePlayStyle.greenLabel : LivePlayStyle.ink45)
-                                    Text(routeClubChain(route))
+                                    Text(routeClubChain(route, among: routes))
                                         .font(.system(size: 12.5, weight: .bold))
                                         .foregroundStyle(LivePlayStyle.ink)
                                         .lineLimit(1)
+                                        .minimumScaleFactor(0.72)
                                     Rectangle()
                                         .fill(routeIsSelected(route) ? LivePlayStyle.greenLabel : Color.clear)
                                         .frame(height: 2)
                                 }
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("切换到方案 \(index + 1)，\(routeClubChain(route))")
+                            .accessibilityLabel("切换到方案 \(index + 1)，\(routeClubChain(route, among: routes))")
                             .accessibilityIdentifier("live-caddie-route-\(index + 1)")
                         }
                     }
@@ -783,11 +784,29 @@ struct LiveCaddiePlanPanel: View {
         .padding(.vertical, 4)
     }
 
-    private func routeClubChain(_ route: CaddiePlanSequence) -> String {
-        route.steps
+    private func routeClubChain(
+        _ route: CaddiePlanSequence,
+        among routes: [CaddiePlanSequence]
+    ) -> String {
+        let chain = route.steps
             .map { zhClubDisplayName(zhClubName($0.clubName)) }
             .filter { !$0.isEmpty && $0 != "-" }
             .joined(separator: " → ")
+        let sameChainCount = routes.filter { candidate in
+            candidate.steps.map { zhClubDisplayName(zhClubName($0.clubName)) }
+                .filter { !$0.isEmpty && $0 != "-" }
+                .joined(separator: " → ") == chain
+        }.count
+        guard sameChainCount > 1 else { return chain }
+        let endpoint = route.steps.last.map { endpointClass($0.role) } ?? "position"
+        return "\(chain) · \(endpoint == "scoring" ? "攻果岭" : "铺垫")"
+    }
+
+    private func endpointClass(_ role: String) -> String {
+        switch role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "scoring", "approach": return "scoring"
+        default: return "position"
+        }
     }
 
     private func routeIsSelected(_ route: CaddiePlanSequence) -> Bool {

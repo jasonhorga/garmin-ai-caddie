@@ -1092,7 +1092,7 @@ class HolePrep:
     tee_club: str | None = None
     hazards: dict = field(default_factory=dict)
     playsLike: dict = field(default_factory=dict)  # round-13: {available, teeElevM, greenElevM, deltaM, deltaYd}
-    greenDistances: dict = field(default_factory=dict)  # round-13 E3: {available, front/middle/back M+Yd}
+    greenDistances: dict = field(default_factory=dict)  # F/M/B straight facts + optional route window
     greenSlope: dict = field(default_factory=dict)  # {available, magnitudePct, directionDeg (break dir), flat}
     holeImageProjection: dict = field(default_factory=dict)  # watch P0.1: geo→px anchors for the topo map
     greenOutline: dict | None = None  # selected Green.drc/CourseView boundary in the display frame
@@ -1148,6 +1148,66 @@ def _green_slope(by: dict, route) -> dict:
         return {"available": False}
 
 
+def _green_route_window(points, route) -> tuple[float, float] | None:
+    """Project a green boundary onto the tee-to-green route coordinate.
+
+    Straight-line F/M/B facts are useful for the live GPS readout, but a dogleg can make them
+    disagree with the cumulative playable route. The planner therefore uses the same route
+    station used by hazard intervals and shot landings.
+    """
+    if not points or not route:
+        return None
+    segments = _route_segments(route)
+    if not segments:
+        return None
+    stations = []
+    for point in points:
+        try:
+            projected = _project_point_to_route(
+                (float(point[0]), float(point[1])),
+                segments,
+            )
+        except (IndexError, TypeError, ValueError, OverflowError):
+            continue
+        if projected is not None and math.isfinite(float(projected[1])):
+            stations.append(float(projected[1]))
+    if not stations:
+        return None
+    return min(stations), max(stations)
+
+
+def _green_distance_payload(
+    route,
+    front_pt,
+    middle_pt,
+    back_pt,
+    *,
+    md: dict | None = None,
+    boundary_points=None,
+    source: str,
+) -> dict:
+    """Build one consistent green-distance contract for precise and lightweight geometry."""
+    tee = (float(route[0][0]), float(route[0][1]))
+
+    def from_tee(point) -> float:
+        return math.hypot(float(point[0]) - tee[0], float(point[1]) - tee[1])
+
+    front_m, middle_m, back_m = from_tee(front_pt), from_tee(middle_pt), from_tee(back_pt)
+    result = {
+        "available": True,
+        "frontM": round(front_m, 1), "frontYd": yd(front_m),
+        "middleM": round(middle_m, 1), "middleYd": yd(middle_m),
+        "backM": round(back_m, 1), "backYd": yd(back_m),
+        "source": source,
+    }
+    route_window = _green_route_window(boundary_points or [front_pt, back_pt], route)
+    if route_window is not None:
+        result["frontRouteM"] = round(route_window[0], 1)
+        result["backRouteM"] = round(route_window[1], 1)
+    result.update(_green_latlon(md, front_pt, middle_pt, back_pt))
+    return result
+
+
 def _green_distances(by: dict, route, md: dict | None = None) -> dict:
     """Front/Middle/Back green distances from the tee (前/中/后果岭), flat plan-view m+yd. round-13 E3.
 
@@ -1156,8 +1216,10 @@ def _green_distances(by: dict, route, md: dict | None = None) -> dict:
     whose triangles/centroid are ALREADY in the ``(-mesh_x, mesh_z)`` frame (same as ``route``), so
     no re-projection. A Green.drc tile can include neighbour-hole greens, so we pick the component
     whose centroid is nearest ``route[-1]`` (the dogleg/green endpoint). Front = nearest green
-    vertex to the tee, Back = farthest, Middle = the chosen component's centroid. Degrades to
-    ``{"available": False}`` on any missing route/green/usable geometry.
+    boundary point to the tee, Back = farthest, Middle = the chosen component's centroid. The
+    additive ``frontRouteM``/``backRouteM`` fields project that same boundary onto the playable
+    route; they are the planning coordinate, while straight-line F/M/B remain GPS/display facts.
+    Degrades to ``{"available": False}`` on any missing route/green/usable geometry.
 
     round-13 B1 (LIVE rangefinder): when ``md`` carries the hole's ``RefLat``/``RefLon`` anchor, the
     three green points are ALSO returned as WGS84 ``front/middle/backLat`` + ``…Lon`` so the phone can
@@ -1183,20 +1245,23 @@ def _green_distances(by: dict, route, md: dict | None = None) -> dict:
         def _from_tee(point) -> float:
             return math.hypot(point[0] - tee[0], point[1] - tee[1])
 
-        # Keep the actual F/M/B POINTS (not just their distances) so they can also be projected to
-        # WGS84 below — frontM/middleM/backM stay byte-identical to the previous min/max-of-distances.
-        front_pt = min(verts, key=_from_tee)
-        back_pt = max(verts, key=_from_tee)
+        # Prefer the exterior boundary for both the radial facts and route projection. Interior
+        # triangulation vertices are not physical putting-surface edges and can make the route
+        # window depend on mesh tessellation.
+        boundary = _ordered_component_boundary(comp.get("triangles") or [])
+        boundary_points = boundary or verts
+        front_pt = min(boundary_points, key=_from_tee)
+        back_pt = max(boundary_points, key=_from_tee)
         middle_pt = comp["centroid"]
-        front_m, middle_m, back_m = _from_tee(front_pt), _from_tee(middle_pt), _from_tee(back_pt)
-        result = {
-            "available": True,
-            "frontM": round(front_m, 1), "frontYd": yd(front_m),
-            "middleM": round(middle_m, 1), "middleYd": yd(middle_m),
-            "backM": round(back_m, 1), "backYd": yd(back_m),
-        }
-        result.update(_green_latlon(md, front_pt, middle_pt, back_pt))
-        return result
+        return _green_distance_payload(
+            route,
+            front_pt,
+            middle_pt,
+            back_pt,
+            md=md,
+            boundary_points=boundary_points,
+            source="prodgeometry.Green.drc",
+        )
     except Exception:
         return {"available": False}
 
@@ -1579,11 +1644,12 @@ def _course_data_green_outline(
     *,
     green_latitude: float,
 ) -> list[tuple[float, float]]:
-    """Decode Garmin's 30-direction legacy green outline for drawing only.
+    """Decode Garmin's 30-direction legacy green boundary for drawing and route projection.
 
     Garmin sampled the values from north clockwise before applying longitude's
     latitude correction. ``green_radii_local_offsets`` restores that coordinate
-    transform. The result remains a display outline, not numeric F/M/B evidence.
+    transform. The resulting points are the factual lightweight boundary; callers may derive both
+    display pixels and a cumulative route window from them, but must not treat raw radii as metres.
     """
     radii = hole.get("greenRadii") or []
     if len(radii) != 30 or not route:
@@ -1803,6 +1869,27 @@ def _lightweight_prep_hole(
     green_lat, green_lon = shot_projection.local_to_world(
         route[-1][0], route[-1][1], ref_lat=ref_lat, ref_lon=ref_lon
     )
+    green_distance_facts = {
+        "available": True,
+        "middleM": round(route_len, 1),
+        "middleYd": yd(route_len),
+        "middleLat": round(green_lat, 7),
+        "middleLon": round(green_lon, 7),
+        "source": "courseData.GreenRadii",
+    }
+    if green_outline:
+        tee = (float(route[0][0]), float(route[0][1]))
+        front_pt = min(green_outline, key=lambda point: math.dist(point, tee))
+        back_pt = max(green_outline, key=lambda point: math.dist(point, tee))
+        green_distance_facts = _green_distance_payload(
+            route,
+            front_pt,
+            route[-1],
+            back_pt,
+            md={"hole": {"RefLat": ref_lat, "RefLon": ref_lon}},
+            boundary_points=green_outline,
+            source="courseData.GreenRadii",
+        )
     source_ref = (
         f"courseData:{int(global_id)}:{int(course_data['buildId'])}:"
         f"{course_data['sourceVariant']}"
@@ -1832,13 +1919,7 @@ def _lightweight_prep_hole(
         tee_club=tee_club,
         hazards=hazards,
         playsLike={"available": False},
-        greenDistances={
-            "available": True,
-            "middleM": round(route_len, 1),
-            "middleYd": yd(route_len),
-            "middleLat": round(green_lat, 7),
-            "middleLon": round(green_lon, 7),
-        },
+        greenDistances=green_distance_facts,
         greenSlope={"available": False},
         holeImageProjection=projection,
         greenOutline={

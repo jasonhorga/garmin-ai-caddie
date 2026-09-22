@@ -67,6 +67,28 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertEqual(hole.hazards.waterCarry.first, [40.0, 90.0])
     }
 
+    func testGreenRouteWindowDecodesSeparatelyFromStraightGpsDistances() throws {
+        let json = """
+        {"available":true,"frontM":358.9,"middleM":373.3,"backM":386.1,
+         "frontRouteM":380.3,"backRouteM":396.0}
+        """
+        let green = try JSONDecoder().decode(
+            CoursePrepGreenDistances.self,
+            from: Data(json.utf8)
+        )
+        XCTAssertEqual(green.frontM, 358.9, accuracy: 0.01)
+        XCTAssertEqual(green.backM, 386.1, accuracy: 0.01)
+        XCTAssertEqual(green.frontRouteM, 380.3, accuracy: 0.01)
+        XCTAssertEqual(green.backRouteM, 396.0, accuracy: 0.01)
+
+        let legacy = try JSONDecoder().decode(
+            CoursePrepGreenDistances.self,
+            from: Data("{\"available\":true,\"middleM\":373.3}".utf8)
+        )
+        XCTAssertNil(legacy.frontRouteM)
+        XCTAssertNil(legacy.backRouteM)
+    }
+
     func testHazardOutlineIsOptionalAndMalformedGeometryDoesNotBreakHoleDecode() throws {
         let cases: [(name: String, field: String)] = [
             ("old package without outline", ""),

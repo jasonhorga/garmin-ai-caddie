@@ -232,7 +232,7 @@ public final class OfflineCaddieDecisionEvaluator {
         request: CaddieDecisionRequest,
         canonicalSteps: [[String: JSONValue]]?,
         par: Int,
-        greenWindow: (front: Double, back: Double)?
+        greenWindow: (front: Double, back: Double, routeBased: Bool)?
     ) -> [String: [[String: JSONValue]]] {
         var plans: [String: [[String: JSONValue]]] = [:]
         if let canonicalSteps, !canonicalSteps.isEmpty {
@@ -295,23 +295,37 @@ public final class OfflineCaddieDecisionEvaluator {
         return nil
     }
 
-    private func greenWindow(from value: JSONValue?) -> (front: Double, back: Double)? {
-        guard case .object(let row) = value,
-              let front = number(row["frontM"] ?? row["front_m"] ?? row["greenFrontM"]),
-              let back = number(row["backM"] ?? row["back_m"] ?? row["greenBackM"]),
+    private func greenWindow(from value: JSONValue?) -> (front: Double, back: Double, routeBased: Bool)? {
+        guard case .object(let row) = value else { return nil }
+        let straightFront = number(row["frontM"] ?? row["front_m"] ?? row["greenFrontM"])
+        let straightBack = number(row["backM"] ?? row["back_m"] ?? row["greenBackM"])
+        let routeFront = number(
+            row["frontRouteM"] ?? row["front_route_m"] ?? row["greenFrontRouteM"]
+        )
+        let routeBack = number(
+            row["backRouteM"] ?? row["back_route_m"] ?? row["greenBackRouteM"]
+        )
+        let routeBased = routeFront != nil && routeBack != nil
+        let front = routeBased ? routeFront : straightFront
+        let back = routeBased ? routeBack : straightBack
+        guard let front, let back,
               front.isFinite,
               back.isFinite,
               front > 0,
               back > 0 else {
             return nil
         }
-        return (min(front, back), max(front, back))
+        return (
+            min(front, back),
+            max(front, back),
+            routeBased
+        )
     }
 
     private func trimAtGreenWindow(
         _ source: [[String: JSONValue]],
         par: Int,
-        greenWindow: (front: Double, back: Double)?
+        greenWindow: (front: Double, back: Double, routeBased: Bool)?
     ) -> (steps: [[String: JSONValue]], gir: Bool) {
         guard par >= 3,
               let greenWindow,
@@ -338,10 +352,15 @@ public final class OfflineCaddieDecisionEvaluator {
             final["landing_m"] = .number(offset)
             final["greenInRegulation"] = .bool(true)
             final["shotsToGreen"] = .number(Double(index + 1))
-            final["girWindow"] = .object([
+            var window: [String: JSONValue] = [
                 "frontM": .number(greenWindow.front),
                 "backM": .number(greenWindow.back),
-            ])
+            ]
+            if greenWindow.routeBased {
+                window["frontRouteM"] = .number(greenWindow.front)
+                window["backRouteM"] = .number(greenWindow.back)
+            }
+            final["girWindow"] = .object(window)
             trimmed[trimmed.count - 1] = final
             return (trimmed, true)
         }

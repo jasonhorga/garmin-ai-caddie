@@ -1292,6 +1292,9 @@ export interface CoursePrepHole {
     frontM?: number | null
     middleM?: number | null
     backM?: number | null
+    /** Cumulative tee-to-green route stations; distinct from straight GPS F/M/B on doglegs. */
+    frontRouteM?: number | null
+    backRouteM?: number | null
   } | null
   // round-13: elevation playsLike (tee→green) from the hole mesh; deltaYd>0 = uphill (plays longer).
   // Mirrors the phone/watch caddie glance so slope shows on every surface.

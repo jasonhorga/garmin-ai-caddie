@@ -65,6 +65,11 @@ class CoursePrepGreenDistancesTest(unittest.TestCase):
         self.assertAlmostEqual(out["frontM"], 196.0, places=1)
         self.assertAlmostEqual(out["middleM"], 201.0, places=1)
         self.assertAlmostEqual(out["backM"], 206.0, places=1)
+        # The route coordinate is distinct from the straight tee distance: the back edge is
+        # beyond the decoded route endpoint and therefore clamps to the route's factual end.
+        self.assertAlmostEqual(out["frontRouteM"], 196.0, places=1)
+        self.assertAlmostEqual(out["backRouteM"], 201.0, places=1)
+        self.assertEqual(out["source"], "prodgeometry.Green.drc")
         self.assertLessEqual(out["frontM"], out["middleM"])
         self.assertLessEqual(out["middleM"], out["backM"])
         self.assertEqual(out["middleYd"], course_prep.yd(201.0))

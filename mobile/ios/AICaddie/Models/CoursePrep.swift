@@ -926,6 +926,10 @@ public struct CoursePrepGreenDistances: Codable, Equatable {
     public let frontM: Double?
     public let middleM: Double?
     public let backM: Double?
+    /// Cumulative tee-to-green route stations for planning. These differ from the straight-line
+    /// F/M/B distances on a dogleg; when absent, older packages fall back to the straight facts.
+    public let frontRouteM: Double?
+    public let backRouteM: Double?
     // round-13 B1 (LIVE rangefinder): the green Front/Middle/Back as WGS84 lat/lon, so the phone can
     // recompute live distance to the green from its own GPS fix (offline). Present only when the
     // hole's RefLat/RefLon anchor is known; nil otherwise → the UI falls back to the tee distances.

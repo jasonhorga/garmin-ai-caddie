@@ -739,6 +739,72 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertEqual([step["clubName"] for step in selected["clubs"]], ["1W", "3H", "58"])
         self.assertFalse(selected.get("greenInRegulation", False))
 
+    def test_par4_uses_route_green_window_when_straight_distance_would_false_positive(self) -> None:
+        """A dogleg's straight F/B range must not label a short second leg as GIR."""
+        context = analysis_fixture(stock_risk=1)
+        context.update({
+            "par": 4,
+            "distanceToPin_m": 396.0,
+            "canonicalPlanRouteLength_m": 396.0,
+            "canonicalShotPlan": [
+                {"clubName": "1W", "targetCarry_m": 199.2, "routeOffset_m": 199.2, "planIndex": 0},
+                {"clubName": "3H", "targetCarry_m": 164.6, "routeOffset_m": 363.8, "planIndex": 1},
+                {"clubName": "58", "targetCarry_m": 42.1, "routeOffset_m": 405.9, "planIndex": 2},
+            ],
+            # Straight-line front/back would include 363.8 m, but the playable route's front edge
+            # is 380.3 m after the dogleg. The planner must use the route window when supplied.
+            "greenDistances": {
+                "available": True,
+                "frontM": 358.9,
+                "middleM": 373.3,
+                "backM": 386.1,
+                "frontRouteM": 380.3,
+                "backRouteM": 396.0,
+            },
+            "clubProfiles": {
+                "1W": {"clubName": "1W", "sampleSize": 120, "median": 199.2, "p10": 180.0, "p90": 215.0},
+                "3H": {"clubName": "3H", "sampleSize": 80, "median": 164.6, "p10": 150.0, "p90": 178.0},
+                "58": {"clubName": "58", "sampleSize": 60, "median": 42.1, "p10": 35.0, "p90": 50.0},
+            },
+        })
+
+        selected = build_decision_plan(context)["selectedSequence"]
+
+        self.assertEqual([step["clubName"] for step in selected["clubs"]], ["1W", "3H", "58"])
+        self.assertFalse(selected.get("greenInRegulation", False))
+
+    def test_par4_route_green_window_marks_a_reachable_two_shot_gir(self) -> None:
+        context = analysis_fixture(stock_risk=1)
+        context.update({
+            "par": 4,
+            "distanceToPin_m": 396.0,
+            "canonicalPlanRouteLength_m": 396.0,
+            "canonicalShotPlan": [
+                {"clubName": "1W", "targetCarry_m": 199.2, "routeOffset_m": 199.2, "planIndex": 0},
+                {"clubName": "3H", "targetCarry_m": 184.8, "routeOffset_m": 384.0, "planIndex": 1},
+                {"clubName": "58", "targetCarry_m": 42.1, "routeOffset_m": 426.1, "planIndex": 2},
+            ],
+            "greenDistances": {
+                "available": True,
+                "frontM": 358.9,
+                "middleM": 373.3,
+                "backM": 386.1,
+                "frontRouteM": 380.3,
+                "backRouteM": 396.0,
+            },
+            "clubProfiles": {
+                "1W": {"clubName": "1W", "sampleSize": 120, "median": 199.2, "p10": 180.0, "p90": 215.0},
+                "3H": {"clubName": "3H", "sampleSize": 80, "median": 184.8, "p10": 170.0, "p90": 198.0},
+                "58": {"clubName": "58", "sampleSize": 60, "median": 42.1, "p10": 35.0, "p90": 50.0},
+            },
+        })
+
+        selected = build_decision_plan(context)["selectedSequence"]
+
+        self.assertEqual([step["clubName"] for step in selected["clubs"]], ["1W", "3H"])
+        self.assertTrue(selected["greenInRegulation"])
+        self.assertEqual(selected["shotsToGreen"], 2)
+
 
     def test_live_par4_rejects_stale_repeat_short_club_route(self) -> None:
         """The factual tee CoursePrep chain stays complete and never degrades to ``3H -> 3H``.

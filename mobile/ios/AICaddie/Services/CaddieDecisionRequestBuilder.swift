@@ -534,6 +534,7 @@ public enum LiveCaddieSeedFactory {
         var result: [String: JSONValue] = ["available": .bool(green.available)]
         let values: [(String, Double?)] = [
             ("frontM", green.frontM), ("middleM", green.middleM), ("backM", green.backM),
+            ("frontRouteM", green.frontRouteM), ("backRouteM", green.backRouteM),
             ("frontLat", green.frontLat), ("frontLon", green.frontLon),
             ("middleLat", green.middleLat), ("middleLon", green.middleLon),
             ("backLat", green.backLat), ("backLon", green.backLon),

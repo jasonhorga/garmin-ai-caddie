@@ -872,11 +872,14 @@ def _green_distance_facts(
         return None
 
     front = middle = back = None
+    route_front = route_back = None
     source_name = None
     for source in sources:
         front = number(source, "frontM", "front_m", "greenFrontM", "green_front_m")
         middle = number(source, "middleM", "middle_m", "greenMiddleM", "green_middle_m")
         back = number(source, "backM", "back_m", "greenBackM", "green_back_m")
+        route_front = number(source, "frontRouteM", "front_route_m", "greenFrontRouteM", "green_front_route_m")
+        route_back = number(source, "backRouteM", "back_route_m", "greenBackRouteM", "green_back_route_m")
         if front is not None and back is not None:
             source_name = str(source.get("source") or "course_prep")
             break
@@ -884,16 +887,25 @@ def _green_distance_facts(
         return None
     if back < front:
         front, back = back, front
-    # A straight-line F/M/B measurement can differ modestly from the route station.  Reject only
-    # an obviously unrelated value; retaining the fact lets the caller expose a low-confidence
-    # gap instead of silently reverting to centreline-only planning.
+    if route_front is not None and route_back is not None and route_back < route_front:
+        route_front, route_back = route_back, route_front
+    # A straight-line F/M/B measurement can differ materially from the route station. Reject only
+    # an obviously unrelated value; retaining the fact lets the caller expose a low-confidence gap
+    # instead of silently reverting to centreline-only planning. Route stations must, however, stay
+    # inside the factual route coordinate because shot offsets are measured in that space.
     if route_length_m is not None and route_length_m > 0:
         if front > route_length_m + 80.0 or back < -20.0:
             return None
+        if route_front is not None and route_back is not None:
+            if route_front < -20.0 or route_back > route_length_m + 20.0:
+                return None
     return {
         "frontM": round(front, 1),
         "middleM": round(middle, 1) if middle is not None else None,
         "backM": round(back, 1),
+        "frontRouteM": round(route_front, 1) if route_front is not None else None,
+        "backRouteM": round(route_back, 1) if route_back is not None else None,
+        "windowSpace": "route" if route_front is not None and route_back is not None else "straight",
         "source": source_name or "course_prep",
     }
 
@@ -927,8 +939,13 @@ def _sequence_gir_index(
     facts = _green_distance_facts(context, route_length_m)
     if facts is None:
         return None
-    front = _float(facts.get("frontM"), math.nan)
-    back = _float(facts.get("backM"), math.nan)
+    route_front = _float(facts.get("frontRouteM"), math.nan)
+    route_back = _float(facts.get("backRouteM"), math.nan)
+    if math.isfinite(route_front) and math.isfinite(route_back):
+        front, back = route_front, route_back
+    else:
+        front = _float(facts.get("frontM"), math.nan)
+        back = _float(facts.get("backM"), math.nan)
     if not (math.isfinite(front) and math.isfinite(back) and back >= front):
         return None
     cumulative = 0.0
