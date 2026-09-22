@@ -9,13 +9,25 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-22 15:24 UTC
+**Updated:** 2026-09-22 22:18 UTC
 **Branch:** `integration/v2` (GitHub default; current `PHONE-UX7-ROUTE2` source
-and backend candidate are `3297b219`;
-Source CI `35615806302` and exact-SHA Native Mobile CI `35617605192` passed,
-including live iPhone and Watch runtime evidence; API candidate
-`https://battery-chan-metro-liverpool.trycloudflare.com` is on loopback
-`39076`. The preceding internal TestFlight CD `35564616252` uploaded Build 71
+is `a13724e1574085593cf951c0402e85f7b62d3d85` and the new backend candidate
+reports the same exact revision; Source CI `35783064875` and exact-SHA full
+Native Mobile CI `35783509011` passed all jobs, including live iPhone and
+Watch runtime capture and live preflight. Internal TestFlight CD
+`35790741683` uploaded Build 73 after the documented degraded-readiness
+fallback; Apple processing and read-only check `35791517965` confirm Build 73
+is `VALID`, unexpired, `IN_BETA_TESTING`, and visible in the existing internal
+all-builds group. Apple still reports `internalReady=false`, matching prior
+group-visible builds; physical iPhone/Watch installation and interaction
+validation remain open. The new API candidate
+`https://biggest-professor-campaign-figured.trycloudflare.com` is on loopback
+`39083`; its authenticated A1 prep proof is saved in the candidate scratch and
+includes `greenDistances.frontRouteM=477.8`, `backRouteM=496.4`, and a
+three-step `Driver -> 3W -> 7I` route. The first CD attempt
+`35789885651` correctly stopped before upload because authenticated backend
+readiness was degraded; the successful retry used `test_environment_upload=true`
+and kept `external_distribution=false`. The preceding internal TestFlight CD `35564616252` uploaded Build 71
 and Apple read-only check `35565388266` confirmed `VALID`, unexpired,
 `IN_BETA_TESTING`, and visible to the existing internal all-builds group. Fresh
 internal Build 72 containing the IMG-8160 correction is now Apple `VALID`,
@@ -54,14 +66,14 @@ release-scope decision; do not pause for routine TestFlight execution.
 
 ## Current Work Summary
 
-**Current slice (2026-09-22):** `PHONE-UX7-ROUTE2` is `in-progress`: repair the
+**Current slice (2026-09-22):** `PHONE-UX7-ROUTE2` is `evidence-open`: repair the
 four-stroke-hole route objective exposed by the Black Knight A1 screenshots. The
 opening route must explicitly prefer a two-shot GIR when the second-leg carry
 distribution can enter the factual green front/back window; a third wedge is a
 fallback only when that window is not safely reachable. Scope remains limited to
 deterministic route data, final-leg/Par-3 map rendering, tee-club policy, refresh
 authority, and complete hazard enumeration. Existing Build 72/TestFlight evidence
-is not evidence for this new slice. Current implementation checkpoint: expose
+was not used for this slice. Current implementation checkpoint: expose
 green front/middle/back facts in live decision context, add GIR metadata to route
 sequences, keep map endpoints at the green window rather than forcing every
 scoring leg to the flag, and keep the selected live hazard panel above the fixed
@@ -70,11 +82,31 @@ action dock. Focused homeserver verification is now `303/303` passing in
 `/home/jason/codex-runs/garmin-ai-caddie-route2-20260922-c`; it created no service,
 port, tunnel, dependency environment, or persistent volume. A final Swift access-
 control correction and route-authority consistency test are included in the
-committed tree. Native run `35736853794` reached all Watch/evidence stages but
+committed tree. Commit `7b44acac` additionally makes the live route authority
+deduplicate by visible club chain plus final position/scoring semantics, so
+hidden carry/offset differences cannot create duplicate tabs; it adds
+regressions for that behavior and for preserving a genuinely different
+endpoint. Native run `35736853794` reached all Watch/evidence stages but
 failed one real iOS assertion because selected hazard distances were covered by
 the bottom action dock; commit `3297b219` moves the dock into the layout tree and
-compresses the hazard browser to one row. Next action is Source CI, then a fresh
-exact-SHA Native Mobile run; no new release claim exists.
+compresses the hazard browser to one row. Native run `35750490565` reached the
+real-simulator stage but its first attempt failed only at
+`RealFlowUITests.testCaptureRealAppFlow` line 84 while waiting for the `时间趋势`
+navigation bar after the results-page tap; the earlier screens and all other
+iOS/Watch stages passed. This is a trend-page UI-test timing failure, not a
+route assertion. Native run `35781953570` then failed only because the new
+Swift test passed optional `Double?` values directly to precision assertions;
+that test-only compile error is fixed in `a13724e1`. Native run
+`35783509011` passed the real iOS and Watch stages; its `real-screenshots`,
+`watch-real-screenshots`, and `native-build-evidence` artifacts were inspected.
+The iOS live evidence shows a two-shot Par 4 route (`一号木 -> 三号混合杆`)
+whose second endpoint is the factual green window, and a three-shot Par 5 route
+with the selected water contour and front/back distances. The candidate health
+is HTTP 200 at the exact source revision; its readiness is authenticated but
+degraded because Garmin re-authentication and some offline geometry/operations
+evidence remain incomplete. The candidate and Quick Tunnel remain running for
+physical TestFlight validation and are tracked by
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/route2-20260922-i/manifest.tsv`.
 
 `PHONE-UX7` is now `evidence-open` only for
 physical iPhone/Watch installation and interaction after the fresh internal
