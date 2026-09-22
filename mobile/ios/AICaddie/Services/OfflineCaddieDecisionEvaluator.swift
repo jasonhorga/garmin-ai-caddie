@@ -42,21 +42,49 @@ public final class OfflineCaddieDecisionEvaluator {
         ) else {
             return nil
         }
-        let canonicalSteps = canonicalPlanSteps(from: request.context) ?? canonicalPlanSteps(from: seed.context)
-        let canonicalFirst = canonicalSteps?.first
+        let rawCanonicalSteps = canonicalPlanSteps(from: request.context) ?? canonicalPlanSteps(from: seed.context)
+        let greenWindow = greenWindow(
+            from: request.context["greenDistances"] ?? seed.context["greenDistances"]
+        )
+        let par = integer(request.context["par"] ?? seed.context["par"]) ?? 4
+        let canonicalSteps = rawCanonicalSteps.map {
+            boundedCanonicalSteps(
+                $0,
+                targetM: targetDistanceMetres(from: request.context),
+                par: par
+            )
+        }
+        let plans = routePlans(
+            seed: seed,
+            request: request,
+            canonicalSteps: canonicalSteps,
+            par: par,
+            greenWindow: greenWindow
+        )
         let optionRows = seed.offlineOptions.map { option in
             optionPayload(
                 option,
-                canonicalFirstStep: option.optionId == "stock" ? canonicalFirst : nil
+                canonicalFirstStep: plans[option.optionId]?.first
             )
+        }
+        let sequenceRows = seed.offlineOptions.compactMap { option -> [String: JSONValue]? in
+            guard let steps = plans[option.optionId], !steps.isEmpty else { return nil }
+            if option.optionId == "stock", canonicalSteps != nil {
+                return canonicalSequencePayload(steps: steps, selected: true)
+            }
+            return routeSequencePayload(steps: steps, option: option)
         }
         let selectedRow = optionPayload(
             selected,
-            canonicalFirstStep: selected.optionId == "stock" ? canonicalFirst : nil
+            canonicalFirstStep: plans[selected.optionId]?.first
         )
-        let canonicalSequence = canonicalSteps.flatMap {
-            canonicalSequencePayload(steps: $0, selected: selected.optionId == "stock")
-        }
+        let selectedSequence: [String: JSONValue]? = {
+            guard let steps = plans[selected.optionId], !steps.isEmpty else { return nil }
+            if selected.optionId == "stock", canonicalSteps != nil {
+                return canonicalSequencePayload(steps: steps, selected: true)
+            }
+            return routeSequencePayload(steps: steps, option: selected)
+        }()
         let evidenceRefs = uniqueRefs([seed.sourceRef] + selected.sourceRefs + (selected.sampleRefs ?? []))
         let missingData = seed.missingData + (selected.missingData ?? [])
         let decisionId = offlineDecisionId(seed: seed, request: request, selected: selected)
@@ -73,8 +101,8 @@ public final class OfflineCaddieDecisionEvaluator {
             selected: selectedRow,
             selectedOptionId: selected.optionId,
             selectedOption: selectedRow,
-            sequences: canonicalSequence.map { [$0] },
-            selectedSequence: canonicalSequence,
+            sequences: sequenceRows,
+            selectedSequence: selectedSequence,
             avoidZones: [],
             forbiddenZones: [],
             acceptableMiss: [
@@ -174,6 +202,337 @@ public final class OfflineCaddieDecisionEvaluator {
         return rows.isEmpty ? nil : rows
     }
 
+    // MARK: - Deterministic package route fallback
+
+    private struct LocalClubProfile {
+        let name: String
+        let carryM: Double
+        let p10M: Double?
+        let p90M: Double?
+        let sampleSize: Int
+
+        var key: String { Self.clubKey(name) }
+
+        static func clubKey(_ value: String) -> String {
+            let compact = value.lowercased().filter { $0.isLetter || $0.isNumber }
+            switch compact {
+            case "driver", "1d", "1w": return "1w"
+            case "3wood", "3w": return "3w"
+            case "5wood", "5w": return "5w"
+            case "7wood", "7w": return "7w"
+            default: return compact
+            }
+        }
+
+        var isDriver: Bool { key == "1w" }
+    }
+
+    private func routePlans(
+        seed: CaddieContextSeed,
+        request: CaddieDecisionRequest,
+        canonicalSteps: [[String: JSONValue]]?,
+        par: Int,
+        greenWindow: (front: Double, back: Double)?
+    ) -> [String: [[String: JSONValue]]] {
+        var plans: [String: [[String: JSONValue]]] = [:]
+        if let canonicalSteps, !canonicalSteps.isEmpty {
+            plans["stock"] = canonicalSteps
+        }
+
+        guard request.shotType == "tee",
+              let targetM = targetDistanceMetres(from: request.context),
+              targetM > 0 else {
+            for (key, steps) in plans {
+                plans[key] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow).steps
+            }
+            return plans
+        }
+        let profiles = localProfiles(from: request.context["clubProfiles"] ?? seed.context["clubProfiles"])
+        guard !profiles.isEmpty else {
+            for (key, steps) in plans {
+                plans[key] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow).steps
+            }
+            return plans
+        }
+
+        for option in seed.offlineOptions {
+            if option.optionId == "stock", plans["stock"] != nil { continue }
+            guard let steps = fallbackSteps(
+                for: option,
+                profiles: profiles,
+                targetM: targetM,
+                par: par
+            ), !steps.isEmpty else { continue }
+            plans[option.optionId] = trimAtGreenWindow(
+                steps,
+                par: par,
+                greenWindow: greenWindow
+            ).steps
+        }
+        // A malformed/old seed can have no explicit stock option but still carry a usable bag.
+        if plans["stock"] == nil,
+           let stock = seed.offlineOptions.first(where: { $0.optionId == "stock" }),
+           let steps = fallbackSteps(for: stock, profiles: profiles, targetM: targetM, par: par) {
+            plans["stock"] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow).steps
+        }
+        if !plans.isEmpty {
+            for (key, steps) in plans {
+                plans[key] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow).steps
+            }
+        }
+        return plans
+    }
+
+    private func targetDistanceMetres(from context: [String: JSONValue]) -> Double? {
+        for key in ["distanceToPin_m", "remainingToPin_m", "holeRemaining_m", "canonicalPlanRouteLength_m"] {
+            if let value = number(context[key]), value.isFinite, value > 0, value <= 1000 {
+                return value
+            }
+        }
+        if let yards = number(context["yards"]), yards.isFinite, yards > 0, yards <= 1100 {
+            return yards / 1.09361
+        }
+        return nil
+    }
+
+    private func greenWindow(from value: JSONValue?) -> (front: Double, back: Double)? {
+        guard case .object(let row) = value,
+              let front = number(row["frontM"] ?? row["front_m"] ?? row["greenFrontM"]),
+              let back = number(row["backM"] ?? row["back_m"] ?? row["greenBackM"]),
+              front.isFinite,
+              back.isFinite,
+              front > 0,
+              back > 0 else {
+            return nil
+        }
+        return (min(front, back), max(front, back))
+    }
+
+    private func trimAtGreenWindow(
+        _ source: [[String: JSONValue]],
+        par: Int,
+        greenWindow: (front: Double, back: Double)?
+    ) -> (steps: [[String: JSONValue]], gir: Bool) {
+        guard par >= 3,
+              let greenWindow,
+              !source.isEmpty else {
+            return (source, false)
+        }
+        let shotLimit = max(1, par - 2)
+        var cumulative = 0.0
+        for (index, raw) in source.enumerated() {
+            let carry = number(raw["targetCarry_m"] ?? raw["targetCarryM"] ?? raw["median_m"]) ?? 0
+            guard carry > 0 else { continue }
+            cumulative += carry
+            let offset = number(raw["routeOffset_m"] ?? raw["routeOffsetM"] ?? raw["landing_m"] ?? raw["landingM"])
+                ?? cumulative
+            guard index + 1 <= shotLimit else { break }
+            guard offset >= greenWindow.front, offset <= greenWindow.back + 8 else { continue }
+            var trimmed = Array(source.prefix(index + 1))
+            guard !trimmed.isEmpty else { return (source, false) }
+            var final = trimmed[trimmed.count - 1]
+            final["role"] = .string("scoring")
+            final["expectedRemaining_m"] = .number(0)
+            final["expectedRemainingM"] = .number(0)
+            final["routeOffset_m"] = .number(offset)
+            final["landing_m"] = .number(offset)
+            final["greenInRegulation"] = .bool(true)
+            final["shotsToGreen"] = .number(Double(index + 1))
+            final["girWindow"] = .object([
+                "frontM": .number(greenWindow.front),
+                "backM": .number(greenWindow.back),
+            ])
+            trimmed[trimmed.count - 1] = final
+            return (trimmed, true)
+        }
+        return (source, false)
+    }
+
+    private func boundedCanonicalSteps(
+        _ source: [[String: JSONValue]],
+        targetM: Double?,
+        par: Int
+    ) -> [[String: JSONValue]] {
+        guard let targetM, targetM > 0 else { return source }
+        var travelled = 0.0
+        var result: [[String: JSONValue]] = []
+        for (index, raw) in source.enumerated() {
+            if !result.isEmpty, travelled >= targetM - 20 { break }
+            let carry = number(raw["targetCarry_m"] ?? raw["targetCarryM"]) ?? 0
+            guard carry > 0 else { continue }
+            let next = travelled + carry
+            if next > targetM + 20 { break }
+            var row = raw
+            let endpoint = par == 3 ? targetM : min(targetM, next)
+            row["routeOffset_m"] = .number(endpoint)
+            row["landing_m"] = .number(endpoint)
+            row["expectedRemaining_m"] = .number(par == 3 ? 0 : max(0, targetM - endpoint))
+            if par == 3 || index == source.count - 1 || endpoint >= targetM - 20 {
+                row["role"] = .string("scoring")
+            }
+            row["planIndex"] = row["planIndex"] ?? .number(Double(result.count))
+            result.append(row)
+            travelled = next
+            if par == 3 || endpoint >= targetM - 20 { break }
+        }
+        return result.isEmpty ? source : result
+    }
+
+    private func localProfiles(from value: JSONValue?) -> [LocalClubProfile] {
+        let rows: [[String: JSONValue]]
+        switch value {
+        case .array(let values):
+            rows = values.compactMap { value in
+                guard case .object(let row) = value else { return nil }
+                return row
+            }
+        case .object(let values):
+            rows = values.values.compactMap { value in
+                guard case .object(let row) = value else { return nil }
+                return row
+            }
+        default:
+            rows = []
+        }
+        var byKey: [String: LocalClubProfile] = [:]
+        for row in rows {
+            guard let name = string(row["clubName"] ?? row["name"]),
+                  let carry = number(row["median_m"] ?? row["median"] ?? row["carryM"]),
+                  carry.isFinite, carry > 0 else { continue }
+            let profile = LocalClubProfile(
+                name: name,
+                carryM: carry,
+                p10M: number(row["p10_m"] ?? row["p10M"] ?? row["p10"]),
+                p90M: number(row["p90_m"] ?? row["p90M"] ?? row["p90"]),
+                sampleSize: integer(row["sampleSize"]) ?? 0
+            )
+            let key = profile.key
+            if let existing = byKey[key], existing.sampleSize >= profile.sampleSize { continue }
+            byKey[key] = profile
+        }
+        return byKey.values.sorted { $0.carryM > $1.carryM }
+    }
+
+    private func fallbackSteps(
+        for option: OfflineCaddieOption,
+        profiles: [LocalClubProfile],
+        targetM: Double,
+        par: Int
+    ) -> [[String: JSONValue]]? {
+        guard let first = profiles.first(where: { $0.key == LocalClubProfile.clubKey(option.clubName) })
+            ?? profiles.min(by: { abs($0.carryM - option.carryM) < abs($1.carryM - option.carryM) }) else {
+            return nil
+        }
+
+        if par == 3 {
+            return [makeRouteStep(
+                first,
+                index: 0,
+                role: "scoring",
+                routeOffsetM: targetM,
+                // A Par 3 fallback is one scoring shot to the pin.  The measured carry remains
+                // the club fact, but the route endpoint is the green even when carry and nominal
+                // pin distance differ by a few metres.
+                expectedRemainingM: 0,
+                planSource: "offline_bag_fallback"
+            )]
+        }
+
+        var steps: [[String: JSONValue]] = []
+        var usedKeys: Set<String> = []
+        var travelled = 0.0
+        var current = first
+        for index in 0..<5 {
+            let remaining = max(0, targetM - travelled)
+            let isLastWindow = remaining <= 20
+            let carry = current.carryM
+            let nextTravelled = travelled + carry
+            let reachesTarget = nextTravelled >= targetM - 20
+            let offset = min(targetM, max(travelled, nextTravelled))
+            let role = index == 0 ? "tee" : (reachesTarget || isLastWindow ? "scoring" : "position")
+            steps.append(makeRouteStep(
+                current,
+                index: index,
+                role: role,
+                routeOffsetM: offset,
+                expectedRemainingM: max(0, targetM - offset),
+                planSource: "offline_bag_fallback"
+            ))
+            usedKeys.insert(current.key)
+            travelled = nextTravelled
+            if reachesTarget || travelled >= targetM { break }
+
+            let nextRemaining = targetM - travelled
+            let distinct = profiles.filter { !$0.isDriver && !usedKeys.contains($0.key) }
+            let eligible = distinct.filter { $0.carryM <= nextRemaining + 20 }
+            let pool = eligible.isEmpty ? distinct : eligible
+            let repeatPool = profiles.filter { !$0.isDriver }
+            guard let next = (pool.isEmpty ? repeatPool : pool).min(by: { lhs, rhs in
+                let leftOvershoot = max(0, lhs.carryM - nextRemaining)
+                let rightOvershoot = max(0, rhs.carryM - nextRemaining)
+                return (leftOvershoot, abs(lhs.carryM - nextRemaining), -lhs.sampleSize)
+                    < (rightOvershoot, abs(rhs.carryM - nextRemaining), -rhs.sampleSize)
+            }) else { break }
+            current = next
+        }
+        return steps.isEmpty ? nil : steps
+    }
+
+    private func makeRouteStep(
+        _ profile: LocalClubProfile,
+        index: Int,
+        role: String,
+        routeOffsetM: Double,
+        expectedRemainingM: Double,
+        planSource: String
+    ) -> [String: JSONValue] {
+        var row: [String: JSONValue] = [
+            "clubName": .string(profile.name),
+            "role": .string(role),
+            "targetCarry_m": .number(profile.carryM),
+            "routeOffset_m": .number(routeOffsetM),
+            "landing_m": .number(routeOffsetM),
+            "expectedRemaining_m": .number(expectedRemainingM),
+            "planIndex": .number(Double(index)),
+            "planVersion": .string("ai-caddie-shot-plan-v1"),
+            "planSource": .string(planSource),
+            "sampleSize": .number(Double(profile.sampleSize)),
+        ]
+        if let p10M = profile.p10M { row["p10_m"] = .number(p10M) }
+        if let p90M = profile.p90M { row["p90_m"] = .number(p90M) }
+        return row
+    }
+
+    private func routeSequencePayload(
+        steps: [[String: JSONValue]],
+        option: OfflineCaddieOption
+    ) -> [String: JSONValue] {
+        let label = steps.compactMap { string($0["clubName"] ?? $0["club"]) }.joined(separator: "-")
+        let expected = steps.last.flatMap { number($0["expectedRemaining_m"] ?? $0["expectedRemainingM"]) } ?? 0
+        let total = steps.reduce(0) {
+            $0 + (number($1["targetCarry_m"] ?? $1["targetCarryM"]) ?? 0)
+        }
+        var payload: [String: JSONValue] = [
+            "id": .string(option.optionId),
+            "label": .string(label),
+            "strategyLabel": .string(option.label),
+            "clubs": .array(steps.map { .object($0) }),
+            "totalPlannedCarry_m": .number(total),
+            "expectedRemaining_m": .number(expected),
+            "riskScore": .number(option.riskScore),
+            "planSource": .string("offline_bag_fallback"),
+            "completion": .string(expected > 20 ? "replan_required" : "scoring_window"),
+        ]
+        if let final = steps.last,
+           case .bool(true) = final["greenInRegulation"] {
+            payload["greenInRegulation"] = .bool(true)
+            payload["girWindow"] = final["girWindow"] ?? .null
+            payload["shotsToGreen"] = final["shotsToGreen"] ?? .number(Double(steps.count))
+            payload["completion"] = .string("scoring_window")
+        }
+        return payload
+    }
+
     private func canonicalSequencePayload(
         steps: [[String: JSONValue]],
         selected: Bool
@@ -189,22 +548,34 @@ public final class OfflineCaddieDecisionEvaluator {
             for key in [
                 "targetCarry_m", "targetCarryM", "routeOffset_m", "routeOffsetM",
                 "landing_m", "landingM", "expectedRemaining_m", "expectedRemainingM",
-                "planVersion",
+                "planVersion", "planSource", "greenInRegulation", "girWindow", "shotsToGreen",
             ] {
                 if let value = raw[key] { row[key] = value }
+            }
+            if steps.count == 1, row["role"] == .string("advance") {
+                row["role"] = .string("scoring")
             }
             return .object(row)
         }
         guard !clubs.isEmpty else { return nil }
         let label = steps.compactMap { string($0["clubName"] ?? $0["club"]) }.joined(separator: "-")
-        return [
+        var payload: [String: JSONValue] = [
             "id": .string("stock"),
             "label": .string(label),
             "strategyLabel": .string("推荐"),
             "clubs": .array(clubs),
             "planSource": .string("course_prep"),
             "planVersion": .string("ai-caddie-shot-plan-v1"),
+            "completion": .string("scoring_window"),
         ]
+        if let final = steps.last,
+           case .bool(true) = final["greenInRegulation"] {
+            payload["greenInRegulation"] = .bool(true)
+            payload["girWindow"] = final["girWindow"] ?? .null
+            payload["shotsToGreen"] = final["shotsToGreen"] ?? .number(Double(steps.count))
+            payload["completion"] = .string("scoring_window")
+        }
+        return payload
     }
 
     private func string(_ value: JSONValue?) -> String? {
@@ -216,6 +587,11 @@ public final class OfflineCaddieDecisionEvaluator {
     private func number(_ value: JSONValue?) -> Double? {
         guard case .number(let raw) = value, raw.isFinite else { return nil }
         return raw
+    }
+
+    private func integer(_ value: JSONValue?) -> Int? {
+        guard let raw = number(value) else { return nil }
+        return Int(raw.rounded())
     }
 
     private func offlineEvidence(seed: CaddieContextSeed, selected: OfflineCaddieOption) -> [[String: JSONValue]] {

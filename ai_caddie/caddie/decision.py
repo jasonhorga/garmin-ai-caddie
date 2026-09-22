@@ -30,6 +30,9 @@ RISK_KINDS = {"bunker", "water", "water_edge", "tree_area", "out_of_bounds", "ob
 BAD_SURFACES = {"bunker", "water", "water_edge", "tree_area", "out_of_bounds", "ob"}
 EXCLUDED_TEE_CLUBS = {"unknown", "?", "putter"}
 MIN_STRONG_CLUB_SAMPLE = 10
+# Long-hole sequences used to be suppressed below this distance.  A normal Par 3 is
+# intentionally allowed through the same planner so the client receives one direct
+# scoring leg instead of a bare club card with no map route.
 MIN_SEQUENCE_DISTANCE_M = 260.0
 MAX_SEQUENCE_OVERSHOOT_M = 10.0
 # A cold package can legitimately omit short-game clubs. Keep the resulting full-hole
@@ -48,6 +51,15 @@ TEE_SEQUENCE_MAX_OVERSHOOT_M = 20.0
 # small overshoot is normal when the last measured club is the closest scoring window; anything
 # larger must be re-planned against the live route distance.
 CANONICAL_PLAN_MAX_OVERSHOOT_M = 20.0
+# A green is a surface, not a single point.  When factual front/back distances are available, a
+# route has achieved GIR as soon as its projected landing enters that interval within the normal
+# carry tolerance.  The back tolerance is deliberately small: it handles route-vs-carry rounding
+# without turning a shot through the green into a GIR claim.
+GIR_BACK_TOLERANCE_M = 8.0
+GIR_FRONT_TOLERANCE_M = 0.0
+# A normal four/five-stroke hole should be judged against the number of shots that constitute GIR
+# (par - 2), not against an arbitrary "close the centreline to the pin" count.
+GIR_MIN_PAR = 3
 # Repeating one physical club can be correct, but a materially different measured club should win
 # when the leave/risk is otherwise comparable.  The tee planner now tries a no-repeat continuation
 # first; this cost remains for the explicit, last-resort repeat fallback.
@@ -699,41 +711,29 @@ def _dedupe_near_clubs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return kept
 
 
-def _club_profiles_for_carry(profiles: dict[str, dict[str, Any]], carry_m: float) -> list[dict[str, Any]]:
+def _club_profiles_for_carry(profiles: Any, carry_m: float) -> list[dict[str, Any]]:
+    """Return measured clubs near a route carry, regardless of profile wire shape.
+
+    Live packages from before the object-shaped profile contract used an array.  Keeping this
+    helper on the same normalizer as the sequence planner prevents the option card and the route
+    planner from disagreeing about whether a club exists.
+    """
     rows = []
-    for name, profile in (profiles or {}).items():
-        club_name = str(profile.get("clubName") or name)
-        if not _is_playable_club(club_name):
+    for profile in _club_profile_rows(profiles):
+        club_name = str(profile.get("clubName") or "")
+        median_m = _float(profile.get("median_m"), 0.0)
+        if not club_name or median_m <= 0:
             continue
-        median = profile.get("median") if profile.get("median") is not None else profile.get("median_m")
-        if median is None:
-            continue
-        source_refs = _club_profile_source_refs(profile)
-        sample_size = int(profile.get("sampleSize") or len(source_refs) or 0)
-        median_m = _float(median)
-        p10 = _float(profile.get("p10") if profile.get("p10") is not None else profile.get("p10_m"), median_m)
-        p90 = _float(profile.get("p90") if profile.get("p90") is not None else profile.get("p90_m"), median_m)
+        p10 = _float(profile.get("p10_m"), median_m)
+        p90 = _float(profile.get("p90_m"), median_m)
         tolerance = max(18.0, (p90 - p10) / 2.0 + 8.0)
         if abs(median_m - carry_m) > tolerance:
             continue
-        rows.append({
-            "clubName": club_name,
-            "sampleSize": sample_size,
-            "median_m": round(median_m, 1),
-            "p10_m": round(p10, 1),
-            "p90_m": round(p90, 1),
+        row = {
+            **profile,
             "deltaToCarry_m": round(median_m - carry_m, 1),
-            "sourceRefs": source_refs,
-            "coverage": _sample_coverage(sample_size, source_refs),
-            "confidence": _sample_confidence(sample_size),
-        })
-        for key in CLUB_PERFORMANCE_FIELDS:
-            if key in profile:
-                rows[-1][key] = profile[key]
-        effective_sample_size = _effective_club_sample_size(rows[-1])
-        rows[-1]["effectiveSampleSize"] = effective_sample_size
-        rows[-1]["coverage"] = _sample_coverage(effective_sample_size, source_refs)
-        rows[-1]["confidence"] = _sample_confidence(effective_sample_size)
+        }
+        rows.append(row)
     rows = _dedupe_near_clubs(_prefer_trusted_clubs(rows))
     rows.sort(key=lambda row: (abs(row["deltaToCarry_m"]), -row["sampleSize"], row["clubName"]))
     return rows
@@ -761,9 +761,30 @@ def _sample_confidence(sample_size: int) -> str:
     return "low"
 
 
-def _club_profile_rows(profiles: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def _club_profile_rows(profiles: Any) -> list[dict[str, Any]]:
+    """Normalize both current name-keyed and legacy array-shaped club profiles.
+
+    iOS packages written before the profile contract was made explicit can still send
+    ``[{"clubName": ..., "median_m": ...}]``.  The decision layer should treat that
+    as a compatibility shape, not as an empty bag (or a 500 from ``.items()``).
+    """
+    if isinstance(profiles, dict):
+        entries = profiles.items()
+    elif isinstance(profiles, list):
+        entries = [
+            (
+                str(row.get("clubName") or row.get("name") or ""),
+                row,
+            )
+            for row in profiles
+            if isinstance(row, dict)
+        ]
+    else:
+        entries = []
     rows = []
-    for name, profile in (profiles or {}).items():
+    for name, profile in entries:
+        if not isinstance(profile, dict):
+            continue
         club_name = str(profile.get("clubName") or name).strip()
         if not club_name or not _is_playable_club(club_name):
             continue
@@ -798,13 +819,228 @@ def _club_profile_rows(profiles: dict[str, dict[str, Any]]) -> list[dict[str, An
 
 
 def _sequence_distance(context: dict[str, Any]) -> float:
+    # An installed CoursePrep route is the factual opening plan while the request is still a tee
+    # request.  GPS-derived ``holeRemaining_m`` can be tens of metres short because the fix is on
+    # the tee apron or the selected tee/centerline differs from the Garmin route; letting it replace
+    # the installed route drops the final scoring leg (for example ``1W -> 3H -> 58`` becomes only
+    # ``1W -> 3H``).  Once the player is in an approach/recovery context, the live distance wins.
+    shot_type = str(context.get("shotType") or context.get("shot_type") or "tee").strip().lower()
+    canonical = _float(context.get("canonicalPlanRouteLength_m"), 0.0)
+    has_canonical_plan = isinstance(context.get("canonicalShotPlan") or context.get("canonicalPlan"), list)
+    if shot_type == "tee" and has_canonical_plan and math.isfinite(canonical) and 0.0 < canonical <= 1000.0:
+        return canonical
     # A live/manual distance is more current than the package's tee-distance fallback.
     for key in ("distanceToPin_m", "remainingToPin_m", "holeRemaining_m"):
         if context.get(key) is not None:
             value = _float(context.get(key))
             if math.isfinite(value) and 0.0 < value <= 1000.0:
                 return value
+    # Sparse live seeds may have the downloaded hole yardage but no route-length field yet.
+    # Use that factual tee distance as a bounded fallback; an unrelated GPS fix is never
+    # accepted here because it is not one of the fields above.
+    yards = _float(context.get("yards"), 0.0)
+    if math.isfinite(yards) and 0.0 < yards <= 1100.0:
+        return yards / 1.09361
     return 0.0
+
+
+def _green_distance_facts(
+    context: dict[str, Any],
+    route_length_m: float | None = None,
+) -> dict[str, Any] | None:
+    """Read the factual putting-surface window carried by CoursePrep/live seeds.
+
+    The route endpoint is normally the green middle/pin center.  Treating that endpoint as the
+    only valid landing is what made a reachable second GIR shot look like it needed a third wedge.
+    This helper accepts both the nested prep shape and the compact aliases used by older live
+    requests.  It never invents a front/back boundary from the centre distance.
+    """
+    nested = context.get("greenDistances")
+    sources: list[dict[str, Any]] = []
+    if isinstance(nested, dict):
+        sources.append(nested)
+    sources.append(context)
+
+    def number(source: dict[str, Any], *keys: str) -> float | None:
+        for key in keys:
+            value = source.get(key)
+            if value is None:
+                continue
+            parsed = _float(value, math.nan)
+            if math.isfinite(parsed) and parsed > 0:
+                return parsed
+        return None
+
+    front = middle = back = None
+    source_name = None
+    for source in sources:
+        front = number(source, "frontM", "front_m", "greenFrontM", "green_front_m")
+        middle = number(source, "middleM", "middle_m", "greenMiddleM", "green_middle_m")
+        back = number(source, "backM", "back_m", "greenBackM", "green_back_m")
+        if front is not None and back is not None:
+            source_name = str(source.get("source") or "course_prep")
+            break
+    if front is None or back is None:
+        return None
+    if back < front:
+        front, back = back, front
+    # A straight-line F/M/B measurement can differ modestly from the route station.  Reject only
+    # an obviously unrelated value; retaining the fact lets the caller expose a low-confidence
+    # gap instead of silently reverting to centreline-only planning.
+    if route_length_m is not None and route_length_m > 0:
+        if front > route_length_m + 80.0 or back < -20.0:
+            return None
+    return {
+        "frontM": round(front, 1),
+        "middleM": round(middle, 1) if middle is not None else None,
+        "backM": round(back, 1),
+        "source": source_name or "course_prep",
+    }
+
+
+def _gir_shot_limit(context: dict[str, Any]) -> int | None:
+    try:
+        par = int(context.get("par") or 0)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if par < GIR_MIN_PAR:
+        return None
+    return max(1, par - 2)
+
+
+def _sequence_gir_index(
+    rows: list[dict[str, Any]],
+    context: dict[str, Any],
+    route_length_m: float,
+) -> tuple[int, dict[str, Any]] | None:
+    """Return the first leg that enters the factual green within the GIR shot budget.
+
+    ``rows`` are measured club carries, not UI labels.  We use the route offset when a canonical
+    prep row supplies one; otherwise the cumulative median carry is the only honest projection.
+    A result is accepted only when the median landing is between front and back and the leg count
+    is no greater than ``par - 2``.  Dispersion/risk still controls whether the route is selected;
+    this helper only establishes the geometric GIR fact.
+    """
+    limit = _gir_shot_limit(context)
+    if limit is None or not rows:
+        return None
+    facts = _green_distance_facts(context, route_length_m)
+    if facts is None:
+        return None
+    front = _float(facts.get("frontM"), math.nan)
+    back = _float(facts.get("backM"), math.nan)
+    if not (math.isfinite(front) and math.isfinite(back) and back >= front):
+        return None
+    cumulative = 0.0
+    for index, row in enumerate(rows):
+        carry = _float(
+            row.get("median_m")
+            if row.get("median_m") is not None
+            else row.get("targetCarry_m")
+            if row.get("targetCarry_m") is not None
+            else row.get("targetCarryM"),
+            0.0,
+        )
+        if not math.isfinite(carry) or carry <= 0:
+            continue
+        cumulative += carry
+        supplied_offset = _float(
+            row.get("routeOffset_m")
+            if row.get("routeOffset_m") is not None
+            else row.get("routeOffsetM"),
+            math.nan,
+        )
+        offset = supplied_offset if math.isfinite(supplied_offset) and supplied_offset > 0 else cumulative
+        if index + 1 > limit:
+            break
+        if offset >= front - GIR_FRONT_TOLERANCE_M and offset <= back + GIR_BACK_TOLERANCE_M:
+            return index, facts
+    return None
+
+
+def _sequence_gir_result(
+    rows: list[dict[str, Any]],
+    context: dict[str, Any],
+    route_length_m: float,
+) -> dict[str, Any] | None:
+    """Return the factual GIR hit for a materialized route, if one exists.
+
+    Keeping the index, landing station and shot count together avoids subtly different callers
+    deciding whether a route is GIR from the centreline leave, the cumulative carry, or a stale
+    prep row.  The result is deliberately geometric; option risk/dispersion remains the selector's
+    responsibility.
+    """
+    result = _sequence_gir_index(rows, context, route_length_m)
+    if result is None:
+        return None
+    index, facts = result
+    row = rows[index]
+    carry = _float(
+        row.get("median_m")
+        if row.get("median_m") is not None
+        else row.get("targetCarry_m")
+        if row.get("targetCarry_m") is not None
+        else row.get("targetCarryM"),
+        0.0,
+    )
+    cumulative = 0.0
+    for candidate in rows[: index + 1]:
+        cumulative += _float(
+            candidate.get("median_m")
+            if candidate.get("median_m") is not None
+            else candidate.get("targetCarry_m")
+            if candidate.get("targetCarry_m") is not None
+            else candidate.get("targetCarryM"),
+            0.0,
+        )
+    supplied_offset = _float(
+        row.get("routeOffset_m")
+        if row.get("routeOffset_m") is not None
+        else row.get("routeOffsetM"),
+        math.nan,
+    )
+    offset = supplied_offset if math.isfinite(supplied_offset) and supplied_offset >= 0 else cumulative
+    return {
+        "index": index,
+        "facts": facts,
+        "routeOffset_m": round(offset, 1),
+        "shotsToGreen": index + 1,
+        "carry_m": round(carry, 1),
+    }
+
+
+def _sequence_metadata(
+    rows: list[dict[str, Any]],
+    context: dict[str, Any],
+    route_length_m: float,
+) -> tuple[bool, dict[str, Any] | None]:
+    result = _sequence_gir_result(rows, context, route_length_m)
+    if result is None:
+        return False, None
+    return result["index"] == len(rows) - 1, result["facts"]
+
+
+def _mark_sequence_gir(
+    steps: list[dict[str, Any]],
+    gir: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Trim a route at its first factual green landing and annotate the scoring leg."""
+    index = int(gir.get("index") or 0)
+    trimmed = steps[: index + 1]
+    if not trimmed:
+        return steps
+    final = trimmed[-1]
+    final["role"] = "scoring"
+    final["expectedRemaining_m"] = 0.0
+    # Preserve the projected landing station. Never replace it with the flag/route endpoint: a
+    # front-of-green GIR is a valid result and the map should stop where the ball is expected to
+    # land.
+    final["routeOffset_m"] = round(_float(gir.get("routeOffset_m"), _float(final.get("routeOffset_m"))), 1)
+    final["landing_m"] = final["routeOffset_m"]
+    final["greenInRegulation"] = True
+    final["girWindow"] = dict(gir.get("facts") or {})
+    final["shotsToGreen"] = int(gir.get("shotsToGreen") or index + 1)
+    return trimmed
 
 
 def _sequence_step(row: dict[str, Any], remaining_before_m: float, role: str) -> dict[str, Any]:
@@ -889,6 +1125,7 @@ def _canonical_sequence(
     seen_identities: set[str] = set()
     steps: list[dict[str, Any]] = []
     truncated = False
+    gir_result: dict[str, Any] | None = None
     for index, raw in enumerate(raw_plan):
         # CoursePrep is often produced from a slightly different centerline than the live
         # distance. Once the accepted prefix is already within the tee overshoot tolerance, do
@@ -927,17 +1164,49 @@ def _canonical_sequence(
         offset = min(distance_m, next_travelled_m)
         remaining_before = max(0.0, distance_m - travelled_m)
         role = str(raw.get("role") or ("advance" if index == 0 else "scoring" if index == len(raw_plan) - 1 else "position"))
+        # A one-leg Par 3 plan is itself the scoring shot.  Do not expose it as
+        # an ``advance`` leg, otherwise the client has no semantic final-to-green
+        # leg to render.
+        try:
+            par = int(context.get("par") or 0)
+        except (TypeError, ValueError):
+            par = 0
+        direct_scoring = len(raw_plan) == 1 and par == 3
+        raw_remaining = _float(
+            _canonical_value(raw, "expectedRemaining_m", "expectedRemainingM"),
+            math.nan,
+        )
+        final_reaches_pin = index == len(raw_plan) - 1 and (
+            role.lower() in {"scoring", "approach"}
+            or (math.isfinite(raw_remaining) and raw_remaining <= 20.0)
+            or next_travelled_m >= distance_m - CANONICAL_PLAN_MAX_OVERSHOOT_M
+        )
+        if direct_scoring or final_reaches_pin:
+            # A stale prep row can call the final green-bound shot "advance" or "position".
+            # The endpoint is factual: the last step that reaches the route end is the scoring leg.
+            role = "scoring"
         step = _sequence_step(club, remaining_before, role)
         step["clubName"] = name or club.get("clubName")
         step["targetCarry_m"] = round(carry, 1)
-        step["routeOffset_m"] = round(offset, 1)
-        step["landing_m"] = round(offset, 1)
-        step["expectedRemaining_m"] = round(max(0.0, distance_m - offset), 1)
+        # A Par 3 is one scoring shot even when the measured median carry is a few metres
+        # shorter than the pin distance.  The route endpoint is the pin; otherwise the client gets
+        # a scoring-labelled club with a non-zero leave and no final arc.
+        endpoint = distance_m if (direct_scoring or final_reaches_pin) else offset
+        step["routeOffset_m"] = round(endpoint, 1)
+        step["landing_m"] = round(endpoint, 1)
+        step["expectedRemaining_m"] = 0.0 if (direct_scoring or final_reaches_pin) else round(max(0.0, distance_m - offset), 1)
         step["planIndex"] = int(_canonical_value(raw, "planIndex") or index)
         step["planVersion"] = str(raw.get("planVersion") or "ai-caddie-shot-plan-v1")
         step["planSource"] = str(context.get("canonicalPlanSource") or "course_prep")
         steps.append(step)
         travelled_m = next_travelled_m
+        # A factual front/back window is a valid Par-4/5 completion condition. Stop at the first
+        # accepted GIR landing before the stale prep chain adds a wedge through the green.
+        gir_candidate = _sequence_gir_result(steps, context, distance_m)
+        if gir_candidate is not None and gir_candidate["index"] == len(steps) - 1:
+            gir_result = gir_candidate
+            steps = _mark_sequence_gir(steps, gir_candidate)
+            break
         if travelled_m >= distance_m - CANONICAL_PLAN_MAX_OVERSHOOT_M and index < len(raw_plan) - 1:
             truncated = True
             break
@@ -947,10 +1216,11 @@ def _canonical_sequence(
     source_refs = _dedupe([ref for step in steps for ref in _sanitize_ref_list(step.get("sourceRefs"))])
     remaining = _float(steps[-1].get("expectedRemaining_m"), max(0.0, distance_m - travelled_m))
     plan_source = str(context.get("canonicalPlanSource") or "course_prep")
-    if truncated:
+    if truncated and gir_result is None:
         plan_source = f"{plan_source}_prefix"
         for step in steps:
             step["planSource"] = plan_source
+    green_in_regulation = gir_result is not None
     return {
         "id": "stock",
         "label": "-".join(str(step.get("clubName") or "") for step in steps),
@@ -964,12 +1234,21 @@ def _canonical_sequence(
             "measured hazard model."
             + (" The live route is shorter than the prep centerline; recalculate after this prefix." if truncated else "")
         ),
-        "completion": "replan_required" if truncated or remaining > 20.0 else "scoring_window",
+        "completion": "scoring_window" if green_in_regulation else "replan_required" if truncated or remaining > 20.0 else "scoring_window",
         "sourceRefs": source_refs,
         "coverage": _sequence_coverage(steps),
         "confidence": _sequence_confidence(steps),
         "planSource": plan_source,
-        "truncated": truncated,
+        "truncated": truncated if not green_in_regulation else False,
+        "greenInRegulation": green_in_regulation,
+        **(
+            {
+                "girWindow": dict(gir_result.get("facts") or {}),
+                "shotsToGreen": int(gir_result.get("shotsToGreen") or len(steps)),
+            }
+            if green_in_regulation and gir_result is not None
+            else {}
+        ),
     }
 
 
@@ -1748,11 +2027,13 @@ def _dedupe_sequences(sequences: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _sequence_option(
     *,
     option: dict[str, Any],
+    context: dict[str, Any],
     distance_m: float,
     club_rows: list[dict[str, Any]],
     avoid_zones: list[dict[str, Any]] | None = None,
     max_overshoot_m: float = MAX_SEQUENCE_OVERSHOOT_M,
     memo: dict[Any, Any] | None = None,
+    direct_scoring: bool = False,
 ) -> dict[str, Any] | None:
     first = _sequence_first_club(option, club_rows)
     if first is None:
@@ -1761,6 +2042,33 @@ def _sequence_option(
     if not _club_hard_hazard_safe(first, avoid_zones):
         return None
     first_identity = _club_identity(first)
+
+    if direct_scoring:
+        # Par 3 tee planning is intentionally not a multi-shot arithmetic problem.  The selected
+        # club's measured carry remains visible as evidence, while the route endpoint is the green
+        # so every surface can draw one tee -> pin scoring leg.
+        step = _sequence_step(first, distance_m, "scoring")
+        step["routeOffset_m"] = round(distance_m, 1)
+        step["landing_m"] = round(distance_m, 1)
+        step["expectedRemaining_m"] = 0.0
+        step["planIndex"] = 0
+        step["planVersion"] = "ai-caddie-shot-plan-v1"
+        step["planSource"] = "direct_par3_scoring"
+        return {
+            "id": option.get("id"),
+            "label": str(first.get("clubName") or option.get("id") or "scoring"),
+            "strategyLabel": option.get("label") or option.get("id"),
+            "clubs": [step],
+            "totalPlannedCarry_m": round(first_carry, 1),
+            "expectedRemaining_m": 0.0,
+            "riskScore": _float(option.get("riskScore")),
+            "rationale": "Par 3 direct scoring shot to the green; re-plan only if the lie or pin changes.",
+            "completion": "scoring_window",
+            "sourceRefs": _sanitize_ref_list(step.get("sourceRefs")),
+            "coverage": _sequence_coverage([step]),
+            "confidence": _sequence_confidence([step]),
+            "planSource": "direct_par3_scoring",
+        }
 
     cold_start = not any(
         _effective_club_sample_size(row) >= MIN_STRONG_CLUB_SAMPLE
@@ -1829,7 +2137,11 @@ def _sequence_option(
         steps: list[dict[str, Any]] = []
         for index, row in enumerate(rows):
             role = (
-                "advance"
+                "scoring"
+                if len(rows) == 1
+                else "tee"
+                if index == 0 and not cold_start
+                else "advance"
                 if index == 0
                 else "position"
                 if cold_start
@@ -1876,8 +2188,23 @@ def _sequence_option(
             travelled_m += _float(row.get("median_m"))
         return steps, remaining_m
 
+    def apply_gir_window(
+        rows: list[dict[str, Any]],
+        steps: list[dict[str, Any]],
+        remaining_m: float,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], float, dict[str, Any] | None]:
+        """Make a measured green landing the end of a normal Par-4/5 route."""
+        gir = _sequence_gir_result(steps, context, distance_m)
+        if gir is None:
+            return rows, steps, remaining_m, None
+        index = int(gir.get("index") or 0)
+        trimmed_steps = _mark_sequence_gir(steps, gir)
+        trimmed_rows = rows[: index + 1]
+        return trimmed_rows, trimmed_steps, 0.0, gir
+
     planned_rows = build_rows()
     steps, remaining = build_steps(planned_rows)
+    planned_rows, steps, remaining, gir_result = apply_gir_window(planned_rows, steps, remaining)
     short_game_available = any(
         _float(row.get("median_m"), math.inf) <= SHORT_GAME_PROFILE_MAX_M
         for row in club_rows
@@ -1887,7 +2214,7 @@ def _sequence_option(
         not short_game_available
         and 20.0 < remaining <= MAX_SEQUENCE_REPLAN_GAP_M
     )
-    if not cold_start and (remaining > 20.0 or remaining < -max_overshoot_m):
+    if gir_result is None and not cold_start and (remaining > 20.0 or remaining < -max_overshoot_m):
         # If the exact scoring window is unavailable, consider one fewer full swing. This is a
         # bounded short-game data gap; water feasibility and the non-Tee Driver prohibition still
         # apply to every candidate.
@@ -1907,6 +2234,7 @@ def _sequence_option(
         distinct_route_accepted = bool(fallback_complete or fallback_partial)
         if fallback_complete or fallback_partial:
             planned_rows, steps, remaining = fallback_rows, fallback_steps, fallback_remaining
+            planned_rows, steps, remaining, gir_result = apply_gir_window(planned_rows, steps, remaining)
             partial = remaining > 20.0
         # Do not turn a modestly shorter tee into an opaque X -> X route merely to force the
         # arithmetic remainder into the scoring window. Repeating the first club is a last resort
@@ -1914,7 +2242,7 @@ def _sequence_option(
         # route under the same hazard and carry limits. This still permits a sparse long-hole bag
         # to use 5I -> 5I when every distinct continuation is too short, while a normal 1W -> 3H
         # route wins over an opaque 3H -> 3H preview whenever both are feasible.
-        if (
+        if gir_result is None and (
             (remaining > 20.0 or remaining < -max_overshoot_m)
             and not distinct_route_accepted
         ):
@@ -1933,11 +2261,12 @@ def _sequence_option(
             )
             if repeat_complete or repeat_partial:
                 planned_rows, steps, remaining = repeat_rows, repeat_steps, repeat_remaining
-                partial = repeat_remaining > 20.0
+                planned_rows, steps, remaining, gir_result = apply_gir_window(planned_rows, steps, remaining)
+                partial = remaining > 20.0
                 repeat_fallback_used = True
-        if remaining > 20.0 and short_game_available:
+        if gir_result is None and remaining > 20.0 and short_game_available:
             return None
-        if remaining > MAX_SEQUENCE_REPLAN_GAP_M or remaining < -max_overshoot_m:
+        if gir_result is None and (remaining > MAX_SEQUENCE_REPLAN_GAP_M or remaining < -max_overshoot_m):
             # A chain outside the bounded gap is not an alternative. Return no sequence so the
             # caller exposes missing data instead of displaying an unsafe fabricated continuation.
             return None
@@ -1966,21 +2295,40 @@ def _sequence_option(
                 else ""
             )
         ),
-        "completion": "replan_required" if partial else "scoring_window",
+        "completion": "scoring_window" if gir_result is not None else "replan_required" if partial else "scoring_window",
         "sourceRefs": source_refs,
         "coverage": _sequence_coverage(steps),
         "confidence": _sequence_confidence(steps),
+        "greenInRegulation": gir_result is not None,
+        **(
+            {
+                "girWindow": dict(gir_result.get("facts") or {}),
+                "shotsToGreen": int(gir_result.get("shotsToGreen") or len(steps)),
+            }
+            if gir_result is not None
+            else {}
+        ),
     }
 
 
 def _club_sequences(context: dict[str, Any], options: list[dict[str, Any]]) -> list[dict[str, Any]]:
     distance_m = _sequence_distance(context)
-    if distance_m < MIN_SEQUENCE_DISTANCE_M:
+    if distance_m <= 0:
+        return []
+    try:
+        par = int(context.get("par") or 0)
+    except (TypeError, ValueError):
+        par = 0
+    shot_type = str(context.get("shotType") or "tee").strip().lower()
+    # A Par 3 is a one-shot scoring plan, not a missing multi-shot sequence.  Keep
+    # the historical distance gate for approach/recovery and non-Par-3 callers.
+    direct_par3 = shot_type == "tee" and par == 3
+    if distance_m < MIN_SEQUENCE_DISTANCE_M and not direct_par3:
         return []
     rows = _club_profile_rows(context.get("clubProfiles") or {})
     if _non_tee_context(context):
         rows = [row for row in rows if not _driver_row(row)]
-    if len(rows) < 2 or not options:
+    if len(rows) < 1 or not options:
         return []
     memo: dict[Any, Any] = {}
     generated = [
@@ -1989,6 +2337,7 @@ def _club_sequences(context: dict[str, Any], options: list[dict[str, Any]]) -> l
         if (
             sequence := _sequence_option(
                 option=option,
+                context=context,
                 distance_m=distance_m,
                 club_rows=rows,
                 avoid_zones=(
@@ -2003,6 +2352,7 @@ def _club_sequences(context: dict[str, Any], options: list[dict[str, Any]]) -> l
                     else MAX_SEQUENCE_OVERSHOOT_M
                 ),
                 memo=memo,
+                direct_scoring=direct_par3,
             )
         )
     ]
@@ -2240,11 +2590,16 @@ def _sequence_evidence(sequences: list[dict[str, Any]], selected_sequence: dict[
     sequence = selected_sequence or (sequences[0] if sequences else None)
     if not sequence:
         return None
+    gir_suffix = ""
+    if sequence.get("greenInRegulation") is True:
+        shots = int(sequence.get("shotsToGreen") or len(sequence.get("clubs") or []))
+        gir_suffix = f"; reaches the green in regulation after {shots} shots"
     return {
         "kind": "sequence",
         "text": (
             f"{sequence['strategyLabel']}: {sequence['label']} "
-            f"uses per-club distributions and outcomes and leaves {sequence['expectedRemaining_m']}m; re-plan from the next lie"
+            f"uses per-club distributions and outcomes and leaves {sequence['expectedRemaining_m']}m"
+            f"{gir_suffix}; re-plan from the next lie"
         ),
         "sourceRefs": sequence.get("sourceRefs", []),
         "coverage": sequence.get("coverage"),
@@ -2587,6 +2942,223 @@ def _routes_from_route_evidence(analysis: dict[str, Any]) -> list[dict[str, Any]
     return routes
 
 
+def _profile_tee_routes(
+    analysis: dict[str, Any],
+    routes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Backfill tee route identities from the measured bag when route geometry is deferred.
+
+    A live screen may arrive before prodgeometry has returned candidate lines.  That is not a
+    reason to turn a Par 4/5 into a single short-iron card: the hole distance and the player's bag
+    are already factual.  We create bounded club-led alternatives and let the same water/OB hard
+    checks reject a Driver that cannot be played.  No spatial line is fabricated here; the map
+    projects the cumulative route offsets and replaces them when precise geometry arrives.
+    """
+    if _non_tee_context(analysis):
+        return routes
+    rows = _club_profile_rows(analysis.get("clubProfiles") or {})
+    distance_m = _sequence_distance(analysis)
+    if not rows or distance_m <= 0:
+        return routes
+    try:
+        par = int(analysis.get("par") or 0)
+    except (TypeError, ValueError):
+        par = 0
+    if par not in {3, 4, 5}:
+        return routes
+
+    hazards = _hazard_avoid_zones(analysis)
+    usable = [row for row in rows if _is_playable_club(row) and _club_hard_hazard_safe(row, hazards)]
+    if not usable:
+        return routes
+
+    existing = [dict(route) for route in routes if isinstance(route, dict)]
+    by_option = {_route_option_id(route): index for index, route in enumerate(existing)}
+    existing_physical = {
+        _club_identity(route.get("club") or route.get("clubName"))
+        for route in existing
+        if route.get("club") or route.get("clubName")
+    }
+    # Par-3 uses the same route upgrader below, but its direct scoring alternatives do not need a
+    # tee Driver reliability gate. The Par-4/5 branch replaces this with the measured comparison.
+    driver_upgrade_supported = True
+
+    def route_for(
+        option_id: str,
+        row: dict[str, Any],
+        label: str,
+        risk: float,
+        *,
+        target_local: list[float] | None = None,
+    ) -> dict[str, Any]:
+        carry = round(_float(row.get("median_m")), 1)
+        route_id = {
+            "safe": "conservative_layup",
+            "stock": "stock_line",
+            "attack": "aggressive_line",
+        }.get(option_id, option_id)
+        return {
+            "id": route_id,
+            "label": label,
+            "club": row.get("clubName"),
+            "carry_m": carry,
+            # Geometry and club carry are separate facts. When a route-evidence row already has
+            # an authoritative target point, keep it while replacing only the physical club. The
+            # map can then project the measured landing offset without moving the route endpoint.
+            "targetLocal": (
+                target_local
+                if target_local is not None
+                else _target_local_from_route_evidence(analysis, carry)
+            ),
+            "expectedSurface": {"kind": "fairway"},
+            "nearRisks": [],
+            "lineRisks": [],
+            "planningHazards": hazards,
+            "riskScore": risk,
+            "source": "clubProfiles",
+            "planSource": "bag_profile_fallback",
+        }
+
+    def add_or_upgrade(option_id: str, row: dict[str, Any], label: str, risk: float) -> None:
+        identity = _club_identity(row)
+        if not identity or identity in EXCLUDED_TEE_CLUBS:
+            return
+        index = by_option.get(option_id)
+        if index is not None:
+            current = existing[index]
+            current_name = current.get("club") or current.get("clubName")
+            current_is_driver = _driver_row({"clubName": current_name}) if current_name else False
+            # A normal tee stock line is Driver-led whenever the measured Driver clears the hard
+            # water/OB constraints.  Older sparse route evidence often contains an explicit short
+            # club (for example 7I/3H) plus soft bunker/tree risk rows; treating that row as
+            # authoritative is what made every alternative start with the same short club.  Soft
+            # risks remain visible in the option evidence, but only a hard constraint may remove the
+            # Driver.  Safe/attack routes keep their explicit physical club and target geometry.
+            can_upgrade_stock = (
+                option_id == "stock"
+                and _driver_row(row)
+                and not current_is_driver
+                and _club_hard_hazard_safe(row, hazards)
+                and driver_upgrade_supported
+            )
+            if current_name and not can_upgrade_stock:
+                # A route with an explicit physical club or line evidence is authoritative unless
+                # the stock Driver rule above is applicable. A bare carry is the old sparse shape.
+                if current.get("lineRisks") or current.get("nearRisks") or current_name:
+                    return
+            upgraded = route_for(
+                option_id,
+                row,
+                label,
+                risk,
+                target_local=(
+                    current.get("targetLocal")
+                    if isinstance(current.get("targetLocal"), list)
+                    else None
+                ),
+            )
+            upgraded.update({key: value for key, value in current.items() if key not in upgraded})
+            existing[index] = upgraded
+            if current_name:
+                existing_physical.discard(_club_identity(current_name))
+            existing_physical.add(identity)
+            return
+        if identity in existing_physical:
+            return
+        existing.append(route_for(option_id, row, label, risk))
+        by_option[option_id] = len(existing) - 1
+        existing_physical.add(identity)
+
+    if par == 3:
+        # For a Par 3, show up to three physically different measured clubs near the pin. The
+        # sequence planner marks each as a direct scoring leg; there is no layup/advance route.
+        near_pin = sorted(
+            usable,
+            key=lambda row: (
+                abs(_float(row.get("median_m")) - distance_m),
+                _club_stability_cost(row, scoring_shot=True),
+                -_effective_club_sample_size(row),
+            ),
+        )
+        for index, row in enumerate(near_pin[:3]):
+            add_or_upgrade(
+                ("stock", "safe", "attack")[index],
+                row,
+                ("stock line", "safe direct", "attack direct")[index],
+                float(index),
+            )
+        return existing
+
+    driver = next((row for row in usable if _driver_row(row)), None)
+    non_driver = [row for row in usable if not _driver_row(row)]
+    non_driver.sort(
+        key=lambda row: (
+            -_float(row.get("median_m")),
+            _club_stability_cost(row, scoring_shot=False),
+            -_effective_club_sample_size(row),
+        )
+    )
+    longest = max(usable, key=lambda row: _float(row.get("median_m")))
+
+    # A normal hole should expose Driver by default, but a tiny/wide Driver history is not enough
+    # evidence to overwrite a measured route. Compare the complete-hole utility against the best
+    # non-driver and require a strong sample whenever one exists. This keeps the opening choice
+    # aligned with the same reliability model used by the live planner instead of treating the
+    # club category as a hard preference.
+    driver_upgrade_supported = True
+    if driver is not None and non_driver:
+        strong_non_driver = [
+            row
+            for row in non_driver
+            if _effective_club_sample_size(row) >= MIN_STRONG_CLUB_SAMPLE
+        ]
+        if (
+            strong_non_driver
+            and _effective_club_sample_size(driver) < MIN_STRONG_CLUB_SAMPLE
+        ):
+            driver_upgrade_supported = False
+        else:
+            driver_key = _whole_hole_sequence_key(driver, usable, distance_m, hazards)
+            best_alternative_key = min(
+                (_whole_hole_sequence_key(row, usable, distance_m, hazards) for row in non_driver),
+                key=lambda value: value[:4],
+            )
+            if driver_key[0] > best_alternative_key[0] or (
+                driver_key[0] == best_alternative_key[0]
+                and driver_key[1] > best_alternative_key[1] + 5.0
+            ):
+                driver_upgrade_supported = False
+
+    if driver is not None and driver_upgrade_supported:
+        safe_row = non_driver[0] if non_driver else longest
+        stock_row = driver
+    elif non_driver:
+        # Keep the most reliable/longest non-driver as stock when Driver evidence is weak. The
+        # next shorter club is the safe alternative, so the UI still exposes a real choice.
+        stock_row = non_driver[0]
+        safe_row = non_driver[1] if len(non_driver) > 1 else stock_row
+    else:
+        safe_row = stock_row = driver or longest
+    add_or_upgrade("safe", safe_row, "safe measured tee line", 0.0)
+    add_or_upgrade("stock", stock_row, "stock measured tee line", 1.0)
+
+    # Attack is a real alternative only when its first club differs. Do not duplicate Driver under
+    # a second label; the UI's physical-route deduper should not hide a meaningful choice.
+    attack_row = (
+        driver
+        if driver is not None
+        and _club_identity(driver) != _club_identity(stock_row)
+        and _club_hard_hazard_safe(driver, hazards)
+        else next(
+            (row for row in non_driver if _club_identity(row) != _club_identity(stock_row)),
+            None,
+        )
+    )
+    if attack_row is not None:
+        add_or_upgrade("attack", attack_row, "attack measured tee line", 2.0)
+    return existing
+
+
 def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[str, Any]:
     option_id = _route_option_id(route)
     forbidden = _forbidden_zones_from_route(route)
@@ -2614,7 +3186,7 @@ def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[
         "label": OPTION_LABELS.get(option_id, str(route.get("label") or option_id)),
         "routeLabel": route.get("label"),
         "carry_m": carry_m,
-        "targetLocal": route.get("landingLocal"),
+        "targetLocal": route.get("landingLocal") or route.get("targetLocal"),
         "targetWindow": target_window,
         "expectedSurface": route.get("expectedSurface"),
         "riskScore": risk_score,
@@ -2892,6 +3464,19 @@ def _sequence_club_identities(sequence: dict[str, Any] | None) -> list[str]:
     ]
 
 
+def _sequence_is_gir(sequence: dict[str, Any] | None) -> bool:
+    """Whether a sequence explicitly reaches the factual green in regulation."""
+    if not isinstance(sequence, dict):
+        return False
+    if sequence.get("greenInRegulation") is True:
+        return True
+    steps = sequence.get("clubs")
+    if not isinstance(steps, list) or not steps:
+        return False
+    final = steps[-1] if isinstance(steps[-1], dict) else {}
+    return final.get("greenInRegulation") is True
+
+
 def _tee_stock_advancement_margin(
     *,
     context: dict[str, Any],
@@ -2941,6 +3526,39 @@ def _tee_stock_advancement_margin(
         ):
             margin += 0.5
     return margin
+
+
+def _gir_stock_preference(
+    *,
+    stock: dict[str, Any] | None,
+    safest: dict[str, Any],
+    sequences: list[dict[str, Any]] | None,
+) -> bool:
+    """Prefer a measured stock GIR route when the safer route gives up the objective cheaply.
+
+    This is intentionally a small ordinal margin, not a fake expected-strokes model. Hard hazard
+    constraints have already removed infeasible options; explicit safe/attack requests are handled
+    before this helper. It only prevents a low-risk short tee card from displacing a factual
+    two-shot GIR opening on an ordinary Par 4/5.
+    """
+    if stock is None:
+        return False
+    by_id = {
+        str(sequence.get("id") or ""): sequence
+        for sequence in sequences or []
+        if isinstance(sequence, dict)
+    }
+    stock_sequence = by_id.get(str(stock.get("id") or "stock"))
+    safest_sequence = by_id.get(str(safest.get("id") or ""))
+    if not _sequence_is_gir(stock_sequence) or _sequence_is_gir(safest_sequence):
+        return False
+    stock_risk = _float(stock.get("riskScore"), math.inf)
+    safe_risk = _float(safest.get("riskScore"), math.inf)
+    if not (math.isfinite(stock_risk) and math.isfinite(safe_risk)):
+        return False
+    # A route that is only marginally riskier but reaches GIR is the normal default. A materially
+    # worse route remains safe-selected and leaves the player an explicit alternative.
+    return stock_risk <= safe_risk + 3.0
 
 
 def _select_option(
@@ -2995,6 +3613,8 @@ def _select_option(
         context=context,
     ):
         return attack
+    if _gir_stock_preference(stock=stock, safest=safest, sequences=sequences):
+        return stock
     # ``stock`` is the normal answer when its modeled risk is close to the safest route.  A real
     # hazard or a recovery constraint must still be allowed to move the recommendation to ``safe``;
     # otherwise a legacy route package can silently turn every obstructed lie into a stock swing.
@@ -4921,6 +5541,10 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
             for route in routes
             if not _driver_row({"clubName": route.get("club") or route.get("clubName")})
         ]
+    # CourseView/geometry can legitimately be deferred on the first live frame. Keep the tee
+    # decision useful from the installed bag and nominal hole distance, then let precise route
+    # evidence replace these bounded profile-led candidates on the next refresh.
+    routes = _profile_tee_routes(analysis, routes)
     options = [_option_from_route(route, analysis) for route in routes]
     options = _dedupe_strategy_options(options)
     canonical = _canonical_sequence(analysis, options)

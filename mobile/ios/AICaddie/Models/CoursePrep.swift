@@ -278,7 +278,8 @@ public struct CoursePrepLiveHazardReadout: Equatable {
                 kind: detail.kind,
                 frontRouteM: detail.frontRouteM,
                 backRouteM: detail.backRouteM,
-                routeLengthM: routeLengthM
+                routeLengthM: routeLengthM,
+                hasPreciseOutline: detail.outlinePx.count >= 3
             ) else { continue }
             let ordinal = ordinals[detail.kind, default: 0]
             ordinals[detail.kind] = ordinal + 1
@@ -447,6 +448,10 @@ public struct CoursePrepHazards: Codable, Equatable {
 enum CoursePrepHazardRelevance {
     static let teeApronCutoffM = 30.0
     static let behindGreenToleranceM = 12.0
+    /// Precise prodgeometry polygons are real mapped obstacles, not approximate route intervals.
+    /// Keep a wider station tolerance for those polygons so a greenside bunker whose route station
+    /// lands just beyond the centerline endpoint is still available in the obstacle browser.
+    static let preciseBehindGreenToleranceM = 32.0
 
     static func routeLengthM(from route: [[Double]]) -> Double? {
         if let cumulative = route.last.flatMap({ $0.count >= 3 ? $0[2] : nil }),
@@ -469,7 +474,8 @@ enum CoursePrepHazardRelevance {
         kind: String,
         frontRouteM: Double,
         backRouteM: Double,
-        routeLengthM: Double?
+        routeLengthM: Double?,
+        hasPreciseOutline: Bool = false
     ) -> Bool {
         guard frontRouteM.isFinite, backRouteM.isFinite else { return false }
         let nearEdgeM = min(frontRouteM, backRouteM)
@@ -485,7 +491,8 @@ enum CoursePrepHazardRelevance {
         }
 
         guard let routeLengthM, routeLengthM.isFinite, routeLengthM > 0 else { return true }
-        return nearEdgeM <= routeLengthM + behindGreenToleranceM
+        let tolerance = hasPreciseOutline ? preciseBehindGreenToleranceM : behindGreenToleranceM
+        return nearEdgeM <= routeLengthM + tolerance
     }
 }
 

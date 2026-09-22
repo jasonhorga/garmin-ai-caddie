@@ -26,6 +26,13 @@ public struct MapPlannedShot: Identifiable, Equatable {
     public let carryM: Double?
     public let routeOffsetM: Double?
     public let role: String?
+    /// Remaining distance after this leg. This is kept beside the projected point so the renderer
+    /// can distinguish a true final scoring shot from a truncated CoursePrep position prefix whose
+    /// stale zero-leave value must not be drawn through the green.
+    public let expectedRemainingM: Double?
+    /// Explicitly marks a leg whose destination is the flag. When nil, the role/remaining-distance
+    /// compatibility rules are used for older callers.
+    public let targetsPin: Bool?
     public let planIndex: Int
 
     public init(
@@ -34,6 +41,8 @@ public struct MapPlannedShot: Identifiable, Equatable {
         carryM: Double? = nil,
         routeOffsetM: Double? = nil,
         role: String? = nil,
+        expectedRemainingM: Double? = nil,
+        targetsPin: Bool? = nil,
         planIndex: Int = 0
     ) {
         self.id = id
@@ -41,7 +50,21 @@ public struct MapPlannedShot: Identifiable, Equatable {
         self.carryM = carryM
         self.routeOffsetM = routeOffsetM
         self.role = role
+        self.expectedRemainingM = expectedRemainingM
+        self.targetsPin = targetsPin
         self.planIndex = planIndex
+    }
+
+    var shouldEndAtPin: Bool {
+        if let targetsPin { return targetsPin }
+        switch role?.lowercased() {
+        case "scoring", "approach":
+            return true
+        case "tee", "advance", "position", "layup":
+            return false
+        default:
+            return expectedRemainingM.map { $0 <= 20 } ?? false
+        }
     }
 }
 
@@ -179,7 +202,13 @@ public struct HoleImageMapView: View {
             row.count >= 2 ? CGPoint(x: row[0] * sx, y: row[1] * sy) : nil
         }
         let pin = resolvedPinPoint(overlay: overlay, sx: sx, sy: sy) ?? routePoints.last
-        let projectedPlan = projectedPlannedShots(overlay: overlay, sx: sx, sy: sy)
+        let projectedPlan = projectedPlannedShots(
+            overlay: overlay,
+            sx: sx,
+            sy: sy,
+            fallbackStart: routePoints.first,
+            fallbackEnd: pin
+        )
         let landingTargetMetres: Double? = {
             if selectedClub != nil { return selectedClubMetres }
             return showsPrepClubLabel ? hole.landingM : nil
@@ -219,6 +248,17 @@ public struct HoleImageMapView: View {
                         at: Self.clubLabelPoint(landing: landing, pin: pin)
                     )
                 }
+            } else if let pin,
+                      hole.par == 3 || (!plannedShots.isEmpty && plannedShots.last?.shouldEndAtPin == true)
+                      || (plannedShots.isEmpty && hole.steps.last?.role.map {
+                          let role = $0.lowercased()
+                          return role == "scoring" || role == "approach"
+                      } == true) {
+                // A legacy/partial overlay may not carry cumulative route metres, so none of
+                // the planned landing points can be projected even though the package contains a
+                // valid plan. Keep the recommendation visible as one direct flight to the green
+                // (especially important for a Par 3) instead of silently removing the route line.
+                drawFlightArc(&context, arc: Self.flightArc(from: tee, to: pin))
             }
             context.fill(Path(ellipseIn: CGRect(x: tee.x - 5, y: tee.y - 5, width: 10, height: 10)), with: .color(.white))
         }
@@ -268,7 +308,9 @@ public struct HoleImageMapView: View {
     private func projectedPlannedShots(
         overlay: CoursePrepOverlay,
         sx: CGFloat,
-        sy: CGFloat
+        sy: CGFloat,
+        fallbackStart: CGPoint?,
+        fallbackEnd: CGPoint?
     ) -> [(shot: MapPlannedShot, point: CGPoint)] {
         let source: [MapPlannedShot]
         if !plannedShots.isEmpty {
@@ -286,24 +328,48 @@ public struct HoleImageMapView: View {
                     carryM: step.targetCarryM,
                     routeOffsetM: step.routeOffsetM ?? step.landingM,
                     role: step.role,
+                    expectedRemainingM: step.expectedRemainingM,
                     planIndex: step.planIndex ?? index
                 )
             }
         }
         guard !source.isEmpty else { return [] }
         var cumulative = 0.0
-        return source.compactMap { shot in
+        var projected: [(shot: MapPlannedShot, point: CGPoint)] = []
+        let routeEndMetres = overlay.route.last.flatMap { $0.count >= 3 ? $0[2] : nil } ?? overlay.ln
+        for (index, shot) in source.enumerated() {
             let carry = shot.carryM.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
             if let carry { cumulative += carry }
             let target = shot.routeOffsetM.flatMap { $0.isFinite ? $0 : nil } ?? cumulative
-            guard let row = Self.landingOverlayPoint(overlay, targetMetres: Self.safeTarget(target, overlay: overlay)) else {
-                return nil
-            }
-            return (
+            let projectedPoint = Self.landingOverlayPoint(
+                overlay,
+                targetMetres: Self.safeTarget(target, overlay: overlay)
+            ).map { CGPoint(x: $0[0] * sx, y: $0[1] * sy) }
+            let isFinal = index == source.count - 1
+            let endsAtPin = isFinal && effectiveShouldEndAtPin(
                 shot,
-                CGPoint(x: row[0] * sx, y: row[1] * sy)
+                index: index,
+                routeEndMetres: routeEndMetres
             )
+            let point: CGPoint? = {
+                // Only a real scoring/approach leg targets the flag. A truncated CoursePrep route
+                // can end in a `position` step with a stale zero leave; sending that step to the
+                // pin is the visual defect that made a safe prefix look like it crossed the green.
+                if endsAtPin, let fallbackEnd { return fallbackEnd }
+                if let projectedPoint { return projectedPoint }
+                if let fallbackStart, let fallbackEnd, routeEndMetres > 0 {
+                    let fraction = min(max(target / routeEndMetres, 0), 1)
+                    return CGPoint(
+                        x: fallbackStart.x + (fallbackEnd.x - fallbackStart.x) * fraction,
+                        y: fallbackStart.y + (fallbackEnd.y - fallbackStart.y) * fraction
+                    )
+                }
+                return projected.last?.point ?? fallbackStart ?? fallbackEnd
+            }()
+            guard let point else { continue }
+            projected.append((shot, point))
         }
+        return projected
     }
 
     private static func safeTarget(_ value: Double, overlay: CoursePrepOverlay) -> Double {
@@ -318,29 +384,69 @@ public struct HoleImageMapView: View {
         shots: [(shot: MapPlannedShot, point: CGPoint)]
     ) {
         var origin = tee
-        for (position, item) in shots.enumerated() {
-            guard hypot(item.point.x - origin.x, item.point.y - origin.y) > 1 else { continue }
-            drawFlightArc(&context, arc: Self.flightArc(from: origin, to: item.point))
-            drawPlanMarker(
-                &context,
-                at: item.point,
-                selected: selectedPlanIndex == nil || selectedPlanIndex == item.shot.planIndex
+        for (index, item) in shots.enumerated() {
+            let isFinal = index == shots.count - 1
+            let routeEndMetres = hole.resolvedMapOverlay?.route.last.flatMap { $0.count >= 3 ? $0[2] : nil }
+                ?? hole.resolvedMapOverlay?.ln
+                ?? hole.routeLenM
+            let endsAtPin = isFinal && effectiveShouldEndAtPin(
+                item.shot,
+                index: index,
+                routeEndMetres: routeEndMetres
             )
-            if showsClubLabel && (selectedPlanIndex == nil || selectedPlanIndex == item.shot.planIndex) {
+            let destination = endsAtPin
+                ? (pin ?? item.point)
+                : item.point
+            let legLength = hypot(destination.x - origin.x, destination.y - origin.y)
+            // Do not let a duplicate/legacy landing suppress the final scoring leg. The origin is
+            // still advanced for every planned step, and the final step always targets the flag.
+            if legLength > 1 {
+                drawFlightArc(&context, arc: Self.flightArc(from: origin, to: destination))
+            }
+            let isSelected = selectedPlanIndex == nil || selectedPlanIndex == item.shot.planIndex
+            let isAtPin = endsAtPin && pin != nil
+            if !isAtPin {
+                drawPlanMarker(&context, at: destination, selected: isSelected)
+            }
+            if showsClubLabel && isSelected {
                 let label = zhClubDisplayName(zhClubName(item.shot.clubName))
                 context.draw(
                     Text(label).font(.caption2.weight(.bold)).foregroundColor(.white),
-                    at: Self.clubLabelPoint(landing: item.point, pin: pin)
+                    at: Self.clubLabelPoint(landing: destination, pin: pin)
                 )
             }
-            origin = item.point
-            // A plan can contain a final scoring leg that already reaches the flag. Avoid a duplicate
-            // full-width arc when the route offset and pin are effectively the same point.
-            if position == shots.count - 1, let pin,
-               hypot(pin.x - origin.x, pin.y - origin.y) > 3 {
-                drawFlightArc(&context, arc: Self.flightArc(from: origin, to: pin))
-            }
+            origin = destination
         }
+    }
+
+    private func effectiveShouldEndAtPin(
+        _ shot: MapPlannedShot,
+        index: Int,
+        routeEndMetres: Double
+    ) -> Bool {
+        guard index >= 0 else { return false }
+        let role = shot.role?.lowercased() ?? ""
+        guard role == "scoring" || role == "approach" else {
+            return shot.shouldEndAtPin
+        }
+        // On Par 4/5 a landing inside the factual green front/back window is GIR even when it is
+        // short of the flag. Keep the arc at that landing station; only a true route-end scoring
+        // step targets the pin.
+        if hole.par >= 3,
+           index + 1 <= max(1, hole.par - 2),
+           let offset = shot.routeOffsetM ?? shot.carryM,
+           let green = hole.greenDistances,
+           green.available,
+           let front = green.frontM,
+           let back = green.backM,
+           offset >= min(front, back),
+           offset <= max(front, back) + 8 {
+            return false
+        }
+        if let offset = shot.routeOffsetM, routeEndMetres > 0 {
+            return offset >= routeEndMetres - 20
+        }
+        return shot.shouldEndAtPin
     }
 
     private func drawFlightArc(_ context: inout GraphicsContext, arc: MapFlightArc) {
@@ -413,7 +519,7 @@ public struct HoleImageMapView: View {
                     )
                 }
 
-                ForEach(Array(prepHazardAnnotations.prefix(2).enumerated()), id: \.element.id) { index, item in
+                ForEach(Array(prepHazardAnnotations.enumerated()), id: \.element.id) { index, item in
                     if let front = mapPoint(item.frontPx, in: proxy.size, overlay: overlay),
                        let back = mapPoint(item.backPx, in: proxy.size, overlay: overlay) {
                         PrepMapHazardRangeOverlay(
@@ -456,7 +562,8 @@ public struct HoleImageMapView: View {
                         kind: $0.kind,
                         frontRouteM: $0.frontRouteM,
                         backRouteM: $0.backRouteM,
-                        routeLengthM: routeLengthM
+                        routeLengthM: routeLengthM,
+                        hasPreciseOutline: $0.outlinePx.count >= 3
                     )
                     && $0.frontPx.count >= 2
                     && $0.backPx.count >= 2
@@ -546,7 +653,8 @@ public struct HoleImageMapView: View {
                 kind: detail.kind,
                 frontRouteM: detail.frontRouteM,
                 backRouteM: detail.backRouteM,
-                routeLengthM: hole.resolvedMapOverlay?.ln ?? hole.routeLenM
+                routeLengthM: hole.resolvedMapOverlay?.ln ?? hole.routeLenM,
+                hasPreciseOutline: detail.outlinePx.count >= 3
             )
             && detail.frontPx.count >= 2
             && detail.backPx.count >= 2

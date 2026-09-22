@@ -432,6 +432,10 @@ public struct CaddiePlanSequenceStep: Identifiable, Equatable {
     public let sampleSize: Int?
     public let confidence: String?
     public let sourceRefs: [String]
+    /// Explicit GIR metadata from the deterministic planner. This is separate from `role` because
+    /// a scoring leg can land in the factual front/back window without targeting the flag.
+    public let greenInRegulation: Bool?
+    public let shotsToGreen: Int?
 
     public init(
         id: String,
@@ -444,7 +448,9 @@ public struct CaddiePlanSequenceStep: Identifiable, Equatable {
         sourceRefs: [String],
         routeOffsetM: Double? = nil,
         landingM: Double? = nil,
-        planIndex: Int? = nil
+        planIndex: Int? = nil,
+        greenInRegulation: Bool? = nil,
+        shotsToGreen: Int? = nil
     ) {
         self.id = id
         self.role = role
@@ -457,6 +463,8 @@ public struct CaddiePlanSequenceStep: Identifiable, Equatable {
         self.sampleSize = sampleSize
         self.confidence = confidence
         self.sourceRefs = sourceRefs
+        self.greenInRegulation = greenInRegulation
+        self.shotsToGreen = shotsToGreen
     }
 
     public var summaryText: String {
@@ -586,7 +594,9 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
                 sourceRefs: stringArray(row["sourceRefs"]),
                 routeOffsetM: number(row["routeOffset_m"]) ?? number(row["routeOffsetM"]),
                 landingM: number(row["landing_m"]) ?? number(row["landingM"]),
-                planIndex: integer(row["planIndex"])
+                planIndex: integer(row["planIndex"]),
+                greenInRegulation: bool(row["greenInRegulation"]),
+                shotsToGreen: integer(row["shotsToGreen"])
             )
         }
     }
@@ -633,6 +643,11 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
             return nil
         }
         return Int(raw)
+    }
+
+    private static func bool(_ value: JSONValue?) -> Bool? {
+        guard case .bool(let raw) = value else { return nil }
+        return raw
     }
 
     private static func stringArray(_ value: JSONValue?) -> [String] {

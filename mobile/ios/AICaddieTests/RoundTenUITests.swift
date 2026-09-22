@@ -282,6 +282,62 @@ final class RoundTenUITests: XCTestCase {
         XCTAssertEqual(bunkers[1].backPx, [440.1, 140.2])
     }
 
+    func testLiveCaddiePresentationKeepsThreePhysicalRoutes() {
+        func sequence(_ id: String, _ label: String, _ clubs: [String]) -> [String: JSONValue] {
+            [
+                "id": .string(id),
+                "label": .string(label),
+                "clubs": .array(clubs.enumerated().map { index, club in
+                    .object([
+                        "clubName": .string(club),
+                        "role": .string(index == clubs.count - 1 ? "scoring" : "advance"),
+                        "targetCarry_m": .number(Double(140 + index * 20)),
+                        "routeOffset_m": .number(Double(140 + index * 20)),
+                        "expectedRemaining_m": .number(index == clubs.count - 1 ? 0 : 140),
+                    ])
+                }),
+            ]
+        }
+        let response = CaddieDecisionResponse(
+            schema: "ai-caddie-decision-v2", decisionId: "a7", sourceRef: nil,
+            evidenceRefs: nil, shotType: "tee", phase: "Tee", context: [:],
+            options: [], selected: nil, selectedOptionId: "stock", selectedOption: nil,
+            sequences: [
+                sequence("safe", "8I-5I", ["8I", "5I"]),
+                sequence("stock", "3H-8I", ["3H", "8I"]),
+                sequence("attack", "Driver-Pw", ["Driver", "Pw"]),
+            ], selectedSequence: nil, avoidZones: [], forbiddenZones: [],
+            acceptableMiss: [:], evidence: [], confidence: [:], missingData: [], auditCriteria: []
+        )
+
+        let visible = CaddiePlanPresentation.distinctSequences(from: response, preferredFirst: false)
+        XCTAssertEqual(visible.count, 3)
+        XCTAssertEqual(visible.map { $0.steps.map(\.clubName) }, [["8I", "5I"], ["3H", "8I"], ["Driver", "Pw"]])
+    }
+
+    func testLegacyIntervalsFillASecondBunkerWhenPreciseDetailsArePartial() {
+        let precise = CoursePrepHazardDetail(
+            kind: "bunker", frontM: 140, backM: 154,
+            frontRouteM: 140, backRouteM: 154,
+            frontPx: [100, 360], backPx: [105, 340],
+            outlinePx: [[100, 360], [110, 350], [105, 340]], sideM: -12
+        )
+        let hole = makeHole(
+            hazards: CoursePrepHazards(
+                bunkers: [[140, 12], [262, 10]],
+                details: [precise]
+            )
+        )
+
+        let bunkers = LiveHazardDisplayItem.rows(for: hole, liveReadouts: nil)
+            .filter { $0.kind == "bunker" }
+
+        XCTAssertEqual(bunkers.count, 2)
+        XCTAssertEqual(bunkers.map(\.frontRouteM), [140, 262])
+        XCTAssertEqual(bunkers[0].outlinePx.count, 3)
+        XCTAssertTrue(bunkers[1].outlinePx.isEmpty)
+    }
+
     func testLiveHoleRouteReconciliationKeepsValidHoleAndRepairsRemovedHole() {
         XCTAssertNil(
             LiveHoleRouteReconciliation.target(

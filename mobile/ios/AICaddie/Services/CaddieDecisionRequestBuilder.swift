@@ -71,6 +71,13 @@ public final class CaddieDecisionRequestBuilder {
 
     public func makeDecisionRequest(seed: CaddieContextSeed, input: LiveCaddieInput) -> CaddieDecisionRequest {
         var context = seed.context
+        // The decision API's canonical contract is a name-keyed profile object. Older
+        // installed packages stored the same rows as an array; normalize at the request
+        // boundary so a stale cache cannot turn a valid bag into an empty recommendation.
+        if let rawProfiles = context["clubProfiles"],
+           let normalizedProfiles = normalizedClubProfiles(rawProfiles) {
+            context["clubProfiles"] = normalizedProfiles
+        }
         context["source"] = .string("ios_live")
         context["sourceRef"] = .string(seed.sourceRef)
         context["hole"] = .number(Double(seed.hole))
@@ -128,6 +135,27 @@ public final class CaddieDecisionRequestBuilder {
 
         return CaddieDecisionRequest(shotType: input.shotType, context: context)
     }
+
+    private func normalizedClubProfiles(_ value: JSONValue) -> JSONValue? {
+        switch value {
+        case .object:
+            return value
+        case .array(let rows):
+            var profiles: [String: JSONValue] = [:]
+            for rowValue in rows {
+                guard case .object(let row) = rowValue,
+                      case .string(let rawName) = (row["clubName"] ?? row["name"]),
+                      !rawName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    continue
+                }
+                let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+                profiles[name] = .object(row)
+            }
+            return profiles.isEmpty ? nil : .object(profiles)
+        default:
+            return nil
+        }
+    }
 }
 
 /// A live hole must remain playable even when an older/lightweight package omitted its deferred
@@ -179,8 +207,14 @@ public enum LiveCaddieSeedFactory {
             return !rows.isEmpty
         }()
         let missingPlan = !hasPlan && !(prep?.steps.isEmpty ?? true)
+        let hasGreenDistances: Bool = {
+            guard case .object(let green)? = seed.context["greenDistances"] else { return false }
+            return positiveNumber(green["frontM"]) && positiveNumber(green["backM"])
+        }()
+        let missingGreenDistances = !hasGreenDistances
+            && prep?.greenDistances?.available == true
         let deferred = seed.enrichmentState?.lowercased() == "deferred"
-        return profileGap || missingDistance || missingPlan || deferred
+        return profileGap || missingDistance || missingPlan || missingGreenDistances || deferred
     }
 
     private static func mergeInstalledSeed(
@@ -191,7 +225,7 @@ public enum LiveCaddieSeedFactory {
             "roundId", "sourceRef", "courseName", "globalId", "localHole", "hole", "displayHole",
             "par", "yards", "teeBox", "clubProfiles", "candidateRoutes", "candidateRoutesState",
             "candidateRoutesReason", "canonicalShotPlan", "canonicalPlanSource", "canonicalPlanVersion",
-            "canonicalPlanRouteLength_m", "holeRemaining_m"
+            "canonicalPlanRouteLength_m", "holeRemaining_m", "greenDistances"
         ]
         var context = factual.context
         for (key, value) in installed.context where !authoritativeKeys.contains(key) {
@@ -303,15 +337,7 @@ public enum LiveCaddieSeedFactory {
             "displayHole": .number(Double(hole.number)),
             "par": .number(Double(hole.par)),
             "teeBox": .string(package.course.teeBox),
-            "clubProfiles": .array(profiles.map { profile in
-                .object([
-                    "clubName": .string(profile.clubName),
-                    "sampleSize": .number(Double(profile.sampleSize)),
-                    "median_m": .number(profile.medianM),
-                    "p10_m": .number(profile.p10M),
-                    "p90_m": .number(profile.p90M),
-                ])
-            }),
+            "clubProfiles": .object(Self.profileObject(from: profiles)),
             "geometry": .object([
                 "coverage": .string(prep?.geometryCoverage ?? hole.geometryCoverage.rawValue),
                 "geometryRevision": (prep?.geometryRevision ?? hole.geometryRevision).map(JSONValue.string) ?? .null,
@@ -329,6 +355,10 @@ public enum LiveCaddieSeedFactory {
         if let routeLength = prep?.routeLenM, routeLength.isFinite, routeLength > 0 {
             context["canonicalPlanRouteLength_m"] = .number(routeLength)
             context["holeRemaining_m"] = .number(routeLength)
+        }
+        if let greenDistances = prep?.greenDistances,
+           greenDistances.available {
+            context["greenDistances"] = .object(greenDistanceObject(greenDistances))
         }
 
         let options = offlineOptions(
@@ -482,6 +512,39 @@ public enum LiveCaddieSeedFactory {
         guard case .number(let raw) = value else { return nil }
         return raw
     }
+
+    private static func profileObject(from profiles: [ClubProfile]) -> [String: JSONValue] {
+        // A bag can contain legacy aliases with the same display name.  Do not use
+        // Dictionary(uniqueKeysWithValues:), which traps on a duplicate stale row and
+        // prevents the live screen from opening at all.
+        var result: [String: JSONValue] = [:]
+        for profile in profiles {
+            result[profile.clubName] = .object([
+                "clubName": .string(profile.clubName),
+                "sampleSize": .number(Double(profile.sampleSize)),
+                "median_m": .number(profile.medianM),
+                "p10_m": .number(profile.p10M),
+                "p90_m": .number(profile.p90M),
+            ])
+        }
+        return result
+    }
+
+    private static func greenDistanceObject(_ green: CoursePrepGreenDistances) -> [String: JSONValue] {
+        var result: [String: JSONValue] = ["available": .bool(green.available)]
+        let values: [(String, Double?)] = [
+            ("frontM", green.frontM), ("middleM", green.middleM), ("backM", green.backM),
+            ("frontLat", green.frontLat), ("frontLon", green.frontLon),
+            ("middleLat", green.middleLat), ("middleLon", green.middleLon),
+            ("backLat", green.backLat), ("backLon", green.backLon),
+        ]
+        for (key, value) in values {
+            if let value, value.isFinite {
+                result[key] = .number(value)
+            }
+        }
+        return result
+    }
 }
 
 public enum LiveCaddieDecisionUsability {
@@ -490,6 +553,224 @@ public enum LiveCaddieDecisionUsability {
         if optionHasClub(response.selectedOption ?? response.selected) { return true }
         if (response.sequences ?? []).contains(where: sequenceHasClub) { return true }
         return response.options.contains(where: optionHasClub)
+    }
+
+    /// A single club card is usable copy, but it is not necessarily a usable whole-hole route.
+    /// This distinction matters on refresh: an old/slow server response must not replace a complete
+    /// package route with a sparse tee card.  Par 3 is the explicit one-leg exception because that
+    /// leg is the scoring shot to the green.
+    public static func hasCompleteRoute(
+        _ response: CaddieDecisionResponse,
+        par: Int?,
+        shotType: String
+    ) -> Bool {
+        routeFacts(from: response).contains {
+            routeIsComplete($0.steps, metadata: $0.metadata, par: par, shotType: shotType)
+        }
+    }
+
+    /// Keep the installed deterministic route when a network refresh is materially sparser or is
+    /// an old repeated-club preview.  A complete online route still wins, including a deliberate
+    /// one-shot Par 4/5 scoring line with explicit scoring metadata.
+    public static func shouldPreferLocalRoute(
+        local: CaddieDecisionResponse,
+        remote: CaddieDecisionResponse,
+        par: Int?,
+        shotType: String
+    ) -> Bool {
+        guard hasRecommendation(local), hasRecommendation(remote),
+              hasCompleteRoute(local, par: par, shotType: shotType) else {
+            return false
+        }
+        let localFacts = bestRouteFacts(from: local, par: par, shotType: shotType)
+        let remoteFacts = bestRouteFacts(from: remote, par: par, shotType: shotType)
+        guard let localFacts else { return false }
+        guard let remoteFacts else { return true }
+
+        // The installed CoursePrep chain is the first-frame authority. A transport refresh that
+        // carries only a generic planner route must not make the map/panel jump between two valid
+        // answers before the player has hit a shot. Once the server sends explicit live route
+        // evidence, it is allowed to replace the prep chain.
+        if localFacts.isCoursePrep,
+           !remoteFacts.isCoursePrep,
+           !hasExplicitLiveRouteEvidence(remote) {
+            return true
+        }
+
+        // Both sides may carry the CoursePrep provenance, but an older client can still publish
+        // the unbounded raw chain while the server has deliberately accepted only its measured
+        // prefix. Prefer the route whose final step proves a scoring window; this is deterministic
+        // and prevents a stale wedge-through-green leg from reappearing on refresh.
+        if localFacts.isCoursePrep,
+           remoteFacts.isCoursePrep,
+           localFacts.steps.count > remoteFacts.steps.count,
+           remoteFacts.isTruncated {
+            return false
+        }
+
+        // A plain one-club response is the common stale-cache shape.  Do not let it
+        // erase a factual multi-leg plan; an explicit scoring one-shot remains valid.
+        if localFacts.steps.count > remoteFacts.steps.count,
+           remoteFacts.steps.count == 1,
+           !remoteFacts.explicitScoring {
+            return true
+        }
+
+        // Older planners could produce 3H -> 3H -> 3H.  A repeated chain is lower
+        // quality than a distinct installed chain and should not win merely because
+        // it contains more rows.
+        if remoteFacts.hasAdjacentRepeat,
+           !localFacts.hasAdjacentRepeat,
+           localFacts.steps.count >= 2 {
+            return true
+        }
+        return false
+    }
+
+    private struct RouteFacts {
+        let steps: [[String: JSONValue]]
+        let metadata: [String: JSONValue]
+        let explicitScoring: Bool
+        let hasAdjacentRepeat: Bool
+        let isCoursePrep: Bool
+        let isTruncated: Bool
+    }
+
+    private static func bestRouteFacts(
+        from response: CaddieDecisionResponse,
+        par: Int?,
+        shotType: String
+    ) -> RouteFacts? {
+        routeFacts(from: response)
+            .filter { routeIsComplete($0.steps, metadata: $0.metadata, par: par, shotType: shotType) }
+            .max { lhs, rhs in
+                routeScore(lhs) < routeScore(rhs)
+            }
+    }
+
+    private static func routeScore(_ facts: RouteFacts) -> Int {
+        facts.steps.count * 100
+            + (facts.explicitScoring ? 10 : 0)
+            + (facts.hasAdjacentRepeat ? 0 : 1)
+    }
+
+    private static func routeFacts(from response: CaddieDecisionResponse) -> [RouteFacts] {
+        var candidates: [RouteFacts] = []
+        if let selected = response.selectedSequence,
+           let facts = routeFacts(from: selected) {
+            candidates.append(facts)
+        }
+        for row in response.sequences ?? [] {
+            if let facts = routeFacts(from: row) { candidates.append(facts) }
+        }
+        for row in [response.selectedOption, response.selected].compactMap({ $0 }) {
+            if let recommendation = row["clubRecommendation"],
+               case .object(let nested) = recommendation,
+               let facts = routeFacts(from: nested) {
+                candidates.append(facts)
+            }
+        }
+        return candidates
+    }
+
+    private static func routeFacts(from row: [String: JSONValue]) -> RouteFacts? {
+        guard case .array(let values) = row["clubs"] else { return nil }
+        let steps = values.compactMap { value -> [String: JSONValue]? in
+            guard case .object(let step) = value,
+                  usableString(step["clubName"] ?? step["club"]) else { return nil }
+            return step
+        }
+        guard !steps.isEmpty else { return nil }
+        let explicitScoring = steps.last.map { step in
+            let role = stringValue(step["role"]).lowercased()
+            let remaining = numberValue(step["expectedRemaining_m"] ?? step["expectedRemainingM"])
+            return role == "scoring" || role == "approach"
+                || ((role != "position" && role != "advance" && role != "tee")
+                    && remaining != nil && remaining! <= 20)
+        } ?? false
+        let adjacentRepeat = zip(steps, steps.dropFirst()).contains { lhs, rhs in
+            let left = normalizedClub(lhs["clubName"] ?? lhs["club"])
+            let right = normalizedClub(rhs["clubName"] ?? rhs["club"])
+            return !left.isEmpty && left == right
+        }
+        let provenance = ([
+            stringValue(row["planSource"]),
+            stringValue(row["canonicalPlanSource"]),
+        ] + steps.map { stringValue($0["planSource"]) })
+            .joined(separator: " ")
+        let isCoursePrep = provenance.contains("course_prep")
+        let isTruncated = boolValue(row["truncated"])
+            || stringValue(row["completion"]) == "replan_required"
+        return RouteFacts(
+            steps: steps,
+            metadata: row,
+            explicitScoring: explicitScoring || stringValue(row["completion"]) == "scoring_window",
+            hasAdjacentRepeat: adjacentRepeat,
+            isCoursePrep: isCoursePrep,
+            isTruncated: isTruncated
+        )
+    }
+
+    private static func hasExplicitLiveRouteEvidence(_ response: CaddieDecisionResponse) -> Bool {
+        if let value = response.context["routeEvidence"],
+           case .object(let route) = value,
+           !route.isEmpty {
+            return true
+        }
+        if response.evidence.contains(where: { row in
+            let kind: String
+            if case .string(let raw) = row["kind"] { kind = raw.lowercased() } else { kind = "" }
+            // The API's current evidence contract calls this `geometry`; older clients used
+            // `route_geometry`/`live_location`. A ready prodgeometry response is authoritative
+            // even when the compact response omits the full routeEvidence object.
+            return kind == "geometry"
+                || kind == "route_geometry"
+                || kind == "live_location"
+        }) {
+            return true
+        }
+        return false
+    }
+
+    private static func routeIsComplete(
+        _ steps: [[String: JSONValue]],
+        metadata: [String: JSONValue],
+        par: Int?,
+        shotType: String
+    ) -> Bool {
+        guard !steps.isEmpty else { return false }
+        if shotType.caseInsensitiveCompare("tee") == .orderedSame, par == 3 {
+            return true
+        }
+        let last = steps.last ?? [:]
+        let role = stringValue(last["role"]).lowercased()
+        let remaining = numberValue(last["expectedRemaining_m"] ?? last["expectedRemainingM"])
+        let scoring = role == "scoring" || role == "approach"
+            || ((role != "position" && role != "advance" && role != "tee")
+                && remaining != nil && remaining! <= 20)
+            || stringValue(metadata["completion"]) == "scoring_window"
+        // Multi-leg routes need a real final/scoring window.  A lone club is accepted
+        // only when the payload explicitly proves it is the scoring shot.
+        return scoring
+    }
+
+    private static func stringValue(_ value: JSONValue?) -> String {
+        guard case .string(let raw) = value else { return "" }
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func numberValue(_ value: JSONValue?) -> Double? {
+        guard case .number(let raw) = value, raw.isFinite else { return nil }
+        return raw
+    }
+
+    private static func boolValue(_ value: JSONValue?) -> Bool {
+        guard case .bool(let raw) = value else { return false }
+        return raw
+    }
+
+    private static func normalizedClub(_ value: JSONValue?) -> String {
+        stringValue(value).filter { $0.isLetter || $0.isNumber }
     }
 
     private static func sequenceHasClub(_ row: [String: JSONValue]?) -> Bool {

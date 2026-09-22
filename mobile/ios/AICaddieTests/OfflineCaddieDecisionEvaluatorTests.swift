@@ -288,7 +288,7 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         // installed package facts replace an older sparse seed.
         let currentHole = try XCTUnwrap(packageWithPrep.holes.first)
         let seed = try XCTUnwrap(LiveCaddieSeedFactory.resolve(package: packageWithPrep, hole: currentHole, prep: nil))
-        if case .array(let rows)? = seed.context["clubProfiles"] {
+        if case .object(let rows)? = seed.context["clubProfiles"] {
             XCTAssertEqual(rows.count, 3)
         } else {
             XCTFail("augmented seed must carry the current package club profiles")
@@ -306,8 +306,178 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
             input: LiveCaddieInput(shotType: "tee", distanceToPinM: 344.7)
         )
         XCTAssertEqual(request.context["source"], .string("ios_live"))
-        XCTAssertEqual(request.context["clubProfiles"], seed.context["clubProfiles"])
+        if case .object(let profiles)? = request.context["clubProfiles"] {
+            XCTAssertEqual(profiles.count, 3)
+        } else {
+            XCTFail("request must normalize club profiles to an object")
+        }
         XCTAssertEqual(request.context["canonicalShotPlan"], seed.context["canonicalShotPlan"])
+    }
+
+    func testPar3TeeBuildsOneDirectScoringRouteFromArrayBag() throws {
+        let profiles: JSONValue = .array([
+            .object([
+                "clubName": .string("7I"),
+                "sampleSize": .number(40),
+                "median_m": .number(125),
+                "p10_m": .number(116),
+                "p90_m": .number(132),
+            ]),
+            .object([
+                "clubName": .string("6I"),
+                "sampleSize": .number(35),
+                "median_m": .number(138),
+                "p10_m": .number(128),
+                "p90_m": .number(146),
+            ]),
+        ])
+        let seed = CaddieContextSeed(
+            hole: 2,
+            sourceRef: "round:2",
+            shotTypes: ["tee"],
+            requiredLiveInputs: [],
+            context: [
+                "par": .number(3),
+                "yards": .number(151),
+                "clubProfiles": profiles,
+            ],
+            selectedOfflineOptionId: "stock",
+            offlineOptions: [
+                OfflineCaddieOption(
+                    optionId: "stock", label: "推荐", clubName: "7I", carryM: 125,
+                    sampleSize: 40, confidence: "medium", riskScore: 0,
+                    source: "test", sourceRefs: ["round:2"]
+                )
+            ],
+            evidence: [],
+            missingData: []
+        )
+        let request = CaddieDecisionRequestBuilder().makeDecisionRequest(
+            seed: seed,
+            input: LiveCaddieInput(shotType: "tee", distanceToPinM: 151)
+        )
+        let decision = try XCTUnwrap(
+            OfflineCaddieDecisionEvaluator().makeDecision(seed: seed, request: request, strategyMode: nil)
+        )
+        let sequence = try XCTUnwrap(CaddiePlanSequence.selectedSequence(from: decision))
+
+        XCTAssertEqual(sequence.steps.count, 1)
+        XCTAssertEqual(sequence.steps.first?.clubName, "7I")
+        XCTAssertEqual(sequence.steps.first?.role, "scoring")
+        XCTAssertEqual(sequence.steps.first?.routeOffsetM, 151, accuracy: 0.001)
+        XCTAssertTrue(LiveCaddieDecisionUsability.hasCompleteRoute(decision, par: 3, shotType: "tee"))
+    }
+
+    func testRefreshKeepsCompleteLocalRouteWhenRemoteResponseIsOnlyAClubCard() {
+        let local = sequenceDecision(
+            clubs: [
+                ["clubName": .string("1W"), "role": .string("tee"), "expectedRemaining_m": .number(160)],
+                ["clubName": .string("3H"), "role": .string("scoring"), "expectedRemaining_m": .number(0)],
+            ]
+        )
+        let remote = CaddieDecisionResponse(
+            schema: "ai-caddie-decision-v2", decisionId: "remote", sourceRef: nil,
+            evidenceRefs: nil, shotType: "tee", phase: "Tee", context: [:],
+            options: [["clubName": .string("3H")]], selected: ["clubName": .string("3H")],
+            selectedOptionId: "stock", selectedOption: ["clubName": .string("3H")],
+            sequences: [], selectedSequence: nil, avoidZones: [], forbiddenZones: [],
+            acceptableMiss: [:], evidence: [], confidence: [:], missingData: [], auditCriteria: []
+        )
+
+        XCTAssertTrue(
+            LiveCaddieDecisionUsability.shouldPreferLocalRoute(
+                local: local, remote: remote, par: 4, shotType: "tee"
+            )
+        )
+    }
+
+    func testRefreshRejectsRepeatedRemoteChainWhenLocalRouteIsDistinct() {
+        let local = sequenceDecision(
+            clubs: [
+                ["clubName": .string("1W"), "role": .string("tee")],
+                ["clubName": .string("3H"), "role": .string("scoring"), "expectedRemaining_m": .number(0)],
+            ]
+        )
+        let remote = sequenceDecision(
+            clubs: [
+                ["clubName": .string("3H"), "role": .string("tee")],
+                ["clubName": .string("3H"), "role": .string("position")],
+                ["clubName": .string("3H"), "role": .string("scoring"), "expectedRemaining_m": .number(0)],
+            ]
+        )
+
+        XCTAssertTrue(
+            LiveCaddieDecisionUsability.shouldPreferLocalRoute(
+                local: local, remote: remote, par: 4, shotType: "tee"
+            )
+        )
+    }
+
+    func testPositionPrefixWithZeroLeaveIsNotACompleteRoute() {
+        let local = sequenceDecision(
+            clubs: [
+                ["clubName": .string("1W"), "role": .string("tee")],
+                ["clubName": .string("3H"), "role": .string("scoring"), "expectedRemaining_m": .number(0)],
+            ]
+        )
+        let remote = sequenceDecision(
+            clubs: [
+                ["clubName": .string("3H"), "role": .string("position"), "expectedRemaining_m": .number(0)],
+            ]
+        )
+
+        XCTAssertTrue(
+            LiveCaddieDecisionUsability.shouldPreferLocalRoute(
+                local: local, remote: remote, par: 4, shotType: "tee"
+            )
+        )
+    }
+
+    func testCompleteRemoteGeometryRouteWinsOverInstalledPrepPrefix() {
+        let local = sequenceDecision(
+            clubs: [
+                ["clubName": .string("1W"), "role": .string("tee")],
+                ["clubName": .string("3H"), "role": .string("position"), "expectedRemaining_m": .number(0)],
+            ]
+        )
+        let remoteSequence: [String: JSONValue] = [
+            "id": .string("stock"),
+            "clubs": .array([
+                .object(["clubName": .string("1W"), "role": .string("tee")]),
+                .object(["clubName": .string("7I"), "role": .string("scoring"), "expectedRemaining_m": .number(0)]),
+            ]),
+            "completion": .string("scoring_window"),
+        ]
+        let remote = CaddieDecisionResponse(
+            schema: "ai-caddie-decision-v2", decisionId: "remote-geometry", sourceRef: nil,
+            evidenceRefs: nil, shotType: "tee", phase: "Tee", context: [:],
+            options: [["clubName": .string("1W")]], selected: nil,
+            selectedOptionId: "stock", selectedOption: nil,
+            sequences: [remoteSequence], selectedSequence: remoteSequence,
+            avoidZones: [], forbiddenZones: [], acceptableMiss: [:],
+            evidence: [["kind": .string("geometry"), "text": .string("prodgeometry ready")]],
+            confidence: [:], missingData: [], auditCriteria: []
+        )
+
+        XCTAssertFalse(
+            LiveCaddieDecisionUsability.shouldPreferLocalRoute(
+                local: local, remote: remote, par: 4, shotType: "tee"
+            )
+        )
+    }
+
+    func testPositionPrefixDoesNotClaimTheFlagButScoringLegDoes() {
+        let prefix = MapPlannedShot(
+            id: "prefix", clubName: "3H", routeOffsetM: 345,
+            role: "position", expectedRemainingM: 0
+        )
+        let scoring = MapPlannedShot(
+            id: "scoring", clubName: "Pw", routeOffsetM: 448,
+            role: "scoring", expectedRemainingM: 5
+        )
+
+        XCTAssertFalse(prefix.shouldEndAtPin)
+        XCTAssertTrue(scoring.shouldEndAtPin)
     }
 
     func testEmptyOnlineDecisionIsNotUsableAndMustFallBack() {
@@ -344,5 +514,21 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
             .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(LiveRoundPackage.self, from: data)
+    }
+
+    private func sequenceDecision(clubs: [[String: JSONValue]]) -> CaddieDecisionResponse {
+        let sequence: [String: JSONValue] = [
+            "id": .string("stock"),
+            "clubs": .array(clubs.map { .object($0) }),
+        ]
+        return CaddieDecisionResponse(
+            schema: "ai-caddie-decision-v2", decisionId: "local", sourceRef: nil,
+            evidenceRefs: nil, shotType: "tee", phase: "Tee", context: [:],
+            options: [["clubName": clubs[0]["clubName"] ?? .string("-")]],
+            selected: nil, selectedOptionId: "stock", selectedOption: nil,
+            sequences: [sequence], selectedSequence: sequence, avoidZones: [],
+            forbiddenZones: [], acceptableMiss: [:], evidence: [], confidence: [:],
+            missingData: [], auditCriteria: []
+        )
     }
 }

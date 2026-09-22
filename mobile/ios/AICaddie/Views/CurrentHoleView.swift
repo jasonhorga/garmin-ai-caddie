@@ -129,6 +129,17 @@ public struct CurrentHoleView: View {
     @State private var currentHorizontalAccuracyM: Double?
     @State private var note: String = ""
     @State private var caddieDecision: CaddieDecisionResponse?
+    /// Per-hole route authority. The live response, installed CoursePrep row, and offline seed can
+    /// arrive in different orders; retaining the resolved chain here makes refresh idempotent and
+    /// keeps the map, card, and Watch on one route.
+    @State private var caddieRoutesByHole: [Int: [CaddiePlanSequence]] = [:]
+    @State private var selectedCaddieRouteByHole: [Int: String] = [:]
+    /// The first deterministic route is retained by physical facts, not by a server id/label. A
+    /// deferred network response may arrive several times with different labels or role metadata;
+    /// it must not make the visible route jump between unrelated chains. A later installed
+    /// CoursePrep route may upgrade a sparse fallback once.
+    @State private var retainedCaddieRouteByHole: [Int: CaddiePlanSequence] = [:]
+    @State private var explicitlySelectedCaddieRouteHoles: Set<Int> = []
     @State private var isLoadingCaddieDecision = false
     @State private var caddieRequestGeneration = 0
     @State private var caddieErrorMessage: String?
@@ -316,6 +327,9 @@ public struct CurrentHoleView: View {
             heroMapScale = 1
             heroMapOffset = .zero
             heroMapTransientDragOffset = .zero
+            // Publish the deterministic package/offline route before the first network frame. A
+            // deferred hole therefore never renders a lone club while the map request is pending.
+            reconcileCaddieRoutes()
             #if DEBUG
             // The package already carries factual Tee coordinates for every ready hole. Move the
             // deterministic multi-hole simulator journey before waiting on the per-hole prep GET;
@@ -350,6 +364,7 @@ public struct CurrentHoleView: View {
                 authoritativeRevision: hole.geometryRevision
             ) {
                 holePrep = incoming
+                reconcileCaddieRoutes()
             }
         }
         .onChange(of: liveHazardDisplayRows.map(\.id)) { _, ids in
@@ -448,7 +463,7 @@ public struct CurrentHoleView: View {
             LiveCaddiePlanPanel(
                 isLoading: isLoadingCaddieDecision,
                 routes: liveCaddieRoutes,
-                selectedRouteID: selectedLiveCaddieRoute?.id,
+                selectedRouteID: selectedLiveCaddieRoute.map { routeKey($0) },
                 selectedPlanIndex: selectedPlanIndex,
                 errorText: caddieErrorMessage,
                 onSelectRoute: { route in
@@ -689,6 +704,14 @@ public struct CurrentHoleView: View {
         selectedPlanIndex = nil
         hasUserSelectedClub = false
         caddieErrorMessage = nil
+        if let route = LiveCaddieRouteAuthority.selected(
+            routes: liveCaddieRoutes,
+            preferredToken: normalized,
+            fallbackToken: nil
+        ) {
+            selectedCaddieRouteByHole[hole.number] = routeKey(route)
+            explicitlySelectedCaddieRouteHoles.insert(hole.number)
+        }
         if let decision = caddieDecision,
            let recommendation = LiveClubStripPolicy.recommendation(
                from: decision,
@@ -1067,7 +1090,9 @@ public struct CurrentHoleView: View {
             HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
                              pinOverlayPixel: effectiveMapPinPixel,
                              topoURL: liveTopoURL, showsCardChrome: false,
-                             showsRecommendedRoute: caddieDecision != nil || !livePlannedShots.isEmpty,
+                             showsRecommendedRoute: caddieDecision != nil
+                                || !livePlannedShots.isEmpty
+                                || (hole.par == 3 && selectedShotType.caseInsensitiveCompare("tee") == .orderedSame),
                              showsHazards: true,
                              showsPrepClubLabel: false,
                              showsClubLabel: false,
@@ -1208,75 +1233,271 @@ public struct CurrentHoleView: View {
         return "坡度修正 \(deltaYd > 0 ? "+" : "")\(deltaYd) 码 · \(deltaYd > 0 ? "上坡" : "下坡")"
     }
 
-    /// The live panel and map consume the same ordered, physically distinct routes. A response with
-    /// only legacy single-club options is represented as a one-leg route; while the request is in
-    /// flight, installed CoursePrep steps keep the full factual chain visible.
+    /// The live panel and map consume one retained, per-hole route closure. A sparse response is
+    /// never allowed to replace an already displayed CoursePrep/offline chain during refresh.
     private var liveCaddieRoutes: [CaddiePlanSequence] {
-        if let decision = caddieDecision {
-            let sequences = CaddiePlanPresentation.distinctSequences(
-                from: decision,
-                selectedStrategyMode: requestedStrategyMode,
-                preferredFirst: false
-            )
-            if !sequences.isEmpty { return sequences }
-            if let installedCaddieRoute { return [installedCaddieRoute] }
+        if let cached = caddieRoutesByHole[hole.number], !cached.isEmpty {
+            return cached
+        }
+        return resolvedCaddieRoutes()
+    }
 
-            let options = CaddiePlanPresentation.distinctOptions(
-                CaddiePlanOption.options(from: decision),
-                selectedOptionId: decision.selectedOptionId ?? "stock",
-                selectedStrategyMode: requestedStrategyMode
+    /// Compute the current raw route candidates without consulting the published per-hole cache.
+    /// Reconciliation must always see a newly arrived CoursePrep/online chain; using the display
+    /// cache here would make the first sparse response permanently authoritative for this view.
+    private func resolvedCaddieRoutes() -> [CaddiePlanSequence] {
+        let resolved = LiveCaddieRouteAuthority.resolve(
+            installed: installedCaddieRoute,
+            online: caddieDecision,
+            offline: makeOfflineCaddieDecision(),
+            par: hole.par,
+            shotType: selectedShotType
+        )
+        if !resolved.isEmpty || hole.par != 3 || selectedShotType.caseInsensitiveCompare("tee") != .orderedSame {
+            return resolved
+        }
+        // A legacy Par 3 response can carry a valid option card but no `sequences` array. Make the
+        // one scoring leg explicit locally so the map cannot degrade to a bare 7I label with no
+        // tee-to-pin arc. This is a transport repair only; club choice still comes from the option.
+        let response = caddieDecision ?? makeOfflineCaddieDecision()
+        let targetM = effectiveDistanceToPinMetres
+            ?? holePrep?.resolvedMapOverlay?.ln
+            ?? holePrep?.routeLenM
+            ?? hole.yards.map { CoursePrepRoute.metres(fromYards: Double($0)) }
+            ?? 0
+        guard targetM > 0, let response else { return resolved }
+        let options = CaddiePlanOption.options(from: response)
+            .filter { !$0.clubName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.clubName != "-" }
+        return options.prefix(3).enumerated().map { index, option in
+            let step = CaddiePlanSequenceStep(
+                id: "par3-fallback-\(index)-\(option.clubName)",
+                role: "scoring",
+                clubName: option.clubName,
+                targetCarryM: option.carryM > 0 ? option.carryM : nil,
+                expectedRemainingM: 0,
+                sampleSize: option.sampleSize,
+                confidence: option.confidence,
+                sourceRefs: option.sourceRefs,
+                routeOffsetM: targetM,
+                landingM: targetM,
+                planIndex: 0
             )
-            return options.compactMap { option in
-                let club = option.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !club.isEmpty, club != "-", option.carryM.isFinite, option.carryM > 0 else {
-                    return nil
-                }
-                return CaddiePlanSequence(
-                    id: option.id,
-                    label: option.label,
-                    expectedRemainingM: nil,
-                    riskScore: option.riskScore,
-                    confidence: option.confidence,
-                    coverageText: option.coverageText,
-                    sourceRefs: option.sourceRefs,
-                    steps: [
-                        CaddiePlanSequenceStep(
-                            id: "\(option.id)-0-\(club)",
-                            role: selectedShotType,
-                            clubName: club,
-                            targetCarryM: option.carryM,
-                            expectedRemainingM: nil,
-                            sampleSize: option.sampleSize,
-                            confidence: option.confidence,
-                            sourceRefs: option.sourceRefs,
-                            planIndex: 0
-                        )
-                    ],
-                    semanticSignature: option.semanticSignature
-                )
-            }
+            return CaddiePlanSequence(
+                id: option.id,
+                label: option.label,
+                expectedRemainingM: 0,
+                riskScore: option.riskScore,
+                confidence: option.confidence,
+                coverageText: option.coverageText,
+                sourceRefs: option.sourceRefs,
+                steps: [step]
+            )
+        }
+    }
+
+    /// Merge a new response into the per-hole closure. The installed CoursePrep chain may upgrade
+    /// a deferred fallback once, but ordinary network refreshes preserve the first selected route.
+    @MainActor
+    private func reconcileCaddieRoutes() {
+        let incoming = resolvedCaddieRoutes()
+        guard !incoming.isEmpty else { return }
+        let existing = caddieRoutesByHole[hole.number] ?? []
+        let installed = installedCaddieRoute
+        let retained = retainedCaddieRouteByHole[hole.number]
+
+        func matching(_ route: CaddiePlanSequence?, in routes: [CaddiePlanSequence]) -> CaddiePlanSequence? {
+            guard let route else { return nil }
+            return routes.first(where: { LiveCaddieRouteAuthority.routeSignature($0) == LiveCaddieRouteAuthority.routeSignature(route) })
+                ?? routes.first(where: { LiveCaddieRouteAuthority.samePhysicalRoute($0, route) })
         }
 
-        return installedCaddieRoute.map { [$0] } ?? []
+        // Choose the visible first route once. A precise installed CoursePrep chain can replace an
+        // earlier sparse fallback, but subsequent refreshes keep the retained physical line. An
+        // explicit player selection has priority over that automatic upgrade.
+        let first: CaddiePlanSequence = {
+            if explicitlySelectedCaddieRouteHoles.contains(hole.number),
+               let selected = selectedCaddieRouteByHole[hole.number],
+               let route = incoming.first(where: { routeKey($0) == selected })
+                    ?? existing.first(where: { routeKey($0) == selected }) {
+                return route
+            }
+            if let retained,
+               let refreshed = matching(retained, in: incoming) {
+                return refreshed
+            }
+            if let retained,
+               let installed,
+               !LiveCaddieRouteAuthority.samePhysicalRoute(retained, installed),
+               !installed.steps.isEmpty {
+                // One-time sparse -> installed upgrade. Once retained is installed, the branch
+                // above keeps it stable across every later response.
+                return installed
+            }
+            if let retained { return retained }
+            return incoming[0]
+        }()
+        retainedCaddieRouteByHole[hole.number] = first
+
+        // Keep the retained route at index zero and append only physically distinct alternatives.
+        // Their order is the first order in which the server/offline planner revealed them, so a
+        // refresh cannot reshuffle the plan tabs either.
+        var merged: [CaddiePlanSequence] = [first]
+        for route in existing + incoming {
+            guard !merged.contains(where: { LiveCaddieRouteAuthority.samePhysicalRoute($0, route) }) else { continue }
+            merged.append(route)
+        }
+        caddieRoutesByHole[hole.number] = merged
+
+        let currentToken = selectedCaddieRouteByHole[hole.number]
+        let fallbackToken = caddieDecision?.selectedSequence.flatMap {
+            jsonString($0["id"]) ?? jsonString($0["label"])
+        } ?? caddieDecision?.selectedOptionId
+        let selected = LiveCaddieRouteAuthority.selected(
+            routes: merged,
+            preferredToken: currentToken,
+            fallbackToken: currentToken == nil ? fallbackToken : nil
+        ) ?? merged.first
+        if let selected {
+            selectedCaddieRouteByHole[hole.number] = routeKey(selected)
+        }
+    }
+
+    private func routeKey(_ route: CaddiePlanSequence) -> String {
+        LiveCaddieRouteAuthority.routeSignature(route)
+    }
+
+    private func jsonString(_ value: JSONValue?) -> String? {
+        guard case .string(let raw) = value else { return nil }
+        return raw
+    }
+
+    /// A tapped route is transient; after the server resolves it, `requestedStrategyMode` is
+    /// cleared. Keep the resolved mode for subsequent refreshes, but do not force the persisted
+    /// default (`stock`) onto the very first request before the server has selected anything.
+    private var activeStrategyMode: String? {
+        requestedStrategyMode ?? (caddieDecision == nil ? nil : selectedStrategyMode)
+    }
+
+    private var requestStrategyMode: String? {
+        requestedStrategyMode ?? (caddieDecision == nil ? nil : selectedStrategyMode)
+    }
+
+    /// A factual front/back green window is a valid GIR destination. The map must not turn that
+    /// landing into a flag-targeted arc merely because the route's last semantic role is scoring.
+    private func isGreenWindowLanding(
+        offsetM: Double?,
+        shotIndex: Int
+    ) -> Bool {
+        guard hole.par >= 3,
+              shotIndex + 1 <= max(1, hole.par - 2),
+              let offsetM,
+              offsetM.isFinite,
+              let green = holePrep?.greenDistances,
+              green.available,
+              let front = green.frontM,
+              let back = green.backM,
+              front.isFinite,
+              back.isFinite else {
+            return false
+        }
+        let lower = min(front, back)
+        let upper = max(front, back) + 8.0
+        return offsetM >= lower && offsetM <= upper
+    }
+
+    private func shouldTargetPin(
+        offsetM: Double?,
+        role: String,
+        shotIndex: Int,
+        routeEndM: Double
+    ) -> Bool {
+        let normalizedRole = role.lowercased()
+        guard normalizedRole == "scoring" || normalizedRole == "approach" else { return false }
+        if isGreenWindowLanding(offsetM: offsetM, shotIndex: shotIndex) {
+            return false
+        }
+        guard let offsetM, offsetM.isFinite, routeEndM > 0 else {
+            // Legacy payloads without a cumulative station have no way to distinguish a pin
+            // endpoint, so retain the historical scoring fallback for those payloads only.
+            return true
+        }
+        return offsetM >= routeEndM - 20.0
     }
 
     private var installedCaddieRoute: CaddiePlanSequence? {
         guard selectedShotType.caseInsensitiveCompare("tee") == .orderedSame else { return nil }
-        let steps = (holePrep?.steps ?? []).enumerated().compactMap { index, step -> CaddiePlanSequenceStep? in
+        let prepSteps: [CoursePrepStep] = {
+            let source = holePrep?.steps ?? []
+            guard hole.par >= 3,
+                  let green = holePrep?.greenDistances,
+                  green.available,
+                  let front = green.frontM,
+                  let back = green.backM,
+                  front.isFinite,
+                  back.isFinite else { return source }
+            let lower = min(front, back)
+            let upper = max(front, back) + 8.0
+            let shotLimit = max(1, hole.par - 2)
+            var cumulative = 0.0
+            var trimmed: [CoursePrepStep] = []
+            for (index, step) in source.enumerated() {
+                let carry = step.targetCarryM ?? 0
+                cumulative += carry
+                let offset = step.routeOffsetM ?? step.landingM ?? cumulative
+                trimmed.append(step)
+                if index + 1 <= shotLimit, offset >= lower, offset <= upper { break }
+            }
+            return trimmed
+        }()
+        let steps = prepSteps.enumerated().compactMap { index, step -> CaddiePlanSequenceStep? in
             let club = (step.clubName ?? step.club ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !club.isEmpty, club != "-" else { return nil }
+            let isDirectPar3 = hole.par == 3 && selectedShotType.caseInsensitiveCompare("tee") == .orderedSame
+            let isLast = index == max(0, prepSteps.count - 1)
+            let remaining = step.expectedRemainingM
+            let routeEnd = holePrep?.resolvedMapOverlay?.ln ?? holePrep?.routeLenM ?? effectiveDistanceToPinMetres ?? 0
+            let actualOffset = step.routeOffsetM ?? step.landingM
+            let reachesPin = remaining.map { $0 <= 20 } == true
+                || (routeEnd > 0 && (actualOffset ?? 0) >= routeEnd - 20)
+            let suppliedRole = step.role?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let inferredRole: String = {
+                if isDirectPar3 { return "scoring" }
+                // CoursePrep producers before the shot-plan contract sometimes labelled the
+                // final approach as `advance`/`position`.  A last step whose factual leave is in
+                // the scoring window is the green-bound leg regardless of that stale label; keep
+                // the endpoint and map arc attached to the flag.
+                if isLast && reachesPin { return "scoring" }
+                if let suppliedRole, !suppliedRole.isEmpty { return suppliedRole }
+                return index == 0 ? selectedShotType : "position"
+            }()
+            let isScoring = inferredRole.caseInsensitiveCompare("scoring") == .orderedSame
+                || inferredRole.caseInsensitiveCompare("approach") == .orderedSame
+            let girLanding = isGreenWindowLanding(
+                offsetM: actualOffset,
+                shotIndex: index
+            )
+            let pinEndpoint = isDirectPar3 || (
+                isScoring
+                    && isLast
+                    && shouldTargetPin(
+                        offsetM: actualOffset,
+                        role: inferredRole,
+                        shotIndex: index,
+                        routeEndM: routeEnd
+                    )
+            )
             return CaddiePlanSequenceStep(
                 id: "prep-\(step.planIndex ?? index)-\(club)",
-                role: step.role ?? (index == 0 ? selectedShotType : "advance"),
+                role: inferredRole,
                 clubName: club,
                 targetCarryM: step.targetCarryM,
-                expectedRemainingM: step.expectedRemainingM,
+                expectedRemainingM: pinEndpoint || girLanding ? 0 : step.expectedRemainingM,
                 sampleSize: nil,
                 confidence: nil,
                 sourceRefs: [],
-                routeOffsetM: step.routeOffsetM,
-                landingM: step.landingM,
+                routeOffsetM: pinEndpoint ? routeEnd : actualOffset,
+                landingM: pinEndpoint ? routeEnd : actualOffset,
                 planIndex: step.planIndex ?? index
             )
         }
@@ -1294,14 +1515,17 @@ public struct CurrentHoleView: View {
     }
 
     private var selectedLiveCaddieRoute: CaddiePlanSequence? {
-        if let decision = caddieDecision,
-           let selected = CaddiePlanSequence.selectedSequence(
-               from: decision,
-               strategyMode: requestedStrategyMode
-           ), let visible = liveCaddieRoutes.first(where: { $0.id == selected.id }) {
-            return visible
+        let routes = liveCaddieRoutes
+        if let token = selectedCaddieRouteByHole[hole.number],
+           let selected = routes.first(where: { routeKey($0) == token })
+                ?? routes.first(where: { LiveCaddieRouteAuthority.physicalSignature($0) == token }) {
+            return selected
         }
-        return liveCaddieRoutes.first
+        return LiveCaddieRouteAuthority.selected(
+            routes: routes,
+            preferredToken: activeStrategyMode,
+            fallbackToken: caddieDecision?.selectedOptionId
+        ) ?? routes.first
     }
 
     /// All relevant mapped hazards belong to the dedicated obstacle instrument. Keeping this count
@@ -2114,6 +2338,9 @@ public struct CurrentHoleView: View {
             return false
         }
         holePrep = prep
+        // The prep response is factual even while the caddie request is in flight or returns a
+        // sparse card. Publish its route immediately so response ordering cannot hide the chain.
+        reconcileCaddieRoutes()
         guard CoursePrepHoleAdoptionPolicy.isReadyMap(prep) else { return true }
 
         // Publish the factual map immediately. Watch/cache asset delivery is auxiliary and must not
@@ -2365,7 +2592,8 @@ public struct CurrentHoleView: View {
                         kind: $0.kind,
                         frontRouteM: $0.frontRouteM,
                         backRouteM: $0.backRouteM,
-                        routeLengthM: routeLengthM
+                        routeLengthM: routeLengthM,
+                        hasPreciseOutline: $0.outlinePx.count >= 3
                     )
             }
             .sorted { $0.frontRouteM < $1.frontRouteM }
@@ -2414,7 +2642,8 @@ public struct CurrentHoleView: View {
                         kind: $0.kind,
                         frontRouteM: $0.frontRouteM,
                         backRouteM: $0.backRouteM,
-                        routeLengthM: routeLengthM
+                        routeLengthM: routeLengthM,
+                        hasPreciseOutline: $0.outlinePx.count >= 3
                     )
             }
             .sorted { $0.frontRouteM < $1.frontRouteM }
@@ -2527,29 +2756,92 @@ public struct CurrentHoleView: View {
     /// The same normalized club/carry pair drives the strip and the map. Do not derive the map
     /// distance from a possibly stale local median when the backend supplied a strategy carry.
     private var recommendedClubChoice: LiveClubStripPolicy.Recommendation? {
+        if let first = selectedLiveCaddieRoute?.steps.first {
+            let name = zhClubName(first.clubName)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty, name != "-" {
+                return LiveClubStripPolicy.Recommendation(
+                    name: name,
+                    carryMetres: first.targetCarryM
+                )
+            }
+        }
         guard let decision = caddieDecision else { return nil }
         return LiveClubStripPolicy.recommendation(
             from: decision,
-            strategyMode: requestedStrategyMode
+            strategyMode: activeStrategyMode
         )
     }
 
-    /// The map and the caddie sheet consume one selected sequence.  A missing sequence is a valid
-    /// short-hole/legacy response and intentionally leaves the map on its single-club fallback.
+    /// The map and the caddie sheet consume one selected sequence. A legacy Par-3 card without a
+    /// structured sequence still gets a direct tee-to-pin scoring leg below.
     private var livePlannedShots: [MapPlannedShot] {
-        guard let sequence = selectedLiveCaddieRoute else { return [] }
-        return sequence.steps.enumerated().compactMap { index, step in
-            let name = step.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty, name != "-" else { return nil }
-            return MapPlannedShot(
-                id: "live-\(sequence.id)-\(step.id)",
-                clubName: name,
-                carryM: step.targetCarryM,
-                routeOffsetM: step.routeOffsetM ?? step.landingM,
-                role: step.role,
-                planIndex: step.planIndex ?? index
-            )
+        if let sequence = selectedLiveCaddieRoute {
+            let shots = sequence.steps.enumerated().compactMap { index, step in
+                let name = step.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty, name != "-" else { return nil }
+                let routeEnd = holePrep?.resolvedMapOverlay?.ln
+                    ?? holePrep?.routeLenM
+                    ?? effectiveDistanceToPinMetres
+                    ?? 0
+                let targetsPin: Bool = {
+                    if step.greenInRegulation == true { return false }
+                    if hole.par == 3 && selectedShotType.caseInsensitiveCompare("tee") == .orderedSame {
+                        return true
+                    }
+                    return index == sequence.steps.count - 1
+                        && shouldTargetPin(
+                            offsetM: step.routeOffsetM ?? step.landingM,
+                            role: step.role,
+                            shotIndex: index,
+                            routeEndM: routeEnd
+                        )
+                }()
+                return MapPlannedShot(
+                    id: "live-\(sequence.id)-\(step.id)",
+                    clubName: name,
+                    carryM: step.targetCarryM,
+                    routeOffsetM: step.routeOffsetM ?? step.landingM,
+                    role: step.role,
+                    expectedRemainingM: step.expectedRemainingM,
+                    targetsPin: targetsPin,
+                    planIndex: step.planIndex ?? index
+                )
+            }
+            if !shots.isEmpty { return shots }
         }
+
+        // Legacy Par-3 responses can contain only a selected option card and no structured
+        // `sequences` payload. Keep the map and card coherent by materialising that one factual
+        // club as a direct tee-to-pin scoring leg. The carry remains the player's measured club
+        // fact; the route endpoint is the green, because this is a scoring recommendation.
+        guard hole.par == 3,
+              selectedShotType.caseInsensitiveCompare("tee") == .orderedSame,
+              let response = caddieDecision ?? makeOfflineCaddieDecision(),
+              let targetM = effectiveDistanceToPinMetres
+                ?? holePrep?.resolvedMapOverlay?.ln
+                ?? holePrep?.routeLenM
+                ?? hole.yards.map { CoursePrepRoute.metres(fromYards: Double($0)) },
+              targetM > 0 else {
+            return []
+        }
+        let option = CaddiePlanOption.options(from: response).first {
+            let name = $0.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !name.isEmpty && name != "-"
+        }
+        guard let option else { return [] }
+        return [
+            MapPlannedShot(
+                id: "par3-fallback-\(option.id)-\(option.clubName)",
+                clubName: option.clubName,
+                carryM: option.carryM > 0 ? option.carryM : nil,
+                routeOffsetM: targetM,
+                role: "scoring",
+                expectedRemainingM: 0,
+                targetsPin: true,
+                planIndex: 0
+            )
+        ]
     }
 
     private func selectPlanStep(_ index: Int) {
@@ -2617,7 +2909,7 @@ public struct CurrentHoleView: View {
     private func recommendedClubName(from decision: CaddieDecisionResponse) -> String? {
         LiveClubStripPolicy.recommendation(
             from: decision,
-            strategyMode: requestedStrategyMode
+            strategyMode: activeStrategyMode
         )?.name
     }
 
@@ -2813,8 +3105,8 @@ public struct CurrentHoleView: View {
                 targetKind: wireTargetKind,
                 horizontalAccuracyM: liveCoordinateForCurrentHole == nil ? nil : currentHorizontalAccuracyM,
                 capturedAt: liveCoordinateForCurrentHole == nil ? nil : locationProvider.latestFix?.capturedAt,
-                strategyMode: requestedStrategyMode,
-                requestedOptionId: caddieOptionId(forStrategyMode: requestedStrategyMode),
+                strategyMode: requestStrategyMode,
+                requestedOptionId: caddieOptionId(forStrategyMode: requestStrategyMode),
                 visionFindings: visionFindings
             )
         )
@@ -2882,10 +3174,14 @@ public struct CurrentHoleView: View {
     @MainActor
     private func syncStrategyModeToDecision(_ response: CaddieDecisionResponse?) {
         requestedStrategyMode = nil
-        guard let response,
-              let authoritative = caddieAuthoritativeStrategyMode(from: response) else {
+        _ = response
+        reconcileCaddieRoutes()
+        guard let selected = selectedLiveCaddieRoute else {
             return
         }
+        let authoritative = caddieSelectionToken(forRouteId: selected.id)
+            ?? caddieSelectionToken(forRouteId: selected.label)
+            ?? "stock"
         if selectedStrategyMode != authoritative {
             selectedStrategyMode = authoritative
         }
@@ -2932,10 +3228,14 @@ public struct CurrentHoleView: View {
             // bootstrap will launch the context-complete request next. Never let the stale answer
             // overwrite it.
             guard !(requestedBeforePrep && holePrep != nil) else { return }
+            let offlineDecision = makeOfflineCaddieDecision()
             if LiveCaddieDecisionUsability.hasRecommendation(response) {
+                // Route authority is reconciled below. Keep the response itself so its measured
+                // alternatives/evidence remain available, but never let a sparse selectedSequence
+                // replace the retained CoursePrep route.
                 caddieDecision = response
                 caddieErrorMessage = nil
-            } else if let offlineDecision = makeOfflineCaddieDecision() {
+            } else if let offlineDecision {
                 caddieDecision = offlineDecision
                 // A complete local route is a usable recommendation. Transport provenance is an
                 // implementation detail and should not displace live playing information.
@@ -2945,8 +3245,7 @@ public struct CurrentHoleView: View {
                 caddieErrorMessage = "球场资料准备中，请稍后刷新。"
             }
             // The server has now resolved the requested route (including any safety constraints).
-            // Return the UI and club strip to the authoritative selectedOptionId instead of
-            // continuing to shadow a rejected/manual transport preference.
+            // Reconcile once, then make every surface consume the same retained route.
             syncStrategyModeToDecision(caddieDecision)
             if syncClub { syncSelectedClubToRecommendation() }
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
@@ -2966,6 +3265,11 @@ public struct CurrentHoleView: View {
         }
     }
 
+    private func intValue(_ value: JSONValue?) -> Int? {
+        guard case .number(let raw) = value, raw.isFinite else { return nil }
+        return Int(raw.rounded())
+    }
+
     private func makeOfflineCaddieDecision() -> CaddieDecisionResponse? {
         guard let caddieContextSeed,
               let request = makeCaddieDecisionRequest()
@@ -2975,7 +3279,7 @@ public struct CurrentHoleView: View {
         return offlineDecisionEvaluator.makeDecision(
             seed: caddieContextSeed,
             request: request,
-            strategyMode: requestedStrategyMode
+            strategyMode: requestStrategyMode
         )
     }
 
@@ -2991,8 +3295,8 @@ public struct CurrentHoleView: View {
         }
         return offlineDecisionEvaluator.selectedOption(
             in: seed,
-            strategyMode: requestedStrategyMode,
-            requestedOptionId: caddieOptionId(forStrategyMode: requestedStrategyMode)
+            strategyMode: requestStrategyMode,
+            requestedOptionId: caddieOptionId(forStrategyMode: requestStrategyMode)
         )
     }
 

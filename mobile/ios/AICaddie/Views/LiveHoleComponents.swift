@@ -657,7 +657,8 @@ struct LiveCaddiePlanPanel: View {
 
     private var selectedRoute: CaddiePlanSequence? {
         selectedRouteID.flatMap { selectedID in
-            routes.first { $0.id == selectedID }
+            routes.first { routeKey($0) == selectedID }
+                ?? routes.first { $0.id == selectedID }
         } ?? routes.first
     }
 
@@ -696,7 +697,10 @@ struct LiveCaddiePlanPanel: View {
             if routes.count > 1 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 18) {
-                        ForEach(Array(routes.enumerated()), id: \.element.id) { index, route in
+                        // Route ids are transport tokens and older servers can reuse one token for
+                        // two physically different lines. The visible row identity must therefore
+                        // include its position/label, otherwise SwiftUI collapses a valid option.
+                        ForEach(Array(routes.enumerated()), id: \.offset) { index, route in
                             Button {
                                 onSelectRoute(route)
                             } label: {
@@ -787,7 +791,14 @@ struct LiveCaddiePlanPanel: View {
     }
 
     private func routeIsSelected(_ route: CaddiePlanSequence) -> Bool {
-        route.id == selectedRoute?.id
+        if let selectedRoute {
+            return routeKey(route) == routeKey(selectedRoute)
+        }
+        return route.id == selectedRouteID
+    }
+
+    private func routeKey(_ route: CaddiePlanSequence) -> String {
+        LiveCaddieRouteAuthority.routeSignature(route)
     }
 
     private func stepDistanceText(_ step: CaddiePlanSequenceStep) -> String {

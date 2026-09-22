@@ -168,6 +168,143 @@ def long_hole_fixture():
 
 
 class DecisionLayerTests(unittest.TestCase):
+    def test_par3_tee_emits_a_direct_scoring_sequence(self) -> None:
+        context = analysis_fixture()
+        context.update({
+            "hole": 2,
+            "localHole": 2,
+            "par": 3,
+            "distanceToPin_m": 145.0,
+            "shotType": "tee",
+            "clubProfiles": {
+                "7I": {"clubName": "7I", "sampleSize": 40, "median": 140.0, "p10": 132.0, "p90": 148.0},
+                "6I": {"clubName": "6I", "sampleSize": 35, "median": 151.0, "p10": 142.0, "p90": 158.0},
+            },
+            "candidateRoutes": [
+                {"id": "stock_line", "label": "stock", "carry_m": 140.0, "riskScore": 0},
+            ],
+        })
+
+        plan = build_decision_plan(context)
+
+        stock = next(sequence for sequence in plan["sequences"] if sequence["id"] == "stock")
+        self.assertEqual([step["clubName"] for step in stock["clubs"]], ["7I"])
+        self.assertEqual(stock["clubs"][0]["role"], "scoring")
+        self.assertEqual(stock["clubs"][0]["routeOffset_m"], 145.0)
+        self.assertEqual(stock["clubs"][0]["expectedRemaining_m"], 0.0)
+
+    def test_par4_without_route_candidates_builds_a_driver_led_plan_from_measured_bag(self) -> None:
+        context = analysis_fixture()
+        context.update({
+            "hole": 4,
+            "localHole": 4,
+            "par": 5,
+            "yards": 502,
+            "holeRemaining_m": 459.0,
+            "shotType": "tee",
+            "geometry": {"coverage": "partial", "hasHazards": False, "hasMeshes": False},
+            "candidateRoutes": [],
+            "clubProfiles": {
+                "Driver": {"clubName": "Driver", "sampleSize": 80, "median_m": 199.0, "p10_m": 180.0, "p90_m": 215.0},
+                "3H": {"clubName": "3H", "sampleSize": 40, "median_m": 165.0, "p10_m": 150.0, "p90_m": 178.0},
+                "7I": {"clubName": "7I", "sampleSize": 40, "median_m": 140.0, "p10_m": 132.0, "p90_m": 148.0},
+                "Pw": {"clubName": "Pw", "sampleSize": 20, "median_m": 98.0, "p10_m": 88.0, "p90_m": 106.0},
+            },
+        })
+
+        plan = build_decision_plan(context)
+
+        stock = next(option for option in plan["options"] if option["id"] == "stock")
+        self.assertEqual(stock["club"], "Driver")
+        self.assertTrue(plan["sequences"])
+        self.assertEqual(plan["selectedSequence"]["clubs"][0]["clubName"], "Driver")
+        self.assertGreaterEqual(len(plan["selectedSequence"]["clubs"]), 2)
+
+    def test_sparse_short_tee_route_is_augmented_with_driver_when_no_hard_constraint(self) -> None:
+        context = analysis_fixture()
+        context.update({
+            "par": 4,
+            "yards": 410,
+            "holeRemaining_m": 375.0,
+            "shotType": "tee",
+            "candidateRoutes": [
+                {"id": "stock_line", "label": "sparse", "carry_m": 145.0, "riskScore": 0},
+            ],
+            "clubProfiles": {
+                "Driver": {"clubName": "Driver", "sampleSize": 80, "median_m": 205.0, "p10_m": 185.0, "p90_m": 220.0},
+                "3H": {"clubName": "3H", "sampleSize": 40, "median_m": 165.0, "p10_m": 150.0, "p90_m": 178.0},
+                "Pw": {"clubName": "Pw", "sampleSize": 20, "median_m": 98.0, "p10_m": 88.0, "p90_m": 106.0},
+            },
+        })
+
+        plan = build_decision_plan(context)
+
+        stock = next(option for option in plan["options"] if option["id"] == "stock")
+        self.assertEqual(stock["club"], "Driver")
+        self.assertEqual(plan["selectedSequence"]["clubs"][0]["clubName"], "Driver")
+
+    def test_unstable_driver_does_not_replace_a_stable_measured_tee_line(self) -> None:
+        context = analysis_fixture()
+        context.update({
+            "par": 4,
+            "yards": 399,
+            "holeRemaining_m": 365.0,
+            "shotType": "tee",
+            "candidateRoutes": [
+                {
+                    "id": "stock_line",
+                    "label": "sparse route",
+                    "carry_m": 146.4,
+                    "landingLocal": [0.0, 182.0],
+                    "expectedSurface": {"kind": "fairway"},
+                    "nearRisks": [],
+                    "lineRisks": [],
+                    "riskScore": 0,
+                },
+            ],
+            "clubProfiles": {
+                "Driver": {"clubName": "Driver", "sampleSize": 5, "median_m": 197.5, "p10_m": 150.0, "p90_m": 230.0},
+                "3W": {"clubName": "3W", "sampleSize": 473, "median_m": 175.3, "p10_m": 145.0, "p90_m": 198.0},
+                "5I": {"clubName": "5I", "sampleSize": 160, "median_m": 146.4, "p10_m": 125.0, "p90_m": 164.6},
+                "Aw": {"clubName": "Aw", "sampleSize": 160, "median_m": 103.2, "p10_m": 88.0, "p90_m": 118.0},
+            },
+        })
+
+        plan = build_decision_plan(context)
+
+        self.assertNotEqual(plan["selectedSequence"]["clubs"][0]["clubName"], "Driver")
+        self.assertIn(
+            "Driver",
+            {
+                option.get("club") or option.get("clubName")
+                for option in plan["options"]
+            },
+        )
+        stock = next(option for option in plan["options"] if option["id"] == "stock")
+        self.assertEqual(stock["targetLocal"], [0.0, 182.0])
+
+    def test_array_shaped_club_profiles_are_accepted_for_live_tee(self) -> None:
+        context = analysis_fixture()
+        context.update({
+            "par": 3,
+            "distanceToPin_m": 145.0,
+            "shotType": "tee",
+            "clubProfiles": [
+                {"clubName": "7I", "sampleSize": 40, "median_m": 140.0, "p10_m": 132.0, "p90_m": 148.0},
+                {"clubName": "6I", "sampleSize": 35, "median_m": 151.0, "p10_m": 142.0, "p90_m": 158.0},
+            ],
+            "candidateRoutes": [
+                {"id": "stock_line", "label": "stock", "carry_m": 140.0, "riskScore": 0},
+            ],
+        })
+
+        plan = build_decision_plan(context)
+
+        self.assertTrue(plan["sequences"])
+        # At 145 m the measured 6I is the nearer direct-scoring option; the important
+        # contract here is that the legacy array-shaped bag is accepted and ends at the pin.
+        self.assertEqual(plan["sequences"][0]["clubs"][0]["clubName"], "6I")
+
     def test_continuation_scores_driver_like_every_other_non_putter(self) -> None:
         from ai_caddie.caddie.decision import _sequence_tail
 
@@ -549,14 +686,66 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertEqual(plan["selectedSequence"]["id"], "stock")
         self.assertEqual(plan["selectedSequence"]["planSource"], "course_prep")
 
-    def test_live_par4_rejects_stale_repeat_short_club_route(self) -> None:
-        """A live 377-yard tee shot must not become ``3H -> 3H`` by arithmetic coincidence.
+    def test_par4_prefers_two_shot_gir_inside_factual_green_window(self) -> None:
+        context = analysis_fixture(stock_risk=2)
+        context.update({
+            "par": 4,
+            "distanceToPin_m": 396.0,
+            "canonicalPlanRouteLength_m": 396.0,
+            "canonicalShotPlan": [
+                {"clubName": "1W", "targetCarry_m": 199.2, "routeOffset_m": 199.2, "planIndex": 0},
+                {"clubName": "3H", "targetCarry_m": 164.6, "routeOffset_m": 363.8, "planIndex": 1},
+                {"clubName": "58", "targetCarry_m": 42.1, "routeOffset_m": 405.9, "planIndex": 2},
+            ],
+            "greenDistances": {"available": True, "frontM": 362.0, "middleM": 377.0, "backM": 392.0},
+            "clubProfiles": {
+                "1W": {"clubName": "1W", "sampleSize": 120, "median": 199.2, "p10": 180.0, "p90": 215.0},
+                "3H": {"clubName": "3H", "sampleSize": 80, "median": 164.6, "p10": 150.0, "p90": 178.0},
+                "58": {"clubName": "58", "sampleSize": 60, "median": 42.1, "p10": 35.0, "p90": 50.0},
+            },
+        })
 
-        The prep package for the reported Black Knight A1 screenshot was longer than the live
-        GPS route and ended with an extra wedge.  The old path clamped that stale chain to the
-        pin, then selected the shorter option from its first-shot risk score and allowed the same
-        hybrid to repeat.  This fixture keeps the measured club/risk shape while asserting the
-        general rule rather than hard-coding a course or club preference.
+        plan = build_decision_plan(context)
+        selected = plan["selectedSequence"]
+
+        self.assertEqual([step["clubName"] for step in selected["clubs"]], ["1W", "3H"])
+        self.assertTrue(selected["greenInRegulation"])
+        self.assertEqual(selected["shotsToGreen"], 2)
+        self.assertEqual(selected["clubs"][-1]["role"], "scoring")
+        self.assertEqual(selected["clubs"][-1]["expectedRemaining_m"], 0.0)
+        self.assertAlmostEqual(selected["clubs"][-1]["routeOffset_m"], 363.8, places=1)
+
+    def test_par4_keeps_third_leg_when_two_shot_gir_window_is_unreachable(self) -> None:
+        context = analysis_fixture(stock_risk=1)
+        context.update({
+            "par": 4,
+            "distanceToPin_m": 396.0,
+            "canonicalPlanRouteLength_m": 396.0,
+            "canonicalShotPlan": [
+                {"clubName": "1W", "targetCarry_m": 199.2, "routeOffset_m": 199.2, "planIndex": 0},
+                {"clubName": "3H", "targetCarry_m": 164.6, "routeOffset_m": 363.8, "planIndex": 1},
+                {"clubName": "58", "targetCarry_m": 32.2, "routeOffset_m": 396.0, "planIndex": 2},
+            ],
+            "greenDistances": {"available": True, "frontM": 390.0, "middleM": 397.0, "backM": 405.0},
+            "clubProfiles": {
+                "1W": {"clubName": "1W", "sampleSize": 120, "median": 199.2, "p10": 180.0, "p90": 215.0},
+                "3H": {"clubName": "3H", "sampleSize": 80, "median": 164.6, "p10": 150.0, "p90": 178.0},
+                "58": {"clubName": "58", "sampleSize": 60, "median": 32.2, "p10": 25.0, "p90": 40.0},
+            },
+        })
+
+        selected = build_decision_plan(context)["selectedSequence"]
+
+        self.assertEqual([step["clubName"] for step in selected["clubs"]], ["1W", "3H", "58"])
+        self.assertFalse(selected.get("greenInRegulation", False))
+
+
+    def test_live_par4_rejects_stale_repeat_short_club_route(self) -> None:
+        """The factual tee CoursePrep chain stays complete and never degrades to ``3H -> 3H``.
+
+        The selected tee yardage is a straight/tee reading while the CoursePrep route follows the
+        playable centreline. At the opening tee, the installed route is therefore the authority for
+        the full chain, including its final scoring wedge.
         """
         context = analysis_fixture(stock_risk=1)
         context.update({
@@ -653,11 +842,13 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertEqual(plan["selectedOptionId"], "stock")
         selected = plan["selectedSequence"]
         self.assertIsNotNone(selected)
-        self.assertEqual([step["clubName"] for step in selected["clubs"]], ["1W", "3H"])
+        self.assertEqual([step["clubName"] for step in selected["clubs"]], ["1W", "3H", "58"])
         self.assertNotEqual([step["clubName"] for step in selected["clubs"]], ["3H", "3H"])
-        self.assertEqual(selected.get("planSource"), "course_prep_prefix")
-        self.assertTrue(selected.get("truncated"))
-        self.assertEqual(selected.get("completion"), "replan_required")
+        self.assertEqual(selected.get("planSource"), "course_prep")
+        self.assertFalse(selected.get("truncated", False))
+        self.assertEqual(selected.get("completion"), "scoring_window")
+        self.assertEqual(selected["clubs"][-1]["role"], "scoring")
+        self.assertEqual(selected["clubs"][-1]["expectedRemaining_m"], 0.0)
         self.assertIn("tee_advancement", {row["code"] for row in plan["selected"]["selectionReasons"]})
 
     def test_sequence_reprojects_all_planning_hazards_from_each_new_lie(self) -> None:

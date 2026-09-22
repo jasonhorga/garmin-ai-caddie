@@ -1141,11 +1141,27 @@ def attach_canonical_prep_plan_to_caddie_seeds(
         prep = prep_by_hole.get(hole_number)
         steps = prep.get("steps") if isinstance(prep, dict) else None
         if not isinstance(steps, list) or not steps:
-            out.append(raw_seed)
+            green_distances = prep.get("greenDistances") if isinstance(prep, dict) else None
+            if isinstance(green_distances, dict):
+                seed = dict(raw_seed)
+                context = dict(seed.get("context") or {})
+                context["greenDistances"] = dict(green_distances)
+                seed["context"] = context
+                out.append(seed)
+            else:
+                out.append(raw_seed)
             continue
         normalized_steps = [dict(step) for step in steps if isinstance(step, dict)]
         if not normalized_steps:
-            out.append(raw_seed)
+            green_distances = prep.get("greenDistances") if isinstance(prep, dict) else None
+            if isinstance(green_distances, dict):
+                seed = dict(raw_seed)
+                context = dict(seed.get("context") or {})
+                context["greenDistances"] = dict(green_distances)
+                seed["context"] = context
+                out.append(seed)
+            else:
+                out.append(raw_seed)
             continue
         seed = dict(raw_seed)
         context = dict(seed.get("context") or {})
@@ -1155,6 +1171,12 @@ def attach_canonical_prep_plan_to_caddie_seeds(
         route_length = prep.get("route_len_m")
         if route_length is not None:
             context["canonicalPlanRouteLength_m"] = route_length
+        green_distances = prep.get("greenDistances")
+        if isinstance(green_distances, dict):
+            # Front/middle/back are factual tee-to-surface stations. Carry them with the same
+            # CoursePrep authority as the shot chain so the live planner can recognize a two-shot
+            # GIR without treating the pin/route centre as the only legal endpoint.
+            context["greenDistances"] = dict(green_distances)
         seed["context"] = context
         out.append(seed)
     return out
@@ -1505,6 +1527,7 @@ def _shot_option_clubs(
         _club_hazard_cost,
         _club_stability_cost,
         _club_water_safety,
+        _driver_row,
         _has_hard_hazard_constraint,
         _whole_hole_sequence_key,
     )
@@ -1618,6 +1641,27 @@ def _shot_option_clubs(
         )
         stock = max(ranked_rows, key=lambda row: (float(row.get("median_m") or 0), key(row))) if cold_start else ranked[0]
         safe, attack = semantic_alternatives(stock, ranked, scoring_shot=False)
+
+        # Keep a real Driver/1W choice visible on a normal Par 4/5.  The whole-hole
+        # stability model may still choose a shorter stock club, but silently dropping
+        # the player's longest tee club leaves no way to compare the actual opening line.
+        # Hard water/OB constraints remain authoritative and can remove it.
+        # A hard constraint does not automatically make every Driver line invalid.  Keep
+        # a feasible Driver visible as a genuine opening alternative even when another
+        # club's dispersion makes the hole constrained; only a Driver that fails the same
+        # water/OB feasibility test is suppressed.
+        driver = next(
+            (
+                row
+                for row in ranked_rows
+                if _driver_row(row) and _club_hard_hazard_safe(row, avoid_zones)
+            ),
+            None,
+        )
+        if driver is not None:
+            selected_keys = {key(row) for row in (safe, stock, attack) if row is not None}
+            if key(driver) not in selected_keys:
+                attack = driver
         return safe, stock, attack
 
     if par == 3:
@@ -2068,7 +2112,7 @@ def _minimal_live_course_facts(
     except Exception:
         prep = None
     if isinstance(prep, dict):
-        for key in ("blue_yards", "route_len_m", "par", "par_source", "tee_club"):
+        for key in ("blue_yards", "route_len_m", "par", "par_source", "tee_club", "greenDistances"):
             if prep.get(key) is not None:
                 prep_facts[key] = prep[key]
         steps = [dict(row) for row in (prep.get("steps") or []) if isinstance(row, dict)]
@@ -2182,6 +2226,10 @@ def hydrate_live_caddie_geometry_context(
             _safe_float(prep_facts.get("route_len_m")) or 0
         ) > 0:
             refreshed["canonicalPlanRouteLength_m"] = float(prep_facts["route_len_m"])
+        if not isinstance(refreshed.get("greenDistances"), dict) and isinstance(
+            prep_facts.get("greenDistances"), dict
+        ):
+            refreshed["greenDistances"] = dict(prep_facts["greenDistances"])
 
     if club_profiles and not isinstance(raw_profiles, dict):
         refreshed["clubProfiles"] = _decision_club_profiles(club_profiles)

@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-21 16:36 UTC
+**Updated:** 2026-09-22 11:21 UTC
 **Branch:** `integration/v2` (GitHub default; current `PHONE-UX7` source and
 backend candidate are `837c0d9a26bcfc6a4990e0778664135408d792e4`;
 Source CI `35615806302` and exact-SHA Native Mobile CI `35617605192` passed,
@@ -54,7 +54,25 @@ release-scope decision; do not pause for routine TestFlight execution.
 
 ## Current Work Summary
 
-**Current slice (2026-09-21):** `PHONE-UX7` is now `evidence-open` only for
+**Current slice (2026-09-22):** `PHONE-UX7-ROUTE2` is `in-progress`: repair the
+four-stroke-hole route objective exposed by the Black Knight A1 screenshots. The
+opening route must explicitly prefer a two-shot GIR when the second-leg carry
+distribution can enter the factual green front/back window; a third wedge is a
+fallback only when that window is not safely reachable. Scope remains limited to
+deterministic route data, final-leg/Par-3 map rendering, tee-club policy, refresh
+authority, and complete hazard enumeration. Existing Build 72/TestFlight evidence
+is not evidence for this new slice. Current implementation checkpoint: expose
+green front/middle/back facts in live decision context, add GIR metadata to route
+sequences, and keep map endpoints at the green window rather than forcing every
+scoring leg to the flag. Focused homeserver verification is now `303/303` passing
+in `11.224s` using one auto-removed container against scratch
+`/home/jason/codex-runs/garmin-ai-caddie-route2-20260922-c`; it created no service,
+port, tunnel, dependency environment, or persistent volume. A final Swift access-
+control correction and route-authority consistency test are included in the
+uncommitted tree. Next action is commit/push, Source CI, then exact-SHA Native
+Mobile CI; no new release claim exists.
+
+`PHONE-UX7` is now `evidence-open` only for
 physical iPhone/Watch installation and interaction after the fresh internal
 TestFlight/Apple gates passed. The post-Build-71 screenshot exposed a
 live-route planning defect: a 377-yard Par 4 was rendered as `3H -> 3H`

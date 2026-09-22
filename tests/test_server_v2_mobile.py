@@ -442,6 +442,39 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(sum(row["club"] == "Driver" for row in clear), 1)
         self.assertNotEqual(guarded_primary["club"], "Driver")
 
+    def test_feasible_driver_remains_an_alternative_when_other_club_triggers_ob_constraint(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        profiles = [
+            {
+                "clubName": "Driver", "median_m": 230.0, "p10_m": 215.0, "p90_m": 245.0,
+                "lateralP10P90_m": 20.0, "sampleSize": 60,
+            },
+            {
+                "clubName": "3W", "median_m": 205.0, "p10_m": 194.0, "p90_m": 215.0,
+                "lateralP10P90_m": 18.0, "sampleSize": 55,
+            },
+            {
+                "clubName": "5I", "median_m": 150.0, "p10_m": 115.0, "p90_m": 185.0,
+                "lateralP10P90_m": 80.0, "sampleSize": 40,
+            },
+        ]
+        ob = [
+            {"kind": "out_of_bounds", "side": "left", "corridorWidth_m": 35.0},
+            {"kind": "out_of_bounds", "side": "right", "corridorWidth_m": 35.0},
+        ]
+
+        safe, stock, attack = mobile_live._shot_option_clubs(
+            mobile_live._caddie_clean_rows(profiles),
+            par=4,
+            target_m=365.0,
+            avoid_zones=ob,
+        )
+
+        self.assertIsNotNone(stock)
+        self.assertEqual(attack["clubName"], "Driver")
+        self.assertNotEqual(safe["clubName"] if safe else None, "Driver")
+
     def test_equal_distance_physical_clubs_are_compared_without_a_dominated_mode(self) -> None:
         from ai_caddie.caddie import mobile_live
 

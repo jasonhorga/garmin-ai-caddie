@@ -26,41 +26,6 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
     ) -> [Self] {
         let routeLengthM = hole.resolvedMapOverlay?.ln ?? hole.routeLenM
 
-        // A non-nil live result is authoritative for what remains ahead. Falling back to tee
-        // distances for unmatched geometry resurrected already-passed hazards during live play.
-        if let liveReadouts {
-            return liveReadouts
-                .filter {
-                    ($0.kind == "bunker" || $0.kind == "water")
-                        && CoursePrepHazardRelevance.isRelevant(
-                            kind: $0.kind,
-                            frontRouteM: $0.frontRouteM,
-                            backRouteM: $0.backRouteM,
-                            routeLengthM: routeLengthM
-                        )
-                        && CoursePrepLiveHazardReadout.isPlausibleYards($0.toYards)
-                        && CoursePrepLiveHazardReadout.isPlausibleYards($0.overYards)
-                }
-                .sorted {
-                    if $0.toYards == $1.toYards { return $0.id < $1.id }
-                    return $0.toYards < $1.toYards
-                }
-                .map {
-                    Self(
-                        id: $0.id,
-                        kind: $0.kind,
-                        label: $0.label,
-                        frontYards: $0.toYards,
-                        backYards: $0.overYards,
-                        frontPx: $0.frontPx,
-                        backPx: $0.backPx,
-                        outlinePx: $0.outlinePx,
-                        frontRouteM: $0.frontRouteM,
-                        backRouteM: $0.backRouteM
-                    )
-                }
-        }
-
         let route = hole.resolvedMapOverlay?.route
         // Precise rows need the overlay's topo-pixel route for lateral naming. Interval-only
         // rows have no pixels, so their area label can safely use the raw cumulative route.
@@ -72,7 +37,8 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
                         kind: $0.kind,
                         frontRouteM: $0.frontRouteM,
                         backRouteM: $0.backRouteM,
-                        routeLengthM: routeLengthM
+                        routeLengthM: routeLengthM,
+                        hasPreciseOutline: $0.outlinePx.count >= 3
                     )
                     && CoursePrepLiveHazardReadout.isPlausibleYards(
                         CoursePrepRoute.yards(fromMetres: $0.frontM)
@@ -108,59 +74,126 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
         }
 
         // Compatibility packages can still supply interval facts without map boundary pixels.
-        let detailKinds = Set(details.map(\.kind))
-        if !detailKinds.contains("water") {
-            for (index, interval) in hole.hazards.waterCarry.enumerated() {
-                guard let front = interval.first else { continue }
-                let back = interval.dropFirst().first
-                guard CoursePrepHazardRelevance.isRelevant(
+        // Merge them individually, rather than checking only whether a kind exists: a package may
+        // have precise data for one bunker while its second greenside bunker survives only in the
+        // legacy interval list.
+        func hasDetail(kind: String, frontRouteM: Double) -> Bool {
+            details.contains {
+                $0.kind == kind && abs($0.frontRouteM - frontRouteM) <= 3.0
+            }
+        }
+        for (index, interval) in hole.hazards.waterCarry.enumerated() {
+            guard let front = interval.first,
+                  !hasDetail(kind: "water", frontRouteM: front) else { continue }
+            let back = interval.dropFirst().first
+            guard CoursePrepHazardRelevance.isRelevant(
+                kind: "water",
+                frontRouteM: front,
+                backRouteM: back ?? front,
+                routeLengthM: routeLengthM
+            ) else { continue }
+            rows.append(
+                Self(
+                    id: "water-legacy-\(index)",
                     kind: "water",
+                    label: CoursePrepHazardNaming.intervalLabel(kind: "water", interval: interval, route: intervalRoute),
+                    frontYards: CoursePrepRoute.yards(fromMetres: front),
+                    backYards: back.map { CoursePrepRoute.yards(fromMetres: $0) },
+                    frontPx: [],
+                    backPx: [],
+                    outlinePx: [],
                     frontRouteM: front,
-                    backRouteM: back ?? front,
+                    backRouteM: back ?? front
+                )
+            )
+        }
+        for (index, interval) in hole.hazards.bunkers.enumerated() {
+            guard let front = interval.first,
+                  !hasDetail(kind: "bunker", frontRouteM: front),
+                  CoursePrepHazardRelevance.isRelevant(
+                    kind: "bunker",
+                    frontRouteM: front,
+                    backRouteM: front,
                     routeLengthM: routeLengthM
-                ) else { continue }
-                rows.append(
-                    Self(
-                        id: "water-legacy-\(index)",
-                        kind: "water",
-                        label: CoursePrepHazardNaming.intervalLabel(kind: "water", interval: interval, route: intervalRoute),
-                        frontYards: CoursePrepRoute.yards(fromMetres: front),
-                        backYards: back.map { CoursePrepRoute.yards(fromMetres: $0) },
-                        frontPx: [],
-                        backPx: [],
-                        outlinePx: [],
-                        frontRouteM: front,
-                        backRouteM: back ?? front
+                  ) else { continue }
+            rows.append(
+                Self(
+                    id: "bunker-legacy-\(index)",
+                    kind: "bunker",
+                    label: CoursePrepHazardNaming.intervalLabel(kind: "bunker", interval: interval, route: intervalRoute),
+                    frontYards: CoursePrepRoute.yards(fromMetres: front),
+                    backYards: nil,
+                    frontPx: [],
+                    backPx: [],
+                    outlinePx: [],
+                    frontRouteM: front,
+                    backRouteM: front
+                )
+            )
+        }
+        let staticRows = rows.sorted {
+            if $0.frontRouteM == $1.frontRouteM { return $0.id < $1.id }
+            return $0.frontRouteM < $1.frontRouteM
+        }
+        guard let liveReadouts else { return staticRows }
+
+        // Live GPS readouts refine distances for hazards that are ahead, but they are not a
+        // completeness filter. Keep every mapped bunker/water from the hole and overlay live
+        // values where the geometry matches; this prevents a greenside bunker from disappearing
+        // merely because the GPS readout producer returned only the next obstacle.
+        let liveRows = liveReadouts
+            .filter {
+                ($0.kind == "bunker" || $0.kind == "water")
+                    && CoursePrepHazardRelevance.isRelevant(
+                    kind: $0.kind,
+                    frontRouteM: $0.frontRouteM,
+                    backRouteM: $0.backRouteM,
+                    routeLengthM: routeLengthM,
+                    hasPreciseOutline: $0.outlinePx.count >= 3
                     )
+                    && CoursePrepLiveHazardReadout.isPlausibleYards($0.toYards)
+                    && CoursePrepLiveHazardReadout.isPlausibleYards($0.overYards)
+            }
+            .map {
+                Self(
+                    id: $0.id,
+                    kind: $0.kind,
+                    label: $0.label,
+                    frontYards: $0.toYards,
+                    backYards: $0.overYards,
+                    frontPx: $0.frontPx,
+                    backPx: $0.backPx,
+                    outlinePx: $0.outlinePx,
+                    frontRouteM: $0.frontRouteM,
+                    backRouteM: $0.backRouteM
                 )
             }
+
+        var merged = staticRows
+        var matchedLiveIDs = Set<String>()
+        for index in merged.indices {
+            let row = merged[index]
+            let match = liveRows.first(where: { $0.id == row.id && !matchedLiveIDs.contains($0.id) })
+                ?? liveRows
+                    .filter { !$0.id.isEmpty && !matchedLiveIDs.contains($0.id) && $0.kind == row.kind }
+                    .min(by: { abs($0.frontRouteM - row.frontRouteM) < abs($1.frontRouteM - row.frontRouteM) })
+            guard let live = match else { continue }
+            matchedLiveIDs.insert(live.id)
+            merged[index] = Self(
+                id: row.id,
+                kind: row.kind,
+                label: live.label,
+                frontYards: live.frontYards,
+                backYards: live.backYards,
+                frontPx: live.frontPx.isEmpty ? row.frontPx : live.frontPx,
+                backPx: live.backPx.isEmpty ? row.backPx : live.backPx,
+                outlinePx: live.outlinePx.count >= 3 ? live.outlinePx : row.outlinePx,
+                frontRouteM: live.frontRouteM,
+                backRouteM: live.backRouteM
+            )
         }
-        if !detailKinds.contains("bunker") {
-            for (index, interval) in hole.hazards.bunkers.enumerated() {
-                guard let front = interval.first,
-                      CoursePrepHazardRelevance.isRelevant(
-                        kind: "bunker",
-                        frontRouteM: front,
-                        backRouteM: front,
-                        routeLengthM: routeLengthM
-                      ) else { continue }
-                rows.append(
-                    Self(
-                        id: "bunker-legacy-\(index)",
-                        kind: "bunker",
-                        label: CoursePrepHazardNaming.intervalLabel(kind: "bunker", interval: interval, route: intervalRoute),
-                        frontYards: CoursePrepRoute.yards(fromMetres: front),
-                        backYards: nil,
-                        frontPx: [],
-                        backPx: [],
-                        outlinePx: [],
-                        frontRouteM: front,
-                        backRouteM: front
-                    )
-                )
-            }
-        }
-        return rows.sorted {
+        merged.append(contentsOf: liveRows.filter { !matchedLiveIDs.contains($0.id) })
+        return merged.sorted {
             if $0.frontRouteM == $1.frontRouteM { return $0.id < $1.id }
             return $0.frontRouteM < $1.frontRouteM
         }

@@ -2189,10 +2189,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("static func smoothPath(through points: [CGPoint]) -> Path", hole_map_view)
         self.assertIn("if selectedClub != nil { return selectedClubMetres }", hole_map_view)
         self.assertIn("return showsPrepClubLabel ? hole.landingM : nil", hole_map_view)
-        self.assertIn(
-            "if showsClubLabel && (selectedPlanIndex == nil || selectedPlanIndex == item.shot.planIndex)",
-            hole_map_view,
-        )
+        self.assertIn("let isSelected = selectedPlanIndex == nil || selectedPlanIndex == item.shot.planIndex", hole_map_view)
+        self.assertIn("if showsClubLabel && isSelected", hole_map_view)
         self.assertIn(
             "HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,",
             current_hole,
@@ -2543,7 +2541,10 @@ class MobileContractTests(unittest.TestCase):
         # separate one-at-a-time instrument, so the caddie recommendation page does not duplicate
         # obstacle cards or their distance labels.
         hole_map = _read_required_source(self, IOS_DIR / "Views" / "HoleImageMapView.swift")
-        self.assertIn("prepHazardAnnotations.prefix(2)", hole_map)
+        # The prep map is the complete factual overview. Do not silently clip it to two
+        # obstacles; the dedicated live browser can still focus one row at a time.
+        self.assertIn("ForEach(Array(prepHazardAnnotations.enumerated())", hole_map)
+        self.assertNotIn("prepHazardAnnotations.prefix(2)", hole_map)
         self.assertIn('Text("到 \\(toYards) · 过 \\(overYards)")', hole_map)
         self.assertNotIn(
             "including: zoomScale > 1.01 ? .all : .none",
@@ -3057,8 +3058,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('evidenceRefs: evidenceRefs', evaluator)
         self.assertIn("selectedOptionId: selected.optionId", evaluator)
         self.assertIn("selectedOption: selectedRow", evaluator)
-        self.assertIn("sequences: canonicalSequence.map { [$0] }", evaluator)
-        self.assertIn("selectedSequence: canonicalSequence", evaluator)
+        # Offline evaluation publishes the same multi-route contract as the online decision;
+        # stock is selected separately rather than collapsing every option into one legacy row.
+        self.assertIn("let sequenceRows = seed.offlineOptions.compactMap", evaluator)
+        self.assertIn("sequences: sequenceRows", evaluator)
+        self.assertIn("let selectedSequence: [String: JSONValue]?", evaluator)
+        self.assertIn("selectedSequence: selectedSequence", evaluator)
         self.assertIn("canonicalPlanSteps(from: request.context)", evaluator)
         self.assertIn('"offline_caddie"', evaluator)
         self.assertIn('"offline_selected_option"', evaluator)
@@ -3076,8 +3081,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("联网球童暂不可用 · 已切换到离线缓存建议。", current_hole)
         self.assertIn("离线模式 · 使用已保存的方案。", current_hole)
         self.assertIn("offlineDecisionEvaluator.selectedOption(", current_hole)
-        self.assertIn("strategyMode: requestedStrategyMode", current_hole)
-        self.assertIn("requestedOptionId: caddieOptionId(forStrategyMode: requestedStrategyMode)", current_hole)
+        self.assertIn("strategyMode: requestStrategyMode", current_hole)
+        self.assertIn("requestedOptionId: caddieOptionId(forStrategyMode: requestStrategyMode)", current_hole)
 
         self.assertIn("testMakesAuditableOfflineDecisionFromSeedAndStrategy", evaluator_tests)
         self.assertIn("testStrategyModeSelectsCachedOptionWithoutNetwork", evaluator_tests)
@@ -3497,7 +3502,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("LiveCaddieDistance.resolve", current_hole)
         self.assertIn("lie: selectedLie", current_hole)
         self.assertIn("coordinate: liveCoordinateForCurrentHole", current_hole)
-        self.assertIn("requestedOptionId: caddieOptionId(forStrategyMode: requestedStrategyMode)", current_hole)
+        self.assertIn("requestedOptionId: caddieOptionId(forStrategyMode: requestStrategyMode)", current_hole)
         self.assertIn("targetCoordinate: $targetCoordinate", current_hole)
         self.assertIn("targetPixel: $targetPixel", current_hole)
         self.assertIn("targetKind: wireTargetKind", current_hole)
@@ -3546,8 +3551,8 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn("onSelectStep: selectPlanStep", current_hole)
         self.assertNotIn("showCaddieDetail", current_hole)
-        self.assertIn("strategyMode: requestedStrategyMode", current_hole)
-        self.assertIn("selectedStrategyMode: requestedStrategyMode", current_hole)
+        self.assertIn("strategyMode: requestStrategyMode", current_hole)
+        self.assertIn("selectedStrategyMode = authoritative", current_hole)
         self.assertIn("requestedStrategyMode = nil", current_hole)
         self.assertIn("requestedStrategyMode = normalized", current_hole)
         self.assertIn("syncStrategyModeToDecision", current_hole)
