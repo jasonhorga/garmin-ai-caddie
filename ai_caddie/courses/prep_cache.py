@@ -42,6 +42,9 @@ _MAXSIZE = 256
 
 _lock = threading.Lock()
 _cache: "OrderedDict[tuple, tuple[Any, Any]]" = OrderedDict()
+# Per-hole entries are small factual dicts (render=False); keep enough for many courses x players.
+_HOLE_MAXSIZE = 2048
+_hole_cache: "OrderedDict[tuple, tuple[Any, Any]]" = OrderedDict()
 # Per-key singleflight: while one thread builds a key (~19s), every other thread asking
 # for the SAME key waits on this Event instead of launching its own duplicate build (a
 # thundering herd of N×19s on a cold cache). Different keys get different Events, so they
@@ -234,11 +237,51 @@ def cached_course_prep(
     """
     key = (int(global_id), tuple(requested), bool(render), bool(include_shots), player_id, variant)
     fingerprint = _fingerprint(global_id, player_id, requested)
+    return _singleflight(_cache, _MAXSIZE, key, fingerprint, build)
+
+
+def cached_hole_preps(
+    *,
+    global_id: int,
+    holes: list[int] | tuple[int, ...],
+    render: bool,
+    include_shots: bool,
+    player_id: str,
+    variant: str,
+    build_hole: Callable[[int], Any],
+) -> dict[int, Any]:
+    """Per-hole prep cache shared by every request shape.
+
+    Clients ask for different hole groupings (iPhone ``(1,)`` then batches, Watch three-hole
+    batches, the course package all holes, Web the whole course), so a cache keyed only by the
+    requested tuple rebuilt the same hole for each shape.  Each hole is cached under its own
+    geometry signature plus the player/course signature (computed once per call), with the same
+    single-flight guarantee as :func:`cached_course_prep`.  ``variant`` must identify every other
+    build input (e.g. a digest of the club ladder).
+    """
+    gid = int(global_id)
+    shared = _fingerprint(gid, player_id, ())
+    out: dict[int, Any] = {}
+    for hole in holes:
+        hole = int(hole)
+        key = ("hole", gid, hole, bool(render), bool(include_shots), player_id, variant)
+        fingerprint = (shared, _requested_geometry_sig(gid, [hole]))
+        out[hole] = _singleflight(_hole_cache, _HOLE_MAXSIZE, key, fingerprint, lambda h=hole: build_hole(h))
+    return out
+
+
+def _singleflight(
+    cache: "OrderedDict[tuple, tuple[Any, Any]]",
+    maxsize: int,
+    key: tuple,
+    fingerprint: Any,
+    build: Callable[[], Any],
+) -> Any:
     while True:
         with _lock:
-            hit = _cache.get(key)
+            hit = cache.get(key)
             if hit is not None and hit[0] == fingerprint:
-                _cache.move_to_end(key)  # mark recently used (LRU)
+                cache.move_to_end(key)  # mark recently used (LRU)
                 return hit[1]
             event = _inflight.get(key)
             if event is None:
@@ -263,10 +306,10 @@ def cached_course_prep(
             error = exc
         with _lock:
             if error is None:
-                _cache[key] = (fingerprint, value)
-                _cache.move_to_end(key)
-                while len(_cache) > _MAXSIZE:
-                    _cache.popitem(last=False)  # evict least-recently-used
+                cache[key] = (fingerprint, value)
+                cache.move_to_end(key)
+                while len(cache) > maxsize:
+                    cache.popitem(last=False)  # evict least-recently-used
             if _inflight.get(key) is event:
                 # Only retract OUR own registration; a clear() mid-build may have already
                 # dropped it and a successor leader installed a fresh Event we must not eat.
@@ -284,6 +327,7 @@ def clear() -> None:
     prep-endpoint tests rely on this: each test clears, then asserts its mocked build ran)."""
     with _lock:
         _cache.clear()
+        _hole_cache.clear()
         for event in _inflight.values():
             event.set()  # release anyone parked on a now-discarded build
         _inflight.clear()

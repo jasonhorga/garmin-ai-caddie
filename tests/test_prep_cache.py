@@ -307,3 +307,80 @@ class PrepCacheTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HolePrepCacheTests(unittest.TestCase):
+    """Per-hole cache: every request grouping (iPhone 1 hole, Watch batches, package all holes)
+    shares one build per hole, and a geometry change on one hole rebuilds only that hole."""
+
+    def setUp(self) -> None:
+        prep_cache.clear()
+        self._orig = (prep_cache._fingerprint, prep_cache._requested_geometry_sig)
+        self.geometry = {hole: ("v1",) for hole in range(1, 19)}
+        prep_cache._fingerprint = lambda gid, *_: ("shared",)
+        prep_cache._requested_geometry_sig = lambda gid, holes: tuple(self.geometry[h] for h in holes)
+        self.builds: list[int] = []
+
+    def tearDown(self) -> None:
+        prep_cache._fingerprint, prep_cache._requested_geometry_sig = self._orig
+        prep_cache.clear()
+
+    def _get(self, holes, variant="ladder-a"):
+        def build(hole: int) -> dict:
+            self.builds.append(hole)
+            return {"hole": hole}
+
+        return prep_cache.cached_hole_preps(
+            global_id=31794, holes=holes, render=False, include_shots=False,
+            player_id="me", variant=variant, build_hole=build,
+        )
+
+    def test_different_groupings_share_per_hole_builds(self) -> None:
+        self._get([1])
+        self._get([1, 2, 3])
+        self._get(list(range(1, 19)))
+        self.assertEqual(sorted(self.builds), list(range(1, 19)))
+
+    def test_one_hole_geometry_change_rebuilds_only_that_hole(self) -> None:
+        self._get(list(range(1, 19)))
+        self.builds.clear()
+        self.geometry[7] = ("v2",)
+        self._get(list(range(1, 19)))
+        self.assertEqual(self.builds, [7])
+
+    def test_variant_separates_builds(self) -> None:
+        self._get([1], variant="ladder-a")
+        self._get([1], variant="ladder-b")
+        self.assertEqual(self.builds, [1, 1])
+
+
+class PrepNineHoleCacheTests(unittest.TestCase):
+    def setUp(self) -> None:
+        prep_cache.clear()
+
+    def tearDown(self) -> None:
+        prep_cache.clear()
+
+    def test_prep_nine_factual_rows_are_cached_per_hole_and_copied(self) -> None:
+        from unittest.mock import patch
+
+        from ai_caddie.courses import course_prep
+
+        calls: list[int] = []
+
+        def fake_prep_hole(global_id, hole, **kwargs):
+            calls.append(hole)
+            return {"hole": hole, "steps": [{"club": "1W"}]}
+
+        with patch.object(course_prep, "prep_hole", side_effect=fake_prep_hole), \
+                patch.object(course_prep.course_reference, "load_course_par", return_value=None), \
+                patch.object(course_prep.course_reference, "resolve_par", return_value=None):
+            first = course_prep.prep_nine(31794, [1, 2], ladder=[("1W", 230)], render=False, include_missing=True)
+            first[0]["steps"].append({"club": "mutated"})
+            second = course_prep.prep_nine(31794, [2, 1], ladder=[("1W", 230)], render=False, include_missing=True)
+            other_ladder = course_prep.prep_nine(31794, [1], ladder=[("1W", 250)], render=False, include_missing=True)
+
+        self.assertEqual(calls, [1, 2, 1])  # [2, 1] hit the cache; a different ladder rebuilds
+        self.assertEqual([row["hole"] for row in second], [2, 1])
+        self.assertEqual(second[1]["steps"], [{"club": "1W"}])  # caller mutation did not leak
+        self.assertEqual(other_ladder[0]["hole"], 1)

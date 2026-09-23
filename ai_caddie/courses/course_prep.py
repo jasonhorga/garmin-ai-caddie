@@ -10,6 +10,8 @@ point-in-polygon along the densified route).
 """
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 import math
 from collections.abc import Callable
@@ -2308,11 +2310,38 @@ def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, i
             sources=sources,
             apply_overrides=(player_id == OWNER_ID),
         )
+    cached: dict[int, object] = {}
+    if not render and not include_shots:
+        # The factual (render=False) per-hole prep is what the course package, iPhone, Watch and
+        # prep-tips all consume, each with a different hole grouping.  Share it per hole; the
+        # ladder is part of the key because callers may pass a ladder other than the default.
+        from ai_caddie.courses import prep_cache
+
+        ladder_digest = hashlib.blake2b(
+            json.dumps([list(row) for row in ladder], ensure_ascii=False, default=str).encode("utf-8"),
+            digest_size=12,
+        ).hexdigest()
+        cached = prep_cache.cached_hole_preps(
+            global_id=int(global_id),
+            holes=requested_holes,
+            render=False,
+            include_shots=False,
+            player_id=player_id,
+            variant=f"prep-hole:{ladder_digest}",
+            build_hole=lambda hole: prep_hole(
+                global_id, hole, ladder=ladder, par_record=par_record, render=False,
+                include_shots=False, player_id=player_id, shot_rows=None,
+            ),
+        )
     out = []
     for hole in requested_holes:
-        prep = prep_hole(global_id, hole, ladder=ladder, par_record=par_record, render=render,
-                         include_shots=include_shots, player_id=player_id,
-                         shot_rows=shots_by_hole.get(int(hole), []) if include_shots else None)
+        if int(hole) in cached:
+            # Callers own the returned rows; never hand out the shared cached object.
+            prep = copy.deepcopy(cached[int(hole)])
+        else:
+            prep = prep_hole(global_id, hole, ladder=ladder, par_record=par_record, render=render,
+                             include_shots=include_shots, player_id=player_id,
+                             shot_rows=shots_by_hole.get(int(hole), []) if include_shots else None)
         if prep is not None:
             out.append(prep.to_dict() if include_missing and hasattr(prep, "to_dict") else prep)
         elif include_missing:

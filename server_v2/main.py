@@ -1012,6 +1012,21 @@ def course_topo_prewarm(global_id: int, background_tasks: BackgroundTasks) -> di
     }
 
 
+def _warm_course_prep(global_id: int, player_id: str) -> None:
+    """Fill the per-hole factual prep cache (render=False) that the course package, iPhone and
+    Watch all read, so starting a round at a recently played course does not pay the cold build."""
+    from ai_caddie.courses import course_prep
+
+    course_prep.prep_nine(
+        int(global_id),
+        course_prep.available_prep_holes(int(global_id)),
+        ladder=course_prep.effective_club_ladder(player_id),
+        render=False,
+        include_missing=True,
+        player_id=player_id,
+    )
+
+
 def _prepare_recent_bg(player_id: str) -> None:
     """「打开即用」后台准备最近一盘:预热其球洞图 topo + 烤统计。best-effort,绝不抛
     (镜像 warm_stats_cache 的 swallow 语义,不弄崩触发它的响应/线程)。"""
@@ -1043,6 +1058,7 @@ def _prepare_recent_bg(player_id: str) -> None:
             prewarm=_prewarm_course_topo,
             warm_stats=lambda: warm_stats_cache(player_id=player_id),
             ensure_geometry=_ensure_geometry,
+            warm_prep=lambda gid: _warm_course_prep(gid, player_id),
         )
     except Exception:  # noqa: BLE001 - best-effort;绝不弄崩触发它的线程
         import logging
