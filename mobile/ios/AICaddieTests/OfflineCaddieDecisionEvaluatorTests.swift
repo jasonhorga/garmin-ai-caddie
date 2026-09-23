@@ -369,6 +369,58 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         XCTAssertTrue(LiveCaddieDecisionUsability.hasCompleteRoute(decision, par: 3, shotType: "tee"))
     }
 
+    func testPar4LegThatFliesTheBackEdgeIsNotGIR() throws {
+        // The fallback planner clamps the second landing to the 396 m route end, but the 3W
+        // median lands at 412.2 m: past back (400 m) + the 8 m tolerance, so it is not a GIR.
+        let profiles: JSONValue = .array([
+            .object([
+                "clubName": .string("1W"), "sampleSize": .number(120),
+                "median_m": .number(199.2), "p10_m": .number(180), "p90_m": .number(215),
+            ]),
+            .object([
+                "clubName": .string("3W"), "sampleSize": .number(80),
+                "median_m": .number(213), "p10_m": .number(200), "p90_m": .number(224),
+            ]),
+        ])
+        let seed = CaddieContextSeed(
+            hole: 4,
+            sourceRef: "round:4",
+            shotTypes: ["tee"],
+            requiredLiveInputs: [],
+            context: [
+                "par": .number(4),
+                "clubProfiles": profiles,
+                "greenDistances": .object([
+                    "available": .bool(true),
+                    "frontM": .number(376),
+                    "middleM": .number(388),
+                    "backM": .number(400),
+                ]),
+            ],
+            selectedOfflineOptionId: "stock",
+            offlineOptions: [
+                OfflineCaddieOption(
+                    optionId: "stock", label: "推荐", clubName: "1W", carryM: 199.2,
+                    sampleSize: 120, confidence: "medium", riskScore: 0,
+                    source: "test", sourceRefs: ["round:4"]
+                )
+            ],
+            evidence: [],
+            missingData: []
+        )
+        let request = CaddieDecisionRequestBuilder().makeDecisionRequest(
+            seed: seed,
+            input: LiveCaddieInput(shotType: "tee", distanceToPinM: 396)
+        )
+        let decision = try XCTUnwrap(
+            OfflineCaddieDecisionEvaluator().makeDecision(seed: seed, request: request, strategyMode: nil)
+        )
+        let sequence = try XCTUnwrap(CaddiePlanSequence.selectedSequence(from: decision))
+
+        XCTAssertEqual(sequence.steps.map(\.clubName), ["1W", "3W"])
+        XCTAssertNotEqual(sequence.steps.last?.greenInRegulation, true)
+    }
+
     func testRefreshKeepsCompleteLocalRouteWhenRemoteResponseIsOnlyAClubCard() {
         let local = sequenceDecision(
             clubs: [

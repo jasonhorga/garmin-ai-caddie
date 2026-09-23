@@ -235,6 +235,8 @@ public final class OfflineCaddieDecisionEvaluator {
         greenWindow: (front: Double, back: Double, routeBased: Bool)?
     ) -> [String: [[String: JSONValue]]] {
         var plans: [String: [[String: JSONValue]]] = [:]
+        // Planned landings are clamped to this route end for display; GIR must not use the clamp.
+        let routeEndM = targetDistanceMetres(from: request.context)
         if let canonicalSteps, !canonicalSteps.isEmpty {
             plans["stock"] = canonicalSteps
         }
@@ -243,14 +245,14 @@ public final class OfflineCaddieDecisionEvaluator {
               let targetM = targetDistanceMetres(from: request.context),
               targetM > 0 else {
             for (key, steps) in plans {
-                plans[key] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow).steps
+                plans[key] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow, routeEndM: routeEndM).steps
             }
             return plans
         }
         let profiles = localProfiles(from: request.context["clubProfiles"] ?? seed.context["clubProfiles"])
         guard !profiles.isEmpty else {
             for (key, steps) in plans {
-                plans[key] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow).steps
+                plans[key] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow, routeEndM: routeEndM).steps
             }
             return plans
         }
@@ -266,18 +268,19 @@ public final class OfflineCaddieDecisionEvaluator {
             plans[option.optionId] = trimAtGreenWindow(
                 steps,
                 par: par,
-                greenWindow: greenWindow
+                greenWindow: greenWindow,
+                routeEndM: routeEndM
             ).steps
         }
         // A malformed/old seed can have no explicit stock option but still carry a usable bag.
         if plans["stock"] == nil,
            let stock = seed.offlineOptions.first(where: { $0.optionId == "stock" }),
            let steps = fallbackSteps(for: stock, profiles: profiles, targetM: targetM, par: par) {
-            plans["stock"] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow).steps
+            plans["stock"] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow, routeEndM: routeEndM).steps
         }
         if !plans.isEmpty {
             for (key, steps) in plans {
-                plans[key] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow).steps
+                plans[key] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow, routeEndM: routeEndM).steps
             }
         }
         return plans
@@ -325,7 +328,8 @@ public final class OfflineCaddieDecisionEvaluator {
     private func trimAtGreenWindow(
         _ source: [[String: JSONValue]],
         par: Int,
-        greenWindow: (front: Double, back: Double, routeBased: Bool)?
+        greenWindow: (front: Double, back: Double, routeBased: Bool)?,
+        routeEndM: Double? = nil
     ) -> (steps: [[String: JSONValue]], gir: Bool) {
         guard par >= 3,
               let greenWindow,
@@ -334,12 +338,21 @@ public final class OfflineCaddieDecisionEvaluator {
         }
         let shotLimit = max(1, par - 2)
         var cumulative = 0.0
+        var previousOffset = 0.0
         for (index, raw) in source.enumerated() {
             let carry = number(raw["targetCarry_m"] ?? raw["targetCarryM"] ?? raw["median_m"]) ?? 0
             guard carry > 0 else { continue }
             cumulative += carry
-            let offset = number(raw["routeOffset_m"] ?? raw["routeOffsetM"] ?? raw["landing_m"] ?? raw["landingM"])
+            let displayOffset = number(raw["routeOffset_m"] ?? raw["routeOffsetM"] ?? raw["landing_m"] ?? raw["landingM"])
                 ?? cumulative
+            // The planners clamp the landing to the route end so the map line stops at the flag.
+            // A median landing past the back edge must not be pulled onto the green and called GIR.
+            var offset = displayOffset
+            let projected = previousOffset + carry
+            if let routeEndM, displayOffset >= routeEndM - 0.05, projected > displayOffset + 0.05 {
+                offset = projected
+            }
+            previousOffset = offset
             guard index + 1 <= shotLimit else { break }
             guard offset >= greenWindow.front, offset <= greenWindow.back + 8 else { continue }
             var trimmed = Array(source.prefix(index + 1))
@@ -348,8 +361,8 @@ public final class OfflineCaddieDecisionEvaluator {
             final["role"] = .string("scoring")
             final["expectedRemaining_m"] = .number(0)
             final["expectedRemainingM"] = .number(0)
-            final["routeOffset_m"] = .number(offset)
-            final["landing_m"] = .number(offset)
+            final["routeOffset_m"] = .number(displayOffset)
+            final["landing_m"] = .number(displayOffset)
             final["greenInRegulation"] = .bool(true)
             final["shotsToGreen"] = .number(Double(index + 1))
             var window: [String: JSONValue] = [
