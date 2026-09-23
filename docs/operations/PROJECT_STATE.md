@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-22 22:18 UTC
+**Updated:** 2026-09-23 02:39 UTC
 **Branch:** `integration/v2` (GitHub default; current `PHONE-UX7-ROUTE2` source
 is `a13724e1574085593cf951c0402e85f7b62d3d85` and the new backend candidate
 reports the same exact revision; Source CI `35783064875` and exact-SHA full
@@ -65,6 +65,29 @@ Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
 ## Current Work Summary
+
+**Homeserver expired-resource cleanup (2026-09-23 02:34 UTC):** The old Codex
+candidate tunnels were not automatically stopped because `expires_utc` in a
+cleanup manifest is metadata only. The daily `/home/jason/homeserver-reaper.sh`
+cron (04:17 UTC) does not parse `tunnel_session` expiry rows or manage tmux;
+its cloudflared pass only kills a tunnel when its loopback backend is already
+not listening. Therefore an active tunnel whose candidate was superseded could
+remain alive, and resources created after the last cron run were not seen
+until the next run. At `2026-09-23T02:23Z`, the IMG-8160 tunnels on `39075`
+and `39076` were expired; the route2 candidates on `39077`-`39082` were still
+inside their manifest windows but had already been superseded by `39083`.
+The exact allow-list, pre/post state, action log and hashes are retained at
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260923T0223Z-expired-codex-tunnels/`.
+The cleanup killed the seven named old tunnel sessions, stopped and removed
+the eight old candidate containers on `39075`-`39082`, and left their images,
+source snapshots and evidence intact for the Claude audit. It did not touch
+`codex-route2-a13-tunnel-20260922`/`39083`, the Caddy upstream `39055`,
+`aicaddie-web`, `garmin-ai-caddie-db-1`, the shared named volume, `rc`, or any
+other project's resource. Post-cleanup checks show only `39055` and `39083`
+candidate containers, no old listeners or cloudflared processes, and HTTP 200
+from `/api/v2/health` on both protected endpoints. No product code was changed;
+the current product slice remains `PHONE-UX7-ROUTE2` `evidence-open` pending
+the planned audit/physical evidence.
 
 **Current slice (2026-09-22):** `PHONE-UX7-ROUTE2` is `evidence-open`: repair the
 four-stroke-hole route objective exposed by the Black Knight A1 screenshots. The
