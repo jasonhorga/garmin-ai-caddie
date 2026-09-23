@@ -55,6 +55,10 @@ from ai_caddie.llm.weather_context import weather_snapshot_file
 _FINGERPRINT_DIRS: tuple[Path, ...] = (SCORECARD_DIR, SHOT_DIR, SNAPSHOT_DIR, MANUAL_DIR)
 # Dirs that feed load_history_data (rounds + shots); geometry/aux are not read by load.
 _LOAD_DIRS: tuple[Path, ...] = (SCORECARD_DIR, SHOT_DIR, SNAPSHOT_DIR, MANUAL_DIR)
+# data/snapshots also receives one sync manifest (``<snapshot_id>.json``) per Garmin sync. Only the
+# per-scorecard Garmin hole snapshots (``<id>_hole.json``, the shot pixel lookup) are history input,
+# so a sync that brought no new rounds must not invalidate the ~10s load + stats rebuild.
+_DIR_FILE_SUFFIX: dict[Path, str] = {SNAPSHOT_DIR: "_hole.json"}
 # Base for non-owner players: data/players/<id>/{scorecards,shots}. Mirrors
 # ai_caddie.history.history._player_data_dir; module-level so tests can repoint it.
 _PLAYERS_DIR: Path = DATA_DIR / "players"
@@ -280,9 +284,12 @@ def _dir_sig(directory: Path) -> tuple[int, str]:
     one ``os.scandir`` plus the ``stat`` it already performs; file CONTENTS are never
     read (too slow on the shot dir) -- size+mtime_ns is the standard cheap manifest."""
     files: list[tuple[str, int, int]] = []
+    suffix = _DIR_FILE_SUFFIX.get(directory)
     try:
         with os.scandir(directory) as it:
             for entry in it:
+                if suffix is not None and not entry.name.endswith(suffix):
+                    continue
                 if entry.is_file():
                     st = entry.stat()
                     files.append((entry.name, st.st_size, st.st_mtime_ns))
@@ -400,6 +407,14 @@ def clear(player_id: str | None = None) -> None:
         _load_cache.pop(player_id, None)
         for key in [k for k in _cache if isinstance(k, tuple) and k and k[0] == player_id]:
             _cache.pop(key, None)
+
+
+def history_input_signature(player_id: str = OWNER_ID) -> tuple:
+    """Cheap signature of a player's round/shot inputs (the same per-file manifest the caches use).
+
+    Callers that write history (Garmin sync) compare it before and after the write, so a pull that
+    changed no round files does not throw away a warm ~10s load + stats build."""
+    return tuple(_dir_sig(d) for d in _fingerprint_dirs(player_id))
 
 
 def cached_load_history_data(player_id: str = OWNER_ID):

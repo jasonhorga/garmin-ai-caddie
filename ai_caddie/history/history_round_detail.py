@@ -11,7 +11,7 @@ from ai_caddie.history.history import (
     HistoryData,
     history_course_segment,
     history_course_venue_name,
-    remap_shots_to_merged_rounds,
+    round_source_shots,
 )
 
 
@@ -148,8 +148,7 @@ def _shots_for_round(
     # canonical row id. A merged row, by contrast, carries the two physical member scorecard ids.
     member_set = {canonical_ref, *source_ids}
     selected: list[tuple[int, dict[str, Any]]] = []
-    canonical_shots = remap_shots_to_merged_rounds(data.shots, [round_row])
-    for index, row in enumerate(canonical_shots):
+    for index, row in round_source_shots(data, round_row):
         source_id = str(row.get("scorecardId") or row.get("roundId") or "")
         if source_id not in member_set and str(row.get("roundId") or "") != canonical_ref:
             continue

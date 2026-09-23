@@ -2459,6 +2459,13 @@ def _sync_job_response(record: dict[str, Any]) -> SyncRunResponse:
     )
 
 
+def _history_input_signature(player_id: str) -> tuple | None:
+    try:
+        return stats_cache.history_input_signature(player_id)
+    except Exception:
+        return None
+
+
 def _run_garmin_sync_job(job: dict[str, Any]) -> dict[str, Any]:
     """Execute one queued Garmin pull and schedule all non-critical follow-up work."""
     player_id = str(job.get("playerId") or OWNER_ID)
@@ -2483,6 +2490,7 @@ def _run_garmin_sync_job(job: dict[str, Any]) -> dict[str, Any]:
                 raise CancelledSyncJob()
             _mark_garmin_sync_running(player_id=player_id)
             connector = GarminCnWebSessionConnector(root=SYNC_ROOT, player_id=player_id)
+            history_before = _history_input_signature(player_id)
             report(phase="provider_fetch", progress=25, detail="正在从 Garmin 获取球局数据。")
             result = connector.sync(
                 with_shots=with_shots,
@@ -2505,7 +2513,10 @@ def _run_garmin_sync_job(job: dict[str, Any]) -> dict[str, Any]:
         # failure must never rewrite a successful provider pull as a terminal sync error.
         try:
             report(phase="warm_cache", progress=88, detail="正在刷新本地数据索引。")
-            stats_cache.clear(player_id)
+            # A pull that wrote no round/shot files (the common "nothing new" sync) keeps the warm
+            # history + stats; every cache entry still revalidates its full fingerprint on read.
+            if history_before is None or _history_input_signature(player_id) != history_before:
+                stats_cache.clear(player_id)
         except Exception:
             logger.warning("Garmin sync stats cache invalidation deferred", exc_info=True)
         try:
