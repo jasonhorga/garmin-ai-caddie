@@ -18,7 +18,12 @@
 | `66acb4f2` | 球童：GIR 不再使用被截断的落点；attack 必须比保留下来的 stock 更远；开球时不再声称"已考虑风和坡度" | 后端 |
 | `84b4bccd` | iOS 离线评估器 `trimAtGreenWindow` 做同样的 GIR 修正，并加了 XCTest | iOS app |
 | `1dee71dd` | `render=False` 的 prep 按单洞缓存，iPhone/Watch/Web 的 `/prep` 请求和 prep-tips 共用；prepare-recent 在启动、同步、录入后预热最近打过的球场的单洞 prep（后续 commit 改为默认 1 个，可配置） | 后端 |
-| 后续 commit | 回应 PR 评审：缓存签名加入 `st_ctime_ns`；同一时间只允许一个预热线程，规模可配置，并记录耗时日志；release 刷新失败打告警日志；修复预热测试与残留后台线程之间的竞态 | 后端/测试 |
+| `43021eca` | 回应 PR 评审：缓存签名加入 `st_ctime_ns`；同一时间只允许一个预热线程，规模可配置，并记录耗时日志；release 刷新失败打告警日志；修复预热测试与残留后台线程之间的竞态 | 后端/测试 |
+| `08f30208` | 球童：离洞距离超出最长非 Driver 球杆时（例如 Par 5 第二杆），原来三种模式都没有球杆；现在分三档——stock 留最稳的挖起杆距离，safe 留更远的挖起杆距离，attack 用最长非 Driver 推进 | 后端 |
+| `c76e5d18` | `/history/summary` 不再为了读两个字段而构造 20MB 的模型；录入成绩只失效本人的缓存；gzip 从 9 级降到 6 级；球场名搜索加 15s 总时限和 5 分钟缓存；球场选项只解析最终可能入选的球场 | 后端 |
+| `ebb2b579` | Web 复盘的 shotmap 改为 `includeImage=false`，不再下载两遍 PNG，localStorage 缓存也不会被撑爆 | Web |
+| `0cf891bd` | Watch：内容相同的图片和模板不再重复写盘（原来下载一个球场的写盘量是 O(n²)） | Watch app |
+| `4b2fd1f0` | iOS：首洞 topo 预取原来要求轻量 prep 为 ready，而轻量 prep 永远是 partial，所以从未触发；现在按洞自身的精确几何状态判断 | iOS app |
 | `e0b097eb` | 审计报告（仅文档） | — |
 
 每个行为修复都有回归测试，这些测试在旧代码上失败、在新代码上通过。12 个 caddie golden 回放全部通过。
@@ -45,7 +50,7 @@
    - 预热规模由 `AI_CADDIE_PREP_WARM_COURSES` 控制（0 表示关闭，默认 1，最大 3）。建议先设为 0 采集基线，再设为 1 做对比；
    - 连续触发两次没有新比赛的 Garmin 同步，第二次之后 `/history/stats` 仍然命中缓存，不会重建约 10s；
    - A1 这类 Par 4 的路线：飞过果岭后沿的一杆不再显示为 GIR，attack 不会比 stock 更短。
-5. **TestFlight**：只有 `84b4bccd` 影响 app。按现有 release rule 在 Native CI 通过后打 internal build（`external_distribution=false`），然后做 Apple 处理检查。真机验证仍由 owner 完成。
+5. **TestFlight**：影响 app 的是 `84b4bccd`、`0cf891bd`、`4b2fd1f0`。按现有 release rule 在 Native CI 通过后打 internal build（`external_distribution=false`），然后做 Apple 处理检查。真机验证仍由 owner 完成。
 6. **ledger**：在 `PROJECT_STATE.md` 里登记这一 slice、证据和剩余阻塞（由 Codex 决定形式）。
 
 ## 4. 需要 Codex 在 homeserver 上确认的两个问题（Claude 看不到服务器）
@@ -53,15 +58,25 @@
 - **cron 是否在正常运行**：app 首页"启动时拉最新记录"依赖两条路径，一是 `ops/auto_sync.sh` 每小时的 cron，二是 app 冷启动或回到前台时超过 15 分钟自动同步。代码路径已经在，如果 owner 看到首页不是最新，请检查 `~/garmin-auto-sync.log` 中的 cron 执行记录，以及 Garmin 自动登录（xvfb Playwright）是否失败。
 - **同步是否会改写未变化的成绩卡文件**：如果增量同步会重写已有的成绩卡或击球文件（导致 mtime 变化），`e02df645` 中"同步没有新数据时保留缓存"的优化就不会生效，但也不会出错。可以对比同步前后 `data/scorecards` 的 mtime 确认。
 
-## 5. 后续建议（未在本 PR 中实现，优先级从高到低）
+## 5. 需要 Codex 处理的事项（Claude 在云端容器里做不了或不该做，按优先级排序）
 
-1. **拆分 prep**：与球员无关的几何事实在安装球场时按 `geometryRevision` 预先算好并落盘，请求时只计算球员策略。这是 36s 冷批次的主要来源。拆之前先在 homeserver 用真实 mesh profile `prep_hole`；审计报告里关于 `_point_in_mesh` 的判断有误，它在生产代码里没有调用方。
-2. **CPU 重活移出 API 进程**（stats 重建、prep、topo 渲染），避免单进程下被 GIL 拖慢首屏。
-3. **CoursePrep 写死蓝 tee**（`course_prep._blue_tee`），与所选 tee 的几何混用，危险区 carry 可能差 20–40m。
-4. **Par 5 够不到果岭的第二杆没有建议**（`MIN_SEQUENCE_DISTANCE_M` 与 carry 容差共同导致），也没有"layup 到擅长挖起杆距离"的逻辑。
-5. **Watch**：green 图从 1280px 降到 640–800px；`WatchCourseLibrary` 改为增量持久化。
-6. **清理部署配置**：`fly.toml`、`backend-fly-deploy.yml`、`render.yaml`、`web_v2/vercel.json` 目前没有使用，Fly workflow 可能把 app 指向一个空后端。readiness 和相关测试引用了这些文件，建议单独开 PR 清理。
-7. **长期方向**：见审计报告 §3（期望杆数引擎）和 §4（SQLite/Postgres 读模型、默认拒绝的鉴权、多用户统一处理）。
+1. **拆分 prep**：与球员无关的几何事实在安装球场时按 `geometryRevision` 算好落盘，请求时只计算球员策略。新球场 36s 冷批次和移动端 package 冷启动主要来自这里。拆分前先在 homeserver 用真实 mesh profile `prep_hole`。另外更正一处：审计报告里说的 `_point_in_mesh` 在生产代码里没有调用方。
+2. **蓝 tee 写死**（`course_prep._blue_tee`）。决策层在开球时优先用 prep 路线长度，这是有意为之，原因见 `decision._sequence_distance` 的注释。根因在 CoursePrep 不认识玩家选的 tee。建议做法：
+   - `/prep` 增加可选的 tee 参数，贯穿到 `derive_route` 和 `_blue_tee`；
+   - tee 进入单洞缓存的 key；
+   - iPhone 和 Watch 请求 prep 时带上已选的 tee；
+   - 危险区、F/M/B 距离也按所选 tee 计算。
+
+   这是跨三端的改动，需要用真实球场验证。
+3. **CPU 重活移出 API 进程**（stats 重建、prep、topo 渲染）：属于部署架构变更。
+4. **开局 package 同步请求 Open-Meteo**（`mobile_live` 的 `allow_weather_fetch=True`，超时 10s）：
+   - 直接关掉会让 package 不带天气，攻果岭时就没有风修正了，而仓库里没有事后补取天气的机制；
+   - 需要先加一个后台补天气的任务，再关掉同步请求。这属于产品取舍。
+5. **`_rebind_course_package_round_identity` 每洞全量读取 annotations/weather JSONL**：文件只追加。请先看真实文件大小，大的话再改成一次读取、建索引。
+6. **Watch green 图 1280px**：降到 640–800px 会影响 Crown 最大缩放时的清晰度，属于设计取舍。
+7. **风和坡度没有进入开球和 replan 的规划**：golden 用例 11 可以证明这一点。要纳入需要校准，不能直接加。
+8. **Fly/Render/Vercel 配置**：仓库里找不到 Web 在 homeserver 上的托管方式，`vercel.json` 可能是唯一有文档的 Web 部署路径。删除需要连带重写 `docs/deployment/private-trial.md` 和相关测试，请按实际运维情况决定。
+9. **长期方向**：见审计报告 §3（期望杆数引擎）和 §4（读模型、默认拒绝的鉴权、多用户统一处理）。
 
 ## 6. AGENTS.md §6 交接信息
 
@@ -73,4 +88,4 @@
   - GitHub 分支 `claude/code-audit-performance-17wqcv` 和 PR #332。
   - 没有创建任何容器、端口、隧道或卷，也没有登录 homeserver。
 - **到期与清理**：云端容器闲置后自动回收，分支在合并后可以删除。
-- **交付物**：PR #332，含上面列出的 6 个 commit，以及本文档。
+- **交付物**：PR #332（commit 列表见第 1 节）以及本文档。
