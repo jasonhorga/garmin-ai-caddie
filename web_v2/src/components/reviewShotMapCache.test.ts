@@ -26,6 +26,15 @@ function response(roundRef: string, hole: number, geometryRevision = `geometry-$
 describe('review shot-map persistence', () => {
   beforeEach(() => window.localStorage.removeItem(REVIEW_SHOT_MAP_CACHE_STORAGE_KEY))
 
+  it('persists image-less shot maps fetched with includeImage=false', () => {
+    const imageless: RoundHoleShotMapResponse = {
+      ...response('round-a', 4),
+      map: { image: null, overlay: { w: 1, h: 1, ppm: 1, ln: 1, route: [] } },
+    }
+    writeReviewShotMapCache('player-a', imageless, 1_000)
+    expect(readReviewShotMapCache('player-a', 'round-a', 4, 1_001)).toEqual(imageless)
+  })
+
   it('isolates entries by player, round and hole', () => {
     const first = response('round-a', 1)
     const otherHole = response('round-a', 2)
