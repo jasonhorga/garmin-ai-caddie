@@ -27,6 +27,11 @@ _NEARBY_PAGE_SIZE = 50
 _SEARCH_MAX_PAGES = 100
 _NEARBY_MAX_PAGES = 8  # 400 rows is already far beyond a truthful 200 km nearby result
 _NEARBY_DEADLINE_SECONDS = 12.0
+# Name search had no total budget (up to 100 sequential 30s page fetches) and no cache, so every
+# keystroke-level retry re-paged Garmin. Bound it like nearby and reuse a fresh result briefly.
+_SEARCH_DEADLINE_SECONDS = 15.0
+_SEARCH_CACHE_TTL_SECONDS = 300.0
+_SEARCH_CACHE_MAX_ENTRIES = 128
 _NEARBY_PAGE_TIMEOUT_SECONDS = 8.0
 _NEARBY_CACHE_TTL_SECONDS = 300.0
 _NEARBY_PARTIAL_CACHE_TTL_SECONDS = 30.0
@@ -285,9 +290,13 @@ def _store_nearby_result(
         _NEARBY_CACHE[key] = _NearbyCacheEntry(result=result, cached_at=now)
 
 
+_SEARCH_CACHE: dict[tuple, tuple[float, tuple[CourseMatch, ...]]] = {}
+
+
 def _clear_nearby_cache_for_tests() -> None:
     with _NEARBY_CACHE_LOCK:
         _NEARBY_CACHE.clear()
+        _SEARCH_CACHE.clear()
 
 
 def courseview_nearby(
@@ -433,9 +442,24 @@ def courseview_search(
         and longitude is not None
         and _valid_location(float(latitude), float(longitude))
     )
+    cache_key = (
+        q.casefold(),
+        round(float(latitude), 3) if has_location else None,
+        round(float(longitude), 3) if has_location else None,
+        expected_holes,
+        (city or "").strip().casefold(),
+    )
+    now = time.monotonic()
+    with _NEARBY_CACHE_LOCK:
+        cached = _SEARCH_CACHE.get(cache_key)
+    if cached is not None and now - cached[0] <= _SEARCH_CACHE_TTL_SECONDS:
+        return [replace(match) for match in cached[1]]
+    deadline_at = now + _SEARCH_DEADLINE_SECONDS
     records: dict[int, dict] = {}
     previous_page_ids: tuple[int, ...] | None = None
     for page in range(1, _SEARCH_MAX_PAGES + 1):
+        if page > 1 and time.monotonic() >= deadline_at:
+            break  # keep the pages already received rather than paging Garmin indefinitely
         # A provider/network failure is not a truthful "no matches" result. Let the API map the
         # exception to 502 so iOS can show its existing retryable network state, matching nearby
         # discovery instead of telling the player to change a perfectly valid course name.
@@ -482,4 +506,8 @@ def courseview_search(
         ))
     else:
         matches.sort(key=lambda m: m.ratio, reverse=True)
+    with _NEARBY_CACHE_LOCK:
+        if len(_SEARCH_CACHE) >= _SEARCH_CACHE_MAX_ENTRIES:
+            _SEARCH_CACHE.pop(min(_SEARCH_CACHE, key=lambda key: _SEARCH_CACHE[key][0]), None)
+        _SEARCH_CACHE[cache_key] = (time.monotonic(), tuple(replace(match) for match in matches))
     return matches

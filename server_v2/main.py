@@ -288,7 +288,9 @@ app.add_middleware(
 # Mobile round packages intentionally retain the complete 18-hole JSON contract. Compressing the
 # highly repetitive response reduces tunnel/cellular transfer without changing decoded fields; the
 # middleware only activates above 1 KiB and leaves small health/metadata responses untouched.
-app.add_middleware(GZipMiddleware, minimum_size=1024)
+# Level 6 keeps nearly all of level 9's ratio on JSON while costing far less CPU per multi-MB
+# stats/package body (compression runs on the event loop).
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 
 def _safe_validation_errors(exc: RequestValidationError) -> list[dict[str, object]]:
