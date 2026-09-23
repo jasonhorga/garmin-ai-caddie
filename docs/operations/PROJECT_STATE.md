@@ -9,41 +9,35 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-23 08:22 UTC
-**Branch:** `integration/v2` (GitHub default; current `PHONE-UX7-ROUTE2` source
-is `a13724e1574085593cf951c0402e85f7b62d3d85` and the new backend candidate
-reports the same exact revision; Source CI `35783064875` and exact-SHA full
-Native Mobile CI `35783509011` passed all jobs, including live iPhone and
-Watch runtime capture and live preflight. Internal TestFlight CD
-`35790741683` uploaded Build 73 after the documented degraded-readiness
-fallback; Apple processing and read-only check `35791517965` confirm Build 73
-is `VALID`, unexpired, `IN_BETA_TESTING`, and visible in the existing internal
-all-builds group. Apple still reports `internalReady=false`, matching prior
-group-visible builds; physical iPhone/Watch installation and interaction
-validation remain open. The new API candidate
-`https://biggest-professor-campaign-figured.trycloudflare.com` is on loopback
-`39083`; its authenticated A1 prep proof is saved in the candidate scratch and
-includes `greenDistances.frontRouteM=477.8`, `backRouteM=496.4`, and a
-three-step `Driver -> 3W -> 7I` route. The first CD attempt
-`35789885651` correctly stopped before upload because authenticated backend
-readiness was degraded; the successful retry used `test_environment_upload=true`
-and kept `external_distribution=false`. The preceding internal TestFlight CD `35564616252` uploaded Build 71
-and Apple read-only check `35565388266` confirmed `VALID`, unexpired,
-`IN_BETA_TESTING`, and visible to the existing internal all-builds group. Fresh
-internal Build 72 containing the IMG-8160 correction is now Apple `VALID`,
-unexpired, `IN_BETA_TESTING`, and visible through the existing all-builds
-internal group. Apple reports `internalReady=false` even though the build is
-group-visible; physical iPhone/Watch installation and interaction validation
-remain open; prior localized-course-name and network releases remain recorded
-below)
-**Source baseline:** `d8769916d4b7ea1fc8b2bdcfb151a67f944a6eb0` (PHONE-UX5
-course-name source; Source CI `35005531664`, Native Mobile CI `35005819951`,
-and internal TestFlight CD `35013065767` passed/uploaded; Apple read-only check
-`35014393530` confirmed Build 63 `VALID`/`IN_BETA_TESTING` and group visibility;
-candidate Quick Tunnel is `https://cuisine-collective-pulled-brass.trycloudflare.com`;
-physical device evidence remains open; historical TestFlight builds remain
-recorded below).
-PERF-STARTUP baseline remains `70e74a6eb04bae1d656bc8cee81f534e0ae4f2b7`.
+**Updated:** 2026-09-23 11:32 UTC
+**Branch:** `integration/v2` at canonical HEAD
+`3c5ec81af1b0f67576c0e93e1ede0c305194d099`. PR #332 is merged and its
+post-deploy gates are complete: Source CI `35838477517`, exact-SHA Native Mobile
+CI `35847317420`, homeserver deployment on production `127.0.0.1:39055`, and
+internal TestFlight CD `35853831558` uploaded Build `0.1.0 (74)` with
+`external_distribution=false`; provenance binds the app and backend to the
+canonical SHA and records IPA SHA-256
+`98e568501f243086d6eb2a253a6a31d0c42530bb1c2faadd576a89753777c64b`.
+Read-only ASC check `35854907245` confirms Build 74 is `VALID`, unexpired,
+`IN_BETA_TESTING`, arm64, contains the Watch bundle, and is visible in the
+existing internal all-builds group. Apple still reports `internalReady=false`;
+that does not prevent the current group-visible internal build. No external app
+distribution or tester mutation was performed.
+
+The active production container is
+`aicaddie-release-3c5ec81a-production-20260923` on `39055`; the stopped
+rollback is `aicaddie-release-5124d638-rollback-20260923`. The route2 physical
+validation candidate remains `aicaddie-release-a13724e1-candidate-20260922` on
+`39083` and is intentionally untouched. Post-deploy timings were history
+`0.34/0.26s`, package `2.36/0.89s`, and prep `5.10/0.03s` (cold/warm where
+applicable); the authenticated 31795 three-hole route/hazard payload matches
+the validation baseline hash
+`daa4580dd524b9fa6b455b2010836f456e83c472c22f95e331511f973ade275f`.
+Readiness remains `degraded` for pre-existing Garmin reauth/snapshot/native/
+weather evidence gaps, not a container health failure. Physical iPhone/Watch
+installation and interaction evidence remains open.
+
+**PERF-STARTUP baseline remains `70e74a6eb04bae1d656bc8cee81f534e0ae4f2b7`.**
 **Release rule:** the gates are ordered, not circular:
 `canonical source -> source/Native CI and backend preflight -> automatic fresh
 internal TestFlight build/upload (the workflow performs signing) -> Apple
@@ -89,12 +83,15 @@ from `/api/v2/health` on both protected endpoints. No product code was changed;
 the current product slice remains `PHONE-UX7-ROUTE2` `evidence-open` pending
 the planned audit/physical evidence.
 
-**Current slice (2026-09-23):** `PR332` is `in-progress`: complete exact-SHA
-homeserver validation, merge the reviewed performance/caddie fixes, deploy the
-same source revision and verify post-deploy health/performance before the
-internal TestFlight gate. The validation is deliberately bounded: it must
-separate warm-cache improvements from first-time course startup, and it must
-record the remaining caddie-planner defects rather than calling them fixed.
+**Current slice (2026-09-23):** `PR332` is `evidence-open`: merge,
+exact-SHA homeserver validation, production deployment, Native CI, internal
+TestFlight upload, and Apple processing/status checks are complete. The
+validation remains deliberately bounded: PR332 improves history and
+warm-cache/package behavior, but does not claim a complete first-time course
+cold-start fix or a finished tee-aware/multi-planner caddie architecture.
+Next action is physical iPhone/Watch installation and interaction evidence;
+until that arrives, do not promote externally or remove the production
+rollback/candidate resources.
 
 **Previous slice (2026-09-22):** `PHONE-UX7-ROUTE2` is `evidence-open`: repair the
 four-stroke-hole route objective exposed by the Black Knight A1 screenshots. The
@@ -2438,7 +2435,7 @@ project-level task list; historical plans are reference material.
 | `CADDIE-P0` | `evidence-open` | Add the 12 caddie golden regressions, then enforce hard feasibility, segmented hazards, filtered club-set consistency, non-Tee Driver prohibition, per-shot re-projection, explicit infeasible reasons, and risk/stability ranking. | Code commit `27ece094`; homeserver focused `194/194`, expanded `275/275` with 2 skips, changed-file compile, 12/12 blocking golden replay and warm performance gates pass; evidence SHA-256 `9b9c5833d256c20ab057238bedf1a337bd0cd18b9428d64a3122525d9808196c`. Source CI `35462771563`, selector-fix Source CI `35466407538`, and the `aa05695f` backend candidate/public preflight pass. Native `35472611538` and Build 68/TestFlight `35475506127` are green; physical evidence remains open. |
 | `PHONE-UX6` | `evidence-open` | Implement the `IMG_8135`-`IMG_8139` slice: canonical structured prep/live caddie plans with all landing legs, selectable plan-map state, removal of the offline-ready banner, coherent local-first round loading, and iPhone/Watch identity/interaction parity. Keep download-speed diagnosis measured and separate from UI claims. | Build 70 from source `df83de64` is `VALID`, `IN_BETA_TESTING`, and available to the existing internal all-builds group. It preserves factual A/B/C and named course-area labels, appends `场` at most once, and removes the erroneous ordinal conversion. Source CI `35525485383`, Native `35525505845`, CD `35528165601`, and Apple check `35528692568` passed; physical iPhone/Watch confirmation remains open. Screenshots live under `/home/ubuntu/IMG_*`. |
 | `PHONE-UX7` | `evidence-open` | Correct live-round truth and immediate interaction after Build 70, including the real live-route regression shown by `IMG_8160`: a normal Par 4 must not default to a repeated short tee club merely because two median carries add up. Keep hard hazard/dispersion constraints and explain a shorter tee choice when it is genuinely safer. | Source/backend `837c0d9a`, Source CI `35615806302`, exact-SHA Native Mobile CI `35617605192`, authenticated decision evidence, TestFlight CD `35625370999`, and Apple check `35626544584` are green. Build 72 is `VALID`/`IN_BETA_TESTING` and group-visible. Black Knight A1 now resolves to the validated `Driver -> 3H` prefix with no through-green leg. Only physical iPhone/Watch installation and interaction evidence remains open. |
-| `PR332` | `in-progress` | Validate and integrate the performance, cache, web review, Watch image-write, iOS GIR, and bounded caddie fixes from PR #332; explicitly separate warm-cache gains from first-time course startup and preserve unresolved planner architecture items. | Exact-head Native/Source CI is green (`35820940196`). Homeserver base-vs-PR evidence is retained under `/home/jason/garmin-ai-caddie-data/operations/pr332-validation-20260923/`: history rounds `13.78/8.92s` -> `2.30/0.37s`, stats `9.14/3.49s` -> `4.45/1.06s`, package `6.69/2.18s` -> `4.65/1.85s`; precise Black Knight `31795` holes 1/3/4 routes and hazard geometry are byte-identical. Cold nine-hole prep warm remains about `36.99s`, so new-course startup and tee-aware/multi-planner caddie architecture remain unresolved. PR comment `5791614286` records the full evidence. Merge/deploy/TestFlight gates are still pending. |
+| `PR332` | `evidence-open` | Validate and integrate the performance, cache, web review, Watch image-write, iOS GIR, and bounded caddie fixes from PR #332; explicitly separate warm-cache gains from first-time course startup and preserve unresolved planner architecture items. | Merged at canonical `3c5ec81af1b0f67576c0e93e1ede0c305194d099`. Source CI `35838477517`, exact-SHA Native Mobile CI `35847317420`, production deployment on `39055`, internal TestFlight CD `35853831558` (Build 74), and read-only ASC check `35854907245` are complete. Homeserver base-vs-PR evidence remains under `/home/jason/garmin-ai-caddie-data/operations/pr332-validation-20260923/`: history rounds `13.78/8.92s` -> `2.30/0.37s`, stats `9.14/3.49s` -> `4.45/1.06s`, package `6.69/2.18s` -> `4.65/1.85s`; precise Black Knight `31795` holes 1/3/4 routes and hazard geometry are byte-identical. Cold nine-hole prep warm remains about `36.99s`, so new-course startup and tee-aware/multi-planner caddie architecture remain unresolved. Validation evidence is in PR comment `5791614286`, deployment/TestFlight closeout is in PR comment `5794176571`, and the 2026-09-23 deployment manifest records resource cleanup. Physical iPhone/Watch installation and interaction evidence remains open. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
