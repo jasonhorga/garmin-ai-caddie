@@ -949,6 +949,7 @@ def _sequence_gir_index(
     if not (math.isfinite(front) and math.isfinite(back) and back >= front):
         return None
     cumulative = 0.0
+    previous_offset = 0.0
     for index, row in enumerate(rows):
         carry = _float(
             row.get("median_m")
@@ -968,6 +969,17 @@ def _sequence_gir_index(
             math.nan,
         )
         offset = supplied_offset if math.isfinite(supplied_offset) and supplied_offset > 0 else cumulative
+        # Materialized steps clamp ``routeOffset_m`` to the route end so the map line stops at the
+        # flag.  That display clamp must not decide GIR: a median landing well past the back edge
+        # would otherwise be pulled back onto the green and labelled a green in regulation.
+        projected = previous_offset + carry
+        if (
+            math.isfinite(route_length_m)
+            and offset >= route_length_m - 0.05
+            and projected > offset + 0.05
+        ):
+            offset = projected
+        previous_offset = offset
         if index + 1 > limit:
             break
         if offset >= front - GIR_FRONT_TOLERANCE_M and offset <= back + GIR_BACK_TOLERANCE_M:
@@ -2575,13 +2587,15 @@ def _selection_reasons(
                 "reason": f"The recommendation is recalculated from the current {context.get('lie') or 'non-tee'} lie; Driver is excluded.",
             }
         )
-    wind = _weather_snapshot(context)
-    slope_adjustment = _float(context.get("slopeAdjustmentM"), 0.0)
-    if (wind and _float(wind.get("windSpeedMps"), 0.0) > 0) or slope_adjustment:
+    # Only claim what the planner actually applied.  Wind is folded into approach/recovery carries
+    # (``weatherAdjustment``); tee sequences and slope are not adjusted, so saying "wind and slope
+    # are included" there was a false statement shown to the player.
+    weather_adjustment = selected.get("weatherAdjustment") if isinstance(selected.get("weatherAdjustment"), dict) else {}
+    if abs(_float(weather_adjustment.get("meters"), 0.0)) > 0:
         reasons.append(
             {
                 "code": "conditions_replan",
-                "reason": "Wind, slope, and the current lie are included in this re-plan.",
+                "reason": "The target carry includes the current wind adjustment.",
             }
         )
     if selected_sequence and selected_sequence.get("completion") == "replan_required":
@@ -3161,14 +3175,33 @@ def _profile_tee_routes(
 
     # Attack is a real alternative only when its first club differs. Do not duplicate Driver under
     # a second label; the UI's physical-route deduper should not hide a meaningful choice.
+    # It must also be more aggressive than the stock line that was actually kept: after an
+    # explicit route's stock club is upgraded to Driver, the "next non-driver" is shorter than
+    # stock, which produced safe 3W / stock Driver / attack 3W.
+    stock_index = by_option.get("stock")
+    stock_route = existing[stock_index] if stock_index is not None else None
+    stock_identity = _club_identity(
+        (stock_route.get("club") or stock_route.get("clubName")) if stock_route else stock_row
+    )
+    stock_carry = (
+        _float(stock_route.get("carry_m"), _float(stock_row.get("median_m")))
+        if stock_route
+        else _float(stock_row.get("median_m"))
+    )
+    longer = [
+        row
+        for row in usable
+        if _club_identity(row) != stock_identity and _float(row.get("median_m")) > stock_carry
+    ]
     attack_row = (
         driver
         if driver is not None
-        and _club_identity(driver) != _club_identity(stock_row)
+        and driver in longer
         and _club_hard_hazard_safe(driver, hazards)
-        else next(
-            (row for row in non_driver if _club_identity(row) != _club_identity(stock_row)),
-            None,
+        else min(
+            (row for row in longer if not _driver_row(row)),
+            key=lambda row: _float(row.get("median_m")),
+            default=None,
         )
     )
     if attack_row is not None:
