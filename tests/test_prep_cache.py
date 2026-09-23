@@ -299,8 +299,8 @@ class PrepCacheTests(unittest.TestCase):
             )
         self.assertLessEqual(len(prep_cache._cache), prep_cache._MAXSIZE)
         # The most-recent key survives; the oldest (gid=0) was evicted.
-        newest = (prep_cache._MAXSIZE + 39, (1,), True, False, "me")
-        oldest = (0, (1,), True, False, "me")
+        newest = (prep_cache._MAXSIZE + 39, (1,), True, False, "me", "prep")
+        oldest = (0, (1,), True, False, "me", "prep")
         self.assertIn(newest, prep_cache._cache)
         self.assertNotIn(oldest, prep_cache._cache)
 

@@ -217,10 +217,13 @@ def cached_course_prep(
     include_shots: bool,
     player_id: str,
     build: Callable[[], Any],
+    variant: str = "prep",
 ) -> Any:
     """Return the cached prep response for these inputs, or ``build()`` it and cache it.
 
-    Keyed by (course, requested holes, render, include_shots, player) — the prep response differs
+    Keyed by (course, requested holes, render, include_shots, player, variant) — ``variant``
+    separates differently-shaped builds over the same inputs (the prep payload vs. the raw
+    ``prep_nine`` holes that /prep-tips consumes). The prep response differs
     per player (owner gets the real ladder + scatter; others get the generic ladder). The build runs
     OUTSIDE the lock so a cold ~19s build never serialises concurrent distinct requests.
 
@@ -229,7 +232,7 @@ def cached_course_prep(
     exactly once even under N simultaneous first-requests. Different keys build in parallel (each has
     its own Event); the build never runs while holding ``_lock``, so distinct keys never serialise.
     """
-    key = (int(global_id), tuple(requested), bool(render), bool(include_shots), player_id)
+    key = (int(global_id), tuple(requested), bool(render), bool(include_shots), player_id, variant)
     fingerprint = _fingerprint(global_id, player_id, requested)
     while True:
         with _lock:

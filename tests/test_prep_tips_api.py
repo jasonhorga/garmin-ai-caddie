@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from ai_caddie.courses import course_prep
+from ai_caddie.courses import course_prep, prep_cache
 from ai_caddie.core.config import get_settings
 from server_v2.main import app
 from server_v2.prep_tips import _course_key_for_global_id
@@ -48,6 +48,7 @@ class PrepTipsApiTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
+        prep_cache.clear()  # prep-tips holes are cached like /prep; each test patches prep_nine
         self.client = TestClient(app)
 
     def tearDown(self) -> None:
@@ -132,6 +133,9 @@ class PrepTipsLadderScopingTests(unittest.TestCase):
     generic DEFAULT_LADDER, never the owner's club_ladder() (which prep_nine would otherwise fall
     back to when no ladder is passed). Mirrors the /course/{id}/prep route's owner gating."""
 
+    def setUp(self) -> None:
+        prep_cache.clear()
+
     def _run(self, player_id: str):
         import types as _types
 
@@ -149,6 +153,12 @@ class PrepTipsLadderScopingTests(unittest.TestCase):
         club_ladder, prep_nine = self._run("me")
         club_ladder.assert_called_once()
         self.assertEqual(prep_nine.call_args.kwargs["ladder"], [("OWNER_DRIVER", 250)])
+
+    def test_repeat_request_reuses_cached_prep_holes(self) -> None:
+        _club_ladder, first = self._run("me")
+        _club_ladder, second = self._run("me")
+        first.assert_called_once()
+        second.assert_not_called()  # same fingerprint -> no second all-holes prep build
 
     def test_member_gets_generic_ladder_never_owner(self) -> None:
         club_ladder, prep_nine = self._run("p_member1")
