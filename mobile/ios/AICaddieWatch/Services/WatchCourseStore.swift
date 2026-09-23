@@ -72,6 +72,9 @@ public final class WatchCourseStore {
         // Templates are immutable facts for one front/back/Tee setup. Replacing only the same
         // composite key lets several nine-hole pairings and Tee choices coexist in one file.
         if let index = courses.firstIndex(where: { $0.cacheKey == course.cacheKey }) {
+            // Progress snapshots re-save the same template repeatedly; skip re-encoding every
+            // stored course when nothing changed.
+            if courses[index] == course { return }
             courses[index] = course
         } else {
             courses.append(course)

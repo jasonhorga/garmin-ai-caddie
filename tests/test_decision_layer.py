@@ -6,6 +6,8 @@ from unittest.mock import patch
 from ai_caddie.caddie.analysis import _hole_summary, llm_brief
 from ai_caddie.caddie.decision import (
     _dedupe_strategy_options,
+    _profile_tee_routes,
+    _route_option_id,
     audit_decision,
     build_decision_plan,
     generate_decision_explanation,
@@ -739,6 +741,30 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertEqual([step["clubName"] for step in selected["clubs"]], ["1W", "3H", "58"])
         self.assertFalse(selected.get("greenInRegulation", False))
 
+    def test_par4_leg_that_flies_the_back_edge_is_not_gir(self) -> None:
+        """The map clamps the last landing to the flag; GIR must use the real median landing."""
+        context = analysis_fixture(stock_risk=1)
+        context.update({
+            "par": 4,
+            "distanceToPin_m": 396.0,
+            "canonicalPlanRouteLength_m": 396.0,
+            "canonicalShotPlan": [
+                {"clubName": "1W", "targetCarry_m": 199.2, "routeOffset_m": 199.2, "planIndex": 0},
+                {"clubName": "3W", "targetCarry_m": 213.0, "routeOffset_m": 412.2, "planIndex": 1},
+            ],
+            # The median second landing (412.2 m) is past back (400 m) + the 8 m tolerance.
+            "greenDistances": {"available": True, "frontM": 376.0, "middleM": 388.0, "backM": 400.0},
+            "clubProfiles": {
+                "1W": {"clubName": "1W", "sampleSize": 120, "median": 199.2, "p10": 180.0, "p90": 215.0},
+                "3W": {"clubName": "3W", "sampleSize": 80, "median": 213.0, "p10": 200.0, "p90": 224.0},
+            },
+        })
+
+        selected = build_decision_plan(context)["selectedSequence"]
+
+        self.assertEqual([step["clubName"] for step in selected["clubs"]], ["1W", "3W"])
+        self.assertFalse(selected.get("greenInRegulation", False))
+
     def test_par4_uses_route_green_window_when_straight_distance_would_false_positive(self) -> None:
         """A dogleg's straight F/B range must not label a short second leg as GIR."""
         context = analysis_fixture(stock_risk=1)
@@ -961,6 +987,84 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIsNone(plan["selected"])
         feasibility = next(row for row in plan["missingData"] if row["label"] == "feasibility")
         self.assertEqual(feasibility["reason"], context["candidateRoutesReason"])
+
+    def test_profile_tee_attack_is_never_shorter_than_upgraded_stock(self) -> None:
+        """Upgrading an explicit stock route to Driver must not leave a shorter club as attack."""
+        analysis = {
+            "par": 4,
+            "distanceToPin_m": 380.0,
+            "shotType": "tee",
+            "clubProfiles": {
+                "1W": {"clubName": "1W", "sampleSize": 120, "median": 230.0, "p10": 210.0, "p90": 245.0},
+                "3W": {"clubName": "3W", "sampleSize": 80, "median": 210.0, "p10": 195.0, "p90": 222.0},
+                "5I": {"clubName": "5I", "sampleSize": 60, "median": 165.0, "p10": 150.0, "p90": 175.0},
+                "8I": {"clubName": "8I", "sampleSize": 60, "median": 135.0, "p10": 125.0, "p90": 145.0},
+            },
+        }
+        routes = [
+            {"id": "stock_line", "carry_m": 165.0, "club": "5I"},
+            {"id": "conservative_layup", "carry_m": 135.0, "club": "8I"},
+        ]
+
+        by_option = {_route_option_id(route): route for route in _profile_tee_routes(analysis, routes)}
+
+        self.assertEqual(by_option["stock"]["club"], "1W")
+        if "attack" in by_option:
+            self.assertGreater(by_option["attack"]["carry_m"], by_option["stock"]["carry_m"])
+
+    def test_tee_plan_does_not_claim_wind_or_slope_it_did_not_apply(self) -> None:
+        context = analysis_fixture(stock_risk=1)
+        context["slopeAdjustmentM"] = 6.0
+        context["weatherSnapshot"] = build_weather_snapshot(
+            round_id="round-1",
+            hole=4,
+            captured_at="2026-05-25T08:00:00Z",
+            latitude=22.279,
+            longitude=114.162,
+            source="manual",
+            observed={"windSpeedMps": 7.0, "windDirectionDeg": 90, "temperatureC": 27.0},
+        )
+
+        plan = build_decision_plan(context)
+
+        codes = {row["code"] for row in plan["selected"]["selectionReasons"]}
+        self.assertNotIn("conditions_replan", codes)
+
+    def test_unreachable_par5_approach_lays_up_to_wedge_distances(self) -> None:
+        """245 m out with a 200 m longest non-driver used to return no club for any mode."""
+        context = approach_fixture()
+        context.update({
+            "par": 5,
+            "distanceToPin_m": 245.0,
+            "hazards": [],
+            "clubProfiles": {
+                "1W": {"clubName": "1W", "sampleSize": 80, "median": 230, "p10": 210, "p90": 245},
+                "3W": {"clubName": "3W", "sampleSize": 40, "median": 200, "p10": 185, "p90": 212},
+                "5I": {"clubName": "5I", "sampleSize": 40, "median": 165, "p10": 150, "p90": 175},
+                "7I": {"clubName": "7I", "sampleSize": 40, "median": 145, "p10": 132, "p90": 155},
+                "PW": {"clubName": "PW", "sampleSize": 40, "median": 110, "p10": 100, "p90": 118},
+                "56": {"clubName": "56", "sampleSize": 40, "median": 85, "p10": 75, "p90": 92},
+            },
+        })
+
+        plan = recommend_approach(context)
+        by_id = {option["id"]: option for option in plan["options"]}
+
+        carries = [by_id[mode]["carry_m"] for mode in ("safe", "stock", "attack")]
+        self.assertEqual(carries, sorted(carries))
+        self.assertAlmostEqual(by_id["stock"]["carry_m"], 245.0 - 85.0)  # most reliable wedge: 56
+        self.assertAlmostEqual(by_id["safe"]["carry_m"], 245.0 - 110.0)  # longer leave: PW
+        self.assertAlmostEqual(by_id["attack"]["carry_m"], 200.0)
+        for mode in ("safe", "stock", "attack"):
+            clubs = [row["clubName"] for row in by_id[mode]["clubRecommendation"]["clubs"]]
+            self.assertTrue(clubs, mode)
+            self.assertNotIn("1W", clubs)
+        self.assertNotIn("club_profiles", [row["label"] for row in plan["missingData"]])
+
+    def test_reachable_approach_keeps_pin_targets(self) -> None:
+        plan = recommend_approach(approach_fixture())
+        by_id = {option["id"]: option for option in plan["options"]}
+        self.assertAlmostEqual(by_id["stock"]["carry_m"], 142.0)
 
     def test_non_tee_plan_excludes_driver_and_explains_current_lie(self) -> None:
         context = long_hole_fixture()

@@ -1,4 +1,4 @@
-"""「打开即用」:准备「最近一盘」—— 定位最新那盘的球场+洞,预热 topo + 烤统计。
+"""「打开即用」:准备「最近一盘」—— 定位最新那盘的球场+洞,预热 topo + 烤统计,并预热最近几个球场的逐洞 prep。
 
 纯编排:渲染(prewarm)与烤统计(warm_stats)以参数注入,便于测试。每步 best-effort
 (失败 swallow),**绝不弄崩触发它的响应或后台线程**(镜像现有 warm_stats_cache 的语义)。
@@ -40,12 +40,29 @@ def recent_round_topo_targets(data: HistoryData) -> list[tuple[int, list[int]]]:
     return [(gid, holes) for gid, holes in by_gid.items()]
 
 
+def recent_course_ids(data: HistoryData, limit: int = 3) -> list[int]:
+    """最近打过的不同物理球场 gid(新→旧,最多 ``limit`` 个;前后九各自的 gid 都算)。"""
+    rounds = sorted((r for r in data.rounds if r.get("date")), key=lambda r: str(r.get("date")), reverse=True)
+    out: list[int] = []
+    for row in rounds:
+        n = len(str(row.get("holePars") or "")) or 18
+        for hole in (1, 10) if n > 9 else (1,):
+            gid, _local = _geometry_target(row, hole)
+            if gid is not None and int(gid) not in out:
+                out.append(int(gid))
+        if len(out) >= limit:
+            break
+    return out[:limit]
+
+
 def prepare_recent_round(
     data: HistoryData,
     *,
     prewarm: Callable[[int, list[int]], None],
     warm_stats: Callable[[], None],
     ensure_geometry: Callable[[int, list[int]], None] | None = None,
+    warm_prep: Callable[[int], None] | None = None,
+    prep_course_limit: int = 3,
 ) -> dict[str, Any]:
     """预热最近一盘的 topo + 烤统计。每步 best-effort。返回 {"courses": [...], "holes": N}。
 
@@ -67,4 +84,17 @@ def prepare_recent_round(
         warm_stats()
     except Exception:  # noqa: BLE001
         logger.exception("stats warm failed")
-    return {"courses": [gid for gid, _ in targets], "holes": sum(len(h) for _, h in targets)}
+    # 开局提速:最近打过的几个球场的逐洞 prep(render=False)进缓存,手机/手表/开局 package
+    # 都复用同一份逐洞结果;输入未变时命中缓存、零成本。
+    warmed: list[int] = []
+    if warm_prep is not None:
+        for gid in recent_course_ids(data, limit=prep_course_limit):
+            try:
+                warm_prep(gid)
+                warmed.append(gid)
+            except Exception:  # noqa: BLE001 - best-effort
+                logger.exception("prep warm failed for gid=%s", gid)
+    out: dict[str, Any] = {"courses": [gid for gid, _ in targets], "holes": sum(len(h) for _, h in targets)}
+    if warm_prep is not None:
+        out["prepCourses"] = warmed
+    return out

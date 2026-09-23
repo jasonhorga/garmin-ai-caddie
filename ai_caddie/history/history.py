@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 import math
 import re
+import threading
+import weakref
 
 from ai_caddie.caddie.analysis import COLORS, _component_points, _convex_hull, load_geometry
 from ai_caddie.core.data import (
@@ -126,6 +128,63 @@ def _history_course_ids(row: dict[str, Any]) -> set[int]:
     return ids
 
 
+class _CourseNameIndex:
+    """Per-``HistoryData`` lookup tables for venue-name resolution.
+
+    ``_related_course_name_rows`` used to scan every raw and normalized row for every card it
+    named, which made ``/history/rounds`` and the stats course tables O(rounds^2).  The index
+    maps each ``courseKey`` / course id to candidate positions once, and memoizes the selected
+    identity per related-row set, while preserving the original candidate order exactly.
+    """
+
+    def __init__(self, data: HistoryData) -> None:
+        self.candidates: list[dict[str, Any]] = []
+        self.position: dict[int, int] = {}
+        self.by_key: dict[str, list[int]] = defaultdict(list)
+        self.by_id: dict[int, list[int]] = defaultdict(list)
+        self.sizes = (len(data.raw_rounds), len(data.rounds))
+        self.identities: dict[tuple[int, ...], Any] = {}
+        for candidate in [*data.raw_rounds, *data.rounds]:
+            if not isinstance(candidate, dict) or id(candidate) in self.position:
+                continue
+            index = len(self.candidates)
+            self.candidates.append(candidate)
+            self.position[id(candidate)] = index
+            key = str(candidate.get("courseKey") or "").strip()
+            if key:
+                self.by_key[key].append(index)
+            for course_id in _history_course_ids(candidate):
+                self.by_id[course_id].append(index)
+
+    def related_positions(self, row: dict[str, Any]) -> list[int]:
+        target_key = str(row.get("courseKey") or "").strip()
+        positions: set[int] = set(self.by_key.get(target_key, ())) if target_key else set()
+        for course_id in _history_course_ids(row):
+            positions.update(self.by_id.get(course_id, ()))
+        return sorted(positions)
+
+
+_COURSE_NAME_INDEXES: dict[int, tuple[weakref.ref, _CourseNameIndex]] = {}
+_COURSE_NAME_INDEX_LOCK = threading.Lock()
+_COURSE_NAME_INDEX_LIMIT = 8
+
+
+def _course_name_index(data: HistoryData) -> _CourseNameIndex:
+    sizes = (len(data.raw_rounds), len(data.rounds))
+    with _COURSE_NAME_INDEX_LOCK:
+        entry = _COURSE_NAME_INDEXES.get(id(data))
+        if entry is not None and entry[0]() is data and entry[1].sizes == sizes:
+            return entry[1]
+    index = _CourseNameIndex(data)
+    with _COURSE_NAME_INDEX_LOCK:
+        for key in [k for k, (ref, _index) in _COURSE_NAME_INDEXES.items() if ref() is None]:
+            _COURSE_NAME_INDEXES.pop(key, None)
+        if len(_COURSE_NAME_INDEXES) >= _COURSE_NAME_INDEX_LIMIT:
+            _COURSE_NAME_INDEXES.clear()
+        _COURSE_NAME_INDEXES[id(data)] = (weakref.ref(data), index)
+    return index
+
+
 def _related_course_name_rows(data: HistoryData, row: dict[str, Any]) -> list[dict[str, Any]]:
     """Collect all source rows that can establish one physical venue name.
 
@@ -136,23 +195,26 @@ def _related_course_name_rows(data: HistoryData, row: dict[str, Any]) -> list[di
     trusted Garmin snapshot win without importing a name from an unrelated
     nearby venue.
     """
-    target_ids = _history_course_ids(row)
-    target_key = str(row.get("courseKey") or "").strip()
-    related: list[dict[str, Any]] = []
-    seen: set[int] = set()
-    for candidate in [*data.raw_rounds, *data.rounds, row]:
-        if not isinstance(candidate, dict):
-            continue
-        candidate_ids = _history_course_ids(candidate)
-        same_key = bool(target_key and str(candidate.get("courseKey") or "").strip() == target_key)
-        if candidate is not row and not same_key and not target_ids.intersection(candidate_ids):
-            continue
-        marker = id(candidate)
-        if marker in seen:
-            continue
-        seen.add(marker)
-        related.append(candidate)
+    index = _course_name_index(data)
+    related = [index.candidates[position] for position in index.related_positions(row)]
+    if id(row) not in index.position:
+        related.append(row)
     return related or [row]
+
+
+def _select_related_identity(data: HistoryData, row: dict[str, Any]) -> Any:
+    index = _course_name_index(data)
+    if id(row) not in index.position:
+        return select_garmin_name_identity(_related_course_name_rows(data, row))
+    # Rows sharing the same related set share the same identity; memoize it.
+    positions = tuple(index.related_positions(row))
+    if not positions:
+        return select_garmin_name_identity([row])
+    if positions not in index.identities:
+        index.identities[positions] = select_garmin_name_identity(
+            [index.candidates[position] for position in positions]
+        )
+    return index.identities[positions]
 
 
 def history_course_venue_name(
@@ -169,8 +231,7 @@ def history_course_venue_name(
     removed from this value and can be exposed separately via
     :func:`history_course_segment`.
     """
-    related = _related_course_name_rows(data, row)
-    identity = select_garmin_name_identity(related)
+    identity = _select_related_identity(data, row)
     if is_trusted_garmin_identity(identity) and identity is not None and identity.venue:
         return identity.venue
     source_name = preferred_garmin_source_name(row, preserve_suffix=False)
@@ -586,6 +647,49 @@ def merge_same_day_halves(rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return merged
 
 
+_SHOT_INDEXES: dict[int, tuple[weakref.ref, int, dict[str, list[int]]]] = {}
+_SHOT_INDEX_LOCK = threading.Lock()
+
+
+def _shot_positions_by_source(data: HistoryData) -> dict[str, list[int]]:
+    shot_count = len(data.shots)
+    with _SHOT_INDEX_LOCK:
+        entry = _SHOT_INDEXES.get(id(data))
+        if entry is not None and entry[0]() is data and entry[1] == shot_count:
+            return entry[2]
+    positions: dict[str, list[int]] = defaultdict(list)
+    for position, shot in enumerate(data.shots):
+        keys = {str(shot.get("scorecardId")) if shot.get("scorecardId") is not None else "",
+                str(shot.get("roundId") or "")}
+        for key in keys:
+            if key:
+                positions[key].append(position)
+    with _SHOT_INDEX_LOCK:
+        for key in [k for k, (ref, _n, _p) in _SHOT_INDEXES.items() if ref() is None]:
+            _SHOT_INDEXES.pop(key, None)
+        if len(_SHOT_INDEXES) >= _COURSE_NAME_INDEX_LIMIT:
+            _SHOT_INDEXES.clear()
+        _SHOT_INDEXES[id(data)] = (weakref.ref(data), shot_count, positions)
+    return positions
+
+
+def round_source_shots(data: HistoryData, round_row: dict[str, Any]) -> list[tuple[int, dict[str, Any]]]:
+    """Canonical copies of the shots that may belong to ``round_row``, with their global index.
+
+    Equivalent to filtering ``enumerate(remap_shots_to_merged_rounds(data.shots, [round_row]))``
+    but only touches the round's own shots (a per-``HistoryData`` index keyed by scorecard and
+    round id) instead of copying the whole shot history for every detail/shot-map request.
+    Callers still apply their own membership/hole filters to the returned rows.
+    """
+    member_ids = {str(round_row.get("id"))}
+    if isinstance(round_row.get("ids"), (list, tuple, set)):
+        member_ids.update(str(value) for value in round_row["ids"])
+    index = _shot_positions_by_source(data)
+    positions = sorted({position for member in member_ids for position in index.get(member, ())})
+    remapped = remap_shots_to_merged_rounds([data.shots[position] for position in positions], [round_row])
+    return list(zip(positions, remapped))
+
+
 def remap_shots_to_merged_rounds(
     shots: list[dict[str, Any]], rounds: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -777,10 +881,16 @@ def load_shot_history(
             if shot_data.get("_no_data"):
                 continue
             club_map, retired = _build_club_map(shot_data)
+            # Parse the scorecard once per round, not once per hole: it is only needed for the
+            # front/back layout ids that map an absolute hole onto its CourseView hole.
+            try:
+                scorecard = read_json(scorecards_dir / f"{sid}.json")
+            except Exception:
+                scorecard = None
             for hole_data in shot_data.get("holeShots", []) or []:
                 hole_number = int(hole_data.get("holeNumber") or 0)
                 try:
-                    ref = round_hole_ref(read_json(scorecards_dir / f"{sid}.json"), hole_number)
+                    ref = round_hole_ref(scorecard, hole_number) if scorecard is not None else None
                 except Exception:
                     ref = None
                 for shot in hole_data.get("shots", []) or []:

@@ -522,8 +522,20 @@ def build_mobile_course_options(
             continue
         grouped.setdefault(global_id, []).append(row)
 
+    # Resolving a course reads its CourseView release twice (segment + tees). The final order is
+    # (latest date, round count, name) and only the top COURSE_OPTION_LIMIT survive, so resolve
+    # just the groups that can make the cut: the top ranks by (date, count) plus every group tied
+    # with the last one, whose names decide the tie exactly as before.
+    def _rank(item: tuple[int, list[dict[str, Any]]]) -> tuple[str, int]:
+        return (max(str(row.get("date") or "") for row in item[1]), len(item[1]))
+
+    ranked = sorted(grouped.items(), key=_rank, reverse=True)
+    if len(ranked) > COURSE_OPTION_LIMIT:
+        cutoff = _rank(ranked[COURSE_OPTION_LIMIT - 1])
+        ranked = [item for item in ranked if _rank(item) >= cutoff]
+
     courses: list[dict[str, Any]] = []
-    for global_id, rows in grouped.items():
+    for global_id, rows in ranked:
         rows_sorted = sorted(rows, key=lambda row: str(row.get("date") or ""), reverse=True)
         latest = rows_sorted[0]
         template_round_id = str(latest.get("id") or "")

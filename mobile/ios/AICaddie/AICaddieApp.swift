@@ -1279,13 +1279,19 @@ public final class LiveRoundAppModel: ObservableObject {
     private func prefetchFirstHoleTopo(in snapshot: LiveRoundPackage) {
         #if canImport(UIKit)
         guard let client = syncClient,
-              let first = snapshot.holes.first,
-              let prep = snapshot.coursePrep?.holes.first(where: { $0.hole == first.number }),
-              prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
-              prep.resolvedMapOverlay != nil else { return }
+              let first = snapshot.holes.first else { return }
+        // Course packages seed only a lightweight CourseView prep whose coverage is always
+        // "partial", so gating on the prep alone meant this prefetch never ran. The package hole
+        // row carries the precise geometry state and the revision the live view will request once
+        // its precise prep arrives.
+        let prep = snapshot.coursePrep?.holes.first(where: { $0.hole == first.number })
+        let prepReady = prep.map {
+            $0.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame && $0.resolvedMapOverlay != nil
+        } ?? false
+        guard prepReady || first.geometryCoverage == .ready else { return }
         let globalId = first.sourceGlobalId ?? snapshot.course.globalId
         let localHole = first.sourceLocalHole ?? first.number
-        let revision = prep.geometryRevision ?? first.geometryRevision
+        let revision = (prepReady ? prep?.geometryRevision : nil) ?? first.geometryRevision
         TopoHoleImageStore.prefetch(
             SyncClient.topoImageURL(
                 baseURL: client.baseURL,

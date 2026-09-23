@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import hashlib
+import logging
 import threading
 import time
 from collections import Counter, defaultdict
@@ -26,10 +27,17 @@ from ai_caddie.geometry.inspect_courseview_release import (
     load_release_pb,
 )
 
+logger = logging.getLogger(__name__)
+
 COURSE_DIR = ROOT / "data" / "courses"
 COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S = 3600.0
 COURSEVIEW_RELEASE_LANGUAGE_CODE = GARMIN_OMT_SIMPLIFIED_CHINESE
 _RELEASE_LOCKS = tuple(threading.Lock() for _ in range(64))
+# After a failed refresh of a release that is stale but still usable, serve the cached copy for
+# this long before trying Garmin again.  Without it every topo/green/prep request for the course
+# retried the (30s-timeout) fetch serially under the per-course lock while Garmin was flaky.
+COURSEVIEW_RELEASE_RETRY_BACKOFF_S = 300.0
+_RELEASE_FETCH_FAILED_AT: dict[tuple[str, int], float] = {}
 
 PAR_SOURCES = ("played", "courseview", "estimate")
 
@@ -395,6 +403,14 @@ def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT
                 )
             except (OSError, ValueError):
                 stale = True
+        failure_key = (str(root.resolve()), gid)
+        if (
+            cached_info is not None
+            and time.monotonic() - _RELEASE_FETCH_FAILED_AT.get(failure_key, float("-inf"))
+            < COURSEVIEW_RELEASE_RETRY_BACKOFF_S
+        ):
+            logger.debug("courseview_release stale_backoff gid=%s", gid)
+            return cached_info  # a recent refresh failed; keep serving the usable release
         if allow_fetch and (stale or cached_info is None):
             try:
                 candidate = load_release_pb(
@@ -403,8 +419,19 @@ def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT
                     language_code=COURSEVIEW_RELEASE_LANGUAGE_CODE,
                 )  # live fetch (anonymous, Garmin OMT locale)
                 info = inspect_valid_release(candidate, expected_course_id=gid)
-            except Exception:
+            except Exception as exc:
+                if cached_info is not None:
+                    _RELEASE_FETCH_FAILED_AT[failure_key] = time.monotonic()
+                    # The cached release stays authoritative: topo/green/prep/package all read this
+                    # same file, so they keep one consistent geometryRevision while degraded.
+                    logger.warning(
+                        "courseview_release refresh_failed gid=%s serving=cached backoff_s=%s error=%s",
+                        gid,
+                        int(COURSEVIEW_RELEASE_RETRY_BACKOFF_S),
+                        type(exc).__name__,
+                    )
                 return cached_info  # offline: the last complete release remains usable
+            _RELEASE_FETCH_FAILED_AT.pop(failure_key, None)
             _atomic_write_bytes(path, candidate)
             record_release_language(gid, candidate, root=root)
             info["_localized"] = True

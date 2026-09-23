@@ -47,13 +47,30 @@ def load_history_summary_response(*, player_id: str = OWNER_ID) -> HistoryStatsS
     cache hit after warm), then returns only ``summary`` + the top issue label —
     a ~15KB payload instead of the ~20MB full response.
     """
-    stats = load_history_stats_response(window="all", player_id=player_id)
+    # Slice the raw cached dict: validating the whole ~20MB HistoryStatsResponse only to read two
+    # fields made the home landing pay for the full stats model on every request.
+    data, mode = load_history_data_for_mode(player_id=player_id)
+    stats = cached_build_history_stats(
+        data,
+        data_mode=mode,
+        player_id=player_id,
+        annotations_root=ANNOTATION_ROOT,
+        weather_root=WEATHER_ROOT,
+        reports_root=REPORTS_ROOT,
+        decision_audit_root=DECISION_AUDIT_ROOT,
+        window="all",
+    )
     top_issue: str | None = None
-    if stats.issues:
-        candidate = stats.issues[0].get("issue")
+    issues = stats.get("issues") or []
+    if issues and isinstance(issues[0], dict):
+        candidate = issues[0].get("issue")
         if isinstance(candidate, str):
             top_issue = candidate
-    return HistoryStatsSummaryResponse(schema="ai-caddie-history-summary-v1", summary=stats.summary, topIssue=top_issue)
+    return HistoryStatsSummaryResponse(
+        schema="ai-caddie-history-summary-v1",
+        summary=stats.get("summary"),
+        topIssue=top_issue,
+    )
 
 
 def load_mobile_stats_response(window: str = "all", *, player_id: str = OWNER_ID) -> MobileStatsResponse:

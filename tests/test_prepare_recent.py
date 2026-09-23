@@ -89,5 +89,34 @@ class PrepareOrchestrationTests(unittest.TestCase):
         self.assertEqual(out, {"courses": [], "holes": 0})
 
 
+class PrepWarmTests(unittest.TestCase):
+    def test_recent_course_ids_are_distinct_newest_first_with_back_nine(self):
+        rounds = [
+            {"id": "a", "date": "2026-07-01", "globalId": 111, "holePars": "4" * 18},
+            {"id": "b", "date": "2026-07-09", "globalId": 222, "backNineGlobalCourseId": 333, "holePars": "4" * 18},
+            {"id": "c", "date": "2026-07-05", "globalId": 222, "holePars": "4" * 9},
+            {"id": "d", "date": "2026-06-01", "globalId": 444, "holePars": "4" * 18},
+        ]
+        self.assertEqual(pr.recent_course_ids(_data(rounds), limit=3), [222, 333, 111])
+
+    def test_warm_prep_runs_for_recent_courses_and_failures_are_swallowed(self):
+        rounds = [
+            {"id": "a", "date": "2026-07-01", "globalId": 111, "holePars": "4" * 9},
+            {"id": "b", "date": "2026-07-09", "globalId": 222, "holePars": "4" * 9},
+        ]
+        seen = []
+
+        def warm(gid):
+            seen.append(gid)
+            if gid == 222:
+                raise RuntimeError("geometry missing")
+
+        out = pr.prepare_recent_round(
+            _data(rounds), prewarm=lambda *a: None, warm_stats=lambda: None, warm_prep=warm,
+        )
+        self.assertEqual(seen, [222, 111])
+        self.assertEqual(out["prepCourses"], [111])
+
+
 if __name__ == "__main__":
     unittest.main()

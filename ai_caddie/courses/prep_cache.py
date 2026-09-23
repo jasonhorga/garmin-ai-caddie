@@ -42,6 +42,9 @@ _MAXSIZE = 256
 
 _lock = threading.Lock()
 _cache: "OrderedDict[tuple, tuple[Any, Any]]" = OrderedDict()
+# Per-hole entries are small factual dicts (render=False); keep enough for many courses x players.
+_HOLE_MAXSIZE = 2048
+_hole_cache: "OrderedDict[tuple, tuple[Any, Any]]" = OrderedDict()
 # Per-key singleflight: while one thread builds a key (~19s), every other thread asking
 # for the SAME key waits on this Event instead of launching its own duplicate build (a
 # thundering herd of N×19s on a cold cache). Different keys get different Events, so they
@@ -59,19 +62,19 @@ def _dir_sig(directory: Path) -> tuple[int, str]:
     name+size+mtime_ns catches all three (add/remove, in-place edit, add+delete). Cheap:
     one ``os.scandir`` plus the ``stat`` it already performs; file CONTENTS are never
     read (too slow on the shot dir) -- size+mtime_ns is the standard cheap manifest."""
-    files: list[tuple[str, int, int]] = []
+    files: list[tuple[str, int, int, int]] = []
     try:
         with os.scandir(directory) as it:
             for entry in it:
                 if entry.is_file():
                     st = entry.stat()
-                    files.append((entry.name, st.st_size, st.st_mtime_ns))
+                    files.append((entry.name, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
     except (FileNotFoundError, NotADirectoryError):
         return (0, "")
     files.sort()  # scandir order is unspecified; sort so the digest is order-independent
     digest = hashlib.blake2b(digest_size=16)
-    for name, size, mtime_ns in files:
-        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00".encode("utf-8"))
+    for name, size, mtime_ns, ctime_ns in files:
+        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
     return (len(files), digest.hexdigest())
 
 
@@ -83,28 +86,30 @@ def _matching_dir_sig(directory: Path, pattern: str) -> tuple[int, str]:
     already-stable prep for course A.  Course prep reads only ``gid<id>_h*`` geometry,
     so its cache dependency must have the same course boundary.
     """
-    files: list[tuple[str, int, int]] = []
+    files: list[tuple[str, int, int, int]] = []
     try:
         with os.scandir(directory) as it:
             for entry in it:
                 if entry.is_file() and fnmatch.fnmatchcase(entry.name, pattern):
                     st = entry.stat()
-                    files.append((entry.name, st.st_size, st.st_mtime_ns))
+                    files.append((entry.name, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
     except (FileNotFoundError, NotADirectoryError):
         return (0, "")
     files.sort()
     digest = hashlib.blake2b(digest_size=16)
-    for name, size, mtime_ns in files:
-        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00".encode("utf-8"))
+    for name, size, mtime_ns, ctime_ns in files:
+        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
     return (len(files), digest.hexdigest())
 
 
-def _file_sig(path: Path) -> tuple[int, int] | None:
+def _file_sig(path: Path) -> tuple[int, int, int] | None:
+    # ctime_ns changes on every content write (and cannot be reset with utime), so a same-size
+    # in-place rewrite within one mtime tick still changes the signature.
     try:
         st = path.stat()
     except (FileNotFoundError, NotADirectoryError):
         return None
-    return (st.st_mtime_ns, st.st_size)
+    return (st.st_mtime_ns, st.st_size, st.st_ctime_ns)
 
 
 def _manual_bag_sig(player_id: str) -> tuple[int, int] | None:
@@ -129,17 +134,17 @@ def _course_data_sig(global_id: int) -> tuple[int, str]:
         _COURSEVIEW_DIR / f"{gid}_releases.pb",
         *_COURSEVIEW_DIR.glob(f"{gid}_course_data_*.json"),
     ]
-    rows: list[tuple[str, int, int]] = []
+    rows: list[tuple[str, int, int, int]] = []
     for path in paths:
         try:
             stat = path.stat()
         except (FileNotFoundError, NotADirectoryError):
             continue
-        rows.append((path.name, stat.st_size, stat.st_mtime_ns))
+        rows.append((path.name, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
     rows.sort()
     digest = hashlib.blake2b(digest_size=16)
-    for name, size, mtime_ns in rows:
-        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00".encode("utf-8"))
+    for name, size, mtime_ns, ctime_ns in rows:
+        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
     return (len(rows), digest.hexdigest())
 
 
@@ -217,10 +222,13 @@ def cached_course_prep(
     include_shots: bool,
     player_id: str,
     build: Callable[[], Any],
+    variant: str = "prep",
 ) -> Any:
     """Return the cached prep response for these inputs, or ``build()`` it and cache it.
 
-    Keyed by (course, requested holes, render, include_shots, player) — the prep response differs
+    Keyed by (course, requested holes, render, include_shots, player, variant) — ``variant``
+    separates differently-shaped builds over the same inputs (the prep payload vs. the raw
+    ``prep_nine`` holes that /prep-tips consumes). The prep response differs
     per player (owner gets the real ladder + scatter; others get the generic ladder). The build runs
     OUTSIDE the lock so a cold ~19s build never serialises concurrent distinct requests.
 
@@ -229,13 +237,53 @@ def cached_course_prep(
     exactly once even under N simultaneous first-requests. Different keys build in parallel (each has
     its own Event); the build never runs while holding ``_lock``, so distinct keys never serialise.
     """
-    key = (int(global_id), tuple(requested), bool(render), bool(include_shots), player_id)
+    key = (int(global_id), tuple(requested), bool(render), bool(include_shots), player_id, variant)
     fingerprint = _fingerprint(global_id, player_id, requested)
+    return _singleflight(_cache, _MAXSIZE, key, fingerprint, build)
+
+
+def cached_hole_preps(
+    *,
+    global_id: int,
+    holes: list[int] | tuple[int, ...],
+    render: bool,
+    include_shots: bool,
+    player_id: str,
+    variant: str,
+    build_hole: Callable[[int], Any],
+) -> dict[int, Any]:
+    """Per-hole prep cache shared by every request shape.
+
+    Clients ask for different hole groupings (iPhone ``(1,)`` then batches, Watch three-hole
+    batches, the course package all holes, Web the whole course), so a cache keyed only by the
+    requested tuple rebuilt the same hole for each shape.  Each hole is cached under its own
+    geometry signature plus the player/course signature (computed once per call), with the same
+    single-flight guarantee as :func:`cached_course_prep`.  ``variant`` must identify every other
+    build input (e.g. a digest of the club ladder).
+    """
+    gid = int(global_id)
+    shared = _fingerprint(gid, player_id, ())
+    out: dict[int, Any] = {}
+    for hole in holes:
+        hole = int(hole)
+        key = ("hole", gid, hole, bool(render), bool(include_shots), player_id, variant)
+        fingerprint = (shared, _requested_geometry_sig(gid, [hole]))
+        out[hole] = _singleflight(_hole_cache, _HOLE_MAXSIZE, key, fingerprint, lambda h=hole: build_hole(h))
+    return out
+
+
+def _singleflight(
+    cache: "OrderedDict[tuple, tuple[Any, Any]]",
+    maxsize: int,
+    key: tuple,
+    fingerprint: Any,
+    build: Callable[[], Any],
+) -> Any:
     while True:
         with _lock:
-            hit = _cache.get(key)
+            hit = cache.get(key)
             if hit is not None and hit[0] == fingerprint:
-                _cache.move_to_end(key)  # mark recently used (LRU)
+                cache.move_to_end(key)  # mark recently used (LRU)
                 return hit[1]
             event = _inflight.get(key)
             if event is None:
@@ -260,10 +308,10 @@ def cached_course_prep(
             error = exc
         with _lock:
             if error is None:
-                _cache[key] = (fingerprint, value)
-                _cache.move_to_end(key)
-                while len(_cache) > _MAXSIZE:
-                    _cache.popitem(last=False)  # evict least-recently-used
+                cache[key] = (fingerprint, value)
+                cache.move_to_end(key)
+                while len(cache) > maxsize:
+                    cache.popitem(last=False)  # evict least-recently-used
             if _inflight.get(key) is event:
                 # Only retract OUR own registration; a clear() mid-build may have already
                 # dropped it and a successor leader installed a fresh Event we must not eat.
@@ -281,6 +329,7 @@ def clear() -> None:
     prep-endpoint tests rely on this: each test clears, then asserts its mocked build ran)."""
     with _lock:
         _cache.clear()
+        _hole_cache.clear()
         for event in _inflight.values():
             event.set()  # release anyone parked on a now-discarded build
         _inflight.clear()

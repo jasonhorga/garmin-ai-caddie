@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ai_caddie.courses import course_prep
+from ai_caddie.courses import course_prep, prep_cache
 from ai_caddie.history.history import OWNER_ID
 from ai_caddie.courses.prep_tips import build_prep_tips
 from ai_caddie.history.stats_cache import cached_build_history_stats
@@ -71,16 +71,26 @@ def load_prep_tips_response(global_id: int, *, player_id: str = OWNER_ID) -> dic
     # gets their own manual-bag ladder if set, else the generic default — never the owner's club model
     # (mirrors the /course/{id}/prep route's gating). Without an explicit ladder, prep_nine would fall
     # back to club_ladder() (the owner's), reachable here by any member.
-    ladder = course_prep.effective_club_ladder(player_id)
     # Same hole-list default as the prep endpoint: tip rules R1 (bite holes) and
     # R5 (longest holes) must see the WHOLE course, not just the front nine.
-    prep_holes = course_prep.prep_nine(
-        int(global_id),
-        course_prep.available_prep_holes(int(global_id)),
-        ladder=ladder,
+    requested = list(course_prep.available_prep_holes(int(global_id)))
+    # Cached with the same fingerprint as /prep (geometry, shots, bag, par), so repeat views of
+    # the prep page no longer re-run prep for every hole on each request.
+    prep_holes = prep_cache.cached_course_prep(
+        global_id=int(global_id),
+        requested=requested,
         render=False,
-        include_missing=True,
+        include_shots=False,
         player_id=player_id,
+        variant="prep-tips-holes",
+        build=lambda: course_prep.prep_nine(
+            int(global_id),
+            requested,
+            ladder=course_prep.effective_club_ladder(player_id),
+            render=False,
+            include_missing=True,
+            player_id=player_id,
+        ),
     )
     return build_prep_tips(
         course_row=course_row,

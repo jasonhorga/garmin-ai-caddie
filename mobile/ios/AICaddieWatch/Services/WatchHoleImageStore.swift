@@ -81,6 +81,12 @@ public final class WatchHoleImageStore {
             geometryRevision: geometryRevision,
             detail: detail
         )
+        // Course downloads persist every progress snapshot, which re-offers all images received so
+        // far. Rewriting identical bytes (and re-decoding them) on each batch turned one course into
+        // O(n^2) flash writes; an unchanged file is already the authoritative copy.
+        if let existing = try? Data(contentsOf: target, options: .mappedIfSafe), existing == data {
+            return
+        }
         // Data's atomic write replaces only after the new bytes have been written successfully. Do
         // not remove the old map first: a truncated transfer must leave the last good offline map.
         try data.write(to: target, options: .atomic)

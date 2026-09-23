@@ -209,6 +209,31 @@ class CourseviewSearchTests(unittest.TestCase):
         self.assertEqual({match.global_id for match in matches}, {1, 2, 3})
         self.assertEqual(fetch.call_count, 3)
 
+    def test_name_search_reuses_a_fresh_result_and_returns_copies(self) -> None:
+        rows = [{"global_id": 1, "name": "Mission A", "holes": 9}]
+        with (
+            patch.object(cs, "_fetch_search", return_value=b"1") as fetch,
+            patch.object(cs, "parse_course_search", return_value=rows),
+        ):
+            first = cs.courseview_search("Mission")
+            first[0].name = "mutated"
+            second = cs.courseview_search("mission")
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(second[0].name, "Mission A")
+
+    def test_name_search_stops_paging_at_the_total_deadline(self) -> None:
+        ticks = iter([0.0])  # start of the search; every later reading is past the budget
+
+        with (
+            patch.object(cs, "_NEARBY_PAGE_SIZE", 1),
+            patch.object(cs.time, "monotonic", side_effect=lambda: next(ticks, 100.0)),
+            patch.object(cs, "_fetch_search", side_effect=lambda *_a, page, **_k: str(page).encode()) as fetch,
+            patch.object(cs, "parse_course_search", side_effect=lambda pb, **_: [{"global_id": int(pb), "name": f"M{int(pb)}", "holes": 9}]),
+        ):
+            matches = cs.courseview_search("Mission")
+        self.assertEqual(fetch.call_count, 1)  # page 2 would start after the 15 s budget
+        self.assertEqual([match.global_id for match in matches], [1])
+
     def test_name_search_does_not_disguise_provider_failure_as_no_results(self) -> None:
         with patch.object(cs, "_fetch_search", side_effect=OSError("offline")):
             with self.assertRaises(OSError):

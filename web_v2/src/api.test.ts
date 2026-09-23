@@ -18,6 +18,7 @@ import {
   fetchHistoryDrilldown,
   fetchHistoryRounds,
   fetchHistoryRoundDetail,
+  fetchRoundHoleShotMap,
   fetchHistoryStats,
   fetchHistorySummary,
   ingestPlayerRound,
@@ -480,6 +481,33 @@ describe('fetchHistoryRounds', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds?limit=120', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
+  })
+})
+
+describe('fetchRoundHoleShotMap', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('asks for the shot map without the embedded base64 bitmap', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        schema: 'ai-caddie-round-hole-shotmap-v1',
+        found: true,
+        roundRef: 'round:900001',
+        hole: 3,
+        map: { image: null, overlay: { w: 1, h: 1, ppm: 1, ln: 1, route: [] } },
+        shots: [],
+        missingData: [],
+      }),
+    })))
+
+    await fetchRoundHoleShotMap('round:900001', 3)
+
+    // The topo.png endpoint owns the (HTTP-cached) bitmap; never download it twice.
+    expect(fetch).toHaveBeenCalledWith('/api/v2/history/rounds/round%3A900001/holes/3/shotmap?includeImage=false')
   })
 })
 

@@ -384,11 +384,12 @@ export function fetchHistoryRoundDetail(roundRef: string, adminToken?: string): 
 }
 
 // 复盘逐洞落点图: this round's actual shots projected onto the hole's 2D render.
-// Rendered on demand per hole (one supersampled image), so the 复盘 workbench
-// fetches it lazily as the player switches holes — never all 18 at once.
+// The 复盘 workbench fetches it lazily as the player switches holes — never all 18 at once.
+// The base bitmap comes from the revision-bound, HTTP-cached topo.png endpoint, so the JSON
+// omits the embedded base64 copy (includeImage=false) instead of downloading the PNG twice.
 export function fetchRoundHoleShotMap(roundRef: string, hole: number, adminToken?: string): Promise<RoundHoleShotMapResponse> {
   return getJson<RoundHoleShotMapResponse>(
-    `/api/v2/history/rounds/${encodeURIComponent(roundRef)}/holes/${encodeURIComponent(String(hole))}/shotmap`,
+    `/api/v2/history/rounds/${encodeURIComponent(roundRef)}/holes/${encodeURIComponent(String(hole))}/shotmap?includeImage=false`,
     adminToken,
   )
 }

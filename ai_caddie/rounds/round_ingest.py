@@ -744,11 +744,12 @@ def _update_summary(
     _atomic_write_json(path, summary)
 
 
-def _invalidate_cache() -> None:
+def _invalidate_cache(player_id: str) -> None:
+    # Only this player's history changed; other players' warm load + stats builds stay valid.
     try:
         from ai_caddie.history import stats_cache
 
-        stats_cache.clear()
+        stats_cache.clear(player_id)
     except Exception:
         pass
 
@@ -887,7 +888,7 @@ def _ingest_round_unlocked(
         "_materializationMeta": materialization_meta,
     }
     _save_index(index, player_id, root)
-    _invalidate_cache()
+    _invalidate_cache(player_id)
 
     return {**summary, "idempotent": False}
 

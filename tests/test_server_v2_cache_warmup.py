@@ -33,6 +33,11 @@ from server_v2.history_stats import (
 
 class CacheWarmupTests(unittest.TestCase):
     def setUp(self) -> None:
+        # Earlier tests (round ingest, sync) start best-effort ``prepare-recent-*`` threads that
+        # also warm stats. If one is still running, its builds are counted by the spies below.
+        for thread in threading.enumerate():
+            if thread.name.startswith("prepare-recent") and thread is not threading.current_thread():
+                thread.join(timeout=60)
         stats_cache.clear()
         self.addCleanup(stats_cache.clear)
         # Fixture mode keeps the warm fast and deterministic and avoids depending on

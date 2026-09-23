@@ -47,7 +47,8 @@ export function isValidRoundHoleShotMapResponse(value: unknown, roundRef: string
   if (typeof value.found !== 'boolean' || !Array.isArray(value.shots) || !Array.isArray(value.missingData)) return false
   if (value.geometryRevision !== undefined && value.geometryRevision !== null && typeof value.geometryRevision !== 'string') return false
   if (value.map === null) return true
-  if (!isRecord(value.map) || typeof value.map.image !== 'string' || !isRecord(value.map.overlay)) return false
+  if (!isRecord(value.map) || !isRecord(value.map.overlay)) return false
+  if (value.map.image !== undefined && value.map.image !== null && typeof value.map.image !== 'string') return false
   return true
 }
 

@@ -288,7 +288,9 @@ app.add_middleware(
 # Mobile round packages intentionally retain the complete 18-hole JSON contract. Compressing the
 # highly repetitive response reduces tunnel/cellular transfer without changing decoded fields; the
 # middleware only activates above 1 KiB and leaves small health/metadata responses untouched.
-app.add_middleware(GZipMiddleware, minimum_size=1024)
+# Level 6 keeps nearly all of level 9's ratio on JSON while costing far less CPU per multi-MB
+# stats/package body (compression runs on the event loop).
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 
 def _safe_validation_errors(exc: RequestValidationError) -> list[dict[str, object]]:
@@ -1012,6 +1014,51 @@ def course_topo_prewarm(global_id: int, background_tasks: BackgroundTasks) -> di
     }
 
 
+# Background prep warming shares the API process (and its GIL) with live requests. At most one
+# warmer runs at a time; overlapping triggers (boot + sync + ingest) skip instead of stacking, and
+# the per-hole single-flight cache already dedupes any hole a live request is building.
+_PREP_WARM_LOCK = threading.Lock()
+
+
+def _prep_warm_course_limit() -> int:
+    """How many recently played courses prepare-recent warms (``AI_CADDIE_PREP_WARM_COURSES``,
+    0 disables, default 1, max 3) so the cost can be benchmarked and tuned per host."""
+    try:
+        value = int(os.environ.get("AI_CADDIE_PREP_WARM_COURSES", "1"))
+    except ValueError:
+        value = 1
+    return max(0, min(3, value))
+
+
+def _warm_course_prep(global_id: int, player_id: str) -> None:
+    """Fill the per-hole factual prep cache (render=False) that the course package, iPhone and
+    Watch all read, so starting a round at a recently played course does not pay the cold build."""
+    from ai_caddie.courses import course_prep
+
+    if not _PREP_WARM_LOCK.acquire(blocking=False):
+        logger.info("prep_warm skipped gid=%s reason=another_warm_running", int(global_id))
+        return
+    started = time.perf_counter()
+    try:
+        holes = course_prep.available_prep_holes(int(global_id))
+        course_prep.prep_nine(
+            int(global_id),
+            holes,
+            ladder=course_prep.effective_club_ladder(player_id),
+            render=False,
+            include_missing=True,
+            player_id=player_id,
+        )
+    finally:
+        _PREP_WARM_LOCK.release()
+    logger.info(
+        "prep_warm gid=%s holes=%s duration_ms=%s",
+        int(global_id),
+        len(holes),
+        int((time.perf_counter() - started) * 1000),
+    )
+
+
 def _prepare_recent_bg(player_id: str) -> None:
     """「打开即用」后台准备最近一盘:预热其球洞图 topo + 烤统计。best-effort,绝不抛
     (镜像 warm_stats_cache 的 swallow 语义,不弄崩触发它的响应/线程)。"""
@@ -1043,6 +1090,8 @@ def _prepare_recent_bg(player_id: str) -> None:
             prewarm=_prewarm_course_topo,
             warm_stats=lambda: warm_stats_cache(player_id=player_id),
             ensure_geometry=_ensure_geometry,
+            warm_prep=(lambda gid: _warm_course_prep(gid, player_id)) if _prep_warm_course_limit() else None,
+            prep_course_limit=_prep_warm_course_limit(),
         )
     except Exception:  # noqa: BLE001 - best-effort;绝不弄崩触发它的线程
         import logging
@@ -2459,6 +2508,13 @@ def _sync_job_response(record: dict[str, Any]) -> SyncRunResponse:
     )
 
 
+def _history_input_signature(player_id: str) -> tuple | None:
+    try:
+        return stats_cache.history_input_signature(player_id)
+    except Exception:
+        return None
+
+
 def _run_garmin_sync_job(job: dict[str, Any]) -> dict[str, Any]:
     """Execute one queued Garmin pull and schedule all non-critical follow-up work."""
     player_id = str(job.get("playerId") or OWNER_ID)
@@ -2483,6 +2539,7 @@ def _run_garmin_sync_job(job: dict[str, Any]) -> dict[str, Any]:
                 raise CancelledSyncJob()
             _mark_garmin_sync_running(player_id=player_id)
             connector = GarminCnWebSessionConnector(root=SYNC_ROOT, player_id=player_id)
+            history_before = _history_input_signature(player_id)
             report(phase="provider_fetch", progress=25, detail="正在从 Garmin 获取球局数据。")
             result = connector.sync(
                 with_shots=with_shots,
@@ -2505,7 +2562,10 @@ def _run_garmin_sync_job(job: dict[str, Any]) -> dict[str, Any]:
         # failure must never rewrite a successful provider pull as a terminal sync error.
         try:
             report(phase="warm_cache", progress=88, detail="正在刷新本地数据索引。")
-            stats_cache.clear(player_id)
+            # A pull that wrote no round/shot files (the common "nothing new" sync) keeps the warm
+            # history + stats; every cache entry still revalidates its full fingerprint on read.
+            if history_before is None or _history_input_signature(player_id) != history_before:
+                stats_cache.clear(player_id)
         except Exception:
             logger.warning("Garmin sync stats cache invalidation deferred", exc_info=True)
         try:

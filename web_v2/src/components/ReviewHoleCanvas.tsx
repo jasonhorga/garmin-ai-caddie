@@ -273,7 +273,7 @@ export function ReviewHoleCanvas({ hole, par, score, state, editing = false, onM
     <div className="review-canvas" aria-label={`第${hole}洞落点图`}>
       <div className="review-canvas-frame" style={frameStyle}>
         {map ? (
-          <HoleBaseImage className="review-canvas-img" topoSrc={topoSrc} fallbackSrc={map.image} alt={`第${hole}洞`} />
+          <HoleBaseImage className="review-canvas-img" topoSrc={topoSrc} fallbackSrc={map.image ?? undefined} alt={`第${hole}洞`} />
         ) : (
           <div className="review-canvas-placeholder" />
         )}
