@@ -32,6 +32,26 @@ final class WatchHoleImageStoreTests: XCTestCase {
         XCTAssertEqual(store.data(globalId: 42, hole: 3), png)
     }
 
+    func testStoringIdenticalBytesDoesNotRewriteTheFile() throws {
+        let (store, dir) = tempStore()
+        let jpeg = try XCTUnwrap(Data(base64Encoded: WatchHoleMapSample.jpegBase64))
+        try store.store(data: jpeg, globalId: 42, hole: 5)
+        let file = try XCTUnwrap(
+            (FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil)?.allObjects as? [URL])?
+                .first { $0.pathExtension == "img" }
+        )
+        let past = Date(timeIntervalSince1970: 1_000_000)
+        try FileManager.default.setAttributes([.modificationDate: past], ofItemAtPath: file.path)
+
+        try store.store(data: jpeg, globalId: 42, hole: 5)
+
+        let modified = try XCTUnwrap(
+            FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date
+        )
+        XCTAssertEqual(modified, past)
+        XCTAssertEqual(store.data(globalId: 42, hole: 5), jpeg)
+    }
+
     func testGeometryRevisionsAreSeparateAndOldOfflinePixelsRemainAvailable() throws {
         let (store, _) = tempStore()
         let jpeg = try XCTUnwrap(Data(base64Encoded: WatchHoleMapSample.jpegBase64))
