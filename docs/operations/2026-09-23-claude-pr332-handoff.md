@@ -33,8 +33,9 @@
 - 本地（云端容器，Python 3.12，`uv sync --frozen`）：以 root 运行时，只有 `test_contract_authority` 里 2 个"文件不可读"类用例失败（root 不受 chmod 000 限制）。在同一容器里用非 root 用户 `nobody` 重跑，**全部通过**（2182 个 OK，跳过 13 个；复核方法见 PR 评论）。
 - `test_server_v2_cache_warmup` 偶发失败的根因已经查明：前面测试启动的 `prepare-recent-*` 后台线程还在运行，它们构建的 stats 被 spy 计入。这个问题在 base 上就存在，本 PR 在 setUp 里先 join 这些线程来修复。修复后连续 3 次全量运行都通过。
 - `check_authority.py`（`origin/integration/v2...HEAD`）和 `py_compile` 都通过。
-- GitHub CI：`e0b097eb` 上的 backend、frontend、docker 三项全绿。**`1dee71dd` 上的 CI 和 Native Mobile CI 在交接时还在运行**，Swift 修改只在 Native CI 里编译验证过，Codex 合并前请确认两者都是绿色。
-- 容器里无法运行 Web e2e 和真机测试；本 PR 也没有修改 Web 代码。
+- GitHub CI：`eac3cb33` 上的 CI（backend/frontend/docker）和 Native Mobile CI 均为绿色。Native 中 "Test iOS app target" 和 "Test Watch app target" 都实际执行并通过；依赖 live 后端的真机截图步骤在 PR 事件中按设计跳过。Codex 合并前如果 head 有变化，请再确认一次。
+- Web（`ebb2b579`）：vitest 627 个通过，7 个 skipped；`tsc -b` 和 `vite build` 通过；eslint 0 error。e2e 使用容器预装的 chromium 1194 运行，history-visual 相关用例全部通过。`multiplayer-isolation` 的 Apple 登录用例在 base 上同样失败，属于沙箱环境问题。
+- 真机测试在容器里无法运行。
 
 ## 3. Codex 待办（按顺序）
 
