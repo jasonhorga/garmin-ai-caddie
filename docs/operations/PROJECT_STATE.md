@@ -10,8 +10,9 @@
 > before taking any action.
 
 **Updated:** 2026-09-23 11:32 UTC
-**Branch:** `integration/v2` at canonical HEAD
-`3c5ec81af1b0f67576c0e93e1ede0c305194d099`. PR #332 is merged and its
+**Branch:** `integration/v2`; product/backend canonical source revision is
+`3c5ec81af1b0f67576c0e93e1ede0c305194d099` (this ledger closeout is commit
+`40d0bcb7`). PR #332 is merged and its
 post-deploy gates are complete: Source CI `35838477517`, exact-SHA Native Mobile
 CI `35847317420`, homeserver deployment on production `127.0.0.1:39055`, and
 internal TestFlight CD `35853831558` uploaded Build `0.1.0 (74)` with
