@@ -5289,10 +5289,96 @@ def _shot_option(
     return _with_option_contract(option, decision_context, source="structured_context")
 
 
+LAYUP_WEDGE_MIN_M = 70.0
+LAYUP_WEDGE_MAX_M = 115.0
+
+
+def _layup_leaves(context: dict[str, Any], distance_m: float) -> dict[str, float] | None:
+    """Carries for an approach the measured bag cannot reach (e.g. a Par-5 second shot).
+
+    Without this, every approach option asked for a carry beyond the longest non-driver and the
+    player got no club at all.  A reachable approach returns ``None`` and keeps the normal
+    safe/stock/attack targets.  Otherwise stock lays up to the player's most reliable full-wedge
+    distance, safe leaves the longer of the two most reliable wedge distances (a shorter layup
+    club), and attack advances with the longest non-driver, so carries stay ordered.
+    """
+    rows = [
+        row
+        for row in _club_profile_rows(context.get("clubProfiles") or {})
+        if not _driver_row(row) and _float(row.get("median_m"), 0.0) > 0
+    ]
+    if not rows:
+        return None
+    longest = max(rows, key=lambda row: _float(row.get("median_m")))
+    longest_m = _float(longest.get("median_m"))
+    reach_m = longest_m + max(18.0, (_float(longest.get("p90_m"), longest_m) - _float(longest.get("p10_m"), longest_m)) / 2.0 + 8.0)
+    if distance_m <= reach_m:
+        return None
+    wedges = sorted(
+        (
+            row
+            for row in rows
+            if LAYUP_WEDGE_MIN_M <= _float(row.get("median_m")) <= LAYUP_WEDGE_MAX_M
+        ),
+        key=lambda row: (
+            -_effective_club_sample_size(row),
+            _float(row.get("p90_m"), _float(row.get("median_m"))) - _float(row.get("p10_m"), _float(row.get("median_m"))),
+            -_float(row.get("median_m")),
+        ),
+    )
+    favourite = _float(wedges[0].get("median_m")) if wedges else 100.0
+    longer_leave = max((_float(row.get("median_m")) for row in wedges[:2]), default=favourite)
+    stock = max(1.0, min(longest_m, distance_m - favourite))
+    # Safe keeps the longer of the two most reliable wedge leaves (a shorter layup club); with a
+    # single measured wedge it still steps down one club length so the modes stay ordered.
+    safe = max(1.0, min(stock, distance_m - longer_leave) if longer_leave > favourite else stock - 15.0)
+    return {
+        "safe": safe,
+        "stock": stock,
+        "attack": max(stock, longest_m),
+        "safeLeave": distance_m - safe,
+        "stockLeave": favourite,
+    }
+
+
 def _approach_options(context: dict[str, Any]) -> list[dict[str, Any]]:
     distance_m = _pin_distance(context)
     hazards = context.get("hazards") or []
     hazard_penalty = 1 if hazards else 0
+    layup = _layup_leaves(context, distance_m)
+    if layup is not None:
+        return _ordered_options([
+            _shot_option(
+                context,
+                shot_type="approach",
+                option_id="safe",
+                label="shorter layup",
+                carry_m=layup["safe"],
+                risk_score=0 + hazard_penalty,
+                intent=f"The green is out of reach; a shorter layup leaves about {round(layup['safeLeave'])} m.",
+                target="layup_zone",
+            ),
+            _shot_option(
+                context,
+                shot_type="approach",
+                option_id="stock",
+                label="lay up to favourite wedge",
+                carry_m=layup["stock"],
+                risk_score=1 + hazard_penalty,
+                intent=f"The green is out of reach; leave about {round(layup['stockLeave'])} m for the most reliable full wedge.",
+                target="layup_zone",
+            ),
+            _shot_option(
+                context,
+                shot_type="approach",
+                option_id="attack",
+                label="advance as far as possible",
+                carry_m=layup["attack"],
+                risk_score=2 + hazard_penalty,
+                intent="The green is out of reach; take the longest measured non-driver club for a shorter next shot.",
+                target="max_advance",
+            ),
+        ])
     return _ordered_options([
         _shot_option(
             context,

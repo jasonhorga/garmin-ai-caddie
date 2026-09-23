@@ -1030,6 +1030,42 @@ class DecisionLayerTests(unittest.TestCase):
         codes = {row["code"] for row in plan["selected"]["selectionReasons"]}
         self.assertNotIn("conditions_replan", codes)
 
+    def test_unreachable_par5_approach_lays_up_to_wedge_distances(self) -> None:
+        """245 m out with a 200 m longest non-driver used to return no club for any mode."""
+        context = approach_fixture()
+        context.update({
+            "par": 5,
+            "distanceToPin_m": 245.0,
+            "hazards": [],
+            "clubProfiles": {
+                "1W": {"clubName": "1W", "sampleSize": 80, "median": 230, "p10": 210, "p90": 245},
+                "3W": {"clubName": "3W", "sampleSize": 40, "median": 200, "p10": 185, "p90": 212},
+                "5I": {"clubName": "5I", "sampleSize": 40, "median": 165, "p10": 150, "p90": 175},
+                "7I": {"clubName": "7I", "sampleSize": 40, "median": 145, "p10": 132, "p90": 155},
+                "PW": {"clubName": "PW", "sampleSize": 40, "median": 110, "p10": 100, "p90": 118},
+                "56": {"clubName": "56", "sampleSize": 40, "median": 85, "p10": 75, "p90": 92},
+            },
+        })
+
+        plan = recommend_approach(context)
+        by_id = {option["id"]: option for option in plan["options"]}
+
+        carries = [by_id[mode]["carry_m"] for mode in ("safe", "stock", "attack")]
+        self.assertEqual(carries, sorted(carries))
+        self.assertAlmostEqual(by_id["stock"]["carry_m"], 245.0 - 85.0)  # most reliable wedge: 56
+        self.assertAlmostEqual(by_id["safe"]["carry_m"], 245.0 - 110.0)  # longer leave: PW
+        self.assertAlmostEqual(by_id["attack"]["carry_m"], 200.0)
+        for mode in ("safe", "stock", "attack"):
+            clubs = [row["clubName"] for row in by_id[mode]["clubRecommendation"]["clubs"]]
+            self.assertTrue(clubs, mode)
+            self.assertNotIn("1W", clubs)
+        self.assertNotIn("club_profiles", [row["label"] for row in plan["missingData"]])
+
+    def test_reachable_approach_keeps_pin_targets(self) -> None:
+        plan = recommend_approach(approach_fixture())
+        by_id = {option["id"]: option for option in plan["options"]}
+        self.assertAlmostEqual(by_id["stock"]["carry_m"], 142.0)
+
     def test_non_tee_plan_excludes_driver_and_explains_current_lie(self) -> None:
         context = long_hole_fixture()
         context["lie"] = "rough"
