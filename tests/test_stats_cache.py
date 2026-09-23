@@ -115,6 +115,20 @@ class StatsCacheTests(unittest.TestCase):
         self.assertEqual(before[0], after[0], "file count must be unchanged (the trap)")
         self.assertNotEqual(before, after, "in-place edit of a non-newest file must change the sig")
 
+    def test_dir_sig_changes_on_same_size_rewrite_with_restored_mtime(self) -> None:
+        # A same-size in-place rewrite whose mtime is put back (or lands in the same tick) must
+        # still change the signature: ctime_ns moves on every content write and utime can't reset it.
+        d = self.tmp / "ctime-sigdir"
+        d.mkdir()
+        f = d / "a.json"
+        f.write_text('{"name": "A"}')
+        os.utime(f, ns=(1_000_000_000, 1_000_000_000))
+        before = stats_cache._dir_sig(d)
+        time.sleep(0.01)
+        f.write_text('{"name": "B"}')  # same size, different content
+        os.utime(f, ns=(1_000_000_000, 1_000_000_000))
+        self.assertNotEqual(before, stats_cache._dir_sig(d))
+
     def test_cache_recomputes_on_in_place_edit_same_count(self) -> None:
         # End-to-end through the public API: rewriting an existing scorecard (a manual
         # correction) keeps the file count the same but must still force a recompute.

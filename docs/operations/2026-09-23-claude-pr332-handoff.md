@@ -17,14 +17,16 @@
 | `39d539dd` | Garmin release 刷新失败后 5 分钟内直接用缓存（原来每个 topo/green/prep 请求都串行重试一次 30s 超时）；`/prep-tips` 改走 prep 缓存 | 后端 |
 | `66acb4f2` | 球童：GIR 不再使用被截断的落点；attack 必须比保留下来的 stock 更远；开球时不再声称"已考虑风和坡度" | 后端 |
 | `84b4bccd` | iOS 离线评估器 `trimAtGreenWindow` 做同样的 GIR 修正，并加了 XCTest | iOS app |
-| `1dee71dd` | prep 按单洞缓存（package、iPhone、Watch、prep-tips 共用）；prepare-recent 在启动、同步、录入后预热最近 3 个球场的单洞 prep | 后端 |
+| `1dee71dd` | `render=False` 的 prep 按单洞缓存，iPhone/Watch/Web 的 `/prep` 请求和 prep-tips 共用；prepare-recent 在启动、同步、录入后预热最近打过的球场的单洞 prep（后续 commit 改为默认 1 个，可配置） | 后端 |
+| 后续 commit | 回应 PR 评审：缓存签名加入 `st_ctime_ns`；同一时间只允许一个预热线程，规模可配置，并记录耗时日志；release 刷新失败打告警日志；修复预热测试与残留后台线程之间的竞态 | 后端/测试 |
 | `e0b097eb` | 审计报告（仅文档） | — |
 
 每个行为修复都有回归测试，这些测试在旧代码上失败、在新代码上通过。12 个 caddie golden 回放全部通过。
 
 ## 2. 交接时的验证状态
 
-- 本地（云端容器，Python 3.12，`uv sync --frozen`）：`unittest discover` 共 2182 个测试，只有 2 个失败，都是 `test_contract_authority` 里"文件不可读"类的用例。原因是容器以 root 运行，chmod 000 挡不住读取，与本 PR 无关，改动前同样失败。
+- 本地（云端容器，Python 3.12，`uv sync --frozen`）：以 root 运行时，只有 `test_contract_authority` 里 2 个"文件不可读"类用例失败（root 不受 chmod 000 限制）。在同一容器里用非 root 用户 `nobody` 重跑，**全部通过**（2182 个 OK，跳过 13 个；复核方法见 PR 评论）。
+- `test_server_v2_cache_warmup` 偶发失败的根因已经查明：前面测试启动的 `prepare-recent-*` 后台线程还在运行，它们构建的 stats 被 spy 计入。这个问题在 base 上就存在，本 PR 在 setUp 里先 join 这些线程来修复。修复后连续 3 次全量运行都通过。
 - `check_authority.py`（`origin/integration/v2...HEAD`）和 `py_compile` 都通过。
 - GitHub CI：`e0b097eb` 上的 backend、frontend、docker 三项全绿。**`1dee71dd` 上的 CI 和 Native Mobile CI 在交接时还在运行**，Swift 修改只在 Native CI 里编译验证过，Codex 合并前请确认两者都是绿色。
 - 容器里无法运行 Web e2e 和真机测试；本 PR 也没有修改 Web 代码。
@@ -39,7 +41,8 @@
    - 确认 `/api/v2/health` 返回的 revision 等于合并后的 SHA。
 4. **部署后的验证**（同一台 homeserver，建议记录耗时）：
    - `/api/v2/history/rounds?limit=2000` 在冷缓存和热缓存下的耗时，与之前的基线对比；
-   - 启动约 1 分钟后，对最近打过的球场请求 `/api/v2/mobile/courses/{gid}/package` 和 `/api/v2/courses/{gid}/prep?render=false&holes=1`，应能命中预热的单洞缓存；日志中 `course_install stage=prep` 的耗时应明显下降；
+   - 启动后等日志出现 `prep_warm gid=... duration_ms=...`，再对最近打过的球场请求 `/api/v2/courses/{gid}/prep?render=false&holes=1` 以及 3 洞一批的请求，应命中单洞缓存，日志中 `course_install stage=prep` 的耗时应明显下降。注意：移动端 course package 本身不跑全洞 prep（`server_v2/mobile.py` 里 `include_course_prep=False`，只做首洞轻量 prep），所以 package 的冷启动耗时**不在本 PR 的改善范围内**；
+   - 预热规模由 `AI_CADDIE_PREP_WARM_COURSES` 控制（0 表示关闭，默认 1，最大 3）。建议先设为 0 采集基线，再设为 1 做对比；
    - 连续触发两次没有新比赛的 Garmin 同步，第二次之后 `/history/stats` 仍然命中缓存，不会重建约 10s；
    - A1 这类 Par 4 的路线：飞过果岭后沿的一杆不再显示为 GIR，attack 不会比 stock 更短。
 5. **TestFlight**：只有 `84b4bccd` 影响 app。按现有 release rule 在 Native CI 通过后打 internal build（`external_distribution=false`），然后做 Apple 处理检查。真机验证仍由 owner 完成。

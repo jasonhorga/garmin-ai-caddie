@@ -1012,18 +1012,48 @@ def course_topo_prewarm(global_id: int, background_tasks: BackgroundTasks) -> di
     }
 
 
+# Background prep warming shares the API process (and its GIL) with live requests. At most one
+# warmer runs at a time; overlapping triggers (boot + sync + ingest) skip instead of stacking, and
+# the per-hole single-flight cache already dedupes any hole a live request is building.
+_PREP_WARM_LOCK = threading.Lock()
+
+
+def _prep_warm_course_limit() -> int:
+    """How many recently played courses prepare-recent warms (``AI_CADDIE_PREP_WARM_COURSES``,
+    0 disables, default 1, max 3) so the cost can be benchmarked and tuned per host."""
+    try:
+        value = int(os.environ.get("AI_CADDIE_PREP_WARM_COURSES", "1"))
+    except ValueError:
+        value = 1
+    return max(0, min(3, value))
+
+
 def _warm_course_prep(global_id: int, player_id: str) -> None:
     """Fill the per-hole factual prep cache (render=False) that the course package, iPhone and
     Watch all read, so starting a round at a recently played course does not pay the cold build."""
     from ai_caddie.courses import course_prep
 
-    course_prep.prep_nine(
+    if not _PREP_WARM_LOCK.acquire(blocking=False):
+        logger.info("prep_warm skipped gid=%s reason=another_warm_running", int(global_id))
+        return
+    started = time.perf_counter()
+    try:
+        holes = course_prep.available_prep_holes(int(global_id))
+        course_prep.prep_nine(
+            int(global_id),
+            holes,
+            ladder=course_prep.effective_club_ladder(player_id),
+            render=False,
+            include_missing=True,
+            player_id=player_id,
+        )
+    finally:
+        _PREP_WARM_LOCK.release()
+    logger.info(
+        "prep_warm gid=%s holes=%s duration_ms=%s",
         int(global_id),
-        course_prep.available_prep_holes(int(global_id)),
-        ladder=course_prep.effective_club_ladder(player_id),
-        render=False,
-        include_missing=True,
-        player_id=player_id,
+        len(holes),
+        int((time.perf_counter() - started) * 1000),
     )
 
 
@@ -1058,7 +1088,8 @@ def _prepare_recent_bg(player_id: str) -> None:
             prewarm=_prewarm_course_topo,
             warm_stats=lambda: warm_stats_cache(player_id=player_id),
             ensure_geometry=_ensure_geometry,
-            warm_prep=lambda gid: _warm_course_prep(gid, player_id),
+            warm_prep=(lambda gid: _warm_course_prep(gid, player_id)) if _prep_warm_course_limit() else None,
+            prep_course_limit=_prep_warm_course_limit(),
         )
     except Exception:  # noqa: BLE001 - best-effort;绝不弄崩触发它的线程
         import logging

@@ -283,7 +283,7 @@ def _dir_sig(directory: Path) -> tuple[int, str]:
     name+size+mtime_ns catches all three (add/remove, in-place edit, add+delete). Cheap:
     one ``os.scandir`` plus the ``stat`` it already performs; file CONTENTS are never
     read (too slow on the shot dir) -- size+mtime_ns is the standard cheap manifest."""
-    files: list[tuple[str, int, int]] = []
+    files: list[tuple[str, int, int, int]] = []
     suffix = _DIR_FILE_SUFFIX.get(directory)
     try:
         with os.scandir(directory) as it:
@@ -292,13 +292,13 @@ def _dir_sig(directory: Path) -> tuple[int, str]:
                     continue
                 if entry.is_file():
                     st = entry.stat()
-                    files.append((entry.name, st.st_size, st.st_mtime_ns))
+                    files.append((entry.name, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
     except (FileNotFoundError, NotADirectoryError):
         return (0, "")
     files.sort()  # scandir order is unspecified; sort so the digest is order-independent
     digest = hashlib.blake2b(digest_size=16)
-    for name, size, mtime_ns in files:
-        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00".encode("utf-8"))
+    for name, size, mtime_ns, ctime_ns in files:
+        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
     return (len(files), digest.hexdigest())
 
 
@@ -331,7 +331,7 @@ def _history_global_ids(data: Any) -> tuple[int, ...]:
 def _history_geometry_dir_sig(directory: Path, global_ids: tuple[int, ...]) -> tuple:
     """Fingerprint only files belonging to courses present in the player's history."""
     selected = set(global_ids)
-    files: list[tuple[str, int, int]] = []
+    files: list[tuple[str, int, int, int]] = []
     try:
         with os.scandir(directory) as it:
             for entry in it:
@@ -345,24 +345,24 @@ def _history_geometry_dir_sig(directory: Path, global_ids: tuple[int, ...]) -> t
                 if global_id not in selected:
                     continue
                 st = entry.stat()
-                files.append((entry.name, st.st_size, st.st_mtime_ns))
+                files.append((entry.name, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
     except (FileNotFoundError, NotADirectoryError):
         pass
     files.sort()
     digest = hashlib.blake2b(digest_size=16)
-    for name, size, mtime_ns in files:
-        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00".encode("utf-8"))
+    for name, size, mtime_ns, ctime_ns in files:
+        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
     # Carry the selected ids even when no geometry exists yet: the first file for a historical
     # course then changes this signature, while files for an unplayed install remain irrelevant.
     return (global_ids, len(files), digest.hexdigest())
 
 
-def _file_sig(path: Path) -> tuple[int, int] | None:
+def _file_sig(path: Path) -> tuple[int, int, int] | None:
     try:
         st = path.stat()
     except (FileNotFoundError, NotADirectoryError):
         return None
-    return (st.st_mtime_ns, st.st_size)
+    return (st.st_mtime_ns, st.st_size, st.st_ctime_ns)
 
 
 def _data_signature(data) -> tuple:

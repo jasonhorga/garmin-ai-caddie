@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import hashlib
+import logging
 import threading
 import time
 from collections import Counter, defaultdict
@@ -25,6 +26,8 @@ from ai_caddie.geometry.inspect_courseview_release import (
     inspect_valid_release,
     load_release_pb,
 )
+
+logger = logging.getLogger(__name__)
 
 COURSE_DIR = ROOT / "data" / "courses"
 COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S = 3600.0
@@ -406,6 +409,7 @@ def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT
             and time.monotonic() - _RELEASE_FETCH_FAILED_AT.get(failure_key, float("-inf"))
             < COURSEVIEW_RELEASE_RETRY_BACKOFF_S
         ):
+            logger.debug("courseview_release stale_backoff gid=%s", gid)
             return cached_info  # a recent refresh failed; keep serving the usable release
         if allow_fetch and (stale or cached_info is None):
             try:
@@ -415,9 +419,17 @@ def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT
                     language_code=COURSEVIEW_RELEASE_LANGUAGE_CODE,
                 )  # live fetch (anonymous, Garmin OMT locale)
                 info = inspect_valid_release(candidate, expected_course_id=gid)
-            except Exception:
+            except Exception as exc:
                 if cached_info is not None:
                     _RELEASE_FETCH_FAILED_AT[failure_key] = time.monotonic()
+                    # The cached release stays authoritative: topo/green/prep/package all read this
+                    # same file, so they keep one consistent geometryRevision while degraded.
+                    logger.warning(
+                        "courseview_release refresh_failed gid=%s serving=cached backoff_s=%s error=%s",
+                        gid,
+                        int(COURSEVIEW_RELEASE_RETRY_BACKOFF_S),
+                        type(exc).__name__,
+                    )
                 return cached_info  # offline: the last complete release remains usable
             _RELEASE_FETCH_FAILED_AT.pop(failure_key, None)
             _atomic_write_bytes(path, candidate)

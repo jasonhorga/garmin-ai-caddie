@@ -62,19 +62,19 @@ def _dir_sig(directory: Path) -> tuple[int, str]:
     name+size+mtime_ns catches all three (add/remove, in-place edit, add+delete). Cheap:
     one ``os.scandir`` plus the ``stat`` it already performs; file CONTENTS are never
     read (too slow on the shot dir) -- size+mtime_ns is the standard cheap manifest."""
-    files: list[tuple[str, int, int]] = []
+    files: list[tuple[str, int, int, int]] = []
     try:
         with os.scandir(directory) as it:
             for entry in it:
                 if entry.is_file():
                     st = entry.stat()
-                    files.append((entry.name, st.st_size, st.st_mtime_ns))
+                    files.append((entry.name, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
     except (FileNotFoundError, NotADirectoryError):
         return (0, "")
     files.sort()  # scandir order is unspecified; sort so the digest is order-independent
     digest = hashlib.blake2b(digest_size=16)
-    for name, size, mtime_ns in files:
-        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00".encode("utf-8"))
+    for name, size, mtime_ns, ctime_ns in files:
+        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
     return (len(files), digest.hexdigest())
 
 
@@ -86,28 +86,30 @@ def _matching_dir_sig(directory: Path, pattern: str) -> tuple[int, str]:
     already-stable prep for course A.  Course prep reads only ``gid<id>_h*`` geometry,
     so its cache dependency must have the same course boundary.
     """
-    files: list[tuple[str, int, int]] = []
+    files: list[tuple[str, int, int, int]] = []
     try:
         with os.scandir(directory) as it:
             for entry in it:
                 if entry.is_file() and fnmatch.fnmatchcase(entry.name, pattern):
                     st = entry.stat()
-                    files.append((entry.name, st.st_size, st.st_mtime_ns))
+                    files.append((entry.name, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
     except (FileNotFoundError, NotADirectoryError):
         return (0, "")
     files.sort()
     digest = hashlib.blake2b(digest_size=16)
-    for name, size, mtime_ns in files:
-        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00".encode("utf-8"))
+    for name, size, mtime_ns, ctime_ns in files:
+        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
     return (len(files), digest.hexdigest())
 
 
-def _file_sig(path: Path) -> tuple[int, int] | None:
+def _file_sig(path: Path) -> tuple[int, int, int] | None:
+    # ctime_ns changes on every content write (and cannot be reset with utime), so a same-size
+    # in-place rewrite within one mtime tick still changes the signature.
     try:
         st = path.stat()
     except (FileNotFoundError, NotADirectoryError):
         return None
-    return (st.st_mtime_ns, st.st_size)
+    return (st.st_mtime_ns, st.st_size, st.st_ctime_ns)
 
 
 def _manual_bag_sig(player_id: str) -> tuple[int, int] | None:
@@ -132,17 +134,17 @@ def _course_data_sig(global_id: int) -> tuple[int, str]:
         _COURSEVIEW_DIR / f"{gid}_releases.pb",
         *_COURSEVIEW_DIR.glob(f"{gid}_course_data_*.json"),
     ]
-    rows: list[tuple[str, int, int]] = []
+    rows: list[tuple[str, int, int, int]] = []
     for path in paths:
         try:
             stat = path.stat()
         except (FileNotFoundError, NotADirectoryError):
             continue
-        rows.append((path.name, stat.st_size, stat.st_mtime_ns))
+        rows.append((path.name, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
     rows.sort()
     digest = hashlib.blake2b(digest_size=16)
-    for name, size, mtime_ns in rows:
-        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00".encode("utf-8"))
+    for name, size, mtime_ns, ctime_ns in rows:
+        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
     return (len(rows), digest.hexdigest())
 
 

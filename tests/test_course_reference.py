@@ -190,9 +190,12 @@ class PersistenceTests(unittest.TestCase):
             release_path.parent.mkdir(parents=True)
             release_path.write_bytes(fixture.read_bytes())
             os.utime(release_path, (1, 1))
-            with patch.object(cr, "load_release_pb", side_effect=OSError("offline")) as fetch:
+            with patch.object(cr, "load_release_pb", side_effect=OSError("offline")) as fetch, \
+                    patch.object(cr, "logger") as logger:
                 rows = [cr.courseview_release_info(31936, root=root) for _ in range(5)]
             self.assertEqual(fetch.call_count, 1)
+            logger.warning.assert_called_once()  # one observable signal per failed refresh
+            self.assertIn("refresh_failed", logger.warning.call_args.args[0])
             self.assertTrue(all(row and row["course_id"] == 31936 for row in rows))
 
             # Once the backoff window has passed, the stale release is refreshed again.
