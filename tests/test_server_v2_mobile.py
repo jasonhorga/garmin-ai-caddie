@@ -1607,6 +1607,41 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["course"]["globalId"], 41825)
         self.assertEqual(len(payload["holes"]), 9)
 
+    def test_nine_hole_round_is_not_expanded_by_course_wide_stats(self) -> None:
+        """A completed nine must not acquire phantom holes 10-18 from another round's stats."""
+        from ai_caddie.caddie.mobile_live import _expected_package_hole_numbers
+
+        round_row = {
+            "id": "nine-only",
+            "courseKey": "black-knight-a",
+            "holesCompleted": 9,
+            "holes": [{"number": number} for number in range(1, 10)],
+        }
+        stats = {
+            "holes": [
+                {"courseKey": "black-knight-a", "hole": number}
+                for number in range(1, 19)
+            ]
+        }
+
+        self.assertEqual(
+            _expected_package_hole_numbers(round_row, stats, course_key="black-knight-a"),
+            list(range(1, 10)),
+        )
+
+    def test_nine_hole_loop_maps_second_lap_to_local_holes_one_to_nine(self) -> None:
+        """A+A history rows without a repeated back gid still use the cached nine-hole loop."""
+        from ai_caddie.caddie import mobile_live
+
+        row = {"globalId": 31796, "holesCompleted": 18}
+        with patch.object(
+            mobile_live,
+            "_courseview_segment_resolver",
+            return_value=("The Players Club ~ C", 9),
+        ):
+            self.assertEqual(mobile_live._round_hole_geometry_ref(row, 10), (31796, 1))
+            self.assertEqual(mobile_live._round_hole_geometry_ref(row, 18), (31796, 9))
+
     def test_mobile_round_package_uses_physical_loop_id_when_real_round_omits_global_id(self) -> None:
         """Real Garmin rows often carry front/back loop ids without the convenience globalId."""
         from ai_caddie.core.fixtures import fixture_history_data

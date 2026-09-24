@@ -679,19 +679,41 @@ def _stats_hole_numbers(stats: dict[str, Any], *, course_key: str) -> list[int]:
 def _expected_package_hole_numbers(round_row: dict[str, Any], stats: dict[str, Any], *, course_key: str) -> list[int]:
     source_numbers = _round_hole_numbers(round_row)
     stats_numbers = _stats_hole_numbers(stats, course_key=course_key)
-    all_known = sorted(set([*source_numbers, *stats_numbers]))
     hole_pars = round_row.get("holePars")
     hole_par_count = len(hole_pars) if isinstance(hole_pars, list) else len(str(hole_pars or ""))
     holes_completed = _safe_int(round_row.get("holesCompleted") or round_row.get("holesPlayed")) or 0
+    back_global_id = _safe_int(round_row.get("backNineGlobalCourseId"))
 
-    if any(number > 9 for number in all_known) or hole_par_count >= 18 or holes_completed >= 18 or len(stats_numbers) >= 10:
+    # A completed nine-hole scorecard is authoritative for the package shape.  The history stats
+    # table is course-wide and commonly contains holes 10-18 from a different round; allowing those
+    # rows to promote a nine-hole scorecard to 18 holes created phantom holes with no CourseView
+    # route (the exact reason later holes appeared without a line in live play).  An explicit back
+    # loop, an 18-hole completion count, or numbered source rows beyond nine still proves a genuine
+    # 18-hole package and takes precedence.
+    if (
+        holes_completed == 9
+        and source_numbers
+        and max(source_numbers) <= 9
+        and back_global_id is None
+        and not any(number > 9 for number in source_numbers)
+    ):
+        return list(range(1, 10))
+
+    if (
+        any(number > 9 for number in source_numbers)
+        or hole_par_count >= 18
+        or holes_completed >= 18
+        or back_global_id is not None
+    ):
         return list(range(1, 19))
+    if source_numbers and max(source_numbers) <= 9 and len(source_numbers) >= 9:
+        return list(range(1, 10))
     if stats_numbers and max(stats_numbers) <= 9 and len(stats_numbers) >= 9:
         return list(range(1, 10))
     if hole_par_count == 9 and not any(number > 9 for number in source_numbers):
         return list(range(1, 10))
-    if source_numbers and max(source_numbers) <= 9 and len(source_numbers) >= 9 and holes_completed <= 9:
-        return list(range(1, 10))
+    # Preserve the historical 18-hole fallback for sparse synthetic/in-progress rows that carry no
+    # explicit hole list.  A real nine-hole row is handled above using holesCompleted/source rows.
     return list(range(1, 19))
 
 
@@ -702,6 +724,18 @@ def _round_hole_geometry_ref(round_row: dict[str, Any], hole: int) -> tuple[int 
     back_global_id = _safe_int(round_row.get("backNineGlobalCourseId"))
     if back_global_id is not None:
         return back_global_id, hole - 9
+    # Garmin can encode an A+A (or standalone nine played twice) round without repeating the
+    # back-nine global id.  Once the cached CourseView release proves that the primary layout has
+    # nine holes, map the second display lap back to local holes 1-9 instead of asking for the
+    # nonexistent local holes 10-18.  This keeps the factual route available while remaining
+    # cache-only and offline-safe; an unknown/18-hole release retains the original local number.
+    if global_id is not None:
+        try:
+            segment = _courseview_segment_resolver(global_id)
+            if segment and segment[1] == 9:
+                return global_id, hole - 9
+        except Exception:
+            pass
     return global_id, hole
 
 
