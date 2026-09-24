@@ -155,7 +155,7 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(row["route"], [[0.0, 0.0, 0.0], [0.0, 320.0, 320.0]])
         self.assertTrue(row["holeImageProjection"]["available"])
         self.assertEqual(row["hazards"]["details"], [])
-        self.assertNotIn("map", row)
+        self.assertEqual(row["map"]["overlay"]["route"], [[0.0, 0.0, 0.0], [0.0, 320.0, 320.0]])
         self.assertTrue(any(item["label"] == "courseview_route" for item in row["missingData"]))
 
     def test_precise_route_seed_keeps_pixel_route_without_gps_anchor(self) -> None:
