@@ -1118,9 +1118,10 @@ public struct CurrentHoleView: View {
                              // assets continue in the background; the selected caddie sequence
                              // replaces the restrained centreline as soon as it is available.
                              showsRecommendedRoute: true,
-                             // Hazard geometry is an optional instrument. Nothing is highlighted
-                             // until the player explicitly chooses an obstacle below the map.
-                             showsHazards: selectedLiveHazard != nil,
+                             // The selected obstacle is rendered once by the viewport-plane
+                             // `LiveHazardOverlayRenderer` below. Keep HoleImageMapView's legacy
+                             // partial spans off so an unselected obstacle can never leak through.
+                             showsHazards: false,
                              showsPrepClubLabel: false,
                              showsClubLabel: false,
                              teeDistanceArcYards: showsTeeDistanceArc ? teeDistanceArcYards : nil,

@@ -2232,7 +2232,8 @@ class MobileContractTests(unittest.TestCase):
             current_hole,
         )
         self.assertIn("showsRecommendedRoute: true", current_hole)
-        self.assertIn("showsHazards: selectedLiveHazard != nil", current_hole)
+        self.assertIn("showsHazards: false", current_hole)
+        self.assertIn("LiveHazardOverlayRenderer.draw", current_hole)
         self.assertIn("LiveHazardPickerPanel", current_hole)
         self.assertIn("drawFactualRoute", hole_map_view)
         self.assertIn("drewFlightPlan = drawPlannedRoute(", hole_map_view)
