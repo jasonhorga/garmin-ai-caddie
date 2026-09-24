@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-24 06:10 UTC
+**Updated:** 2026-09-24 06:42 UTC
 **Branch:** `integration/v2`; product/backend canonical source revision is
 `3c5ec81af1b0f67576c0e93e1ede0c305194d099` (this ledger closeout is commit
 `40d0bcb7`). PR #332 is merged and its
@@ -67,10 +67,15 @@ centreline. Live obstacle overlays start unselected and a compact picker lets
 the player choose one obstacle before its outline/front/back annotations
 appear; changing holes or refreshing geometry never auto-selects the first row.
 The live map-detail and green-detail surfaces no longer draw incidental hazard
-spans. Focused remote mobile contract tests pass `99/99`; native Swift
-build/simulator evidence and the internal TestFlight gate are still pending.
-Next action is exact-SHA Source/Native CI, then the normal internal upload/status
-checks if those gates are green.
+spans. A follow-up loading-gate fix in commit `a1f82c32` ensures a partial
+CourseView route is drawn immediately while precise topo/hazard assets are
+still downloading; only a hole with no pixel-projectable route shows the
+preparing surface. Focused homeserver mobile contracts pass `99/99` (7.725s).
+Source CI `35965353250` is running at the exact commit; Native Mobile CI
+`35965675312` is queued with full live capture against production revision
+`3c5ec81af1b0f67576c0e93e1ede0c305194d099` (the earlier f3a185b1 run is
+obsolete). Next action is the exact-SHA Native result, then the normal internal
+TestFlight upload/status checks if both gates are green.
 
 ## Current Work Summary
 
