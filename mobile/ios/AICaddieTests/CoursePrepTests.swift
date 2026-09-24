@@ -301,6 +301,26 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertFalse(CourseReviewMapPolicy.hasPreciseFacts(hole))
     }
 
+    func testResolvesPixelMapOverlayWithoutGPSProjection() throws {
+        let json = """
+        {"schema":"ai-caddie-course-prep-v1","globalId":3881,"holeCount":1,"clubs":[],
+         "holes":[{"hole":4,"par":4,"par_source":"estimate","blue_yards":350,"route_len_m":320,
+           "route":[[0,0,0],[0,320,320]],"geometryCoverage":"partial",
+           "steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},
+           "map":{"image":null,"overlay":{"w":678,"h":1060,"ppm":1.2,"ln":320,
+             "route":[[12,1000,0],[14,40,320]]}},
+           "holeImageProjection":{"available":false}}]}
+        """
+        let response = try JSONDecoder().decode(CoursePrepResponse.self, from: Data(json.utf8))
+        let hole = try XCTUnwrap(response.holes.first)
+
+        XCTAssertFalse(hole.holeImageProjection?.available == true)
+        let overlay = try XCTUnwrap(hole.resolvedMapOverlay)
+        XCTAssertEqual(overlay.w, 678)
+        XCTAssertEqual(overlay.h, 1060)
+        XCTAssertEqual(overlay.route, [[12, 1000, 0], [14, 40, 320]])
+    }
+
     func testPrepMapFinalStateRequiresReadyAuthorityAndAnOverlay() throws {
         let json = """
         {"schema":"ai-caddie-course-prep-v1","globalId":3881,"holeCount":1,"clubs":[],

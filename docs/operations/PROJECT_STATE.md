@@ -9,10 +9,10 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-24 17:24 UTC
+**Updated:** 2026-09-24 18:58 UTC
 **Branch:** `integration/v2`; product/backend canonical source revision is
-`3c5ec81af1b0f67576c0e93e1ede0c305194d099` (this ledger closeout is commit
-`054a1cd1`). PR #332 is merged and its
+`c35e3d8c795d9f006fec2cc4c8db9492626ff495` (this route-coverage slice is
+committed locally; release gates are still pending). PR #332 is merged and its
 post-deploy gates are complete: Source CI `35838477517`, exact-SHA Native Mobile
 CI `35847317420`, homeserver deployment on production `127.0.0.1:39055`, and
 internal TestFlight CD `35853831558` uploaded Build `0.1.0 (74)` with
@@ -59,19 +59,22 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-09-24 17:24 UTC):** `PHONE-UX9-LIVE-ROUTE-COVERAGE` is
+**Current slice (2026-09-24 18:58 UTC):** `PHONE-UX9-LIVE-ROUTE-COVERAGE` is
 `in-progress`. The active working tree adds a precise prodgeometry route seed
 when a Garmin release has no CourseView route catalogue, publishes that route
 for every display hole (deduplicating repeated physical holes), and keeps the
 Watch factual route visible even when a downloaded topo image has no caddie
 response. The live phone and Watch root maps start with hazards unselected;
 only the explicit obstacle picker/instrument may draw hazard outlines and edge
-distances. Remote focused Python/mobile contracts pass `236/236` with `2`
-skips; AST parsing passes; real Garmin package smoke returns routes for `18/18`
-holes on both gid `31702` and gid `31719` (the fallback is used when CourseView
-route data is absent). Exact-head Source/Native CI and release gates remain
-pending. The next action is commit/push, then the ordered CI gates and a fresh
-internal build only if all gates pass.
+distances. The route-only seed now carries a pixel overlay even without
+`RefLat`/`RefLon`, and degenerate one-point routes are rejected. Remote
+`unittest` suites pass `36/36` course-prep tests (2 skips) and `104/104`
+mobile-server tests; real Garmin package smoke returns routes for `18/18`
+holes on both gid `31702` and gid `31719`; a read-only scan of the private
+geometry bundle found routes for all `2165/2165` mesh holes. Exact-head
+Source/Native CI and release gates remain pending. The next action is
+commit/push, then the ordered CI gates and a fresh internal build only if all
+gates pass.
 
 **Previous slice (2026-09-24):** `PHONE-UX8-LIVE-ROUTE-HAZARD` is
 `evidence-open` pending physical-device evidence. The live phone map now renders the installed factual route

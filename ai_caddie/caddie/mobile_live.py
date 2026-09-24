@@ -1102,6 +1102,62 @@ def _package_club_ladder(package: dict[str, Any]) -> list[tuple[str, int]] | Non
     return ladder or None
 
 
+def _has_drawable_route_seed(row: dict[str, Any] | None) -> bool:
+    """Whether a lightweight prep row carries enough pixels for an immediate route line.
+
+    GPS projection refs are optional: a mesh-only release can still publish a map overlay in the
+    renderer's pixel frame.  Treat either representation as drawable, but never accept a local
+    route by itself because the clients cannot place it without one of these frames.
+    """
+    if not isinstance(row, dict):
+        return False
+    route = row.get("route")
+    if not isinstance(route, list) or len(route) < 2:
+        return False
+    local_points = [
+        point for point in route
+        if isinstance(point, (list, tuple))
+        and len(point) >= 2
+        and _safe_float(point[0]) is not None
+        and _safe_float(point[1]) is not None
+    ]
+    if len(local_points) < 2 or not any(
+        math.hypot(
+            float(point[0]) - float(local_points[0][0]),
+            float(point[1]) - float(local_points[0][1]),
+        ) > 1e-6
+        for point in local_points[1:]
+    ):
+        return False
+    map_value = row.get("map")
+    overlay = map_value.get("overlay") if isinstance(map_value, dict) else None
+    if isinstance(overlay, dict):
+        route_px = overlay.get("route")
+        try:
+            width = int(overlay.get("w") or 0)
+            height = int(overlay.get("h") or 0)
+        except (TypeError, ValueError, OverflowError):
+            width = height = 0
+        if isinstance(route_px, list) and len(route_px) >= 2 and width > 0 and height > 0:
+            pixels = [
+                point for point in route_px
+                if isinstance(point, (list, tuple))
+                and len(point) >= 2
+                and _safe_float(point[0]) is not None
+                and _safe_float(point[1]) is not None
+            ]
+            if len(pixels) >= 2 and any(
+                math.hypot(
+                    float(point[0]) - float(pixels[0][0]),
+                    float(point[1]) - float(pixels[0][1]),
+                ) > 1e-6
+                for point in pixels[1:]
+            ):
+                return True
+    projection = row.get("holeImageProjection")
+    return isinstance(projection, dict) and projection.get("available") is True
+
+
 def first_hole_lightweight_course_prep(
     package: dict[str, Any],
     *,
@@ -1159,7 +1215,8 @@ def first_hole_lightweight_course_prep(
                 # that were successfully extracted for the other holes in the same package.
                 by_source[source_key] = None
         prep = by_source[source_key]
-        if not prep or not prep.get("route") or not prep.get("holeImageProjection"):
+
+        if not _has_drawable_route_seed(prep):
             # A number of Garmin releases ship precise prodgeometry without the optional
             # CourseView courseData catalogue.  In that shape the old lightweight-only branch
             # dropped the hole entirely, so swiping to it showed a bitmap with no route.  Extract
@@ -1189,7 +1246,7 @@ def first_hole_lightweight_course_prep(
             # Cache the fallback as well; composite A+A rounds may reference the same physical
             # hole twice and must not decode its meshes a second time during one package build.
             by_source[source_key] = prep
-        if not prep or not prep.get("route") or not prep.get("holeImageProjection"):
+        if not _has_drawable_route_seed(prep):
             missing_rows.append({
                 "label": "course_prep",
                 "reason": f"route unavailable for hole {round_hole}",

@@ -1093,6 +1093,10 @@ class HolePrep:
     landing_m: float | None = None
     tee_club: str | None = None
     hazards: dict = field(default_factory=dict)
+    # A route-only bootstrap can have a drawable pixel overlay even when the hole has no
+    # RefLat/RefLon anchor for live GPS projection.  Keep the map envelope independent from
+    # holeImageProjection so clients can still draw the factual tee-to-green line.
+    map: dict | None = None
     playsLike: dict = field(default_factory=dict)  # round-13: {available, teeElevM, greenElevM, deltaM, deltaYd}
     greenDistances: dict = field(default_factory=dict)  # F/M/B straight facts + optional route window
     greenSlope: dict = field(default_factory=dict)  # {available, magnitudePct, directionDeg (break dir), flat}
@@ -1985,8 +1989,31 @@ def precise_route_seed_hole(
             return None
         frame = hole_render._frame(by, route)
         projection = _hole_image_projection(by, route, md, frame=frame)
-        if not projection.get("available"):
-            return None
+        frame_project, frame_scale, frame_width, frame_height, _frame_margin = frame
+        route_px = []
+        cumulative = 0.0
+        for index, point in enumerate(route):
+            if index:
+                cumulative += math.hypot(
+                    float(point[0]) - float(route[index - 1][0]),
+                    float(point[1]) - float(route[index - 1][1]),
+                )
+            px, py = frame_project((float(point[0]), float(point[1])))
+            route_px.append([
+                round(px / hole_render.SS, 1),
+                round(py / hole_render.SS, 1),
+                round(cumulative, 1),
+            ])
+        # This is the same display-pixel frame used by render_hole().  It is intentionally
+        # available without RefLat/RefLon: GPS overlays need the latter, but the factual route
+        # line does not.  A client can therefore render a no-anchor hole instead of dropping it.
+        map_overlay = {
+            "w": int(frame_width // hole_render.SS),
+            "h": int(frame_height // hole_render.SS),
+            "ppm": round(float(frame_scale) / hole_render.SS, 4),
+            "ln": round(float(route_len), 1),
+            "route": route_px,
+        }
         if coverage is None:
             coverage = geometry_coverage_for_hole(
                 int(global_id),
@@ -2044,6 +2071,7 @@ def precise_route_seed_hole(
         landing_m=None,
         tee_club=None,
         hazards={"water_carry": [], "bunkers": [], "details": []},
+        map={"image": None, "overlay": map_overlay},
         playsLike={"available": False},
         greenDistances={"available": False},
         greenSlope={"available": False},
