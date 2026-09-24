@@ -1188,7 +1188,9 @@ def course_prep_nine(
     if tee and tee.strip().lower() not in {"", "unknown"}:
         from ai_caddie.caddie.analysis import tee_set_for_box
 
-        tee_set = tee_set_for_box(int(global_id), tee)
+        # Release-only: without cached release metadata the colour table can name the wrong set
+        # (e.g. a course whose Red release Tee is set 4), so stay on Blue rather than guess.
+        tee_set = tee_set_for_box(int(global_id), tee, colour_fallback=False)
 
     # prep_nine rebuilds all-hole mesh geometry (~19s for a 9-hole course) on every request; cache the
     # response by filesystem fingerprint so 备战 opens instantly until geometry / shots / clubs change.

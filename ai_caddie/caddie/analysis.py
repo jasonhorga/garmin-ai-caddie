@@ -95,13 +95,21 @@ TEE_SET_BY_BOX = {
 }
 
 
-def tee_set_for_box(global_id: Any, tee_box: str | None) -> int | None:
+def tee_set_for_box(
+    global_id: Any,
+    tee_box: str | None,
+    *,
+    colour_fallback: bool = True,
+) -> int | None:
     """Resolve a player's Tee choice to the CourseView tee-set index, or ``None`` when unknown.
 
     Resolution uses the same cached CourseView release list as the Tee picker (never fetches):
     the release name/key first, ``unknown`` to the picker default (Blue when published, else the
     first Tee), then the canonical colour table.  Shared by package yardage and CoursePrep routes so
     both describe the same Tee.
+
+    ``colour_fallback=False`` skips the colour table: release indices are course-specific (a Red
+    release Tee can be set 4), so a caller that must not guess gets ``None`` instead.
     """
     requested = str(tee_box or "").strip().lower()
     if not requested:
@@ -136,7 +144,7 @@ def tee_set_for_box(global_id: Any, tee_box: str | None) -> int | None:
                 tee_set = int(default_row["index"])
         except Exception:
             tee_set = None
-    if tee_set is None:
+    if tee_set is None and colour_fallback:
         tee_set = TEE_SET_BY_BOX.get(requested)
     return tee_set
 

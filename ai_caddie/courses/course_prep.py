@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass, field
 
 from ai_caddie.courses import course_reference, courseview_core
 from ai_caddie.geometry import elevation, hole_render, shot_projection
-from ai_caddie.core.data import build_club_profiles, read_json
+from ai_caddie.core.data import build_club_profiles, hazard_path, read_json
 from ai_caddie.core.data import OWNER_ID, load_club_bag, load_manual_club_bag
 from ai_caddie.core.data import available_prep_holes as available_prep_holes  # re-export: prep's hole-list default
 from ai_caddie.caddie import club_bag as club_bag_service, club_catalog
@@ -63,6 +63,14 @@ def _blue_tee(hole_meta: dict, fallback, tee_set: int | None = None):
     if tees and fallback:
         return min((_xy(t) for t in tees), key=lambda p: math.hypot(p[0] - fallback[0], p[1] - fallback[1]))
     return _xy(tees[0]) if tees else fallback
+
+
+def _hole_has_tee_set(hole_meta: dict, tee_set: int) -> bool:
+    return any(tee_set in (t.get("Sets") or []) for t in hole_meta.get("TeeLocations") or [])
+
+
+def _tee_missing(reason: str) -> dict:
+    return {"label": "tee", "reason": reason}
 
 
 def _dogleg_line(hole_meta: dict):
@@ -1120,9 +1128,19 @@ class HolePrep:
     greenSlope: dict = field(default_factory=dict)  # {available, magnitudePct, directionDeg (break dir), flat}
     holeImageProjection: dict = field(default_factory=dict)  # watch P0.1: geo→px anchors for the topo map
     greenOutline: dict | None = None  # selected Green.drc/CourseView boundary in the display frame
+    # Selected-Tee facts, present only when a ``tee_set`` was requested AND resolved on this hole.
+    # ``blue_yards`` keeps its Blue meaning; ``teeYards`` is the selected Tee's route length, which
+    # ``route``/``route_len_m``/hazards/strategy/green distances then describe.
+    teeSet: int | None = None
+    teeYards: int | None = None
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        value = asdict(self)
+        if value.get("teeSet") is None:
+            # Byte-identical to the Tee-less contract for old clients and default requests.
+            value.pop("teeSet", None)
+            value.pop("teeYards", None)
+        return value
 
 
 def _hole_playslike(by: dict, route) -> dict:
@@ -1805,6 +1823,57 @@ def _course_data_frame(
     }
 
 
+# A release-bound Tee farther than this from the CourseView route belongs to another layout (or a
+# stale export); the lightweight map then keeps the CourseView route start instead.
+_LIGHTWEIGHT_TEE_MAX_ROUTE_GAP_M = 60.0
+
+
+def _installed_tee_in_frame(
+    global_id: int,
+    local_hole: int,
+    tee_set: int,
+    route: list[tuple[float, float]],
+    *,
+    ref_lat: float,
+    ref_lon: float,
+) -> tuple[float, float] | None:
+    """The selected Tee from the installed hazard export, in the CourseView route frame.
+
+    CourseView ``courseData`` carries one route and no per-Tee positions, so before precise
+    geometry is current the only factual Tee position is the small release hazard export (the same
+    file the package uses for selected-Tee yardage). Never fetches.
+    """
+    try:
+        hazards = read_json(hazard_path(int(global_id), int(local_hole)))
+        match = next(
+            (row for row in hazards.get("tees") or [] if tee_set in (row.get("sets") or [])),
+            None,
+        )
+        if match is None:
+            return None
+        latitude, longitude = shot_projection.local_to_world(
+            float(match["position"][0]),
+            float(match["position"][1]),
+            ref_lat=float(hazards["refLat"]),
+            ref_lon=float(hazards["refLon"]),
+        )
+        tee = shot_projection.world_to_local(latitude, longitude, ref_lat=ref_lat, ref_lon=ref_lon)
+    except (OSError, AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
+        return None
+    if not all(math.isfinite(value) for value in tee):
+        return None
+    _station, gap = _route_station(tee, route)
+    return tee if gap <= _LIGHTWEIGHT_TEE_MAX_ROUTE_GAP_M else None
+
+
+def _route_from_tee(tee: tuple[float, float], route: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    rebuilt = [tee]
+    for point in _drop_points_behind_tee(tee, list(route[1:])):
+        if math.dist(point, rebuilt[-1]) > 0.01:
+            rebuilt.append(point)
+    return rebuilt
+
+
 def _lightweight_prep_hole(
     global_id: int,
     local_hole: int,
@@ -1812,6 +1881,7 @@ def _lightweight_prep_hole(
     ladder,
     par_record,
     render: bool,
+    tee_set: int | None = None,
 ) -> HolePrep | dict | None:
     course_data = courseview_core.load_cached_course_data(int(global_id))
     if not course_data:
@@ -1828,6 +1898,30 @@ def _lightweight_prep_hole(
     if hole is None or route_result is None:
         return None
     route, ref_lat, ref_lon = route_result
+    display_route = route
+    blue_len = None
+    resolved_tee_set = None
+    tee_missing: list[dict] = []
+    if tee_set is not None:
+        tee = _installed_tee_in_frame(global_id, local_hole, tee_set, route, ref_lat=ref_lat, ref_lon=ref_lon)
+        if tee is not None:
+            route = _route_from_tee(tee, route)
+            resolved_tee_set = tee_set
+            blue = (
+                tee
+                if tee_set == BLUE_TEE_SET
+                else _installed_tee_in_frame(
+                    global_id, local_hole, BLUE_TEE_SET, display_route, ref_lat=ref_lat, ref_lon=ref_lon
+                )
+            )
+            if blue is not None:
+                blue_len = _route_with_cumulative(_route_from_tee(blue, display_route))[-1][2]
+        else:
+            tee_missing.append(
+                _tee_missing("selected Tee position is pending precise geometry; the CourseView route start is used")
+            )
+    if len(route) < 2:
+        route, resolved_tee_set, blue_len = display_route, None, None
     route_rows = _route_with_cumulative(route)
     route_len = route_rows[-1][2]
     route_line = next(
@@ -1853,8 +1947,12 @@ def _lightweight_prep_hole(
     extra = [*green_outline]
     for hazard in local_hazards:
         extra.extend((hazard["front"], hazard["back"]))
+    if route[0] != display_route[0]:
+        extra.append(route[0])
+    # The frame follows the CourseView route (as without a Tee) so the map does not re-orient
+    # between Tees; the selected Tee is only added to the fitted points.
     project, projection = _course_data_frame(
-        route,
+        display_route,
         extra,
         ref_lat=ref_lat,
         ref_lon=ref_lon,
@@ -1924,7 +2022,7 @@ def _lightweight_prep_hole(
         hole=int(local_hole),
         par=par,
         par_source=par_source,
-        blue_yards=yd(route_len),
+        blue_yards=yd(blue_len if blue_len is not None else route_len),
         route_len_m=round(route_len, 1),
         route=route_rows,
         geometryCoverage="partial",
@@ -1933,7 +2031,8 @@ def _lightweight_prep_hole(
             {
                 "label": "geometry",
                 "reason": "precise prodgeometry is pending; factual CourseView courseData is active",
-            }
+            },
+            *tee_missing,
         ],
         candidateRoutes=_candidate_routes(ladder, hazards, par=par),
         carryTargets=_carry_targets(landing, hazards),
@@ -1952,6 +2051,8 @@ def _lightweight_prep_hole(
             "distanceUnit": None,
             "pointsPx": [[round(x, 1), round(y, 1)] for x, y in green_px],
         },
+        teeSet=resolved_tee_set,
+        teeYards=yd(route_len) if resolved_tee_set is not None else None,
     )
     return prep.to_dict() if render else prep
 
@@ -2153,6 +2254,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
             ladder=ladder,
             par_record=par_record,
             render=render,
+            tee_set=tee_set,
         )
         if lightweight is not None:
             return lightweight
@@ -2165,16 +2267,25 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
             ladder=ladder,
             par_record=par_record,
             render=render,
+            tee_set=tee_set,
         )
     # The display route (Blue Tee) fixes the map frame so projections match the shared, Tee-
     # independent /topo.png bitmap. Playing facts (hazard carries, strategy, green distances,
     # plays-like) follow the player's Tee when one is requested.
     display_route, display_route_len = derive_route(md)
+    resolved_tee_set = None
+    tee_missing: list[dict] = []
+    if tee_set is not None:
+        if _hole_has_tee_set(md.get("hole") or {}, tee_set):
+            resolved_tee_set = tee_set
+        else:
+            tee_missing.append(_tee_missing("selected Tee is not published for this hole; the Blue route is used"))
     route, route_len = (
-        derive_route(md, tee_set) if tee_set is not None else (display_route, display_route_len)
+        derive_route(md, resolved_tee_set) if resolved_tee_set is not None else (display_route, display_route_len)
     )
     if not route or not route_len:
         route, route_len = display_route, display_route_len
+        resolved_tee_set = None
     if not display_route:
         display_route = route
     if not route or not route_len:
@@ -2184,6 +2295,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
             ladder=ladder,
             par_record=par_record,
             render=render,
+            tee_set=tee_set,
         )
     if par_record is None:
         par_record = course_reference.load_course_par(global_id)
@@ -2216,11 +2328,13 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         row
         for row in coverage.get("missingData", [])
         if isinstance(row, dict)
-    ]
+    ] + tee_missing
     prep = HolePrep(
         globalId=int(global_id), localHole=int(local_hole),
         hole=local_hole, par=par, par_source=par_source,
-        blue_yards=yd(route_len), route_len_m=round(route_len, 1),
+        blue_yards=yd(display_route_len or route_len), route_len_m=round(route_len, 1),
+        teeSet=resolved_tee_set,
+        teeYards=yd(route_len) if resolved_tee_set is not None else None,
         route=_route_with_cumulative(route),
         geometryCoverage=str(coverage.get("coverage") or "missing"),
         geometryRevision=(

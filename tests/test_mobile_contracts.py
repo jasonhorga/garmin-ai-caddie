@@ -2511,7 +2511,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("yards(fromMetres:", course_prep)
 
         self.assertIn('.navigationTitle("赛前球场攻略")', course_review)
-        self.assertIn('Text("蓝T \\(hole.blueYards)y")', course_review)
+        # ``blueYards`` is labelled Blue only; a selected-Tee prep shows its own ``teeYards``.
+        self.assertIn('return "蓝T \\(hole.blueYards)y"', course_review)
+        self.assertIn('return "所选T \\(teeYards)y"', course_review)
+        self.assertIn("decodeIfPresent(Int.self, forKey: .teeYards)", course_prep)
         # Prep is now an installed-package surface. Search selection stays in the durable download
         # library, and this destination has no page-owned fetch/coverage/partial-map lifecycle.
         self.assertNotIn("stride(from: 1, through: holeCount, by: 3)", course_review)

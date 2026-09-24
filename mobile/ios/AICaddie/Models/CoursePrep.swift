@@ -628,6 +628,9 @@ public struct CoursePrepHole: Codable, Equatable {
     public let par: Int
     public let parSource: String
     public let blueYards: Int
+    /// Selected-Tee route length (yards), present only when `/prep?tee=` resolved on this hole. Then
+    /// `route`/`routeLenM`/hazards/green distances describe that Tee while `blueYards` stays Blue.
+    public let teeYards: Int?
     public let routeLenM: Double
     public let route: [[Double]]
     public let geometryCoverage: String
@@ -654,6 +657,7 @@ public struct CoursePrepHole: Codable, Equatable {
         case hole, par, route, geometryCoverage, geometryRevision, sourceRefs, missingData, candidateRoutes, carryTargets, steps, cautions, hazards, map, greenDistances, playsLike, holeImageProjection, greenOutline
         case parSource = "par_source"
         case blueYards = "blue_yards"
+        case teeYards
         case routeLenM = "route_len_m"
         case landingM = "landing_m"
         case teeClub = "tee_club"
@@ -664,6 +668,7 @@ public struct CoursePrepHole: Codable, Equatable {
         par: Int,
         parSource: String,
         blueYards: Int,
+        teeYards: Int? = nil,
         routeLenM: Double,
         route: [[Double]] = [],
         geometryCoverage: String = "missing",
@@ -687,6 +692,7 @@ public struct CoursePrepHole: Codable, Equatable {
         self.par = par
         self.parSource = parSource
         self.blueYards = blueYards
+        self.teeYards = teeYards
         self.routeLenM = routeLenM
         self.route = route
         self.geometryCoverage = geometryCoverage
@@ -713,6 +719,7 @@ public struct CoursePrepHole: Codable, Equatable {
         self.par = try container.decode(Int.self, forKey: .par)
         self.parSource = try container.decode(String.self, forKey: .parSource)
         self.blueYards = try container.decode(Int.self, forKey: .blueYards)
+        self.teeYards = try container.decodeIfPresent(Int.self, forKey: .teeYards)
         self.routeLenM = try container.decode(Double.self, forKey: .routeLenM)
         self.route = try container.decodeIfPresent([[Double]].self, forKey: .route) ?? []
         self.geometryCoverage = try container.decodeIfPresent(String.self, forKey: .geometryCoverage) ?? "missing"
@@ -731,6 +738,11 @@ public struct CoursePrepHole: Codable, Equatable {
         self.playsLike = try container.decodeIfPresent(CoursePrepPlaysLike.self, forKey: .playsLike)
         self.holeImageProjection = try container.decodeIfPresent(CoursePrepHoleImageProjection.self, forKey: .holeImageProjection)
         self.greenOutline = try container.decodeIfPresent(CoursePrepGreenOutline.self, forKey: .greenOutline)
+    }
+
+    /// Yardage of the Tee this prep's playing facts describe: the selected Tee when resolved, else Blue.
+    public var playingYards: Int {
+        teeYards ?? blueYards
     }
 
     /// Overlay in the shared `/topo.png` pixel frame. Rendered prep already embeds this value; the
@@ -848,6 +860,7 @@ public struct CoursePrepHole: Codable, Equatable {
             par: par,
             parSource: parSource,
             blueYards: blueYards,
+            teeYards: teeYards,
             routeLenM: routeLenM,
             route: route,
             geometryCoverage: geometryCoverage,

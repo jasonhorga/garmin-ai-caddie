@@ -35,6 +35,8 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertEqual(hole.par, 5)
         XCTAssertEqual(hole.parSource, "played")
         XCTAssertEqual(hole.blueYards, 523)
+        XCTAssertNil(hole.teeYards)
+        XCTAssertEqual(hole.playingYards, 523)
         XCTAssertEqual(hole.teeClub, "1W")
         XCTAssertEqual(hole.steps.count, 2)
         let secondStepRouteOffset = try XCTUnwrap(hole.steps[1].routeOffsetM)
@@ -65,6 +67,22 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertNil(hole.landingM)
         XCTAssertNil(hole.map)
         XCTAssertEqual(hole.hazards.waterCarry.first, [40.0, 90.0])
+    }
+
+    func testSelectedTeePrepKeepsBlueYardsAndCarriesTeeYards() throws {
+        let json = """
+        {"schema":"ai-caddie-course-prep-v1","globalId":1,"holeCount":1,"clubs":[],"teeSet":5,
+         "holes":[{"hole":4,"par":4,"par_source":"courseview","blue_yards":410,"teeSet":5,"teeYards":362,
+           "route_len_m":331.0,"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]}}]}
+        """
+        let response = try JSONDecoder().decode(CoursePrepResponse.self, from: Data(json.utf8))
+        let hole = try XCTUnwrap(response.holes.first)
+        XCTAssertEqual(hole.blueYards, 410)
+        XCTAssertEqual(hole.teeYards, 362)
+        XCTAssertEqual(hole.playingYards, 362)
+        XCTAssertEqual(hole.renumbered(to: 13).teeYards, 362)
+        let roundTrip = try JSONDecoder().decode(CoursePrepHole.self, from: JSONEncoder().encode(hole))
+        XCTAssertEqual(roundTrip, hole)
     }
 
     func testGreenRouteWindowDecodesSeparatelyFromStraightGpsDistances() throws {

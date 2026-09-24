@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import os
 import unittest
@@ -378,6 +379,111 @@ class PureLogicTests(unittest.TestCase):
         self.assertTrue(row["holeImageProjection"]["available"])
         self.assertTrue(row["greenDistances"]["available"])
         self.assertIsNotNone(row["greenDistances"]["middleLat"])
+
+    def _tee_md(self) -> dict:
+        return {"hole": {
+            "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}, {"Sets": [5], "X": 0.0, "Y": 40.0}],
+            "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 320.0}]}],
+        }}
+
+    def _precise_prep(self, **kwargs) -> dict:
+        with patch.object(cp.hole_render, "load_mesh", return_value=(self._tee_md(), {})), \
+                patch("ai_caddie.courses.course_prep.geometry_coverage_for_hole",
+                      return_value={"coverage": "ready", "missingData": []}):
+            prep = cp.prep_hole(
+                99999, 1, ladder=[("1W", 200), ("7I", 128)],
+                par_record=CoursePar(global_id=99999, par=[4], par_source="courseview", confidence="high"),
+                render=False, **kwargs,
+            )
+        return prep.to_dict()
+
+    def test_precise_prep_keeps_blue_yards_and_adds_selected_tee_yards(self) -> None:
+        default = self._precise_prep()
+        red = self._precise_prep(tee_set=5)
+        absent = self._precise_prep(tee_set=9)
+
+        self.assertNotIn("teeSet", default)  # Tee-less contract is unchanged
+        self.assertNotIn("teeYards", default)
+        self.assertEqual(default["blue_yards"], cp.yd(320.0))
+        self.assertEqual(red["blue_yards"], cp.yd(320.0))  # still the Blue Tee's length
+        self.assertEqual((red["teeSet"], red["teeYards"]), (5, cp.yd(280.0)))
+        self.assertEqual(red["route_len_m"], 280.0)
+        self.assertEqual(red["route"][0], [0.0, 40.0, 0.0])
+        # A Tee this hole does not publish: Blue facts, flagged instead of labelled as that Tee.
+        self.assertNotIn("teeSet", absent)
+        self.assertEqual(absent["route_len_m"], 320.0)
+        self.assertIn("tee", [row["label"] for row in absent["missingData"]])
+
+    def _lightweight_course_data(self) -> dict:
+        return {
+            "schema": "garmin-course-data-core-v1",
+            "sourceVariant": "medium-plus",
+            "buildId": 309,
+            "globalLayoutId": 3881,
+            "holes": [{
+                "holeNumber": 1,
+                "greenRadii": [12] * 30,
+                "pars": [{"par": 4, "playerType": 1}],
+                "lines": [{
+                    "role": "route",
+                    "surface": None,
+                    "points": [
+                        {"latitude": 36.58, "longitude": -121.97},
+                        {"latitude": 36.583, "longitude": -121.97},
+                    ],
+                }],
+            }],
+        }
+
+    def _lightweight_prep(self, hazards: dict | None, **kwargs) -> dict:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "hazards.json"
+            if hazards is not None:
+                path.write_text(json.dumps(hazards), encoding="utf-8")
+            with patch.object(cp.hole_render, "load_mesh", side_effect=FileNotFoundError), \
+                    patch.object(cp.courseview_core, "load_cached_course_data",
+                                 return_value=self._lightweight_course_data()), \
+                    patch.object(cp, "hazard_path", return_value=path):
+                prep = cp.prep_hole(3881, 1, ladder=[("1W", 200), ("7I", 128)], render=False, **kwargs)
+        return prep.to_dict()
+
+    def test_lightweight_prep_follows_the_selected_tee_before_precise_geometry(self) -> None:
+        hazards = {
+            "refLat": 36.58,
+            "refLon": -121.97,
+            "tees": [
+                {"tee_index": 1, "sets": [2], "position": [0.0, 0.0]},
+                {"tee_index": 2, "sets": [5], "position": [0.0, 50.0]},
+            ],
+        }
+        default = self._lightweight_prep(hazards)
+        red = self._lightweight_prep(hazards, tee_set=5)
+        pending = self._lightweight_prep(None, tee_set=5)
+
+        self.assertEqual(red["geometryCoverage"], "partial")
+        self.assertNotIn("teeSet", default)
+        self.assertEqual(red["teeSet"], 5)
+        self.assertEqual(red["blue_yards"], default["blue_yards"])
+        self.assertAlmostEqual(red["route_len_m"], default["route_len_m"] - 50.0, delta=0.2)
+        self.assertEqual(red["teeYards"], cp.yd(red["route_len_m"]))
+        self.assertAlmostEqual(red["route"][0][1], 50.0, delta=0.1)
+        self.assertLess(red["greenDistances"]["middleM"], default["greenDistances"]["middleM"])
+        # The map frame stays on the CourseView route, so the Tee does not re-orient the drawing.
+        self.assertEqual(red["holeImageProjection"], default["holeImageProjection"])
+        # No installed Tee position yet: CourseView route facts, explicitly flagged as not the Tee.
+        self.assertNotIn("teeSet", pending)
+        self.assertEqual(pending["route_len_m"], default["route_len_m"])
+        self.assertIn("tee", [row["label"] for row in pending["missingData"]])
+
+    def test_lightweight_prep_ignores_a_tee_far_from_the_course_data_route(self) -> None:
+        hazards = {
+            "refLat": 36.58,
+            "refLon": -121.97,
+            "tees": [{"tee_index": 1, "sets": [5], "position": [200.0, 50.0]}],
+        }
+        red = self._lightweight_prep(hazards, tee_set=5)
+        self.assertNotIn("teeSet", red)
+        self.assertIn("tee", [row["label"] for row in red["missingData"]])
 
     def test_par3_strategy_one_club_to_green(self) -> None:
         ladder = [("1W", 200), ("7I", 128), ("PW", 102)]
