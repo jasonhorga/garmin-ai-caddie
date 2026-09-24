@@ -270,4 +270,21 @@ final class HoleMapInteractionTests: XCTestCase {
         let map = HoleImageMapView(hole: hole)
         XCTAssertFalse(map.showsHazards)
     }
+
+    func testFactualRouteStaysVisibleWhenRecommendationIsHidden() {
+        let hole = CoursePrepHole(
+            hole: 1,
+            par: 4,
+            parSource: "test",
+            blueYards: 400,
+            routeLenM: 360,
+            route: [[0, 360, 0], [0, 0, 360]]
+        )
+
+        let map = HoleImageMapView(hole: hole, showsRecommendedRoute: false)
+
+        XCTAssertTrue(map.showsFactualRoute)
+        XCTAssertFalse(map.showsRecommendedRoute)
+        XCTAssertFalse(map.showsHazards)
+    }
 }

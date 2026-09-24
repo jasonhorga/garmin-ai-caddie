@@ -262,6 +262,7 @@ public struct LivePlayMapDetailView: View {
                 showsRecommendedRoute: effectiveTargetPixel(overlay: overlay) == nil,
                 // Obstacle geometry is an explicit instrument on the live hole screen. The map
                 // detail surface should stay uncluttered until the player selects one hazard.
+                showsFactualRoute: true,
                 showsHazards: false
             )
             .frame(width: size.width, height: size.height)

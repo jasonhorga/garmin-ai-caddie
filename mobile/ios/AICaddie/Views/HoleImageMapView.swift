@@ -89,6 +89,9 @@ public struct HoleImageMapView: View {
     /// the shared map must not add a second rounded card boundary around the instrument backdrop.
     public let showsCardChrome: Bool
     /// Live map-layer controls. Prep/review callers retain the full factual rendering by default.
+    /// The installed tee-to-green centreline is factual map data, not a caddie choice. Keep it
+    /// independent so a detail instrument can hide recommendation arcs without blanking the hole.
+    public let showsFactualRoute: Bool
     public let showsRecommendedRoute: Bool
     public let showsHazards: Bool
     /// Preparation-only fallback label. Live play must wait for an authoritative selected club so a
@@ -116,7 +119,8 @@ public struct HoleImageMapView: View {
     public init(hole: CoursePrepHole, selectedClub: String? = nil, selectedClubMetres: Double? = nil,
                 pinOverlayPixel: CGPoint? = nil,
                 topoURL: URL? = nil, showsCardChrome: Bool = true,
-                showsRecommendedRoute: Bool = true, showsHazards: Bool = false,
+                showsFactualRoute: Bool = true, showsRecommendedRoute: Bool = true,
+                showsHazards: Bool = false,
                 showsPrepFactOverlays: Bool = false, allowsRotation: Bool = false,
                 showsPrepClubLabel: Bool = true, showsClubLabel: Bool = true,
                 teeDistanceArcYards: Int? = nil,
@@ -127,6 +131,7 @@ public struct HoleImageMapView: View {
         self.pinOverlayPixel = pinOverlayPixel
         self.topoURL = topoURL
         self.showsCardChrome = showsCardChrome
+        self.showsFactualRoute = showsFactualRoute
         self.showsRecommendedRoute = showsRecommendedRoute
         self.showsHazards = showsHazards
         self.showsPrepFactOverlays = showsPrepFactOverlays
@@ -224,14 +229,14 @@ public struct HoleImageMapView: View {
                 routePoints: routePoints,
                 sx: sx,
                 sy: sy,
-                showsRoute: showsRecommendedRoute,
+                showsRoute: showsFactualRoute,
                 showsHazards: showsHazards
             )
         }
         // The factual route is independent from the caddie response. Draw it first whenever the
         // map has two projectable points, so a stale/degenerate recommendation can never make an
         // otherwise usable hole look blank. A valid recommendation is layered above this line.
-        if showsRecommendedRoute, routePoints.count >= 2 {
+        if showsFactualRoute, routePoints.count >= 2 {
             drawFactualRoute(&context, points: routePoints)
         }
         // A recommendation is a flight plan, not the course centreline. Draw one independent arc

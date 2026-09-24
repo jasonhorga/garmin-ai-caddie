@@ -556,6 +556,7 @@ struct LiveHazardDetailView: View {
                 hole: hole,
                 topoURL: topoURL,
                 showsCardChrome: false,
+                showsFactualRoute: true,
                 showsRecommendedRoute: false,
                 showsHazards: false
             )
