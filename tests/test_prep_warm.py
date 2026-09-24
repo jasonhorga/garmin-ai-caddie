@@ -36,6 +36,29 @@ class PrepWarmConcurrencyTests(unittest.TestCase):
             self.assertFalse(prep_nine.call_args.kwargs["render"])
 
 
+class PrepWarmTeeTests(unittest.TestCase):
+    def _warm(self, tee_box, resolved):
+        from ai_caddie.courses import course_prep
+
+        with patch.object(course_prep, "prep_nine") as prep_nine, \
+                patch.object(course_prep, "available_prep_holes", return_value=[1]), \
+                patch.object(course_prep, "effective_club_ladder", return_value=[]), \
+                patch("ai_caddie.caddie.analysis.tee_set_for_box", return_value=resolved) as resolve:
+            main._warm_course_prep(31795, "me", tee_box=tee_box)
+        return prep_nine.call_args.kwargs["tee_set"], resolve
+
+    def test_warm_fills_the_selected_tee_cache_entry(self) -> None:
+        tee_set, resolve = self._warm("red", 4)
+        self.assertEqual(tee_set, 4)
+        resolve.assert_called_once_with(31795, "red", colour_fallback=False)  # same rule as /prep
+
+    def test_unknown_or_missing_tee_warms_the_default_entry(self) -> None:
+        for tee_box in (None, "", "unknown"):
+            tee_set, resolve = self._warm(tee_box, 4)
+            self.assertIsNone(tee_set)
+            resolve.assert_not_called()
+
+
 class BootPrepWarmDelayTests(unittest.TestCase):
     def test_default_delay_and_clamping(self) -> None:
         with patch.dict(os.environ, {}, clear=False):

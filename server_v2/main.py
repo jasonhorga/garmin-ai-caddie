@@ -1040,10 +1040,26 @@ def _prep_warm_course_limit() -> int:
     return max(0, min(3, value))
 
 
-def _warm_course_prep(global_id: int, player_id: str, *, delay_s: float = 0.0) -> None:
+def _warm_course_prep(
+    global_id: int,
+    player_id: str,
+    *,
+    tee_box: str | None = None,
+    delay_s: float = 0.0,
+) -> None:
     """Fill the per-hole factual prep cache (render=False) that the course package, iPhone and
-    Watch all read, so starting a round at a recently played course does not pay the cold build."""
+    Watch all read, so starting a round at a recently played course does not pay the cold build.
+
+    iPhone and Watch request ``/prep?tee=<teeBox>`` and the per-hole cache is keyed by the resolved
+    Tee set, so warm the Tee the player last used there (resolved exactly like the endpoint does);
+    without a known Tee the default Blue entry is warmed as before.
+    """
+    from ai_caddie.caddie.analysis import tee_set_for_box
     from ai_caddie.courses import course_prep
+
+    tee_set = None
+    if tee_box and str(tee_box).strip().lower() not in {"", "unknown"}:
+        tee_set = tee_set_for_box(int(global_id), tee_box, colour_fallback=False)
 
     if delay_s > 0:
         _PREP_WARM_DELAY_EVENT.wait(delay_s)
@@ -1060,12 +1076,14 @@ def _warm_course_prep(global_id: int, player_id: str, *, delay_s: float = 0.0) -
             render=False,
             include_missing=True,
             player_id=player_id,
+            tee_set=tee_set,
         )
     finally:
         _PREP_WARM_LOCK.release()
     logger.info(
-        "prep_warm gid=%s holes=%s duration_ms=%s",
+        "prep_warm gid=%s tee_set=%s holes=%s duration_ms=%s",
         int(global_id),
+        tee_set,
         len(holes),
         int((time.perf_counter() - started) * 1000),
     )
@@ -1085,13 +1103,13 @@ def _boot_prep_warm_delay_s() -> float:
     return max(0.0, min(3600.0, value)) if math.isfinite(value) else 120.0
 
 
-def _delayed_prep_warmer(player_id: str, delay_s: float) -> Callable[[int], None]:
+def _delayed_prep_warmer(player_id: str, delay_s: float) -> Callable[..., None]:
     """Warm courses one by one; only the first waits ``delay_s`` (the boot window)."""
     pending = [max(0.0, delay_s)]
 
-    def warm(global_id: int) -> None:
+    def warm(global_id: int, tee_box: str | None = None) -> None:
         wait, pending[0] = pending[0], 0.0
-        _warm_course_prep(global_id, player_id, delay_s=wait)
+        _warm_course_prep(global_id, player_id, tee_box=tee_box, delay_s=wait)
 
     return warm
 

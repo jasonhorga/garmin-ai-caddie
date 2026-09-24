@@ -108,14 +108,25 @@ def _course_data_route_in_hole_frame(hole_meta: dict) -> list[tuple[float, float
     return deduped if len(deduped) >= 2 else None
 
 
-def _drop_points_behind_tee(tee, points: list) -> list:
-    """Drop route points that are farther from the green than a forward Tee (it sits past them)."""
-    if len(points) < 2:
-        return points
-    end = points[-1]
-    tee_to_end = math.dist(tee, end)
-    kept = [point for point in points[:-1] if math.dist(point, end) < tee_to_end]
-    return kept + [end]
+def _route_points_ahead_of_tee(tee, polyline: list) -> list:
+    """Route points after a forward Tee, measured along the route rather than as the crow flies.
+
+    ``polyline`` is the full route whose first point is the reference Tee. The forward Tee is
+    projected onto it and only points at a later route station are kept (the endpoint always), so a
+    Tee past the first leg drops that leg while a dogleg bend still ahead of the Tee survives even
+    when the bend is farther from the green than the Tee (straight-line distance is not monotonic
+    along a pronounced dogleg).
+    """
+    if len(polyline) < 2:
+        return list(polyline[1:])
+    tee_station, _gap = _route_station(tee, polyline)
+    kept = []
+    station = 0.0
+    for previous, point in zip(polyline, polyline[1:-1]):
+        station += math.dist(previous, point)
+        if station > tee_station + 0.01:
+            kept.append(point)
+    return kept + [polyline[-1]]
 
 
 def derive_route(md: dict, tee_set: int | None = None):
@@ -144,16 +155,15 @@ def derive_route(md: dict, tee_set: int | None = None):
         and math.dist(selected_route[-1], line[-1])
         > courseview_core.COURSE_DATA_ROUTE_ENDPOINT_OVERRIDE_METRES
     ):
-        rest = list(selected_route[1:])
-        if custom_tee:
-            rest = _drop_points_behind_tee(tee, rest)
+        rest = (
+            _route_points_ahead_of_tee(tee, selected_route) if custom_tee else list(selected_route[1:])
+        )
         route = [tee]
         for point in rest:
             if math.dist(point, route[-1]) > 0.01:
                 route.append(point)
     else:
-        rest = list(line[1:])
-        route = [tee] + (_drop_points_behind_tee(tee, rest) if custom_tee else rest)
+        route = [tee] + (_route_points_ahead_of_tee(tee, line) if custom_tee else list(line[1:]))
     if len(route) < 2:
         return None, None
     length = sum(math.hypot(route[i + 1][0] - route[i][0], route[i + 1][1] - route[i][1])
@@ -1868,7 +1878,7 @@ def _installed_tee_in_frame(
 
 def _route_from_tee(tee: tuple[float, float], route: list[tuple[float, float]]) -> list[tuple[float, float]]:
     rebuilt = [tee]
-    for point in _drop_points_behind_tee(tee, list(route[1:])):
+    for point in _route_points_ahead_of_tee(tee, route):
         if math.dist(point, rebuilt[-1]) > 0.01:
             rebuilt.append(point)
     return rebuilt

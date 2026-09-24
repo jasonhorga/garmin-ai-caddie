@@ -76,6 +76,17 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(route, [(0.0, 120.0), (0.0, 300.0)])
         self.assertAlmostEqual(length, 180.0, places=1)
 
+    def test_forward_tee_keeps_a_dogleg_bend_that_is_still_ahead(self) -> None:
+        # Hairpin: the bend (0,200) is farther from the green than the forward Tee (0,120), but it
+        # is still ahead along the route; comparing straight-line distance would cut the corner.
+        md = {"hole": {
+            "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}, {"Sets": [5], "X": 0.0, "Y": 120.0}],
+            "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 200.0}, {"X": 60.0, "Y": 100.0}]}],
+        }}
+        route, length = cp.derive_route(md, tee_set=5)
+        self.assertEqual(route, [(0.0, 120.0), (0.0, 200.0), (60.0, 100.0)])
+        self.assertAlmostEqual(length, 80.0 + math.hypot(60.0, 100.0), places=1)
+
     def test_derive_route_uses_selected_course_data_route_for_dual_green(self) -> None:
         ref_lat, ref_lon = 40.0, 116.0
         selected_local = [(0.0, 0.0), (12.0, 105.0), (30.0, 230.0)]

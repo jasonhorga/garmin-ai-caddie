@@ -13,7 +13,7 @@
 |---|---|---|---|
 | 01 | 首页 | 根视图改为 `TabView`（打球 / 备战 / 成绩 / 球包）；进行中卡片带当前洞小地图；上一场画成 18 洞逐洞柱 | `AICaddieApp.swift`、`RoundHomeView.swift` |
 | 02 | 开一场 | 九洞组合画成“9 个点一圈”，点选拼 18 洞；Tee 用真实颜色标志加码数、评分/坡度；显示 18 洞长度柱状图。去掉 `Picker(.menu)`、单选行和 `confirmationDialog` | `StartRoundView.swift` |
-| 03 | 打球 | 全屏地图；顶部毛玻璃胶囊；果岭旁竖向前/中/后刻度；推荐落点画 p10–p90 散布椭圆；障碍直接标“到/越”码数；底部为可拖动的 sheet（`presentationDetents`） | `CurrentHoleView.swift`、`LiveHoleComponents.swift`、`HoleImageMapView.swift` |
+| 03 | 打球 | 全屏地图；顶部毛玻璃胶囊；果岭旁竖向前/中/后刻度；推荐杆画 p10–p90 一维距离带（缺数据时只画落点）；障碍直接标“到/越”码数；底部为可拖动的 sheet（`presentationDetents`） | `CurrentHoleView.swift`、`LiveHoleComponents.swift`、`HoleImageMapView.swift` |
 | 04 | 记分 | 一屏记完：点成绩形状选杆数，点果岭上的球选推杆，点球道左/中/右选开球，罚杆为 0/+1/+2，默认选中手表记到的杆数 | `LiveScoreConfirmationView.swift` |
 | 05 | 成绩 | 四个阶段各一张图放在同一屏（开球扇形、攻果岭方向弧、推杆分布、杆型相对标准杆）；顶部近 20 场面积折线 | `ResultsView.swift`、`StatsView.swift`、`PerformancePhaseGraphics.swift` |
 | 06 | 单场复盘 | 九洞小地图墙代替计分表，每洞画出实际击球线和成绩形状，点开即现有的逐杆地图 | `RoundReviewView.swift`、`RoundShotMapView.swift` |
@@ -23,9 +23,10 @@
 
 ## 2. 请 Codex 重点确认
 
-1. **数据是否真的在客户端可用**
-   - 打球屏的散布椭圆用 `CaddiePlanOption.p10M / p90M`，“预计 4.1 杆”用 `expectedStrokes`（`CaddiePlanView.swift:142-148`）。
-   - 这些字段在实时球童响应里是否稳定有值？还是只在部分路径下有？
+1. **数据可用性**（已按 Codex 首轮评审修改）
+   - 距离带只用 `CaddiePlanOption.p10M / p90M`，画成一维远近带，不画二维椭圆（没有横向散布数据）；离线 seed 或无对应球杆时两者为空，只画落点。
+   - 不显示 `expectedStrokes`：它是未校准的启发式，离线路径为 nil，`scoreImpactText` 也有意不展示。
+   - 请确认其余图形用到的字段（`teeDirection`、`approachMiss`、`putting`、`byPar`、`clubs[].p10/p90`、`RoundShot.start/end`）在离线和在线路径下是否都可靠。
 2. **TabView 迁移风险**
    - 现在的根是 `RoundHomeView` 的 `NavigationStack(path:)`；打球屏靠它隐藏导航栏并切到深色。
    - 改成 `TabView` 后，打球全屏态、Watch 事件桥和深链是否会受影响？

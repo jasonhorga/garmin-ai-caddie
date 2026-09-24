@@ -40,19 +40,27 @@ def recent_round_topo_targets(data: HistoryData) -> list[tuple[int, list[int]]]:
     return [(gid, holes) for gid, holes in by_gid.items()]
 
 
-def recent_course_ids(data: HistoryData, limit: int = 3) -> list[int]:
-    """最近打过的不同物理球场 gid(新→旧,最多 ``limit`` 个;前后九各自的 gid 都算)。"""
+def recent_course_tees(data: HistoryData, limit: int = 3) -> list[tuple[int, str | None]]:
+    """最近打过的不同物理球场 [(gid, 该球场最近一盘的 teeBox 或 None)](新→旧,最多 ``limit`` 个)。"""
     rounds = sorted((r for r in data.rounds if r.get("date")), key=lambda r: str(r.get("date")), reverse=True)
-    out: list[int] = []
+    out: list[tuple[int, str | None]] = []
+    seen: set[int] = set()
     for row in rounds:
         n = len(str(row.get("holePars") or "")) or 18
+        tee_box = str(row.get("teeBox") or "").strip() or None
         for hole in (1, 10) if n > 9 else (1,):
             gid, _local = _geometry_target(row, hole)
-            if gid is not None and int(gid) not in out:
-                out.append(int(gid))
+            if gid is not None and int(gid) not in seen:
+                seen.add(int(gid))
+                out.append((int(gid), tee_box))
         if len(out) >= limit:
             break
     return out[:limit]
+
+
+def recent_course_ids(data: HistoryData, limit: int = 3) -> list[int]:
+    """最近打过的不同物理球场 gid(新→旧,最多 ``limit`` 个;前后九各自的 gid 都算)。"""
+    return [gid for gid, _tee in recent_course_tees(data, limit=limit)]
 
 
 def prepare_recent_round(
@@ -61,7 +69,7 @@ def prepare_recent_round(
     prewarm: Callable[[int, list[int]], None],
     warm_stats: Callable[[], None],
     ensure_geometry: Callable[[int, list[int]], None] | None = None,
-    warm_prep: Callable[[int], None] | None = None,
+    warm_prep: Callable[[int, str | None], None] | None = None,
     prep_course_limit: int = 3,
 ) -> dict[str, Any]:
     """预热最近一盘的 topo + 烤统计。每步 best-effort。返回 {"courses": [...], "holes": N}。
@@ -88,9 +96,10 @@ def prepare_recent_round(
     # 都复用同一份逐洞结果;输入未变时命中缓存、零成本。
     warmed: list[int] = []
     if warm_prep is not None:
-        for gid in recent_course_ids(data, limit=prep_course_limit):
+        # iPhone/Watch 按所选 Tee 请求 prep(缓存按 Tee 区分),所以用该球场最近一盘的 Tee 预热。
+        for gid, tee_box in recent_course_tees(data, limit=prep_course_limit):
             try:
-                warm_prep(gid)
+                warm_prep(gid, tee_box)
                 warmed.append(gid)
             except Exception:  # noqa: BLE001 - best-effort
                 logger.exception("prep warm failed for gid=%s", gid)

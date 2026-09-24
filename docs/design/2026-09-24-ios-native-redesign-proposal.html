@@ -102,7 +102,7 @@ footer{font-size:13px;color:var(--muted)}
 <header class="top">
   <span class="eyebrow">iPHONE 界面 · 新版方案 v1</span>
   <h1>把球场画出来，少一些控件</h1>
-  <p class="lede">现在的 App 功能已经齐了，但很多地方还是“选择器 + 步进器 + 文字卡片”。新版把能画出来的信息都画出来：距离标在果岭旁边，推荐杆落点画成散布椭圆，记分改成点形状，统计改成球道扇形和靶心。整体骨架回到系统原生：底部标签栏、半屏面板、毛玻璃材质、SF Symbols、Swift Charts。</p>
+  <p class="lede">现在的 App 功能已经齐了，但很多地方还是“选择器 + 步进器 + 文字卡片”。新版把能画出来的信息都画出来：距离标在果岭旁边，推荐杆的带球范围画成距离带，记分改成点形状，统计改成球道扇形和靶心。整体骨架回到系统原生：底部标签栏、半屏面板、毛玻璃材质、SF Symbols、Swift Charts。</p>
   <p class="meta">基于 integration/v2 · 602fd01c 的现有界面与数据字段 · 仅设计稿，未改代码</p>
 </header>
 
@@ -248,7 +248,7 @@ footer{font-size:13px;color:var(--muted)}
 <section class="screen" id="live">
   <div class="phone"><div class="scr dark">
     <div class="island"></div>
-    <svg viewBox="0 0 292 622" preserveAspectRatio="xMidYMid slice" style="position:absolute;inset:0;width:100%;height:100%" role="img" aria-label="第 7 洞全屏地图：推荐路线、落点散布、障碍与果岭距离">
+    <svg viewBox="0 0 292 622" preserveAspectRatio="xMidYMid slice" style="position:absolute;inset:0;width:100%;height:100%" role="img" aria-label="第 7 洞全屏地图：推荐路线、带球距离带、障碍与果岭距离">
       <defs>
         <radialGradient id="rough" cx="50%" cy="40%" r="75%"><stop offset="0" stop-color="#2F5A36"/><stop offset="1" stop-color="#172D1C"/></radialGradient>
       </defs>
@@ -265,9 +265,9 @@ footer{font-size:13px;color:var(--muted)}
       <path d="M92 300 Q146 268 208 292" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="1" stroke-dasharray="3 4"/>
       <!-- route -->
       <polyline points="145,484 150,300 182,112" fill="none" stroke="#fff" stroke-width="2.6" stroke-linejoin="round"/>
-      <!-- dispersion p10-p90 -->
-      <ellipse cx="150" cy="300" rx="30" ry="15" fill="#fff" fill-opacity=".14" stroke="#fff" stroke-opacity=".65" stroke-dasharray="3 3" transform="rotate(-6 150 300)"/>
-      <ellipse cx="182" cy="114" rx="17" ry="10" fill="#fff" fill-opacity=".14" stroke="#fff" stroke-opacity=".65" stroke-dasharray="3 3"/>
+      <!-- carry band p10-p90 (one-dimensional: distance only) -->
+      <path d="M112.3 286.7 A200 200 0 0 1 188.6 288.8 L181.6 320.0 A168 168 0 0 0 117.6 318.3 Z" fill="#fff" fill-opacity=".16" stroke="#fff" stroke-opacity=".6" stroke-dasharray="3 3"/>
+      <path d="M159.4 98.2 A202 202 0 0 1 207.9 106.5 L200.5 131.4 A176 176 0 0 0 158.2 124.2 Z" fill="#fff" fill-opacity=".16" stroke="#fff" stroke-opacity=".6" stroke-dasharray="3 3"/>
       <circle cx="150" cy="300" r="4" fill="#fff"/>
       <!-- player -->
       <circle cx="146" cy="430" r="11" fill="#0A84FF" opacity=".25"/><circle cx="146" cy="430" r="5.5" fill="#0A84FF" stroke="#fff" stroke-width="2"/>
@@ -303,8 +303,8 @@ footer{font-size:13px;color:var(--muted)}
         <div style="text-align:right"><div style="font-size:15px;font-weight:800">7 号铁</div><div style="font-size:11px;color:rgba(255,255,255,.6)" class="tnum">带球 128–148 码</div></div>
       </div>
       <div style="display:flex;gap:6px">
-        <span class="pill" style="background:#fff;color:#0b0c0d">稳 · 7 铁 · 4.1 杆</span>
-        <span class="pill" style="background:rgba(255,255,255,.12);color:#fff">攻 · 6 铁 · 4.3 杆</span>
+        <span class="pill" style="background:#fff;color:#0b0c0d">稳 · 7 铁</span>
+        <span class="pill" style="background:rgba(255,255,255,.12);color:#fff">攻 · 6 铁</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 64px 1fr;align-items:center;margin-top:2px">
         <div style="display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;color:rgba(255,255,255,.75)"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" stroke="#fff" stroke-width="1.8" fill="none"/><circle cx="12" cy="12" r="2.5" fill="#fff"/></svg>目标点</div>
@@ -319,10 +319,10 @@ footer{font-size:13px;color:var(--muted)}
     <h2>打球：整屏是球场，数字贴在地图上</h2>
     <div class="cmp">
       <div class="now"><span class="k">现在</span><ul><li>地图下面压一块大面板，“方案 N / 第 N 杆”是一排按钮</li><li>果岭前中后是地图角落的一块文字</li><li>障碍要在面板里左右翻页看</li></ul></div>
-      <div class="new"><span class="k">新版</span><ul><li>地图铺满全屏，顶部只有一颗毛玻璃胶囊</li><li>果岭旁一根竖向刻度：后 158 / 中 146 / 前 134</li><li>推荐落点画成 p10–p90 散布椭圆，杆号贴在落点上</li><li>障碍直接标“到 / 越”码数，点它再看细节</li><li>底部半屏面板可拖动：收起只留大码数，展开看方案对比</li></ul></div>
+      <div class="new"><span class="k">新版</span><ul><li>地图铺满全屏，顶部只有一颗毛玻璃胶囊</li><li>果岭旁一根竖向刻度：后 158 / 中 146 / 前 134</li><li>推荐杆的带球范围画成一条 p10–p90 距离带，杆号贴在落点上；缺数据时只画落点</li><li>障碍直接标“到 / 越”码数，点它再看细节</li><li>底部半屏面板可拖动：收起只留大码数，展开看其他打法</li></ul></div>
     </div>
     <div class="tags"><span class="tag">.presentationDetents</span><span class="tag">.ultraThinMaterial</span><span class="tag">Canvas 叠加层（已有）</span><span class="tag">Live Activity / 灵动岛</span></div>
-    <p class="data">椭圆直接用球童已有的 <code>CaddiePlanOption.p10M / p90M</code>，“4.1 杆”用 <code>expectedStrokes</code>。现在这两项算好了却没显示出来。</p>
+    <p class="data">距离带用球童已有的 <code>CaddiePlanOption.p10M / p90M</code>：它们只描述远近，没有左右散布，所以画成横跨路线的一条弧带，不画二维椭圆。离线或没有对应球杆数据时两者可能为空，这时只画落点。预计杆数 <code>expectedStrokes</code> 是未校准的估算，离线时没有，因此不显示。</p>
   </div>
 </section>
 
@@ -536,7 +536,7 @@ footer{font-size:13px;color:var(--muted)}
   <h2>分四期做，每期都能单独上线</h2>
   <p class="lede" style="font-size:15px">只改界面层，接口和数据模型不动。每期都走现有的 Native CI 截图测试和 TestFlight 内测。</p>
   <div class="roadmap">
-    <div class="ph"><span class="step">第 1 期 · 打球屏</span><b>全屏地图 + 半屏面板 + 一屏记分</b><ul><li>地图铺满，面板改成可拖动 sheet</li><li>果岭竖向刻度、落点散布椭圆、障碍码数标签</li><li>新的记分面板</li></ul><span class="files">CurrentHoleView · LiveHoleComponents · LiveScoreConfirmationView</span></div>
+    <div class="ph"><span class="step">第 1 期 · 打球屏</span><b>全屏地图 + 半屏面板 + 一屏记分</b><ul><li>地图铺满，面板改成可拖动 sheet</li><li>果岭竖向刻度、带球距离带、障碍码数标签</li><li>新的记分面板</li></ul><span class="files">CurrentHoleView · LiveHoleComponents · LiveScoreConfirmationView</span></div>
     <div class="ph"><span class="step">第 2 期 · 骨架</span><b>TabView 四个标签 + 首页 + 开一场</b><ul><li>根视图改成 TabView</li><li>首页进行中卡片、18 洞逐洞柱</li><li>九洞圈选择、Tee 标志、长度柱状图</li></ul><span class="files">AICaddieApp · RoundHomeView · StartRoundView</span></div>
     <div class="ph"><span class="step">第 3 期 · 成绩与复盘</span><b>四阶段图 + 九洞小地图墙</b><ul><li>成绩首屏四张图</li><li>单场复盘小地图墙，展开到逐杆地图</li></ul><span class="files">ResultsView · StatsView · PerformancePhaseGraphics · RoundReviewView</span></div>
     <div class="ph"><span class="step">第 4 期 · 球包与收尾</span><b>距离带球包 + 灵动岛</b><ul><li>球包标签页和拖动改码数</li><li>可选：打球中的 Live Activity，锁屏显示到果岭码数</li><li>清掉约 10 个已不使用的旧组件</li></ul><span class="files">ClubSettingsView · ClubGappingLadder · 新增 Widget 扩展</span></div>

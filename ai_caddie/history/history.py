@@ -488,6 +488,7 @@ def _scorecard_to_round(
         "ob": stats.get("holesOverBogey"),
         "bi": stats.get("holesBirdie"),
         "ea": stats.get("holesEagle"),
+        "teeBox": sc.get("teeBox"),
         "rating": sc.get("teeBoxRating"),
         "slope": sc.get("teeBoxSlope"),
         "longest": detail.get("longestShotInMeters"),
