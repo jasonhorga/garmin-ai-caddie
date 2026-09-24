@@ -201,7 +201,9 @@ public struct LiveGreenDetailView: View {
                     topoURL: topoURL,
                     showsCardChrome: false,
                     showsRecommendedRoute: false,
-                    showsHazards: true
+                    // Green view is a putting instrument; obstacle overlays belong to the explicit
+                    // hazard picker and should not appear as incidental red spans here.
+                    showsHazards: false
                 )
                 .frame(width: size.width, height: size.height)
             }

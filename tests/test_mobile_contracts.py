@@ -2226,7 +2226,10 @@ class MobileContractTests(unittest.TestCase):
         # Partial geometry is held behind one bounded loading surface. Once the timeout expires,
         # the factual lightweight map is allowed through as a stable fallback.
         self.assertIn("HoleImageMapView(hole: holePrep", current_hole)
-        self.assertIn("showsHazards: true", current_hole)
+        self.assertIn("showsRecommendedRoute: true", current_hole)
+        self.assertIn("showsHazards: selectedLiveHazard != nil", current_hole)
+        self.assertIn("LiveHazardPickerPanel", current_hole)
+        self.assertIn("drawFactualRoute", hole_map_view)
         self.assertIn("LiveMapPreparingSurface(holeNumber: hole.number)", current_hole)
         self.assertIn("preciseMapTimedOut", current_hole)
         self.assertIn('accessibilityIdentifier("live-map-preparing-surface")', live_hole_components)

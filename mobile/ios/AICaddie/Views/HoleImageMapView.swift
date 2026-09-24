@@ -230,6 +230,7 @@ public struct HoleImageMapView: View {
         // Until an authoritative landing distance exists, leave the flight plan absent instead of
         // drawing a misleading tee-to-flag line that looks like a recommendation.
         if showsRecommendedRoute, let tee = routePoints.first {
+            var drewFlightPlan = false
             if !projectedPlan.isEmpty {
                 drawPlannedRoute(
                     &context,
@@ -237,10 +238,12 @@ public struct HoleImageMapView: View {
                     pin: pin,
                     shots: projectedPlan
                 )
+                drewFlightPlan = true
             } else if let landing, let pin {
                 for arc in Self.flightArcs(tee: tee, landing: landing, pin: pin) {
                     drawFlightArc(&context, arc: arc)
                 }
+                drewFlightPlan = true
                 drawPlanMarker(&context, at: landing, selected: true)
                 if showsClubLabel, let club = clubLabel {
                     context.draw(
@@ -259,6 +262,13 @@ public struct HoleImageMapView: View {
                 // valid plan. Keep the recommendation visible as one direct flight to the green
                 // (especially important for a Par 3) instead of silently removing the route line.
                 drawFlightArc(&context, arc: Self.flightArc(from: tee, to: pin))
+                drewFlightPlan = true
+            }
+            if !drewFlightPlan, routePoints.count >= 2 {
+                // A hole can have a valid route/bitmap before its structured caddie sequence is
+                // available. Keep the factual centreline visible, but use a restrained green line
+                // rather than presenting it as a club-specific flight recommendation.
+                drawFactualRoute(&context, points: routePoints)
             }
             context.fill(Path(ellipseIn: CGRect(x: tee.x - 5, y: tee.y - 5, width: 10, height: 10)), with: .color(.white))
         }
@@ -460,6 +470,20 @@ public struct HoleImageMapView: View {
             path,
             with: .color(.white.opacity(0.96)),
             style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
+        )
+    }
+
+    private func drawFactualRoute(_ context: inout GraphicsContext, points: [CGPoint]) {
+        let path = Self.smoothPath(through: points)
+        context.stroke(
+            path,
+            with: .color(.black.opacity(0.42)),
+            style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
+        )
+        context.stroke(
+            path,
+            with: .color(LiveHoleStyle.green.opacity(0.88)),
+            style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
         )
     }
 

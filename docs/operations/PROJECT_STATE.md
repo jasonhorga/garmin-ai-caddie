@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-23 11:32 UTC
+**Updated:** 2026-09-24 06:10 UTC
 **Branch:** `integration/v2`; product/backend canonical source revision is
 `3c5ec81af1b0f67576c0e93e1ede0c305194d099` (this ledger closeout is commit
 `40d0bcb7`). PR #332 is merged and its
@@ -59,6 +59,19 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
+**Current slice (2026-09-24):** `PHONE-UX8-LIVE-ROUTE-HAZARD` is
+`in-progress`. The live phone map now renders the installed factual route
+immediately instead of waiting for the asynchronous caddie response; when no
+structured shot chain is available it falls back to a restrained factual
+centreline. Live obstacle overlays start unselected and a compact picker lets
+the player choose one obstacle before its outline/front/back annotations
+appear; changing holes or refreshing geometry never auto-selects the first row.
+The live map-detail and green-detail surfaces no longer draw incidental hazard
+spans. Focused remote mobile contract tests pass `99/99`; native Swift
+build/simulator evidence and the internal TestFlight gate are still pending.
+Next action is exact-SHA Source/Native CI, then the normal internal upload/status
+checks if those gates are green.
+
 ## Current Work Summary
 
 **Homeserver expired-resource cleanup (2026-09-23 02:34 UTC):** The old Codex
@@ -80,8 +93,9 @@ source snapshots and evidence intact for the Claude audit. It did not touch
 `aicaddie-web`, `garmin-ai-caddie-db-1`, the shared named volume, `rc`, or any
 other project's resource. Post-cleanup checks show only `39055` and `39083`
 candidate containers, no old listeners or cloudflared processes, and HTTP 200
-from `/api/v2/health` on both protected endpoints. No product code was changed;
-the current product slice remains `PHONE-UX7-ROUTE2` `evidence-open` pending
+from `/api/v2/health` on both protected endpoints. No product code was changed
+by that cleanup; at that time the product slice remained `PHONE-UX7-ROUTE2`
+`evidence-open` pending
 the planned audit/physical evidence.
 
 **Current slice (2026-09-23):** `PR332` is `evidence-open`: merge,

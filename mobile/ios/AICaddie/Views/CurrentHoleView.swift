@@ -33,6 +33,15 @@ enum HoleSwipeNavigation {
     }
 }
 
+/// Selection state for the optional live obstacle instrument. A nil current value is meaningful:
+/// it is the initial, uncluttered map state rather than an instruction to fall back to row zero.
+enum LiveHazardSelectionPolicy {
+    static func retainedSelection(current: String?, availableIDs: [String]) -> String? {
+        guard let current, availableIDs.contains(current) else { return nil }
+        return current
+    }
+}
+
 /// The live hero has two mutually exclusive drag contracts. Keeping the routing decision pure makes
 /// it possible to test the boundary without relying on simulator touch timing: a fitted map pages
 /// holes, while a zoomed map always pans in place.
@@ -368,9 +377,12 @@ public struct CurrentHoleView: View {
             }
         }
         .onChange(of: liveHazardDisplayRows.map(\.id)) { _, ids in
-            if selectedHazardID == nil || !ids.contains(selectedHazardID ?? "") {
-                selectedHazardID = ids.first
-            }
+            // A new hole starts with no highlighted obstacle.  Preserve an explicit choice while
+            // the package refreshes, but never auto-select the first row just because data arrived.
+            selectedHazardID = LiveHazardSelectionPolicy.retainedSelection(
+                current: selectedHazardID,
+                availableIDs: ids
+            )
         }
         .fullScreenCover(isPresented: $showMapDetail) {
             mapDetailSurface
@@ -487,6 +499,12 @@ public struct CurrentHoleView: View {
                     count: liveHazardDisplayRows.count,
                     onPrevious: { selectHazard(at: selectedLiveHazardIndex - 1) },
                     onNext: { selectHazard(at: selectedLiveHazardIndex + 1) }
+                )
+            } else if !isPreciseHoleMapPending, !liveHazardDisplayRows.isEmpty {
+                Divider().overlay(LivePlayStyle.stroke10)
+                LiveHazardPickerPanel(
+                    rows: liveHazardDisplayRows,
+                    onSelect: { selectHazard(at: $0) }
                 )
             }
         }
@@ -1095,10 +1113,13 @@ public struct CurrentHoleView: View {
             HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
                              pinOverlayPixel: effectiveMapPinPixel,
                              topoURL: liveTopoURL, showsCardChrome: false,
-                             showsRecommendedRoute: caddieDecision != nil
-                                || !livePlannedShots.isEmpty
-                                || (hole.par == 3 && selectedShotType.caseInsensitiveCompare("tee") == .orderedSame),
-                             showsHazards: true,
+                             // The installed CoursePrep route is usable factual data. Draw it
+                             // immediately while the online caddie request is still loading; the
+                             // selected sequence will replace the fallback legs when it arrives.
+                             showsRecommendedRoute: true,
+                             // Hazard geometry is an optional instrument. Nothing is highlighted
+                             // until the player explicitly chooses an obstacle below the map.
+                             showsHazards: selectedLiveHazard != nil,
                              showsPrepClubLabel: false,
                              showsClubLabel: false,
                              teeDistanceArcYards: showsTeeDistanceArc ? teeDistanceArcYards : nil,
@@ -1545,8 +1566,8 @@ public struct CurrentHoleView: View {
     }
 
     private var selectedLiveHazardIndex: Int? {
-        guard !liveHazardDisplayRows.isEmpty else { return nil }
-        return liveHazardDisplayRows.firstIndex(where: { $0.id == selectedHazardID }) ?? 0
+        guard let selectedHazardID else { return nil }
+        return liveHazardDisplayRows.firstIndex(where: { $0.id == selectedHazardID })
     }
 
     private var selectedLiveHazard: LiveHazardDisplayItem? {

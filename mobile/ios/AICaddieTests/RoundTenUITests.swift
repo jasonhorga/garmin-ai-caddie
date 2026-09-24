@@ -21,6 +21,21 @@ final class RoundTenUITests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(hazards.first { $0.kind == "water" }).isWater)
     }
 
+    func testLiveHazardSelectionDoesNotAutoSelectFirstRow() {
+        let ids = ["bunker-0", "water-0"]
+
+        XCTAssertNil(
+            LiveHazardSelectionPolicy.retainedSelection(current: nil, availableIDs: ids)
+        )
+        XCTAssertEqual(
+            LiveHazardSelectionPolicy.retainedSelection(current: "water-0", availableIDs: ids),
+            "water-0"
+        )
+        XCTAssertNil(
+            LiveHazardSelectionPolicy.retainedSelection(current: "old-bunker", availableIDs: ids)
+        )
+    }
+
     func testUncalibratedExpectedStrokesStayOutOfPlayerFacingCopy() {
         let option = CaddiePlanOption(
             id: "stock", label: "标准", carryM: 180, riskScore: 1, clubName: "3W",
