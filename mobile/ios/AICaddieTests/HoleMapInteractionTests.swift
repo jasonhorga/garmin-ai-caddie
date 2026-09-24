@@ -255,4 +255,19 @@ final class HoleMapInteractionTests: XCTestCase {
     func testMediaCaptureCardRemainsFeatureFlaggedOffInLivePlay() {
         XCTAssertFalse(CurrentHoleView.showsMediaCaptureCard)
     }
+
+    func testHoleMapDoesNotPaintObstaclesUntilThePlayerSelectsOne() {
+        let hole = CoursePrepHole(
+            hole: 1,
+            par: 4,
+            parSource: "test",
+            blueYards: 400,
+            routeLenM: 360,
+            route: [[0, 360, 0], [0, 0, 360]],
+            hazards: CoursePrepHazards(bunkers: [[180, 12]])
+        )
+
+        let map = HoleImageMapView(hole: hole)
+        XCTAssertFalse(map.showsHazards)
+    }
 }

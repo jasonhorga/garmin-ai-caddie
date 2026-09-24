@@ -364,25 +364,38 @@ def build_mobile_round_package_response(
             allow_fetch=False,
         )
         mark_request_stage("release_lookup")
-        return LiveRoundPackageResponse(
-            **build_live_round_package(
-                round_id,
-                data=data,
-                data_mode=mode,
-                player_id=player_id,
-                root=MOBILE_ROOT,
-                annotations_root=ANNOTATION_ROOT,
-                captured_at=captured_at,
-                weather_transport=OPEN_METEO_TRANSPORT,
-                client_id=None,
-                ensure_geometry=ensure_geometry,
-                include_event_cursor=False,
-                # The first-screen contract needs recent player carry evidence, not the complete
-                # history/geometry quality report. The all-history projection is warmed by the
-                # background stats path and remains available to history/review routes.
-                stats_window="last20",
-            )
+        package = build_live_round_package(
+            round_id,
+            data=data,
+            data_mode=mode,
+            player_id=player_id,
+            root=MOBILE_ROOT,
+            annotations_root=ANNOTATION_ROOT,
+            captured_at=captured_at,
+            weather_transport=OPEN_METEO_TRANSPORT,
+            client_id=None,
+            ensure_geometry=ensure_geometry,
+            include_event_cursor=False,
+            # The first-screen contract needs recent player carry evidence, not the complete
+            # history/geometry quality report. The all-history projection is warmed by the
+            # background stats path and remains available to history/review routes.
+            stats_window="last20",
         )
+        # Resuming an existing round used to omit CoursePrep entirely. The phone then had to
+        # request one hole at a time after every swipe, so holes 2+ rendered a base bitmap with
+        # no factual centreline until the request completed. Keep the same cheap, release-bound
+        # route seeds as a new-course start; precise topo/hazard installation remains asynchronous.
+        package["coursePrep"] = first_hole_lightweight_course_prep(
+            package,
+            player_id=player_id,
+        )
+        if package.get("coursePrep"):
+            package["caddieContextSeeds"] = attach_canonical_prep_plan_to_caddie_seeds(
+                package.get("caddieContextSeeds"),
+                package.get("coursePrep"),
+            )
+        mark_request_stage("caddie_seed")
+        return LiveRoundPackageResponse(**package)
 
     package = _package_singleflight(key, build)
     mark_request_stage("serialization")
@@ -461,8 +474,10 @@ def build_mobile_course_package_response(
             defer_non_priority_enrichment=True,
         )
         mark_request_stage("facts_package")
-        # Keep one immediately drawable factual seed for the first hole while the durable install
-        # job prepares precise assets. This is an enrichment detail, never a second package mode.
+        # Keep immediately drawable factual CourseView seeds for every playable hole while the
+        # durable install job prepares precise assets. This is an enrichment detail, never a
+        # second package mode; it prevents later holes from showing a blank route while batches
+        # are still downloading.
         package["coursePrep"] = first_hole_lightweight_course_prep(
             package,
             player_id=player_id,

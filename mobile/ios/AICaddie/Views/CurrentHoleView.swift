@@ -326,6 +326,24 @@ public struct CurrentHoleView: View {
             }
         }
         .task(id: hole.number) {
+            // A navigation destination can be retained while the package publishes more prep
+            // rows. Rebind the factual row for this display hole before reconciling routes; without
+            // this explicit step a reused view can keep the previous hole's route and briefly show
+            // no line (or the wrong line) until its on-demand request completes.
+            // The adoption policy compares geometry quality, so never feed it the previous
+            // hole's row: a ready row for hole 1 must not block a partial-but-correct row for hole 2.
+            let currentPrepForHole = holePrep?.hole == hole.number ? holePrep : nil
+            if let packagePrep = package.coursePrep?.holes.first(where: { $0.hole == hole.number }) {
+                if CoursePrepHoleAdoptionPolicy.shouldAdopt(
+                    current: currentPrepForHole,
+                    incoming: packagePrep,
+                    authoritativeRevision: hole.geometryRevision
+                ) {
+                    holePrep = packagePrep
+                }
+            } else if currentPrepForHole == nil {
+                holePrep = nil
+            }
             // A reused CurrentHoleView must not carry a manual choice into the next hole. The
             // persisted `selectedStrategyMode` remains available for legacy event replay, while
             // this transient override always starts in automatic mode for a new hole.
@@ -367,8 +385,9 @@ public struct CurrentHoleView: View {
             // still carries lightweight prep; otherwise adopt the new factual prep without
             // restarting the hole task or discarding zoom/flag interaction state.
             guard let incoming else { return }
+            let currentPrepForHole = holePrep?.hole == hole.number ? holePrep : nil
             if CoursePrepHoleAdoptionPolicy.shouldAdopt(
-                current: holePrep,
+                current: currentPrepForHole,
                 incoming: incoming,
                 authoritativeRevision: hole.geometryRevision
             ) {

@@ -116,7 +116,7 @@ public struct HoleImageMapView: View {
     public init(hole: CoursePrepHole, selectedClub: String? = nil, selectedClubMetres: Double? = nil,
                 pinOverlayPixel: CGPoint? = nil,
                 topoURL: URL? = nil, showsCardChrome: Bool = true,
-                showsRecommendedRoute: Bool = true, showsHazards: Bool = true,
+                showsRecommendedRoute: Bool = true, showsHazards: Bool = false,
                 showsPrepFactOverlays: Bool = false, allowsRotation: Bool = false,
                 showsPrepClubLabel: Bool = true, showsClubLabel: Bool = true,
                 teeDistanceArcYards: Int? = nil,

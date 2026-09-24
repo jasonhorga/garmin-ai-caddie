@@ -920,6 +920,42 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["cachedCaddieRules"]["decisionContract"], "ai-caddie-decision-v2")
         self.assertTrue(payload["cachedCaddieRules"]["offlineCapable"])
 
+    def test_mobile_round_package_embeds_lightweight_route_for_every_playable_hole(self) -> None:
+        """Resuming a round must have the same immediate route contract as a new course start."""
+        from server_v2 import mobile as mobile_service
+
+        seed = {
+            "schema": "ai-caddie-course-prep-package-v1",
+            "globalId": 31795,
+            "holes": [
+                {
+                    "hole": number,
+                    "geometryCoverage": "partial",
+                    "route": [[0.0, 0.0, 0.0], [10.0, float(number), 20.0]],
+                    "holeImageProjection": {"available": True, "widthPx": 360, "heightPx": 560, "refs": []},
+                }
+                for number in range(1, 10)
+            ],
+            "missingData": [],
+        }
+
+        with TemporaryDirectory() as tmp, patch.object(mobile_service, "MOBILE_ROOT", Path(tmp)), patch(
+            "server_v2.mobile.first_hole_lightweight_course_prep",
+            return_value=seed,
+        ) as first_seed, patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}):
+            response = TestClient(app).get(
+                "/api/v2/mobile/rounds/900001/package",
+                params={"captured_at": "2099-01-01T00:00:00Z"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(
+            [row["hole"] for row in payload["coursePrep"]["holes"]],
+            list(range(1, 10)),
+        )
+        first_seed.assert_called_once()
+
     def test_home_package_skips_the_event_store_cursor(self) -> None:
         """The read-only home preview must not scan the global event log."""
         from ai_caddie.caddie import mobile_live
@@ -2142,6 +2178,43 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(result["holes"][0]["hole"], 10)
         self.assertEqual(result["holes"][0]["globalId"], 31795)
         self.assertEqual(result["holes"][0]["localHole"], 1)
+
+    def test_lightweight_seed_covers_every_hole_without_repeating_player_ladder_scan(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_prep
+
+        def prep(global_id: int, local_hole: int, **_kwargs: object) -> dict[str, object]:
+            return {
+                "globalId": global_id,
+                "localHole": local_hole,
+                "hole": local_hole,
+                "geometryCoverage": "partial",
+                "route": [[0.0, 0.0, 0.0], [10.0, float(local_hole), 20.0]],
+                "holeImageProjection": {"available": True, "widthPx": 360, "heightPx": 560, "refs": []},
+                "missingData": [],
+            }
+
+        package = {
+            "course": {"globalId": 31794},
+            "clubProfiles": [],
+            "holes": [
+                {"number": 1, "sourceGlobalId": 31795, "sourceLocalHole": 1},
+                {"number": 2, "sourceGlobalId": 31795, "sourceLocalHole": 2},
+                # A+A composite: same physical source is reused under display hole 10.
+                {"number": 10, "sourceGlobalId": 31795, "sourceLocalHole": 1},
+            ],
+        }
+        with patch.object(course_prep, "effective_club_ladder", return_value=[("1W", 220)]) as ladder, \
+                patch.object(course_prep, "lightweight_prep_hole", side_effect=prep) as build:
+            result = mobile_live.first_hole_lightweight_course_prep(package, player_id="member-a")
+
+        self.assertIsNotNone(result)
+        self.assertEqual([row["hole"] for row in result["holes"]], [1, 2, 10])
+        self.assertEqual(
+            [(call.args[0], call.args[1]) for call in build.call_args_list],
+            [(31795, 1), (31795, 2)],
+        )
+        ladder.assert_called_once_with("member-a")
 
     def test_mobile_course_package_caps_nine_hole_loop_to_nine_holes(self) -> None:
         # A 9-hole CourseView loop (黑骑士 C / gid 31796) whose played rounds were 18-hole combos
