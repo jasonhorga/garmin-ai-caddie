@@ -1152,6 +1152,7 @@ def course_prep_nine(
     holes: list[int] | None = Query(default=None, max_length=36),  # codex MEDIUM #6: bound item count
     render: bool = True,
     include_shots: bool = False,
+    tee: str | None = Query(default=None, max_length=32),
     player_id: str = Depends(current_player_id),
 ) -> dict:
     """Pre-round prep for a course: per-hole par (labelled source) + route + hazard carries +
@@ -1181,6 +1182,13 @@ def course_prep_nine(
         pass
 
     requested = holes or course_prep.available_prep_holes(global_id)
+    # ``tee`` is the player's Tee choice (e.g. "white"). Playing facts follow that Tee; without it
+    # (older clients) the route stays on Blue exactly as before.
+    tee_set = None
+    if tee and tee.strip().lower() not in {"", "unknown"}:
+        from ai_caddie.caddie.analysis import tee_set_for_box
+
+        tee_set = tee_set_for_box(int(global_id), tee)
 
     # prep_nine rebuilds all-hole mesh geometry (~19s for a 9-hole course) on every request; cache the
     # response by filesystem fingerprint so 备战 opens instantly until geometry / shots / clubs change.
@@ -1194,10 +1202,13 @@ def course_prep_nine(
         # Shot scatter is the player's OWN past end positions only: prep_nine reads solely the
         # threaded player_id's tree, so a member sees their own shots and never the owner's.
         nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
-                                     include_shots=include_shots, player_id=player_id)
+                                     include_shots=include_shots, player_id=player_id, tee_set=tee_set)
         payload = {
             "schema": "ai-caddie-course-prep-v1",
             "globalId": int(global_id),
+            # Additive: the resolved CourseView tee set the playing facts were measured from
+            # (null = the default Blue route).
+            "teeSet": tee_set,
             "holeCount": len(nine),
             # The original name/m/yd fields remain unchanged.  Provenance is additive so older
             # iOS/Watch/Web clients can continue decoding the v1 response without a migration.
@@ -1227,6 +1238,7 @@ def course_prep_nine(
     return prep_cache.cached_course_prep(
         global_id=global_id, requested=requested, render=render,
         include_shots=include_shots, player_id=player_id, build=_build,
+        variant=f"prep:tee{tee_set}",
     )
 
 

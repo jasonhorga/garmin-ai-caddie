@@ -95,17 +95,19 @@ TEE_SET_BY_BOX = {
 }
 
 
-def _selected_tee(geometry: dict[str, Any], tee_box: str | None = None) -> dict[str, Any] | None:
-    hazards = geometry.get("hazards") or {}
-    tees = hazards.get("tees") or []
-    tees = [t for t in tees if t.get("position")]
-    if not tees:
-        return None
+def tee_set_for_box(global_id: Any, tee_box: str | None) -> int | None:
+    """Resolve a player's Tee choice to the CourseView tee-set index, or ``None`` when unknown.
 
-    tee_set = None
+    Resolution uses the same cached CourseView release list as the Tee picker (never fetches):
+    the release name/key first, ``unknown`` to the picker default (Blue when published, else the
+    first Tee), then the canonical colour table.  Shared by package yardage and CoursePrep routes so
+    both describe the same Tee.
+    """
     requested = str(tee_box or "").strip().lower()
-    global_id = hazards.get("globalId") or geometry.get("globalId")
-    if requested and global_id is not None:
+    if not requested:
+        return None
+    tee_set = None
+    if global_id is not None:
         try:
             from ai_caddie.courses.course_reference import courseview_tees
 
@@ -136,6 +138,19 @@ def _selected_tee(geometry: dict[str, Any], tee_box: str | None = None) -> dict[
             tee_set = None
     if tee_set is None:
         tee_set = TEE_SET_BY_BOX.get(requested)
+    return tee_set
+
+
+def _selected_tee(geometry: dict[str, Any], tee_box: str | None = None) -> dict[str, Any] | None:
+    hazards = geometry.get("hazards") or {}
+    tees = hazards.get("tees") or []
+    tees = [t for t in tees if t.get("position")]
+    if not tees:
+        return None
+
+    requested = str(tee_box or "").strip().lower()
+    global_id = hazards.get("globalId") or geometry.get("globalId")
+    tee_set = tee_set_for_box(global_id, tee_box) if requested else None
     if tee_set is not None:
         match = next((t for t in tees if tee_set in (t.get("sets") or [])), None)
         if match:

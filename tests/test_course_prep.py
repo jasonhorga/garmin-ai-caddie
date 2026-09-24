@@ -53,6 +53,28 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(route[-1], (30.0, 200.0))        # green = dogleg end
         self.assertAlmostEqual(length, 100.0 + (30.0 ** 2 + 100.0 ** 2) ** 0.5, places=1)
 
+    def test_derive_route_follows_the_requested_tee_set(self) -> None:
+        md = {"hole": {
+            "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}, {"Sets": [5], "X": 0.0, "Y": 40.0}],
+            "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 100.0}, {"X": 30.0, "Y": 200.0}]}],
+        }}
+        blue, blue_len = cp.derive_route(md)
+        red, red_len = cp.derive_route(md, tee_set=5)
+        self.assertEqual(red[0], (0.0, 40.0))                 # red tee (Sets=5)
+        self.assertEqual(red[1:], blue[1:])                   # same dogleg + green
+        self.assertAlmostEqual(blue_len - red_len, 40.0, places=1)
+        self.assertEqual(cp.derive_route(md, tee_set=2), (blue, blue_len))
+        self.assertEqual(cp.derive_route(md, tee_set=9)[0], blue)  # a Tee this hole lacks -> Blue
+
+    def test_forward_tee_past_the_dogleg_point_does_not_route_backwards(self) -> None:
+        md = {"hole": {
+            "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}, {"Sets": [5], "X": 0.0, "Y": 120.0}],
+            "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 100.0}, {"X": 0.0, "Y": 300.0}]}],
+        }}
+        route, length = cp.derive_route(md, tee_set=5)
+        self.assertEqual(route, [(0.0, 120.0), (0.0, 300.0)])
+        self.assertAlmostEqual(length, 180.0, places=1)
+
     def test_derive_route_uses_selected_course_data_route_for_dual_green(self) -> None:
         ref_lat, ref_lon = 40.0, 116.0
         selected_local = [(0.0, 0.0), (12.0, 105.0), (30.0, 230.0)]

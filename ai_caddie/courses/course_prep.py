@@ -49,12 +49,17 @@ def _xy(p):
     return (float(p[0]), float(p[1]))
 
 
-def _blue_tee(hole_meta: dict, fallback):
-    """Blue tee = TeeLocations whose Sets include 2; else the tee nearest the dogleg start."""
+BLUE_TEE_SET = 2
+
+
+def _blue_tee(hole_meta: dict, fallback, tee_set: int | None = None):
+    """The requested Tee (``TeeLocations`` whose Sets include ``tee_set``), defaulting to Blue
+    (set 2); a hole without that Tee falls back to Blue, then to the tee nearest the dogleg start."""
     tees = hole_meta.get("TeeLocations") or []
-    blue = next((t for t in tees if 2 in (t.get("Sets") or [])), None)
-    if blue is not None:
-        return _xy(blue)
+    for wanted in ([tee_set] if tee_set is not None and tee_set != BLUE_TEE_SET else []) + [BLUE_TEE_SET]:
+        match = next((t for t in tees if wanted in (t.get("Sets") or [])), None)
+        if match is not None:
+            return _xy(match)
     if tees and fallback:
         return min((_xy(t) for t in tees), key=lambda p: math.hypot(p[0] - fallback[0], p[1] - fallback[1]))
     return _xy(tees[0]) if tees else fallback
@@ -95,7 +100,17 @@ def _course_data_route_in_hole_frame(hole_meta: dict) -> list[tuple[float, float
     return deduped if len(deduped) >= 2 else None
 
 
-def derive_route(md: dict):
+def _drop_points_behind_tee(tee, points: list) -> list:
+    """Drop route points that are farther from the green than a forward Tee (it sits past them)."""
+    if len(points) < 2:
+        return points
+    end = points[-1]
+    tee_to_end = math.dist(tee, end)
+    kept = [point for point in points[:-1] if math.dist(point, end) < tee_to_end]
+    return kept + [end]
+
+
+def derive_route(md: dict, tee_set: int | None = None):
     """Return the selected-layout route, or ``(None, None)`` when unavailable.
 
     Garmin ``hole.json`` is normally the exact route authority, but a dual-green
@@ -109,21 +124,28 @@ def derive_route(md: dict):
     line = _dogleg_line(hole_meta)
     if not line:
         return None, None
-    tee = _blue_tee(hole_meta, line[0])
+    tee = _blue_tee(hole_meta, line[0], tee_set)
     if not tee:
         return None, None
+    # A non-Blue Tee (``tee_set``) may sit past early route points (a forward Tee beyond the
+    # first leg); those points would make the route run backwards. Blue keeps the exact route.
+    custom_tee = tee_set is not None and tee_set != BLUE_TEE_SET
     selected_route = _course_data_route_in_hole_frame(hole_meta)
     if (
         selected_route
         and math.dist(selected_route[-1], line[-1])
         > courseview_core.COURSE_DATA_ROUTE_ENDPOINT_OVERRIDE_METRES
     ):
+        rest = list(selected_route[1:])
+        if custom_tee:
+            rest = _drop_points_behind_tee(tee, rest)
         route = [tee]
-        for point in selected_route[1:]:
+        for point in rest:
             if math.dist(point, route[-1]) > 0.01:
                 route.append(point)
     else:
-        route = [tee] + line[1:]
+        rest = list(line[1:])
+        route = [tee] + (_drop_points_behind_tee(tee, rest) if custom_tee else rest)
     if len(route) < 2:
         return None, None
     length = sum(math.hypot(route[i + 1][0] - route[i][0], route[i + 1][1] - route[i][1])
@@ -2109,7 +2131,8 @@ def _your_shots(md: dict, by: dict, route, global_id: int, local_hole: int, over
 
 
 def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, render=True,
-              include_shots=False, player_id: str = OWNER_ID, shot_rows=None) -> HolePrep | dict | None:
+              include_shots=False, player_id: str = OWNER_ID, shot_rows=None,
+              tee_set: int | None = None) -> HolePrep | dict | None:
     """Compose exact prep, or the cached factual CourseView fallback while geometry upgrades."""
     ladder = ladder or effective_club_ladder(player_id)
     try:
@@ -2143,7 +2166,17 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
             par_record=par_record,
             render=render,
         )
-    route, route_len = derive_route(md)
+    # The display route (Blue Tee) fixes the map frame so projections match the shared, Tee-
+    # independent /topo.png bitmap. Playing facts (hazard carries, strategy, green distances,
+    # plays-like) follow the player's Tee when one is requested.
+    display_route, display_route_len = derive_route(md)
+    route, route_len = (
+        derive_route(md, tee_set) if tee_set is not None else (display_route, display_route_len)
+    )
+    if not route or not route_len:
+        route, route_len = display_route, display_route_len
+    if not display_route:
+        display_route = route
     if not route or not route_len:
         return _lightweight_prep_hole(
             global_id,
@@ -2164,7 +2197,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
     # Framing is the most expensive projection setup because it rejects neighbouring-hole mesh
     # vertices against the route corridor.  Hazards and the geo→pixel anchors consume the identical
     # frame, so compute it once per precise hole instead of walking all mesh vertices three times.
-    frame = hole_render._frame(by, route)
+    frame = hole_render._frame(by, display_route)
     frame_project, _frame_scale, _frame_width, _frame_height, _frame_margin = frame
 
     def to_px(point):
@@ -2204,7 +2237,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         playsLike=_hole_playslike(by, route),
         greenDistances=_green_distances(by, route, md),
         greenSlope=_green_slope(by, route),
-        holeImageProjection=_hole_image_projection(by, route, md, frame=frame),
+        holeImageProjection=_hole_image_projection(by, display_route, md, frame=frame),
         greenOutline={
             "available": bool(green_outline_px),
             "source": "prodgeometry.Green.drc.boundary",
@@ -2283,7 +2316,7 @@ def _missing_hole(global_id: int, local_hole: int, par_record=None) -> dict:
 
 
 def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, include_missing: bool = False,
-              include_shots: bool = False, player_id: str = OWNER_ID) -> list:
+              include_shots: bool = False, player_id: str = OWNER_ID, tee_set: int | None = None) -> list:
     """Pre-round prep for every hole of a nine that has geometry.
 
     Par is cache-first: the stored ``data/courses/<gid>.json`` record, else ``resolve_par``
@@ -2327,10 +2360,10 @@ def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, i
             render=False,
             include_shots=False,
             player_id=player_id,
-            variant=f"prep-hole:{ladder_digest}",
+            variant=f"prep-hole:{ladder_digest}:tee{tee_set}",
             build_hole=lambda hole: prep_hole(
                 global_id, hole, ladder=ladder, par_record=par_record, render=False,
-                include_shots=False, player_id=player_id, shot_rows=None,
+                include_shots=False, player_id=player_id, shot_rows=None, tee_set=tee_set,
             ),
         )
     out = []
@@ -2341,7 +2374,8 @@ def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, i
         else:
             prep = prep_hole(global_id, hole, ladder=ladder, par_record=par_record, render=render,
                              include_shots=include_shots, player_id=player_id,
-                             shot_rows=shots_by_hole.get(int(hole), []) if include_shots else None)
+                             shot_rows=shots_by_hole.get(int(hole), []) if include_shots else None,
+                             tee_set=tee_set)
         if prep is not None:
             out.append(prep.to_dict() if include_missing and hasattr(prep, "to_dict") else prep)
         elif include_missing:

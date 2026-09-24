@@ -59,6 +59,22 @@ class CoursePrepApiTests(unittest.TestCase):
         self.assertEqual(unauthorized.status_code, 401)
         self.assertEqual(authorized.status_code, 200)
 
+    def test_prep_endpoint_measures_playing_facts_from_the_requested_tee(self) -> None:
+        with patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
+                patch.object(course_reference, "courseview_release_info", return_value=None), \
+                patch("ai_caddie.caddie.analysis.tee_set_for_box", return_value=5) as resolve, \
+                patch.object(course_prep, "prep_nine", return_value=[self._prep_row()]) as prep_nine:
+            default = self.client.get("/api/v2/courses/31870/prep?render=false")
+            red = self.client.get("/api/v2/courses/31870/prep?render=false&tee=red")
+            unknown = self.client.get("/api/v2/courses/31870/prep?render=false&tee=unknown")
+
+        self.assertEqual([default.status_code, red.status_code, unknown.status_code], [200, 200, 200])
+        resolve.assert_called_once_with(31870, "red")
+        self.assertIsNone(default.json()["teeSet"])
+        self.assertEqual(red.json()["teeSet"], 5)
+        # The default and "unknown" requests share the Blue build; the red Tee is a separate one.
+        self.assertEqual([call.kwargs["tee_set"] for call in prep_nine.call_args_list], [None, 5])
+
     def test_prep_endpoint_contract(self) -> None:
         with patch.object(course_reference, "load_course_par", return_value=_PAR_31870), \
                 patch.object(course_prep, "prep_nine", return_value=[self._prep_row()]):
