@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-24 06:42 UTC
+**Updated:** 2026-09-24 09:48 UTC
 **Branch:** `integration/v2`; product/backend canonical source revision is
 `3c5ec81af1b0f67576c0e93e1ede0c305194d099` (this ledger closeout is commit
 `40d0bcb7`). PR #332 is merged and its
@@ -61,21 +61,37 @@ release-scope decision; do not pause for routine TestFlight execution.
 
 **Current slice (2026-09-24):** `PHONE-UX8-LIVE-ROUTE-HAZARD` is
 `in-progress`. The live phone map now renders the installed factual route
-immediately instead of waiting for the asynchronous caddie response; when no
-structured shot chain is available it falls back to a restrained factual
-centreline. Live obstacle overlays start unselected and a compact picker lets
-the player choose one obstacle before its outline/front/back annotations
-appear; changing holes or refreshing geometry never auto-selects the first row.
-The live map-detail and green-detail surfaces no longer draw incidental hazard
-spans. A follow-up loading-gate fix in commit `a1f82c32` ensures a partial
+immediately instead of waiting for the asynchronous caddie response; the
+current working fix also draws that centreline independently before any
+recommendation, so a degenerate/stale shot chain cannot make a later hole look
+blank. The incremental prep downloader now publishes each completed batch into
+the active round package (while replacement course downloads remain staged),
+so holes 2+ become navigable as soon as their facts arrive instead of only at
+the end of the 18-hole pass. Live obstacle overlays start unselected and a
+compact picker lets the player choose one obstacle before its outline/front/back
+annotations appear; changing holes or refreshing geometry never auto-selects
+the first row. The standalone hazard-detail surface follows the same default
+and exposes the picker explicitly. The live map-detail and green-detail
+surfaces no longer draw incidental hazard spans. A loading-gate fix in commit `a1f82c32` ensures a partial
 CourseView route is drawn immediately while precise topo/hazard assets are
 still downloading; only a hole with no pixel-projectable route shows the
-preparing surface. Focused homeserver mobile contracts pass `99/99` (7.725s).
-Source CI `35965353250` is running at the exact commit; Native Mobile CI
-`35965675312` is queued with full live capture against production revision
-`3c5ec81af1b0f67576c0e93e1ede0c305194d099` (the earlier f3a185b1 run is
-obsolete). Next action is the exact-SHA Native result, then the normal internal
-TestFlight upload/status checks if both gates are green.
+preparing surface. Commit `27de00fb` also treats a projected plan as drawn only
+when at least one visible flight leg exists, otherwise it falls back to the
+factual centreline. Commit `b033f4e1` keeps legacy hazard spans disabled on the
+live map so the independent overlay draws only the obstacle selected by the
+player. Focused homeserver mobile contracts pass `99/99` (latest 5.096s), and
+exact-head Source CI `35967459383` is green. Native Mobile CI `35967687251`
+reached the real iOS flow but failed the stale assertion that a partial map must
+show a preparing disclosure; the product behavior (immediate factual route)
+was correct. Commit `8dac16a8` updates that UI contract to allow an immediately
+usable partial map, require eventual precise-topo replacement, and assert that
+unselected hazards remain hidden. Native Mobile CI `35973125833` is now running
+at that exact head with full live capture against production revision
+`3c5ec81af1b0f67576c0e93e1ede0c305194d099`; that run failed only at the
+pre-round Beijing-Ligong search assertion (the course row was absent), before
+the live route/hazard assertions. The focused homeserver mobile contracts pass
+`99/99` after the current working changes; a fresh exact-head Native run is
+required before the normal internal TestFlight upload/status gates.
 
 ## Current Work Summary
 

@@ -199,7 +199,10 @@ public struct HoleImageMapView: View {
         let sx = size.width / CGFloat(overlay.w)
         let sy = size.height / CGFloat(overlay.h)
         let routePoints: [CGPoint] = overlay.route.compactMap { row in
-            row.count >= 2 ? CGPoint(x: row[0] * sx, y: row[1] * sy) : nil
+            guard row.count >= 2,
+                  row[0].isFinite,
+                  row[1].isFinite else { return nil }
+            return CGPoint(x: row[0] * sx, y: row[1] * sy)
         }
         let pin = resolvedPinPoint(overlay: overlay, sx: sx, sy: sy) ?? routePoints.last
         let projectedPlan = projectedPlannedShots(
@@ -225,14 +228,19 @@ public struct HoleImageMapView: View {
                 showsHazards: showsHazards
             )
         }
+        // The factual route is independent from the caddie response. Draw it first whenever the
+        // map has two projectable points, so a stale/degenerate recommendation can never make an
+        // otherwise usable hole look blank. A valid recommendation is layered above this line.
+        if showsRecommendedRoute, routePoints.count >= 2 {
+            drawFactualRoute(&context, points: routePoints)
+        }
         // A recommendation is a flight plan, not the course centreline. Draw one independent arc
         // from Tee/current origin to the selected club's landing and another from landing to flag.
         // Until an authoritative landing distance exists, leave the flight plan absent instead of
         // drawing a misleading tee-to-flag line that looks like a recommendation.
         if showsRecommendedRoute, let tee = routePoints.first {
-            var drewFlightPlan = false
             if !projectedPlan.isEmpty {
-                drewFlightPlan = drawPlannedRoute(
+                _ = drawPlannedRoute(
                     &context,
                     tee: tee,
                     pin: pin,
@@ -242,7 +250,6 @@ public struct HoleImageMapView: View {
                 for arc in Self.flightArcs(tee: tee, landing: landing, pin: pin) {
                     drawFlightArc(&context, arc: arc)
                 }
-                drewFlightPlan = true
                 drawPlanMarker(&context, at: landing, selected: true)
                 if showsClubLabel, let club = clubLabel {
                     context.draw(
@@ -261,13 +268,6 @@ public struct HoleImageMapView: View {
                 // valid plan. Keep the recommendation visible as one direct flight to the green
                 // (especially important for a Par 3) instead of silently removing the route line.
                 drawFlightArc(&context, arc: Self.flightArc(from: tee, to: pin))
-                drewFlightPlan = true
-            }
-            if !drewFlightPlan, routePoints.count >= 2 {
-                // A hole can have a valid route/bitmap before its structured caddie sequence is
-                // available. Keep the factual centreline visible, but use a restrained green line
-                // rather than presenting it as a club-specific flight recommendation.
-                drawFactualRoute(&context, points: routePoints)
             }
             context.fill(Path(ellipseIn: CGRect(x: tee.x - 5, y: tee.y - 5, width: 10, height: 10)), with: .color(.white))
         }

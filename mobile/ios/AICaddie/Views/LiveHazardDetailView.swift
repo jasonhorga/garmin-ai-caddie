@@ -387,9 +387,9 @@ struct LiveHazardDetailView: View {
         self.hole = hole
         self.topoURL = topoURL
         self.liveReadouts = liveReadouts
-        _selectedHazardID = State(
-            initialValue: LiveHazardDisplayItem.rows(for: hole, liveReadouts: liveReadouts).first?.id
-        )
+        // The detail surface starts uncluttered too. Selecting an obstacle is an explicit user
+        // action; a newly arrived row must never paint the first polygon over the map implicitly.
+        _selectedHazardID = State(initialValue: nil)
     }
 
     private var rows: [LiveHazardDisplayItem] {
@@ -397,8 +397,8 @@ struct LiveHazardDetailView: View {
     }
 
     private var selectedIndex: Int? {
-        guard !rows.isEmpty else { return nil }
-        return rows.firstIndex(where: { $0.id == selectedHazardID }) ?? 0
+        guard let selectedHazardID else { return nil }
+        return rows.firstIndex(where: { $0.id == selectedHazardID })
     }
 
     private var selectedHazard: LiveHazardDisplayItem? {
@@ -428,6 +428,14 @@ struct LiveHazardDetailView: View {
                             .padding(.horizontal, 16)
                             .padding(.top, 14)
                             .padding(.bottom, 28)
+                    } else if !rows.isEmpty {
+                        LiveHazardPickerPanel(
+                            rows: rows,
+                            onSelect: { select(index: $0) }
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.top, 14)
+                        .padding(.bottom, 28)
                     }
                 }
                 .padding(.top, 66)
@@ -438,9 +446,10 @@ struct LiveHazardDetailView: View {
         .preferredColorScheme(.dark)
         .accessibilityIdentifier("live-hazard-detail")
         .onChange(of: rows.map(\.id)) { _, ids in
-            if selectedHazardID == nil || !ids.contains(selectedHazardID ?? "") {
-                selectedHazardID = ids.first
-            }
+            selectedHazardID = LiveHazardSelectionPolicy.retainedSelection(
+                current: selectedHazardID,
+                availableIDs: ids
+            )
         }
     }
 

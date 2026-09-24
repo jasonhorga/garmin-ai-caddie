@@ -600,9 +600,25 @@ final class RealFlowUITests: XCTestCase {
             )
         }
         let firstSelectedHazard = app.descendants(matching: .any)["selected-hazard-1"].firstMatch
+        let hazardPicker = app.buttons["live-hazard-picker"]
+        XCTAssertTrue(
+            hazardPicker.waitForExistence(timeout: 8),
+            "the live map must expose an explicit obstacle selector"
+        )
+        XCTAssertFalse(
+            firstSelectedHazard.exists,
+            "obstacle geometry and distances stay hidden until the player selects one"
+        )
+        hazardPicker.tap()
+        let firstHazardOption = app.descendants(matching: .any)["hazard-picker-option-1"].firstMatch
+        XCTAssertTrue(
+            firstHazardOption.waitForExistence(timeout: 3),
+            "the obstacle selector must list the first available obstacle"
+        )
+        firstHazardOption.tap()
         XCTAssertTrue(
             firstSelectedHazard.waitForExistence(timeout: 8),
-            "the live hole must expose its selected obstacle without navigating away"
+            "choosing an obstacle must expose its selected outline without navigating away"
         )
         let actionDock = app.descendants(matching: .any)["live-action-dock"].firstMatch
         XCTAssertTrue(actionDock.waitForExistence(timeout: 3))
