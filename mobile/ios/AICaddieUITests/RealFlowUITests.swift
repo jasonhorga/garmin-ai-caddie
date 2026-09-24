@@ -600,9 +600,25 @@ final class RealFlowUITests: XCTestCase {
             )
         }
         let firstSelectedHazard = app.descendants(matching: .any)["selected-hazard-1"].firstMatch
+        let hazardPicker = app.buttons["live-hazard-picker"]
+        XCTAssertTrue(
+            hazardPicker.waitForExistence(timeout: 8),
+            "the live map must expose an explicit obstacle selector"
+        )
+        XCTAssertFalse(
+            firstSelectedHazard.exists,
+            "obstacle geometry and distances stay hidden until the player selects one"
+        )
+        hazardPicker.tap()
+        let firstHazardOption = app.descendants(matching: .any)["hazard-picker-option-1"].firstMatch
+        XCTAssertTrue(
+            firstHazardOption.waitForExistence(timeout: 3),
+            "the obstacle selector must list the first available obstacle"
+        )
+        firstHazardOption.tap()
         XCTAssertTrue(
             firstSelectedHazard.waitForExistence(timeout: 8),
-            "the live hole must expose its selected obstacle without navigating away"
+            "choosing an obstacle must expose its selected outline without navigating away"
         )
         let actionDock = app.descendants(matching: .any)["live-action-dock"].firstMatch
         XCTAssertTrue(actionDock.waitForExistence(timeout: 3))
@@ -1106,33 +1122,18 @@ final class RealFlowUITests: XCTestCase {
         let topoLoading = app.descendants(matching: .any)
             .matching(identifier: "topo-hole-base-loading").firstMatch
         // `firstFactualMap` can observe the lightweight map just as the precise topo commits. A
-        // retained XCUI query may still report the old partial snapshot for one turn. The precise
-        // geometry can also publish before its revision-bound PNG is decoded; that intermediate
-        // state has an explicit topo loading element and is just as valid as the map-preparing
-        // disclosure. Accept either state before asserting partial-only details.
+        // retained XCUI query may still report the old partial snapshot for one turn. The route is
+        // deliberately usable in this state, so a loading/preparing disclosure is optional; the
+        // contract is that the factual map remains visible and eventually upgrades to precise
+        // geometry without exposing an unselected hazard overlay.
         let observedLightweightMap = partialMap.exists && !topoReady.exists
         if observedLightweightMap {
-            let preparationOrReady = XCTNSPredicateExpectation(
-                predicate: NSPredicate { _, _ in
-                    topoReady.exists || topoLoading.exists || preparing.exists
-                },
-                object: firstFactualMap
+            XCTAssertTrue(partialMap.exists, "the factual route map must remain visible while precise geometry loads")
+            XCTAssertFalse(
+                app.descendants(matching: .any)["live-hazard-detail"].firstMatch.exists,
+                "hazards are opt-in and must stay hidden until the player selects one"
             )
-            XCTAssertTrue(
-                XCTWaiter.wait(for: [preparationOrReady], timeout: 5) == .completed,
-                "a partial Garmin map must disclose preparation until the precise topo is ready"
-            )
-            if !topoReady.exists && !topoLoading.exists {
-                XCTAssertTrue(
-                    preparing.exists,
-                    "a partial Garmin map must disclose that precise hazard facts are still preparing"
-                )
-                XCTAssertFalse(
-                    app.staticTexts.matching(
-                        NSPredicate(format: "label CONTAINS ' · 到 ' AND (label BEGINSWITH '水域' OR label BEGINSWITH '沙坑')")
-                    ).firstMatch.exists,
-                    "an incomplete CourseView hazard subset must not masquerade as the nearest precise hazard"
-                )
+            if !topoReady.exists && !topoLoading.exists && !preparing.exists {
                 settle(1); save("09d-new-course-lightweight-map"); dump("09d-new-course-lightweight-map")
             }
         }

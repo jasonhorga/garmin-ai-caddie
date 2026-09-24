@@ -1705,6 +1705,18 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("beginOfflineCourseDownload(revalidatePackage:", app_swift)
         self.assertIn("hasCompleteOfflineCoursePrep", app_swift)
         self.assertIn("saveCourseTemplate", app_swift)
+        self.assertIn(
+            "let assembled = preservingForegroundPrecisePrep(in: assembledSnapshot())",
+            app_swift,
+            "each finished prep batch must become a publishable live-round snapshot",
+        )
+        self.assertIn("let persisted = try offlineStore.saveRoundPackage(assembled)", app_swift)
+        self.assertIn("liveRoundState?.roundId == snapshot.roundId", app_swift)
+        self.assertNotIn(
+            "func persistPrepBatchProgress() {\n            guard let prepDownloadID else { return }",
+            app_swift,
+            "live rounds have no prep-download id and must still receive later-hole batches",
+        )
         self.assertNotIn("prewarmRoundTopo()", app_swift)
         self.assertNotIn("prewarmCourseTopo(globalId:", app_swift)
         self.assertIn("enum HubRoute", round_home)
@@ -2223,10 +2235,27 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("baseURL: caddieBaseURL", current_hole)
         self.assertIn("geometryRevision: geometryRevision", current_hole)
         self.assertIn('"live-hole-map-partial"', current_hole)
-        # Partial geometry is held behind one bounded loading surface. Once the timeout expires,
-        # the factual lightweight map is allowed through as a stable fallback.
+        # CourseView's lightweight route is immediately drawable. Precise topo/hazard work may
+        # continue in the background, but that pending state must not blank an available route.
         self.assertIn("HoleImageMapView(hole: holePrep", current_hole)
-        self.assertIn("showsHazards: true", current_hole)
+        self.assertIn("if let holePrep, holePrep.resolvedMapOverlay != nil {", current_hole)
+        self.assertNotIn(
+            "holePrep.resolvedMapOverlay != nil, !isPreciseHoleMapPending",
+            current_hole,
+        )
+        self.assertIn("showsRecommendedRoute: true", current_hole)
+        self.assertIn("showsHazards: false", current_hole)
+        self.assertIn("LiveHazardOverlayRenderer.draw", current_hole)
+        self.assertIn("LiveHazardPickerPanel", current_hole)
+        self.assertIn("drawFactualRoute", hole_map_view)
+        self.assertIn("_ = drawPlannedRoute(", hole_map_view)
+        self.assertLess(
+            hole_map_view.index("drawFactualRoute(&context, points: routePoints)"),
+            hole_map_view.index("_ = drawPlannedRoute("),
+            "the factual centreline must be drawn independently before any caddie overlay",
+        )
+        self.assertIn("row[0].isFinite", hole_map_view)
+        self.assertIn(") -> Bool", hole_map_view[hole_map_view.index("private func drawPlannedRoute"):])
         self.assertIn("LiveMapPreparingSurface(holeNumber: hole.number)", current_hole)
         self.assertIn("preciseMapTimedOut", current_hole)
         self.assertIn('accessibilityIdentifier("live-map-preparing-surface")', live_hole_components)
@@ -3671,6 +3700,9 @@ class MobileContractTests(unittest.TestCase):
         hazard_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveHazardDetailView.swift")
         self.assertIn("showsRecommendedRoute: false", hazard_detail)
         self.assertIn("showsHazards: false", hazard_detail)
+        self.assertIn("_selectedHazardID = State(initialValue: nil)", hazard_detail)
+        self.assertIn("LiveHazardPickerPanel(", hazard_detail)
+        self.assertNotIn("selectedHazardID = ids.first", hazard_detail)
         self.assertIn("Canvas { context, canvasSize in", hazard_detail)
         self.assertIn("drawSelectedHazardGeometry(&context, size: canvasSize)", hazard_detail)
         self.assertIn('identifier: "live-hazard-zoom-in"', hazard_detail)

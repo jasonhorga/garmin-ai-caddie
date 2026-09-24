@@ -929,6 +929,56 @@ struct LiveHazardBrowserPanel: View {
     }
 }
 
+/// The live map starts clean. This compact menu is the explicit entry point for the optional
+/// obstacle instrument; after a choice, `LiveHazardBrowserPanel` provides previous/next navigation.
+struct LiveHazardPickerPanel: View {
+    let rows: [LiveHazardDisplayItem]
+    let onSelect: (Int) -> Void
+
+    var body: some View {
+        Menu {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                Button {
+                    onSelect(index)
+                } label: {
+                    Label(
+                        row.label + " · 前 " + String(row.frontYards) + " 码",
+                        systemImage: row.isWater ? "drop.fill" : "square.grid.2x2.fill"
+                    )
+                }
+                .accessibilityIdentifier("hazard-picker-option-\(index + 1)")
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "eye.slash")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(LivePlayStyle.hazard)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("查看障碍物")
+                        .font(.system(size: 12.5, weight: .heavy))
+                        .foregroundStyle(LivePlayStyle.ink)
+                    Text("本洞 " + String(rows.count) + " 个 · 选择后显示轮廓和前后沿")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(LivePlayStyle.ink45)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(LivePlayStyle.ink60)
+            }
+            .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+            .padding(.horizontal, 10)
+            .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(LivePlayStyle.stroke10))
+        }
+        .menuStyle(.borderlessButton)
+        .accessibilityLabel("选择要显示的障碍物")
+        .accessibilityIdentifier("live-hazard-picker")
+    }
+}
+
 /// Two symmetric score steppers (杆 − N ＋ / 推 − N ＋) with circular −/＋ buttons that never clip.
 struct LivePlayScoreSteppers: View {
     @Binding var score: Int

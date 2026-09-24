@@ -1772,27 +1772,36 @@ public final class LiveRoundAppModel: ObservableObject {
         }
 
         func persistPrepBatchProgress() {
-            guard let prepDownloadID else { return }
+            // Live rounds do not have a prep-download record, but they still need each completed
+            // batch published immediately. Otherwise the downloader can fetch every later hole
+            // successfully while the active map keeps the first-hole-only package until the very
+            // end of the course pass. A replacement prep job remains staged until completion so
+            // it cannot overwrite the last-known-good template or the foreground round.
+            let assembled = preservingForegroundPrecisePrep(in: assembledSnapshot())
             do {
-                // During a release replacement the last-known-good template remains the live-round
-                // fallback. The replacement package is staged in memory and written only after all
-                // precise facts and topo bytes have arrived.
                 if !deferTemplateReplacement {
-                    try offlineStore.saveCourseTemplate(assembledSnapshot())
+                    try offlineStore.saveCourseTemplate(assembled)
+                    if package?.roundId == snapshot.roundId,
+                       liveRoundState?.roundId == snapshot.roundId {
+                        let persisted = try offlineStore.saveRoundPackage(assembled)
+                        package = persisted
+                    }
                 }
             } catch {
                 AICaddieLog.storage.error(
                     "Incremental prep facts save failed: \(String(describing: error), privacy: .public)"
                 )
             }
-            updatePrepCourseDownload(
-                id: prepDownloadID,
-                generation: prepDownloadGeneration
-            ) { state in
-                state.phase = .preparing
-                state.preparedHoles = preparedHoleCount()
-                state.downloadedHoles = downloadedHoleCount()
-                state.totalHoles = max(1, snapshot.holes.count)
+            if let prepDownloadID {
+                updatePrepCourseDownload(
+                    id: prepDownloadID,
+                    generation: prepDownloadGeneration
+                ) { state in
+                    state.phase = .preparing
+                    state.preparedHoles = preparedHoleCount()
+                    state.downloadedHoles = downloadedHoleCount()
+                    state.totalHoles = max(1, snapshot.holes.count)
+                }
             }
         }
 

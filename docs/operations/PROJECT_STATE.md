@@ -9,10 +9,10 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-23 11:32 UTC
+**Updated:** 2026-09-24 18:58 UTC
 **Branch:** `integration/v2`; product/backend canonical source revision is
-`3c5ec81af1b0f67576c0e93e1ede0c305194d099` (this ledger closeout is commit
-`40d0bcb7`). PR #332 is merged and its
+`c35e3d8c795d9f006fec2cc4c8db9492626ff495` (this route-coverage slice is
+committed locally; release gates are still pending). PR #332 is merged and its
 post-deploy gates are complete: Source CI `35838477517`, exact-SHA Native Mobile
 CI `35847317420`, homeserver deployment on production `127.0.0.1:39055`, and
 internal TestFlight CD `35853831558` uploaded Build `0.1.0 (74)` with
@@ -59,6 +59,65 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
+**Current slice (2026-09-24 18:58 UTC):** `PHONE-UX9-LIVE-ROUTE-COVERAGE` is
+`in-progress`. The active working tree adds a precise prodgeometry route seed
+when a Garmin release has no CourseView route catalogue, publishes that route
+for every display hole (deduplicating repeated physical holes), and keeps the
+Watch factual route visible even when a downloaded topo image has no caddie
+response. The live phone and Watch root maps start with hazards unselected;
+only the explicit obstacle picker/instrument may draw hazard outlines and edge
+distances. The route-only seed now carries a pixel overlay even without
+`RefLat`/`RefLon`, and degenerate one-point routes are rejected. Remote
+`unittest` suites pass `36/36` course-prep tests (2 skips) and `104/104`
+mobile-server tests; real Garmin package smoke returns routes for `18/18`
+holes on both gid `31702` and gid `31719`; a read-only scan of the private
+geometry bundle found routes for all `2165/2165` mesh holes. Exact-head
+Source/Native CI and release gates remain pending. The next action is
+commit/push, then the ordered CI gates and a fresh internal build only if all
+gates pass.
+
+**Previous slice (2026-09-24):** `PHONE-UX8-LIVE-ROUTE-HAZARD` is
+`evidence-open` pending physical-device evidence. The live phone map now renders the installed factual route
+immediately instead of waiting for the asynchronous caddie response; the
+current working fix also draws that centreline independently before any
+recommendation, so a degenerate/stale shot chain cannot make a later hole look
+blank. The incremental prep downloader now publishes each completed batch into
+the active round package (while replacement course downloads remain staged),
+so holes 2+ become navigable as soon as their facts arrive instead of only at
+the end of the 18-hole pass. Live obstacle overlays start unselected and a
+compact picker lets the player choose one obstacle before its outline/front/back
+annotations appear; changing holes or refreshing geometry never auto-selects
+the first row. The standalone hazard-detail surface follows the same default
+and exposes the picker explicitly. The live map-detail and green-detail
+surfaces no longer draw incidental hazard spans. A loading-gate fix in commit `a1f82c32` ensures a partial
+CourseView route is drawn immediately while precise topo/hazard assets are
+still downloading; only a hole with no pixel-projectable route shows the
+preparing surface. Commit `27de00fb` also treats a projected plan as drawn only
+when at least one visible flight leg exists, otherwise it falls back to the
+factual centreline. Commit `b033f4e1` keeps legacy hazard spans disabled on the
+live map so the independent overlay draws only the obstacle selected by the
+player. Focused homeserver mobile contracts pass `99/99` (latest 5.096s).
+Exact-head Source CI `35983788731` and Native Mobile CI `35984448224` are green
+at `602fd01c`; the Native run completed the real iOS and Watch flows, screenshot
+capture, and secret scans. The captured iOS journey shows factual route lines on
+holes 1-6 and 13 even when the caddie response is partial/late; its live hazard
+panel starts with the eye-off picker and draws the selected outline/front/back
+readouts only after an explicit choice. The current next action is physical
+iPhone/Watch installation and interaction evidence; no external distribution
+or production promotion is authorized by this slice.
+
+The ordered release gates for this slice are complete: exact-head Source CI
+`35983788731`, exact-head Native Mobile CI `35984448224`, internal TestFlight CD
+`35990544784`, and read-only App Store Connect check `35991518040`. Build
+`0.1.0 (75)` is `VALID`, unexpired, `IN_BETA_TESTING`, arm64, and its processed
+entitlements include `com.ai-caddie.mobile.watchkitapp`; the existing internal
+group has Build 75 with `allBuilds=true`. The upload provenance binds the app
+to `602fd01c` and the backend to `3c5ec81af1b0f67576c0e93e1ede0c305194d099`,
+with IPA SHA-256
+`23e0ba10f8099c82c1c1386ceeac312a33b5db79c5f2ba038ca6e2bef01dc4b9`.
+No external distribution, tester mutation, or production promotion was done;
+physical iPhone/Watch installation and interaction evidence remains open.
+
 ## Current Work Summary
 
 **Homeserver expired-resource cleanup (2026-09-23 02:34 UTC):** The old Codex
@@ -80,8 +139,9 @@ source snapshots and evidence intact for the Claude audit. It did not touch
 `aicaddie-web`, `garmin-ai-caddie-db-1`, the shared named volume, `rc`, or any
 other project's resource. Post-cleanup checks show only `39055` and `39083`
 candidate containers, no old listeners or cloudflared processes, and HTTP 200
-from `/api/v2/health` on both protected endpoints. No product code was changed;
-the current product slice remains `PHONE-UX7-ROUTE2` `evidence-open` pending
+from `/api/v2/health` on both protected endpoints. No product code was changed
+by that cleanup; at that time the product slice remained `PHONE-UX7-ROUTE2`
+`evidence-open` pending
 the planned audit/physical evidence.
 
 **Current slice (2026-09-23):** `PR332` is `evidence-open`: merge,

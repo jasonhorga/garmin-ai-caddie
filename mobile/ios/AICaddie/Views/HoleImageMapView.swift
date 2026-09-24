@@ -116,7 +116,7 @@ public struct HoleImageMapView: View {
     public init(hole: CoursePrepHole, selectedClub: String? = nil, selectedClubMetres: Double? = nil,
                 pinOverlayPixel: CGPoint? = nil,
                 topoURL: URL? = nil, showsCardChrome: Bool = true,
-                showsRecommendedRoute: Bool = true, showsHazards: Bool = true,
+                showsRecommendedRoute: Bool = true, showsHazards: Bool = false,
                 showsPrepFactOverlays: Bool = false, allowsRotation: Bool = false,
                 showsPrepClubLabel: Bool = true, showsClubLabel: Bool = true,
                 teeDistanceArcYards: Int? = nil,
@@ -199,7 +199,10 @@ public struct HoleImageMapView: View {
         let sx = size.width / CGFloat(overlay.w)
         let sy = size.height / CGFloat(overlay.h)
         let routePoints: [CGPoint] = overlay.route.compactMap { row in
-            row.count >= 2 ? CGPoint(x: row[0] * sx, y: row[1] * sy) : nil
+            guard row.count >= 2,
+                  row[0].isFinite,
+                  row[1].isFinite else { return nil }
+            return CGPoint(x: row[0] * sx, y: row[1] * sy)
         }
         let pin = resolvedPinPoint(overlay: overlay, sx: sx, sy: sy) ?? routePoints.last
         let projectedPlan = projectedPlannedShots(
@@ -225,13 +228,19 @@ public struct HoleImageMapView: View {
                 showsHazards: showsHazards
             )
         }
+        // The factual route is independent from the caddie response. Draw it first whenever the
+        // map has two projectable points, so a stale/degenerate recommendation can never make an
+        // otherwise usable hole look blank. A valid recommendation is layered above this line.
+        if showsRecommendedRoute, routePoints.count >= 2 {
+            drawFactualRoute(&context, points: routePoints)
+        }
         // A recommendation is a flight plan, not the course centreline. Draw one independent arc
         // from Tee/current origin to the selected club's landing and another from landing to flag.
         // Until an authoritative landing distance exists, leave the flight plan absent instead of
         // drawing a misleading tee-to-flag line that looks like a recommendation.
         if showsRecommendedRoute, let tee = routePoints.first {
             if !projectedPlan.isEmpty {
-                drawPlannedRoute(
+                _ = drawPlannedRoute(
                     &context,
                     tee: tee,
                     pin: pin,
@@ -382,8 +391,9 @@ public struct HoleImageMapView: View {
         tee: CGPoint,
         pin: CGPoint?,
         shots: [(shot: MapPlannedShot, point: CGPoint)]
-    ) {
+    ) -> Bool {
         var origin = tee
+        var drewFlightPlan = false
         for (index, item) in shots.enumerated() {
             let isFinal = index == shots.count - 1
             let routeEndMetres = hole.resolvedMapOverlay?.route.last.flatMap { $0.count >= 3 ? $0[2] : nil }
@@ -402,6 +412,7 @@ public struct HoleImageMapView: View {
             // still advanced for every planned step, and the final step always targets the flag.
             if legLength > 1 {
                 drawFlightArc(&context, arc: Self.flightArc(from: origin, to: destination))
+                drewFlightPlan = true
             }
             let isSelected = selectedPlanIndex == nil || selectedPlanIndex == item.shot.planIndex
             let isAtPin = endsAtPin && pin != nil
@@ -417,6 +428,7 @@ public struct HoleImageMapView: View {
             }
             origin = destination
         }
+        return drewFlightPlan
     }
 
     private func effectiveShouldEndAtPin(
@@ -460,6 +472,20 @@ public struct HoleImageMapView: View {
             path,
             with: .color(.white.opacity(0.96)),
             style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
+        )
+    }
+
+    private func drawFactualRoute(_ context: inout GraphicsContext, points: [CGPoint]) {
+        let path = Self.smoothPath(through: points)
+        context.stroke(
+            path,
+            with: .color(.black.opacity(0.42)),
+            style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
+        )
+        context.stroke(
+            path,
+            with: .color(LiveHoleStyle.green.opacity(0.88)),
+            style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
         )
     }
 

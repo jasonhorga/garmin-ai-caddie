@@ -920,6 +920,42 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["cachedCaddieRules"]["decisionContract"], "ai-caddie-decision-v2")
         self.assertTrue(payload["cachedCaddieRules"]["offlineCapable"])
 
+    def test_mobile_round_package_embeds_lightweight_route_for_every_playable_hole(self) -> None:
+        """Resuming a round must have the same immediate route contract as a new course start."""
+        from server_v2 import mobile as mobile_service
+
+        seed = {
+            "schema": "ai-caddie-course-prep-package-v1",
+            "globalId": 31795,
+            "holes": [
+                {
+                    "hole": number,
+                    "geometryCoverage": "partial",
+                    "route": [[0.0, 0.0, 0.0], [10.0, float(number), 20.0]],
+                    "holeImageProjection": {"available": True, "widthPx": 360, "heightPx": 560, "refs": []},
+                }
+                for number in range(1, 10)
+            ],
+            "missingData": [],
+        }
+
+        with TemporaryDirectory() as tmp, patch.object(mobile_service, "MOBILE_ROOT", Path(tmp)), patch(
+            "server_v2.mobile.first_hole_lightweight_course_prep",
+            return_value=seed,
+        ) as first_seed, patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}):
+            response = TestClient(app).get(
+                "/api/v2/mobile/rounds/900001/package",
+                params={"captured_at": "2099-01-01T00:00:00Z"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(
+            [row["hole"] for row in payload["coursePrep"]["holes"]],
+            list(range(1, 10)),
+        )
+        first_seed.assert_called_once()
+
     def test_home_package_skips_the_event_store_cursor(self) -> None:
         """The read-only home preview must not scan the global event log."""
         from ai_caddie.caddie import mobile_live
@@ -1571,6 +1607,41 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["course"]["globalId"], 41825)
         self.assertEqual(len(payload["holes"]), 9)
 
+    def test_nine_hole_round_is_not_expanded_by_course_wide_stats(self) -> None:
+        """A completed nine must not acquire phantom holes 10-18 from another round's stats."""
+        from ai_caddie.caddie.mobile_live import _expected_package_hole_numbers
+
+        round_row = {
+            "id": "nine-only",
+            "courseKey": "black-knight-a",
+            "holesCompleted": 9,
+            "holes": [{"number": number} for number in range(1, 10)],
+        }
+        stats = {
+            "holes": [
+                {"courseKey": "black-knight-a", "hole": number}
+                for number in range(1, 19)
+            ]
+        }
+
+        self.assertEqual(
+            _expected_package_hole_numbers(round_row, stats, course_key="black-knight-a"),
+            list(range(1, 10)),
+        )
+
+    def test_nine_hole_loop_maps_second_lap_to_local_holes_one_to_nine(self) -> None:
+        """A+A history rows without a repeated back gid still use the cached nine-hole loop."""
+        from ai_caddie.caddie import mobile_live
+
+        row = {"globalId": 31796, "holesCompleted": 18}
+        with patch.object(
+            mobile_live,
+            "_courseview_segment_resolver",
+            return_value=("The Players Club ~ C", 9),
+        ):
+            self.assertEqual(mobile_live._round_hole_geometry_ref(row, 10), (31796, 1))
+            self.assertEqual(mobile_live._round_hole_geometry_ref(row, 18), (31796, 9))
+
     def test_mobile_round_package_uses_physical_loop_id_when_real_round_omits_global_id(self) -> None:
         """Real Garmin rows often carry front/back loop ids without the convenience globalId."""
         from ai_caddie.core.fixtures import fixture_history_data
@@ -2142,6 +2213,163 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(result["holes"][0]["hole"], 10)
         self.assertEqual(result["holes"][0]["globalId"], 31795)
         self.assertEqual(result["holes"][0]["localHole"], 1)
+
+    def test_lightweight_seed_covers_every_hole_without_repeating_player_ladder_scan(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_prep
+
+        def prep(global_id: int, local_hole: int, **_kwargs: object) -> dict[str, object]:
+            return {
+                "globalId": global_id,
+                "localHole": local_hole,
+                "hole": local_hole,
+                "geometryCoverage": "partial",
+                "route": [[0.0, 0.0, 0.0], [10.0, float(local_hole), 20.0]],
+                "holeImageProjection": {"available": True, "widthPx": 360, "heightPx": 560, "refs": []},
+                "missingData": [],
+            }
+
+        package = {
+            "course": {"globalId": 31794},
+            "clubProfiles": [],
+            "holes": [
+                {"number": 1, "sourceGlobalId": 31795, "sourceLocalHole": 1},
+                {"number": 2, "sourceGlobalId": 31795, "sourceLocalHole": 2},
+                # A+A composite: same physical source is reused under display hole 10.
+                {"number": 10, "sourceGlobalId": 31795, "sourceLocalHole": 1},
+            ],
+        }
+        with patch.object(course_prep, "effective_club_ladder", return_value=[("1W", 220)]) as ladder, \
+                patch.object(course_prep, "lightweight_prep_hole", side_effect=prep) as build:
+            result = mobile_live.first_hole_lightweight_course_prep(package, player_id="member-a")
+
+        self.assertIsNotNone(result)
+        self.assertEqual([row["hole"] for row in result["holes"]], [1, 2, 10])
+        self.assertEqual(
+            [(call.args[0], call.args[1]) for call in build.call_args_list],
+            [(31795, 1), (31795, 2)],
+        )
+        ladder.assert_called_once_with("member-a")
+
+    def test_lightweight_seed_uses_precise_route_when_courseview_catalogue_is_missing(self) -> None:
+        """A precise-only release must still publish a drawable route for every display hole."""
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_prep
+
+        def precise(global_id: int, local_hole: int, **_kwargs: object) -> dict[str, object]:
+            return {
+                "globalId": global_id,
+                "localHole": local_hole,
+                "hole": local_hole,
+                "geometryCoverage": "partial",
+                "route": [[0.0, 0.0, 0.0], [10.0, float(local_hole), 20.0]],
+                "holeImageProjection": {
+                    "available": True,
+                    "widthPx": 678,
+                    "heightPx": 1060,
+                    "refs": [],
+                },
+                "missingData": [{"label": "courseview_route", "reason": "missing"}],
+            }
+
+        package = {
+            "course": {"globalId": 31702},
+            "clubProfiles": [],
+            "holes": [
+                {"number": 1, "sourceGlobalId": 31702, "sourceLocalHole": 1},
+                {"number": 2, "sourceGlobalId": 31702, "sourceLocalHole": 2},
+                # Same physical hole appears again in a composite loop.
+                {"number": 10, "sourceGlobalId": 31702, "sourceLocalHole": 1},
+            ],
+        }
+        with patch.object(course_prep, "effective_club_ladder", return_value=[]), \
+                patch.object(course_prep, "lightweight_prep_hole", return_value=None), \
+                patch.object(course_prep, "precise_route_seed_hole", side_effect=precise) as fallback:
+            result = mobile_live.first_hole_lightweight_course_prep(package, player_id="member-a")
+
+        self.assertIsNotNone(result)
+        self.assertEqual([row["hole"] for row in result["holes"]], [1, 2, 10])
+        self.assertEqual([len(row["route"]) for row in result["holes"]], [2, 2, 2])
+        self.assertTrue(all(row["geometryCoverage"] == "partial" for row in result["holes"]))
+        self.assertEqual(
+            [(call.args[0], call.args[1]) for call in fallback.call_args_list],
+            [(31702, 1), (31702, 2)],
+        )
+
+    def test_lightweight_seed_accepts_pixel_overlay_without_gps_projection(self) -> None:
+        """A route-only mesh seed must not be discarded just because GPS refs are unavailable."""
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_prep
+
+        mesh_seed = {
+            "globalId": 31702,
+            "localHole": 1,
+            "hole": 1,
+            "geometryCoverage": "partial",
+            "route": [[0.0, 0.0, 0.0], [0.0, 320.0, 320.0]],
+            "holeImageProjection": {"available": False},
+            "map": {
+                "image": None,
+                "overlay": {
+                    "w": 678,
+                    "h": 1060,
+                    "ppm": 1.2,
+                    "ln": 320.0,
+                    "route": [[12.0, 1000.0, 0.0], [14.0, 40.0, 320.0]],
+                },
+            },
+            "missingData": [],
+        }
+        package = {
+            "course": {"globalId": 31702},
+            "clubProfiles": [],
+            "holes": [{"number": 1, "sourceGlobalId": 31702, "sourceLocalHole": 1}],
+        }
+        with patch.object(course_prep, "effective_club_ladder", return_value=[]), \
+                patch.object(course_prep, "lightweight_prep_hole", return_value=mesh_seed), \
+                patch.object(course_prep, "precise_route_seed_hole") as fallback:
+            result = mobile_live.first_hole_lightweight_course_prep(package, player_id="member-a")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result["holes"]), 1)
+        self.assertEqual(result["holes"][0]["map"]["overlay"]["w"], 678)
+        fallback.assert_not_called()
+
+    def test_lightweight_seed_rejects_degenerate_route_even_with_projection(self) -> None:
+        """A one-point/zero-length route must fall through to the precise mesh extractor."""
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_prep
+
+        degenerate = {
+            "globalId": 31702,
+            "localHole": 1,
+            "hole": 1,
+            "geometryCoverage": "partial",
+            "route": [[10.0, 20.0, 0.0], [10.0, 20.0, 0.0]],
+            "holeImageProjection": {"available": True, "widthPx": 678, "heightPx": 1060},
+            "missingData": [],
+        }
+        precise = {
+            **degenerate,
+            "route": [[0.0, 0.0, 0.0], [0.0, 320.0, 320.0]],
+            "map": {"image": None, "overlay": {
+                "w": 678, "h": 1060, "ppm": 1.2, "ln": 320.0,
+                "route": [[12.0, 1000.0, 0.0], [14.0, 40.0, 320.0]],
+            }},
+        }
+        package = {
+            "course": {"globalId": 31702},
+            "clubProfiles": [],
+            "holes": [{"number": 1, "sourceGlobalId": 31702, "sourceLocalHole": 1}],
+        }
+        with patch.object(course_prep, "effective_club_ladder", return_value=[]), \
+                patch.object(course_prep, "lightweight_prep_hole", return_value=degenerate), \
+                patch.object(course_prep, "precise_route_seed_hole", return_value=precise) as fallback:
+            result = mobile_live.first_hole_lightweight_course_prep(package, player_id="member-a")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["holes"][0]["route"], precise["route"])
+        fallback.assert_called_once_with(31702, 1, coverage=None)
 
     def test_mobile_course_package_caps_nine_hole_loop_to_nine_holes(self) -> None:
         # A 9-hole CourseView loop (黑骑士 C / gid 31796) whose played rounds were 18-hole combos

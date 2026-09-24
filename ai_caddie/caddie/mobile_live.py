@@ -679,19 +679,41 @@ def _stats_hole_numbers(stats: dict[str, Any], *, course_key: str) -> list[int]:
 def _expected_package_hole_numbers(round_row: dict[str, Any], stats: dict[str, Any], *, course_key: str) -> list[int]:
     source_numbers = _round_hole_numbers(round_row)
     stats_numbers = _stats_hole_numbers(stats, course_key=course_key)
-    all_known = sorted(set([*source_numbers, *stats_numbers]))
     hole_pars = round_row.get("holePars")
     hole_par_count = len(hole_pars) if isinstance(hole_pars, list) else len(str(hole_pars or ""))
     holes_completed = _safe_int(round_row.get("holesCompleted") or round_row.get("holesPlayed")) or 0
+    back_global_id = _safe_int(round_row.get("backNineGlobalCourseId"))
 
-    if any(number > 9 for number in all_known) or hole_par_count >= 18 or holes_completed >= 18 or len(stats_numbers) >= 10:
+    # A completed nine-hole scorecard is authoritative for the package shape.  The history stats
+    # table is course-wide and commonly contains holes 10-18 from a different round; allowing those
+    # rows to promote a nine-hole scorecard to 18 holes created phantom holes with no CourseView
+    # route (the exact reason later holes appeared without a line in live play).  An explicit back
+    # loop, an 18-hole completion count, or numbered source rows beyond nine still proves a genuine
+    # 18-hole package and takes precedence.
+    if (
+        holes_completed == 9
+        and source_numbers
+        and max(source_numbers) <= 9
+        and back_global_id is None
+        and not any(number > 9 for number in source_numbers)
+    ):
+        return list(range(1, 10))
+
+    if (
+        any(number > 9 for number in source_numbers)
+        or hole_par_count >= 18
+        or holes_completed >= 18
+        or back_global_id is not None
+    ):
         return list(range(1, 19))
+    if source_numbers and max(source_numbers) <= 9 and len(source_numbers) >= 9:
+        return list(range(1, 10))
     if stats_numbers and max(stats_numbers) <= 9 and len(stats_numbers) >= 9:
         return list(range(1, 10))
     if hole_par_count == 9 and not any(number > 9 for number in source_numbers):
         return list(range(1, 10))
-    if source_numbers and max(source_numbers) <= 9 and len(source_numbers) >= 9 and holes_completed <= 9:
-        return list(range(1, 10))
+    # Preserve the historical 18-hole fallback for sparse synthetic/in-progress rows that carry no
+    # explicit hole list.  A real nine-hole row is handled above using holesCompleted/source rows.
     return list(range(1, 19))
 
 
@@ -702,6 +724,18 @@ def _round_hole_geometry_ref(round_row: dict[str, Any], hole: int) -> tuple[int 
     back_global_id = _safe_int(round_row.get("backNineGlobalCourseId"))
     if back_global_id is not None:
         return back_global_id, hole - 9
+    # Garmin can encode an A+A (or standalone nine played twice) round without repeating the
+    # back-nine global id.  Once the cached CourseView release proves that the primary layout has
+    # nine holes, map the second display lap back to local holes 1-9 instead of asking for the
+    # nonexistent local holes 10-18.  This keeps the factual route available while remaining
+    # cache-only and offline-safe; an unknown/18-hole release retains the original local number.
+    if global_id is not None:
+        try:
+            segment = _courseview_segment_resolver(global_id)
+            if segment and segment[1] == 9:
+                return global_id, hole - 9
+        except Exception:
+            pass
     return global_id, hole
 
 
@@ -1068,52 +1102,179 @@ def _package_club_ladder(package: dict[str, Any]) -> list[tuple[str, int]] | Non
     return ladder or None
 
 
+def _has_drawable_route_seed(row: dict[str, Any] | None) -> bool:
+    """Whether a lightweight prep row carries enough pixels for an immediate route line.
+
+    GPS projection refs are optional: a mesh-only release can still publish a map overlay in the
+    renderer's pixel frame.  Treat either representation as drawable, but never accept a local
+    route by itself because the clients cannot place it without one of these frames.
+    """
+    if not isinstance(row, dict):
+        return False
+    route = row.get("route")
+    if not isinstance(route, list) or len(route) < 2:
+        return False
+    local_points = [
+        point for point in route
+        if isinstance(point, (list, tuple))
+        and len(point) >= 2
+        and _safe_float(point[0]) is not None
+        and _safe_float(point[1]) is not None
+    ]
+    if len(local_points) < 2 or not any(
+        math.hypot(
+            float(point[0]) - float(local_points[0][0]),
+            float(point[1]) - float(local_points[0][1]),
+        ) > 1e-6
+        for point in local_points[1:]
+    ):
+        return False
+    map_value = row.get("map")
+    overlay = map_value.get("overlay") if isinstance(map_value, dict) else None
+    if isinstance(overlay, dict):
+        route_px = overlay.get("route")
+        try:
+            width = int(overlay.get("w") or 0)
+            height = int(overlay.get("h") or 0)
+        except (TypeError, ValueError, OverflowError):
+            width = height = 0
+        if isinstance(route_px, list) and len(route_px) >= 2 and width > 0 and height > 0:
+            pixels = [
+                point for point in route_px
+                if isinstance(point, (list, tuple))
+                and len(point) >= 2
+                and _safe_float(point[0]) is not None
+                and _safe_float(point[1]) is not None
+            ]
+            if len(pixels) >= 2 and any(
+                math.hypot(
+                    float(point[0]) - float(pixels[0][0]),
+                    float(point[1]) - float(pixels[0][1]),
+                ) > 1e-6
+                for point in pixels[1:]
+            ):
+                return True
+    projection = row.get("holeImageProjection")
+    return isinstance(projection, dict) and projection.get("available") is True
+
+
 def first_hole_lightweight_course_prep(
     package: dict[str, Any],
     *,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any] | None:
-    """Return one immediately drawable, CourseView-only seed for a live course package.
+    """Return immediately drawable CourseView-only seeds for the live course package.
 
-    The full all-hole prep remains excluded from Start Round.  Seeding only the first playable
-    hole closes the cold-install race: background prodgeometry may start after the package response,
-    but the phone/watch already owns a factual route before any precise mesh work can contend with
-    its on-demand request.
+    The function name is retained for source compatibility with the first-hole bootstrap path,
+    but the package must carry a route for every playable hole.  Previously only the first row was
+    embedded, which meant a player who swiped to hole 2+ saw a perfectly usable bitmap with no
+    centreline until the asynchronous precise-prep batch happened to finish.  CourseView route
+    extraction is the cheap factual layer; precise prodgeometry/topo installation remains a
+    separate background job and is never pulled onto the first-screen path here.
     """
-    holes = package.get("holes") or []
-    first = next((row for row in holes if isinstance(row, dict)), None)
-    if first is None:
+    holes = [row for row in (package.get("holes") or []) if isinstance(row, dict)]
+    if not holes:
         return None
     course = package.get("course") or {}
-    round_hole = _safe_int(first.get("number"))
-    source_global_id = _safe_int(first.get("sourceGlobalId") or course.get("globalId"))
-    source_local_hole = _safe_int(first.get("sourceLocalHole") or round_hole)
-    if not round_hole or not source_global_id or not source_local_hole:
+    # The package already contains the player's filtered club medians. Reuse them when available;
+    # omitting the optional argument preserves the authoritative fallback for old/fixture callers.
+    ladder = _package_club_ladder(package)
+    if ladder is None and len(holes) > 1:
+        # `lightweight_prep_hole` accepts a ladder precisely so callers preparing several holes do
+        # not rescan every shot file once per hole. Resolve the player-scoped fallback once here;
+        # on the real Black Knight package this changes nine-hole seed generation from ~8s to <1s.
+        try:
+            ladder = course_prep.effective_club_ladder(player_id)
+        except Exception:
+            ladder = None
+    prep_kwargs: dict[str, Any] = {"player_id": player_id}
+    if ladder:
+        prep_kwargs["ladder"] = ladder
+
+    # Composite rounds can show the same physical local hole twice (A+A). Build it once and
+    # renumber the returned factual row for each display hole instead of doing duplicate work.
+    by_source: dict[tuple[int, int], dict[str, Any] | None] = {}
+    seeded_rows: list[dict[str, Any]] = []
+    missing_rows: list[dict[str, Any]] = []
+    for package_hole in holes:
+        round_hole = _safe_int(package_hole.get("number"))
+        source_global_id = _safe_int(package_hole.get("sourceGlobalId") or course.get("globalId"))
+        source_local_hole = _safe_int(package_hole.get("sourceLocalHole") or round_hole)
+        if not round_hole or not source_global_id or not source_local_hole:
+            continue
+        source_key = (source_global_id, source_local_hole)
+        if source_key not in by_source:
+            try:
+                by_source[source_key] = course_prep.lightweight_prep_hole(
+                    source_global_id,
+                    source_local_hole,
+                    **prep_kwargs,
+                )
+            except Exception:
+                # A missing CourseView cache is a per-hole degradation. Do not throw away routes
+                # that were successfully extracted for the other holes in the same package.
+                by_source[source_key] = None
+        prep = by_source[source_key]
+
+        if not _has_drawable_route_seed(prep):
+            # A number of Garmin releases ship precise prodgeometry without the optional
+            # CourseView courseData catalogue.  In that shape the old lightweight-only branch
+            # dropped the hole entirely, so swiping to it showed a bitmap with no route.  Extract
+            # the renderer's precise centreline/frame as a cheap visual bootstrap; the row stays
+            # partial and the active-hole refresh still owns hazards and recommendations.
+            try:
+                package_coverage = str(package_hole.get("geometryCoverage") or "").strip().lower()
+                package_revision = str(package_hole.get("geometryRevision") or "").strip()
+                trusted_coverage = None
+                # _package_holes has already checked the release-bound mesh/hazard authority. Reuse
+                # that result when it is complete, otherwise let the fallback perform its own
+                # authority read. This keeps the visual bootstrap cheap without allowing a stale
+                # package row to promote partial geometry.
+                if package_coverage == "ready" and package_revision:
+                    trusted_coverage = {
+                        "coverage": "ready",
+                        "geometryRevision": package_revision,
+                        "missingData": [],
+                    }
+                prep = course_prep.precise_route_seed_hole(
+                    source_global_id,
+                    source_local_hole,
+                    coverage=trusted_coverage,
+                )
+            except Exception:
+                prep = None
+            # Cache the fallback as well; composite A+A rounds may reference the same physical
+            # hole twice and must not decode its meshes a second time during one package build.
+            by_source[source_key] = prep
+        if not _has_drawable_route_seed(prep):
+            missing_rows.append({
+                "label": "course_prep",
+                "reason": f"route unavailable for hole {round_hole}",
+            })
+            continue
+        seeded = dict(prep)
+        seeded["hole"] = round_hole
+        seeded_rows.append(seeded)
+
+    if not seeded_rows:
         return None
-    try:
-        # The package already contains the player's filtered club medians. Reuse them when
-        # available; omitting the optional argument preserves the authoritative fallback and keeps
-        # old/fixture callers byte-for-byte compatible.
-        ladder = _package_club_ladder(package)
-        prep_kwargs: dict[str, Any] = {"player_id": player_id}
-        if ladder:
-            prep_kwargs["ladder"] = ladder
-        prep = course_prep.lightweight_prep_hole(
-            source_global_id,
-            source_local_hole,
-            **prep_kwargs,
-        )
-    except Exception:
+    seeded_rows.sort(key=lambda row: int(row.get("hole") or 0))
+    package_global_id = _safe_int(course.get("globalId")) or _safe_int(seeded_rows[0].get("globalId"))
+    if not package_global_id:
         return None
-    if not prep or not prep.get("route") or not prep.get("holeImageProjection"):
-        return None
-    seeded = dict(prep)
-    seeded["hole"] = round_hole
     return {
         "schema": "ai-caddie-course-prep-package-v1",
-        "globalId": int(course.get("globalId") or source_global_id),
-        "holes": [seeded],
-        "missingData": list(seeded.get("missingData") or []),
+        "globalId": int(package_global_id),
+        "holes": seeded_rows,
+        "missingData": _dedupe_missing(
+            [
+                row
+                for seeded in seeded_rows
+                for row in (seeded.get("missingData") or [])
+                if isinstance(row, dict)
+            ]
+            + missing_rows
+        ),
     }
 
 
