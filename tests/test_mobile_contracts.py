@@ -2174,7 +2174,7 @@ class MobileContractTests(unittest.TestCase):
         # nines fetch the right loop's geometry.
         self.assertIn("struct HoleImageMapView", hole_map_view)
         self.assertIn(
-            "func fetchHolePrep(globalId: Int, localHole: Int, render: Bool = false) async throws -> CoursePrepHole?",
+            "func fetchHolePrep(globalId: Int, localHole: Int, render: Bool = false, teeBox: String? = nil) async throws -> CoursePrepHole?",
             sync_client,
         )
         self.assertIn("HoleImageMapView(", course_review)

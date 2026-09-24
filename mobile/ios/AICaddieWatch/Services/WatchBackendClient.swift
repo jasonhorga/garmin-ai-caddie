@@ -440,7 +440,7 @@ public final class WatchBackendClient {
         return request
     }
 
-    public func makeCoursePrepRequest(globalId: Int, localHoles: [Int]) throws -> URLRequest {
+    public func makeCoursePrepRequest(globalId: Int, localHoles: [Int], teeBox: String? = nil) throws -> URLRequest {
         guard localHoles.count <= Self.maximumCoursePrepHolesPerRequest else {
             throw WatchBackendClientError.coursePrepBatchTooLarge
         }
@@ -453,6 +453,13 @@ public final class WatchBackendClient {
         components.queryItems = localHoles.map {
             URLQueryItem(name: "holes", value: String($0))
         } + [URLQueryItem(name: "render", value: "false")]
+        // Hazard carries and the strategy are measured from the selected Tee; an unresolved choice
+        // is omitted so the server keeps its default Blue route.
+        if let tee = teeBox?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           !tee.isEmpty,
+           tee != "unknown" {
+            components.queryItems?.append(URLQueryItem(name: "tee", value: tee))
+        }
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.timeoutInterval = 900
@@ -653,8 +660,12 @@ public final class WatchBackendClient {
         return try decodeCourseInstallStatus(data)
     }
 
-    public func fetchCoursePrep(globalId: Int, localHoles: [Int]) async throws -> WatchCoursePrepResponse {
-        let request = try makeCoursePrepRequest(globalId: globalId, localHoles: localHoles)
+    public func fetchCoursePrep(
+        globalId: Int,
+        localHoles: [Int],
+        teeBox: String? = nil
+    ) async throws -> WatchCoursePrepResponse {
+        let request = try makeCoursePrepRequest(globalId: globalId, localHoles: localHoles, teeBox: teeBox)
         let data = try await sendForData(request, retryingTransientFailures: true)
         return try decodeCoursePrep(data)
     }
