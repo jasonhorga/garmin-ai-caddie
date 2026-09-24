@@ -2235,6 +2235,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("showsHazards: selectedLiveHazard != nil", current_hole)
         self.assertIn("LiveHazardPickerPanel", current_hole)
         self.assertIn("drawFactualRoute", hole_map_view)
+        self.assertIn("drewFlightPlan = drawPlannedRoute(", hole_map_view)
+        self.assertIn(") -> Bool", hole_map_view[hole_map_view.index("private func drawPlannedRoute"):])
         self.assertIn("LiveMapPreparingSurface(holeNumber: hole.number)", current_hole)
         self.assertIn("preciseMapTimedOut", current_hole)
         self.assertIn('accessibilityIdentifier("live-map-preparing-surface")', live_hole_components)

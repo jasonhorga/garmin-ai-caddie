@@ -232,13 +232,12 @@ public struct HoleImageMapView: View {
         if showsRecommendedRoute, let tee = routePoints.first {
             var drewFlightPlan = false
             if !projectedPlan.isEmpty {
-                drawPlannedRoute(
+                drewFlightPlan = drawPlannedRoute(
                     &context,
                     tee: tee,
                     pin: pin,
                     shots: projectedPlan
                 )
-                drewFlightPlan = true
             } else if let landing, let pin {
                 for arc in Self.flightArcs(tee: tee, landing: landing, pin: pin) {
                     drawFlightArc(&context, arc: arc)
@@ -392,8 +391,9 @@ public struct HoleImageMapView: View {
         tee: CGPoint,
         pin: CGPoint?,
         shots: [(shot: MapPlannedShot, point: CGPoint)]
-    ) {
+    ) -> Bool {
         var origin = tee
+        var drewFlightPlan = false
         for (index, item) in shots.enumerated() {
             let isFinal = index == shots.count - 1
             let routeEndMetres = hole.resolvedMapOverlay?.route.last.flatMap { $0.count >= 3 ? $0[2] : nil }
@@ -412,6 +412,7 @@ public struct HoleImageMapView: View {
             // still advanced for every planned step, and the final step always targets the flag.
             if legLength > 1 {
                 drawFlightArc(&context, arc: Self.flightArc(from: origin, to: destination))
+                drewFlightPlan = true
             }
             let isSelected = selectedPlanIndex == nil || selectedPlanIndex == item.shot.planIndex
             let isAtPin = endsAtPin && pin != nil
@@ -427,6 +428,7 @@ public struct HoleImageMapView: View {
             }
             origin = destination
         }
+        return drewFlightPlan
     }
 
     private func effectiveShouldEndAtPin(
