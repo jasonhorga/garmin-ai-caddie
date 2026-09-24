@@ -36,5 +36,37 @@ class PrepWarmConcurrencyTests(unittest.TestCase):
             self.assertFalse(prep_nine.call_args.kwargs["render"])
 
 
+class BootPrepWarmDelayTests(unittest.TestCase):
+    def test_default_delay_and_clamping(self) -> None:
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AI_CADDIE_PREP_WARM_BOOT_DELAY_S", None)
+            self.assertEqual(main._boot_prep_warm_delay_s(), 120.0)
+        for raw, expected in (("0", 0.0), ("30", 30.0), ("-5", 0.0), ("99999", 3600.0), ("nan", 120.0), ("x", 120.0)):
+            with patch.dict(os.environ, {"AI_CADDIE_PREP_WARM_BOOT_DELAY_S": raw}):
+                self.assertEqual(main._boot_prep_warm_delay_s(), expected)
+
+    def test_only_the_first_course_waits_for_the_boot_delay(self) -> None:
+        waits: list[float] = []
+        with patch.object(main._PREP_WARM_DELAY_EVENT, "wait", side_effect=lambda seconds: waits.append(seconds)), \
+                patch.object(main, "_PREP_WARM_LOCK") as lock, \
+                patch("ai_caddie.courses.course_prep.prep_nine"), \
+                patch("ai_caddie.courses.course_prep.available_prep_holes", return_value=[1]), \
+                patch("ai_caddie.courses.course_prep.effective_club_ladder", return_value=[]):
+            lock.acquire.return_value = True
+            warm = main._delayed_prep_warmer("me", 120.0)
+            warm(1)
+            warm(2)
+            warm(3)
+        self.assertEqual(waits, [120.0])
+
+    def test_sync_triggered_warm_does_not_wait(self) -> None:
+        with patch.object(main._PREP_WARM_DELAY_EVENT, "wait") as wait, \
+                patch("ai_caddie.courses.course_prep.prep_nine"), \
+                patch("ai_caddie.courses.course_prep.available_prep_holes", return_value=[1]), \
+                patch("ai_caddie.courses.course_prep.effective_club_ladder", return_value=[]):
+            main._delayed_prep_warmer("me", 0.0)(1)
+        wait.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

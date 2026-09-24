@@ -4,10 +4,12 @@ import contextlib
 import hashlib
 import hmac
 import logging
+import math
 import os
 import re
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Annotated, Literal
 
@@ -188,7 +190,13 @@ async def _lifespan(_app: FastAPI):
         daemon=True,
     ).start()
     # 「打开即用」:启动即在后台准备 owner 最近一盘(预热其 topo,失败 swallow)。
-    threading.Thread(target=_prepare_recent_bg, args=(OWNER_ID,), name="prepare-recent-boot", daemon=True).start()
+    threading.Thread(
+        target=_prepare_recent_bg,
+        args=(OWNER_ID,),
+        kwargs={"prep_warm_delay_s": _boot_prep_warm_delay_s()},
+        name="prepare-recent-boot",
+        daemon=True,
+    ).start()
     yield
 
 
@@ -1018,6 +1026,8 @@ def course_topo_prewarm(global_id: int, background_tasks: BackgroundTasks) -> di
 # warmer runs at a time; overlapping triggers (boot + sync + ingest) skip instead of stacking, and
 # the per-hole single-flight cache already dedupes any hole a live request is building.
 _PREP_WARM_LOCK = threading.Lock()
+# Waited on (never set in production) so a delayed boot warm sleeps without busy-waiting; tests set it.
+_PREP_WARM_DELAY_EVENT = threading.Event()
 
 
 def _prep_warm_course_limit() -> int:
@@ -1030,11 +1040,13 @@ def _prep_warm_course_limit() -> int:
     return max(0, min(3, value))
 
 
-def _warm_course_prep(global_id: int, player_id: str) -> None:
+def _warm_course_prep(global_id: int, player_id: str, *, delay_s: float = 0.0) -> None:
     """Fill the per-hole factual prep cache (render=False) that the course package, iPhone and
     Watch all read, so starting a round at a recently played course does not pay the cold build."""
     from ai_caddie.courses import course_prep
 
+    if delay_s > 0:
+        _PREP_WARM_DELAY_EVENT.wait(delay_s)
     if not _PREP_WARM_LOCK.acquire(blocking=False):
         logger.info("prep_warm skipped gid=%s reason=another_warm_running", int(global_id))
         return
@@ -1059,7 +1071,32 @@ def _warm_course_prep(global_id: int, player_id: str) -> None:
     )
 
 
-def _prepare_recent_bg(player_id: str) -> None:
+def _boot_prep_warm_delay_s() -> float:
+    """Seconds the boot-time prep warm waits (``AI_CADDIE_PREP_WARM_BOOT_DELAY_S``, default 120).
+
+    Homeserver validation of PR 332 measured cold /prep 1-3 s slower on a fresh process: the ~34 s
+    boot warm shares the API process/GIL with the first requests after a restart. Deferring it keeps
+    the post-restart window for live traffic; sync/ingest-triggered warms are not delayed.
+    """
+    try:
+        value = float(os.environ.get("AI_CADDIE_PREP_WARM_BOOT_DELAY_S", "120"))
+    except ValueError:
+        value = 120.0
+    return max(0.0, min(3600.0, value)) if math.isfinite(value) else 120.0
+
+
+def _delayed_prep_warmer(player_id: str, delay_s: float) -> Callable[[int], None]:
+    """Warm courses one by one; only the first waits ``delay_s`` (the boot window)."""
+    pending = [max(0.0, delay_s)]
+
+    def warm(global_id: int) -> None:
+        wait, pending[0] = pending[0], 0.0
+        _warm_course_prep(global_id, player_id, delay_s=wait)
+
+    return warm
+
+
+def _prepare_recent_bg(player_id: str, prep_warm_delay_s: float = 0.0) -> None:
     """「打开即用」后台准备最近一盘:预热其球洞图 topo + 烤统计。best-effort,绝不抛
     (镜像 warm_stats_cache 的 swallow 语义,不弄崩触发它的响应/线程)。"""
     from ai_caddie.history.stats_cache import cached_load_history_data
@@ -1090,7 +1127,7 @@ def _prepare_recent_bg(player_id: str) -> None:
             prewarm=_prewarm_course_topo,
             warm_stats=lambda: warm_stats_cache(player_id=player_id),
             ensure_geometry=_ensure_geometry,
-            warm_prep=(lambda gid: _warm_course_prep(gid, player_id)) if _prep_warm_course_limit() else None,
+            warm_prep=_delayed_prep_warmer(player_id, prep_warm_delay_s) if _prep_warm_course_limit() else None,
             prep_course_limit=_prep_warm_course_limit(),
         )
     except Exception:  # noqa: BLE001 - best-effort;绝不弄崩触发它的线程
