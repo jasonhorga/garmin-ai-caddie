@@ -257,12 +257,12 @@ public struct LivePlayMapDetailView: View {
                 pinOverlayPixel: pinPixel(overlay: overlay),
                 topoURL: topoURL,
                 showsCardChrome: false,
-                // Once the player places a Touch Target it owns the map. Hiding the club plan keeps
-                // the two target legs unambiguous instead of stacking two unrelated white routes.
-                showsRecommendedRoute: effectiveTargetPixel(overlay: overlay) == nil,
                 // Obstacle geometry is an explicit instrument on the live hole screen. The map
                 // detail surface should stay uncluttered until the player selects one hazard.
                 showsFactualRoute: true,
+                // Once the player places a Touch Target it owns the map. Hiding the club plan keeps
+                // the two target legs unambiguous instead of stacking two unrelated white routes.
+                showsRecommendedRoute: effectiveTargetPixel(overlay: overlay) == nil,
                 showsHazards: false
             )
             .frame(width: size.width, height: size.height)
