@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-24 09:48 UTC
+**Updated:** 2026-09-24 11:16 UTC
 **Branch:** `integration/v2`; product/backend canonical source revision is
 `3c5ec81af1b0f67576c0e93e1ede0c305194d099` (this ledger closeout is commit
 `40d0bcb7`). PR #332 is merged and its
@@ -60,7 +60,7 @@ Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
 **Current slice (2026-09-24):** `PHONE-UX8-LIVE-ROUTE-HAZARD` is
-`in-progress`. The live phone map now renders the installed factual route
+`evidence-open` pending physical-device evidence. The live phone map now renders the installed factual route
 immediately instead of waiting for the asynchronous caddie response; the
 current working fix also draws that centreline independently before any
 recommendation, so a degenerate/stale shot chain cannot make a later hole look
@@ -79,19 +79,27 @@ preparing surface. Commit `27de00fb` also treats a projected plan as drawn only
 when at least one visible flight leg exists, otherwise it falls back to the
 factual centreline. Commit `b033f4e1` keeps legacy hazard spans disabled on the
 live map so the independent overlay draws only the obstacle selected by the
-player. Focused homeserver mobile contracts pass `99/99` (latest 5.096s), and
-exact-head Source CI `35967459383` is green. Native Mobile CI `35967687251`
-reached the real iOS flow but failed the stale assertion that a partial map must
-show a preparing disclosure; the product behavior (immediate factual route)
-was correct. Commit `8dac16a8` updates that UI contract to allow an immediately
-usable partial map, require eventual precise-topo replacement, and assert that
-unselected hazards remain hidden. Native Mobile CI `35973125833` is now running
-at that exact head with full live capture against production revision
-`3c5ec81af1b0f67576c0e93e1ede0c305194d099`; that run failed only at the
-pre-round Beijing-Ligong search assertion (the course row was absent), before
-the live route/hazard assertions. The focused homeserver mobile contracts pass
-`99/99` after the current working changes; a fresh exact-head Native run is
-required before the normal internal TestFlight upload/status gates.
+player. Focused homeserver mobile contracts pass `99/99` (latest 5.096s).
+Exact-head Source CI `35983788731` and Native Mobile CI `35984448224` are green
+at `602fd01c`; the Native run completed the real iOS and Watch flows, screenshot
+capture, and secret scans. The captured iOS journey shows factual route lines on
+holes 1-6 and 13 even when the caddie response is partial/late; its live hazard
+panel starts with the eye-off picker and draws the selected outline/front/back
+readouts only after an explicit choice. The current next action is physical
+iPhone/Watch installation and interaction evidence; no external distribution
+or production promotion is authorized by this slice.
+
+The ordered release gates for this slice are complete: exact-head Source CI
+`35983788731`, exact-head Native Mobile CI `35984448224`, internal TestFlight CD
+`35990544784`, and read-only App Store Connect check `35991518040`. Build
+`0.1.0 (75)` is `VALID`, unexpired, `IN_BETA_TESTING`, arm64, and its processed
+entitlements include `com.ai-caddie.mobile.watchkitapp`; the existing internal
+group has Build 75 with `allBuilds=true`. The upload provenance binds the app
+to `602fd01c` and the backend to `3c5ec81af1b0f67576c0e93e1ede0c305194d099`,
+with IPA SHA-256
+`23e0ba10f8099c82c1c1386ceeac312a33b5db79c5f2ba038ca6e2bef01dc4b9`.
+No external distribution, tester mutation, or production promotion was done;
+physical iPhone/Watch installation and interaction evidence remains open.
 
 ## Current Work Summary
 
