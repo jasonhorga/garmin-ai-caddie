@@ -1109,13 +1109,14 @@ public struct CurrentHoleView: View {
 
     /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时回退暗色渐变占位。
     @ViewBuilder private var liveMapBackdrop: some View {
-        if let holePrep, holePrep.resolvedMapOverlay != nil, !isPreciseHoleMapPending {
+        if let holePrep, holePrep.resolvedMapOverlay != nil {
             HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
                              pinOverlayPixel: effectiveMapPinPixel,
                              topoURL: liveTopoURL, showsCardChrome: false,
-                             // The installed CoursePrep route is usable factual data. Draw it
-                             // immediately while the online caddie request is still loading; the
-                             // selected sequence will replace the fallback legs when it arrives.
+                             // CourseView already supplies a factual route and pixel projection.
+                             // Draw that lightweight map immediately while precise topo/hazard
+                             // assets continue in the background; the selected caddie sequence
+                             // replaces the restrained centreline as soon as it is available.
                              showsRecommendedRoute: true,
                              // Hazard geometry is an optional instrument. Nothing is highlighted
                              // until the player explicitly chooses an obstacle below the map.
@@ -1131,11 +1132,9 @@ public struct CurrentHoleView: View {
                             ? "live-hole-map-partial"
                             : "live-hole-map-\(holePrep.geometryCoverage.lowercased())"
                     )
-        } else if isPreciseHoleMapPending {
-            // Do not expose the provisional line drawing as a half-rendered course. One bounded
-            // loading surface remains until the authoritative topo is installed.
-            LiveMapPreparingSurface(holeNumber: hole.number)
         } else {
+            // A loading surface is warranted only when there is no route projection to draw yet.
+            // `isPreciseHoleMapPending` must never hide an already usable lightweight map.
             LiveMapPreparingSurface(holeNumber: hole.number)
         }
     }

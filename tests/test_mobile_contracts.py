@@ -2223,9 +2223,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("baseURL: caddieBaseURL", current_hole)
         self.assertIn("geometryRevision: geometryRevision", current_hole)
         self.assertIn('"live-hole-map-partial"', current_hole)
-        # Partial geometry is held behind one bounded loading surface. Once the timeout expires,
-        # the factual lightweight map is allowed through as a stable fallback.
+        # CourseView's lightweight route is immediately drawable. Precise topo/hazard work may
+        # continue in the background, but that pending state must not blank an available route.
         self.assertIn("HoleImageMapView(hole: holePrep", current_hole)
+        self.assertIn("if let holePrep, holePrep.resolvedMapOverlay != nil {", current_hole)
+        self.assertNotIn(
+            "holePrep.resolvedMapOverlay != nil, !isPreciseHoleMapPending",
+            current_hole,
+        )
         self.assertIn("showsRecommendedRoute: true", current_hole)
         self.assertIn("showsHazards: selectedLiveHazard != nil", current_hole)
         self.assertIn("LiveHazardPickerPanel", current_hole)
