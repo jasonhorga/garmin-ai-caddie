@@ -155,6 +155,7 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(row["route"], [[0.0, 0.0, 0.0], [0.0, 320.0, 320.0]])
         self.assertTrue(row["holeImageProjection"]["available"])
         self.assertEqual(row["hazards"]["details"], [])
+        self.assertNotIn("map", row)
         self.assertTrue(any(item["label"] == "courseview_route" for item in row["missingData"]))
 
     def test_precise_route_seed_keeps_pixel_route_without_gps_anchor(self) -> None:
@@ -180,6 +181,29 @@ class PureLogicTests(unittest.TestCase):
         overlay = row["map"]["overlay"]
         self.assertEqual((overlay["w"], overlay["h"]), (678, 1060))
         self.assertEqual(overlay["route"], [[0.0, 0.0, 0.0], [0.0, 320.0, 320.0]])
+
+    def test_precise_route_seed_keeps_route_when_coverage_probe_fails(self) -> None:
+        """A transient authority read must not erase an otherwise drawable mesh route."""
+        md = {"hole": {"TeeLocations": [], "Doglegs": []}}
+        route = [(0.0, 0.0), (0.0, 320.0)]
+        with (
+            patch.object(cp.hole_render, "load_mesh", return_value=(md, {})),
+            patch.object(cp, "derive_route", return_value=(route, 320.0)),
+            patch.object(cp.hole_render, "_frame", return_value=(lambda point: point, 2.0, 678, 1060, 64)),
+            patch.object(cp, "_hole_image_projection", return_value={"available": False}),
+            patch.object(cp, "geometry_coverage_for_hole", side_effect=RuntimeError("authority busy")),
+            patch.object(
+                cp.course_reference,
+                "load_course_par",
+                return_value=CoursePar(global_id=3881, par=[4], par_source="courseview", confidence="high"),
+            ),
+        ):
+            row = cp.precise_route_seed_hole(3881, 1)
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row["map"]["overlay"]["route"], [[0.0, 0.0, 0.0], [0.0, 320.0, 320.0]])
+        self.assertEqual(row["geometryCoverage"], "partial")
+        self.assertTrue(any(item["label"] == "geometry_coverage" for item in row["missingData"]))
 
     def test_blue_tee_fallback_to_nearest(self) -> None:
         md = {"hole": {

@@ -1104,7 +1104,13 @@ class HolePrep:
     greenOutline: dict | None = None  # selected Green.drc/CourseView boundary in the display frame
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        value = asdict(self)
+        # ``map`` was historically absent from non-rendered prep rows.  Route-only bootstrap rows
+        # opt in with a real pixel overlay, but emitting ``map: null`` for every other caller changes
+        # the wire contract and makes clients treat an unavailable image envelope as supplied data.
+        if value.get("map") is None:
+            value.pop("map", None)
+        return value
 
 
 def _hole_playslike(by: dict, route) -> dict:
@@ -2015,11 +2021,27 @@ def precise_route_seed_hole(
             "route": route_px,
         }
         if coverage is None:
-            coverage = geometry_coverage_for_hole(
-                int(global_id),
-                int(local_hole),
-                require_current_authority=True,
-            )
+            # Coverage metadata is useful for deciding when to upgrade the partial row, but it
+            # must never be able to suppress the factual route itself.  An authority/index read
+            # can fail transiently while the mesh files are already local; keep the pixel route
+            # drawable and mark coverage as unknown instead of turning that hole into a blank map.
+            try:
+                coverage = geometry_coverage_for_hole(
+                    int(global_id),
+                    int(local_hole),
+                    require_current_authority=True,
+                )
+            except Exception:
+                coverage = {
+                    "coverage": "partial",
+                    "geometryRevision": None,
+                    "missingData": [
+                        {
+                            "label": "geometry_coverage",
+                            "reason": "geometry coverage metadata temporarily unavailable",
+                        }
+                    ],
+                }
     except Exception:
         return None
 
