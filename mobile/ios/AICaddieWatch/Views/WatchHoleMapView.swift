@@ -389,6 +389,9 @@ public struct WatchHoleMapView: View {
     /// Route frame used to place factual distance references. Focused obstacle facts live on the
     /// dedicated Hazard instrument, never as text callouts on Hole Root.
     public let hazardRoute: [[Double]]
+    /// Keep the root map clean by default. The dedicated Hazard instrument opts in to its own
+    /// selected obstacle; callers should only enable this for an explicit obstacle context.
+    public let showsHazards: Bool
     public let ringPips: [WatchRingPip]
     public let showTextOverlay: Bool
     /// True while the Watch has no qualified wrist fix. Keep the course map usable, but label the
@@ -439,6 +442,7 @@ public struct WatchHoleMapView: View {
         driverDistanceM: Double? = nil,
         showReferenceMarkers: Bool = false,
         hazardRoute: [[Double]] = [],
+        showsHazards: Bool = false,
         ringPips: [WatchRingPip] = WatchHoleMapView.sampleRing,
         showTextOverlay: Bool = true,
         rangeUnavailable: Bool = false,
@@ -474,6 +478,7 @@ public struct WatchHoleMapView: View {
         self.driverDistanceM = driverDistanceM
         self.showReferenceMarkers = showReferenceMarkers
         self.hazardRoute = hazardRoute
+        self.showsHazards = showsHazards
         self.ringPips = ringPips
         self.showTextOverlay = showTextOverlay
         self.rangeUnavailable = rangeUnavailable
@@ -945,7 +950,13 @@ public struct WatchHoleMapView: View {
         if !drew {
             context.fill(Path(CGRect(x: mapLeft, y: 0, width: size.width - mapLeft, height: size.height)),
                          with: .color(Color(red: 0.12, green: 0.28, blue: 0.16)))
-            drawLightweightMapFacts(&context, transform: a.t)
+            drawLightweightMapFacts(&context, transform: a.t, showsHazards: showsHazards)
+        } else {
+            // The topo image is only the factual course art. Keep the tee-to-green route as an
+            // independent vector layer so a hole remains legible when its caddie response is
+            // deferred or empty. This mirrors the phone map and prevents a downloaded bitmap from
+            // looking like a blank hole. Planned/current-shot overlays are layered above it below.
+            drawFactualRoute(&context, transform: a.t)
         }
 
         // Gradient vignette into the black face.
@@ -1073,12 +1084,37 @@ public struct WatchHoleMapView: View {
         }
     }
 
-    /// CourseView-only fallback while prodgeometry is downloading. It deliberately draws the
-    /// near→far hazard spans as coarse strokes, not invented polygons; the entire layer disappears
-    /// once a precise topo bitmap becomes available.
-    private func drawLightweightMapFacts(
+    /// Draw the factual tee-to-green route over a downloaded topo image. This is deliberately
+    /// separate from caddie/current-shot overlays so a missing recommendation cannot erase the
+    /// basic playing line.
+    private func drawFactualRoute(
         _ context: inout GraphicsContext,
         transform: (CGPoint) -> CGPoint
+    ) {
+        guard geometry.routePx.count >= 2 else { return }
+        var route = Path()
+        route.move(to: transform(geometry.routePx[0]))
+        for point in geometry.routePx.dropFirst() {
+            route.addLine(to: transform(point))
+        }
+        // Keep this stroke in screen points: unlike the topo image it must not grow into a wide
+        // fairway band when the Crown zooms the map.
+        context.stroke(
+            route,
+            with: .color(.black.opacity(0.42)),
+            style: StrokeStyle(lineWidth: 3.6, lineCap: .round, lineJoin: .round)
+        )
+        context.stroke(
+            route,
+            with: .color(caddieGreen.opacity(0.88)),
+            style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round)
+        )
+    }
+
+    private func drawLightweightMapFacts(
+        _ context: inout GraphicsContext,
+        transform: (CGPoint) -> CGPoint,
+        showsHazards: Bool
     ) {
         if geometry.routePx.count >= 2 {
             var route = Path()
@@ -1091,6 +1127,11 @@ public struct WatchHoleMapView: View {
                 with: .color(Color(red: 0.21, green: 0.51, blue: 0.26).opacity(0.95)),
                 style: StrokeStyle(lineWidth: 17, lineCap: .round, lineJoin: .round)
             )
+        }
+
+        guard showsHazards else {
+            drawLightweightGreen(&context, transform: transform)
+            return
         }
 
         for hazard in geometry.hazardSpans {
@@ -1110,6 +1151,13 @@ public struct WatchHoleMapView: View {
             )
         }
 
+        drawLightweightGreen(&context, transform: transform)
+    }
+
+    private func drawLightweightGreen(
+        _ context: inout GraphicsContext,
+        transform: (CGPoint) -> CGPoint
+    ) {
         if geometry.greenOutlinePx.count >= 3 {
             var green = Path()
             green.move(to: transform(geometry.greenOutlinePx[0]))

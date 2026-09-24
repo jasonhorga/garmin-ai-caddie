@@ -1160,9 +1160,39 @@ def first_hole_lightweight_course_prep(
                 by_source[source_key] = None
         prep = by_source[source_key]
         if not prep or not prep.get("route") or not prep.get("holeImageProjection"):
+            # A number of Garmin releases ship precise prodgeometry without the optional
+            # CourseView courseData catalogue.  In that shape the old lightweight-only branch
+            # dropped the hole entirely, so swiping to it showed a bitmap with no route.  Extract
+            # the renderer's precise centreline/frame as a cheap visual bootstrap; the row stays
+            # partial and the active-hole refresh still owns hazards and recommendations.
+            try:
+                package_coverage = str(package_hole.get("geometryCoverage") or "").strip().lower()
+                package_revision = str(package_hole.get("geometryRevision") or "").strip()
+                trusted_coverage = None
+                # _package_holes has already checked the release-bound mesh/hazard authority. Reuse
+                # that result when it is complete, otherwise let the fallback perform its own
+                # authority read. This keeps the visual bootstrap cheap without allowing a stale
+                # package row to promote partial geometry.
+                if package_coverage == "ready" and package_revision:
+                    trusted_coverage = {
+                        "coverage": "ready",
+                        "geometryRevision": package_revision,
+                        "missingData": [],
+                    }
+                prep = course_prep.precise_route_seed_hole(
+                    source_global_id,
+                    source_local_hole,
+                    coverage=trusted_coverage,
+                )
+            except Exception:
+                prep = None
+            # Cache the fallback as well; composite A+A rounds may reference the same physical
+            # hole twice and must not decode its meshes a second time during one package build.
+            by_source[source_key] = prep
+        if not prep or not prep.get("route") or not prep.get("holeImageProjection"):
             missing_rows.append({
                 "label": "course_prep",
-                "reason": f"lightweight route unavailable for hole {round_hole}",
+                "reason": f"route unavailable for hole {round_hole}",
             })
             continue
         seeded = dict(prep)

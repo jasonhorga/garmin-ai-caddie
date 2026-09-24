@@ -1961,6 +1961,97 @@ def lightweight_prep_hole(
     return value if isinstance(value, dict) else None
 
 
+def precise_route_seed_hole(
+    global_id: int,
+    local_hole: int,
+    *,
+    par_record=None,
+    coverage: dict | None = None,
+) -> dict | None:
+    """Build only the drawable route projection from installed prodgeometry.
+
+    Some Garmin releases have no cached CourseView ``courseData`` even though their precise
+    ``hole.json``/mesh bundle is already installed.  The normal lightweight prep consequently
+    returns no row and the phone shows a blank hole until the expensive full prep request finishes.
+    This fallback intentionally does *not* calculate hazards, a recommendation, or a raster map;
+    it extracts the same tee-to-green route and frame used by the precise renderer, then marks the
+    row partial so the active-hole loader can replace it with complete facts.  It is therefore a
+    visual bootstrap, not a second source of caddie truth.
+    """
+    try:
+        md, by = hole_render.load_mesh(int(global_id), int(local_hole))
+        route, route_len = derive_route(md)
+        if not route or not route_len:
+            return None
+        frame = hole_render._frame(by, route)
+        projection = _hole_image_projection(by, route, md, frame=frame)
+        if not projection.get("available"):
+            return None
+        if coverage is None:
+            coverage = geometry_coverage_for_hole(
+                int(global_id),
+                int(local_hole),
+                require_current_authority=True,
+            )
+    except Exception:
+        return None
+
+    if par_record is None:
+        try:
+            par_record = course_reference.load_course_par(int(global_id))
+        except Exception:
+            par_record = None
+    par_index = int(local_hole) - 1
+    if par_record is not None and 0 <= par_index < len(par_record.par):
+        par = int(par_record.par[par_index])
+        par_source = par_record.par_source
+    else:
+        par = course_reference.estimate_par_from_length(route_len)
+        par_source = "estimate"
+
+    missing_data = [
+        row
+        for row in ((coverage or {}).get("missingData") or [])
+        if isinstance(row, dict)
+    ]
+    missing_data.append({
+        "label": "courseview_route",
+        "reason": "CourseView route unavailable; precise geometry route is shown while full prep loads",
+    })
+    return HolePrep(
+        globalId=int(global_id),
+        localHole=int(local_hole),
+        hole=int(local_hole),
+        par=par,
+        par_source=par_source,
+        blue_yards=yd(route_len),
+        route_len_m=round(route_len, 1),
+        route=_route_with_cumulative(route),
+        # Keep this partial even when the mesh is already ready: this row deliberately omits the
+        # precise hazard/green facts and must remain eligible for the normal active-hole refresh.
+        geometryCoverage="partial",
+        geometryRevision=(
+            str((coverage or {}).get("geometryRevision"))
+            if (coverage or {}).get("geometryRevision")
+            else None
+        ),
+        sourceRefs=[f"course:{int(global_id)}", f"geometry-route:{int(global_id)}:{int(local_hole)}"],
+        missingData=missing_data,
+        candidateRoutes=[],
+        carryTargets=[],
+        steps=[],
+        cautions=[],
+        landing_m=None,
+        tee_club=None,
+        hazards={"water_carry": [], "bunkers": [], "details": []},
+        playsLike={"available": False},
+        greenDistances={"available": False},
+        greenSlope={"available": False},
+        holeImageProjection=projection,
+        greenOutline={"available": False, "pointsPx": []},
+    ).to_dict()
+
+
 def _candidate_routes(
     ladder: list[tuple[str, int]],
     hazards: dict,

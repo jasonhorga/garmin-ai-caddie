@@ -2,6 +2,29 @@ import XCTest
 @testable import AICaddieWatch
 
 final class WatchHoleMapViewportTests: XCTestCase {
+    func testRootMapHidesHazardsUntilAnExplicitInstrumentOptsIn() {
+        let map = WatchHoleMapView(
+            geometry: WatchHoleMapGeometry(
+                image: nil,
+                imageSize: CGSize(width: 678, height: 1060),
+                youPx: CGPoint(x: 100, y: 900),
+                pinPx: CGPoint(x: 100, y: 100),
+                layupPx: CGPoint(x: 100, y: 500),
+                apexPx: CGPoint(x: 100, y: 700),
+                greenCtrlPx: CGPoint(x: 100, y: 300),
+                hazardSpans: [
+                    WatchHoleMapHazardGeometry(
+                        kind: "bunker",
+                        frontPx: CGPoint(x: 100, y: 500),
+                        backPx: CGPoint(x: 100, y: 450)
+                    )
+                ]
+            )
+        )
+
+        XCTAssertFalse(map.showsHazards)
+    }
+
     func testCriticalContentGuideFitsEverySupportedRoundedWatchFace() {
         let faces = [
             CGSize(width: 176, height: 215), // 41 mm

@@ -2251,6 +2251,51 @@ class ServerV2MobileTests(unittest.TestCase):
         )
         ladder.assert_called_once_with("member-a")
 
+    def test_lightweight_seed_uses_precise_route_when_courseview_catalogue_is_missing(self) -> None:
+        """A precise-only release must still publish a drawable route for every display hole."""
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_prep
+
+        def precise(global_id: int, local_hole: int, **_kwargs: object) -> dict[str, object]:
+            return {
+                "globalId": global_id,
+                "localHole": local_hole,
+                "hole": local_hole,
+                "geometryCoverage": "partial",
+                "route": [[0.0, 0.0, 0.0], [10.0, float(local_hole), 20.0]],
+                "holeImageProjection": {
+                    "available": True,
+                    "widthPx": 678,
+                    "heightPx": 1060,
+                    "refs": [],
+                },
+                "missingData": [{"label": "courseview_route", "reason": "missing"}],
+            }
+
+        package = {
+            "course": {"globalId": 31702},
+            "clubProfiles": [],
+            "holes": [
+                {"number": 1, "sourceGlobalId": 31702, "sourceLocalHole": 1},
+                {"number": 2, "sourceGlobalId": 31702, "sourceLocalHole": 2},
+                # Same physical hole appears again in a composite loop.
+                {"number": 10, "sourceGlobalId": 31702, "sourceLocalHole": 1},
+            ],
+        }
+        with patch.object(course_prep, "effective_club_ladder", return_value=[]), \
+                patch.object(course_prep, "lightweight_prep_hole", return_value=None), \
+                patch.object(course_prep, "precise_route_seed_hole", side_effect=precise) as fallback:
+            result = mobile_live.first_hole_lightweight_course_prep(package, player_id="member-a")
+
+        self.assertIsNotNone(result)
+        self.assertEqual([row["hole"] for row in result["holes"]], [1, 2, 10])
+        self.assertEqual([len(row["route"]) for row in result["holes"]], [2, 2, 2])
+        self.assertTrue(all(row["geometryCoverage"] == "partial" for row in result["holes"]))
+        self.assertEqual(
+            [(call.args[0], call.args[1]) for call in fallback.call_args_list],
+            [(31702, 1), (31702, 2)],
+        )
+
     def test_mobile_course_package_caps_nine_hole_loop_to_nine_holes(self) -> None:
         # A 9-hole CourseView loop (黑骑士 C / gid 31796) whose played rounds were 18-hole combos
         # must open as 9 holes — not 18 with bogus holes 10–18 ("不选后九洞也显示18洞" + "随便选一个
