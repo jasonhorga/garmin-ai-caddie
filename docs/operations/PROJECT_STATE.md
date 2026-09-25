@@ -85,7 +85,9 @@ production switch at `2026-09-25T02:06:45Z` returned health revision
 `d7f699...` after a measured 15.3s port window; the old API is retained as the
 named rollback above. Authenticated production package probes now return
 projectable route rows for 9/9 holes on gid 31795 and 18/18 on gids 31702 and
-31719. The candidate is a backend-content-equivalent
+31719; the production Black Knight B+C composite (`31795` + `31796`) also
+returns 18/18 sequential display holes with drawable route/projection rows.
+The candidate is a backend-content-equivalent
 derivation from the already-built `105d4e07` image because the final `d7f69971`
 change only reorders Swift arguments. Native run `36066922837` was not green:
 its two live iOS evidence tests stopped before navigation with `noEligibleRound`;
