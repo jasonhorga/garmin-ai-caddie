@@ -9,10 +9,10 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-24 18:58 UTC
-**Branch:** `integration/v2`; product/backend canonical source revision is
-`c35e3d8c795d9f006fec2cc4c8db9492626ff495` (this route-coverage slice is
-committed locally; release gates are still pending). PR #332 is merged and its
+**Updated:** 2026-09-25 02:25 UTC
+**Branch:** `integration/v2`; product canonical source revision is
+`d7f699712f7ac6cba41d97c420c405e090625caf` (route-line/default-hazard slice
+committed and pushed). PR #332 is merged and its
 post-deploy gates are complete: Source CI `35838477517`, exact-SHA Native Mobile
 CI `35847317420`, homeserver deployment on production `127.0.0.1:39055`, and
 internal TestFlight CD `35853831558` uploaded Build `0.1.0 (74)` with
@@ -26,8 +26,9 @@ that does not prevent the current group-visible internal build. No external app
 distribution or tester mutation was performed.
 
 The active production container is
-`aicaddie-release-3c5ec81a-production-20260923` on `39055`; the stopped
-rollback is `aicaddie-release-5124d638-rollback-20260923`. The route2 physical
+`aicaddie-release-d7f69971-production-20260925` on `39055`; the stopped exact
+rollback is `aicaddie-release-3c5ec81a-rollback-20260925` (the prior container
+remains intact under that name). The route2 physical
 validation candidate remains `aicaddie-release-a13724e1-candidate-20260922` on
 `39083` and is intentionally untouched. Post-deploy timings were history
 `0.34/0.26s`, package `2.36/0.89s`, and prep `5.10/0.03s` (cold/warm where
@@ -59,8 +60,15 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-09-24 18:58 UTC):** `PHONE-UX9-LIVE-ROUTE-COVERAGE` is
-`in-progress`. The active working tree adds a precise prodgeometry route seed
+**Current slice (2026-09-25 02:25 UTC):** `PHONE-UX9-LIVE-ROUTE-COVERAGE` is
+`evidence-open` pending physical iPhone/Watch installation and interaction
+evidence. Commits `7341d499`
+and `d7f69971` keep the phone's factual
+tee-to-green route independent from the optional caddie recommendation overlay;
+the live map, map-detail, hazard-detail and green-detail callers retain the
+factual line even when recommendation arcs are hidden. The live phone and Watch
+maps keep hazards unselected by default; only the explicit obstacle picker/
+instrument can draw hazard geometry. The active working tree adds a precise prodgeometry route seed
 when a Garmin release has no CourseView route catalogue, publishes that route
 for every display hole (deduplicating repeated physical holes), and keeps the
 Watch factual route visible even when a downloaded topo image has no caddie
@@ -72,9 +80,24 @@ distances. The route-only seed now carries a pixel overlay even without
 mobile-server tests; real Garmin package smoke returns routes for `18/18`
 holes on both gid `31702` and gid `31719`; a read-only scan of the private
 geometry bundle found routes for all `2165/2165` mesh holes. Exact-head
-Source/Native CI and release gates remain pending. The next action is
-commit/push, then the ordered CI gates and a fresh internal build only if all
-gates pass.
+Source CI `36066814971` and Native Mobile CI `36080119814` are green. The
+production switch at `2026-09-25T02:06:45Z` returned health revision
+`d7f699...` after a measured 15.3s port window; the old API is retained as the
+named rollback above. Authenticated production package probes now return
+projectable route rows for 9/9 holes on gid 31795 and 18/18 on gids 31702 and
+31719. The candidate is a backend-content-equivalent
+derivation from the already-built `105d4e07` image because the final `d7f69971`
+change only reorders Swift arguments. Native run `36066922837` was not green:
+its two live iOS evidence tests stopped before navigation with `noEligibleRound`;
+rerun `36080119814` now uses real Garmin round `17684836` and is green. Internal
+TestFlight workflow `36085097665` uploaded Build `0.1.0 (76)` with
+`external_distribution=false` and expected backend revision `d7f699...`.
+ASC read-only check `36085786986` confirms Build 76 is `VALID`, unexpired,
+`IN_BETA_TESTING`, arm64, includes the Watch bundle, and is visible in the
+existing internal all-builds group. Its IPA SHA-256 is
+`bcffd958277ad0d462b3f02ddceee1a3acec656a743cbc06e868b2966e48cbe0`.
+No external distribution or tester mutation was performed. Deployment evidence is under
+`/home/jason/garmin-ai-caddie-data/operations/phone-ux9-route-deploy-20260925/`.
 
 **Previous slice (2026-09-24):** `PHONE-UX8-LIVE-ROUTE-HAZARD` is
 `evidence-open` pending physical-device evidence. The live phone map now renders the installed factual route
