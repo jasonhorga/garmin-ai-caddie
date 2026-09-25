@@ -35,6 +35,11 @@ class CacheWarmupTests(unittest.TestCase):
     def setUp(self) -> None:
         # Earlier tests (round ingest, sync) start best-effort ``prepare-recent-*`` threads that
         # also warm stats. If one is still running, its builds are counted by the spies below.
+        # A boot-time warmer may be sleeping through its deferred prep warm; release it first.
+        from server_v2 import main as server_main
+
+        server_main._PREP_WARM_DELAY_EVENT.set()
+        self.addCleanup(server_main._PREP_WARM_DELAY_EVENT.clear)
         for thread in threading.enumerate():
             if thread.name.startswith("prepare-recent") and thread is not threading.current_thread():
                 thread.join(timeout=60)

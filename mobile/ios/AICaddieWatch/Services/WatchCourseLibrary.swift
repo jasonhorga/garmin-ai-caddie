@@ -690,10 +690,12 @@ public final class WatchCourseLibrary: ObservableObject {
         // The active batch is the only synchronous part of the upgrade. Remaining batches are
         // fetched two at a time; a failed request still aborts this attempt and uses the existing
         // bounded retry loop rather than silently declaring an incomplete course ready.
+        let prepTeeBox = selection.teeBox
         if let firstBatch = prepBatches.first {
             let response = try await client.fetchCoursePrep(
                 globalId: firstBatch.globalId,
-                localHoles: firstBatch.localHoles
+                localHoles: firstBatch.localHoles,
+                teeBox: prepTeeBox
             )
             try mergePrepResponse(response, for: firstBatch.globalId)
         }
@@ -709,7 +711,8 @@ public final class WatchCourseLibrary: ObservableObject {
                     taskGroup.addTask {
                         let response = try await client.fetchCoursePrep(
                             globalId: batch.globalId,
-                            localHoles: batch.localHoles
+                            localHoles: batch.localHoles,
+                            teeBox: prepTeeBox
                         )
                         return (batch.globalId, response)
                     }

@@ -4,10 +4,12 @@ import contextlib
 import hashlib
 import hmac
 import logging
+import math
 import os
 import re
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Annotated, Literal
 
@@ -188,7 +190,13 @@ async def _lifespan(_app: FastAPI):
         daemon=True,
     ).start()
     # 「打开即用」:启动即在后台准备 owner 最近一盘(预热其 topo,失败 swallow)。
-    threading.Thread(target=_prepare_recent_bg, args=(OWNER_ID,), name="prepare-recent-boot", daemon=True).start()
+    threading.Thread(
+        target=_prepare_recent_bg,
+        args=(OWNER_ID,),
+        kwargs={"prep_warm_delay_s": _boot_prep_warm_delay_s()},
+        name="prepare-recent-boot",
+        daemon=True,
+    ).start()
     yield
 
 
@@ -1018,6 +1026,8 @@ def course_topo_prewarm(global_id: int, background_tasks: BackgroundTasks) -> di
 # warmer runs at a time; overlapping triggers (boot + sync + ingest) skip instead of stacking, and
 # the per-hole single-flight cache already dedupes any hole a live request is building.
 _PREP_WARM_LOCK = threading.Lock()
+# Waited on (never set in production) so a delayed boot warm sleeps without busy-waiting; tests set it.
+_PREP_WARM_DELAY_EVENT = threading.Event()
 
 
 def _prep_warm_course_limit() -> int:
@@ -1030,11 +1040,29 @@ def _prep_warm_course_limit() -> int:
     return max(0, min(3, value))
 
 
-def _warm_course_prep(global_id: int, player_id: str) -> None:
+def _warm_course_prep(
+    global_id: int,
+    player_id: str,
+    *,
+    tee_box: str | None = None,
+    delay_s: float = 0.0,
+) -> None:
     """Fill the per-hole factual prep cache (render=False) that the course package, iPhone and
-    Watch all read, so starting a round at a recently played course does not pay the cold build."""
+    Watch all read, so starting a round at a recently played course does not pay the cold build.
+
+    iPhone and Watch request ``/prep?tee=<teeBox>`` and the per-hole cache is keyed by the resolved
+    Tee set, so warm the Tee the player last used there (resolved exactly like the endpoint does);
+    without a known Tee the default Blue entry is warmed as before.
+    """
+    from ai_caddie.caddie.analysis import tee_set_for_box
     from ai_caddie.courses import course_prep
 
+    tee_set = None
+    if tee_box and str(tee_box).strip().lower() not in {"", "unknown"}:
+        tee_set = tee_set_for_box(int(global_id), tee_box, colour_fallback=False)
+
+    if delay_s > 0:
+        _PREP_WARM_DELAY_EVENT.wait(delay_s)
     if not _PREP_WARM_LOCK.acquire(blocking=False):
         logger.info("prep_warm skipped gid=%s reason=another_warm_running", int(global_id))
         return
@@ -1048,18 +1076,45 @@ def _warm_course_prep(global_id: int, player_id: str) -> None:
             render=False,
             include_missing=True,
             player_id=player_id,
+            tee_set=tee_set,
         )
     finally:
         _PREP_WARM_LOCK.release()
     logger.info(
-        "prep_warm gid=%s holes=%s duration_ms=%s",
+        "prep_warm gid=%s tee_set=%s holes=%s duration_ms=%s",
         int(global_id),
+        tee_set,
         len(holes),
         int((time.perf_counter() - started) * 1000),
     )
 
 
-def _prepare_recent_bg(player_id: str) -> None:
+def _boot_prep_warm_delay_s() -> float:
+    """Seconds the boot-time prep warm waits (``AI_CADDIE_PREP_WARM_BOOT_DELAY_S``, default 120).
+
+    Homeserver validation of PR 332 measured cold /prep 1-3 s slower on a fresh process: the ~34 s
+    boot warm shares the API process/GIL with the first requests after a restart. Deferring it keeps
+    the post-restart window for live traffic; sync/ingest-triggered warms are not delayed.
+    """
+    try:
+        value = float(os.environ.get("AI_CADDIE_PREP_WARM_BOOT_DELAY_S", "120"))
+    except ValueError:
+        value = 120.0
+    return max(0.0, min(3600.0, value)) if math.isfinite(value) else 120.0
+
+
+def _delayed_prep_warmer(player_id: str, delay_s: float) -> Callable[..., None]:
+    """Warm courses one by one; only the first waits ``delay_s`` (the boot window)."""
+    pending = [max(0.0, delay_s)]
+
+    def warm(global_id: int, tee_box: str | None = None) -> None:
+        wait, pending[0] = pending[0], 0.0
+        _warm_course_prep(global_id, player_id, tee_box=tee_box, delay_s=wait)
+
+    return warm
+
+
+def _prepare_recent_bg(player_id: str, prep_warm_delay_s: float = 0.0) -> None:
     """「打开即用」后台准备最近一盘:预热其球洞图 topo + 烤统计。best-effort,绝不抛
     (镜像 warm_stats_cache 的 swallow 语义,不弄崩触发它的响应/线程)。"""
     from ai_caddie.history.stats_cache import cached_load_history_data
@@ -1090,7 +1145,7 @@ def _prepare_recent_bg(player_id: str) -> None:
             prewarm=_prewarm_course_topo,
             warm_stats=lambda: warm_stats_cache(player_id=player_id),
             ensure_geometry=_ensure_geometry,
-            warm_prep=(lambda gid: _warm_course_prep(gid, player_id)) if _prep_warm_course_limit() else None,
+            warm_prep=_delayed_prep_warmer(player_id, prep_warm_delay_s) if _prep_warm_course_limit() else None,
             prep_course_limit=_prep_warm_course_limit(),
         )
     except Exception:  # noqa: BLE001 - best-effort;绝不弄崩触发它的线程
@@ -1115,6 +1170,7 @@ def course_prep_nine(
     holes: list[int] | None = Query(default=None, max_length=36),  # codex MEDIUM #6: bound item count
     render: bool = True,
     include_shots: bool = False,
+    tee: str | None = Query(default=None, max_length=32),
     player_id: str = Depends(current_player_id),
 ) -> dict:
     """Pre-round prep for a course: per-hole par (labelled source) + route + hazard carries +
@@ -1144,6 +1200,15 @@ def course_prep_nine(
         pass
 
     requested = holes or course_prep.available_prep_holes(global_id)
+    # ``tee`` is the player's Tee choice (e.g. "white"). Playing facts follow that Tee; without it
+    # (older clients) the route stays on Blue exactly as before.
+    tee_set = None
+    if tee and tee.strip().lower() not in {"", "unknown"}:
+        from ai_caddie.caddie.analysis import tee_set_for_box
+
+        # Release-only: without cached release metadata the colour table can name the wrong set
+        # (e.g. a course whose Red release Tee is set 4), so stay on Blue rather than guess.
+        tee_set = tee_set_for_box(int(global_id), tee, colour_fallback=False)
 
     # prep_nine rebuilds all-hole mesh geometry (~19s for a 9-hole course) on every request; cache the
     # response by filesystem fingerprint so 备战 opens instantly until geometry / shots / clubs change.
@@ -1157,10 +1222,13 @@ def course_prep_nine(
         # Shot scatter is the player's OWN past end positions only: prep_nine reads solely the
         # threaded player_id's tree, so a member sees their own shots and never the owner's.
         nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
-                                     include_shots=include_shots, player_id=player_id)
+                                     include_shots=include_shots, player_id=player_id, tee_set=tee_set)
         payload = {
             "schema": "ai-caddie-course-prep-v1",
             "globalId": int(global_id),
+            # Additive: the resolved CourseView tee set the playing facts were measured from
+            # (null = the default Blue route).
+            "teeSet": tee_set,
             "holeCount": len(nine),
             # The original name/m/yd fields remain unchanged.  Provenance is additive so older
             # iOS/Watch/Web clients can continue decoding the v1 response without a migration.
@@ -1190,6 +1258,7 @@ def course_prep_nine(
     return prep_cache.cached_course_prep(
         global_id=global_id, requested=requested, render=render,
         include_shots=include_shots, player_id=player_id, build=_build,
+        variant=f"prep:tee{tee_set}",
     )
 
 

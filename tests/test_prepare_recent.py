@@ -99,6 +99,20 @@ class PrepWarmTests(unittest.TestCase):
         ]
         self.assertEqual(pr.recent_course_ids(_data(rounds), limit=3), [222, 333, 111])
 
+    def test_warm_prep_uses_the_latest_tee_played_at_each_course(self):
+        rounds = [
+            {"id": "a", "date": "2026-07-01", "globalId": 111, "holePars": "4" * 9, "teeBox": "red"},
+            {"id": "b", "date": "2026-07-09", "globalId": 222, "holePars": "4" * 9, "teeBox": "white"},
+            {"id": "c", "date": "2026-06-01", "globalId": 222, "holePars": "4" * 9, "teeBox": "blue"},
+            {"id": "d", "date": "2026-05-01", "globalId": 333, "holePars": "4" * 9},
+        ]
+        seen = []
+        pr.prepare_recent_round(
+            _data(rounds), prewarm=lambda *a: None, warm_stats=lambda: None,
+            warm_prep=lambda gid, tee_box: seen.append((gid, tee_box)), prep_course_limit=3,
+        )
+        self.assertEqual(seen, [(222, "white"), (111, "red"), (333, None)])
+
     def test_warm_prep_runs_for_recent_courses_and_failures_are_swallowed(self):
         rounds = [
             {"id": "a", "date": "2026-07-01", "globalId": 111, "holePars": "4" * 9},
@@ -106,7 +120,7 @@ class PrepWarmTests(unittest.TestCase):
         ]
         seen = []
 
-        def warm(gid):
+        def warm(gid, tee_box=None):
             seen.append(gid)
             if gid == 222:
                 raise RuntimeError("geometry missing")

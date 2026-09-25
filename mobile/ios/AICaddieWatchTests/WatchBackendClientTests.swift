@@ -254,6 +254,14 @@ final class WatchBackendClientTests: XCTestCase {
         let prepQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(prep.url), resolvingAgainstBaseURL: false))
         XCTAssertEqual(prepQuery.queryItems?.filter { $0.name == "holes" }.compactMap(\.value), ["1", "2", "9"])
         XCTAssertEqual(prepQuery.queryItems?.first(where: { $0.name == "render" })?.value, "false")
+        XCTAssertNil(prepQuery.queryItems?.first(where: { $0.name == "tee" }))
+
+        let whitePrep = try client.makeCoursePrepRequest(globalId: 31669, localHoles: [1], teeBox: " White ")
+        let whiteQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(whitePrep.url), resolvingAgainstBaseURL: false))
+        XCTAssertEqual(whiteQuery.queryItems?.first(where: { $0.name == "tee" })?.value, "white")
+        let unknownPrep = try client.makeCoursePrepRequest(globalId: 31669, localHoles: [1], teeBox: "unknown")
+        let unknownQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(unknownPrep.url), resolvingAgainstBaseURL: false))
+        XCTAssertNil(unknownQuery.queryItems?.first(where: { $0.name == "tee" }))
 
         let topo = try client.makeCourseTopoRequest(
             globalId: 31669,

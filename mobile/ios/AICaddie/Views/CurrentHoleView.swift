@@ -2267,7 +2267,8 @@ public struct CurrentHoleView: View {
         do {
             guard let fetched = try await client.fetchHolePrep(
                 globalId: mapGlobalId,
-                localHole: mapLocalHole
+                localHole: mapLocalHole,
+                teeBox: package.course.teeBox
             ) else { return false }
             lightweight = fetched
         } catch {
@@ -2283,7 +2284,8 @@ public struct CurrentHoleView: View {
            let rendered = try? await client.fetchHolePrep(
                globalId: mapGlobalId,
                localHole: mapLocalHole,
-               render: true
+               render: true,
+               teeBox: package.course.teeBox
            ) {
             resolved = rendered
         }
@@ -2342,7 +2344,8 @@ public struct CurrentHoleView: View {
             guard !Task.isCancelled else { return }
             guard let refreshed = try? await client.fetchHolePrep(
                 globalId: mapGlobalId,
-                localHole: mapLocalHole
+                localHole: mapLocalHole,
+                teeBox: package.course.teeBox
             ) else {
                 delaySeconds = min(delaySeconds * 2, 15)
                 continue

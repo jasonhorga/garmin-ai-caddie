@@ -377,6 +377,8 @@ private struct OfflineTopoDownloadResult: Sendable {
 private struct OfflinePrepBatchRequest: Sendable {
     let globalId: Int
     let localHoles: [Int]
+    /// The round's selected Tee; the server measures hazard carries and strategy from it.
+    var teeBox: String? = nil
 }
 
 private struct OfflinePrepBatchResult: @unchecked Sendable {
@@ -1570,7 +1572,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     let response = try await client.value.fetchCoursePrep(
                         globalId: request.globalId,
                         holes: request.localHoles,
-                        render: false
+                        render: false,
+                        teeBox: request.teeBox
                     )
                     return OfflinePrepBatchResult(
                         request: request,
@@ -2058,7 +2061,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 if prepDownloadID == nil {
                     batchRequests.append(OfflinePrepBatchRequest(
                         globalId: globalId,
-                        localHoles: [requested[0]]
+                        localHoles: [requested[0]],
+                        teeBox: snapshot.course.teeBox
                     ))
                     index = 1
                 }
@@ -2066,7 +2070,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     let end = min(index + 3, requested.count)
                     batchRequests.append(OfflinePrepBatchRequest(
                         globalId: globalId,
-                        localHoles: Array(requested[index..<end])
+                        localHoles: Array(requested[index..<end]),
+                        teeBox: snapshot.course.teeBox
                     ))
                     index = end
                 }

@@ -1072,16 +1072,21 @@ public final class SyncClient {
     public func fetchCoursePrep(
         globalId: Int,
         holes: [Int]? = nil,
-        render: Bool = true
+        render: Bool = true,
+        teeBox: String? = nil
     ) async throws -> CoursePrepResponse {
         var url = endpointURL("/api/v2/courses/\(globalId)/prep")
-        if holes != nil || !render {
+        let tee = Self.prepTeeQueryValue(teeBox)
+        if holes != nil || !render || tee != nil {
             var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             components?.queryItems = (holes ?? []).map {
                 URLQueryItem(name: "holes", value: String($0))
             }
             if !render {
                 components?.queryItems?.append(URLQueryItem(name: "render", value: "false"))
+            }
+            if let tee {
+                components?.queryItems?.append(URLQueryItem(name: "tee", value: tee))
             }
             url = components?.url ?? url
         }
@@ -1100,6 +1105,15 @@ public final class SyncClient {
         // JSONDecoder has mutable decoding state and is not documented as safe for concurrent use;
         // keep this read path local rather than sharing the client's general-purpose decoder.
         return try JSONDecoder().decode(CoursePrepResponse.self, from: data)
+    }
+
+    /// The player's selected Tee for `/prep` (hazard carries, strategy and green distances follow
+    /// it). An unresolved choice is omitted so the server keeps its default Blue route.
+    static func prepTeeQueryValue(_ teeBox: String?) -> String? {
+        guard let tee = teeBox?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !tee.isEmpty,
+              tee != "unknown" else { return nil }
+        return tee
     }
 
     /// Cheap readiness probe for a background CourseView geometry upgrade.  Unlike `/prep`, this
@@ -1128,7 +1142,7 @@ public final class SyncClient {
 
     /// Prep for one hole. The default lightweight response carries factual geometry plus topo
     /// projection anchors; callers may explicitly request the legacy embedded rendered bitmap.
-    public func fetchHolePrep(globalId: Int, localHole: Int, render: Bool = false) async throws -> CoursePrepHole? {
+    public func fetchHolePrep(globalId: Int, localHole: Int, render: Bool = false, teeBox: String? = nil) async throws -> CoursePrepHole? {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/courses/\(globalId)/prep"),
             resolvingAgainstBaseURL: false
@@ -1138,6 +1152,9 @@ public final class SyncClient {
         components.queryItems = [URLQueryItem(name: "holes", value: String(localHole))]
         if !render {
             components.queryItems?.append(URLQueryItem(name: "render", value: "false"))
+        }
+        if let tee = Self.prepTeeQueryValue(teeBox) {
+            components.queryItems?.append(URLQueryItem(name: "tee", value: tee))
         }
         guard let url = components.url else {
             throw URLError(.badURL)

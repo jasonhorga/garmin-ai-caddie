@@ -459,6 +459,14 @@ struct HolePrepCard: View {
         }
     }
 
+    /// `blueYards` is always the Blue Tee; a prep requested for another Tee also carries `teeYards`.
+    private var teeYardageLabel: String {
+        if let teeYards = hole.teeYards {
+            return "所选T \(teeYards)y"
+        }
+        return "蓝T \(hole.blueYards)y"
+    }
+
     // MARK: 头部:洞号 + Par + 蓝T + 实打(坡度)
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -470,7 +478,7 @@ struct HolePrepCard: View {
                 .background(parColor.opacity(0.14))
                 .foregroundStyle(parColor)
                 .clipShape(Capsule())
-            Text("蓝T \(hole.blueYards)y").font(.caption).foregroundColor(.secondary)
+            Text(teeYardageLabel).font(.caption).foregroundColor(.secondary)
             Spacer()
             if let tag = playsLikeTag {
                 Text(tag)

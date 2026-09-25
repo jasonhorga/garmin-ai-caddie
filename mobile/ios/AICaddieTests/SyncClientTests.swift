@@ -6,6 +6,14 @@ import XCTest
 @testable import AICaddie
 
 final class SyncClientTests: XCTestCase {
+    func testPrepTeeQueryOmitsUnresolvedTeeAndNormalizesChoice() {
+        XCTAssertEqual(SyncClient.prepTeeQueryValue(" White "), "white")
+        XCTAssertEqual(SyncClient.prepTeeQueryValue("red"), "red")
+        XCTAssertNil(SyncClient.prepTeeQueryValue("unknown"))
+        XCTAssertNil(SyncClient.prepTeeQueryValue(""))
+        XCTAssertNil(SyncClient.prepTeeQueryValue(nil))
+    }
+
     func testEventBatchEncodesRoundIdAndEvents() throws {
         let event = LiveRoundEvent(
             eventId: "event-1",

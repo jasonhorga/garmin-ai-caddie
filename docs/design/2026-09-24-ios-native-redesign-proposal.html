@@ -1,0 +1,658 @@
+<title>AI Caddie 新版界面</title>
+<style>
+:root{
+  --bg:#F1F3EF; --surface:#FFFFFF; --ink:#15201A; --muted:#5E6A62; --line:#DAE0D8;
+  --accent:#1E7A46; --accent-soft:#E3F0E7; --sand:#C9A95E; --water:#3E8ED0; --warn:#B4531A;
+  --sys:-apple-system,"SF Pro Text","SF Pro Display",system-ui,"PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E1210; --surface:#171C19; --ink:#E7ECE8; --muted:#9BA69F; --line:#29312C;
+    --accent:#4CC27A; --accent-soft:#1B2E22; --warn:#E98A4E; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E1210; --surface:#171C19; --ink:#E7ECE8; --muted:#9BA69F; --line:#29312C;
+  --accent:#4CC27A; --accent-soft:#1B2E22; --warn:#E98A4E; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sys);font-size:15px;line-height:1.6;padding-inline:20px;padding-block:28px 64px}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:56px}
+h1,h2,h3{text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:clamp(30px,5vw,46px);font-weight:800;letter-spacing:-.02em}
+h2{font-size:26px;font-weight:750;letter-spacing:-.01em}
+h3{font-size:17px;font-weight:700}
+p{margin:0}
+.eyebrow{font-size:12px;letter-spacing:.08em;color:var(--accent);font-weight:700}
+.lede{font-size:17px;color:var(--muted);max-width:62ch}
+header.top{display:flex;flex-direction:column;gap:14px}
+.meta{font-family:var(--mono);font-size:12px;color:var(--muted)}
+
+.principles{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.pr{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:18px 18px 20px;display:flex;flex-direction:column;gap:8px}
+.pr b{font-size:16px}
+.pr p{color:var(--muted);font-size:14px}
+.pr .glyph{width:34px;height:34px}
+
+.screen{display:grid;grid-template-columns:320px 1fr;gap:36px;align-items:start}
+@media (max-width:760px){.screen{grid-template-columns:1fr;justify-items:center}.notes{width:100%}}
+.notes{display:flex;flex-direction:column;gap:14px;padding-top:6px}
+.notes .num{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:520px){.cmp{grid-template-columns:1fr}}
+.cmp div{border-radius:14px;padding:12px 14px;font-size:14px}
+.cmp .now{background:transparent;border:1px dashed var(--line);color:var(--muted)}
+.cmp .new{background:var(--accent-soft);color:var(--ink)}
+.cmp .k{display:block;font-size:11px;letter-spacing:.08em;font-weight:700;margin-bottom:4px}
+.cmp .now .k{color:var(--muted)} .cmp .new .k{color:var(--accent)}
+.cmp ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-family:var(--mono);font-size:11.5px;padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--surface)}
+.data{font-size:13px;color:var(--muted)}
+.data code{font-family:var(--mono);font-size:12px;color:var(--ink)}
+
+/* ---------- phone ---------- */
+.phone{width:310px;max-width:100%;aspect-ratio:310/640;border-radius:48px;background:#0B0C0D;padding:9px;box-shadow:0 30px 60px -30px rgba(20,32,26,.45),0 0 0 1px rgba(0,0,0,.08)}
+.scr{position:relative;width:100%;height:100%;border-radius:40px;overflow:hidden;font-family:var(--sys);color:#111;background:#F2F2F7;font-size:13px;line-height:1.3}
+.scr.dark{background:#000;color:#fff}
+.island{position:absolute;top:9px;left:50%;transform:translateX(-50%);width:92px;height:26px;border-radius:14px;background:#000;z-index:20}
+.sb{position:absolute;top:0;left:0;right:0;height:44px;display:flex;justify-content:space-between;align-items:center;padding:6px 26px 0 30px;font-weight:600;font-size:13.5px;z-index:19}
+.sb svg{height:11px}
+.home-ind{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);width:108px;height:4px;border-radius:3px;background:#111;opacity:.85;z-index:20}
+.dark .home-ind{background:#fff}
+.body{position:absolute;inset:44px 0 0 0;overflow:hidden;padding:4px 14px 0}
+.lt{font-size:28px;font-weight:800;letter-spacing:-.01em;margin:6px 2px 10px}
+.card{background:#fff;border-radius:16px;padding:12px}
+.sec{font-size:12px;font-weight:600;color:#6b6b70;margin:14px 4px 6px;display:flex;justify-content:space-between}
+.sec a{color:#1E7A46;font-weight:600}
+.tabbar{position:absolute;left:0;right:0;bottom:0;height:74px;background:rgba(249,249,249,.94);border-top:.5px solid rgba(0,0,0,.14);display:grid;grid-template-columns:repeat(4,1fr);padding-top:7px;z-index:15}
+.tab{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10px;color:#8e8e93;font-weight:500}
+.tab svg{width:24px;height:22px}
+.tab.on{color:#1E7A46}
+.tnum{font-variant-numeric:tabular-nums}
+.pill{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:3px 9px;font-size:11.5px;font-weight:600}
+.btn{display:flex;align-items:center;justify-content:center;border-radius:14px;height:46px;font-weight:700;font-size:15px}
+.muted{color:#6b6b70}
+
+/* score shapes */
+.sc{display:inline-grid;place-items:center;width:20px;height:20px;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
+.sc.b{border:1.5px solid #0369a1;border-radius:50%;color:#0369a1}
+.sc.p{color:#16a34a}
+.sc.o{border:1.5px solid #a16207;border-radius:3px;color:#a16207}
+.sc.d{border:1.5px solid #c2410c;border-radius:3px;color:#c2410c;box-shadow:0 0 0 2px #fff,0 0 0 3.5px #c2410c}
+
+.roadmap{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+.ph{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.ph .step{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:700}
+.ph ul{margin:0;padding-left:18px;font-size:14px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+.ph .files{font-family:var(--mono);font-size:11.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:8px}
+.ask{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:18px 20px;display:flex;flex-direction:column;gap:10px}
+.ask ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px}
+.ask li span{color:var(--muted)}
+footer{font-size:13px;color:var(--muted)}
+@media (prefers-reduced-motion: no-preference){
+  .pulse{animation:pulse 2.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+}
+</style>
+
+<div class="wrap">
+
+<header class="top">
+  <span class="eyebrow">iPHONE 界面 · 新版方案 v1</span>
+  <h1>把球场画出来，少一些控件</h1>
+  <p class="lede">现在的 App 功能已经齐了，但很多地方还是“选择器 + 步进器 + 文字卡片”。新版把能画出来的信息都画出来：距离标在果岭旁边，推荐杆的带球范围画成距离带，记分改成点形状，统计改成球道扇形和靶心。整体骨架回到系统原生：底部标签栏、半屏面板、毛玻璃材质、SF Symbols、Swift Charts。</p>
+  <p class="meta">基于 integration/v2 · 602fd01c 的现有界面与数据字段 · 仅设计稿，未改代码</p>
+</header>
+
+<section class="principles" aria-label="设计原则">
+  <div class="pr">
+    <svg class="glyph" viewBox="0 0 34 34" aria-hidden="true"><rect width="34" height="34" rx="9" fill="#E3F0E7"/><path d="M11 25c1-6 4-10 9-14" stroke="#1E7A46" stroke-width="2.4" fill="none" stroke-linecap="round"/><circle cx="21.5" cy="10" r="3.2" fill="#1E7A46"/><circle cx="11" cy="25" r="2" fill="#1E7A46"/></svg>
+    <b>地图就是界面</b>
+    <p>码数、障碍、落点直接标在球场上。打球屏全屏地图，信息卡只留一块可以拖动的半屏面板。</p>
+  </div>
+  <div class="pr">
+    <svg class="glyph" viewBox="0 0 34 34" aria-hidden="true"><rect width="34" height="34" rx="9" fill="#E3F0E7"/><circle cx="11" cy="17" r="5" stroke="#0369a1" stroke-width="2" fill="none"/><rect x="18.5" y="12" width="10" height="10" rx="1.5" stroke="#a16207" stroke-width="2" fill="none"/></svg>
+    <b>点形状，不填表单</b>
+    <p>记分点“鸟/帕/柏忌”的形状，推杆点果岭上的球，开球点球道的左中右。选场、选 Tee 同理，没有下拉框和步进器。</p>
+  </div>
+  <div class="pr">
+    <svg class="glyph" viewBox="0 0 34 34" aria-hidden="true"><rect width="34" height="34" rx="9" fill="#E3F0E7"/><rect x="8" y="9" width="18" height="16" rx="4" stroke="#1E7A46" stroke-width="2" fill="none"/><path d="M8 20h18" stroke="#1E7A46" stroke-width="2"/></svg>
+    <b>回到系统骨架</b>
+    <p>TabView 四个标签、sheet 半屏面板、.ultraThinMaterial、SF Symbols、Swift Charts、动态字体与深色模式。看起来像 iOS 自带的 App。</p>
+  </div>
+</section>
+
+<!-- ============ 1. HOME ============ -->
+<section class="screen" id="home">
+  <div class="phone"><div class="scr">
+    <div class="island"></div>
+    <div class="sb"><span class="tnum">9:41</span><svg viewBox="0 0 64 12" aria-hidden="true"><g fill="#111"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="1" width="3" height="11" rx="1"/><rect x="38" y="1" width="22" height="10" rx="3" fill="none" stroke="#111" stroke-width="1.2"/><rect x="40" y="3" width="16" height="6" rx="1.5"/></g></svg></div>
+    <div class="body">
+      <div class="lt">打球</div>
+      <!-- live card -->
+      <div class="card" style="padding:0;overflow:hidden;display:grid;grid-template-columns:1fr 96px">
+        <div style="padding:12px 0 12px 12px;display:flex;flex-direction:column;gap:6px">
+          <span style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#1E7A46"><i class="pulse" style="width:7px;height:7px;border-radius:50%;background:#34c759;display:inline-block"></i>进行中</span>
+          <div style="font-size:19px;font-weight:800">第 7 洞 · Par 4</div>
+          <div class="muted" style="font-size:11.5px">黑骑士 A/C · 蓝T</div>
+          <div style="display:flex;gap:3px;margin-top:2px">
+            <span class="sc p">4</span><span class="sc o">5</span><span class="sc p">3</span><span class="sc b">3</span><span class="sc o">6</span><span class="sc d">7</span>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:6px"><b style="font-size:17px" class="tnum">+4</b><span class="muted" style="font-size:11px">6 洞 · 28 杆</span></div>
+        </div>
+        <svg viewBox="0 0 96 150" style="width:96px;height:100%;display:block" aria-hidden="true">
+          <rect width="96" height="150" fill="#2E5B35"/>
+          <path d="M34 140 C30 110 34 80 46 58 C52 46 56 36 58 28 L72 28 C72 42 66 58 60 72 C52 92 54 116 58 140Z" fill="#5C9A52"/>
+          <ellipse cx="65" cy="24" rx="13" ry="11" fill="#86C96F"/>
+          <ellipse cx="74" cy="80" rx="8" ry="5" fill="#D8C38E"/>
+          <polyline points="46,138 50,86 65,24" fill="none" stroke="#fff" stroke-width="1.6" stroke-dasharray="3 3"/>
+          <circle cx="50" cy="104" r="6" fill="#0A84FF" opacity=".25"/><circle cx="50" cy="104" r="3.2" fill="#0A84FF" stroke="#fff" stroke-width="1.2"/>
+        </svg>
+      </div>
+      <div class="btn" style="background:#1E7A46;color:#fff;margin-top:8px;height:42px">继续第 7 洞</div>
+
+      <div class="sec"><span>上一场 · 7 月 16 日</span><a>复盘</a></div>
+      <div class="card" style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <b style="font-size:14px">黑骑士 A/C</b>
+          <span><b style="font-size:22px" class="tnum">97</b> <span style="color:#c2410c;font-weight:700;font-size:12px">+25</span></span>
+        </div>
+        <svg viewBox="0 0 250 46" style="width:100%;height:46px" role="img" aria-label="18 洞逐洞相对标准杆条形图">
+          <line x1="0" y1="14" x2="250" y2="14" stroke="#e5e5ea"/>
+          <g id="strip"></g>
+          <text x="0" y="45" font-size="8" fill="#8e8e93">1</text><text x="250" y="45" font-size="8" fill="#8e8e93" text-anchor="end">18</text>
+          <text x="118" y="45" font-size="8" fill="#8e8e93">前九 48 · 后九 49</text>
+        </svg>
+      </div>
+
+      <div class="sec"><span>状态</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="card" style="display:flex;gap:8px;align-items:center">
+          <svg viewBox="0 0 40 40" width="40" height="40" aria-hidden="true"><circle cx="20" cy="20" r="16" fill="none" stroke="#e5e5ea" stroke-width="5"/><circle cx="20" cy="20" r="16" fill="none" stroke="#1E7A46" stroke-width="5" stroke-dasharray="62 101" transform="rotate(-90 20 20)" stroke-linecap="round"/></svg>
+          <div><div class="muted" style="font-size:10.5px">差点估计</div><b style="font-size:18px" class="tnum">21.4</b></div>
+        </div>
+        <div class="card">
+          <div class="muted" style="font-size:10.5px">近 10 场 · 94.2</div>
+          <svg viewBox="0 0 100 30" style="width:100%;height:30px" aria-hidden="true"><polyline points="0,18 11,22 22,14 33,20 44,12 55,16 66,9 77,13 88,7 100,10" fill="none" stroke="#1E7A46" stroke-width="2" stroke-linejoin="round"/><circle cx="100" cy="10" r="2.6" fill="#1E7A46"/></svg>
+        </div>
+      </div>
+    </div>
+    <div class="tabbar">
+      <div class="tab on"><svg viewBox="0 0 24 22" aria-hidden="true"><path d="M6 21V2l11 4.5L6 11" fill="currentColor"/></svg>打球</div>
+      <div class="tab"><svg viewBox="0 0 24 22" aria-hidden="true"><path d="M3 5l6-3 6 3 6-3v15l-6 3-6-3-6 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>备战</div>
+      <div class="tab"><svg viewBox="0 0 24 22" aria-hidden="true"><path d="M3 19h18M6 16V10M11 16V5M16 16v-8M21 16v-4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>成绩</div>
+      <div class="tab"><svg viewBox="0 0 24 22" aria-hidden="true"><path d="M8 20h8l1-13H7zM9 7V3M12 7V2M15 7V4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>球包</div>
+    </div>
+    <div class="home-ind"></div>
+  </div></div>
+  <div class="notes">
+    <span class="num">01 · 首页</span>
+    <h2>首页：一眼看到这场打得怎样</h2>
+    <div class="cmp">
+      <div class="now"><span class="k">现在</span><ul><li>没有标签栏，打球/备战/成绩是首页上的两块磁贴</li><li>进行中卡片只有文字“已打 X 洞”</li><li>上一场是缩略图 + 总杆</li></ul></div>
+      <div class="new"><span class="k">新版</span><ul><li>底部四个标签：打球 · 备战 · 成绩 · 球包</li><li>进行中卡片带当前洞小地图和已打各洞的成绩形状</li><li>上一场画成 18 洞逐洞柱，一眼看出哪几洞丢杆</li><li>差点估计用圆环，近 10 场用折线</li></ul></div>
+    </div>
+    <div class="tags"><span class="tag">TabView</span><span class="tag">SF Symbols</span><span class="tag">Swift Charts · LineMark</span><span class="tag">ScoreChip 形状（已有）</span></div>
+    <p class="data">用到的数据都已存在：<code>activeHole</code>、<code>recentRound.holes[].toPar</code>、<code>summary.handicapEstimate</code>、<code>summary.recent10</code>。</p>
+  </div>
+</section>
+
+<!-- ============ 2. START ROUND ============ -->
+<section class="screen" id="start">
+  <div class="phone"><div class="scr">
+    <div class="island"></div>
+    <div class="sb"><span class="tnum">9:41</span><svg viewBox="0 0 64 12" aria-hidden="true"><g fill="#111"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="1" width="3" height="11" rx="1"/><rect x="38" y="1" width="22" height="10" rx="3" fill="none" stroke="#111" stroke-width="1.2"/><rect x="40" y="3" width="16" height="6" rx="1.5"/></g></svg></div>
+    <div class="body">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:4px 2px 2px"><span style="color:#1E7A46;font-size:15px">取消</span><b style="font-size:15px">开一场</b><span style="width:28px"></span></div>
+      <div class="card" style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:16px">黑骑士球员俱乐部</b><span class="muted" style="font-size:11px">1.2 km</span></div>
+        <svg viewBox="0 0 250 108" style="width:100%;height:108px" role="img" aria-label="三个九洞选择：A 场与 C 场已选">
+          <g id="loops"></g>
+        </svg>
+        <div class="muted" style="font-size:11px;text-align:center">点两个九洞拼 18 洞，点一个只打 9 洞</div>
+      </div>
+      <div class="sec"><span>发球台</span><span>评分 / 坡度</span></div>
+      <div class="card" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:10px 6px">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:3px"><span style="width:22px;height:22px;border-radius:50%;background:#1c1c1e"></span><b class="tnum" style="font-size:12px">6912</b><span class="muted tnum" style="font-size:9.5px">74.1/132</span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:3px;background:#E3F0E7;border-radius:12px;padding:4px 0"><span style="width:22px;height:22px;border-radius:50%;background:#2563eb;box-shadow:0 0 0 2px #fff,0 0 0 4px #1E7A46"></span><b class="tnum" style="font-size:12px">6530</b><span class="muted tnum" style="font-size:9.5px">72.3/128</span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:3px"><span style="width:22px;height:22px;border-radius:50%;background:#fff;border:1.5px solid #c7c7cc"></span><b class="tnum" style="font-size:12px">6110</b><span class="muted tnum" style="font-size:9.5px">70.4/124</span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:3px"><span style="width:22px;height:22px;border-radius:50%;background:#dc2626"></span><b class="tnum" style="font-size:12px">5320</b><span class="muted tnum" style="font-size:9.5px">71.0/122</span></div>
+      </div>
+      <div class="sec"><span>蓝T · 18 洞长度</span><span class="tnum">Par 72</span></div>
+      <div class="card" style="padding:10px 10px 6px">
+        <svg viewBox="0 0 250 64" style="width:100%;height:64px" role="img" aria-label="18 洞每洞码数柱状图，颜色表示杆型">
+          <g id="lengths"></g>
+        </svg>
+        <div style="display:flex;gap:10px;font-size:9.5px" class="muted"><span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#9fd3ad"></i> Par 3</span><span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#4f9e66"></i> Par 4</span><span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#1E5E36"></i> Par 5</span></div>
+      </div>
+      <div class="btn" style="background:#1E7A46;color:#fff;margin-top:14px">开始 · 蓝T 6530 码</div>
+      <div style="text-align:center;margin-top:8px;color:#1E7A46;font-size:12.5px;font-weight:600">先看这场的备战攻略</div>
+    </div>
+    <div class="home-ind"></div>
+  </div></div>
+  <div class="notes">
+    <span class="num">02 · 开一场</span>
+    <h2>开一场：选场、选 Tee 都是点图形</h2>
+    <div class="cmp">
+      <div class="now"><span class="k">现在</span><ul><li>球场是下拉菜单 Picker</li><li>九洞组合是单选行，加打是另一张卡片</li><li>Tee 从底部弹出的动作菜单里选</li></ul></div>
+      <div class="new"><span class="k">新版</span><ul><li>每个九洞画成一圈 9 个点，点两圈就是 18 洞，加打也在这里完成</li><li>Tee 用真实颜色的发球台标志，下面是总码数和评分/坡度</li><li>选好后直接看到 18 洞长度柱状图，按杆型着色</li><li>底部按钮写清楚这一场是什么：蓝T 6530 码</li></ul></div>
+    </div>
+    <div class="tags"><span class="tag">.sheet 全屏</span><span class="tag">自绘 Canvas</span><span class="tag">sensoryFeedback 触感</span></div>
+    <p class="data">数据：<code>segments</code>、CourseView <code>tees[].rating/slope</code>、<code>courseData.holes[].pars</code> 与每洞码数。附近球场和搜索入口保留在导航栏右上角。</p>
+  </div>
+</section>
+
+<!-- ============ 3. LIVE HOLE ============ -->
+<section class="screen" id="live">
+  <div class="phone"><div class="scr dark">
+    <div class="island"></div>
+    <svg viewBox="0 0 292 622" preserveAspectRatio="xMidYMid slice" style="position:absolute;inset:0;width:100%;height:100%" role="img" aria-label="第 7 洞全屏地图：推荐路线、带球距离带、障碍与果岭距离">
+      <defs>
+        <radialGradient id="rough" cx="50%" cy="40%" r="75%"><stop offset="0" stop-color="#2F5A36"/><stop offset="1" stop-color="#172D1C"/></radialGradient>
+      </defs>
+      <rect width="292" height="622" fill="url(#rough)"/>
+      <g fill="#143020" opacity=".9"><circle cx="40" cy="120" r="26"/><circle cx="22" cy="170" r="20"/><circle cx="262" cy="210" r="28"/><circle cx="250" cy="330" r="22"/><circle cx="36" cy="420" r="24"/><circle cx="270" cy="440" r="18"/></g>
+      <path d="M118 470 C110 400 112 330 128 280 C140 240 150 200 158 150 L204 150 C204 200 194 250 180 292 C166 340 164 410 172 470Z" fill="#4E8A48"/>
+      <path d="M58 300 C70 270 92 262 104 284 C112 300 104 336 86 346 C68 356 50 330 58 300Z" fill="#2F6FA8"/>
+      <ellipse cx="206" cy="296" rx="15" ry="9" fill="#D8C38E"/>
+      <ellipse cx="146" cy="128" rx="10" ry="7" fill="#D8C38E"/>
+      <ellipse cx="182" cy="112" rx="30" ry="24" fill="#72BE62"/>
+      <ellipse cx="182" cy="112" rx="30" ry="24" fill="none" stroke="#9BDB88" stroke-width="1.5"/>
+      <rect x="134" y="478" width="22" height="11" rx="2" fill="#5E9C57"/>
+      <!-- carry arc 220 -->
+      <path d="M92 300 Q146 268 208 292" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="1" stroke-dasharray="3 4"/>
+      <!-- route -->
+      <polyline points="145,484 150,300 182,112" fill="none" stroke="#fff" stroke-width="2.6" stroke-linejoin="round"/>
+      <!-- carry band p10-p90 (one-dimensional: distance only) -->
+      <path d="M112.3 286.7 A200 200 0 0 1 188.6 288.8 L181.6 320.0 A168 168 0 0 0 117.6 318.3 Z" fill="#fff" fill-opacity=".16" stroke="#fff" stroke-opacity=".6" stroke-dasharray="3 3"/>
+      <path d="M159.4 98.2 A202 202 0 0 1 207.9 106.5 L200.5 131.4 A176 176 0 0 0 158.2 124.2 Z" fill="#fff" fill-opacity=".16" stroke="#fff" stroke-opacity=".6" stroke-dasharray="3 3"/>
+      <circle cx="150" cy="300" r="4" fill="#fff"/>
+      <!-- player -->
+      <circle cx="146" cy="430" r="11" fill="#0A84FF" opacity=".25"/><circle cx="146" cy="430" r="5.5" fill="#0A84FF" stroke="#fff" stroke-width="2"/>
+      <!-- flag -->
+      <line x1="189" y1="118" x2="189" y2="94" stroke="#fff" stroke-width="1.4"/><path d="M189 94 l11 4 -11 4z" fill="#FF453A"/>
+      <!-- green ladder -->
+      <g font-family="-apple-system,system-ui,sans-serif" font-variant-numeric="tabular-nums">
+        <line x1="226" y1="90" x2="226" y2="136" stroke="#fff" stroke-opacity=".5"/>
+        <circle cx="226" cy="90" r="2.5" fill="#9aa6bd"/><text x="232" y="93" font-size="11" fill="#c9d1de">158</text>
+        <circle cx="226" cy="113" r="3.5" fill="#5fe08a"/><text x="232" y="118" font-size="16" font-weight="800" fill="#fff">146</text>
+        <circle cx="226" cy="136" r="2.5" fill="#5cb0ff"/><text x="232" y="139" font-size="11" fill="#bcdcff">134</text>
+      </g>
+      <!-- hazard chips -->
+      <g font-family="-apple-system,system-ui,sans-serif" font-size="10.5" font-weight="700">
+        <rect x="192" y="310" width="62" height="20" rx="10" fill="#000" fill-opacity=".55"/><text x="200" y="324" fill="#ffd447">沙 到 208</text>
+        <rect x="40" y="356" width="70" height="20" rx="10" fill="#000" fill-opacity=".55"/><text x="48" y="370" fill="#8fc6ff">水 越 176</text>
+        <rect x="160" y="286" width="0" height="0"/>
+        <rect x="96" y="286" width="44" height="18" rx="9" fill="#fff"/><text x="103" y="299" fill="#0b0c0d">7铁</text>
+      </g>
+    </svg>
+    <div class="sb" style="color:#fff"><span class="tnum">9:41</span><svg viewBox="0 0 64 12" aria-hidden="true"><g fill="#fff"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="1" width="3" height="11" rx="1"/><rect x="38" y="1" width="22" height="10" rx="3" fill="none" stroke="#fff" stroke-width="1.2"/><rect x="40" y="3" width="16" height="6" rx="1.5"/></g></svg></div>
+    <!-- top glass -->
+    <div style="position:absolute;top:48px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:center;z-index:10">
+      <span style="width:34px;height:34px;border-radius:50%;background:rgba(40,40,40,.55);backdrop-filter:blur(12px);display:grid;place-items:center"><svg width="10" height="16" viewBox="0 0 10 16" aria-hidden="true"><path d="M8 2L2 8l6 6" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg></span>
+      <span style="background:rgba(40,40,40,.55);backdrop-filter:blur(12px);border-radius:999px;padding:7px 14px;font-weight:700;font-size:13px" class="tnum">7 · Par 4 · 412 码</span>
+      <span style="width:34px;height:34px;border-radius:50%;background:rgba(40,40,40,.55);backdrop-filter:blur(12px);display:grid;place-items:center;font-weight:800;font-size:12px" class="tnum">+4</span>
+    </div>
+    <!-- bottom sheet -->
+    <div style="position:absolute;left:6px;right:6px;bottom:6px;height:206px;border-radius:30px;background:rgba(28,30,29,.82);backdrop-filter:blur(20px);padding:8px 16px 0;display:flex;flex-direction:column;gap:9px;z-index:10">
+      <span style="width:36px;height:5px;border-radius:3px;background:rgba(255,255,255,.3);align-self:center"></span>
+      <div style="display:flex;align-items:flex-end;justify-content:space-between">
+        <div><div style="font-size:46px;font-weight:800;line-height:1;letter-spacing:-.02em" class="tnum">146</div><div style="font-size:11px;color:rgba(255,255,255,.6)">码到果岭中心</div></div>
+        <div style="text-align:right"><div style="font-size:15px;font-weight:800">7 号铁</div><div style="font-size:11px;color:rgba(255,255,255,.6)" class="tnum">带球 128–148 码</div></div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <span class="pill" style="background:#fff;color:#0b0c0d">稳 · 7 铁</span>
+        <span class="pill" style="background:rgba(255,255,255,.12);color:#fff">攻 · 6 铁</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 64px 1fr;align-items:center;margin-top:2px">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;color:rgba(255,255,255,.75)"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" stroke="#fff" stroke-width="1.8" fill="none"/><circle cx="12" cy="12" r="2.5" fill="#fff"/></svg>目标点</div>
+        <div style="width:64px;height:64px;border-radius:50%;background:#30D158;display:grid;place-items:center;color:#062b12;font-weight:800;font-size:12px;text-align:center;line-height:1.1;box-shadow:0 0 0 4px rgba(48,209,88,.25)">记一杆<br><span style="font-size:10px;font-weight:700">第 2 杆</span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;color:rgba(255,255,255,.75)"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4" stroke="#fff" stroke-width="1.8" fill="none"/><path d="M8 12h8M12 8v8" stroke="#fff" stroke-width="1.8"/></svg>完成本洞</div>
+      </div>
+    </div>
+    <div class="home-ind"></div>
+  </div></div>
+  <div class="notes">
+    <span class="num">03 · 打球</span>
+    <h2>打球：整屏是球场，数字贴在地图上</h2>
+    <div class="cmp">
+      <div class="now"><span class="k">现在</span><ul><li>地图下面压一块大面板，“方案 N / 第 N 杆”是一排按钮</li><li>果岭前中后是地图角落的一块文字</li><li>障碍要在面板里左右翻页看</li></ul></div>
+      <div class="new"><span class="k">新版</span><ul><li>地图铺满全屏，顶部只有一颗毛玻璃胶囊</li><li>果岭旁一根竖向刻度：后 158 / 中 146 / 前 134</li><li>推荐杆的带球范围画成一条 p10–p90 距离带，杆号贴在落点上；缺数据时只画落点</li><li>障碍直接标“到 / 越”码数，点它再看细节</li><li>底部半屏面板可拖动：收起只留大码数，展开看其他打法</li></ul></div>
+    </div>
+    <div class="tags"><span class="tag">.presentationDetents</span><span class="tag">.ultraThinMaterial</span><span class="tag">Canvas 叠加层（已有）</span><span class="tag">Live Activity / 灵动岛</span></div>
+    <p class="data">距离带用球童已有的 <code>CaddiePlanOption.p10M / p90M</code>：它们只描述远近，没有左右散布，所以画成横跨路线的一条弧带，不画二维椭圆。离线或没有对应球杆数据时两者可能为空，这时只画落点。预计杆数 <code>expectedStrokes</code> 是未校准的估算，离线时没有，因此不显示。</p>
+  </div>
+</section>
+
+<!-- ============ 4. SCORE SHEET ============ -->
+<section class="screen" id="score">
+  <div class="phone"><div class="scr dark" style="background:#0b120d">
+    <div class="island"></div>
+    <div class="sb" style="color:#fff"><span class="tnum">9:41</span><span></span></div>
+    <div style="position:absolute;inset:0;background:linear-gradient(#20331f,#0b120d);opacity:.9"></div>
+    <div style="position:absolute;left:0;right:0;bottom:0;top:118px;background:#F2F2F7;color:#111;border-radius:22px 22px 0 0;padding:8px 16px 0;display:flex;flex-direction:column;gap:12px">
+      <span style="width:36px;height:5px;border-radius:3px;background:#c7c7cc;align-self:center"></span>
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:18px">第 7 洞 · Par 4</b><span class="muted" style="font-size:11px">手表记了 5 杆</span></div>
+
+      <div>
+        <div class="muted" style="font-size:11px;font-weight:600;margin-bottom:6px">杆数</div>
+        <div style="display:flex;justify-content:space-between">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:3px"><span style="width:40px;height:40px;border-radius:50%;border:2px solid #0369a1;color:#0369a1;display:grid;place-items:center;font-weight:800;font-size:17px">3</span><span style="font-size:9.5px" class="muted">小鸟</span></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:3px"><span style="width:40px;height:40px;border-radius:12px;background:#fff;color:#16a34a;display:grid;place-items:center;font-weight:800;font-size:17px">4</span><span style="font-size:9.5px" class="muted">帕</span></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:3px"><span style="width:40px;height:40px;border-radius:6px;background:#a16207;color:#fff;display:grid;place-items:center;font-weight:800;font-size:17px;box-shadow:0 0 0 3px #F2F2F7,0 0 0 5px #a16207">5</span><span style="font-size:9.5px;font-weight:700;color:#a16207">柏忌</span></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:3px"><span style="width:40px;height:40px;border-radius:6px;border:2px solid #c2410c;color:#c2410c;display:grid;place-items:center;font-weight:800;font-size:17px">6</span><span style="font-size:9.5px" class="muted">双柏忌</span></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:3px"><span style="width:40px;height:40px;border-radius:12px;background:#fff;color:#8e8e93;display:grid;place-items:center;font-weight:800;font-size:17px">7+</span><span style="font-size:9.5px" class="muted">更多</span></div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="card" style="padding:10px">
+          <div class="muted" style="font-size:11px;font-weight:600">推杆 · 2</div>
+          <svg viewBox="0 0 110 64" style="width:100%;height:64px" role="img" aria-label="推杆选择：果岭上 2 颗球已选">
+            <ellipse cx="55" cy="34" rx="50" ry="27" fill="#86C96F"/>
+            <line x1="84" y1="26" x2="84" y2="8" stroke="#333" stroke-width="1.2"/><path d="M84 8l8 3-8 3z" fill="#FF453A"/><circle cx="84" cy="27" r="2.4" fill="#1b3d20"/>
+            <circle cx="28" cy="36" r="7" fill="#fff" stroke="#1E7A46" stroke-width="2"/>
+            <circle cx="50" cy="38" r="7" fill="#fff" stroke="#1E7A46" stroke-width="2"/>
+            <circle cx="72" cy="40" r="7" fill="none" stroke="#fff" stroke-width="1.6" stroke-dasharray="2 2"/>
+          </svg>
+        </div>
+        <div class="card" style="padding:10px">
+          <div class="muted" style="font-size:11px;font-weight:600">开球 · 上球道</div>
+          <svg viewBox="0 0 110 64" style="width:100%;height:64px" role="img" aria-label="开球落点：左、球道、右，已选球道">
+            <rect x="0" y="4" width="30" height="56" rx="8" fill="#e5efe2"/>
+            <rect x="80" y="4" width="30" height="56" rx="8" fill="#e5efe2"/>
+            <path d="M34 60 C36 40 40 20 44 4 L66 4 C70 20 74 40 76 60Z" fill="#4E8A48"/>
+            <circle cx="55" cy="30" r="6" fill="#fff" stroke="#15201a" stroke-width="1.2"/>
+            <text x="9" y="36" font-size="10" fill="#6b6b70">左</text><text x="89" y="36" font-size="10" fill="#6b6b70">右</text>
+          </svg>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between" class="card">
+        <span style="font-size:12.5px;font-weight:600">罚杆</span>
+        <span style="display:flex;gap:6px"><span class="pill" style="background:#111;color:#fff">0</span><span class="pill" style="background:#fff;border:1px solid #e5e5ea">+1</span><span class="pill" style="background:#fff;border:1px solid #e5e5ea">+2</span></span>
+      </div>
+      <div class="btn" style="background:#1E7A46;color:#fff">记 5 杆 · 去第 8 洞</div>
+    </div>
+    <div class="home-ind"></div>
+  </div></div>
+  <div class="notes">
+    <span class="num">04 · 记分</span>
+    <h2>记分：点一下形状，一屏记完</h2>
+    <div class="cmp">
+      <div class="now"><span class="k">现在</span><ul><li>先“接受推荐 / 手动确认”，手动时分四步</li><li>总杆、推杆都是大号 −/＋ 计数器</li><li>开球结果是三个文字按钮</li></ul></div>
+      <div class="new"><span class="k">新版</span><ul><li>一个半屏面板，不分步</li><li>杆数用与计分卡一样的形状：圆是小鸟，方是柏忌，默认选中手表记到的杆数</li><li>推杆点果岭上的球，开球点球道的左、中、右</li><li>底部按钮写出结果并直接去下一洞</li></ul></div>
+    </div>
+    <div class="tags"><span class="tag">.sheet(.medium)</span><span class="tag">ScoreChip 形状（已有）</span><span class="tag">sensoryFeedback</span></div>
+    <p class="data">字段不变：<code>score / putts / fairway / penalties</code>，保存与离线队列沿用 <code>LiveScoreConfirmationView</code> 的现有逻辑，只换界面。</p>
+  </div>
+</section>
+
+<!-- ============ 5. STATS ============ -->
+<section class="screen" id="stats">
+  <div class="phone"><div class="scr">
+    <div class="island"></div>
+    <div class="sb"><span class="tnum">9:41</span><svg viewBox="0 0 64 12" aria-hidden="true"><g fill="#111"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="1" width="3" height="11" rx="1"/><rect x="38" y="1" width="22" height="10" rx="3" fill="none" stroke="#111" stroke-width="1.2"/><rect x="40" y="3" width="16" height="6" rx="1.5"/></g></svg></div>
+    <div class="body">
+      <div class="lt" style="margin-bottom:6px">成绩</div>
+      <div class="card" style="padding:10px 12px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="muted" style="font-size:11px">近 20 场</span><span><b style="font-size:20px" class="tnum">94.2</b> <span style="font-size:11px;color:#16a34a;font-weight:700">↓ 2.1</span></span></div>
+        <svg viewBox="0 0 250 78" style="width:100%;height:78px" role="img" aria-label="近 20 场总杆折线图">
+          <defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1E7A46" stop-opacity=".25"/><stop offset="1" stop-color="#1E7A46" stop-opacity="0"/></linearGradient></defs>
+          <g stroke="#ececf0"><line x1="0" y1="10" x2="250" y2="10"/><line x1="0" y1="38" x2="250" y2="38"/><line x1="0" y1="66" x2="250" y2="66"/></g>
+          <text x="0" y="8" font-size="8" fill="#8e8e93">105</text><text x="0" y="36" font-size="8" fill="#8e8e93">95</text><text x="0" y="64" font-size="8" fill="#8e8e93">85</text>
+          <g id="trend"></g>
+        </svg>
+      </div>
+      <div class="sec" style="margin-top:12px"><span>四个阶段</span><span>近 20 场</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="card" style="padding:10px">
+          <div style="font-size:11px;font-weight:700">开球 · 上球道 48%</div>
+          <svg viewBox="0 0 120 78" style="width:100%;height:78px" role="img" aria-label="开球方向：偏左 31%，球道 48%，偏右 21%">
+            <path d="M60 76 L10 14 A78 78 0 0 1 40 3 Z" fill="#f3c9a8"/>
+            <path d="M60 76 L40 3 A78 78 0 0 1 80 3 Z" fill="#4E8A48"/>
+            <path d="M60 76 L80 3 A78 78 0 0 1 110 14 Z" fill="#f6dcc6"/>
+            <text x="18" y="32" font-size="10" font-weight="700" fill="#8a3b12">31</text>
+            <text x="53" y="26" font-size="11" font-weight="800" fill="#fff">48</text>
+            <text x="92" y="32" font-size="10" font-weight="700" fill="#8a3b12">21</text>
+          </svg>
+        </div>
+        <div class="card" style="padding:10px">
+          <div style="font-size:11px;font-weight:700">攻果岭 · GIR 22%</div>
+          <svg viewBox="0 0 120 78" style="width:100%;height:78px" role="img" aria-label="攻果岭未上的方向：短 46%，长 9%，左 20%，右 25%">
+            <ellipse cx="60" cy="39" rx="22" ry="17" fill="#86C96F"/>
+            <path d="M40 60 Q60 76 80 60" stroke="#c2410c" stroke-width="9" fill="none" stroke-linecap="round" opacity=".85"/>
+            <path d="M44 16 Q60 6 76 16" stroke="#c2410c" stroke-width="3" fill="none" stroke-linecap="round" opacity=".6"/>
+            <path d="M32 28 Q26 39 32 50" stroke="#c2410c" stroke-width="5" fill="none" stroke-linecap="round" opacity=".7"/>
+            <path d="M88 28 Q94 39 88 50" stroke="#c2410c" stroke-width="6" fill="none" stroke-linecap="round" opacity=".75"/>
+            <text x="54" y="43" font-size="10" font-weight="800" fill="#123">22%</text>
+            <text x="118" y="72" font-size="9" fill="#c2410c" font-weight="700" text-anchor="end">短 46%</text>
+          </svg>
+        </div>
+        <div class="card" style="padding:10px">
+          <div style="font-size:11px;font-weight:700">推杆 · 每场 35.1</div>
+          <svg viewBox="0 0 120 60" style="width:100%;height:60px" role="img" aria-label="每洞推杆分布：1 推 12%，2 推 67%，3 推 21%">
+            <rect x="8" y="40" width="28" height="12" rx="3" fill="#9fd3ad"/><rect x="46" y="17" width="28" height="35" rx="3" fill="#4f9e66"/><rect x="84" y="36" width="28" height="16" rx="3" fill="#c2410c"/>
+            <text x="22" y="36" font-size="9" text-anchor="middle" fill="#555">1 推 12%</text><text x="60" y="13" font-size="9" text-anchor="middle" fill="#555">2 推 67%</text><text x="98" y="32" font-size="9" text-anchor="middle" fill="#c2410c" font-weight="700">3 推 21%</text>
+          </svg>
+        </div>
+        <div class="card" style="padding:10px">
+          <div style="font-size:11px;font-weight:700">杆型 · 相对标准杆</div>
+          <svg viewBox="0 0 120 60" style="width:100%;height:60px" role="img" aria-label="各杆型平均：Par 3 +0.9，Par 4 +1.4，Par 5 +1.2">
+            <line x1="10" y1="52" x2="114" y2="52" stroke="#e5e5ea"/>
+            <rect x="14" y="30" width="24" height="22" rx="3" fill="#a16207"/><rect x="48" y="18" width="24" height="34" rx="3" fill="#c2410c"/><rect x="82" y="23" width="24" height="29" rx="3" fill="#a16207"/>
+            <text x="26" y="26" font-size="9" text-anchor="middle" fill="#555">+0.9</text><text x="60" y="14" font-size="9" text-anchor="middle" fill="#555">+1.4</text><text x="94" y="19" font-size="9" text-anchor="middle" fill="#555">+1.2</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+    <div class="tabbar">
+      <div class="tab"><svg viewBox="0 0 24 22" aria-hidden="true"><path d="M6 21V2l11 4.5L6 11" fill="currentColor"/></svg>打球</div>
+      <div class="tab"><svg viewBox="0 0 24 22" aria-hidden="true"><path d="M3 5l6-3 6 3 6-3v15l-6 3-6-3-6 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>备战</div>
+      <div class="tab on"><svg viewBox="0 0 24 22" aria-hidden="true"><path d="M3 19h18M6 16V10M11 16V5M16 16v-8M21 16v-4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>成绩</div>
+      <div class="tab"><svg viewBox="0 0 24 22" aria-hidden="true"><path d="M8 20h8l1-13H7zM9 7V3M12 7V2M15 7V4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>球包</div>
+    </div>
+    <div class="home-ind"></div>
+  </div></div>
+  <div class="notes">
+    <span class="num">05 · 成绩</span>
+    <h2>成绩：四个阶段各一张图，放在同一屏</h2>
+    <div class="cmp">
+      <div class="now"><span class="k">现在</span><ul><li>分段控件切换开球 / 攻果岭 / 短杆 / 推杆，一次只看一项</li><li>生涯、球场、球杆多是文字行和表格</li></ul></div>
+      <div class="new"><span class="k">新版</span><ul><li>顶部：近 20 场面积折线，终点加粗</li><li>开球画成扇形，左 / 球道 / 右按比例分</li><li>攻果岭围着果岭画弧，越粗越常见，一眼看出“多是短”</li><li>推杆和杆型用小柱状图；点任一张卡片进入详情</li></ul></div>
+    </div>
+    <div class="tags"><span class="tag">Swift Charts · AreaMark</span><span class="tag">SectorMark</span><span class="tag">NavigationLink 卡片</span></div>
+    <p class="data">全部来自 <code>MobileStats</code>：<code>teeDirection</code>、<code>approachMiss</code>、<code>putting</code>、<code>byPar</code>、<code>trend</code>。图里的数值是示意。</p>
+  </div>
+</section>
+
+<!-- ============ 6. ROUND REVIEW ============ -->
+<section class="screen" id="review">
+  <div class="phone"><div class="scr">
+    <div class="island"></div>
+    <div class="sb"><span class="tnum">9:41</span><svg viewBox="0 0 64 12" aria-hidden="true"><g fill="#111"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="1" width="3" height="11" rx="1"/><rect x="38" y="1" width="22" height="10" rx="3" fill="none" stroke="#111" stroke-width="1.2"/><rect x="40" y="3" width="16" height="6" rx="1.5"/></g></svg></div>
+    <div class="body">
+      <div style="display:flex;align-items:center;gap:4px;color:#1E7A46;font-size:15px;margin:4px 0 6px"><svg width="9" height="15" viewBox="0 0 10 16" aria-hidden="true"><path d="M8 2L2 8l6 6" stroke="#1E7A46" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg>成绩</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin:0 2px 8px">
+        <div><div style="font-size:21px;font-weight:800">黑骑士 A/C</div><div class="muted" style="font-size:11px">7 月 16 日 · 蓝T · Par 72</div></div>
+        <div style="text-align:right"><b style="font-size:30px;line-height:1" class="tnum">97</b><div style="color:#c2410c;font-weight:700;font-size:12px">+25</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px" id="wall"></div>
+      <div class="muted" style="font-size:10.5px;text-align:center;margin-top:8px">点任一洞看逐杆地图 · 左右滑到后九</div>
+    </div>
+    <div class="home-ind"></div>
+  </div></div>
+  <div class="notes">
+    <span class="num">06 · 单场复盘</span>
+    <h2>单场复盘：九洞小地图墙代替计分表</h2>
+    <div class="cmp">
+      <div class="now"><span class="k">现在</span><ul><li>总杆卡片 + 两行数字的计分表</li><li>球道 / GIR / 推杆 / 罚杆四个数字方块</li><li>要点进某一洞才看得到落点</li></ul></div>
+      <div class="new"><span class="k">新版</span><ul><li>每洞一张小地图，画出这洞的实际击球线，右上角是成绩形状</li><li>丢杆的洞一眼就能看到：球进水、三推、打到隔壁球道</li><li>点小地图展开到现有的逐杆地图，那里已经做好</li></ul></div>
+    </div>
+    <div class="tags"><span class="tag">LazyVGrid</span><span class="tag">matchedGeometryEffect 展开</span><span class="tag">RoundShotMapView（已有）</span></div>
+    <p class="data">小地图复用 topo 缩略图和 <code>RoundShot.start / end</code> 像素坐标，不需要新接口。</p>
+  </div>
+</section>
+
+<!-- ============ 7. BAG ============ -->
+<section class="screen" id="bag">
+  <div class="phone"><div class="scr">
+    <div class="island"></div>
+    <div class="sb"><span class="tnum">9:41</span><svg viewBox="0 0 64 12" aria-hidden="true"><g fill="#111"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="1" width="3" height="11" rx="1"/><rect x="38" y="1" width="22" height="10" rx="3" fill="none" stroke="#111" stroke-width="1.2"/><rect x="40" y="3" width="16" height="6" rx="1.5"/></g></svg></div>
+    <div class="body">
+      <div class="lt" style="margin-bottom:4px">球包</div>
+      <div class="muted" style="font-size:11px;margin:0 2px 8px">13 支 · 横条是八成击球的带球范围，竖线是中位数</div>
+      <div class="card" style="padding:10px 10px 8px">
+        <svg viewBox="0 0 260 360" style="width:100%;height:auto;display:block" role="img" aria-label="各球杆带球距离范围图">
+          <g id="bagax"></g>
+          <g id="bagrows"></g>
+        </svg>
+      </div>
+    </div>
+    <div class="tabbar">
+      <div class="tab"><svg viewBox="0 0 24 22" aria-hidden="true"><path d="M6 21V2l11 4.5L6 11" fill="currentColor"/></svg>打球</div>
+      <div class="tab"><svg viewBox="0 0 24 22" aria-hidden="true"><path d="M3 5l6-3 6 3 6-3v15l-6 3-6-3-6 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>备战</div>
+      <div class="tab"><svg viewBox="0 0 24 22" aria-hidden="true"><path d="M3 19h18M6 16V10M11 16V5M16 16v-8M21 16v-4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>成绩</div>
+      <div class="tab on"><svg viewBox="0 0 24 22" aria-hidden="true"><path d="M8 20h8l1-13H7zM9 7V3M12 7V2M15 7V4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>球包</div>
+    </div>
+    <div class="home-ind"></div>
+  </div></div>
+  <div class="notes">
+    <span class="num">07 · 球包</span>
+    <h2>球包：每支杆一条距离带，重叠和断档直接看出来</h2>
+    <div class="cmp">
+      <div class="now"><span class="k">现在</span><ul><li>勾选框 + 每支杆一个码数输入框</li><li>上方有一条简单的距离梯子</li><li>成绩里的球杆页是文字列表</li></ul></div>
+      <div class="new"><span class="k">新版</span><ul><li>球包独立成一个标签</li><li>每支杆画出 p10–p90 距离带和中位数</li><li>和上一支杆的中位数差超过 15 码，右侧用橙色标出断档</li><li>拖动中位数竖线就是手动改码数，长按移出球包</li></ul></div>
+    </div>
+    <div class="tags"><span class="tag">Swift Charts · RuleMark / BarMark</span><span class="tag">chartGesture 拖动</span><span class="tag">ClubGappingLadder（替换）</span></div>
+    <p class="data">来自 <code>clubs[].median / p10 / p90 / samples</code>。样本太少的杆用虚线描边，说明还是估计值。</p>
+  </div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:16px" id="plan">
+  <span class="eyebrow">落地顺序</span>
+  <h2>分四期做，每期都能单独上线</h2>
+  <p class="lede" style="font-size:15px">只改界面层，接口和数据模型不动。每期都走现有的 Native CI 截图测试和 TestFlight 内测。</p>
+  <div class="roadmap">
+    <div class="ph"><span class="step">第 1 期 · 打球屏</span><b>全屏地图 + 半屏面板 + 一屏记分</b><ul><li>地图铺满，面板改成可拖动 sheet</li><li>果岭竖向刻度、带球距离带、障碍码数标签</li><li>新的记分面板</li></ul><span class="files">CurrentHoleView · LiveHoleComponents · LiveScoreConfirmationView</span></div>
+    <div class="ph"><span class="step">第 2 期 · 骨架</span><b>TabView 四个标签 + 首页 + 开一场</b><ul><li>根视图改成 TabView</li><li>首页进行中卡片、18 洞逐洞柱</li><li>九洞圈选择、Tee 标志、长度柱状图</li></ul><span class="files">AICaddieApp · RoundHomeView · StartRoundView</span></div>
+    <div class="ph"><span class="step">第 3 期 · 成绩与复盘</span><b>四阶段图 + 九洞小地图墙</b><ul><li>成绩首屏四张图</li><li>单场复盘小地图墙，展开到逐杆地图</li></ul><span class="files">ResultsView · StatsView · PerformancePhaseGraphics · RoundReviewView</span></div>
+    <div class="ph"><span class="step">第 4 期 · 球包与收尾</span><b>距离带球包 + 灵动岛</b><ul><li>球包标签页和拖动改码数</li><li>可选：打球中的 Live Activity，锁屏显示到果岭码数</li><li>清掉约 10 个已不使用的旧组件</li></ul><span class="files">ClubSettingsView · ClubGappingLadder · 新增 Widget 扩展</span></div>
+  </div>
+</section>
+
+<section class="ask" aria-label="需要你决定的事">
+  <h3>看完想请你定三件事</h3>
+  <ol>
+    <li>打球屏要不要全屏地图、面板浮在上面？<span>这是改动最大、也最能体现新风格的一项。</span></li>
+    <li>要不要加独立的“球包”标签？<span>不加的话，球包放回首页右上角的设置里。</span></li>
+    <li>第 4 期的灵动岛 / 锁屏码数要不要做？<span>需要新增一个 Widget 扩展和对应的 TestFlight 配置。</span></li>
+  </ol>
+</section>
+
+<footer>图中数字均为示意，不是你的真实成绩。字段名对应 integration/v2 · 602fd01c 的 iOS 代码。</footer>
+</div>
+
+<script>
+(function(){
+  var NS="http://www.w3.org/2000/svg";
+  function el(tag,attrs,parent){var e=document.createElementNS(NS,tag);for(var k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
+  function scoreColor(d){return d<=-1?"#0369a1":d===0?"#16a34a":d===1?"#a16207":"#c2410c";}
+
+  // 1. 18-hole to-par strip (last round)
+  var toPar=[1,2,0,1,3,1,2,0,2,1,2,1,1,0,2,1,3,2];
+  var strip=document.getElementById("strip"); var bw=250/18;
+  toPar.forEach(function(d,i){
+    var h=Math.max(3,d*9);
+    el("rect",{x:i*bw+2,y:14,width:bw-4,height:h,rx:2,fill:scoreColor(d),opacity:d===0?.55:1},strip);
+    if(d===0) el("rect",{x:i*bw+2,y:12,width:bw-4,height:2,rx:1,fill:"#16a34a"},strip);
+  });
+
+  // 2. loops: A, B, C nines as rings of 9 dots
+  var loops=document.getElementById("loops");
+  [["A",45,true,3420],["B",125,false,3290],["C",205,true,3110]].forEach(function(l){
+    var cx=l[1],cy=48,r=30,g=el("g",{},loops);
+    el("circle",{cx:cx,cy:cy,r:r+9,fill:l[2]?"#E3F0E7":"#f2f2f7",stroke:l[2]?"#1E7A46":"none","stroke-width":1.5},g);
+    for(var i=0;i<9;i++){
+      var a=-Math.PI/2+i*2*Math.PI/9;
+      el("circle",{cx:cx+r*Math.cos(a),cy:cy+r*Math.sin(a),r:4.2,fill:l[2]?"#1E7A46":"#c7c7cc"},g);
+    }
+    var t=el("text",{x:cx,y:cy+6,"text-anchor":"middle","font-size":18,"font-weight":800,fill:l[2]?"#15201a":"#8e8e93"},g); t.textContent=l[0];
+    var y=el("text",{x:cx,y:104,"text-anchor":"middle","font-size":9.5,fill:"#6b6b70"},g); y.textContent=l[3]+" 码";
+  });
+
+  // 3. hole length bars
+  var par=[4,5,3,4,4,3,4,5,4,4,3,4,5,4,4,3,5,4];
+  var yd=[398,532,176,412,367,198,405,548,386,372,164,420,515,356,401,188,560,338];
+  var lg=document.getElementById("lengths"),w=250/18;
+  yd.forEach(function(v,i){
+    var h=(v-100)/470*56; var col=par[i]===3?"#9fd3ad":par[i]===4?"#4f9e66":"#1E5E36";
+    el("rect",{x:i*w+1.5,y:58-h,width:w-3,height:h,rx:2,fill:col},lg);
+  });
+  el("line",{x1:125,y1:0,x2:125,y2:58,stroke:"#c7c7cc","stroke-dasharray":"2 2"},lg);
+
+  // 5. trend (20 rounds, 85-105 mapped to y 66-10)
+  var tr=[99,101,96,98,103,97,95,99,94,97,96,92,98,93,95,91,94,96,90,92];
+  var tg=document.getElementById("trend"),pts=[];
+  tr.forEach(function(v,i){pts.push([22+i*(226/19),66-(v-85)/20*56]);});
+  var d="M"+pts.map(function(p){return p[0].toFixed(1)+" "+p[1].toFixed(1)}).join(" L");
+  el("path",{d:d+" L"+pts[19][0]+" 66 L22 66 Z",fill:"url(#area)"},tg);
+  el("path",{d:d,fill:"none",stroke:"#1E7A46","stroke-width":2,"stroke-linejoin":"round"},tg);
+  el("circle",{cx:pts[19][0],cy:pts[19][1],r:3.5,fill:"#1E7A46",stroke:"#fff","stroke-width":1.5},tg);
+
+  // 6. nine-hole wall
+  var wall=document.getElementById("wall");
+  var holes=[[4,5,[[.5,.95],[.46,.55],[.62,.3],[.58,.16]],"o"],[5,7,[[.5,.95],[.4,.62],[.3,.46],[.52,.3],[.6,.14],[.58,.12]],"d"],[3,3,[[.5,.9],[.55,.2]],"p"],[4,5,[[.5,.95],[.7,.55],[.62,.3],[.56,.16]],"o"],[4,4,[[.5,.95],[.45,.5],[.55,.16]],"p"],[3,5,[[.5,.9],[.25,.4],[.5,.24],[.55,.2]],"d"],[4,4,[[.5,.95],[.52,.52],[.57,.16]],"p"],[5,6,[[.5,.95],[.42,.6],[.5,.35],[.58,.2],[.56,.15]],"o"],[4,6,[[.5,.95],[.78,.58],[.55,.32],[.57,.18],[.55,.15]],"d"]];
+  var shapes={p:"",o:"border:1.5px solid #a16207;border-radius:3px;color:#a16207",d:"border:1.5px solid #c2410c;border-radius:3px;color:#c2410c;box-shadow:0 0 0 2px #fff,0 0 0 3.5px #c2410c"};
+  holes.forEach(function(h,i){
+    var card=document.createElement("div");
+    card.style.cssText="position:relative;background:#fff;border-radius:12px;overflow:hidden;aspect-ratio:3/4;max-width:100%";
+    var svg=el("svg",{viewBox:"0 0 60 80",width:"100%",height:"100%",preserveAspectRatio:"none","aria-hidden":"true"});
+    svg.style.display="block";
+    el("rect",{width:60,height:80,fill:"#3a6b40"},svg);
+    var bend=(i%3-1)*6;
+    el("path",{d:"M22 76 C20 58 "+(24+bend)+" 40 "+(26+bend)+" 22 L"+(38+bend)+" 22 C"+(36+bend)+" 40 "+(40)+" 58 38 76Z",fill:"#5c9a52"},svg);
+    el("ellipse",{cx:33+bend*.6,cy:14,rx:8,ry:6.5,fill:"#86c96f"},svg);
+    if(i%4===1) el("path",{d:"M6 44 C12 36 20 40 18 50 C16 58 6 56 6 44Z",fill:"#2f6fa8"},svg);
+    if(i%3===0) el("ellipse",{cx:44+bend*.3,cy:26,rx:5,ry:3,fill:"#d8c38e"},svg);
+    var p=h[2].map(function(q){return (q[0]*60).toFixed(1)+","+(q[1]*80).toFixed(1)}).join(" ");
+    el("polyline",{points:p,fill:"none",stroke:"#fff","stroke-width":1.3,"stroke-linejoin":"round"},svg);
+    h[2].forEach(function(q,j){el("circle",{cx:q[0]*60,cy:q[1]*80,r:j===0?1.6:1.4,fill:"#fff"},svg);});
+    card.appendChild(svg);
+    var lab=document.createElement("span");
+    lab.style.cssText="position:absolute;left:5px;top:4px;font-size:9.5px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)";
+    lab.textContent=(i+1)+" · P"+h[0];
+    var sc=document.createElement("span");
+    sc.className="sc";
+    sc.style.cssText="position:absolute;right:5px;top:5px;background:#fff;"+(h[3]==="p"?"border-radius:50%;color:#16a34a;":shapes[h[3]]);
+    sc.textContent=h[1];
+    card.appendChild(lab);card.appendChild(sc);
+    wall.appendChild(card);
+  });
+
+  // 7. bag gapping (x: 60..260 yd -> 46..254)
+  var clubs=[["1W",196,214,232,40],["3W",178,194,210,22],["4H",164,178,190,15],["5i",150,162,176,31],["6i",141,152,165,34],["7i",128,140,151,48],["8i",118,129,140,41],["9i",106,118,128,37],["PW",94,105,116,44],["GW",82,92,102,26],["SW",62,76,88,19],["LW",48,58,70,6]];
+  var ax=document.getElementById("bagax"),rows=document.getElementById("bagrows");
+  function X(v){return 40+(v-40)/(240-40)*168;}
+  [50,100,150,200].forEach(function(v){
+    el("line",{x1:X(v),y1:8,x2:X(v),y2:340,stroke:"#ececf0"},ax);
+    var t=el("text",{x:X(v),y:354,"text-anchor":"middle","font-size":9,fill:"#8e8e93"},ax); t.textContent=v;
+  });
+  clubs.forEach(function(c,i){
+    var y=14+i*27;
+    var t=el("text",{x:0,y:y+4,"font-size":11,"font-weight":700,fill:"#15201a"},rows); t.textContent=c[0];
+    var few=c[4]<10;
+    el("rect",{x:X(c[1]),y:y-6,width:X(c[3])-X(c[1]),height:12,rx:6,fill:few?"none":"#cfe6d6",stroke:few?"#1E7A46":"none","stroke-dasharray":few?"3 2":""},rows);
+    el("line",{x1:X(c[2]),y1:y-9,x2:X(c[2]),y2:y+9,stroke:"#1E7A46","stroke-width":2.4,"stroke-linecap":"round"},rows);
+    var v=el("text",{x:X(c[3])+5,y:y+4,"font-size":9.5,fill:"#6b6b70"},rows); v.textContent=c[2];
+    if(i>0){
+      var gap=clubs[i-1][2]-c[2];
+      if(gap>15){
+        var g=el("text",{x:252,y:y+4,"text-anchor":"end","font-size":9,"font-weight":700,fill:"#b4531a"},rows); g.textContent="断档 "+gap;
+      }
+    }
+  });
+})();
+</script>

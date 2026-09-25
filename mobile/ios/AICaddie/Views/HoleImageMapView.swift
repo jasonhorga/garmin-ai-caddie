@@ -532,7 +532,8 @@ public struct HoleImageMapView: View {
                 PrepMapHoleInfoOverlay(
                     hole: hole.hole,
                     par: hole.par,
-                    yards: hole.blueYards,
+                    teeLabel: hole.teeYards == nil ? "蓝T" : "所选T",
+                    yards: hole.playingYards,
                     playsLikeDeltaYards: hole.playsLike?.available == true ? hole.playsLike?.deltaYd : nil
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1117,6 +1118,7 @@ struct RotatableMapViewport<Content: View>: View {
 private struct PrepMapHoleInfoOverlay: View {
     let hole: Int
     let par: Int
+    let teeLabel: String
     let yards: Int
     let playsLikeDeltaYards: Int?
 
@@ -1124,7 +1126,7 @@ private struct PrepMapHoleInfoOverlay: View {
         VStack(alignment: .leading, spacing: 1) {
             Text("第 \(hole) 洞 · Par \(par)")
                 .font(.caption.weight(.heavy))
-            Text("蓝T \(yards) 码")
+            Text("\(teeLabel) \(yards) 码")
                 .font(.caption2.weight(.semibold).monospacedDigit())
                 .foregroundStyle(.white.opacity(0.76))
             if let delta = playsLikeDeltaYards, delta != 0 {
