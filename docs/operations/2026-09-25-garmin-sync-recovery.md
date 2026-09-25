@@ -46,6 +46,13 @@ or moving `latest` image.
    `北京天竺黑骑士球员俱乐部`, `2026-09-25T07:58:12+08:00`, 18 holes, score 94.
    The service index and health endpoint remained HTTP 200.
 
+5. After installing the new wrapper, a second idempotent run at
+   `2026-09-25T09:42:07Z` ended with both `sync ok` and `done`, and reported
+   `new_round_count: 0`. One immediate overview request during cache
+   invalidation exceeded a 20-second timeout; a retry returned HTTP 200 in
+   `0.047s` with round `17711803` still first. This is recorded as a warm-up
+   observation, not a sync failure.
+
 ## Prevention Changes
 
 - `ops/complete_homeserver_api_deploy.sh` is the mandatory post-switch gate:
@@ -63,6 +70,11 @@ or moving `latest` image.
 - The installed `/home/jason/aicaddie-sync.sh` was atomically replaced with
   that wrapper. The prior file and pre-change crontab are retained under
   `/home/jason/garmin-ai-caddie-data/operations/sync-wrapper-backup-20260925/`.
+- No existing push-notification destination was discoverable on the host, so
+  the wrapper currently emits syslog alerts by default. A private
+  `AICADDIE_SYNC_ALERT_WEBHOOK_URL` can be supplied through protected cron
+  environment when an owner-approved destination is available; no URL or
+  credential is stored in Git.
 
 No API container, Caddy route, named volume, or unrelated homeserver resource
 was removed or restarted during recovery.

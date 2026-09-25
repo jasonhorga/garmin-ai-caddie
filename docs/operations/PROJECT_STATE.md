@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-25 09:37 UTC
+**Updated:** 2026-09-25 09:47 UTC
 **Branch:** `integration/v2`; product canonical source revision is
 `ea492366acc00451f1355abbb6f6108585dd53a7` (PR #333 code is merged at
 `4f48a3267450a75ce8b7514314d9beaa7f9ffab6`; the tip adds the review-only
@@ -64,6 +64,13 @@ checksummed backup at
 `/home/jason/garmin-ai-caddie-data/operations/sync-wrapper-backup-20260925/`.
 No API container, Caddy route, or persistent data volume was restarted or
 removed.
+
+The installed wrapper was exercised end-to-end again at `09:42:07Z` and ended
+with `sync ok` plus `done` (`new_round_count: 0`). The persistent deployment
+gate copy under `garmin-ai-caddie-data/operations/deploy-tools` passed its
+check-only health/SHA probe. No host push destination was configured; syslog
+alerting is active and the optional private webhook remains intentionally
+unset until an owner-approved endpoint is supplied.
 
 **PERF-STARTUP baseline remains `70e74a6eb04bae1d656bc8cee81f534e0ae4f2b7`.**
 **Release rule:** the gates are ordered, not circular:
