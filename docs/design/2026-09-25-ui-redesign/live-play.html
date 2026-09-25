@@ -1,0 +1,514 @@
+<title>打球屏 v3 全屏原型</title>
+<style>
+:root{
+  --bg:#F3F3F0; --surface:#FFFFFF; --ink:#151815; --muted:#63695F; --line:#DCDDD6; --accent:#2F7D4A; --soft:#E7F0E9;
+  --sys:-apple-system,"SF Pro Text","SF Pro Display",system-ui,"PingFang SC","Hiragino Sans GB","Noto Sans SC",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0E100E;--surface:#171A17;--ink:#E8EBE6;--muted:#9AA197;--line:#2A2E29;--accent:#5CC47F;--soft:#1A2A1F;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0E100E;--surface:#171A17;--ink:#E8EBE6;--muted:#9AA197;--line:#2A2E29;--accent:#5CC47F;--soft:#1A2A1F;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sys);font-size:15px;line-height:1.6;padding-inline:20px;padding-block:28px 64px}
+.wrap{max-width:1060px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+h1{font-size:clamp(26px,4vw,38px);margin:0;letter-spacing:-.015em;text-wrap:balance}
+h2{font-size:22px;margin:0;letter-spacing:-.01em}
+p{margin:0}
+.lede{color:var(--muted);max-width:64ch}
+.eyebrow{font-size:12px;letter-spacing:.1em;color:var(--accent);font-weight:700}
+.stage{display:grid;grid-template-columns:auto 1fr;gap:36px;align-items:start}
+@media (max-width:820px){.stage{grid-template-columns:1fr}}
+.demo{display:flex;flex-direction:column;gap:12px;align-items:center}
+.presets{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:390px}
+.presets button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:6px 12px;cursor:pointer}
+.presets button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hint{font-size:12.5px;color:var(--muted);text-align:center;max-width:390px}
+.fit{width:100%;max-width:390px}
+.shell{position:relative;width:390px;height:844px;transform-origin:top left}
+.phone{position:absolute;inset:0;border-radius:52px;overflow:hidden;background:#07090A;box-shadow:0 0 0 9px #070807,0 30px 60px -28px rgba(0,0,0,.55);touch-action:none;user-select:none;-webkit-user-select:none;font-family:var(--sys);color:#F4F6F2}
+.phone svg#map{position:absolute;inset:0;width:390px;height:844px;display:block}
+.island{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:124px;height:36px;border-radius:20px;background:#000;z-index:40;pointer-events:none}
+.status{position:absolute;top:0;left:0;right:0;height:54px;display:flex;justify-content:space-between;align-items:center;padding:4px 34px 0 40px;font-weight:600;font-size:16px;z-index:39;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+.status i{width:26px;height:12px;border:1.4px solid #F4F6F2;border-radius:4px;display:inline-block}
+.homebar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:138px;height:5px;border-radius:3px;background:#F4F6F2;z-index:40;pointer-events:none}
+.glass{background:rgba(16,20,18,.58);backdrop-filter:blur(18px) saturate(1.3);-webkit-backdrop-filter:blur(18px) saturate(1.3);border:.5px solid rgba(255,255,255,.14)}
+.tn{font-variant-numeric:tabular-nums}
+.mut{color:rgba(244,246,242,.62)}
+.ui{position:absolute;z-index:20}
+.btn{display:grid;place-items:center;border-radius:50%;cursor:pointer;color:#F4F6F2;border:none;padding:0;font:inherit}
+.btn:focus-visible{outline:2px solid #fff;outline-offset:3px}
+.btn.on{background:rgba(244,246,242,.92);color:#0B0F0C}
+.btn:disabled{opacity:.3;cursor:default}
+.cap{font-size:11px;font-weight:600;letter-spacing:.02em;text-align:center;margin-top:5px;text-shadow:0 1px 3px rgba(0,0,0,.7)}
+.edges{display:grid;grid-template-columns:repeat(4,1fr);margin:4px 0 2px;border-top:.5px solid rgba(255,255,255,.14);padding-top:10px}
+.edges div{display:flex;flex-direction:column;align-items:center;gap:1px}
+.edges div+div{border-left:.5px solid rgba(255,255,255,.14)}
+.edges span{font-size:11px;color:rgba(244,246,242,.62)}
+.edges b{font-size:22px;font-weight:600;line-height:1.1}
+.toast{position:absolute;left:50%;top:118px;transform:translateX(-50%);z-index:30;font-size:13px;padding:8px 14px;border-radius:999px;white-space:nowrap;transition:opacity .25s}
+
+.spec{width:100%;border-collapse:collapse;font-size:14px}
+.spec th,.spec td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+.spec th{font-size:12px;color:var(--muted);font-weight:600;letter-spacing:.04em;white-space:nowrap}
+.spec td:first-child{font-weight:600;white-space:nowrap}
+.pill{display:inline-block;font-size:11.5px;font-weight:700;border-radius:999px;padding:1px 8px;white-space:nowrap}
+.p1{background:var(--soft);color:var(--accent)}
+.p2{background:transparent;border:1px solid var(--line);color:var(--muted)}
+.p3{background:transparent;color:var(--muted);text-decoration:line-through}
+.tw{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:16px}
+.why{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+.why div{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px 16px;font-size:14px;display:flex;flex-direction:column;gap:4px}
+.why b{font-size:15px}
+.why span{color:var(--muted)}
+footer{font-size:13px;color:var(--muted)}
+@media (prefers-reduced-motion: reduce){.toast{transition:none}}
+</style>
+
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:12px">
+  <span class="eyebrow">打球屏 · v3 全屏原型</span>
+  <h1>保留现有 topo 图，全屏显示，控件放在两侧</h1>
+  <p class="lede">下面的手机是可以操作的原型，用的是黑骑士 31795 第 1 洞（Par 5，蓝T 543 码）的真实 topo 渲染图。可以拖动、双指或滚轮缩放；点地图设目标点；点右下角“记一杆”模拟打完一杆，地图会自动缩放到“当前位置 → 果岭”。</p>
+</header>
+
+<section class="stage">
+  <div class="demo">
+    <div class="fit" id="fit"><div class="shell" id="shell">
+      <div class="phone" id="phone">
+        <svg id="map" viewBox="0 0 390 844" aria-label="可缩放的球洞地图">
+          <defs><clipPath id="clipAll"><rect width="390" height="844"/></clipPath></defs>
+          <rect width="390" height="844" fill="#07090A"/>
+          <image id="topo" href="hole1-topo.png" x="0" y="0" width="678" height="1060" preserveAspectRatio="none"/>
+          <g id="ov"></g>
+        </svg>
+        <div class="island"></div>
+        <div class="status"><span class="tn">9:41</span><i></i></div>
+
+        <!-- top-left: back + hole info -->
+        <div class="ui" style="top:58px;left:16px;display:flex;gap:10px;align-items:flex-start">
+          <button class="btn glass" aria-label="返回本场计分卡" style="width:40px;height:40px;font-size:20px">‹</button>
+          <div style="text-shadow:0 1px 3px rgba(0,0,0,.75)">
+            <div style="display:flex;align-items:baseline;gap:8px"><span class="tn" style="font-size:30px;font-weight:600;line-height:1">1</span><span class="tn" style="font-size:14px">Par 5 · 543 码</span></div>
+            <div class="tn mut" style="font-size:12.5px;margin-top:3px" id="roundLine">本场 +2 · 第 1 杆</div>
+          </div>
+        </div>
+
+        <!-- top-right: F/M/B ladder -->
+        <div class="ui glass" id="ladder" style="top:58px;right:14px;width:92px;border-radius:22px;padding:10px 0 12px;text-align:center">
+          <div class="tn mut" style="font-size:14px"><span style="font-size:11px">后</span> <span id="dB">568</span></div>
+          <div class="tn" style="font-size:44px;font-weight:600;line-height:1.05;letter-spacing:-.02em;margin:2px 0" id="dM">543</div>
+          <div class="tn mut" style="font-size:14px"><span style="font-size:11px">前</span> <span id="dF">516</span></div>
+          <div class="mut" style="font-size:10.5px;margin-top:4px" id="ladderCap">到果岭 · 码</div>
+        </div>
+
+        <!-- left: on-demand controls -->
+        <div class="ui" style="left:14px;top:338px;display:flex;flex-direction:column;gap:18px;align-items:center">
+          <div><button class="btn glass" id="bHaz" aria-pressed="false" aria-label="显示障碍" style="width:46px;height:46px">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 13 9 5 9-5"/></svg></button><div class="cap">障碍</div></div>
+          <div><button class="btn glass" id="bPlan" aria-label="切换打法" style="width:46px;height:46px;font-size:14px;font-weight:700" ><span id="planN" class="tn">1/2</span></button><div class="cap">打法</div></div>
+          <div id="recWrap" style="visibility:hidden"><button class="btn glass" id="bRec" aria-label="回到当前位置" style="width:46px;height:46px">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M21 3 3 10.5l7.5 2.5L13 21z"/></svg></button><div class="cap">回到</div></div>
+        </div>
+
+        <!-- bottom-left: score -->
+        <div class="ui" style="left:22px;bottom:34px;text-align:center">
+          <button class="btn glass" id="bScore" aria-label="记分，完成本洞" style="width:60px;height:60px">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/></svg></button>
+          <div class="cap">记分</div>
+        </div>
+
+        <!-- bottom-right: record shot -->
+        <div class="ui" style="right:20px;bottom:30px;text-align:center">
+          <button class="btn" id="bShot" aria-label="记一杆" style="width:76px;height:76px;background:#F4F6F2;color:#0B0F0C;box-shadow:0 6px 18px rgba(0,0,0,.45)">
+            <span style="display:flex;flex-direction:column;align-items:center;line-height:1.05"><span style="font-size:26px;font-weight:300">＋</span><span style="font-size:12px;font-weight:700">记一杆</span></span></button>
+        </div>
+
+        <div class="ui glass" id="hazBar" style="display:none;left:92px;right:102px;bottom:40px;height:50px;border-radius:25px;align-items:center;gap:5px;padding:0 5px 0 12px">
+          <span id="hzIcon" style="width:10px;height:10px;border-radius:50%;flex:none;font-size:0"></span>
+          <div style="flex:1;min-width:0;line-height:1.2"><div id="hzName" style="font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">—</div><div class="mut tn" id="hzIdx" style="font-size:10.5px">1 / 4</div></div>
+          <button class="btn" id="hzPrev" aria-label="上一个障碍" style="width:32px;height:32px;background:rgba(255,255,255,.1);font-size:16px;flex:none">‹</button>
+          <button class="btn" id="hzNext" aria-label="下一个障碍" style="width:32px;height:32px;background:rgba(255,255,255,.1);font-size:16px;flex:none">›</button>
+        </div>
+        <div id="gv" style="display:none;position:absolute;inset:0;z-index:50;background:#07090A">
+          <svg id="gmap" viewBox="0 0 390 844" style="position:absolute;inset:0;width:390px;height:844px;touch-action:none" aria-label="拖动旗子设置旗位">
+            <image id="gtopo" x="0" y="0" width="678" height="1060" preserveAspectRatio="none"/>
+            <g id="gov"></g>
+          </svg>
+          <div class="ui" style="top:58px;left:16px;right:16px;display:flex;justify-content:space-between;align-items:center">
+            <button class="btn glass" id="gBack" aria-label="取消" style="width:40px;height:40px;font-size:20px">‹</button>
+            <span style="font-size:16px;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,.7)">第 1 洞 · 旗位</span>
+            <button class="btn glass" id="gReset" aria-label="旗子放回果岭中心" style="width:56px;height:40px;border-radius:20px;font-size:13px">中心</button>
+          </div>
+          <div class="ui" id="gZoom" style="top:112px;right:16px;display:none;flex-direction:column;gap:9px">
+            <button class="btn glass" id="gOut" aria-label="缩小果岭" style="width:40px;height:40px;font-size:20px">−</button>
+            <button class="btn glass" id="gFit" aria-label="还原果岭" style="width:40px;height:40px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
+          </div>
+          <div class="ui glass" style="left:14px;right:14px;bottom:30px;border-radius:26px;padding:16px 18px 16px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:baseline;gap:8px"><span class="mut" style="font-size:13px">到旗</span><span class="tn" id="gTo" style="font-size:48px;font-weight:600;line-height:1;letter-spacing:-.02em">543</span><span class="mut" style="font-size:13px">码</span></div>
+            <div class="edges tn" role="group" aria-label="旗到果岭四边的距离（码）">
+              <div><span>前沿</span><b id="eF">16</b></div><div><span>后沿</span><b id="eB">15</b></div><div><span>左边</span><b id="eL">11</b></div><div><span>右边</span><b id="eR">5</b></div>
+            </div>
+            <div class="tn mut" id="gWhere" style="font-size:12.5px">旗在果岭中心</div>
+            <button class="btn" id="gDone" style="margin-top:8px;width:100%;height:50px;border-radius:25px;background:#F4F6F2;color:#0B0F0C;font-size:16px;font-weight:700">完成</button>
+          </div>
+          <div class="homebar"></div>
+        </div>
+        <div id="loupe" style="display:none;position:absolute;z-index:60;width:100px;height:100px;border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,.86);box-shadow:0 3px 14px rgba(0,0,0,.45);background:#07090A;pointer-events:none">
+          <svg width="100" height="100" viewBox="0 0 100 100"><image id="limg" preserveAspectRatio="none"/><g id="lov"></g></svg>
+        </div>
+        <div class="toast glass" id="toast" style="opacity:0"></div>
+        <div class="homebar"></div>
+      </div>
+    </div></div>
+    <div class="presets" role="group" aria-label="演示状态">
+      <button id="pTee">在发球台</button>
+      <button id="pSecond">第二杆（已缩放）</button>
+      <button id="pHaz">打开障碍</button>
+      <button id="pTarget">设一个目标点</button>
+      <button id="pGreen">点果岭调整旗位</button>
+    </div>
+    <p class="hint">拖动平移 · 双指或滚轮缩放 · 双击缩放到“当前位置 → 果岭” · 单击地图设目标点，按住目标点拖动会出现放大镜，再点一次取消 · 点沙坑或水显示这个障碍 · 点果岭调整旗位</p>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <h2>屏幕上只留这些</h2>
+    <div class="why">
+      <div><b>右上：到果岭 前 / 中 / 后</b><span>和 Garmin 手表一样竖排。“中”44pt，是全屏最大的字；前后 14pt。</span></div>
+      <div><b>右下：记一杆</b><span>全屏唯一的实心按钮，76pt，放在右手拇指最容易按到的位置。每洞要按 4–6 次。</span></div>
+      <div><b>左下：记分</b><span>60pt 毛玻璃圆按钮。每洞按一次，打开记分面板，同时完成本洞。</span></div>
+      <div><b>左侧：障碍、打法、回到</b><span>46pt 毛玻璃按钮，按需使用。“回到”只在你拖动或缩放过地图后出现。</span></div>
+      <div><b>障碍：一次看一个，和现在一样</b><span>默认不显示。点“障碍”或直接点地图上的沙坑、水，只显示这一个：红色轮廓，前、后沿红点和“前 / 后”码数。底部中间出现一条小障碍条，写名称和“2 / 4”，‹ › 切换。</span></div>
+      <div><b>地图本身：推荐打法、目标点、果岭</b><span>路线和每杆落点直接画在图上；点地图设目标点。这些都不需要按钮。</span></div>
+      <div><b>果岭：不画圈，只有一面旗</b><span>默认果岭上什么都不加。果岭上只有一面旗，在旗位上（没设时在果岭中心）。点果岭进入现有的“调整旗位”界面：旗子到果岭前、后、左、右四条边各拉一条细线，线头标码数，拖动时实时变化，下方卡片也列出这四个数；拖旗子不弹放大镜（免得挡住上方的码数），旗子保持在手指上方不被挡住，果岭可以双指放大；回来后右上角多一行“旗 N”。</span></div>
+    </div>
+  </div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:14px">
+  <span class="eyebrow">逐项决定</span>
+  <h2>哪些必须、放哪、多大、什么样</h2>
+  <div class="tw"><table class="spec">
+    <thead><tr><th>元素</th><th>去留</th><th>位置</th><th>大小</th><th>样子</th><th>理由</th></tr></thead>
+    <tbody>
+      <tr><td>到果岭 前/中/后</td><td><span class="pill p1">常驻</span></td><td>右上角</td><td>中 44pt 半粗；前后 14pt；框宽 92pt</td><td>竖排，毛玻璃圆角框</td><td>打球时看得最多的数字。放右上，不挡发球台到果岭的中线</td></tr>
+      <tr><td>记一杆</td><td><span class="pill p1">常驻</span></td><td>右下角</td><td>76pt 圆</td><td>唯一的白色实心按钮，“＋”加字</td><td>最高频的操作，单手拇指可达；球洞在发球台一端最窄，右下角通常是空的</td></tr>
+      <tr><td>记分 / 完成本洞</td><td><span class="pill p1">常驻</span></td><td>左下角</td><td>60pt 圆</td><td>毛玻璃，旗子图标加“记分”</td><td>每洞一次。和记一杆分两边，避免误触</td></tr>
+      <tr><td>洞号 · Par · 码数 · 本场成绩</td><td><span class="pill p1">常驻</span></td><td>左上角，挨着返回</td><td>洞号 30pt；其他 13–14pt</td><td>无底框，文字带阴影</td><td>只需要扫一眼确认，不必做成卡片</td></tr>
+      <tr><td>返回</td><td><span class="pill p1">常驻</span></td><td>左上角</td><td>40pt 圆</td><td>毛玻璃</td><td>回到本场计分卡，“结束本场”也放在那里，所以不需要单独的“…”菜单</td></tr>
+      <tr><td>推荐打法</td><td><span class="pill p1">常驻，在图上</span></td><td>地图上</td><td>线宽 3pt；落点标签 13pt</td><td>白色路线，落点处写“杆名 码数”，带球范围是浅色弧带</td><td>球童建议直接叠在球场上，不占按钮和面板</td></tr>
+      <tr><td>障碍</td><td><span class="pill p2">按需</span></td><td>左侧按钮；选中后底部中间出现障碍条</td><td>按钮 46pt；障碍条高 50pt，‹ › 各 32pt</td><td>一次只显示一个：红色轮廓、前后沿红点、“前 / 后”码数小黑标签；障碍条写名称和“2 / 4”</td><td>和现在线上的显示方式一致，只是从地图下的面板挪到了地图上。也可以直接点地图上的沙坑或水来选</td></tr>
+      <tr><td>切换打法</td><td><span class="pill p2">按需</span></td><td>左侧</td><td>46pt 圆</td><td>显示“1/2”，点一下换下一个</td><td>大多数时候只看推荐的一个</td></tr>
+      <tr><td>回到当前位置</td><td><span class="pill p2">按需</span></td><td>左侧</td><td>46pt 圆</td><td>只在拖动或缩放后出现</td><td>和地图 App 的习惯一样</td></tr>
+      <tr><td>果岭 / 旗位</td><td><span class="pill p3">不要按钮</span></td><td>点果岭</td><td>—</td><td>不画圈；一面小旗，在旗位或果岭中心</td><td>点果岭进入现有的“调整旗位”界面（LiveGreenDetailView）：显示旗到前沿 / 后沿 / 左边 / 右边的码数（图上细线 + 卡片四格），拖旗子不弹放大镜、旗子保持在手指上方，果岭可 1–4 倍缩放；设好后右上角多一行“旗 N”</td></tr>
+      <tr><td>目标点</td><td><span class="pill p3">不要按钮</span></td><td>—</td><td>—</td><td>单击地图直接设；按住目标点拖动，上方出现和现在一样的放大镜</td><td>Garmin 的做法，少一个按钮；放大镜沿用现有 Touch Target 的样式</td></tr>
+      <tr><td>底部信息面板</td><td><span class="pill p3">去掉</span></td><td>—</td><td>—</td><td>—</td><td>球洞是竖长条，两侧本来就空，信息放两侧即可</td></tr>
+      <tr><td>方案卡片</td><td><span class="pill p3">去掉</span></td><td>—</td><td>—</td><td>—</td><td>路线和落点已画在图上，换方案用“打法”按钮</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:14px">
+  <span class="eyebrow">实现上要注意</span>
+  <div class="why">
+    <div><b>缩放已经有了</b><span>现有 <code>HoleImageMapView</code> 已支持双指缩放和拖动。新增的是：每打一杆自动缩放到“当前位置 → 果岭”，以及双击触发同样的缩放。</span></div>
+    <div><b>标注不跟着变大</b><span>路线、文字和按钮在屏幕上保持固定大小，只有 topo 底图缩放，放大后也不会糊成一片。</span></div>
+    <div><b>毛玻璃的实现</b><span>iOS 17 用 <code>.ultraThinMaterial</code>；iOS 26 以上可以换成系统的 Liquid Glass。</span></div>
+    <div><b>左手模式</b><span>设置里一个开关，把左右两侧的控件镜像对调。</span></div>
+  </div>
+</section>
+
+<footer>原型里的推荐打法、落点、障碍的“到 · 过”码数都是按图上比例估算的示意值，不是后端算出来的。这里是浏览器渲染，字体和毛玻璃效果和真机会略有差别。没有改任何 App 代码。</footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var NS="http://www.w3.org/2000/svg";
+  var W=390,H=844,AR=W/H;
+  var svg=document.getElementById("map"), topo=document.getElementById("topo"), ov=document.getElementById("ov");
+  var phone=document.getElementById("phone");
+  // image-space facts (px in the 678x1060 topo)
+  var TEE=[300,975], G={c:[303.0, 142.3], f:[303,172], b:[305,117]};
+  var GREEN=[[318.88,108.62],[316.38,110.38],[314.38,113.88],[311.88,114.12],[306.12,117.12],[302.88,117.12],[300.12,119.38],[283.62,145.12],[283.62,151.88],[289.38,162.62],[292.38,165.62],[295.12,166.88],[296.38,169.62],[299.12,171.88],[300.62,171.62],[306.62,166.62],[309.88,161.12],[309.88,157.88],[311.88,152.12],[310.88,149.12],[310.88,143.88],[313.12,138.38],[320.38,131.12],[323.62,130.62],[329.62,123.62],[324.62,113.38]];
+  var PPY=Math.hypot(G.c[0]-TEE[0],G.c[1]-TEE[1])/543;
+  var HOLE={x0:155,y0:52,x1:525,y1:1008};
+  var PLANS=[
+    {name:"三杆攻果岭",shots:[{p:[345,640],club:"一号木",yd:224,p10:205,p90:240},{p:[300,330],club:"三号木",yd:205,p10:188,p90:218}]},
+    {name:"避开右侧沙坑",shots:[{p:[332,662],club:"三号木",yd:205,p10:188,p90:218},{p:[298,404],club:"五号铁",yd:170,p10:158,p90:180}]}
+  ];
+  var HAZ=[
+    {name:"球道右沙坑",water:false,front:[397, 584],back:[401, 551],c:[396, 568],pts:[[385,551],[382,557],[389,568],[391,579],[397,584],[409,580],[412,571],[401,551]]},
+    {name:"果岭右前沙坑",water:false,front:[455, 451],back:[367, 209],c:[420, 343],pts:[[367,209],[363,218],[367,230],[368,263],[360,291],[346,316],[331,334],[329,352],[360,392],[390,384],[407,394],[425,398],[447,443],[455,451],[465,453],[471,448],[472,440],[460,423],[444,385],[442,356],[447,338],[456,326],[464,324],[479,328],[485,324],[491,294],[446,258],[419,231]]},
+    {name:"果岭右侧水障碍",water:true,front:[492, 293],back:[370, 83],c:[416, 193],pts:[[370,83],[357,104],[350,140],[343,158],[342,167],[349,188],[367,208],[419,230],[459,268],[492,293],[498,282],[499,258],[495,243],[478,210],[439,154],[398,108]]},
+    {name:"果岭右侧沙坑",water:false,front:[319, 162],back:[330, 133],c:[324, 146],pts:[[330,133],[324,134],[318,141],[315,158],[319,162],[326,158],[333,139]]}
+  ];
+  var st={plan:0,shot:0,player:TEE.slice(),haz:null,pin:null,target:null,vb:null,auto:null};
+
+  function el(t,a,p){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);(p||ov).appendChild(e);return e;}
+  function tx(x,y,s,a){var t=el("text",Object.assign({x:x,y:y,"font-family":"-apple-system,system-ui,'PingFang SC',sans-serif"},a));t.textContent=s;return t;}
+  function yd(a,b){return Math.round(Math.hypot(a[0]-b[0],a[1]-b[1])/PPY);}
+
+  // view box: {x,y,w} in image px; h=w/AR
+  function frame(x0,y0,x1,y1,pad){ // fit rect into usable screen (top 120, bottom 110 insets in screen px)
+    var top=120,bot=110,side=18, uw=W-2*side, uh=H-top-bot;
+    var bw=(x1-x0)+2*pad, bh=(y1-y0)+2*pad;
+    var s=Math.min(uw/bw,uh/bh); var w=W/s;
+    var cx=(x0+x1)/2, cy=(y0+y1)/2;
+    // centre of usable area in screen px -> image
+    var ucx=W/2, ucy=top+uh/2;
+    return {x:cx-ucx/s, y:cy-ucy/s, w:w};
+  }
+  function autoFrame(){
+    if(st.shot===0) return frame(HOLE.x0,HOLE.y0,HOLE.x1,HOLE.y1,4);
+    var p=st.player; return frame(Math.min(p[0],G.c[0])-60,Math.min(p[1],G.b[1])-20,Math.max(p[0],G.c[0])+60,Math.max(p[1],G.f[1])+30,20);
+  }
+  function S(p){var s=W/st.vb.w;return [(p[0]-st.vb.x)*s,(p[1]-st.vb.y)*s];}
+  function I(q){var s=W/st.vb.w;return [q[0]/s+st.vb.x,q[1]/s+st.vb.y];}
+
+  var animId=null;
+  function setView(v,animate){
+    if(animId){cancelAnimationFrame(animId);animId=null;}
+    var reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if(!animate||!st.vb||reduce){st.vb=v;render();return;}
+    var a=Object.assign({},st.vb),t0=performance.now(),D=420;
+    function step(t){var k=Math.min(1,(t-t0)/D);k=1-Math.pow(1-k,3);
+      st.vb={x:a.x+(v.x-a.x)*k,y:a.y+(v.y-a.y)*k,w:a.w+(v.w-a.w)*k};render();
+      if(k<1)animId=requestAnimationFrame(step);}
+    animId=requestAnimationFrame(step);
+  }
+
+  function arcPts(c,r,a0,a1,n){var o=[];for(var i=0;i<=n;i++){var a=a0+(a1-a0)*i/n;o.push([c[0]+r*Math.cos(a),c[1]+r*Math.sin(a)]);}return o;}
+  function poly(pts){return pts.map(function(p){var q=S(p);return q[0].toFixed(1)+","+q[1].toFixed(1);}).join(" ");}
+
+  function render(){
+    var s=W/st.vb.w;
+    topo.setAttribute("x",(-st.vb.x*s).toFixed(2));topo.setAttribute("y",(-st.vb.y*s).toFixed(2));
+    topo.setAttribute("width",(678*s).toFixed(2));topo.setAttribute("height",(1060*s).toFixed(2));
+    while(ov.firstChild)ov.removeChild(ov.firstChild);
+    var plan=PLANS[st.plan], rest=plan.shots.slice(st.shot), P=st.player;
+    // layup arcs: distance to green 100/200/300
+    [100,200,300].forEach(function(d){
+      var r=d*PPY; if(yd(P,G.c)<d+15) return;
+      var pts=arcPts(G.c,r,Math.PI/2-0.34,Math.PI/2+0.34,24);
+      el("polyline",{points:poly(pts),fill:"none",stroke:"#fff","stroke-opacity":.38,"stroke-width":1.4,"stroke-dasharray":"3 6"});
+      var q=S(pts[pts.length-1]),anc="end",dx=-6; if(q[0]<96){q=S(pts[0]);anc="start";dx=6;} tx(q[0]+dx,q[1]+4,String(d),{"font-size":12,"text-anchor":anc,fill:"#fff","fill-opacity":.72,style:"paint-order:stroke;stroke:rgba(0,0,0,.45);stroke-width:3px"});
+    });
+    // carry band for next shot
+    if(rest.length){var n=rest[0],ang=Math.atan2(n.p[1]-P[1],n.p[0]-P[0]),h=.1;
+      var outer=arcPts(P,n.p90*PPY,ang-h,ang+h,10),inner=arcPts(P,n.p10*PPY,ang+h,ang-h,10);
+      el("polygon",{points:poly(outer.concat(inner)),fill:"#fff","fill-opacity":.2});}
+    // route
+    var route=[P].concat(rest.map(function(r){return r.p;})).concat([st.pin||G.c]);
+    el("polyline",{points:poly(route),fill:"none",stroke:"#000","stroke-opacity":.25,"stroke-width":5,"stroke-linejoin":"round"});
+    el("polyline",{points:poly(route),fill:"none",stroke:"#fff","stroke-width":3,"stroke-linejoin":"round"});
+    rest.forEach(function(r,i){var q=S(r.p);el("circle",{cx:q[0],cy:q[1],r:6,fill:"#fff",stroke:"#0B0F0C","stroke-width":1.5});
+      var right=(i%2===0);tx(q[0]+(right?12:-12),q[1]+5,r.club+" "+r.yd,{"font-size":13.5,"font-weight":700,fill:"#fff","text-anchor":right?"start":"end",style:"paint-order:stroke;stroke:rgba(0,0,0,.55);stroke-width:3.5px"});});
+    // hazards: one selected obstacle at a time (same as the live app)
+    if(st.haz!==null){var z=HAZ[st.haz],red="#F2291F";
+      el("polygon",{points:poly(z.pts),fill:"none",stroke:red,"stroke-width":1.8,"stroke-linejoin":"round"});
+      var cq=S(z.c);
+      [[z.front,"前"],[z.back,"后"]].forEach(function(e){var q=S(e[0]),d=yd(P,e[0]);
+        el("circle",{cx:q[0],cy:q[1],r:4,fill:red,stroke:"#fff","stroke-width":1});
+        var vx=q[0]-cq[0],vy=q[1]-cq[1],n=Math.hypot(vx,vy)||1,lx=q[0]+vx/n*26,ly=q[1]+vy/n*20;
+        lx=Math.max(34,Math.min(W-34,lx)); ly=Math.max(210,ly);
+        el("rect",{x:lx-27,y:ly-11,width:54,height:22,rx:6,fill:"#000","fill-opacity":.66});
+        tx(lx,ly+5,e[1]+" "+d,{"font-size":12.5,"font-weight":800,fill:"#fff","text-anchor":"middle"});});}
+    // target
+    if(st.target){var T=st.target,q=S(T),pq=S(P),gq=S(G.c);
+      el("line",{x1:pq[0],y1:pq[1],x2:q[0],y2:q[1],stroke:"#FFD84A","stroke-width":2,"stroke-dasharray":"5 5"});
+      el("line",{x1:q[0],y1:q[1],x2:gq[0],y2:gq[1],stroke:"#FFD84A","stroke-width":2,"stroke-dasharray":"5 5","stroke-opacity":.7});
+      el("circle",{cx:q[0],cy:q[1],r:13,fill:"none",stroke:"#FFD84A","stroke-width":2.5});
+      el("circle",{cx:q[0],cy:q[1],r:2.5,fill:"#FFD84A"});
+      var lx=q[0]>W/2?q[0]-20:q[0]+20, anc=q[0]>W/2?"end":"start";
+      tx(lx,q[1]-4,String(yd(P,T)),{"font-size":22,"font-weight":700,fill:"#FFD84A","text-anchor":anc,style:"paint-order:stroke;stroke:rgba(0,0,0,.6);stroke-width:4px"});
+      tx(lx,q[1]+14,"再 "+yd(T,G.c)+" 到旗",{"font-size":12,"font-weight":600,fill:"#fff","text-anchor":anc,style:"paint-order:stroke;stroke:rgba(0,0,0,.6);stroke-width:3px"});}
+    // one flag: at today's pin, or the green centre until a pin is set
+    var fq=S(st.pin||G.c); el("line",{x1:fq[0],y1:fq[1],x2:fq[0],y2:fq[1]-22,stroke:"#fff","stroke-width":2});
+    el("path",{d:"M"+fq[0]+" "+(fq[1]-22)+" l13 4.5 -13 4.5z",fill:"#FF4B3E"});el("ellipse",{cx:fq[0],cy:fq[1],rx:3.5,ry:1.8,fill:"#000","fill-opacity":.45});
+    // player
+    var pp=S(P); el("circle",{cx:pp[0],cy:pp[1],r:15,fill:"#0A84FF","fill-opacity":.28});
+    el("circle",{cx:pp[0],cy:pp[1],r:7.5,fill:"#0A84FF",stroke:"#fff","stroke-width":2.5});
+    // HUD
+    document.getElementById("dM").textContent=yd(P,G.c);
+    document.getElementById("dF").textContent=yd(P,G.f);
+    document.getElementById("dB").textContent=yd(P,G.b);
+    var cap=document.getElementById("ladderCap");
+    if(st.pin){cap.innerHTML='<span style="color:#FF8A80;font-weight:700">旗 '+yd(P,st.pin)+'</span>';}else{cap.textContent="到果岭 · 码";}
+    document.getElementById("roundLine").textContent="本场 +2 · 第 "+(st.shot+1)+" 杆";
+    document.getElementById("planN").textContent=(st.plan+1)+"/"+PLANS.length;
+    var bh=document.getElementById("bHaz"),on=st.haz!==null;bh.classList.toggle("on",on);bh.setAttribute("aria-pressed",String(on));
+    var hb=document.getElementById("hazBar");hb.style.display=on?"flex":"none";
+    if(on){var z=HAZ[st.haz];document.getElementById("hzName").textContent=z.name;document.getElementById("hzIdx").textContent=(st.haz+1)+" / "+HAZ.length;
+      document.getElementById("hzIcon").style.background=z.water?"#3B82C4":"#D6B85A";
+      document.getElementById("hzPrev").disabled=st.haz===0;document.getElementById("hzNext").disabled=st.haz===HAZ.length-1;}
+    var a=st.auto, v=st.vb, moved=a&&(Math.abs(a.x-v.x)>6||Math.abs(a.y-v.y)>6||Math.abs(a.w-v.w)/a.w>.04);
+    document.getElementById("recWrap").style.visibility=moved?"visible":"hidden";
+  }
+
+  function toast(msg){var t=document.getElementById("toast");t.textContent=msg;t.style.opacity=1;clearTimeout(toast._t);toast._t=setTimeout(function(){t.style.opacity=0;},1600);}
+  function reframe(animate){st.auto=autoFrame();setView(st.auto,animate);}
+
+  // controls
+  function firstAhead(){var P=st.player;for(var i=0;i<HAZ.length;i++){if(yd(P,HAZ[i].back)>20&&HAZ[i].back[1]<P[1])return i;}return 0;}
+  document.getElementById("bHaz").onclick=function(){st.haz=st.haz===null?firstAhead():null;render();};
+  document.getElementById("hzPrev").onclick=function(){if(st.haz>0){st.haz--;render();}};
+  document.getElementById("hzNext").onclick=function(){if(st.haz<HAZ.length-1){st.haz++;render();}};
+  function inPoly(pt,pts){var c=false;for(var i=0,j=pts.length-1;i<pts.length;j=i++){var a=pts[i],b=pts[j];if(((a[1]>pt[1])!==(b[1]>pt[1]))&&(pt[0]<(b[0]-a[0])*(pt[1]-a[1])/(b[1]-a[1])+a[0]))c=!c;}return c;}
+  document.getElementById("bPlan").onclick=function(){st.plan=(st.plan+1)%PLANS.length;if(st.shot>=PLANS[st.plan].shots.length+1)st.shot=0;render();toast("打法 "+(st.plan+1)+"：" +PLANS[st.plan].name);};
+  document.getElementById("bRec").onclick=function(){reframe(true);};
+  document.getElementById("bScore").onclick=function(){toast("打开记分面板（杆数、推杆、开球、罚杆）");};
+  document.getElementById("bShot").onclick=function(){
+    var plan=PLANS[st.plan];
+    if(st.shot<plan.shots.length){st.player=plan.shots[st.shot].p.slice();st.shot++;st.target=null;reframe(true);toast("已记第 "+st.shot+" 杆");}
+    else toast("已在果岭附近，点“记分”完成本洞");
+  };
+  // presets
+  function reset(){st.plan=0;st.shot=0;st.player=TEE.slice();st.haz=null;st.target=null;}
+  document.getElementById("pTee").onclick=function(){reset();reframe(true);};
+  document.getElementById("pSecond").onclick=function(){reset();st.shot=1;st.player=PLANS[0].shots[0].p.slice();reframe(true);};
+  document.getElementById("pHaz").onclick=function(){st.haz=1;render();};
+  document.getElementById("pGreen").onclick=function(){openGreen();};
+  document.getElementById("pTarget").onclick=function(){st.target=st.shot===0?[318,560]:[312,420];render();};
+
+  // ---- shared magnifier (same as the live app: 100pt rounded loupe, 2.35x, white crosshair) ----
+  var loupe=document.getElementById("loupe"),limg=document.getElementById("limg"),lov=document.getElementById("lov");
+  var LD=100,LM=2.35;
+  function showLoupe(finger,imgPt,screenScale,kind,edges){
+    var ls=screenScale*LM;
+    limg.setAttribute("href",document.getElementById("topo").getAttribute("href"));
+    limg.setAttribute("x",(LD/2-imgPt[0]*ls).toFixed(1));limg.setAttribute("y",(LD/2-imgPt[1]*ls).toFixed(1));
+    limg.setAttribute("width",(678*ls).toFixed(1));limg.setAttribute("height",(1060*ls).toFixed(1));
+    while(lov.firstChild)lov.removeChild(lov.firstChild);
+    function le(t,a){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);lov.appendChild(e);return e;}
+    if(kind==="target"){le("circle",{cx:50,cy:50,r:13,fill:"none",stroke:"#FFD84A","stroke-width":2.5});}
+    (edges||[]).forEach(function(e){le("line",{x1:50,y1:50,x2:(50+(e[0]-imgPt[0])*ls).toFixed(1),y2:(50+(e[1]-imgPt[1])*ls).toFixed(1),stroke:"#fff","stroke-width":1.3,"stroke-opacity":.9});});
+    if(kind==="flag"){le("line",{x1:50,y1:50,x2:50,y2:18,stroke:"#fff","stroke-width":2});le("path",{d:"M50 18 l16 5.5 -16 5.5z",fill:"#FF4B3E"});}
+    le("line",{x1:41,y1:50,x2:59,y2:50,stroke:"#fff","stroke-width":1.4});le("line",{x1:50,y1:41,x2:50,y2:59,stroke:"#fff","stroke-width":1.4});
+    var half=LD/2,x=Math.max(half+8,Math.min(W-half-8,finger[0])),above=finger[1]-half-72,below=finger[1]+half+72;
+    var y=above>=half+56?above:Math.min(below,H-half-8);
+    loupe.style.left=(x-half)+"px";loupe.style.top=(y-half)+"px";loupe.style.display="block";
+  }
+  function hideLoupe(){loupe.style.display="none";}
+
+  // ---- pin screen (same flow as the live 调整旗位 / LiveGreenDetailView) ----
+  var gv=document.getElementById("gv"),gmap=document.getElementById("gmap"),gov=document.getElementById("gov"),gtopo=document.getElementById("gtopo");
+  var GV={x:0,y:0,s:1},GV0=null,gpin=null;
+  function gS(p){return [(p[0]-GV.x)*GV.s,(p[1]-GV.y)*GV.s];}
+  function gI(q){return [q[0]/GV.s+GV.x,q[1]/GV.s+GV.y];}
+  function gel(t,a){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);gov.appendChild(e);return e;}
+  function onGreen(p){return inPoly(p,GREEN);}
+  function clampGreen(p){ // outside the green: snap to the nearest edge point, nudged just inside
+    if(inPoly(p,GREEN))return p;var best=null,bd=1e9;
+    for(var i=0,j=GREEN.length-1;i<GREEN.length;j=i++){var a=GREEN[j],b=GREEN[i],vx=b[0]-a[0],vy=b[1]-a[1],L=vx*vx+vy*vy||1;
+      var s=Math.max(0,Math.min(1,((p[0]-a[0])*vx+(p[1]-a[1])*vy)/L)),x=a[0]+s*vx,y=a[1]+s*vy,d=Math.hypot(p[0]-x,p[1]-y);if(d<bd){bd=d;best=[x,y];}}
+    var c=[best[0]+(G.c[0]-best[0])*0.04,best[1]+(G.c[1]-best[1])*0.04];return inPoly(c,GREEN)?c:G.c.slice();}
+  function rayHit(p,d){ // distance (image px) from p along unit d to the green edge
+    var tMin=null;for(var i=0,j=GREEN.length-1;i<GREEN.length;j=i++){var a=GREEN[j],b=GREEN[i],ex=b[0]-a[0],ey=b[1]-a[1],den=d[0]*ey-d[1]*ex;if(Math.abs(den)<1e-9)continue;
+      var wx=a[0]-p[0],wy=a[1]-p[1],tt=(wx*ey-wy*ex)/den,s=(wx*d[1]-wy*d[0])/den;if(tt>=0&&s>=0&&s<=1&&(tMin===null||tt<tMin))tMin=tt;}
+    return tMin===null?0:tMin;}
+  var gEdgePts=[];
+  function gRender(){
+    gtopo.setAttribute("x",(-GV.x*GV.s).toFixed(1));gtopo.setAttribute("y",(-GV.y*GV.s).toFixed(1));
+    gtopo.setAttribute("width",(678*GV.s).toFixed(1));gtopo.setAttribute("height",(1060*GV.s).toFixed(1));
+    while(gov.firstChild)gov.removeChild(gov.firstChild);
+    var P=st.player,q=gS(gpin);
+    var u0=[G.c[0]-P[0],G.c[1]-P[1]],n0=Math.hypot(u0[0],u0[1]);u0=[u0[0]/n0,u0[1]/n0];var r0=[-u0[1],u0[0]];
+    var dirs=[{id:"eF",d:[-u0[0],-u0[1]]},{id:"eB",d:u0},{id:"eL",d:[-r0[0],-r0[1]]},{id:"eR",d:r0}];
+    gEdgePts=[];
+    dirs.forEach(function(o){var tt=rayHit(gpin,o.d),e=[gpin[0]+o.d[0]*tt,gpin[1]+o.d[1]*tt],es=gS(e),v=Math.max(0,Math.round(tt/PPY));
+      gEdgePts.push(e);document.getElementById(o.id).textContent=v;
+      gel("line",{x1:q[0],y1:q[1],x2:es[0],y2:es[1],stroke:"#fff","stroke-width":1.3,"stroke-opacity":.9});
+      var nx=-o.d[1]*5,ny=o.d[0]*5;gel("line",{x1:es[0]-nx,y1:es[1]-ny,x2:es[0]+nx,y2:es[1]+ny,stroke:"#fff","stroke-width":2,"stroke-linecap":"round"});
+      var txt=String(v),w=10+txt.length*8,h=20,gap=10+Math.abs(o.d[0])*w/2+Math.abs(o.d[1])*h/2;
+      var lx=Math.max(w/2+6,Math.min(W-w/2-6,es[0]+o.d[0]*gap)),ly=Math.max(104+h/2,Math.min(620,es[1]+o.d[1]*gap));
+      gel("rect",{x:lx-w/2,y:ly-h/2,width:w,height:h,rx:h/2,fill:"#000","fill-opacity":.64});
+      var tx=gel("text",{x:lx,y:ly+4.5,"text-anchor":"middle","font-size":13,"font-weight":700,fill:"#fff","font-family":"var(--sys)","style":"font-variant-numeric:tabular-nums"});tx.textContent=txt;});
+    gel("ellipse",{cx:q[0],cy:q[1],rx:6,ry:3,fill:"#000","fill-opacity":.45});
+    gel("line",{x1:q[0],y1:q[1],x2:q[0],y2:q[1]-46,stroke:"#fff","stroke-width":2.4});
+    gel("path",{d:"M"+q[0]+" "+(q[1]-46)+" l24 8 -24 8z",fill:"#FF4B3E"});
+    var u=[G.c[0]-P[0],G.c[1]-P[1]],n=Math.hypot(u[0],u[1]);u=[u[0]/n,u[1]/n];var rr=[-u[1],u[0]];
+    var d=[gpin[0]-G.c[0],gpin[1]-G.c[1]],along=(d[0]*u[0]+d[1]*u[1])/PPY,lat=(d[0]*rr[0]+d[1]*rr[1])/PPY;
+    document.getElementById("gTo").textContent=yd(P,gpin);
+    var a=Math.round(along),l=Math.round(lat),parts=[];
+    if(Math.abs(a)>=1)parts.push("中心"+(a>0?"后 ":"前 ")+Math.abs(a)+" 码");
+    if(Math.abs(l)>=1)parts.push((l>0?"偏右 ":"偏左 ")+Math.abs(l)+" 码");
+    document.getElementById("gWhere").textContent=parts.length?"旗在果岭"+parts.join("、"):"旗在果岭中心";
+    document.getElementById("gZoom").style.display=(GV.s/GV0.s>1.01)?"flex":"none";
+  }
+  function gSetZoom(k,anchor){ // k = zoom relative to the fitted green (1x .. 4x)
+    k=Math.max(1,Math.min(4,k));var a=anchor||[W/2,330],ip=gI(a);GV.s=GV0.s*k;GV.x=ip[0]-a[0]/GV.s;GV.y=ip[1]-a[1]/GV.s;gRender();}
+  function openGreen(){gtopo.setAttribute("href",document.getElementById("topo").getAttribute("href"));
+    var s=Math.min(390/78,470/78);GV={s:s,x:G.c[0]-195/s,y:G.c[1]-330/s};GV0={s:GV.s,x:GV.x,y:GV.y};
+    gpin=(st.pin||G.c).slice();gv.style.display="block";gRender();}
+  var gp={},gmode=null,gstart=null,gOff=[0,0];
+  function gLocal(e){var r=phone.getBoundingClientRect(),k=r.width/W;return [(e.clientX-r.left)/k,(e.clientY-r.top)/k];}
+  gmap.addEventListener("pointerdown",function(e){gmap.setPointerCapture(e.pointerId);var p=gLocal(e);gp[e.pointerId]=p;
+    var ids=Object.keys(gp);
+    if(ids.length===2){gmode="pinch";hideLoupe();gstart={GV:Object.assign({},GV),pts:ids.map(function(i){return gp[i].slice();})};return;}
+    var fq=gS(gpin);
+    if(Math.hypot(fq[0]-p[0],fq[1]-(p[1]+20))<40){gmode="flag";gOff=[fq[0]-p[0],fq[1]-p[1]];return;}
+    gmode="pan";gstart={GV:Object.assign({},GV),p:p.slice(),moved:false};});
+  gmap.addEventListener("pointermove",function(e){if(!gp[e.pointerId])return;var p=gLocal(e);gp[e.pointerId]=p;
+    if(gmode==="flag"){gpin=clampGreen(gI([p[0]+gOff[0],p[1]+gOff[1]]));gRender();}
+    else if(gmode==="pan"){var dx=p[0]-gstart.p[0],dy=p[1]-gstart.p[1];if(Math.hypot(dx,dy)>6)gstart.moved=true;
+      if(gstart.moved&&GV.s/GV0.s>1.01){GV.x=gstart.GV.x-dx/GV.s;GV.y=gstart.GV.y-dy/GV.s;gRender();}}
+    else if(gmode==="pinch"){var ids=Object.keys(gp);if(ids.length<2)return;var c=ids.map(function(i){return gp[i];});
+      var d0=Math.hypot(gstart.pts[0][0]-gstart.pts[1][0],gstart.pts[0][1]-gstart.pts[1][1]),d1=Math.hypot(c[0][0]-c[1][0],c[0][1]-c[1][1]);
+      GV=Object.assign({},gstart.GV);gSetZoom((gstart.GV.s/GV0.s)*d1/Math.max(d0,1),[(c[0][0]+c[1][0])/2,(c[0][1]+c[1][1])/2]);}});
+  function gUp(e){if(!gp[e.pointerId])return;var p=gp[e.pointerId];delete gp[e.pointerId];
+    if(gmode==="pan"&&!gstart.moved){var ip=gI(p);if(onGreen(ip)){gpin=ip;gRender();}}
+    if(gmode==="flag")hideLoupe();
+    if(Object.keys(gp).length===0)gmode=null;}
+  gmap.addEventListener("pointerup",gUp);gmap.addEventListener("pointercancel",gUp);
+  gmap.addEventListener("wheel",function(e){e.preventDefault();gSetZoom((GV.s/GV0.s)*Math.exp(-e.deltaY*0.002),gLocal(e));},{passive:false});
+  document.getElementById("gOut").onclick=function(){gSetZoom(GV.s/GV0.s-0.5);};
+  document.getElementById("gFit").onclick=function(){GV=Object.assign({},GV0);gRender();};
+  document.getElementById("gBack").onclick=function(){gv.style.display="none";hideLoupe();};
+  document.getElementById("gReset").onclick=function(){gpin=G.c.slice();gRender();};
+  document.getElementById("gDone").onclick=function(){st.pin=gpin.slice();gv.style.display="none";hideLoupe();render();toast("旗位已更新");};
+
+  // ---- main map gestures: pan / pinch / wheel; tap = target; hold or drag the target = move it with the loupe ----
+  var ptrs={},start=null,lastTap=0,holdTimer=null,mode=null;
+  function local(e){var r=phone.getBoundingClientRect(),k=r.width/W;return [(e.clientX-r.left)/k,(e.clientY-r.top)/k];}
+  function beginTargetDrag(p){mode="target";clearTimeout(holdTimer);st.target=I(p);render();showLoupe(p,st.target,W/st.vb.w,"target");}
+  svg.addEventListener("pointerdown",function(e){svg.setPointerCapture(e.pointerId);var p=local(e);ptrs[e.pointerId]=p;
+    var ids=Object.keys(ptrs);clearTimeout(holdTimer);
+    if(ids.length===1){
+      if(st.target){var tq=S(st.target);if(Math.hypot(tq[0]-p[0],tq[1]-p[1])<30){mode="target";showLoupe(p,st.target,W/st.vb.w,"target");start={vb:Object.assign({},st.vb),pts:[p.slice()],moved:true,t:0};return;}}
+      mode="pan";holdTimer=setTimeout(function(){if(mode==="pan"&&start&&!start.moved)beginTargetDrag(p);},450);
+    } else {mode="pinch";hideLoupe();}
+    start={vb:Object.assign({},st.vb),pts:ids.map(function(i){return ptrs[i].slice();}),moved:mode!=="pan",t:performance.now()};});
+  svg.addEventListener("pointermove",function(e){if(!ptrs[e.pointerId]||!start)return;var p=local(e);ptrs[e.pointerId]=p;
+    if(mode==="target"){st.target=I(p);render();showLoupe(p,st.target,W/st.vb.w,"target");return;}
+    var ids=Object.keys(ptrs),cur=ids.map(function(i){return ptrs[i];});
+    if(mode==="pan"&&cur.length===1){var dx=cur[0][0]-start.pts[0][0],dy=cur[0][1]-start.pts[0][1];
+      if(Math.hypot(dx,dy)>6){start.moved=true;clearTimeout(holdTimer);} if(!start.moved)return;
+      var s=W/start.vb.w; st.vb={x:start.vb.x-dx/s,y:start.vb.y-dy/s,w:start.vb.w};render();}
+    else if(mode==="pinch"&&cur.length>=2&&start.pts.length>=2){
+      var d0=Math.hypot(start.pts[0][0]-start.pts[1][0],start.pts[0][1]-start.pts[1][1]),d1=Math.hypot(cur[0][0]-cur[1][0],cur[0][1]-cur[1][1]);
+      var m0=[(start.pts[0][0]+start.pts[1][0])/2,(start.pts[0][1]+start.pts[1][1])/2],m1=[(cur[0][0]+cur[1][0])/2,(cur[0][1]+cur[1][1])/2];
+      var s0=W/start.vb.w,w=Math.max(140,Math.min(900,start.vb.w*d0/Math.max(d1,1))),s1=W/w;
+      var ix=m0[0]/s0+start.vb.x,iy=m0[1]/s0+start.vb.y; st.vb={x:ix-m1[0]/s1,y:iy-m1[1]/s1,w:w};render();}
+  });
+  function up(e){if(!ptrs[e.pointerId])return;clearTimeout(holdTimer);
+    var wasTap=mode==="pan"&&start&&!start.moved&&Object.keys(ptrs).length===1&&performance.now()-start.t<350;var p=ptrs[e.pointerId];delete ptrs[e.pointerId];
+    if(mode==="target"){hideLoupe();}
+    if(wasTap){var now=performance.now();
+      if(now-lastTap<300){lastTap=0;reframe(true);}
+      else{lastTap=now;var ip=I(p);
+      setTimeout(function(){if(lastTap!==now)return;
+        if(st.target){var tq=S(st.target);if(Math.hypot(tq[0]-p[0],tq[1]-p[1])<24){st.target=null;render();return;}}
+        if(inPoly(ip,GREEN)||Math.pow((ip[0]-G.c[0])/25,2)+Math.pow((ip[1]-G.c[1])/32,2)<=1){openGreen();return;}
+        for(var h=0;h<HAZ.length;h++){if(inPoly(ip,HAZ[h].pts)){st.haz=(st.haz===h?null:h);render();return;}}
+        st.target=ip;render();},260);}}
+    if(Object.keys(ptrs).length===0){start=null;mode=null;}
+    else{var ids=Object.keys(ptrs);mode="pan";start={vb:Object.assign({},st.vb),pts:ids.map(function(i){return ptrs[i].slice();}),moved:true,t:0};}}
+  svg.addEventListener("pointerup",up);svg.addEventListener("pointercancel",up);
+  svg.addEventListener("wheel",function(e){e.preventDefault();var p=local(e),s0=W/st.vb.w;var w=Math.max(140,Math.min(900,st.vb.w*Math.exp(e.deltaY*0.0015)));var s1=W/w;
+    var ix=p[0]/s0+st.vb.x,iy=p[1]/s0+st.vb.y;st.vb={x:ix-p[0]/s1,y:iy-p[1]/s1,w:w};render();},{passive:false});
+
+  // responsive scale of the 390x844 phone
+  function fit(){var f=document.getElementById("fit"),sh=document.getElementById("shell");var k=Math.min(1,f.clientWidth/W);sh.style.transform="scale("+k+")";f.style.height=(H*k)+"px";}
+  window.addEventListener("resize",fit);fit();
+  reframe(false);
+})();
+</script>

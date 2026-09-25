@@ -1,0 +1,615 @@
+<title>手表自动记分原型</title>
+<style>
+:root{
+  --bg:#F3F3F0; --surface:#FFFFFF; --ink:#151815; --muted:#63695F; --line:#DCDDD6; --accent:#2F7D4A; --soft:#E7F0E9; --code:#EEF0EA;
+  --sys:-apple-system,"SF Pro Text","SF Compact Text","SF Pro Display",system-ui,"PingFang SC","Hiragino Sans GB","Noto Sans SC",sans-serif;
+  --p-ink:#F4F6F2; --p-mut:rgba(244,246,242,.62); --p-dim:rgba(244,246,242,.42); --p-fill:rgba(255,255,255,.1); --p-line:rgba(255,255,255,.14);
+  --eagle:#7CC4F2; --birdie:#56A8E8; --par:#F4F6F2; --bogey:#E6B04E; --double:#E8814B; --triple:#D9644A; --good:#5CC47F; --bad:#FF6B5E; --yel:#FFD84A;
+  --k-full:#F4F6F2; --k-putt:#5CC47F; --k-rej:#9AA197; --k-phone:#56A8E8; --k-pen:#FF6B5E;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0E100E;--surface:#171A17;--ink:#E8EBE6;--muted:#9AA197;--line:#2A2E29;--accent:#5CC47F;--soft:#1A2A1F;--code:#1E221E;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0E100E;--surface:#171A17;--ink:#E8EBE6;--muted:#9AA197;--line:#2A2E29;--accent:#5CC47F;--soft:#1A2A1F;--code:#1E221E;color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--sys);font-size:15px;line-height:1.6;padding-inline:20px;padding-block:28px 64px}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:44px}
+h1{font-size:clamp(26px,4vw,38px);margin:0;letter-spacing:-.015em;text-wrap:balance;line-height:1.2}
+h2{font-size:22px;margin:0;letter-spacing:-.01em;text-wrap:balance}
+h3{font-size:16px;margin:0}
+p{margin:0}
+.lede{color:var(--muted);max-width:72ch}
+.eyebrow{font-size:12px;letter-spacing:.1em;color:var(--accent);font-weight:700}
+section{display:flex;flex-direction:column;gap:16px}
+.watches{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:32px 20px;align-items:start}
+.wdemo{display:flex;flex-direction:column;align-items:center;gap:10px}
+.wdemo h3{align-self:center}
+.wdemo .cap{font-size:13px;color:var(--muted);max-width:280px}
+.presets{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:280px}
+.presets button,.scen button{font:inherit;font-size:12.5px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:4px 11px;cursor:pointer}
+.presets button:focus-visible,.scen button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.scen button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+
+/* ---------- watch (Apple Watch Ultra 49 mm: 205 × 251 pt, drawn at 1.2×) ---------- */
+.wbox{width:262px;height:318px;position:relative}
+.wcase{position:absolute;inset:0;border-radius:64px;background:#2B2D2C;box-shadow:inset 0 0 0 2px #444845,0 24px 40px -22px rgba(0,0,0,.55)}
+.crown{position:absolute;right:-9px;top:88px;width:12px;height:46px;border-radius:5px;background:#3A3D3B;border:1px solid #555;cursor:ns-resize}
+.sidebtn{position:absolute;right:-6px;top:160px;width:7px;height:40px;border-radius:3px;background:#3A3D3B}
+.wscr{position:absolute;left:8px;top:8px;width:205px;height:251px;transform:scale(1.2);transform-origin:top left;border-radius:44px;overflow:hidden;background:#000;color:var(--p-ink);font-family:var(--sys);line-height:1.2;user-select:none;-webkit-user-select:none}
+.wscr button{font:inherit;color:inherit;border:none;background:none;padding:0;cursor:pointer}
+.wscr button:focus-visible{outline:2px solid #fff;outline-offset:1px}
+.clock{position:absolute;top:9px;right:22px;font-size:13px;font-weight:600;z-index:5}
+.tn{font-variant-numeric:tabular-nums}
+.mut{color:var(--p-mut)}
+.pill{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);padding:6px 12px;border-radius:999px;background:rgba(30,34,32,.92);border:.5px solid var(--p-line);font-size:13px;font-weight:600;white-space:nowrap;transition:opacity .3s,transform .3s}
+.chip{position:relative;display:grid;place-items:center;font-weight:800;font-variant-numeric:tabular-nums}
+.chip svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.wbtn{height:38px;border-radius:19px!important;background:#F4F6F2!important;color:#0B0F0C!important;font-size:15px!important;font-weight:700!important;width:100%}
+.mini{height:30px;border-radius:15px!important;background:var(--p-fill)!important;display:flex!important;align-items:center;justify-content:center;gap:5px;font-size:14px!important;font-weight:600!important}
+.mini b{font-size:16px}
+.fwr{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.fwr button{height:32px;border-radius:10px!important;background:var(--p-fill)!important;display:grid!important;place-items:center}
+.fwr button.on{background:rgba(92,196,127,.25)!important;box-shadow:inset 0 0 0 1px rgba(92,196,127,.85)}
+.fwr button.miss.on{background:rgba(230,176,78,.22)!important;box-shadow:inset 0 0 0 1px rgba(230,176,78,.85)}
+#w2list::-webkit-scrollbar{display:none}
+#w2list button{display:block;width:100%;height:44px;scroll-snap-align:center;font-size:30px;font-weight:700;color:var(--p-dim)}
+#w2list button.c{color:#F4F6F2}
+.drum{position:relative;height:30px;border-radius:15px;background:var(--p-fill);touch-action:none;cursor:ns-resize;display:flex;align-items:center;padding-left:14px;gap:6px}
+.drum .dl{font-size:14px;font-weight:600;color:var(--p-mut)}
+.drum .dv{position:relative;flex:1;height:30px}
+.drum .dv span{position:absolute;left:0;width:32px;text-align:center;font-weight:700;line-height:1}
+.drum.on{box-shadow:inset 0 0 0 1.5px rgba(92,196,127,.95)}
+.drum.on .dv{height:30px;overflow:visible}
+.drum .fade{position:absolute;left:30px;right:0;border-radius:12px;pointer-events:none}
+.g9{display:grid;grid-template-columns:repeat(9,1fr);justify-items:center;row-gap:2px}
+.g9 .h{font-size:9px;color:var(--p-dim)}
+
+/* ---------- algorithm ---------- */
+.pipe{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px}
+.sim{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:760px){.sim{grid-template-columns:1fr}}
+.simmap{position:relative;background:#07090A;border-radius:18px;overflow:hidden;max-width:100%}
+.simmap svg{display:block;width:100%;height:auto}
+.scen{display:flex;flex-wrap:wrap;gap:6px}
+.tw{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:16px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:none}
+th{font-size:11.5px;color:var(--muted);font-weight:600;letter-spacing:.04em;white-space:nowrap}
+.ev{min-width:780px}
+.ev td:nth-child(1),.ev td:nth-child(4),.ev td:nth-child(5),.ev td:nth-child(6),.ev td:nth-child(7){font-variant-numeric:tabular-nums;white-space:nowrap}
+.tag{display:inline-block;font-size:11.5px;font-weight:700;border-radius:999px;padding:1px 8px;white-space:nowrap}
+.result{display:grid;grid-template-columns:repeat(5,1fr);background:var(--surface);border:1px solid var(--line);border-radius:16px}
+.result div{padding:10px 12px;display:flex;flex-direction:column;gap:1px}
+.result div+div{border-left:1px solid var(--line)}
+.result span{font-size:12px;color:var(--muted)}
+.result b{font-size:22px;font-variant-numeric:tabular-nums;line-height:1.2}
+@media (max-width:520px){.result{grid-template-columns:repeat(3,1fr)}.result div:nth-child(4){border-left:none}}
+.why{font-size:13.5px;color:var(--muted);max-width:80ch}
+.rules{min-width:760px}
+.rules td:first-child{font-weight:600;white-space:nowrap}
+.rules a{color:var(--accent)}
+code{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12.5px;background:var(--code);border-radius:5px;padding:1px 5px}
+footer{font-size:13px;color:var(--muted)}
+@media (prefers-reduced-motion: reduce){.pill{transition:none}}
+</style>
+
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:12px">
+  <span class="eyebrow">手表 · 打球中</span>
+  <h1>手表自动数杆，打完一洞只点一下确认</h1>
+  <p class="lede">以后主要在手表上记分。手表自己数挥杆、按 GPS 分出哪些是推杆、开球落在哪，打完一洞弹出已经填好的成绩，对了点“确认”。屏幕上不写提示。下面四块表可以点，转表冠可以用鼠标滚轮或表冠旁的按钮。第二部分是背后的检测和推算规则，带一个可以切换情况的模拟。</p>
+</header>
+
+<section>
+  <h2>四个画面</h2>
+  <div class="watches">
+    <!-- W1 home -->
+    <div class="wdemo">
+      <h3>1 · 本洞</h3>
+      <div class="wbox"><div class="wcase"></div><div class="crown" data-crown="w1" title="表冠：缩放地图（放大后拖动地图平移）"></div><div class="sidebtn"></div>
+        <div class="wscr" id="w1">
+          <svg id="w1map" viewBox="0 0 205 251" width="205" height="251" style="position:absolute;inset:0;touch-action:none;cursor:grab"></svg>
+          <div style="position:absolute;left:16px;top:26px;display:flex;flex-direction:column;gap:1px">
+            <div style="font-size:13px;font-weight:700" id="w1h">1 <span class="mut" style="font-weight:600">P5</span></div>
+            <div class="tn mut" style="font-size:15px;margin-top:6px" id="w1b">560</div>
+            <div class="tn" style="font-size:40px;font-weight:700;line-height:1;letter-spacing:-.02em" id="w1c">543</div>
+            <div class="tn mut" style="font-size:15px" id="w1f">524</div>
+            <div id="w1club" role="button" tabindex="0" style="cursor:pointer;margin-top:7px;align-self:flex-start;font-size:12px;font-weight:700;padding:3px 8px;border-radius:999px;background:rgba(92,196,127,.22);color:#9FE0B4">一号木</div>
+          </div>
+          <div id="w1dots" style="position:absolute;right:7px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:4px"></div>
+          <div class="clock tn">9:41</div>
+          <div class="tn" id="w1shot" style="position:absolute;left:16px;bottom:18px;font-size:12px;font-weight:600;color:var(--p-mut)">第 1 杆</div>
+          <div class="pill tn" id="w1pill" style="opacity:0;pointer-events:none"></div>
+        </div>
+      </div>
+      <div class="presets"><button data-w1="tee">发球台</button><button data-w1="plan">点绿签：换方案</button><button data-w1="zoom">表冠放大</button><button data-w1="tgt">点地图测距</button><button data-w1="away">还没开球、人不在发球台</button><button data-w1="haz">上滑：障碍</button><button data-w1="green">再上滑：果岭</button><button data-w1="shot">测到一杆</button><button data-w1="undo">点小条撤销</button></div>
+      <p class="cap">上下滑三页（右边小点）：① 本洞，地图上画 AI 球童的方案（白线 + 落点 + “D 224”），左边绿色小签是下一杆用的杆，点它换方案（稳妥 / 进攻）；② 障碍，一次一个，红框 + “前 / 后”距离，和手机一样，点“1 / 4”换下一个，只列前方的；③ 果岭。三页都是表冠缩放、放大后拖动地图平移；没放大时上下滑翻页。点地图放一个黄圈测距（放大后改成长按 0.5 秒，免得拖地图时误放）：黄字是从你到这里多少码，“再 N”是从这里到旗；还没开球时从发球台量起。点黄圈取消，点别处挪过去。同一张 topo 图、同一套三个距离。去掉了“手动记杆 +”按钮和选球杆弹窗：手表测到挥杆就震一下，底部闪一下“第 2 杆 · 上一杆一号木 231 码”，两秒后消失。测错了点一下小条撤销。</p>
+    </div>
+
+    <!-- W2 score -->
+    <div class="wdemo">
+      <h3>2 · 本洞成绩</h3>
+      <div class="wbox"><div class="wcase"></div><div class="crown" data-crown="w2" title="表冠：改杆数"></div><div class="sidebtn"></div>
+        <div class="wscr" id="w2">
+          <div style="position:absolute;left:18px;top:12px;font-size:13px;font-weight:700">1 <span class="mut" style="font-weight:600">P5</span></div>
+          <div class="clock tn">9:58</div>
+          <div style="position:absolute;inset:34px 14px 14px;display:flex;flex-direction:column;gap:7px">
+            <div id="w2swipe" style="position:relative;height:72px;margin:0 -14px;overflow:hidden;touch-action:none;cursor:grab" aria-label="总杆：左右或上下滑动来改">
+              <div id="w2chip" style="position:absolute;inset:0"></div>
+              <div id="w2name" style="position:absolute;left:0;right:0;bottom:0;text-align:center;font-size:11px;font-weight:600;color:var(--p-mut)"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;position:relative;z-index:3">
+              <div class="drum" id="w2putt" role="spinbutton" tabindex="0" aria-label="推杆：上下拖动或转表冠"><span class="dl">推</span><div class="dv tn" id="w2pd"></div><b id="w2p" hidden>2</b></div>
+              <div class="drum" id="w2pen" role="spinbutton" tabindex="0" aria-label="罚杆：上下拖动或转表冠"><span class="dl">罚</span><div class="dv tn" id="w2xd"></div><b id="w2x" hidden>0</b></div>
+            </div>
+            <div class="fwr" id="w2fw"></div>
+            <button class="wbtn" id="w2ok">确认</button>
+          </div>
+          <div class="pill tn" id="w2pill" style="opacity:0;pointer-events:none"></div>
+        </div>
+      </div>
+      <div class="presets"><button data-w2="std">手表全测到</button><button data-w2="water">自己加了罚杆</button><button data-w2="p3">Par 3</button></div>
+      <p class="cap">走下果岭、往下一洞发球台走时自动弹出（或下一洞第一杆时）。总杆是一条左右滚动的数字带：当前杆数在中间最大，两边小一点的是相邻杆数，滑过去（或转表冠）就变大到中间；“推”“罚”就在原地上下滚：按住上下拖，或点一下再转表冠，上下会露出相邻的小数字，数字是一圈，推杆 0–5、罚杆 0–4，转过头会接着转回来，比如 0 上面是 5。停手就算选定，小数字随即收起，开球三格和手机一样。不点确认也行：下一洞开球时自动按这个存下，之后在计分卡里还能改。</p>
+    </div>
+
+    <!-- W3 scorecard -->
+    <div class="wdemo">
+      <h3>3 · 计分卡</h3>
+      <div class="wbox"><div class="wcase"></div><div class="crown" data-crown="w3" title="表冠：上下翻"></div><div class="sidebtn"></div>
+        <div class="wscr" id="w3">
+          <div class="clock tn">11:20</div>
+          <div style="position:absolute;inset:30px 12px 12px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;align-items:flex-end;gap:8px;padding-left:6px">
+              <div class="tn" id="w3tp" style="font-size:44px;font-weight:700;line-height:.9">+4</div>
+              <div style="padding-bottom:3px"><div class="tn" style="font-size:15px;font-weight:700" id="w3st">40 杆</div><div class="mut tn" style="font-size:11.5px">9/18 洞</div></div>
+            </div>
+            <div class="g9 tn" id="w3f"></div>
+            <div class="g9 tn" id="w3b"></div>
+            <button class="mini" id="w3end" style="margin-top:2px">结束本场</button>
+          </div>
+          <div class="pill tn" id="w3pill" style="opacity:0;pointer-events:none"></div>
+        </div>
+      </div>
+      <div class="presets"><button data-w3="h1">第 1 洞</button><button data-w3="h9">打完前九</button><button data-w3="h18">打完 18 洞</button></div>
+      <p class="cap">长按或菜单进入。一屏放下 18 洞的记分符号，点某洞进入第 2 屏改成绩。结束本场放这里，和手机计分卡一致。</p>
+    </div>
+
+    <!-- W4 finish -->
+    <div class="wdemo">
+      <h3>4 · 本场汇总</h3>
+      <div class="wbox"><div class="wcase"></div><div class="crown" data-crown="w4" title="表冠：上下翻"></div><div class="sidebtn"></div>
+        <div class="wscr" id="w4">
+          <div class="clock tn">13:02</div>
+          <div style="position:absolute;inset:30px 14px 12px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;align-items:flex-end;gap:8px;padding-left:4px">
+              <div class="tn" style="font-size:52px;font-weight:700;line-height:.85;color:var(--bogey)">+6</div>
+              <div style="padding-bottom:2px"><div class="tn" style="font-size:16px;font-weight:700">78 杆</div><div class="mut tn" style="font-size:11.5px">Par 72</div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;padding:4px 4px 0" class="tn">
+              <div><div class="mut" style="font-size:11px">球道</div><div style="font-size:17px;font-weight:700">9/14</div></div>
+              <div><div class="mut" style="font-size:11px">GIR</div><div style="font-size:17px;font-weight:700">9/18</div></div>
+              <div><div class="mut" style="font-size:11px">推杆</div><div style="font-size:17px;font-weight:700">32</div></div>
+              <div><div class="mut" style="font-size:11px">罚杆</div><div style="font-size:17px;font-weight:700;color:var(--double)">1</div></div>
+            </div>
+            <div style="flex:1"></div>
+            <button class="wbtn" id="w4ok">保存并结束</button>
+          </div>
+          <div class="pill tn" id="w4pill" style="opacity:0;pointer-events:none"></div>
+        </div>
+      </div>
+      <p class="cap">和手机汇总同样四项。不写同步状态：保存后先存表上，再通过手机或 Wi-Fi 在后台补传。“继续打球”“放弃本场”转表冠往下翻才看得到，避免误点。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>检测和推算：从手腕的动作到一洞的成绩</h2>
+  <p class="lede">分六步，前三步在手表上实时跑，后三步在一洞结束时跑。原始传感器数据不出手表，只留下每次挥杆的时间、GPS 位置和几个特征值。</p>
+  <div class="pipe"><svg id="pipe" viewBox="0 0 1120 170" width="1120" height="170" role="img" aria-label="六步处理流程"></svg></div>
+</section>
+
+<section>
+  <h2>模拟一洞：第 1 洞 Par 5</h2>
+  <p class="why">选一种情况，左边地图画出每一次测到的动作（白 = 算作一杆，绿 = 推杆，灰虚线 = 不算：空挥、试挥打地、坐车等，蓝 = 手机补记），右边是逐条判断和最后推算出的成绩。</p>
+  <div class="scen" id="scen"></div>
+  <div class="sim">
+    <div class="simmap"><svg id="simsvg" viewBox="150 40 380 980" aria-label="模拟的球洞和挥杆位置"></svg></div>
+    <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+      <div class="result" id="res"></div>
+      <div class="tw"><table class="ev"><thead><tr><th>时间</th><th>位置</th><th>动作</th><th>站定</th><th>转速峰值</th><th>撞击</th><th>撞击时长</th><th>判定</th></tr></thead><tbody id="evt"></tbody></table></div>
+      <p class="why" id="simwhy"></p>
+    </div>
+  </div>
+</section>
+
+<section id="kinds">
+  <h2>分清真击球、试挥打地、空挥</h2>
+  <p class="lede">罚杆（下水、OB）不猜，由你自己记。检测只做一件事：把每一次动作分对类，只让真击球算杆。靠的是下面几个特征，前四个在手表上直接算，最后一个要等之后的 GPS。</p>
+  <div class="tw"><table class="rules">
+    <thead><tr><th>动作</th><th>击球前站定</th><th>转动</th><th>撞击</th><th>之后</th><th>怎么处理</th></tr></thead>
+    <tbody>
+      <tr><td>真击球（全挥杆）</td><td>≥ 1 秒，几乎不动（瞄球）</td><td>峰值 ≥ 3 rad/s，累计转角完整（上杆 + 下杆 + 收杆）</td><td>尖锐：峰值通常 &gt; 3 g，持续 &lt; 12 毫秒（球加草皮）</td><td>停一下看球，然后朝落点走或上车，位置明显移动</td><td>算一杆</td></tr>
+      <tr><td>试挥打地</td><td>很短或没有（&lt; 0.6 秒）</td><td>和真挥杆差不多，常常慢一点</td><td>发闷：峰值低一些（约 2–3 g），持续 20–40 毫秒（只刷到草）</td><td>原地不走，几十秒内在同一位置又挥一次</td><td>同一位置 60 秒内只留“最像击球”的那次，其余当试挥</td></tr>
+      <tr><td>空挥</td><td>很短或没有</td><td>完整或半截</td><td>没有（&lt; 1 g）</td><td>原地不走</td><td>不算</td></tr>
+      <tr><td>打完原地比划</td><td>没有（紧接着上一杆）</td><td>多半是半截</td><td>没有</td><td>原地</td><td>不算，也不会顶掉刚才那一杆</td></tr>
+      <tr><td>推杆 / 试推</td><td>推杆 ≥ 1 秒；试推往往没有</td><td>慢速钟摆 0.3–2 rad/s</td><td>推杆有很小的尖峰（0.25–1.2 g）；试推没有</td><td>推杆后通常走去捡球或再推</td><td>只在果岭上判；有尖峰算推杆，没有算试推</td></tr>
+      <tr><td>坐车、敲鞋钉、拿球、击掌</td><td>—</td><td>没有挥杆式的转动</td><td>可能很大，但不是在挥杆末端出现</td><td>车速 &gt; 2.5 米/秒</td><td>不算</td></tr>
+    </tbody>
+  </table></div>
+  <p class="why">“最像击球”的打分：站定越久、撞击越尖越短、撞击越大、之后人越快离开这个位置，分越高。同分取最后一次，和 Golfshot“以最后一次为准”一致；但打完原地比划（没有站定、没有撞击）不会把真击球顶掉，这一点比“只看最后一次”更稳。撞击时长 12 毫秒、20–40 毫秒这类数字是起步值，要靠你复盘时的改动慢慢调准。</p>
+</section>
+
+<section>
+  <h2>规则和门槛</h2>
+  <div class="tw"><table class="rules">
+    <thead><tr><th>环节</th><th>怎么判断</th><th>门槛（起步值，靠真实数据调）</th><th>和现在代码的差别</th></tr></thead>
+    <tbody>
+      <tr><td>1 全挥杆</td><td>照 Apple WWDC23 的做法：先在 800 次/秒加速度里找撞击尖峰，再往回找“绕重力轴转动从接近 0 变成持续转动”的起点，检查这段时间里累计转过的角度在合理范围；三步都有才算，缺撞击的是练习挥杆</td><td>站定：转速 ≤ 0.5 rad/s；转动：≥ 3 个采样 ≥ 2 rad/s 且峰值 ≥ 3 rad/s；撞击：加速度偏离 1 g ≥ 2 g；起点到撞击 0.3–1.5 秒；3 秒内只算一次。需要 Apple Watch Series 8 或更新的表</td><td>现有 <code>WatchAutoShotDetector</code> 已有前三项；新增“往回找起点 + 累计转角”</td></tr>
+      <tr><td>2 推杆 / 切杆</td><td>推杆：站定 ≥ 1 秒 → 慢速钟摆 → 很小的撞击尖峰，只在果岭上或果岭边 5 米内判。切杆（果岭边的短挥杆）单独一类，可信度低。Garmin 明说推杆和切杆都测不到；Golfshot 在 Series 8 以上能自动数推杆，但不量推杆距离</td><td>钟摆转速 0.3–2 rad/s，来回对称；撞击尖峰 0.25–1.2 g；两次推杆相隔 ≥ 5 秒。可信度低的切杆不直接算，等本洞结束时和位置一起判断</td><td>新增。现在的撞击门槛 2 g 太高，推杆基本测不到</td></tr>
+      <tr><td>3 排除</td><td>空挥、试挥打地、坐车颠簸、拿球、击掌等（分法见上一节）</td><td>GPS 速度 &gt; 2.5 m/s（在车上）不判；没有“站定”段不判；练习挥杆（无撞击）不判；推杆练习（无撞击）不判</td><td>新增车速过滤</td></tr>
+      <tr><td>4 定位置</td><td>用挥杆那一刻的 GPS 点，对照球场轮廓：发球台 / 球道 / 长草 / 沙坑 / 果岭</td><td>GPS 精度 ≤ 12 米才用；差的话取挥杆前 10 秒内最好的一个点</td><td>需要把球道、果岭、水、沙坑轮廓放进手表的球场包</td></tr>
+      <tr><td>5 合并去重</td><td>和 Golfshot、18Birdies 一样：同一个位置的多次挥杆只算一杆，以最后一次为准（前面的当练习）；人朝下一次挥杆的位置移动，才确认上一杆。手机“记一杆”和手表记录合并</td><td>相距 &lt; 8 米的算同一位置；离球车近、离上一杆落点远的有撞击动作降低可信度（Garmin 用户反映在球车旁练习挥杆常被误记）</td><td>新增；现在手表每杆都要确认、再选球杆</td></tr>
+      <tr><td>6 分洞</td><td>在第 N 洞发球台开球 = 进入第 N 洞；走出果岭 25 米以上、朝下一洞发球台走 = 这一洞结束，弹出成绩</td><td>发球台半径 35 米 + GPS 精度（沿用现有规则）</td><td>现在只有手动记杆时才会自动跳洞</td></tr>
+      <tr><td>总杆</td><td>全挥杆数 + 推杆数 + 罚杆</td><td>—</td><td>现在是“记了几杆 + 2”</td></tr>
+      <tr><td>推杆</td><td>测到几次算几次（手动改推杆或罚杆时，总杆不会低于“推杆 + 罚杆 + 1”，不够就自动加上去）；一次都没测到，就按第一推离洞的距离估：&lt; 1.5 米 1 推，1.5–15 米 2 推，&gt; 15 米 3 推。依据是业余球手的进洞率：1 米内约 90%，2–3.5 米只有 35–43%（Shot Scope 按差点统计）</td><td>落点 = 下一次站定的位置；旗位用你在“调整旗位”设的，没设用果岭中心</td><td>现在固定 2 推</td></tr>
+      <tr><td>开球</td><td>第二杆（或第一次推杆）的位置在球道轮廓里 = 上球道；不在就看在中线左边还是右边</td><td>Par 3 不判</td><td>现在要手动选</td></tr>
+      <tr><td>罚杆</td><td>不猜，下水、OB、不可打都由你自己记</td><td>默认 0</td><td>和现在一样</td></tr>
+      <tr><td>GIR</td><td>第一次推杆是第几杆：≤ Par − 1 就算 GIR</td><td>推杆没测到时按估算的推杆数反推</td><td>现在不记</td></tr>
+      <tr><td>什么都没有</td><td>默认标准杆：Par − 2 杆上果岭 + 2 推</td><td>这种洞的来源记成“默认”，统计推杆和 GIR 时跳过，除非你改过</td><td>现在是 Par</td></tr>
+      <tr><td>球杆</td><td>不再每杆都问。用这一杆的距离（到下一次站定的位置）对照你球包的距离，猜是哪支</td><td>差距在 15 码内取最接近的一支；猜不出就不填</td><td>现在每杆弹“刚才用哪支杆？”</td></tr>
+      <tr><td>自己学</td><td>任何地方的改动都回到算法，见下一节</td><td>只存特征值和改动，不存原始传感器数据</td><td>新增</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section id="prior">
+  <h2>别人已经怎么做的，我们照着改了哪些</h2>
+  <p class="lede">查了 Apple、Garmin、Golfshot、18Birdies、Arccos、Shot Scope、微软手环的做法，以及相关论文。多数网站在这台机器上打不开，下面的内容主要来自搜索摘要，原话以链接为准。</p>
+  <div class="tw"><table class="rules">
+    <thead><tr><th>来源</th><th>他们怎么做 / 说了什么</th><th>我们的设计因此改成</th></tr></thead>
+    <tbody>
+      <tr><td><a href="https://developer.apple.com/videos/play/wwdc2023/10179/">Apple WWDC23 Core Motion</a></td><td>用挥棒球棒做例子：800 次/秒加速度找撞击尖峰，再往回在 200 次/秒转速里找挥动起点，检查累计转角；数据每秒一批送来，适合“事后判断”，不适合实时；必须在锻炼模式下；没有公开门槛值</td><td>全挥杆加上“往回找起点 + 累计转角”；检测放在锻炼模式里跑；测到后 1 秒左右才震，这是正常延迟</td></tr>
+      <tr><td><a href="https://support.garmin.com/en-US/?faq=PMDFD4p5N74JYxSamVvGg6">Garmin AutoShot</a></td><td>只测全挥杆，明说推杆、切杆不测；戴在前导手（右手球员戴左手）效果最好；推杆要手动填，只算统计不改成绩；用户抱怨在球车旁练习挥杆被误记、100 码内常漏</td><td>不假设推杆能测到，“按距离估推杆”是常规路径；设置里让你选戴在哪只手；球车旁的有撞击动作降低可信度</td></tr>
+      <tr><td><a href="https://golfshot.com/blog/your-putts-now-track-themselves-introducing-auto-putt-tracking">Golfshot（Apple Watch）</a></td><td>用 Apple Watch 上的机器学习；Series 8 以上能自动数推杆，但不量推杆距离；同一位置多次挥杆算一次、以最后一次为准；GPS 量到下一次挥杆的距离；漏了长按补“漏打一杆”</td><td>合并规则改成“同一位置以最后一次为准”；推杆检测只在 Series 8 以上开启；撤销 / 补杆的入口保留</td></tr>
+      <tr><td><a href="https://help.18birdies.com/article/722-how-shot-detection-works-in-18birdies">18Birdies</a></td><td>自有机器学习模型 + GPS，戴前导手；推杆和短切杆“不一定测到”；只用手机时，把“走路停下来”的位置当候选击球点；有旗位时用第一推的位置算第一推距离</td><td>没戴表只带手机时，也用“停下来的位置”做候选（比手动点“记一杆”省事）；推杆估算用你在“调整旗位”设的旗位</td></tr>
+      <tr><td><a href="https://support.arccosgolf.com/hc/en-us/articles/360059010451-Why-Is-My-Arccos-Putter-Sensor-Missing-Some-Putts-Troubleshooting-Guide">Arccos</a></td><td>球杆上装传感器，靠约 15 亿杆数据训练，开球抓取率称 98%；推杆撞击最轻，短推常漏；给“一键加 / 删推杆”</td><td>说明推杆漏测连专用硬件都躲不掉；成绩页的推杆滚轮就是这个“一键改”</td></tr>
+      <tr><td><a href="https://patents.google.com/patent/US10097961B2/en">微软手环专利</a></td><td>开球、切杆、推杆分三个分类器，各自用陀螺仪转速越过门槛来触发；配一个计时器把挥杆分组</td><td>把切杆单独成一类，而不是硬塞进全挥杆或推杆</td></tr>
+      <tr><td>论文（<a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC7472298/">Sensors 2020</a> 等）</td><td>单个 IMU 能把挥杆各阶段的时间点分到 5–16 毫秒；但没找到只用手腕、同时区分全挥杆 / 推杆 / 练习挥杆的公开准确率，也没有公开数据集</td><td>门槛只能拿自己的真实打球数据来调：先请你带表打几场，每杆在复盘里核对一遍，作为第一批标注数据</td></tr>
+      <tr><td>主动学习研究（<a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC6639791/">PMC 2019</a> 等）</td><td>用手腕加速度识别动作时，拿用户纠正过的样本来调模型，平均准确率提高约 11%（因人而异，−2% 到 +36%）；只重训最后一层就能适应个人差异</td><td>上一节“每一次改动都回到算法”；先调个人门槛，数据够了再换成一个小的机器学习模型，只针对你微调</td></tr>
+      <tr><td>推杆进洞率（<a href="https://shotscope.com/blog/practice-green/stats-and-data/putting-make-percentages-by-handicap-how-do-you-compare/">Shot Scope</a>、<a href="http://www.columbia.edu/~mnb2/broadie/Assets/putting_strokes_gained_20110113.pdf">Broadie</a>）</td><td>业余球手 1 米内进洞约 88–98%，2–3.5 米只有 35–43%；职业选手 2.4 米约一半进；没找到公开的“业余按距离的平均推杆数”表</td><td>推杆估算的分段改成 1.5 米 / 15 米，并用你自己的推杆记录慢慢修正</td></tr>
+      <tr><td>没找到的</td><td>球车速度的公开门槛、确认“真的打了一杆”需要人走多远，都没有来源</td><td>2.5 米/秒和 8 米是我们自己定的起步值，靠纠错数据调</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="learn">
+  <h2>每一次改动都回到检测算法</h2>
+  <p class="lede">不管在哪里改：手表上的本洞成绩、手机计分卡，还是赛后复盘里加一杆、删一杆、挪位置、换球杆，都算一条“纠错”。每条纠错对回当时手表记下的那一次动作，变成带标签的数据，用来调你个人的门槛；你同意的话，也匿名汇总去调所有人的默认值。</p>
+  <div class="tw"><table class="rules">
+    <thead><tr><th>你做的改动</th><th>在哪里</th><th>算法学到什么</th><th>怎么用</th></tr></thead>
+    <tbody>
+      <tr><td>删掉一杆</td><td>复盘、计分卡改总杆</td><td>那一次被算成挥杆的动作其实不是（练习挥杆、拍球、坐车）</td><td>把它的转速、撞击、站定时长记成“假阳性”，下次相似的动作提高门槛</td></tr>
+      <tr><td>加一杆</td><td>复盘点空白处、计分卡改总杆</td><td>在这个时间和位置附近漏测了一杆</td><td>回头找当时被排除的候选（比如撞击 1.7 g 没过 2 g），改标成真的一杆，把你的撞击门槛往下调；附近什么动作都没有，就记成“没戴表或戴在另一只手”，不调门槛</td></tr>
+      <tr><td>改推杆数</td><td>手表本洞成绩、计分卡、复盘</td><td>这一洞果岭上的推杆漏了几次或多了几次</td><td>调推杆的钟摆幅度和小撞击门槛；推杆一直测不到就更依赖“按离洞距离估”，并用你的真实推杆数修正估算表</td></tr>
+      <tr><td>改总杆</td><td>手表本洞成绩、计分卡</td><td>这一洞数错了，但不知道是哪一杆</td><td>只算“弱标签”：结合推杆和位置猜最可能错的那一次，权重低于在复盘里明确删、加的</td></tr>
+      <tr><td>改开球结果</td><td>本洞成绩、复盘</td><td>第二杆位置或球道轮廓判断错了</td><td>记下这座球场这一洞的 GPS 偏差；同一洞反复出错时标记球道轮廓可能不准</td></tr>
+      <tr><td>挪一杆的位置</td><td>复盘精确地图</td><td>挥杆时刻取的 GPS 点偏了多少</td><td>统计你的表在这座球场的平均偏移，以后取点时先修正</td></tr>
+      <tr><td>换球杆</td><td>复盘</td><td>按距离猜球杆猜错了</td><td>更新你每支杆的实际距离分布</td></tr>
+      <tr><td>什么都没改就确认</td><td>本洞成绩</td><td>这一洞的判断都对</td><td>作为“正确”样本，权重最低，防止门槛只往一个方向漂</td></tr>
+    </tbody>
+  </table></div>
+  <p class="why">为了能在事后纠错，手表把每一次候选动作都留下特征值（包括当时被排除的），跟这一场一起存，直到这一场的复盘不再改动。个人门槛每场最多变动一小步，至少攒够 5 条同类纠错才动，避免一场打得怪就把门槛调坏。纠错只影响以后的判断，不会反过来改掉你已经确认的成绩。</p>
+</section>
+
+<footer>只是原型和设计说明，没有改 App 的代码。门槛是起步值，需要用真实打球数据校准；推杆检测能不能稳定是最大的未知数，所以推杆没测到时的估算规则很重要。</footer>
+</div>
+
+<script>
+(function(){
+  var TOPO="hole1-topo.png",NS="http://www.w3.org/2000/svg";
+  var PARS=[5,4,3,4,4,5,3,4,4,4,4,3,5,4,4,3,5,4];
+  var TOPAR=[0,1,0,-1,1,0,1,2,0,0,1,0,-1,1,0,1,0,0];
+  var NAMES={"-3":"信天翁","-2":"老鹰","-1":"小鸟","0":"标准杆","1":"柏忌","2":"双柏忌","3":"三柏忌"};
+  function nm(tp){return NAMES[tp]||(tp>0?"+"+tp:String(tp));}
+  function col(tp){return tp<=-2?"var(--eagle)":tp===-1?"var(--birdie)":tp===0?"var(--par)":tp===1?"var(--bogey)":tp===2?"var(--double)":"var(--triple)";}
+  function tpText(v){return v===0?"E":(v>0?"+"+v:String(v));}
+  function tpColor(v){return v<0?"var(--birdie)":v===0?"var(--par)":v<=5?"var(--bogey)":"var(--double)";}
+  function chip(score,tp,size){var d=document.createElement("span");d.className="chip";d.style.width=d.style.height=size+"px";
+    var c=col(tp),s='<svg viewBox="0 0 30 30" fill="none" stroke="'+c+'" stroke-width="1.4">';
+    if(tp<=-2)s+='<circle cx="15" cy="15" r="13.5"/><circle cx="15" cy="15" r="10.5"/>';else if(tp===-1)s+='<circle cx="15" cy="15" r="13"/>';
+    else if(tp===1)s+='<rect x="2.5" y="2.5" width="25" height="25" rx="2"/>';else if(tp===2)s+='<rect x="1" y="1" width="28" height="28" rx="2"/><rect x="4" y="4" width="22" height="22" rx="1.5"/>';
+    else if(tp>=3)s+='<path d="M15 2.5 L28 27 H2 Z"/>';
+    d.innerHTML=s+'</svg>';var t=document.createElement("span");t.textContent=score;t.style.cssText="position:relative;color:"+c+";font-size:"+Math.round(size*(tp>=3?.38:.47))+"px"+(tp>=3?";transform:translateY("+Math.round(size*.08)+"px)":"");d.appendChild(t);return d;}
+  function el(svg,n,a,txt){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;svg.appendChild(e);return e;}
+  function pill(id,msg,ms,onTap){var p=document.getElementById(id);p.textContent=msg;p.style.opacity=1;p.style.pointerEvents=onTap?"auto":"none";p.onclick=onTap||null;p.style.cursor=onTap?"pointer":"default";clearTimeout(p._t);p._t=setTimeout(function(){p.style.opacity=0;p.style.pointerEvents="none";},ms||1800);}
+  function crown(id,fn){var w=document.getElementById(id);w.addEventListener("wheel",function(e){e.preventDefault();fn(e.deltaY>0?-1:1);},{passive:false});
+    var c=document.querySelector('[data-crown="'+id+'"]');c.addEventListener("click",function(e){var r=c.getBoundingClientRect();fn(e.clientY<r.top+r.height/2?1:-1);});}
+
+  /* hole geometry (image px of the 678×1060 topo render) */
+  var TEE=[300,975],GC=[303,142.3],PPY=Math.hypot(GC[0]-TEE[0],GC[1]-TEE[1])/543;
+  function yd(a,b){return Math.round(Math.hypot(a[0]-b[0],a[1]-b[1])/PPY);}
+  var GREEN=[[315.25,106.88],[306.62,113.88],[301.62,114.62],[297.38,117.62],[284.62,139.12],[284.12,149.62],[286.12,156.88],[292.62,164.12],[298.62,167.12],[304.12,166.12],[309.62,160.62],[310.62,146.88],[313.38,140.62],[320.62,133.12],[327.62,128.38],[331.38,124.38],[327.62,116.12],[319.62,107.38]];
+
+  /* ============ W1 home: three vertical pages (本洞方案 / 障碍 / 果岭), like a watchOS vertical TabView ============ */
+  var PLANS=[
+    {name:"三杆攻果岭",shots:[{p:[345,640],club:"一号木",yd:224,p10:205,p90:240},{p:[300,330],club:"三号木",yd:205,p10:188,p90:218}]},
+    {name:"避开右侧沙坑",shots:[{p:[332,662],club:"三号木",yd:205,p10:188,p90:218},{p:[298,404],club:"五号铁",yd:170,p10:158,p90:180}]}
+  ];
+  var HAZ=[
+    {name:"球道右沙坑",water:false,front:[397, 584],back:[401, 551],c:[396, 568],pts:[[385,551],[382,557],[389,568],[391,579],[397,584],[409,580],[412,571],[401,551]]},
+    {name:"果岭右前沙坑",water:false,front:[455, 451],back:[367, 209],c:[420, 343],pts:[[367,209],[363,218],[367,230],[368,263],[360,291],[346,316],[331,334],[329,352],[360,392],[390,384],[407,394],[425,398],[447,443],[455,451],[465,453],[471,448],[472,440],[460,423],[444,385],[442,356],[447,338],[456,326],[464,324],[479,328],[485,324],[491,294],[446,258],[419,231]]},
+    {name:"果岭右侧水障碍",water:true,front:[492, 293],back:[370, 83],c:[416, 193],pts:[[370,83],[357,104],[350,140],[343,158],[342,167],[349,188],[367,208],[419,230],[459,268],[492,293],[498,282],[499,258],[495,243],[478,210],[439,154],[398,108]]},
+    {name:"果岭右侧沙坑",water:false,front:[319, 162],back:[330, 133],c:[324, 146],pts:[[330,133],[324,134],[318,141],[315,158],[319,162],[326,158],[333,139]]}
+  ];
+  var W1={pos:TEE.slice(),shot:1,z:1,prev:null,page:0,plan:0,haz:0,pan:[0,0]};
+  function inPoly(pt,pts){var c=false;for(var i=0,j=pts.length-1;i<pts.length;j=i++){var a=pts[i],b=pts[j];if(((a[1]>pt[1])!==(b[1]>pt[1]))&&(pt[0]<(b[0]-a[0])*(pt[1]-a[1])/(b[1]-a[1])+a[0]))c=!c;}return c;}
+  function aheadHaz(){var d0=yd(W1.pos,GC);return HAZ.map(function(h,i){return i;}).filter(function(i){return yd(W1.pos,HAZ[i].front)<d0+10;});}
+  function w1render(){
+    var s=document.getElementById("w1map");s.innerHTML="";
+    var ME=W1.pos,P=W1.shot===1?TEE:W1.pos,pg=W1.page,sc,mid,cx=138,cy=128; // before the tee shot everything is measured from the tee
+    if(pg===0){sc=0.235;mid=[(P[0]+GC[0])/2,(P[1]+GC[1])/2];cy=136;}
+    else if(pg===1){var list=aheadHaz();W1.haz=Math.max(0,Math.min(list.length-1,W1.haz));var H=HAZ[list[W1.haz]];sc=0.62;mid=H.c;}
+    else{sc=1.6;mid=GC;cy=132;}
+    sc*=W1.z;cx+=W1.pan[0];cy+=W1.pan[1];W1.xf={cx:cx,cy:cy,sc:sc,mid:mid};
+    var g=el(s,"g",{transform:"translate("+cx+" "+cy+") scale("+sc+") translate("+(-mid[0])+" "+(-mid[1])+")"});
+    el(g,"image",{href:TOPO,x:0,y:0,width:678,height:1060});
+    function px(v){return v/sc;}
+    function tag(x,y,txt,bg,fg){var w=px(6+txt.length*6.2),h=px(13);el(g,"rect",{x:x-w/2,y:y-h/2,width:w,height:h,rx:h/2,fill:bg||"rgba(0,0,0,.66)"});el(g,"text",{x:x,y:y+px(4),"text-anchor":"middle","font-size":px(10),"font-weight":700,fill:fg||"#fff"},txt);}
+    function flag(){el(g,"line",{x1:GC[0],y1:GC[1],x2:GC[0],y2:GC[1]-px(18),stroke:"#fff","stroke-width":px(1.3)});el(g,"path",{d:"M"+GC[0]+" "+(GC[1]-px(18))+" l"+px(8)+" "+px(3)+" l"+px(-8)+" "+px(3)+"z",fill:"#FF4B3E"});}
+    var L=document.getElementById("w1club"),hl=document.getElementById("w1h"),c=yd(P,GC);
+    if(pg===0){
+      var pl=PLANS[W1.plan],pts=[P].concat(pl.shots.filter(function(sh){return yd(P,GC)>yd(sh.p,GC)+20;}).map(function(sh){return sh.p;}));pts.push(GC);
+      el(g,"polyline",{points:pts.map(function(q){return q.join(",");}).join(" "),fill:"none",stroke:"#fff","stroke-width":px(1.4),"stroke-opacity":.95});
+      pl.shots.forEach(function(sh){if(!(yd(P,GC)>yd(sh.p,GC)+20))return;el(g,"circle",{cx:sh.p[0],cy:sh.p[1],r:px(3.4),fill:"#fff",stroke:"#000","stroke-width":px(.8)});
+        var short={"一号木":"D","三号木":"3W","五号铁":"5i"}[sh.club]||sh.club;tag(sh.p[0]+px(22),sh.p[1],short+" "+sh.yd);});
+      flag();
+      if(W1.prev){el(g,"circle",{cx:W1.prev[0],cy:W1.prev[1],r:px(2.6),fill:"#fff","fill-opacity":.7});}
+      var nx=pl.shots.find(function(sh){return yd(P,GC)>yd(sh.p,GC)+20;});
+      L.hidden=false;L.textContent=nx?nx.club:"挖起杆";L.style.background="rgba(92,196,127,.22)";L.style.color="#9FE0B4";
+      hl.innerHTML='1 <span class="mut" style="font-weight:600">P5</span>';
+      setCol(c+17,c,Math.max(0,c-19),"");
+    } else if(pg===1){
+      var list=aheadHaz(),H=HAZ[list[W1.haz]];flag();
+      el(g,"path",{d:"M"+H.pts.map(function(q){return q.join(" ");}).join(" L")+"Z",fill:"none",stroke:"#FF4B3E","stroke-width":px(1.6)});
+      el(g,"circle",{cx:H.front[0],cy:H.front[1],r:px(2.6),fill:"#FF4B3E"});el(g,"circle",{cx:H.back[0],cy:H.back[1],r:px(2.6),fill:"#FF4B3E"});
+      tag(H.front[0],H.front[1]+px(11),"前 "+yd(P,H.front));tag(H.back[0],H.back[1]-px(11),"后 "+yd(P,H.back));
+      L.hidden=false;L.textContent=(W1.haz+1)+" / "+list.length;L.style.background="rgba(255,255,255,.12)";L.style.color="var(--p-mut)";
+      hl.innerHTML='<span style="color:#FF7A6E">'+(H.water?"水":"沙坑")+'</span>';
+      setCol(yd(P,H.back),yd(P,H.front)+"",null,"hz");
+    } else {
+      flag();
+      L.hidden=true;hl.innerHTML='果岭';
+      setCol(c+17,c,Math.max(0,c-19),"");
+    }
+    var d=el(s,"defs",{});var lg=el(d,"linearGradient",{id:"fade",x1:0,x2:1,y1:0,y2:0});el(lg,"stop",{offset:"0.38","stop-color":"#000","stop-opacity":1});el(lg,"stop",{offset:"0.62","stop-color":"#000","stop-opacity":0});
+    el(s,"rect",{x:0,y:0,width:205,height:251,fill:"url(#fade)"});
+    if(W1.target&&pg!==1){var O=W1.shot===1?TEE:P,T=W1.target,tx=cx+(T[0]-mid[0])*sc,ty=cy+(T[1]-mid[1])*sc,px0=cx+(O[0]-mid[0])*sc,py0=cy+(O[1]-mid[1])*sc,gx=cx+(GC[0]-mid[0])*sc,gy=cy+(GC[1]-mid[1])*sc;
+      W1.tgtEl=[el(s,"line",{x1:px0,y1:py0,x2:tx,y2:ty,stroke:"#FFD84A","stroke-width":1.3,"stroke-dasharray":"3 2.5"}),el(s,"line",{x1:tx,y1:ty,x2:gx,y2:gy,stroke:"#FFD84A","stroke-width":1.1,"stroke-opacity":.6,"stroke-dasharray":"2 3"}),
+        el(s,"circle",{cx:tx,cy:ty,r:6.5,fill:"none",stroke:"#FFD84A","stroke-width":2}),el(s,"circle",{cx:tx,cy:ty,r:1.4,fill:"#FFD84A"})];
+      var lx=tx+54>188?tx-54:tx+10,a=yd(O,T),bb=yd(T,GC);
+      el(s,"rect",{x:lx,y:ty-17,width:44,height:28,rx:7,fill:"rgba(0,0,0,.7)"});
+      el(s,"text",{x:lx+22,y:ty-4,"text-anchor":"middle","font-size":13,"font-weight":800,fill:"#FFD84A"},a);
+      el(s,"text",{x:lx+22,y:ty+7.5,"text-anchor":"middle","font-size":9,"font-weight":600,fill:"#F4F6F2"},"再 "+bb);}
+    if(pg===0){el(s,"circle",{cx:cx+(ME[0]-mid[0])*sc,cy:cy+(ME[1]-mid[1])*sc,r:6,fill:"#3B82F6","fill-opacity":.3});el(s,"circle",{cx:cx+(ME[0]-mid[0])*sc,cy:cy+(ME[1]-mid[1])*sc,r:3.4,fill:"#2F7DF6",stroke:"#fff","stroke-width":1.2});}
+    document.getElementById("w1shot").textContent="第 "+W1.shot+" 杆";
+    var dots=document.getElementById("w1dots");dots.innerHTML="";for(var i=0;i<3;i++){var e=document.createElement("i");e.style.cssText="width:4px;height:"+(i===pg?10:4)+"px;border-radius:2px;background:"+(i===pg?"#F4F6F2":"rgba(244,246,242,.35)");dots.appendChild(e);}
+  }
+  function setCol(b,c,f,mode){var B=document.getElementById("w1b"),C=document.getElementById("w1c"),F=document.getElementById("w1f");
+    if(mode==="hz"){B.textContent="后 "+b;C.textContent=c;F.textContent="到前沿";}else{B.textContent=b;C.textContent=c;F.textContent=f;}}
+  crown("w1",function(d){var z0=W1.z;W1.z=Math.max(1,Math.min(4,W1.z*(d>0?1.25:0.8)));if(W1.z===1)W1.pan=[0,0];else{var k=W1.z/z0;W1.pan=[W1.pan[0]*k,W1.pan[1]*k];}w1render();});
+  // map: at 1× tap = measure point, vertical swipe = next page. Zoomed in (crown): drag pans, long-press
+  // (0.5 s, finger still) drops the measure point, so panning never misfires into a point.
+  function screenToImg(sx,sy){var f=W1.xf;return [f.mid[0]+(sx-f.cx)/f.sc,f.mid[1]+(sy-f.cy)/f.sc];}
+  function placeAt(sx,sy){if(W1.page===1||!W1.xf||sx<70)return;var f=W1.xf;
+    if(W1.target){var tq=[f.cx+(W1.target[0]-f.mid[0])*f.sc,f.cy+(W1.target[1]-f.mid[1])*f.sc];if(Math.hypot(tq[0]-sx,tq[1]-sy)<12){W1.target=null;w1render();return;}}
+    W1.target=screenToImg(sx,sy);w1render();}
+  (function(){var s=document.getElementById("w1map"),st=null;
+    function loc(e){var r=s.getBoundingClientRect(),k=r.width/205;return [(e.clientX-r.left)/k,(e.clientY-r.top)/k];}
+    s.addEventListener("pointerdown",function(e){s.setPointerCapture(e.pointerId);var q=loc(e);
+      st={x:e.clientX,y:e.clientY,q:q,p:W1.pan.slice(),k:s.getBoundingClientRect().width/205,moved:false,placed:false};
+      if(W1.z>1.01)st.hold=setTimeout(function(){if(st&&!st.moved){st.placed=true;placeAt(q[0],q[1]);}},500);});
+    s.addEventListener("pointermove",function(e){if(!st)return;if(Math.hypot(e.clientX-st.x,e.clientY-st.y)>6){st.moved=true;clearTimeout(st.hold);}
+      if(W1.z<=1.01||st.placed||!st.moved)return;W1.pan=[st.p[0]+(e.clientX-st.x)/st.k,st.p[1]+(e.clientY-st.y)/st.k];w1render();});
+    s.addEventListener("pointerup",function(e){if(!st)return;clearTimeout(st.hold);var dx=e.clientX-st.x,dy=e.clientY-st.y,zoomed=W1.z>1.01,q=st.q,moved=st.moved;st=null;
+      if(!zoomed&&Math.abs(dy)>30&&Math.abs(dy)>Math.abs(dx)){W1.page=Math.max(0,Math.min(2,W1.page+(dy<0?1:-1)));W1.z=1;W1.pan=[0,0];w1render();return;}
+      if(!zoomed&&!moved)placeAt(q[0],q[1]);});})();
+  // the chip under the numbers is a button: on 方案 it cycles plans, on 障碍 it steps to the next hazard
+  document.getElementById("w1club").addEventListener("click",function(){
+    if(W1.page===0){W1.plan=(W1.plan+1)%PLANS.length;w1render();pill("w1pill","方案 "+(W1.plan+1)+" · "+PLANS[W1.plan].name,1500);}
+    else if(W1.page===1){var n=aheadHaz().length;W1.haz=(W1.haz+1)%n;W1.z=1;W1.pan=[0,0];w1render();}});
+  function w1shot(){W1.page=0;W1.prev=TEE.slice();W1.pos=[352,640];W1.shot=2;w1render();var sc=document.getElementById("w1shot");sc.style.visibility="hidden";clearTimeout(sc._t);sc._t=setTimeout(function(){sc.style.visibility="";},2700);
+    pill("w1pill","第 2 杆 · 一号木 231 码",2600,function(){w1undo();});}
+  function w1undo(){W1.prev=null;W1.pos=TEE.slice();W1.shot=1;w1render();pill("w1pill","已撤销这一杆",1400);}
+  document.querySelectorAll("[data-w1]").forEach(function(b){b.onclick=function(){var k=b.getAttribute("data-w1");
+    if(k==="tee"){W1={pos:TEE.slice(),shot:1,z:1,prev:null,page:0,plan:0,haz:0,pan:[0,0],target:null};w1render();}
+    if(k==="plan"){W1.page=0;W1.plan=(W1.plan+1)%PLANS.length;w1render();pill("w1pill","方案 "+(W1.plan+1)+" · "+PLANS[W1.plan].name,1500);}
+    if(k==="tgt"){W1.page=0;W1.target=[318,560];w1render();}
+    if(k==="away"){W1={pos:[250,1010],shot:1,z:1,prev:null,page:0,plan:0,haz:0,pan:[0,0],target:[318,560]};w1render();}
+    if(k==="zoom"){W1.z=2;W1.pan=[0,0];w1render();}
+    if(k==="haz"){W1.page=1;W1.z=1;W1.pan=[0,0];w1render();}
+    if(k==="green"){W1.page=2;W1.z=1;W1.pan=[0,0];w1render();}
+    if(k==="shot")w1shot();
+    if(k==="undo"){if(W1.shot<2)w1shot();setTimeout(w1undo,700);}};});
+
+  /* ============ W2 score ============ */
+  var W2;function w2set(k){
+    if(k==="std")W2={par:5,score:5,putts:2,pen:0,fw:"right"};
+    if(k==="water")W2={par:4,hole:2,score:6,putts:2,pen:1,fw:"hit"};
+    if(k==="p3")W2={par:3,hole:3,score:3,putts:2,pen:0,fw:null};
+    W2.hole=W2.hole||1;w2render();}
+  function fwIcon(pos){var bx=pos==="left"?9:pos==="right"?51:30;
+    return '<svg width="44" height="22" viewBox="0 0 60 30" aria-hidden="true"><path d="M22 29 L25 1 H35 L38 29 Z" fill="rgba(140,205,110,.6)"/><circle cx="'+bx+'" cy="13" r="4.6" fill="#F4F6F2" stroke="rgba(0,0,0,.35)"/></svg>';}
+  function w2render(){
+    var w=document.getElementById("w2");w.querySelector("div").innerHTML=W2.hole+' <span class="mut" style="font-weight:600">P'+W2.par+"</span>";
+    drawCar(0);
+    document.getElementById("w2name").textContent=nm(W2.score-W2.par);
+    drawDrums();
+    var f=document.getElementById("w2fw");f.hidden=W2.par===3;f.innerHTML="";
+    ["left","hit","right"].forEach(function(o){var b=document.createElement("button");b.className=(o!=="hit"?"miss ":"")+(W2.fw===o?"on":"");b.innerHTML=fwIcon(o);b.setAttribute("aria-label",{left:"偏左",hit:"上球道",right:"偏右"}[o]);b.onclick=function(){W2.fw=W2.fw===o?null:o;w2render();};f.appendChild(b);});
+  }
+  crown("w2",function(d){if(FOC){stepDrum(FOC,d);return;}stepScore(d);});
+  // inline vertical drums for 推 / 罚: the number rolls up and down right in its pill; while it is
+  // focused the neighbours show above and below (smaller, faded). Drag, crown, or tap then crown.
+  var FOC=null,DR=16;
+  function dmax(k){return k==="putts"?5:4;} // rings: 推 0–5, 罚 0–4 (0 sits right after the max)
+  function md(v,k){var n=dmax(k)+1;return ((v%n)+n)%n;}
+  function dget(k){return k==="putts"?W2.putts:W2.pen;}
+  function dset(k,v){if(k==="putts")W2.putts=v;else W2.pen=v;fixScore();}
+  // the total can never be below putts + penalties + 1: raise it (animated) when 推 / 罚 push past it
+  function fixScore(){var need=W2.putts+W2.pen+1;if(W2.score<need){var d=need-W2.score;W2.score=need;animCar(d*SP);}}
+  function drawDrum(k,off){var box=document.getElementById(k==="putts"?"w2pd":"w2xd"),host=box.parentNode,on=FOC===k,v0=dget(k);box.innerHTML="";host.className="drum"+(on?" on":"");
+    for(var i=-3;i<=3;i++){var v=md(v0+i,k),y=15+i*DR+off,d=Math.abs(y-15)/DR;if(d>2.3||(!on&&d>0.5))continue;
+      var s=document.createElement("span");s.textContent=v;var big=1-Math.min(1,d);
+      s.style.cssText="top:"+(y-9)+"px;font-size:"+(12+6*big).toFixed(1)+"px;opacity:"+(0.35+0.65*big).toFixed(2)+";color:"+(k==="pen"&&v>0&&big>.5?"var(--double)":"#F4F6F2");box.appendChild(s);}
+  }
+  function drawDrums(){drawDrum("putts",0);drawDrum("pen",0);}
+  function animDrum(k,from){var t0=performance.now();(function f(n){var q=Math.min(1,(n-t0)/160),e=1-Math.pow(1-q,3);drawDrum(k,from*(1-e));if(q<1)requestAnimationFrame(f);})(t0);}
+  function stepDrum(k,d){dset(k,md(dget(k)+d,k));animDrum(k,d*DR);kick(700);}
+  var focT=null;function kick(ms){clearTimeout(focT);if(ms==null)return;focT=setTimeout(function(){FOC=null;drawDrums();},ms);}
+  ["putts","pen"].forEach(function(k){var z=document.getElementById(k==="putts"?"w2putt":"w2pen"),st=null;
+    z.addEventListener("pointerdown",function(e){z.setPointerCapture(e.pointerId);FOC=k;drawDrums();kick();st={y:e.clientY,s:z.getBoundingClientRect().height/30,v:dget(k)};});
+    z.addEventListener("pointermove",function(e){if(!st)return;var dy=(e.clientY-st.y)/st.s,steps=Math.round(-dy/DR);
+      dset(k,md(st.v+steps,k));st.off=dy+steps*DR;drawDrum(k,st.off);kick();});
+    // stop = choose: snap to the nearest number and fold the neighbours away straight after
+    function end(){if(!st)return;var off=st.off||0;st=null;animDrum(k,off);kick(260);}
+    z.addEventListener("pointerup",end);z.addEventListener("pointercancel",end);
+    z.addEventListener("keydown",function(e){if(e.key==="ArrowUp"){stepDrum(k,1);e.preventDefault();}if(e.key==="ArrowDown"){stepDrum(k,-1);e.preventDefault();}});});
+  var PK=null;
+  // score carousel: neighbours sit small on both sides and grow as they slide to the centre
+  var SP=50,CW=205;
+  function drawCar(off){var c=document.getElementById("w2chip");c.innerHTML="";
+    for(var v=W2.score-3;v<=W2.score+3;v++){if(v<1||v>15)continue;
+      var x=CW/2+(v-W2.score)*SP+off,dist=Math.min(1.6,Math.abs(x-CW/2)/SP),k=1-0.42*Math.min(1,dist),op=1-0.55*Math.min(1,dist);
+      if(x<-30||x>CW+30)continue;
+      var h=chip(v,v-W2.par,54);h.style.cssText+=";position:absolute;left:"+(x-27)+"px;top:4px;transform:scale("+k.toFixed(3)+");opacity:"+op.toFixed(2);c.appendChild(h);}
+    var near=Math.round(W2.score-off/SP);document.getElementById("w2name").textContent=nm(Math.max(1,Math.min(15,near))-W2.par);}
+  function animCar(from,done){var t0=performance.now();(function f(n){var q=Math.min(1,(n-t0)/180),e=1-Math.pow(1-q,3);drawCar(from*(1-e));if(q<1)requestAnimationFrame(f);else done&&done();})(t0);}
+  function stepScore(d){var nv=Math.max(1,Math.min(15,W2.score+d));if(nv===W2.score)return;W2.score=nv;W2.putts=Math.min(W2.putts,nv-1);
+    drawDrums();animCar(d*SP);}
+  (function(){var z=document.getElementById("w2swipe"),st=null;
+    z.addEventListener("pointerdown",function(e){z.setPointerCapture(e.pointerId);st={x:e.clientX,y:e.clientY,k:z.getBoundingClientRect().width/CW};});
+    z.addEventListener("pointermove",function(e){if(!st)return;var dx=(e.clientX-st.x)/st.k,dy=(e.clientY-st.y)/st.k;
+      var d=Math.abs(dx)>=Math.abs(dy)?dx:dy;var lo=(W2.score-15)*SP,hi=(W2.score-1)*SP;drawCar(Math.max(lo,Math.min(hi,d)));st.d=d;});
+    function end(){if(!st)return;var d=st.d||0;st=null;var steps=Math.round(-d/SP),nv=Math.max(1,Math.min(15,W2.score+steps)),rest=d+(nv-W2.score)*SP;
+      W2.score=nv;W2.putts=Math.min(W2.putts,nv-1);drawDrums();animCar(rest);}
+    z.addEventListener("pointerup",end);z.addEventListener("pointercancel",end);})();
+
+  document.getElementById("w2ok").onclick=function(){pill("w2pill","已存 "+W2.score+" 杆 · 去第 "+(W2.hole+1)+" 洞",1600);};
+  document.querySelectorAll("[data-w2]").forEach(function(b){b.onclick=function(){w2set(b.getAttribute("data-w2"));};});
+
+  /* ============ W3 scorecard ============ */
+  var W3={played:9};
+  function w3render(){
+    var n=W3.played,st=0,tp=0;for(var i=0;i<n;i++){st+=PARS[i]+TOPAR[i];tp+=TOPAR[i];}
+    var t=document.getElementById("w3tp");t.textContent=n?tpText(tp):"E";t.style.color=tpColor(tp);
+    document.getElementById("w3st").textContent=st+" 杆";document.querySelector("#w3 .mut.tn").textContent=n+"/18 洞";
+    [["w3f",0],["w3b",9]].forEach(function(p){var g=document.getElementById(p[0]);g.innerHTML="";
+      for(var i=p[1];i<p[1]+9;i++){var h=document.createElement("span");h.className="h";h.textContent=i+1;g.appendChild(h);}
+      for(i=p[1];i<p[1]+9;i++){(function(i){var b=document.createElement("button");b.style.cssText="width:19px;height:19px;display:grid;place-items:center";b.setAttribute("aria-label","第 "+(i+1)+" 洞");
+        if(i<n)b.appendChild(chip(PARS[i]+TOPAR[i],TOPAR[i],18));else{var s=document.createElement("span");s.style.cssText="color:var(--p-dim);font-size:11px";s.textContent=i===n?"·":"–";b.appendChild(s);}
+        b.onclick=function(){pill("w3pill",i<n?"改第 "+(i+1)+" 洞 → 第 2 屏":"第 "+(i+1)+" 洞还没打",1300);};g.appendChild(b);})(i);}});
+  }
+  crown("w3",function(){});
+  document.getElementById("w3end").onclick=function(){pill("w3pill","→ 本场汇总",1200);};
+  document.querySelectorAll("[data-w3]").forEach(function(b){b.onclick=function(){W3.played={h1:1,h9:9,h18:18}[b.getAttribute("data-w3")];w3render();};});
+  document.getElementById("w4ok").onclick=function(){pill("w4pill","本场已保存",1300);};
+  crown("w4",function(d){if(d<0)pill("w4pill","继续打球 · 放弃本场",1500);});
+
+  /* ============ pipeline diagram ============ */
+  (function(){var s=document.getElementById("pipe");
+    var st=[["手表传感器","800 次/秒加速度","200 次/秒转速"],["挥杆分类","全挥杆 / 推杆","练习 / 排除"],["定位置","GPS 点对照","球场轮廓"],["合并去重","手表 + 手机","同位置只算一次"],["分洞","发球台开球","走下果岭结束"],["推算成绩","总杆 推杆 开球","罚杆 GIR 球杆"]];
+    var w=160,gap=30,x=6;var ink=getComputedStyle(document.body).color;
+    st.forEach(function(r,i){var g=el(s,"g",{});
+      el(g,"rect",{x:x,y:30,width:w,height:100,rx:14,fill:i<3?"rgba(47,125,74,.10)":"rgba(86,168,232,.10)",stroke:i<3?"#2F7D4A":"#3B8ED8","stroke-width":1.2});
+      el(g,"text",{x:x+14,y:62,"font-size":16,"font-weight":700,fill:"currentColor"},(i+1)+" "+r[0]);
+      el(g,"text",{x:x+14,y:88,"font-size":13,fill:"currentColor","fill-opacity":.7},r[1]);
+      el(g,"text",{x:x+14,y:108,"font-size":13,fill:"currentColor","fill-opacity":.7},r[2]);
+      if(i<st.length-1){el(s,"path",{d:"M"+(x+w+5)+" 80 h"+(gap-12)+" m-6 -5 l6 5 l-6 5",fill:"none",stroke:"currentColor","stroke-opacity":.5,"stroke-width":1.5});}
+      x+=w+gap;});
+    el(s,"text",{x:6,y:18,"font-size":12,"font-weight":700,fill:"#2F7D4A"},"手表上实时跑（每次挥杆）");
+    el(s,"text",{x:6+3*(w+gap),y:18,"font-size":12,"font-weight":700,fill:"#3B8ED8"},"一洞结束时跑（手表上，手机有的话一起算）");
+    el(s,"text",{x:6,y:158,"font-size":12,fill:"currentColor","fill-opacity":.6},"原始传感器数据只在手表内存里停留 1.4 秒；存下来的只有：时间、GPS 点、类别、转速峰值、撞击大小。");
+    s.style.color=ink;})();
+
+  /* ============ simulator ============ */
+  var SC={
+    std:{name:"标准：全测到",ev:[
+      ["09:41:05",[300,975],"发球台","站定 → 快转 → 撞击",8.9,4.8,"full"],
+      ["09:44:40",[352,640],"长草（球道右边 12 码）","站定 → 快转 → 撞击",8.1,4.2,"full"],
+      ["09:47:55",[300,330],"球道","站定 → 快转 → 撞击",6.4,3.6,"full"],
+      ["09:51:10",[296,152],"果岭（离旗 8 码）","站定 → 慢摆 → 小撞击",1.1,0.6,"putt"],
+      ["09:51:48",[302,145],"果岭（离旗 1 码）","站定 → 慢摆 → 小撞击",0.6,0.3,"putt"]],
+      why:"3 次全挥杆 + 2 次推杆 = 5 杆。第二杆站在球道右边 12 码的长草 → 开球“偏右”。第一次推杆是第 4 杆 ≤ Par−1 → GIR。第一杆距离 231 码，对照球包是一号木。"},
+    miss:{name:"推杆没测到",ev:[
+      ["09:41:05",[300,975],"发球台","站定 → 快转 → 撞击",8.9,4.8,"full"],
+      ["09:44:40",[352,640],"长草（球道右边 12 码）","站定 → 快转 → 撞击",8.1,4.2,"full"],
+      ["09:47:55",[300,330],"球道","站定 → 快转 → 撞击",6.4,3.6,"full"],
+      ["09:51:10",[296,152],"果岭","站定 1.8 秒，之后没有可判的摆动",0.2,0.1,"none"]],
+      estPutts:2,why:"只测到 3 次全挥杆。第三杆之后第一次站定在果岭上、离旗 8 码 → 按“1–12 米 2 推”估 2 推 → 5 杆；GIR 按估的推杆反推为是。成绩页里推杆就填 2，不写“估计”。"},
+    practice:{name:"空挥、试挥打地",ev:[
+      ["09:40:32",[296,980],"发球台","快转，没有撞击",8.1,0.3,"rej","空挥",0.2,null],
+      ["09:40:40",[297,979],"发球台","快转 → 发闷的撞击（刷草）",7.4,2.4,"rej","试挥打地",0.4,28],
+      ["09:41:05",[300,975],"发球台","站定 → 快转 → 清脆的撞击",8.9,4.8,"full","",2.1,6],
+      ["09:41:12",[300,975],"发球台","打完原地比划，没有撞击",6.5,0.2,"rej","空挥（打完比划）",0.0,null],
+      ["09:44:40",[352,640],"长草（球道右边 12 码）","站定 → 快转 → 清脆的撞击",8.1,4.2,"full","",1.7,7],
+      ["09:46:20",[318,480],"—（车速 4.1 米/秒）","颠簸，大撞击但没有转动",1.9,3.1,"rej","在车上",0.0,40],
+      ["09:47:40",[299,333],"球道","快转 → 发闷的撞击",6.0,2.2,"rej","试挥打地",0.5,24],
+      ["09:47:55",[300,330],"球道","站定 → 快转 → 清脆的撞击",6.4,3.6,"full","",1.6,7],
+      ["09:51:02",[296,150],"果岭","慢摆，没有撞击",0.9,0.1,"rej","推杆试推",1.0,null],
+      ["09:51:10",[296,152],"果岭（离旗 8 码）","站定 → 慢摆 → 小撞击",1.1,0.6,"putt","",1.9,4],
+      ["09:51:48",[302,145],"果岭（离旗 1 码）","站定 → 慢摆 → 小撞击",0.6,0.3,"putt","",1.4,3]],
+      why:"11 个动作只算 5 个。空挥：转得快但没有撞击。试挥打地：有撞击，但撞击持续 24–28 毫秒，发闷（刷草），而真击球只有 6–7 毫秒，清脆；站定也只有 0.4–0.5 秒，真击球前会站定 1.5 秒以上。同一个位置 60 秒内的几次挥杆只留“最像击球”的一次，所以 09:40:40 的试挥打地被 09:41:05 的真击球替掉；09:41:12 打完原地比划，没有站定也没有撞击，不会反过来顶掉真击球。坐车颠簸没有转动。结果 3 全挥 + 2 推 = 5 杆。"},
+    phone:{name:"手表漏一杆，手机补记",ev:[
+      ["09:41:05",[300,975],"发球台","站定 → 快转 → 撞击",8.9,4.8,"full"],
+      ["09:44:38",[351,641],"长草（手机“记一杆”）","—",null,null,"phone"],
+      ["09:44:40",[352,640],"长草","站定 → 快转，撞击 1.7 g（没过门槛）",7.9,1.7,"rej","撞击太小"],
+      ["09:47:55",[300,330],"球道","站定 → 快转 → 撞击",6.4,3.6,"full"],
+      ["09:47:57",[301,331],"球道（手机“记一杆”）","—",null,null,"dup","和上一条同一杆"],
+      ["09:51:10",[296,152],"果岭（离旗 8 码）","站定 → 慢摆 → 小撞击",1.1,0.6,"putt"],
+      ["09:51:48",[302,145],"果岭（离旗 1 码）","站定 → 慢摆 → 小撞击",0.6,0.3,"putt"]],
+      why:"第二杆手表撞击只有 1.7 g 没算，但你在手机上点了“记一杆”，这一杆就用手机的。第三杆手表和手机都记了，相距 1 米、隔 2 秒 → 合并成一杆。结果 3 全挥 + 2 推 = 5 杆。"},
+    none:{name:"什么都没有",ev:[],why:"没有任何挥杆和手机记录（比如没戴表、手机也没点）→ 默认标准杆：3 杆上果岭 + 2 推 = 5 杆，开球不预选。这一洞的来源记成“默认”，算推杆和 GIR 统计时跳过，除非你改过。"}
+  };
+  var FEAT={full:{ad:1.8,iw:6},putt:{ad:1.5,iw:4}}; // typical values when a row does not give its own
+  var KIND={full:["全挥杆","var(--k-full)","#1c1f1c"],putt:["推杆","var(--k-putt)","#0f2a18"],rej:["排除","var(--k-rej)","#1c1f1c"],phone:["手机记的一杆","var(--k-phone)","#0d2233"],dup:["合并","var(--k-rej)","#1c1f1c"],none:["不算","var(--k-rej)","#1c1f1c"]};
+  var cur="std";
+  var sb=document.getElementById("scen");Object.keys(SC).forEach(function(k){var b=document.createElement("button");b.textContent=SC[k].name;b.dataset.k=k;b.onclick=function(){cur=k;sim();};sb.appendChild(b);});
+  function sim(){
+    sb.querySelectorAll("button").forEach(function(b){b.className=b.dataset.k===cur?"on":"";});
+    var S=SC[cur],svg=document.getElementById("simsvg");svg.innerHTML="";
+    el(svg,"image",{href:TOPO,x:0,y:0,width:678,height:1060});
+    el(svg,"rect",{x:0,y:0,width:678,height:1060,fill:"#000","fill-opacity":.18});
+    // flag
+    el(svg,"line",{x1:GC[0],y1:GC[1],x2:GC[0],y2:GC[1]-30,stroke:"#fff","stroke-width":2});el(svg,"path",{d:"M"+GC[0]+" "+(GC[1]-30)+" l16 6 -16 6z",fill:"#FF4B3E"});
+    var counted=S.ev.filter(function(e){return e[6]==="full"||e[6]==="phone"||e[6]==="putt";});
+    // flight lines between counted strokes
+    for(var i=0;i<counted.length-1;i++){var a=counted[i][1],b=counted[i+1][1];el(svg,"line",{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:"#fff","stroke-width":2,"stroke-opacity":.55,"stroke-dasharray":"7 6"});}
+    if(counted.length){var l=counted[counted.length-1][1];el(svg,"line",{x1:l[0],y1:l[1],x2:GC[0],y2:GC[1],stroke:"#fff","stroke-width":2,"stroke-opacity":.55,"stroke-dasharray":"7 6"});}
+    var n=0;
+    S.ev.forEach(function(e){var k=KIND[e[6]],p=e[1],ok=e[6]==="full"||e[6]==="phone"||e[6]==="putt";
+      if(ok)n++;
+      var r=e[6]==="putt"?9:ok?14:8;
+      el(svg,"circle",{cx:p[0],cy:p[1],r:r,fill:ok?k[2]:"rgba(0,0,0,.35)",stroke:k[1],"stroke-width":ok?2.5:2,"stroke-dasharray":ok?"none":"4 3"});
+      if(ok)el(svg,"text",{x:p[0],y:p[1]+(e[6]==="putt"?4:6),"text-anchor":"middle","font-size":e[6]==="putt"?11:16,"font-weight":700,fill:k[1],"font-family":"system-ui"},n);
+    });
+    // result
+    var full=S.ev.filter(function(e){return e[6]==="full"||e[6]==="phone";}).length,putts=S.ev.filter(function(e){return e[6]==="putt";}).length;
+    var pen=0,par=5,est=false; // penalties are never guessed
+    if(!S.ev.length){full=3;putts=2;est=true;}else if(!putts&&S.estPutts){putts=S.estPutts;est=true;}
+    var score=full+putts+pen,firstPutt=full+pen+1,gir=S.ev.length?firstPutt<=par-1:true;
+    var fw=S.ev.length?"偏右":"不预选";
+    var res=document.getElementById("res");
+    res.innerHTML='<div><span>总杆</span><b style="color:'+col(score-par)+'">'+score+'</b></div><div><span>推杆</span><b>'+putts+(est?'<small style="font-size:12px;color:var(--muted);font-weight:500"> 估</small>':"")+'</b></div><div><span>开球</span><b style="font-size:18px">'+fw+'</b></div><div><span>罚杆</span><b'+(pen?' style="color:var(--bad)"':'')+'>'+pen+'</b></div><div><span>GIR</span><b style="font-size:18px">'+(gir?"是":"否")+'</b></div>';
+    res.querySelector("div b").style.color=score===par?"var(--ink)":score>par?"#B7791F":"#2B6CB0";
+    var tb=document.getElementById("evt");tb.innerHTML="";
+    if(!S.ev.length){tb.innerHTML='<tr><td colspan="8" style="color:var(--muted)">这一洞没有任何记录</td></tr>';}
+    S.ev.forEach(function(e){var k=KIND[e[6]],tr=document.createElement("tr");
+      var lab=e[7]?(e[6]==="rej"?e[7]:k[0]+" · "+e[7]):k[0];
+      var bg=e[6]==="full"?"background:var(--ink);color:var(--bg)":e[6]==="putt"?"background:#DDF3E4;color:#1D6B3A":e[6]==="phone"?"background:#DCEBFA;color:#1F5F99":"background:var(--code);color:var(--muted)";
+      var F=FEAT[e[6]]||{};var ad=e.length>8?e[8]:F.ad,iw=e.length>9?e[9]:F.iw;
+      tr.innerHTML="<td>"+e[0]+"</td><td>"+e[2]+"</td><td>"+e[3]+"</td><td>"+(ad==null?"—":ad.toFixed(1)+" 秒")+"</td><td>"+(e[4]==null?"—":e[4].toFixed(1)+" rad/s")+"</td><td>"+(e[5]==null?"—":e[5].toFixed(1)+" g")+"</td><td>"+(iw==null?"—":iw+" 毫秒")+'</td><td><span class="tag" style="'+bg+'">'+lab+"</span></td>";tb.appendChild(tr);});
+    document.getElementById("simwhy").textContent=S.why;
+  }
+
+  w1render();w2set("std");w3render();sim();
+})();
+</script>
