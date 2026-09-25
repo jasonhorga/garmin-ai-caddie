@@ -142,8 +142,21 @@ The response should never include cookie, CSRF, token, `.env`, or absolute priva
 
 ### Build the Sync Image
 
-The homeserver sync job is a one-shot container. After the API candidate is
-deployed, run the helper from this checkout:
+The homeserver sync job is a one-shot container. The API deployment is not
+complete until the matching sync image exists. After switching the healthy API
+container to the production port, use the deployment gate from this checkout:
+
+```bash
+AICADDIE_API_CONTAINER=<the-container-on-the-production-port> \
+  AICADDIE_API_PORT=39055 \
+  bash ops/complete_homeserver_api_deploy.sh
+```
+
+The gate checks `/api/v2/health`, then invokes `ops/build_sync_image.sh` and
+verifies the resulting immutable tag. It deliberately refuses to infer a
+candidate when multiple `aicaddie-release-*` containers are running. If the
+API was already switched and only the image is missing, the lower-level helper
+can be run directly:
 
 ```bash
 bash ops/build_sync_image.sh
@@ -156,6 +169,26 @@ When building before the candidate is started, pass the labelled image
 explicitly with `API_IMAGE=...`. The helper does not silently fall back to a
 moving `:latest` tag; `PUBLISH_LATEST=1` is an explicit compatibility alias
 only and is not used by cron.
+
+### Homeserver Sync Cron
+
+The production homeserver cron uses the installed copy of
+`ops/homeserver_sync.sh` (currently `/home/jason/aicaddie-sync.sh`), not the
+developer-only `ops/auto_sync.sh` entrypoint. The wrapper resolves the API
+container on `AICADDIE_API_PORT` (default `39055`) and refuses an absent or
+mismatched `aicaddie-sync:<full-SHA>` image before touching the private volume.
+On a contract failure it always writes syslog and, when configured, sends a
+deduplicated desktop/webhook alert:
+
+```bash
+export AICADDIE_SYNC_ALERT_WEBHOOK_URL=<private-webhook-url>
+export AICADDIE_SYNC_ALERT_COOLDOWN_SECONDS=21600
+```
+
+The webhook value belongs in the host's protected cron environment, never in
+Git or a container label. A successful run ends with `sync ok` and `done`; a
+later successful run sends a single recovery alert and clears the failure
+state.
 
 ## GitHub Actions
 

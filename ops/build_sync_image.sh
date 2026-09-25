@@ -19,22 +19,58 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-# Prefer the image used by the active homeserver API container. An explicit
+# Prefer the image used by the production API container. An explicit
 # API_IMAGE is required when building a candidate before it is started; there
-# is intentionally no silent fallback to a moving `:latest` tag.
+# is intentionally no silent fallback to a moving `:latest` tag. When more
+# than one release container is running, the production host port (or an
+# explicit container name) is required so a review candidate cannot silently
+# become the sync source.
 API_IMAGE="${API_IMAGE:-}"
 if [[ -z "$API_IMAGE" ]]; then
   API_CONTAINER="${AICADDIE_API_CONTAINER:-}"
   if [[ -z "$API_CONTAINER" ]]; then
-    API_CONTAINER="$(docker ps --format '{{.Names}}' | awk '/^aicaddie-release-/{print; exit}')"
+    API_PORT="${AICADDIE_API_PORT:-39055}"
+    mapfile -t port_matches < <(
+      docker ps --filter "publish=${API_PORT}" --format '{{.Names}}' \
+        | awk '/^aicaddie-release-/'
+    )
+    if [[ "${#port_matches[@]}" -eq 1 ]]; then
+      API_CONTAINER="${port_matches[0]}"
+    elif [[ "${#port_matches[@]}" -gt 1 ]]; then
+      echo "error: multiple release containers publish port ${API_PORT}; set AICADDIE_API_CONTAINER explicitly" >&2
+      printf '  %s\n' "${port_matches[@]}" >&2
+      exit 1
+    else
+      mapfile -t release_matches < <(
+        docker ps --format '{{.Names}}' | awk '/^aicaddie-release-/'
+      )
+      if [[ "${#release_matches[@]}" -eq 1 ]]; then
+        API_CONTAINER="${release_matches[0]}"
+      elif [[ "${#release_matches[@]}" -eq 0 ]]; then
+        echo "error: no active API container found; set API_IMAGE or AICADDIE_API_CONTAINER" >&2
+        exit 1
+      else
+        echo "error: multiple release containers are running and none publishes port ${API_PORT}; set AICADDIE_API_CONTAINER explicitly" >&2
+        printf '  %s\n' "${release_matches[@]}" >&2
+        exit 1
+      fi
+    fi
   fi
   if [[ -n "$API_CONTAINER" ]]; then
+    if ! docker inspect "$API_CONTAINER" >/dev/null 2>&1; then
+      echo "error: API container '$API_CONTAINER' does not exist" >&2
+      exit 1
+    fi
+    if [[ "$(docker inspect --format '{{.State.Running}}' "$API_CONTAINER")" != "true" ]]; then
+      echo "error: API container '$API_CONTAINER' is not running" >&2
+      exit 1
+    fi
     API_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$API_CONTAINER" 2>/dev/null || true)"
   fi
 fi
 
 if [[ -z "$API_IMAGE" ]]; then
-  echo "error: no active API container found; set API_IMAGE to the labelled candidate image explicitly" >&2
+  echo "error: no active API container found; set API_IMAGE or AICADDIE_API_CONTAINER explicitly" >&2
   exit 1
 fi
 
@@ -47,6 +83,14 @@ API_SOURCE_REVISION="$(docker image inspect --format '{{index .Config.Labels "ai
 if ! [[ "$API_SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
   echo "error: API image '$API_IMAGE' has no valid ai.caddie.source-revision label; refusing an unbound sync image" >&2
   exit 1
+fi
+
+if [[ -n "${API_CONTAINER:-}" ]]; then
+  CONTAINER_SOURCE_REVISION="$(docker inspect --format '{{index .Config.Labels "ai.caddie.source-revision"}}' "$API_CONTAINER" 2>/dev/null || true)"
+  if [[ "$CONTAINER_SOURCE_REVISION" != "$API_SOURCE_REVISION" ]]; then
+    echo "error: API container '$API_CONTAINER' revision '${CONTAINER_SOURCE_REVISION:-unknown}' does not match image '$API_IMAGE' revision '$API_SOURCE_REVISION'" >&2
+    exit 1
+  fi
 fi
 
 SYNC_IMAGE_TAG="${SYNC_IMAGE_TAG:-$API_SOURCE_REVISION}"

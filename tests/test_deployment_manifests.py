@@ -285,6 +285,9 @@ class DeploymentManifestTests(unittest.TestCase):
             "does not exist locally",
             "refusing an unbound sync image",
             "no active API container found",
+            "AICADDIE_API_PORT",
+            "multiple release containers",
+            "CONTAINER_SOURCE_REVISION",
         ]:
             self.assertIn(required, text)
 
@@ -293,6 +296,42 @@ class DeploymentManifestTests(unittest.TestCase):
         # image and produce the immutable cron tag.
         self.assertNotIn("docker compose build api", text)
         self.assertNotIn("SYNC_IMAGE_TAG:-latest", text)
+
+    def test_homeserver_deploy_gate_builds_sync_after_health(self) -> None:
+        script = Path("ops/complete_homeserver_api_deploy.sh")
+        self.assertTrue(script.exists(), "missing homeserver deployment gate")
+        text = script.read_text(encoding="utf-8")
+
+        for required in [
+            "AICADDIE_API_CONTAINER",
+            "AICADDIE_API_PORT",
+            "api/v2/health",
+            "env -u API_IMAGE",
+            "ops/build_sync_image.sh",
+            "aicaddie-sync:${source_revision}",
+            "deployment complete",
+        ]:
+            self.assertIn(required, text)
+
+    def test_homeserver_sync_alerts_on_missing_or_mismatched_image(self) -> None:
+        script = Path("ops/homeserver_sync.sh")
+        self.assertTrue(script.exists(), "missing homeserver sync entrypoint")
+        text = script.read_text(encoding="utf-8")
+
+        for required in [
+            "AICADDIE_SYNC_ALERT_WEBHOOK_URL",
+            "AICADDIE_SYNC_ALERT_STATE",
+            "logger -t aicaddie-sync",
+            "notify-send",
+            "sync_failed",
+            "sync_recovered",
+            "multiple release containers",
+            "aicaddie-sync:${API_SOURCE_REVISION}",
+            "refusing stale/latest image",
+            "sync ok",
+            "done",
+        ]:
+            self.assertIn(required, text)
 
     def test_compose_persists_topo_render_cache_inside_private_volume(self) -> None:
         compose = self._load_compose()

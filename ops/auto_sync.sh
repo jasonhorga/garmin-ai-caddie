@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Garmin 自动同步(cron 入口):自愈登录(xvfb 有头 Chromium 过 Turnstile)→ 增量拉取
+# Garmin 自动同步（本地/开发入口）:自愈登录(xvfb 有头 Chromium 过 Turnstile)→ 增量拉取
+#
+# 生产 homeserver 使用 ops/homeserver_sync.sh（安装为 /home/jason/aicaddie-sync.sh）。
+# 两者不能并发运行：生产入口必须先校验当前 API revision 对应的 immutable
+# aicaddie-sync:<full-SHA> 镜像，避免旧脚本绕过 revision guard 写共享数据卷。
 # 记分卡/击球/几何/球场 par → 同步成功后预热 stats 三窗口缓存。
 #
 # 设计给 2c/2GB 小机器:flock 防重入;可用内存不足直接跳过本轮(下个时段再试);

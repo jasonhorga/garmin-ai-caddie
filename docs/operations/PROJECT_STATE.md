@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-25 08:39 UTC
+**Updated:** 2026-09-25 09:33 UTC
 **Branch:** `integration/v2`; product canonical source revision is
 `ea492366acc00451f1355abbb6f6108585dd53a7` (PR #333 code is merged at
 `4f48a3267450a75ce8b7514314d9beaa7f9ffab6`; the tip adds the review-only
@@ -39,6 +39,31 @@ the validation baseline hash
 Readiness remains `degraded` for pre-existing Garmin reauth/snapshot/native/
 weather evidence gaps, not a container health failure. Physical iPhone/Watch
 installation and interaction evidence remains open.
+
+**Garmin sync recovery (2026-09-25 09:09–09:11 UTC):** The active API
+`aicaddie-release-d7f69971-production-20260925` had no matching sync image,
+so hourly cron runs had failed since 2026-09-25 00:37 UTC. On the homeserver,
+`bash ops/build_sync_image.sh` was run from the revision-bearing checkout and
+created `aicaddie-sync:d7f699712f7ac6cba41d97c420c405e090625caf` (image digest
+`sha256:82aa569d5f2a4fee5e6077461acf3d2375b6f0b1c12bce8ed58d146708a3ad8a`),
+with an exact API/sync source-revision match. The active cron wrapper was then
+run once; it completed with `sync ok`, found `new_round_count: 1`, and pulled
+latest Garmin round `17711803` (`北京天竺黑骑士球员俱乐部`, 18 holes, 94). The
+production history overview now returns that round first and the API remained
+healthy throughout. The actual homeserver paths are `/home/jason/aicaddie-sync.sh`
+and `/home/jason/aicaddie-sync.log`; the repository's `ops/auto_sync.sh` and
+`~/garmin-auto-sync.log` are not the active production entrypoints.
+
+Prevention is now tracked in `ops/complete_homeserver_api_deploy.sh`,
+`ops/build_sync_image.sh`, and `ops/homeserver_sync.sh`: a deployment must
+health-check the switched production container and build its immutable sync tag;
+the cron wrapper refuses ambiguous/mismatched revisions and emits deduplicated
+syslog/desktop/webhook alerts. The installed wrapper at
+`/home/jason/aicaddie-sync.sh` has been replaced atomically after preserving a
+checksummed backup at
+`/home/jason/garmin-ai-caddie-data/operations/sync-wrapper-backup-20260925/`.
+No API container, Caddy route, or persistent data volume was restarted or
+removed.
 
 **PERF-STARTUP baseline remains `70e74a6eb04bae1d656bc8cee81f534e0ae4f2b7`.**
 **Release rule:** the gates are ordered, not circular:
@@ -2566,6 +2591,7 @@ project-level task list; historical plans are reference material.
 | `PHONE-UX7` | `evidence-open` | Correct live-round truth and immediate interaction after Build 70, including the real live-route regression shown by `IMG_8160`: a normal Par 4 must not default to a repeated short tee club merely because two median carries add up. Keep hard hazard/dispersion constraints and explain a shorter tee choice when it is genuinely safer. | Source/backend `837c0d9a`, Source CI `35615806302`, exact-SHA Native Mobile CI `35617605192`, authenticated decision evidence, TestFlight CD `35625370999`, and Apple check `35626544584` are green. Build 72 is `VALID`/`IN_BETA_TESTING` and group-visible. Black Knight A1 now resolves to the validated `Driver -> 3H` prefix with no through-green leg. Only physical iPhone/Watch installation and interaction evidence remains open. |
 | `PR332` | `evidence-open` | Validate and integrate the performance, cache, web review, Watch image-write, iOS GIR, and bounded caddie fixes from PR #332; explicitly separate warm-cache gains from first-time course startup and preserve unresolved planner architecture items. | Merged at canonical `3c5ec81af1b0f67576c0e93e1ede0c305194d099`. Source CI `35838477517`, exact-SHA Native Mobile CI `35847317420`, production deployment on `39055`, internal TestFlight CD `35853831558` (Build 74), and read-only ASC check `35854907245` are complete. Homeserver base-vs-PR evidence remains under `/home/jason/garmin-ai-caddie-data/operations/pr332-validation-20260923/`: history rounds `13.78/8.92s` -> `2.30/0.37s`, stats `9.14/3.49s` -> `4.45/1.06s`, package `6.69/2.18s` -> `4.65/1.85s`; precise Black Knight `31795` holes 1/3/4 routes and hazard geometry are byte-identical. Cold nine-hole prep warm remains about `36.99s`, so new-course startup and tee-aware/multi-planner caddie architecture remain unresolved. Validation evidence is in PR comment `5791614286`, deployment/TestFlight closeout is in PR comment `5794176571`, and the 2026-09-23 deployment manifest records resource cleanup. Physical iPhone/Watch installation and interaction evidence remains open. |
 | `PR333` | `evidence-open` | Integrate and verify tee-aware CoursePrep and deferred boot prep warm from PR #333 without regressing the factual route/default-hazard slice. | Merged at `4f48a3267450a75ce8b7514314d9beaa7f9ffab6`; Source CI `36107619479` is green (`2214 tests`, 13 skips), targeted homeserver suite `77/77` (2 existing geometry skips), real package comparison confirms Blue parity plus 31795 Red release set 4 / shorter route, and Native Mobile CI `36107680114` passed all iOS/Watch stages. First-time course startup and multi-planner caddie behavior remain out of scope. No TestFlight or production promotion. |
+| `SYNC-RECOVERY-20260925` | `done` | Restore the Garmin cron after the API deployment, then make API-to-sync image binding and missing-image alerting part of the deployment/runtime contract. | Same-revision image built and one-shot incremental sync completed; production history overview shows round `17711803`. Remote deployment-manifest tests `17/17` pass. Installed wrapper check-only probe passes against production; prior wrapper is checksum-preserved. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
