@@ -20,3 +20,13 @@
 `d7144977a5a37fa64b13e13d14e188fd4cba88c3bf72986a7d9a791f39b17dec`
 
 设计稿要点是：地图作为主界面、球童路线可直接切换、击球链显示每一杆、障碍默认隐藏并按选择显示轮廓和前后距离。数字和球场图均为评审用示意数据。
+
+截图校验：
+
+| 文件 | SHA-256 |
+| --- | --- |
+| `phone-ux7-game-360-final.png` | `bc14117774c9d378a34fc663e9cab3e008067c5a15563b107ca494494b859bc7` |
+| `phone-ux7-game-736-final.png` | `2409aed9f70cd22e94632d791b3d552dc16446f8cc601b00ce49f26c650f0c75` |
+| `phone-ux7-game-736-switched.png` | `081dc7768277db98d20461a04f7f777e113f286928bc771399e72845d8cfe206` |
+| `phone-ux7-inline-360.png` | `f0c6338dd83a49b2452f66fbcafa0ea038c58bb257dbc280d38de58c579e31cf` |
+| `phone-ux7-inline-736.png` | `bc2c3312eb66fba400d8dcd2eff82c4c12f015c89382d01dac637c195a32f9a7` |

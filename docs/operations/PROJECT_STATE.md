@@ -9,10 +9,11 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-25 02:25 UTC
+**Updated:** 2026-09-25 08:34 UTC
 **Branch:** `integration/v2`; product canonical source revision is
-`d7f699712f7ac6cba41d97c420c405e090625caf` (route-line/default-hazard slice
-committed and pushed). PR #332 is merged and its
+`ea492366acc00451f1355abbb6f6108585dd53a7` (PR #333 code is merged at
+`4f48a3267450a75ce8b7514314d9beaa7f9ffab6`; the tip adds the review-only
+PHONE-UX7 design screenshots and is pushed). PR #332 is merged and its
 post-deploy gates are complete: Source CI `35838477517`, exact-SHA Native Mobile
 CI `35847317420`, homeserver deployment on production `127.0.0.1:39055`, and
 internal TestFlight CD `35853831558` uploaded Build `0.1.0 (74)` with
@@ -100,6 +101,46 @@ existing internal all-builds group. Its IPA SHA-256 is
 `bcffd958277ad0d462b3f02ddceee1a3acec656a743cbc06e868b2966e48cbe0`.
 No external distribution or tester mutation was performed. Deployment evidence is under
 `/home/jason/garmin-ai-caddie-data/operations/phone-ux9-route-deploy-20260925/`.
+
+**PR333 integration slice (2026-09-25 08:34 UTC):** PR #333 is merged at
+`4f48a3267450a75ce8b7514314d9beaa7f9ffab6` and pushed to `integration/v2`.
+The merge preserves the current factual route/default-unselected-hazard
+behavior and adds tee-aware CoursePrep: `/prep?tee=...` resolves Garmin
+release tee indices without guessing, selected tee route/hazard/green facts
+are returned with additive `teeSet`/`teeYards`, while `blue_yards` remains Blue
+semantic; iPhone and Watch pass the round tee through. It also defers the boot
+prep warm by the default 120 seconds and adds a read-only prep profiler. The
+homeserver targeted suite is `77/77` (2 existing geometry skips), and real
+installed geometry comparison on gids 31795, 31702 and 31719 shows Blue route
+facts unchanged while 31795 Red resolves to release set 4 and materially
+shorter tee-aware routes. Source CI `36107619479` is green (`2214 tests`, 13
+skips); Native Mobile CI `36107680114` completed green at
+`2026-09-25T08:31:33Z` after passing iOS and Watch builds/tests, real
+iOS/Watch screenshots, design snapshots, evidence writes and secret scans.
+This slice does not
+claim a faster first-time course download or a new caddie planner: the boot
+delay shifts background contention, and the caddie change is tee resolution
+only. No TestFlight upload or production promotion was performed.
+
+**PHONE-UX7 game UI review artifact (2026-09-25 08:31 UTC):** The homeserver
+gameplay proposal already existed as
+`docs/design/phone-ux7-live-gameplay-proposal.html` (source design commit
+`e60f3639`). Its homeserver-rendered 360/736 screenshots are now preserved in
+`docs/design/phone-ux7-game-ui-review/` with source hashes and provenance.
+The docs-only commit is `ea492366`; review branch
+`review/phone-ux7-game-ui-20260920` points to it. The separate native redesign
+proposal remains available at review branch
+`review/ios-native-redesign-20260924` (`6bfa6165`). Neither design branch
+claims a production UI implementation.
+
+**PR333 verification snapshot cleanup (2026-09-25 08:15 UTC):** The four
+exact temporary snapshots used for merge and pre/post geometry comparison were
+removed after checking processes, tmux, containers, open descriptors and
+capacity. The allow-list and action record are under
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260925T-pr333-merge/`;
+one root-owned cache was removed by a named, auto-removed container. No
+production, rollback, candidate, shared volume or unrelated resource was
+touched.
 
 **Previous slice (2026-09-24):** `PHONE-UX8-LIVE-ROUTE-HAZARD` is
 `evidence-open` pending physical-device evidence. The live phone map now renders the installed factual route
@@ -2522,6 +2563,7 @@ project-level task list; historical plans are reference material.
 | `PHONE-UX6` | `evidence-open` | Implement the `IMG_8135`-`IMG_8139` slice: canonical structured prep/live caddie plans with all landing legs, selectable plan-map state, removal of the offline-ready banner, coherent local-first round loading, and iPhone/Watch identity/interaction parity. Keep download-speed diagnosis measured and separate from UI claims. | Build 70 from source `df83de64` is `VALID`, `IN_BETA_TESTING`, and available to the existing internal all-builds group. It preserves factual A/B/C and named course-area labels, appends `场` at most once, and removes the erroneous ordinal conversion. Source CI `35525485383`, Native `35525505845`, CD `35528165601`, and Apple check `35528692568` passed; physical iPhone/Watch confirmation remains open. Screenshots live under `/home/ubuntu/IMG_*`. |
 | `PHONE-UX7` | `evidence-open` | Correct live-round truth and immediate interaction after Build 70, including the real live-route regression shown by `IMG_8160`: a normal Par 4 must not default to a repeated short tee club merely because two median carries add up. Keep hard hazard/dispersion constraints and explain a shorter tee choice when it is genuinely safer. | Source/backend `837c0d9a`, Source CI `35615806302`, exact-SHA Native Mobile CI `35617605192`, authenticated decision evidence, TestFlight CD `35625370999`, and Apple check `35626544584` are green. Build 72 is `VALID`/`IN_BETA_TESTING` and group-visible. Black Knight A1 now resolves to the validated `Driver -> 3H` prefix with no through-green leg. Only physical iPhone/Watch installation and interaction evidence remains open. |
 | `PR332` | `evidence-open` | Validate and integrate the performance, cache, web review, Watch image-write, iOS GIR, and bounded caddie fixes from PR #332; explicitly separate warm-cache gains from first-time course startup and preserve unresolved planner architecture items. | Merged at canonical `3c5ec81af1b0f67576c0e93e1ede0c305194d099`. Source CI `35838477517`, exact-SHA Native Mobile CI `35847317420`, production deployment on `39055`, internal TestFlight CD `35853831558` (Build 74), and read-only ASC check `35854907245` are complete. Homeserver base-vs-PR evidence remains under `/home/jason/garmin-ai-caddie-data/operations/pr332-validation-20260923/`: history rounds `13.78/8.92s` -> `2.30/0.37s`, stats `9.14/3.49s` -> `4.45/1.06s`, package `6.69/2.18s` -> `4.65/1.85s`; precise Black Knight `31795` holes 1/3/4 routes and hazard geometry are byte-identical. Cold nine-hole prep warm remains about `36.99s`, so new-course startup and tee-aware/multi-planner caddie architecture remain unresolved. Validation evidence is in PR comment `5791614286`, deployment/TestFlight closeout is in PR comment `5794176571`, and the 2026-09-23 deployment manifest records resource cleanup. Physical iPhone/Watch installation and interaction evidence remains open. |
+| `PR333` | `evidence-open` | Integrate and verify tee-aware CoursePrep and deferred boot prep warm from PR #333 without regressing the factual route/default-hazard slice. | Merged at `4f48a3267450a75ce8b7514314d9beaa7f9ffab6`; Source CI `36107619479` is green (`2214 tests`, 13 skips), targeted homeserver suite `77/77` (2 existing geometry skips), real package comparison confirms Blue parity plus 31795 Red release set 4 / shorter route, and Native Mobile CI `36107680114` passed all iOS/Watch stages. First-time course startup and multi-planner caddie behavior remain out of scope. No TestFlight or production promotion. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
 | `CLOUD-AUDIT` | `done` | Historical Codex-only read-only inspection after branch reconciliation; not a model audit. | Archived report `docs/reviews/2026-09-04-cloud-whole-repository-audit.md`; archive SHA-256 `1380b1659502377eb3f6f755ff1b987f14efdf5dddf4bc484640363e3fb12819`; snapshot/report cleaned. |
