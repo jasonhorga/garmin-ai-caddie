@@ -307,6 +307,7 @@ class DeploymentManifestTests(unittest.TestCase):
             "AICADDIE_API_PORT",
             "api/v2/health",
             "env -u API_IMAGE",
+            "AICADDIE_DEPLOY_GATE_CHECK_ONLY",
             "ops/build_sync_image.sh",
             "aicaddie-sync:${source_revision}",
             "deployment complete",

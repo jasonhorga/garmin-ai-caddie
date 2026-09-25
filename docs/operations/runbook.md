@@ -158,6 +158,12 @@ candidate when multiple `aicaddie-release-*` containers are running. If the
 API was already switched and only the image is missing, the lower-level helper
 can be run directly:
 
+The current homeserver also keeps a pinned operational copy at
+`/home/jason/garmin-ai-caddie-data/operations/deploy-tools/ops/`; its
+`SOURCE_REVISION` file records the reviewed source commit. Use the checkout
+version for normal development and refresh this host copy as part of the same
+reviewed deployment change.
+
 ```bash
 bash ops/build_sync_image.sh
 ```

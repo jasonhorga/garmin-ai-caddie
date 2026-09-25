@@ -39,6 +39,18 @@ if ! curl --fail --silent --show-error --max-time "${AICADDIE_API_HEALTH_TIMEOUT
   exit 1
 fi
 
+source_revision="$(docker inspect --format '{{index .Config.Labels "ai.caddie.source-revision"}}' "$api_container")"
+sync_image="aicaddie-sync:${source_revision}"
+if [[ "${AICADDIE_DEPLOY_GATE_CHECK_ONLY:-0}" == "1" ]]; then
+  sync_revision="$(docker image inspect --format '{{index .Config.Labels "ai.caddie.source-revision"}}' "$sync_image" 2>/dev/null || true)"
+  if [[ "$sync_revision" != "$source_revision" ]]; then
+    echo "error: check-only gate found ${sync_image} revision '${sync_revision:-unknown}', expected '$source_revision'" >&2
+    exit 1
+  fi
+  echo "deployment gate check complete: ${api_container} is healthy and ${sync_image} matches"
+  exit 0
+fi
+
 # Do not allow a caller's candidate API_IMAGE override to bypass the active
 # container binding in this post-deploy path.
 env -u API_IMAGE \
@@ -46,8 +58,6 @@ env -u API_IMAGE \
   AICADDIE_API_PORT="$api_port" \
   bash "$repo_root/ops/build_sync_image.sh"
 
-source_revision="$(docker inspect --format '{{index .Config.Labels "ai.caddie.source-revision"}}' "$api_container")"
-sync_image="aicaddie-sync:${source_revision}"
 if ! docker image inspect "$sync_image" >/dev/null 2>&1; then
   echo "error: deployment gate could not find ${sync_image}" >&2
   exit 1
