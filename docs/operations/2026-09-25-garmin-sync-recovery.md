@@ -53,7 +53,7 @@ or moving `latest` image.
   image builder, and fails the deployment if the matching tag is absent.
 - The homeserver has a pinned operational copy under
   `/home/jason/garmin-ai-caddie-data/operations/deploy-tools/`, with
-  `SOURCE_REVISION=862171a1` recorded beside the scripts.
+  `SOURCE_REVISION=c6f32dc1` recorded beside the scripts.
 - `ops/build_sync_image.sh` resolves the production host port and refuses to
   guess when multiple release containers are running.
 - `ops/homeserver_sync.sh` is the canonical production cron entrypoint. It

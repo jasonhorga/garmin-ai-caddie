@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-25 09:33 UTC
+**Updated:** 2026-09-25 09:37 UTC
 **Branch:** `integration/v2`; product canonical source revision is
 `ea492366acc00451f1355abbb6f6108585dd53a7` (PR #333 code is merged at
 `4f48a3267450a75ce8b7514314d9beaa7f9ffab6`; the tip adds the review-only
