@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-25 08:34 UTC
+**Updated:** 2026-09-25 08:39 UTC
 **Branch:** `integration/v2`; product canonical source revision is
 `ea492366acc00451f1355abbb6f6108585dd53a7` (PR #333 code is merged at
 `4f48a3267450a75ce8b7514314d9beaa7f9ffab6`; the tip adds the review-only
@@ -117,6 +117,8 @@ shorter tee-aware routes. Source CI `36107619479` is green (`2214 tests`, 13
 skips); Native Mobile CI `36107680114` completed green at
 `2026-09-25T08:31:33Z` after passing iOS and Watch builds/tests, real
 iOS/Watch screenshots, design snapshots, evidence writes and secret scans.
+The docs-only canonical tip `ea492366` also passed Source CI `36113822380`
+(Docker, frontend and backend jobs green).
 This slice does not
 claim a faster first-time course download or a new caddie planner: the boot
 delay shifts background contention, and the caddie change is tee resolution
