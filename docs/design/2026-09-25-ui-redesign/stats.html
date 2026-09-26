@@ -92,6 +92,7 @@ footer{font-size:13px;color:var(--muted)}
 .big{font-size:34px;font-weight:700;letter-spacing:-.01em;line-height:1.1}
 .scroll{position:absolute;inset:0;overflow-y:auto;scrollbar-width:none;padding:58px 16px 40px;display:flex;flex-direction:column;gap:14px}
 .scroll::-webkit-scrollbar{display:none}
+.scroll>svg,.scroll>div>svg{flex:none;width:358px;max-width:100%}
 .kpis{display:grid;grid-template-columns:repeat(3,1fr)}
 .kpis div{display:flex;flex-direction:column;gap:1px}
 .kpis div+div{padding-left:12px;border-left:.5px solid var(--p-line)}
@@ -103,6 +104,7 @@ footer{font-size:13px;color:var(--muted)}
 .seg2 button{height:30px;border-radius:15px!important;padding:0 12px!important;font-size:13px!important;font-weight:600!important;background:var(--p-fill)!important}
 .seg2 button.on{background:#F4F6F2!important;color:#0B0F0C!important}
 .pc{background:var(--p-fill);border:.5px solid var(--p-line);border-radius:20px;padding:14px;display:flex;gap:14px;align-items:center}
+.phone button.pc{background:var(--p-fill)!important;border:.5px solid var(--p-line)!important;border-radius:20px!important;padding:14px!important}
 .pc .t{font-size:13px;font-weight:600;color:var(--p-mut)}
 .pc .v{font-size:26px;font-weight:700;line-height:1.1}
 .pc .s{font-size:12.5px;color:var(--p-mut)}
@@ -119,7 +121,7 @@ footer{font-size:13px;color:var(--muted)}
 <div class="wrap">
 <header style="display:flex;flex-direction:column;gap:12px">
   <span class="eyebrow">平时 · 成绩、统计、球包</span>
-  <h1>先看差点和走势，再看丢杆在哪，最后看每支杆打多远</h1>
+  <h1>先看差点和走势，再看丢杆在哪、按时间和球场怎么变，最后看每支杆打多远</h1>
   <p class="lede">三屏都用同一套深色、记分符号和绿色。成绩首页把“差点估算”放最大，下面一条近 20 场走势；表现分析把四个阶段做成四张图，一次看完，不再用分段切换；球包是一张“距离阶梯”，每支杆一条 p10–p90 的范围条，空档一眼看出来。数据是示例。</p>
 </header>
 
@@ -144,14 +146,16 @@ footer{font-size:13px;color:var(--muted)}
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <button class="pc" style="flex-direction:column;align-items:flex-start;gap:2px" id="r-an"><span class="v" style="font-size:17px">表现分析</span><span class="s">丢杆在哪 →</span></button>
-          <button class="pc" style="flex-direction:column;align-items:flex-start;gap:2px" id="r-co"><span class="v" style="font-size:17px">球场</span><span class="s">每个球场的均杆 →</span></button>
+          <button class="pc" style="flex-direction:column;align-items:flex-start;gap:2px" id="r-tm"><span class="v" style="font-size:17px">时间与频率</span><span class="s">月 · 季 · 年 · 日历 →</span></button>
+          <button class="pc" style="flex-direction:column;align-items:flex-start;gap:2px" id="r-ds"><span class="v" style="font-size:17px">成绩分布</span><span class="s">分数段 · 按 Par →</span></button>
+          <button class="pc" style="flex-direction:column;align-items:flex-start;gap:2px" id="r-co"><span class="v" style="font-size:17px">球场</span><span class="s">每个球场的成绩 →</span></button>
         </div>
       </div>
       <div class="tip tn" id="tip1"></div>
       <div class="toast glass" id="t1"></div>
       <div class="homebar"></div>
     </div></div></div>
-    <p class="cap">差点最大，因为它最能说明“最近打得怎么样”。走势图：点是每场 18 洞杆数，线是近 10 场平均，鼠标移上去看那一场。下面三项数字不加卡片；最近三场带 18 洞记分符号条，点进单场复盘。</p>
+    <p class="cap">底部四个入口对应下面第 4–6 台和表现分析。差点最大，因为它最能说明“最近打得怎么样”。走势图：点是每场 18 洞杆数，线是近 10 场平均，鼠标移上去看那一场。下面三项数字不加卡片；最近三场带 18 洞记分符号条，点进单场复盘。</p>
   </div>
 
   <!-- ============ 2. analysis ============ -->
@@ -194,6 +198,72 @@ footer{font-size:13px;color:var(--muted)}
     </div></div></div>
     <p class="cap">每支杆一行：名字、一条 p10–p90 范围条（80% 的击球落在这里）、白线中位数、右边码数。行与行之间写“差 N 码”，太近（&lt; 8）或太远（&gt; 20）标黄，就是球包的空档或重叠。点一支杆：手动改距离（改过的用实心点标出）或从包里拿掉。</p>
   </div>
+  <!-- ============ 4. time & frequency ============ -->
+  <div class="demo">
+    <h2>4 · 时间与频率</h2>
+    <div class="fit"><div class="shell"><div class="phone" id="ph4">
+      <div class="island"></div><div class="status"><span>9:41</span><i></i></div>
+      <div class="scroll">
+        <div class="line"><button class="hbtn round glass" aria-label="返回">‹</button><div style="flex:1"></div></div>
+        <div class="big">时间与频率</div>
+        <div class="seg2" id="t-grain"></div>
+        <svg id="t-chart" viewBox="0 0 358 150" width="358" height="150" aria-label="平均杆随时间"></svg>
+        <div class="lbl" id="t-listh">按季度 · 2026</div>
+        <div id="t-list" style="display:flex;flex-direction:column;gap:8px"></div>
+        <div class="line"><span class="lbl">打球日历 · 2026</span><span class="mut tn" style="font-size:12px">32 场 · 月均 3.6 · 5 月最多</span></div>
+        <div style="position:relative"><svg id="t-cal" viewBox="0 0 358 104" width="358" height="104" aria-label="2026 年每天是否打球"></svg></div>
+      </div>
+      <div class="tip tn" id="tip4"></div>
+      <div class="toast glass" id="t4"></div>
+      <div class="homebar"></div>
+    </div></div></div>
+    <p class="cap">一张图切“逐场 / 月 / 季 / 年”：同一批球局按不同粒度求平均。下面跟着列出对应的季度（或年份）：场数、均杆、最佳、最差、每场小鸟、每场双柏忌以上。最底下是打球日历，一格一天，打过的是绿色，一眼看出哪几个月打得多。点任何一段都能进到那段时间的全部球局。</p>
+  </div>
+
+  <!-- ============ 5. distribution ============ -->
+  <div class="demo">
+    <h2>5 · 成绩分布</h2>
+    <div class="fit"><div class="shell"><div class="phone" id="ph5">
+      <div class="island"></div><div class="status"><span>9:41</span><i></i></div>
+      <div class="scroll">
+        <div class="line"><button class="hbtn round glass" aria-label="返回">‹</button><div style="flex:1"></div></div>
+        <div class="big">成绩分布</div>
+        <div class="mut tn" style="font-size:13px">全部 64 场完整 18 洞</div>
+        <svg id="d-hist" viewBox="0 0 358 150" width="358" height="150" aria-label="每 5 杆一段的场数"></svg>
+        <div class="lbl">每一洞的结果</div>
+        <svg id="d-mix" viewBox="0 0 358 56" width="358" height="56" aria-label="所有洞的成绩构成"></svg>
+        <div class="lbl">按 Par</div>
+        <div id="d-par" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+      <div class="tip tn" id="tip5"></div>
+      <div class="toast glass" id="t5"></div>
+      <div class="homebar"></div>
+    </div></div></div>
+    <p class="cap">每 5 杆一根柱，最常见的那段（90–94）用实心；点一根柱进到这些球局。下面是所有洞的结果构成（老鹰到双柏忌以上的占比），再下面按 Par 3 / 4 / 5 分：平均比标准杆多几杆、保帕率。</p>
+  </div>
+
+  <!-- ============ 6. course ============ -->
+  <div class="demo">
+    <h2>6 · 球场</h2>
+    <div class="fit"><div class="shell"><div class="phone" id="ph6">
+      <div class="island"></div><div class="status"><span>9:41</span><i></i></div>
+      <div class="scroll">
+        <div class="line"><button class="hbtn round glass" aria-label="返回">‹</button><div style="flex:1"></div></div>
+        <div style="font-size:26px;font-weight:700;line-height:1.15">黑骑士球员俱乐部</div>
+        <div class="kpis tn"><div><b>12</b><span>场</span></div><div><b>86.9</b><span>均杆</span></div><div><b>78</b><span>最佳</span></div></div>
+        <div class="lbl">每一场</div>
+        <svg id="c-dots" viewBox="0 0 358 70" width="358" height="70" aria-label="这个球场每一场的杆数"></svg>
+        <div class="lbl">每洞平均（B/C · 前九 B 后九 C）</div>
+        <div id="c-holes" class="tn" style="display:grid;grid-template-columns:repeat(9,1fr);gap:3px"></div>
+        <div class="lbl">九洞组合</div>
+        <div id="c-nines" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+      <div class="tip tn" id="tip6"></div>
+      <div class="toast glass" id="t6"></div>
+      <div class="homebar"></div>
+    </div></div></div>
+    <p class="cap">从成绩首页“球场”进来选一个球场。每一场一个点（按日期），看得出在这个球场是不是越打越好；每洞平均比标准杆多几杆，颜色越深丢得越多，一眼看出“这个球场的难洞”；九洞组合各自的场数和均杆。点任何一场进单场复盘。</p>
+  </div>
 </section>
 
 <section style="display:flex;flex-direction:column;gap:14px">
@@ -203,7 +273,9 @@ footer{font-size:13px;color:var(--muted)}
     <tbody>
       <tr><td>成绩首页</td><td>球局活动、最近状态小折线、两块入口、“我的高尔夫生涯”三格、链接列表（时间趋势 / 球场 / 球杆）</td><td>差点估算放最大 + 近 20 场走势（每场点 + 近 10 场平均线）；三项数字；最近三场带记分符号条；表现分析、球场两块入口</td><td>最想知道的是“最近打得怎么样”；链接列表收进入口</td></tr>
       <tr><td>表现分析</td><td>分段切换“开球 / 攻果岭 / 短杆 / 推杆”，一次只看一个</td><td>四个阶段四张小图同屏，加一条“每场成绩构成”；时间范围放顶上</td><td>比较四个阶段才知道丢杆在哪，不该要切换</td></tr>
-      <tr><td>成绩构成、按 Par、分数段</td><td>只在一个现在进不去的“成绩统计”页里</td><td>“每场成绩构成”提到表现分析顶部；其余的留在“全部球局”的筛选里</td><td>把有用的拿出来，没人看的不堆上来</td></tr>
+      <tr><td>时间与频率</td><td>“时间趋势”：统计范围 + 汇总粒度（逐场 / 月 / 季 / 年）、折线、周期汇总、历年表现、打球频率日历</td><td>保留全部内容，合成一屏：粒度切换的一张图 + 季度（或历年）卡片 + 打球日历</td><td>和 GolfLive 对照时要的按季度 / 年 / 频率都在</td></tr>
+      <tr><td>成绩分布、按 Par</td><td>只在一个现在进不去的“成绩统计”页里（分数段、成绩构成、按 Par）</td><td>单独一屏“成绩分布”：每 5 杆柱状图、所有洞的成绩构成、按 Par 3 / 4 / 5；“每场成绩构成”也放在表现分析顶部</td><td>把进不去的页里有用的拿出来</td></tr>
+      <tr><td>球场</td><td>列表 + 详情：总览三格、所有比赛列表、九洞组合，没有图</td><td>每一场一个点的分布图、每洞平均比标准杆多几杆的格子、九洞组合</td><td>GolfLive 的“分布点阵图”；再加上“这个球场的难洞”</td></tr>
       <tr><td>球杆距离</td><td>“成绩 → 球杆”是列表（中位、p10–p90 文字）；“球杆设置”是勾选 + 输入码数；距离阶梯只有中位数条</td><td>合成一屏“球包”：范围条 + 中位线 + 相邻差距；点一支改距离或拿掉；“＋ 球杆”加</td><td>三处合一；范围条直接看出稳不稳、有没有空档</td></tr>
       <tr><td>数据来源</td><td>手动 / Garmin / 历史推算，界面上不区分</td><td>手动改过的中位数用实心白点，其余是细白线；不写文字说明</td><td>知道哪个是自己填的，但不加提示</td></tr>
     </tbody>
@@ -324,6 +396,69 @@ footer{font-size:13px;color:var(--muted)}
   document.getElementById("b-add").onclick=function(){toast("t3","从球杆目录里加一支");};
   bRender();
 
+
+  /* ============ 4. time & frequency ============ */
+  var MON=["1 月","2 月","3 月","4 月","5 月","6 月","7 月","8 月","9 月"],MN=[1,2,3,4,6,5,4,4,3],MA=[95.0,93.5,92.3,91.8,90.2,89.4,88.1,87.0,84.3];
+  var QS=[["2026 第三季度",11,86.7,78,93,1.1,2.4],["2026 第二季度",15,90.4,84,99,0.8,3.1],["2026 第一季度",6,93.8,88,101,0.5,3.6]];
+  var YS=[["2026",32,88.9,78,101,0.9,2.9],["2025",23,92.4,83,106,0.6,3.4],["2024",9,96.2,89,108,0.4,4.1]];
+  var GR="季";
+  function tRender(){var g=document.getElementById("t-grain");g.innerHTML="";
+    ["逐场","月","季","年"].forEach(function(k){var b=document.createElement("button");b.textContent=k;b.className=k===GR?"on":"";b.onclick=function(){GR=k;tRender();};g.appendChild(b);});
+    var pts=GR==="逐场"?SC.map(function(v,i){return [DATES[i],v,1];}):GR==="月"?MON.map(function(m,i){return [m,MA[i],MN[i]];}):GR==="季"?QS.slice().reverse().map(function(q){return [q[0].replace("2026 ",""),q[2],q[1]];}):YS.slice().reverse().map(function(y){return [y[0],y[2],y[1]];});
+    var s=document.getElementById("t-chart");s.innerHTML="";var w=358,h=150,l=28,r=12,tp=12,b=22,mn=76,mx=98;
+    function X(i){return pts.length<2?(l+w-r)/2:l+(w-l-r)*i/(pts.length-1);}function Y(v){return tp+(h-tp-b)*(mx-v)/(mx-mn);}
+    [80,85,90,95].forEach(function(v){el(s,"line",{x1:l,x2:w-r,y1:Y(v),y2:Y(v),stroke:"rgba(255,255,255,.08)"});el(s,"text",{x:l-6,y:Y(v)+4,"text-anchor":"end","font-size":10,fill:"rgba(244,246,242,.5)"},v);});
+    var d="";pts.forEach(function(p,i){d+=(i?"L":"M")+X(i)+" "+Y(p[1]);});el(s,"path",{d:d,fill:"none",stroke:"#5CC47F","stroke-width":2,"stroke-linejoin":"round"});
+    pts.forEach(function(p,i){var c=el(s,"circle",{cx:X(i),cy:Y(p[1]),r:GR==="逐场"?3.2:5,fill:"#F4F6F2",stroke:"#07090A","stroke-width":2});
+      var hitc=el(s,"circle",{cx:X(i),cy:Y(p[1]),r:12,fill:"transparent"});
+      hitc.addEventListener("pointermove",function(e){tipAt("tip4","ph4",e,"<b>"+p[0]+"</b> "+(GR==="逐场"?p[1]+" 杆":"均杆 "+p[1].toFixed(1)+" · "+p[2]+" 场"));});hitc.addEventListener("pointerleave",function(){tipOff("tip4");});
+      hitc.addEventListener("click",function(){toast("t4",GR==="逐场"?"打开这一场的复盘":"打开"+p[0]+"的全部球局");});
+      if(GR!=="逐场"||i===0||i===pts.length-1)el(s,"text",{x:X(i),y:h-6,"text-anchor":i===0&&pts.length>1?"start":i===pts.length-1&&pts.length>1?"end":"middle","font-size":10,fill:"rgba(244,246,242,.5)"},p[0]);});
+    var list=GR==="年"?YS:QS,L=document.getElementById("t-list");L.innerHTML="";document.getElementById("t-listh").textContent=GR==="年"?"历年表现":"按季度 · 2026";
+    list.forEach(function(q){var b=document.createElement("button");b.className="pc";b.style.cssText="flex-direction:column;align-items:stretch;gap:8px;text-align:left";
+      b.innerHTML='<div class="line"><b style="font-size:16px">'+q[0]+'</b><span class="tn" style="font-size:16px;font-weight:700">'+q[1]+' 场 · '+q[2].toFixed(1)+'</span></div><div class="kpis tn" style="grid-template-columns:repeat(4,1fr)"><div><b style="font-size:17px">'+q[3]+'</b><span>最佳</span></div><div><b style="font-size:17px">'+q[4]+'</b><span>最差</span></div><div><b style="font-size:17px">'+q[5]+'</b><span>鸟 / 场</span></div><div><b style="font-size:17px">'+q[6]+'</b><span>双柏+ / 场</span></div></div>';
+      b.onclick=function(){toast("t4","打开"+q[0]+"的全部球局");};L.appendChild(b);});}
+  tRender();
+  (function(){var s=document.getElementById("t-cal"),cols=39,cw=358/cols,start=new Date(2026,0,1),dayMs=864e5,played={},seed=7;
+    function rnd(){seed=(seed*9301+49297)%233280;return seed/233280;}
+    MN.forEach(function(n,m){var days=new Date(2026,m+1,0).getDate(),k=0;while(k<n){var d=1+Math.floor(rnd()*days),key=m+"-"+d;if(!played[key]){played[key]=1;k++;}}});
+    var last=new Date(2026,8,26);
+    for(var t0=start.getTime(),i=0;t0+i*dayMs<=last.getTime();i++){var dt=new Date(t0+i*dayMs),wd=(dt.getDay()+6)%7,col=Math.floor((i+((start.getDay()+6)%7))/7),on=played[dt.getMonth()+"-"+dt.getDate()];
+      var rc=el(s,"rect",{x:col*cw+1,y:wd*(cw)+1,width:cw-2,height:cw-2,rx:2,fill:on?"#5CC47F":"rgba(255,255,255,.07)"});
+      if(on)(function(dt){rc.addEventListener("pointermove",function(e){tipAt("tip4","ph4",e,(dt.getMonth()+1)+" 月 "+dt.getDate()+" 日 · 打了一场");});rc.addEventListener("pointerleave",function(){tipOff("tip4");});})(dt);}
+    [0,2,4,6,8].forEach(function(m){var d=new Date(2026,m,1),i=Math.round((d-start)/dayMs),col=Math.floor((i+((start.getDay()+6)%7))/7);el(s,"text",{x:col*cw+1,y:102,"font-size":10,fill:"rgba(244,246,242,.5)"},(m+1)+" 月");});})();
+
+  /* ============ 5. distribution ============ */
+  (function(){var B=[["75–79",3],["80–84",9],["85–89",15],["90–94",19],["95–99",11],["100–104",5],["105+",2]],s=document.getElementById("d-hist"),w=358,h=150,bt=22,mx=20,bw=(w-8)/B.length;
+    B.forEach(function(x,i){var hh=(h-bt-18)*x[1]/mx,xx=4+i*bw+2,top=i===3;
+      var r=el(s,"rect",{x:xx,y:h-bt-hh,width:bw-4,height:hh,rx:4,fill:top?"#5CC47F":"rgba(92,196,127,.4)"});
+      el(s,"text",{x:xx+(bw-4)/2,y:h-bt-hh-5,"text-anchor":"middle","font-size":11,"font-weight":700,fill:"#F4F6F2"},x[1]);
+      el(s,"text",{x:xx+(bw-4)/2,y:h-6,"text-anchor":"middle","font-size":9.5,fill:"rgba(244,246,242,.55)"},x[0]);
+      var hit=el(s,"rect",{x:xx,y:0,width:bw-4,height:h,fill:"transparent"});
+      hit.addEventListener("pointermove",function(e){tipAt("tip5","ph5",e,"<b>"+x[0]+" 杆</b> "+x[1]+" 场 · "+Math.round(x[1]/64*100)+"%");});hit.addEventListener("pointerleave",function(){tipOff("tip5");});
+      hit.addEventListener("click",function(){toast("t5","打开 "+x[0]+" 杆的 "+x[1]+" 场球局");});});
+    var M=[["老鹰",0.1,"#7CC4F2"],["小鸟",5,"#56A8E8"],["标准杆",38,"#F4F6F2"],["柏忌",36,"#E6B04E"],["双柏忌+",21,"#E8814B"]],m=document.getElementById("d-mix"),x=0;
+    M.forEach(function(k){var ww=Math.max(2,358*k[1]/100-2);var r=el(m,"rect",{x:x,y:4,width:ww,height:16,rx:4,fill:k[2]});
+      r.addEventListener("pointermove",function(e){tipAt("tip5","ph5",e,"<b>"+k[0]+"</b> "+k[1]+"% 的洞");});r.addEventListener("pointerleave",function(){tipOff("tip5");});
+      if(ww>40){el(m,"text",{x:x,y:36,"font-size":12,"font-weight":700,fill:"#F4F6F2"},k[1]+"%");el(m,"text",{x:x,y:50,"font-size":10,fill:"rgba(244,246,242,.55)"},k[0]);}x+=ww+2;});
+    var P=[["Par 3",0.62,48,288],["Par 4",1.05,34,720],["Par 5",0.88,39,144]],D=document.getElementById("d-par");
+    P.forEach(function(p){var row=document.createElement("div");row.className="pc";row.style.cssText="padding:10px 14px;gap:12px";
+      row.innerHTML='<b style="font-size:15px;width:52px">'+p[0]+'</b><div style="flex:1"><div style="height:8px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden"><div style="height:8px;width:'+(p[1]/1.5*100)+'%;background:#E6B04E;border-radius:4px"></div></div><div class="mut tn" style="font-size:11.5px;margin-top:4px">'+p[3]+' 洞 · 保帕率 '+p[2]+'%</div></div><b class="tn" style="font-size:18px">+'+p[1].toFixed(2)+'</b>';D.appendChild(row);});})();
+
+  /* ============ 6. course ============ */
+  (function(){var R=[["2025-10",92],["2025-12",90],["2026-02",91],["2026-03",88],["2026-04",89],["2026-05",86],["2026-05",87],["2026-06",85],["2026-07",86],["2026-08",83],["2026-09",82],["2026-09",78]],s=document.getElementById("c-dots"),w=358,h=70,mn=76,mx=94;
+    function X(i){return 10+(w-20)*i/(R.length-1);}function Y(v){return 8+(h-24)*(mx-v)/(mx-mn);}
+    el(s,"line",{x1:0,x2:w,y1:Y(86.9),y2:Y(86.9),stroke:"rgba(255,255,255,.25)","stroke-dasharray":"3 3"});el(s,"text",{x:w,y:Y(86.9)-4,"text-anchor":"end","font-size":10,fill:"rgba(244,246,242,.55)"},"均杆 86.9");
+    R.forEach(function(r,i){var c=el(s,"circle",{cx:X(i),cy:Y(r[1]),r:5,fill:r[1]===78?"#5CC47F":"#F4F6F2",stroke:"#07090A","stroke-width":2});
+      var hit=el(s,"circle",{cx:X(i),cy:Y(r[1]),r:12,fill:"transparent"});hit.addEventListener("pointermove",function(e){tipAt("tip6","ph6",e,"<b>"+r[0]+"</b> "+r[1]+" 杆");});hit.addEventListener("pointerleave",function(){tipOff("tip6");});hit.addEventListener("click",function(){toast("t6","打开这一场的复盘");});});
+    el(s,"text",{x:10,y:h-2,"font-size":10,fill:"rgba(244,246,242,.5)"},"2025 年 10 月");el(s,"text",{x:w-10,y:h-2,"text-anchor":"end","font-size":10,fill:"rgba(244,246,242,.5)"},"2026 年 9 月");
+    var AV=[0.3,0.9,0.4,0.2,1.1,0.5,0.8,1.4,0.3,0.4,0.9,0.2,0.6,1.0,0.3,0.7,0.5,0.4],G=document.getElementById("c-holes");
+    AV.forEach(function(v,i){var c=document.createElement("div"),a=Math.min(1,v/1.4);c.style.cssText="border-radius:8px;padding:5px 0;text-align:center;background:rgba(232,129,75,"+(0.1+0.6*a).toFixed(2)+")";
+      c.innerHTML='<div style="font-size:9.5px;color:rgba(244,246,242,.6)">'+(i+1)+'</div><div style="font-size:12.5px;font-weight:700">+'+v.toFixed(1)+'</div>';G.appendChild(c);});
+    var N=[["B/C",7,85.9],["C/A",3,88.0],["A/B",2,89.5]],NN=document.getElementById("c-nines");
+    N.forEach(function(n){var r=document.createElement("div");r.className="line";r.style.cssText="padding:8px 2px;border-bottom:.5px solid var(--p-line)";r.innerHTML='<b style="font-size:15px">'+n[0]+'</b><span class="mut tn" style="font-size:13px">'+n[1]+' 场 · 均杆 <b style="color:var(--p-ink)">'+n[2].toFixed(1)+'</b></span>';NN.appendChild(r);});})();
+  document.getElementById("r-tm").onclick=function(){toast("t1","打开时间与频率（第四台）");};
+  document.getElementById("r-ds").onclick=function(){toast("t1","打开成绩分布（第五台）");};
   function fit(){document.querySelectorAll(".fit").forEach(function(f){var sh=f.firstElementChild,k=Math.min(1,f.clientWidth/W);sh.style.transform="scale("+k+")";f.style.height=(H*k)+"px";});}
   window.addEventListener("resize",fit);fit();
 })();
