@@ -243,23 +243,26 @@ footer{font-size:13px;color:var(--muted)}
     <h2>6 · 球场</h2>
     <div class="fit"><div class="shell"><div class="phone" id="ph6">
       <div class="island"></div><div class="status"><span>9:41</span><i></i></div>
-      <div class="scroll">
+      <img data-topo alt="" style="position:absolute;left:50%;top:-40px;width:520px;transform:translateX(-50%);opacity:.28">
+      <div style="position:absolute;inset:0;background:linear-gradient(rgba(7,9,10,.35) 0,#07090A 330px)"></div>
+      <div class="scroll" style="gap:18px">
         <div class="line"><button class="hbtn round glass" aria-label="返回">‹</button><div style="flex:1"></div></div>
-        <div style="font-size:26px;font-weight:700;line-height:1.15">黑骑士球员俱乐部</div>
-        <div class="kpis tn"><div><b>12</b><span>场</span></div><div><b>86.9</b><span>均杆</span></div><div><b>78</b><span>最佳</span></div></div>
-        <div class="lbl">每一场</div>
-        <svg id="c-dots" viewBox="0 0 358 70" width="358" height="70" aria-label="这个球场每一场的杆数"></svg>
-        <div class="line"><span class="lbl">每个 9 洞的难洞</span><div class="seg2" id="c-loop"></div></div>
-        <div id="c-holes" class="tn" style="display:grid;grid-template-columns:repeat(9,1fr);gap:3px"></div>
-        <div class="mut tn" id="c-loopsum" style="font-size:12px;margin-top:-6px"></div>
-        <div class="line"><span class="lbl">组合（前九 → 后九）</span><span class="mut tn" style="font-size:12px">另有只打 9 洞 3 场</span></div>
-        <div id="c-mx" class="tn"></div>
+        <div style="margin-top:36px"><div style="font-size:28px;font-weight:700;line-height:1.15">黑骑士球员俱乐部</div><div class="mut tn" style="font-size:13.5px;margin-top:4px">打过 12 次 · 最近 9 月 21 日</div></div>
+        <div style="display:flex;align-items:flex-end;gap:18px">
+          <div><div class="tn" style="font-size:56px;font-weight:700;line-height:.95;letter-spacing:-.02em">86.9</div><div class="mut" style="font-size:12.5px;margin-top:4px">均杆</div></div>
+          <div style="padding-bottom:4px"><div class="tn" style="font-size:22px;font-weight:700;color:var(--good)">78</div><div class="mut" style="font-size:12.5px">最佳</div></div>
+        </div>
+        <svg id="c-dots" viewBox="0 0 358 56" width="358" height="56" aria-label="这个球场每一场的杆数，从旧到新"></svg>
+        <div class="lbl" style="margin-bottom:-8px">最难的三个洞</div>
+        <div id="c-hard" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+        <div class="lbl" style="margin-bottom:-8px">常打的组合</div>
+        <div id="c-combo" style="display:flex;flex-direction:column"></div>
       </div>
       <div class="tip tn" id="tip6"></div>
       <div class="toast glass" id="t6"></div>
       <div class="homebar"></div>
     </div></div></div>
-    <p class="cap">从成绩首页“球场”进来选一个球场。每一场一个点（按日期），看得出在这个球场是不是越打越好。27 洞球场按“9 洞”看难洞：切 A / B / C，每洞平均比标准杆多几杆，颜色越深丢得越多。组合用一张 3 × 3 的格子：行是前九、列是后九，所有顺序（包括同一个 9 洞打两遍）都在里面，格子写均杆和场数，打得越多颜色越深，没打过的是“—”；点格子进那种组合的球局。18 洞球场只有一个“全场”，不显示组合。</p>
+    <p class="cap">顶上用这个球场的 topo 图打底。一个大数字（均杆）加最佳，下面一条细线是每一场，从旧到新，最佳那场是绿点。“最难的三个洞”用这几洞的地图做卡片，只写平均比标准杆多几杆，点进去看每次打这洞的落点。组合只列常打的三种（“B → C”），其余收在“全部 6 种组合”里。去掉了格子和矩阵。</p>
   </div>
 </section>
 
@@ -283,6 +286,7 @@ footer{font-size:13px;color:var(--muted)}
 
 <script>
 (function(){
+  var TOPO="hole1-topo.png";
   var NS="http://www.w3.org/2000/svg",W=390,H=844;
   function el(svg,n,a,txt){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;svg.appendChild(e);return e;}
   function col(tp){return tp<=-2?"var(--eagle)":tp===-1?"var(--birdie)":tp===0?"var(--par)":tp===1?"var(--bogey)":tp===2?"var(--double)":"var(--triple)";}
@@ -456,27 +460,22 @@ footer{font-size:13px;color:var(--muted)}
       row.innerHTML='<b style="font-size:15px;width:52px">'+p[0]+'</b><div style="flex:1"><div style="height:8px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden"><div style="height:8px;width:'+(p[1]/1.5*100)+'%;background:#E6B04E;border-radius:4px"></div></div><div class="mut tn" style="font-size:11.5px;margin-top:4px">'+p[3]+' 洞 · 保帕率 '+p[2]+'%</div></div><b class="tn" style="font-size:18px">+'+p[1].toFixed(2)+'</b>';D.appendChild(row);});})();
 
   /* ============ 6. course ============ */
-  (function(){var R=[["2025-10",92],["2025-12",90],["2026-02",91],["2026-03",88],["2026-04",89],["2026-05",86],["2026-05",87],["2026-06",85],["2026-07",86],["2026-08",83],["2026-09",82],["2026-09",78]],s=document.getElementById("c-dots"),w=358,h=70,mn=76,mx=94;
-    function X(i){return 10+(w-20)*i/(R.length-1);}function Y(v){return 8+(h-24)*(mx-v)/(mx-mn);}
-    el(s,"line",{x1:0,x2:w,y1:Y(86.9),y2:Y(86.9),stroke:"rgba(255,255,255,.25)","stroke-dasharray":"3 3"});el(s,"text",{x:w,y:Y(86.9)-4,"text-anchor":"end","font-size":10,fill:"rgba(244,246,242,.55)"},"均杆 86.9");
-    R.forEach(function(r,i){var c=el(s,"circle",{cx:X(i),cy:Y(r[1]),r:5,fill:r[1]===78?"#5CC47F":"#F4F6F2",stroke:"#07090A","stroke-width":2});
-      var hit=el(s,"circle",{cx:X(i),cy:Y(r[1]),r:12,fill:"transparent"});hit.addEventListener("pointermove",function(e){tipAt("tip6","ph6",e,"<b>"+r[0]+"</b> "+r[1]+" 杆");});hit.addEventListener("pointerleave",function(){tipOff("tip6");});hit.addEventListener("click",function(){toast("t6","打开这一场的复盘");});});
-    el(s,"text",{x:10,y:h-2,"font-size":10,fill:"rgba(244,246,242,.5)"},"2025 年 10 月");el(s,"text",{x:w-10,y:h-2,"text-anchor":"end","font-size":10,fill:"rgba(244,246,242,.5)"},"2026 年 9 月");
-    // per nine-hole loop: average over par for each of its 9 holes
-    var LOOPS={A:{n:5,avg:44.1,av:[0.4,0.7,0.3,1.2,0.5,0.6,0.2,0.9,0.5]},B:{n:10,avg:43.0,av:[0.3,0.9,0.4,0.2,1.1,0.5,0.8,1.4,0.3]},C:{n:13,avg:43.6,av:[0.4,0.9,0.2,0.6,1.0,0.3,0.7,0.5,0.4]}},CL="B";
-    function loopRender(){var sg=document.getElementById("c-loop");sg.innerHTML="";
-      Object.keys(LOOPS).forEach(function(k){var b=document.createElement("button");b.textContent=k+" 场";b.className=k===CL?"on":"";b.onclick=function(){CL=k;loopRender();};sg.appendChild(b);});
-      var G=document.getElementById("c-holes");G.innerHTML="";LOOPS[CL].av.forEach(function(v,i){var c=document.createElement("div"),a=Math.min(1,v/1.4);c.style.cssText="border-radius:8px;padding:5px 0;text-align:center;background:rgba(232,129,75,"+(0.1+0.6*a).toFixed(2)+")";
-        c.innerHTML='<div style="font-size:9.5px;color:rgba(244,246,242,.6)">'+(i+1)+'</div><div style="font-size:12.5px;font-weight:700">+'+v.toFixed(1)+'</div>';G.appendChild(c);});
-      document.getElementById("c-loopsum").textContent=CL+" 场打过 "+LOOPS[CL].n+" 次 · 9 洞均杆 "+LOOPS[CL].avg.toFixed(1);}
-    loopRender();
-    // every front-nine × back-nine pairing, including the same loop twice
-    var MX={"A>A":[0,0],"A>B":[1,89.0],"A>C":[0,0],"B>A":[1,88.0],"B>B":[0,0],"B>C":[6,85.8],"C>A":[2,88.5],"C>B":[1,86.0],"C>C":[1,87.0]},K=["A","B","C"],mxN=6; // 12 rounds of 18 holes
-    var box=document.getElementById("c-mx"),h='<div style="display:grid;grid-template-columns:34px repeat(3,1fr);gap:4px;align-items:stretch"><span></span>'+K.map(function(k){return '<span class="mut" style="font-size:11px;text-align:center">后九 '+k+'</span>';}).join("");
-    K.forEach(function(f){h+='<span class="mut" style="font-size:11px;display:flex;align-items:center">前九 '+f+'</span>';K.forEach(function(b){var v=MX[f+">"+b];
-      h+=v[0]?'<button data-c="'+f+'/'+b+'" style="height:52px;border-radius:12px;background:rgba(92,196,127,'+(0.12+0.5*v[0]/mxN).toFixed(2)+');display:flex;flex-direction:column;align-items:center;justify-content:center"><b style="font-size:15px">'+v[1].toFixed(1)+'</b><span style="font-size:10.5px;color:rgba(244,246,242,.7)">'+v[0]+' 场</span></button>'
-        :'<div style="height:52px;border-radius:12px;background:rgba(255,255,255,.04);display:grid;place-items:center;color:rgba(244,246,242,.3)">—</div>';});});
-    box.innerHTML=h+'</div>';box.querySelectorAll("[data-c]").forEach(function(b){b.onclick=function(){toast("t6","打开 "+b.getAttribute("data-c")+" 的全部球局");};});})();
+  document.querySelectorAll("img[data-topo]").forEach(function(i){i.src=TOPO;});
+  (function(){var R=[92,90,91,88,89,86,87,85,86,83,82,78],s=document.getElementById("c-dots"),w=358,h=56,mn=76,mx=94;
+    function X(i){return 6+(w-12)*i/(R.length-1);}function Y(v){return 6+(h-12)*(mx-v)/(mx-mn);}
+    var d="";R.forEach(function(v,i){d+=(i?"L":"M")+X(i)+" "+Y(v);});el(s,"path",{d:d,fill:"none",stroke:"rgba(244,246,242,.25)","stroke-width":1.5});
+    R.forEach(function(v,i){var best=v===78;el(s,"circle",{cx:X(i),cy:Y(v),r:best?5.5:3.5,fill:best?"#5CC47F":"#F4F6F2"});
+      var hit=el(s,"circle",{cx:X(i),cy:Y(v),r:14,fill:"transparent"});hit.addEventListener("pointermove",function(e){tipAt("tip6","ph6",e,v+" 杆");});hit.addEventListener("pointerleave",function(){tipOff("tip6");});hit.addEventListener("click",function(){toast("t6","打开这一场的复盘");});});})();
+  (function(){var H=[["B 8","Par 4",1.4,"30% 40%"],["B 5","Par 3",1.1,"55% 20%"],["C 5","Par 4",1.0,"45% 65%"]],g=document.getElementById("c-hard");
+    H.forEach(function(x){var b=document.createElement("button");b.style.cssText="position:relative;height:150px;border-radius:18px;overflow:hidden;background:#101512;text-align:left";
+      b.innerHTML='<img src="'+TOPO+'" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:'+x[3]+';transform:scale(1.4)"><div style="position:absolute;inset:0;background:linear-gradient(rgba(0,0,0,0) 30%,rgba(0,0,0,.8))"></div>'+
+        '<div style="position:absolute;left:10px;bottom:9px;right:8px"><div class="tn" style="font-size:22px;font-weight:800;color:#E6B04E;line-height:1">+'+x[2].toFixed(1)+'</div><div style="font-size:12px;font-weight:700;margin-top:3px">'+x[0]+' 洞 <span style="color:rgba(244,246,242,.6);font-weight:500">'+x[1]+'</span></div></div>';
+      b.onclick=function(){toast("t6",x[0]+" 洞：每次打这洞的落点");};g.appendChild(b);});})();
+  (function(){var C=[["B","C",6,85.8],["C","A",2,88.5],["C","C",1,87.0]],box=document.getElementById("c-combo");
+    C.forEach(function(c){var r=document.createElement("button");r.className="line";r.style.cssText="padding:12px 2px;border-bottom:.5px solid var(--p-line);width:100%;text-align:left";
+      r.innerHTML='<div style="display:flex;align-items:center;gap:10px"><span style="font-size:17px;font-weight:700">'+c[0]+' <span style="color:rgba(244,246,242,.4)">→</span> '+c[1]+'</span><span class="mut tn" style="font-size:12.5px">'+c[2]+' 次</span></div><span class="tn" style="font-size:17px;font-weight:700">'+c[3].toFixed(1)+'</span>';
+      r.onclick=function(){toast("t6","打开 "+c[0]+" → "+c[1]+" 的全部球局");};box.appendChild(r);});
+    var more=document.createElement("button");more.style.cssText="padding:12px 2px;text-align:left;font-size:13.5px;font-weight:600;color:var(--good)";more.textContent="全部 6 种组合 · 只打 9 洞 3 次 ›";more.onclick=function(){toast("t6","全部组合列表");};box.appendChild(more);})();
   document.getElementById("r-tm").onclick=function(){toast("t1","打开时间与频率（第四台）");};
   document.getElementById("r-ds").onclick=function(){toast("t1","打开成绩分布（第五台）");};
   function fit(){document.querySelectorAll(".fit").forEach(function(f){var sh=f.firstElementChild,k=Math.min(1,f.clientWidth/W);sh.style.transform="scale("+k+")";f.style.height=(H*k)+"px";});}
