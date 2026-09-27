@@ -26,6 +26,8 @@ owner 的决定：
 - 离线测试 `tests/test_cleanup_remote_branches_script.py`（进 CI 的 `unittest discover`，不联网）：本地 bare origin + gh 桩，覆盖
   dry-run 不改动、执行后归档/删除且重跑幂等、按日志续跑、基线漂移、默认分支不对、开放 PR、分支漂移、标签冲突；
   去掉开放 PR 检查的变异会让测试失败。
+- Codex review 5 之后：执行前先确认日志可写（父目录不存在或不可写直接中止，不推任何东西），本地 `archive/*` 标签冲突也并入 preflight；
+  harness 增加这两个用例（共 10 个），去掉任一检查都会让对应用例失败。
 
 - 201 个已并入 `integration/v2` 的分支：直接删除。
 - 64 个未并入的旧分支（主要是 7 月的 `codex/*` 实验、`evidence/plan1-*` 红绿证据、若干 `superpowers/*`）：先打 `archive/<分支名>` 标签再删除，可随时恢复。

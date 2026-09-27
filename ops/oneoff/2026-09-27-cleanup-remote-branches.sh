@@ -10,7 +10,8 @@
 #   * every branch deletion is a compare-and-delete (--force-with-lease on the snapshot SHA);
 #   * archive tags are never overwritten: an existing tag must point at the same commit;
 #   * each remote action is appended to an action log, and a re-run skips what the log shows
-#     as done, so an interrupted run can simply be started again.
+#     as done, so an interrupted run can simply be started again; the log must be writable
+#     before anything is pushed, and local archive-tag conflicts are caught in preflight.
 #
 # Requirements: git with push rights, gh authenticated for the repo (for PR/default checks).
 # Usage: ops/oneoff/2026-09-27-cleanup-remote-branches.sh [--execute] [--log FILE]
@@ -325,6 +326,16 @@ remote_tag_commit() { # peeled commit of a remote tag in the cached refs, empty 
 }
 is_protected() { local b; for b in "${PROTECTED[@]}"; do [ "$b" = "$1" ] && return 0; done; return 1; }
 
+check_log_writable() { # before any remote change: a push must never outrun its log line
+  local dir; dir=$(dirname -- "$LOG")
+  [ -d "$dir" ] || die "log directory $dir does not exist; nothing was changed"
+  if [ "$EXECUTE" = 1 ]; then
+    { : >> "$LOG"; } 2>/dev/null || die "cannot write log $LOG; nothing was changed"
+  else
+    [ -w "$dir" ] || [ -w "$LOG" ] || die "log $LOG would not be writable; nothing was changed"
+  fi
+}
+
 preflight() {
   command -v gh >/dev/null || die "gh CLI is required for the open-PR and default-branch checks"
   git fetch --prune --quiet origin
@@ -364,6 +375,8 @@ $MERGED_SNAPSHOT"
     if git merge-base --is-ancestor "$sha" "$BASE_SHA"; then echo "  archive-list branch already in base (fine, still archived): $name"; fi
     local tag; tag=$(remote_tag_commit "archive/$name")
     [ -z "$tag" ] || [ "$tag" = "$sha" ] || { echo "  archive/$name exists at $tag, expected $sha" >&2; problems=1; }
+    local ltag; ltag=$(git rev-parse -q --verify "refs/tags/archive/$name^{commit}" || true)
+    [ -z "$ltag" ] || [ "$ltag" = "$sha" ] || { echo "  local tag archive/$name is $ltag, expected $sha" >&2; problems=1; }
   done <<< "$ARCHIVE_SNAPSHOT"
 
   local m; m=$(echo "$HEADS" | awk '$1=="main" {print $2}')
@@ -387,6 +400,7 @@ delete_branch() { # compare-and-delete on the snapshot sha
   say "  delete $name ($sha)"
 }
 
+check_log_writable
 preflight
 N_ARCH=$(echo "$ARCHIVE_SNAPSHOT" | grep -c . || true); N_MERGED=$(echo "$MERGED_SNAPSHOT" | grep -c . || true)
 say "preflight ok: $N_ARCH to archive+delete, $N_MERGED to delete, old main to delete. log: $LOG"

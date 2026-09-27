@@ -197,6 +197,29 @@ class CleanupRemoteBranchesScriptTest(unittest.TestCase):
         self.assertIn(f"archive/old/unmerged exists at {self.base}", res.stderr)
         self.assert_untouched(before)
 
+    def test_unwritable_log_aborts_before_any_push(self) -> None:
+        before = self.origin_refs()
+        res = subprocess.run(
+            ["bash", str(self.script), "--execute", "--log", str(self.tmp / "missing/dir/actions.log")],
+            cwd=self.work,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("does not exist; nothing was changed", res.stderr)
+        self.assertEqual(before, self.origin_refs())
+
+    def test_conflicting_local_tag_aborts_in_preflight(self) -> None:
+        git(self.work, "tag", "archive/old/unmerged", self.base)
+        before = self.origin_refs()
+        res = self.run_script("--execute")
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn(f"local tag archive/old/unmerged is {self.base}", res.stderr)
+        self.assertIn("preflight failed", res.stderr)
+        self.assert_untouched(before)
+
 
 if __name__ == "__main__":
     unittest.main()
