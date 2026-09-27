@@ -13,6 +13,8 @@
 | `pre-round.html` | 开球前：首页、开始一场、备战 | https://claude.ai/artifact/2AxcCJTJjgB4BsebnLWw76 |
 | `stats.html` | 成绩、表现分析、球包距离阶梯、时间与频率、成绩分布、球场 | https://claude.ai/artifact/DYpNxxhihWmkWpchTkfe8L |
 
+实现排期见同目录 `IMPLEMENTATION_PLAN.md`（8 批，按数据依赖排序）。
+
 总原则（用户原话归纳）：更原生的 iOS / watchOS、图形化而不是控件化、简洁；**屏幕上不写提示**；
 能自己闭环的逻辑不打扰用户（例如同步状态不显示）。
 
