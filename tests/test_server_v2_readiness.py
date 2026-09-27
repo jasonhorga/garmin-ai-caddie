@@ -94,7 +94,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
             {
                 "label": "github_repo",
                 "state": "ready",
-                "evidence": {"public": True, "defaultBranch": "integration/v2"},
+                "evidence": {"public": True, "defaultBranch": "main"},
             },
             {
                 "label": "signing_secrets",

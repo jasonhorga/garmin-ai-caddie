@@ -1,0 +1,471 @@
+<title>成绩与球包原型</title>
+<style>
+
+:root{
+  --bg:#F3F3F0; --surface:#FFFFFF; --ink:#151815; --muted:#63695F; --line:#DCDDD6; --accent:#2F7D4A; --soft:#E7F0E9;
+  --sys:-apple-system,"SF Pro Text","SF Pro Display",system-ui,"PingFang SC","Hiragino Sans GB","Noto Sans SC",sans-serif;
+  --p-ink:#F4F6F2; --p-mut:rgba(244,246,242,.62); --p-dim:rgba(244,246,242,.42); --p-fill:rgba(255,255,255,.08); --p-line:rgba(255,255,255,.13);
+  --eagle:#7CC4F2; --birdie:#56A8E8; --par:#F4F6F2; --bogey:#E6B04E; --double:#E8814B; --triple:#D9644A; --good:#5CC47F; --bad:#FF6B5E;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0E100E;--surface:#171A17;--ink:#E8EBE6;--muted:#9AA197;--line:#2A2E29;--accent:#5CC47F;--soft:#1A2A1F;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0E100E;--surface:#171A17;--ink:#E8EBE6;--muted:#9AA197;--line:#2A2E29;--accent:#5CC47F;--soft:#1A2A1F;color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--sys);font-size:15px;line-height:1.6;padding-inline:20px;padding-block:28px 64px}
+.wrap{max-width:1300px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+h1{font-size:clamp(26px,4vw,38px);margin:0;letter-spacing:-.015em;text-wrap:balance;line-height:1.2}
+h2{font-size:20px;margin:0;letter-spacing:-.01em}
+p{margin:0}
+.lede{color:var(--muted);max-width:72ch}
+.eyebrow{font-size:12px;letter-spacing:.1em;color:var(--accent);font-weight:700}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:36px 28px;align-items:start}
+.demo{display:flex;flex-direction:column;gap:12px;align-items:center}
+.demo h2{max-width:390px;width:100%}
+.demo .cap{font-size:13px;color:var(--muted);max-width:390px;width:100%}
+.presets{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:390px}
+.presets button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:5px 12px;cursor:pointer}
+.presets button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.fit{width:100%;max-width:390px}
+.shell{position:relative;width:390px;height:844px;transform-origin:top left}
+.phone{position:absolute;inset:0;border-radius:52px;overflow:hidden;background:#07090A;box-shadow:0 0 0 9px #070807,0 30px 60px -28px rgba(0,0,0,.55);user-select:none;-webkit-user-select:none;font-family:var(--sys);color:var(--p-ink);font-size:15px;line-height:1.35}
+.phone button{font:inherit;color:inherit;border:none;background:none;padding:0;cursor:pointer}
+.phone button:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.island{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:124px;height:36px;border-radius:20px;background:#000;z-index:40}
+.status{position:absolute;top:0;left:0;right:0;height:54px;display:flex;justify-content:space-between;align-items:center;padding:4px 34px 0 40px;font-weight:600;font-size:16px;z-index:39;pointer-events:none}
+.status i{width:26px;height:12px;border:1.4px solid var(--p-ink);border-radius:4px;display:inline-block}
+.homebar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:138px;height:5px;border-radius:3px;background:var(--p-ink);z-index:40;pointer-events:none}
+.glass{background:rgba(16,20,18,.58);backdrop-filter:blur(18px) saturate(1.3);-webkit-backdrop-filter:blur(18px) saturate(1.3);border:.5px solid rgba(255,255,255,.14)}
+.tn{font-variant-numeric:tabular-nums}
+.mut{color:var(--p-mut)}
+.toast{position:absolute;left:50%;top:112px;transform:translateX(-50%);z-index:45;font-size:13px;padding:8px 14px;border-radius:999px;white-space:nowrap;transition:opacity .25s;opacity:0;pointer-events:none}
+.chip{position:relative;display:grid;place-items:center;font-weight:800;font-variant-numeric:tabular-nums}
+.chip svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.card{background:var(--p-fill);border:.5px solid var(--p-line);border-radius:18px;padding:12px 10px 10px}
+.nine{display:grid;grid-template-columns:30px repeat(9,1fr) 38px;row-gap:4px;align-items:center;text-align:center}
+.nine .h{font-size:12px;font-weight:700;color:var(--p-mut)}
+.nine .p{font-size:11px;color:var(--p-dim)}
+.nine .rl{font-size:10.5px;color:var(--p-dim);text-align:left;font-weight:600}
+.nine .tot{font-size:14px;font-weight:700}
+.cell{height:36px;border-radius:10px!important;display:grid!important;place-items:center}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tiles>div{background:var(--p-fill);border:.5px solid var(--p-line);border-radius:16px;padding:10px 13px;display:flex;flex-direction:column;gap:3px}
+.tl{font-size:12px;font-weight:600;color:var(--p-mut)}
+.tiles b{font-size:24px;font-weight:700;line-height:1.1}
+.tiles i{font-style:normal;font-size:12px;color:var(--p-mut)}
+/* hole map */
+.hm{position:absolute;inset:0}
+.hm svg.map{position:absolute;inset:0;width:390px;height:844px;touch-action:none}
+.hhead{position:absolute;top:56px;left:16px;right:16px;display:flex;align-items:center;gap:10px;z-index:20}
+.hbtn{height:36px;border-radius:18px!important;padding:0 14px!important;font-size:14px!important;font-weight:600!important}
+.hbtn.round{width:36px;padding:0!important;font-size:18px!important}
+.hbtn.on{background:#F4F6F2!important;color:#0B0F0C!important}
+.strip{position:absolute;left:0;right:0;bottom:24px;display:flex;gap:4px;overflow-x:auto;padding:6px 16px;scrollbar-width:none;z-index:20}
+.strip::-webkit-scrollbar{display:none}
+.strip button{flex:none;width:40px;height:52px;border-radius:12px!important;display:flex!important;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.strip button .n{font-size:10px;color:var(--p-dim);font-weight:700}
+.strip button.cur{background:rgba(255,255,255,.16)!important}
+.ebar{position:absolute;left:12px;right:12px;bottom:24px;z-index:25;border-radius:24px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.line{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.lbl{font-size:13px;font-weight:600;color:var(--p-mut)}
+.stepper{display:flex;align-items:center;background:var(--p-fill);border-radius:10px;height:32px}
+.stepper button{width:40px;height:32px;font-size:19px!important}
+.stepper span{min-width:26px;text-align:center;font-weight:700}
+.clubs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -14px;padding:0 14px}
+.clubs::-webkit-scrollbar{display:none}
+.clubs button{flex:none;height:34px;padding:0 12px!important;border-radius:17px!important;background:var(--p-fill)!important;font-size:13.5px!important;font-weight:600!important;white-space:nowrap}
+.clubs button.on{background:#F4F6F2!important;color:#0B0F0C!important}
+.lies{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
+.lies button{height:32px;border-radius:10px!important;background:var(--p-fill)!important;font-size:12.5px!important;font-weight:600!important;display:flex!important;align-items:center;justify-content:center;gap:5px}
+.lies button i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.lies button.on{box-shadow:inset 0 0 0 1.5px #F4F6F2}
+.del{color:var(--bad)!important;font-size:14px!important;font-weight:600!important}
+.loupe{position:absolute;width:100px;height:100px;border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,.86);box-shadow:0 3px 14px rgba(0,0,0,.45);background:#07090A;pointer-events:none;z-index:30}
+.tw{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:16px}
+.spec{width:100%;border-collapse:collapse;font-size:14px;min-width:760px}
+.spec th,.spec td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+.spec tr:last-child td{border-bottom:none}
+.spec th{font-size:12px;color:var(--muted);font-weight:600;letter-spacing:.04em;white-space:nowrap}
+.spec td:first-child{font-weight:600;white-space:nowrap}
+footer{font-size:13px;color:var(--muted)}
+@media (prefers-reduced-motion: reduce){.toast{transition:none}}
+
+.big{font-size:34px;font-weight:700;letter-spacing:-.01em;line-height:1.1}
+.scroll{position:absolute;inset:0;overflow-y:auto;scrollbar-width:none;padding:58px 16px 40px;display:flex;flex-direction:column;gap:14px}
+.scroll::-webkit-scrollbar{display:none}
+.scroll>svg,.scroll>div>svg{flex:none;width:358px;max-width:100%}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr)}
+.kpis div{display:flex;flex-direction:column;gap:1px}
+.kpis div+div{padding-left:12px;border-left:.5px solid var(--p-line)}
+.kpis b{font-size:22px;font-weight:700;line-height:1.15}
+.kpis span{font-size:12px;color:var(--p-mut)}
+.rrow{display:flex!important;flex-direction:column;gap:8px;padding:12px 2px!important;border-bottom:.5px solid var(--p-line)!important;width:100%;text-align:left}
+.mini9{display:grid;grid-template-columns:repeat(18,1fr);gap:1px;justify-items:center}
+.seg2{display:flex;gap:6px}
+.seg2 button{height:30px;border-radius:15px!important;padding:0 12px!important;font-size:13px!important;font-weight:600!important;background:var(--p-fill)!important}
+.seg2 button.on{background:#F4F6F2!important;color:#0B0F0C!important}
+.pc{background:var(--p-fill);border:.5px solid var(--p-line);border-radius:20px;padding:14px;display:flex;gap:14px;align-items:center}
+.phone button.pc{background:var(--p-fill)!important;border:.5px solid var(--p-line)!important;border-radius:20px!important;padding:14px!important}
+.pc .t{font-size:13px;font-weight:600;color:var(--p-mut)}
+.pc .v{font-size:26px;font-weight:700;line-height:1.1}
+.pc .s{font-size:12.5px;color:var(--p-mut)}
+.lad{display:flex;flex-direction:column}
+.ph{padding:16px 0 14px;border-bottom:.5px solid var(--p-line);display:flex;flex-direction:column;gap:8px}
+.ph .top{display:flex;align-items:baseline;justify-content:space-between}
+.ph .k{font-size:13px;font-weight:600;color:var(--p-mut)}
+.ph .v{font-size:34px;font-weight:700;line-height:1;letter-spacing:-.01em}
+.ph .u{font-size:14px;font-weight:600;color:var(--p-mut);margin-left:4px}
+.ph .d{font-size:12.5px;font-weight:700}
+.sbar{display:flex;height:10px;gap:2px}
+.sbar i{display:block;border-radius:3px;height:10px}
+.slab{display:flex;gap:2px;font-size:11px;color:var(--p-mut)}
+.slab span{white-space:nowrap;overflow:visible;padding-right:6px}
+.lr{display:grid!important;grid-template-columns:62px 1fr 44px;align-items:center;gap:8px;height:34px;width:100%;text-align:left}
+.lr .n{font-size:13.5px;font-weight:600}
+.lr .m{font-size:14px;font-weight:700;text-align:right}
+.gap{font-size:10.5px;color:var(--p-dim);padding-left:70px;height:14px;line-height:14px}
+.gap.warn{color:var(--bogey)}
+.tip{position:absolute;z-index:50;pointer-events:none;background:rgba(30,34,32,.96);border:.5px solid var(--p-line);border-radius:10px;padding:6px 9px;font-size:12px;white-space:nowrap;opacity:0;transition:opacity .12s}
+.edit{position:absolute;left:0;right:0;bottom:0;background:rgba(22,26,24,.98);border-radius:26px 26px 0 0;border-top:.5px solid rgba(255,255,255,.16);padding:10px 18px 34px;display:flex;flex-direction:column;gap:14px;z-index:30}
+</style>
+
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:12px">
+  <span class="eyebrow">平时 · 成绩、统计、球包</span>
+  <h1>先看差点和走势，再看丢杆在哪、按时间和球场怎么变，最后看每支杆打多远</h1>
+  <p class="lede">三屏都用同一套深色、记分符号和绿色。成绩首页把“差点估算”放最大，下面一条近 20 场走势；表现分析把四个阶段做成四张图，一次看完，不再用分段切换；球包是一张“距离阶梯”，每支杆一条 p10–p90 的范围条，空档一眼看出来。数据是示例。</p>
+</header>
+
+<section class="row">
+  <!-- ============ 1. results ============ -->
+  <div class="demo">
+    <h2>1 · 成绩</h2>
+    <div class="fit"><div class="shell"><div class="phone" id="ph1">
+      <div class="island"></div><div class="status"><span>9:41</span><i></i></div>
+      <div class="scroll">
+        <div class="line"><button class="hbtn round glass" aria-label="返回">‹</button><div style="flex:1"></div></div>
+        <div class="big">成绩</div>
+        <div style="display:flex;align-items:flex-end;gap:14px">
+          <div><div class="mut" style="font-size:13px;font-weight:600">差点估算</div><div class="tn" style="font-size:64px;font-weight:700;line-height:.95;letter-spacing:-.02em">16.2</div></div>
+          <div class="tn" style="padding-bottom:8px;font-size:14px;font-weight:700;color:var(--good)">↓ 1.4 <span class="mut" style="font-weight:500">近 20 场</span></div>
+        </div>
+        <div style="position:relative"><svg id="r-spark" viewBox="0 0 358 130" width="358" height="130" aria-label="近 20 场 18 洞杆数"></svg></div>
+        <div class="kpis tn"><div><b>87.4</b><span>近 10 场均杆</span></div><div><b>78</b><span>最佳</span></div><div><b>64</b><span>场 · 11 个球场</span></div></div>
+        <div style="display:flex;flex-direction:column">
+          <div class="line"><span class="lbl">最近球局</span><button class="linkb" style="font-size:13px!important;font-weight:600;color:var(--good)!important" id="r-all">全部 64 场 ›</button></div>
+          <div id="r-rounds"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <button class="pc" style="flex-direction:column;align-items:flex-start;gap:2px" id="r-an"><span class="v" style="font-size:17px">表现分析</span><span class="s">丢杆在哪 →</span></button>
+          <button class="pc" style="flex-direction:column;align-items:flex-start;gap:2px" id="r-tm"><span class="v" style="font-size:17px">时间与频率</span><span class="s">月 · 季 · 年 · 日历 →</span></button>
+          <button class="pc" style="flex-direction:column;align-items:flex-start;gap:2px" id="r-ds"><span class="v" style="font-size:17px">成绩分布</span><span class="s">分数段 · 按 Par →</span></button>
+          <button class="pc" style="flex-direction:column;align-items:flex-start;gap:2px" id="r-co"><span class="v" style="font-size:17px">球场</span><span class="s">每个球场的成绩 →</span></button>
+        </div>
+      </div>
+      <div class="tip tn" id="tip1"></div>
+      <div class="toast glass" id="t1"></div>
+      <div class="homebar"></div>
+    </div></div></div>
+    <p class="cap">底部四个入口对应下面第 4–6 台和表现分析。差点最大，因为它最能说明“最近打得怎么样”。走势图：点是每场 18 洞杆数，线是近 10 场平均，鼠标移上去看那一场。下面三项数字不加卡片；最近三场带 18 洞记分符号条，点进单场复盘。</p>
+  </div>
+
+  <!-- ============ 2. analysis ============ -->
+  <div class="demo">
+    <h2>2 · 表现分析</h2>
+    <div class="fit"><div class="shell"><div class="phone" id="ph2">
+      <div class="island"></div><div class="status"><span>9:41</span><i></i></div>
+      <div class="scroll" style="gap:0">
+        <div class="line"><button class="hbtn round glass" aria-label="返回">‹</button><div class="seg2" id="a-win"></div></div>
+        <div class="big" style="margin:14px 0 18px">表现分析</div>
+        <div id="a-hero" style="padding-bottom:18px;border-bottom:.5px solid var(--p-line)"></div>
+        <div id="a-rows"></div>
+      </div>
+      <div class="tip tn" id="tip2"></div>
+      <div class="homebar"></div>
+    </div></div></div>
+    <p class="cap">不画图、不用卡片。最上面一句“最该练”。下面四个阶段用同一种写法：一个大数字（上球道、GIR、救球成功率、每洞推杆），右边和之前比是好了（绿 ↑）还是差了（黄 ↓），下面一条分段条把这个阶段的结果分开：好的那段是绿色，最该注意的那段是黄色，其余是灰。顶上切 10 场 / 20 场 / 近一年 / 全部。</p>
+  </div>
+
+  <!-- ============ 3. bag ============ -->
+  <div class="demo">
+    <h2>3 · 球包 · 距离阶梯</h2>
+    <div class="fit"><div class="shell"><div class="phone" id="ph3">
+      <div class="island"></div><div class="status"><span>9:41</span><i></i></div>
+      <div class="scroll" style="gap:10px">
+        <div class="line"><button class="hbtn round glass" aria-label="返回">‹</button><div style="flex:1"></div><button class="hbtn glass" id="b-add">＋ 球杆</button></div>
+        <div class="big">球包</div>
+        <div class="mut" style="font-size:13px">13 支 · 条是 80% 的击球落在的范围，白线是中位数</div>
+        <div class="lr" style="height:16px" aria-hidden="true"><span></span><svg id="b-axis" viewBox="0 0 236 14" width="100%" height="14" preserveAspectRatio="none"></svg><span class="mut" style="font-size:10px;text-align:right">码</span></div>
+        <div class="lad tn" id="b-lad"></div>
+      </div>
+      <div class="edit" id="b-edit" hidden></div>
+      <div class="tip tn" id="tip3"></div>
+      <div class="toast glass" id="t3"></div>
+      <div class="homebar"></div>
+    </div></div></div>
+    <p class="cap">每支杆一行：名字、一条 p10–p90 范围条（80% 的击球落在这里）、白线中位数、右边码数。行与行之间写“差 N 码”，太近（&lt; 8）或太远（&gt; 20）标黄，就是球包的空档或重叠。点一支杆：手动改距离（改过的用实心点标出）或从包里拿掉。</p>
+  </div>
+  <!-- ============ 4. time & frequency ============ -->
+  <div class="demo">
+    <h2>4 · 时间与频率</h2>
+    <div class="fit"><div class="shell"><div class="phone" id="ph4">
+      <div class="island"></div><div class="status"><span>9:41</span><i></i></div>
+      <div class="scroll">
+        <div class="line"><button class="hbtn round glass" aria-label="返回">‹</button><div style="flex:1"></div></div>
+        <div class="big">时间与频率</div>
+        <div class="seg2" id="t-grain"></div>
+        <svg id="t-chart" viewBox="0 0 358 150" width="358" height="150" aria-label="平均杆随时间"></svg>
+        <div class="lbl" id="t-listh">按季度 · 2026</div>
+        <div id="t-list" style="display:flex;flex-direction:column;gap:8px"></div>
+        <div class="line"><span class="lbl">打球日历 · 2026</span><span class="mut tn" style="font-size:12px">32 场 · 月均 3.6 · 5 月最多</span></div>
+        <div style="position:relative"><svg id="t-cal" viewBox="0 0 358 104" width="358" height="104" aria-label="2026 年每天是否打球"></svg></div>
+      </div>
+      <div class="tip tn" id="tip4"></div>
+      <div class="toast glass" id="t4"></div>
+      <div class="homebar"></div>
+    </div></div></div>
+    <p class="cap">一张图切“逐场 / 月 / 季 / 年”：同一批球局按不同粒度求平均。下面跟着列出对应的季度（或年份）：场数、均杆、最佳、最差、每场小鸟、每场双柏忌以上。最底下是打球日历，一格一天，打过的是绿色，一眼看出哪几个月打得多。点任何一段都能进到那段时间的全部球局。</p>
+  </div>
+
+  <!-- ============ 5. distribution ============ -->
+  <div class="demo">
+    <h2>5 · 成绩分布</h2>
+    <div class="fit"><div class="shell"><div class="phone" id="ph5">
+      <div class="island"></div><div class="status"><span>9:41</span><i></i></div>
+      <div class="scroll">
+        <div class="line"><button class="hbtn round glass" aria-label="返回">‹</button><div style="flex:1"></div></div>
+        <div class="big">成绩分布</div>
+        <div class="mut tn" style="font-size:13px">全部 64 场完整 18 洞</div>
+        <svg id="d-hist" viewBox="0 0 358 150" width="358" height="150" aria-label="每 5 杆一段的场数"></svg>
+        <div class="lbl">每一洞的结果</div>
+        <svg id="d-mix" viewBox="0 0 358 56" width="358" height="56" aria-label="所有洞的成绩构成"></svg>
+        <div class="lbl">按 Par</div>
+        <div id="d-par" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+      <div class="tip tn" id="tip5"></div>
+      <div class="toast glass" id="t5"></div>
+      <div class="homebar"></div>
+    </div></div></div>
+    <p class="cap">每 5 杆一根柱，最常见的那段（90–94）用实心；点一根柱进到这些球局。下面是所有洞的结果构成（老鹰到双柏忌以上的占比），再下面按 Par 3 / 4 / 5 分：平均比标准杆多几杆、保帕率。</p>
+  </div>
+
+  <!-- ============ 6. course ============ -->
+  <div class="demo">
+    <h2>6 · 球场</h2>
+    <div class="fit"><div class="shell"><div class="phone" id="ph6">
+      <div class="island"></div><div class="status"><span>9:41</span><i></i></div>
+      <img data-topo alt="" style="position:absolute;left:50%;top:-40px;width:520px;transform:translateX(-50%);opacity:.28">
+      <div style="position:absolute;inset:0;background:linear-gradient(rgba(7,9,10,.35) 0,#07090A 330px)"></div>
+      <div class="scroll" style="gap:18px">
+        <div class="line"><button class="hbtn round glass" aria-label="返回">‹</button><div style="flex:1"></div></div>
+        <div style="margin-top:36px"><div style="font-size:28px;font-weight:700;line-height:1.15">黑骑士球员俱乐部</div><div class="mut tn" style="font-size:13.5px;margin-top:4px">打过 12 次 · 最近 9 月 21 日</div></div>
+        <div style="display:flex;align-items:flex-end;gap:18px">
+          <div><div class="tn" style="font-size:56px;font-weight:700;line-height:.95;letter-spacing:-.02em">86.9</div><div class="mut" style="font-size:12.5px;margin-top:4px">均杆</div></div>
+          <div style="padding-bottom:4px"><div class="tn" style="font-size:22px;font-weight:700;color:var(--good)">78</div><div class="mut" style="font-size:12.5px">最佳</div></div>
+        </div>
+        <svg id="c-dots" viewBox="0 0 358 56" width="358" height="56" aria-label="这个球场每一场的杆数，从旧到新"></svg>
+        <div class="lbl" style="margin-bottom:-8px">最难的三个洞</div>
+        <div id="c-hard" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+        <div class="lbl" style="margin-bottom:-8px">常打的组合</div>
+        <div id="c-combo" style="display:flex;flex-direction:column"></div>
+      </div>
+      <div class="tip tn" id="tip6"></div>
+      <div class="toast glass" id="t6"></div>
+      <div class="homebar"></div>
+    </div></div></div>
+    <p class="cap">顶上用这个球场的 topo 图打底。一个大数字（均杆）加最佳，下面一条细线是每一场，从旧到新，最佳那场是绿点。“最难的三个洞”用这几洞的地图做卡片，只写平均比标准杆多几杆，点进去看每次打这洞的落点。组合只列常打的三种（“B → C”），其余收在“全部 6 种组合”里。去掉了格子和矩阵。</p>
+  </div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:14px">
+  <h2>和现在的差别</h2>
+  <div class="tw"><table class="spec">
+    <thead><tr><th>地方</th><th>现在</th><th>新方案</th><th>为什么</th></tr></thead>
+    <tbody>
+      <tr><td>成绩首页</td><td>球局活动、最近状态小折线、两块入口、“我的高尔夫生涯”三格、链接列表（时间趋势 / 球场 / 球杆）</td><td>差点估算放最大 + 近 20 场走势（每场点 + 近 10 场平均线）；三项数字；最近三场带记分符号条；表现分析、球场两块入口</td><td>最想知道的是“最近打得怎么样”；链接列表收进入口</td></tr>
+      <tr><td>表现分析</td><td>分段切换“开球 / 攻果岭 / 短杆 / 推杆”，一次只看一个</td><td>一句“最该练” + 四个阶段同一种写法：大数字 + 和之前比 + 一条分段条（好 = 绿，最该注意 = 黄）</td><td>比较四个阶段才知道丢杆在哪；统一写法比各画各的图干净</td></tr>
+      <tr><td>时间与频率</td><td>“时间趋势”：统计范围 + 汇总粒度（逐场 / 月 / 季 / 年）、折线、周期汇总、历年表现、打球频率日历</td><td>保留全部内容，合成一屏：粒度切换的一张图 + 季度（或历年）卡片 + 打球日历</td><td>和 GolfLive 对照时要的按季度 / 年 / 频率都在</td></tr>
+      <tr><td>成绩分布、按 Par</td><td>只在一个现在进不去的“成绩统计”页里（分数段、成绩构成、按 Par）</td><td>单独一屏“成绩分布”：每 5 杆柱状图、所有洞的成绩构成、按 Par 3 / 4 / 5；“每场成绩构成”也放在表现分析顶部</td><td>把进不去的页里有用的拿出来</td></tr>
+      <tr><td>球场</td><td>列表 + 详情：总览三格、所有比赛列表、九洞组合，没有图</td><td>每一场一个点的分布图、每洞平均比标准杆多几杆的格子、九洞组合</td><td>GolfLive 的“分布点阵图”；再加上“这个球场的难洞”</td></tr>
+      <tr><td>球杆距离</td><td>“成绩 → 球杆”是列表（中位、p10–p90 文字）；“球杆设置”是勾选 + 输入码数；距离阶梯只有中位数条</td><td>合成一屏“球包”：范围条 + 中位线 + 相邻差距；点一支改距离或拿掉；“＋ 球杆”加</td><td>三处合一；范围条直接看出稳不稳、有没有空档</td></tr>
+      <tr><td>数据来源</td><td>手动 / Garmin / 历史推算，界面上不区分</td><td>手动改过的中位数用实心白点，其余是细白线；不写文字说明</td><td>知道哪个是自己填的，但不加提示</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<footer>只是原型，没有改 App 的代码。数字是示例。</footer>
+</div>
+
+<script>
+(function(){
+  var TOPO="hole1-topo.png";
+  var NS="http://www.w3.org/2000/svg",W=390,H=844;
+  function el(svg,n,a,txt){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;svg.appendChild(e);return e;}
+  function col(tp){return tp<=-2?"var(--eagle)":tp===-1?"var(--birdie)":tp===0?"var(--par)":tp===1?"var(--bogey)":tp===2?"var(--double)":"var(--triple)";}
+  function chip(score,tp,size){var d=document.createElement("span");d.className="chip";d.style.width=d.style.height=size+"px";
+    var c=col(tp),s='<svg viewBox="0 0 30 30" fill="none" stroke="'+c+'" stroke-width="1.6">';
+    if(tp<=-2)s+='<circle cx="15" cy="15" r="13.5"/><circle cx="15" cy="15" r="10.5"/>';else if(tp===-1)s+='<circle cx="15" cy="15" r="13"/>';
+    else if(tp===1)s+='<rect x="2.5" y="2.5" width="25" height="25" rx="2"/>';else if(tp===2)s+='<rect x="1" y="1" width="28" height="28" rx="2"/><rect x="4" y="4" width="22" height="22" rx="1.5"/>';
+    else if(tp>=3)s+='<path d="M15 2.5 L28 27 H2 Z"/>';
+    d.innerHTML=s+'</svg>';var t=document.createElement("span");t.textContent=score;t.style.cssText="position:relative;color:"+c+";font-size:"+Math.round(size*.47)+"px";d.appendChild(t);return d;}
+  function toast(id,msg){var t=document.getElementById(id);if(!t)return;t.textContent=msg;t.style.opacity=1;clearTimeout(t._t);t._t=setTimeout(function(){t.style.opacity=0;},1500);}
+  function tipAt(id,phone,evt,html){var tp=document.getElementById(id),r=document.getElementById(phone).getBoundingClientRect(),k=r.width/W;
+    tp.innerHTML=html;tp.style.opacity=1;var x=(evt.clientX-r.left)/k,y=(evt.clientY-r.top)/k;tp.style.left=Math.min(W-150,Math.max(8,x+10))+"px";tp.style.top=(y-44)+"px";}
+  function tipOff(id){document.getElementById(id).style.opacity=0;}
+
+  /* ============ 1. results ============ */
+  var SC=[92,88,95,90,87,89,93,86,91,84,88,85,90,83,87,86,82,85,80,78];
+  var DATES=["6/02","6/09","6/16","6/21","6/28","7/05","7/08","7/14","7/16","7/26","8/02","8/09","8/12","8/23","8/30","9/03","9/07","9/13","9/17","9/21"];
+  (function(){var s=document.getElementById("r-spark"),w=358,h=130,l=28,r=8,t=18,b=18,mn=76,mx=96;
+    function X(i){return l+(w-l-r)*i/(SC.length-1);}function Y(v){return t+(h-t-b)*(mx-v)/(mx-mn);}
+    [80,85,90,95].forEach(function(v){el(s,"line",{x1:l,x2:w-r,y1:Y(v),y2:Y(v),stroke:"rgba(255,255,255,.08)"});el(s,"text",{x:l-6,y:Y(v)+4,"text-anchor":"end","font-size":10,fill:"rgba(244,246,242,.5)"},v);});
+    var avg=[],d="";for(var i=0;i<SC.length;i++){var a=SC.slice(Math.max(0,i-9),i+1);avg.push(a.reduce(function(x,y){return x+y;},0)/a.length);}
+    avg.forEach(function(v,i){d+=(i?"L":"M")+X(i)+" "+Y(v);});
+    el(s,"path",{d:d,fill:"none",stroke:"#5CC47F","stroke-width":2,"stroke-linejoin":"round"});
+    el(s,"line",{x1:w-150,x2:w-136,y1:6,y2:6,stroke:"#5CC47F","stroke-width":2});el(s,"text",{x:w-132,y:10,"font-size":10.5,fill:"rgba(244,246,242,.75)"},"近 10 场平均");el(s,"circle",{cx:w-60,cy:6,r:3,fill:"#F4F6F2"});el(s,"text",{x:w-54,y:10,"font-size":10.5,fill:"rgba(244,246,242,.75)"},"每场杆数");
+    SC.forEach(function(v,i){el(s,"circle",{cx:X(i),cy:Y(v),r:i===SC.length-1?5:3.2,fill:"#F4F6F2",stroke:"#07090A","stroke-width":2});});
+    el(s,"text",{x:l,y:h-2,"font-size":10,fill:"rgba(244,246,242,.45)"},DATES[0]);el(s,"text",{x:w-r,y:h-2,"text-anchor":"end","font-size":10,fill:"rgba(244,246,242,.45)"},DATES[DATES.length-1]);
+    // hover: nearest round
+    var hit=el(s,"rect",{x:l,y:0,width:w-l-r,height:h,fill:"transparent"}),cross=el(s,"line",{x1:0,x2:0,y1:t,y2:h-b,stroke:"rgba(255,255,255,.35)","stroke-width":1,opacity:0});
+    hit.addEventListener("pointermove",function(e){var rr=s.getBoundingClientRect(),x=(e.clientX-rr.left)*w/rr.width,i=Math.max(0,Math.min(SC.length-1,Math.round((x-l)/(w-l-r)*(SC.length-1))));
+      cross.setAttribute("x1",X(i));cross.setAttribute("x2",X(i));cross.setAttribute("opacity",1);tipAt("tip1","ph1",e,"<b>"+DATES[i]+" · "+SC[i]+" 杆</b><br><span style='color:var(--p-mut)'>近 10 场平均 "+avg[i].toFixed(1)+"</span>");});
+    hit.addEventListener("pointerleave",function(){cross.setAttribute("opacity",0);tipOff("tip1");});})();
+  var R=[["9 月 21 日","黑骑士球员俱乐部 B/C",78,[0,1,0,-1,1,0,1,2,0,0,1,0,-1,1,0,1,0,0]],["9 月 17 日","北湖九号国际",80,[1,0,1,0,1,0,2,0,1,0,1,0,-1,1,0,1,0,0]],["9 月 13 日","天马乡村俱乐部 东/西",85,[1,1,0,2,1,0,1,1,0,1,2,0,1,1,0,1,0,0]]];
+  var PARS=[5,4,3,4,4,5,3,4,4,4,4,3,5,4,4,3,5,4],rr=document.getElementById("r-rounds");
+  R.forEach(function(x){var b=document.createElement("button");b.className="rrow";
+    var tp=x[3].reduce(function(a,c){return a+c;},0);
+    b.innerHTML='<div class="line" style="width:100%"><div><div style="font-size:15px;font-weight:600">'+x[1]+'</div><div class="mut" style="font-size:12px">'+x[0]+'</div></div><div class="tn" style="text-align:right"><span style="font-size:22px;font-weight:700">'+x[2]+'</span> <span style="font-size:13px;font-weight:700;color:var(--bogey)">+'+tp+'</span></div></div>';
+    var m=document.createElement("div");m.className="mini9";x[3].forEach(function(t,i){m.appendChild(chip(PARS[i]+t,t,16));});b.appendChild(m);b.onclick=function(){toast("t1","打开单场复盘");};rr.appendChild(b);});
+  document.getElementById("r-all").onclick=function(){toast("t1","全部球局：搜索、年份、球场、分数段");};
+  document.getElementById("r-an").onclick=function(){toast("t1","打开表现分析（第二台）");};
+  document.getElementById("r-co").onclick=function(){toast("t1","球场：每个球场的均杆、最佳、九洞组合");};
+
+  /* ============ 2. analysis: one number + one split bar per phase, same language for all four ============ */
+  var WIN={
+    "近 10 场":{tee:[22,51,27],teeD:-1,app:[28,40,8,11,13],appD:-3,sg:3.4,ud:24,udD:-3,putt:[21,66,13],pph:1.92,ptD:+0.06},
+    "近 20 场":{tee:[24,52,24],teeD:+2,app:[31,38,9,10,12],appD:+1,sg:3.1,ud:27,udD:+2,putt:[24,66,10],pph:1.86,ptD:-0.04},
+    "近一年":{tee:[23,54,23],teeD:+3,app:[33,36,9,11,11],appD:+4,sg:3.0,ud:29,udD:+4,putt:[25,66,9],pph:1.84,ptD:-0.07},
+    "全部":{tee:[25,49,26],teeD:0,app:[27,39,8,12,14],appD:0,sg:3.6,ud:22,udD:0,putt:[20,67,13],pph:1.93,ptD:0}};
+  var AW="近 20 场",GOOD="#5CC47F",WARN="#E6B04E",N1="rgba(244,246,242,.34)",N2="rgba(244,246,242,.2)";
+  function delta(v,unit,betterUp){if(!v)return '<span class="d mut">和之前持平</span>';var good=betterUp?v>0:v<0;return '<span class="d" style="color:'+(good?GOOD:WARN)+'">'+(v>0?"↑ ":"↓ ")+Math.abs(v)+unit+'</span>';}
+  function sbar(parts){ // parts: [label, pct, color]
+    return '<div class="sbar">'+parts.map(function(p){return '<i style="flex:'+p[1]+';background:'+p[2]+'" title="'+p[0]+' '+p[1]+'%"></i>';}).join("")+'</div>'+
+      '<div class="slab tn">'+parts.map(function(p){return '<span style="flex:'+p[1]+'">'+(p[1]>=8?p[0]+" "+p[1]+"%":"")+'</span>';}).join("")+'</div>';}
+  function aRender(){var D=WIN[AW],wn=document.getElementById("a-win");wn.innerHTML="";
+    Object.keys(WIN).forEach(function(k){var b=document.createElement("button");b.textContent=k.replace("近 ","").replace(" 场","场");b.setAttribute("aria-label",k);b.className=k===AW?"on":"";b.onclick=function(){AW=k;aRender();};wn.appendChild(b);});
+    var worst=D.app[1];
+    document.getElementById("a-hero").innerHTML='<div class="k" style="font-size:13px;font-weight:600;color:'+WARN+'">最该练</div><div style="font-size:26px;font-weight:700;margin-top:4px">攻果岭偏短</div><div class="mut tn" style="font-size:13.5px;margin-top:4px">'+worst+'% 的攻果岭落在果岭前面，是最常见的失误</div>';
+    var mxTee=D.tee.indexOf(Math.max(D.tee[0],D.tee[2]));
+    var rows=[
+      ["开球",D.tee[1],"%","上球道",delta(D.teeD,"%",true),[["偏左",D.tee[0],N1],["球道",D.tee[1],GOOD],["偏右",D.tee[2],N2]]],
+      ["攻果岭",D.app[0],"%","GIR 上果岭",delta(D.appD,"%",true),[["上果岭",D.app[0],GOOD],["短",D.app[1],WARN],["长",D.app[2],N1],["左",D.app[3],N2],["右",D.app[4],N1]]],
+      ["果岭周边",D.ud,"%","救球成功",delta(D.udD,"%",true),[["救回",D.ud,GOOD],["没救回",100-D.ud,N2]],"每场从长草、沙坑起杆 "+D.sg.toFixed(1)+" 次"],
+      ["推杆",D.pph.toFixed(2),"","推 / 洞",delta(D.ptD,"",false),[["一推",D.putt[0],GOOD],["两推",D.putt[1],N1],["三推+",D.putt[2],WARN]]]];
+    document.getElementById("a-rows").innerHTML=rows.map(function(r){return '<div class="ph"><div class="k">'+r[0]+'</div><div class="top"><div class="tn"><span class="v">'+r[1]+r[2]+'</span><span class="u">'+r[3]+'</span></div>'+r[4]+'</div>'+sbar(r[5])+(r[6]?'<div class="mut tn" style="font-size:12px">'+r[6]+'</div>':'')+'</div>';}).join("");
+    document.querySelectorAll("#a-rows .sbar i").forEach(function(i){i.addEventListener("pointermove",function(e){tipAt("tip2","ph2",e,i.getAttribute("title"));});i.addEventListener("pointerleave",function(){tipOff("tip2");});i.removeAttribute("title");i.setAttribute("data-t","");});
+  }
+  aRender();
+
+  /* ============ 3. bag ladder ============ */
+  var BAG=[["一号木",231,205,248,86],["三号木",210,188,225,41],["五号木",195,176,208,22],["四号混合",182,165,195,18],["五号铁",170,152,182,35],["六号铁",160,145,171,44],["七号铁",150,136,160,58],["八号铁",140,127,149,51],["九号铁",128,115,137,47],["PW",115,102,124,39],["GW",100,88,108,20],["SW",85,70,95,26],["LW",65,50,75,9]];
+  var MAN={},MIN=40,MAX=260,LX0=70,LX1=306;
+  function bx(v){return (v-MIN)/(MAX-MIN);}
+  (function(){var s=document.getElementById("b-axis");[50,100,150,200,250].forEach(function(v){var x=236*bx(v);el(s,"text",{x:x,y:11,"text-anchor":"middle","font-size":10,fill:"rgba(244,246,242,.45)"},v);});})();
+  function bRender(){var L=document.getElementById("b-lad");L.innerHTML="";
+    BAG.forEach(function(c,i){var med=MAN[c[0]]!=null?MAN[c[0]]:c[1];
+      if(i){var prev=MAN[BAG[i-1][0]]!=null?MAN[BAG[i-1][0]]:BAG[i-1][1],d=prev-med,g=document.createElement("div");g.className="gap"+(d<8||d>20?" warn":"");g.textContent="差 "+d+" 码";L.appendChild(g);}
+      var b=document.createElement("button");b.className="lr";
+      var sv='<svg viewBox="0 0 236 16" width="100%" height="16" preserveAspectRatio="none"><line x1="0" x2="236" y1="8" y2="8" stroke="rgba(255,255,255,.08)" stroke-width="1"/>'+
+        '<rect x="'+(236*bx(c[2]))+'" y="3" width="'+(236*(bx(c[3])-bx(c[2])))+'" height="10" rx="4" fill="rgba(92,196,127,.55)"/>'+
+        (MAN[c[0]]!=null?'<circle cx="'+(236*bx(med))+'" cy="8" r="5" fill="#F4F6F2" stroke="#07090A" stroke-width="2"/>':'<rect x="'+(236*bx(med)-1)+'" y="1" width="2" height="14" rx="1" fill="#F4F6F2"/>')+'</svg>';
+      b.innerHTML='<span class="n">'+c[0]+'</span>'+sv+'<span class="m">'+med+'</span>';
+      b.addEventListener("pointermove",function(e){tipAt("tip3","ph3",e,"<b>"+c[0]+"</b> 中位 "+med+" 码<br><span style='color:var(--p-mut)'>80% 在 "+c[2]+"–"+c[3]+" 码 · "+c[4]+" 杆</span>");});
+      b.addEventListener("pointerleave",function(){tipOff("tip3");});
+      b.onclick=function(){openEdit(i);};L.appendChild(b);});}
+  function openEdit(i){var c=BAG[i],E=document.getElementById("b-edit"),v=MAN[c[0]]!=null?MAN[c[0]]:c[1];
+    E.innerHTML='<div style="width:36px;height:5px;border-radius:3px;background:rgba(255,255,255,.28);align-self:center"></div>'+
+      '<div class="line"><div style="font-size:20px;font-weight:700">'+c[0]+'</div><button class="linkb" id="e-done">完成</button></div>'+
+      '<div class="mut tn" style="font-size:13px">历史 '+c[4]+' 杆 · 中位 '+c[1]+' 码 · 80% 在 '+c[2]+'–'+c[3]+' 码</div>'+
+      '<div class="line"><span class="lbl">算球童建议时用</span><div class="stepper tn"><button id="e-m">−</button><span id="e-v" style="min-width:48px">'+v+'</span><button id="e-p">+</button></div></div>'+
+      '<button id="e-reset" class="linkb" style="align-self:flex-start">用历史中位数</button>'+
+      '<button id="e-rm" style="height:46px;border-radius:23px;background:var(--p-fill);color:var(--bad);font-size:15px;font-weight:600">从球包拿掉</button>';
+    E.hidden=false;
+    function set(n){MAN[c[0]]=n;document.getElementById("e-v").textContent=n;bRender();}
+    document.getElementById("e-m").onclick=function(){set((MAN[c[0]]!=null?MAN[c[0]]:c[1])-1);};
+    document.getElementById("e-p").onclick=function(){set((MAN[c[0]]!=null?MAN[c[0]]:c[1])+1);};
+    document.getElementById("e-reset").onclick=function(){delete MAN[c[0]];document.getElementById("e-v").textContent=c[1];bRender();};
+    document.getElementById("e-rm").onclick=function(){BAG.splice(i,1);E.hidden=true;bRender();toast("t3","已从球包拿掉 "+c[0]);};
+    document.getElementById("e-done").onclick=function(){E.hidden=true;};}
+  document.getElementById("b-add").onclick=function(){toast("t3","从球杆目录里加一支");};
+  bRender();
+
+
+  /* ============ 4. time & frequency ============ */
+  var MON=["1 月","2 月","3 月","4 月","5 月","6 月","7 月","8 月","9 月"],MN=[1,2,3,4,6,5,4,4,3],MA=[95.0,93.5,92.3,91.8,90.2,89.4,88.1,87.0,84.3];
+  var QS=[["2026 第三季度",11,86.7,78,93,1.1,2.4],["2026 第二季度",15,90.4,84,99,0.8,3.1],["2026 第一季度",6,93.8,88,101,0.5,3.6]];
+  var YS=[["2026",32,88.9,78,101,0.9,2.9],["2025",23,92.4,83,106,0.6,3.4],["2024",9,96.2,89,108,0.4,4.1]];
+  var GR="季";
+  function tRender(){var g=document.getElementById("t-grain");g.innerHTML="";
+    ["逐场","月","季","年"].forEach(function(k){var b=document.createElement("button");b.textContent=k;b.className=k===GR?"on":"";b.onclick=function(){GR=k;tRender();};g.appendChild(b);});
+    var pts=GR==="逐场"?SC.map(function(v,i){return [DATES[i],v,1];}):GR==="月"?MON.map(function(m,i){return [m,MA[i],MN[i]];}):GR==="季"?QS.slice().reverse().map(function(q){return [q[0].replace("2026 ",""),q[2],q[1]];}):YS.slice().reverse().map(function(y){return [y[0],y[2],y[1]];});
+    var s=document.getElementById("t-chart");s.innerHTML="";var w=358,h=150,l=28,r=12,tp=12,b=22,mn=76,mx=98;
+    function X(i){return pts.length<2?(l+w-r)/2:l+(w-l-r)*i/(pts.length-1);}function Y(v){return tp+(h-tp-b)*(mx-v)/(mx-mn);}
+    [80,85,90,95].forEach(function(v){el(s,"line",{x1:l,x2:w-r,y1:Y(v),y2:Y(v),stroke:"rgba(255,255,255,.08)"});el(s,"text",{x:l-6,y:Y(v)+4,"text-anchor":"end","font-size":10,fill:"rgba(244,246,242,.5)"},v);});
+    var d="";pts.forEach(function(p,i){d+=(i?"L":"M")+X(i)+" "+Y(p[1]);});el(s,"path",{d:d,fill:"none",stroke:"#5CC47F","stroke-width":2,"stroke-linejoin":"round"});
+    pts.forEach(function(p,i){var c=el(s,"circle",{cx:X(i),cy:Y(p[1]),r:GR==="逐场"?3.2:5,fill:"#F4F6F2",stroke:"#07090A","stroke-width":2});
+      var hitc=el(s,"circle",{cx:X(i),cy:Y(p[1]),r:12,fill:"transparent"});
+      hitc.addEventListener("pointermove",function(e){tipAt("tip4","ph4",e,"<b>"+p[0]+"</b> "+(GR==="逐场"?p[1]+" 杆":"均杆 "+p[1].toFixed(1)+" · "+p[2]+" 场"));});hitc.addEventListener("pointerleave",function(){tipOff("tip4");});
+      hitc.addEventListener("click",function(){toast("t4",GR==="逐场"?"打开这一场的复盘":"打开"+p[0]+"的全部球局");});
+      if(GR!=="逐场"||i===0||i===pts.length-1)el(s,"text",{x:X(i),y:h-6,"text-anchor":i===0&&pts.length>1?"start":i===pts.length-1&&pts.length>1?"end":"middle","font-size":10,fill:"rgba(244,246,242,.5)"},p[0]);});
+    var list=GR==="年"?YS:QS,L=document.getElementById("t-list");L.innerHTML="";document.getElementById("t-listh").textContent=GR==="年"?"历年表现":"按季度 · 2026";
+    list.forEach(function(q){var b=document.createElement("button");b.className="pc";b.style.cssText="flex-direction:column;align-items:stretch;gap:8px;text-align:left";
+      b.innerHTML='<div class="line"><b style="font-size:16px">'+q[0]+'</b><span class="tn" style="font-size:16px;font-weight:700">'+q[1]+' 场 · '+q[2].toFixed(1)+'</span></div><div class="kpis tn" style="grid-template-columns:repeat(4,1fr)"><div><b style="font-size:17px">'+q[3]+'</b><span>最佳</span></div><div><b style="font-size:17px">'+q[4]+'</b><span>最差</span></div><div><b style="font-size:17px">'+q[5]+'</b><span>鸟 / 场</span></div><div><b style="font-size:17px">'+q[6]+'</b><span>双柏+ / 场</span></div></div>';
+      b.onclick=function(){toast("t4","打开"+q[0]+"的全部球局");};L.appendChild(b);});}
+  tRender();
+  (function(){var s=document.getElementById("t-cal"),cols=39,cw=358/cols,start=new Date(2026,0,1),dayMs=864e5,played={},seed=7;
+    function rnd(){seed=(seed*9301+49297)%233280;return seed/233280;}
+    MN.forEach(function(n,m){var days=new Date(2026,m+1,0).getDate(),k=0;while(k<n){var d=1+Math.floor(rnd()*days),key=m+"-"+d;if(!played[key]){played[key]=1;k++;}}});
+    var last=new Date(2026,8,26);
+    for(var t0=start.getTime(),i=0;t0+i*dayMs<=last.getTime();i++){var dt=new Date(t0+i*dayMs),wd=(dt.getDay()+6)%7,col=Math.floor((i+((start.getDay()+6)%7))/7),on=played[dt.getMonth()+"-"+dt.getDate()];
+      var rc=el(s,"rect",{x:col*cw+1,y:wd*(cw)+1,width:cw-2,height:cw-2,rx:2,fill:on?"#5CC47F":"rgba(255,255,255,.07)"});
+      if(on)(function(dt){rc.addEventListener("pointermove",function(e){tipAt("tip4","ph4",e,(dt.getMonth()+1)+" 月 "+dt.getDate()+" 日 · 打了一场");});rc.addEventListener("pointerleave",function(){tipOff("tip4");});})(dt);}
+    [0,2,4,6,8].forEach(function(m){var d=new Date(2026,m,1),i=Math.round((d-start)/dayMs),col=Math.floor((i+((start.getDay()+6)%7))/7);el(s,"text",{x:col*cw+1,y:102,"font-size":10,fill:"rgba(244,246,242,.5)"},(m+1)+" 月");});})();
+
+  /* ============ 5. distribution ============ */
+  (function(){var B=[["75–79",3],["80–84",9],["85–89",15],["90–94",19],["95–99",11],["100–104",5],["105+",2]],s=document.getElementById("d-hist"),w=358,h=150,bt=22,mx=20,bw=(w-8)/B.length;
+    B.forEach(function(x,i){var hh=(h-bt-18)*x[1]/mx,xx=4+i*bw+2,top=i===3;
+      var r=el(s,"rect",{x:xx,y:h-bt-hh,width:bw-4,height:hh,rx:4,fill:top?"#5CC47F":"rgba(92,196,127,.4)"});
+      el(s,"text",{x:xx+(bw-4)/2,y:h-bt-hh-5,"text-anchor":"middle","font-size":11,"font-weight":700,fill:"#F4F6F2"},x[1]);
+      el(s,"text",{x:xx+(bw-4)/2,y:h-6,"text-anchor":"middle","font-size":9.5,fill:"rgba(244,246,242,.55)"},x[0]);
+      var hit=el(s,"rect",{x:xx,y:0,width:bw-4,height:h,fill:"transparent"});
+      hit.addEventListener("pointermove",function(e){tipAt("tip5","ph5",e,"<b>"+x[0]+" 杆</b> "+x[1]+" 场 · "+Math.round(x[1]/64*100)+"%");});hit.addEventListener("pointerleave",function(){tipOff("tip5");});
+      hit.addEventListener("click",function(){toast("t5","打开 "+x[0]+" 杆的 "+x[1]+" 场球局");});});
+    var M=[["老鹰",0.1,"#7CC4F2"],["小鸟",5,"#56A8E8"],["标准杆",38,"#F4F6F2"],["柏忌",36,"#E6B04E"],["双柏忌+",21,"#E8814B"]],m=document.getElementById("d-mix"),x=0;
+    M.forEach(function(k){var ww=Math.max(2,358*k[1]/100-2);var r=el(m,"rect",{x:x,y:4,width:ww,height:16,rx:4,fill:k[2]});
+      r.addEventListener("pointermove",function(e){tipAt("tip5","ph5",e,"<b>"+k[0]+"</b> "+k[1]+"% 的洞");});r.addEventListener("pointerleave",function(){tipOff("tip5");});
+      if(ww>40){el(m,"text",{x:x,y:36,"font-size":12,"font-weight":700,fill:"#F4F6F2"},k[1]+"%");el(m,"text",{x:x,y:50,"font-size":10,fill:"rgba(244,246,242,.55)"},k[0]);}x+=ww+2;});
+    var P=[["Par 3",0.62,48,288],["Par 4",1.05,34,720],["Par 5",0.88,39,144]],D=document.getElementById("d-par");
+    P.forEach(function(p){var row=document.createElement("div");row.className="pc";row.style.cssText="padding:10px 14px;gap:12px";
+      row.innerHTML='<b style="font-size:15px;width:52px">'+p[0]+'</b><div style="flex:1"><div style="height:8px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden"><div style="height:8px;width:'+(p[1]/1.5*100)+'%;background:#E6B04E;border-radius:4px"></div></div><div class="mut tn" style="font-size:11.5px;margin-top:4px">'+p[3]+' 洞 · 保帕率 '+p[2]+'%</div></div><b class="tn" style="font-size:18px">+'+p[1].toFixed(2)+'</b>';D.appendChild(row);});})();
+
+  /* ============ 6. course ============ */
+  document.querySelectorAll("img[data-topo]").forEach(function(i){i.src=TOPO;});
+  (function(){var R=[92,90,91,88,89,86,87,85,86,83,82,78],s=document.getElementById("c-dots"),w=358,h=56,mn=76,mx=94;
+    function X(i){return 6+(w-12)*i/(R.length-1);}function Y(v){return 6+(h-12)*(mx-v)/(mx-mn);}
+    var d="";R.forEach(function(v,i){d+=(i?"L":"M")+X(i)+" "+Y(v);});el(s,"path",{d:d,fill:"none",stroke:"rgba(244,246,242,.25)","stroke-width":1.5});
+    R.forEach(function(v,i){var best=v===78;el(s,"circle",{cx:X(i),cy:Y(v),r:best?5.5:3.5,fill:best?"#5CC47F":"#F4F6F2"});
+      var hit=el(s,"circle",{cx:X(i),cy:Y(v),r:14,fill:"transparent"});hit.addEventListener("pointermove",function(e){tipAt("tip6","ph6",e,v+" 杆");});hit.addEventListener("pointerleave",function(){tipOff("tip6");});hit.addEventListener("click",function(){toast("t6","打开这一场的复盘");});});})();
+  (function(){var H=[["B 8","Par 4",1.4,"30% 40%"],["B 5","Par 3",1.1,"55% 20%"],["C 5","Par 4",1.0,"45% 65%"]],g=document.getElementById("c-hard");
+    H.forEach(function(x){var b=document.createElement("button");b.style.cssText="position:relative;height:150px;border-radius:18px;overflow:hidden;background:#101512;text-align:left";
+      b.innerHTML='<img src="'+TOPO+'" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:'+x[3]+';transform:scale(1.4)"><div style="position:absolute;inset:0;background:linear-gradient(rgba(0,0,0,0) 30%,rgba(0,0,0,.8))"></div>'+
+        '<div style="position:absolute;left:10px;bottom:9px;right:8px"><div class="tn" style="font-size:22px;font-weight:800;color:#E6B04E;line-height:1">+'+x[2].toFixed(1)+'</div><div style="font-size:12px;font-weight:700;margin-top:3px">'+x[0]+' 洞 <span style="color:rgba(244,246,242,.6);font-weight:500">'+x[1]+'</span></div></div>';
+      b.onclick=function(){toast("t6",x[0]+" 洞：每次打这洞的落点");};g.appendChild(b);});})();
+  (function(){var C=[["B","C",6,85.8],["C","A",2,88.5],["C","C",1,87.0]],box=document.getElementById("c-combo");
+    C.forEach(function(c){var r=document.createElement("button");r.className="line";r.style.cssText="padding:12px 2px;border-bottom:.5px solid var(--p-line);width:100%;text-align:left";
+      r.innerHTML='<div style="display:flex;align-items:center;gap:10px"><span style="font-size:17px;font-weight:700">'+c[0]+' <span style="color:rgba(244,246,242,.4)">→</span> '+c[1]+'</span><span class="mut tn" style="font-size:12.5px">'+c[2]+' 次</span></div><span class="tn" style="font-size:17px;font-weight:700">'+c[3].toFixed(1)+'</span>';
+      r.onclick=function(){toast("t6","打开 "+c[0]+" → "+c[1]+" 的全部球局");};box.appendChild(r);});
+    var more=document.createElement("button");more.style.cssText="padding:12px 2px;text-align:left;font-size:13.5px;font-weight:600;color:var(--good)";more.textContent="全部 6 种组合 · 只打 9 洞 3 次 ›";more.onclick=function(){toast("t6","全部组合列表");};box.appendChild(more);})();
+  document.getElementById("r-tm").onclick=function(){toast("t1","打开时间与频率（第四台）");};
+  document.getElementById("r-ds").onclick=function(){toast("t1","打开成绩分布（第五台）");};
+  function fit(){document.querySelectorAll(".fit").forEach(function(f){var sh=f.firstElementChild,k=Math.min(1,f.clientWidth/W);sh.style.transform="scale("+k+")";f.style.height=(H*k)+"px";});}
+  window.addEventListener("resize",fit);fit();
+})();
+</script>

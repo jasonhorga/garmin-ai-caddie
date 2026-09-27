@@ -31,7 +31,7 @@ sudo apt-get install -y ca-certificates curl git openssl docker.io
 sudo apt-get install -y docker-compose-plugin || sudo apt-get install -y docker-compose-v2
 sudo systemctl enable --now docker
 
-curl -fsSL https://raw.githubusercontent.com/jasonhorga/garmin-ai-caddie/integration/v2/ops/bootstrap_nas_vm_api.sh \
+curl -fsSL https://raw.githubusercontent.com/jasonhorga/garmin-ai-caddie/main/ops/bootstrap_nas_vm_api.sh \
   -o /tmp/bootstrap_nas_vm_api.sh
 bash /tmp/bootstrap_nas_vm_api.sh --install-system
 ```
