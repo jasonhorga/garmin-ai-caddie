@@ -22,14 +22,14 @@ owner 的决定：
 - 旧 `main`：已存档为 `archive/main-before-v2-integration-2026-05-28`（同一提交），直接删除。
 - 保留：`integration/v2`、`claude/code-audit-performance-17wqcv`、以及 4 个挂着开放 PR 的分支。
 
-**需要 owner 决定的 4 个开放 PR**（两个多月未动，Codex 可先给建议）：
+**4 个开放 PR**（按 Codex review 4 更新）：
 
-| PR | 标题 | Claude 的建议 |
+| PR | 标题 | 结论 |
 |---|---|---|
-| #176 | docs(spec): 多用户 AI Caddie 架构设计 | 若内容已并入别的文档，关闭并打存档标签 |
-| #218 | [设计预览] 手表球道图重做 | 已被本次手表重设计取代，关闭 |
-| #219 | fix(caddie): 离线球童一杆一距离 | 请 Codex 核实问题是否仍存在；存在则 rebase 合并，否则关闭 |
-| #291 | feat(watch): 前/中/后大数字 + 大字模式 | 与本次手表重设计重叠，关闭，需要的部分在 B6 里做 |
+| #176 | docs(spec): 多用户 AI Caddie 架构设计 | 未被完全取代。Claude 在 PR334 评论里给出逐章映射后再由 owner 决定；在此之前不关、不删分支 |
+| #218 | [设计预览] 手表球道图重做 | 已被本 PR 的 `watch.html` / B6 取代：关闭，分支打 archive 标签 |
+| #219 | fix(caddie): 离线球童一杆一距离 | 问题已在 `integration/v2` 的 `ca3fa89a` 修复（同一球杆取 median）：附测试证据关闭，分支打 archive 标签 |
+| #291 | feat(watch): 前/中/后大数字 + 大字模式 | 与 B6 / B7 重叠：关闭，分支打 archive 标签；需要的部分在 B6 做 |
 
 ## 2. `integration/v2` 改名为 `main`
 
@@ -96,8 +96,7 @@ grep -rn "integration/v2" <部署目录> /etc/cron* /etc/systemd/system 2>/dev/n
 
 ## 3. 其他收尾（请确认状态）
 
-- Garmin 同步：09-24 起因缺少同 revision 的 `aicaddie-sync` 镜像而中断，是否已补建并恢复？
-  “部署 API 时同时构建 sync 镜像”是否已写进部署流程？
+- Garmin 同步：Codex 已确认恢复（production revision 有同 revision 的 `aicaddie-sync` 镜像，cron 跑通，部署 gate 已绑定同步镜像）。
 - 本 PR 的设计文档（`docs/design/2026-09-25-ui-redesign/`，含 `IMPLEMENTATION_PLAN.md`）：请审阅后合并。
 - 以上完成后打基线标签，例如 `v2-baseline-2026-09`，并在 `PROJECT_STATE.md` 记下对应 TestFlight 版本号。
 - 然后按 `IMPLEMENTATION_PLAN.md` 把 B0 设为 `PROJECT_STATE.md` 的当前任务。
