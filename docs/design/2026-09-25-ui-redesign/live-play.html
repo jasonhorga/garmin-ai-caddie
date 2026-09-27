@@ -307,7 +307,7 @@ footer{font-size:13px;color:var(--muted)}
       el("polygon",{points:poly(z.pts),fill:"none",stroke:red,"stroke-width":1.8,"stroke-linejoin":"round"});
       var cq=S(z.c);
       [[z.front,"前"],[z.back,"后"]].forEach(function(e){var q=S(e[0]),d=yd(P,e[0]);
-        el("circle",{cx:q[0],cy:q[1],r:4,fill:red,stroke:"#fff","stroke-width":1});
+        el("circle",{cx:q[0],cy:q[1],r:3.5,fill:red});
         var vx=q[0]-cq[0],vy=q[1]-cq[1],n=Math.hypot(vx,vy)||1,lx=q[0]+vx/n*26,ly=q[1]+vy/n*20;
         lx=Math.max(34,Math.min(W-34,lx)); ly=Math.max(210,ly);
         el("rect",{x:lx-27,y:ly-11,width:54,height:22,rx:6,fill:"#000","fill-opacity":.66});

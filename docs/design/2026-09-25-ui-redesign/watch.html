@@ -122,8 +122,8 @@ footer{font-size:13px;color:var(--muted)}
           <div class="pill tn" id="w1pill" style="opacity:0;pointer-events:none"></div>
         </div>
       </div>
-      <div class="presets"><button data-w1="tee">发球台</button><button data-w1="plan">点绿签：换方案</button><button data-w1="zoom">表冠放大</button><button data-w1="tgt">点地图测距</button><button data-w1="away">还没开球、人不在发球台</button><button data-w1="haz">上滑：障碍</button><button data-w1="green">再上滑：果岭</button><button data-w1="shot">测到一杆</button><button data-w1="undo">点小条撤销</button></div>
-      <p class="cap">上下滑三页（右边小点）：① 本洞，地图上画 AI 球童的方案（白线 + 落点 + “D 224”），左边绿色小签是下一杆用的杆，点它换方案（稳妥 / 进攻）；② 障碍，一次一个，红框 + “前 / 后”距离，和手机一样，点“1 / 4”换下一个，只列前方的；③ 果岭。三页都是表冠缩放、放大后拖动地图平移；没放大时上下滑翻页。点地图放一个黄圈测距（放大后改成长按 0.5 秒，免得拖地图时误放）：黄字是从你到这里多少码，“再 N”是从这里到旗；还没开球时从发球台量起。点黄圈取消，点别处挪过去。同一张 topo 图、同一套三个距离。去掉了“手动记杆 +”按钮和选球杆弹窗：手表测到挥杆就震一下，底部闪一下“第 2 杆 · 上一杆一号木 231 码”，两秒后消失。测错了点一下小条撤销。</p>
+      <div class="presets"><button data-w1="tee">发球台</button><button data-w1="plan">点绿签：换方案</button><button data-w1="zoom">表冠放大</button><button data-w1="tgt">点地图测距</button><button data-w1="away">还没开球、人不在发球台</button><button data-w1="haz">上滑：障碍</button><button data-w1="nohaz">障碍页：前方没有</button><button data-w1="green">再上滑：果岭</button><button data-w1="shot">测到一杆</button><button data-w1="undo">点小条撤销</button></div>
+      <p class="cap">上下滑三页（右边小点）：① 本洞，地图上画 AI 球童的方案（白线 + 落点 + “D 224”），左边绿色小签是下一杆用的杆，点它换方案（稳妥 / 进攻）；② 障碍：翻到这一页才画一个，细红线勾真实轮廓 + 前 / 后两个小红点和距离（无白边、无粗框），和手机同一条规则，点“1 / 4”换下一个，只列前方的；前方没有障碍时这一页写“前方无障碍”；③ 果岭。三页都是表冠缩放、放大后拖动地图平移；没放大时上下滑翻页。点地图放一个黄圈测距（放大后改成长按 0.5 秒，免得拖地图时误放）：黄字是从你到这里多少码，“再 N”是从这里到旗；还没开球时从发球台量起。点黄圈取消，点别处挪过去。同一张 topo 图、同一套三个距离。去掉了“手动记杆 +”按钮和选球杆弹窗：手表测到挥杆就震一下，底部闪一下“第 2 杆 · 上一杆一号木 231 码”，两秒后消失。测错了点一下小条撤销。</p>
     </div>
 
     <!-- W2 score -->
@@ -247,9 +247,9 @@ footer{font-size:13px;color:var(--muted)}
       <tr><td>1 全挥杆</td><td>照 Apple WWDC23 的做法：先在 800 次/秒加速度里找撞击尖峰，再往回找“绕重力轴转动从接近 0 变成持续转动”的起点，检查这段时间里累计转过的角度在合理范围；三步都有才算，缺撞击的是练习挥杆</td><td>站定：转速 ≤ 0.5 rad/s；转动：≥ 3 个采样 ≥ 2 rad/s 且峰值 ≥ 3 rad/s；撞击：加速度偏离 1 g ≥ 2 g；起点到撞击 0.3–1.5 秒；3 秒内只算一次。需要 Apple Watch Series 8 或更新的表</td><td>现有 <code>WatchAutoShotDetector</code> 已有前三项；新增“往回找起点 + 累计转角”</td></tr>
       <tr><td>2 推杆 / 切杆</td><td>推杆：站定 ≥ 1 秒 → 慢速钟摆 → 很小的撞击尖峰，只在果岭上或果岭边 5 米内判。切杆（果岭边的短挥杆）单独一类，可信度低。Garmin 明说推杆和切杆都测不到；Golfshot 在 Series 8 以上能自动数推杆，但不量推杆距离</td><td>钟摆转速 0.3–2 rad/s，来回对称；撞击尖峰 0.25–1.2 g；两次推杆相隔 ≥ 5 秒。可信度低的切杆不直接算，等本洞结束时和位置一起判断</td><td>新增。现在的撞击门槛 2 g 太高，推杆基本测不到</td></tr>
       <tr><td>3 排除</td><td>空挥、试挥打地、坐车颠簸、拿球、击掌等（分法见上一节）</td><td>GPS 速度 &gt; 2.5 m/s（在车上）不判；没有“站定”段不判；练习挥杆（无撞击）不判；推杆练习（无撞击）不判</td><td>新增车速过滤</td></tr>
-      <tr><td>4 定位置</td><td>用挥杆那一刻的 GPS 点，对照球场轮廓：发球台 / 球道 / 长草 / 沙坑 / 果岭</td><td>GPS 精度 ≤ 12 米才用；差的话取挥杆前 10 秒内最好的一个点</td><td>需要把球道、果岭、水、沙坑轮廓放进手表的球场包</td></tr>
+      <tr><td>4 定位置</td><td>用挥杆那一刻的 GPS 点，对照球场轮廓：发球台 / 球道 / 长草 / 沙坑 / 果岭</td><td>GPS 精度 ≤ 12 米才用（暂定，B7 实测定值）；精度不够又找不到好点就记“位置未知”，照样计杆；差的话取挥杆前 10 秒内最好的一个点</td><td>需要把球道、果岭、水、沙坑轮廓放进手表的球场包</td></tr>
       <tr><td>5 合并去重</td><td>和 Golfshot、18Birdies 一样：同一个位置的多次挥杆只算一杆，以最后一次为准（前面的当练习）；人朝下一次挥杆的位置移动，才确认上一杆。手机“记一杆”和手表记录合并</td><td>相距 &lt; 8 米的算同一位置；离球车近、离上一杆落点远的有撞击动作降低可信度（Garmin 用户反映在球车旁练习挥杆常被误记）</td><td>新增；现在手表每杆都要确认、再选球杆</td></tr>
-      <tr><td>6 分洞</td><td>在第 N 洞发球台开球 = 进入第 N 洞；走出果岭 25 米以上、朝下一洞发球台走 = 这一洞结束，弹出成绩</td><td>发球台半径 35 米 + GPS 精度（沿用现有规则）</td><td>现在只有手动记杆时才会自动跳洞</td></tr>
+      <tr><td>6 分洞</td><td>在第 N 洞发球台开球 = 进入第 N 洞；走出果岭 25 米以上、朝下一洞发球台走 = 这一洞结束，弹出成绩（暂定；误触发后 60 秒内在原果岭又挥杆就自动退回；整洞没 GPS 就回到手动换洞）</td><td>发球台半径 35 米 + GPS 精度（沿用现有规则）</td><td>现在只有手动记杆时才会自动跳洞</td></tr>
       <tr><td>总杆</td><td>全挥杆数 + 推杆数 + 罚杆</td><td>—</td><td>现在是“记了几杆 + 2”</td></tr>
       <tr><td>推杆</td><td>测到几次算几次（手动改推杆或罚杆时，总杆不会低于“推杆 + 罚杆 + 1”，不够就自动加上去）；一次都没测到，就按第一推离洞的距离估：&lt; 1.5 米 1 推，1.5–15 米 2 推，&gt; 15 米 3 推。依据是业余球手的进洞率：1 米内约 90%，2–3.5 米只有 35–43%（Shot Scope 按差点统计）</td><td>落点 = 下一次站定的位置；旗位用你在“调整旗位”设的，没设用果岭中心</td><td>现在固定 2 推</td></tr>
       <tr><td>开球</td><td>第二杆（或第一次推杆）的位置在球道轮廓里 = 上球道；不在就看在中线左边还是右边</td><td>Par 3 不判</td><td>现在要手动选</td></tr>
@@ -347,7 +347,7 @@ footer{font-size:13px;color:var(--muted)}
     var s=document.getElementById("w1map");s.innerHTML="";
     var ME=W1.pos,P=W1.shot===1?TEE:W1.pos,pg=W1.page,sc,mid,cx=138,cy=128; // before the tee shot everything is measured from the tee
     if(pg===0){sc=0.235;mid=[(P[0]+GC[0])/2,(P[1]+GC[1])/2];cy=136;}
-    else if(pg===1){var list=aheadHaz();W1.haz=Math.max(0,Math.min(list.length-1,W1.haz));var H=HAZ[list[W1.haz]];sc=0.62;mid=H.c;}
+    else if(pg===1){var list=aheadHaz();W1.haz=Math.max(0,Math.min(list.length-1,W1.haz));var H=list.length?HAZ[list[W1.haz]]:null;sc=H?0.62:0.235;mid=H?H.c:[(P[0]+GC[0])/2,(P[1]+GC[1])/2];if(!H)cy=136;}
     else{sc=1.6;mid=GC;cy=132;}
     sc*=W1.z;cx+=W1.pan[0];cy+=W1.pan[1];W1.xf={cx:cx,cy:cy,sc:sc,mid:mid};
     var g=el(s,"g",{transform:"translate("+cx+" "+cy+") scale("+sc+") translate("+(-mid[0])+" "+(-mid[1])+")"});
@@ -368,13 +368,15 @@ footer{font-size:13px;color:var(--muted)}
       hl.innerHTML='1 <span class="mut" style="font-weight:600">P5</span>';
       setCol(c+17,c,Math.max(0,c-19),"");
     } else if(pg===1){
-      var list=aheadHaz(),H=HAZ[list[W1.haz]];flag();
+      var list=aheadHaz(),H=list.length?HAZ[list[W1.haz]]:null;flag();
+      if(!H){L.hidden=true;hl.innerHTML='<span class="mut">前方无障碍</span>';setCol(c+17,c,Math.max(0,c-19),"");}
+      else{
       el(g,"path",{d:"M"+H.pts.map(function(q){return q.join(" ");}).join(" L")+"Z",fill:"none",stroke:"#FF4B3E","stroke-width":px(1.6)});
       el(g,"circle",{cx:H.front[0],cy:H.front[1],r:px(2.6),fill:"#FF4B3E"});el(g,"circle",{cx:H.back[0],cy:H.back[1],r:px(2.6),fill:"#FF4B3E"});
       tag(H.front[0],H.front[1]+px(11),"前 "+yd(P,H.front));tag(H.back[0],H.back[1]-px(11),"后 "+yd(P,H.back));
       L.hidden=false;L.textContent=(W1.haz+1)+" / "+list.length;L.style.background="rgba(255,255,255,.12)";L.style.color="var(--p-mut)";
       hl.innerHTML='<span style="color:#FF7A6E">'+(H.water?"水":"沙坑")+'</span>';
-      setCol(yd(P,H.back),yd(P,H.front)+"",null,"hz");
+      setCol(yd(P,H.back),yd(P,H.front)+"",null,"hz");}
     } else {
       flag();
       L.hidden=true;hl.innerHTML='果岭';
@@ -415,7 +417,7 @@ footer{font-size:13px;color:var(--muted)}
   // the chip under the numbers is a button: on 方案 it cycles plans, on 障碍 it steps to the next hazard
   document.getElementById("w1club").addEventListener("click",function(){
     if(W1.page===0){W1.plan=(W1.plan+1)%PLANS.length;w1render();pill("w1pill","方案 "+(W1.plan+1)+" · "+PLANS[W1.plan].name,1500);}
-    else if(W1.page===1){var n=aheadHaz().length;W1.haz=(W1.haz+1)%n;W1.z=1;W1.pan=[0,0];w1render();}});
+    else if(W1.page===1){var n=aheadHaz().length;if(!n)return;W1.haz=(W1.haz+1)%n;W1.z=1;W1.pan=[0,0];w1render();}});
   function w1shot(){W1.page=0;W1.prev=TEE.slice();W1.pos=[352,640];W1.shot=2;w1render();var sc=document.getElementById("w1shot");sc.style.visibility="hidden";clearTimeout(sc._t);sc._t=setTimeout(function(){sc.style.visibility="";},2700);
     pill("w1pill","第 2 杆 · 一号木 231 码",2600,function(){w1undo();});}
   function w1undo(){W1.prev=null;W1.pos=TEE.slice();W1.shot=1;w1render();pill("w1pill","已撤销这一杆",1400);}
@@ -426,6 +428,7 @@ footer{font-size:13px;color:var(--muted)}
     if(k==="away"){W1={pos:[250,1010],shot:1,z:1,prev:null,page:0,plan:0,haz:0,pan:[0,0],target:[318,560]};w1render();}
     if(k==="zoom"){W1.z=2;W1.pan=[0,0];w1render();}
     if(k==="haz"){W1.page=1;W1.z=1;W1.pan=[0,0];w1render();}
+    if(k==="nohaz"){W1={pos:[240,150],shot:3,z:1,prev:null,page:1,plan:0,haz:0,pan:[0,0],target:null};w1render();}
     if(k==="green"){W1.page=2;W1.z=1;W1.pan=[0,0];w1render();}
     if(k==="shot")w1shot();
     if(k==="undo"){if(W1.shot<2)w1shot();setTimeout(w1undo,700);}};});
@@ -544,7 +547,7 @@ footer{font-size:13px;color:var(--muted)}
       ["09:44:40",[352,640],"长草（球道右边 12 码）","站定 → 快转 → 撞击",8.1,4.2,"full"],
       ["09:47:55",[300,330],"球道","站定 → 快转 → 撞击",6.4,3.6,"full"],
       ["09:51:10",[296,152],"果岭","站定 1.8 秒，之后没有可判的摆动",0.2,0.1,"none"]],
-      estPutts:2,why:"只测到 3 次全挥杆。第三杆之后第一次站定在果岭上、离旗 8 码 → 按“1–12 米 2 推”估 2 推 → 5 杆；GIR 按估的推杆反推为是。成绩页里推杆就填 2，不写“估计”。"},
+      estPutts:2,why:"只测到 3 次全挥杆。第三杆之后第一次站定在果岭上、离旗 8 码（7.3 米）→ 按“1.5–15 米 2 推”估 2 推 → 5 杆；GIR 按估的推杆反推为是。成绩页里推杆就填 2，不写“估计”。"},
     practice:{name:"空挥、试挥打地",ev:[
       ["09:40:32",[296,980],"发球台","快转，没有撞击",8.1,0.3,"rej","空挥",0.2,null],
       ["09:40:40",[297,979],"发球台","快转 → 发闷的撞击（刷草）",7.4,2.4,"rej","试挥打地",0.4,28],

@@ -221,8 +221,8 @@ footer{font-size:13px;color:var(--muted)}
       <div class="toast glass" id="t3"></div>
       <div class="homebar"></div>
     </div></div></div>
-    <div class="presets"><button data-p="plan">换方案</button><button data-p="tee">换白 T</button><button data-p="wait">后面几洞还在准备</button></div>
-    <p class="cap">和打球屏同一张图：白线是 AI 球童的路线，落点写“一号木 224”。底部：方案（稳妥 / 进攻）、这一洞的球杆顺序、18 洞条（左右滑或点它换洞）。右上可以换发球台，距离跟着变。地图还没下载好的洞在条里变淡，点过去先显示 Par 和码数，图到了自己出来，不写“下载中”。</p>
+    <div class="presets"><button data-p="plan">换方案</button><button data-p="tee">换白 T</button><button data-p="h5">第 5 洞：精确图还没到</button><button data-p="wait">第 14 洞：连路线都没有</button></div>
+    <p class="cap">和打球屏同一张图：白线是 AI 球童的路线，落点写“一号木 224”。底部：方案（稳妥 / 进攻）、这一洞的球杆顺序、18 洞条（左右滑或点它换洞）。右上可以换发球台，距离跟着变。精确图还没到的洞，点过去立刻画事实路线（发球台—落点—果岭线、果岭轮廓），精确图到了原地替换，不重置缩放和选择；连路线都没有的洞（条里变淡）显示统一的整屏等待页：洞号、Par、码数和一个转圈，不进空白洞，也不写“下载中”。</p>
   </div>
 </section>
 
@@ -282,23 +282,41 @@ footer{font-size:13px;color:var(--muted)}
     {id:"tm",name:"天马乡村俱乐部",km:"23 公里",sub:"27 洞 · 上次 6 月 28 日",loops:[["东",36,3150],["西",36,3180],["南",35,2990]]}];
   var TEES=[["黑",6890,"#1B1D1B"],["蓝",6412,"#2F6FD6"],["白",6010,"#F4F6F2"],["红",5210,"#D6453A"]];
   var ST={c:"bk",first:"B",tee:1,turn:false,second:"C"},LAST={bk:{B:"C",A:"B",C:"A"}};
-  function sRender(){var nm=function(x){return x+(x.length===1?" 场":"");},L=document.getElementById("s-list");L.innerHTML="";
+  // Only the course's own single-letter loop names (A/B/C…) get " 场"; 东/西/前九 or names already ending in 场 stay as they are.
+  function loopName(x){return /^[A-Z]$/.test(x)?x+" 场":x;}
+  function courseOf(id){return COURSES.filter(function(x){return x.id===id;})[0];}
+  function hasLoop(c,x){return c.loops.some(function(u){return u[0]===x;});}
+  function historyPair(c,f){var p=(c.pair&&c.pair[f])||(LAST[c.id]&&LAST[c.id][f]);return p&&hasLoop(c,p)?p:null;}
+  function defaultSecond(c,f){ // usual pairing if known, else the next loop in the course's order
+    var p=historyPair(c,f);if(p)return p;var i=c.loops.findIndex(function(u){return u[0]===f;});return c.loops[(i+1)%c.loops.length][0];}
+  function setCourse(id){var c=courseOf(id);ST.c=id;ST.turn=false;setFirst(c.loops[0][0]);}
+  function setFirst(f){ST.first=f;ST.second=defaultSecond(courseOf(ST.c),f);}
+  function normalize(){var c=courseOf(ST.c);if(!hasLoop(c,ST.first))ST.first=c.loops[0][0];if(ST.second!==null&&!hasLoop(c,ST.second))ST.second=defaultSecond(c,ST.first);}
+  // Prototype state check, run from the console or a headless browser: returns the list of failures.
+  window.preRoundStateTest=function(){var saved=JSON.stringify(ST),f=[];function eq(a,b,m){if(a!==b)f.push(m+": "+a+" != "+b);}
+    ST={c:"bk",first:"C",tee:1,turn:false,second:"A"};setCourse("bh");eq(ST.first,"前九","switch course resets first");eq(ST.second,"后九","switch course re-resolves second");
+    ST={c:"bh",first:"前九",tee:1,turn:true,second:"C"};normalize();eq(ST.second,"后九","stale second is replaced");
+    ST={c:"bk",first:"B",tee:1,turn:false,second:"C"};setFirst("A");eq(ST.second,"B","changing first re-resolves second");
+    setCourse("tm");eq(ST.second,"西","no history: next loop");ST.second=null;normalize();eq(ST.second,null,"stop-after-9 is kept");
+    eq(loopName("A"),"A 场","letter loop");eq(loopName("东"),"东","single CJK loop");eq(loopName("前九"),"前九","two-char loop");eq(loopName("湖景场"),"湖景场","no double 场");
+    ST=JSON.parse(saved);sRender();return f;};
+  function sRender(){normalize();var nm=loopName,L=document.getElementById("s-list");L.innerHTML="";
     COURSES.forEach(function(c){var b=document.createElement("button");b.className="crow"+(ST.c===c.id?" on":"");
       b.innerHTML='<div class="dot"><img src="'+TOPO+'" alt=""></div><div style="flex:1"><div class="nm">'+c.name+'</div><div class="sub tn">'+c.km+' · '+c.sub+'</div></div>';
-      b.onclick=function(){ST.c=c.id;ST.first=c.loops[0][0];ST.turn=false;sRender();};L.appendChild(b);});
+      b.onclick=function(){setCourse(c.id);sRender();};L.appendChild(b);});
     var c=COURSES.filter(function(x){return x.id===ST.c;})[0],lp=document.getElementById("s-loops");lp.innerHTML="";
-    var pairOf=function(f){return (c.pair&&c.pair[f])||(LAST[c.id]&&LAST[c.id][f])||f;};
+
     lp.style.gridTemplateColumns="repeat("+Math.max(2,c.loops.length)+",1fr)";
     if(!ST.turn){ // start: pick only the first nine-hole loop
       document.getElementById("s-looph").textContent="从哪个 9 洞开始";
       c.loops.forEach(function(u){var b=document.createElement("button");b.className=ST.first===u[0]?"on":"";
-        b.innerHTML='<b>'+u[0]+(u[0].length===1?' 场':'')+'</b><span class="tn">9 洞 · Par '+u[1]+' · '+u[2]+' 码</span>';
-        b.onclick=function(){ST.first=u[0];sRender();};lp.appendChild(b);});
+        b.innerHTML='<b>'+nm(u[0])+'</b><span class="tn">9 洞 · Par '+u[1]+' · '+u[2]+' 码</span>';
+        b.onclick=function(){setFirst(u[0]);sRender();};lp.appendChild(b);});
       document.getElementById("s-order").textContent="打完这 9 洞再选下一个";
     } else { // at the turn: which loop next (default = usual pairing, same loop allowed), or stop after nine
       document.getElementById("s-looph").textContent="接着打哪个 9 洞";
       c.loops.forEach(function(u){var b=document.createElement("button");b.className=ST.second===u[0]?"on":"";
-        b.innerHTML='<b>'+u[0]+(u[0].length===1?' 场':'')+'</b><span class="tn">'+(pairOf(ST.first)===u[0]?'上次搭配':'Par '+u[1])+'</span>';
+        b.innerHTML='<b>'+nm(u[0])+'</b><span class="tn">'+(historyPair(c,ST.first)===u[0]?'上次搭配':'Par '+u[1])+'</span>';
         b.onclick=function(){ST.second=u[0];sRender();};lp.appendChild(b);});
       var stop=document.createElement("button");stop.className=ST.second===null?"on":"";stop.innerHTML='<b>不打了</b><span>只打 9 洞</span>';stop.onclick=function(){ST.second=null;sRender();};lp.appendChild(stop);
       lp.style.gridTemplateColumns="repeat("+(c.loops.length+1)+",1fr)";
@@ -308,7 +326,7 @@ footer{font-size:13px;color:var(--muted)}
     var tt=document.getElementById("s-tees");tt.innerHTML="";document.getElementById("s-tees").previousElementSibling.hidden=ST.turn;tt.hidden=ST.turn;
     TEES.forEach(function(t,i){var b=document.createElement("button");b.className=ST.tee===i?"on":"";b.innerHTML='<i style="background:'+t[2]+'"></i><b>'+t[0]+'</b><span class="tn">'+Math.round(t[1]/2)+'</span>';b.onclick=function(){ST.tee=i;sRender();};tt.appendChild(b);});
     document.getElementById("s-go").textContent=ST.turn?(ST.second?"接着打 "+nm(ST.second):"结束 · 只打 9 洞"):"从 "+nm(ST.first)+" 开始 · "+TEES[ST.tee][0]+" T";}
-  document.getElementById("s-go").onclick=function(){toast("t2",ST.turn?(ST.second?"进入 "+ST.second+" 的第 1 洞":"本场结束，只打 9 洞"):"开打：进入 "+ST.first+" 的第 1 洞");};
+  document.getElementById("s-go").onclick=function(){toast("t2",ST.turn?(ST.second?"进入 "+loopName(ST.second)+" 的第 1 洞":"本场结束，只打 9 洞"):"开打：进入 "+loopName(ST.first)+" 的第 1 洞");};
   document.getElementById("s-cancel").onclick=function(){toast("t2","回到首页");};
   document.querySelectorAll("[data-s]").forEach(function(b){b.onclick=function(){var k=b.getAttribute("data-s");
     if(k==="b")ST={c:"bk",first:"B",tee:1,turn:false,second:"C"};if(k==="turn")ST={c:"bk",first:"B",tee:1,turn:true,second:"C"};if(k==="full")ST={c:"bh",first:"前九",tee:2,turn:false,second:"后九"};sRender();};});
@@ -328,15 +346,31 @@ footer{font-size:13px;color:var(--muted)}
         var t=st[0]+" "+st[1],w=12+t.length*7.6;el(s,"rect",{x:q[0]+12,y:q[1]-11,width:w,height:22,rx:11,fill:"rgba(0,0,0,.66)"});el(s,"text",{x:q[0]+12+w/2,y:q[1]+4.5,"text-anchor":"middle","font-size":12.5,"font-weight":700,fill:"#fff"},t);});
       var g=S(GC);el(s,"line",{x1:g[0],y1:g[1],x2:g[0],y2:g[1]-30,stroke:"#fff","stroke-width":2});el(s,"path",{d:"M"+g[0]+" "+(g[1]-30)+" l15 5 -15 5z",fill:"#FF4B3E"});
       var tq=S(teeP);el(s,"circle",{cx:tq[0],cy:tq[1],r:7,fill:"none",stroke:"#fff","stroke-width":2});}
-    else{el(s,"text",{x:195,y:420,"text-anchor":"middle","font-size":64,"font-weight":800,fill:"rgba(244,246,242,.1)"},"第 "+PS.hole+" 洞");}
     var yardsBase=[543,410,178,395,402,528,165,388,420,415,398,172,535,405,390,188,520,430],y=Math.round(yardsBase[PS.hole-1]*(PS.tee===2?0.94:1));
+    if(PS.hole!==1&&!(PS.wait&&PS.hole>12)){ // precise topo not ready: factual route (tee -> dogleg -> green) + green outline, drawn at once
+      var bend=[[0,0],[-38,0],[46,-10],[0,0]][PS.hole%4],T0=[195,700],G0=[195+bend[1]*0.6,190],M0=[195+bend[1],445+bend[0]],sc=Math.min(1,y/430);
+      G0[1]=700-510*Math.max(.45,sc);M0[1]=(T0[1]+G0[1])/2;
+      var pts=PARS[PS.hole-1]===3?[T0,G0]:[T0,M0,G0],d2="";pts.forEach(function(p,i){d2+=(i?"L":"M")+p[0]+" "+p[1];});
+      el(s,"path",{d:d2,fill:"none",stroke:"rgba(255,255,255,.12)","stroke-width":46,"stroke-linecap":"round","stroke-linejoin":"round"});
+      el(s,"path",{d:d2,fill:"none",stroke:"#fff","stroke-width":2});
+      el(s,"ellipse",{cx:G0[0],cy:G0[1],rx:26,ry:32,fill:"rgba(92,196,127,.28)",stroke:"rgba(159,224,180,.8)","stroke-width":1.5});
+      el(s,"line",{x1:G0[0],y1:G0[1],x2:G0[0],y2:G0[1]-30,stroke:"#fff","stroke-width":2});el(s,"path",{d:"M"+G0[0]+" "+(G0[1]-30)+" l15 5 -15 5z",fill:"#FF4B3E"});
+      el(s,"circle",{cx:T0[0],cy:T0[1],r:7,fill:"none",stroke:"#fff","stroke-width":2});
+      if(pts.length===3){var q=M0,t=PLANS[PS.plan].steps[0][0]+" "+PLANS[PS.plan].steps[0][1];var w=12+t.length*7.6;el(s,"circle",{cx:q[0],cy:q[1],r:6,fill:"#fff",stroke:"#000","stroke-width":1.5});el(s,"rect",{x:q[0]+12,y:q[1]-11,width:w,height:22,rx:11,fill:"rgba(0,0,0,.66)"});el(s,"text",{x:q[0]+12+w/2,y:q[1]+4.5,"text-anchor":"middle","font-size":12.5,"font-weight":700,fill:"#fff"},t);}
+    } else if(PS.hole!==1){ // nothing drawable yet: the one full-screen gate, never an empty hole
+      el(s,"rect",{x:0,y:0,width:W,height:H,fill:"#0B0F0C"});
+      el(s,"text",{x:195,y:390,"text-anchor":"middle","font-size":30,"font-weight":800,fill:"#F4F6F2"},"第 "+PS.hole+" 洞 · Par "+PARS[PS.hole-1]);
+      el(s,"text",{x:195,y:424,"text-anchor":"middle","font-size":15,"font-weight":600,fill:"rgba(244,246,242,.6)"},y+" 码 · 图到了自动出来");
+      var sp0=el(s,"g",{});el(sp0,"circle",{cx:195,cy:470,r:11,fill:"none",stroke:"rgba(244,246,242,.18)","stroke-width":3});el(sp0,"path",{d:"M195 459 a11 11 0 0 1 11 11",fill:"none",stroke:"#F4F6F2","stroke-width":3,"stroke-linecap":"round"});
+    }
     document.getElementById("p-h").textContent=PS.hole;document.getElementById("p-sub").textContent="Par "+PARS[PS.hole-1]+" · "+y+" 码";
     var pt=document.getElementById("p-tees");pt.innerHTML="";[1,2].forEach(function(i){var b=document.createElement("button");b.className=PS.tee===i?"on":"";b.style.width="34px";b.innerHTML='<i style="background:'+TEES[i][2]+';width:22px;height:22px"></i>';b.setAttribute("aria-label",TEES[i][0]+" T");b.onclick=function(){PS.tee=i;pRender();};pt.appendChild(b);});
+    var gate=PS.hole!==1&&PS.wait&&PS.hole>12;document.getElementById("p-plans").hidden=gate;document.getElementById("p-steps").hidden=gate;
     var pp=document.getElementById("p-plans");pp.innerHTML="";PLANS.forEach(function(p,i){var b=document.createElement("button");b.className=PS.plan===i?"on":"";b.textContent=p.name;b.onclick=function(){PS.plan=i;pRender();};pp.appendChild(b);});
     var sp=document.getElementById("p-steps");sp.innerHTML="";PLANS[PS.plan].steps.forEach(function(st,i){if(i)sp.insertAdjacentHTML("beforeend",'<span class="a">→</span>');sp.insertAdjacentHTML("beforeend",'<span class="s tn">'+st[0]+' '+st[1]+'</span>');});
     var hs=document.getElementById("p-strip");hs.innerHTML="";for(var h=1;h<=18;h++){(function(h){var b=document.createElement("button");b.className=(h===PS.hole?"cur":"")+(PS.wait&&h>12?" wait":"");b.innerHTML="<b>"+h+"</b><span>P"+PARS[h-1]+"</span>";b.onclick=function(){PS.hole=h;pRender();if(h!==1)toast("t3","示例只有第 1 洞的图");};hs.appendChild(b);})(h);}
   }
-  document.querySelectorAll("[data-p]").forEach(function(b){b.onclick=function(){var k=b.getAttribute("data-p");if(k==="plan")PS.plan=(PS.plan+1)%2;if(k==="tee")PS.tee=PS.tee===1?2:1;if(k==="wait")PS.wait=!PS.wait;pRender();};});
+  document.querySelectorAll("[data-p]").forEach(function(b){b.onclick=function(){var k=b.getAttribute("data-p");if(k==="plan")PS.plan=(PS.plan+1)%2;if(k==="tee")PS.tee=PS.tee===1?2:1;if(k==="h5"){PS.wait=false;PS.hole=5;}if(k==="wait"){PS.wait=true;PS.hole=14;}pRender();};});
   pRender();
 
   function fit(){document.querySelectorAll(".fit").forEach(function(f){var sh=f.firstElementChild,k=Math.min(1,f.clientWidth/W);sh.style.transform="scale("+k+")";f.style.height=(H*k)+"px";});}

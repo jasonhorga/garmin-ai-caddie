@@ -94,7 +94,7 @@ owner 的决定：
 git grep -n "integration/v2" -- \
   '*.py' '*.sh' '*.swift' '*.kt' '*.ts' '*.tsx' '*.js' '*.yml' '*.yaml' '*.toml' '*.json' \
   '.github/' 'ops/' 'tests/' 'tools/' '.claude/' 'AGENTS.md' 'CLAUDE.md' \
-  ':!ops/oneoff/'
+  ':!ops/oneoff/' ':!tests/test_cleanup_remote_branches_script.py'
 # 操作手册：只允许历史叙述，逐行确认
 git grep -n "integration/v2" -- 'docs/' ':!docs/reviews/' ':!docs/history/'
 # homeserver 上仓库外的部署文件
@@ -103,7 +103,8 @@ grep -rn "integration/v2" <部署目录> /etc/cron* /etc/systemd/system 2>/dev/n
 
 再跑 `uv run pytest tests/test_ci_workflow.py tests/test_deployment_manifests.py tests/test_server_v2_readiness.py tests/test_phase6_external_readiness.py`，
 并确认改名后第一次 push 到 `main` 触发了 CI。
-`ops/oneoff/2026-09-27-cleanup-remote-branches.sh` 是一次性脚本，按改名前状态写死，改名后不再运行，不改。
+`ops/oneoff/2026-09-27-cleanup-remote-branches.sh` 和它的离线测试 `tests/test_cleanup_remote_branches_script.py` 验证的是改名**前**的一次性清理，
+必须保留 `integration/v2` 字样，改名后不改、不机械替换；上面第一层扫描已把这两个路径排除。其余任何命中都算漏项。
 
 这一步可以由 Codex 做，也可以回复“请 Claude 做”，Claude 在本分支提交后由你合并。
 

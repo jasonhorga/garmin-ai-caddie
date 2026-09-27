@@ -34,6 +34,52 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 | 新统计字段 | 只有时间窗汇总；无罚杆 | `mobile stats` 增加：每场推杆 / GIR / 球道序列；罚杆合计；救球成功率（长草、沙坑起杆后一推进洞或两杆内完成）；一推 / 两推 / 三推+ 比例；按 9 洞环的每洞平均；前九 × 后九组合矩阵与只打 9 洞场数；最难的洞（按平均多杆排序） | 契约测试 + 用夹具球局核对数值 |
 | 纠错记录 | `/history/rounds/{ref}/corrections` 只存整洞替换 | 同时写一条结构化纠错日志：操作类型（加 / 删 / 挪 / 换杆 / 改推杆 / 改总杆 / 改开球）、前后值、时间位置；供 B7 使用 | 纠错接口单测：每种操作都产生日志 |
 
+### B0 契约细节（Python 与 Swift 各自实现时以此为准）
+
+现有字段（`ai_caddie/courses/course_prep.py` 的 `HolePrep`）先写清楚，新字段照它们的坐标系：
+
+- `route`：事实路线，发球台→果岭中心的折线，点为 `[x_m, y_m, 累计_m]`，本洞局部米制坐标（与 hazards 同一 frame）。
+- `map.overlay.route`：同一条路线在显示坐标系里的像素点，`map.overlay.w / h` 为显示尺寸；只有路线、没有 topo 图时也会下发（“route-only bootstrap”）。
+- `holeImageProjection`：`{available, widthPx, heightPx, refs:[{lat, lon, px, py} ×3]}`，三个不共线锚点，客户端拟合仿射把 GPS 放到图上。
+- `greenOutline.pointsPx`：显示坐标系像素。
+- **显示坐标系**：原点左上，x 向右，y 向下，单位是 topo 图的显示像素（渲染图 ÷ SS），与 `widthPx / heightPx` 相同。
+
+新增 `fairwayOutline`（HolePrep 与手表下载包同名同结构，附加字段，不改旧字段）：
+
+```json
+"fairwayOutline": {
+  "version": 1,
+  "source": "courseData.Fairway",
+  "polygons": [
+    {"outerPx": [[x, y], ...], "holesPx": [[[x, y], ...]],
+     "outerLatLon": [[lat, lon], ...], "holesLatLon": [[[lat, lon], ...]]}
+  ]
+}
+```
+
+- 缺失语义：没有球道几何 = `null`；旧包没有这个键 = 解码为 `null`；`version` 不认识 = 当作 `null`（不报错）。`null` 只影响开球预选和球道统计，不影响地图。
+- 环：不闭合（首点不重复），每环 ≥ 3 点；生产端按 RFC 7946 规范化（`outerLatLon` 逆时针、`holesLatLon` 顺时针，以 lon 为横轴）；消费端**不得依赖绕行方向**。
+- 多段球道 = 多个 `polygons`；球道里的沙坑等挖空 = 该 polygon 的 `holes*`。点在球道内 = 落在某个 outer 内且不在它的任何 hole 内。
+- 经纬度数组顺序固定为 `[lat, lon]`（字段名里写明 LatLon），WGS84 度，7 位小数；像素 1 位小数。`outerPx` 与 `outerLatLon` 一一对应。
+
+开球判定（唯一算法，共享向量 `tests/fixtures/tee_result_vectors.json`，Python 单测和 Swift 单测都读它）：
+
+1. 输入：第二杆位置（没有第二杆用首推位置）的经纬度、`fairwayOutline`、`route`、本洞 Par。Par 3、`fairwayOutline = null`、没有位置 → `null`。
+2. 以球道 `outerLatLon` 全部点的平均经纬度为原点，等距矩形投影到米（x 东、y 北）。
+3. 在任一球道 polygon 内，或到最近球道边界 ≤ 0.5 m → `hit`。
+4. 否则取 `route` 上离该点最近的一段（先把 `route` 用 `holeImageProjection` 或 hazards 的 refLat/refLon 转到同一米制坐标；两者都没有 → `null`），
+   按“沿路线前进方向”的叉积符号：左侧 `left`，右侧 `right`。
+5. 向量至少覆盖：球道中、左、右、贴边 0.4 m / 0.6 m、多段之间、在挖空里、Par 3、无轮廓、无路线。
+
+地图显示（B1 / B4 / B6 都按这张表，和 README 的地图降级契约一致）：
+
+| topo 图 | 可画路线（`map.overlay.route`，或 `route` + `holeImageProjection`） | `fairwayOutline` | 显示 |
+|---|---|---|---|
+| 有 | 有 | 任意 | 正常：topo + 路线 + 落点 |
+| 没有 | 有 | 任意 | 立即画事实路线 + `greenOutline` + 已有障碍（深色底）；topo 到了原地替换，不重置缩放 / 平移 / 障碍选择 / 目标点 / 旗位 |
+| 没有 | 没有 | 任意 | 统一整屏等待页（洞号 · Par · 码数），不进空白洞 |
+| 任意 | 任意 | `null` | 地图不变；开球不预选；球道统计只用用户填的 |
+
 ## B1 手机打球主屏 + 旗位（可与 B0 并行）
 
 - 文件：`CurrentHoleView.swift`、`HoleImageMapView.swift`、`LiveGreenDetailView.swift`、`LiveHoleComponents.swift`。
@@ -106,6 +152,14 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
   回到手动记杆；记录一场的耗电，超过预算（先定为比现有锻炼会话多 ≤ 5% / 小时）自动关闭。
 - **采样失败降级**：传感器报错或批次中断时停止检测、保留已记录的杆，不丢数据、不弹提示，本场剩余按手动记。
 - **候选不改成绩**：第 1、2 步里候选只写特征，不进成绩；端到端测试证明开启采集后成绩、事件流与关闭时完全一致。
+- **GPS / 洞结束门槛**（同样是假设，第 1 步数据定值）：
+  - 位置精度：原型写的 ≤ 12 m 只是起点。第 1 步记录每次候选的水平精度分布，定出门槛后才用于判球位 / 合并。
+  - 精度不够：取挥杆前 10 秒内最好的一个点；仍不够就标“位置未知”——照样计杆，但不判球位、不按距离合并（只按 60 秒时间合并）、不推断球杆。
+  - 漂移：5 秒内跳 > 30 m 且步数没有对应移动的点丢弃。
+  - 整洞没有 GPS：不自动分洞，回到现有的手动换洞；本洞挥杆照样计入当前洞。
+  - 洞结束（离开果岭 25 m 且朝下一洞发球台走，或下一洞首杆）是**可撤销**的：误触发后 60 秒内在原果岭附近又测到挥杆，自动退回上一洞；
+    用户也可以在成绩页把杆挪回上一洞，这类改动写进纠错日志当标签。
+  - 能力门槛的评估报告里必须包含：GPS 精度分布、洞结束误触发率 / 漏触发率；达不到就只开采集、不开启用。
 
 分三步，前一步有数据再做后一步：
 
