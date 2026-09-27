@@ -80,6 +80,7 @@ owner 的决定：
 | `docs/ios-testflight-setup.md` | 39, 43 | canonical branch → `main` |
 | `docs/deployment/nas-vm-tunnel.md` | 34 | raw URL 路径 → `main` |
 | `docs/superpowers/specs/work-board.md` | 47 | 当前分支描述 |
+| `docs/superpowers/specs/ai-caddie-spec.md` | 3, 7, 115 | “唯一的、活的产品说明书”：主线改为 `main`；第 115 行“把 `integration/v2` 合进 `main`”改成已完成（改名即完成，写日期），不删这一项 |
 | `AGENTS.md`、`PROJECT_STATE.md` 顶部 | — | “当前分支”描述；历史条目不改 |
 | homeserver 部署 / 定时任务 | — | 按 2.1 清单 |
 
@@ -95,8 +96,11 @@ git grep -n "integration/v2" -- \
   '*.py' '*.sh' '*.swift' '*.kt' '*.ts' '*.tsx' '*.js' '*.yml' '*.yaml' '*.toml' '*.json' \
   '.github/' 'ops/' 'tests/' 'tools/' '.claude/' 'AGENTS.md' 'CLAUDE.md' \
   ':!ops/oneoff/' ':!tests/test_cleanup_remote_branches_script.py'
-# 操作手册：只允许历史叙述，逐行确认
-git grep -n "integration/v2" -- 'docs/' ':!docs/reviews/' ':!docs/history/'
+# 活的文档（文件名不带日期 = 当前规范 / 手册 / 看板）：除 PROJECT_STATE.md 的历史条目外必须为空
+git ls-files 'docs/*.md' 'docs/**/*.md' | grep -Ev '/[^/]*20[0-9]{2}-?[0-9]{2}-?[0-9]{2}[^/]*$' \
+  | grep -v '^docs/operations/PROJECT_STATE.md$' | xargs git grep -n "integration/v2" --
+git grep -n "integration/v2" -- docs/operations/PROJECT_STATE.md | head -20   # 只允许历史条目，顶部“Branch”行必须已改
+# 带日期的文档（历史设计、计划、评审、交接）：记录当时事实，允许保留，不改
 # homeserver 上仓库外的部署文件
 grep -rn "integration/v2" <部署目录> /etc/cron* /etc/systemd/system 2>/dev/null
 ```
