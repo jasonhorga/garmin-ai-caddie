@@ -123,7 +123,7 @@ footer{font-size:13px;color:var(--muted)}
         </div>
       </div>
       <div class="presets"><button data-w1="tee">发球台</button><button data-w1="plan">点绿签：换方案</button><button data-w1="zoom">表冠放大</button><button data-w1="tgt">点地图测距</button><button data-w1="away">还没开球、人不在发球台</button><button data-w1="haz">上滑：障碍</button><button data-w1="nohaz">障碍页：前方没有</button><button data-w1="green">再上滑：果岭</button><button data-w1="shot">测到一杆</button><button data-w1="undo">点小条撤销</button></div>
-      <p class="cap">上下滑三页（右边小点）：① 本洞，地图上画 AI 球童的方案（白线 + 落点 + “D 224”），左边绿色小签是下一杆用的杆，点它换方案（稳妥 / 进攻）；② 障碍：翻到这一页才画一个，细红线勾真实轮廓 + 前 / 后两个小红点和距离（无白边、无粗框），和手机同一条规则，点“1 / 4”换下一个，只列前方的；前方没有障碍时这一页写“前方无障碍”；③ 果岭。三页都是表冠缩放、放大后拖动地图平移；没放大时上下滑翻页。点地图放一个黄圈测距（放大后改成长按 0.5 秒，免得拖地图时误放）：黄字是从你到这里多少码，“再 N”是从这里到旗；还没开球时从发球台量起。点黄圈取消，点别处挪过去。同一张 topo 图、同一套三个距离。去掉了“手动记杆 +”按钮和选球杆弹窗：手表测到挥杆就震一下，底部闪一下“第 2 杆 · 上一杆一号木 231 码”，两秒后消失。测错了点一下小条撤销。</p>
+      <p class="cap">上下滑三页（右边小点）：① 本洞，地图上画 AI 球童的方案（白线 + 落点 + “D 224”），左边绿色小签是下一杆用的杆，点它换方案（稳妥 / 进攻）；② 障碍：翻到这一页才画一个，细红线勾真实轮廓 + 前 / 后两个小红点和距离（无白边、无粗框），和手机同一条规则，点“1 / 4”换下一个，只列前方的；放大时换下一个保持当前放大和位置，新障碍没显示全就自己拖过去；前方没有障碍时这一页写“前方无障碍”；③ 果岭。三页都是表冠缩放、放大后拖动地图平移；没放大时上下滑翻页。点地图放一个黄圈测距（放大后改成长按 0.5 秒，免得拖地图时误放）：黄字是从你到这里多少码，“再 N”是从这里到旗；还没开球时从发球台量起。点黄圈取消，点别处挪过去。同一张 topo 图、同一套三个距离。去掉了“手动记杆 +”按钮和选球杆弹窗：手表测到挥杆就震一下，底部闪一下“第 2 杆 · 上一杆一号木 231 码”，两秒后消失。测错了点一下小条撤销。</p>
     </div>
 
     <!-- W2 score -->
@@ -347,7 +347,9 @@ footer{font-size:13px;color:var(--muted)}
     var s=document.getElementById("w1map");s.innerHTML="";
     var ME=W1.pos,P=W1.shot===1?TEE:W1.pos,pg=W1.page,sc,mid,cx=138,cy=128; // before the tee shot everything is measured from the tee
     if(pg===0){sc=0.235;mid=[(P[0]+GC[0])/2,(P[1]+GC[1])/2];cy=136;}
-    else if(pg===1){var list=aheadHaz();W1.haz=Math.max(0,Math.min(list.length-1,W1.haz));var H=list.length?HAZ[list[W1.haz]]:null;sc=H?0.62:0.235;mid=H?H.c:[(P[0]+GC[0])/2,(P[1]+GC[1])/2];if(!H)cy=136;}
+    else if(pg===1){var list=aheadHaz();W1.haz=Math.max(0,Math.min(list.length-1,W1.haz));var H=list.length?HAZ[list[W1.haz]]:null;sc=H?0.62:0.235;mid=H?H.c:[(P[0]+GC[0])/2,(P[1]+GC[1])/2];if(!H)cy=136;
+      if(H&&W1.z>1.01&&W1.hazView)mid=W1.hazView; // zoomed in: switching hazards keeps the current view; the user drags to the new one
+      W1.hazView=mid;}
     else{sc=1.6;mid=GC;cy=132;}
     sc*=W1.z;cx+=W1.pan[0];cy+=W1.pan[1];W1.xf={cx:cx,cy:cy,sc:sc,mid:mid};
     var g=el(s,"g",{transform:"translate("+cx+" "+cy+") scale("+sc+") translate("+(-mid[0])+" "+(-mid[1])+")"});
@@ -417,7 +419,16 @@ footer{font-size:13px;color:var(--muted)}
   // the chip under the numbers is a button: on 方案 it cycles plans, on 障碍 it steps to the next hazard
   document.getElementById("w1club").addEventListener("click",function(){
     if(W1.page===0){W1.plan=(W1.plan+1)%PLANS.length;w1render();pill("w1pill","方案 "+(W1.plan+1)+" · "+PLANS[W1.plan].name,1500);}
-    else if(W1.page===1){var n=aheadHaz().length;if(!n)return;W1.haz=(W1.haz+1)%n;W1.z=1;W1.pan=[0,0];w1render();}});
+    else if(W1.page===1)w1nextHaz();});
+  // Next hazard keeps zoom and pan exactly (no auto-fit), per owner: a partly visible hazard is dragged into view by hand.
+  function w1nextHaz(){var n=aheadHaz().length;if(!n)return;W1.haz=(W1.haz+1)%n;w1render();}
+  window.watchState=function(){return JSON.parse(JSON.stringify({z:W1.z,pan:W1.pan,mid:W1.xf&&W1.xf.mid,haz:W1.haz}));};
+  window.watchHazStateTest=function(){var saved=JSON.stringify(W1),f=[];function eq(a,b,m){if(JSON.stringify(a)!==JSON.stringify(b))f.push(m+": "+JSON.stringify(a)+" != "+JSON.stringify(b));}
+    W1={pos:TEE.slice(),shot:1,z:1,prev:null,page:1,plan:0,haz:0,pan:[0,0],target:null};w1render();
+    W1.z=2.2;W1.pan=[14,-9];w1render();var m0=W1.xf.mid.slice(),h0=W1.haz;
+    w1nextHaz();eq(W1.z,2.2,"zoom kept");eq(W1.pan,[14,-9],"pan kept");eq(W1.xf.mid,m0,"view centre kept");eq(W1.haz!==h0,true,"selection moved");
+    W1.z=1;W1.pan=[0,0];W1.hazView=null;w1render();w1nextHaz();var H=HAZ[aheadHaz()[W1.haz]];eq(W1.z,1,"unzoomed stays 1x");eq(W1.xf.mid,H.c,"unzoomed centres the hazard");
+    W1=JSON.parse(saved);w1render();return f;};
   function w1shot(){W1.page=0;W1.prev=TEE.slice();W1.pos=[352,640];W1.shot=2;w1render();var sc=document.getElementById("w1shot");sc.style.visibility="hidden";clearTimeout(sc._t);sc._t=setTimeout(function(){sc.style.visibility="";},2700);
     pill("w1pill","第 2 杆 · 一号木 231 码",2600,function(){w1undo();});}
   function w1undo(){W1.prev=null;W1.pos=TEE.slice();W1.shot=1;w1render();pill("w1pill","已撤销这一杆",1400);}

@@ -135,7 +135,7 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 
 - 文件：`WatchRoundContainerView.swift`、`WatchHoleMapView.swift`、`WatchHazardMapView.swift`、`WatchGreenPreviewView.swift`、
   `WatchScoreHoleView.swift`、`WatchClubPromptView.swift`、`WatchFinishRoundView.swift`、`Models/WatchRoundModel.swift`。
-- 本洞改为上下三页（方案 / 障碍 / 果岭），表冠只缩放，放大后拖动平移；点球杆签换方案、点“1 / N”换障碍；
+- 本洞改为上下三页（方案 / 障碍 / 果岭），表冠只缩放，放大后拖动平移；点球杆签换方案、点“1 / N”换障碍（放大后换障碍**保持当前缩放和平移**，不自动 fit，owner 要求，防 IMG-8050 回归；UI 测试断言 z / pan 不变）；
   障碍只在障碍页（显式选择器）画一个，方案页和果岭页默认不画，样式同 README 第 1 节唯一规范；
   点地图（放大时长按 0.5 秒）测距，未开球从发球台量。
 - 本洞成绩一屏：总杆左右数字带（表冠 / 滑动）、推 / 罚原地循环滚轮、开球三格；不点确认则下一洞开球时自动保存。
