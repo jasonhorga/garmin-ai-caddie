@@ -157,16 +157,16 @@ grep -rln "integration/v2" /home/jason --include='*.sh' 2>/dev/null
 ## 3. 其他收尾（请确认状态）
 
 - Garmin 同步：Codex 已确认恢复（production revision 有同 revision 的 `aicaddie-sync` 镜像，cron 跑通，部署 gate 已绑定同步镜像）。
-- 本 PR 的设计文档（`docs/design/2026-09-25-ui-redesign/`，含 `IMPLEMENTATION_PLAN.md`）：请审阅后合并。
-- 以上完成后打基线标签，例如 `v2-baseline-2026-09`，并在 `PROJECT_STATE.md` 记下对应 TestFlight 版本号。
-- 然后按 `IMPLEMENTATION_PLAN.md` 把 B0 设为 `PROJECT_STATE.md` 的当前任务。
+- 本 PR 的设计文档（`docs/design/2026-09-25-ui-redesign/`，含 `IMPLEMENTATION_PLAN.md`）：已随 PR #334 审阅并合并。
+- 已创建基线标签 `v2-baseline-2026-09`，指向合并提交；`PROJECT_STATE.md` 记录了当前最新内部 TestFlight Build 76（本次文档收尾没有重新上传）。
+- 已按 `IMPLEMENTATION_PLAN.md` 把 B0 设为 `PROJECT_STATE.md` 的当前任务。
 
 ### 3.1 Codex 执行记录（2026-09-27）
 
 - 已按 allow-list 完成远程旧分支归档/删除：67 个 archive tag、269 个 branch 删除；只剩 `main`、#334 head、#176 head。
 - 已把 `integration/v2` 重命名为 `main`，默认分支和 #334/#176 base 已核对，旧 ref 已不存在。
 - 活动引用修正已在本 PR 分支提交（见后续 PR comment）；一次性清理脚本和 dated 历史文档保留原名。
-- 外部 shell 全量扫描、`reserve-specs.sh` 迁移和上述误运行影响均已记录；待本 PR 的 CI 通过后合并，再做基线 tag、`PROJECT_STATE.md` 收口和临时评审快照清理。
+- 外部 shell 全量扫描、`reserve-specs.sh` 迁移和上述误运行影响均已记录；PR #334 已合并为 `57ee8431`，基线 tag 已创建，B0 已接棒。临时评审快照已按 allow-list 清理，记录在 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260927T1355Z-pr334-review-snapshot/`。
 
 ## 回复格式建议
 
