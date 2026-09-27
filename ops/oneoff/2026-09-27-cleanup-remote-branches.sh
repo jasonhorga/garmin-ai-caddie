@@ -22,9 +22,9 @@ BASE_BRANCH="integration/v2"
 BASE_SHA="cef291a35476f73ca4cc4b2b4d09691b2c046663"
 OLD_MAIN_SHA="0f696b8817abcf589e666de6e9ef7d4fcb223b38"
 OLD_MAIN_TAG="archive/main-before-v2-integration-2026-05-28"
-# Never touched, whatever the lists below say.
-PROTECTED=("$BASE_BRANCH" "claude/code-audit-performance-17wqcv" "superpowers/watch-hero-distances"
-  "superpowers/fix-offline-driver-carry" "superpowers/watch-holeview-redesign" "superpowers/multi-user-redesign-spec")
+# Never touched, whatever the lists below say. The multi-user spec remains open
+# in #176; the other old-PR branches are archived below after their PRs close.
+PROTECTED=("$BASE_BRANCH" "claude/code-audit-performance-17wqcv" "superpowers/multi-user-redesign-spec")
 
 EXECUTE=0
 LOG="${HOME}/garmin-ai-caddie-branch-cleanup-2026-09-27.log"
@@ -102,6 +102,9 @@ superpowers/hole-render-frame ff152a798213f6ddeb69492582c5c4b3102a506d
 superpowers/spec-maint 2af4be1cc0ce3a2f41cb24c23702fa5138995dee
 superpowers/topo-tee-notch 48ea1bf45b6c7fbc91d33dccd225a0f18eb8b772
 superpowers/unified-tri-surface-spec 696a728e775bfcbece95db5511f2e8fb2f80d2eb
+superpowers/watch-holeview-redesign 5e8438b99d0c53431a7ff6da3be27081f89512bf
+superpowers/fix-offline-driver-carry a752eb17e3b0a24be64058f15d6880a72013d8a4
+superpowers/watch-hero-distances ed8f626ee9dd0428bb98478fb62663f834f93ed5
 superpowers/watch-render-all afb9d6ec51dd1d02a26ba826475dd2628cceee1c
 superpowers/watch-shell-combined 21d994c21bbe989edc70fb0fb25b6550c506074a
 LIST

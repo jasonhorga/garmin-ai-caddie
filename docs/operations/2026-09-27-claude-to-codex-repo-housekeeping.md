@@ -21,7 +21,7 @@ owner 的决定：
 - `bash -n ops/oneoff/2026-09-27-cleanup-remote-branches.sh`：通过。
 - 远端引用改为每阶段一次 `git ls-remote origin 'refs/heads/*' 'refs/tags/*'` 后本地比对（原先每个 archive 分支一次网络往返）；打完所有标签后一次性复核，任一标签不对就中止、不删任何分支。
 - 真实远端 dry-run：`PATH=<gh 桩>:$PATH ops/oneoff/2026-09-27-cleanup-remote-branches.sh --log /tmp/dry.log`，
-  gh 桩返回 default=`integration/v2` 和当前 5 个开放 PR 的 head；退出 0，耗时 7.3 秒，计划 64 个标签、266 个删除（含旧 `main`），无“不在快照”的分支。
+  gh 桩返回 default=`integration/v2` 和当时 5 个开放 PR 的 head；退出 0，耗时 7.3 秒，计划 64 个标签、266 个删除（含旧 `main`），无“不在快照”的分支。
   Codex 执行前请用真实 `gh` 再跑一次 dry-run，把耗时和退出码贴到 PR。
 - 离线测试 `tests/test_cleanup_remote_branches_script.py`（进 CI 的 `unittest discover`，不联网）：本地 bare origin + gh 桩，覆盖
   dry-run 不改动、执行后归档/删除且重跑幂等、按日志续跑、基线漂移、默认分支不对、开放 PR、分支漂移、标签冲突；
@@ -30,12 +30,13 @@ owner 的决定：
   harness 增加这两个用例（共 10 个），去掉任一检查都会让对应用例失败。
 
 - 201 个已并入 `integration/v2` 的分支：直接删除。
-- 64 个未并入的旧分支（主要是 7 月的 `codex/*` 实验、`evidence/plan1-*` 红绿证据、若干 `superpowers/*`）：先打 `archive/<分支名>` 标签再删除，可随时恢复。
+- 67 个未并入的旧分支（原 64 个旧实验，加上已关闭的 #218/#219/#291）：先打 `archive/<分支名>` 标签再删除，可随时恢复。
   如果其中有你仍在用或 `PROJECT_STATE.md` 仍引用的，请从列表里移除并在评论里说明。
 - 旧 `main`：已存档为 `archive/main-before-v2-integration-2026-05-28`（同一提交），直接删除。
-- 保留：`integration/v2`、`claude/code-audit-performance-17wqcv`、以及 4 个挂着开放 PR 的分支。
+- 当前执行预期：67 个 archive tag、201 个已合并分支和旧 `main`，共 269 个 branch 删除；#176、#334 分支不在删除集合。
+- 保留：`integration/v2`、`claude/code-audit-performance-17wqcv`、以及仍开放的 #176 分支。
 
-**4 个开放 PR**（按 Codex review 4 更新）：
+**改名前 4 个开放 PR**（按 Codex review 4 更新；#218/#219/#291 已按下表决议关闭）：
 
 | PR | 标题 | 结论 |
 |---|---|---|
@@ -72,13 +73,14 @@ owner 的决定：
 
 ### 2.2 顺序
 
-1. 跑完第 1 步（旧 `main` 已删，否则改名会冲突）。
-2. 改名（需要仓库 admin）：`gh api -X POST repos/jasonhorga/garmin-ai-caddie/branches/integration%2Fv2/rename -f new_name=main`，
+1. 关闭 #218/#219/#291（已完成），确认它们的 head SHA 已进入 `ARCHIVE_SNAPSHOT`；#176 和 #334 保持开放。
+2. 跑完第 1 步（旧 `main` 已删，否则改名会冲突）。
+3. 改名（需要仓库 admin）：`gh api -X POST repos/jasonhorga/garmin-ai-caddie/branches/integration%2Fv2/rename -f new_name=main`，
    保存响应；确认 `default_branch == main`，开放 PR 的 base 已自动迁移，分支保护（如有）已跟过去。
-3. homeserver 每个 clone / worktree：
+4. homeserver 每个 clone / worktree：
    `git fetch origin && git branch -m integration/v2 main && git branch -u origin/main main && git remote set-head origin -a`，
    再按 2.1 的记录逐个核对当前分支、上游和 `origin/HEAD`。
-4. 改名**之后**再改写死的分支名（改名前改会让部署脚本去拉不存在的 `main` 内容）。
+5. 改名**之后**再改写死的分支名（改名前改会让部署脚本去拉不存在的 `main` 内容）。
 
 ### 2.3 必须改的活动引用（按 `cef291a3` 时的 `git grep -n integration/v2`）
 

@@ -57,13 +57,20 @@ class CleanupRemoteBranchesScriptTest(unittest.TestCase):
         self.base = commit("base")
         git(seed, "checkout", "-q", "-b", "side", self.old_main)
         self.archive = commit("unmerged work")
+        self.closed_old_pr = {
+            "superpowers/watch-holeview-redesign": commit("closed #218"),
+            "superpowers/fix-offline-driver-carry": commit("closed #219"),
+            "superpowers/watch-hero-distances": commit("closed #291"),
+        }
         refs = {
             "integration/v2": self.base,
             "main": self.old_main,
             "done/merged": merged,
             "old/unmerged": self.archive,
             "claude/code-audit-performance-17wqcv": self.base,
+            "superpowers/multi-user-redesign-spec": self.base,
             "someone/new-branch": self.base,
+            **self.closed_old_pr,
         }
         for name, sha in refs.items():
             git(seed, "push", "-q", str(self.origin), f"{sha}:refs/heads/{name}")
@@ -84,7 +91,9 @@ class CleanupRemoteBranchesScriptTest(unittest.TestCase):
         text = re.sub(r'OLD_MAIN_SHA="[0-9a-f]+"', f'OLD_MAIN_SHA="{self.old_main}"', text)
         text = re.sub(
             r"(ARCHIVE_SNAPSHOT=\$\(cat <<'LIST'\n).*?(\nLIST\n\))",
-            lambda m: f"{m.group(1)}old/unmerged {self.archive}{m.group(2)}",
+            lambda m: f"{m.group(1)}old/unmerged {self.archive}\n"
+            + "\n".join(f"{name} {sha}" for name, sha in self.closed_old_pr.items())
+            + m.group(2),
             text,
             flags=re.S,
         )
@@ -136,10 +145,15 @@ class CleanupRemoteBranchesScriptTest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         refs = self.origin_refs()
         self.assertEqual(refs.get("refs/tags/archive/old/unmerged"), self.archive)
+        for name, sha in self.closed_old_pr.items():
+            self.assertEqual(refs.get(f"refs/tags/archive/{name}"), sha)
         for gone in ("old/unmerged", "done/merged", "main"):
             self.assertNotIn(f"refs/heads/{gone}", refs)
+        for name in self.closed_old_pr:
+            self.assertNotIn(f"refs/heads/{name}", refs)
         for kept in ("integration/v2", "claude/code-audit-performance-17wqcv", "someone/new-branch"):
             self.assertIn(f"refs/heads/{kept}", refs)
+        self.assertIn("refs/heads/superpowers/multi-user-redesign-spec", refs)
         self.assertIn(f"deleted done/merged {self.merged}", self.log.read_text())
 
         again = self.run_script("--execute")
@@ -179,6 +193,16 @@ class CleanupRemoteBranchesScriptTest(unittest.TestCase):
         res = self.run_script("--execute", FAKE_OPEN_HEADS="done/merged")
         self.assertNotEqual(res.returncode, 0)
         self.assertIn("target has an open PR: done/merged", res.stderr)
+        self.assert_untouched(before)
+
+    def test_closed_old_pr_branch_still_requires_pr_close(self) -> None:
+        before = self.origin_refs()
+        res = self.run_script(
+            "--execute",
+            FAKE_OPEN_HEADS="superpowers/watch-holeview-redesign",
+        )
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("target has an open PR: superpowers/watch-holeview-redesign", res.stderr)
         self.assert_untouched(before)
 
     def test_branch_drift_aborts(self) -> None:
