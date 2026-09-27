@@ -56,6 +56,20 @@ owner 的决定：
   `git symbolic-ref refs/remotes/origin/HEAD`。
 - 用到分支名的部署 / 定时任务（`auto_sync.sh`、deploy gate、cron / systemd 单元）清单。
 
+### 2.1a 仓库外引用分类（Codex review 10，homeserver 只读核对，2026-09-27）
+
+活动调用链（`/etc/cron*`、`/etc/systemd/system`、`/home/jason/garmin-ai-caddie-data/operations/deploy-tools`、运行中的 `aicaddie-tunnel.service`）：**没有** `integration/v2`。
+仓库外仍含旧分支名的可执行文件，逐项分类（owner 均为 `jason`；“调用证据”来自 Codex 核对）：
+
+| 路径 | 调用证据 | 结论 |
+|---|---|---|
+| `/home/jason/codex-runs/garmin-ai-caddie-phone-ux3-backend-20260912/bootstrap_nas_vm_api.sh` | 不在任何 cron / systemd 调用链；09-12 一次性候选运行的快照 | **历史快照，不改、不删**；改名后若误跑会因分支不存在而失败（fail-closed） |
+| `/home/jason/watchreview/ops/bootstrap_nas_vm_api.sh` | 同上；旧评审工作树里的副本 | 历史快照，不改、不删 |
+| `/home/jason/r12review/ops/bootstrap_nas_vm_api.sh` | 同上；旧评审工作树里的副本 | 历史快照，不改、不删 |
+| `/home/jason/reserve-specs.sh` | 不在自动任务里；07-07 仍可执行；会 `fetch origin integration/v2` 并 checkout specs | **不能保持未分类**。默认：改名后把分支改为 `main`，由 Codex 做一次只读 dry-run 并贴结果；若 owner 确认不再使用，则去掉执行位（`chmod -x`）并在文件头加一行“已停用 2026-09，改名前的脚本”，不删除 |
+
+改名后的外部扫描（2.4 最后一步）以这张表为准：表里的三份历史快照允许命中，其余任何命中都算漏项。
+
 ### 2.2 顺序
 
 1. 跑完第 1 步（旧 `main` 已删，否则改名会冲突）。
@@ -101,8 +115,9 @@ git ls-files 'docs/*.md' 'docs/**/*.md' | grep -Ev '/[^/]*20[0-9]{2}-?[0-9]{2}-?
   | grep -v '^docs/operations/PROJECT_STATE.md$' | xargs git grep -n "integration/v2" --
 git grep -n "integration/v2" -- docs/operations/PROJECT_STATE.md | head -20   # 只允许历史条目，顶部“Branch”行必须已改
 # 带日期的文档（历史设计、计划、评审、交接）：记录当时事实，允许保留，不改
-# homeserver 上仓库外的部署文件
-grep -rn "integration/v2" <部署目录> /etc/cron* /etc/systemd/system 2>/dev/null
+# homeserver 上仓库外：调用链必须为空；home 目录的命中必须都在 2.1a 表里标为“历史快照”
+grep -rn "integration/v2" /etc/cron* /etc/systemd/system /home/jason/garmin-ai-caddie-data/operations/deploy-tools 2>/dev/null
+grep -rln "integration/v2" /home/jason --include='*.sh' 2>/dev/null
 ```
 
 再跑 `uv run pytest tests/test_ci_workflow.py tests/test_deployment_manifests.py tests/test_server_v2_readiness.py tests/test_phase6_external_readiness.py`，
