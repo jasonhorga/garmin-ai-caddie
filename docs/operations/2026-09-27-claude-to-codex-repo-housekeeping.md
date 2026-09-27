@@ -163,7 +163,7 @@ grep -rln "integration/v2" /home/jason --include='*.sh' 2>/dev/null
 
 ### 3.1 Codex 执行记录（2026-09-27）
 
-- 已按 allow-list 完成远程旧分支归档/删除：67 个 archive tag、269 个 branch 删除；只剩 `main`、#334 head、#176 head。
+- 已按 allow-list 完成远程旧分支归档/删除：67 个 archive tag、269 个 branch 删除；清理执行的中间状态只剩 `main`、#334 head、#176 head；PR #334 合并并删除其 head 后，最终只剩 `main` 和 #176。
 - 已把 `integration/v2` 重命名为 `main`，默认分支和 #334/#176 base 已核对，旧 ref 已不存在。
 - 活动引用修正已在本 PR 分支提交（见后续 PR comment）；一次性清理脚本和 dated 历史文档保留原名。
 - 外部 shell 全量扫描、`reserve-specs.sh` 迁移和上述误运行影响均已记录；PR #334 已合并为 `57ee8431`，基线 tag 已创建，B0 已接棒。临时评审快照已按 allow-list 清理，记录在 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260927T1355Z-pr334-review-snapshot/`。
