@@ -163,6 +163,7 @@ footer{font-size:13px;color:var(--muted)}
       <button id="pTee">在发球台</button>
       <button id="pSecond">第二杆（已缩放）</button>
       <button id="pHaz">打开障碍</button>
+      <button id="pNoHaz">过了所有障碍再点“障碍”</button>
       <button id="pTarget">设一个目标点</button>
       <button id="pGreen">点果岭调整旗位</button>
     </div>
@@ -303,7 +304,7 @@ footer{font-size:13px;color:var(--muted)}
     rest.forEach(function(r,i){var q=S(r.p);el("circle",{cx:q[0],cy:q[1],r:6,fill:"#fff",stroke:"#0B0F0C","stroke-width":1.5});
       var right=(i%2===0);tx(q[0]+(right?12:-12),q[1]+5,r.club+" "+r.yd,{"font-size":13.5,"font-weight":700,fill:"#fff","text-anchor":right?"start":"end",style:"paint-order:stroke;stroke:rgba(0,0,0,.55);stroke-width:3.5px"});});
     // hazards: one selected obstacle at a time (same as the live app)
-    if(st.haz!==null){var z=HAZ[st.haz],red="#F2291F";
+    if(st.haz!==null&&st.haz>=0){var z=HAZ[st.haz],red="#F2291F";
       el("polygon",{points:poly(z.pts),fill:"none",stroke:red,"stroke-width":1.8,"stroke-linejoin":"round"});
       var cq=S(z.c);
       [[z.front,"前"],[z.back,"后"]].forEach(function(e){var q=S(e[0]),d=yd(P,e[0]);
@@ -337,9 +338,12 @@ footer{font-size:13px;color:var(--muted)}
     document.getElementById("planN").textContent=(st.plan+1)+"/"+PLANS.length;
     var bh=document.getElementById("bHaz"),on=st.haz!==null;bh.classList.toggle("on",on);bh.setAttribute("aria-pressed",String(on));
     var hb=document.getElementById("hazBar");hb.style.display=on?"flex":"none";
-    if(on){var z=HAZ[st.haz];document.getElementById("hzName").textContent=z.name;document.getElementById("hzIdx").textContent=(st.haz+1)+" / "+HAZ.length;
+    if(on&&st.haz<0){document.getElementById("hzName").textContent="前方无障碍";document.getElementById("hzIdx").textContent="";
+      document.getElementById("hzIcon").style.background="rgba(255,255,255,.25)";document.getElementById("hzPrev").disabled=true;document.getElementById("hzNext").disabled=true;}
+    else if(on){var z=HAZ[st.haz],al=aheadHaz(),k=al.indexOf(st.haz);document.getElementById("hzName").textContent=z.name;
+      document.getElementById("hzIdx").textContent=k>=0?(k+1)+" / "+al.length:"地图上点选";
       document.getElementById("hzIcon").style.background=z.water?"#3B82C4":"#D6B85A";
-      document.getElementById("hzPrev").disabled=st.haz===0;document.getElementById("hzNext").disabled=st.haz===HAZ.length-1;}
+      document.getElementById("hzPrev").disabled=k<=0;document.getElementById("hzNext").disabled=k<0||k===al.length-1;}
     var a=st.auto, v=st.vb, moved=a&&(Math.abs(a.x-v.x)>6||Math.abs(a.y-v.y)>6||Math.abs(a.w-v.w)/a.w>.04);
     document.getElementById("recWrap").style.visibility=moved?"visible":"hidden";
   }
@@ -348,24 +352,36 @@ footer{font-size:13px;color:var(--muted)}
   function reframe(animate){st.auto=autoFrame();setView(st.auto,animate);}
 
   // controls
-  function firstAhead(){var P=st.player;for(var i=0;i<HAZ.length;i++){if(yd(P,HAZ[i].back)>20&&HAZ[i].back[1]<P[1])return i;}return 0;}
+  // Hazard selector state: null = closed; an index into HAZ = that hazard is shown; -1 = open but nothing ahead.
+  // Candidates are only hazards still ahead of the player (same rule as the watch page).
+  function aheadHaz(){var P=st.player,out=[];for(var i=0;i<HAZ.length;i++){if(yd(P,HAZ[i].back)>20&&HAZ[i].back[1]<P[1])out.push(i);}return out;}
+  function firstAhead(){var al=aheadHaz();return al.length?al[0]:-1;}
+  function refilterHaz(){if(st.haz===null)return;if(aheadHaz().indexOf(st.haz)<0)st.haz=firstAhead();} // after the player moves / a new hole
   document.getElementById("bHaz").onclick=function(){st.haz=st.haz===null?firstAhead():null;render();};
-  document.getElementById("hzPrev").onclick=function(){if(st.haz>0){st.haz--;render();}};
-  document.getElementById("hzNext").onclick=function(){if(st.haz<HAZ.length-1){st.haz++;render();}};
+  document.getElementById("hzPrev").onclick=function(){var al=aheadHaz(),k=al.indexOf(st.haz);if(k>0){st.haz=al[k-1];render();}};
+  document.getElementById("hzNext").onclick=function(){var al=aheadHaz(),k=al.indexOf(st.haz);if(k>=0&&k<al.length-1){st.haz=al[k+1];render();}};
+  // Prototype state check for a headless browser: returns the list of failures.
+  window.liveHazStateTest=function(){var saved=JSON.stringify({p:st.player,h:st.haz,s:st.shot}),f=[];function eq(a,b,m){if(a!==b)f.push(m+": "+a+" != "+b);}
+    st.player=TEE.slice();st.haz=null;st.haz=firstAhead();eq(st.haz,0,"tee: first ahead is the fairway bunker");
+    st.player=[290,70];st.haz=null;st.haz=firstAhead();eq(st.haz,-1,"behind every hazard: explicit empty state");
+    st.player=TEE.slice();st.haz=0;st.player=[290,70];refilterHaz();eq(st.haz,-1,"walking past the last hazard empties the selector");
+    st.player=PLANS[0].shots[0].p.slice();st.haz=0;refilterHaz();eq(aheadHaz().indexOf(st.haz)>=0||st.haz===-1,true,"after a shot the selection is still ahead");
+    var o=JSON.parse(saved);st.player=o.p;st.haz=o.h;st.shot=o.s;render();return f;};
   function inPoly(pt,pts){var c=false;for(var i=0,j=pts.length-1;i<pts.length;j=i++){var a=pts[i],b=pts[j];if(((a[1]>pt[1])!==(b[1]>pt[1]))&&(pt[0]<(b[0]-a[0])*(pt[1]-a[1])/(b[1]-a[1])+a[0]))c=!c;}return c;}
   document.getElementById("bPlan").onclick=function(){st.plan=(st.plan+1)%PLANS.length;if(st.shot>=PLANS[st.plan].shots.length+1)st.shot=0;render();toast("打法 "+(st.plan+1)+"：" +PLANS[st.plan].name);};
   document.getElementById("bRec").onclick=function(){reframe(true);};
   document.getElementById("bScore").onclick=function(){toast("打开记分面板（杆数、推杆、开球、罚杆）");};
   document.getElementById("bShot").onclick=function(){
     var plan=PLANS[st.plan];
-    if(st.shot<plan.shots.length){st.player=plan.shots[st.shot].p.slice();st.shot++;st.target=null;reframe(true);toast("已记第 "+st.shot+" 杆");}
+    if(st.shot<plan.shots.length){st.player=plan.shots[st.shot].p.slice();st.shot++;st.target=null;refilterHaz();reframe(true);toast("已记第 "+st.shot+" 杆");}
     else toast("已在果岭附近，点“记分”完成本洞");
   };
   // presets
   function reset(){st.plan=0;st.shot=0;st.player=TEE.slice();st.haz=null;st.target=null;}
   document.getElementById("pTee").onclick=function(){reset();reframe(true);};
   document.getElementById("pSecond").onclick=function(){reset();st.shot=1;st.player=PLANS[0].shots[0].p.slice();reframe(true);};
-  document.getElementById("pHaz").onclick=function(){st.haz=1;render();};
+  document.getElementById("pHaz").onclick=function(){st.haz=firstAhead();render();};
+  document.getElementById("pNoHaz").onclick=function(){reset();st.shot=3;st.player=[290,70];st.haz=firstAhead();reframe(true);};
   document.getElementById("pGreen").onclick=function(){openGreen();};
   document.getElementById("pTarget").onclick=function(){st.target=st.shot===0?[318,560]:[312,420];render();};
 
