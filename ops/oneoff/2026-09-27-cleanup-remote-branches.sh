@@ -316,11 +316,12 @@ say() { echo "$*"; }
 logged() { [ -f "$LOG" ] && grep -qxF "$1" "$LOG"; }
 record() { echo "$1" >> "$LOG"; }
 
-remote_heads() { git ls-remote --heads origin | awk '{sub("refs/heads/","",$2); print $2" "$1}'; }
-remote_tag_commit() { # peeled commit of a remote tag, empty if absent
-  local out; out=$(git ls-remote --tags origin "refs/tags/$1" "refs/tags/$1^{}")
-  [ -z "$out" ] && return 0
-  echo "$out" | awk '/\^\{\}$/ {p=$1} END {if (p) print p}' | grep . || echo "$out" | awk 'NR==1{print $1}'
+# Remote refs are read in one ls-remote per phase (not one round trip per branch or tag).
+REMOTE_REFS=""
+refresh_remote() { REMOTE_REFS=$(git ls-remote origin 'refs/heads/*' 'refs/tags/*'); }
+remote_heads() { echo "$REMOTE_REFS" | awk '$2 ~ /^refs\/heads\// {sub("refs/heads/","",$2); print $2" "$1}'; }
+remote_tag_commit() { # peeled commit of a remote tag in the cached refs, empty if absent
+  echo "$REMOTE_REFS" | awk -v r="refs/tags/$1" '$2==r {t=$1} $2==r"^{}" {p=$1} END {if (p) print p; else if (t) print t}'
 }
 is_protected() { local b; for b in "${PROTECTED[@]}"; do [ "$b" = "$1" ] && return 0; done; return 1; }
 
@@ -330,7 +331,8 @@ preflight() {
   local url; url=$(git remote get-url origin)
   case "$url" in *"$REPO"*) ;; *) die "origin is $url, expected $REPO" ;; esac
 
-  local base; base=$(git ls-remote --heads origin "refs/heads/$BASE_BRANCH" | awk '{print $1}')
+  refresh_remote
+  local base; base=$(remote_heads | awk -v b="$BASE_BRANCH" '$1==b {print $2}')
   [ "$base" = "$BASE_SHA" ] || die "$BASE_BRANCH is ${base:-missing}, snapshot was $BASE_SHA; regenerate the lists"
 
   local def; def=$(gh api "repos/$REPO" --jq .default_branch)
@@ -399,11 +401,17 @@ while read -r name sha; do
     [ -z "$local_tag" ] || [ "$local_tag" = "$sha" ] || die "local tag archive/$name points at $local_tag, expected $sha"
     [ -n "$local_tag" ] || git tag "archive/$name" "$sha"
     git push --quiet origin "refs/tags/archive/$name"
-    [ "$(remote_tag_commit "archive/$name")" = "$sha" ] || die "archive/$name not visible on origin after push"
     record "tagged $name $sha"
   fi
   say "  tag archive/$name -> $sha"
 done <<< "$ARCHIVE_SNAPSHOT"
+if [ "$EXECUTE" = 1 ]; then
+  refresh_remote
+  while read -r name sha; do
+    [ -n "$name" ] || continue
+    [ "$(remote_tag_commit "archive/$name")" = "$sha" ] || die "archive/$name not on origin at $sha after push; no branch was deleted"
+  done <<< "$ARCHIVE_SNAPSHOT"
+fi
 
 say "== 2/3 re-check before deleting"
 if [ "$EXECUTE" = 1 ]; then preflight; fi
@@ -411,7 +419,7 @@ if [ "$EXECUTE" = 1 ]; then preflight; fi
 say "== 3/3 delete branches"
 while read -r name sha; do [ -n "$name" ] && delete_branch "$name" "$sha"; done <<< "$ARCHIVE_SNAPSHOT"
 while read -r name sha; do [ -n "$name" ] && delete_branch "$name" "$sha"; done <<< "$MERGED_SNAPSHOT"
-if [ -n "$(git ls-remote --heads origin refs/heads/main)" ]; then delete_branch main "$OLD_MAIN_SHA"; fi
+if [ -n "$(remote_heads | awk '$1=="main"')" ]; then delete_branch main "$OLD_MAIN_SHA"; fi
 
 git fetch --prune --quiet origin
 say "done. remaining remote branches:"; git branch -r | grep -v HEAD

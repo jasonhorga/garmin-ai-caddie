@@ -16,6 +16,17 @@ owner 的决定：
 
 脚本：`ops/oneoff/2026-09-27-cleanup-remote-branches.sh`（按 `integration/v2 = cef291a3` 时的 `git branch -r` 生成，运行前请复核）。
 
+验证记录（Claude，2026-09-27，脚本在 `329e03ba` 之后的提交）：
+
+- `bash -n ops/oneoff/2026-09-27-cleanup-remote-branches.sh`：通过。
+- 远端引用改为每阶段一次 `git ls-remote origin 'refs/heads/*' 'refs/tags/*'` 后本地比对（原先每个 archive 分支一次网络往返）；打完所有标签后一次性复核，任一标签不对就中止、不删任何分支。
+- 真实远端 dry-run：`PATH=<gh 桩>:$PATH ops/oneoff/2026-09-27-cleanup-remote-branches.sh --log /tmp/dry.log`，
+  gh 桩返回 default=`integration/v2` 和当前 5 个开放 PR 的 head；退出 0，耗时 7.3 秒，计划 64 个标签、266 个删除（含旧 `main`），无“不在快照”的分支。
+  Codex 执行前请用真实 `gh` 再跑一次 dry-run，把耗时和退出码贴到 PR。
+- 离线测试 `tests/test_cleanup_remote_branches_script.py`（进 CI 的 `unittest discover`，不联网）：本地 bare origin + gh 桩，覆盖
+  dry-run 不改动、执行后归档/删除且重跑幂等、按日志续跑、基线漂移、默认分支不对、开放 PR、分支漂移、标签冲突；
+  去掉开放 PR 检查的变异会让测试失败。
+
 - 201 个已并入 `integration/v2` 的分支：直接删除。
 - 64 个未并入的旧分支（主要是 7 月的 `codex/*` 实验、`evidence/plan1-*` 红绿证据、若干 `superpowers/*`）：先打 `archive/<分支名>` 标签再删除，可随时恢复。
   如果其中有你仍在用或 `PROJECT_STATE.md` 仍引用的，请从列表里移除并在评论里说明。
