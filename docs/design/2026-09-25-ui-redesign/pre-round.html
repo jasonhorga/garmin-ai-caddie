@@ -170,7 +170,7 @@ footer{font-size:13px;color:var(--muted)}
       <div class="homebar"></div>
     </div></div></div>
     <div class="presets"><button data-h="near">在球场附近</button><button data-h="live">有进行中的一场</button><button data-h="far">附近没有球场</button></div>
-    <p class="cap">最大一块随情况变：在球场附近 = 这个球场 + 上次用的 9 洞组合和发球台 + “开始”；有进行中的一场 = “继续第 7 洞”；附近没有球场 = 搜索。Garmin 同步在后台跑，状态只在设置里。</p>
+    <p class="cap">最大一块随情况变：在球场附近 = 这个球场 + 上次开始的 9 洞环和发球台 + “开始”；有进行中的一场 = “继续第 7 洞”；附近没有球场 = 搜索。Garmin 同步在后台跑，状态只在设置里。</p>
   </div>
 
   <!-- ============ 2. start a round ============ -->
@@ -182,11 +182,11 @@ footer{font-size:13px;color:var(--muted)}
       <div class="island"></div><div class="status"><span>9:41</span><i></i></div>
       <div class="sheet" style="position:absolute;left:0;right:0;bottom:0;top:70px;background:rgba(22,26,24,.96);border-radius:30px 30px 0 0;border-top:.5px solid rgba(255,255,255,.16);padding:8px 18px 30px;display:flex;flex-direction:column;gap:14px">
         <div style="width:36px;height:5px;border-radius:3px;background:rgba(255,255,255,.28);align-self:center"></div>
-        <div class="line"><div style="font-size:20px;font-weight:700">开始一场</div><button class="linkb" id="s-cancel">取消</button></div>
-        <div class="search">⌕ 搜索球场或城市</div>
+        <div class="line"><div style="font-size:20px;font-weight:700" id="s-title">开始一场</div><button class="linkb" id="s-cancel">取消</button></div>
+        <div class="search" id="s-search">⌕ 搜索球场或城市</div>
         <div class="clist" id="s-list"></div>
         <div id="s-setup" style="display:flex;flex-direction:column;gap:12px">
-          <div class="line"><span class="lbl">打哪几个 9 洞</span><span class="mut" style="font-size:12px" id="s-order"></span></div>
+          <div class="line"><span class="lbl" id="s-looph">从哪个 9 洞开始</span><span class="mut" style="font-size:12px" id="s-order"></span></div>
           <div class="loops" id="s-loops"></div>
           <span class="lbl">发球台</span>
           <div class="tees" id="s-tees"></div>
@@ -197,8 +197,8 @@ footer{font-size:13px;color:var(--muted)}
       <div class="toast glass" id="t2"></div>
       <div class="homebar"></div>
     </div></div></div>
-    <div class="presets"><button data-s="bc">B + C 18 洞</button><button data-s="b">只打 B 场</button><button data-s="full">18 洞的球场</button></div>
-    <p class="cap">球场列表：附近的在前、带距离，最近打过的也在里面，不再分“附近 / 最近使用 / 本机已下载”三块。选中后下面出现这个球场的 9 洞：先点的是前九（角标 1），再点一个是后九（角标 2）；18 洞球场只有“全场”一块。发球台是一排颜色圆点加总码数。“开始”上写着选好的组合。</p>
+    <div class="presets"><button data-s="b">开始时：选 B 场</button><button data-s="turn">打完 9 洞时：选下一个</button><button data-s="full">两个环的 18 洞球场</button></div>
+    <p class="cap">球场列表：附近的在前、带距离，最近打过的也在里面，不再分“附近 / 最近使用 / 本机已下载”三块。选中后只选从哪个 9 洞环开始（A / B / C 是球场自己的环名，不合成“9 洞组”，也不固定成“全场”）；打完这 9 洞时再问接着打哪个环（默认上次的搭配，可选同一个环，也可结束只打 9 洞），开打第二环前都能改。两个环的 18 洞球场也一样，只是第二个环默认已选好。发球台是一排颜色圆点加这个环的码数。</p>
   </div>
 
   <!-- ============ 3. pre-round strategy ============ -->
@@ -232,7 +232,7 @@ footer{font-size:13px;color:var(--muted)}
     <thead><tr><th>地方</th><th>现在</th><th>新方案</th><th>为什么</th></tr></thead>
     <tbody>
       <tr><td>首页</td><td>问候语；“打球 · 新开一场 · 选起始 9 洞”一行；备战 / 成绩两块；上一场卡片</td><td>问候语；最大一块直接是附近球场 + 上次的组合和发球台 + “开始”（或“继续第 N 洞”）；上一场卡片加 18 洞记分符号条</td><td>到了球场最常做的就是开始，一下点到</td></tr>
-      <tr><td>开始一场</td><td>四张卡：附近球场（下拉选择）、最近使用、本机已下载、加打另一个 9 洞；发球台下拉</td><td>一张球场列表（附近在前，含最近打过的）；9 洞组合用大块按顺序点；发球台是颜色圆点</td><td>三个来源合成一个列表；下拉变成看得见的选项</td></tr>
+      <tr><td>开始一场</td><td>四张卡：附近球场（下拉选择）、最近使用、本机已下载、加打另一个 9 洞；发球台下拉</td><td>一张球场列表（附近在前，含最近打过的）；开始只选第一个 9 洞环，打完 9 洞再选第二个（可改、可同一环、可只打 9 洞）；发球台是颜色圆点</td><td>三个来源合成一个列表；下拉变成看得见的选项</td></tr>
       <tr><td>状态文字</td><td>“正在定位并查找附近球场…”、“当前位置 50 km · N 个球场”、下载进度、“准备中 x/y”等</td><td>不写。找不到定位就按上次的城市排；没下载的球场点“开始”照样开打，地图在后台补，到了自动出现</td><td>这些都是用户做不了什么的过程</td></tr>
       <tr><td>备战入口</td><td>先搜索，再等下载完成；没完成弹窗“地图尚未准备完成”</td><td>选了就进，已好的洞先看，没好的洞在洞条里变淡</td><td>不让人等一个弹窗</td></tr>
       <tr><td>赛前攻略</td><td>一张卡：地图、折叠的“完整打法 · N 步”、折叠的“本洞提醒 · N”；上一洞 / 下一洞</td><td>全屏图 + 路线和落点；底部方案切换、球杆顺序、18 洞条；可换发球台</td><td>和打球屏、复盘同一种看图方式</td></tr>
@@ -262,7 +262,7 @@ footer{font-size:13px;color:var(--muted)}
   var strip=document.getElementById("h-strip");for(var i=0;i<18;i++)strip.appendChild(chip(PARS[i]+TOPAR[i],TOPAR[i],17));
   var HM="near";
   function hero(){var h=document.getElementById("h-hero");
-    if(HM==="near")h.innerHTML='<img src="'+TOPO+'" alt=""><div class="shade"></div><div class="in"><div class="mut tn" style="font-size:13px;font-weight:600">附近 · 1.2 公里</div><div style="font-size:24px;font-weight:700;line-height:1.2">黑骑士球员<br>俱乐部</div><div class="mut tn" style="font-size:13.5px">B 场 + C 场 · 蓝 T · 6412 码</div><div style="flex:1"></div><div style="display:flex;align-items:center;gap:14px"><button class="cta" id="h-go">开始</button><button class="linkb" id="h-change">换球场或组合</button></div></div>';
+    if(HM==="near")h.innerHTML='<img src="'+TOPO+'" alt=""><div class="shade"></div><div class="in"><div class="mut tn" style="font-size:13px;font-weight:600">附近 · 1.2 公里</div><div style="font-size:24px;font-weight:700;line-height:1.2">黑骑士球员<br>俱乐部</div><div class="mut tn" style="font-size:13.5px">从 B 场开始 · 蓝 T · 3201 码</div><div style="flex:1"></div><div style="display:flex;align-items:center;gap:14px"><button class="cta" id="h-go">开始</button><button class="linkb" id="h-change">换球场或组合</button></div></div>';
     if(HM==="live")h.innerHTML='<img src="'+TOPO+'" alt=""><div class="shade"></div><div class="in"><div class="tn" style="font-size:13px;font-weight:700;color:var(--good)">进行中</div><div style="font-size:24px;font-weight:700;line-height:1.2">黑骑士球员<br>俱乐部 B/C</div><div class="tn" style="display:flex;align-items:baseline;gap:10px"><span style="font-size:34px;font-weight:700;color:var(--bogey)">+2</span><span class="mut" style="font-size:13.5px">已打 6 洞</span></div><div style="flex:1"></div><div style="display:flex;align-items:center;gap:14px"><button class="cta" id="h-go">继续第 7 洞</button></div></div>';
     if(HM==="far")h.innerHTML='<div class="in" style="background:var(--p-fill)"><div style="font-size:24px;font-weight:700;line-height:1.2">今天去哪打？</div><div class="mut" style="font-size:13.5px">上次：黑骑士球员俱乐部 B/C</div><div style="flex:1"></div><div class="search" style="height:46px">⌕ 搜索球场或城市</div><div style="display:flex;align-items:center;gap:14px;margin-top:6px"><button class="cta" id="h-go">再打黑骑士</button></div></div>';
     var g=document.getElementById("h-go");if(g)g.onclick=function(){toast("t1",HM==="live"?"回到第 7 洞":"开打：进入第 1 洞");};
@@ -278,27 +278,40 @@ footer{font-size:13px;color:var(--muted)}
   /* ============ 2. start ============ */
   var COURSES=[
     {id:"bk",name:"黑骑士球员俱乐部",km:"1.2 公里",sub:"27 洞 · 上次 9 月 21 日",loops:[["A",36,3190],["B",36,3201],["C",36,3211]]},
-    {id:"bh",name:"北湖九号国际",km:"8.6 公里",sub:"18 洞",full:[72,6698]},
+    {id:"bh",name:"北湖九号国际",km:"8.6 公里",sub:"18 洞",loops:[["前九",36,3350],["后九",36,3348]],pair:{"前九":"后九"}},
     {id:"tm",name:"天马乡村俱乐部",km:"23 公里",sub:"27 洞 · 上次 6 月 28 日",loops:[["东",36,3150],["西",36,3180],["南",35,2990]]}];
   var TEES=[["黑",6890,"#1B1D1B"],["蓝",6412,"#2F6FD6"],["白",6010,"#F4F6F2"],["红",5210,"#D6453A"]];
-  var ST={c:"bk",order:["B","C"],tee:1};
-  function sRender(){var L=document.getElementById("s-list");L.innerHTML="";
+  var ST={c:"bk",first:"B",tee:1,turn:false,second:"C"},LAST={bk:{B:"C",A:"B",C:"A"}};
+  function sRender(){var nm=function(x){return x+(x.length===1?" 场":"");},L=document.getElementById("s-list");L.innerHTML="";
     COURSES.forEach(function(c){var b=document.createElement("button");b.className="crow"+(ST.c===c.id?" on":"");
       b.innerHTML='<div class="dot"><img src="'+TOPO+'" alt=""></div><div style="flex:1"><div class="nm">'+c.name+'</div><div class="sub tn">'+c.km+' · '+c.sub+'</div></div>';
-      b.onclick=function(){ST.c=c.id;ST.order=c.loops?[c.loops[0][0]]:["全场"];sRender();};L.appendChild(b);});
+      b.onclick=function(){ST.c=c.id;ST.first=c.loops[0][0];ST.turn=false;sRender();};L.appendChild(b);});
     var c=COURSES.filter(function(x){return x.id===ST.c;})[0],lp=document.getElementById("s-loops");lp.innerHTML="";
-    var units=c.loops||[["全场",c.full[0],c.full[1]]];lp.style.gridTemplateColumns="repeat("+Math.max(2,units.length)+",1fr)";
-    units.forEach(function(u){var b=document.createElement("button"),k=ST.order.indexOf(u[0]);b.className=k>=0?"on":"";
-      b.innerHTML=(k>=0&&c.loops?'<span class="ord">'+(k+1)+'</span>':'')+'<b>'+u[0]+(c.loops?' 场':'')+'</b><span class="tn">'+(c.loops?"9 洞":"18 洞")+' · Par '+u[1]+' · '+u[2]+' 码</span>';
-      b.onclick=function(){if(!c.loops)return;var i=ST.order.indexOf(u[0]);if(i>=0)ST.order.splice(i,1);else{if(ST.order.length>=2)ST.order=[ST.order[0]];ST.order.push(u[0]);}if(!ST.order.length)ST.order=[u[0]];sRender();};lp.appendChild(b);});
-    document.getElementById("s-order").textContent=c.loops?(ST.order.length===2?"先 "+ST.order[0]+" 后 "+ST.order[1]+" · 18 洞":"只打 "+ST.order[0]+" · 9 洞"):"";
-    var tt=document.getElementById("s-tees");tt.innerHTML="";var scale=c.loops?ST.order.length/2:1;
-    TEES.forEach(function(t,i){var b=document.createElement("button");b.className=ST.tee===i?"on":"";b.innerHTML='<i style="background:'+t[2]+'"></i><b>'+t[0]+'</b><span class="tn">'+Math.round(t[1]*scale)+'</span>';b.onclick=function(){ST.tee=i;sRender();};tt.appendChild(b);});
-    document.getElementById("s-go").textContent="开始 · "+(c.loops?ST.order.join(" + "):"18 洞")+" · "+TEES[ST.tee][0]+" T";}
-  document.getElementById("s-go").onclick=function(){toast("t2","开打：进入第 1 洞");};
+    var pairOf=function(f){return (c.pair&&c.pair[f])||(LAST[c.id]&&LAST[c.id][f])||f;};
+    lp.style.gridTemplateColumns="repeat("+Math.max(2,c.loops.length)+",1fr)";
+    if(!ST.turn){ // start: pick only the first nine-hole loop
+      document.getElementById("s-looph").textContent="从哪个 9 洞开始";
+      c.loops.forEach(function(u){var b=document.createElement("button");b.className=ST.first===u[0]?"on":"";
+        b.innerHTML='<b>'+u[0]+(u[0].length===1?' 场':'')+'</b><span class="tn">9 洞 · Par '+u[1]+' · '+u[2]+' 码</span>';
+        b.onclick=function(){ST.first=u[0];sRender();};lp.appendChild(b);});
+      document.getElementById("s-order").textContent="打完这 9 洞再选下一个";
+    } else { // at the turn: which loop next (default = usual pairing, same loop allowed), or stop after nine
+      document.getElementById("s-looph").textContent="接着打哪个 9 洞";
+      c.loops.forEach(function(u){var b=document.createElement("button");b.className=ST.second===u[0]?"on":"";
+        b.innerHTML='<b>'+u[0]+(u[0].length===1?' 场':'')+'</b><span class="tn">'+(pairOf(ST.first)===u[0]?'上次搭配':'Par '+u[1])+'</span>';
+        b.onclick=function(){ST.second=u[0];sRender();};lp.appendChild(b);});
+      var stop=document.createElement("button");stop.className=ST.second===null?"on":"";stop.innerHTML='<b>不打了</b><span>只打 9 洞</span>';stop.onclick=function(){ST.second=null;sRender();};lp.appendChild(stop);
+      lp.style.gridTemplateColumns="repeat("+(c.loops.length+1)+",1fr)";
+      document.getElementById("s-order").textContent="开打第二个 9 洞前都能改";
+    }
+    document.getElementById("s-title").textContent=ST.turn?nm(ST.first)+"打完了":"开始一场";document.getElementById("s-cancel").textContent=ST.turn?"稍后":"取消";document.getElementById("s-search").hidden=ST.turn;L.hidden=ST.turn;L.closest(".sheet").style.top=ST.turn?"480px":"70px";
+    var tt=document.getElementById("s-tees");tt.innerHTML="";document.getElementById("s-tees").previousElementSibling.hidden=ST.turn;tt.hidden=ST.turn;
+    TEES.forEach(function(t,i){var b=document.createElement("button");b.className=ST.tee===i?"on":"";b.innerHTML='<i style="background:'+t[2]+'"></i><b>'+t[0]+'</b><span class="tn">'+Math.round(t[1]/2)+'</span>';b.onclick=function(){ST.tee=i;sRender();};tt.appendChild(b);});
+    document.getElementById("s-go").textContent=ST.turn?(ST.second?"接着打 "+nm(ST.second):"结束 · 只打 9 洞"):"从 "+nm(ST.first)+" 开始 · "+TEES[ST.tee][0]+" T";}
+  document.getElementById("s-go").onclick=function(){toast("t2",ST.turn?(ST.second?"进入 "+ST.second+" 的第 1 洞":"本场结束，只打 9 洞"):"开打：进入 "+ST.first+" 的第 1 洞");};
   document.getElementById("s-cancel").onclick=function(){toast("t2","回到首页");};
   document.querySelectorAll("[data-s]").forEach(function(b){b.onclick=function(){var k=b.getAttribute("data-s");
-    if(k==="bc")ST={c:"bk",order:["B","C"],tee:1};if(k==="b")ST={c:"bk",order:["B"],tee:1};if(k==="full")ST={c:"bh",order:["全场"],tee:2};sRender();};});
+    if(k==="b")ST={c:"bk",first:"B",tee:1,turn:false,second:"C"};if(k==="turn")ST={c:"bk",first:"B",tee:1,turn:true,second:"C"};if(k==="full")ST={c:"bh",first:"前九",tee:2,turn:false,second:"后九"};sRender();};});
   sRender();
 
   /* ============ 3. pre-round strategy ============ */

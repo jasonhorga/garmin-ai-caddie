@@ -33,22 +33,66 @@ owner 的决定：
 
 ## 2. `integration/v2` 改名为 `main`
 
-顺序很重要：
+（按 Codex review 2 补全：完整清单、改名前后状态记录、分层扫描验收。）
 
-1. 跑完第 1 步（旧 `main` 已删）。
-2. 改名（需要仓库 admin）：GitHub 网页 Settings → Branches → 默认分支旁的铅笔改为 `main`，
-   或 `gh api -X POST repos/jasonhorga/garmin-ai-caddie/branches/integration%2Fv2/rename -f new_name=main`。
-   GitHub 会自动把开放 PR 的目标分支、分支保护规则迁到 `main`，旧名字会重定向。
-3. homeserver 上所有 clone / worktree：
-   `git branch -m integration/v2 main && git fetch origin && git branch -u origin/main main && git remote set-head origin -a`。
-4. 改名**之后**再改代码里写死的分支名（改名前改会让部署脚本去拉旧 `main`）：
-   - `ops/bootstrap_nas_vm_api.sh`：默认 `branch="integration/v2"` → `main`，帮助文字同步。
-   - `.github/workflows/ci.yml`：push 触发只保留 `main`。
-   - 测试：`tests/test_ci_workflow.py`、`tests/test_deployment_manifests.py`、`tests/test_server_v2_readiness.py`、
-     `tests/test_phase6_external_readiness.py` 中的 `integration/v2`。
-   - `AGENTS.md`、`PROJECT_STATE.md` 中“当前分支”的描述（历史记录不必改）。
-   - homeserver 上部署 / 定时任务（`auto_sync.sh`、deploy gate 等）如有写死分支名，一并改。
-   这一步可以由 Codex 做，也可以回复“请 Claude 做”，Claude 在本分支提交后由你合并。
+### 2.1 改名前记录（写进本 PR 评论或 `PROJECT_STATE.md`）
+
+- `gh api repos/jasonhorga/garmin-ai-caddie --jq .default_branch` 的结果和 `integration/v2` 的 SHA。
+- 所有开放 PR 的 `number / base.ref / head.ref`（改名后逐个核对 base 已迁到 `main`）。
+- homeserver 上每个 clone / worktree 的路径、当前分支、`git rev-parse --abbrev-ref @{u}`、
+  `git symbolic-ref refs/remotes/origin/HEAD`。
+- 用到分支名的部署 / 定时任务（`auto_sync.sh`、deploy gate、cron / systemd 单元）清单。
+
+### 2.2 顺序
+
+1. 跑完第 1 步（旧 `main` 已删，否则改名会冲突）。
+2. 改名（需要仓库 admin）：`gh api -X POST repos/jasonhorga/garmin-ai-caddie/branches/integration%2Fv2/rename -f new_name=main`，
+   保存响应；确认 `default_branch == main`，开放 PR 的 base 已自动迁移，分支保护（如有）已跟过去。
+3. homeserver 每个 clone / worktree：
+   `git fetch origin && git branch -m integration/v2 main && git branch -u origin/main main && git remote set-head origin -a`，
+   再按 2.1 的记录逐个核对当前分支、上游和 `origin/HEAD`。
+4. 改名**之后**再改写死的分支名（改名前改会让部署脚本去拉不存在的 `main` 内容）。
+
+### 2.3 必须改的活动引用（按 `cef291a3` 时的 `git grep -n integration/v2`）
+
+| 文件 | 行 | 改法 |
+|---|---|---|
+| `ops/bootstrap_nas_vm_api.sh` | 5, 17 | 默认分支与帮助文字 → `main` |
+| `.github/workflows/ci.yml` | 9 | push 触发只保留 `main` |
+| `tests/test_ci_workflow.py` | 60 | 断言改为 `main` |
+| `tests/test_deployment_manifests.py` | 369 | 同上 |
+| `tests/test_server_v2_readiness.py` | 97 | 同上 |
+| `tests/test_phase6_external_readiness.py` | 35, 436, 504, 570, 642, 693, 730, 766, 819 | 同上 |
+| `.claude/skills/recording-demo-videos/SKILL.md` | 18, 37 | `--ref main` |
+| `docs/ios-testflight-setup.md` | 39, 43 | canonical branch → `main` |
+| `docs/deployment/nas-vm-tunnel.md` | 34 | raw URL 路径 → `main` |
+| `docs/superpowers/specs/work-board.md` | 47 | 当前分支描述 |
+| `AGENTS.md`、`PROJECT_STATE.md` 顶部 | — | “当前分支”描述；历史条目不改 |
+| homeserver 部署 / 定时任务 | — | 按 2.1 清单 |
+
+历史文档（`docs/reviews/`、`docs/operations/branch-*`、`PROJECT_STATE.md` 的历史条目、旧交接文档）记录的是当时事实，**不改**。
+
+### 2.4 验收：分层扫描
+
+改完后跑一次，结果贴到本 PR：
+
+```sh
+# 活动代码、workflow、测试、运维脚本、agent/skill 说明：必须为空
+git grep -n "integration/v2" -- \
+  '*.py' '*.sh' '*.swift' '*.kt' '*.ts' '*.tsx' '*.js' '*.yml' '*.yaml' '*.toml' '*.json' \
+  '.github/' 'ops/' 'tests/' 'tools/' '.claude/' 'AGENTS.md' 'CLAUDE.md' \
+  ':!ops/oneoff/'
+# 操作手册：只允许历史叙述，逐行确认
+git grep -n "integration/v2" -- 'docs/' ':!docs/reviews/' ':!docs/history/'
+# homeserver 上仓库外的部署文件
+grep -rn "integration/v2" <部署目录> /etc/cron* /etc/systemd/system 2>/dev/null
+```
+
+再跑 `uv run pytest tests/test_ci_workflow.py tests/test_deployment_manifests.py tests/test_server_v2_readiness.py tests/test_phase6_external_readiness.py`，
+并确认改名后第一次 push 到 `main` 触发了 CI。
+`ops/oneoff/2026-09-27-cleanup-remote-branches.sh` 是一次性脚本，按改名前状态写死，改名后不再运行，不改。
+
+这一步可以由 Codex 做，也可以回复“请 Claude 做”，Claude 在本分支提交后由你合并。
 
 ## 3. 其他收尾（请确认状态）
 
