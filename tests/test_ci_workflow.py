@@ -57,8 +57,8 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("pull_request", triggers)
         self.assertEqual(
             triggers["push"]["branches"],
-            ["main", "integration/v2"],
-            "push CI must protect integration branches without duplicating feature-branch PR runs",
+            ["main"],
+            "push CI must run on the canonical default branch without duplicating feature-branch PR runs",
         )
 
     def test_canonical_authority_check_propagates_git_diff_failures(self) -> None:

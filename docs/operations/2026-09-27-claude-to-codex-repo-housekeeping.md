@@ -59,17 +59,42 @@ owner 的决定：
 
 ### 2.1a 仓库外引用分类（Codex review 10，homeserver 只读核对，2026-09-27）
 
-活动调用链（`/etc/cron*`、`/etc/systemd/system`、`/home/jason/garmin-ai-caddie-data/operations/deploy-tools`、运行中的 `aicaddie-tunnel.service`）：**没有** `integration/v2`。
-仓库外仍含旧分支名的可执行文件，逐项分类（owner 均为 `jason`；“调用证据”来自 Codex 核对）：
+活动调用链（`/etc/cron*`、`/etc/systemd/system`、
+`/home/jason/garmin-ai-caddie-data/operations/deploy-tools`、运行中的
+`aicaddie-tunnel.service`）：**没有** `integration/v2`。这条结论比“只列出三个文件”更严格：改名后的全量 `*.sh` 扫描一共命中 **120** 个文件，但没有一个落在活动调用链里。
 
-| 路径 | 调用证据 | 结论 |
-|---|---|---|
-| `/home/jason/codex-runs/garmin-ai-caddie-phone-ux3-backend-20260912/bootstrap_nas_vm_api.sh` | 不在任何 cron / systemd 调用链；09-12 一次性候选运行的快照 | **历史快照，不改、不删**；改名后若误跑会因分支不存在而失败（fail-closed） |
-| `/home/jason/watchreview/ops/bootstrap_nas_vm_api.sh` | 同上；旧评审工作树里的副本 | 历史快照，不改、不删 |
-| `/home/jason/r12review/ops/bootstrap_nas_vm_api.sh` | 同上；旧评审工作树里的副本 | 历史快照，不改、不删 |
-| `/home/jason/reserve-specs.sh` | 不在自动任务里；07-07 仍可执行；会 `fetch origin integration/v2` 并 checkout specs | **不能保持未分类**。默认：改名后把分支改为 `main`，由 Codex 做一次只读 dry-run 并贴结果；若 owner 确认不再使用，则去掉执行位（`chmod -x`）并在文件头加一行“已停用 2026-09，改名前的脚本”，不删除 |
+| 路径/根目录 | 命中数 | 调用证据 | 结论 |
+|---|---:|---|---|
+| `/home/jason/codex-runs/**` | 109 | 候选、评审、部署和验证快照；不在 cron / systemd / deploy-tools 调用链 | 历史/临时快照，**不机械替换、不批量删除**。包括当前 PR 的只读评审快照；快照若误跑会因旧分支 ref 已不存在而 fail-closed |
+| `/home/jason/garmin-ai-caddie-data/archives/**` | 2 | broken-worktree rescue 归档；无活动调用 | 归档历史快照，保留、不改 |
+| `/home/jason/.local/share/Trash/files/**` | 7 | Trash 中的旧工作树；无活动调用 | Trash 历史快照，保留、不改；不把 Trash 当作生产输入 |
+| `/home/jason/watchreview/ops/bootstrap_nas_vm_api.sh` | 1 | 旧评审工作树副本；无活动调用 | 历史快照，保留、不改 |
+| `/home/jason/r12review/ops/bootstrap_nas_vm_api.sh` | 1 | 旧评审工作树副本；无活动调用 | 历史快照，保留、不改 |
+| `/home/jason/reserve-specs.sh` | 1 | 不在自动任务里，但仍可被人工执行 | **唯一需要改的仓库外入口**：已把 `fetch/checkout` 从 `integration/v2` 改为 `main`，并做了正确的无写入 dry-run（见 2.1b） |
 
-改名后的外部扫描（2.4 最后一步）以这张表为准：表里的三份历史快照允许命中，其余任何命中都算漏项。
+扫描证据：
+`/home/jason/garmin-ai-caddie-data/operations/pr334-housekeeping-20260927/external-shell-refs-post-rename.txt`。
+今后的验收以“活动调用链必须为零、上述五类历史根目录允许命中、`reserve-specs.sh` 只允许 `main`”为准；不能再把 120 个历史文件误报成 3 个活动漏项。
+
+### 2.1b `reserve-specs.sh` 更新与 dry-run 记录（2026-09-27）
+
+`/home/jason/reserve-specs.sh` 已改为抓取 `origin main`。改名前 checksum 为
+`b2bb7c556e01a63ceca1d356572be3c54e5acbc345326143faf8d5b912f0f500`，改后为
+`a9ed9d0bd6a6863eaf03b8c99f6c84c1424cdcc53c8558f1e8783fc6f452a8f9`；原文件保留在
+`/home/jason/garmin-ai-caddie-data/operations/pr334-housekeeping-20260927/reserve-specs.sh.before-main-rename`。
+
+需要透明记录一个执行失误：第一次所谓 dry-run 使用了错误命名的 stub，脚本实际运行了一次。它对已有的
+`/home/codex/garmin-ai-caddie` 外部 checkout 执行了 specs checkout，并重新生成了
+`web_v2/dist/*.html`；该 checkout 原本已有的 17 个 staged spec 改动没有被 reset 或覆盖，服务仍保持
+`index.html`、`todo.html`、`spec.html`、`rv2.html` HTTP 200。生成的 `/tmp/specsrc`、`/tmp/specout` 已按 checksum 记录后删除，未删除持久源数据。
+
+随后使用正确的命令替身执行了真正的 no-write dry-run，退出码 0；输出、日志和临时清理记录分别保存在：
+
+- `reserve-specs-true-dry-run.out`
+- `reserve-specs-true-dry-run.log`
+- `reserve-specs-temp-cleanup.txt`
+
+均位于上述 housekeeping 证据目录。由于外部 checkout 的既有 dirty 状态在执行前就不明，Codex 没有盲目 reset；后续若要清理它，必须先由 owner 对那 17 个 staged 文件逐项确认。
 
 ### 2.2 顺序
 
@@ -117,7 +142,7 @@ git ls-files 'docs/*.md' 'docs/**/*.md' | grep -Ev '/[^/]*20[0-9]{2}-?[0-9]{2}-?
   | grep -v '^docs/operations/PROJECT_STATE.md$' | xargs git grep -n "integration/v2" --
 git grep -n "integration/v2" -- docs/operations/PROJECT_STATE.md | head -20   # 只允许历史条目，顶部“Branch”行必须已改
 # 带日期的文档（历史设计、计划、评审、交接）：记录当时事实，允许保留，不改
-# homeserver 上仓库外：调用链必须为空；home 目录的命中必须都在 2.1a 表里标为“历史快照”
+# homeserver 上仓库外：调用链必须为空；home 目录的 120 个命中必须按 2.1a 分类
 grep -rn "integration/v2" /etc/cron* /etc/systemd/system /home/jason/garmin-ai-caddie-data/operations/deploy-tools 2>/dev/null
 grep -rln "integration/v2" /home/jason --include='*.sh' 2>/dev/null
 ```
@@ -135,6 +160,13 @@ grep -rln "integration/v2" /home/jason --include='*.sh' 2>/dev/null
 - 本 PR 的设计文档（`docs/design/2026-09-25-ui-redesign/`，含 `IMPLEMENTATION_PLAN.md`）：请审阅后合并。
 - 以上完成后打基线标签，例如 `v2-baseline-2026-09`，并在 `PROJECT_STATE.md` 记下对应 TestFlight 版本号。
 - 然后按 `IMPLEMENTATION_PLAN.md` 把 B0 设为 `PROJECT_STATE.md` 的当前任务。
+
+### 3.1 Codex 执行记录（2026-09-27）
+
+- 已按 allow-list 完成远程旧分支归档/删除：67 个 archive tag、269 个 branch 删除；只剩 `main`、#334 head、#176 head。
+- 已把 `integration/v2` 重命名为 `main`，默认分支和 #334/#176 base 已核对，旧 ref 已不存在。
+- 活动引用修正已在本 PR 分支提交（见后续 PR comment）；一次性清理脚本和 dated 历史文档保留原名。
+- 外部 shell 全量扫描、`reserve-specs.sh` 迁移和上述误运行影响均已记录；待本 PR 的 CI 通过后合并，再做基线 tag、`PROJECT_STATE.md` 收口和临时评审快照清理。
 
 ## 回复格式建议
 

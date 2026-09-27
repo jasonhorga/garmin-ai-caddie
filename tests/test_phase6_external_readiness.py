@@ -32,7 +32,7 @@ def _github_snapshot(
     variable_values: dict[str, str] | None = None,
     testflight_actions: dict[str, object] | None = None,
     private: bool = False,
-    default_branch: str = "integration/v2",
+    default_branch: str = "main",
 ) -> dict[str, object]:
     return {
         "available": True,
@@ -433,7 +433,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
             self.assertEqual(token, "gh-token")
             if path == "":
-                return {"private": False, "default_branch": "integration/v2"}
+                return {"private": False, "default_branch": "main"}
             if path == "/actions/secrets":
                 return {"secrets": [{"name": name} for name in REQUIRED_SIGNING_SECRETS]}
             if path == "/actions/variables":
@@ -501,7 +501,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
 
         def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
             if path == "":
-                return {"private": False, "default_branch": "integration/v2"}
+                return {"private": False, "default_branch": "main"}
             if path == "/actions/secrets":
                 raise error.HTTPError(
                     url="https://api.github.test/actions/secrets",
@@ -567,7 +567,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
 
         def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
             if path == "":
-                return {"private": False, "default_branch": "integration/v2"}
+                return {"private": False, "default_branch": "main"}
             if path == "/actions/secrets":
                 return {"secrets": [{"name": name} for name in REQUIRED_SIGNING_SECRETS]}
             if path == "/actions/variables":
@@ -639,7 +639,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
 
         def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
             if path == "":
-                return {"private": False, "default_branch": "integration/v2"}
+                return {"private": False, "default_branch": "main"}
             if path == "/actions/secrets":
                 return {"secrets": [{"name": name} for name in REQUIRED_SIGNING_SECRETS]}
             if path == "/actions/variables":
@@ -690,7 +690,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
 
         def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
             if path == "":
-                return {"private": False, "default_branch": "integration/v2"}
+                return {"private": False, "default_branch": "main"}
             if path == "/actions/secrets":
                 return {"secrets": [{"name": name} for name in REQUIRED_SIGNING_SECRETS]}
             if path == "/actions/variables":
@@ -727,7 +727,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
 
         def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
             if path == "":
-                return {"private": False, "default_branch": "integration/v2"}
+                return {"private": False, "default_branch": "main"}
             if path == "/actions/secrets":
                 return {"secrets": [{"name": name} for name in REQUIRED_SIGNING_SECRETS]}
             if path == "/actions/variables":
@@ -763,7 +763,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
 
         def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
             if path == "":
-                return {"private": False, "default_branch": "integration/v2"}
+                return {"private": False, "default_branch": "main"}
             if path == "/actions/secrets":
                 return {"secrets": [{"name": name} for name in REQUIRED_SIGNING_SECRETS]}
             if path == "/actions/variables":
@@ -816,7 +816,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
 
         def github_get(repo: str, path: str, token: str, *, timeout_s: float = 20.0) -> dict[str, object]:
             if path == "":
-                return {"private": False, "default_branch": "integration/v2"}
+                return {"private": False, "default_branch": "main"}
             if path == "/actions/secrets":
                 return {"secrets": [{"name": name} for name in REQUIRED_SIGNING_SECRETS]}
             if path == "/actions/variables":

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_url="https://github.com/jasonhorga/garmin-ai-caddie.git"
-branch="integration/v2"
+branch="main"
 workdir="${AI_CADDIE_VM_WORKDIR:-$HOME/garmin-ai-caddie}"
 api_base_url="${AI_CADDIE_API_BASE_URL:-}"
 install_system=0
@@ -14,7 +14,7 @@ Usage: ops/bootstrap_nas_vm_api.sh [options]
 Options:
   --api-base-url URL     Public HTTPS origin to write into .env when known.
   --workdir PATH         Repo checkout path on the VM. Default: ~/garmin-ai-caddie
-  --branch NAME          Git branch to deploy. Default: integration/v2
+  --branch NAME          Git branch to deploy. Default: main
   --repo-url URL         Git repo URL. Default: https://github.com/jasonhorga/garmin-ai-caddie.git
   --install-system       Install Docker, git, curl, and openssl with apt-get.
   -h, --help             Show this help.

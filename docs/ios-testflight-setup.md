@@ -36,11 +36,11 @@ upload flag. Tester/install assertions must name the build number and remain
 manual evidence. An `upload=false` manifest is allowed for artifact-only
 builds, but it never satisfies the release gate.
 
-Current canonical branch: `integration/v2`.
+Current canonical branch: `main`.
 
 ### Ordered release sequence
 
-1. Keep the product tree on `integration/v2` and pass source/Native CI.
+1. Keep the product tree on `main` and pass source/Native CI.
 2. Once source/Native CI and the backend preflight are green, automatically run
    a fresh signed build from the canonical tip with `upload_to_testflight=true`
    and send it only to the existing internal TestFlight group. Do not create a

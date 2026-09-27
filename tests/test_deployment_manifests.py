@@ -366,7 +366,6 @@ class DeploymentManifestTests(unittest.TestCase):
         for required in [
             "push:",
             "- main",
-            "- integration/v2",
             'AI_CADDIE_DATABASE_URL="sqlite:///$RUNNER_TEMP/identity-cold-start.db"',
             "uv run --frozen alembic upgrade head",
             "uv run --frozen python -m server_v2.identity_seed",

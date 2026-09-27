@@ -15,7 +15,7 @@ A demo is only useful if the viewer can follow it **silently, at a readable pace
 - **Readable pace.** Hold each step ~4.5 s (`DWELL_SECONDS` in `stitch_demo.py`). Silent-test: if you can't follow it muted, it's not done.
 - **Whole flow, clean end.** Walk the full path; last step is a natural end (no long frozen tail — the stitch handles this).
 - **mp4 (H.264, yuv420p, +faststart, `-an`), never webm.** Safari/iOS can't play VP8 webm. `stitch_demo.py` already emits this.
-- **Reflect CURRENT code.** Deploy the change to the homeserver (web/backend) or merge it to `integration/v2` (iOS/Watch) BEFORE capturing — don't demo a bug you already fixed. Native captures run the app against the **live funnel backend**, so the homeserver must be on the right commit.
+- **Reflect CURRENT code.** Deploy the change to the homeserver (web/backend) or merge it to `main` (iOS/Watch) BEFORE capturing — don't demo a bug you already fixed. Native captures run the app against the **live funnel backend**, so the homeserver must be on the right commit.
 - **Verify it YOURSELF before sending.** HTTP 200 ≠ verified. `ffprobe` (real duration/codec) + full decode (`ffmpeg -v error -i v.mp4 -f null -` = exit 0) + **extract 3–5 frames and Read them as images** — captions present + plain Chinese, real current UI (not a black/placeholder frame).
 
 ## The stitch tool (the heart — same for all three)
@@ -34,7 +34,7 @@ Playwright drives the real web app + `page.screenshot({path})` per step. Reuse t
 ### iOS app (native — GitHub Actions macOS, no local Mac)
 The **only** way to run/record a native app here is the macОС runner. The harness already exists:
 - `.github/workflows/native-mobile.yml` (workflow_dispatch): boots an iPhone-16 sim, runs `AICaddieUITests` (`RealFlowUITests` drives the REAL app against the funnel + owner token + injected GPS), writes `XCUIScreen.main.screenshot()` per step to `Documents/real-screenshots/` → uploads the **`real-screenshots`** artifact (+ a11y trees).
-- Trigger: `gh workflow run native-mobile.yml --ref integration/v2` → wait ~8–23 min → `gh run download <id> -n real-screenshots`.
+- Trigger: `gh workflow run native-mobile.yml --ref main` → wait ~8–23 min → `gh run download <id> -n real-screenshots`.
 - Add/adjust steps by editing `RealFlowUITests.swift` (`save("NN-name")` per screen). Some review holes are "暂无落点数据" without decoded geometry — swipe the 落点图 pager to a hole that has it (see `ReviewEditUITests.swift`), or ensure geometry is deployed ([[geometry-deploy-private-volume]]).
 
 ### Apple Watch app (native — same runner, no XCUITest on watchOS)
