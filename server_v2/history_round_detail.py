@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ai_caddie.history.history import OWNER_ID
 from ai_caddie.history.history_round_detail import build_history_round_detail
-from ai_caddie.rounds import round_corrections
+from ai_caddie.rounds import correction_audit, round_corrections
 from ai_caddie.rounds.round_shot_map import build_round_hole_shot_map
 
 from .data_source import load_history_data_for_mode
@@ -29,7 +29,9 @@ def load_round_hole_shot_map_response(
     include_image: bool = True,
 ) -> RoundHoleShotMapResponse:
     data, _mode = load_history_data_for_mode(player_id=player_id)
-    corrections = round_corrections.load_correction_events(player_id, round_ref)
+    # Same canonicalization as the writer: a merged round's corrections under any of its refs.
+    _canonical_ref, refs = correction_audit.round_identity(data, round_ref)
+    corrections = round_corrections.load_round_events(player_id, refs)
     return RoundHoleShotMapResponse(
         **build_round_hole_shot_map(
             data,

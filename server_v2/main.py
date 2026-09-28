@@ -703,6 +703,9 @@ def add_round_correction(
     data, _mode = load_history_data_for_mode(player_id=player_id)
     if not correction_audit.round_exists(data, round_ref):
         raise HTTPException(status_code=404, detail=f"round {round_ref} not found")
+    # Write under the canonical ref so a retry through a merged round's alias dedupes (the audit
+    # re-resolves it under its own lock as well).
+    round_ref, _refs = correction_audit.round_identity(data, round_ref)
     try:
         stored = round_corrections.append_correction(
             # The audit re-loads inside its coherence bracket (cached, cheap when unchanged); the data

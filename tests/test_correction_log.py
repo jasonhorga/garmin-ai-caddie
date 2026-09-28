@@ -416,6 +416,54 @@ class LegacyFileTest(_Store):
         self.assertNotEqual(rc._corrections_path("me", "a/b"), rc._corrections_path("me", "a_b"))
 
 
+class MergedRoundAliasTest(_Store):
+    """A merged round is one physical round: canonical id ``canon`` with member ids ``a1`` / ``a2``."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        merged = {**_round("canon"), "ids": ["a1", "a2"], "merged": True}
+        self.data = HistoryData(raw_rounds=[{"id": "a1"}, {"id": "a2"}], rounds=[merged],
+                                shots=_shots(round_id="a1"))
+
+    def write_as(self, ref: str, event: dict) -> dict:
+        return rc.append_correction("me", ref, event, data_loader=lambda: self.data)
+
+    def test_a_retry_through_an_alias_is_the_same_mutation(self) -> None:
+        event = {"op": "setHolePenalty", "hole": 4, "value": 1, "clientMutationId": "same"}
+        first = self.write_as("canon", dict(event))
+        retry = self.write_as("a1", dict(event))
+        self.assertEqual(first["eventId"], retry["eventId"])
+        with self.assertRaises(ca.CorrectionConflict):
+            self.write_as("a2", {**event, "value": 2})
+        # Everything lands in the canonical file only.
+        self.assertTrue(rc._corrections_path("me", "canon").exists())
+        self.assertFalse(rc._corrections_path("me", "a1").exists())
+        self.assertFalse(rc._corrections_path("me", "a2").exists())
+
+    def test_alias_history_joins_seq_replay_and_the_before_chain(self) -> None:
+        # A pre-canonicalization write stored under a member id.
+        old = rc._corrections_path("me", "a1")
+        old.parent.mkdir(parents=True)
+        old.write_text(json.dumps({"op": "setHolePenalty", "hole": 4, "value": 2, "seq": 1,
+                                   "ts": "2026-09-01T00:00:00+00:00"}) + "\n")
+        stored = self.write_as("a2", {"op": "setHolePenalty", "hole": 4, "value": 3})
+        self.assertEqual(stored["seq"], 2)
+        self.assertEqual(stored["audit"]["entries"][0]["before"], 2)
+        for ref in ("canon", "a1", "a2"):
+            canonical, refs = ca.round_identity(self.data, ref)
+            self.assertEqual(canonical, "canon")
+            self.assertEqual([event["value"] for event in rc.load_round_events("me", refs)], [2, 3])
+
+    def test_the_shot_map_read_path_uses_the_same_canonicalization(self) -> None:
+        from server_v2.history_round_detail import load_round_hole_shot_map_response
+
+        self.write_as("canon", {"op": "setHolePenalty", "hole": 4, "value": 2})
+        with mock.patch("server_v2.history_round_detail.load_history_data_for_mode", return_value=(self.data, "local")):
+            for ref in ("canon", "a1"):
+                response = load_round_hole_shot_map_response(ref, 4, player_id="me", include_image=False)
+                self.assertEqual(response.manualPenalty, 2, ref)
+
+
 class NoBypassTest(unittest.TestCase):
     def test_only_the_two_storage_functions_write_either_store(self) -> None:
         pattern = re.compile(r"annotation_file\(|_corrections_path\(|corrections_dir\(")

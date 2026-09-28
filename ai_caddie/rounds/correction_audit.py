@@ -223,6 +223,19 @@ def round_exists(data: HistoryData, round_ref: str) -> bool:
     return _match_round(data, round_ref) is not None
 
 
+def round_identity(data: HistoryData | None, round_ref: str) -> tuple[str, list[str]]:
+    """(canonical ref, every ref of the same physical round). A merged round's canonical id is
+    ``row.id``; its member ids are aliases. Corrections are written under the canonical ref and read,
+    deduped and sequenced across all of them, so a retry through an alias is the same mutation."""
+    row = _match_round(data, round_ref) if data is not None else None
+    if row is None:
+        return str(round_ref), [str(round_ref)]
+    refs = [str(row.get("id")), *[str(item) for item in (row.get("ids") or [])]]
+    if str(round_ref) not in refs:
+        refs.append(str(round_ref))
+    return str(row.get("id")), list(dict.fromkeys(refs))
+
+
 def _scorecard_hole(row: dict[str, Any], hole: int) -> dict[str, Any] | None:
     for entry in row.get("holes") or []:
         if isinstance(entry, dict) and _int(entry.get("number")) == hole:
@@ -459,7 +472,14 @@ def write_correction(
 ) -> dict[str, Any]:
     digest = request_digest(event)
     with audit_lock(player_id, root):
-        existing = rc.load_correction_events(player_id, round_ref, root=root)
+        loader = data_loader or _default_loader(player_id)
+        try:
+            data, source_revision = load_coherent(player_id, loader)
+            load_error = None
+        except Exception as exc:
+            data, source_revision, load_error = None, None, exc
+        canonical_ref, refs = round_identity(data, round_ref)
+        existing = rc.load_round_events(player_id, refs, root=root)
         cmid = event.get("clientMutationId")
         if cmid:
             for prior in existing:
@@ -473,17 +493,14 @@ def write_correction(
         stored["seq"] = max((_int(prior.get("seq")) or 0 for prior in existing), default=0) + 1
         stored["ts"] = _now(now)
         stored["requestDigest"] = digest
-        loader = data_loader or _default_loader(player_id)
-        try:
-            data, source_revision = load_coherent(player_id, loader)
-        except Exception as exc:
-            stored["audit"] = {"status": "pending", "reason": f"history unavailable: {exc}"[:500],
+        if data is None:
+            stored["audit"] = {"status": "pending", "reason": f"history unavailable: {load_error}"[:500],
                                "sourceFingerprint": None, "entries": []}
         else:
-            stored["audit"] = build_correction_audit(data, round_ref, existing, stored)
+            stored["audit"] = build_correction_audit(data, canonical_ref, existing, stored)
             stored["audit"]["sourceRevision"] = source_revision
         stored["auditSeq"] = next_audit_seq(player_id, root=root)
-        append_record(rc._corrections_path(player_id, round_ref, root), stored)
+        append_record(rc._corrections_path(player_id, canonical_ref, root), stored)
         return stored
 
 
@@ -543,12 +560,8 @@ def annotation_fingerprint(row: dict[str, Any], hole: int, annotations: list[dic
 
 
 def _round_correction_events(player_id: str, row: dict[str, Any], root: Path | str | None) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
-    for ref in [str(row.get("id")), *[str(item) for item in (row.get("ids") or [])]]:
-        for event in rc.load_correction_events(player_id, ref, root=root):
-            if all(event.get("eventId") != seen.get("eventId") for seen in events):
-                events.append(event)
-    return events
+    refs = [str(row.get("id")), *[str(item) for item in (row.get("ids") or [])]]
+    return rc.load_round_events(player_id, refs, root=root)
 
 
 def build_annotation_audit(
@@ -641,7 +654,8 @@ def repair_pending_audits(
         except Exception:
             return repairs  # unreadable or changing history decides nothing; everything stays pending
         row = _match_round(data, round_ref)
-        records, _skipped = rc.load_correction_records(player_id, round_ref, root=root)
+        canonical_ref, refs = round_identity(data, round_ref)
+        records, _skipped = rc.load_round_records(player_id, refs, root=root)
         done = _repaired_ids(records)
         events = [record for record in records if record.get("recordType") in (None, RECORD_CORRECTION)]
         for index, event in enumerate(events):
@@ -653,7 +667,7 @@ def repair_pending_audits(
             stored_fp = audit.get("sourceFingerprint")
             if stored_fp is not None and row is not None:
                 try:
-                    hole, raw_entries, comparison, fingerprint = _correction_entries(data, round_ref, prefix, event)
+                    hole, raw_entries, comparison, fingerprint = _correction_entries(data, canonical_ref, prefix, event)
                 except Exception:
                     continue  # still not derivable; stays pending
                 if fingerprint == stored_fp:
@@ -662,7 +676,7 @@ def repair_pending_audits(
                         extra["positionComparison"] = comparison
             repair = _repair_record(event, status, entries, extra, now)
             repair["auditSeq"] = next_audit_seq(player_id, root=root, annotation_root=annotation_root)
-            append_record(rc._corrections_path(player_id, round_ref, root), repair)
+            append_record(rc._corrections_path(player_id, canonical_ref, root), repair)
             repairs.append(repair)
 
         annotations = list_annotation_records(root=annotation_root, player_id=player_id, include_repairs=True)
@@ -727,21 +741,9 @@ def build_correction_log(
     from ai_caddie.reports.annotations import list_annotation_records
 
     row = _match_round(data, round_ref)
-    refs = [str(round_ref)]
-    if row is not None:
-        refs = [str(row.get("id")), *[str(item) for item in (row.get("ids") or [])]]
-        if str(round_ref) not in refs:
-            refs.append(str(round_ref))
-    records: list[tuple[str, dict[str, Any]]] = []
-    skipped = 0
-    seen: set[str] = set()
-    for ref in refs:
-        rows, bad = rc.load_correction_records(player_id, ref, root=root)
-        skipped += bad
-        for record in rows:
-            if str(record.get("eventId")) not in seen:
-                seen.add(str(record.get("eventId")))
-                records.append(("round_correction", record))
+    _canonical_ref, refs = round_identity(data, round_ref)
+    correction_rows, skipped = rc.load_round_records(player_id, refs, root=root)
+    records: list[tuple[str, dict[str, Any]]] = [("round_correction", record) for record in correction_rows]
     annotation_rows = list_annotation_records(root=annotation_root, player_id=player_id, include_repairs=True)
     by_event = {str(record.get("eventId")): record for record in annotation_rows}
     ref_set = set(refs)

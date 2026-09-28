@@ -149,6 +149,37 @@ def load_correction_events(player_id: str, round_ref: str, *, root: Path | str |
     return [record for record in records if record.get("recordType") in (None, RECORD_CORRECTION)]
 
 
+def load_round_records(
+    player_id: str, refs: list[str], *, root: Path | str | None = None
+) -> tuple[list[dict[str, Any]], int]:
+    """Records of one physical round stored under any of its refs (a merged round's canonical id and
+    its member ids). Order: legacy records without ``auditSeq`` first (by ``ts``, then file order),
+    then every audited record by ``auditSeq`` — the one total order all writers share."""
+    merged: list[tuple[tuple, dict[str, Any]]] = []
+    seen: set[str] = set()
+    skipped = 0
+    position = 0
+    for ref in dict.fromkeys(str(value) for value in refs):
+        rows, bad = load_correction_records(player_id, ref, root=root)
+        skipped += bad
+        for record in rows:
+            event_id = str(record.get("eventId"))
+            if event_id in seen:
+                continue
+            seen.add(event_id)
+            audit_seq = record.get("auditSeq")
+            key = (1, audit_seq, "", position) if isinstance(audit_seq, int) else (0, 0, str(record.get("ts") or ""), position)
+            merged.append((key, record))
+            position += 1
+    merged.sort(key=lambda item: item[0])
+    return [record for _key, record in merged], skipped
+
+
+def load_round_events(player_id: str, refs: list[str], *, root: Path | str | None = None) -> list[dict[str, Any]]:
+    records, _skipped = load_round_records(player_id, refs, root=root)
+    return [record for record in records if record.get("recordType") in (None, RECORD_CORRECTION)]
+
+
 def validate_correction(event: dict[str, Any]) -> None:
     """Public validation entry (the route validates before resolving the round)."""
     _validate(event)
