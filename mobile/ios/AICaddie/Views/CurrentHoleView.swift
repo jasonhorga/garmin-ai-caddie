@@ -302,6 +302,27 @@ public struct CurrentHoleView: View {
     init(package: LiveRoundPackage, hole: Hole, snapshotState: SnapshotState) {
         self.init(package: package, hole: hole)
         self.snapshotState = snapshotState
+        // Seed the state directly: a headless capture can render before `.task(id:)` runs, so the
+        // snapshot must not depend on that task. `applySnapshotState()` re-applies it after the
+        // per-hole reset if the task does run first.
+        let prep = package.coursePrep?.holes.first { $0.hole == hole.number }
+        if snapshotState.selectsFirstHazard, let prep,
+           let first = LiveHazardDisplayItem.rows(for: prep, liveReadouts: nil).first {
+            _selectedHazardID = State(initialValue: first.id)
+        }
+        let routes = snapshotState.caddieRoutes
+        if let first = routes.first {
+            let selected = routes.indices.contains(snapshotState.selectedRouteIndex)
+                ? routes[snapshotState.selectedRouteIndex]
+                : first
+            _caddieRoutesByHole = State(initialValue: [hole.number: routes])
+            _retainedCaddieRouteByHole = State(initialValue: [hole.number: first])
+            _selectedCaddieRouteByHole = State(
+                initialValue: [hole.number: LiveCaddieRouteAuthority.routeSignature(selected)]
+            )
+            _explicitlySelectedCaddieRouteHoles = State(initialValue: [hole.number])
+        }
+        _heroMapScale = State(initialValue: min(max(snapshotState.mapScale, 1), 4))
     }
 
     @MainActor

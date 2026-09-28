@@ -507,6 +507,12 @@ final class DesignSnapshotTests: XCTestCase {
                     dark: true
                 )
             }
+            // Each injected state must actually render: identical PNGs mean the state was dropped.
+            let snapshotDir = try FileManager.default
+                .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+                .appendingPathComponent("design-snapshots", isDirectory: true)
+            let rendered = try states.map { try Data(contentsOf: snapshotDir.appendingPathComponent("\($0.0).png")) }
+            XCTAssertEqual(Set(rendered).count, states.count, "live-map snapshot states rendered identically")
         }
 
         // No-network topo fallback: pass a topoURL (as production does for a real course) but CI has
