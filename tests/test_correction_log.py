@@ -331,22 +331,21 @@ class RepairAndDurabilityTest(_Store):
         self.assertEqual(stored["audit"]["status"], "ok")
         self.assertEqual(stored["audit"]["sourceRevision"], "r1")
 
-        # A source that never settles: the event is stored, the audit stays pending, nothing is diffed.
+        # A source that never settles: the round's identity is unknown, so nothing is written and
+        # repair decides nothing either.
         counter = iter(range(100))
         with mock.patch.object(stats_cache, "history_source_revision", side_effect=lambda _pid: f"r{next(counter)}"):
-            churn = rc.append_correction("me", "42", {"op": "setHolePenalty", "hole": 4, "value": 2}, data_loader=loader)
+            with self.assertRaisesRegex(ca.IdentityUnavailable, "changed during every read"):
+                rc.append_correction("me", "42", {"op": "setHolePenalty", "hole": 4, "value": 2}, data_loader=loader)
             self.assertEqual(ca.repair_pending_audits("me", "42", annotation_root=self.root, data_loader=loader), [])
-        self.assertEqual(churn["audit"]["status"], "pending")
-        self.assertIn("changed during every read", churn["audit"]["reason"])
-        self.assertEqual(len(rc.load_correction_events("me", "42")), 2)
+        self.assertEqual(len(rc.load_correction_events("me", "42")), 1)
 
-    def test_history_outage_stores_the_event_with_a_pending_audit(self) -> None:
-        stored = rc.append_correction("me", "42", {"op": "setHolePenalty", "hole": 4, "value": 1},
-                                      data_loader=self.failing_loader)
-        self.assertEqual(stored["audit"]["status"], "pending")
-        self.assertIsNone(stored["audit"]["sourceFingerprint"])
-        repairs = ca.repair_pending_audits("me", "42", annotation_root=self.root, data_loader=lambda: self.data)
-        self.assertEqual(repairs[0]["audit"]["status"], "unrecoverable")
+    def test_history_outage_rejects_the_write_without_storing_anything(self) -> None:
+        with self.assertRaises(ca.IdentityUnavailable):
+            rc.append_correction("me", "42", {"op": "setHolePenalty", "hole": 4, "value": 1},
+                                 data_loader=self.failing_loader)
+        self.assertEqual(rc.load_correction_events("me", "42"), [])
+        self.assertFalse(rc.corrections_dir("me").exists() and any(rc.corrections_dir("me").glob("*.jsonl")))
 
     def test_repair_with_unreadable_history_keeps_everything_pending(self) -> None:
         with mock.patch.object(ca, "_hole_view", side_effect=RuntimeError("geometry failed")):
@@ -439,6 +438,20 @@ class MergedRoundAliasTest(_Store):
         self.assertTrue(rc._corrections_path("me", "canon").exists())
         self.assertFalse(rc._corrections_path("me", "a1").exists())
         self.assertFalse(rc._corrections_path("me", "a2").exists())
+
+    def test_an_alias_retry_while_history_is_unreadable_writes_nothing(self) -> None:
+        event = {"op": "setHolePenalty", "hole": 4, "value": 1, "clientMutationId": "same"}
+        first = self.write_as("canon", dict(event))
+
+        def offline():
+            raise RuntimeError("offline")
+
+        with self.assertRaises(ca.IdentityUnavailable):
+            rc.append_correction("me", "a1", dict(event), data_loader=offline)
+        self.assertFalse(rc._corrections_path("me", "a1").exists())
+        self.assertEqual([e["eventId"] for e in rc.load_round_events("me", ["canon", "a1", "a2"])], [first["eventId"]])
+        # Once history is readable the retry resolves to the stored mutation.
+        self.assertEqual(self.write_as("a1", dict(event))["eventId"], first["eventId"])
 
     def test_alias_history_joins_seq_replay_and_the_before_chain(self) -> None:
         # A pre-canonicalization write stored under a member id.
@@ -545,6 +558,18 @@ class CorrectionLogRouteTest(unittest.TestCase):
         self.assertEqual(bad.status_code, 400)
         missing = self.client.get("/api/v2/history/rounds/nope/correction-log", headers=self.a)
         self.assertEqual(missing.status_code, 404)
+
+    def test_unreadable_history_during_the_audit_is_a_retryable_503(self) -> None:
+        with mock.patch("server_v2.main.load_history_data_for_mode",
+                        side_effect=[(self.data, "local"), RuntimeError("offline")] + [RuntimeError("offline")] * 3):
+            response = self.client.post("/api/v2/history/rounds/42/corrections", headers=self.a,
+                                        json={"op": "setHolePenalty", "hole": 4, "value": 1, "clientMutationId": "m"})
+        self.assertEqual(response.status_code, 503)
+        retry = self.client.post("/api/v2/history/rounds/42/corrections", headers=self.a,
+                                 json={"op": "setHolePenalty", "hole": 4, "value": 1, "clientMutationId": "m"})
+        self.assertEqual(retry.status_code, 201)
+        log = self.client.get("/api/v2/history/rounds/42/correction-log", headers=self.a).json()
+        self.assertEqual(len(log["entries"]), 1)
 
     def test_late_repair_appears_after_the_cursor(self) -> None:
         with mock.patch.object(ca, "_hole_view", side_effect=RuntimeError("geometry failed")):

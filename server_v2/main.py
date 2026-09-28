@@ -717,6 +717,9 @@ def add_round_correction(
         raise HTTPException(status_code=400, detail=str(exc))
     except correction_audit.CorrectionConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except correction_audit.IdentityUnavailable as exc:
+        # Nothing was written; the client retries with the same clientMutationId.
+        raise HTTPException(status_code=503, detail=str(exc))
     audit = stored.get("audit") or {}
     return RoundCorrectionResponse(stored=stored, auditPending=audit.get("status") == "pending")
 

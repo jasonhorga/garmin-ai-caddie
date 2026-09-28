@@ -285,6 +285,10 @@ def append_correction(
 
     The only writer of this store: it takes the player's audit lock itself (see ``correction_audit``),
     so tests and jobs calling it directly cannot bypass the lock.
+
+    Raises ``correction_audit.IdentityUnavailable`` (nothing written) when history cannot be read
+    coherently: the canonical round, and so the dedupe scope of ``clientMutationId``, is unknown.
+    Background callers must retry later rather than fall back to the requested ref.
     """
     _validate(event)
     from ai_caddie.rounds import correction_audit  # round_shot_map imports this module

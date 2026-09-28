@@ -62,6 +62,14 @@ class InvalidCursor(ValueError):
     pass
 
 
+class IdentityUnavailable(Exception):
+    """History could not be read coherently, so a correction's canonical round cannot be resolved.
+
+    Nothing is written: storing under the requested ref could file a merged round's alias as a new
+    canonical round and turn a retried mutation into a second event. Retry once history is readable.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Lock, counter, durable append
 # ---------------------------------------------------------------------------
@@ -475,9 +483,10 @@ def write_correction(
         loader = data_loader or _default_loader(player_id)
         try:
             data, source_revision = load_coherent(player_id, loader)
-            load_error = None
         except Exception as exc:
-            data, source_revision, load_error = None, None, exc
+            # Without history the round's identity is unknown: reject instead of guessing (see
+            # IdentityUnavailable). A diff failure on readable history still stores a pending audit.
+            raise IdentityUnavailable(f"history unavailable: {exc}") from exc
         canonical_ref, refs = round_identity(data, round_ref)
         existing = rc.load_round_events(player_id, refs, root=root)
         cmid = event.get("clientMutationId")
@@ -493,12 +502,8 @@ def write_correction(
         stored["seq"] = max((_int(prior.get("seq")) or 0 for prior in existing), default=0) + 1
         stored["ts"] = _now(now)
         stored["requestDigest"] = digest
-        if data is None:
-            stored["audit"] = {"status": "pending", "reason": f"history unavailable: {load_error}"[:500],
-                               "sourceFingerprint": None, "entries": []}
-        else:
-            stored["audit"] = build_correction_audit(data, canonical_ref, existing, stored)
-            stored["audit"]["sourceRevision"] = source_revision
+        stored["audit"] = build_correction_audit(data, canonical_ref, existing, stored)
+        stored["audit"]["sourceRevision"] = source_revision
         stored["auditSeq"] = next_audit_seq(player_id, root=root)
         append_record(rc._corrections_path(player_id, canonical_ref, root), stored)
         return stored

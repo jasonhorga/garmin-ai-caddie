@@ -130,7 +130,7 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
   - 更正回放顺序：旧文件的事件按文件行序在前，新文件按行序在后；新文件的单局 `seq` 从旧、新两个文件里的最大 `seq` 往后接。
   - 旧记录没有审计，不进纠错日志，所以日志游标只涉及新记录，不会和旧记录交错。
 - 写入和读取都先确认该 ref 能在本人历史里找到，找不到返回 `404`。
-- **合并局的身份**：写入前按历史把 ref 解析成规范 id（`row.id`），事件只写进规范 id 的文件；去重、`seq`、回放和前值都跨这一局的所有 ref（规范 id 加成员 id 的旧 / 新文件）合并计算，所以经成员 id 重试是同一次修改（相同请求体返回原记录，不同请求体 `409`）。shot map 读取走同一套解析（`correction_audit.round_identity` + `round_corrections.load_round_events`）。合并顺序：没有 `auditSeq` 的旧记录在前（按 `ts`、再按文件顺序），之后按 `auditSeq`。
+- **合并局的身份**：写入前按历史把 ref 解析成规范 id（`row.id`），事件只写进规范 id 的文件；去重、`seq`、回放和前值都跨这一局的所有 ref（规范 id 加成员 id 的旧 / 新文件）合并计算，所以经成员 id 重试是同一次修改（相同请求体返回原记录，不同请求体 `409`）。shot map 读取走同一套解析（`correction_audit.round_identity` + `round_corrections.load_round_events`）。**历史读不出来（离线、连续变化）时拒绝写入更正事件**（`IdentityUnavailable`，接口返回可重试的 `503`，什么都不写）：此时无法确定规范 id 和去重范围，按请求里的 ref 落盘可能把成员 id 当成新局、把重试变成第二条事件。后台调用方必须稍后重试，不能退回用请求 ref。历史可读但做差失败时，事件仍照常写入、审计记 `pending`。合并顺序：没有 `auditSeq` 的旧记录在前（按 `ts`、再按文件顺序），之后按 `auditSeq`。
 - `GET /api/v2/history/rounds/{ref}/correction-log?after=<cursor>&limit=<n>`：只读本人（player 取自 token，路径里没有 player）；`limit` 默认 200、上限 1000。
   - 最终顺序：两个存储合并后按 `(auditSeq, 条目序号)` 排序，这是全局的因果顺序。
   - 修复记录用它自己写入时分配的新 `auditSeq`（带 `repairsEventId` 指回原事件），所以已经翻过去的游标不会漏掉后来补上的条目。
