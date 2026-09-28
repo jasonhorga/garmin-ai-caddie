@@ -378,10 +378,9 @@ enum LivePlannedRouteRenderer {
                 into: size,
                 topInset: topInset
             ) else { return nil }
-            return CGPoint(
-                x: centre.x + (base.x - centre.x) * scale + offset.width,
-                y: centre.y + (base.y - centre.y) * scale + offset.height
-            )
+            let x: CGFloat = centre.x + (base.x - centre.x) * scale + offset.width
+            let y: CGFloat = centre.y + (base.y - centre.y) * scale + offset.height
+            return CGPoint(x: x, y: y)
         }
         let screenLegs = legs.compactMap { leg -> (leg: MapPlannedLeg, origin: CGPoint, destination: CGPoint)? in
             guard let origin = screen(leg.origin), let destination = screen(leg.destination) else { return nil }
@@ -464,29 +463,43 @@ enum LivePlannedRouteRenderer {
         if length > 1 { dx /= length; dy /= length } else { dx = 0; dy = -1 }
         let normal = CGPoint(x: -dy, y: dx)
         let gap: CGFloat = 12
-        let across = abs(normal.x) * w / 2 + abs(normal.y) * h / 2 + gap
+        let acrossX: CGFloat = abs(normal.x) * w / 2
+        let acrossY: CGFloat = abs(normal.y) * h / 2
+        let across: CGFloat = acrossX + acrossY + gap
+        let halfW: CGFloat = w / 2
+        let halfH: CGFloat = h / 2
         let centres: [CGPoint]
         if endsAtPin {
-            let flagHeight = LiveMapFlagRenderer.poleHeight * flagScale
-            let flagWidth = (LiveMapFlagRenderer.pennantWidth + 2) * flagScale
+            let flagHeight: CGFloat = LiveMapFlagRenderer.poleHeight * flagScale
+            let flagWidth: CGFloat = (LiveMapFlagRenderer.pennantWidth + 2) * flagScale
+            let flagMidY: CGFloat = landing.y - flagHeight / 2
+            let leftX: CGFloat = landing.x - gap - halfW
+            let rightX: CGFloat = landing.x + flagWidth + gap + halfW
+            let aboveY: CGFloat = landing.y - flagHeight - gap - halfH
+            let belowY: CGFloat = landing.y + gap + halfH
             centres = [
-                CGPoint(x: landing.x - gap - w / 2, y: landing.y - flagHeight / 2),
-                CGPoint(x: landing.x + flagWidth + gap + w / 2, y: landing.y - flagHeight / 2),
-                CGPoint(x: landing.x, y: landing.y - flagHeight - gap - h / 2),
-                CGPoint(x: landing.x, y: landing.y + gap + h / 2),
+                CGPoint(x: leftX, y: flagMidY),
+                CGPoint(x: rightX, y: flagMidY),
+                CGPoint(x: landing.x, y: aboveY),
+                CGPoint(x: landing.x, y: belowY),
             ]
         } else {
+            let offsetX: CGFloat = normal.x * across
+            let offsetY: CGFloat = normal.y * across
+            let clearance: CGFloat = gap + 8 + halfH
             centres = [
-                CGPoint(x: landing.x + normal.x * across, y: landing.y + normal.y * across),
-                CGPoint(x: landing.x - normal.x * across, y: landing.y - normal.y * across),
-                CGPoint(x: landing.x, y: landing.y - gap - 8 - h / 2),
-                CGPoint(x: landing.x, y: landing.y + gap + 8 + h / 2),
+                CGPoint(x: landing.x + offsetX, y: landing.y + offsetY),
+                CGPoint(x: landing.x - offsetX, y: landing.y - offsetY),
+                CGPoint(x: landing.x, y: landing.y - clearance),
+                CGPoint(x: landing.x, y: landing.y + clearance),
             ]
         }
-        let rects = centres.map { CGRect(x: $0.x - w / 2, y: $0.y - h / 2, width: w, height: h) }
+        let rects = centres.map { CGRect(x: $0.x - halfW, y: $0.y - halfH, width: w, height: h) }
         func conflicts(_ rect: CGRect) -> Int {
-            occupied.filter { $0.intersects(rect) }.count
-                + routeSamples.filter { rect.insetBy(dx: -2, dy: -2).contains($0) }.count
+            let padded = rect.insetBy(dx: -2, dy: -2)
+            let overlaps: Int = occupied.filter { $0.intersects(rect) }.count
+            let crossings: Int = routeSamples.filter { padded.contains($0) }.count
+            return overlaps + crossings
         }
         if let clear = rects.first(where: { viewport.contains($0) && conflicts($0) == 0 }) {
             return clear
@@ -504,14 +517,23 @@ enum LivePlannedRouteRenderer {
     static func samples(along arc: MapFlightArc) -> [CGPoint] {
         let length = hypot(arc.end.x - arc.start.x, arc.end.y - arc.start.y)
         let count = max(2, Int(length / 6))
-        return (0...count).map { step in
+        var points: [CGPoint] = []
+        points.reserveCapacity(count + 1)
+        for step in 0...count {
             let t = CGFloat(step) / CGFloat(count)
-            let u = 1 - t
-            return CGPoint(
-                x: u * u * arc.start.x + 2 * u * t * arc.control.x + t * t * arc.end.x,
-                y: u * u * arc.start.y + 2 * u * t * arc.control.y + t * t * arc.end.y
-            )
+            points.append(quadPoint(arc, t: t))
         }
+        return points
+    }
+
+    private static func quadPoint(_ arc: MapFlightArc, t: CGFloat) -> CGPoint {
+        let u: CGFloat = 1 - t
+        let a: CGFloat = u * u
+        let b: CGFloat = 2 * u * t
+        let c: CGFloat = t * t
+        let x: CGFloat = a * arc.start.x + b * arc.control.x + c * arc.end.x
+        let y: CGFloat = a * arc.start.y + b * arc.control.y + c * arc.end.y
+        return CGPoint(x: x, y: y)
     }
 
     private static func clampedRect(_ rect: CGRect, into bounds: CGRect) -> CGRect {
