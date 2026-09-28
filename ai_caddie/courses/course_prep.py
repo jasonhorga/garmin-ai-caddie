@@ -309,6 +309,15 @@ def _component_boundary_edges(triangles) -> list[tuple[tuple[float, float], tupl
 def _ordered_component_boundary(triangles) -> list[tuple[float, float]]:
     """Return the largest closed exterior boundary loop of a triangulated surface.
 
+    See :func:`_component_boundary_loops`; the largest loop is the outside of the surface.
+    """
+    loops = _component_boundary_loops(triangles)
+    return loops[0] if loops else []
+
+
+def _component_boundary_loops(triangles, edges=None) -> list[list[tuple[float, float]]]:
+    """Every closed boundary loop of a triangulated surface, largest area first.
+
     ``Green.drc`` is a filled triangle mesh, not a display ellipse.  Its factual edge is the set of
     triangle edges that occurs only once.  Keep those edges in their mesh order so the phone and
     Watch can draw and measure the same irregular outline.  A component can contain an interior
@@ -316,7 +325,8 @@ def _ordered_component_boundary(triangles) -> list[tuple[float, float]]:
     the outside of the putting surface.  The helper is deliberately geometry-only and deterministic
     so a changed triangle ordering cannot make the UI jump between equivalent outlines.
     """
-    edges = _component_boundary_edges(triangles)
+    if edges is None:
+        edges = _component_boundary_edges(triangles)
     if not edges:
         return []
 
@@ -368,9 +378,7 @@ def _ordered_component_boundary(triangles) -> list[tuple[float, float]]:
         if closed and len(loop) >= 3 and abs(signed_area(loop)) > 1e-6:
             loops.append(loop)
 
-    if not loops:
-        return []
-    return max(loops, key=lambda loop: (abs(signed_area(loop)), tuple(loop)))
+    return sorted(loops, key=lambda loop: (abs(signed_area(loop)), tuple(loop)), reverse=True)
 
 
 MAX_HAZARD_OUTLINE_POINTS = 64
@@ -419,6 +427,180 @@ def _selected_green_boundary(by: dict, route) -> list[tuple[float, float]]:
     if not component:
         return []
     return _ordered_component_boundary(component.get("triangles") or [])
+
+
+FAIRWAY_ROUTE_MAX_M = 15.0  # a Fairway.drc component belongs to this hole only if the route passes this close
+MAX_FAIRWAY_RING_POINTS = 96
+FAIRWAY_OUTLINE_VERSION = 1
+
+
+def _signed_area(ring) -> float:
+    return 0.5 * sum(
+        first[0] * second[1] - second[0] * first[1]
+        for first, second in zip(ring, ring[1:] + ring[:1])
+    )
+
+
+def _segment_bbox_gap(start, end, bbox) -> float:
+    """Lower bound of the distance between a segment and an axis-aligned box (0 when they overlap)."""
+    min_x, min_y, max_x, max_y = bbox
+    gap_x = max(min_x - max(start[0], end[0]), min(start[0], end[0]) - max_x, 0.0)
+    gap_y = max(min_y - max(start[1], end[1]), min(start[1], end[1]) - max_y, 0.0)
+    return math.hypot(gap_x, gap_y)
+
+
+def _route_within(route, component, limit: float) -> tuple[bool, list | None]:
+    """Whether the route passes within ``limit`` metres of a mesh component.
+
+    Returns ``(near, boundary_edges)`` so the caller can reuse the boundary graph.  Components
+    whose bounding box is farther than ``limit`` from every route segment are rejected before any
+    boundary work (most of a Fairway.drc tile belongs to other holes); the edge scan stops at the
+    first edge within the limit.
+    """
+    points = [(float(point[0]), float(point[1])) for point in route]
+    segments = list(zip(points, points[1:]))
+    bbox = component.get("bbox")
+    if bbox and all(_segment_bbox_gap(start, end, bbox) > limit for start, end in segments):
+        return False, None
+    edges = _component_boundary_edges(component.get("triangles") or [])
+    if not edges:
+        return False, edges
+    if any(_point_inside_boundary(point, edges) for point in points):
+        return True, edges
+    for start, end in segments:
+        seg_box = (min(start[0], end[0]) - limit, min(start[1], end[1]) - limit,
+                   max(start[0], end[0]) + limit, max(start[1], end[1]) + limit)
+        for edge_start, edge_end in edges:
+            if (max(edge_start[0], edge_end[0]) < seg_box[0] or min(edge_start[0], edge_end[0]) > seg_box[2]
+                    or max(edge_start[1], edge_end[1]) < seg_box[1] or min(edge_start[1], edge_end[1]) > seg_box[3]):
+                continue
+            if _segment_edges_intersect(start, end, [(edge_start, edge_end)]):
+                return True, edges
+            for a, b, c in ((start, edge_start, edge_end), (end, edge_start, edge_end),
+                            (edge_start, start, end), (edge_end, start, end)):
+                closest = _closest_point_on_segment(a, b, c)
+                if math.hypot(a[0] - closest[0], a[1] - closest[1]) <= limit:
+                    return True, edges
+    return False, edges
+
+
+def _segment_edges_intersect(start, end, boundary_edges) -> bool:
+    def orient(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    for a, b in boundary_edges:
+        d1, d2 = orient(a, b, start), orient(a, b, end)
+        d3, d4 = orient(start, end, a), orient(start, end, b)
+        if ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0)) and d1 and d2 and d3 and d4:
+            return True
+    return False
+
+
+def _mesh_components_near_route(mesh: dict, route, limit: float) -> list[dict]:
+    """Connected components of a surface mesh whose bounding box comes within ``limit`` of the route.
+
+    A lighter sibling of ``measure_prodgeometry_distances.mesh_components`` for the per-hole
+    fairway pass: a ``Fairway.drc`` tile holds every nearby hole's fairway, so triangles, bbox and
+    boundary are only built for the few components the route can reach.  Vertices are unioned per
+    face (no per-vertex face lists) and component areas/centroids are not computed.
+    """
+    from ai_caddie.geometry.measure_prodgeometry_distances import Dsu
+
+    raw_positions = mesh.get("positions") or []
+    faces = mesh.get("faces") or []
+    dsu = Dsu(len(raw_positions))
+    for a, b, c in faces:
+        dsu.union(a, b)
+        dsu.union(a, c)
+    grouped: dict[int, list] = {}
+    for face in faces:
+        grouped.setdefault(dsu.find(face[0]), []).append(face)
+    points = [(float(point[0]), float(point[1])) for point in route]
+    segments = list(zip(points, points[1:]))
+    out = []
+    for group in grouped.values():
+        vertices = {index for face in group for index in face}
+        xs = [-float(raw_positions[index][0]) for index in vertices]
+        ys = [float(raw_positions[index][2]) for index in vertices]
+        bbox = (min(xs), min(ys), max(xs), max(ys))
+        if all(_segment_bbox_gap(start, end, bbox) > limit for start, end in segments):
+            continue
+        local = {index: (-float(raw_positions[index][0]), float(raw_positions[index][2])) for index in vertices}
+        out.append({
+            "triangles": [(local[a], local[b], local[c]) for a, b, c in group],
+            "bbox": bbox,
+        })
+    return out
+
+
+def _fairway_outline(by: dict, route, md: dict | None, to_px) -> dict | None:
+    """``HolePrep.fairwayOutline`` (version 1) from this hole's ``Fairway.drc`` components.
+
+    Contract (IMPLEMENTATION_PLAN B0): ``polygons`` of ``outerPx``/``holesPx`` in the same display
+    frame as ``greenOutline.pointsPx`` plus ``outerLatLon``/``holesLatLon`` as ``[lat, lon]`` WGS84
+    degrees (7 decimals).  Rings are not closed, have >= 3 points and are normalised to RFC 7946
+    winding (outer counter-clockwise, holes clockwise in lon/lat); consumers must not rely on it.
+    ``None`` when the hole has no fairway mesh near its route or no RefLat/RefLon anchor (without
+    the anchor the tee-result classifier could not use GPS anyway).
+    """
+    fairway = (by or {}).get("Fairway.drc") if isinstance(by, dict) else None
+    hole_meta = (md or {}).get("hole") or {}
+    ref_lat, ref_lon = hole_meta.get("RefLat"), hole_meta.get("RefLon")
+    if not isinstance(fairway, dict) or not route or len(route) < 2 or ref_lat is None or ref_lon is None:
+        return None
+    try:
+        ref_lat, ref_lon = float(ref_lat), float(ref_lon)
+        components = _mesh_components_near_route(fairway, route, FAIRWAY_ROUTE_MAX_M)
+    except Exception:
+        return None
+
+    def to_world(point):
+        lat, lon = shot_projection.local_to_world(point[0], point[1], ref_lat=ref_lat, ref_lon=ref_lon)
+        return (lat, lon)
+
+    def oriented(ring, counter_clockwise: bool):
+        # Winding is judged in (lon, lat); the local metre frame is (east, north), i.e. the same sense.
+        is_ccw = _signed_area(ring) > 0
+        return ring if is_ccw == counter_clockwise else list(reversed(ring))
+
+    polygons = []
+    for component in components:
+        near, edges = _route_within(route, component, FAIRWAY_ROUTE_MAX_M)
+        if not near:
+            continue
+        loops = _component_boundary_loops(component.get("triangles") or [], edges)
+        if not loops:
+            continue
+        outer = oriented(_compact_boundary_points(loops[0], maximum=MAX_FAIRWAY_RING_POINTS), True)
+        holes = [
+            oriented(_compact_boundary_points(loop, maximum=MAX_FAIRWAY_RING_POINTS), False)
+            for loop in loops[1:]
+        ]
+        holes = [hole for hole in holes if len(hole) >= 3]
+        if len(outer) < 3:
+            continue
+
+        def px_ring(ring):
+            return [[round(x, 1), round(y, 1)] for x, y in (to_px(point) for point in ring)]
+
+        def world_ring(ring):
+            return [[round(lat, 7), round(lon, 7)] for lat, lon in (to_world(point) for point in ring)]
+
+        polygons.append((abs(_signed_area(outer)), {
+            "outerPx": px_ring(outer),
+            "holesPx": [px_ring(hole) for hole in holes],
+            "outerLatLon": world_ring(outer),
+            "holesLatLon": [world_ring(hole) for hole in holes],
+        }))
+    if not polygons:
+        return None
+    # Largest section first, deterministic whatever order the mesh stores its components in.
+    polygons.sort(key=lambda row: (-row[0], row[1]["outerLatLon"]))
+    return {
+        "version": FAIRWAY_OUTLINE_VERSION,
+        "source": "prodgeometry.Fairway.drc",
+        "polygons": [row[1] for row in polygons],
+    }
 
 
 def _closest_point_on_segment(point, start, end):
@@ -1142,6 +1324,8 @@ class HolePrep:
     greenSlope: dict = field(default_factory=dict)  # {available, magnitudePct, directionDeg (break dir), flat}
     holeImageProjection: dict = field(default_factory=dict)  # watch P0.1: geo→px anchors for the topo map
     greenOutline: dict | None = None  # selected Green.drc/CourseView boundary in the display frame
+    # B0: this hole's Fairway.drc outline; ``None`` = no fairway geometry (no tee-result preselect).
+    fairwayOutline: dict | None = None
     # Selected-Tee facts, present only when a ``tee_set`` was requested AND resolved on this hole.
     # ``blue_yards`` keeps its Blue meaning; ``teeYards`` is the selected Tee's route length, which
     # ``route``/``route_len_m``/hazards/strategy/green distances then describe.
@@ -2502,6 +2686,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         greenDistances=_green_distances(by, route, md),
         greenSlope=_green_slope(by, route),
         holeImageProjection=_hole_image_projection(by, display_route, md, frame=frame),
+        fairwayOutline=_fairway_outline(by, route, md, to_px),
         greenOutline={
             "available": bool(green_outline_px),
             "source": "prodgeometry.Green.drc.boundary",

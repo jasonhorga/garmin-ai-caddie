@@ -57,7 +57,7 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 }
 ```
 
-- 缺失语义：没有球道几何 = `null`；旧包没有这个键 = 解码为 `null`；`version` 不认识 = 当作 `null`（不报错）。`null` 只影响开球预选和球道统计，不影响地图。
+- 缺失语义：没有球道几何，或本洞没有 RefLat/RefLon 锚点（无法换算经纬度）= `null`；旧包没有这个键 = 解码为 `null`；`version` 不认识 = 当作 `null`（不报错）。`null` 只影响开球预选和球道统计，不影响地图。
 - 环：不闭合（首点不重复），每环 ≥ 3 点；生产端按 RFC 7946 规范化（`outerLatLon` 逆时针、`holesLatLon` 顺时针，以 lon 为横轴）；消费端**不得依赖绕行方向**。
 - 多段球道 = 多个 `polygons`；球道里的沙坑等挖空 = 该 polygon 的 `holes*`。点在球道内 = 落在某个 outer 内且不在它的任何 hole 内。
 - 经纬度数组顺序固定为 `[lat, lon]`（字段名里写明 LatLon），WGS84 度，7 位小数；像素 1 位小数。`outerPx` 与 `outerLatLon` 一一对应。
@@ -65,10 +65,11 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 开球判定（唯一算法，共享向量 `tests/fixtures/tee_result_vectors.json`，Python 单测和 Swift 单测都读它）：
 
 1. 输入：第二杆位置（没有第二杆用首推位置）的经纬度、`fairwayOutline`、`route`、本洞 Par。Par 3、`fairwayOutline = null`、没有位置 → `null`。
-2. 以球道 `outerLatLon` 全部点的平均经纬度为原点，等距矩形投影到米（x 东、y 北）。
+2. 以球道 `outerLatLon` 全部点的平均经纬度为原点，等距矩形投影到米（x 东、y 北，地球半径 6378137 m，与 `shot_projection` 相同）。
 3. 在任一球道 polygon 内，或到最近球道边界 ≤ 0.5 m → `hit`。
-4. 否则取 `route` 上离该点最近的一段（先把 `route` 用 `holeImageProjection` 或 hazards 的 refLat/refLon 转到同一米制坐标；两者都没有 → `null`），
+4. 否则取 `route` 上离该点最近的一段（先把 `route` 用 `holeImageProjection` 或 hazards 的 refLat/refLon 转到同一米制坐标；两者都没有、或路线少于 2 点 → `null`；路线只用来分左右，第 3 步的 `hit` 不依赖路线），
    按“沿路线前进方向”的叉积符号：左侧 `left`，右侧 `right`。
+实现：Python `ai_caddie/courses/tee_result.py`（服务端 / 统计）；取轮廓 `course_prep._fairway_outline`（本洞路线 15 m 内的 `Fairway.drc` 连通块）。
 5. 向量至少覆盖：球道中、左、右、贴边 0.4 m / 0.6 m、多段之间、在挖空里、Par 3、无轮廓、无路线。
 
 地图显示（B1 / B4 / B6 都按这张表，和 README 的地图降级契约一致）：
