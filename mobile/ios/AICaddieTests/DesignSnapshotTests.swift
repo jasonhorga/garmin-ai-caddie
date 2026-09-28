@@ -467,9 +467,23 @@ final class DesignSnapshotTests: XCTestCase {
         try captureScreen(VStack { HoleImageMapView(hole: prepHole).frame(height: 460) }.padding(24), named: "hole-map")
 
         // B1 live main screen: the same synthetic map attached to the fixture's first hole, so the
-        // full-screen map, the corner controls and the top-right ladder are reviewable together.
+        // full-screen map, the corner controls, the top-right ladder and the labelled caddie route
+        // ("杆名 码数" at every landing) are reviewable together. Each state is injected up front
+        // so the captures are deterministic: default (no obstacle), one obstacle selected, the
+        // second of two plans, and a zoomed map with 回到.
         if let firstHole = package.holes.first {
-            let livePrepJSON = prepJSON.replacingOccurrences(of: "{\"hole\":7,", with: "{\"hole\":\(firstHole.number),")
+            let livePrepJSON = """
+            {"hole":\(firstHole.number),"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":375,\
+            "route":[[120,330],[118,180],[120,55]],"steps":[{"club":"D","note":"开球"}],"cautions":[],\
+            "hazards":{"water_carry":[],"bunkers":[],"details":[\
+            {"kind":"water","frontM":175,"backM":195,"frontRouteM":175,"backRouteM":195,"frontPx":[112,175],"backPx":[110,155],\
+            "outlinePx":[[96,178],[124,176],[128,160],[112,150],[94,158]],"sideM":null},\
+            {"kind":"bunker","frontM":330,"backM":342,"frontRouteM":330,"backRouteM":342,"frontPx":[150,92],"backPx":[152,80],\
+            "outlinePx":[[144,94],[158,92],[160,80],[146,78]],"sideM":18}]},\
+            "map":{"image":"\(b64)","overlay":{"w":\(mapW),"h":\(mapH),"ppm":1.0,"ln":375,\
+            "route":[[120,330,0],[118,180,150],[120,55,375]]}},\
+            "greenDistances":{"available":true,"frontM":360,"middleM":375,"backM":390}}
+            """
             let livePrepHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(livePrepJSON.utf8))
             let mappedPackage = package.replacingCoursePrep(
                 CoursePrepPackage(
@@ -479,11 +493,20 @@ final class DesignSnapshotTests: XCTestCase {
                     missingData: nil
                 )
             )
-            try captureScreen(
-                NavigationStack { CurrentHoleView(package: mappedPackage, hole: firstHole) },
-                named: "full-hole-map",
-                dark: true
-            )
+            let routes = Self.snapshotCaddieRoutes(par: firstHole.par, routeLengthM: 375)
+            let states: [(String, CurrentHoleView.SnapshotState)] = [
+                ("full-hole-map", .init(caddieRoutes: routes)),
+                ("full-hole-map-hazard", .init(selectsFirstHazard: true, caddieRoutes: routes)),
+                ("full-hole-map-plan-2", .init(caddieRoutes: routes, selectedRouteIndex: 1)),
+                ("full-hole-map-zoomed", .init(caddieRoutes: routes, mapScale: 2)),
+            ]
+            for (name, state) in states {
+                try captureScreen(
+                    NavigationStack { CurrentHoleView(package: mappedPackage, hole: firstHole, snapshotState: state) },
+                    named: name,
+                    dark: true
+                )
+            }
         }
 
         // No-network topo fallback: pass a topoURL (as production does for a real course) but CI has
@@ -735,6 +758,55 @@ final class DesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    /// Two physically different complete routes for the live-map snapshots: Par - 2 legs each
+    /// (at least one), the last a scoring leg to the flag, carries summing to the route length.
+    private static func snapshotCaddieRoutes(par: Int, routeLengthM: Double) -> [CaddiePlanSequence] {
+        let legCount = max(1, par - 2)
+        let plans: [(id: String, label: String, clubs: [String], weights: [Double])] = [
+            ("snapshot-stock", "稳健", ["1W", "8I", "9I"], [0.6, 0.4]),
+            ("snapshot-layup", "保守", ["3H", "6I", "PW"], [0.5, 0.5]),
+        ]
+        return plans.map { plan in
+            let weights: [Double] = {
+                switch legCount {
+                case 1: return [1]
+                case 2: return plan.weights
+                default:
+                    let head = Array(repeating: 0.7 / Double(legCount - 1), count: legCount - 1)
+                    return head + [0.3]
+                }
+            }()
+            var offset = 0.0
+            let steps = weights.enumerated().map { index, weight -> CaddiePlanSequenceStep in
+                let carry = (routeLengthM * weight).rounded()
+                offset += carry
+                let isLast = index == weights.count - 1
+                return CaddiePlanSequenceStep(
+                    id: "\(plan.id)-\(index)",
+                    role: isLast ? "scoring" : (index == 0 ? "tee" : "position"),
+                    clubName: plan.clubs[min(index, plan.clubs.count - 1)],
+                    targetCarryM: carry,
+                    expectedRemainingM: isLast ? 0 : routeLengthM - offset,
+                    sampleSize: 12,
+                    confidence: "medium",
+                    sourceRefs: [],
+                    routeOffsetM: isLast ? routeLengthM : offset,
+                    planIndex: index
+                )
+            }
+            return CaddiePlanSequence(
+                id: plan.id,
+                label: plan.label,
+                expectedRemainingM: 0,
+                riskScore: nil,
+                confidence: "medium",
+                coverageText: nil,
+                sourceRefs: [],
+                steps: steps
+            )
+        }
+    }
+
     private func captureScreen(_ view: some View, named name: String, dark: Bool = false) throws {
         let size = CGSize(width: 390, height: 844)
         let style: UIUserInterfaceStyle = dark ? .dark : .light

@@ -187,6 +187,8 @@ public struct CurrentHoleView: View {
     /// only changes the emphasized landing after a player taps a step in the detail sheet.
     @State private var selectedPlanIndex: Int?
     @AppStorage("liveTeeDistanceArcYards") private var teeDistanceArcYards: Int = 220
+    /// Design snapshots only (see `init(package:hole:snapshotState:)`); nil in the app.
+    private var snapshotState: SnapshotState?
 
     private static let holeRootScrollAnchor = "live-hole-root"
     /// The capture implementation remains available, but this evidence card is intentionally absent
@@ -288,6 +290,39 @@ public struct CurrentHoleView: View {
         self._lastTargetEditKind = State(initialValue: restoredTarget?.kind)
     }
 
+    /// Deterministic starting state for design snapshots: one selected obstacle, pre-resolved
+    /// caddie routes and a zoomed map. Applied after the per-hole reset so the capture is stable.
+    struct SnapshotState {
+        var selectsFirstHazard = false
+        var caddieRoutes: [CaddiePlanSequence] = []
+        var selectedRouteIndex = 0
+        var mapScale: CGFloat = 1
+    }
+
+    init(package: LiveRoundPackage, hole: Hole, snapshotState: SnapshotState) {
+        self.init(package: package, hole: hole)
+        self.snapshotState = snapshotState
+    }
+
+    @MainActor
+    private func applySnapshotState() {
+        guard let snapshotState else { return }
+        if snapshotState.selectsFirstHazard, let first = liveHazardDisplayRows.first {
+            selectedHazardID = first.id
+        }
+        let routes = snapshotState.caddieRoutes
+        if let first = routes.first {
+            let selected = routes.indices.contains(snapshotState.selectedRouteIndex)
+                ? routes[snapshotState.selectedRouteIndex]
+                : first
+            caddieRoutesByHole[hole.number] = routes
+            retainedCaddieRouteByHole[hole.number] = first
+            selectedCaddieRouteByHole[hole.number] = routeKey(selected)
+            explicitlySelectedCaddieRouteHoles.insert(hole.number)
+        }
+        heroMapScale = min(max(snapshotState.mapScale, 1), 4)
+    }
+
     public var body: some View {
         liveHoleContent
         // The app shell is intentionally light, but this approved live-play surface is dark.
@@ -356,6 +391,7 @@ public struct CurrentHoleView: View {
             // Publish the deterministic package/offline route before the first network frame. A
             // deferred hole therefore never renders a lone club while the map request is pending.
             reconcileCaddieRoutes()
+            applySnapshotState()
             #if DEBUG
             // The package already carries factual Tee coordinates for every ready hole. Move the
             // deterministic multi-hole simulator journey before waiting on the per-hole prep GET;
@@ -853,6 +889,24 @@ public struct CurrentHoleView: View {
                 .scaleEffect(heroDisplayedMapScale)
                 .offset(heroDisplayedMapOffset(in: geo.size))
 
+                if let holePrep, let overlay = holePrep.resolvedMapOverlay {
+                    let legs = liveHoleImageMap(holePrep).plannedLegs()
+                    Canvas { context, size in
+                        LivePlannedRouteRenderer.draw(
+                            &context,
+                            size: size,
+                            legs: legs,
+                            overlay: overlay,
+                            scale: heroDisplayedMapScale,
+                            offset: heroDisplayedMapOffset(in: size),
+                            topInset: LivePlayMapOverlayLayout.liveMapTopInset
+                        )
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+
                 if let holePrep, let selectedLiveHazard {
                     Canvas { context, size in
                         LiveHazardOverlayRenderer.draw(
@@ -1110,6 +1164,23 @@ public struct CurrentHoleView: View {
     /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时回退暗色渐变占位。
     @ViewBuilder private var liveMapBackdrop: some View {
         if let holePrep, holePrep.resolvedMapOverlay != nil {
+            liveHoleImageMap(holePrep)
+                .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier(
+                        holePrep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
+                            ? "live-hole-map-partial"
+                            : "live-hole-map-\(holePrep.geometryCoverage.lowercased())"
+                    )
+        } else {
+            // A loading surface is warranted only when there is no route projection to draw yet.
+            // `isPreciseHoleMapPending` must never hide an already usable lightweight map.
+            LiveMapPreparingSurface(holeNumber: hole.number)
+        }
+    }
+
+    /// One configured map for both the bitmap layer and the viewport-plane route layer, so the
+    /// labelled legs are exactly the ones the bitmap would have drawn.
+    private func liveHoleImageMap(_ holePrep: CoursePrepHole) -> HoleImageMapView {
             HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
                              pinOverlayPixel: effectiveMapPinPixel,
                              topoURL: liveTopoURL, showsCardChrome: false,
@@ -1126,18 +1197,10 @@ public struct CurrentHoleView: View {
                              showsClubLabel: false,
                              teeDistanceArcYards: showsTeeDistanceArc ? teeDistanceArcYards : nil,
                              plannedShots: livePlannedShots,
-                             selectedPlanIndex: selectedPlanIndex)
-                .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier(
-                        holePrep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
-                            ? "live-hole-map-partial"
-                            : "live-hole-map-\(holePrep.geometryCoverage.lowercased())"
-                    )
-        } else {
-            // A loading surface is warranted only when there is no route projection to draw yet.
-            // `isPreciseHoleMapPending` must never hide an already usable lightweight map.
-            LiveMapPreparingSurface(holeNumber: hole.number)
-        }
+                             selectedPlanIndex: selectedPlanIndex,
+                             // `LivePlannedRouteRenderer` draws the route with its "杆名 码数"
+                             // labels in the viewport plane (screen-size type at every zoom).
+                             drawsPlannedRouteInMap: false)
     }
 
     /// The distance reference is useful only before the first full shot of a hole. With no GPS
