@@ -164,7 +164,11 @@ public struct CurrentHoleView: View {
     @State private var showManage = false
     @State private var showRoundSummary = false
     @State private var showDiscardConfirmation = false
-    @State private var showMapDetail = false
+    /// B1c Touch Target on the main map: screen point of the finger while the target is dragged
+    /// (drives the loupe), whether that drag owns the gesture, and a one-runloop tap suppressor.
+    @State private var heroTargetDragLocation: CGPoint?
+    @State private var heroTargetDragging = false
+    @State private var heroTargetDidDrag = false
     @State private var showGreenDetail = false
     @State private var selectedHazardID: String?
     @State private var scoreDraft: LiveScoreDraft?
@@ -297,6 +301,9 @@ public struct CurrentHoleView: View {
         var caddieRoutes: [CaddiePlanSequence] = []
         var selectedRouteIndex = 0
         var mapScale: CGFloat = 1
+        /// A placed Touch Target (topo pixels) and, optionally, a held finger showing the loupe.
+        var targetPixel: CGPoint?
+        var targetDragFocus: CGPoint?
     }
 
     init(package: LiveRoundPackage, hole: Hole, snapshotState: SnapshotState) {
@@ -323,6 +330,10 @@ public struct CurrentHoleView: View {
             _explicitlySelectedCaddieRouteHoles = State(initialValue: [hole.number])
         }
         _heroMapScale = State(initialValue: min(max(snapshotState.mapScale, 1), 4))
+        if let targetPixel = snapshotState.targetPixel {
+            _targetPixel = State(initialValue: targetPixel)
+            _heroTargetDragLocation = State(initialValue: snapshotState.targetDragFocus)
+        }
     }
 
     @MainActor
@@ -342,6 +353,10 @@ public struct CurrentHoleView: View {
             explicitlySelectedCaddieRouteHoles.insert(hole.number)
         }
         heroMapScale = min(max(snapshotState.mapScale, 1), 4)
+        if let targetPixel = snapshotState.targetPixel {
+            self.targetPixel = targetPixel
+            heroTargetDragLocation = snapshotState.targetDragFocus
+        }
     }
 
     public var body: some View {
@@ -458,9 +473,6 @@ public struct CurrentHoleView: View {
                 current: selectedHazardID,
                 availableIDs: ids
             )
-        }
-        .fullScreenCover(isPresented: $showMapDetail) {
-            mapDetailSurface
         }
         .fullScreenCover(isPresented: $showGreenDetail) {
             greenDetailSurface
@@ -677,43 +689,6 @@ public struct CurrentHoleView: View {
     #endif
 
     @ViewBuilder
-    private var mapDetailSurface: some View {
-        if let holePrep, !isPreciseHoleMapPending {
-            LivePlayMapDetailView(
-                hole: holePrep,
-                topoURL: liveTopoURL,
-                selectedClub: selectedClub,
-                selectedClubMetres: selectedClubMetres,
-                targetCoordinate: $targetCoordinate,
-                referenceCoordinate: mapReferenceCoordinate,
-                referenceIsLive: mapReferenceIsLive,
-                pinCoordinate: effectiveMapPinCoordinate,
-                pinOverlayPixel: effectiveMapPinPixel,
-                onTargetChanged: { coordinate in
-                    handleMapTargetChanged(coordinate, kind: "target")
-                },
-                onTargetCommitted: { coordinate in
-                    handleMapTargetCommitted(coordinate, kind: "target")
-                },
-                targetPixel: $targetPixel,
-                onTargetPixelChanged: { pixel in
-                    handleMapTargetPixelChanged(pixel, kind: "target")
-                },
-                onTargetPixelCommitted: { pixel in
-                    handleMapTargetPixelCommitted(pixel, kind: "target")
-                }
-            )
-        } else {
-            ZStack {
-                LivePlayStyle.base.ignoresSafeArea()
-                ProgressView("精确球道图准备中…")
-                    .tint(.white)
-                    .foregroundStyle(.white)
-            }
-        }
-    }
-
-    @ViewBuilder
     private var greenDetailSurface: some View {
         if let holePrep, !isPreciseHoleMapPending {
             LiveGreenDetailView(
@@ -928,12 +903,42 @@ public struct CurrentHoleView: View {
                             topInset: LivePlayMapOverlayLayout.liveMapTopInset,
                             // The selected obstacle is drawn in the same pass so its 前 / 后
                             // labels share one collision layout with the route and tee labels.
-                            hazard: selectedLiveHazard.map { (hole: holePrep, row: $0) }
+                            hazard: selectedLiveHazard.map { (hole: holePrep, row: $0) },
+                            target: liveTargetGeometry
                         )
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
+                }
+
+                // The target itself is drawn by the canvas; this invisible element reads it out
+                // (and lets UI tests find it) at its on-screen position.
+                if let point = liveTargetScreenPoint(in: geo.size) {
+                    Color.clear
+                        .frame(width: 30, height: 30)
+                        .position(point)
+                        .allowsHitTesting(false)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(liveTargetAccessibilityLabel)
+                        .accessibilityIdentifier("live-map-target-marker")
+                }
+
+                // Holding the target shows the same map magnified around the finger (100 pt,
+                // 2.35x, crosshair), exactly as the former Touch Target page did.
+                if let focus = heroTargetDragLocation {
+                    LiveMapTargetMagnifierLoupe(
+                        mapSize: geo.size,
+                        focus: focus,
+                        displayedScale: heroDisplayedMapScale,
+                        displayedOffset: heroDisplayedMapOffset(in: geo.size)
+                    ) {
+                        liveMapBackdrop
+                            .padding(.top, LivePlayMapOverlayLayout.liveMapTopInset)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                    }
+                    .position(LiveMapTargetMagnifierLoupe<EmptyView>.position(for: focus, in: geo.size))
+                    .allowsHitTesting(false)
                 }
 
                 // A cached topo image is already a usable map.  Do not cover it with the old
@@ -1045,14 +1050,18 @@ public struct CurrentHoleView: View {
             // Keep all map gestures in the full hero coordinate space. The old gesture lived on a
             // translated rectangle below the header, which made green-path exclusion depend on
             // SwiftUI's local-coordinate interpretation and allowed an accessibility tap to be lost.
+            // B1c: a tap on the map places the Touch Target (a tap on the target clears it); the
+            // green keeps its own button above. Holding the target drags it with the loupe.
             .simultaneousGesture(
                 SpatialTapGesture().onEnded { value in
                     guard !isPreciseHoleMapPending,
+                          !heroTargetDidDrag,
                           value.location.y >= LivePlayMapOverlayLayout.liveMapTopInset,
                           greenPath?.contains(value.location) != true else { return }
-                    showMapDetail = true
+                    handleHeroMapTap(at: value.location, in: geometry.size)
                 }
             )
+            .simultaneousGesture(heroTargetDragGesture(in: geometry.size))
             .simultaneousGesture(heroMapPinchGesture(in: geometry.size))
             // Keep the two drag contracts separate. The paging gesture is active only at the fitted
             // scale, while the map pan is active only after zoom; this prevents a vertical pan from
@@ -1066,8 +1075,8 @@ public struct CurrentHoleView: View {
             // this gesture-bearing ZStack to one full-hero button and hides the green entry from
             // VoiceOver/XCTest hit testing.
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("打开地图并选目标")
-            .accessibilityHint("左右滑动切换球洞")
+            .accessibilityLabel("球洞地图，点地图设目标点")
+            .accessibilityHint("按住目标点拖动微调，左右滑动切换球洞")
             .accessibilityIdentifier("live-open-map-from-hero")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1081,6 +1090,8 @@ public struct CurrentHoleView: View {
                 : 24
         )
             .onEnded { value in
+                // A drag that grabbed the Touch Target never pages the hole.
+                guard !heroTargetDragging else { return }
                 guard HeroMapGesturePolicy.acceptsHoleSwipe(
                     scale: heroMapScale,
                     pinchScale: heroMapPinchScale
@@ -1122,14 +1133,18 @@ public struct CurrentHoleView: View {
                 guard HeroMapGesturePolicy.isZoomed(
                     scale: heroMapScale,
                     pinchScale: heroMapPinchScale
-                ) else { return }
+                ),
+                      !heroTargetDragging,
+                      !heroTargetHit(at: value.startLocation, in: viewport) else { return }
                 heroMapTransientDragOffset = value.translation
             }
             .onEnded { value in
                 guard HeroMapGesturePolicy.isZoomed(
                     scale: heroMapScale,
                     pinchScale: heroMapPinchScale
-                ) else {
+                ),
+                      !heroTargetDragging,
+                      !heroTargetHit(at: value.startLocation, in: viewport) else {
                     heroMapTransientDragOffset = .zero
                     return
                 }
@@ -1143,6 +1158,174 @@ public struct CurrentHoleView: View {
                 )
                 heroMapTransientDragOffset = .zero
             }
+    }
+
+    // MARK: - B1c Touch Target on the main map
+
+    /// Grabbing the target (a press within `LiveTargetRenderer.grabRadius` of its ring) drags it;
+    /// the loupe follows the finger. Any other drag keeps its pan / hole-swipe meaning.
+    private func heroTargetDragGesture(in viewport: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                guard !isPreciseHoleMapPending else { return }
+                if !heroTargetDragging {
+                    guard heroTargetHit(at: value.startLocation, in: viewport) else { return }
+                    heroTargetDragging = true
+                }
+                heroTargetDidDrag = true
+                heroTargetDragLocation = value.location
+                if let pixel = heroOverlayPixel(at: value.location, in: viewport, clampToMap: true) {
+                    applyHeroTarget(pixel: pixel, committed: false)
+                }
+            }
+            .onEnded { value in
+                guard heroTargetDragging else { return }
+                if let pixel = heroOverlayPixel(at: value.location, in: viewport, clampToMap: true) {
+                    applyHeroTarget(pixel: pixel, committed: true)
+                }
+                heroTargetDragLocation = nil
+                // The tap and hole-swipe recognizers may deliver in this same run loop; keep them
+                // suppressed for that delivery so the drag neither re-places the target nor pages.
+                DispatchQueue.main.async {
+                    heroTargetDragging = false
+                    heroTargetDidDrag = false
+                }
+            }
+    }
+
+    private func handleHeroMapTap(at location: CGPoint, in viewport: CGSize) {
+        if heroTargetHit(at: location, in: viewport, radius: 24) {
+            clearHeroTarget()
+        } else if let pixel = heroOverlayPixel(at: location, in: viewport, clampToMap: false) {
+            applyHeroTarget(pixel: pixel, committed: true)
+        } else {
+            return
+        }
+        #if canImport(UIKit)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
+    }
+
+    /// Same publication order as the former Touch Target page: resolve the coordinate from the
+    /// projection refs first (nil for a pixel-only course), then publish coordinate and pixel, and
+    /// commit once when the finger lifts.
+    private func applyHeroTarget(pixel: CGPoint, committed: Bool) {
+        guard validMapPixel(pixel) != nil else { return }
+        let coordinate = liveCoordinate(forOverlayPixel: pixel)
+        handleMapTargetChanged(coordinate, kind: "target")
+        handleMapTargetPixelChanged(pixel, kind: "target")
+        guard committed else { return }
+        if let coordinate {
+            handleMapTargetCommitted(coordinate, kind: "target")
+        }
+        handleMapTargetPixelCommitted(pixel, kind: "target")
+    }
+
+    private func clearHeroTarget() {
+        handleMapTargetChanged(nil, kind: "target")
+        handleMapTargetPixelChanged(nil, kind: "target")
+        // The coordinate commit owns an explicit clear (one event, one caddie refresh).
+        handleMapTargetCommitted(nil, kind: "target")
+    }
+
+    private func heroTargetHit(
+        at location: CGPoint,
+        in viewport: CGSize,
+        radius: CGFloat = LiveTargetRenderer.grabRadius
+    ) -> Bool {
+        guard let point = liveTargetScreenPoint(in: viewport) else { return false }
+        return hypot(point.x - location.x, point.y - location.y) <= radius
+    }
+
+    /// Screen point -> topo pixel through the inverse pan/zoom and the aspect-fit frame.
+    private func heroOverlayPixel(at location: CGPoint, in viewport: CGSize, clampToMap: Bool) -> CGPoint? {
+        guard let overlay = holePrep?.resolvedMapOverlay else { return nil }
+        let scale = max(heroDisplayedMapScale, 0.001)
+        let offset = heroDisplayedMapOffset(in: viewport)
+        let base = CGPoint(
+            x: (location.x - viewport.width / 2 - offset.width) / scale + viewport.width / 2,
+            y: (location.y - viewport.height / 2 - offset.height) / scale + viewport.height / 2
+        )
+        guard let px = LivePlayMapOverlayLayout.unproject(
+            screenPoint: base,
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            from: viewport,
+            topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+            clampToMap: clampToMap
+        ) else { return nil }
+        return CGPoint(x: px[0], y: px[1])
+    }
+
+    private func liveCoordinate(forOverlayPixel pixel: CGPoint) -> CLLocationCoordinate2D? {
+        guard let refs = holePrep?.holeImageProjection?.refs,
+              let projected = WatchEventBridge.projectFromTopoPx(
+                  px: pixel.x,
+                  py: pixel.y,
+                  refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+              ) else { return nil }
+        return CLLocationCoordinate2D(latitude: projected.latitude, longitude: projected.longitude)
+    }
+
+    private func liveOverlayPixel(for coordinate: CLLocationCoordinate2D?) -> CGPoint? {
+        guard let coordinate,
+              let refs = holePrep?.holeImageProjection?.refs,
+              let projected = WatchEventBridge.projectToTopoPx(
+                  lat: coordinate.latitude,
+                  lon: coordinate.longitude,
+                  refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+              ),
+              projected.count >= 2 else { return nil }
+        return validMapPixel(CGPoint(x: projected[0], y: projected[1]))
+    }
+
+    /// The target in topo pixels: the explicit pixel wins; a coordinate is projected only when the
+    /// course supplied anchors.
+    private var liveTargetOverlayPixel: CGPoint? {
+        validMapPixel(targetPixel) ?? liveOverlayPixel(for: targetCoordinate)
+    }
+
+    /// Distances start at the Tee anchor (route[0]) until there is a plausible live fix.
+    private var liveTargetReferencePixel: CGPoint? {
+        let routeStart = holePrep?.resolvedMapOverlay?.route.first.flatMap { row -> CGPoint? in
+            row.count >= 2 ? validMapPixel(CGPoint(x: row[0], y: row[1])) : nil
+        }
+        if !mapReferenceIsLive { return routeStart }
+        return liveOverlayPixel(for: mapReferenceCoordinate) ?? routeStart
+    }
+
+    private var liveTargetGeometry: LiveTargetGeometry? {
+        guard let overlay = holePrep?.resolvedMapOverlay,
+              let target = liveTargetOverlayPixel else { return nil }
+        let reference = liveTargetReferencePixel
+        let pin = effectiveMapPinPixel
+        func yards(_ from: CGPoint?, _ to: CGPoint?) -> Int? {
+            guard let from, let to, overlay.ppm.isFinite, overlay.ppm > 0 else { return nil }
+            let metres = Double(hypot(to.x - from.x, to.y - from.y)) / overlay.ppm
+            return CoursePrepRoute.yards(fromMetres: metres)
+        }
+        return LiveTargetGeometry(
+            reference: reference,
+            target: target,
+            pin: pin,
+            toTargetYards: yards(reference, target),
+            toPinYards: yards(target, pin)
+        )
+    }
+
+    private func liveTargetScreenPoint(in viewport: CGSize) -> CGPoint? {
+        guard let target = liveTargetOverlayPixel,
+              let base = liveMapTarget([Double(target.x), Double(target.y)], in: viewport) else { return nil }
+        return transformedHeroPoint(base, in: viewport)
+    }
+
+    private var liveTargetAccessibilityLabel: String {
+        let geometry = liveTargetGeometry
+        let from = mapReferenceIsLive ? "当前位置 → 目标" : "发球台 → 目标"
+        var parts = ["目标点"]
+        if let yards = geometry?.toTargetYards { parts.append("\(from) \(yards) 码") }
+        if let yards = geometry?.toPinYards { parts.append("再 \(yards) 码到旗") }
+        return parts.joined(separator: "，")
     }
 
     private func transformedHeroPoint(_ point: CGPoint, in viewport: CGSize) -> CGPoint {

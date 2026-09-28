@@ -1724,7 +1724,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("onConsumePendingLiveHole()", round_home)
         self.assertIn("onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish", round_home)
         self.assertIn("onLiveHoleInitialLoadDidFinish()", current_hole)
-        self.assertIn("精确球道图准备中", current_hole)
+        # The map itself waits for precise geometry (the retired Touch Target page had its own
+        # placeholder); the green editor keeps one.
+        self.assertIn("精确果岭图准备中", current_hole)
         self.assertIn("if !isPreciseHoleMapPending,", current_hole)
         self.assertIn("let selectedLiveHazard", current_hole)
         # B1: the one selected obstacle is browsed from the bottom-centre bar on the map.
@@ -3562,8 +3564,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("lie: selectedLie", current_hole)
         self.assertIn("coordinate: liveCoordinateForCurrentHole", current_hole)
         self.assertIn("requestedOptionId: caddieOptionId(forStrategyMode: requestStrategyMode)", current_hole)
-        self.assertIn("targetCoordinate: $targetCoordinate", current_hole)
-        self.assertIn("targetPixel: $targetPixel", current_hole)
+        # B1c: the main map publishes the Touch Target through the same coordinate / pixel handlers.
+        self.assertIn('handleMapTargetChanged(coordinate, kind: "target")', current_hole)
+        self.assertIn('handleMapTargetPixelChanged(pixel, kind: "target")', current_hole)
+        self.assertIn('handleMapTargetCommitted(coordinate, kind: "target")', current_hole)
+        self.assertIn('handleMapTargetPixelCommitted(pixel, kind: "target")', current_hole)
         self.assertIn("targetKind: wireTargetKind", current_hole)
         self.assertIn("@State private var caddieDecision: CaddieDecisionResponse?", current_hole)
         self.assertIn("isLoadingCaddieDecision", current_hole)
@@ -3637,7 +3642,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("selectedOfflineOption", current_hole)
         self.assertIn("sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)", current_hole)
         green_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveGreenDetailView.swift")
-        live_map_detail = _read_required_source(self, IOS_DIR / "Views" / "LivePlayMapDetailView.swift")
         shot_edit = _read_required_source(self, IOS_DIR / "Views" / "RoundShotEditComponents.swift")
         self.assertIn("LiveGreenDetailView", green_detail)
         self.assertIn('live-green-zoom-out', green_detail)
@@ -3650,12 +3654,24 @@ class MobileContractTests(unittest.TestCase):
         for identifier in ('live-green-edge-front', 'live-green-edge-back', 'live-green-edge-left', 'live-green-edge-right'):
             self.assertIn(identifier, green_detail)
         self.assertIn('GreenEdgeDistances.resolve', green_detail)
-        self.assertIn("LivePlayMapDetailView", live_map_detail)
-        self.assertIn('live-map-zoom-in', live_map_detail)
-        self.assertIn('live-map-zoom-out', live_map_detail)
-        self.assertIn("targetDragLocation", live_map_detail)
-        self.assertIn("LiveMapTargetMagnifierLoupe", live_map_detail)
-        self.assertIn('live-map-target-magnifier', live_map_detail)
+        # B1c: the Touch Target is set in place on the main map (tap = place, tap on it = clear,
+        # hold + drag = move with the 100 pt / 2.35x loupe). The separate map page is retired.
+        self.assertFalse((IOS_DIR / "Views" / "LivePlayMapDetailView.swift").exists())
+        self.assertNotIn("LivePlayMapDetailView", current_hole)
+        self.assertNotIn("showMapDetail", current_hole)
+        live_chrome = _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift")
+        self.assertIn("struct LiveMapTargetMagnifierLoupe", live_chrome)
+        self.assertIn("magnification: CGFloat = 2.35", live_chrome)
+        self.assertIn("diameter: CGFloat = 100", live_chrome)
+        self.assertIn('live-map-target-magnifier', live_chrome)
+        self.assertIn("enum LiveTargetRenderer", live_chrome)
+        self.assertIn('Text("再 \\($0) 到旗")', live_chrome)
+        self.assertIn("handleHeroMapTap(at: value.location, in: geometry.size)", current_hole)
+        self.assertIn(".simultaneousGesture(heroTargetDragGesture(in: geometry.size))", current_hole)
+        self.assertIn("LiveMapTargetMagnifierLoupe(", current_hole)
+        self.assertIn('accessibilityIdentifier("live-map-target-marker")', current_hole)
+        self.assertIn("target: liveTargetGeometry", current_hole)
+        self.assertIn("guard !heroTargetDragging else { return }", current_hole)
         self.assertIn("RoundShotPrecisionEditor", shot_edit)
         self.assertIn('round-shot-precision-zoom-in', shot_edit)
         self.assertIn('round-shot-precision-zoom-out', shot_edit)
@@ -4125,8 +4141,8 @@ class MobileContractTests(unittest.TestCase):
             'app.staticTexts["第 1 洞"]',
             'matching(identifier: "live-open-map-from-hero")',
             'matching(identifier: "live-map-target-marker")',
-            'label CONTAINS %@", "发球台 → 目标',
-            'app.buttons["live-map-zoom-in"]',
+            'targetMarker.label.contains("发球台 → 目标")',
+            '"a tap on the target clears it"',
             'app.descendants(matching: .any)["live-green-distance-panel"]',
         ]:
             self.assertIn(token, tee_selection)

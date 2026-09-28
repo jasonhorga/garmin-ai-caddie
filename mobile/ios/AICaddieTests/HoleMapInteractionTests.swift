@@ -55,19 +55,42 @@ final class HoleMapInteractionTests: XCTestCase {
         XCTAssertNotEqual(arcs[1].control, CGPoint(x: 132.5, y: 180))
     }
 
-    func testTouchTargetKeepsTeeToTargetArcWhenPinProjectionIsMissing() {
+    func testTouchTargetKeepsTeeToTargetLegWhenPinProjectionIsMissing() {
         let reference = CGPoint(x: 40, y: 420)
         let target = CGPoint(x: 130, y: 250)
+        let pin = CGPoint(x: 150, y: 60)
 
-        let arcs = LivePlayMapDetailView.targetFlightArcs(
-            reference: reference,
-            target: target,
-            pin: nil
+        let legs = LiveTargetRenderer.legs(reference: reference, target: target, pin: nil)
+        XCTAssertEqual(legs.count, 1)
+        XCTAssertEqual(legs[0].start, reference)
+        XCTAssertEqual(legs[0].end, target)
+
+        let both = LiveTargetRenderer.legs(reference: reference, target: target, pin: pin)
+        XCTAssertEqual(both.count, 2)
+        XCTAssertEqual(both[1].start, target)
+        XCTAssertEqual(both[1].end, pin)
+    }
+
+    func testTouchTargetReadoutSitsOnTheRoomierSideOfTheRing() {
+        let size = CGSize(width: 60, height: 26)
+        let left = LiveTargetRenderer.labelRects(
+            target: CGPoint(x: 300, y: 400), viewportWidth: 390, yardsSize: size, remainSize: size
         )
+        XCTAssertTrue(left.allSatisfy { $0.maxX <= 300 - 20 + 0.001 })
+        let right = LiveTargetRenderer.labelRects(
+            target: CGPoint(x: 90, y: 400), viewportWidth: 390, yardsSize: size, remainSize: size
+        )
+        XCTAssertTrue(right.allSatisfy { $0.minX >= 90 + 20 - 0.001 })
+        XCTAssertLessThan(right[0].midY, right[1].midY, "yardage above, 再 N 到旗 below")
+    }
 
-        XCTAssertEqual(arcs.count, 1)
-        XCTAssertEqual(arcs[0].start, reference)
-        XCTAssertEqual(arcs[0].end, target)
+    func testTargetLoupeStaysClearOfTheTopFactsAndBottomControls() {
+        let size = CGSize(width: 390, height: 844)
+        let high = LiveMapTargetMagnifierLoupe<EmptyView>.position(for: CGPoint(x: 200, y: 160), in: size)
+        XCTAssertGreaterThanOrEqual(high.y - 50, 150, "never under the hole facts / ladder")
+        let low = LiveMapTargetMagnifierLoupe<EmptyView>.position(for: CGPoint(x: 10, y: 800), in: size)
+        XCTAssertLessThanOrEqual(low.y + 50, size.height - 130, "never over 记分 / 记一杆")
+        XCTAssertGreaterThanOrEqual(low.x - 50, 8)
     }
 
     func testCaddieRecommendationCarriesTheSelectedSequenceClubAndDistance() {

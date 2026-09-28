@@ -499,6 +499,14 @@ final class DesignSnapshotTests: XCTestCase {
                 ("full-hole-map-hazard", .init(selectsFirstHazard: true, caddieRoutes: routes)),
                 ("full-hole-map-plan-2", .init(caddieRoutes: routes, selectedRouteIndex: 1)),
                 ("full-hole-map-zoomed", .init(caddieRoutes: routes, mapScale: 2)),
+                // B1c: a Touch Target placed on the main map, and the same target being dragged
+                // (the finger at its on-screen position) with the loupe up.
+                ("full-hole-map-target", .init(caddieRoutes: routes, targetPixel: CGPoint(x: 150, y: 210))),
+                ("full-hole-map-target-drag", .init(
+                    caddieRoutes: routes,
+                    targetPixel: CGPoint(x: 150, y: 210),
+                    targetDragFocus: CGPoint(x: 243.75, y: 510.75)
+                )),
             ]
             for (name, state) in states {
                 try captureScreen(
