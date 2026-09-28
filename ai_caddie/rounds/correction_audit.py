@@ -626,15 +626,20 @@ def repair_pending_audits(
     annotation_root: Path | str | None = None, data_loader: DataLoader | None = None,
     now: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    """Re-derive pending audits for one round while their source view is provably unchanged."""
+    """Re-derive pending audits for one round while their source view is provably unchanged.
+
+    History that cannot be read (offline, mid-resync) decides nothing: every audit stays pending and
+    no repair is written. A pending annotation whose target round is not in history can never be
+    proven, so it is closed as ``unrecoverable``.
+    """
     from ai_caddie.reports.annotations import list_annotation_records
 
     repairs: list[dict[str, Any]] = []
     with audit_lock(player_id, root):
         try:
             data, _source_revision = load_coherent(player_id, data_loader or _default_loader(player_id))
-        except AuditUnavailable:
-            return repairs  # nothing is decided on a mixed view; stays pending
+        except Exception:
+            return repairs  # unreadable or changing history decides nothing; everything stays pending
         row = _match_round(data, round_ref)
         records, _skipped = rc.load_correction_records(player_id, round_ref, root=root)
         done = _repaired_ids(records)
@@ -660,26 +665,27 @@ def repair_pending_audits(
             append_record(rc._corrections_path(player_id, round_ref, root), repair)
             repairs.append(repair)
 
+        annotations = list_annotation_records(root=annotation_root, player_id=player_id, include_repairs=True)
+        done = _repaired_ids(annotations)
+        plain = [record for record in annotations if record.get("recordType") != RECORD_REPAIR]
+        round_ids = {str(round_ref)}
         if row is not None:
-            annotations = list_annotation_records(root=annotation_root, player_id=player_id, include_repairs=True)
-            done = _repaired_ids(annotations)
-            plain = [record for record in annotations if record.get("recordType") != RECORD_REPAIR]
-            round_ids = {str(row.get("id")), *[str(item) for item in (row.get("ids") or [])]}
-            for index, record in enumerate(plain):
-                audit = record.get("audit") or {}
-                target = split_hole_target(str(record.get("targetId") or ""))
-                if (audit.get("status") != "pending" or str(record.get("eventId")) in done
-                        or target is None or target[0] not in round_ids):
-                    continue
-                status, entries = "unrecoverable", []
-                if audit.get("sourceFingerprint") is not None:
-                    rebuilt = build_annotation_audit(data, record, plain[:index], player_id=player_id, root=root)
-                    if rebuilt["status"] == "ok" and rebuilt["sourceFingerprint"] == audit["sourceFingerprint"]:
-                        status, entries = "ok", rebuilt["entries"]
-                repair = _repair_record(record, status, entries, {}, now)
-                repair["auditSeq"] = next_audit_seq(player_id, root=root, annotation_root=annotation_root)
-                append_record(_annotation_path(player_id, annotation_root), repair)
-                repairs.append(repair)
+            round_ids |= {str(row.get("id")), *[str(item) for item in (row.get("ids") or [])]}
+        for index, record in enumerate(plain):
+            audit = record.get("audit") or {}
+            target = split_hole_target(str(record.get("targetId") or ""))
+            if (audit.get("status") != "pending" or str(record.get("eventId")) in done
+                    or target is None or target[0] not in round_ids):
+                continue
+            status, entries = "unrecoverable", []
+            if row is not None and audit.get("sourceFingerprint") is not None:
+                rebuilt = build_annotation_audit(data, record, plain[:index], player_id=player_id, root=root)
+                if rebuilt["status"] == "ok" and rebuilt["sourceFingerprint"] == audit["sourceFingerprint"]:
+                    status, entries = "ok", rebuilt["entries"]
+            repair = _repair_record(record, status, entries, {}, now)
+            repair["auditSeq"] = next_audit_seq(player_id, root=root, annotation_root=annotation_root)
+            append_record(_annotation_path(player_id, annotation_root), repair)
+            repairs.append(repair)
     return repairs
 
 

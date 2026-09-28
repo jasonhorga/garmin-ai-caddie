@@ -348,6 +348,28 @@ class RepairAndDurabilityTest(_Store):
         repairs = ca.repair_pending_audits("me", "42", annotation_root=self.root, data_loader=lambda: self.data)
         self.assertEqual(repairs[0]["audit"]["status"], "unrecoverable")
 
+    def test_repair_with_unreadable_history_keeps_everything_pending(self) -> None:
+        with mock.patch.object(ca, "_hole_view", side_effect=RuntimeError("geometry failed")):
+            self.write({"op": "setHolePenalty", "hole": 4, "value": 2})
+
+        def offline():
+            raise RuntimeError("offline")
+
+        self.assertEqual(ca.repair_pending_audits("me", "42", annotation_root=self.root, data_loader=offline), [])
+        log = ca.build_correction_log("me", "42", self.data, annotation_root=self.root)
+        self.assertEqual((log["pendingAudits"], log["unrecoverableAudits"]), (1, 0))  # not misfiled as unrecoverable
+        repairs = ca.repair_pending_audits("me", "42", annotation_root=self.root, data_loader=lambda: self.data)
+        self.assertEqual([repair["audit"]["status"] for repair in repairs], ["ok"])
+
+    def test_unknown_round_annotation_repairs_to_unrecoverable(self) -> None:
+        ann.add_annotation("hole", "missing:4", "putt_correction", {"to": 1}, root=self.root, data_loader=lambda: self.data)
+        self.assertEqual(ann.list_annotation_records(root=self.root)[-1]["audit"]["status"], "pending")
+        repairs = ca.repair_pending_audits("me", "missing", annotation_root=self.root, data_loader=lambda: self.data)
+        self.assertEqual([repair["audit"]["status"] for repair in repairs], ["unrecoverable"])
+        self.assertEqual(repairs[0]["recordType"], "auditRepair")
+        self.assertEqual(ca.repair_pending_audits("me", "missing", annotation_root=self.root, data_loader=lambda: self.data), [])
+        self.assertEqual([row["kind"] for row in ann.list_annotations(root=self.root)], ["putt_correction"])
+
     def test_repair_records_are_invisible_to_existing_annotation_readers(self) -> None:
         with mock.patch.object(ca, "build_annotation_audit",
                                return_value={"status": "pending", "reason": "x", "sourceFingerprint": None, "entries": []}):
