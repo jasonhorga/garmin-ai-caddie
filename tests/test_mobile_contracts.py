@@ -2352,6 +2352,31 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("if let image = imageStore.image", topo_base)
         self.assertIn("fallbackImage", topo_base)
 
+    def test_ios_b4_turn_uses_the_shared_nine_loop_plan(self) -> None:
+        domain = _read_required_source(self, Path("mobile") / "ios" / "AICaddieDomain" / "NineLoopPlan.swift")
+        turn = _read_required_source(self, IOS_DIR / "Models" / "NineLoopTurn.swift")
+        sheet = _read_required_source(self, IOS_DIR / "Views" / "LiveRoundTurnSheet.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
+        # One state machine in the shared domain framework (phone + watch).
+        self.assertIn("public struct NineLoopPlan: Codable, Equatable, Sendable", domain)
+        self.assertIn("case stopAfterNine", domain)
+        self.assertIn("public var canChangeSecond: Bool", domain)
+        self.assertIn('return trimmed + " 场"', domain)
+        # The turn: usual pairing (this phone, else history), any loop / same loop / stop after nine.
+        self.assertIn("plan.reachTurn()", turn)
+        self.assertIn("remembered", turn)
+        for identifier in ["turn-later", "turn-go", "turn-stop", "turn-loop-"]:
+            self.assertIn(identifier, sheet)
+        self.assertIn("plan.turnActionTitle", sheet)
+        self.assertIn("if let plan = turnPlanAtEndOfFirstLoop", current_hole)
+        self.assertIn("onPrepareCompositeRound(front, back, package.course.teeBox, package.roundId)", current_hole)
+        self.assertIn("rememberNineLoopPairing(front: front, back: back)", current_hole)
+        # Changeable until the second loop's first hole has a record, then locked.
+        self.assertIn("} else if !secondLoopStarted {", current_hole)
+        self.assertIn("$0.roundId == package.roundId && $0.hole > 9", current_hole)
+        self.assertIn('"nine_loop_pairings.json"', store)
+
     def test_ios_b2_one_screen_hole_score(self) -> None:
         sheet = _read_required_source(self, IOS_DIR / "Views" / "LiveScoreConfirmationView.swift")
         model = _read_required_source(self, IOS_DIR / "Models" / "LiveScoreConfirmation.swift")

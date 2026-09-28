@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import AICaddieDomain
 import XCTest
 @testable import AICaddie
 
@@ -477,6 +478,17 @@ final class DesignSnapshotTests: XCTestCase {
                 onDiscard: {}
             ),
             named: "score-summary-nine",
+            dark: true
+        )
+
+        // B4 turn: "B 场打完了 — 接着打哪个 9 洞", the usual pairing preselected.
+        let turnLoops = ["A", "B", "C"].enumerated().map { index, label in
+            MobileCourseOption(globalId: 100 + index, name: "黑骑士 ~ \(label)", holes: 9, venueName: "黑骑士", segmentLabel: label, segmentHoles: 9)
+        }
+        let turn = try XCTUnwrap(NineLoopTurn.plan(front: turnLoops[1], siblings: turnLoops, remembered: [101: 102], history: []))
+        try captureScreen(
+            LiveRoundTurnSheet(plan: turn, isPreparing: false, onContinue: { _ in }, onStop: {}, onLater: {}),
+            named: "turn-sheet",
             dark: true
         )
     }

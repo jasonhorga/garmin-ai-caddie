@@ -163,6 +163,11 @@ public struct CurrentHoleView: View {
     @State private var lastAppliedRestoredHoleState: LiveHoleStateSnapshot?
     @State private var showManage = false
     @State private var showRoundSummary = false
+    /// B4 turn: after the last hole of a single first loop, ask which nine comes next.
+    @State private var turnPlan: NineLoopPlan?
+    /// Set when the turn composed the second loop; the first hole of that loop opens once the
+    /// 18-hole package is active.
+    @State private var pendingTurnAdvance = false
     @State private var showDiscardConfirmation = false
     /// B1c Touch Target on the main map: screen point of the finger while the target is dragged
     /// (drives the loupe), whether that drag owns the gesture, and a one-runloop tap suppressor.
@@ -493,6 +498,29 @@ public struct CurrentHoleView: View {
         }
         .sheet(isPresented: $showRoundSummary) {
             roundSummarySurface
+        }
+        .sheet(isPresented: Binding(
+            get: { turnPlan != nil },
+            set: { if !$0 { turnPlan = nil } }
+        )) {
+            if let turnPlan {
+                LiveRoundTurnSheet(
+                    plan: turnPlan,
+                    isPreparing: isPreparingRound,
+                    onContinue: continueIntoSecondLoop,
+                    onStop: {
+                        self.turnPlan = nil
+                        showRoundSummary = true
+                    },
+                    onLater: { self.turnPlan = nil }
+                )
+            }
+        }
+        .onChange(of: package.holes.count) { _, _ in
+            guard pendingTurnAdvance,
+                  let firstOfSecondLoop = package.holes.map(\.number).first(where: { $0 > 9 }) else { return }
+            pendingTurnAdvance = false
+            onAdvanceHole(firstOfSecondLoop)
         }
         .confirmationDialog(
             "放弃这场球局？",
@@ -3244,6 +3272,40 @@ public struct CurrentHoleView: View {
         selectedClub = club
     }
 
+    // MARK: - B4 turn (接着打哪个 9 洞)
+
+    /// The turn plan when this round is exactly one nine-hole loop of a known venue.
+    private var turnPlanAtEndOfFirstLoop: NineLoopPlan? {
+        guard liveRoundState != nil,
+              package.holes.count <= 9,
+              let active = activeCourseOption,
+              (active.segmentHoles ?? active.holes) == 9 else { return nil }
+        var remembered: [Int: Int] = [:]
+        var history: [HistoryRoundCard] = []
+        if let offlineStore {
+            remembered = (try? offlineStore.loadNineLoopPairings()) ?? [:]
+            if let archive = try? offlineStore.loadHistoryRoundsArchive() {
+                history = archive.groups.flatMap(\.rounds)
+            }
+        }
+        return NineLoopTurn.plan(front: active, siblings: siblingLoops, remembered: remembered, history: history)
+    }
+
+    private func continueIntoSecondLoop(_ loop: NineLoop) {
+        guard let back = Int(loop.id) else { return }
+        let front = package.course.globalId
+        try? offlineStore?.rememberNineLoopPairing(front: front, back: back)
+        turnPlan = nil
+        pendingTurnAdvance = true
+        onPrepareCompositeRound(front, back, package.course.teeBox, package.roundId)
+    }
+
+    /// The second loop can still be changed until its first hole has anything recorded.
+    private var secondLoopStarted: Bool {
+        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return false }
+        return events.contains { $0.roundId == package.roundId && $0.hole > 9 }
+    }
+
     // MARK: - 球局洞数调整
 
     /// The header menu is the single finish entry. This section only mutates the playable hole set.
@@ -3346,8 +3408,29 @@ public struct CurrentHoleView: View {
                     }
                     .disabled(isPreparingRound)
                 }
-            } else {
-                // 已是组合 18(两个 9 洞环)→ 移除加打的后 9,只打起始 9 洞(前 9 已记杆保留)。
+            } else if !secondLoopStarted {
+                // 已是组合 18,第二个环还没开打 → 可以改打别的环,或移除加打的后 9(前 9 已记杆保留)。
+                // 第二个环的第一洞一有记录就锁定(README §8)。
+                let currentBack = package.holes.first { $0.number > 9 }?.sourceGlobalId
+                if !siblingLoops.isEmpty {
+                    Menu {
+                        ForEach(siblingLoops.filter { $0.globalId != currentBack }) { loop in
+                            Button("改打 \(loopLabel(loop))") {
+                                try? offlineStore?.rememberNineLoopPairing(front: package.course.globalId, back: loop.globalId)
+                                onPrepareCompositeRound(package.course.globalId, loop.globalId, package.course.teeBox, package.roundId)
+                            }
+                        }
+                    } label: {
+                        Label("改打别的 9 洞", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .foregroundStyle(LiveHoleStyle.green)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.green))
+                    }
+                    .disabled(isPreparingRound)
+                    .accessibilityIdentifier("live-change-second-loop")
+                }
                 Button {
                     onPrepareCourseRound(package.course.globalId, package.roundId, package.course.teeBox, "all")
                 } label: {
@@ -3806,7 +3889,11 @@ public struct CurrentHoleView: View {
             case .advance(let next):
                 onAdvanceHole(next)
             case .finish:
-                showRoundSummary = true
+                if let plan = turnPlanAtEndOfFirstLoop {
+                    turnPlan = plan
+                } else {
+                    showRoundSummary = true
+                }
             }
         }
         sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
