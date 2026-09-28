@@ -306,8 +306,8 @@ public struct CurrentHoleView: View {
         var targetDragFocus: CGPoint?
     }
 
-    init(package: LiveRoundPackage, hole: Hole, snapshotState: SnapshotState) {
-        self.init(package: package, hole: hole)
+    init(package: LiveRoundPackage, hole: Hole, snapshotState: SnapshotState, caddieBaseURL: URL? = nil) {
+        self.init(package: package, hole: hole, caddieBaseURL: caddieBaseURL)
         self.snapshotState = snapshotState
         // Seed the state directly: a headless capture can render before `.task(id:)` runs, so the
         // snapshot must not depend on that task. `applySnapshotState()` re-applies it after the
@@ -1387,7 +1387,8 @@ public struct CurrentHoleView: View {
 
     /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时回退暗色渐变占位。
     @ViewBuilder private var liveMapBackdrop: some View {
-        if let holePrep, holePrep.resolvedMapOverlay != nil {
+        if let holePrep,
+           LiveMapDisplayState.resolve(prep: holePrep, pending: isPreciseHoleMapPending) != .waiting {
             liveHoleImageMap(holePrep)
                 .accessibilityElement(children: .contain)
                     .accessibilityIdentifier(
@@ -1874,10 +1875,12 @@ public struct CurrentHoleView: View {
     /// completeness guarantee.  Keep map/distance play available while prodgeometry downloads,
     /// without presenting that provisional subset as the nearest-hazard or final caddie answer.
     private var isPreciseHoleMapPending: Bool {
-        guard holePrep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame else {
-            return false
-        }
-        return !preciseMapTimedOut && caddieBaseURL != nil && !hasCachedTopoForCurrentHole
+        LiveMapDisplayState.isPrecisePending(
+            geometryCoverage: holePrep?.geometryCoverage,
+            timedOut: preciseMapTimedOut,
+            hasBaseURL: caddieBaseURL != nil,
+            hasCachedTopo: hasCachedTopoForCurrentHole
+        )
     }
 
     private var hasCachedTopoForCurrentHole: Bool {

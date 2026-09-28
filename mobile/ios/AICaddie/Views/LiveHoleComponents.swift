@@ -1951,21 +1951,34 @@ enum LiveMapCarryOver {
         return CGPoint(x: x, y: y)
     }
 
-    /// Keep the selected obstacle across a map upgrade. The same id wins; a legacy interval row
-    /// that became a precise row (new id) is matched by kind and the nearest front station within
-    /// 10 m. No match clears the selection rather than jumping to another obstacle.
+    /// Keep the selected obstacle across a map upgrade. Row ids are kind + ordinal, not a stable
+    /// identity (a new, nearer bunker shifts the ordinals), so the id alone is never trusted: the
+    /// same obstacle is the row of the same kind whose front and back route stations are both
+    /// within 10 m of the selected one (a legacy single-station bunker matches on its front). When several rows qualify, the one with the same name
+    /// (which encodes the side) decides; if that is still ambiguous, or nothing qualifies, the
+    /// selection is cleared rather than guessed.
+    static let hazardStationTolerance: Double = 10
+
     static func hazardSelection(
         current: String?,
         previous: [LiveHazardDisplayItem],
         next: [LiveHazardDisplayItem]
     ) -> String? {
-        guard let current else { return nil }
-        if next.contains(where: { $0.id == current }) { return current }
-        guard let old = previous.first(where: { $0.id == current }) else { return nil }
-        let candidates = next
-            .filter { $0.kind == old.kind && abs($0.frontRouteM - old.frontRouteM) <= 10 }
-            .sorted { abs($0.frontRouteM - old.frontRouteM) < abs($1.frontRouteM - old.frontRouteM) }
-        return candidates.first?.id
+        guard let current,
+              let selected = previous.first(where: { $0.id == current }) else { return nil }
+        let candidates = next.filter { sameObstacle($0, selected) }
+        if candidates.count == 1 { return candidates[0].id }
+        let sameName = candidates.filter { $0.label == selected.label }
+        return sameName.count == 1 ? sameName[0].id : nil
+    }
+
+    /// Same kind, front stations within tolerance, and back stations too unless either row is a
+    /// legacy single-station bunker (front == back), which only knows where the bunker starts.
+    private static func sameObstacle(_ lhs: LiveHazardDisplayItem, _ rhs: LiveHazardDisplayItem) -> Bool {
+        guard lhs.kind == rhs.kind,
+              abs(lhs.frontRouteM - rhs.frontRouteM) <= hazardStationTolerance else { return false }
+        let singleStation = lhs.frontRouteM == lhs.backRouteM || rhs.frontRouteM == rhs.backRouteM
+        return singleStation || abs(lhs.backRouteM - rhs.backRouteM) <= hazardStationTolerance
     }
 
     private struct Station {
@@ -2045,5 +2058,36 @@ enum LiveMapCarryOver {
         let x: CGFloat = a.point.x + dx * t + (-dy / length) * offset
         let y: CGFloat = a.point.y + dy * t + (dx / length) * offset
         return CGPoint(x: x, y: y)
+    }
+}
+
+/// What the live hole shows for the map data it has (README 地图降级契约 / IMPLEMENTATION_PLAN map
+/// table). `pending` means a partial CourseView map while the precise topo is still expected
+/// online and not cached: the factual route and green outline draw at once, and the provisional
+/// obstacle subset, Touch Target and flag entries wait for the precise map.
+enum LiveMapDisplayState: Equatable {
+    /// No drawable route: the one full-screen waiting page (hole · Par · yards).
+    case waiting
+    case factualPending
+    /// Partial facts with nothing better coming (offline, timed out, or no service).
+    case factual
+    case precise
+
+    static func isPrecisePending(
+        geometryCoverage: String?,
+        timedOut: Bool,
+        hasBaseURL: Bool,
+        hasCachedTopo: Bool
+    ) -> Bool {
+        guard geometryCoverage?.caseInsensitiveCompare("partial") == .orderedSame else { return false }
+        return !timedOut && hasBaseURL && !hasCachedTopo
+    }
+
+    static func resolve(prep: CoursePrepHole?, pending: Bool) -> LiveMapDisplayState {
+        guard let prep, prep.resolvedMapOverlay != nil else { return .waiting }
+        if prep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
+            return pending ? .factualPending : .factual
+        }
+        return .precise
     }
 }

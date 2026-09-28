@@ -2241,7 +2241,10 @@ class MobileContractTests(unittest.TestCase):
         # CourseView's lightweight route is immediately drawable. Precise topo/hazard work may
         # continue in the background, but that pending state must not blank an available route.
         self.assertIn("HoleImageMapView(hole: holePrep", current_hole)
-        self.assertIn("if let holePrep, holePrep.resolvedMapOverlay != nil {", current_hole)
+        self.assertIn(
+            "LiveMapDisplayState.resolve(prep: holePrep, pending: isPreciseHoleMapPending) != .waiting",
+            current_hole,
+        )
         self.assertNotIn(
             "holePrep.resolvedMapOverlay != nil, !isPreciseHoleMapPending",
             current_hole,

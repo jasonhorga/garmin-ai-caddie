@@ -63,10 +63,65 @@ final class LiveMapCarryOverTests: XCTestCase {
         XCTAssertNil(LiveMapCarryOver.transfer(CGPoint(x: 5, y: 5), from: lightweight, to: broken))
     }
 
-    private func row(_ id: String, kind: String, front: Double) -> LiveHazardDisplayItem {
+    private func row(
+        _ id: String,
+        kind: String,
+        front: Double,
+        back: Double? = nil,
+        label: String? = nil
+    ) -> LiveHazardDisplayItem {
         LiveHazardDisplayItem(
-            id: id, kind: kind, label: kind, frontYards: 0, backYards: nil,
-            frontPx: [], backPx: [], outlinePx: [], frontRouteM: front, backRouteM: front
+            id: id, kind: kind, label: label ?? kind, frontYards: 0, backYards: nil,
+            frontPx: [], backPx: [], outlinePx: [], frontRouteM: front, backRouteM: back ?? front
+        )
+    }
+
+    /// Codex P1: ids are kind + ordinal. A nearer bunker appearing in the precise map renames the
+    /// selected 210 m bunker to `bunker-1` while a different obstacle takes over `bunker-0`.
+    func testOrdinalShiftKeepsTheSelectedObstacleNotItsOldId() {
+        let partial = [row("bunker-0", kind: "bunker", front: 210, back: 225)]
+        let precise = [
+            row("bunker-0", kind: "bunker", front: 150, back: 162),
+            row("bunker-1", kind: "bunker", front: 211, back: 224),
+        ]
+        XCTAssertEqual(
+            LiveMapCarryOver.hazardSelection(current: "bunker-0", previous: partial, next: precise),
+            "bunker-1"
+        )
+    }
+
+    func testLegacySingleStationBunkerMatchesItsPreciseSpan() {
+        let legacy = [row("bunker-legacy-0", kind: "bunker", front: 210)]
+        let precise = [row("bunker-0", kind: "bunker", front: 212, back: 228)]
+        XCTAssertEqual(
+            LiveMapCarryOver.hazardSelection(current: "bunker-legacy-0", previous: legacy, next: precise),
+            "bunker-0"
+        )
+    }
+
+    func testSameIdIsNotTrustedWhenItNowNamesAnotherObstacle() {
+        let partial = [row("bunker-0", kind: "bunker", front: 210, back: 225)]
+        let precise = [row("bunker-0", kind: "bunker", front: 150, back: 162)]
+        XCTAssertNil(LiveMapCarryOver.hazardSelection(current: "bunker-0", previous: partial, next: precise))
+    }
+
+    func testAmbiguousStationsDecideByNameOrClear() {
+        let partial = [row("bunker-legacy-0", kind: "bunker", front: 300, back: 300, label: "果岭左侧沙坑")]
+        let sided = [
+            row("bunker-0", kind: "bunker", front: 298, back: 305, label: "果岭右侧沙坑"),
+            row("bunker-1", kind: "bunker", front: 301, back: 306, label: "果岭左侧沙坑"),
+        ]
+        XCTAssertEqual(
+            LiveMapCarryOver.hazardSelection(current: "bunker-legacy-0", previous: partial, next: sided),
+            "bunker-1"
+        )
+        let unnamed = [
+            row("bunker-0", kind: "bunker", front: 298, back: 305, label: "沙坑"),
+            row("bunker-1", kind: "bunker", front: 301, back: 306, label: "沙坑"),
+        ]
+        XCTAssertNil(
+            LiveMapCarryOver.hazardSelection(current: "bunker-legacy-0", previous: partial, next: unnamed),
+            "two equally plausible obstacles: clear rather than guess"
         )
     }
 
@@ -88,5 +143,49 @@ final class LiveMapCarryOverTests: XCTestCase {
         let precise = [row("water-0", kind: "water", front: 240), row("bunker-0", kind: "bunker", front: 176)]
         XCTAssertNil(LiveMapCarryOver.hazardSelection(current: "water-legacy-0", previous: legacy, next: precise))
         XCTAssertNil(LiveMapCarryOver.hazardSelection(current: nil, previous: legacy, next: precise))
+    }
+
+    // MARK: - Display state (地图降级契约)
+
+    private func prep(coverage: String?, withMap: Bool) throws -> CoursePrepHole {
+        var fields = [
+            #""hole":1,"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":300"#,
+            #""route":[[120,330],[120,30]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]}"#,
+        ]
+        if let coverage { fields.append("\"geometryCoverage\":\"\(coverage)\"") }
+        if withMap {
+            fields.append(#""map":{"overlay":{"w":240,"h":360,"ppm":1,"ln":300,"route":[[120,330,0],[120,30,300]]}}"#)
+        }
+        return try JSONDecoder().decode(CoursePrepHole.self, from: Data("{\(fields.joined(separator: ","))}".utf8))
+    }
+
+    func testNoDrawableRouteIsTheWaitingPage() throws {
+        XCTAssertEqual(LiveMapDisplayState.resolve(prep: nil, pending: false), .waiting)
+        XCTAssertEqual(LiveMapDisplayState.resolve(prep: try prep(coverage: "partial", withMap: false), pending: true), .waiting)
+    }
+
+    func testPartialMapDrawsAtOnceAndIsPendingOnlyWhileAPreciseMapIsExpected() throws {
+        let partial = try prep(coverage: "partial", withMap: true)
+        let pending = LiveMapDisplayState.isPrecisePending(
+            geometryCoverage: partial.geometryCoverage, timedOut: false, hasBaseURL: true, hasCachedTopo: false
+        )
+        XCTAssertTrue(pending)
+        XCTAssertEqual(LiveMapDisplayState.resolve(prep: partial, pending: pending), .factualPending)
+        for (timedOut, hasBaseURL, cached) in [(true, true, false), (false, false, false), (false, true, true)] {
+            let settled = LiveMapDisplayState.isPrecisePending(
+                geometryCoverage: partial.geometryCoverage,
+                timedOut: timedOut, hasBaseURL: hasBaseURL, hasCachedTopo: cached
+            )
+            XCTAssertFalse(settled)
+            XCTAssertEqual(LiveMapDisplayState.resolve(prep: partial, pending: settled), .factual)
+        }
+    }
+
+    func testReadyMapIsNeverPending() throws {
+        let ready = try prep(coverage: "ready", withMap: true)
+        XCTAssertFalse(LiveMapDisplayState.isPrecisePending(
+            geometryCoverage: ready.geometryCoverage, timedOut: false, hasBaseURL: true, hasCachedTopo: false
+        ))
+        XCTAssertEqual(LiveMapDisplayState.resolve(prep: ready, pending: false), .precise)
     }
 }

@@ -532,25 +532,63 @@ final class DesignSnapshotTests: XCTestCase {
                 )
             }
             // README 地图降级契约: without the precise topo the live hole draws the factual route and
-            // the geometry it already has, immediately (no blank hole, no spinner) ...
+            // the geometry it already has (green outline, obstacle facts), immediately.
+            let greenOutlineJSON = (0..<24).map { index -> String in
+                let angle = Double(index) / 24 * 2 * Double.pi
+                return String(format: "[%.1f,%.1f]", 120 + 22 * cos(angle), 52 + 18 * sin(angle))
+            }.joined(separator: ",")
             let partialPrepJSON = livePrepJSON.replacingOccurrences(
                 of: "\"map\":{\"image\":\"\(b64)\",",
-                with: "\"geometryCoverage\":\"partial\",\"map\":{"
+                with: "\"geometryCoverage\":\"partial\","
+                    + "\"greenOutline\":{\"available\":true,\"source\":\"fixture\",\"pointsPx\":[\(greenOutlineJSON)]},"
+                    + "\"map\":{"
             )
             XCTAssertNotEqual(partialPrepJSON, livePrepJSON, "fixture: the topo image must be removed")
             let partialPrep = try JSONDecoder().decode(CoursePrepHole.self, from: Data(partialPrepJSON.utf8))
             XCTAssertEqual(partialPrep.geometryCoverage, "partial")
+            XCTAssertEqual(partialPrep.greenOutline?.available, true)
+            XCTAssertFalse(LiveHazardDisplayItem.rows(for: partialPrep, liveReadouts: nil).isEmpty)
+            let partialPackage = package.replacingCoursePrep(CoursePrepPackage(
+                schema: "ai-caddie-course-prep-v1",
+                globalId: package.course.globalId,
+                holes: [partialPrep],
+                missingData: nil
+            ))
+            // Pending: the precise topo is still expected online (a service URL, nothing cached).
+            // Factual route + green outline draw at once; the provisional obstacle subset, Touch
+            // Target and flag entries wait for the precise map. The unreachable host keeps it pending.
+            XCTAssertEqual(
+                LiveMapDisplayState.resolve(
+                    prep: partialPrep,
+                    pending: LiveMapDisplayState.isPrecisePending(
+                        geometryCoverage: partialPrep.geometryCoverage,
+                        timedOut: false,
+                        hasBaseURL: true,
+                        hasCachedTopo: false
+                    )
+                ),
+                .factualPending
+            )
             try captureScreen(
                 NavigationStack {
                     CurrentHoleView(
-                        package: package.replacingCoursePrep(CoursePrepPackage(
-                            schema: "ai-caddie-course-prep-v1",
-                            globalId: package.course.globalId,
-                            holes: [partialPrep],
-                            missingData: nil
-                        )),
+                        package: partialPackage,
                         hole: firstHole,
-                        snapshotState: .init(caddieRoutes: routes)
+                        snapshotState: .init(caddieRoutes: routes),
+                        caddieBaseURL: URL(string: "http://127.0.0.1:9")
+                    )
+                },
+                named: "full-hole-map-partial-pending",
+                dark: true
+            )
+            // Partial facts with nothing better coming (offline / no service): the same map, and the
+            // obstacle facts it has are browsable (one selected here).
+            try captureScreen(
+                NavigationStack {
+                    CurrentHoleView(
+                        package: partialPackage,
+                        hole: firstHole,
+                        snapshotState: .init(selectsFirstHazard: true, caddieRoutes: routes)
                     )
                 },
                 named: "full-hole-map-partial",
