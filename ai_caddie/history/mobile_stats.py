@@ -53,7 +53,12 @@ _CLUB_KEYS = (
     "confidence",
 )
 _TIME_KEYS = ("byYear", "byQuarter", "byMonth", "byDay", "improvement", "playFrequency")
-_SCORING_KEYS = ("scoreBands", "outcomes", "outcomeDistribution", "difficultyAdjusted", "byPar", "phaseStats", "putting", "approachMiss", "teeDirection")
+_SCORING_KEYS = (
+    "scoreBands", "outcomes", "outcomeDistribution", "difficultyAdjusted", "byPar", "phaseStats", "putting",
+    "approachMiss", "teeDirection",
+    # B0 new statistics fields
+    "penalties", "scrambling", "roundSequences", "loops", "nineCombos", "nineOnlyRounds", "hardestHoles",
+)
 _DIAGNOSIS_KEYS = ("topIssue", "issueTrends", "windowSize")
 _PROFILE_KEYS = ("topStrength", "topWeakness", "strengths", "weaknesses", "caddieBiases")
 _QUALITY_KEYS = ("label", "state", "ready", "total")

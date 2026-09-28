@@ -44,6 +44,19 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 - “跳过”指不参与：默认洞同时退出推杆 / GIR 的分母（覆盖率、Approach、approachMiss）、推杆数据质量和 `missing_putt_data` 诊断，不算“缺数据”；对该洞做过推杆更正则重新计入。持久化快照（`snapshot._played_holes`）保留 `scoreSource`，没有该字段的旧 / Garmin 洞形状不变。
 - 客户端发送新来源放在 B2（记分三屏重做时一起做“是否改过”的判断），B7 发 `watch_detected`。在那之前客户端仍发旧值，统计与现在一致。
 
+### B0 新统计字段实现说明（B0d-1）
+
+都在 `history_stats._scoring` 里（`_round_breakdowns`），移动端 `mobile_stats._SCORING_KEYS` 同步放行：
+
+- `putting` 增加 `zeroPutts / onePutts / twoPutts / threePlusPutts` 和对应百分比（只算 B0c 意义上合格的洞，推杆更正生效）。0 推（切杆进洞）单独一档，不算一推；四档合计 100%。
+- `penalties`：`total / holesRecorded / roundsRecorded / averagePerRound`；只统计带 `penalties` 字段、且不是未编辑默认洞的洞（手动记分有，Garmin 成绩卡没有，缺失不当 0；默认洞入库时的 `penalties: 0` 不是记录）。
+- `scrambling`：**标准救球率** = 未标准杆上果岭的洞里，最终 Par 或更好的比例。原计划写的“长草 / 沙坑起杆后一推进洞或两杆内完成”需要逐杆起点和完整杆序，现有球位数据不保证包含每一杆和推杆，会系统性少算，所以改用标准定义。以后（B7 有完整杆序后）按球位的 up-and-down 用新字段名，不改这个字段的含义。
+- `roundSequences`：每场（新的在前）`holes`（显示洞号 1–18，缺洞时不补位，其余数组与它逐项对应）+ 逐洞 `putts / gir / fairway`。默认洞的 `putts / gir` 为 `null`；`fairway` 不属于 B0c 跳过的字段，照常给出。
+- `loops`：按物理 9 洞环的逐洞平均杆差和样本数。环的身份 = Garmin 球场 id + 物理洞段，key 形如 `gid:1001:1-9` / `gid:7:10-18`（没有 id 时 `course:<courseKey>:…`）：27 洞球场每个环有自己的 id（都是 1–9 洞），18 洞单球场前后九共用一个 id、靠洞段区分；成绩卡带了后九 id（包括前后 id 相同的“A/A”）时，后九就是那个 id 的 1–9 洞，只有没有后九 id 的才是单球场的 10–18。同一天合并的两张成绩卡按“末尾连续 10、11…”切分前后半，前半即使被 Garmin 编成 10–18 也不会和后半撞号。名字在全部场次统计完后按 key 一次决定：取“球场 ~ A/C”两段后缀、或单环场次的单字母后缀（“~ A”）里出现最多的环名；“C/B+A” 这类组合名不作证据；没有证据时写“1–9 洞 / 10–18 洞”，不合成“前九 / 后九”。每个环洞的 par 取各场来源 par 的众数（并列取较小者）；所有列表都有完整排序键（组合在显示名之后再比 `frontKey / backKey`）。结果与历史顺序无关。合并场次在 `merge_same_day_halves` 里就统一成 1–18：前半若被 Garmin 编成 10–18，显示为 1–9，物理洞号放在 `localHole`，球位按 `frontHoleOffset` 跟着改；所以 `_scoring` 所有段落的洞 ref 都能唯一指到每个洞。
+- `nineCombos`：只算 `holesCompleted == 18` 的场次，按“前环 key → 后环 key”分组（A/B ≠ B/A），行里带 `frontKey / backKey` 和显示名、场数、平均杆；`nineOnlyRounds`：`holesCompleted == 9` 的场数。
+- `hardestHoles`：各环逐洞平均杆差最高的 5 个，至少 2 个样本。
+- 体积：用真实历史跑一遍，`/stats` 的 scoring 多出约 298,568 字节（gzip 后约 28,412 字节），主要是 `roundSequences`。B5（统计页）上线前定一个移动端载荷预算（比如按最近 N 场截断 `roundSequences`，或拆成按需请求），不在 B0d-1 里改。
+
 ### B0 契约细节（Python 与 Swift 各自实现时以此为准）
 
 现有字段（`ai_caddie/courses/course_prep.py` 的 `HolePrep`）先写清楚，新字段照它们的坐标系：
