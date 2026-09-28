@@ -52,6 +52,9 @@ ensure_state_shape() {
     | .seenReviewIds //= []
     | .seenCommitShas //= []
     | .pullCommits //= {}
+    | .workflowRuns //= {}
+    | .workflowRunsInitialized //= false
+    | .lastWorkflowScanAt //= ""
     | .openPulls //= {}
     | .recentlyClosed //= {}
     | if (.schema // "") == "garmin-ai-caddie-pr-feedback-monitor-v1" then
@@ -63,7 +66,7 @@ ensure_state_shape() {
         | .lastProcessedReviewId //= ((.seenReviewIds // [] | map(tonumber) | max) // 0)
         | .schema //= "garmin-ai-caddie-pr-feedback-monitor-v2"
       end
-    | .schema = "garmin-ai-caddie-pr-feedback-monitor-v3"'
+    | .schema = "garmin-ai-caddie-pr-feedback-monitor-v4"'
 }
 
 seen_id() {
@@ -95,6 +98,16 @@ api_array() {
   local raw
   raw="$(gh api --paginate --slurp "$endpoint" 2>/dev/null)" || return 1
   jq -c 'add // []' <<<"$raw" 2>/dev/null || return 1
+}
+
+api_workflow_runs() {
+  local since="$1"
+  local raw
+  # Workflow runs are repository-wide. The encoded comparison operator keeps
+  # the query intact when gh builds the request URL.
+  raw="$(gh api --paginate --slurp \
+    "repos/$REPO/actions/runs?per_page=100&created=%3E%3D$since" 2>/dev/null)" || return 1
+  jq -c '[.[]?.workflow_runs[]?] | unique_by(.id)' <<<"$raw" 2>/dev/null || return 1
 }
 
 pr_number_from_url() {
@@ -166,6 +179,58 @@ while :; do
     scan_dir=""
     sleep "$INTERVAL"
     continue
+  fi
+  workflow_fetch_failed=0
+  workflow_runs_file="$scan_dir/workflow-runs.json"
+  workflow_since="$(date -u -d "$lookback_days days ago" +%Y-%m-%d 2>/dev/null || printf '%s' "$since_date")"
+  if ! api_workflow_runs "$workflow_since" > "$workflow_runs_file"; then
+    workflow_fetch_failed=1
+    printf '[]\n' > "$workflow_runs_file"
+  fi
+
+  # Track repository-wide Actions runs as well as PR check snapshots. A
+  # merge-triggered push run may no longer update the PR, so it cannot be
+  # recovered from `gh pr checks` alone. The first successful observation is
+  # a silent baseline; later status/conclusion transitions are durable events.
+  workflow_initialized="$(state_value '.workflowRunsInitialized // false')"
+  while IFS= read -r run_row; do
+    run_id="$(jq -r '.id // empty' <<<"$run_row")"
+    [ -n "$run_id" ] || continue
+    run_sha="$(jq -r '.head_sha // empty' <<<"$run_row")"
+    api_run_prs="$(jq -c '[.pull_requests[]?.number] | map(select(. != null)) | unique' <<<"$run_row")"
+    sha_run_prs="$(jq -c --arg sha "$run_sha" '[.[] | select((.headRefOid // "") == $sha or (.mergeCommit.oid // "") == $sha) | .number] | unique' <<<"$prs")"
+    run_prs="$(jq -cn --argjson a "$api_run_prs" --argjson b "$sha_run_prs" '$a + $b | unique')"
+    current_run="$(jq -c --argjson prs "$run_prs" '{
+      id:(.id|tostring),
+      name:(.name // ""),
+      event:(.event // ""),
+      status:(.status // ""),
+      conclusion:(.conclusion // ""),
+      headBranch:(.head_branch // ""),
+      headSha:(.head_sha // ""),
+      runAttempt:(.run_attempt // 0),
+      createdAt:(.created_at // ""),
+      updatedAt:(.updated_at // ""),
+      url:(.html_url // ""),
+      pullRequests:$prs
+    }' <<<"$run_row")"
+    old_run="$(state_value --arg id "$run_id" '.workflowRuns[$id] // empty')"
+    if [ "$workflow_initialized" = "true" ]; then
+      if [ -z "$old_run" ] || [ "$old_run" = "null" ]; then
+        record_event "$(jq -c --argjson run "$current_run" '{kind:"ci_run_added",runId:$run.id,name:$run.name,event:$run.event,status:$run.status,conclusion:$run.conclusion,headBranch:$run.headBranch,headSha:$run.headSha,runAttempt:$run.runAttempt,createdAt:$run.createdAt,updatedAt:$run.updatedAt,pullRequests:$run.pullRequests,url:$run.url}' <<<"{}")"
+      elif jq -n -e --argjson old "$old_run" --argjson new "$current_run" '$old.status != $new.status or $old.conclusion != $new.conclusion or $old.runAttempt != $new.runAttempt or $old.headSha != $new.headSha' >/dev/null 2>&1; then
+        record_event "$(jq -cn --argjson old "$old_run" --argjson new "$current_run" '{kind:"ci_run_changed",runId:$new.id,name:$new.name,event:$new.event,status:$new.status,conclusion:$new.conclusion,headBranch:$new.headBranch,headSha:$new.headSha,runAttempt:$new.runAttempt,createdAt:$new.createdAt,updatedAt:$new.updatedAt,pullRequests:$new.pullRequests,previous:{status:$old.status,conclusion:$old.conclusion,runAttempt:$old.runAttempt,headSha:$old.headSha},url:$new.url}')"
+      fi
+    fi
+    state_update --arg id "$run_id" --argjson run "$current_run" '
+      .workflowRuns = (((.workflowRuns // {}) + {($id):$run})
+        | to_entries
+        | sort_by(.value.updatedAt // .value.createdAt // "")
+        | .[-5000:]
+        | from_entries)'
+  done < <(jq -c '.[]' "$workflow_runs_file")
+  if [ "$workflow_fetch_failed" -eq 0 ]; then
+    state_update --arg now "$scan_started" '.workflowRunsInitialized = true | .lastWorkflowScanAt = $now'
   fi
   review_fetch_failed=0
   commit_fetch_failed=0
@@ -325,6 +390,9 @@ while :; do
       log_message "monitor_warning: PR commit fetch failed; retaining cursor $previous_scan"
     fi
     next_cursor="$previous_scan"
+  fi
+  if [ "$workflow_fetch_failed" -ne 0 ]; then
+    log_message "monitor_warning: workflow-run fetch failed; retaining workflow baseline/cursor for retry"
   fi
   state_update --arg now "$next_cursor" '.lastScanAt = $now'
   rm -rf "$scan_dir"
