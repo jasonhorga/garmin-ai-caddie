@@ -590,6 +590,23 @@ def merge_same_day_halves(rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 row["number"] = idx
                 back_holes.append(row)
 
+            # A first card Garmin numbered 10...18 (the back nine of an 18-hole course played as
+            # a nine) would repeat the second card's 10...18, so every hole ref of the product
+            # round would be ambiguous. Display it as 1...9 and keep the physical CourseView hole
+            # in ``localHole``; shots follow through ``frontHoleOffset`` in the remap below.
+            front_holes = list(front.get("holes") or [])
+            front_hole_pars = str(front.get("holePars") or "")
+            front_numbers = [int(hole.get("number") or 0) for hole in front_holes if isinstance(hole, dict)]
+            front_offset = 0
+            if front_numbers and min(front_numbers) >= 10:
+                front_offset = -9
+                front_holes = [
+                    {**hole, "number": int(hole.get("number") or 0) - 9, "localHole": int(hole.get("number") or 0)}
+                    for hole in front_holes
+                ]
+                if len(front_hole_pars) >= 18:
+                    front_hole_pars = front_hole_pars[9:18]
+
             merged.append({
                 **front,
                 "id": f"merged_{front['id']}_{back['id']}",
@@ -618,8 +635,8 @@ def merge_same_day_halves(rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     if value
                 ],
                 "par": sum_field("par"),
-                "holePars": str(front.get("holePars") or "") + str(back.get("holePars") or ""),
-                "holes": (front.get("holes") or []) + back_holes,
+                "holePars": front_hole_pars + str(back.get("holePars") or ""),
+                "holes": front_holes + back_holes,
                 "fh": sum_field("fh"),
                 "fl": sum_field("fl"),
                 "fr": sum_field("fr"),
@@ -641,6 +658,7 @@ def merge_same_day_halves(rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "hasShots": all(r.get("hasShots") for r in group),
                 "shotStatus": "ready" if all(r.get("hasShots") for r in group) else "partial",
                 "merged": True,
+                **({"frontHoleOffset": front_offset} if front_offset else {}),
             })
         else:
             merged.extend(group)
@@ -726,7 +744,7 @@ def remap_shots_to_merged_rounds(
         if round_row.get("merged") and len(member_ids) >= 2:
             aliases[str(member_ids[0])] = {
                 "roundId": canonical_id,
-                "holeOffset": 0,
+                "holeOffset": int(round_row.get("frontHoleOffset") or 0),
                 "globalId": (
                     round_row.get("frontNineGlobalCourseId")
                     or round_row.get("globalId")
@@ -783,7 +801,17 @@ def remap_shots_to_merged_rounds(
             local_hole = positive_int(row.get("localHole"))
             already_canonical = str(current_round_id or "") == str(canonical_id)
 
-            if already_canonical and display_hole is not None and (offset == 0 or display_hole > 9):
+            if offset < 0:
+                # First card numbered 10...18 and displayed 1...9: the physical hole stays
+                # 10...18; a canonical row (display <= 9) is not shifted again.
+                if already_canonical and display_hole is not None and display_hole <= 9:
+                    local_hole = local_hole or display_hole - offset
+                else:
+                    source_hole = local_hole or display_hole
+                    if source_hole is not None and source_hole > 9:
+                        local_hole = source_hole
+                        display_hole = source_hole + offset
+            elif already_canonical and display_hole is not None and (offset == 0 or display_hole > 9):
                 # Snapshot/canonical input: trust its display hole, deriving a
                 # missing physical hole without applying the offset again.
                 if local_hole is None:

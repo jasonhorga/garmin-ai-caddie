@@ -263,6 +263,72 @@ class LoopIdentityTest(unittest.TestCase):
         self.assertEqual([hole["par"] for hole in loops["gid:8:1-9"]["holes"]], [3, 4, 5] * 3)
 
 
+
+def _ref_lists(value, path: str = "") -> list[tuple[str, list[str]]]:
+    """Every emitted ``*Refs`` string list in a stats payload, with its path."""
+    found: list[tuple[str, list[str]]] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key.lower().endswith("refs") and isinstance(item, list) and all(isinstance(ref, str) for ref in item):
+                found.append((f"{path}.{key}", item))
+            else:
+                found.extend(_ref_lists(item, f"{path}.{key}"))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            found.extend(_ref_lists(item, f"{path}[{index}]"))
+    return found
+
+
+class BackNumberedMergeTest(unittest.TestCase):
+    """Real shape (merged_15179207_15179548): the first card of the day was stored as holes 10...18."""
+
+    def _raw(self) -> list[dict]:
+        def card(card_id: int, date: str, numbers: range, pars: str) -> dict:
+            holes = [{"number": n, "par": 4, "strokes": 5 if n % 2 else 4, "putts": 1 + n % 3,
+                      "gir": n % 2 == 0, "fairway": "hit" if n % 3 else "left"} for n in numbers]
+            return {"id": card_id, "ids": [card_id], "date": date, "strokes": sum(h["strokes"] for h in holes),
+                    "holesCompleted": 9, "course": "Plain", "courseCanonical": "Plain", "courseKey": "plain",
+                    "courseId": 7, "frontNineGlobalCourseId": 7, "backNineGlobalCourseId": None,
+                    "par": 36, "holePars": pars, "holes": holes, "hasShotFile": True, "hasShots": True}
+        return [card(15179207, "2026-05-01T08:00:00+08:00", range(10, 19), "4" * 18),
+                card(15179548, "2026-05-01T11:00:00+08:00", range(1, 10), "4" * 9)]
+
+    def test_merge_displays_one_to_eighteen_and_keeps_the_physical_hole(self) -> None:
+        merged = history.merge_same_day_halves(self._raw())
+        self.assertEqual(len(merged), 1)
+        row = merged[0]
+        self.assertEqual([hole["number"] for hole in row["holes"]], list(range(1, 19)))
+        self.assertEqual([hole.get("localHole") for hole in row["holes"][:9]], list(range(10, 19)))
+        self.assertEqual(row["holePars"], "4" * 18)
+        loops = {loop["loopKey"] for loop in _scoring_of(merged)["loops"]}
+        self.assertEqual(loops, {"gid:7:10-18", "gid:7:1-9"})
+
+    def test_every_emitted_ref_list_names_unique_holes(self) -> None:
+        rounds = history.merge_same_day_halves(self._raw())
+        scoring = _scoring_of(rounds)
+        ref_lists = _ref_lists(scoring)
+        self.assertTrue(ref_lists)
+        seen: set[str] = set()
+        for path, refs in ref_lists:
+            hole_refs = [ref for ref in refs if ref.startswith("merged_15179207_15179548:") and ref.count(":") == 1]
+            self.assertEqual(len(hole_refs), len(set(hole_refs)), path)
+            seen.update(hole_refs)
+        self.assertEqual(seen, {f"merged_15179207_15179548:{n}" for n in range(1, 19)})
+
+    def test_shots_follow_the_display_numbering_idempotently(self) -> None:
+        rounds = history.merge_same_day_halves(self._raw())
+        raw_shots = [{"scorecardId": 15179207, "roundId": 15179207, "hole": 12},
+                     {"scorecardId": 15179548, "roundId": 15179548, "hole": 3}]
+        once = history.remap_shots_to_merged_rounds(raw_shots, rounds)
+        self.assertEqual([(shot["roundId"], shot["hole"], shot["localHole"]) for shot in once],
+                         [("merged_15179207_15179548", 3, 12), ("merged_15179207_15179548", 12, 3)])
+        self.assertEqual(history.remap_shots_to_merged_rounds(once, rounds), once)
+        # A canonical row that lost its physical hole derives it without shifting again.
+        bare = [{"scorecardId": 15179207, "roundId": "merged_15179207_15179548", "hole": 3}]
+        self.assertEqual(history.remap_shots_to_merged_rounds(bare, rounds)[0]["localHole"], 12)
+        self.assertEqual(history.remap_shots_to_merged_rounds(bare, rounds)[0]["hole"], 3)
+
+
 class PuttAndPenaltyEdgeTest(unittest.TestCase):
     def tearDown(self) -> None:
         stats_cache.clear()

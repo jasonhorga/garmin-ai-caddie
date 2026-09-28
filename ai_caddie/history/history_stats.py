@@ -2103,10 +2103,10 @@ def _approach_miss_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def _hole_sides(row: dict[str, Any]) -> list[tuple[dict[str, Any], int, int, str]]:
     """``(hole, display number 1...18, physical hole, side)`` for every numbered hole in a round.
 
-    Merged same-day rounds concatenate the first scorecard's holes as stored with the second
-    scorecard renumbered 10...18, so a first half that Garmin numbered 10...18 would otherwise
-    collide with the second half. The second half is the trailing run 10, 11, ... to the end; the
-    rest is the first half. Physical hole numbers stay those of the member scorecard.
+    Merged same-day rounds hold the first scorecard as 1...9 and the second renumbered 10...18.
+    A first card Garmin numbered 10...18 is displayed 1...9 by the merge with its physical hole in
+    ``localHole``; rows built before that normalisation still repeat 10...18, so the second half
+    is taken as the trailing run 10, 11, ... to the end and the rest is the first half.
     """
     holes = [hole for hole in row.get("holes") or [] if isinstance(hole, dict) and int(hole.get("number") or 0)]
     numbers = [int(hole.get("number") or 0) for hole in holes]
@@ -2121,7 +2121,8 @@ def _hole_sides(row: dict[str, Any]) -> list[tuple[dict[str, Any], int, int, str
         for index, hole in enumerate(holes):
             number = numbers[index]
             if index < split:
-                out.append((hole, number if number <= 9 else number - 9, number, "front"))
+                physical = int(hole.get("localHole") or number)
+                out.append((hole, number if number <= 9 else number - 9, physical, "front"))
             else:
                 out.append((hole, number, number - 9, "back"))
     else:
