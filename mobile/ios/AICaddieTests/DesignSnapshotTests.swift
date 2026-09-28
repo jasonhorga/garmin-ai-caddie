@@ -466,6 +466,26 @@ final class DesignSnapshotTests: XCTestCase {
         let prepHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(prepJSON.utf8))
         try captureScreen(VStack { HoleImageMapView(hole: prepHole).frame(height: 460) }.padding(24), named: "hole-map")
 
+        // B1 live main screen: the same synthetic map attached to the fixture's first hole, so the
+        // full-screen map, the corner controls and the top-right ladder are reviewable together.
+        if let firstHole = package.holes.first {
+            let livePrepJSON = prepJSON.replacingOccurrences(of: "{\"hole\":7,", with: "{\"hole\":\(firstHole.number),")
+            let livePrepHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(livePrepJSON.utf8))
+            let mappedPackage = package.replacingCoursePrep(
+                CoursePrepPackage(
+                    schema: "ai-caddie-course-prep-v1",
+                    globalId: package.course.globalId,
+                    holes: [livePrepHole],
+                    missingData: nil
+                )
+            )
+            try captureScreen(
+                NavigationStack { CurrentHoleView(package: mappedPackage, hole: firstHole) },
+                named: "full-hole-map",
+                dark: true
+            )
+        }
+
         // No-network topo fallback: pass a topoURL (as production does for a real course) but CI has
         // NO network, so the AsyncImage never resolves → the base layer must degrade to the flat
         // render + overlay, never a broken/empty box. Unreachable host guarantees no load.

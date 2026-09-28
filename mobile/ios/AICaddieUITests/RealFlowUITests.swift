@@ -523,10 +523,11 @@ final class RealFlowUITests: XCTestCase {
             liveTopoReady.waitForExistence(timeout: 75),
             "live-hole evidence must wait for the real topo bitmap, never capture the loading fallback as complete"
         )
-        let liveBackButton = app.buttons["返回球局首页"]
+        // B1: the top-left circle opens the round scorecard (which also holds 回到首页 / 结束本场).
+        let liveBackButton = app.buttons["计分卡"]
         XCTAssertTrue(
             liveBackButton.waitForExistence(timeout: 5),
-            "immersive live play must retain an explicit way back to the round home"
+            "immersive live play must retain an explicit way back through the scorecard"
         )
         let liveHoleHeading = app.staticTexts["第 1 洞"]
         XCTAssertTrue(liveHoleHeading.waitForExistence(timeout: 5))
@@ -551,18 +552,17 @@ final class RealFlowUITests: XCTestCase {
             liveWindowFrame.width * 0.16,
             "the approved return control is a compact circle, not a separate blue text row"
         )
-        let livePlayPanel = app.descendants(matching: .any)["live-play-panel-anchor"].firstMatch
-        XCTAssertTrue(livePlayPanel.waitForExistence(timeout: 5))
-        XCTAssertGreaterThanOrEqual(
-            livePlayPanel.frame.minY,
-            liveWindowFrame.height * 0.60,
-            "the approved map-first live screen keeps at least three fifths of the first glance for the factual hole map"
-        )
-        XCTAssertLessThanOrEqual(
-            livePlayPanel.frame.minY,
-            liveWindowFrame.height * 0.68,
-            "the data panel must still begin soon enough for every primary live action to remain in the first glance"
-        )
+        // B1 (live-play.html): the factual hole map fills the screen. No bottom panel or action dock;
+        // 完成本洞 (记分) floats bottom-left and the single white 记一杆 bottom-right.
+        XCTAssertFalse(app.descendants(matching: .any)["live-play-panel-anchor"].firstMatch.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["live-action-dock"].firstMatch.exists)
+        let liveRecordShot = app.buttons["记一杆"]
+        let liveScoreHole = app.buttons["完成本洞"]
+        XCTAssertTrue(liveRecordShot.waitForExistence(timeout: 5) && liveScoreHole.exists)
+        XCTAssertGreaterThan(liveRecordShot.frame.minX, liveWindowFrame.width * 0.6, "记一杆 sits bottom-right")
+        XCTAssertGreaterThan(liveRecordShot.frame.minY, liveWindowFrame.height * 0.78, "记一杆 sits bottom-right")
+        XCTAssertLessThan(liveScoreHole.frame.maxX, liveWindowFrame.width * 0.4, "完成本洞 sits bottom-left")
+        XCTAssertGreaterThan(liveScoreHole.frame.minY, liveWindowFrame.height * 0.78, "完成本洞 sits bottom-left")
         XCTAssertLessThan(
             visibleStatusChromeBrightPixelFraction(in: XCUIScreen.main.screenshot()),
             0.005,
@@ -583,7 +583,7 @@ final class RealFlowUITests: XCTestCase {
         )
         XCTAssertTrue(
             fullyVisible(app.buttons["计分卡"]),
-            "the real scorecard action must be fully visible above the home-indicator boundary"
+            "the real scorecard action must be fully visible in the top-left corner"
         )
         let liveCaddieLoading = app.activityIndicators["正在更新球童建议"]
         _ = liveCaddieLoading.waitForExistence(timeout: 2) // a warm backend may finish before this appears
@@ -600,32 +600,24 @@ final class RealFlowUITests: XCTestCase {
             )
         }
         let firstSelectedHazard = app.descendants(matching: .any)["selected-hazard-1"].firstMatch
-        let hazardPicker = app.buttons["live-hazard-picker"]
+        let hazardToggle = app.buttons["live-hazard-toggle"]
         XCTAssertTrue(
-            hazardPicker.waitForExistence(timeout: 8),
-            "the live map must expose an explicit obstacle selector"
+            hazardToggle.waitForExistence(timeout: 8),
+            "the live map must expose an explicit obstacle control"
         )
         XCTAssertFalse(
             firstSelectedHazard.exists,
             "obstacle geometry and distances stay hidden until the player selects one"
         )
-        hazardPicker.tap()
-        let firstHazardOption = app.descendants(matching: .any)["hazard-picker-option-1"].firstMatch
-        XCTAssertTrue(
-            firstHazardOption.waitForExistence(timeout: 3),
-            "the obstacle selector must list the first available obstacle"
-        )
-        firstHazardOption.tap()
+        hazardToggle.tap()
         XCTAssertTrue(
             firstSelectedHazard.waitForExistence(timeout: 8),
-            "choosing an obstacle must expose its selected outline without navigating away"
+            "the obstacle control must expose one selected outline without navigating away"
         )
-        let actionDock = app.descendants(matching: .any)["live-action-dock"].firstMatch
-        XCTAssertTrue(actionDock.waitForExistence(timeout: 3))
-        XCTAssertLessThanOrEqual(
-            firstSelectedHazard.frame.maxY,
-            actionDock.frame.minY + 1,
-            "the fixed action HUD must not cover any selected-hazard distance"
+        XCTAssertFalse(
+            firstSelectedHazard.frame.intersects(liveRecordShot.frame)
+                || firstSelectedHazard.frame.intersects(liveScoreHole.frame),
+            "the obstacle bar must sit between the corner actions, never under them"
         )
         XCTAssertFalse(
             app.descendants(matching: .any)["selected-hazard-2"].firstMatch.exists,
@@ -638,30 +630,25 @@ final class RealFlowUITests: XCTestCase {
                 app.descendants(matching: .any)["selected-hazard-2"].firstMatch.waitForExistence(timeout: 3),
                 "down navigation must replace the selected obstacle instead of stacking another one"
             )
-            XCTAssertLessThanOrEqual(
-                app.descendants(matching: .any)["selected-hazard-2"].firstMatch.frame.maxY,
-                actionDock.frame.minY + 1,
-                "switching obstacles must keep the replacement distance panel above the HUD"
+            XCTAssertFalse(
+                app.descendants(matching: .any)["selected-hazard-2"].firstMatch.frame.intersects(liveRecordShot.frame),
+                "switching obstacles must keep the replacement bar clear of 记一杆"
             )
             XCTAssertFalse(firstSelectedHazard.exists)
         }
         settle(1); save("10b-live-hazard"); dump("10b-live-hazard")
-        let planHeading = openCaddiePlan(timeout: 75)
-        XCTAssertTrue(
-            fullyVisible(planHeading),
-            "the complete caddie plan must remain visible on the live surface"
-        )
+        _ = openCaddiePlan(timeout: 75)
         XCTAssertFalse(
             app.staticTexts["联网球童暂不可用 · 已切换到离线缓存建议。"].exists,
             "the real course screenshot must prove the online structured decision, not an offline fallback"
         )
         XCTAssertTrue(
-            app.descendants(matching: .any)["live-caddie-complete-route"].firstMatch.waitForExistence(timeout: 5),
-            "the live surface must show the complete remaining club chain"
+            app.descendants(matching: .any)["live-caddie-complete-route"].firstMatch.label.hasPrefix("球童路线：第 1 杆"),
+            "the route drawn on the map must read out its complete remaining club chain"
         )
-        XCTAssertTrue(
-            app.buttons["live-caddie-step-1"].waitForExistence(timeout: 5),
-            "every route must expose its first landing as an in-place map selection"
+        XCTAssertFalse(
+            app.descendants(matching: .any)["live-caddie-panel"].firstMatch.exists,
+            "B1: no plan card; the route is on the map and 打法 switches routes"
         )
         for label in ["推荐打法", "保守打法", "进攻打法"] {
             XCTAssertFalse(app.staticTexts[label].exists, "legacy strategy labels must not replace physical club choices")
@@ -822,13 +809,10 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["live-scorecard-score-chip-1"].exists)
         settle(1); save("17-scorecard-after-edit"); dump("17-scorecard-after-edit")
 
-        app.buttons["关闭计分卡"].tap()
+        // B1: 结束本场 lives on the scorecard (the live screen's 返回 destination).
         let endMenu = app.buttons["live-round-end-menu"]
-        XCTAssertTrue(scrollTo(endMenu, maxSwipes: 16), "the header must expose the single finish entry")
+        XCTAssertTrue(scrollTo(endMenu, maxSwipes: 6), "the scorecard must expose the single finish entry")
         endMenu.tap()
-        let finishRound = app.buttons["结束本场"].firstMatch
-        XCTAssertTrue(finishRound.waitForExistence(timeout: 4), "the header menu must expose finish")
-        finishRound.tap()
         XCTAssertTrue(
             app.staticTexts["本场汇总"].waitForExistence(timeout: 5),
             "ending from the menu must show the same non-destructive summary used after the final hole"
@@ -1190,7 +1174,7 @@ final class RealFlowUITests: XCTestCase {
         )
         let restoredPlan = openCaddiePlan(timeout: 75)
         XCTAssertTrue(
-            fullyVisible(restoredPlan),
+            restoredPlan.exists,
             "a searched course without GPS must still expose the static-map caddie recommendation"
         )
         let parText = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Par '")).firstMatch
@@ -1263,12 +1247,13 @@ final class RealFlowUITests: XCTestCase {
         app.buttons["取消"].tap()
         XCTAssertTrue(app.staticTexts["第 2 洞"].waitForExistence(timeout: 8))
 
+        // B1: 结束本场 lives on the scorecard (the live screen's 返回 destination).
+        let reopenScorecard = app.buttons["计分卡"]
+        XCTAssertTrue(reopenScorecard.waitForExistence(timeout: 5))
+        reopenScorecard.tap()
         let endMenu = app.buttons["live-round-end-menu"]
-        XCTAssertTrue(scrollTo(endMenu, maxSwipes: 18))
+        XCTAssertTrue(scrollTo(endMenu, maxSwipes: 6))
         endMenu.tap()
-        let finishRound = app.buttons["结束本场"].firstMatch
-        XCTAssertTrue(finishRound.waitForExistence(timeout: 4))
-        finishRound.tap()
         XCTAssertTrue(app.staticTexts["本场汇总"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["已完成 1/\(evidence.holes) 洞"].exists)
         app.buttons["保存并结束"].tap()
@@ -1486,22 +1471,14 @@ final class RealFlowUITests: XCTestCase {
     /// second sheet or returning from it before the golfer can record the next shot.
     @discardableResult
     private func openCaddiePlan(timeout: TimeInterval) -> XCUIElement {
-        let panel = app.descendants(matching: .any)["live-caddie-panel"].firstMatch
+        // B1: the selected route is drawn on the full-screen map; its accessible summary is the
+        // evidence that the structured recommendation arrived.
+        let route = app.descendants(matching: .any)["live-caddie-complete-route"].firstMatch
         XCTAssertTrue(
-            scrollTo(panel, maxSwipes: 18),
-            "the live root must expose the inline caddie plan"
+            route.waitForExistence(timeout: timeout),
+            "the live map must carry the complete caddie route"
         )
-        let loading = app.activityIndicators["正在更新球童建议"]
-        _ = loading.waitForExistence(timeout: 2)
-        XCTAssertTrue(
-            waitUntilGone(loading, timeout: timeout),
-            "the inline caddie plan must settle its structured recommendation"
-        )
-        XCTAssertTrue(
-            app.descendants(matching: .any)["live-caddie-complete-route"].firstMatch.waitForExistence(timeout: timeout),
-            "the inline caddie plan must expose every remaining leg"
-        )
-        return panel
+        return route
     }
 
     private func waitForWholeYardValue(_ element: XCUIElement, timeout: TimeInterval) -> Bool {

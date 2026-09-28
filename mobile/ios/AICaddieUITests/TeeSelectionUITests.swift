@@ -339,7 +339,7 @@ final class TeeSelectionUITests: XCTestCase {
         )
         let caddiePlan = openCaddiePlan(timeout: 90)
         XCTAssertTrue(
-            fullyVisible(caddiePlan),
+            caddiePlan.exists,
             "the no-GPS start must still expose the static-map caddie recommendation"
         )
         let teeReference = app.descendants(matching: .any).matching(
@@ -547,9 +547,13 @@ final class TeeSelectionUITests: XCTestCase {
             "the selected course must retain every drawable hole and available topo before offline acceptance"
         )
         save("offline-cache-01-online-ready"); dump("offline-cache-01-online-ready")
-        let back = app.buttons["返回球局首页"]
+        // B1: 返回 opens the scorecard; 回到首页 there keeps the round.
+        let back = app.buttons["计分卡"]
         XCTAssertTrue(back.waitForExistence(timeout: 5))
         back.tap()
+        let leaveHome = app.buttons["live-scorecard-leave-home"]
+        XCTAssertTrue(leaveHome.waitForExistence(timeout: 5))
+        leaveHome.tap()
         XCTAssertTrue(
             app.buttons["home-in-progress-round"].waitForExistence(timeout: 8),
             "returning from the cache warm-up must preserve the active round card"
@@ -610,14 +614,9 @@ final class TeeSelectionUITests: XCTestCase {
             app.descendants(matching: .any)["topo-hole-base-ready"].waitForExistence(timeout: 10),
             "the offline first hole must render the retained topo bitmap, not a network loading state"
         )
-        let offlineCaddiePanel = app.descendants(matching: .any)["live-caddie-panel"].firstMatch
-        XCTAssertTrue(
-            offlineCaddiePanel.waitForExistence(timeout: 10),
-            "the live caddie must expose the retained offline decision inline"
-        )
         XCTAssertTrue(
             app.descendants(matching: .any)["live-caddie-complete-route"].firstMatch.waitForExistence(timeout: 10),
-            "the offline decision must retain its complete club chain"
+            "the offline decision must retain its complete club chain on the map"
         )
         XCTAssertFalse(
             app.buttons["编辑第 1 洞成绩"].exists,
@@ -676,22 +675,14 @@ final class TeeSelectionUITests: XCTestCase {
     /// The live root exposes the complete route directly without a second presentation layer.
     @discardableResult
     private func openCaddiePlan(timeout: TimeInterval) -> XCUIElement {
-        let panel = app.descendants(matching: .any)["live-caddie-panel"].firstMatch
+        // B1: the selected route is drawn on the full-screen map; its accessible summary is the
+        // evidence that the structured recommendation arrived.
+        let route = app.descendants(matching: .any)["live-caddie-complete-route"].firstMatch
         XCTAssertTrue(
-            bringIntoView(panel, maxSwipes: 18),
-            "the live root must expose the inline caddie plan"
+            route.waitForExistence(timeout: timeout),
+            "the live map must carry the complete caddie route"
         )
-        let loading = app.activityIndicators["正在更新球童建议"]
-        _ = loading.waitForExistence(timeout: 2)
-        XCTAssertTrue(
-            waitUntilGone(loading, timeout: timeout),
-            "the inline caddie plan must settle its structured recommendation"
-        )
-        XCTAssertTrue(
-            app.descendants(matching: .any)["live-caddie-complete-route"].firstMatch.waitForExistence(timeout: timeout),
-            "the inline caddie plan must expose every remaining leg"
-        )
-        return panel
+        return route
     }
 
     private func searchAndSelectBeijingPalace(field identifier: String, text: String) throws {
@@ -781,11 +772,10 @@ final class TeeSelectionUITests: XCTestCase {
         if greenClose.exists, greenClose.isHittable { greenClose.tap() }
         let mapClose = app.buttons["关闭详细地图"]
         if mapClose.exists, mapClose.isHittable { mapClose.tap() }
+        // B1: 结束本场 lives on the scorecard, opened by the live screen's top-left 返回.
+        let scorecard = app.buttons["计分卡"]
+        if scorecard.waitForExistence(timeout: 5), scorecard.isHittable { scorecard.tap() }
         let endMenu = app.buttons["live-round-end-menu"]
-        for _ in 0..<12 where !endMenu.isHittable {
-            app.swipeDown()
-            settle(0.4)
-        }
         guard endMenu.waitForExistence(timeout: 8), endMenu.isHittable else { return }
         endMenu.tap()
         let discard = app.buttons["live-finish-discard"]
