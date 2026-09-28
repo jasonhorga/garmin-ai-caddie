@@ -112,10 +112,11 @@ were green, and artifacts `10971447902` / `10971558078` were inspected. The
 PR was merged as `b7523cefa3ae69679931c704406e3bdd9bded853` and its remote
 branch was explicitly deleted. There are currently no open B1-B7 PRs; resume
 by polling for a new PR, then run the bounded tests and screenshot review
-before commenting. The Native CI review artifact scratch is allow-listed at
+before commenting. The retained Native CI artifact scratch is allow-listed at
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T-review-pr354-artifacts/`
-and expires 2026-09-29; post-merge main CI `36427341719` is green and no
-production resources were changed.
+until 2026-09-29; its disposable exact-head source snapshot was removed after
+testing. Post-merge main CI `36427341719` is green and no production resources
+were changed.
 The background all-PR feedback monitor remains active in
 `codex-pr-monitor-20260928`.
 
