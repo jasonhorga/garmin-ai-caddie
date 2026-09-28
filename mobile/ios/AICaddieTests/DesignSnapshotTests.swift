@@ -387,6 +387,22 @@ final class DesignSnapshotTests: XCTestCase {
             named: "full-green-flag",
             dark: true
         )
+        // B1 旗位缩放: the same flag editor opened at 2.5x (edge lines and numbers stay screen size).
+        try captureScreen(
+            LiveGreenDetailView(
+                hole: hole,
+                detailURL: nil,
+                topoURL: nil,
+                targetCoordinate: .constant(nil),
+                targetPixel: .constant(CGPoint(x: 128, y: 42)),
+                referenceCoordinate: nil,
+                referenceIsLive: false,
+                pinCoordinate: nil,
+                initialScale: 2.5
+            ),
+            named: "full-green-flag-zoomed",
+            dark: true
+        )
     }
 
     /// Full-screen capture of a REAL screen (NavigationStack + ScrollView render fully here,
@@ -515,6 +531,107 @@ final class DesignSnapshotTests: XCTestCase {
                     dark: true
                 )
             }
+            // README 地图降级契约: without the precise topo the live hole draws the factual route and
+            // the geometry it already has (green outline, obstacle facts), immediately.
+            let greenOutlineJSON = (0..<24).map { index -> String in
+                let angle = Double(index) / 24 * 2 * Double.pi
+                return String(format: "[%.1f,%.1f]", 120 + 22 * cos(angle), 52 + 18 * sin(angle))
+            }.joined(separator: ",")
+            let partialPrepJSON = livePrepJSON.replacingOccurrences(
+                of: "\"map\":{\"image\":\"\(b64)\",",
+                with: "\"geometryCoverage\":\"partial\","
+                    + "\"greenOutline\":{\"available\":true,\"source\":\"fixture\",\"pointsPx\":[\(greenOutlineJSON)]},"
+                    + "\"map\":{"
+            )
+            XCTAssertNotEqual(partialPrepJSON, livePrepJSON, "fixture: the topo image must be removed")
+            let partialPrep = try JSONDecoder().decode(CoursePrepHole.self, from: Data(partialPrepJSON.utf8))
+            XCTAssertEqual(partialPrep.geometryCoverage, "partial")
+            XCTAssertEqual(partialPrep.greenOutline?.available, true)
+            XCTAssertFalse(LiveHazardDisplayItem.rows(for: partialPrep, liveReadouts: nil).isEmpty)
+            let partialPackage = package.replacingCoursePrep(CoursePrepPackage(
+                schema: "ai-caddie-course-prep-v1",
+                globalId: package.course.globalId,
+                holes: [partialPrep],
+                missingData: nil
+            ))
+            // Pending: the precise topo is still expected online (a service URL, nothing cached).
+            // Factual route + green outline + the obstacle facts it already has draw at once; one
+            // obstacle is selected through the 障碍 control, with its 前 / 后 labels. The unreachable
+            // host keeps it pending.
+            XCTAssertEqual(
+                LiveMapDisplayState.resolve(
+                    prep: partialPrep,
+                    pending: LiveMapDisplayState.isPrecisePending(
+                        geometryCoverage: partialPrep.geometryCoverage,
+                        timedOut: false,
+                        hasBaseURL: true,
+                        hasCachedTopo: false
+                    )
+                ),
+                .factualPending
+            )
+            try captureScreen(
+                NavigationStack {
+                    CurrentHoleView(
+                        package: partialPackage,
+                        hole: firstHole,
+                        snapshotState: .init(selectsFirstHazard: true, caddieRoutes: routes),
+                        caddieBaseURL: URL(string: "http://127.0.0.1:9")
+                    )
+                },
+                named: "full-hole-map-partial-pending",
+                dark: true
+            )
+            // Pending without a selection: the 障碍 control is offered for the existing facts.
+            try captureScreen(
+                NavigationStack {
+                    CurrentHoleView(
+                        package: partialPackage,
+                        hole: firstHole,
+                        snapshotState: .init(caddieRoutes: routes),
+                        caddieBaseURL: URL(string: "http://127.0.0.1:9")
+                    )
+                },
+                named: "full-hole-map-partial-pending-default",
+                dark: true
+            )
+            // Partial facts with nothing better coming (offline / no service): the same map, and the
+            // obstacle facts it has are browsable (one selected here).
+            try captureScreen(
+                NavigationStack {
+                    CurrentHoleView(
+                        package: partialPackage,
+                        hole: firstHole,
+                        snapshotState: .init(selectsFirstHazard: true, caddieRoutes: routes)
+                    )
+                },
+                named: "full-hole-map-partial",
+                dark: true
+            )
+            // ... and with no drawable route at all it shows the one full-screen waiting page
+            // (hole · Par · yards), never an empty hole.
+            let noMapPrepJSON = """
+            {"hole":\(firstHole.number),"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":375,\
+            "route":[],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]}}
+            """
+            let noMapPrep = try JSONDecoder().decode(CoursePrepHole.self, from: Data(noMapPrepJSON.utf8))
+            XCTAssertNil(noMapPrep.resolvedMapOverlay)
+            try captureScreen(
+                NavigationStack {
+                    CurrentHoleView(
+                        package: package.replacingCoursePrep(CoursePrepPackage(
+                            schema: "ai-caddie-course-prep-v1",
+                            globalId: package.course.globalId,
+                            holes: [noMapPrep],
+                            missingData: nil
+                        )),
+                        hole: firstHole
+                    )
+                },
+                named: "full-hole-map-waiting",
+                dark: true
+            )
+
             // Each injected state must actually render: identical PNGs mean the state was dropped.
             let snapshotDir = try FileManager.default
                 .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)

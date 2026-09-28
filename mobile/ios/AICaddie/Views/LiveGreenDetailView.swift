@@ -56,10 +56,13 @@ public struct LiveGreenDetailView: View {
         onTargetChanged: @escaping (CLLocationCoordinate2D?) -> Void = { _ in },
         onTargetCommitted: @escaping (CLLocationCoordinate2D?) -> Void = { _ in },
         onTargetPixelChanged: @escaping (CGPoint?) -> Void = { _ in },
-        onTargetPixelCommitted: @escaping (CGPoint?) -> Void = { _ in }
+        onTargetPixelCommitted: @escaping (CGPoint?) -> Void = { _ in },
+        initialScale: CGFloat = 1
     ) {
         self.hole = hole
         self.detailURL = detailURL
+        // 1–4x like the pinch; design snapshots open the green already zoomed.
+        _scale = State(initialValue: min(max(initialScale.isFinite ? initialScale : 1, 1), 4))
         self.topoURL = topoURL
         _targetCoordinate = targetCoordinate
         _targetPixel = targetPixel

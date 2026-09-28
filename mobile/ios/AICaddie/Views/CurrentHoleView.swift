@@ -306,8 +306,8 @@ public struct CurrentHoleView: View {
         var targetDragFocus: CGPoint?
     }
 
-    init(package: LiveRoundPackage, hole: Hole, snapshotState: SnapshotState) {
-        self.init(package: package, hole: hole)
+    init(package: LiveRoundPackage, hole: Hole, snapshotState: SnapshotState, caddieBaseURL: URL? = nil) {
+        self.init(package: package, hole: hole, caddieBaseURL: caddieBaseURL)
         self.snapshotState = snapshotState
         // Seed the state directly: a headless capture can render before `.task(id:)` runs, so the
         // snapshot must not depend on that task. `applySnapshotState()` re-applies it after the
@@ -466,13 +466,18 @@ public struct CurrentHoleView: View {
                 reconcileCaddieRoutes()
             }
         }
-        .onChange(of: liveHazardDisplayRows.map(\.id)) { _, ids in
+        .onChange(of: liveHazardDisplayRows) { previous, next in
             // A new hole starts with no highlighted obstacle.  Preserve an explicit choice while
-            // the package refreshes, but never auto-select the first row just because data arrived.
-            selectedHazardID = LiveHazardSelectionPolicy.retainedSelection(
+            // the package refreshes (a legacy row that became a precise one keeps the selection),
+            // but never auto-select the first row just because data arrived.
+            selectedHazardID = LiveMapCarryOver.hazardSelection(
                 current: selectedHazardID,
-                availableIDs: ids
+                previous: previous,
+                next: next
             )
+        }
+        .onChange(of: holePrep) { previous, next in
+            carryOverMapInteraction(from: previous, to: next)
         }
         .fullScreenCover(isPresented: $showGreenDetail) {
             greenDetailSurface
@@ -550,7 +555,10 @@ public struct CurrentHoleView: View {
 
             HStack {
                 LivePlaySideControls(
-                    hasHazards: !isPreciseHoleMapPending && !liveHazardDisplayRows.isEmpty,
+                    // 地图降级契约: the obstacle facts the partial map already has are browsable
+                    // while the precise topo is pending (outline when known, else the factual
+                    // edge points); a selection survives the upgrade (LiveMapCarryOver).
+                    hasHazards: !liveHazardDisplayRows.isEmpty,
                     hazardShown: selectedLiveHazard != nil,
                     planPosition: livePlanPosition,
                     showsRecenter: heroMapScale > 1.01,
@@ -567,8 +575,7 @@ public struct CurrentHoleView: View {
                 HStack(alignment: .bottom, spacing: 10) {
                     LivePlayScoreButton(action: beginScoreConfirmation)
                     Spacer(minLength: 0)
-                    if !isPreciseHoleMapPending,
-                       let selectedLiveHazard,
+                    if let selectedLiveHazard,
                        let selectedLiveHazardIndex {
                         LivePlayHazardBar(
                             row: selectedLiveHazard,
@@ -1160,6 +1167,30 @@ public struct CurrentHoleView: View {
             }
     }
 
+    // MARK: - Map degradation contract
+
+    /// A background precise map replacing the lightweight one (same hole) keeps the player's
+    /// target and flag on the same spot of the hole. A point with a geo coordinate is reprojected
+    /// through the new map's anchors; a pixel-only point is moved by route station + lateral offset.
+    /// Zoom, pan and the obstacle selection are kept by their own state.
+    private func carryOverMapInteraction(from previous: CoursePrepHole?, to next: CoursePrepHole?) {
+        guard let previous, let next, previous.hole == next.hole,
+              let oldOverlay = previous.resolvedMapOverlay,
+              let newOverlay = next.resolvedMapOverlay,
+              oldOverlay != newOverlay else { return }
+        func carried(pixel: CGPoint?, coordinate: CLLocationCoordinate2D?) -> CGPoint? {
+            guard let pixel else { return nil }
+            if let reprojected = liveOverlayPixel(for: coordinate) { return reprojected }
+            return LiveMapCarryOver.transfer(pixel, from: oldOverlay, to: newOverlay)
+        }
+        if targetPixel != nil {
+            targetPixel = carried(pixel: targetPixel, coordinate: targetCoordinate)
+        }
+        if greenPinPixel != nil {
+            greenPinPixel = carried(pixel: greenPinPixel, coordinate: greenPinCoordinate)
+        }
+    }
+
     // MARK: - B1c Touch Target on the main map
 
     /// Grabbing the target (a press within `LiveTargetRenderer.grabRadius` of its ring) drags it;
@@ -1358,7 +1389,8 @@ public struct CurrentHoleView: View {
 
     /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时回退暗色渐变占位。
     @ViewBuilder private var liveMapBackdrop: some View {
-        if let holePrep, holePrep.resolvedMapOverlay != nil {
+        if let holePrep,
+           LiveMapDisplayState.resolve(prep: holePrep, pending: isPreciseHoleMapPending) != .waiting {
             liveHoleImageMap(holePrep)
                 .accessibilityElement(children: .contain)
                     .accessibilityIdentifier(
@@ -1845,10 +1877,12 @@ public struct CurrentHoleView: View {
     /// completeness guarantee.  Keep map/distance play available while prodgeometry downloads,
     /// without presenting that provisional subset as the nearest-hazard or final caddie answer.
     private var isPreciseHoleMapPending: Bool {
-        guard holePrep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame else {
-            return false
-        }
-        return !preciseMapTimedOut && caddieBaseURL != nil && !hasCachedTopoForCurrentHole
+        LiveMapDisplayState.isPrecisePending(
+            geometryCoverage: holePrep?.geometryCoverage,
+            timedOut: preciseMapTimedOut,
+            hasBaseURL: caddieBaseURL != nil,
+            hasCachedTopo: hasCachedTopoForCurrentHole
+        )
     }
 
     private var hasCachedTopoForCurrentHole: Bool {

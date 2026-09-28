@@ -1926,3 +1926,168 @@ struct LivePlayPanel<Content: View>: View {
     }
     .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
 }
+
+/// README 地图降级契约: a background precise map that replaces the lightweight one must not reset the
+/// zoom, pan, obstacle selection, target point or flag. Zoom and pan are view state and survive by
+/// themselves; the points and the obstacle id are tied to the old map and are carried here.
+enum LiveMapCarryOver {
+    /// Move a topo pixel from one overlay frame to another. An identical frame keeps the pixel.
+    /// Otherwise the point is expressed as (station along the factual route in metres, signed
+    /// lateral offset in metres) on the old route and rebuilt at the same station/offset on the new
+    /// one, so it lands on the same spot of the hole even when the two maps differ in size, scale
+    /// or orientation. Beyond either end the end segment is extrapolated.
+    static func transfer(_ pixel: CGPoint, from old: CoursePrepOverlay, to new: CoursePrepOverlay) -> CGPoint? {
+        guard pixel.x.isFinite, pixel.y.isFinite else { return nil }
+        if old == new { return pixel }
+        if old.w == new.w, old.h == new.h, old.ppm == new.ppm, old.route == new.route { return pixel }
+        guard old.ppm.isFinite, old.ppm > 0, new.ppm.isFinite, new.ppm > 0,
+              let oldRoute = stations(old), let newRoute = stations(new),
+              let located = locate(pixel, on: oldRoute, ppm: old.ppm),
+              let placed = place(station: located.station, lateral: located.lateral, on: newRoute, ppm: new.ppm) else {
+            return nil
+        }
+        let x = min(max(placed.x, 0), CGFloat(new.w))
+        let y = min(max(placed.y, 0), CGFloat(new.h))
+        return CGPoint(x: x, y: y)
+    }
+
+    /// Keep the selected obstacle across a map upgrade. Row ids are kind + ordinal, not a stable
+    /// identity (a new, nearer bunker shifts the ordinals), so the id alone is never trusted: the
+    /// same obstacle is the row of the same kind whose front and back route stations are both
+    /// within 10 m of the selected one (a legacy single-station bunker matches on its front). When several rows qualify, the one with the same name
+    /// (which encodes the side) decides; if that is still ambiguous, or nothing qualifies, the
+    /// selection is cleared rather than guessed.
+    static let hazardStationTolerance: Double = 10
+
+    static func hazardSelection(
+        current: String?,
+        previous: [LiveHazardDisplayItem],
+        next: [LiveHazardDisplayItem]
+    ) -> String? {
+        guard let current,
+              let selected = previous.first(where: { $0.id == current }) else { return nil }
+        let candidates = next.filter { sameObstacle($0, selected) }
+        if candidates.count == 1 { return candidates[0].id }
+        let sameName = candidates.filter { $0.label == selected.label }
+        return sameName.count == 1 ? sameName[0].id : nil
+    }
+
+    /// Same kind, front stations within tolerance, and back stations too unless either row is a
+    /// legacy single-station bunker (front == back), which only knows where the bunker starts.
+    private static func sameObstacle(_ lhs: LiveHazardDisplayItem, _ rhs: LiveHazardDisplayItem) -> Bool {
+        guard lhs.kind == rhs.kind,
+              abs(lhs.frontRouteM - rhs.frontRouteM) <= hazardStationTolerance else { return false }
+        let singleStation = lhs.frontRouteM == lhs.backRouteM || rhs.frontRouteM == rhs.backRouteM
+        return singleStation || abs(lhs.backRouteM - rhs.backRouteM) <= hazardStationTolerance
+    }
+
+    private struct Station {
+        let point: CGPoint
+        let metres: Double
+    }
+
+    /// Route samples with cumulative metres (from the third column, or measured with `ppm`).
+    private static func stations(_ overlay: CoursePrepOverlay) -> [Station]? {
+        var result: [Station] = []
+        for row in overlay.route {
+            guard row.count >= 2, row[0].isFinite, row[1].isFinite else { continue }
+            let point = CGPoint(x: row[0], y: row[1])
+            let metres: Double
+            if row.count >= 3, row[2].isFinite {
+                metres = row[2]
+            } else if let last = result.last {
+                metres = last.metres + Double(hypot(point.x - last.point.x, point.y - last.point.y)) / overlay.ppm
+            } else {
+                metres = 0
+            }
+            if let last = result.last, hypot(point.x - last.point.x, point.y - last.point.y) < 0.001 { continue }
+            result.append(Station(point: point, metres: metres))
+        }
+        return result.count >= 2 ? result : nil
+    }
+
+    /// Nearest route position of `pixel`: (station metres, signed lateral metres; positive = left
+    /// of the direction of play in image coordinates).
+    private static func locate(
+        _ pixel: CGPoint,
+        on route: [Station],
+        ppm: Double
+    ) -> (station: Double, lateral: Double)? {
+        var best: (distance: CGFloat, station: Double, lateral: Double)?
+        for index in 0..<(route.count - 1) {
+            let a = route[index]
+            let b = route[index + 1]
+            let dx: CGFloat = b.point.x - a.point.x
+            let dy: CGFloat = b.point.y - a.point.y
+            let lengthSquared: CGFloat = dx * dx + dy * dy
+            guard lengthSquared > 0 else { continue }
+            let vx: CGFloat = pixel.x - a.point.x
+            let vy: CGFloat = pixel.y - a.point.y
+            var t: CGFloat = (vx * dx + vy * dy) / lengthSquared
+            // Only the end segments may extrapolate (a point behind the green or the tee).
+            let lower: CGFloat = index == 0 ? -.greatestFiniteMagnitude : 0
+            let upper: CGFloat = index == route.count - 2 ? .greatestFiniteMagnitude : 1
+            t = min(max(t, lower), upper)
+            let projX: CGFloat = a.point.x + dx * t
+            let projY: CGFloat = a.point.y + dy * t
+            let distance: CGFloat = hypot(pixel.x - projX, pixel.y - projY)
+            let length: CGFloat = lengthSquared.squareRoot()
+            let cross: CGFloat = (dx * vy - dy * vx) / length
+            let station = a.metres + (b.metres - a.metres) * Double(t)
+            if distance < (best?.distance ?? .greatestFiniteMagnitude) {
+                best = (distance, station, Double(cross) / ppm)
+            }
+        }
+        guard let best else { return nil }
+        return (best.station, best.lateral)
+    }
+
+    private static func place(station: Double, lateral: Double, on route: [Station], ppm: Double) -> CGPoint? {
+        var index = 0
+        while index < route.count - 2, station > route[index + 1].metres { index += 1 }
+        let a = route[index]
+        let b = route[index + 1]
+        let span = b.metres - a.metres
+        guard span.isFinite, abs(span) > 1e-9 else { return nil }
+        let t = CGFloat((station - a.metres) / span)
+        let dx: CGFloat = b.point.x - a.point.x
+        let dy: CGFloat = b.point.y - a.point.y
+        let length: CGFloat = hypot(dx, dy)
+        guard length > 0 else { return nil }
+        let offset = CGFloat(lateral * ppm)
+        let x: CGFloat = a.point.x + dx * t + (-dy / length) * offset
+        let y: CGFloat = a.point.y + dy * t + (dx / length) * offset
+        return CGPoint(x: x, y: y)
+    }
+}
+
+/// What the live hole shows for the map data it has (README 地图降级契约 / IMPLEMENTATION_PLAN map
+/// table). `pending` means a partial CourseView map while the precise topo is still expected
+/// online and not cached: the factual route, green outline and existing obstacle facts (browsable
+/// through 障碍) draw at once; the Touch Target and flag entries wait for the precise map.
+enum LiveMapDisplayState: Equatable {
+    /// No drawable route: the one full-screen waiting page (hole · Par · yards).
+    case waiting
+    case factualPending
+    /// Partial facts with nothing better coming (offline, timed out, or no service).
+    case factual
+    case precise
+
+    static func isPrecisePending(
+        geometryCoverage: String?,
+        timedOut: Bool,
+        hasBaseURL: Bool,
+        hasCachedTopo: Bool
+    ) -> Bool {
+        guard geometryCoverage?.caseInsensitiveCompare("partial") == .orderedSame else { return false }
+        return !timedOut && hasBaseURL && !hasCachedTopo
+    }
+
+    static func resolve(prep: CoursePrepHole?, pending: Bool) -> LiveMapDisplayState {
+        guard let prep, prep.resolvedMapOverlay != nil else { return .waiting }
+        if prep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
+            return pending ? .factualPending : .factual
+        }
+        return .precise
+    }
+}
