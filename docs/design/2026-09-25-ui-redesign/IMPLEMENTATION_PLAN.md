@@ -57,34 +57,81 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 - `hardestHoles`：各环逐洞平均杆差最高的 5 个，至少 2 个样本。
 - 体积：用真实历史跑一遍，`/stats` 的 scoring 多出约 298,568 字节（gzip 后约 28,412 字节），主要是 `roundSequences`。B5（统计页）上线前定一个移动端载荷预算（比如按最近 N 场截断 `roundSequences`，或拆成按需请求），不在 B0d-1 里改。
 
-### B0 纠错日志设计草案（B0d-2，待 Codex 确认后实现）
+### B0 纠错日志设计（B0d-2，第二稿，待 Codex 确认实现范围）
 
-现状：`/history/rounds/{ref}/corrections` 只存事件本身（iOS 只发 `replaceHoleShots` / `replaceHoleFacts` 两种整洞快照），没有前值、没有计划里的操作类型、没有客户端时间；推杆 / 总杆 / 罚杆的更正走另一条路（annotation 的 `putt_correction / score_correction / penalty_correction`，对账生成的那些已带 `from / to`）。B7 要的是“系统当时给出什么、人改成了什么”。
+现状：`/history/rounds/{ref}/corrections` 只存事件本身（iOS 只发 `replaceHoleShots` / `replaceHoleFacts` 两种整洞快照），没有前值、没有计划里的操作类型、没有客户端时间；`seq = len(existing)+1` 不加锁，并发会重号。推杆 / 总杆 / 罚杆的更正走 annotation（`putt_correction / score_correction` 用 `to`，`penalty_correction` 用 `strokes`；`from` 不保证有），annotation id 由服务器生成，没有客户端幂等键。B7 要的是“系统当时给出什么、人改成了什么”。
 
-建议（每条都可以单独否决）：
+已确认的方向：写入时记录前值（不在读取时推导）；不回填历史；本人范围的只读接口。
 
-1. **写入时生成，不在读取时推导。** 更正事件落库成功后，同一请求里把“这次改之前用户看到的整洞状态”和“改之后的状态”做差，生成若干条日志。前值取改之前的 `build_round_hole_shot_map(..., include_image=False)`（就是用户编辑时看到的那张图：稳定 id、显示顺序、像素起止点、球杆、球位、手填罚杆）。读取时推导的问题是：Garmin 重同步会改原始数据，事后算出的“前值”不再是用户当时看到的。
-2. **单独一本 append-only 日志**：`data/players/<pid>/correction_log/<round_ref>.jsonl`，schema `ai-caddie-correction-log-v1`，更正事件原文件不变。每条：
-   `seq, ts(服务器), clientTime(可空), roundRef, hole, op, shotId(可空), before, after, sourceKind("round_correction" | "annotation"), sourceRef(更正事件 seq 或 annotation id), clientMutationId(可空)`。
-   以 `(sourceKind, sourceRef)` 幂等：同一个 `clientMutationId` 重放不会多写日志。
-3. **操作类型**：计划里的 7 种加 3 种现有编辑能产生、但计划没列的：
-   `add / delete / move / club / putts / total / drive`，外加 `lie`（改球位）、`penalty`（改罚杆）、`reorder`（只调顺序、位置不变）。
-4. **整洞快照怎么拆**（按稳定 shot id 对齐前后两份列表）：
-   - 只在后 → `add`，只在前 → `delete`；
-   - 起点或落点像素变化超过 1 px → `move`，前后值是 `{start, end}` 像素加 `geometryRevision`；
-   - `replaceHoleFacts` 不带位置，永远不产生 `move`；
-   - 球杆不同 → `club`，球位不同 → `lie`；
-   - 剩下的杆相对顺序变了 → 一条 `reorder`（前后值是 id 列表）；
-   - `manualPenalty` 变了 → `penalty`。
-   - 旧的逐杆 op（`deleteShot / restoreShot / editField / addShot / reorderShot / setHolePenalty`）按同样的词表各映射一条。
-5. **推杆 / 总杆**：`add_annotation` 写入 `putt_correction / score_correction / penalty_correction`（目标是 `round:hole`）时，同步写 `putts / total / penalty` 日志。前值优先用 payload 里的 `from`；没有就用当前生效值（成绩卡原值叠加之前的更正）。**加杆 / 删杆引起的总杆变化不再单独记一条 `total`**，由 add/delete 本身表达，避免重复计数。
-6. **`drive`（改开球结果）**：现在没有任何接口能改开球结果，词表先保留，生产方是 B3 的开球编辑。
-7. **客户端时间**：`RoundCorrectionRequest` 和 annotation 请求各加一个可选 `clientTime`（ISO 8601，只存不信，排序仍按服务器 `seq`）；iOS 在 B3 里开始发送。“位置”指洞号 + 稳定 shot id + 改前 / 改后的显示序号，不记录人的 GPS。
-8. **不回填历史**：已有的更正事件不补日志（补出来的前值不可信）。如果 B7 需要，可以单独做一次标记为 `derivation: "backfill"` 的回填。
-9. **读取接口**：`GET /api/v2/history/rounds/{ref}/correction-log`（只读本人），B7 用；本 PR 不接 iOS。
-10. **代价**：每次写更正多一次该洞 shot map 构建（不含图片）。日志写失败时更正本身已经落库，接口仍返回 201，日志缺口记 warning，不回滚。
+**1. 唯一的持久写入边界：审计跟着事件写在同一行**
 
-测试：每种操作至少一条日志（含 `replaceHoleShots` 里同时加 / 删 / 挪 / 换杆 / 改球位 / 调序 / 改罚杆的组合）；`replaceHoleFacts` 不产生 `move`；幂等重放不重复；annotation 路径的 `putts / total / penalty` 带前值。
+- 不另开日志文件。每条更正事件、每条更正类 annotation 在**同一行 JSONL** 里带 `audit` 字段：`{"status": "ok" | "pending", "entries": [...], "reason"?}`。事件和审计一次追加、一次 fsync，不存在“事件落库、日志没写”的缺口。纠错日志是这两个存储里 `audit.entries` 的只读视图。
+- 更正事件：按 `(player, round)` 加 `fcntl.flock` 独占锁（锁文件与该局更正文件同目录，做法同 `round_ingest._player_ingest_lock`）。锁内顺序：读已有事件 → 幂等检查 → 用已有事件算改前状态 → 分配 `seq`（锁内 `max(seq)+1`）→ 用已有事件 + 新事件算改后状态 → 做差 → 追加一行（`O_APPEND`，写整行含换行，`flush` + `os.fsync`）→ 释放。
+- annotation：按 player 对 annotation 文件加同样的独占锁，锁内算前值、追加、fsync。
+- 做差失败（例如改前 / 改后状态构建抛错）：事件照样写入，`audit.status = "pending"` 带 `reason`，接口返回 `201` 且响应里 `auditPending: true`。修复路径 `repair_pending_audits(player, round)`：在锁内按该事件之前的事件前缀重算，写一条修复记录（`derivation: "repair"`，引用原 `eventId`），原行不改。启动时和读取日志接口时都会报告未修复的 pending 数量。
+- 追加前如果文件末尾不是换行（上次写到一半），在锁内截掉残缺的尾巴再写（同 `mobile_event_store` 的做法）。读取时跳过无法解析的行，并在响应里报告 `skippedLines`。
+
+**2. 稳定身份与幂等**
+
+- 两个存储的每条记录都加服务器生成的 `eventId`（UUID4）；`seq` 只在单局更正文件内排序用。
+- `clientMutationId` 两边都持久化；annotation 请求模型新增可选 `clientMutationId`。
+- 去重键：更正事件 = `(player, 规范 roundRef, clientMutationId)`；annotation = `(player, clientMutationId)`。
+- 同一 `clientMutationId` + 相同请求体（去掉 `clientTime` 后的规范 JSON）→ 返回已存记录，不再写、不再做差；请求体不同 → `409`。没有 `clientMutationId` 的旧客户端不去重（与现状一致）。
+- 日志条目 id：`logId = "{eventId}:{序号}"`。
+
+**3. 做差的范围（不拿渲染后的响应做差）**
+
+- 改前 / 改后状态都从“编辑状态”构建，而不是 `build_round_hole_shot_map` 的响应：每杆 `{id, displayIndex, club, lie, end, teeStart}`。
+  - `id`：稳定 shot id；`id` 为空的行（合成发球台行）不参与。
+  - `club / lie`：存储里的原值（原始 `clubName` / `start.lie`，或快照里的 `club / lie`），只做首尾空白处理，不用显示用的规范化球杆名。
+  - `end`：落点像素，来自最新的 `replaceHoleShots` 快照；没有像素快照时，用改前那一刻的投影（同 shot map 的投影函数，不含图片）得到，并记下 `geometryRevision`。
+  - `teeStart`：只有显示第 1 杆的起点参与比较（发球位置）。其余各杆的起点是由上一杆落点连起来的派生值，**不比较**，所以挪一个落点不会在下一杆起点上再记一条 `move`。
+- 缺字段一律当 `None`；`None` 对 `None` 不算变化，`None` 对有值算变化。
+- `move` 只在前后 `geometryRevision` 相同、且落点（或第 1 杆起点）像素变化超过 1 px 时产生。修订号不同或任一方缺失：不比较位置，改为该洞一条 `geometryChanged`，带前后两个修订号。
+- `replaceHoleFacts` 不带位置，永远不产生 `move` / `geometryChanged`。
+
+**4. 操作词表与映射**
+
+计划里的 `add / delete / move / club / putts / total / drive`，加上现有编辑能产生的 `lie / penalty / reorder`，和上面的 `geometryChanged`。
+
+- 整洞快照：只在后 → `add`；只在前 → `delete`；`move` 见上；球杆不同 → `club`；球位不同 → `lie`；前后都在的杆相对顺序变了 → 一条 `reorder`（前后值是 id 列表）；`manualPenalty` 变了 → `penalty`。
+- 旧逐杆 op：`deleteShot → delete`，`restoreShot → add`（`restored: true`），`addShot → add`，`editField club → club`，`editField lie → lie`，`editField position → move`（同样要求修订号相同），`reorderShot → reorder`，`setHolePenalty → penalty`。
+- `drive` 保留词表，生产方是 B3 的开球编辑，本批不测。
+- 加杆 / 删杆引起的总杆变化不再单独记 `total`。
+
+**5. annotation 的前后值**
+
+- 规范目标：`targetType = "hole"`，`targetId = "{规范 roundRef}:{显示洞号}"`（合并局用合并后的 id 和 1–18 显示洞号；不认识的 ref 返回 `404`）。
+- 规范化后的日志一律是 `before / after`：`putt_correction` / `score_correction` 的 `after = payload.to`，`penalty_correction` 的 `after = payload.strokes`。
+- `before` 在锁内、追加之前计算：成绩卡原值叠加同目标、同 kind 的最后一条已有更正。`payload.from` 不作为前值，只原样保留为 `clientFrom`。
+- 测试覆盖“已有一条更正后再改”和“两个并发请求”（后者的 `before` 必须是前者的 `after`）。
+
+**6. 路径与读取接口**
+
+- 更正文件名改为 `{可读前缀}--{sha256(规范 ref) 前 16 位}.jsonl`，不再因替换字符而把两个 ref 撞成一个文件。已有的旧文件名只读合并（旧事件排在前面），新写入只进新文件。
+- 写入和读取都先确认该 ref 能在本人历史里找到，找不到返回 `404`。
+- `GET /api/v2/history/rounds/{ref}/correction-log?after=<logCursor>&limit=<n>`：只读本人（player 取自 token，路径里没有 player）；`limit` 默认 200、上限 1000；按 `(ts, eventId, 序号)` 排序，返回 `nextCursor`、`pendingAudits`、`skippedLines`。
+- 路由策略测试：成员 token 可以读自己的日志，读不到别人的；fixture 模式的路由白名单同步。
+
+**7. 客户端时间与“位置”**
+
+- 两个请求模型各加可选 `clientTime`（ISO 8601），只存不信，排序按服务器顺序；iOS 在 B3 开始发送。
+- “位置”指洞号 + 稳定 shot id + 改前 / 改后显示序号，不记录人的 GPS。
+
+**测试矩阵**
+
+- 组合快照（同一次提交里加、删、挪、换杆、改球位、调序、改罚杆）；
+- 每个旧逐杆 op 各一条，包括 `restoreShot`、`setHolePenalty`；
+- 相同 / 不同 `clientMutationId` 重放（同体不重复、异体 `409`，两个存储都测）；
+- 两个并发写同一局（`seq` 不重复，第二条的前值是第一条的后值）；
+- 做差失败 → `auditPending`，然后修复；
+- 残缺尾行的截断和跳过；
+- `geometryRevision` 变化 → `geometryChanged` 而不是 `move`；
+- 挪一个落点只记一条 `move`（相邻杆的派生起点不记）；
+- annotation 的 `putts / total / penalty`（含已有更正、并发）；
+- 文件名不撞、旧文件名只读合并；
+- 成员路由策略；
+- 所有输出的 `eventId / logId / sourceRef` 唯一且能指回源记录。
 
 ### B0 契约细节（Python 与 Swift 各自实现时以此为准）
 
