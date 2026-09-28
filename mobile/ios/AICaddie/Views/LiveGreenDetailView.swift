@@ -31,10 +31,10 @@ public struct LiveGreenDetailView: View {
     @State private var offset: CGSize = .zero
     @State private var transientOffset: CGSize = .zero
     @State private var draggingFlag = false
-    /// The finger's viewport coordinate while the flag is being moved.  This is separate from the
-    /// persisted coordinate so the loupe can follow a provisional point without creating another
-    /// target event or changing the map's source of truth.
-    @State private var flagDragLocation: CGPoint?
+    /// Viewport offset from the finger to the flag foot captured when a drag grabs the flag. The
+    /// flag keeps that relative position for the whole drag, so it stays visible beside the finger
+    /// (there is deliberately no loupe here: it would cover the edge distances above the flag).
+    @State private var flagGrabOffset: CGSize = .zero
     /// Keeps previews and older callers useful when they pass a constant binding. Production callers
     /// pass the round-owned binding above, so reopening View Green retains the selected pixel.
     @State private var fallbackTargetPixel: CGPoint?
@@ -43,9 +43,6 @@ public struct LiveGreenDetailView: View {
     @State private var flagDragOutsideGreen = false
     @State private var lastValidFlagPixel: [Double]?
     @GestureState private var pinchScale: CGFloat = 1
-
-    /// Keep the flag preview compact and clear of the held finger on phone-sized displays.
-    private let flagLoupeDiameter: CGFloat = 100
 
     public init(
         hole: CoursePrepHole,
@@ -136,26 +133,18 @@ public struct LiveGreenDetailView: View {
             .scaleEffect(displayedScale)
             .offset(displayedOffset)
 
+            // Edge guides and the flag are drawn in viewport space on top of the zoomed map, so lines
+            // stay hairline and labels stay legible at every zoom level.
+            Canvas { context, _ in
+                drawEdgeGuides(&context, size: size, baseRect: baseRect, scale: displayedScale, offset: displayedOffset)
+            }
+            .frame(width: size.width, height: size.height)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+
             // The transparent interaction surface is below controls and the distance panel. A map
             // drag therefore cannot win the hit test for a button layered above it.
             greenInteractionLayer(size: size, baseRect: baseRect)
-
-            // S70-style precision affordance: keep the same transformed map under a compact rounded
-            // loupe while the flag is held. The loupe is display-only and never steals the map gesture.
-            if let focus = flagDragLocation, draggingFlag {
-                LiveGreenMagnifierLoupe(
-                    mapSize: size,
-                    focus: focus,
-                    displayedScale: displayedScale,
-                    displayedOffset: displayedOffset,
-                    diameter: flagLoupeDiameter,
-                    magnification: 2.35
-                ) {
-                    greenMapContent(size: size, baseRect: baseRect)
-                }
-                .position(loupePosition(focus, in: size))
-                .allowsHitTesting(false)
-            }
 
             if scale > 1.01 {
                 VStack(spacing: 9) {
@@ -184,8 +173,8 @@ public struct LiveGreenDetailView: View {
         .animation(nil, value: transientOffset)
     }
 
-    /// The base bitmap and factual green/flag overlay are intentionally one reusable view.  The
-    /// main viewport and the loupe therefore share an identical crop, fallback and vector frame.
+    /// The zoomable base bitmap. The green is not outlined (B1: no ring on the green); only the flag
+    /// and its four edge guides are drawn, in viewport space, by `drawEdgeGuides`.
     @ViewBuilder
     private func greenMapContent(size: CGSize, baseRect: CGRect) -> some View {
         ZStack {
@@ -207,10 +196,6 @@ public struct LiveGreenDetailView: View {
                     showsHazards: false
                 )
                 .frame(width: size.width, height: size.height)
-            }
-
-            Canvas { context, _ in
-                drawGreenOverlay(&context, size: size, baseRect: baseRect)
             }
         }
         .frame(width: size.width, height: size.height)
@@ -253,55 +238,101 @@ public struct LiveGreenDetailView: View {
         // A pixel-only flag is common while a searched course is still missing projection refs. Its
         // pixel distance must win over any stale/factual pin coordinate supplied by the caller.
         let hasPixelOverride = targetPixel != nil || fallbackTargetPixel != nil
-        let firstDistance = hasPixelOverride
+        let toFlag = hasPixelOverride
             ? (pixelDistances?.referenceToTargetYards
                 ?? distanceYards(from: referenceCoordinate, to: selectedFlag))
             : (distanceYards(from: referenceCoordinate, to: selectedFlag)
                 ?? pixelDistances?.referenceToTargetYards)
-        let secondDistance = hasEditedFlag
-            ? (hasPixelOverride
-                ? (pixelDistances?.targetToPinYards
-                    ?? distanceYards(from: targetCoordinate, to: pinCoordinate))
-                : (distanceYards(from: targetCoordinate, to: pinCoordinate)
-                    ?? pixelDistances?.targetToPinYards))
-            : nil
-        return VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 14) {
-                distanceValue(
-                    label: referenceIsLive ? "当前位置 → 旗位" : "发球台 → 旗位",
-                    value: firstDistance,
-                    tint: .white
-                )
-                Divider().frame(height: 32).overlay(Color.white.opacity(0.25))
-                distanceValue(
-                    label: "旗位 → 果岭中",
-                    value: secondDistance,
-                    tint: LivePlayStyle.front
-                )
+        let edges = edgeDistances()
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                // Without a live fix the range is measured from the Tee; never claim "current position".
+                Text(referenceIsLive ? "到旗" : "发球台到旗")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.62))
+                Text(toFlag.map { GeoDistance.greenRangeText($0) } ?? "—")
+                    .font(.system(size: 48, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .accessibilityIdentifier("live-green-to-flag")
+                Text("码")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.62))
             }
-            Text(hasEditedFlag ? "旗位只对当前球局生效" : "拖动旗帜可调整本轮旗位")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.68))
+            HStack(spacing: 0) {
+                edgeCell("前沿", edges?.front.yards, identifier: "live-green-edge-front")
+                edgeDivider
+                edgeCell("后沿", edges?.back.yards, identifier: "live-green-edge-back")
+                edgeDivider
+                edgeCell("左边", edges?.left.yards, identifier: "live-green-edge-left")
+                edgeDivider
+                edgeCell("右边", edges?.right.yards, identifier: "live-green-edge-right")
+            }
+            .padding(.top, 9)
+            .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.14)).frame(height: 0.5) }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("旗到果岭四边的距离（码）")
+            Text(flagPositionText(edges))
+                .font(.system(size: 12.5, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.62))
+                .accessibilityIdentifier("live-green-flag-position")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.white.opacity(0.18)))
+        .background(Color.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 26).stroke(Color.white.opacity(0.18)))
         .accessibilityIdentifier("live-green-distance-panel")
     }
 
-    private func distanceValue(label: String, value: Int?, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(label).font(.system(size: 10, weight: .semibold)).foregroundStyle(.white.opacity(0.62))
-            Text(value.map { "\(GeoDistance.greenRangeText($0)) 码" } ?? "—")
-                .font(.system(size: 21, weight: .heavy, design: .rounded))
+    private var edgeDivider: some View {
+        Rectangle().fill(Color.white.opacity(0.14)).frame(width: 0.5, height: 34)
+    }
+
+    private func edgeCell(_ label: String, _ yards: Int?, identifier: String) -> some View {
+        VStack(spacing: 1) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.62))
+            Text(yards.map(String.init) ?? "—")
+                .font(.system(size: 22, weight: .semibold, design: .rounded))
                 .monospacedDigit()
-                .foregroundStyle(tint)
-                .lineLimit(1)
-                .minimumScaleFactor(0.68)
+                .foregroundStyle(.white)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label) \(yards.map { "\($0) 码" } ?? "未知")")
+        .accessibilityIdentifier(identifier)
+    }
+
+    /// "旗在果岭中心" / "旗在果岭中心后 4 码、偏右 3 码" (front/back along the play axis, left/right as
+    /// seen facing the green).
+    private func flagPositionText(_ edges: GreenEdgeDistances?) -> String {
+        guard let edges else { return "拖动或点果岭调整本轮旗位" }
+        var parts: [String] = []
+        if edges.behindCentreYards != 0 {
+            parts.append("中心\(edges.behindCentreYards > 0 ? "后" : "前") \(abs(edges.behindCentreYards)) 码")
+        }
+        if edges.rightOfCentreYards != 0 {
+            parts.append("\(edges.rightOfCentreYards > 0 ? "偏右" : "偏左") \(abs(edges.rightOfCentreYards)) 码")
+        }
+        return parts.isEmpty ? "旗在果岭中心" : "旗在果岭" + parts.joined(separator: "、")
+    }
+
+    private func edgeDistances() -> GreenEdgeDistances? {
+        guard let flag = effectiveFlagPixel,
+              let outline = hole.greenOutline,
+              outline.available,
+              let ppm = hole.resolvedMapOverlay?.ppm else { return nil }
+        return GreenEdgeDistances.resolve(
+            flagPx: flag,
+            outlinePx: outline.pointsPx,
+            referencePx: referencePixel(),
+            pixelsPerMetre: ppm
+        )
     }
 
     private func mapControl(system: String, label: String, identifier: String, action: @escaping () -> Void) -> some View {
@@ -390,25 +421,63 @@ public struct LiveGreenDetailView: View {
         return UIImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
     }
 
-    private func drawGreenOverlay(_ context: inout GraphicsContext, size: CGSize, baseRect: CGRect) {
-        let polygon = hole.greenOutline?.pointsPx ?? []
-        let points = polygon.compactMap { fullPixelPoint($0, baseRect: baseRect) }
-        if points.count >= 3 {
-            var outline = Path()
-            outline.move(to: points[0])
-            for point in points.dropFirst() { outline.addLine(to: point) }
-            outline.closeSubpath()
-            context.fill(outline, with: .color(Color.green.opacity(0.18)))
-            context.stroke(outline, with: .color(Color.white.opacity(0.86)), style: StrokeStyle(lineWidth: 2.2, lineJoin: .round))
-        }
+    /// Four thin lines from the flag to the front / back / left / right edges, a short cross tick at
+    /// each edge point and the yardage in a small dark capsule just beyond it, then the flag itself.
+    private func drawEdgeGuides(
+        _ context: inout GraphicsContext,
+        size: CGSize,
+        baseRect: CGRect,
+        scale: CGFloat,
+        offset: CGSize
+    ) {
+        guard let flagPx = effectiveFlagPixel,
+              let flagBase = fullPixelPoint(flagPx, baseRect: baseRect),
+              let flag = transformed(flagBase, in: size, scale: scale, offset: offset) else { return }
+        if let edges = edgeDistances() {
+            let front = CGPoint(x: edges.frontDirection[0], y: edges.frontDirection[1])
+            let right = CGPoint(x: edges.rightDirection[0], y: edges.rightDirection[1])
+            let guides: [(GreenEdgeDistances.Edge, CGPoint)] = [
+                (edges.front, front),
+                (edges.back, CGPoint(x: -front.x, y: -front.y)),
+                (edges.left, CGPoint(x: -right.x, y: -right.y)),
+                (edges.right, right),
+            ]
+            for (edge, direction) in guides {
+                guard let base = fullPixelPoint(edge.pointPx, baseRect: baseRect),
+                      let end = transformed(base, in: size, scale: scale, offset: offset) else { continue }
+                var line = Path()
+                line.move(to: flag)
+                line.addLine(to: end)
+                context.stroke(line, with: .color(.white.opacity(0.9)), lineWidth: 1.3)
+                let normal = CGPoint(x: -direction.y * 5, y: direction.x * 5)
+                var tick = Path()
+                tick.move(to: CGPoint(x: end.x - normal.x, y: end.y - normal.y))
+                tick.addLine(to: CGPoint(x: end.x + normal.x, y: end.y + normal.y))
+                context.stroke(tick, with: .color(.white), style: StrokeStyle(lineWidth: 2, lineCap: .round))
 
-        // The route endpoint is the factual pin fallback when no coordinate projection exists. A
-        // pixel-only edited flag must still be visible on a vector map, so this never depends on
-        // `projectedPoint` returning a geo coordinate.
-        if let flagPoint = effectiveFlagPixel,
-           let screen = fullPixelPoint(flagPoint, baseRect: baseRect) {
-            drawFlag(&context, at: screen)
+                let text = String(edge.yards)
+                let width = 10 + CGFloat(text.count) * 8
+                let height: CGFloat = 20
+                let gap = 10 + abs(direction.x) * width / 2 + abs(direction.y) * height / 2
+                let centre = CGPoint(
+                    x: min(max(end.x + direction.x * gap, width / 2 + 6), size.width - width / 2 - 6),
+                    y: min(max(end.y + direction.y * gap, 104 + height / 2), size.height - 250)
+                )
+                let capsule = Path(
+                    roundedRect: CGRect(x: centre.x - width / 2, y: centre.y - height / 2, width: width, height: height),
+                    cornerRadius: height / 2
+                )
+                context.fill(capsule, with: .color(.black.opacity(0.64)))
+                context.draw(
+                    Text(text)
+                        .font(.system(size: 13, weight: .bold))
+                        .monospacedDigit()
+                        .foregroundColor(.white),
+                    at: centre
+                )
+            }
         }
+        drawFlag(&context, at: flag)
     }
 
     private func drawFlag(_ context: inout GraphicsContext, at point: CGPoint) {
@@ -443,10 +512,6 @@ public struct LiveGreenDetailView: View {
             return projected
         }
         return routePixel(hole.resolvedMapOverlay?.route.last)
-    }
-
-    private var hasEditedFlag: Bool {
-        targetPixel != nil || fallbackTargetPixel != nil || targetCoordinate != nil
     }
 
     private func routePixel(_ row: [Double]?) -> [Double]? {
@@ -546,7 +611,7 @@ public struct LiveGreenDetailView: View {
     }
 
     /// Convert a viewport touch through the active zoom/pan and crop back into the full-hole topo
-    /// pixel frame. This is the single source used by tap, drag, hit testing, and the loupe.
+    /// pixel frame. This is the single source used by tap, drag and hit testing.
     private func pixel(
         at point: CGPoint,
         size: CGSize,
@@ -683,7 +748,10 @@ public struct LiveGreenDetailView: View {
                         draggingFlag = true
                         flagDragOutsideGreen = false
                         lastValidFlagPixel = effectiveFlagPixel.flatMap(constrainedFlagPixel) ?? effectiveFlagPixel
-                        flagDragLocation = value.startLocation
+                        flagGrabOffset = CGSize(
+                            width: screen.x - value.startLocation.x,
+                            height: screen.y - value.startLocation.y
+                        )
                     } else if scale <= 1.01 {
                         // At fit scale only the putting surface is an actionable flag target. A
                         // drag that begins on the fairway/header is deliberately inert instead of
@@ -699,6 +767,7 @@ public struct LiveGreenDetailView: View {
                             draggingFlag = true
                             flagDragOutsideGreen = false
                             lastValidFlagPixel = startPixel
+                            flagGrabOffset = .zero
                         } else {
                             draggingFlag = false
                             flagDragOutsideGreen = true
@@ -713,11 +782,14 @@ public struct LiveGreenDetailView: View {
                 }
                 didDrag = true
                 if draggingFlag {
-                    // The loupe follows the raw finger even when it is outside the green. Only the
-                    // committed pole-foot is constrained to the nearest legal boundary point.
-                    flagDragLocation = value.location
+                    // The flag keeps its grab offset from the finger; only the committed pole-foot is
+                    // constrained to the nearest legal boundary point when the finger leaves the green.
+                    let heldPoint = CGPoint(
+                        x: value.location.x + flagGrabOffset.width,
+                        y: value.location.y + flagGrabOffset.height
+                    )
                     if let pixel = pixel(
-                        at: value.location,
+                        at: heldPoint,
                         size: size,
                         baseRect: baseRect,
                         scale: scale,
@@ -733,7 +805,6 @@ public struct LiveGreenDetailView: View {
                         flagDragOutsideGreen = true
                     }
                 } else if !flagDragOutsideGreen {
-                    flagDragLocation = nil
                     transientOffset = value.translation
                 }
             }
@@ -744,7 +815,7 @@ public struct LiveGreenDetailView: View {
                     draggingFlag = false
                     flagDragOutsideGreen = false
                     lastValidFlagPixel = nil
-                    flagDragLocation = nil
+                    flagGrabOffset = .zero
                     transientOffset = .zero
                     DispatchQueue.main.async { didDrag = false }
                 }
@@ -775,25 +846,6 @@ public struct LiveGreenDetailView: View {
             offset = .zero
             transientOffset = .zero
         }
-    }
-
-    /// Keep the loupe above the held finger when there is room; near the top edge, place it below
-    /// the finger instead of covering the navigation control.  The bounds remain stable so the
-    /// overlay never changes the map's layout while a drag is in flight.
-    private func loupePosition(_ location: CGPoint, in size: CGSize) -> CGPoint {
-        let half = flagLoupeDiameter / 2
-        let fingerClearance: CGFloat = 72
-        let minX = half + 8
-        let maxX = max(minX, size.width - half - 8)
-        let x = min(max(location.x, minX), maxX)
-        let minimumY = half + 8
-        let maximumY = max(minimumY, size.height - half - 8)
-        let above = location.y - half - fingerClearance
-        let below = location.y + half + fingerClearance
-        let y = above >= minimumY
-            ? above
-            : min(max(below, minimumY), maximumY)
-        return CGPoint(x: x, y: min(max(y, minimumY), maximumY))
     }
 
     private func clamped(_ value: CGSize, in size: CGSize, scale: CGFloat) -> CGSize {
@@ -836,77 +888,6 @@ public struct LiveGreenDetailView: View {
             x: (base.x - size.width / 2) * scale + size.width / 2 + offset.width,
             y: (base.y - size.height / 2) * scale + size.height / 2 + offset.height
         )
-    }
-}
-
-/// Compact, transform-aware map window used by the phone View Green surface. `content` is rendered in
-/// the same full viewport coordinate system as the main map; the combined affine translation below
-/// makes the point under the finger land at the loupe centre even after pinch/pan zooming.
-private struct LiveGreenMagnifierLoupe<Content: View>: View {
-    let content: Content
-    let mapSize: CGSize
-    let focus: CGPoint
-    let displayedScale: CGFloat
-    let displayedOffset: CGSize
-    let diameter: CGFloat
-    let magnification: CGFloat
-
-    init(
-        mapSize: CGSize,
-        focus: CGPoint,
-        displayedScale: CGFloat,
-        displayedOffset: CGSize,
-        diameter: CGFloat,
-        magnification: CGFloat,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.content = content()
-        self.mapSize = mapSize
-        self.focus = focus
-        self.displayedScale = displayedScale
-        self.displayedOffset = displayedOffset
-        self.diameter = diameter
-        self.magnification = magnification
-    }
-
-    var body: some View {
-        let safeScale = max(displayedScale.isFinite ? displayedScale : 1, 0.001)
-        let safeMagnification = max(magnification.isFinite ? magnification : 1, 1)
-        let safeFocus = CGPoint(
-            x: focus.x.isFinite ? focus.x : mapSize.width / 2,
-            y: focus.y.isFinite ? focus.y : mapSize.height / 2
-        )
-        let center = CGPoint(x: mapSize.width / 2, y: mapSize.height / 2)
-        let totalScale = safeScale * safeMagnification
-        // Main map: C + s(p-C) + O.  Loupe: D/2 + m(mainMap - focus).  Written in a top-leading
-        // coordinate frame, this offset keeps the exact source pixel under the finger centred.
-        let dx = diameter / 2
-            + safeMagnification * ((1 - safeScale) * center.x + displayedOffset.width - safeFocus.x)
-        let dy = diameter / 2
-            + safeMagnification * ((1 - safeScale) * center.y + displayedOffset.height - safeFocus.y)
-
-        ZStack(alignment: .topLeading) {
-            content
-                .frame(width: mapSize.width, height: mapSize.height)
-                .scaleEffect(totalScale, anchor: .topLeading)
-                .offset(x: dx, y: dy)
-        }
-        .frame(width: diameter, height: diameter, alignment: .topLeading)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay {
-            ZStack {
-                Rectangle().fill(.white.opacity(0.95)).frame(width: 1.4, height: 18)
-                Rectangle().fill(.white.opacity(0.95)).frame(width: 18, height: 1.4)
-            }
-            .shadow(color: .black.opacity(0.6), radius: 0.6)
-        }
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.86), lineWidth: 1))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.black.opacity(0.24), lineWidth: 1))
-        .compositingGroup()
-        .shadow(color: .black.opacity(0.38), radius: 7, y: 3)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("拖动旗位时的放大视图")
-        .accessibilityIdentifier("live-green-flag-magnifier")
     }
 }
 

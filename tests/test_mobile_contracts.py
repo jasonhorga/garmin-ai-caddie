@@ -3620,7 +3620,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('live-green-zoom-out', green_detail)
         self.assertIn('live-green-fit', green_detail)
         self.assertNotIn('live-green-zoom-in', green_detail)
-        self.assertIn('live-green-flag-magnifier', green_detail)
+        # B1 旗位界面: dragging the flag never shows a loupe (it would cover the edge yardages);
+        # the flag keeps its grab offset and the card lists the four edge distances instead.
+        self.assertNotIn('live-green-flag-magnifier', green_detail)
+        self.assertIn('flagGrabOffset', green_detail)
+        for identifier in ('live-green-edge-front', 'live-green-edge-back', 'live-green-edge-left', 'live-green-edge-right'):
+            self.assertIn(identifier, green_detail)
+        self.assertIn('GreenEdgeDistances.resolve', green_detail)
         self.assertIn("LivePlayMapDetailView", live_map_detail)
         self.assertIn('live-map-zoom-in', live_map_detail)
         self.assertIn('live-map-zoom-out', live_map_detail)
