@@ -2100,23 +2100,64 @@ def _approach_miss_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
     )
 
 
-def _loop_key_and_label(row: dict[str, Any], number: int) -> tuple[str, str, int]:
-    """(loop key, display label, hole number within the loop) for one played hole.
+def _hole_sides(row: dict[str, Any]) -> list[tuple[dict[str, Any], int, int, str]]:
+    """``(hole, display number 1...18, physical hole, side)`` for every numbered hole in a round.
 
-    Holes 1-9 belong to the front loop (``frontNineGlobalCourseId``), 10-18 to the back loop
-    (``backNineGlobalCourseId``). The label is the venue name plus that loop's own name from the
-    "Venue ~ A/C" suffix when present, so A / B / C loops stay separate and are never merged into a
-    synthetic "front nine / back nine".
+    Merged same-day rounds concatenate the first scorecard's holes as stored with the second
+    scorecard renumbered 10...18, so a first half that Garmin numbered 10...18 would otherwise
+    collide with the second half. The second half is the trailing run 10, 11, ... to the end; the
+    rest is the first half. Physical hole numbers stay those of the member scorecard.
     """
-    back = number > 9
-    gid = row.get("backNineGlobalCourseId") if back else (row.get("frontNineGlobalCourseId") or row.get("courseGlobalId"))
-    course_name = str(row.get("course") or "")
-    venue = course_name.split("~", 1)[0].strip() or course_name
-    parts = [part for part in _canonical_nine_label(course_name).split("/") if part]
-    # Without a loop name, say which holes it is rather than inventing a "front/back nine" name.
-    loop_name = parts[1 if back else 0] if len(parts) == 2 else ("10–18 洞" if back else "1–9 洞")
-    key = f"gid:{gid}" if gid else f"{row.get('courseKey') or venue}:{'back' if back else 'front'}"
-    return key, f"{venue} {loop_name}".strip(), number - 9 if back else number
+    holes = [hole for hole in row.get("holes") or [] if isinstance(hole, dict) and int(hole.get("number") or 0)]
+    numbers = [int(hole.get("number") or 0) for hole in holes]
+    out: list[tuple[dict[str, Any], int, int, str]] = []
+    if row.get("merged"):
+        split = len(holes)
+        for index in range(len(holes)):
+            tail = numbers[index:]
+            if tail and tail == list(range(10, 10 + len(tail))):
+                split = index
+                break
+        for index, hole in enumerate(holes):
+            number = numbers[index]
+            if index < split:
+                out.append((hole, number if number <= 9 else number - 9, number, "front"))
+            else:
+                out.append((hole, number, number - 9, "back"))
+    else:
+        for hole, number in zip(holes, numbers):
+            out.append((hole, number, number, "back" if number > 9 else "front"))
+    out.sort(key=lambda item: item[1])
+    return out
+
+
+def _loop_identity(row: dict[str, Any], side: str, physical: int) -> tuple[str, str]:
+    """(physical loop key, hole-range text). The key is authoritative, labels are resolved later.
+
+    A loop is a Garmin course id plus the physical range it occupies: a 27-hole venue gives each
+    nine its own id (always holes 1-9), while a single 18-hole course shares one id for 1-9 and
+    10-18. Without any id the course key stands in.
+    """
+    front_gid = row.get("frontNineGlobalCourseId") or row.get("courseGlobalId")
+    back_gid = row.get("backNineGlobalCourseId")
+    gid = (back_gid or front_gid) if side == "back" else front_gid
+    if side == "back" and not row.get("merged") and back_gid and back_gid != front_gid:
+        physical -= 9  # one composite scorecard: the back loop is holes 1-9 of its own id
+    span = "10-18" if physical > 9 else "1-9"
+    base = f"gid:{gid}" if gid else f"course:{row.get('courseKey') or row.get('course') or ''}"
+    return f"{base}:{span}", ("10–18 洞" if span == "10-18" else "1–9 洞")
+
+
+def _loop_name_evidence(row: dict[str, Any]) -> dict[str, str]:
+    """Loop names a round's "Venue ~ A/C" (or single-loop "Venue ~ A") suffix asserts, by side."""
+    parts = [part for part in _canonical_nine_label(str(row.get("course") or "")).split("/") if part]
+    if len(parts) == 2:
+        return {"front": parts[0], "back": parts[1]}
+    if len(parts) == 1 and not row.get("merged"):
+        sides = {side for _hole, _display, _physical, side in _hole_sides(row)}
+        if len(sides) == 1:
+            return {sides.pop(): parts[0]}
+    return {}  # composite names such as "C/B+A" are ambiguous, not evidence
 
 
 def _round_breakdowns(data: HistoryData, putt_corrections: dict[str, Any]) -> dict[str, Any]:
@@ -2124,7 +2165,8 @@ def _round_breakdowns(data: HistoryData, putt_corrections: dict[str, Any]) -> di
 
     Putts / GIR go through the B0c eligibility helpers, so unedited default holes are skipped and
     putt corrections apply. Penalties count only holes that actually carry a ``penalties`` field
-    (Garmin scorecards do not, and absence is not zero).
+    and are not unedited defaults (absence is not zero). Loops are keyed by physical identity and
+    labelled once per key, so output does not depend on history order.
     """
     sequences: list[dict[str, Any]] = []
     penalty_total = 0
@@ -2133,30 +2175,33 @@ def _round_breakdowns(data: HistoryData, putt_corrections: dict[str, Any]) -> di
     scramble_chances = 0
     scramble_saves = 0
     loops: dict[str, dict[str, Any]] = {}
+    names: dict[str, Counter] = defaultdict(Counter)
+    venues: dict[str, Counter] = defaultdict(Counter)
+    spans: dict[str, str] = {}
     combos: dict[tuple[str, str], list[int]] = defaultdict(list)
     nine_only_rounds = 0
     for row in data.rounds:
         round_id = _round_id(row)
         hole_pars = str(row.get("holePars") or "")
-        holes = sorted(
-            (hole for hole in row.get("holes") or [] if isinstance(hole, dict) and int(hole.get("number") or 0)),
-            key=lambda hole: int(hole.get("number") or 0),
-        )
-        putts_seq: list[int | None] = []
-        gir_seq: list[bool | None] = []
-        fairway_seq: list[str | None] = []
-        front_label = back_label = ""
-        for hole in holes:
+        course_name = str(row.get("course") or "")
+        venue = course_name.split("~", 1)[0].strip() or course_name
+        evidence = _loop_name_evidence(row)
+        seq = {"roundId": round_id, "date": row.get("date"), "course": row.get("course"),
+               "holes": [], "putts": [], "gir": [], "fairway": []}
+        side_keys: dict[str, str] = {}
+        for hole, display, physical, side in _hole_sides(row):
             number = int(hole.get("number") or 0)
             ref = _hole_ref(row, number)
             par = _hole_to_par(hole, _par_from_string(hole_pars, number))
             strokes = hole.get("strokes")
-            putts_seq.append(_corrected_putt_value(ref, _stat_putts(hole), putt_corrections))
             gir = _stat_gir(hole)
-            gir_seq.append(None if gir is None else bool(gir))
-            fairway_seq.append(_fairway_direction(hole.get("fairway")))
+            seq["holes"].append(display)
+            seq["putts"].append(_corrected_putt_value(ref, _stat_putts(hole), putt_corrections))
+            seq["gir"].append(None if gir is None else bool(gir))
+            seq["fairway"].append(_fairway_direction(hole.get("fairway")))  # B0c: fairway not skipped
             penalties = hole.get("penalties")
-            if isinstance(penalties, (int, float)) and not isinstance(penalties, bool):
+            if (isinstance(penalties, (int, float)) and not isinstance(penalties, bool)
+                    and not is_unedited_default(hole)):
                 penalty_holes += 1
                 penalty_total += int(penalties)
                 penalty_rounds.add(round_id)
@@ -2164,33 +2209,36 @@ def _round_breakdowns(data: HistoryData, putt_corrections: dict[str, Any]) -> di
                 scramble_chances += 1
                 if int(strokes) <= int(par):
                     scramble_saves += 1
-            key, label, loop_hole = _loop_key_and_label(row, number)
-            if number > 9:
-                back_label = back_label or label
-            else:
-                front_label = front_label or label
+            key, span = _loop_identity(row, side, physical)
+            side_keys.setdefault(side, key)
+            spans.setdefault(key, span)
+            venues[key][venue] += 1
+            if side in evidence:
+                names[key][evidence[side]] += 1
             if par is None or strokes is None:
                 continue
-            loop = loops.setdefault(key, {"loopKey": key, "label": label, "rounds": set(), "holes": {}})
+            loop = loops.setdefault(key, {"rounds": set(), "holes": {}})
             loop["rounds"].add(round_id)
-            cell = loop["holes"].setdefault(loop_hole, {"hole": loop_hole, "par": int(par), "toPar": []})
+            loop_hole = physical if physical <= 9 or key.endswith(":10-18") else physical - 9
+            cell = loop["holes"].setdefault(loop_hole, {"par": int(par), "toPar": []})
             cell["toPar"].append(int(strokes) - int(par))
-        sequences.append({
-            "roundId": round_id,
-            "date": row.get("date"),
-            "course": row.get("course"),
-            "putts": putts_seq,
-            "gir": gir_seq,
-            "fairway": fairway_seq,
-        })
-        if len(holes) >= 18 and row.get("strokes") is not None and front_label and back_label:
-            combos[(front_label, back_label)].append(int(row["strokes"]))
+        sequences.append(seq)
+        if row.get("holesCompleted") == 18 and row.get("strokes") is not None and len(side_keys) == 2:
+            combos[(side_keys["front"], side_keys["back"])].append(int(row["strokes"]))
         elif row.get("holesCompleted") == 9:
             nine_only_rounds += 1
 
+    def label(key: str) -> str:
+        venue = min(venues[key].items(), key=lambda item: (-item[1], item[0]))[0] if venues[key] else ""
+        if names[key]:
+            name = min(names[key].items(), key=lambda item: (-item[1], item[0]))[0]
+        else:
+            name = spans.get(key, "")
+        return f"{venue} {name}".strip()
+
     loop_rows = []
     hardest = []
-    for loop in loops.values():
+    for key, loop in loops.items():
         hole_rows = []
         for number in sorted(loop["holes"]):
             cell = loop["holes"][number]
@@ -2198,13 +2246,18 @@ def _round_breakdowns(data: HistoryData, putt_corrections: dict[str, Any]) -> di
             average_to_par = round(sum(cell["toPar"]) / samples, 2)
             hole_rows.append({"hole": number, "par": cell["par"], "averageToPar": average_to_par, "samples": samples})
             if samples >= 2:
-                hardest.append({"loopKey": loop["loopKey"], "label": loop["label"], "hole": number,
+                hardest.append({"loopKey": key, "label": label(key), "hole": number,
                                 "par": cell["par"], "averageToPar": average_to_par, "samples": samples})
-        loop_rows.append({"loopKey": loop["loopKey"], "label": loop["label"],
-                          "roundCount": len(loop["rounds"]), "holes": hole_rows})
-    loop_rows.sort(key=lambda row: (-row["roundCount"], row["label"]))
+        loop_rows.append({"loopKey": key, "label": label(key), "roundCount": len(loop["rounds"]), "holes": hole_rows})
+    loop_rows.sort(key=lambda row: (-row["roundCount"], row["label"], row["loopKey"]))
     hardest.sort(key=lambda row: (-row["averageToPar"], -row["samples"], row["label"], row["hole"]))
     sequences.sort(key=lambda row: str(row.get("date") or ""), reverse=True)
+    combo_rows = [
+        {"frontKey": front, "backKey": back, "front": label(front), "back": label(back),
+         "rounds": len(scores), "average": round(sum(scores) / len(scores), 1)}
+        for (front, back), scores in combos.items()
+    ]
+    combo_rows.sort(key=lambda row: (-row["rounds"], row["front"], row["back"]))
     return {
         "penalties": {
             "total": penalty_total,
@@ -2213,8 +2266,8 @@ def _round_breakdowns(data: HistoryData, putt_corrections: dict[str, Any]) -> di
             "averagePerRound": round(penalty_total / len(penalty_rounds), 2) if penalty_rounds else None,
         },
         # Standard scrambling: of the holes where the green was missed in regulation, how many still
-        # finished at par or better. (Shot rows do not reliably carry every stroke/putt, so a
-        # lie-based up-and-down count would silently undercount.)
+        # finished at par or better. A lie-based up-and-down needs complete stroke starts (B7) and
+        # will get its own name; this field keeps this meaning.
         "scrambling": {
             "chances": scramble_chances,
             "saves": scramble_saves,
@@ -2222,10 +2275,7 @@ def _round_breakdowns(data: HistoryData, putt_corrections: dict[str, Any]) -> di
         },
         "roundSequences": sequences,
         "loops": loop_rows,
-        "nineCombos": [
-            {"front": front, "back": back, "rounds": len(scores), "average": round(sum(scores) / len(scores), 1)}
-            for (front, back), scores in sorted(combos.items(), key=lambda item: (-len(item[1]), item[0]))
-        ],
+        "nineCombos": combo_rows,
         "nineOnlyRounds": nine_only_rounds,
         "hardestHoles": hardest[:5],
     }
@@ -2388,11 +2438,14 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
                 ),
                 "roundsWithPutts": len({ref.split(":")[0] for ref in putt_refs}),
                 "threePutts": len(three_putt_refs),
-                # B0: 1 / 2 / 3+ putt distribution over eligible holes with a putt count.
-                "onePutts": sum(1 for value in putts if value <= 1),
+                # B0: 0 / 1 / 2 / 3+ putt distribution over eligible holes with a putt count. Chip-ins
+                # (0 putts) are their own bucket, never counted as one-putts; the four shares sum to 100.
+                "zeroPutts": sum(1 for value in putts if value == 0),
+                "onePutts": sum(1 for value in putts if value == 1),
                 "twoPutts": sum(1 for value in putts if value == 2),
                 "threePlusPutts": sum(1 for value in putts if value >= 3),
-                "onePuttPct": round(sum(1 for value in putts if value <= 1) / len(putts) * 100, 1) if putts else None,
+                "zeroPuttPct": round(sum(1 for value in putts if value == 0) / len(putts) * 100, 1) if putts else None,
+                "onePuttPct": round(sum(1 for value in putts if value == 1) / len(putts) * 100, 1) if putts else None,
                 "twoPuttPct": round(sum(1 for value in putts if value == 2) / len(putts) * 100, 1) if putts else None,
                 "threePlusPuttPct": round(sum(1 for value in putts if value >= 3) / len(putts) * 100, 1) if putts else None,
                 "holeRefs": putt_refs,
