@@ -9,9 +9,10 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-28 18:54 UTC
+**Updated:** 2026-09-28 19:16 UTC
 **Branch:** `main`; product canonical source revision is
-`6b59eafe3c08569d585ca610168c1127c7562e96` (PR #356 B1c is merged after
+`8a1180d2fbffaccf84dbb3275a34554abf03b4d9` (PR #357 B1d is merged after
+exact-head review; PR #356 B1c is merged after
 exact-head review; PR #355 B1b is merged after exact-head review; PR #340
 B0d-2 is merged after
 the PR #339 B0c test-isolation closeout; PR #338 B0d-1 and PR #337 B0c remain merged; baseline
@@ -100,35 +101,35 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-09-28 17:50 UTC):** `B1-B7` review queue is `in-progress`:
-Codex is the review owner for PRs opened from
-`claude/code-audit-performance-17wqcv`. Each PR must be checked at its exact
-head against `docs/design/2026-09-25-ui-redesign/README.md` and
+**Current slice (2026-09-28 19:16 UTC):** `B1-B7` review queue remains
+`in-progress`; Codex is the review owner for PRs opened from
+`claude/code-audit-performance-17wqcv`. Each PR is checked at its exact head
+against `docs/design/2026-09-25-ui-redesign/README.md` and
 `IMPLEMENTATION_PLAN.md`; mobile changes require green Native Mobile CI and
 inspection of the matching `design-snapshots` / `watch-snapshots` artifacts
-before a PR comment and merge decision. PR #357 (B1d map-degradation
-carry-over and screenshot cases) is the active review at exact head
-`027512ca50be5198c2b06391a8664a5125874e8c`, based on merged B1c commit
-`6b59eafe3c08569d585ca610168c1127c7562e96`. Source CI run `36465563481`
-and Native Mobile CI run `36465563399` are green. Matching artifacts are iOS
-`design-snapshots` `10990525542`, Watch `watch-snapshots` `10989884676`, and
-native evidence `10990196323`. The two new pending screenshots were visually
-inspected: default pending exposes the obstacle selector without drawing one;
-selected pending draws one factual red outline, front/back points and labels,
-and the bottom selector bar. The selected pending and settled partial images
-are byte-identical, as expected for an in-place precise-map replacement. All
-38 Watch PNGs are byte-identical to the preceding reviewed artifact. Review
-comment `5875872912` identified the original P1 hazard identity carry-over
-bug and P2 false pending snapshot. After Claude's follow-up, comment
-`5876070758` identifies a further P1: the new real pending state still hides
-the existing hazard selector/bar, contradicting the README and implementation
-plan requirement to show existing obstacles alongside the factual route when
-topo is unavailable. Claude fixed that item in `027512ca`; code and artifact
-inspection show the pending gate is removed only for existing obstacle facts,
-without inventing a fallback outline. The remaining gate is exact-head
-homeserver contracts. Verification is temporarily blocked by the capacity
-gate (about 5.2 GiB available while unrelated slow pytest PID `3058294`
-runs); do not stop or alter that process. PR #354 (B1a flag edge distances) was reviewed at exact
+before a PR comment and merge decision.
+
+PR #357 (B1d map-degradation carry-over and screenshot cases) completed review
+and was squash-merged as `8a1180d2fbffaccf84dbb3275a34554abf03b4d9` from exact
+head `027512ca50be5198c2b06391a8664a5125874e8c`; remote branch
+`claude/code-audit-performance-17wqcv` was explicitly deleted. Source CI
+`36465563481` and Native Mobile CI `36465563399` passed. Artifacts inspected:
+iOS `design-snapshots` `10990525542`, Watch `watch-snapshots` `10989884676`,
+native evidence `10990196323`; the pending default/selected/settled states,
+waiting state, and all 38 Watch PNGs matched the design contract. Final review
+comment is `5876732933` (no P1/P2 findings). On the homeserver, the exact-head
+command `/app/.venv/bin/python -m unittest tests.test_mobile_contracts -v`
+ran in the existing API image
+`garmin-ai-caddie-api:d7f699712f7ac6cba41d97c420c405e090625caf-candidate-20260924`:
+`99/99`, 17.231s, exit 0. The unrelated Notebook slow suite PID `3058294`
+was left untouched; it finished before this test. Review snapshot/stage paths
+were moved out of active storage to project cleanup-trash, with manifest
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T190000Z-review-pr357-027512ca50be5198c2b06391a8664a5125874e8c.txt`;
+the test log remains at
+`/home/jason/garmin-ai-caddie-data/tmp/review-pr357-mobile-contracts.log`.
+Post-merge main CI `36470698428` is running; no production resources changed.
+
+PR #354 (B1a flag edge distances) was reviewed at exact
 head `e65f3adc0cb3d1a6c93b1ae3477bd03dbb4533de`: homeserver mobile contracts
 passed `99/99`, Source CI `36424558065` and Native Mobile CI `36424557986`
 were green, and artifacts `10971447902` / `10971558078` were inspected. The
@@ -228,12 +229,10 @@ removed; cleanup evidence is
 `/home/jason/codex-runs/aicaddie-pr356-review-20260928T1729Z/resource-manifest.txt`.
 Post-merge main CI `36460613903` is running; no production resources changed.
 
-The next action is to run PR #357 exact-head homeserver contracts once
-capacity is safe, then post the final severity-tagged conclusion. Merge and
-delete the branch only if the contracts pass and no new P1/P2 item appears;
-then repeat the same gates for the next B1-B7 PR.
-The background all-PR feedback monitor remains active in
-`codex-pr-monitor-20260928`.
+Next action: keep the background all-PR feedback monitor active in
+`codex-pr-monitor-20260928`, watch for the next B1-B7 PR or Claude comment,
+and repeat the exact-head, Native Mobile, artifact, and homeserver contract
+gates. Do not treat the archived B0 queue below as the active slice.
 
 The previous B0 data-foundation queue remains recorded below for historical
 evidence; do not treat it as the active review slice while this queue is open.
