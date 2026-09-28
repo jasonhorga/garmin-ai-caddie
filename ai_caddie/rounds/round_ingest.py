@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from ai_caddie.history import history as _history
+from ai_caddie.rounds import score_source
 from ai_caddie.core.data import deg_to_semicircle, read_json, wgs84_to_local
 
 OWNER_ID = "me"
@@ -231,7 +232,7 @@ def _as_float(value: Any) -> float | None:
 
 
 class _HoleAccumulator:
-    __slots__ = ("strokes", "putts", "penalties", "fairway", "shots", "notes")
+    __slots__ = ("strokes", "putts", "penalties", "fairway", "shots", "notes", "score_source")
 
     def __init__(self) -> None:
         self.strokes: int | None = None
@@ -240,6 +241,7 @@ class _HoleAccumulator:
         self.fairway: str | None = None
         self.shots: list[dict[str, Any]] = []
         self.notes: list[str] = []
+        self.score_source: str | None = None  # B0 provenance, folded over score/putt/penalty events
 
 
 def _parse_events(events: list[dict]) -> dict[int, _HoleAccumulator]:
@@ -323,6 +325,7 @@ def _parse_events(events: list[dict]) -> dict[int, _HoleAccumulator]:
             if strokes is None or strokes < 1:
                 raise RoundIngestError("score event needs strokes >= 1")
             acc.strokes = strokes  # last score event for the hole wins
+            acc.score_source = score_source.fold_score_source(acc.score_source, payload.get("source"))
             if "fairway" in payload:
                 fairway = str(payload.get("fairway") or "").strip().lower()
                 if fairway not in {"hit", "left", "right"}:
@@ -333,11 +336,13 @@ def _parse_events(events: list[dict]) -> dict[int, _HoleAccumulator]:
             if putts is None or putts < 0:
                 raise RoundIngestError("putt event needs putts >= 0")
             acc.putts = putts
+            acc.score_source = score_source.fold_score_source(acc.score_source, payload.get("source"))
         elif kind == "penalty":
             pen = _as_int(payload.get("penalties"))
             if pen is None or pen < 0:
                 raise RoundIngestError("penalty event needs penalties >= 0")
             acc.penalties = pen
+            acc.score_source = score_source.fold_score_source(acc.score_source, payload.get("source"))
         elif kind == "note":
             note = payload.get("note")
             if isinstance(note, str) and note:
@@ -411,7 +416,9 @@ def _build_scorecard(
     back_gid = _as_int(meta.get("backNineGlobalCourseId"))
     tee_time = meta.get("teeTime") or _now_iso()
     course_name = meta.get("courseName") or "Manual round"
-    total_putts = sum(acc.putts for acc in holes.values())
+    # B0: an unedited default hole's putts were never entered; they must not feed the round total.
+    entered = [acc.putts for acc in holes.values() if acc.score_source != score_source.DEFAULT]
+    total_putts = sum(entered) if entered else None
 
     sc_holes: list[dict[str, Any]] = []
     for number in sorted(holes):
@@ -426,6 +433,8 @@ def _build_scorecard(
         }
         if acc.fairway is not None:
             hole_dict["fairway"] = acc.fairway
+        if acc.score_source is not None:
+            hole_dict["scoreSource"] = acc.score_source
         # Manual rounds carry no Garmin gir/fairway -> derive REAL ones from per-shot GPS +
         # hole geometry. Only-when-absent (the helper never overwrites a present value) and
         # undeterminable values are omitted, so this is a pure add for no-Garmin members.

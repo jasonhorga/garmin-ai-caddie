@@ -252,7 +252,8 @@ class GirFairwayIngestIntegrationTests(unittest.TestCase):
         hole = read_json(sc_path)["scorecardDetails"][0]["scorecard"]["holes"][0]
         self.assertEqual(
             hole,
-            {"number": 1, "strokes": 4, "putts": 2, "penalties": 0},
+            # scoreSource is the B0 per-hole provenance (source-less legacy events => manual_edit).
+            {"number": 1, "strokes": 4, "putts": 2, "penalties": 0, "scoreSource": "manual_edit"},
         )  # no gir/fairway when undeterminable
 
 

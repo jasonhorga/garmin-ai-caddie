@@ -27,6 +27,7 @@ from ai_caddie.courses.name_authority import (
     split_garmin_course_name,
 )
 from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
+from ai_caddie.rounds.score_source import SCORE_EVENT_KINDS, fold_score_source
 from ai_caddie.reports.annotations import annotations_for_target, list_annotations
 from ai_caddie.core.data import hazard_path, read_json
 from ai_caddie.core.fixtures import fixture_history_data
@@ -4750,6 +4751,9 @@ def build_round_state(round_id: str, *, root: Path | str | None = None, player_i
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         state = holes.setdefault(hole_no, {"hole": hole_no})
         active_hole = hole_no
+        if kind in SCORE_EVENT_KINDS:
+            # B0: per-hole score provenance (default stays default only until anything else arrives).
+            state["scoreSource"] = fold_score_source(state.get("scoreSource"), payload.get("source"))
         if kind == "score":
             value = _safe_float(payload.get("strokes"))
             if value is not None:
