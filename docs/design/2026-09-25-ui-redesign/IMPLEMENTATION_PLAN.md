@@ -57,7 +57,7 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 - `hardestHoles`：各环逐洞平均杆差最高的 5 个，至少 2 个样本。
 - 体积：用真实历史跑一遍，`/stats` 的 scoring 多出约 298,568 字节（gzip 后约 28,412 字节），主要是 `roundSequences`。B5（统计页）上线前定一个移动端载荷预算（比如按最近 N 场截断 `roundSequences`，或拆成按需请求），不在 B0d-1 里改。
 
-### B0 纠错日志设计（B0d-2，第二稿，待 Codex 确认实现范围）
+### B0 纠错日志设计（B0d-2，第三稿）
 
 现状：`/history/rounds/{ref}/corrections` 只存事件本身（iOS 只发 `replaceHoleShots` / `replaceHoleFacts` 两种整洞快照），没有前值、没有计划里的操作类型、没有客户端时间；`seq = len(existing)+1` 不加锁，并发会重号。推杆 / 总杆 / 罚杆的更正走 annotation（`putt_correction / score_correction` 用 `to`，`penalty_correction` 用 `strokes`；`from` 不保证有），annotation id 由服务器生成，没有客户端幂等键。B7 要的是“系统当时给出什么、人改成了什么”。
 
@@ -66,10 +66,13 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 **1. 唯一的持久写入边界：审计跟着事件写在同一行**
 
 - 不另开日志文件。每条更正事件、每条更正类 annotation 在**同一行 JSONL** 里带 `audit` 字段：`{"status": "ok" | "pending", "entries": [...], "reason"?}`。事件和审计一次追加、一次 fsync，不存在“事件落库、日志没写”的缺口。纠错日志是这两个存储里 `audit.entries` 的只读视图。
-- 更正事件：按 `(player, round)` 加 `fcntl.flock` 独占锁（锁文件与该局更正文件同目录，做法同 `round_ingest._player_ingest_lock`）。锁内顺序：读已有事件 → 幂等检查 → 用已有事件算改前状态 → 分配 `seq`（锁内 `max(seq)+1`）→ 用已有事件 + 新事件算改后状态 → 做差 → 追加一行（`O_APPEND`，写整行含换行，`flush` + `os.fsync`）→ 释放。
-- annotation：按 player 对 annotation 文件加同样的独占锁，锁内算前值、追加、fsync。
+- **只有一把锁**：每个 player 一把审计锁 `data/players/<pid>/audit.lock`（`fcntl.flock` 独占，做法同 `round_ingest._player_ingest_lock`）。更正事件和更正类 annotation 的写入都拿这一把，不再有按局的锁，所以不存在锁的嵌套和两把锁之间的竞争（例如同一洞的 `replaceHoleShots.manualPenalty` 和 `penalty_correction`）。锁层级：审计锁之内不再获取任何其他文件锁；`round_ingest` 的锁不与它嵌套。
+- **全局顺序号 `auditSeq`**：每个 player 一个单调递增的计数，两个存储共用。锁内先把计数文件 `audit_seq` 写成新值（临时文件 + `os.replace` + fsync），再追加记录；中途崩溃只会留下空号，不会重号。所有带审计的记录都带 `auditSeq`，它就是两个存储之间的因果顺序。
+- 更正事件锁内顺序：读已有事件 → 幂等检查 → 用已有事件算改前状态 → 分配单局内 `seq`（`max(seq)+1`）和 `auditSeq` → 用已有事件 + 新事件算改后状态 → 做差 → 追加一行（`O_APPEND`，写整行含换行，`flush` + `os.fsync`）→ 释放。
+- annotation 锁内顺序相同：幂等检查 → 算前值 → 分配 `auditSeq` → 追加 → fsync。
 - 做差失败（例如改前 / 改后状态构建抛错）：事件照样写入，`audit.status = "pending"` 带 `reason`，接口返回 `201` 且响应里 `auditPending: true`。修复路径 `repair_pending_audits(player, round)`：在锁内按该事件之前的事件前缀重算，写一条修复记录（`derivation: "repair"`，引用原 `eventId`），原行不改。启动时和读取日志接口时都会报告未修复的 pending 数量。
-- 追加前如果文件末尾不是换行（上次写到一半），在锁内截掉残缺的尾巴再写（同 `mobile_event_store` 的做法）。读取时跳过无法解析的行，并在响应里报告 `skippedLines`。
+- 追加前检查文件末尾：最后一行没有换行时先尝试解析——是完整合法的 JSON 就只补一个换行、保留这条记录；解析失败（写到一半）才截掉这段残缺尾巴。读取时跳过无法解析的行，并在响应里报告 `skippedLines`。两种情况都要测。
+- **记录类型**：新写入的每一行都带 `recordType`：`"correction"`（更正事件）、`"annotation"`（annotation）、`"auditRepair"`（修复记录）。修复记录写在原事件所在的文件里，但**所有读取方都要过滤掉它**：`round_corrections.load_correction_events`（进而 `apply_corrections`、shot map、局详情）只认 `correction` 和没有 `recordType` 的旧行；`annotations.list_annotations` / `annotations_for_target`（进而统计、下钻、`AnnotationRecord`）只认 `annotation` 和旧行。只有纠错日志读取认 `auditRepair`。
 
 **2. 稳定身份与幂等**
 
@@ -87,8 +90,9 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
   - `end`：落点像素，来自最新的 `replaceHoleShots` 快照；没有像素快照时，用改前那一刻的投影（同 shot map 的投影函数，不含图片）得到，并记下 `geometryRevision`。
   - `teeStart`：只有显示第 1 杆的起点参与比较（发球位置）。其余各杆的起点是由上一杆落点连起来的派生值，**不比较**，所以挪一个落点不会在下一杆起点上再记一条 `move`。
 - 缺字段一律当 `None`；`None` 对 `None` 不算变化，`None` 对有值算变化。
-- `move` 只在前后 `geometryRevision` 相同、且落点（或第 1 杆起点）像素变化超过 1 px 时产生。修订号不同或任一方缺失：不比较位置，改为该洞一条 `geometryChanged`，带前后两个修订号。
-- `replaceHoleFacts` 不带位置，永远不产生 `move` / `geometryChanged`。
+- `teeStart` 只在同一个 shot id 前后都是第 1 杆时比较；调序让另一杆变成第 1 杆时不比较起点，只记 `reorder`，不会冒出假的 `move`。
+- `move` 只在前后 `geometryRevision` 相同、且落点（或上面条件下的第 1 杆起点）像素变化超过 1 px 时产生。
+- `geometryChanged` 只在**这次事件带了位置**（`replaceHoleShots`，或 `editField position`）且前后两个坐标系不可比（修订号不同或任一方缺失）时产生，每洞一条，带前后两个修订号，此时不产生逐杆 `move`。只改球杆 / 球位 / 罚杆 / 顺序的事件、`replaceHoleFacts`、以及当时拿不到几何的旧逐杆编辑，都**不会**产生 `geometryChanged`。
 
 **4. 操作词表与映射**
 
@@ -103,14 +107,26 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 
 - 规范目标：`targetType = "hole"`，`targetId = "{规范 roundRef}:{显示洞号}"`（合并局用合并后的 id 和 1–18 显示洞号；不认识的 ref 返回 `404`）。
 - 规范化后的日志一律是 `before / after`：`putt_correction` / `score_correction` 的 `after = payload.to`，`penalty_correction` 的 `after = payload.strokes`。
-- `before` 在锁内、追加之前计算：成绩卡原值叠加同目标、同 kind 的最后一条已有更正。`payload.from` 不作为前值，只原样保留为 `clientFrom`。
+- `before` 在审计锁内、追加之前计算，取**该洞当时的生效值**，与局详情显示的是同一个值（同一个函数算出），包括更正存储里的状态：
+  - 推杆：成绩卡原值，被同目标最后一条 `putt_correction` 覆盖；
+  - 总杆：局详情的生效洞分（包括更正存储里加 / 删杆、手填罚杆的影响），被最后一条 `score_correction` 覆盖；
+  - 罚杆：成绩卡原值、更正存储的 `setHolePenalty` / 快照 `manualPenalty`、`penalty_correction` 三者里 `auditSeq` 最新的一个（旧记录没有 `auditSeq`，排在所有新记录之前，按文件顺序）。
+- `payload.from` 不作为前值，只原样保留为 `clientFrom`。
 - 测试覆盖“已有一条更正后再改”和“两个并发请求”（后者的 `before` 必须是前者的 `after`）。
 
 **6. 路径与读取接口**
 
-- 更正文件名改为 `{可读前缀}--{sha256(规范 ref) 前 16 位}.jsonl`，不再因替换字符而把两个 ref 撞成一个文件。已有的旧文件名只读合并（旧事件排在前面），新写入只进新文件。
+- 更正文件名改为 `{可读前缀}--{sha256(规范 ref) 前 16 位}.jsonl`，不再因替换字符而把两个 ref 撞成一个文件。已有的旧文件名只读合并，新写入只进新文件。
+- 旧记录（没有 `eventId` / `recordType` / `auditSeq` / `audit`）：
+  - 合成确定的 id：`legacy:{sha256(源文件名 + "\n" + 行号 + "\n" + 该行原始字节) 前 16 位}`，和新记录的 UUID4 不可能相同。
+  - 更正回放顺序：旧文件的事件按文件行序在前，新文件按行序在后；新文件的单局 `seq` 从旧、新两个文件里的最大 `seq` 往后接。
+  - 旧记录没有审计，不进纠错日志，所以日志游标只涉及新记录，不会和旧记录交错。
 - 写入和读取都先确认该 ref 能在本人历史里找到，找不到返回 `404`。
-- `GET /api/v2/history/rounds/{ref}/correction-log?after=<logCursor>&limit=<n>`：只读本人（player 取自 token，路径里没有 player）；`limit` 默认 200、上限 1000；按 `(ts, eventId, 序号)` 排序，返回 `nextCursor`、`pendingAudits`、`skippedLines`。
+- `GET /api/v2/history/rounds/{ref}/correction-log?after=<cursor>&limit=<n>`：只读本人（player 取自 token，路径里没有 player）；`limit` 默认 200、上限 1000。
+  - 最终顺序：两个存储合并后按 `(auditSeq, 条目序号)` 排序，这是全局的因果顺序。
+  - 修复记录用它自己写入时分配的新 `auditSeq`（带 `repairsEventId` 指回原事件），所以已经翻过去的游标不会漏掉后来补上的条目。
+  - `after` / `nextCursor` 是不透明游标：`(auditSeq, 条目序号)` 编码成 base64url，客户端只原样回传；服务器拒绝解码失败的游标（`400`）。
+  - 响应另带 `pendingAudits`、`skippedLines`。
 - 路由策略测试：成员 token 可以读自己的日志，读不到别人的；fixture 模式的路由白名单同步。
 
 **7. 客户端时间与“位置”**
@@ -123,7 +139,14 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 - 组合快照（同一次提交里加、删、挪、换杆、改球位、调序、改罚杆）；
 - 每个旧逐杆 op 各一条，包括 `restoreShot`、`setHolePenalty`；
 - 相同 / 不同 `clientMutationId` 重放（同体不重复、异体 `409`，两个存储都测）；
-- 两个并发写同一局（`seq` 不重复，第二条的前值是第一条的后值）；
+- 两个并发写同一局（`seq`、`auditSeq` 不重复，第二条的前值是第一条的后值）；
+- 同一洞的 `replaceHoleShots.manualPenalty` 和 `penalty_correction` 并发（按 `auditSeq` 串行，后者的前值包含前者）；
+- annotation 的前值包含更正存储的状态（先加一杆，再改总杆，前值是加杆后的洞分）；
+- 只改球杆 / 顺序、`replaceHoleFacts`、拿不到几何的旧编辑都不产生 `geometryChanged`；调序换了第 1 杆不产生 `move`；
+- 修复记录不会被 `apply_corrections`、`list_annotations` 读到；
+- 末行缺换行：合法 JSON 保留并补换行，残缺 JSON 截掉；
+- 旧文件名 + 新文件名合并：合成 id 稳定、回放顺序确定、`seq` 接续；
+- 游标跨页不重不漏，修复条目出现在后面的页里；
 - 做差失败 → `auditPending`，然后修复；
 - 残缺尾行的截断和跳过；
 - `geometryRevision` 变化 → `geometryChanged` 而不是 `move`；
