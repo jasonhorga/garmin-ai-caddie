@@ -280,9 +280,12 @@ def _ref_lists(value, path: str = "") -> list[tuple[str, list[str]]]:
 
 
 class BackNumberedMergeTest(unittest.TestCase):
-    """Real shape (merged_15179207_15179548): the first card of the day was stored as holes 10...18."""
+    """Real shapes merged_15179207_15179548 and merged_15464671_15464669: the first card of the day
+    was stored as holes 10...18."""
 
-    def _raw(self) -> list[dict]:
+    REAL_IDS = ((15179207, 15179548), (15464671, 15464669))
+
+    def _raw(self, front_id: int = 15179207, back_id: int = 15179548) -> list[dict]:
         def card(card_id: int, date: str, numbers: range, pars: str) -> dict:
             holes = [{"number": n, "par": 4, "strokes": 5 if n % 2 else 4, "putts": 1 + n % 3,
                       "gir": n % 2 == 0, "fairway": "hit" if n % 3 else "left"} for n in numbers]
@@ -290,8 +293,8 @@ class BackNumberedMergeTest(unittest.TestCase):
                     "holesCompleted": 9, "course": "Plain", "courseCanonical": "Plain", "courseKey": "plain",
                     "courseId": 7, "frontNineGlobalCourseId": 7, "backNineGlobalCourseId": None,
                     "par": 36, "holePars": pars, "holes": holes, "hasShotFile": True, "hasShots": True}
-        return [card(15179207, "2026-05-01T08:00:00+08:00", range(10, 19), "4" * 18),
-                card(15179548, "2026-05-01T11:00:00+08:00", range(1, 10), "4" * 9)]
+        return [card(front_id, "2026-05-01T08:00:00+08:00", range(10, 19), "4" * 18),
+                card(back_id, "2026-05-01T11:00:00+08:00", range(1, 10), "4" * 9)]
 
     def test_merge_displays_one_to_eighteen_and_keeps_the_physical_hole(self) -> None:
         merged = history.merge_same_day_halves(self._raw())
@@ -304,16 +307,19 @@ class BackNumberedMergeTest(unittest.TestCase):
         self.assertEqual(loops, {"gid:7:10-18", "gid:7:1-9"})
 
     def test_every_emitted_ref_list_names_unique_holes(self) -> None:
-        rounds = history.merge_same_day_halves(self._raw())
-        scoring = _scoring_of(rounds)
-        ref_lists = _ref_lists(scoring)
-        self.assertTrue(ref_lists)
-        seen: set[str] = set()
-        for path, refs in ref_lists:
-            hole_refs = [ref for ref in refs if ref.startswith("merged_15179207_15179548:") and ref.count(":") == 1]
-            self.assertEqual(len(hole_refs), len(set(hole_refs)), path)
-            seen.update(hole_refs)
-        self.assertEqual(seen, {f"merged_15179207_15179548:{n}" for n in range(1, 19)})
+        for front_id, back_id in self.REAL_IDS:
+            merged_id = f"merged_{front_id}_{back_id}"
+            with self.subTest(merged_id):
+                rounds = history.merge_same_day_halves(self._raw(front_id, back_id))
+                self.assertEqual([row["id"] for row in rounds], [merged_id])
+                ref_lists = _ref_lists(_scoring_of(rounds))
+                self.assertGreaterEqual(len(ref_lists), 30)
+                seen: set[str] = set()
+                for path, refs in ref_lists:
+                    hole_refs = [ref for ref in refs if ref.startswith(f"{merged_id}:") and ref.count(":") == 1]
+                    self.assertEqual(len(hole_refs), len(set(hole_refs)), path)
+                    seen.update(hole_refs)
+                self.assertEqual(seen, {f"{merged_id}:{n}" for n in range(1, 19)})
 
     def test_shots_follow_the_display_numbering_idempotently(self) -> None:
         rounds = history.merge_same_day_halves(self._raw())
