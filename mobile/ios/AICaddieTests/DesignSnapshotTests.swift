@@ -972,13 +972,13 @@ final class DesignSnapshotTests: XCTestCase {
 
         // 复盘逐洞落点图: this round's actual shots (tee→landing→green) on the hole, dots by lie.
         let shotMapJSON = """
-        {"found":true,"hole":1,"par":4,\
+        {"found":true,"hole":1,"par":4,"geometryRevision":"snapshot-r1",\
         "map":{"image":"\(b64)","overlay":{"w":\(mapW),"h":\(mapH),"ppm":1.0,"ln":360,\
         "route":[[120,330,0],[118,180,180],[120,55,360]]}},\
         "shots":[\
-        {"start":[120,330],"end":[122,200],"club":"Driver","lie":"TeeBox","endLie":"Fairway","shotType":"TEE","order":1,"synthetic":false},\
-        {"start":[122,200],"end":[110,120],"club":"7I","lie":"Fairway","endLie":"Bunker","shotType":"APPROACH","order":2,"synthetic":false},\
-        {"start":[110,120],"end":[119,60],"club":"SW","lie":"Bunker","endLie":"Green","shotType":"APPROACH","order":3,"synthetic":false}]}
+        {"id":"s1","start":[120,330],"end":[122,200],"club":"Driver","lie":"TeeBox","endLie":"Fairway","shotType":"TEE","order":1,"synthetic":false},\
+        {"id":"s2","start":[122,200],"end":[110,120],"club":"7I","lie":"Fairway","endLie":"Bunker","shotType":"APPROACH","order":2,"synthetic":false},\
+        {"id":"s3","start":[110,120],"end":[119,60],"club":"SW","lie":"Bunker","endLie":"Green","shotType":"APPROACH","order":3,"synthetic":false}]}
         """
         let shotMap = try JSONDecoder().decode(RoundHoleShotMap.self, from: Data(shotMapJSON.utf8))
         let reviewScorecard = roundDetail.scorecard
@@ -1020,7 +1020,10 @@ final class DesignSnapshotTests: XCTestCase {
             named: "review-edit-counters",
             dark: true
         )
-        editModel.selectedShotId = editModel.map.shots[1].id
+        // A precise overlay + revision and stable shot ids keep every recorded shot editable.
+        XCTAssertTrue(editModel.canEditPositions)
+        XCTAssertEqual(editModel.map.shots.map(\.id), ["s1", "s2", "s3"])
+        editModel.selectedShotId = "s2"
         try captureScreen(
             VStack(spacing: 0) {
                 RoundShotMapView(shotMap: editModel.map, editModel: editModel).frame(height: 460)
