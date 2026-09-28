@@ -11,7 +11,9 @@ final class LivePlannedRouteLayoutTests: XCTestCase {
     private func fixtureMap() throws -> HoleImageMapView {
         let json = """
         {"hole":1,"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":375,"route":[[120,330],[118,180],[120,55]],"steps":[],\
-        "cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
+        "cautions":[],"hazards":{"water_carry":[],"bunkers":[],"details":[\
+        {"kind":"water","frontM":175,"backM":195,"frontRouteM":175,"backRouteM":195,"frontPx":[112,175],"backPx":[110,155],\
+        "outlinePx":[[96,178],[124,176],[128,160],[112,150],[94,158]],"sideM":null}]},\
         "map":{"overlay":{"w":240,"h":360,"ppm":1.0,"ln":375,\
         "route":[[120,330,0],[118,180,150],[120,55,375]]}}}
         """
@@ -84,6 +86,64 @@ final class LivePlannedRouteLayoutTests: XCTestCase {
             let pin = try XCTUnwrap(geometry.legs.last?.destination)
             let flag = LivePlannedRouteRenderer.flagRect(foot: pin, scale: scale)
             XCTAssertFalse(rects[1].intersects(flag), "the 8I label covers the flag at \(scale)x")
+        }
+    }
+
+    /// The snapshot's selected water hazard: its 后 edge sits right under the 220-yard tee arc.
+    func testHazardEdgeLabelsJoinTheSharedLayoutAndStayOutsideTheOutline() throws {
+        let map = try fixtureMap()
+        let overlay = try XCTUnwrap(map.hole.resolvedMapOverlay)
+        let row = try XCTUnwrap(LiveHazardDisplayItem.rows(for: map.hole, liveReadouts: nil).first)
+        for scale in [CGFloat(1), 2] {
+            let geometry = LivePlannedRouteRenderer.screenGeometry(
+                size: viewport,
+                legs: map.plannedLegs(),
+                teeArc: map.teeDistanceArcPixels(),
+                teeArcYards: 220,
+                overlay: overlay,
+                scale: scale,
+                offset: .zero,
+                topInset: LivePlayMapOverlayLayout.liveMapTopInset
+            )
+            let hazard = try XCTUnwrap(LiveHazardOverlayRenderer.screenGeometry(
+                size: viewport,
+                hole: map.hole,
+                row: row,
+                scale: scale,
+                offset: .zero,
+                topInset: LivePlayMapOverlayLayout.liveMapTopInset
+            ))
+            XCTAssertEqual(hazard.edges.map(\.text), ["前 191", "后 213"])
+            let texts = LivePlannedRouteRenderer.labelTexts(geometry, pixelsPerMetre: overlay.ppm)
+            let sizes = texts.enumerated().map { estimatedSize($0.element, isTeeLabel: $0.offset == 2) }
+            // 10 pt heavy: ~10 pt per CJK glyph, ~6.5 pt per digit, plus 12 pt padding (≈ 52 pt).
+            let hazardSizes = hazard.edges.map { _ in CGSize(width: 52, height: LiveHazardAnnotationLayout.labelHeight) }
+            let placed = LivePlannedRouteRenderer.layout(
+                geometry,
+                labelSizes: sizes,
+                flagScale: scale,
+                viewportSize: viewport,
+                hazard: hazard,
+                hazardLabelSizes: hazardSizes
+            )
+            let all = (placed.hazard + placed.route).compactMap { $0 }
+            XCTAssertEqual(all.count, 5, "a label was dropped at \(scale)x")
+            for (index, rect) in all.enumerated() {
+                for other in all[(index + 1)...] {
+                    XCTAssertFalse(rect.intersects(other), "labels overlap at \(scale)x: \(rect) / \(other)")
+                }
+            }
+            for rect in placed.hazard.compactMap({ $0 }) {
+                let probes = [
+                    CGPoint(x: rect.midX, y: rect.midY),
+                    CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
+                    CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY),
+                ]
+                XCTAssertFalse(
+                    probes.contains { LivePolygonGeometry.contains($0, polygon: hazard.outline) },
+                    "a hazard label sits on the obstacle at \(scale)x"
+                )
+            }
         }
     }
 

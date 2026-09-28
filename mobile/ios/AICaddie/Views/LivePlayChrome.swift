@@ -428,6 +428,20 @@ enum LivePlannedRouteRenderer {
         flagScale: CGFloat,
         viewportSize: CGSize
     ) -> [CGRect?] {
+        layout(geometry, labelSizes: labelSizes, flagScale: flagScale, viewportSize: viewportSize).route
+    }
+
+    /// The shared layout including a selected obstacle: its 前 / 后 labels are placed first (they
+    /// must stay outside its outline, next to their edge points), then the route and tee labels
+    /// around them. Returned rects are nil for a label that is omitted (anchor off screen).
+    static func layout(
+        _ geometry: ScreenGeometry,
+        labelSizes: [CGSize],
+        flagScale: CGFloat,
+        viewportSize: CGSize,
+        hazard: LiveHazardOverlayRenderer.ScreenGeometry? = nil,
+        hazardLabelSizes: [CGSize] = []
+    ) -> (route: [CGRect?], hazard: [CGRect?]) {
         var lineSamples: [CGPoint] = geometry.arcs.flatMap { Self.samples(along: $0) }
         if let teeArc = geometry.teeArc { lineSamples += Self.samples(along: teeArc) }
         var obstacles: [CGRect] = geometry.legs.map {
@@ -436,11 +450,33 @@ enum LivePlannedRouteRenderer {
         if let pinLeg = geometry.legs.last(where: { $0.leg.endsAtPin }) {
             obstacles.append(flagRect(foot: pinLeg.destination, scale: flagScale))
         }
-        // A label belongs to its landing: when the landing (or the whole tee arc) is panned off
-        // screen its label is omitted rather than clamped to an edge far from what it names.
+        if let hazard {
+            lineSamples += outlineSamples(hazard.outline)
+            obstacles += hazard.edges.map {
+                CGRect(x: $0.point.x - 4, y: $0.point.y - 4, width: 8, height: 8)
+            }
+        }
+        // A label belongs to its anchor: when the landing, edge point or the whole tee arc is
+        // panned off screen its label is omitted rather than clamped to an edge far from it.
         let screenBounds = CGRect(origin: .zero, size: viewportSize)
         var requests: [LabelRequest] = []
-        var requestIndices: [Int] = []
+        var slots: [(isHazard: Bool, index: Int)] = []
+        if let hazard {
+            for (index, edge) in hazard.edges.enumerated() where index < hazardLabelSizes.count {
+                guard screenBounds.contains(edge.point) else { continue }
+                let labelSize = hazardLabelSizes[index]
+                requests.append(LabelRequest(
+                    size: labelSize,
+                    candidates: LiveHazardOverlayRenderer.labelCandidates(
+                        for: edge,
+                        outline: hazard.outline,
+                        labelSize: labelSize,
+                        viewportSize: viewportSize
+                    )
+                ))
+                slots.append((true, index))
+            }
+        }
         for (index, item) in geometry.legs.enumerated() where index < labelSizes.count {
             guard screenBounds.contains(item.destination) else { continue }
             let labelSize = labelSizes[index]
@@ -448,7 +484,7 @@ enum LivePlannedRouteRenderer {
                 ? pinCandidates(foot: item.destination, flagScale: flagScale, labelSize: labelSize)
                 : landingCandidates(landing: item.destination, from: item.origin, labelSize: labelSize)
             requests.append(LabelRequest(size: labelSize, candidates: candidates))
-            requestIndices.append(index)
+            slots.append((false, index))
         }
         if let teeArc = geometry.teeArc, labelSizes.count > geometry.legs.count {
             let labelSize = labelSizes[geometry.legs.count]
@@ -456,16 +492,40 @@ enum LivePlannedRouteRenderer {
                 .filter { screenBounds.contains($0) }
             if !candidates.isEmpty {
                 requests.append(LabelRequest(size: labelSize, candidates: candidates))
-                requestIndices.append(geometry.legs.count)
+                slots.append((false, geometry.legs.count))
             }
         }
         let viewport = screenBounds.insetBy(dx: 4, dy: 4)
         let placed = layoutLabels(requests, viewport: viewport, obstacles: obstacles, samples: lineSamples)
-        var result = [CGRect?](repeating: nil, count: labelSizes.count)
-        for (rect, index) in zip(placed, requestIndices) {
-            result[index] = rect
+        var route = [CGRect?](repeating: nil, count: labelSizes.count)
+        var hazardRects = [CGRect?](repeating: nil, count: hazard?.edges.count ?? 0)
+        for (rect, slot) in zip(placed, slots) {
+            if slot.isHazard {
+                hazardRects[slot.index] = rect
+            } else {
+                route[slot.index] = rect
+            }
         }
-        return result
+        return (route, hazardRects)
+    }
+
+    /// Points every ~6 pt along a closed outline, so labels keep off the obstacle's red edge.
+    static func outlineSamples(_ outline: [CGPoint]) -> [CGPoint] {
+        guard outline.count >= 2 else { return outline }
+        var points: [CGPoint] = []
+        for index in outline.indices {
+            let a = outline[index]
+            let b = outline[(index + 1) % outline.count]
+            let length: CGFloat = hypot(b.x - a.x, b.y - a.y)
+            let steps = max(1, Int(length / 6))
+            for step in 0..<steps {
+                let t = CGFloat(step) / CGFloat(steps)
+                let x: CGFloat = a.x + (b.x - a.x) * t
+                let y: CGFloat = a.y + (b.y - a.y) * t
+                points.append(CGPoint(x: x, y: y))
+            }
+        }
+        return points
     }
 
     static func draw(
@@ -477,7 +537,8 @@ enum LivePlannedRouteRenderer {
         overlay: CoursePrepOverlay,
         scale: CGFloat,
         offset: CGSize,
-        topInset: CGFloat
+        topInset: CGFloat,
+        hazard selectedHazard: (hole: CoursePrepHole, row: LiveHazardDisplayItem)? = nil
     ) {
         let geometry = screenGeometry(
             size: size,
@@ -489,6 +550,16 @@ enum LivePlannedRouteRenderer {
             offset: offset,
             topInset: topInset
         )
+        let hazardGeometry = selectedHazard.flatMap {
+            LiveHazardOverlayRenderer.screenGeometry(
+                size: size,
+                hole: $0.hole,
+                row: $0.row,
+                scale: scale,
+                offset: offset,
+                topInset: topInset
+            )
+        }
         if let screenTeeArc = geometry.teeArc {
             let path = HoleImageMapView.path(for: screenTeeArc)
             context.stroke(path, with: .color(.black.opacity(0.62)),
@@ -527,13 +598,36 @@ enum LivePlannedRouteRenderer {
             resolvedTexts.append(resolved)
             sizes.append(CGSize(width: width, height: height))
         }
-        let rects = labelRects(geometry, labelSizes: sizes, flagScale: scale, viewportSize: size)
-        for (index, rect) in rects.enumerated() where index < resolvedTexts.count {
+        let hazardSizes: [CGSize] = hazardGeometry?.edges.map {
+            LiveHazardOverlayRenderer.labelSize(for: $0.text, in: context)
+        } ?? []
+        let placed = layout(
+            geometry,
+            labelSizes: sizes,
+            flagScale: scale,
+            viewportSize: size,
+            hazard: hazardGeometry,
+            hazardLabelSizes: hazardSizes
+        )
+        for (index, rect) in placed.route.enumerated() where index < resolvedTexts.count {
             guard let rect else { continue }
             let dimmed = index < geometry.legs.count && !geometry.legs[index].leg.isSelected
             context.fill(Path(roundedRect: rect, cornerRadius: rect.height / 2),
                          with: .color(.black.opacity(dimmed ? 0.5 : 0.74)))
             context.draw(resolvedTexts[index], at: CGPoint(x: rect.midX, y: rect.midY))
+        }
+        // The obstacle is drawn last with the label rectangles from the same layout.
+        if let selectedHazard {
+            LiveHazardOverlayRenderer.draw(
+                &context,
+                size: size,
+                hole: selectedHazard.hole,
+                row: selectedHazard.row,
+                scale: scale,
+                offset: offset,
+                topInset: topInset,
+                labelRects: placed.hazard
+            )
         }
     }
 

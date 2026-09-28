@@ -2251,7 +2251,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("showsRoute: showsFactualRoute", hole_map_view)
         self.assertIn("if showsFactualRoute, routePoints.count >= 2", hole_map_view)
         self.assertNotIn("showsRoute: showsRecommendedRoute", hole_map_view)
-        self.assertIn("LiveHazardOverlayRenderer.draw", current_hole)
+        # The selected obstacle is drawn by the route renderer's shared label layout.
+        self.assertIn("hazard: selectedLiveHazard.map { (hole: holePrep, row: $0) }", current_hole)
         # B1: obstacles stay hidden until the explicit 障碍 control (left column) selects one.
         self.assertIn("LivePlaySideControls(", current_hole)
         self.assertIn("toggleHazardDisplay", current_hole)
@@ -3628,7 +3629,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("LiveHazardDisplayItem.rows(for: holePrep", current_hole)
         self.assertIn("liveHazardDisplayRows", current_hole)
         self.assertIn("LivePlayHazardBar(", current_hole)
-        self.assertIn("LiveHazardOverlayRenderer.draw(", current_hole)
+        self.assertIn("hazard: selectedLiveHazard.map { (hole: holePrep, row: $0) }", current_hole)
+        live_chrome_source = _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift")
+        self.assertIn("LiveHazardOverlayRenderer.draw(", live_chrome_source)
+        self.assertIn("labelRects: placed.hazard", live_chrome_source)
         self.assertNotIn("showHazardDetail", current_hole)
         self.assertIn("selectedOfflineOption", current_hole)
         self.assertIn("sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)", current_hole)

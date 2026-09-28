@@ -925,24 +925,10 @@ public struct CurrentHoleView: View {
                             overlay: overlay,
                             scale: heroDisplayedMapScale,
                             offset: heroDisplayedMapOffset(in: size),
-                            topInset: LivePlayMapOverlayLayout.liveMapTopInset
-                        )
-                    }
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-                }
-
-                if let holePrep, let selectedLiveHazard {
-                    Canvas { context, size in
-                        LiveHazardOverlayRenderer.draw(
-                            &context,
-                            size: size,
-                            hole: holePrep,
-                            row: selectedLiveHazard,
-                            scale: heroDisplayedMapScale,
-                            offset: heroDisplayedMapOffset(in: size),
-                            topInset: LivePlayMapOverlayLayout.liveMapTopInset
+                            topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+                            // The selected obstacle is drawn in the same pass so its 前 / 后
+                            // labels share one collision layout with the route and tee labels.
+                            hazard: selectedLiveHazard.map { (hole: holePrep, row: $0) }
                         )
                     }
                     .frame(width: geo.size.width, height: geo.size.height)

@@ -1453,7 +1453,10 @@ enum LiveHazardAnnotationLayout {
         for point: CGPoint,
         isFront: Bool,
         outline: [CGPoint],
-        viewportSize: CGSize
+        viewportSize: CGSize,
+        labelSize: CGSize = CGSize(width: labelWidth, height: labelHeight),
+        gap: CGFloat = 12,
+        slide: CGFloat = 0
     ) -> CGPoint {
         guard !outline.isEmpty else {
             return labelCenter(for: point, isFront: isFront, viewportSize: viewportSize)
@@ -1473,21 +1476,23 @@ enum LiveHazardAnnotationLayout {
             dy /= length
         }
         // Separate front/back labels slightly along the perpendicular so a narrow hazard does not
-        // make the two compact black tags overlap.
+        // make the two compact black tags overlap; `slide` moves a candidate further along it.
         let perpendicular = CGPoint(x: -dy, y: dx)
-        let separation: CGFloat = isFront ? -2.5 : 2.5
-        let gap: CGFloat = 12
-        let desired = CGPoint(
-            x: point.x + dx * gap + perpendicular.x * separation,
-            y: point.y + dy * gap + perpendicular.y * separation
-        )
-        let minX = labelWidth / 2 + 4
-        let maxX = max(minX, viewportSize.width - labelWidth / 2 - 4)
-        let minY = labelHeight / 2 + 4
-        let maxY = max(minY, viewportSize.height - labelHeight / 2 - 4)
+        let separation: CGFloat = (isFront ? -2.5 : 2.5) + slide
+        // Push the centre out by the rectangle's half extent along the outward direction, so the
+        // whole label (a 52 pt "后 213", not a 22 pt dot tag) clears the edge by `gap`.
+        let halfExtentX: CGFloat = abs(dx) * labelSize.width / 2
+        let halfExtentY: CGFloat = abs(dy) * labelSize.height / 2
+        let reach: CGFloat = gap + halfExtentX + halfExtentY
+        let desiredX: CGFloat = point.x + dx * reach + perpendicular.x * separation
+        let desiredY: CGFloat = point.y + dy * reach + perpendicular.y * separation
+        let minX: CGFloat = labelSize.width / 2 + 4
+        let maxX: CGFloat = max(minX, viewportSize.width - labelSize.width / 2 - 4)
+        let minY: CGFloat = labelSize.height / 2 + 4
+        let maxY: CGFloat = max(minY, viewportSize.height - labelSize.height / 2 - 4)
         return CGPoint(
-            x: min(max(desired.x, minX), maxX),
-            y: min(max(desired.y, minY), maxY)
+            x: min(max(desiredX, minX), maxX),
+            y: min(max(desiredY, minY), maxY)
         )
     }
 }
