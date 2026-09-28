@@ -705,7 +705,10 @@ def add_round_correction(
         raise HTTPException(status_code=404, detail=f"round {round_ref} not found")
     try:
         stored = round_corrections.append_correction(
-            player_id, round_ref, event, data_loader=lambda: data,
+            # The audit re-loads inside its coherence bracket (cached, cheap when unchanged); the data
+            # loaded above only resolved the round for the 404.
+            player_id, round_ref, event,
+            data_loader=lambda: load_history_data_for_mode(player_id=player_id)[0],
         )
     except round_corrections.CorrectionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

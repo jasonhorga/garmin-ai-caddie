@@ -248,6 +248,15 @@ def _load_dirs(player_id: str) -> tuple[Path, ...]:
     return (base / "scorecards", base / "shots")
 
 
+def history_source_revision(player_id: str = OWNER_ID) -> str:
+    """Digest of the per-file manifest of every dir ``load_history_data`` reads for ``player_id``.
+
+    Equal before and after a load means no scorecard / shot file changed during it, i.e. the loaded
+    HistoryData is one coherent source view (B0d-2 correction audit)."""
+    signature = tuple(_dir_sig(directory) for directory in _load_dirs(player_id))
+    return hashlib.sha256(repr(signature).encode("utf-8")).hexdigest()[:16]
+
+
 def _aux_files(
     annotations_root: Path | str | None = None,
     weather_root: Path | str | None = None,

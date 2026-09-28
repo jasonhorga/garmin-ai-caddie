@@ -68,6 +68,7 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 - 不另开日志文件。每条更正事件、每条更正类 annotation 在**同一行 JSONL** 里带 `audit` 字段：`{"status": "ok" | "pending", "entries": [...], "reason"?}`。事件和审计一次追加、一次 fsync，不存在“事件落库、日志没写”的缺口。纠错日志是这两个存储里 `audit.entries` 的只读视图。
 - **只有一把锁**：每个 player 一把审计锁 `data/players/<pid>/audit.lock`（`fcntl.flock` 独占，做法同 `round_ingest._player_ingest_lock`）。更正事件和更正类 annotation 的写入都拿这一把，不再有按局的锁，所以不存在锁的嵌套和两把锁之间的竞争（例如同一洞的 `replaceHoleShots.manualPenalty` 和 `penalty_correction`）。锁层级：审计锁之内不再获取任何其他文件锁；`round_ingest` 的锁不与它嵌套。
 - **全局顺序号 `auditSeq`**：每个 player 一个单调递增的计数，两个存储共用。锁内先把计数文件 `audit_seq` 写成新值（临时文件 + `os.replace` + fsync），再追加记录；中途崩溃只会留下空号，不会重号。所有带审计的记录都带 `auditSeq`，它就是两个存储之间的因果顺序。
+- **源数据视图必须一致**：审计锁不与 Garmin 导入 / 同步锁嵌套，所以读历史时可能正好在重新同步。每次审计读取都夹在两次“源数据修订号”之间（历史加载器读取的所有目录的逐文件清单摘要，`stats_cache.history_source_revision`）：前后相同才用这份数据做差，并把修订号记进 `audit.sourceRevision`；变了就重读，连续 3 次都在变则事件照常写入、审计记 `pending`。修复同样只在一致的视图上判断。调用方必须传真正去加载的 loader，不能把更早读好的数据塞进来。
 - **没有绕过锁的写入口**：锁在存储函数内部获取，不在路由里——`round_corrections.append_correction` 和 `annotations.add_annotation` 是仅有的两个写入口（路由 `POST …/corrections`、`POST /annotations`，以及 `mobile_reconciliation` 都经过它们），测试和后台任务直接调用这两个函数也一样加锁。测试会断言这两个函数之外没有别的代码直接追加这两类文件。
 - 更正事件锁内顺序：读已有事件 → 幂等检查 → 用已有事件算改前状态 → 分配单局内 `seq`（`max(seq)+1`）和 `auditSeq` → 用已有事件 + 新事件算改后状态 → 做差 → 追加一行（`O_APPEND`，写整行含换行，`flush` + `os.fsync`）→ 释放。
 - annotation 锁内顺序相同：幂等检查 → 算前值 → 分配 `auditSeq` → 追加 → fsync。

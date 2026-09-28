@@ -167,7 +167,32 @@ def _now(now: datetime | None) -> str:
 
 
 def _default_loader(player_id: str) -> DataLoader:
-    return lambda: _history.load_history_data(player_id=player_id)
+    from ai_caddie.history.stats_cache import cached_load_history_data
+
+    return lambda: cached_load_history_data(player_id)
+
+
+COHERENT_LOAD_ATTEMPTS = 3
+
+
+def load_coherent(player_id: str, loader: DataLoader) -> tuple[HistoryData, str]:
+    """One coherent source view for an audit, or ``AuditUnavailable``.
+
+    The audit lock deliberately does not nest with the Garmin ingest / sync lock, so a resync may be
+    rewriting scorecard and shot files while we read. The source revision (per-file manifest of every
+    dir the history loader reads) is taken before and after the load; only an unchanged revision proves
+    the loaded view is not a mix of old and new files. A changed revision retries, then gives up (the
+    event is still stored, its audit pending). Callers must pass a loader that actually loads, never
+    data read earlier outside this bracket.
+    """
+    from ai_caddie.history.stats_cache import history_source_revision
+
+    for _attempt in range(COHERENT_LOAD_ATTEMPTS):
+        before = history_source_revision(player_id)
+        data = loader()
+        if history_source_revision(player_id) == before:
+            return data, before
+    raise AuditUnavailable("history source changed during every read attempt")
 
 
 def _fingerprint(value: Any) -> str:
@@ -450,12 +475,13 @@ def write_correction(
         stored["requestDigest"] = digest
         loader = data_loader or _default_loader(player_id)
         try:
-            data = loader()
+            data, source_revision = load_coherent(player_id, loader)
         except Exception as exc:
             stored["audit"] = {"status": "pending", "reason": f"history unavailable: {exc}"[:500],
                                "sourceFingerprint": None, "entries": []}
         else:
             stored["audit"] = build_correction_audit(data, round_ref, existing, stored)
+            stored["audit"]["sourceRevision"] = source_revision
         stored["auditSeq"] = next_audit_seq(player_id, root=root)
         append_record(rc._corrections_path(player_id, round_ref, root), stored)
         return stored
@@ -576,12 +602,13 @@ def write_annotation(
         record = {**record, "recordType": RECORD_ANNOTATION, "eventId": uuid4().hex, "requestDigest": digest}
         if record.get("kind") in AUDITED_ANNOTATION_KINDS and record.get("targetType") == "hole":
             try:
-                data = (data_loader or _default_loader(player_id))()
+                data, source_revision = load_coherent(player_id, data_loader or _default_loader(player_id))
             except Exception as exc:
                 record["audit"] = {"status": "pending", "reason": f"history unavailable: {exc}"[:500],
                                    "sourceFingerprint": None, "entries": []}
             else:
                 record["audit"] = build_annotation_audit(data, record, existing, player_id=player_id, root=root)
+                record["audit"]["sourceRevision"] = source_revision
         record["auditSeq"] = next_audit_seq(player_id, root=lock_root, annotation_root=annotation_root)
         append_record(path, record)
         return record
@@ -604,7 +631,10 @@ def repair_pending_audits(
 
     repairs: list[dict[str, Any]] = []
     with audit_lock(player_id, root):
-        data = (data_loader or _default_loader(player_id))()
+        try:
+            data, _source_revision = load_coherent(player_id, data_loader or _default_loader(player_id))
+        except AuditUnavailable:
+            return repairs  # nothing is decided on a mixed view; stays pending
         row = _match_round(data, round_ref)
         records, _skipped = rc.load_correction_records(player_id, round_ref, root=root)
         done = _repaired_ids(records)

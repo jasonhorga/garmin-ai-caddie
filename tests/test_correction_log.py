@@ -314,6 +314,32 @@ class RepairAndDurabilityTest(_Store):
         log = ca.build_correction_log("me", "42", resynced, annotation_root=self.root)
         self.assertEqual((log["pendingAudits"], log["unrecoverableAudits"]), (0, 1))
 
+    def test_a_resync_during_the_read_retries_and_never_audits_a_mixed_view(self) -> None:
+        from ai_caddie.history import stats_cache
+
+        loads = []
+
+        def loader():
+            loads.append(1)
+            return self.data
+
+        # The source revision moves once (a resync overlapped the first read), then settles.
+        revisions = iter(["r0", "r1", "r1", "r1"])
+        with mock.patch.object(stats_cache, "history_source_revision", side_effect=lambda _pid: next(revisions)):
+            stored = rc.append_correction("me", "42", {"op": "setHolePenalty", "hole": 4, "value": 1}, data_loader=loader)
+        self.assertEqual(len(loads), 2)
+        self.assertEqual(stored["audit"]["status"], "ok")
+        self.assertEqual(stored["audit"]["sourceRevision"], "r1")
+
+        # A source that never settles: the event is stored, the audit stays pending, nothing is diffed.
+        counter = iter(range(100))
+        with mock.patch.object(stats_cache, "history_source_revision", side_effect=lambda _pid: f"r{next(counter)}"):
+            churn = rc.append_correction("me", "42", {"op": "setHolePenalty", "hole": 4, "value": 2}, data_loader=loader)
+            self.assertEqual(ca.repair_pending_audits("me", "42", annotation_root=self.root, data_loader=loader), [])
+        self.assertEqual(churn["audit"]["status"], "pending")
+        self.assertIn("changed during every read", churn["audit"]["reason"])
+        self.assertEqual(len(rc.load_correction_events("me", "42")), 2)
+
     def test_history_outage_stores_the_event_with_a_pending_audit(self) -> None:
         stored = rc.append_correction("me", "42", {"op": "setHolePenalty", "hole": 4, "value": 1},
                                       data_loader=self.failing_loader)
