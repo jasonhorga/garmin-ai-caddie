@@ -57,7 +57,7 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 - `hardestHoles`：各环逐洞平均杆差最高的 5 个，至少 2 个样本。
 - 体积：用真实历史跑一遍，`/stats` 的 scoring 多出约 298,568 字节（gzip 后约 28,412 字节），主要是 `roundSequences`。B5（统计页）上线前定一个移动端载荷预算（比如按最近 N 场截断 `roundSequences`，或拆成按需请求），不在 B0d-1 里改。
 
-### B0 纠错日志设计（B0d-2，第三稿）
+### B0 纠错日志设计（B0d-2，已确认）
 
 现状：`/history/rounds/{ref}/corrections` 只存事件本身（iOS 只发 `replaceHoleShots` / `replaceHoleFacts` 两种整洞快照），没有前值、没有计划里的操作类型、没有客户端时间；`seq = len(existing)+1` 不加锁，并发会重号。推杆 / 总杆 / 罚杆的更正走 annotation（`putt_correction / score_correction` 用 `to`，`penalty_correction` 用 `strokes`；`from` 不保证有），annotation id 由服务器生成，没有客户端幂等键。B7 要的是“系统当时给出什么、人改成了什么”。
 
@@ -68,9 +68,12 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 - 不另开日志文件。每条更正事件、每条更正类 annotation 在**同一行 JSONL** 里带 `audit` 字段：`{"status": "ok" | "pending", "entries": [...], "reason"?}`。事件和审计一次追加、一次 fsync，不存在“事件落库、日志没写”的缺口。纠错日志是这两个存储里 `audit.entries` 的只读视图。
 - **只有一把锁**：每个 player 一把审计锁 `data/players/<pid>/audit.lock`（`fcntl.flock` 独占，做法同 `round_ingest._player_ingest_lock`）。更正事件和更正类 annotation 的写入都拿这一把，不再有按局的锁，所以不存在锁的嵌套和两把锁之间的竞争（例如同一洞的 `replaceHoleShots.manualPenalty` 和 `penalty_correction`）。锁层级：审计锁之内不再获取任何其他文件锁；`round_ingest` 的锁不与它嵌套。
 - **全局顺序号 `auditSeq`**：每个 player 一个单调递增的计数，两个存储共用。锁内先把计数文件 `audit_seq` 写成新值（临时文件 + `os.replace` + fsync），再追加记录；中途崩溃只会留下空号，不会重号。所有带审计的记录都带 `auditSeq`，它就是两个存储之间的因果顺序。
+- **没有绕过锁的写入口**：锁在存储函数内部获取，不在路由里——`round_corrections.append_correction` 和 `annotations.add_annotation` 是仅有的两个写入口（路由 `POST …/corrections`、`POST /annotations`，以及 `mobile_reconciliation` 都经过它们），测试和后台任务直接调用这两个函数也一样加锁。测试会断言这两个函数之外没有别的代码直接追加这两类文件。
 - 更正事件锁内顺序：读已有事件 → 幂等检查 → 用已有事件算改前状态 → 分配单局内 `seq`（`max(seq)+1`）和 `auditSeq` → 用已有事件 + 新事件算改后状态 → 做差 → 追加一行（`O_APPEND`，写整行含换行，`flush` + `os.fsync`）→ 释放。
 - annotation 锁内顺序相同：幂等检查 → 算前值 → 分配 `auditSeq` → 追加 → fsync。
-- 做差失败（例如改前 / 改后状态构建抛错）：事件照样写入，`audit.status = "pending"` 带 `reason`，接口返回 `201` 且响应里 `auditPending: true`。修复路径 `repair_pending_audits(player, round)`：在锁内按该事件之前的事件前缀重算，写一条修复记录（`derivation: "repair"`，引用原 `eventId`），原行不改。启动时和读取日志接口时都会报告未修复的 pending 数量。
+- 做差失败（例如改前 / 改后状态构建抛错）：事件照样写入，`audit.status = "pending"` 带 `reason`，接口返回 `201` 且响应里 `auditPending: true`。
+- **pending 必须带上当时的源数据指纹**：`audit.sourceFingerprint` = 改前状态所依赖的全部输入的规范 JSON 的 sha256——该洞的源杆（稳定 id 和原始字段）、成绩卡该洞一行、该局此前所有更正事件的 `eventId`、以及当时的 `geometryRevision`；annotation 则是成绩卡该洞一行加此前所有同洞记录的 `eventId`。连指纹都算不出来时记 `null`。
+- 修复路径 `repair_pending_audits(player, round)`：在审计锁内重算指纹。与存下的相同，才按事件前缀重算前后状态，写一条 `auditRepair` 记录（`status: "ok"`，带 `repairsEventId`）；不同（例如中间 Garmin 重新同步过）或原指纹为 `null`，写一条 `auditRepair` 记录，`status: "unrecoverable"`，**不推导新的前值**。原行不改。读取日志接口报告仍未修复的 pending 数和 unrecoverable 数。
 - 追加前检查文件末尾：最后一行没有换行时先尝试解析——是完整合法的 JSON 就只补一个换行、保留这条记录；解析失败（写到一半）才截掉这段残缺尾巴。读取时跳过无法解析的行，并在响应里报告 `skippedLines`。两种情况都要测。
 - **记录类型**：新写入的每一行都带 `recordType`：`"correction"`（更正事件）、`"annotation"`（annotation）、`"auditRepair"`（修复记录）。修复记录写在原事件所在的文件里，但**所有读取方都要过滤掉它**：`round_corrections.load_correction_events`（进而 `apply_corrections`、shot map、局详情）只认 `correction` 和没有 `recordType` 的旧行；`annotations.list_annotations` / `annotations_for_target`（进而统计、下钻、`AnnotationRecord`）只认 `annotation` 和旧行。只有纠错日志读取认 `auditRepair`。
 
@@ -92,11 +95,12 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 - 缺字段一律当 `None`；`None` 对 `None` 不算变化，`None` 对有值算变化。
 - `teeStart` 只在同一个 shot id 前后都是第 1 杆时比较；调序让另一杆变成第 1 杆时不比较起点，只记 `reorder`，不会冒出假的 `move`。
 - `move` 只在前后 `geometryRevision` 相同、且落点（或上面条件下的第 1 杆起点）像素变化超过 1 px 时产生。
-- `geometryChanged` 只在**这次事件带了位置**（`replaceHoleShots`，或 `editField position`）且前后两个坐标系不可比（修订号不同或任一方缺失）时产生，每洞一条，带前后两个修订号，此时不产生逐杆 `move`。只改球杆 / 球位 / 罚杆 / 顺序的事件、`replaceHoleFacts`、以及当时拿不到几何的旧逐杆编辑，都**不会**产生 `geometryChanged`。
+- **坐标系不可比时，不写任何位置条目**。服务器的改前视图总是当前的 `geometryRevision`（修订号对不上的旧像素快照在读取时本来就不算数，会回落到当前投影）。事件的修订号与之不同或缺失时，没有共同坐标系，无法证明位置是否变了：不产生 `move`，也不产生任何“几何变化”条目；只在这一批审计上记 `positionComparison: {"status": "unavailable", "beforeRevision", "afterRevision"}`（可比时为 `"compared"`）。
+- 因此 iOS 用 `replaceHoleShots` 提交的“只改了球杆 / 球位 / 罚杆”的整洞快照，即使中间地图刷新过，也只会记 `club / lie / penalty`，不会冒出假的位置事件。原草案里的 `geometryChanged` 条目取消。`replaceHoleFacts` 和当时拿不到几何的旧逐杆编辑同样不做位置比较。
 
 **4. 操作词表与映射**
 
-计划里的 `add / delete / move / club / putts / total / drive`，加上现有编辑能产生的 `lie / penalty / reorder`，和上面的 `geometryChanged`。
+计划里的 `add / delete / move / club / putts / total / drive`，加上现有编辑能产生的 `lie / penalty / reorder`。
 
 - 整洞快照：只在后 → `add`；只在前 → `delete`；`move` 见上；球杆不同 → `club`；球位不同 → `lie`；前后都在的杆相对顺序变了 → 一条 `reorder`（前后值是 id 列表）；`manualPenalty` 变了 → `penalty`。
 - 旧逐杆 op：`deleteShot → delete`，`restoreShot → add`（`restored: true`），`addShot → add`，`editField club → club`，`editField lie → lie`，`editField position → move`（同样要求修订号相同），`reorderShot → reorder`，`setHolePenalty → penalty`。
@@ -142,14 +146,16 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 - 两个并发写同一局（`seq`、`auditSeq` 不重复，第二条的前值是第一条的后值）；
 - 同一洞的 `replaceHoleShots.manualPenalty` 和 `penalty_correction` 并发（按 `auditSeq` 串行，后者的前值包含前者）；
 - annotation 的前值包含更正存储的状态（先加一杆，再改总杆，前值是加杆后的洞分）；
-- 只改球杆 / 顺序、`replaceHoleFacts`、拿不到几何的旧编辑都不产生 `geometryChanged`；调序换了第 1 杆不产生 `move`；
+- 调序换了第 1 杆不产生 `move`；
+- 写入和修复之间发生 Garmin 重新同步 → 修复记 `unrecoverable`，不推导新前值；指纹未变 → 修复成功；
+- 直接调用存储函数（不经路由）同样拿审计锁，没有其他代码直接写这两类文件；
 - 修复记录不会被 `apply_corrections`、`list_annotations` 读到；
 - 末行缺换行：合法 JSON 保留并补换行，残缺 JSON 截掉；
 - 旧文件名 + 新文件名合并：合成 id 稳定、回放顺序确定、`seq` 接续；
 - 游标跨页不重不漏，修复条目出现在后面的页里；
 - 做差失败 → `auditPending`，然后修复；
 - 残缺尾行的截断和跳过；
-- `geometryRevision` 变化 → `geometryChanged` 而不是 `move`；
+- 修订号不同 → 不产生 `move`，审计记 `positionComparison: unavailable`；地图刷新前后提交只改球杆的 `replaceHoleShots` → 只有 `club`；
 - 挪一个落点只记一条 `move`（相邻杆的派生起点不记）；
 - annotation 的 `putts / total / penalty`（含已有更正、并发）；
 - 文件名不撞、旧文件名只读合并；
