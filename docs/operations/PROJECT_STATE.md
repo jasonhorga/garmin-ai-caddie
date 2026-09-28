@@ -240,6 +240,18 @@ physical iPhone/Watch installation and interaction evidence remains open.
 
 ## Current Work Summary
 
+**Homeserver Codex temp cleanup (2026-09-25 10:22-10:24 UTC):** The exact
+allow-list and before/after evidence are retained under
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260925T102116Z-codex-temp-cleanup/`.
+Nine one-off `/tmp` probe/log files (60,776 bytes total) and the superseded
+`complete_homeserver_api_deploy.sh.previous-codex-862171a1` backup were removed
+after owner, size, checksum, and open-descriptor checks. The backup is
+byte-identical to the Git blob at `862171a1`; the active deployment tool,
+`aicaddie-sync.sh`, `/tmp/aicaddie-sync.lock`, production containers, images,
+BuildKit cache, volumes, tmux sessions, and unrelated `/tmp` files were left
+untouched. Disk remained at 84 GiB free; API health returned `ok` at revision
+`d7f699...`, and the sync log still ends with `sync ok` and `done`.
+
 **Homeserver expired-resource cleanup (2026-09-23 02:34 UTC):** The old Codex
 candidate tunnels were not automatically stopped because `expires_utc` in a
 cleanup manifest is metadata only. The daily `/home/jason/homeserver-reaper.sh`
