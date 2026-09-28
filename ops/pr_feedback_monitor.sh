@@ -216,7 +216,7 @@ while :; do
     # An unchanged closed/merged PR cannot have received a new comment. Keep
     # its metadata and known checks current without spending three API calls
     # on every historical PR on every poll. Open PRs are always scanned.
-    if [ "$pr_state" != "OPEN" ] && [ -n "$old_updated" ] && [ "$updated" = "$old_updated" ] && [ "$commit_initialized" = "true" ]; then
+    if [ "$pr_state" != "OPEN" ] && [ -n "$old_updated" ] && [ "$updated" = "$old_updated" ] && [ "$commit_initialized" = "true" ] && [[ "$updated" < "$previous_scan" ]]; then
       old_checks="$(state_value --arg n "$number" '.openPulls[$n].checks // []' | jq -c '.' 2>/dev/null || printf '[]')"
       state_update --arg n "$number" --arg head "$head" --arg updated "$updated" --arg state "$pr_state" --arg merge "$merge_commit" --argjson checks "$old_checks" \
         '.openPulls[$n] = ((.openPulls[$n] // {}) + {head:$head,updatedAt:$updated,state:$state,mergeCommit:$merge,checks:$checks})
