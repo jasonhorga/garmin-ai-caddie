@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-28 06:40 UTC
+**Updated:** 2026-09-28 07:35 UTC
 **Branch:** `main`; product canonical source revision is
 `895ea5ded72ef8648520f08cef53fc73fa06b87a` (PR #340 B0d-2 is merged after
 the PR #339 B0c test-isolation closeout; PR #338 B0d-1 and PR #337 B0c remain merged; baseline
@@ -138,6 +138,15 @@ The all-PR feedback monitor is running in homeserver tmux
 `/home/jason/garmin-ai-caddie-data/operations/pr-feedback-monitor/`; its
 session/resource manifest is
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T0612Z-pr-feedback-monitor/`.
+At 07:18 UTC the monitor was upgraded in place to schema v2: `state_value`
+now forwards jq arguments, submitted reviews have an independent watermark
+from inline review comments, and a one-time migration rebuilt both watermarks
+from their seen-ID sets. At 07:24 UTC it was hardened to retain the last known
+CI result when GitHub returns an unavailable empty check set. Two complete
+post-restart scans reached stable state without repeated head/CI events; the
+latest processed issue comment is #5865462819 on PR #333. The monitor has no
+containers, ports, tunnels, or dependency installs; its only runtime is the
+allow-listed tmux session above.
 Next action is to continue the remaining B0 data-foundation queue while the
 monitor tracks open and recently closed PR feedback. PR334
 housekeeping is done; the prior `PHONE-UX9-LIVE-ROUTE-COVERAGE` slice remains
