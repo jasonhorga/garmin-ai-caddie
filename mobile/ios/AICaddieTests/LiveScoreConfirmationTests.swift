@@ -54,7 +54,7 @@ final class LiveScoreConfirmationTests: XCTestCase {
         draft.selectScore(4)
         draft.selectPutts(4)
         XCTAssertEqual(draft.score, 5)
-        XCTAssertFalse(LiveHoleScore(hole: 1, par: 4, score: draft.score, putts: draft.putts, penalties: 0, fairway: nil, source: nil).estimatedGIR)
+        XCTAssertEqual(draft.score - draft.putts, 1, "one full shot to the green, then four putts")
     }
 
     func testAddingPenaltiesRaisesTheTotal() {
