@@ -9,9 +9,10 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-28 12:02 UTC
+**Updated:** 2026-09-28 17:20 UTC
 **Branch:** `main`; product canonical source revision is
-`895ea5ded72ef8648520f08cef53fc73fa06b87a` (PR #340 B0d-2 is merged after
+`a6cc9a7dfaa450b5dafca3e1fde6cb1268893b33` (PR #355 B1b is merged after
+exact-head review; PR #340 B0d-2 is merged after
 the PR #339 B0c test-isolation closeout; PR #338 B0d-1 and PR #337 B0c remain merged; baseline
 tag `v2-baseline-2026-09` remains at
 `57ee84310be38653835e3488104a9332771290ef`). The latest existing internal
@@ -160,11 +161,35 @@ for hazard annotations to join the collision layout (including the real 52pt
 distance-label width) before merge. On the homeserver, the writable exact-head
 copy passed `tests.test_mobile_contracts`: 99 tests in 13.022s, exit 0, using
 the API image's read-only `/app/.venv`; this is recorded in comment
-`5874096123`. The P2 visual blocker remains open. The retained Native CI artifact scratch is allow-listed at
+`5874096123`. The P2 visual blocker remained open until the final follow-up.
+
+PR #355 final review: Claude pushed exact head
+`debeec0790aee75330e10da8256863fe8f0fa80f`, which puts selected-hazard edge
+labels into the same collision layout as route and tee-arc labels. Source CI
+`36447987600` and Native Mobile CI `36447987406` passed; the exact-head
+homeserver `tests.test_mobile_contracts` run passed `99/99` in 5.400s. The
+matching artifacts were iOS `design-snapshots` `10982945380`, Watch
+`watch-snapshots` `10982127712`, and native evidence `10982576232`. The four
+new iOS states (`full-hole-map`, `full-hole-map-hazard`, `full-hole-map-plan-2`,
+`full-hole-map-zoomed`) were visually distinct and matched the B1 README /
+implementation plan: default no hazard, thin real outline and readable edge
+labels, 2/2 route switching, and 2x zoom with `回到`. Watch snapshot PNGs were
+byte-identical to the prior reviewed artifact. Review pass comment `5874873252`
+was posted; PR #355 was squash-merged as `a6cc9a7dfaa450b5dafca3e1fde6cb1268893b33`
+and remote branch `claude/code-audit-performance-17wqcv` was deleted. The
+exact-head review snapshot, writable stage, temporary test data and `--rm`
+contract-test container were removed; cleanup evidence is
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T1630Z-review-pr355-debeec07.txt`.
+The retained Native CI artifact scratch for PR #354 remains allow-listed at
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T-review-pr354-artifacts/`
 until 2026-09-29; its disposable exact-head source snapshot was removed after
-testing. Post-merge main CI `36427341719` is green and no production resources
-were changed.
+testing. Post-merge main CI `36456437444` for `a6cc9a7d` is green; no
+production resources were changed.
+
+The next action is to monitor `claude/code-audit-performance-17wqcv` for the
+next B1-B7 PR and repeat exact-head CI, artifact, review-comment, merge and
+cleanup gates. Post-merge main CI for the merge will be recorded when its run
+completes.
 The background all-PR feedback monitor remains active in
 `codex-pr-monitor-20260928`.
 
