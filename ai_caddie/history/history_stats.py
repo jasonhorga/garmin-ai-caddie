@@ -19,6 +19,7 @@ from ai_caddie.history.history import (
     percentile,
 )
 from ai_caddie.history.history_drilldown import build_drilldown_index
+from ai_caddie.rounds.score_source import is_unedited_default
 from ai_caddie.caddie.issue_taxonomy import issue_record
 from ai_caddie.reports.reports import list_report_stats_records
 from ai_caddie.llm.weather_context import list_weather_snapshots
@@ -106,6 +107,25 @@ def _annotations_by_kind(annotations: list[dict[str, Any]] | None, kind: str) ->
         if record.get("kind") == kind:
             rows[str(record.get("targetId") or "")] = record
     return rows
+
+
+def _stat_putts(hole: dict[str, Any]) -> Any:
+    """Putts as a statistic: ``None`` for an unedited default hole (B0), whose value nobody entered."""
+    return None if is_unedited_default(hole) else hole.get("putts")
+
+
+def _stat_gir(hole: dict[str, Any]) -> Any:
+    """GIR as a statistic: ``None`` for an unedited default hole (B0); it would only echo the default."""
+    return None if is_unedited_default(hole) else hole.get("gir")
+
+
+def _putt_eligible(hole: dict[str, Any], ref: str, putt_corrections: dict[str, Any]) -> bool:
+    """A hole belongs in putting statistics (numerator or denominator) unless it is an unedited default.
+
+    A putt correction on a default hole is a person's entry, so it makes the hole eligible again.
+    Ineligible holes are skipped, never reported as missing putt data.
+    """
+    return not is_unedited_default(hole) or ref in putt_corrections
 
 
 def _corrected_putt_value(
@@ -2025,14 +2045,16 @@ def _approach_miss_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
     total_holes = 0
     for row in rows:
         for hole in row.get("holes") or []:
+            if is_unedited_default(hole):
+                continue  # B0: ineligible for GIR, not a missing record
             total_holes += 1
             number = int(hole.get("number") or 0)
             ref = _hole_ref(row, number) if number else ""
-            if hole.get("gir") is None:
+            if _stat_gir(hole) is None:
                 continue
             counts["recorded"] += 1
             refs["recorded"].append(ref)
-            if bool(hole.get("gir")):
+            if bool(_stat_gir(hole)):
                 counts["gir"] += 1
                 refs["gir"].append(ref)
                 continue
@@ -2095,6 +2117,9 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
     gir = Counter({"recorded": 0, "hit": 0})
     approach_refs: list[str] = []
     total_holes = sum(len(row.get("holes") or []) for row in data.rounds)
+    # B0: unedited default holes are ineligible for putting/GIR, so they leave those denominators too.
+    putt_eligible_holes = 0
+    gir_eligible_holes = 0
     effective_shots = _effective_shots(data, annotations)
     for row in data.rounds:
         if row.get("holesCompleted") == 18 and row.get("strokes") is not None:
@@ -2105,7 +2130,11 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
             par = _hole_to_par(hole, _par_from_string(hole_pars, number))
             score = hole.get("strokes")
             ref = _hole_ref(row, number) if number else ""
-            putt_count = _corrected_putt_value(ref, hole.get("putts"), putt_corrections)
+            if _putt_eligible(hole, ref, putt_corrections):
+                putt_eligible_holes += 1
+            if not is_unedited_default(hole):
+                gir_eligible_holes += 1
+            putt_count = _corrected_putt_value(ref, _stat_putts(hole), putt_corrections)
             if putt_count is not None:
                 putts.append(putt_count)
                 putt_refs.append(ref)
@@ -2125,10 +2154,10 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
                     fairways["left"] += 1
                 elif fairway == "right":
                     fairways["right"] += 1
-            if hole.get("gir") is not None:
+            if _stat_gir(hole) is not None:
                 gir["recorded"] += 1
                 approach_refs.append(ref)
-                if bool(hole.get("gir")):
+                if bool(_stat_gir(hole)):
                     gir["hit"] += 1
             if par is None or score is None:
                 continue
@@ -2232,7 +2261,7 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
             },
             putt_refs,
             ready=len(putts),
-            total=total_holes,
+            total=putt_eligible_holes,
             confidence_count=len(putts),
         ),
         "phaseStats": [
@@ -2260,7 +2289,7 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
                 },
                 approach_refs,
                 ready=gir["recorded"],
-                total=total_holes,
+                total=gir_eligible_holes,
             ),
             _with_aggregate_contract(
                 {
@@ -2284,7 +2313,7 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
                 },
                 putt_refs,
                 ready=len(putts),
-                total=total_holes,
+                total=putt_eligible_holes,
             ),
         ],
         "scoreCorrections": {
@@ -2351,17 +2380,17 @@ def _course_issue_profile(
             if par is not None and score is not None and int(score) - int(par) >= 2:
                 _record_issue(issue_refs, affected_holes, "double_or_worse", hole_ref)
             try:
-                if int(hole.get("putts")) >= 3:
+                if int(_stat_putts(hole)) >= 3:
                     _record_issue(issue_refs, affected_holes, "three_putt", hole_ref)
             except (TypeError, ValueError):
-                if score is not None:
+                if score is not None and not is_unedited_default(hole):
                     _record_issue(issue_refs, affected_holes, "missing_putt_data", hole_ref)
             fairway = str(hole.get("fairway") or "").strip().lower()
             if fairway in {"left", "miss_left", "missed_left", "fairway_left"}:
                 _record_issue(issue_refs, affected_holes, "fairway_missed_left", hole_ref)
             elif fairway in {"right", "miss_right", "missed_right", "fairway_right"}:
                 _record_issue(issue_refs, affected_holes, "fairway_missed_right", hole_ref)
-            if hole.get("gir") is not None and not bool(hole.get("gir")):
+            if _stat_gir(hole) is not None and not bool(_stat_gir(hole)):
                 approach_miss = _approach_miss_direction(hole)
                 if approach_miss in {"short", "long", "left", "right"}:
                     _record_issue(issue_refs, affected_holes, f"approach_{approach_miss}", hole_ref)
@@ -3326,18 +3355,18 @@ def _issues(
             if not number:
                 continue
             try:
-                putts = int(hole.get("putts"))
+                putts = int(_stat_putts(hole))
                 if putts >= 3:
                     add_ref("three_putt", hole_ref)
             except (TypeError, ValueError):
-                if score is not None:
+                if score is not None and not is_unedited_default(hole):
                     add_ref("missing_putt_data", hole_ref)
             fairway = str(hole.get("fairway") or "").strip().lower()
             if fairway in {"left", "miss_left", "missed_left", "fairway_left"}:
                 add_ref("fairway_missed_left", hole_ref)
             elif fairway in {"right", "miss_right", "missed_right", "fairway_right"}:
                 add_ref("fairway_missed_right", hole_ref)
-            if hole.get("gir") is not None and not bool(hole.get("gir")):
+            if _stat_gir(hole) is not None and not bool(_stat_gir(hole)):
                 approach_miss = _approach_miss_direction(hole)
                 if approach_miss in {"short", "long", "left", "right"}:
                     add_ref(f"approach_{approach_miss}", hole_ref)
@@ -3563,7 +3592,8 @@ def _shot_row_quality(data: HistoryData) -> dict[str, Any]:
     )
 
 
-def _putt_quality(data: HistoryData) -> dict[str, Any]:
+def _putt_quality(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    putt_corrections = _annotations_by_kind(annotations, "putt_correction")
     ready_refs: list[str] = []
     missing_refs: list[str] = []
     for row in data.rounds:
@@ -3574,7 +3604,9 @@ def _putt_quality(data: HistoryData) -> dict[str, Any]:
             if not number or hole.get("strokes") is None:
                 continue
             ref = _hole_ref(row, number)
-            if hole.get("putts") is None:
+            if not _putt_eligible(hole, ref, putt_corrections):
+                continue  # B0: unedited default hole, skipped rather than missing
+            if _stat_putts(hole) is None and ref not in putt_corrections:
                 missing_refs.append(ref)
             else:
                 ready_refs.append(ref)
@@ -3708,7 +3740,7 @@ def _data_quality(
             }
         ),
         _shot_row_quality(data),
-        _putt_quality(data),
+        _putt_quality(data, annotations),
         _rating_slope_quality(data),
         _club_sample_quality(data, annotations),
         _geometry_quality(hole_rows or []),

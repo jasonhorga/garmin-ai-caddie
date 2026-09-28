@@ -163,16 +163,18 @@ def _played_holes(scorecard: dict[str, Any], hole_pars: str) -> list[dict[str, A
         if not isinstance(par, int):
             par = _par_from_hole_pars(hole_pars, number)
         normalized = normalize_scorecard_hole(hole, number=number, par=par)
-        holes.append(
-            {
-                "number": number,
-                "strokes": normalized.get("strokes"),
-                "par": normalized.get("par"),
-                "putts": normalized.get("putts"),
-                "gir": normalized.get("gir"),
-                "fairway": normalized.get("fairway"),
-            }
-        )
+        played = {
+            "number": number,
+            "strokes": normalized.get("strokes"),
+            "par": normalized.get("par"),
+            "putts": normalized.get("putts"),
+            "gir": normalized.get("gir"),
+            "fairway": normalized.get("fairway"),
+        }
+        # B0 provenance is additive: legacy/Garmin holes without it keep their exact six-field shape.
+        if normalized.get("scoreSource") is not None:
+            played["scoreSource"] = normalized["scoreSource"]
+        holes.append(played)
     return holes
 
 
