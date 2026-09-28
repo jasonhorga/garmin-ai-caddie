@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import XCTest
 @testable import AICaddie
+import AICaddieDomain
 
 final class CoursePrepTests: XCTestCase {
     func testDecodesPrepResponse() throws {
@@ -545,4 +546,44 @@ final class CoursePrepTests: XCTestCase {
             [300, 0, 300],
         ]
     }
+
+    // MARK: - B0 fairwayOutline compatibility
+
+    private func holeJSON(fairwayOutline: Any?) throws -> Data {
+        let base = CoursePrepHole(hole: 1, par: 4, parSource: "courseview", blueYards: 410, routeLenM: 375)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(base)) as? [String: Any])
+        object.removeValue(forKey: "fairwayOutline")
+        if let fairwayOutline {
+            object["fairwayOutline"] = fairwayOutline
+        }
+        return try JSONSerialization.data(withJSONObject: object)
+    }
+
+    func testFairwayOutlineIsNilForOldPackagesAndNull() throws {
+        XCTAssertNil(try JSONDecoder().decode(CoursePrepHole.self, from: holeJSON(fairwayOutline: nil)).fairwayOutline)
+        XCTAssertNil(try JSONDecoder().decode(CoursePrepHole.self, from: holeJSON(fairwayOutline: NSNull())).fairwayOutline)
+    }
+
+    func testFairwayOutlineDecodesAndRoundTrips() throws {
+        let ring: [[Double]] = [[40.0, 116.0], [40.0, 116.001], [40.001, 116.001], [40.001, 116.0]]
+        let polygon: [String: Any] = [
+            "outerPx": [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]],
+            "holesPx": [[[Double]]](),
+            "outerLatLon": ring,
+            "holesLatLon": [[[Double]]](),
+        ]
+        let outline: [String: Any] = ["version": 1, "source": "prodgeometry.Fairway.drc", "polygons": [polygon]]
+        let data = try holeJSON(fairwayOutline: outline)
+        let hole = try JSONDecoder().decode(CoursePrepHole.self, from: data)
+        XCTAssertEqual(hole.fairwayOutline?.polygons.first?.outerLatLon, ring)
+        let roundTrip = try JSONDecoder().decode(CoursePrepHole.self, from: JSONEncoder().encode(hole))
+        XCTAssertEqual(roundTrip.fairwayOutline, hole.fairwayOutline)
+    }
+
+    func testMalformedFairwayOutlineNeverBreaksTheHole() throws {
+        let hole = try JSONDecoder().decode(CoursePrepHole.self, from: holeJSON(fairwayOutline: ["version": "one", "polygons": 7] as [String: Any]))
+        XCTAssertNil(hole.fairwayOutline)
+        XCTAssertEqual(hole.par, 4)
+    }
+
 }

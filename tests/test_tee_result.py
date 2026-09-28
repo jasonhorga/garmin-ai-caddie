@@ -59,6 +59,10 @@ class SharedVectorTest(unittest.TestCase):
                     case["expected"],
                 )
 
+    def test_swift_fixture_is_an_exact_copy(self) -> None:
+        swift_copy = Path(__file__).resolve().parents[1] / "mobile/ios/AICaddieDomainTests/Fixtures/tee_result_vectors.json"
+        self.assertEqual(swift_copy.read_bytes(), VECTORS.read_bytes())
+
     def test_expected_values_are_the_closed_set(self) -> None:
         data = json.loads(VECTORS.read_text())
         self.assertLessEqual({case["expected"] for case in data["cases"]}, {"hit", "left", "right", None})

@@ -1083,4 +1083,25 @@ final class WatchCourseDownloadTests: XCTestCase {
             "the durable partial cache remains available for the bounded upgrade task"
         )
     }
+
+    // MARK: - B0 fairwayOutline compatibility
+
+    func testWatchPrepHoleFairwayOutlineIsOptionalAndTolerant() throws {
+        let decoder = JSONDecoder()
+        let old = try decoder.decode(WatchCoursePrepHole.self, from: Data(#"{"hole":1,"par":4}"#.utf8))
+        XCTAssertNil(old.fairwayOutline)
+
+        let current = try decoder.decode(WatchCoursePrepHole.self, from: Data(
+            #"{"hole":1,"par":4,"fairwayOutline":{"version":1,"source":"prodgeometry.Fairway.drc","polygons":[{"outerPx":[[1,2],[3,4],[5,6]],"holesPx":[],"outerLatLon":[[40.0,116.0],[40.0,116.001],[40.001,116.0]],"holesLatLon":[]}]}}"#.utf8
+        ))
+        XCTAssertEqual(current.fairwayOutline?.polygons.count, 1)
+        XCTAssertEqual(current.renumbered(to: 3).fairwayOutline, current.fairwayOutline)
+
+        let malformed = try decoder.decode(WatchCoursePrepHole.self, from: Data(
+            #"{"hole":1,"par":4,"fairwayOutline":{"version":"one","polygons":7}}"#.utf8
+        ))
+        XCTAssertNil(malformed.fairwayOutline)
+        XCTAssertEqual(malformed.par, 4)
+    }
+
 }
