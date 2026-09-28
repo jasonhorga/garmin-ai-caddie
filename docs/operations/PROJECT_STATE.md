@@ -193,9 +193,11 @@ An independent GitHub check at 12:02 UTC confirmed 353 total PR numbers in
 the repository-wide classification index; 225 open/recent PRs are the bounded
 detail-scan set. The current durable cursors remain issue comment
 `5865462819`, inline review comment `4094012511`, submitted review `5304919443`,
-and 201 workflow runs / 779 commit SHAs. No new comment, submitted review, or
-workflow event exists after those cursors. The correction to the earlier
-225-versus-353 manifest entry is recorded in
+and 201 workflow runs / 779 commit SHAs in that snapshot. Afterward, the
+monitor captured bookkeeping commit push run `36419674842` and its
+completed/success transition, with no new issue, inline-review, or submitted-
+review feedback. The correction to the earlier 225-versus-353 manifest entry
+is recorded in
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T115134Z-pr-feedback-all-index-v4/allow-list.txt`.
 PR334
 housekeeping is done; the prior `PHONE-UX9-LIVE-ROUTE-COVERAGE` slice remains
