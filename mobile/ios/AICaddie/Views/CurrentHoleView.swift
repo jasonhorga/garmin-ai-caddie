@@ -505,7 +505,7 @@ public struct CurrentHoleView: View {
             }
             Button("继续打球", role: .cancel) {}
         } message: {
-            Text("未保存到历史的本场成绩、落点和待上传媒体将被删除。")
+            Text("放弃后这一场不会保存，已记的 \(completedHoleStates.count) 洞成绩、落点和待上传媒体会删除。")
         }
     }
 
@@ -793,17 +793,8 @@ public struct CurrentHoleView: View {
     private var roundSummarySurface: some View {
         LiveRoundFinishSummaryView(
             courseName: package.course.venueDisplayName,
-            holesCompleted: completedHoleStates.count,
-            holeCount: package.holes.count,
-            totalStrokes: completedHoleStates.reduce(0) { $0 + $1.state.score },
-            toPar: completedHoleStates.isEmpty
-                ? nil
-                : completedHoleStates.reduce(0) { $0 + $1.state.score - $1.hole.par },
-            totalPutts: completedHoleStates.reduce(0) { $0 + $1.state.putts },
-            fairwaysHit: completedHoleStates.filter { $0.state.fairwayResult == LiveFairwayResult.hit.rawValue }.count,
-            fairwaysRecorded: completedHoleStates.filter { $0.hole.par != 3 && $0.state.fairwayResult != nil }.count,
-            totalPenalties: completedHoleStates.reduce(0) { $0 + $1.state.penaltyCount },
-            pendingEventCount: pendingEventCount,
+            holes: package.holes,
+            scores: completedHoleScores,
             isFinishingRound: isFinishingRound,
             finishErrorMessage: finishErrorMessage,
             onFinish: {
@@ -3773,16 +3764,14 @@ public struct CurrentHoleView: View {
 
     private func beginScoreConfirmation() {
         if scoreDraft == nil {
-            let restoredFairway = liveRoundState?.holeState(for: hole.number)?.fairwayResult
-                .flatMap(LiveFairwayResult.init(rawValue:))
+            // Preselect from the best evidence (README §2): Watch swings → the phone's 记一杆
+            // count + 2 putts → par. The phone does not receive Watch swing counts yet (B7).
             scoreDraft = LiveScoreDraft(
                 hole: hole.number,
                 par: hole.par,
-                recordedShotCount: recordedNonPuttShotCount,
-                currentScore: score,
-                currentPutts: puttCount,
-                currentPenalty: penaltyCount,
-                currentFairway: restoredFairway
+                watchSwingCount: nil,
+                phoneShotCount: recordedNonPuttShotCount,
+                teeResult: liveTeeResultPreselection
             )
         }
         if let scoreDraft {
@@ -3856,6 +3845,20 @@ public struct CurrentHoleView: View {
         }
     }
 
+    private var completedHoleScores: [Int: LiveHoleScore] {
+        Dictionary(uniqueKeysWithValues: completedHoleStates.map { entry in
+            (entry.hole.number, LiveHoleScore(
+                hole: entry.hole.number,
+                par: entry.hole.par,
+                score: entry.state.score,
+                putts: entry.state.putts,
+                penalties: entry.state.penaltyCount,
+                fairway: entry.state.fairwayResult,
+                source: entry.state.scoreSource
+            ))
+        })
+    }
+
     private func presentPendingHistoricalScoreEdit() {
         guard let selectedHoleNumber = pendingHistoricalScoreHole else { return }
         pendingHistoricalScoreHole = nil
@@ -3867,13 +3870,11 @@ public struct CurrentHoleView: View {
         let draft = LiveScoreDraft(
             hole: selectedHoleNumber,
             par: selectedHole.par,
-            recordedShotCount: 0,
-            currentScore: restored?.score ?? selectedHole.par,
-            currentPutts: restored?.putts ?? 2,
-            currentPenalty: restored?.penaltyCount ?? 0,
-            currentFairway: restored?.fairwayResult.flatMap(LiveFairwayResult.init(rawValue:)),
-            offerRecommendation: false,
-            advanceAfterSave: false
+            savedScore: restored?.score ?? selectedHole.par,
+            savedPutts: restored?.putts ?? 2,
+            savedPenalty: restored?.penaltyCount ?? 0,
+            savedFairway: restored?.fairwayResult.flatMap(LiveFairwayResult.init(rawValue:)),
+            savedSource: restored?.scoreSource.flatMap(LiveScoreSource.init(rawValue:))
         )
         scoreDraft = draft
         if let offlineStore {
@@ -3889,11 +3890,42 @@ public struct CurrentHoleView: View {
         return ordered[index + 1]
     }
 
+    /// B0 tee result: the second shot's position against the fairway outline (nil = no preselect:
+    /// Par 3, no outline, no second shot, or a point that cannot be sided).
+    private var liveTeeResultPreselection: LiveFairwayResult? {
+        guard hole.par != 3,
+              let prep = holePrep,
+              let outline = prep.fairwayOutline,
+              let offlineStore,
+              let events = try? offlineStore.loadEvents() else { return nil }
+        let shots = LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number)
+        guard shots.count >= 2,
+              case .number(let latitude)? = shots[1].payload["latitude"],
+              case .number(let longitude)? = shots[1].payload["longitude"] else { return nil }
+        let route: [[Double]] = {
+            guard let refs = prep.holeImageProjection?.refs,
+                  let overlayRoute = prep.resolvedMapOverlay?.route else { return [] }
+            return overlayRoute.compactMap { row -> [Double]? in
+                guard row.count >= 2,
+                      let point = WatchEventBridge.projectFromTopoPx(
+                          px: row[0],
+                          py: row[1],
+                          refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+                      ) else { return nil }
+                return [point.latitude, point.longitude]
+            }
+        }()
+        return TeeResultClassifier.classify(
+            point: [latitude, longitude],
+            outline: outline,
+            route: route,
+            par: hole.par
+        ).flatMap { LiveFairwayResult(rawValue: $0.rawValue) }
+    }
+
     private var recordedNonPuttShotCount: Int {
         guard let offlineStore, let events = try? offlineStore.loadEvents() else { return 0 }
-        return events.filter { event in
-            event.roundId == package.roundId && event.hole == hole.number && event.kind == .location
-        }.count
+        return LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number).count
     }
 
     private var actualClubChoices: [LiveActualClubChoice] {

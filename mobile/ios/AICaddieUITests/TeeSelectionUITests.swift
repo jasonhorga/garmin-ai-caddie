@@ -613,7 +613,7 @@ final class TeeSelectionUITests: XCTestCase {
             "the offline decision must retain its complete club chain on the map"
         )
         XCTAssertFalse(
-            app.buttons["编辑第 1 洞成绩"].exists,
+            app.buttons["改第 1 洞成绩"].exists,
             "rebasing a downloaded course must not inherit a previous round's score events"
         )
         save("offline-start-01-new-first-hole"); dump("offline-start-01-new-first-hole")

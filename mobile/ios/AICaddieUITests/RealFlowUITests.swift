@@ -683,19 +683,27 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(saveHoleButton.waitForExistence(timeout: 8), "hole root must expose score confirmation")
         saveHoleButton.tap()
 
-        let acceptRecommendation = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", "接受推荐")
-        ).firstMatch
+        // B2: one preselected score sheet; saving the preselection is the one-tap acceptance.
+        let acceptRecommendation = app.buttons["score-save"]
         XCTAssertTrue(
             acceptRecommendation.waitForExistence(timeout: 5),
-            "saving a hole must ask for one-tap recommended-score acceptance before recording"
+            "saving a hole must ask for one-tap preselected-score acceptance before recording"
         )
-        XCTAssertEqual(acceptRecommendation.label, "接受推荐 3 杆", "one recorded shot should recommend shot + two putts")
+        XCTAssertEqual(
+            acceptRecommendation.label,
+            "保存 3 杆 · 去第 2 洞",
+            "one recorded shot should preselect shot + two putts"
+        )
+        XCTAssertTrue(
+            app.buttons["score-choice-3"].isSelected,
+            "the preselected total must be shot + two putts"
+        )
+        XCTAssertTrue(app.buttons["score-putts-2"].isSelected, "the preselection must assume two putts")
         settle(1); save("12-score-confirmation"); dump("12-score-confirmation")
 
-        // Looking at a recommendation must never commit it. Cancel once, prove the recorded GPS shot
+        // Looking at a preselection must never commit it. Cancel once, prove the recorded GPS shot
         // and active hole are intact, then reopen the same confirmation and accept it.
-        let cancelScore = app.buttons["取消"]
+        let cancelScore = app.buttons["score-cancel"]
         XCTAssertTrue(cancelScore.waitForExistence(timeout: 3))
         cancelScore.tap()
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 5))
@@ -708,7 +716,7 @@ final class RealFlowUITests: XCTestCase {
         let nextHoleHeading = app.staticTexts["第 2 洞"]
         XCTAssertTrue(
             nextHoleHeading.waitForExistence(timeout: 12),
-            "accepting the recommended score must move phone-only play to the ordered next hole"
+            "accepting the preselected score must move phone-only play to the ordered next hole"
         )
         XCTAssertTrue(
             fullyVisible(nextHoleHeading),
@@ -750,7 +758,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(scrollTo(scorecard, maxSwipes: 8), "real hole must expose its scorecard action")
         XCTAssertTrue(scorecard.waitForExistence(timeout: 5), "live play must expose a real scorecard action")
         scorecard.tap()
-        XCTAssertTrue(app.staticTexts["本场计分卡"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["计分卡"].waitForExistence(timeout: 5))
         XCTAssertTrue(
             app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "北京丽宫")).firstMatch.exists,
             "in-round scorecard must retain the real selected course"
@@ -771,20 +779,29 @@ final class RealFlowUITests: XCTestCase {
             "editing a historical score must start by selecting that hole in the scorecard"
         )
         selectFirstHole.tap()
-        let editFirstHole = app.buttons["编辑第 1 洞成绩"]
+        let editFirstHole = app.buttons["改第 1 洞成绩"]
         XCTAssertTrue(editFirstHole.waitForExistence(timeout: 5), "any completed hole must be editable")
         editFirstHole.tap()
-        XCTAssertTrue(app.staticTexts["手动确认 · 总杆"].waitForExistence(timeout: 5))
+        // The scorecard's own selection title is also "第 1 洞 · Par P", so prove the score sheet
+        // by its unique save control instead of the header text.
+        XCTAssertTrue(
+            app.buttons["score-save"].waitForExistence(timeout: 5),
+            "a scorecard edit must reopen the one-screen score sheet for the selected hole"
+        )
+        XCTAssertTrue(
+            app.buttons["score-choice-3"].isSelected,
+            "a scorecard edit must reopen the saved total, not a fresh preselection"
+        )
         settle(1); save("15-edit-previous-hole"); dump("15-edit-previous-hole")
 
-        XCTAssertTrue(app.buttons["下一步 · 推杆"].waitForExistence(timeout: 3))
-        app.buttons["下一步 · 推杆"].tap()
-        XCTAssertTrue(app.buttons["下一步 · 开球结果"].waitForExistence(timeout: 3))
-        app.buttons["下一步 · 开球结果"].tap()
-        XCTAssertTrue(app.buttons["上球道"].waitForExistence(timeout: 3))
-        app.buttons["上球道"].tap()
-        XCTAssertTrue(app.buttons["保存本洞"].waitForExistence(timeout: 3))
-        app.buttons["保存本洞"].tap()
+        // Keep the saved total and putts; only record the tee result as on the fairway.
+        let editTeeHit = app.buttons["score-tee-hit"]
+        XCTAssertTrue(editTeeHit.waitForExistence(timeout: 3))
+        editTeeHit.tap()
+        let editSave = app.buttons["score-save"]
+        XCTAssertTrue(editSave.waitForExistence(timeout: 3))
+        XCTAssertEqual(editSave.label, "保存 3 杆", "a scorecard edit must save in place without advancing")
+        editSave.tap()
         XCTAssertTrue(
             app.staticTexts["第 2 洞"].waitForExistence(timeout: 5),
             "saving a historical score edit must not move the active playing hole"
@@ -793,9 +810,9 @@ final class RealFlowUITests: XCTestCase {
 
         XCTAssertTrue(scrollTo(scorecard, maxSwipes: 8), "scorecard must remain available after historical save")
         scorecard.tap()
-        XCTAssertTrue(app.staticTexts["本场计分卡"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["计分卡"].waitForExistence(timeout: 5))
         XCTAssertTrue(
-            app.staticTexts["当前正在记录"].exists,
+            app.staticTexts["正在打这一洞"].exists,
             "scorecard must still describe its selected hole as the active playing hole"
         )
         let goToCurrentHole = app.buttons["live-scorecard-go-hole"]
@@ -814,10 +831,13 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(scrollTo(endMenu, maxSwipes: 6), "the scorecard must expose the single finish entry")
         endMenu.tap()
         XCTAssertTrue(
-            app.staticTexts["本场汇总"].waitForExistence(timeout: 5),
+            app.buttons["live-finish-save"].waitForExistence(timeout: 5),
             "ending from the menu must show the same non-destructive summary used after the final hole"
         )
-        XCTAssertTrue(app.staticTexts["已完成 1/18 洞"].exists)
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "· 1/18 洞")).firstMatch.exists,
+            "the summary must count the one completed hole of 18"
+        )
         XCTAssertTrue(app.buttons["保存并结束"].exists)
         XCTAssertTrue(app.buttons["继续打球"].exists)
         settle(1); save("18-round-summary"); dump("18-round-summary")
@@ -867,12 +887,13 @@ final class RealFlowUITests: XCTestCase {
             try recordJourneyShot(selectActualClub: holeNumber == 2)
 
             let manual: Bool
+            // B2 tee tile id suffix: `score-tee-hit` / `score-tee-left` / `score-tee-right`.
             let fairwayLabel: String?
             if holeNumber == 2 {
                 XCTAssertEqual(par, 4, "北京丽宫第 2 洞 must retain its real Par")
                 didManualPar4 = true
                 manual = true
-                fairwayLabel = "上球道"
+                fairwayLabel = "hit"
             } else if par == 3, !didManualPar3 {
                 didManualPar3 = true
                 manual = true
@@ -880,11 +901,11 @@ final class RealFlowUITests: XCTestCase {
             } else if par == 5, !didManualPar5 {
                 didManualPar5 = true
                 manual = true
-                fairwayLabel = "偏左"
+                fairwayLabel = "left"
             } else if par != 3, !didManualFairwayRight {
                 didManualFairwayRight = true
                 manual = true
-                fairwayLabel = "偏右"
+                fairwayLabel = "right"
             } else {
                 manual = false
                 fairwayLabel = nil
@@ -893,6 +914,7 @@ final class RealFlowUITests: XCTestCase {
                 hole: holeNumber,
                 par: par,
                 manual: manual,
+                expectedPreselectedScore: 3,
                 fairwayLabel: fairwayLabel,
                 puttsAdjustment: holeNumber == 2 ? -1 : 0,
                 penaltyAdjustment: holeNumber == 2 ? 1 : 0
@@ -918,26 +940,33 @@ final class RealFlowUITests: XCTestCase {
             "the real journey must change and save putts and penalties instead of only visiting their steps"
         )
         XCTAssertTrue(
-            app.staticTexts["本场汇总"].waitForExistence(timeout: 8),
+            app.buttons["live-finish-save"].waitForExistence(timeout: 8),
             "the ordered last hole must open the shared finish summary automatically"
         )
-        XCTAssertTrue(app.staticTexts["已完成 18/18 洞"].exists)
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "· 18/18 洞")).firstMatch.exists,
+            "the summary must count all 18 completed holes"
+        )
         XCTAssertTrue(app.buttons["保存并结束"].exists)
         XCTAssertTrue(app.buttons["继续打球"].exists)
-        XCTAssertEqual(
-            app.descendants(matching: .any)["live-finish-putts"].label,
-            "推杆 35",
-            "the adjusted putt count must survive every hole transition and the hole-10 relaunch"
+        // Every hole in this journey records one 记一杆 shot, so each preselection is `phone_shots`
+        // (or `manual_edit`), never an untouched `default`: all 18 holes count toward putting.
+        // 18 × 2 putts, minus the one putt removed on hole 2 = 35 (35/18 ≈ 1.9 per hole).
+        let finishPutts = app.descendants(matching: .any)["live-finish-putts"]
+        XCTAssertTrue(
+            finishPutts.label.hasPrefix("推杆 35 "),
+            "the adjusted putt count must survive every hole transition and the hole-10 relaunch (got \(finishPutts.label))"
         )
-        XCTAssertEqual(
-            app.descendants(matching: .any)["live-finish-penalties"].label,
-            "罚杆 1",
-            "the non-zero penalty must survive every hole transition and the hole-10 relaunch"
+        XCTAssertTrue(finishPutts.label.contains("1.9/洞"), "all 18 holes must count toward putts per hole")
+        let finishPenalties = app.descendants(matching: .any)["live-finish-penalties"]
+        XCTAssertTrue(
+            finishPenalties.label.hasPrefix("罚杆 1 ") || finishPenalties.label == "罚杆 1",
+            "the non-zero penalty must survive every hole transition and the hole-10 relaunch (got \(finishPenalties.label))"
         )
-        XCTAssertEqual(
-            app.descendants(matching: .any)["live-finish-fairways"].label,
-            "球道 2/4",
-            "the earlier history edit plus hit, missed-left and missed-right must all persist"
+        let finishFairways = app.descendants(matching: .any)["live-finish-fairways"]
+        XCTAssertTrue(
+            finishFairways.label.hasPrefix("球道命中 ") && finishFairways.label.contains("2/4"),
+            "the earlier history edit plus hit, missed-left and missed-right must all persist (got \(finishFairways.label))"
         )
         settle(1); save("journey-18-complete-summary"); dump("journey-18-complete-summary")
 
@@ -1200,7 +1229,14 @@ final class RealFlowUITests: XCTestCase {
             app.staticTexts["这一杆用了什么球杆？"].exists,
             "no-GPS shot capture must not open the actual-club prompt"
         )
-        try confirmJourneyHole(hole: 1, par: par, manual: false, fairwayLabel: nil)
+        // No shot could be recorded without GPS, so the sheet preselects the default par.
+        try confirmJourneyHole(
+            hole: 1,
+            par: par,
+            manual: false,
+            expectedPreselectedScore: par,
+            fairwayLabel: nil
+        )
         let restoredFirstHoleHeading = app.staticTexts["第 1 洞"]
         let restoredSecondHoleHeading = app.staticTexts["第 2 洞"]
         XCTAssertTrue(restoredSecondHoleHeading.waitForExistence(timeout: 20))
@@ -1226,7 +1262,7 @@ final class RealFlowUITests: XCTestCase {
         )
         XCTAssertEqual(
             scorecardEdit.label,
-            "编辑第 2 洞成绩",
+            "改第 2 洞成绩",
             "a newly opened scorecard must select the active playing hole"
         )
         let selectCompletedFirstHole = app.buttons["选择第 1 洞"].firstMatch
@@ -1235,16 +1271,18 @@ final class RealFlowUITests: XCTestCase {
             "the completed first hole must remain selectable from the active second hole"
         )
         selectCompletedFirstHole.tap()
-        let editCompletedFirstHole = app.buttons["编辑第 1 洞成绩"]
+        let editCompletedFirstHole = app.buttons["改第 1 洞成绩"]
         XCTAssertTrue(
             editCompletedFirstHole.waitForExistence(timeout: 5),
             "selecting the completed first hole must retarget the unique edit action"
         )
         settle(1); save("09g-new-course-scorecard"); dump("09g-new-course-scorecard")
         editCompletedFirstHole.tap()
-        XCTAssertTrue(app.staticTexts["手动确认 · 总杆"].waitForExistence(timeout: 5))
+        let editSave = app.buttons["score-save"]
+        XCTAssertTrue(editSave.waitForExistence(timeout: 5))
+        XCTAssertEqual(editSave.label, "保存 \(par) 杆", "a scorecard edit must reopen the saved default-par score")
         settle(1); save("09h-new-course-score-edit"); dump("09h-new-course-score-edit")
-        app.buttons["取消"].tap()
+        app.buttons["score-cancel"].tap()
         XCTAssertTrue(app.staticTexts["第 2 洞"].waitForExistence(timeout: 8))
 
         // B1: 结束本场 lives on the scorecard (the live screen's 返回 destination).
@@ -1254,8 +1292,12 @@ final class RealFlowUITests: XCTestCase {
         let endMenu = app.buttons["live-round-end-menu"]
         XCTAssertTrue(scrollTo(endMenu, maxSwipes: 6))
         endMenu.tap()
-        XCTAssertTrue(app.staticTexts["本场汇总"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["已完成 1/\(evidence.holes) 洞"].exists)
+        XCTAssertTrue(app.buttons["live-finish-save"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.staticTexts.matching(
+                NSPredicate(format: "label CONTAINS %@", "· 1/\(evidence.holes) 洞")
+            ).firstMatch.exists
+        )
         app.buttons["保存并结束"].tap()
         XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 10))
         XCTAssertTrue(
@@ -1555,12 +1597,14 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(waitForValue("已记第 1 杆", on: record, timeout: 5))
     }
 
-    /// Complete one hole either through the one-tap recommendation or the locked manual order:
-    /// total → putts → (Par 4/5 fairway only) → penalties.
+    /// Complete one hole on the B2 one-screen score sheet: either save the preselection with one
+    /// tap, or set total / putts / (Par 4/5 only) tee result / penalties directly and then save.
+    /// `fairwayLabel` is the tee tile id suffix: "hit", "left" or "right".
     private func confirmJourneyHole(
         hole: Int,
         par: Int,
         manual: Bool,
+        expectedPreselectedScore: Int? = nil,
         fairwayLabel: String?,
         puttsAdjustment: Int = 0,
         penaltyAdjustment: Int = 0
@@ -1568,51 +1612,61 @@ final class RealFlowUITests: XCTestCase {
         let confirm = app.buttons["完成本洞"]
         XCTAssertTrue(scrollTo(confirm, maxSwipes: 18), "hole \(hole) must expose score confirmation")
         confirm.tap()
-        let accept = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '接受推荐 '")).firstMatch
-        XCTAssertTrue(accept.waitForExistence(timeout: 5), "hole \(hole) must offer one-tap recommendation")
+        let saveScore = app.buttons["score-save"]
+        XCTAssertTrue(saveScore.waitForExistence(timeout: 5), "hole \(hole) must offer one-tap preselected save")
+        if let expectedPreselectedScore {
+            XCTAssertTrue(
+                saveScore.label.hasPrefix("保存 \(expectedPreselectedScore) 杆"),
+                "hole \(hole) must preselect \(expectedPreselectedScore) strokes (got \(saveScore.label))"
+            )
+        }
         if !manual {
-            accept.tap()
+            saveScore.tap()
             return
         }
 
-        let manualButton = app.buttons["手动确认"]
-        XCTAssertTrue(manualButton.waitForExistence(timeout: 3))
-        manualButton.tap()
-        XCTAssertTrue(app.staticTexts["手动确认 · 总杆"].waitForExistence(timeout: 3))
-        // One recorded non-putt shot recommends 3. Raise the representative manual holes to par.
-        for _ in 0..<max(0, par - 3) {
-            let plus = app.buttons["＋"]
-            XCTAssertTrue(plus.waitForExistence(timeout: 2))
-            plus.tap()
+        // One recorded non-putt shot preselects 3 (+2 putts). Set the representative manual holes to par.
+        let total = app.buttons["score-choice-\(par)"]
+        XCTAssertTrue(total.waitForExistence(timeout: 3), "hole \(hole) score strip must offer par")
+        total.tap()
+        XCTAssertTrue(total.isSelected, "hole \(hole) must select par as the total")
+
+        // The preselection assumes two putts; adjust from there by tapping the target segment.
+        let puttsValue = 2 + puttsAdjustment
+        let putts = app.buttons["score-putts-\(puttsValue)"]
+        XCTAssertTrue(putts.waitForExistence(timeout: 2))
+        if puttsAdjustment != 0 {
+            putts.tap()
         }
-        app.buttons["下一步 · 推杆"].tap()
-        XCTAssertTrue(app.staticTexts["手动确认 · 推杆"].waitForExistence(timeout: 3))
-        for _ in 0..<abs(puttsAdjustment) {
-            let button = app.buttons[puttsAdjustment < 0 ? "−" : "＋"]
-            XCTAssertTrue(button.waitForExistence(timeout: 2))
-            button.tap()
-        }
+        XCTAssertTrue(putts.isSelected, "hole \(hole) must record \(puttsValue) putts")
 
         if par == 3 {
-            XCTAssertTrue(app.buttons["下一步 · 罚杆"].waitForExistence(timeout: 3))
-            XCTAssertFalse(app.buttons["下一步 · 开球结果"].exists)
-            app.buttons["下一步 · 罚杆"].tap()
+            XCTAssertFalse(
+                app.buttons["score-tee-hit"].exists,
+                "a Par 3 must not ask for a tee result"
+            )
         } else {
-            XCTAssertTrue(app.buttons["下一步 · 开球结果"].waitForExistence(timeout: 3))
-            app.buttons["下一步 · 开球结果"].tap()
-            let fairway = try XCTUnwrap(fairwayLabel, "Par 4/5 manual flow requires a fairway result")
-            XCTAssertTrue(app.buttons[fairway].waitForExistence(timeout: 3))
-            app.buttons[fairway].tap()
+            let fairway = try XCTUnwrap(fairwayLabel, "Par 4/5 manual flow requires a tee result")
+            let tee = app.buttons["score-tee-\(fairway)"]
+            XCTAssertTrue(tee.waitForExistence(timeout: 3))
+            tee.tap()
+            XCTAssertTrue(tee.isSelected, "hole \(hole) must record tee result \(fairway)")
         }
 
-        XCTAssertTrue(app.staticTexts["手动确认 · 罚杆"].waitForExistence(timeout: 3))
         for _ in 0..<abs(penaltyAdjustment) {
-            let button = app.buttons[penaltyAdjustment < 0 ? "−" : "＋"]
+            let button = app.buttons[penaltyAdjustment < 0 ? "罚杆减一" : "罚杆加一"]
             XCTAssertTrue(button.waitForExistence(timeout: 2))
             button.tap()
         }
-        let saveScore = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '保存'")).firstMatch
-        XCTAssertTrue(saveScore.waitForExistence(timeout: 3), "hole \(hole) penalty step must save the score")
+        XCTAssertEqual(
+            app.staticTexts["score-penalty-value"].label,
+            "\(max(0, penaltyAdjustment))",
+            "hole \(hole) must show the adjusted penalty count before saving"
+        )
+        XCTAssertTrue(
+            saveScore.label.hasPrefix("保存 \(par) 杆"),
+            "hole \(hole) must save the chosen par total (got \(saveScore.label))"
+        )
         saveScore.tap()
     }
 

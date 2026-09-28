@@ -1856,10 +1856,14 @@ class MobileContractTests(unittest.TestCase):
         summary = _read_required_source(self, IOS_DIR / "Views" / "LiveRoundFinishSummaryView.swift")
 
         self.assertIn("struct LiveRoundFinishSummaryView: View", summary)
-        for label in ["本场汇总", "保存并结束", "继续打球", "已完成"]:
+        for label in ["保存并结束", "继续打球", "放弃本场", "GIR 上果岭 · 按推杆推算", "球道命中", "推杆", "罚杆"]:
             self.assertIn(label, summary)
         self.assertIn("finishErrorMessage", summary)
-        self.assertIn("pendingEventCount", summary)
+        # B2 本场汇总: review layout (score -> scorecard -> four tiles) and no sync status.
+        self.assertIn("LiveNineCard(", summary)
+        self.assertNotIn("pendingEventCount", summary)
+        self.assertNotIn("本场记录已同步", summary)
+        self.assertNotIn("将在结束前安全保存", summary)
 
         self.assertIn("public let onFinishRound: () async -> Bool", round_home)
         self.assertIn("onFinishRound: onFinishRound", round_home)
@@ -2346,16 +2350,59 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("if let image = imageStore.image", topo_base)
         self.assertIn("fallbackImage", topo_base)
 
+    def test_ios_b2_one_screen_hole_score(self) -> None:
+        sheet = _read_required_source(self, IOS_DIR / "Views" / "LiveScoreConfirmationView.swift")
+        model = _read_required_source(self, IOS_DIR / "Models" / "LiveScoreConfirmation.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        # One screen: score strip from 1, putt segments, three tee tiles (not on Par 3), penalty -/+.
+        self.assertIn("ForEach(Array(draft.scoreChoices), id: \\.self)", sheet)
+        self.assertIn("public var scoreChoices: ClosedRange<Int> { 1...max(10, par + 5, score + 2) }", model)
+        self.assertIn("if draft.par != 3 {", sheet)
+        self.assertIn('accessibilityIdentifier("score-save")', sheet)
+        # Putts 0 / 1 / 2 / 3 / 4+ (score.html); 4+ keeps the real count with its own -/+.
+        self.assertIn("public static let puttSegments = [0, 1, 2, 3, 4]", model)
+        self.assertIn('Text(isFourPlus ? "4+" : "\\(value)")', sheet)
+        self.assertIn('"score-putts-4plus"', sheet)
+        self.assertIn("adjustFourPlusPutts(by:", sheet)
+        self.assertNotIn("puttChoices", model)
+        # README 3: the total never drops below putts + penalty + 1.
+        self.assertIn("public var minimumScore: Int { putts + penalty + 1 }", model)
+        self.assertEqual(model.count("score = max(score, minimumScore)"), 2)
+        # No source hints and no multi-step flow.
+        for removed in ["手动确认", "接受推荐", "手表测到", "GPS 建议", "默认标准杆", "下一步"]:
+            self.assertNotIn(removed, sheet)
+        self.assertNotIn("LiveScoreFlowStep", model)
+        # Preselection priority and B0c sources written with every score fact.
+        for source in ['"watch_detected"', '"phone_shots"', '"default"', '"manual_edit"']:
+            self.assertIn(source, model)
+        self.assertIn("public var source: LiveScoreSource { edited ? .manualEdit : preselectedSource }", model)
+        self.assertIn('"source": source,', model)
+        self.assertIn("phoneShotCount: recordedNonPuttShotCount,", current_hole)
+        self.assertIn("teeResult: liveTeeResultPreselection", current_hole)
+        self.assertIn("TeeResultClassifier.classify(", current_hole)
+        offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
+        self.assertIn("public var scoreSource: String? = nil", offline_store)
+        self.assertIn("LiveScoreSourceMerge.merged(current: state.scoreSource, incoming: source)", offline_store)
+
     def test_live_scorecard_exposes_round_total_for_recorded_holes(self) -> None:
         scorecard = _read_required_source(self, IOS_DIR / "Views" / "LiveRoundScorecardView.swift")
+        components = _read_required_source(self, IOS_DIR / "Views" / "LiveScorecardComponents.swift")
+        summary_model = _read_required_source(self, IOS_DIR / "Models" / "LiveRoundScoreSummary.swift")
 
-        self.assertIn("if let totalScore", scorecard)
+        # B2 计分卡: big to-par, cumulative trend, OUT / IN nine cards, 结束本场… at the bottom.
         self.assertIn('accessibilityIdentifier("live-scorecard-total-score")', scorecard)
-        self.assertIn("let recorded = holes.compactMap { score(for: $0) }", scorecard)
-        self.assertIn('Text("本场总分")', scorecard)
-        self.assertIn('Text(toParText(toPar))', scorecard)
-        self.assertIn('accessibilityLabel("本场 \\(toParText(toPar))")', scorecard)
         self.assertIn('accessibilityIdentifier("live-scorecard-total-summary")', scorecard)
+        self.assertIn("LiveCumulativeTrend(values: summary.cumulativeToPar", scorecard)
+        self.assertIn('label: "OUT"', scorecard)
+        self.assertIn('label: "IN"', scorecard)
+        self.assertIn('Button("结束本场…", action: onFinishRound)', scorecard)
+        self.assertIn('accessibilityIdentifier("live-round-end-menu")', scorecard)
+        self.assertIn("for hole in holes where recordedScoreHoles.contains(hole.number)", scorecard)
+        self.assertIn("struct LiveNineCard: View", components)
+        self.assertIn("struct LiveCumulativeTrend: View", components)
+        # GIR is estimated from strokes and putts; untouched default holes are skipped (B0c).
+        self.assertIn("var estimatedGIR: Bool { score - putts <= par - 2 }", summary_model)
+        self.assertIn("holes.filter { !$0.isUntouchedDefault }", summary_model)
 
     def test_ios_club_naming_and_lie_filter(self) -> None:
         golf_club = _read_required_source(self, IOS_DIR / "Views" / "GolfClub.swift")

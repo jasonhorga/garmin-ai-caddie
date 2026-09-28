@@ -84,6 +84,9 @@ public struct LiveHoleStateSnapshot: Codable, Equatable, Identifiable {
     public var targetLongitude: Double?
     public var targetKind: String?
     public var updatedAt: String?
+    /// B0c per-hole score source merged over this hole's score / putt / penalty events: `default`
+    /// only while every event was a default preselection; otherwise the latest non-default source.
+    public var scoreSource: String? = nil
 
     public func hasSameRestorableFields(as other: LiveHoleStateSnapshot) -> Bool {
         roundId == other.roundId
@@ -1670,6 +1673,10 @@ public final class OfflineStore {
                 activeHole = event.hole
             }
 
+            if [LiveRoundEventKind.score, .putt, .penalty].contains(event.kind),
+               let source = stringPayload("source", in: event.payload) {
+                state.scoreSource = LiveScoreSourceMerge.merged(current: state.scoreSource, incoming: source)
+            }
             switch event.kind {
             case .score:
                 if let strokes = numberPayload("strokes", in: event.payload) {
@@ -2753,5 +2760,16 @@ public final class OfflineStore {
         }
         let safe = String(characters).trimmingCharacters(in: CharacterSet(charactersIn: "._-"))
         return safe.isEmpty ? "media" : safe
+    }
+}
+
+/// B0c merge rule for a hole's score source (mirrors `ai_caddie/rounds/score_source.py`): a later
+/// `default` never downgrades a hole that was already recorded or changed by the player.
+enum LiveScoreSourceMerge {
+    static func merged(current: String?, incoming: String) -> String {
+        if incoming == LiveScoreSource.default.rawValue {
+            return current ?? incoming
+        }
+        return incoming
     }
 }
