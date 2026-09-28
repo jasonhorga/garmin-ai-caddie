@@ -2359,6 +2359,15 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public var scoreChoices: ClosedRange<Int> { 1...max(10, par + 5, score + 2) }", model)
         self.assertIn("if draft.par != 3 {", sheet)
         self.assertIn('accessibilityIdentifier("score-save")', sheet)
+        # Putts 0 / 1 / 2 / 3 / 4+ (score.html); 4+ keeps the real count with its own -/+.
+        self.assertIn("public static let puttSegments = [0, 1, 2, 3, 4]", model)
+        self.assertIn('Text(isFourPlus ? "4+" : "\\(value)")', sheet)
+        self.assertIn('"score-putts-4plus"', sheet)
+        self.assertIn("adjustFourPlusPutts(by:", sheet)
+        self.assertNotIn("puttChoices", model)
+        # README 3: the total never drops below putts + penalty + 1.
+        self.assertIn("public var minimumScore: Int { putts + penalty + 1 }", model)
+        self.assertEqual(model.count("score = max(score, minimumScore)"), 2)
         # No source hints and no multi-step flow.
         for removed in ["手动确认", "接受推荐", "手表测到", "GPS 建议", "默认标准杆", "下一步"]:
             self.assertNotIn(removed, sheet)

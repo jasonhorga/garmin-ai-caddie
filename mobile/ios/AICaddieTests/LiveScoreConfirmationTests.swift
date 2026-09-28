@@ -39,19 +39,113 @@ final class LiveScoreConfirmationTests: XCTestCase {
         XCTAssertNil(LiveScoreDraft(hole: 2, par: 3, phoneShotCount: 0, teeResult: .hit).fairway)
     }
 
-    func testMorePuttsThanTotalRaisesTheTotal() {
+    // MARK: total ≥ putts + penalty + 1 (README §3)
+
+    func testMorePuttsThanTheTotalAllowsRaisesTheTotal() {
         var draft = LiveScoreDraft(hole: 1, par: 3, phoneShotCount: 1)
         XCTAssertEqual(draft.score, 3)
-        draft.selectPutts(4)
-        XCTAssertEqual(draft.putts, 4)
-        XCTAssertEqual(draft.score, 4)
+        draft.selectPutts(3)
+        XCTAssertEqual(draft.putts, 3)
+        XCTAssertEqual(draft.score, 4, "three putts need at least one full shot before them")
     }
 
-    func testLoweringTheTotalKeepsPuttsInside() {
+    func testTotalEqualToPuttsIsImpossible() {
         var draft = LiveScoreDraft(hole: 1, par: 4, phoneShotCount: 2)
-        draft.selectScore(1)
-        XCTAssertEqual(draft.score, 1)
+        draft.selectScore(4)
+        draft.selectPutts(4)
+        XCTAssertEqual(draft.score, 5)
+        XCTAssertFalse(LiveHoleScore(hole: 1, par: 4, score: draft.score, putts: draft.putts, penalties: 0, fairway: nil, source: nil).estimatedGIR)
+    }
+
+    func testAddingPenaltiesRaisesTheTotal() {
+        var draft = LiveScoreDraft(hole: 1, par: 4, phoneShotCount: 2)
+        XCTAssertEqual(draft.score, 4)
+        XCTAssertEqual(draft.putts, 2)
+        for _ in 0..<3 { draft.adjustPenalty(by: 1) }
+        XCTAssertEqual(draft.penalty, 3)
+        XCTAssertEqual(draft.score, 6, "2 putts + 3 penalties + 1 full shot")
+    }
+
+    func testLoweringPuttsOrPenaltiesNeverLowersTheTotal() {
+        var draft = LiveScoreDraft(hole: 1, par: 4, phoneShotCount: 2)
+        draft.adjustPenalty(by: 2)
+        draft.selectPutts(3)
+        XCTAssertEqual(draft.score, 6)
+        draft.adjustPenalty(by: -2)
+        draft.selectPutts(1)
+        XCTAssertEqual(draft.score, 6)
         XCTAssertEqual(draft.putts, 1)
+        XCTAssertEqual(draft.penalty, 0)
+    }
+
+    func testLoweringTheTotalGivesWayWithPuttsThenPenalties() {
+        var draft = LiveScoreDraft(hole: 1, par: 4, phoneShotCount: 2)
+        draft.adjustPenalty(by: 2)
+        XCTAssertEqual(draft.score, 5)
+        draft.selectScore(4)
+        XCTAssertEqual(draft.putts, 1)
+        XCTAssertEqual(draft.penalty, 2)
+        draft.selectScore(2)
+        XCTAssertEqual(draft.putts, 0)
+        XCTAssertEqual(draft.penalty, 1)
+        draft.selectScore(1)
+        XCTAssertEqual(draft.putts, 0)
+        XCTAssertEqual(draft.penalty, 0)
+        XCTAssertGreaterThanOrEqual(draft.score, draft.minimumScore)
+    }
+
+    func testEveryReachableDraftKeepsTheInvariant() {
+        var draft = LiveScoreDraft(hole: 1, par: 5, phoneShotCount: 0)
+        let steps: [(inout LiveScoreDraft) -> Void] = [
+            { $0.selectScore(2) }, { $0.selectPutts(4) }, { $0.adjustPenalty(by: 3) },
+            { $0.selectScore(3) }, { $0.adjustFourPlusPutts(by: 1) }, { $0.selectPuttSegment(1) },
+            { $0.adjustPenalty(by: -1) }, { $0.selectScore(1) }, { $0.selectPuttSegment(4) },
+        ]
+        for step in steps {
+            step(&draft)
+            XCTAssertGreaterThanOrEqual(draft.score, draft.putts + draft.penalty + 1)
+        }
+    }
+
+    func testSavedRowBreakingTheInvariantOpensCorrected() {
+        let draft = LiveScoreDraft(
+            hole: 5, par: 4, savedScore: 4, savedPutts: 4, savedPenalty: 1,
+            savedFairway: nil, savedSource: .manualEdit
+        )
+        XCTAssertEqual(draft.score, 6)
+    }
+
+    // MARK: putts 0 / 1 / 2 / 3 / 4+
+
+    func testFourPlusSegmentKeepsTheRealCount() {
+        XCTAssertEqual(LiveScoreDraft.puttSegments, [0, 1, 2, 3, 4])
+        var draft = LiveScoreDraft(hole: 1, par: 4, phoneShotCount: 2)
+        draft.selectPuttSegment(LiveScoreDraft.fourPlusSegment)
+        XCTAssertEqual(draft.putts, 4)
+        XCTAssertEqual(draft.puttSegment, 4)
+        draft.adjustFourPlusPutts(by: 1)
+        draft.adjustFourPlusPutts(by: 1)
+        XCTAssertEqual(draft.putts, 6)
+        XCTAssertEqual(draft.puttSegment, 4, "five and more still show as 4+")
+        XCTAssertEqual(draft.score, 7)
+        draft.selectPuttSegment(LiveScoreDraft.fourPlusSegment)
+        XCTAssertEqual(draft.putts, 6, "tapping 4+ again keeps the chosen count")
+        for _ in 0..<10 { draft.adjustFourPlusPutts(by: 1) }
+        XCTAssertEqual(draft.putts, LiveScoreDraft.maximumPutts)
+        for _ in 0..<10 { draft.adjustFourPlusPutts(by: -1) }
+        XCTAssertEqual(draft.putts, 4, "the 4+ stepper stays within 4…9")
+        draft.selectPuttSegment(2)
+        XCTAssertEqual(draft.putts, 2)
+        draft.adjustFourPlusPutts(by: 1)
+        XCTAssertEqual(draft.putts, 2, "the 4+ stepper only acts on 4+")
+    }
+
+    func testSixPuttsAreSubmittedAsSix() {
+        var draft = LiveScoreDraft(hole: 1, par: 4, phoneShotCount: 2)
+        draft.selectPutts(6)
+        let events = LiveScoreSubmission.events(roundId: "r", draft: draft, note: "", timestamp: "t")
+        XCTAssertEqual(events[1].payload["putts"], .number(6))
+        XCTAssertEqual(events[0].payload["strokes"], .number(7))
     }
 
     func testAnyChangeMakesItAManualEditAndReselectingIsNotAChange() {

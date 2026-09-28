@@ -402,6 +402,22 @@ final class DesignSnapshotTests: XCTestCase {
             named: "score-hole-par3",
             dark: true
         )
+        // 4+ putts: five putts keep their real count beside the 4+ segment; the total follows
+        // putts + penalty + 1.
+        var fourPlus = LiveScoreDraft(hole: 6, par: 4, phoneShotCount: 2, teeResult: .hit)
+        fourPlus.selectPutts(5)
+        fourPlus.adjustPenalty(by: 1)
+        XCTAssertEqual(fourPlus.score, 7)
+        try captureScreen(
+            LiveScoreConfirmationView(
+                draft: .constant(fourPlus),
+                nextHole: 7,
+                onAccept: { _ in },
+                onCancel: {}
+            ),
+            named: "score-hole-4plus",
+            dark: true
+        )
 
         // 2. 计分卡 after nine holes, the tenth being played.
         let midRound = state(recorded: 9)

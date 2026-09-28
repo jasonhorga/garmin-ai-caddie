@@ -96,34 +96,55 @@ struct LiveScoreConfirmationView: View {
         .accessibilityIdentifier("score-choice-\(value)")
     }
 
+    /// `0 / 1 / 2 / 3 / 4+`; with `4+` selected a small −/+ sets the real count (4…9).
     private var puttRow: some View {
-        HStack {
+        HStack(spacing: 8) {
             rowLabel("推杆")
             Spacer()
+            if draft.putts >= LiveScoreDraft.fourPlusSegment {
+                HStack(spacing: 0) {
+                    stepperButton("−", label: "推杆减一", enabled: draft.putts > LiveScoreDraft.fourPlusSegment, width: 30) {
+                        update { $0.adjustFourPlusPutts(by: -1) }
+                    }
+                    Text("\(draft.putts)")
+                        .font(.system(size: 15, weight: .bold))
+                        .monospacedDigit()
+                        .foregroundStyle(LivePlayStyle.ink)
+                        .frame(minWidth: 18)
+                        .accessibilityLabel("\(draft.putts) 推")
+                        .accessibilityIdentifier("score-putts-count")
+                    stepperButton("+", label: "推杆加一", enabled: draft.putts < LiveScoreDraft.maximumPutts, width: 30) {
+                        update { $0.adjustFourPlusPutts(by: 1) }
+                    }
+                }
+                .frame(height: 34)
+                .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
             HStack(spacing: 2) {
-                ForEach(Array(LiveScoreDraft.puttChoices), id: \.self) { value in
+                ForEach(LiveScoreDraft.puttSegments, id: \.self) { value in
+                    let isFourPlus = value == LiveScoreDraft.fourPlusSegment
                     Button {
-                        update { $0.selectPutts(value) }
+                        update { $0.selectPuttSegment(value) }
                     } label: {
-                        Text("\(value)")
+                        Text(isFourPlus ? "4+" : "\(value)")
                             .font(.system(size: 15, weight: .semibold))
                             .monospacedDigit()
                             .foregroundStyle(LivePlayStyle.ink)
                             .frame(maxWidth: .infinity)
                             .frame(height: 34)
                             .background(
-                                draft.putts == value ? Color.white.opacity(0.22) : Color.clear,
+                                draft.puttSegment == value ? Color.white.opacity(0.22) : Color.clear,
                                 in: RoundedRectangle(cornerRadius: 8, style: .continuous)
                             )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("\(value) 推")
-                    .accessibilityAddTraits(draft.putts == value ? [.isSelected] : [])
-                    .accessibilityIdentifier("score-putts-\(value)")
+                    .accessibilityLabel(isFourPlus ? "4 推或更多" : "\(value) 推")
+                    .accessibilityAddTraits(draft.puttSegment == value ? [.isSelected] : [])
+                    .accessibilityIdentifier(isFourPlus ? "score-putts-4plus" : "score-putts-\(value)")
                 }
             }
             .padding(2)
-            .frame(width: 230)
+            .frame(width: draft.putts >= LiveScoreDraft.fourPlusSegment ? 170 : 230)
             .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
     }
@@ -200,13 +221,14 @@ struct LiveScoreConfirmationView: View {
         _ glyph: String,
         label: String,
         enabled: Bool,
+        width: CGFloat = 44,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Text(glyph)
                 .font(.system(size: 20, weight: .medium))
                 .foregroundStyle(LivePlayStyle.ink)
-                .frame(width: 44, height: 34)
+                .frame(width: width, height: 34)
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
