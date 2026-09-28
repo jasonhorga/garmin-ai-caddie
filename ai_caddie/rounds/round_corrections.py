@@ -10,6 +10,8 @@
   按人隔离(镜像 round_ingest 的 per-player 存储 + ``history.ROOT`` 约定,测试可 patch 重指向)。
 - **apply 是纯函数**:把事件日志盖到原始 shot 列表上(删=去掉、改=覆盖 clubName/lie),孤儿引用
   (原始因重同步变了、id 对不上)不报错、也不静默丢账——只是这条这次盖不上,账仍在日志里。
+- **B0d-2 纠错日志**:写入走 ``correction_audit``(每人一把审计锁、全局 ``auditSeq``、审计与事件同一行)。
+  文件里的行带 ``recordType``;这里的读取只认 ``correction`` 和没有类型的旧行,``auditRepair`` 只给日志读。
 """
 from __future__ import annotations
 
@@ -17,7 +19,7 @@ import hashlib
 import json
 import math
 import re
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -71,25 +73,116 @@ def _root(root: Path | str | None) -> Path:
     return Path(root) if root is not None else _history.ROOT
 
 
-def _corrections_path(player_id: str, round_ref: str, root: Path | str | None = None) -> Path:
+RECORD_CORRECTION = "correction"
+RECORD_REPAIR = "auditRepair"
+
+
+def corrections_dir(player_id: str, root: Path | str | None = None) -> Path:
+    return _root(root) / "data" / "players" / str(player_id) / "corrections"
+
+
+def _legacy_corrections_path(player_id: str, round_ref: str, root: Path | str | None = None) -> Path:
+    # Pre-B0d-2 name: replacing unsafe characters can alias two refs, so it is read-only now.
     safe = _SAFE_REF.sub("_", str(round_ref)) or "round"
-    return _root(root) / "data" / "players" / str(player_id) / "corrections" / f"{safe}.jsonl"
+    return corrections_dir(player_id, root) / f"{safe}.jsonl"
+
+
+def _corrections_path(player_id: str, round_ref: str, root: Path | str | None = None) -> Path:
+    """Collision-resistant file for new writes: a readable prefix plus a digest of the exact ref."""
+    safe = (_SAFE_REF.sub("_", str(round_ref)) or "round")[:80]
+    digest = hashlib.sha256(str(round_ref).encode("utf-8")).hexdigest()[:16]
+    return corrections_dir(player_id, root) / f"{safe}--{digest}.jsonl"
+
+
+def correction_files(player_id: str, round_ref: str, root: Path | str | None = None) -> list[Path]:
+    """Legacy file first (its events replay first), then the digest-named file."""
+    legacy = _legacy_corrections_path(player_id, round_ref, root)
+    current = _corrections_path(player_id, round_ref, root)
+    return [path for path in (legacy, current) if path.exists()]
+
+
+def _legacy_event_id(file_name: str, line_number: int, raw: bytes) -> str:
+    blob = file_name.encode("utf-8") + b"\n" + str(line_number).encode("ascii") + b"\n" + raw
+    return "legacy:" + hashlib.sha256(blob).hexdigest()[:16]
+
+
+def read_records(path: Path) -> tuple[list[dict[str, Any]], int]:
+    """Every parseable line of one JSONL store (legacy lines get a deterministic ``eventId``),
+    plus the number of skipped unparseable lines."""
+    records: list[dict[str, Any]] = []
+    skipped = 0
+    if not path.exists():
+        return records, skipped
+    for line_number, raw in enumerate(path.read_bytes().split(b"\n"), start=1):
+        if not raw.strip():
+            continue
+        try:
+            record = json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            skipped += 1
+            continue
+        if not isinstance(record, dict):
+            skipped += 1
+            continue
+        if not record.get("eventId"):
+            record["eventId"] = _legacy_event_id(path.name, line_number, raw)
+        records.append(record)
+    return records, skipped
+
+
+def load_correction_records(
+    player_id: str, round_ref: str, *, root: Path | str | None = None
+) -> tuple[list[dict[str, Any]], int]:
+    """All records for a round across the legacy and digest-named files, including audit repairs."""
+    records: list[dict[str, Any]] = []
+    skipped = 0
+    for path in correction_files(player_id, round_ref, root):
+        rows, bad = read_records(path)
+        records.extend(rows)
+        skipped += bad
+    return records, skipped
 
 
 def load_correction_events(player_id: str, round_ref: str, *, root: Path | str | None = None) -> list[dict[str, Any]]:
-    path = _corrections_path(player_id, round_ref, root)
-    if not path.exists():
-        return []
-    events: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            events.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return events
+    """Correction events in replay order. Audit repair records are never correction events."""
+    records, _skipped = load_correction_records(player_id, round_ref, root=root)
+    return [record for record in records if record.get("recordType") in (None, RECORD_CORRECTION)]
+
+
+def load_round_records(
+    player_id: str, refs: list[str], *, root: Path | str | None = None
+) -> tuple[list[dict[str, Any]], int]:
+    """Records of one physical round stored under any of its refs (a merged round's canonical id and
+    its member ids). Order: legacy records without ``auditSeq`` first (by ``ts``, then file order),
+    then every audited record by ``auditSeq`` — the one total order all writers share."""
+    merged: list[tuple[tuple, dict[str, Any]]] = []
+    seen: set[str] = set()
+    skipped = 0
+    position = 0
+    for ref in dict.fromkeys(str(value) for value in refs):
+        rows, bad = load_correction_records(player_id, ref, root=root)
+        skipped += bad
+        for record in rows:
+            event_id = str(record.get("eventId"))
+            if event_id in seen:
+                continue
+            seen.add(event_id)
+            audit_seq = record.get("auditSeq")
+            key = (1, audit_seq, "", position) if isinstance(audit_seq, int) else (0, 0, str(record.get("ts") or ""), position)
+            merged.append((key, record))
+            position += 1
+    merged.sort(key=lambda item: item[0])
+    return [record for _key, record in merged], skipped
+
+
+def load_round_events(player_id: str, refs: list[str], *, root: Path | str | None = None) -> list[dict[str, Any]]:
+    records, _skipped = load_round_records(player_id, refs, root=root)
+    return [record for record in records if record.get("recordType") in (None, RECORD_CORRECTION)]
+
+
+def validate_correction(event: dict[str, Any]) -> None:
+    """Public validation entry (the route validates before resolving the round)."""
+    _validate(event)
 
 
 def _validate(event: dict[str, Any]) -> None:
@@ -186,24 +279,23 @@ def _validate(event: dict[str, Any]) -> None:
 
 def append_correction(
     player_id: str, round_ref: str, event: dict[str, Any], *, root: Path | str | None = None,
-    now: datetime | None = None,
+    now: datetime | None = None, data_loader: Any = None,
 ) -> dict[str, Any]:
-    """追加一条修改事件(幂等 on clientMutationId)。返回落库后的事件(带 seq/ts)。"""
+    """追加一条修改事件(幂等 on clientMutationId)。返回落库后的事件(带 seq/ts/eventId/auditSeq/audit)。
+
+    The only writer of this store: it takes the player's audit lock itself (see ``correction_audit``),
+    so tests and jobs calling it directly cannot bypass the lock.
+
+    Raises ``correction_audit.IdentityUnavailable`` (nothing written) when history cannot be read
+    coherently: the canonical round, and so the dedupe scope of ``clientMutationId``, is unknown.
+    Background callers must retry later rather than fall back to the requested ref.
+    """
     _validate(event)
-    existing = load_correction_events(player_id, round_ref, root=root)
-    cmid = event.get("clientMutationId")
-    if cmid:
-        for e in existing:
-            if e.get("clientMutationId") == cmid:
-                return e  # 幂等:重复提交返回已存的那条,不写重复
-    stored = {k: v for k, v in event.items() if v is not None or k == "value"}
-    stored["seq"] = len(existing) + 1
-    stored["ts"] = (now or datetime.now(UTC)).isoformat()
-    path = _corrections_path(player_id, round_ref, root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(stored, ensure_ascii=False) + "\n")
-    return stored
+    from ai_caddie.rounds import correction_audit  # round_shot_map imports this module
+
+    return correction_audit.write_correction(
+        player_id, round_ref, event, root=root, now=now, data_loader=data_loader,
+    )
 
 
 # ---------------------------------------------------------------------------

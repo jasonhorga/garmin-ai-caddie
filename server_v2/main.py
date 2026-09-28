@@ -24,7 +24,7 @@ from ai_caddie.courses import course_reconciliation, course_search
 from ai_caddie.courses.course_reference import record_courseview_catalogue_names
 from ai_caddie.history import stats_cache
 from ai_caddie.history.stats_cache import cached_load_history_data
-from ai_caddie.rounds import round_corrections, round_ingest
+from ai_caddie.rounds import correction_audit, round_corrections, round_ingest
 from ai_caddie.rounds.players import OWNER_ID
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error, sanitize_safe_meta
 from ai_caddie.connectors.snapshot import snapshot_to_payload, write_connector_status
@@ -41,6 +41,8 @@ from .caddie import (
 )
 from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
+from . import annotations as annotation_store_routes
+from .data_source import load_history_data_for_mode
 from .history_round_detail import load_history_round_detail_response, load_round_hole_shot_map_response
 from .history_drilldown import load_history_drilldown_response
 from .history_stats import (
@@ -113,6 +115,7 @@ from .models import (
     HistoryOverviewResponse,
     HistoryRoundDetailResponse,
     RoundHoleShotMapResponse,
+    CorrectionLogResponse,
     RoundCorrectionRequest,
     RoundCorrectionResponse,
     HistoryRoundsResponse,
@@ -244,6 +247,7 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
         parameterized = (
             r"/api/v2/history/rounds/[^/]+",
             r"/api/v2/history/rounds/[^/]+/holes/[0-9]+/shotmap",
+            r"/api/v2/history/rounds/[^/]+/correction-log",
             r"/api/v2/courses/[0-9]+/(?:prep|tees|install/status)",
             r"/api/v2/courses/[0-9]+/install/jobs/[^/]+/(?:cancel|retry)",
             r"/api/v2/courses/[0-9]+/holes/[0-9]+/(?:topo|green)\.png",
@@ -691,11 +695,53 @@ def add_round_correction(
     """复盘修改:给某局追加一条「增/改/删一杆 或 手填罚杆」事件,写在**本人名下**
     (幂等 on clientMutationId)。原始 Garmin 数据不动,读取 shotmap 时套上。一个成员
     token 只能写自己的修改;此路由不在 admin 门内,成员登录即可用。"""
+    event = body.model_dump()
     try:
-        stored = round_corrections.append_correction(player_id, round_ref, body.model_dump())
+        round_corrections.validate_correction(event)
     except round_corrections.CorrectionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return RoundCorrectionResponse(stored=stored)
+    data, _mode = load_history_data_for_mode(player_id=player_id)
+    if not correction_audit.round_exists(data, round_ref):
+        raise HTTPException(status_code=404, detail=f"round {round_ref} not found")
+    # Write under the canonical ref so a retry through a merged round's alias dedupes (the audit
+    # re-resolves it under its own lock as well).
+    round_ref, _refs = correction_audit.round_identity(data, round_ref)
+    try:
+        stored = round_corrections.append_correction(
+            # The audit re-loads inside its coherence bracket (cached, cheap when unchanged); the data
+            # loaded above only resolved the round for the 404.
+            player_id, round_ref, event,
+            data_loader=lambda: load_history_data_for_mode(player_id=player_id)[0],
+        )
+    except round_corrections.CorrectionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except correction_audit.CorrectionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except correction_audit.IdentityUnavailable as exc:
+        # Nothing was written; the client retries with the same clientMutationId.
+        raise HTTPException(status_code=503, detail=str(exc))
+    audit = stored.get("audit") or {}
+    return RoundCorrectionResponse(stored=stored, auditPending=audit.get("status") == "pending")
+
+
+@app.get("/api/v2/history/rounds/{round_ref}/correction-log", response_model=CorrectionLogResponse)
+def round_correction_log(
+    round_ref: str,
+    after: str | None = Query(None, max_length=200),
+    limit: int = Query(correction_audit.DEFAULT_LOG_LIMIT, ge=1, le=correction_audit.MAX_LOG_LIMIT),
+    player_id: str = Depends(current_player_id),
+) -> CorrectionLogResponse:
+    """B0d-2 纠错日志(只读本人):更正事件与推杆 / 总杆 / 罚杆更正的结构化前后值,按 auditSeq 排序。"""
+    data, _mode = load_history_data_for_mode(player_id=player_id)
+    if not correction_audit.round_exists(data, round_ref):
+        raise HTTPException(status_code=404, detail=f"round {round_ref} not found")
+    try:
+        log = correction_audit.build_correction_log(
+            player_id, round_ref, data, after=after, limit=limit, annotation_root=annotation_store_routes.ANNOTATION_ROOT,
+        )
+    except correction_audit.InvalidCursor as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return CorrectionLogResponse(**log)
 
 
 @app.get("/api/v2/history/stats", response_model=HistoryStatsResponse)

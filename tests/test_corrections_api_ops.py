@@ -10,7 +10,13 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from ai_caddie.history import history as _history
+from ai_caddie.history.history import HistoryData
 from server_v2.main import app
+
+# The corrections route resolves the round in the caller's own history first (unknown ref -> 404).
+_ROUND_42 = {"id": "42", "date": "2026-09-01", "course": "Test", "courseKey": "test", "holesCompleted": 18,
+             "strokes": 72, "holePars": "4" * 18,
+             "holes": [{"number": n, "par": 4, "strokes": 4} for n in range(1, 19)]}
 
 
 class CorrectionsApiOpsTests(unittest.TestCase):
@@ -18,6 +24,10 @@ class CorrectionsApiOpsTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self._p = mock.patch.object(_history, "ROOT", Path(self._tmp.name))
         self._p.start()
+        data = HistoryData(raw_rounds=[{"id": "42"}], rounds=[_ROUND_42], shots=[])
+        self._data = mock.patch("server_v2.main.load_history_data_for_mode", return_value=(data, "local"))
+        self._data.start()
+        self.addCleanup(self._data.stop)
 
     def tearDown(self):
         self._p.stop()
@@ -132,6 +142,11 @@ class CorrectionsApiOpsTests(unittest.TestCase):
         c = TestClient(app)
         r = c.post("/api/v2/history/rounds/42/corrections", json={"op": "addShot", "club": "七号铁"})
         self.assertEqual(r.status_code, 400)
+
+    def test_unknown_round_is_404(self):
+        c = TestClient(app)
+        r = c.post("/api/v2/history/rounds/nope/corrections", json={"op": "deleteShot", "shotId": "s:1:1"})
+        self.assertEqual(r.status_code, 404)
 
     def test_unknown_payload_field_is_rejected_instead_of_silently_dropped(self):
         c = TestClient(app)
