@@ -63,13 +63,19 @@ struct LiveRoundFinishSummaryView: View {
                     .font(.system(size: 24, weight: .bold))
                     .monospacedDigit()
                     .foregroundStyle(LivePlayStyle.ink)
-                Text("Par \(orderedHoles.reduce(0) { $0 + $1.par }) · \(summary.holes.count)/\(holes.count) 洞")
+                Text(Self.parLine(summary: summary, holes: orderedHoles))
                     .font(.system(size: 13))
                     .monospacedDigit()
                     .foregroundStyle(LivePlayStyle.ink60)
             }
             .padding(.bottom, 6)
         }
+    }
+
+    /// "Par 36 · 9/18 洞": the Par of the holes actually recorded (the whole course before any is).
+    static func parLine(summary: LiveRoundScoreSummary, holes: [Hole]) -> String {
+        let par = summary.holes.isEmpty ? holes.reduce(0) { $0 + $1.par } : summary.par
+        return "Par \(par) · \(summary.holes.count)/\(holes.count) 洞"
     }
 
     private var scorecard: some View {

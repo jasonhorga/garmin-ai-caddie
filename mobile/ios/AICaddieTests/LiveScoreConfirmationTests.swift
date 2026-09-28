@@ -312,3 +312,21 @@ final class LiveMarkedShotsTests: XCTestCase {
         XCTAssertEqual(draft.source, .phoneShots, "marks are never reported as automatic watch detection")
     }
 }
+
+/// 本场汇总 subtitle: the Par of the recorded holes, not of the whole package.
+final class LiveRoundFinishSummaryParLineTests: XCTestCase {
+    private func hole(_ number: Int, par: Int) -> Hole {
+        Hole(number: number, par: par, yards: nil, geometryCoverage: .ready)
+    }
+
+    func testNineOfEighteenShowsTheParOfTheNinePlayed() {
+        let holes = (1...18).map { hole($0, par: $0 % 3 == 0 ? 3 : 4) }
+        let played = holes.prefix(9).map {
+            LiveHoleScore(hole: $0.number, par: $0.par, score: $0.par, putts: 2, penalties: 0, fairway: nil, source: nil)
+        }
+        let nine = LiveRoundScoreSummary(holes: played)
+        XCTAssertEqual(LiveRoundFinishSummaryView.parLine(summary: nine, holes: holes), "Par 33 · 9/18 洞")
+        let none = LiveRoundScoreSummary(holes: [])
+        XCTAssertEqual(LiveRoundFinishSummaryView.parLine(summary: none, holes: holes), "Par 66 · 0/18 洞")
+    }
+}

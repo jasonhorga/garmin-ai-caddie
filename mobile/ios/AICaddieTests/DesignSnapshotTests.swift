@@ -458,6 +458,27 @@ final class DesignSnapshotTests: XCTestCase {
             named: "score-summary",
             dark: true
         )
+        // 本场汇总 after only the front nine of an 18-hole package: Par of the nine played.
+        let frontNine = scores.filter { $0.key <= 9 }
+        let nineSummary = LiveRoundScoreSummary(holes: holes.compactMap { frontNine[$0.number] })
+        XCTAssertEqual(
+            LiveRoundFinishSummaryView.parLine(summary: nineSummary, holes: holes),
+            "Par \(holes.prefix(9).reduce(0) { $0 + $1.par }) · 9/18 洞"
+        )
+        try captureScreen(
+            LiveRoundFinishSummaryView(
+                courseName: "黑骑士球员俱乐部 B/C",
+                holes: holes,
+                scores: frontNine,
+                isFinishingRound: false,
+                finishErrorMessage: nil,
+                onFinish: {},
+                onContinue: {},
+                onDiscard: {}
+            ),
+            named: "score-summary-nine",
+            dark: true
+        )
     }
 
     /// B1 旗位界面: no green outline, four edge guides with yardage capsules, the four-cell card and
