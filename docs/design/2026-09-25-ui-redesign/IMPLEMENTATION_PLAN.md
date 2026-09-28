@@ -44,6 +44,18 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 - “跳过”指不参与：默认洞同时退出推杆 / GIR 的分母（覆盖率、Approach、approachMiss）、推杆数据质量和 `missing_putt_data` 诊断，不算“缺数据”；对该洞做过推杆更正则重新计入。持久化快照（`snapshot._played_holes`）保留 `scoreSource`，没有该字段的旧 / Garmin 洞形状不变。
 - 客户端发送新来源放在 B2（记分三屏重做时一起做“是否改过”的判断），B7 发 `watch_detected`。在那之前客户端仍发旧值，统计与现在一致。
 
+### B0 新统计字段实现说明（B0d-1）
+
+都在 `history_stats._scoring` 里（`_round_breakdowns`），移动端 `mobile_stats._SCORING_KEYS` 同步放行：
+
+- `putting` 增加 `onePutts / twoPutts / threePlusPutts` 和对应百分比（只算 B0c 意义上合格的洞，推杆更正生效）。
+- `penalties`：`total / holesRecorded / roundsRecorded / averagePerRound`；只统计带 `penalties` 字段的洞（手动记分有，Garmin 成绩卡没有，缺失不当 0）。
+- `scrambling`：**标准救球率** = 未标准杆上果岭的洞里，最终 Par 或更好的比例。原计划写的“长草 / 沙坑起杆后一推进洞或两杆内完成”需要逐杆起点和完整杆序，现有球位数据不保证包含每一杆和推杆，会系统性少算，所以改用标准定义。
+- `roundSequences`：每场（新的在前）逐洞 `putts / gir / fairway`，默认洞为 `null`。
+- `loops`：按真实 9 洞环（前九用 `frontNineGlobalCourseId`，后九用 `backNineGlobalCourseId`）的逐洞平均杆差和样本数；同一个物理环在不同搭配里合并。名字取“球场 ~ A/C”里的环名；没有环名时写“1–9 洞 / 10–18 洞”，不合成“前九 / 后九”。
+- `nineCombos`：18 洞场次按“前环 → 后环”顺序（A/B ≠ B/A）的场数和平均杆；`nineOnlyRounds`：只打 9 洞的场数。
+- `hardestHoles`：各环逐洞平均杆差最高的 5 个，至少 2 个样本。
+
 ### B0 契约细节（Python 与 Swift 各自实现时以此为准）
 
 现有字段（`ai_caddie/courses/course_prep.py` 的 `HolePrep`）先写清楚，新字段照它们的坐标系：
