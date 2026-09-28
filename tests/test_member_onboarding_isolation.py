@@ -72,6 +72,13 @@ class MemberOnboardingIsolationTests(unittest.TestCase):
         self.addCleanup(get_settings.cache_clear)
         stats_cache.clear()
         self.addCleanup(stats_cache.clear)
+        # Successful manual-round ingest queues a daemon prep warmer.  Letting the real
+        # worker escape this TestCase makes its later prep call race unrelated package
+        # tests' global mocks.  Patch the producer here; the route-trigger contract is
+        # asserted explicitly in the round-trip test below.
+        self._recent_patch = mock.patch("server_v2.main._prepare_recent_bg")
+        self.recent_mock = self._recent_patch.start()
+        self.addCleanup(self._recent_patch.stop)
 
         db.reset_engine_for_tests()
         cfg = Config(str(REPO_ROOT / "alembic.ini"))
@@ -134,6 +141,7 @@ class MemberOnboardingIsolationTests(unittest.TestCase):
         self.assertEqual(post.json()["playerId"], pid)
         self.assertEqual(post.json()["strokes"], 4)
         self.assertEqual(post.json()["source"], "manual")
+        self.recent_mock.assert_called_once_with(pid)
 
         # ...and now reads back THAT round (their own), still isolated from the owner.
         after = self.client.get("/api/v2/history/rounds", headers=auth)
