@@ -150,6 +150,14 @@ while :; do
     scan_ok=0
     recent_json='[]'
   fi
+  # Keep PR/comment classification independent from the lookback window. A
+  # repository-wide issue-comment stream can contain a comment on an old PR;
+  # the full number index lets us retain it without scanning that PR's detail
+  # endpoints on every poll.
+  if ! all_pr_json="$(gh pr list --repo "$REPO" --state all --limit 1000 --json number 2>/dev/null)"; then
+    scan_ok=0
+    all_pr_json='[]'
+  fi
   # Use updatedAt rather than merge/close dates so a new comment on an old
   # PR enters the scan window. The high limit avoids silently dropping PRs
   # when a repository has a busy review burst.
@@ -160,6 +168,10 @@ while :; do
   if ! pr_index="$(jq -c 'map({key:(.number|tostring),value:true}) | from_entries' <<<"$prs" 2>/dev/null)"; then
     scan_ok=0
     pr_index='{}'
+  fi
+  if ! all_pr_index="$(jq -c 'map({key:(.number|tostring),value:true}) | from_entries' <<<"$all_pr_json" 2>/dev/null)"; then
+    scan_ok=0
+    all_pr_index='{}'
   fi
 
   # Comments are repository-wide resources. Fetching the two incremental
@@ -238,7 +250,7 @@ while :; do
   while IFS= read -r row; do
     comment_pr="$(pr_number_from_url "$(jq -r '.issue_url // ""' <<<"$row")")"
     [ -n "$comment_pr" ] || continue
-    jq -e --arg n "$comment_pr" '.[$n] == true' <<<"$pr_index" >/dev/null 2>&1 || continue
+    jq -e --arg n "$comment_pr" '.[$n] == true' <<<"$all_pr_index" >/dev/null 2>&1 || continue
     id="$(jq -r '.id // empty' <<<"$row")"
     [ -n "$id" ] || continue
     issue_baseline="$(state_value '.lastProcessedIssueCommentId // 0')"
@@ -251,7 +263,7 @@ while :; do
   while IFS= read -r row; do
     comment_pr="$(pr_number_from_url "$(jq -r '.pull_request_url // ""' <<<"$row")")"
     [ -n "$comment_pr" ] || continue
-    jq -e --arg n "$comment_pr" '.[$n] == true' <<<"$pr_index" >/dev/null 2>&1 || continue
+    jq -e --arg n "$comment_pr" '.[$n] == true' <<<"$all_pr_index" >/dev/null 2>&1 || continue
     id="$(jq -r '.id // empty' <<<"$row")"
     [ -n "$id" ] || continue
     review_baseline="$(state_value '.lastProcessedReviewCommentId // 0')"
