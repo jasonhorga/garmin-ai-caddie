@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-28 20:25 UTC
+**Updated:** 2026-09-28 20:37 UTC
 **Branch:** `main`; product canonical source revision is
 `8a1180d2fbffaccf84dbb3275a34554abf03b4d9` (PR #357 B1d is merged after
 exact-head review; PR #356 B1c is merged after
@@ -101,7 +101,7 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-09-28 20:25 UTC):** `B1-B7` review queue remains
+**Current slice (2026-09-28 20:37 UTC):** `B1-B7` review queue remains
 `in-progress`; Codex is the review owner for PRs opened from
 `claude/code-audit-performance-17wqcv`. Each PR is checked at its exact head
 against `docs/design/2026-09-25-ui-redesign/README.md` and
@@ -241,9 +241,12 @@ three times with 2/4-second backoff, logs the failing endpoint after exhaustion,
 and retains the prior cursor. The pre-change script is checksummed in
 `/home/jason/garmin-ai-caddie-data/operations/pr-feedback-monitor/backups/20260928T201435Z/`; the deployed script hash is
 `433a65fc19002ee7cb12af142139195994ee2d4d2d2f3550d33002b04c5949f9`.
-Full scans completed successfully at 20:18:30 and 20:22:27 UTC with no new
-PR, comment, review, commit, or CI events; the single runtime remains in the
-owned `codex-pr-monitor-20260928` tmux session.
+The reproducible source is commit `821ab953`; Source CI `36479462494` is
+green. Full scans completed successfully at 20:18:30, 20:22:27, 20:30:21,
+and 20:34:19 UTC. The monitor recorded the two new main-push runs and the
+`in_progress` to `success` transition for `36479462494`; no PR or review
+feedback was added. The single runtime remains in the owned
+`codex-pr-monitor-20260928` tmux session.
 
 The previous B0 data-foundation queue remains recorded below for historical
 evidence; do not treat it as the active review slice while this queue is open.
