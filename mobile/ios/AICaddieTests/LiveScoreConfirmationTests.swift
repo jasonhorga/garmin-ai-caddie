@@ -53,8 +53,15 @@ final class LiveScoreConfirmationTests: XCTestCase {
         var draft = LiveScoreDraft(hole: 1, par: 4, phoneShotCount: 2)
         draft.selectScore(4)
         draft.selectPutts(4)
-        XCTAssertEqual(draft.score, 5)
+        XCTAssertEqual(draft.score, 5, "four putts raise the total to at least 5")
         XCTAssertEqual(draft.score - draft.putts, 1, "one full shot to the green, then four putts")
+        // GIR stays the README §2/§6 definition (first putt is stroke ≤ Par − 1): on in 1, four putts.
+        func gir(_ score: Int, _ putts: Int) -> Bool {
+            LiveHoleScore(hole: 1, par: 4, score: score, putts: putts, penalties: 0, fairway: nil, source: nil).estimatedGIR
+        }
+        XCTAssertTrue(gir(draft.score, draft.putts), "5 strokes / 4 putts: first putt is stroke 2")
+        XCTAssertFalse(gir(7, 4), "7 strokes / 4 putts: first putt is stroke 4, one stroke late")
+        XCTAssertTrue(gir(6, 4), "6 strokes / 4 putts: first putt is stroke 3 = Par − 1")
     }
 
     func testAddingPenaltiesRaisesTheTotal() {
