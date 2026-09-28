@@ -261,6 +261,7 @@ public enum WatchCourseTemplateBuilder {
                 globalId: globalId,
                 sourceLocalHole: localHole,
                 holeMap: holeMap,
+                fairwayOutline: prep?.fairwayOutline,
                 playsLikeDistanceM: WatchUnits.playsLikeMetres(
                     distanceMetres: distanceM,
                     elevationDeltaMetres: deltaM

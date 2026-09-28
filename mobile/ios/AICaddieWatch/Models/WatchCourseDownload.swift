@@ -460,9 +460,11 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
     public let playsLike: WatchCoursePrepPlaysLike?
     public let holeImageProjection: WatchCoursePrepProjection?
     public let greenOutline: WatchCoursePrepGreenOutline?
+    /// B0 fairway rings; `nil` for old packages, no fairway geometry or a malformed value.
+    public let fairwayOutline: FairwayOutline?
 
     private enum CodingKeys: String, CodingKey {
-        case hole, par, geometryCoverage, geometryRevision, route, hazards, map, greenDistances, playsLike, holeImageProjection, greenOutline, steps
+        case hole, par, geometryCoverage, geometryRevision, route, hazards, map, greenDistances, playsLike, holeImageProjection, greenOutline, fairwayOutline, steps
         case landingM = "landing_m"
         case teeClub = "tee_club"
     }
@@ -481,7 +483,8 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
         greenDistances: WatchCoursePrepGreenDistances? = nil,
         playsLike: WatchCoursePrepPlaysLike? = nil,
         holeImageProjection: WatchCoursePrepProjection? = nil,
-        greenOutline: WatchCoursePrepGreenOutline? = nil
+        greenOutline: WatchCoursePrepGreenOutline? = nil,
+        fairwayOutline: FairwayOutline? = nil
     ) {
         self.hole = hole
         self.par = par
@@ -497,6 +500,7 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
         self.playsLike = playsLike
         self.holeImageProjection = holeImageProjection
         self.greenOutline = greenOutline
+        self.fairwayOutline = fairwayOutline
     }
 
     public init(from decoder: Decoder) throws {
@@ -516,6 +520,7 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
         playsLike = try container.decodeIfPresent(WatchCoursePrepPlaysLike.self, forKey: .playsLike)
         holeImageProjection = try container.decodeIfPresent(WatchCoursePrepProjection.self, forKey: .holeImageProjection)
         greenOutline = try container.decodeIfPresent(WatchCoursePrepGreenOutline.self, forKey: .greenOutline)
+        fairwayOutline = container.decodeSupportedFairwayOutline(forKey: .fairwayOutline)
     }
 
     /// Composite package holes use display numbers (10...18), while prep requests use the source
@@ -535,7 +540,8 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
             greenDistances: greenDistances,
             playsLike: playsLike,
             holeImageProjection: holeImageProjection,
-            greenOutline: greenOutline
+            greenOutline: greenOutline,
+            fairwayOutline: fairwayOutline
         )
     }
 }

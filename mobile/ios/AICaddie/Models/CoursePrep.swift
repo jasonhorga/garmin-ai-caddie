@@ -652,9 +652,12 @@ public struct CoursePrepHole: Codable, Equatable {
     public let holeImageProjection: CoursePrepHoleImageProjection?
     /// Factual putting-surface outline from precise Green.drc, with CourseView radii as fallback.
     public let greenOutline: CoursePrepGreenOutline?
+    /// B0: this hole's fairway rings (display px + [lat, lon]); `nil` = no fairway geometry, an old
+    /// package without the key, or a malformed value. Drives the offline tee-result preselect.
+    public let fairwayOutline: FairwayOutline?
 
     private enum CodingKeys: String, CodingKey {
-        case hole, par, route, geometryCoverage, geometryRevision, sourceRefs, missingData, candidateRoutes, carryTargets, steps, cautions, hazards, map, greenDistances, playsLike, holeImageProjection, greenOutline
+        case hole, par, route, geometryCoverage, geometryRevision, sourceRefs, missingData, candidateRoutes, carryTargets, steps, cautions, hazards, map, greenDistances, playsLike, holeImageProjection, greenOutline, fairwayOutline
         case parSource = "par_source"
         case blueYards = "blue_yards"
         case teeYards
@@ -686,7 +689,8 @@ public struct CoursePrepHole: Codable, Equatable {
         greenDistances: CoursePrepGreenDistances? = nil,
         playsLike: CoursePrepPlaysLike? = nil,
         holeImageProjection: CoursePrepHoleImageProjection? = nil,
-        greenOutline: CoursePrepGreenOutline? = nil
+        greenOutline: CoursePrepGreenOutline? = nil,
+        fairwayOutline: FairwayOutline? = nil
     ) {
         self.hole = hole
         self.par = par
@@ -711,6 +715,7 @@ public struct CoursePrepHole: Codable, Equatable {
         self.playsLike = playsLike
         self.holeImageProjection = holeImageProjection
         self.greenOutline = greenOutline
+        self.fairwayOutline = fairwayOutline
     }
 
     public init(from decoder: Decoder) throws {
@@ -738,6 +743,8 @@ public struct CoursePrepHole: Codable, Equatable {
         self.playsLike = try container.decodeIfPresent(CoursePrepPlaysLike.self, forKey: .playsLike)
         self.holeImageProjection = try container.decodeIfPresent(CoursePrepHoleImageProjection.self, forKey: .holeImageProjection)
         self.greenOutline = try container.decodeIfPresent(CoursePrepGreenOutline.self, forKey: .greenOutline)
+        // Additive B0 field: malformed or unsupported outlines become nil, never a failed hole.
+        self.fairwayOutline = container.decodeSupportedFairwayOutline(forKey: .fairwayOutline)
     }
 
     /// Yardage of the Tee this prep's playing facts describe: the selected Tee when resolved, else Blue.
@@ -878,7 +885,8 @@ public struct CoursePrepHole: Codable, Equatable {
             greenDistances: greenDistances,
             playsLike: playsLike,
             holeImageProjection: holeImageProjection,
-            greenOutline: greenOutline
+            greenOutline: greenOutline,
+            fairwayOutline: fairwayOutline
         )
     }
 }
