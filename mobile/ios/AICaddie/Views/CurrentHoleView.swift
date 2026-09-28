@@ -466,13 +466,18 @@ public struct CurrentHoleView: View {
                 reconcileCaddieRoutes()
             }
         }
-        .onChange(of: liveHazardDisplayRows.map(\.id)) { _, ids in
+        .onChange(of: liveHazardDisplayRows) { previous, next in
             // A new hole starts with no highlighted obstacle.  Preserve an explicit choice while
-            // the package refreshes, but never auto-select the first row just because data arrived.
-            selectedHazardID = LiveHazardSelectionPolicy.retainedSelection(
+            // the package refreshes (a legacy row that became a precise one keeps the selection),
+            // but never auto-select the first row just because data arrived.
+            selectedHazardID = LiveMapCarryOver.hazardSelection(
                 current: selectedHazardID,
-                availableIDs: ids
+                previous: previous,
+                next: next
             )
+        }
+        .onChange(of: holePrep) { previous, next in
+            carryOverMapInteraction(from: previous, to: next)
         }
         .fullScreenCover(isPresented: $showGreenDetail) {
             greenDetailSurface
@@ -1158,6 +1163,30 @@ public struct CurrentHoleView: View {
                 )
                 heroMapTransientDragOffset = .zero
             }
+    }
+
+    // MARK: - Map degradation contract
+
+    /// A background precise map replacing the lightweight one (same hole) keeps the player's
+    /// target and flag on the same spot of the hole. A point with a geo coordinate is reprojected
+    /// through the new map's anchors; a pixel-only point is moved by route station + lateral offset.
+    /// Zoom, pan and the obstacle selection are kept by their own state.
+    private func carryOverMapInteraction(from previous: CoursePrepHole?, to next: CoursePrepHole?) {
+        guard let previous, let next, previous.hole == next.hole,
+              let oldOverlay = previous.resolvedMapOverlay,
+              let newOverlay = next.resolvedMapOverlay,
+              oldOverlay != newOverlay else { return }
+        func carried(pixel: CGPoint?, coordinate: CLLocationCoordinate2D?) -> CGPoint? {
+            guard let pixel else { return nil }
+            if let reprojected = liveOverlayPixel(for: coordinate) { return reprojected }
+            return LiveMapCarryOver.transfer(pixel, from: oldOverlay, to: newOverlay)
+        }
+        if targetPixel != nil {
+            targetPixel = carried(pixel: targetPixel, coordinate: targetCoordinate)
+        }
+        if greenPinPixel != nil {
+            greenPinPixel = carried(pixel: greenPinPixel, coordinate: greenPinCoordinate)
+        }
     }
 
     // MARK: - B1c Touch Target on the main map

@@ -387,6 +387,22 @@ final class DesignSnapshotTests: XCTestCase {
             named: "full-green-flag",
             dark: true
         )
+        // B1 旗位缩放: the same flag editor opened at 2.5x (edge lines and numbers stay screen size).
+        try captureScreen(
+            LiveGreenDetailView(
+                hole: hole,
+                detailURL: nil,
+                topoURL: nil,
+                targetCoordinate: .constant(nil),
+                targetPixel: .constant(CGPoint(x: 128, y: 42)),
+                referenceCoordinate: nil,
+                referenceIsLive: false,
+                pinCoordinate: nil,
+                initialScale: 2.5
+            ),
+            named: "full-green-flag-zoomed",
+            dark: true
+        )
     }
 
     /// Full-screen capture of a REAL screen (NavigationStack + ScrollView render fully here,
@@ -515,6 +531,55 @@ final class DesignSnapshotTests: XCTestCase {
                     dark: true
                 )
             }
+            // README 地图降级契约: without the precise topo the live hole draws the factual route and
+            // the geometry it already has, immediately (no blank hole, no spinner) ...
+            let partialPrepJSON = livePrepJSON.replacingOccurrences(
+                of: "\"map\":{\"image\":\"\(b64)\",",
+                with: "\"geometryCoverage\":\"partial\",\"map\":{"
+            )
+            XCTAssertNotEqual(partialPrepJSON, livePrepJSON, "fixture: the topo image must be removed")
+            let partialPrep = try JSONDecoder().decode(CoursePrepHole.self, from: Data(partialPrepJSON.utf8))
+            XCTAssertEqual(partialPrep.geometryCoverage, "partial")
+            try captureScreen(
+                NavigationStack {
+                    CurrentHoleView(
+                        package: package.replacingCoursePrep(CoursePrepPackage(
+                            schema: "ai-caddie-course-prep-v1",
+                            globalId: package.course.globalId,
+                            holes: [partialPrep],
+                            missingData: nil
+                        )),
+                        hole: firstHole,
+                        snapshotState: .init(caddieRoutes: routes)
+                    )
+                },
+                named: "full-hole-map-partial",
+                dark: true
+            )
+            // ... and with no drawable route at all it shows the one full-screen waiting page
+            // (hole · Par · yards), never an empty hole.
+            let noMapPrepJSON = """
+            {"hole":\(firstHole.number),"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":375,\
+            "route":[],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]}}
+            """
+            let noMapPrep = try JSONDecoder().decode(CoursePrepHole.self, from: Data(noMapPrepJSON.utf8))
+            XCTAssertNil(noMapPrep.resolvedMapOverlay)
+            try captureScreen(
+                NavigationStack {
+                    CurrentHoleView(
+                        package: package.replacingCoursePrep(CoursePrepPackage(
+                            schema: "ai-caddie-course-prep-v1",
+                            globalId: package.course.globalId,
+                            holes: [noMapPrep],
+                            missingData: nil
+                        )),
+                        hole: firstHole
+                    )
+                },
+                named: "full-hole-map-waiting",
+                dark: true
+            )
+
             // Each injected state must actually render: identical PNGs mean the state was dropped.
             let snapshotDir = try FileManager.default
                 .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
