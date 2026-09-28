@@ -360,15 +360,24 @@ enum LivePlannedRouteRenderer {
         return Int((pixels / pixelsPerMetre * yardsPerMetre).rounded())
     }
 
-    static func draw(
-        _ context: inout GraphicsContext,
+    /// The route and tee arc transformed into the viewport (pan/zoom applied).
+    struct ScreenGeometry {
+        let legs: [(leg: MapPlannedLeg, origin: CGPoint, destination: CGPoint)]
+        let arcs: [MapFlightArc]
+        let teeArc: MapFlightArc?
+        let teeArcYards: Int?
+    }
+
+    static func screenGeometry(
         size: CGSize,
         legs: [MapPlannedLeg],
+        teeArc: MapFlightArc?,
+        teeArcYards: Int?,
         overlay: CoursePrepOverlay,
         scale: CGFloat,
         offset: CGSize,
         topInset: CGFloat
-    ) {
+    ) -> ScreenGeometry {
         let centre = CGPoint(x: size.width / 2, y: size.height / 2)
         func screen(_ point: CGPoint) -> CGPoint? {
             guard let base = LivePlayMapOverlayLayout.project(
@@ -386,10 +395,108 @@ enum LivePlannedRouteRenderer {
             guard let origin = screen(leg.origin), let destination = screen(leg.destination) else { return nil }
             return (leg, origin, destination)
         }
-        guard !screenLegs.isEmpty else { return }
+        // Pan/zoom is affine, so transforming the three control points transforms the curve.
+        let screenTeeArc: MapFlightArc? = {
+            guard let teeArc, let teeArcYards, teeArcYards > 0,
+                  let start = screen(teeArc.start),
+                  let control = screen(teeArc.control),
+                  let end = screen(teeArc.end) else { return nil }
+            return MapFlightArc(start: start, control: control, end: end)
+        }()
+        return ScreenGeometry(
+            legs: screenLegs,
+            arcs: screenLegs.map { HoleImageMapView.flightArc(from: $0.origin, to: $0.destination) },
+            teeArc: screenTeeArc,
+            teeArcYards: screenTeeArc == nil ? nil : teeArcYards
+        )
+    }
 
-        let arcs = screenLegs.map { HoleImageMapView.flightArc(from: $0.origin, to: $0.destination) }
-        for (item, arc) in zip(screenLegs, arcs) {
+    /// Label strings in layout order: one per leg, then the tee-distance "N码".
+    static func labelTexts(_ geometry: ScreenGeometry, pixelsPerMetre: Double) -> [String] {
+        var texts = geometry.legs.map { labelText(for: $0.leg, pixelsPerMetre: pixelsPerMetre) }
+        if let yards = geometry.teeArcYards { texts.append("\(yards)码") }
+        return texts
+    }
+
+    /// One collision layout for every label on the map: each leg's "杆名 码数" and the
+    /// tee-distance "N码" (`labelSizes` in `labelTexts` order). Labels never overlap each other;
+    /// they also avoid the route, the tee arc, the landing dots and the flag (drawn in the bitmap,
+    /// so it scales with the map).
+    static func labelRects(
+        _ geometry: ScreenGeometry,
+        labelSizes: [CGSize],
+        flagScale: CGFloat,
+        viewportSize: CGSize
+    ) -> [CGRect?] {
+        var lineSamples: [CGPoint] = geometry.arcs.flatMap { Self.samples(along: $0) }
+        if let teeArc = geometry.teeArc { lineSamples += Self.samples(along: teeArc) }
+        var obstacles: [CGRect] = geometry.legs.map {
+            CGRect(x: $0.destination.x - 8, y: $0.destination.y - 8, width: 16, height: 16)
+        }
+        if let pinLeg = geometry.legs.last(where: { $0.leg.endsAtPin }) {
+            obstacles.append(flagRect(foot: pinLeg.destination, scale: flagScale))
+        }
+        // A label belongs to its landing: when the landing (or the whole tee arc) is panned off
+        // screen its label is omitted rather than clamped to an edge far from what it names.
+        let screenBounds = CGRect(origin: .zero, size: viewportSize)
+        var requests: [LabelRequest] = []
+        var requestIndices: [Int] = []
+        for (index, item) in geometry.legs.enumerated() where index < labelSizes.count {
+            guard screenBounds.contains(item.destination) else { continue }
+            let labelSize = labelSizes[index]
+            let candidates = item.leg.endsAtPin
+                ? pinCandidates(foot: item.destination, flagScale: flagScale, labelSize: labelSize)
+                : landingCandidates(landing: item.destination, from: item.origin, labelSize: labelSize)
+            requests.append(LabelRequest(size: labelSize, candidates: candidates))
+            requestIndices.append(index)
+        }
+        if let teeArc = geometry.teeArc, labelSizes.count > geometry.legs.count {
+            let labelSize = labelSizes[geometry.legs.count]
+            let candidates = teeArcCandidates(arc: teeArc, labelSize: labelSize)
+                .filter { screenBounds.contains($0) }
+            if !candidates.isEmpty {
+                requests.append(LabelRequest(size: labelSize, candidates: candidates))
+                requestIndices.append(geometry.legs.count)
+            }
+        }
+        let viewport = screenBounds.insetBy(dx: 4, dy: 4)
+        let placed = layoutLabels(requests, viewport: viewport, obstacles: obstacles, samples: lineSamples)
+        var result = [CGRect?](repeating: nil, count: labelSizes.count)
+        for (rect, index) in zip(placed, requestIndices) {
+            result[index] = rect
+        }
+        return result
+    }
+
+    static func draw(
+        _ context: inout GraphicsContext,
+        size: CGSize,
+        legs: [MapPlannedLeg],
+        teeArc: MapFlightArc?,
+        teeArcYards: Int?,
+        overlay: CoursePrepOverlay,
+        scale: CGFloat,
+        offset: CGSize,
+        topInset: CGFloat
+    ) {
+        let geometry = screenGeometry(
+            size: size,
+            legs: legs,
+            teeArc: teeArc,
+            teeArcYards: teeArcYards,
+            overlay: overlay,
+            scale: scale,
+            offset: offset,
+            topInset: topInset
+        )
+        if let screenTeeArc = geometry.teeArc {
+            let path = HoleImageMapView.path(for: screenTeeArc)
+            context.stroke(path, with: .color(.black.opacity(0.62)),
+                           style: StrokeStyle(lineWidth: 5, lineCap: .round, dash: [9, 6]))
+            context.stroke(path, with: .color(Color(red: 1.0, green: 0.78, blue: 0.18)),
+                           style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [9, 6]))
+        }
+        for (item, arc) in zip(geometry.legs, geometry.arcs) {
             guard hypot(item.destination.x - item.origin.x, item.destination.y - item.origin.y) > 1 else { continue }
             let path = HoleImageMapView.path(for: arc)
             context.stroke(path, with: .color(.black.opacity(0.58)),
@@ -397,7 +504,7 @@ enum LivePlannedRouteRenderer {
             context.stroke(path, with: .color(.white.opacity(item.leg.isSelected ? 0.96 : 0.55)),
                            style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
         }
-        for item in screenLegs where !item.leg.endsAtPin {
+        for item in geometry.legs where !item.leg.endsAtPin {
             let point = item.destination
             context.fill(Path(ellipseIn: CGRect(x: point.x - 7, y: point.y - 7, width: 14, height: 14)),
                          with: .color(item.leg.isSelected ? LiveHoleStyle.green : .white.opacity(0.64)))
@@ -405,107 +512,136 @@ enum LivePlannedRouteRenderer {
                          with: .color(.white))
         }
 
-        // Everything a label must not cover: the route itself (sampled), every landing dot and the
-        // flag, which is drawn in the bitmap and therefore scales with the map.
-        let routeSamples = arcs.flatMap(samples(along:))
-        var occupied: [CGRect] = screenLegs.map {
-            CGRect(x: $0.destination.x - 8, y: $0.destination.y - 8, width: 16, height: 16)
-        }
-        if let pinLeg = screenLegs.last(where: { $0.leg.endsAtPin }) {
-            occupied.append(flagRect(foot: pinLeg.destination, scale: scale))
-        }
-        let viewport = CGRect(origin: .zero, size: size).insetBy(dx: 4, dy: 4)
-        for item in screenLegs {
-            let text = Text(labelText(for: item.leg, pixelsPerMetre: overlay.ppm))
-                .font(.system(size: labelFontSize, weight: .heavy, design: .rounded))
+        let strings = labelTexts(geometry, pixelsPerMetre: overlay.ppm)
+        var resolvedTexts: [GraphicsContext.ResolvedText] = []
+        var sizes: [CGSize] = []
+        for (index, string) in strings.enumerated() {
+            let isTeeLabel = index >= geometry.legs.count
+            let text = Text(string)
+                .font(.system(size: isTeeLabel ? 11 : labelFontSize, weight: .heavy, design: .rounded))
                 .foregroundColor(.white)
             let resolved = context.resolve(text)
-            let measured = resolved.measure(in: CGSize(width: 240, height: 60))
-            let labelSize = CGSize(
-                width: ceil(measured.width) + labelPadding.width * 2,
-                height: ceil(measured.height) + labelPadding.height * 2
-            )
-            let rect = labelRect(
-                landing: item.destination,
-                from: item.origin,
-                endsAtPin: item.leg.endsAtPin,
-                flagScale: scale,
-                labelSize: labelSize,
-                viewport: viewport,
-                occupied: occupied,
-                routeSamples: routeSamples
-            )
-            occupied.append(rect)
+            let raw = resolved.measure(in: CGSize(width: 240, height: 60))
+            let width: CGFloat = ceil(raw.width) + labelPadding.width * 2
+            let height: CGFloat = ceil(raw.height) + labelPadding.height * 2
+            resolvedTexts.append(resolved)
+            sizes.append(CGSize(width: width, height: height))
+        }
+        let rects = labelRects(geometry, labelSizes: sizes, flagScale: scale, viewportSize: size)
+        for (index, rect) in rects.enumerated() where index < resolvedTexts.count {
+            guard let rect else { continue }
+            let dimmed = index < geometry.legs.count && !geometry.legs[index].leg.isSelected
             context.fill(Path(roundedRect: rect, cornerRadius: rect.height / 2),
-                         with: .color(.black.opacity(item.leg.isSelected ? 0.74 : 0.5)))
-            context.draw(resolved, at: CGPoint(x: rect.midX, y: rect.midY))
+                         with: .color(.black.opacity(dimmed ? 0.5 : 0.74)))
+            context.draw(resolvedTexts[index], at: CGPoint(x: rect.midX, y: rect.midY))
         }
     }
 
-    /// Candidate positions in preference order: beside the landing across the flight direction
-    /// (either side), then above/below; for the flag, to its left, clear of the pennant. The first
-    /// candidate inside the viewport that touches nothing wins; otherwise the least-bad clamped one.
-    static func labelRect(
-        landing: CGPoint,
-        from origin: CGPoint,
-        endsAtPin: Bool,
-        flagScale: CGFloat,
-        labelSize: CGSize,
+    /// A label to place: its size and candidate centres in preference order.
+    struct LabelRequest {
+        let size: CGSize
+        let candidates: [CGPoint]
+    }
+
+    /// Greedy placement in request order. Overlapping an already placed label is never accepted
+    /// while any candidate (as given, or clamped into the viewport) avoids it; after that the
+    /// viewport, the obstacles and the sampled lines are avoided in that order.
+    static func layoutLabels(
+        _ requests: [LabelRequest],
         viewport: CGRect,
-        occupied: [CGRect],
-        routeSamples: [CGPoint]
-    ) -> CGRect {
-        let w = labelSize.width
-        let h = labelSize.height
-        var dx = landing.x - origin.x
-        var dy = landing.y - origin.y
-        let length = hypot(dx, dy)
+        obstacles: [CGRect],
+        samples: [CGPoint]
+    ) -> [CGRect] {
+        var placed: [CGRect] = []
+        for request in requests {
+            let halfW: CGFloat = request.size.width / 2
+            let halfH: CGFloat = request.size.height / 2
+            let raw: [CGRect] = request.candidates.map {
+                CGRect(x: $0.x - halfW, y: $0.y - halfH, width: request.size.width, height: request.size.height)
+            }
+            let options: [CGRect] = raw + raw.map { clampedRect($0, into: viewport) }
+            func score(_ rect: CGRect) -> Int {
+                let padded = rect.insetBy(dx: -2, dy: -2)
+                let labelHits: Int = placed.filter { $0.intersects(padded) }.count
+                let outside: Int = viewport.contains(rect) ? 0 : 1
+                let obstacleHits: Int = obstacles.filter { $0.intersects(rect) }.count
+                let lineHits: Int = samples.filter { padded.contains($0) }.count
+                return labelHits * 100_000 + outside * 10_000 + obstacleHits * 100 + lineHits
+            }
+            var best = options[0]
+            var bestScore = score(best)
+            for option in options.dropFirst() where bestScore > 0 {
+                let value = score(option)
+                if value < bestScore {
+                    best = option
+                    bestScore = value
+                }
+            }
+            placed.append(best)
+        }
+        return placed
+    }
+
+    /// Beside the landing across the flight direction (either side), then above/below, then the
+    /// diagonals, each at growing distance.
+    static func landingCandidates(landing: CGPoint, from origin: CGPoint, labelSize: CGSize) -> [CGPoint] {
+        var dx: CGFloat = landing.x - origin.x
+        var dy: CGFloat = landing.y - origin.y
+        let length: CGFloat = hypot(dx, dy)
         if length > 1 { dx /= length; dy /= length } else { dx = 0; dy = -1 }
         let normal = CGPoint(x: -dy, y: dx)
-        let gap: CGFloat = 12
-        let acrossX: CGFloat = abs(normal.x) * w / 2
-        let acrossY: CGFloat = abs(normal.y) * h / 2
-        let across: CGFloat = acrossX + acrossY + gap
-        let halfW: CGFloat = w / 2
-        let halfH: CGFloat = h / 2
-        let centres: [CGPoint]
-        if endsAtPin {
-            let flagHeight: CGFloat = LiveMapFlagRenderer.poleHeight * flagScale
-            let flagWidth: CGFloat = (LiveMapFlagRenderer.pennantWidth + 2) * flagScale
-            let flagMidY: CGFloat = landing.y - flagHeight / 2
-            let leftX: CGFloat = landing.x - gap - halfW
-            let rightX: CGFloat = landing.x + flagWidth + gap + halfW
-            let aboveY: CGFloat = landing.y - flagHeight - gap - halfH
-            let belowY: CGFloat = landing.y + gap + halfH
-            centres = [
-                CGPoint(x: leftX, y: flagMidY),
-                CGPoint(x: rightX, y: flagMidY),
-                CGPoint(x: landing.x, y: aboveY),
-                CGPoint(x: landing.x, y: belowY),
-            ]
-        } else {
+        let halfW: CGFloat = labelSize.width / 2
+        let halfH: CGFloat = labelSize.height / 2
+        let acrossX: CGFloat = abs(normal.x) * halfW
+        let acrossY: CGFloat = abs(normal.y) * halfH
+        var centres: [CGPoint] = []
+        for gap in [CGFloat(12), 30, 52] {
+            let across: CGFloat = acrossX + acrossY + gap
             let offsetX: CGFloat = normal.x * across
             let offsetY: CGFloat = normal.y * across
-            let clearance: CGFloat = gap + 8 + halfH
-            centres = [
-                CGPoint(x: landing.x + offsetX, y: landing.y + offsetY),
-                CGPoint(x: landing.x - offsetX, y: landing.y - offsetY),
-                CGPoint(x: landing.x, y: landing.y - clearance),
-                CGPoint(x: landing.x, y: landing.y + clearance),
-            ]
+            let vertical: CGFloat = halfH + gap + 8
+            let horizontal: CGFloat = halfW + gap
+            centres.append(CGPoint(x: landing.x + offsetX, y: landing.y + offsetY))
+            centres.append(CGPoint(x: landing.x - offsetX, y: landing.y - offsetY))
+            centres.append(CGPoint(x: landing.x, y: landing.y - vertical))
+            centres.append(CGPoint(x: landing.x, y: landing.y + vertical))
+            centres.append(CGPoint(x: landing.x + horizontal, y: landing.y - vertical))
+            centres.append(CGPoint(x: landing.x - horizontal, y: landing.y - vertical))
+            centres.append(CGPoint(x: landing.x + horizontal, y: landing.y + vertical))
+            centres.append(CGPoint(x: landing.x - horizontal, y: landing.y + vertical))
         }
-        let rects = centres.map { CGRect(x: $0.x - halfW, y: $0.y - halfH, width: w, height: h) }
-        func conflicts(_ rect: CGRect) -> Int {
-            let padded = rect.insetBy(dx: -2, dy: -2)
-            let overlaps: Int = occupied.filter { $0.intersects(rect) }.count
-            let crossings: Int = routeSamples.filter { padded.contains($0) }.count
-            return overlaps + crossings
+        return centres
+    }
+
+    /// Left of the pole first (the pennant flies right), then right of the pennant, above, below.
+    static func pinCandidates(foot: CGPoint, flagScale: CGFloat, labelSize: CGSize) -> [CGPoint] {
+        let halfW: CGFloat = labelSize.width / 2
+        let halfH: CGFloat = labelSize.height / 2
+        let flagHeight: CGFloat = LiveMapFlagRenderer.poleHeight * flagScale
+        let flagWidth: CGFloat = (LiveMapFlagRenderer.pennantWidth + 2) * flagScale
+        let flagMidY: CGFloat = foot.y - flagHeight / 2
+        var centres: [CGPoint] = []
+        for gap in [CGFloat(10), 28, 48] {
+            centres.append(CGPoint(x: foot.x - gap - halfW, y: flagMidY))
+            centres.append(CGPoint(x: foot.x + flagWidth + gap + halfW, y: flagMidY))
+            centres.append(CGPoint(x: foot.x, y: foot.y - flagHeight - gap - halfH))
+            centres.append(CGPoint(x: foot.x, y: foot.y + gap + halfH))
         }
-        if let clear = rects.first(where: { viewport.contains($0) && conflicts($0) == 0 }) {
-            return clear
+        return centres
+    }
+
+    /// Along the tee-distance arc, just above (then below) it: the middle first, then towards
+    /// either end, so the label leaves the route where the arc crosses it.
+    static func teeArcCandidates(arc: MapFlightArc, labelSize: CGSize) -> [CGPoint] {
+        let lift: CGFloat = labelSize.height / 2 + 6
+        var centres: [CGPoint] = []
+        for side in [CGFloat(-1), 1] {
+            for t in [CGFloat(0.5), 0.78, 0.22, 0.92, 0.08] {
+                let point = quadPoint(arc, t: t)
+                centres.append(CGPoint(x: point.x, y: point.y + side * lift))
+            }
         }
-        let clamped = rects.map { clampedRect($0, into: viewport) }
-        return clamped.min { conflicts($0) < conflicts($1) } ?? clamped[0]
+        return centres
     }
 
     static func flagRect(foot: CGPoint, scale: CGFloat) -> CGRect {
@@ -526,7 +662,7 @@ enum LivePlannedRouteRenderer {
         return points
     }
 
-    private static func quadPoint(_ arc: MapFlightArc, t: CGFloat) -> CGPoint {
+    static func quadPoint(_ arc: MapFlightArc, t: CGFloat) -> CGPoint {
         let u: CGFloat = 1 - t
         let a: CGFloat = u * u
         let b: CGFloat = 2 * u * t

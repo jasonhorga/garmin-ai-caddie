@@ -911,12 +911,17 @@ public struct CurrentHoleView: View {
                 .offset(heroDisplayedMapOffset(in: geo.size))
 
                 if let holePrep, let overlay = holePrep.resolvedMapOverlay {
-                    let legs = liveHoleImageMap(holePrep).plannedLegs()
+                    let liveMap = liveHoleImageMap(holePrep)
+                    let legs = liveMap.plannedLegs()
+                    let teeArc = liveMap.teeDistanceArcPixels()
+                    let teeArcYards = liveMap.teeDistanceArcYards
                     Canvas { context, size in
                         LivePlannedRouteRenderer.draw(
                             &context,
                             size: size,
                             legs: legs,
+                            teeArc: teeArc,
+                            teeArcYards: teeArcYards,
                             overlay: overlay,
                             scale: heroDisplayedMapScale,
                             offset: heroDisplayedMapOffset(in: size),

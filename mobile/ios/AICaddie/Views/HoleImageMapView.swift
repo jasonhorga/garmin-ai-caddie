@@ -126,8 +126,10 @@ public struct HoleImageMapView: View {
     /// Preparation-only viewport rotation. The complete map stack rotates as one unit; live play
     /// keeps Garmin's fixed orientation and Watch callers never enable this control.
     public let allowsRotation: Bool
-    /// Live play draws the multi-leg caddie route (arcs, landings and "杆名 码数" labels) in its own
-    /// viewport-plane layer from `plannedLegs()`. The bitmap then skips it so nothing is doubled.
+    /// Live play draws the multi-leg caddie route (arcs, landings and "杆名 码数" labels) and the
+    /// tee-distance arc in its own viewport-plane layer from `plannedLegs()` /
+    /// `teeDistanceArcPixels()`, so all labels share one collision layout. The bitmap then skips
+    /// both so nothing is doubled.
     public let drawsPlannedRouteInMap: Bool
 
     public init(hole: CoursePrepHole, selectedClub: String? = nil, selectedClubMetres: Double? = nil,
@@ -294,7 +296,8 @@ public struct HoleImageMapView: View {
             }
             context.fill(Path(ellipseIn: CGRect(x: tee.x - 5, y: tee.y - 5, width: 10, height: 10)), with: .color(.white))
         }
-        if let teeDistanceArcYards,
+        if drawsPlannedRouteInMap,
+           let teeDistanceArcYards,
            teeDistanceArcYards > 0,
            let arc = Self.teeDistanceArc(
                overlay: overlay,
@@ -473,6 +476,19 @@ public struct HoleImageMapView: View {
             origin = destination
         }
         return legs
+    }
+
+    /// The tee-distance reference arc in topo pixels, for the live viewport layer that lays out its
+    /// "N码" label together with the leg labels.
+    func teeDistanceArcPixels() -> MapFlightArc? {
+        guard let overlay = hole.resolvedMapOverlay,
+              let teeDistanceArcYards,
+              teeDistanceArcYards > 0 else { return nil }
+        return Self.teeDistanceArc(
+            overlay: overlay,
+            targetYards: teeDistanceArcYards,
+            size: CGSize(width: overlay.w, height: overlay.h)
+        )
     }
 
     /// The planned route in topo pixels (the overlay's own frame), exactly as the bitmap would draw
