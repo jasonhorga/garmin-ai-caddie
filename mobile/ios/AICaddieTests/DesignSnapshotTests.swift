@@ -840,8 +840,9 @@ final class DesignSnapshotTests: XCTestCase {
             ScrollView {
                 RoundReviewContent(detail: roundDetail, isLoading: false, errorText: nil, fallbackCourseName: "Fixture Links")
             }
-            .background(HubStyle.grouped),
-            named: "round-review"
+            .background(LivePlayStyle.base),
+            named: "round-review",
+            dark: true
         )
 
         // 数据统计: overview KPIs + 近场折线图 + 成绩分布 + by-par(3/4/5) + putting + trends + quarter +
@@ -980,28 +981,55 @@ final class DesignSnapshotTests: XCTestCase {
         {"start":[110,120],"end":[119,60],"club":"SW","lie":"Bunker","endLie":"Green","shotType":"APPROACH","order":3,"synthetic":false}]}
         """
         let shotMap = try JSONDecoder().decode(RoundHoleShotMap.self, from: Data(shotMapJSON.utf8))
+        let reviewScorecard = roundDetail.scorecard
+        // B3 每洞落点: score box on top, numbered landings coloured by lie with "一号木 200" labels and
+        // "推 ×2", the 18-hole score strip at the bottom.
         try captureScreen(
-            VStack(spacing: 0) {
-                RoundShotMapView(shotMap: shotMap)
+            VStack(spacing: 10) {
+                HStack {
+                    RoundHoleScoreBox(hole: 1, par: 4, row: reviewScorecard.first, putts: 2, penalties: 0)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                RoundShotMapView(shotMap: shotMap, putts: 2)
                 Spacer(minLength: 0)
+                RoundHoleScoreStrip(holes: reviewScorecard.map(\.hole), current: 1, scorecard: reviewScorecard, onSelect: { _ in })
             }
-            .background(Color(red: 0.10, green: 0.10, blue: 0.09)),
-            named: "round-shot-map"
+            .padding(.top, 12)
+            .background(RoundHoleMapStyle.base),
+            named: "round-shot-map",
+            dark: true
         )
 
-        // 复盘编辑态 (PR2): same shot map with the edit layer → a drag-handle ring on every landing +
-        // the per-hole 罚杆 stepper. (Non-nil editModel = editing; the reorder List is empty in the
-        // snapshot because ImageRenderer/window doesn't render List content — verified on device/XCUITest.)
-        let editModel = RoundEditModel(map: shotMap, sync: SyncClient(baseURL: URL(string: "https://caddie.example")!), roundRef: "r1")
+        // B3 同屏改杆: the same map as drag handles. With a shot selected the bar shows ‹ 第 N 杆 · D 码 ›
+        // + 删除, the club pills (guess first) and the lie grid; with none selected 推杆 / 罚杆 −/+.
+        let editModel = RoundEditModel(
+            map: shotMap,
+            sync: SyncClient(baseURL: URL(string: "https://caddie.example")!),
+            roundRef: "r1",
+            putts: 2
+        )
         editModel.enterEdit()
         try captureScreen(
-            VStack(spacing: 12) {
-                RoundShotMapView(shotMap: shotMap, editModel: editModel).frame(height: 420)
-                PenaltyStepper(value: 1) { _ in }.hubCard()
+            VStack(spacing: 0) {
+                RoundShotMapView(shotMap: editModel.map, editModel: editModel).frame(height: 460)
+                Spacer(minLength: 0)
+                RoundShotEditBar(editModel: editModel)
             }
-            .padding(24)
-            .background(HubStyle.grouped),
-            named: "review-edit-handles"
+            .background(RoundHoleMapStyle.base),
+            named: "review-edit-counters",
+            dark: true
+        )
+        editModel.selectedShotId = editModel.map.shots[1].id
+        try captureScreen(
+            VStack(spacing: 0) {
+                RoundShotMapView(shotMap: editModel.map, editModel: editModel).frame(height: 460)
+                Spacer(minLength: 0)
+                RoundShotEditBar(editModel: editModel)
+            }
+            .background(RoundHoleMapStyle.base),
+            named: "review-edit-handles",
+            dark: true
         )
 
         // 拖动放大镜 loupe (PR2, 设计 §5): the circular magnifier that floats above the finger while

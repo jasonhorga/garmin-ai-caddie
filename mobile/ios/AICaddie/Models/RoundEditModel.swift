@@ -1,8 +1,9 @@
 import Foundation
 
-/// One-hole review editor. Every gesture changes only this in-memory draft; Cancel restores the
-/// original map and Save emits exactly one whole-hole correction event. This keeps the visible map,
-/// numbered list, order, deletions and penalty count on one source of truth without partial writes.
+/// One-hole review editor (B3 同屏改杆). Every gesture changes only this in-memory draft; Cancel
+/// restores the original map and Save emits exactly one whole-hole correction event (plus one putt
+/// correction when the putt count changed). The server diffs the whole-hole snapshot into the
+/// per-change correction log, so the map, order, deletions and penalty stay on one source of truth.
 @MainActor
 public final class RoundEditModel: ObservableObject {
     @Published public var map: RoundHoleShotMap
@@ -12,9 +13,9 @@ public final class RoundEditModel: ObservableObject {
     @Published public var saveError: String?
     @Published public var draggingShotId: String?
     @Published public var selectedShotId: String?
-    /// Transient request emitted by list controls and consumed by the map overlay. Keeping the
-    /// request on the shared draft lets a sibling list open the same precision editor as a map tap.
-    @Published public var precisionShotRequest: String?
+    /// The hole's putt count as the scorecard shows it (nil = not recorded). Edited with the bottom
+    /// bar's 推杆 −/+ while no shot is selected; saved as a `putt_correction`.
+    @Published public private(set) var putts: Int?
     /// A current prodgeometry revision plus its exact overlay owns the authoritative pixel frame.
     /// The PNG is transferred through the revision-bound topo URL rather than repeated inside every
     /// shot-map JSON response, so `map.image == nil` does not make that frame imprecise. CourseData
@@ -35,9 +36,17 @@ public final class RoundEditModel: ObservableObject {
     private var originalMap: RoundHoleShotMap
     private var routeOrigin: [Int]?
     private var pendingSaveOp: RoundCorrectionOp?
+    private var pendingPuttCorrection: HolePuttCorrection?
+    private var originalPutts: Int?
+    private var shotsChanged = false
+    private let now: () -> Date
 
-    public init(map: RoundHoleShotMap, sync: SyncClient, roundRef: String, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil) {
+    public init(map: RoundHoleShotMap, sync: SyncClient, roundRef: String, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil,
+                putts: Int? = nil, now: @escaping () -> Date = Date.init) {
         self.map = map
+        self.putts = putts
+        self.originalPutts = putts
+        self.now = now
         self.originalMap = map
         self.sync = sync
         self.roundRef = roundRef
@@ -52,26 +61,25 @@ public final class RoundEditModel: ObservableObject {
         guard !isSaving else { return }
         map = editableCopy(of: originalMap)
         routeOrigin = Self.resolvedRouteOrigin(in: originalMap)
+        putts = originalPutts
         isEditing = true
-        hasUnsavedChanges = false
-        saveError = nil
-        draggingShotId = nil
-        selectedShotId = nil
-        precisionShotRequest = nil
-        pendingSaveOp = nil
+        resetDraftState()
     }
 
     /// Discard the complete draft. No network request has occurred, so this is a real cancellation.
     public func cancelEdit() {
         guard !isSaving else { return }
         map = originalMap
+        putts = originalPutts
         isEditing = false
-        hasUnsavedChanges = false
-        saveError = nil
-        draggingShotId = nil
-        selectedShotId = nil
-        precisionShotRequest = nil
-        pendingSaveOp = nil
+        resetDraftState()
+    }
+
+    /// The scorecard can arrive after the map; adopt its putt count unless a draft is open.
+    public func adoptRecordedPutts(_ value: Int?) {
+        guard !isEditing, originalPutts != value else { return }
+        originalPutts = value
+        putts = value
     }
 
     /// Compatibility name for older call sites; leaving edit mode always means discarding its draft.
@@ -80,7 +88,9 @@ public final class RoundEditModel: ObservableObject {
     // MARK: - Draft-only operations
 
     /// Add a position to the draft immediately. It goes after the selected/explicit shot, otherwise at
-    /// the end; the numbered list can then reorder it. No modal confirmation and no server write.
+    /// the end; ‹ › can then reorder it. Without an explicit club the club is guessed from the
+    /// distance the new shot travelled (README §7) and left unconfirmed (no `manual` source) until
+    /// the player picks one. No modal confirmation and no server write.
     @discardableResult
     public func addShot(
         px: [Double],
@@ -99,11 +109,15 @@ public final class RoundEditModel: ObservableObject {
         }
         let previous = insertIndex > 0 ? map.shots[insertIndex - 1] : nil
         let shotId = "draft-\(UUID().uuidString.lowercased())"
+        let start = previous?.end ?? routeOrigin ?? end
+        let guessed = normalizedOptional(club) == nil
+            ? RoundClubGuess.club(forYards: Self.yards(from: start, to: end, ppm: map.map?.overlay.ppm))
+            : nil
         let shot = RoundShot(
             shotId: shotId,
-            start: previous?.end ?? routeOrigin ?? end,
+            start: start,
             end: end,
-            club: normalizedOptional(club),
+            club: normalizedOptional(club) ?? guessed,
             lie: normalizedOptional(lie) ?? previous?.endLie,
             endLie: nil,
             shotType: "MANUAL",
@@ -198,17 +212,38 @@ public final class RoundEditModel: ObservableObject {
         markChanged()
     }
 
-    /// Ask the overlaid map to open the full precision surface for one existing landing.
-    /// Position editing remains fail-closed when the map has no authoritative pixel frame.
-    public func requestPrecision(for shotId: String) {
-        guard canEditPositions,
-              map.shots.contains(where: { $0.id == shotId }) else { return }
+    /// ‹ › in the bottom bar: move one shot one place earlier (-1) or later (+1). The numbers, the
+    /// chained starts and the selection follow the shot.
+    public func moveShot(_ shotId: String, by offset: Int) {
+        guard let index = map.shots.firstIndex(where: { $0.id == shotId }) else { return }
+        let target = index + offset
+        guard offset != 0, map.shots.indices.contains(target) else { return }
+        var ids = map.shots.map(\.id)
+        ids.swapAt(index, target)
+        reorder(ids)
         selectedShotId = shotId
-        precisionShotRequest = shotId
     }
 
-    public func clearPrecisionRequest() {
-        precisionShotRequest = nil
+    /// 推杆 −/+ (only while no shot is selected). An unrecorded count starts from zero.
+    public func adjustPutts(by delta: Int) {
+        let next = min(max(0, (putts ?? 0) + delta), Self.maximumPutts)
+        guard putts == nil || next != putts else { return }
+        putts = next
+        pendingPuttCorrection = nil
+        refreshUnsavedState()
+    }
+
+    /// 罚杆 −/+ on the same bar; the stored manual penalty stays within the server's 0...100.
+    public func adjustPenalty(by delta: Int) {
+        setPenalty(map.manualPenalty + delta)
+    }
+
+    public static let maximumPutts = 9
+
+    /// Straight-line yards of one draft shot (the bottom bar's "第 N 杆 · D 码").
+    public func yards(of shotId: String) -> Int? {
+        guard let shot = map.shots.first(where: { $0.id == shotId }) else { return nil }
+        return Self.yards(from: shot.start, to: shot.end, ppm: map.map?.overlay.ppm)
     }
 
     // MARK: - Commit / refresh
@@ -219,36 +254,49 @@ public final class RoundEditModel: ObservableObject {
         guard isEditing, !isSaving else { return false }
         guard hasUnsavedChanges else {
             map = originalMap
+            putts = originalPutts
             isEditing = false
-            hasUnsavedChanges = false
-            saveError = nil
-            draggingShotId = nil
-            selectedShotId = nil
-            precisionShotRequest = nil
-            pendingSaveOp = nil
+            resetDraftState()
             return true
         }
 
         isSaving = true
         saveError = nil
-        let operation = pendingSaveOp ?? (
-            canEditPositions
+        let clientTime = RoundCorrectionClock.now(now())
+        // Both writes are prepared once and reused on retry, so their idempotency keys never change
+        // and an already-accepted half is simply acknowledged again by the server.
+        if shotsChanged, pendingSaveOp == nil {
+            pendingSaveOp = canEditPositions
                 ? RoundCorrectionOp.replaceHoleShots(
                     hole: map.hole,
                     shots: map.shots,
                     manualPenalty: map.manualPenalty,
-                    geometryRevision: map.geometryRevision
+                    geometryRevision: map.geometryRevision,
+                    clientTime: clientTime
                 )
                 : RoundCorrectionOp.replaceHoleFacts(
                     hole: map.hole,
                     shots: map.shots,
-                    manualPenalty: map.manualPenalty
+                    manualPenalty: map.manualPenalty,
+                    clientTime: clientTime
                 )
-        )
-        pendingSaveOp = operation
+        }
+        if let putts, putts != originalPutts, pendingPuttCorrection == nil {
+            pendingPuttCorrection = HolePuttCorrection(
+                roundRef: roundRef, hole: map.hole, to: putts, from: originalPutts, clientTime: clientTime
+            )
+        }
         do {
-            try await sync.postRoundCorrection(roundRef: roundRef, operation)
-            if let fresh = try? await sync.fetchRoundShotMap(roundRef: roundRef, hole: map.hole, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox) {
+            if let operation = pendingSaveOp {
+                try await sync.postRoundCorrection(roundRef: roundRef, operation)
+            }
+            if let correction = pendingPuttCorrection {
+                try await sync.postHolePuttCorrection(correction)
+            }
+            originalPutts = putts
+            if !shotsChanged {
+                map = originalMap
+            } else if let fresh = try? await sync.fetchRoundShotMap(roundRef: roundRef, hole: map.hole, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox) {
                 map = fresh
                 originalMap = fresh
             } else {
@@ -257,10 +305,7 @@ public final class RoundEditModel: ObservableObject {
             routeOrigin = Self.resolvedRouteOrigin(in: originalMap)
             isSaving = false
             isEditing = false
-            hasUnsavedChanges = false
-            draggingShotId = nil
-            selectedShotId = nil
-            pendingSaveOp = nil
+            resetDraftState()
             return true
         } catch {
             isSaving = false
@@ -283,9 +328,31 @@ public final class RoundEditModel: ObservableObject {
     // MARK: - Helpers
 
     private func markChanged() {
-        hasUnsavedChanges = true
-        saveError = nil
+        shotsChanged = true
         pendingSaveOp = nil
+        refreshUnsavedState()
+    }
+
+    private func refreshUnsavedState() {
+        hasUnsavedChanges = shotsChanged || putts != originalPutts
+        saveError = nil
+    }
+
+    private func resetDraftState() {
+        shotsChanged = false
+        hasUnsavedChanges = false
+        saveError = nil
+        draggingShotId = nil
+        selectedShotId = nil
+        pendingSaveOp = nil
+        pendingPuttCorrection = nil
+    }
+
+    nonisolated static func yards(from start: [Int]?, to end: [Int]?, ppm: Double?) -> Int? {
+        guard let start, start.count >= 2, let end, end.count >= 2, let ppm, ppm > 0 else { return nil }
+        let dx = Double(end[0] - start[0])
+        let dy = Double(end[1] - start[1])
+        return Int(((dx * dx + dy * dy).squareRoot() / ppm * 1.09361).rounded())
     }
 
     @discardableResult
@@ -423,5 +490,34 @@ public final class RoundEditModel: ObservableObject {
         if let start = map.shots.first?.start, start.count >= 2 { return start }
         guard let first = map.map?.overlay.route.first, first.count >= 2 else { return nil }
         return [Int(first[0].rounded()), Int(first[1].rounded())]
+    }
+}
+
+/// Club guess for a shot added on the map (README §7 "球杆按距离预猜"): the club whose typical carry
+/// is closest to the shot's straight-line yards. The table is the design prototype's; the bottom bar
+/// lists the guess first and the player can always pick another club.
+public enum RoundClubGuess {
+    public static let typicalCarryYards: [(club: String, yards: Int)] = [
+        ("一号木", 231), ("三号木", 210), ("五号木", 195), ("四号铁", 180), ("五号铁", 170),
+        ("六号铁", 160), ("七号铁", 150), ("八号铁", 140), ("九号铁", 128), ("PW", 115),
+        ("GW", 100), ("SW", 85), ("LW", 65),
+    ]
+
+    public static func club(forYards yards: Int?) -> String? {
+        guard let yards, yards > 0 else { return nil }
+        return typicalCarryYards.min { abs($0.yards - yards) < abs($1.yards - yards) }?.club
+    }
+
+    /// The pill row: the guess first, then the rest in bag order, the recorded club kept even when
+    /// it is not in the list.
+    public static func orderedClubs(guess: String?, current: String?, clubs: [String]) -> [String] {
+        var options = roundEditClubOptions(current: current, clubs: clubs)
+        if let guess, let index = options.firstIndex(of: guess) {
+            options.remove(at: index)
+            options.insert(guess, at: 0)
+        } else if let guess {
+            options.insert(guess, at: 0)
+        }
+        return options
     }
 }

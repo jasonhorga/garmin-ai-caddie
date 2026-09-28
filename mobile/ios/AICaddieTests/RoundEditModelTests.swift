@@ -220,11 +220,159 @@ final class RoundEditModelTests: XCTestCase {
         await fulfillment(of: [posted], timeout: 2)
     }
 
+    // MARK: B3 同屏改杆
+
+    func testTapAddGoesAfterTheSelectedShotAndGuessesTheClubFromTheDistance() {
+        let model = makeModel(ppm: 0.5) { request in Self.response(request, status: 503) }
+        model.enterEdit()
+        model.selectedShotId = "shot-1"
+
+        // shot-1 lands at [40, 65]; 65 px at 0.5 px/m is 130 m = 142 yd → 八号铁 (140).
+        let added = model.addShot(px: [40, 0], afterShotId: model.selectedShotId)
+
+        XCTAssertEqual(model.map.shots.map(\.id), ["shot-1", added, "shot-2"])
+        XCTAssertEqual(model.map.shots.map(\.order), [1, 2, 3])
+        XCTAssertEqual(model.map.shots[1].start, [40, 65])
+        XCTAssertEqual(model.map.shots[2].start, [40, 0])
+        XCTAssertEqual(model.map.shots[1].club, "八号铁")
+        XCTAssertNil(model.map.shots[1].clubSource, "a guessed club is not a confirmed edit")
+        XCTAssertEqual(model.yards(of: added), 142)
+        XCTAssertEqual(model.selectedShotId, added)
+    }
+
+    func testClubGuessPicksTheNearestTypicalCarryAndListsItFirst() {
+        XCTAssertEqual(RoundClubGuess.club(forYards: 228), "一号木")
+        XCTAssertEqual(RoundClubGuess.club(forYards: 152), "七号铁")
+        XCTAssertEqual(RoundClubGuess.club(forYards: 40), "LW")
+        XCTAssertNil(RoundClubGuess.club(forYards: nil))
+        let ordered = RoundClubGuess.orderedClubs(guess: "七号铁", current: "1W", clubs: ["一号木", "七号铁", "PW"])
+        XCTAssertEqual(ordered.first, "七号铁")
+        XCTAssertEqual(Set(ordered), ["一号木", "七号铁", "P 杆"])
+    }
+
+    func testOrderArrowsMoveOneShotOnePlaceAndRenumber() {
+        let model = makeModel { request in Self.response(request, status: 503) }
+        model.enterEdit()
+
+        model.moveShot("shot-1", by: -1)
+        XCTAssertFalse(model.hasUnsavedChanges, "the first shot cannot move earlier")
+
+        model.moveShot("shot-1", by: 1)
+        XCTAssertEqual(model.map.shots.map(\.id), ["shot-2", "shot-1"])
+        XCTAssertEqual(model.map.shots.map(\.order), [1, 2])
+        XCTAssertEqual(model.map.shots[0].start, [50, 95], "the new first shot starts at the tee")
+        XCTAssertEqual(model.map.shots[1].start, model.map.shots[0].end)
+        XCTAssertEqual(model.selectedShotId, "shot-1")
+        XCTAssertTrue(model.hasUnsavedChanges)
+    }
+
+    func testDeletingRenumbersTheRemainingShots() {
+        let model = makeModel { request in Self.response(request, status: 503) }
+        model.enterEdit()
+        model.selectedShotId = "shot-1"
+
+        model.delete(shotId: "shot-1")
+
+        XCTAssertEqual(model.map.shots.map(\.id), ["shot-2"])
+        XCTAssertEqual(model.map.shots.map(\.order), [1])
+        XCTAssertEqual(model.map.shots[0].start, [50, 95])
+        XCTAssertNil(model.selectedShotId)
+    }
+
+    func testPuttsOnlySavePostsOnePuttCorrectionAndNoShotSnapshot() async throws {
+        var paths: [String] = []
+        var annotation: [String: Any] = [:]
+        let model = makeModel(putts: 2, now: { Date(timeIntervalSince1970: 1_790_000_000) }) { request in
+            if request.httpMethod == "POST" {
+                paths.append(request.url?.path ?? "")
+                let body = try CapturingURLProtocol.requestBodyData(from: request)
+                annotation = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                return Self.response(request, status: 201, body: #"{"schema":"ai-caddie-annotation-create-v1"}"#)
+            }
+            return Self.response(request, status: 503)
+        }
+
+        model.enterEdit()
+        model.adjustPutts(by: 1)
+        XCTAssertEqual(model.putts, 3)
+        XCTAssertTrue(model.hasUnsavedChanges)
+        let saved = await model.save()
+
+        XCTAssertTrue(saved)
+        XCTAssertEqual(paths, ["/api/v2/annotations"])
+        XCTAssertEqual(annotation["targetType"] as? String, "hole")
+        XCTAssertEqual(annotation["targetId"] as? String, "round-1:4")
+        XCTAssertEqual(annotation["kind"] as? String, "putt_correction")
+        let payload = try XCTUnwrap(annotation["payload"] as? [String: Any])
+        XCTAssertEqual(payload["to"] as? Int, 3)
+        XCTAssertEqual(payload["from"] as? Int, 2)
+        XCTAssertFalse((annotation["clientMutationId"] as? String ?? "").isEmpty)
+        XCTAssertEqual(annotation["clientTime"] as? String, "2026-09-21T14:13:20Z")
+        XCTAssertEqual(model.putts, 3)
+        XCTAssertFalse(model.hasUnsavedChanges)
+    }
+
+    func testPuttsAndPenaltyStayInBounds() {
+        let model = makeModel(putts: nil) { request in Self.response(request, status: 503) }
+        model.enterEdit()
+        model.adjustPutts(by: -1)
+        XCTAssertEqual(model.putts, 0, "an unrecorded count starts from zero")
+        for _ in 0..<20 { model.adjustPutts(by: 1) }
+        XCTAssertEqual(model.putts, RoundEditModel.maximumPutts)
+        model.adjustPenalty(by: -1)
+        XCTAssertEqual(model.map.manualPenalty, 0)
+        model.adjustPenalty(by: 2)
+        XCTAssertEqual(model.map.manualPenalty, 2)
+        model.cancelEdit()
+        XCTAssertNil(model.putts)
+        XCTAssertEqual(model.map.manualPenalty, 0)
+    }
+
+    func testShotAndPuttSaveRetryReusesBothIdempotencyKeysAndSendsClientTime() async throws {
+        var corrections: [[String: Any]] = []
+        var annotations: [[String: Any]] = []
+        var failAnnotation = true
+        let model = makeModel(putts: 2, now: { Date(timeIntervalSince1970: 1_790_000_000) }) { request in
+            guard request.httpMethod == "POST" else { return Self.response(request, status: 503) }
+            let body = try CapturingURLProtocol.requestBodyData(from: request)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            if request.url?.path == "/api/v2/annotations" {
+                annotations.append(json)
+                if failAnnotation {
+                    failAnnotation = false
+                    return Self.response(request, status: 503)
+                }
+            } else {
+                corrections.append(json)
+            }
+            return Self.response(request, status: 201, body: #"{"stored":{}}"#)
+        }
+
+        model.enterEdit()
+        model.editClub(shotId: "shot-2", "八号铁")
+        model.adjustPutts(by: -1)
+        let first = await model.save()
+        XCTAssertFalse(first)
+        XCTAssertTrue(model.isEditing)
+        let retry = await model.save()
+
+        XCTAssertTrue(retry)
+        XCTAssertEqual(corrections.count, 2)
+        XCTAssertEqual(annotations.count, 2)
+        XCTAssertEqual(corrections[0]["clientMutationId"] as? String, corrections[1]["clientMutationId"] as? String)
+        XCTAssertEqual(annotations[0]["clientMutationId"] as? String, annotations[1]["clientMutationId"] as? String)
+        XCTAssertEqual(corrections[0]["clientTime"] as? String, "2026-09-21T14:13:20Z")
+        XCTAssertEqual(corrections[0]["op"] as? String, "replaceHoleShots")
+    }
+
     private func makeModel(
         shots: [RoundShot]? = nil,
         includeMap: Bool = true,
         includeEmbeddedImage: Bool = true,
         geometryRevision: String? = "geometry-r1",
+        ppm: Double = 1,
+        putts: Int? = nil,
+        now: @escaping () -> Date = Date.init,
         handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
     ) -> RoundEditModel {
         let configuration = URLSessionConfiguration.ephemeral
@@ -235,7 +383,7 @@ final class RoundEditModelTests: XCTestCase {
             overlay: CoursePrepOverlay(
                 w: 100,
                 h: 100,
-                ppm: 1,
+                ppm: ppm,
                 ln: 100,
                 route: [[50, 95, 0], [50, 50, 50], [50, 5, 100]]
             )
@@ -275,7 +423,9 @@ final class RoundEditModelTests: XCTestCase {
                 baseURL: URL(string: "https://example.test")!,
                 session: URLSession(configuration: configuration)
             ),
-            roundRef: "round-1"
+            roundRef: "round-1",
+            putts: putts,
+            now: now
         )
     }
 

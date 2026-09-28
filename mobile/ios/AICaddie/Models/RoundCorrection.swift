@@ -70,13 +70,17 @@ public struct RoundCorrectionOp: Encodable, Equatable {
     public var manualPenalty: Int?
     public var geometryRevision: String?
     public var clientMutationId: String?
+    /// B0d-2: when the player made the change (ISO 8601). Stored for the correction log only; the
+    /// server orders by its own sequence and never trusts this clock.
+    public var clientTime: String?
 
     public init(op: String, shotId: String? = nil, hole: Int? = nil, field: String? = nil,
                 value: AnyCodableValue? = nil, reason: String? = nil, px: [Double]? = nil,
                 club: String? = nil, lie: String? = nil, insertAfterShotId: String? = nil,
                 order: [String]? = nil, shots: [RoundShot]? = nil,
                 factShots: [RoundShotFact]? = nil, manualPenalty: Int? = nil,
-                geometryRevision: String? = nil, clientMutationId: String? = UUID().uuidString) {
+                geometryRevision: String? = nil, clientMutationId: String? = UUID().uuidString,
+                clientTime: String? = nil) {
         self.op = op
         self.shotId = shotId
         self.hole = hole
@@ -93,11 +97,12 @@ public struct RoundCorrectionOp: Encodable, Equatable {
         self.manualPenalty = manualPenalty
         self.geometryRevision = geometryRevision
         self.clientMutationId = clientMutationId
+        self.clientTime = clientTime
     }
 
     private enum CodingKeys: String, CodingKey {
         case op, shotId, hole, field, value, reason, px, club, lie, insertAfterShotId, order
-        case shots, manualPenalty, geometryRevision, clientMutationId
+        case shots, manualPenalty, geometryRevision, clientMutationId, clientTime
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -121,6 +126,7 @@ public struct RoundCorrectionOp: Encodable, Equatable {
         try c.encodeIfPresent(manualPenalty, forKey: .manualPenalty)
         try c.encodeIfPresent(geometryRevision, forKey: .geometryRevision)
         try c.encodeIfPresent(clientMutationId, forKey: .clientMutationId)
+        try c.encodeIfPresent(clientTime, forKey: .clientTime)
     }
 
     // MARK: Constructors (one per edit action; delete carries no reason — the design's direct-delete)
@@ -147,7 +153,8 @@ public struct RoundCorrectionOp: Encodable, Equatable {
         shots: [RoundShot],
         manualPenalty: Int,
         geometryRevision: String?,
-        clientMutationId: String = UUID().uuidString
+        clientMutationId: String = UUID().uuidString,
+        clientTime: String? = nil
     ) -> Self {
         .init(
             op: "replaceHoleShots",
@@ -155,7 +162,8 @@ public struct RoundCorrectionOp: Encodable, Equatable {
             shots: shots,
             manualPenalty: max(0, manualPenalty),
             geometryRevision: geometryRevision,
-            clientMutationId: clientMutationId
+            clientMutationId: clientMutationId,
+            clientTime: clientTime
         )
     }
 
@@ -163,14 +171,51 @@ public struct RoundCorrectionOp: Encodable, Equatable {
         hole: Int,
         shots: [RoundShot],
         manualPenalty: Int,
-        clientMutationId: String = UUID().uuidString
+        clientMutationId: String = UUID().uuidString,
+        clientTime: String? = nil
     ) -> Self {
         .init(
             op: "replaceHoleFacts",
             hole: hole,
             factShots: shots.compactMap { RoundShotFact(shot: $0) },
             manualPenalty: max(0, manualPenalty),
-            clientMutationId: clientMutationId
+            clientMutationId: clientMutationId,
+            clientTime: clientTime
         )
+    }
+}
+
+
+/// A per-hole putt correction (`POST /api/v2/annotations`, `putt_correction`). Putts are a scorecard
+/// fact, not a shot row, so the review editor sends them beside the whole-hole shot save. The server
+/// records the effective before value in the correction log; `from` is only what the client saw.
+public struct HolePuttCorrection: Encodable, Equatable {
+    public let targetType = "hole"
+    public let targetId: String
+    public let kind = "putt_correction"
+    public let payload: Payload
+    public let clientMutationId: String
+    public let clientTime: String?
+
+    public struct Payload: Encodable, Equatable {
+        public let to: Int
+        public let from: Int?
+    }
+
+    public init(roundRef: String, hole: Int, to: Int, from: Int?, clientMutationId: String = UUID().uuidString, clientTime: String? = nil) {
+        targetId = "\(roundRef):\(hole)"
+        payload = Payload(to: max(0, to), from: from)
+        self.clientMutationId = clientMutationId
+        self.clientTime = clientTime
+    }
+
+    private enum CodingKeys: String, CodingKey { case targetType, targetId, kind, payload, clientMutationId, clientTime }
+}
+
+enum RoundCorrectionClock {
+    static func now(_ date: Date = Date()) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: date)
     }
 }

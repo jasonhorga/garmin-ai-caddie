@@ -1038,6 +1038,18 @@ public final class SyncClient {
         try validate(response: response, data: data)
     }
 
+    /// Correct one hole's putts from the review editor (`POST /api/v2/annotations`, `putt_correction`).
+    /// Idempotent on `clientMutationId`, so a retried save never records a second correction.
+    public func postHolePuttCorrection(_ correction: HolePuttCorrection) async throws {
+        var request = URLRequest(url: endpointURL("/api/v2/annotations"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(to: &request)
+        request.httpBody = try encoder.encode(correction)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+    }
+
     /// Single-round 复盘 detail (`GET /api/v2/history/rounds/{ref}`): hole-by-hole scorecard +
     /// phase summary + graceful missing-data. Used by RoundReviewView when the player taps a round.
     public func fetchRoundDetail(roundRef: String) async throws -> RoundDetail {

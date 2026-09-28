@@ -281,6 +281,18 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in payload["annotations"]], [note["id"], correction["id"]])
         self.assertEqual([row["id"] for row in payload["corrections"]], [correction["id"]])
 
+    def test_hole_putt_corrections_on_any_round_ref_show_in_the_scorecard(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            add_annotation("hole", "700001:2", "putt_correction", {"to": 3}, root=root)
+            add_annotation("hole", "alias-700001:2", "putt_correction", {"to": 1, "from": 3}, root=root)
+            add_annotation("hole", "other-round:3", "putt_correction", {"to": 4}, root=root)
+
+            payload = build_history_round_detail(round_detail_data(), "700001", annotations_root=root)
+
+        putts = {cell["hole"]: cell["putts"] for cell in payload["scorecard"]}
+        self.assertEqual(putts, {1: 2, 2: 1, 3: 1, 4: 3})
+
     def test_missing_round_detail_degrades_cleanly(self) -> None:
         payload = build_history_round_detail(round_detail_data(), "missing-round")
 

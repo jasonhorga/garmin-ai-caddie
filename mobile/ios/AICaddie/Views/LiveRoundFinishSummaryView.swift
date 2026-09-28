@@ -126,33 +126,7 @@ struct LiveRoundFinishSummaryView: View {
     }
 
     private func tile(title: String, value: String?, detail: String?, identifier: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(LivePlayStyle.ink60)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(value ?? "—")
-                    .font(.system(size: 24, weight: .bold))
-                    .monospacedDigit()
-                    .foregroundStyle(LivePlayStyle.ink)
-                if let detail {
-                    Text(detail)
-                        .font(.system(size: 12))
-                        .monospacedDigit()
-                        .foregroundStyle(LivePlayStyle.ink60)
-                }
-            }
-        }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(LivePlayStyle.stroke14, lineWidth: 0.5))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title) \(value ?? "未记") \(detail ?? "")")
-        .accessibilityIdentifier(identifier)
+        LiveSummaryTile(title: title, value: value, detail: detail, identifier: identifier)
     }
 
     private var actions: some View {

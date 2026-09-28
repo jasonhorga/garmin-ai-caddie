@@ -1,14 +1,60 @@
 import SwiftUI
 
+/// The two facts a scorecard column needs; live rounds build it from `Hole`, the review from the
+/// round detail's scorecard.
+struct ScorecardHole: Identifiable, Equatable {
+    let number: Int
+    let par: Int
+    var id: Int { number }
+}
+
 /// One nine of the scorecard (`score.html`): hole numbers, pars and score symbols in a grid with an
-/// OUT / IN subtotal. Shared by the live scorecard and the round summary.
+/// OUT / IN subtotal. Shared by the live scorecard, the round summary and the round review.
 struct LiveNineCard: View {
     let label: String
-    let holes: [Hole]
+    let holes: [ScorecardHole]
     let scores: [Int: LiveHoleScore]
     var currentHole: Int? = nil
     var selectedHole: Int? = nil
     var onSelect: ((Int) -> Void)? = nil
+    /// Accessibility id of a tappable score cell (the review keeps `round-review-hole-N`).
+    var cellIdentifier: ((Int) -> String)? = nil
+
+    init(
+        label: String,
+        holes: [ScorecardHole],
+        scores: [Int: LiveHoleScore],
+        currentHole: Int? = nil,
+        selectedHole: Int? = nil,
+        onSelect: ((Int) -> Void)? = nil,
+        cellIdentifier: ((Int) -> String)? = nil
+    ) {
+        self.label = label
+        self.holes = holes
+        self.scores = scores
+        self.currentHole = currentHole
+        self.selectedHole = selectedHole
+        self.onSelect = onSelect
+        self.cellIdentifier = cellIdentifier
+    }
+
+    init(
+        label: String,
+        holes: [Hole],
+        scores: [Int: LiveHoleScore],
+        currentHole: Int? = nil,
+        selectedHole: Int? = nil,
+        onSelect: ((Int) -> Void)? = nil
+    ) {
+        self.init(
+            label: label,
+            holes: holes.map { ScorecardHole(number: $0.number, par: $0.par) },
+            scores: scores,
+            currentHole: currentHole,
+            selectedHole: selectedHole,
+            onSelect: onSelect
+        )
+    }
 
     private var subtotal: Int? {
         let recorded = holes.compactMap { scores[$0.number]?.score }
@@ -63,7 +109,7 @@ struct LiveNineCard: View {
     }
 
     @ViewBuilder
-    private func cell(_ hole: Hole) -> some View {
+    private func cell(_ hole: ScorecardHole) -> some View {
         let content = Group {
             if let score = scores[hole.number]?.score {
                 ScoreChip(score: score, toPar: score - hole.par, size: 26, dark: true)
@@ -87,11 +133,58 @@ struct LiveNineCard: View {
         if let onSelect {
             Button { onSelect(hole.number) } label: { content }
                 .buttonStyle(.plain)
-                .accessibilityLabel("选择第 \(hole.number) 洞")
+                .accessibilityLabel(cellLabel(hole))
                 .accessibilityAddTraits(hole.number == selectedHole ? [.isSelected] : [])
+                .accessibilityIdentifier(cellIdentifier?(hole.number) ?? "live-scorecard-cell-\(hole.number)")
         } else {
             content
         }
+    }
+}
+
+private extension LiveNineCard {
+    func cellLabel(_ hole: ScorecardHole) -> String {
+        guard cellIdentifier != nil else { return "选择第 \(hole.number) 洞" }
+        guard let score = scores[hole.number] else { return "第 \(hole.number) 洞，未记" }
+        return "第 \(hole.number) 洞，\(score.score) 杆，\(ScoreChip.name(toPar: score.score - hole.par))"
+    }
+}
+
+/// One summary tile (球道命中 / GIR / 推杆 / 罚杆), shared by the round summary and the review.
+struct LiveSummaryTile: View {
+    let title: String
+    let value: String?
+    let detail: String?
+    let identifier: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(LivePlayStyle.ink60)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(value ?? "—")
+                    .font(.system(size: 24, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(LivePlayStyle.ink)
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: 12))
+                        .monospacedDigit()
+                        .foregroundStyle(LivePlayStyle.ink60)
+                }
+            }
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(LivePlayStyle.stroke14, lineWidth: 0.5))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title) \(value ?? "未记") \(detail ?? "")")
+        .accessibilityIdentifier(identifier)
     }
 }
 
