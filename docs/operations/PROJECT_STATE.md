@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-28 08:32 UTC
+**Updated:** 2026-09-28 08:43 UTC
 **Branch:** `main`; product canonical source revision is
 `895ea5ded72ef8648520f08cef53fc73fa06b87a` (PR #340 B0d-2 is merged after
 the PR #339 B0c test-isolation closeout; PR #338 B0d-1 and PR #337 B0c remain merged; baseline
@@ -159,6 +159,9 @@ At 08:20 UTC the monitor was made fail-closed: a PR-list or global-comment
 API failure leaves the cursor unchanged, and a submitted-review fetch failure
 keeps the previous cursor for retry. The v5 first scan completed at
 08:30:05 UTC with 216 PRs and no error events.
+At 08:40 UTC its incremental comment queries began overlapping the prior
+60 seconds and same-second PR updates are included in submitted-review polls;
+the existing ID watermarks make this overlap idempotent.
 Next action is to continue the remaining B0 data-foundation queue while the
 monitor tracks all recently updated PR feedback. PR334
 housekeeping is done; the prior `PHONE-UX9-LIVE-ROUTE-COVERAGE` slice remains
