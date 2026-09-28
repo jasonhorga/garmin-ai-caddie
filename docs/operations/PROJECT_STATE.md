@@ -98,7 +98,22 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-09-28 06:40 UTC):** `B0` remains `in-progress`: implement the
+**Current slice (2026-09-28 12:50 UTC):** `B1-B7` review queue is `in-progress`:
+Codex is the review owner for PRs opened from
+`claude/code-audit-performance-17wqcv`. Each PR must be checked at its exact
+head against `docs/design/2026-09-25-ui-redesign/README.md` and
+`IMPLEMENTATION_PLAN.md`; mobile changes require green Native Mobile CI and
+inspection of the matching `design-snapshots` / `watch-snapshots` artifacts
+before a PR comment and merge decision. As of this update the branch points at
+the merged B0d-2 head and there are no open B1-B7 PRs; resume by polling for a
+new PR, then run the bounded tests and screenshot review before commenting.
+The background all-PR feedback monitor remains active in
+`codex-pr-monitor-20260928`.
+
+The previous B0 data-foundation queue remains recorded below for historical
+evidence; do not treat it as the active review slice while this queue is open.
+
+**Archived B0 slice (2026-09-28 06:40 UTC):** `B0` remains `in-progress`: implement the
 data底座 contract in `docs/design/2026-09-25-ui-redesign/IMPLEMENTATION_PLAN.md`
 (fairway outline, tee-result classification, score source, correction log and
 the new statistics fields) with contract-first tests. PR #335 completed B0a:
