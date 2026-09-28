@@ -9,6 +9,15 @@ STATE="$DATA_ROOT/state.json"
 EVENTS="$DATA_ROOT/events.jsonl"
 LOCK="$DATA_ROOT/state.json.lock"
 INTERVAL="${PR_MONITOR_INTERVAL_SECONDS:-60}"
+RETRY_ATTEMPTS="${PR_MONITOR_RETRY_ATTEMPTS:-3}"
+RETRY_BACKOFF_SECONDS="${PR_MONITOR_RETRY_BACKOFF_SECONDS:-2}"
+
+case "$RETRY_ATTEMPTS" in
+  ''|*[!0-9]*) RETRY_ATTEMPTS=3 ;;
+esac
+case "$RETRY_BACKOFF_SECONDS" in
+  ''|*[!0-9]*) RETRY_BACKOFF_SECONDS=2 ;;
+esac
 
 umask 077
 mkdir -p "$DATA_ROOT/tmp"
@@ -95,9 +104,35 @@ mark_seen() {
 
 api_array() {
   local endpoint="$1"
-  local raw
-  raw="$(gh api --paginate --slurp "$endpoint" 2>/dev/null)" || return 1
-  jq -c 'add // []' <<<"$raw" 2>/dev/null || return 1
+  local raw parsed label
+  label="$(printf '%s' "$endpoint" | tr -cd '[:alnum:]' | cut -c1-48)"
+  raw="$(retry_command "api-${label}" gh api --paginate --slurp "$endpoint")" || return 1
+  parsed="$(jq -c 'add // []' <<<"$raw" 2>/dev/null)" || return 1
+  printf '%s\n' "$parsed"
+}
+
+retry_command() {
+  local label="$1"
+  shift
+  local attempt=1 output err_file err_summary
+  err_file="${scan_dir:-$DATA_ROOT/tmp}/retry-${label}-$$.err"
+  while [ "$attempt" -le "$RETRY_ATTEMPTS" ]; do
+    if output="$("$@" 2>"$err_file")"; then
+      printf '%s' "$output"
+      rm -f "$err_file"
+      return 0
+    fi
+    if [ "$attempt" -lt "$RETRY_ATTEMPTS" ]; then
+      sleep "$((RETRY_BACKOFF_SECONDS * attempt))"
+    fi
+    attempt=$((attempt + 1))
+  done
+  err_summary="$(tr '\n' ' ' <"$err_file" 2>/dev/null | tail -c 400)"
+  printf '[%s] monitor_error: %s failed after %s attempts%s\n' \
+    "$(now_utc)" "$label" "$RETRY_ATTEMPTS" \
+    "${err_summary:+: $err_summary}" >&2
+  rm -f "$err_file"
+  return 1
 }
 
 api_workflow_runs() {
@@ -105,8 +140,8 @@ api_workflow_runs() {
   local raw
   # Workflow runs are repository-wide. The encoded comparison operator keeps
   # the query intact when gh builds the request URL.
-  raw="$(gh api --paginate --slurp \
-    "repos/$REPO/actions/runs?per_page=100&created=%3E%3D$since" 2>/dev/null)" || return 1
+  raw="$(retry_command workflow-runs gh api --paginate --slurp \
+    "repos/$REPO/actions/runs?per_page=100&created=%3E%3D$since")" || return 1
   jq -c '[.[]?.workflow_runs[]?] | unique_by(.id)' <<<"$raw" 2>/dev/null || return 1
 }
 
@@ -142,21 +177,25 @@ while :; do
   scan_started="$(now_utc)"
   scan_dir="$(mktemp -d "$DATA_ROOT/tmp/scan.XXXXXX")"
   scan_ok=1
-  if ! open_json="$(gh pr list --repo "$REPO" --state open --limit 1000 --json number,headRefOid,updatedAt,state,mergeCommit 2>/dev/null)"; then
+  failed_inputs=""
+  if ! open_json="$(retry_command open-pr-list gh pr list --repo "$REPO" --state open --limit 1000 --json number,headRefOid,updatedAt,state,mergeCommit)"; then
     scan_ok=0
     open_json='[]'
+    failed_inputs="$failed_inputs open-pr-list"
   fi
-  if ! recent_json="$(gh pr list --repo "$REPO" --state all --search "updated:>=$since_date" --limit 1000 --json number,headRefOid,updatedAt,state,mergeCommit 2>/dev/null)"; then
+  if ! recent_json="$(retry_command recent-pr-list gh pr list --repo "$REPO" --state all --search "updated:>=$since_date" --limit 1000 --json number,headRefOid,updatedAt,state,mergeCommit)"; then
     scan_ok=0
     recent_json='[]'
+    failed_inputs="$failed_inputs recent-pr-list"
   fi
   # Keep PR/comment classification independent from the lookback window. A
   # repository-wide issue-comment stream can contain a comment on an old PR;
   # the full number index lets us retain it without scanning that PR's detail
   # endpoints on every poll.
-  if ! all_pr_json="$(gh pr list --repo "$REPO" --state all --limit 1000 --json number 2>/dev/null)"; then
+  if ! all_pr_json="$(retry_command all-pr-list gh pr list --repo "$REPO" --state all --limit 1000 --json number)"; then
     scan_ok=0
     all_pr_json='[]'
+    failed_inputs="$failed_inputs all-pr-list"
   fi
   # Use updatedAt rather than merge/close dates so a new comment on an old
   # PR enters the scan window. The high limit avoids silently dropping PRs
@@ -181,12 +220,14 @@ while :; do
   inline_comments_file="$scan_dir/pulls-comments.json"
   if ! api_array "repos/$REPO/issues/comments?since=$comment_since&per_page=100" > "$issue_comments_file"; then
     scan_ok=0
+    failed_inputs="$failed_inputs issue-comments"
   fi
   if ! api_array "repos/$REPO/pulls/comments?since=$comment_since&per_page=100" > "$inline_comments_file"; then
     scan_ok=0
+    failed_inputs="$failed_inputs inline-comments"
   fi
   if [ "$scan_ok" -ne 1 ]; then
-    log_message "monitor_error: PR list or incremental comment stream unavailable; retaining cursor $previous_scan"
+    log_message "monitor_error: PR list or incremental comment stream unavailable (failed:${failed_inputs:-unknown}); retaining cursor $previous_scan"
     rm -rf "$scan_dir"
     scan_dir=""
     sleep "$INTERVAL"
@@ -365,7 +406,7 @@ while :; do
 
     old_checks="$(state_value --arg n "$number" '.openPulls[$n].checks // []' | jq -c '.' 2>/dev/null || printf '[]')"
     if [ "$should_scan_reviews" -eq 1 ]; then
-      checks_raw="$(gh pr checks "$number" --repo "$REPO" --json name,state,workflow,link 2>/dev/null || true)"
+      checks_raw="$(retry_command "checks-${number}" gh pr checks "$number" --repo "$REPO" --json name,state,workflow,link || true)"
       if jq -e 'type == "array"' <<<"$checks_raw" >/dev/null 2>&1; then
         checks="$(jq -c 'sort_by(.name)' <<<"$checks_raw")"
       else
