@@ -568,6 +568,7 @@ def apply_mobile_reconciliation_suggestions(
             payload,
             root=annotations_root,
             player_id=player_id,
+            data_loader=lambda: data,
         )
         annotations.append(record)
         existing_ids.add(str(suggestion_id))

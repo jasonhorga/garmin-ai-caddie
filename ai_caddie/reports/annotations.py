@@ -123,6 +123,10 @@ def _redact_payload(value: Any) -> Any:
     return value
 
 
+# Storage-only fields of the B0d-2 audit envelope; readers of annotations never see them.
+_INTERNAL_FIELDS = ("recordType", "requestDigest", "audit", "auditSeq")
+
+
 def add_annotation(
     target_type: str,
     target_id: str,
@@ -131,7 +135,13 @@ def add_annotation(
     *,
     root: Path | str | None = None,
     player_id: str = OWNER_ID,
+    client_mutation_id: str | None = None,
+    client_time: str | None = None,
+    data_loader: Any = None,
 ) -> dict[str, Any]:
+    """The only writer of the annotation store. It takes the player's audit lock (``correction_audit``),
+    dedupes on ``client_mutation_id`` and, for putt / score / penalty corrections on a hole, stores the
+    normalized before/after audit in the same line."""
     validate_annotation(target_type, kind, payload)
     if not str(target_id).strip():
         raise ValueError("annotation targetId is required")
@@ -145,32 +155,47 @@ def add_annotation(
         "payload": safe_payload,
         "source": "manual",
     }
-    path = annotation_file(evidence_root(player_id, root=root))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n")
-    return record
+    if client_mutation_id:
+        record["clientMutationId"] = str(client_mutation_id)
+    if client_time:
+        record["clientTime"] = str(client_time)
+    body = {"targetType": target_type, "targetId": str(target_id), "kind": kind, "payload": payload,
+            "clientMutationId": client_mutation_id}
+    from ai_caddie.rounds import correction_audit  # lazy: the audit reads history, which reads annotations
+
+    stored = correction_audit.write_annotation(
+        player_id, record, body, annotation_root=root, data_loader=data_loader,
+    )
+    return _public(stored)
 
 
-def list_annotations(*, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+def _public(record: dict[str, Any]) -> dict[str, Any]:
+    out = {key: value for key, value in record.items() if key not in _INTERNAL_FIELDS}
+    if str(out.get("eventId") or "").startswith("legacy:"):
+        out.pop("eventId")
+    out["payload"] = _redact_payload(record.get("payload"))
+    return out
+
+
+def list_annotation_records(
+    *, root: Path | str | None = None, player_id: str = OWNER_ID, include_repairs: bool = False,
+) -> list[dict[str, Any]]:
+    """Raw stored records (with the audit envelope). Audit repair records only with ``include_repairs``."""
+    from ai_caddie.rounds.round_corrections import read_records
+
     evidence = evidence_root(player_id, root=root)
     if evidence is None:
         return []
-    path = annotation_file(evidence)
-    if not path.exists():
-        return []
-    records = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue  # tolerate a torn final append; never 500 the read path
-        if isinstance(record, dict):
-            record = {**record, "payload": _redact_payload(record.get("payload"))}
-        records.append(record)
-    return records
+    records, _skipped = read_records(annotation_file(evidence))
+    return [
+        record for record in records
+        if record.get("recordType") in (None, "annotation") or (include_repairs and record.get("recordType") == "auditRepair")
+    ]
+
+
+def list_annotations(*, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    # Torn / unparseable lines are skipped (never 500 the read path); audit repairs are not annotations.
+    return [_public(record) for record in list_annotation_records(root=root, player_id=player_id)]
 
 
 def annotations_for_target(

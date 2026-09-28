@@ -103,19 +103,22 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 计划里的 `add / delete / move / club / putts / total / drive`，加上现有编辑能产生的 `lie / penalty / reorder`。
 
 - 整洞快照：只在后 → `add`；只在前 → `delete`；`move` 见上；球杆不同 → `club`；球位不同 → `lie`；前后都在的杆相对顺序变了 → 一条 `reorder`（前后值是 id 列表）；`manualPenalty` 变了 → `penalty`。
+- 旧逐杆 op 的后状态是服务器按“已有事件 + 这条事件”重建的 shot map，与改前视图做同样的差。拿不到几何时 shot map 本来就不显示 `addShot` 加的杆，所以这种情况下不记 `add`。
 - 旧逐杆 op：`deleteShot → delete`，`restoreShot → add`（`restored: true`），`addShot → add`，`editField club → club`，`editField lie → lie`，`editField position → move`（同样要求修订号相同），`reorderShot → reorder`，`setHolePenalty → penalty`。
 - `drive` 保留词表，生产方是 B3 的开球编辑，本批不测。
 - 加杆 / 删杆引起的总杆变化不再单独记 `total`。
 
 **5. annotation 的前后值**
 
-- 规范目标：`targetType = "hole"`，`targetId = "{规范 roundRef}:{显示洞号}"`（合并局用合并后的 id 和 1–18 显示洞号；不认识的 ref 返回 `404`）。
+- 规范目标：`targetType = "hole"`，`targetId = "{roundRef}:{显示洞号}"`；匹配时认合并局的 id 和成员 id（1–18 显示洞号），存储时保持客户端给的 `targetId` 不改写。
+- 不认识的 ref：**不返回 `404`**（实现时的调整）。现有公开契约允许在成绩卡进入历史之前就写 annotation（测试和实时对局都这样用），所以照常写入，审计记 `pending`、`reason: "target round not found"`、指纹为 `null`，修复时记 `unrecoverable`。更正事件接口和日志读取接口仍然对不认识的 ref 返回 `404`。
 - 规范化后的日志一律是 `before / after`：`putt_correction` / `score_correction` 的 `after = payload.to`，`penalty_correction` 的 `after = payload.strokes`。
 - `before` 在审计锁内、追加之前计算，取**该洞当时的生效值**，与局详情显示的是同一个值（同一个函数算出），包括更正存储里的状态：
   - 推杆：成绩卡原值，被同目标最后一条 `putt_correction` 覆盖；
-  - 总杆：局详情的生效洞分（包括更正存储里加 / 删杆、手填罚杆的影响），被最后一条 `score_correction` 覆盖；
+  - 总杆：成绩卡原值，被最后一条 `score_correction` 覆盖（实现时核对过：局详情和统计的洞分都只认成绩卡 + `score_correction`，更正存储里的加 / 删杆不改变它，所以前值也不含它们）；
   - 罚杆：成绩卡原值、更正存储的 `setHolePenalty` / 快照 `manualPenalty`、`penalty_correction` 三者里 `auditSeq` 最新的一个（旧记录没有 `auditSeq`，排在所有新记录之前，按文件顺序）。
 - `payload.from` 不作为前值，只原样保留为 `clientFrom`。
+- 反方向：更正事件（逐杆编辑）的罚杆前值是编辑页看到的 shot map `manualPenalty`，它本来就不显示 annotation 路径的 `penalty_correction`，所以不包含后者。两个存储的先后仍由 `auditSeq` 唯一确定。
 - 测试覆盖“已有一条更正后再改”和“两个并发请求”（后者的 `before` 必须是前者的 `after`）。
 
 **6. 路径与读取接口**

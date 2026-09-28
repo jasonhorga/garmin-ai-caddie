@@ -549,13 +549,30 @@ class RoundCorrectionRequest(BaseModel):
     shots: list[dict[str, Any]] | None = None
     manualPenalty: int | None = None
     geometryRevision: str | None = None
+    clientTime: str | None = None  # B0d-2: stored for the correction log, never trusted for ordering
 
 
 class RoundCorrectionResponse(BaseModel):
     schema_: str = Field("ai-caddie-round-correction-v1", alias="schema")
     stored: dict[str, Any]
+    # B0d-2: the event is committed but its correction-log entries could not be derived yet.
+    auditPending: bool = False
 
     model_config = {"populate_by_name": True}
+
+
+class CorrectionLogResponse(BaseModel):
+    """B0d-2 structured correction log for one round (own player only), ordered by auditSeq."""
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-correction-log-v1"] = Field(alias="schema")
+    roundRef: str
+    entries: list[dict[str, Any]]
+    nextCursor: str | None = None
+    pendingAudits: int = 0
+    unrecoverableAudits: int = 0
+    skippedLines: int = 0
 
 
 class HistoryDrilldownResponse(BaseModel):
@@ -920,6 +937,9 @@ class AnnotationCreateRequest(BaseModel):
     targetId: str = Field(min_length=1)
     kind: AnnotationKind
     payload: dict[str, Any] = Field(default_factory=dict)
+    # B0d-2: a retry with the same id returns the stored annotation; a different body is a 409.
+    clientMutationId: str | None = Field(default=None, max_length=200)
+    clientTime: str | None = None
 
 
 class AnnotationCreateResponse(BaseModel):
