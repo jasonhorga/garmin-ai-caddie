@@ -9,14 +9,15 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-27 14:05 UTC
+**Updated:** 2026-09-28 02:15 UTC
 **Branch:** `main`; product canonical source revision is
-`57ee84310be38653835e3488104a9332771290ef` (PR #334 is merged; baseline tag
-`v2-baseline-2026-09` points to this revision). The latest existing internal
-TestFlight artifact remains Build `0.1.0 (76)`; this documentation-only merge
-did not trigger a new upload. PR #333 code is merged at
-`4f48a3267450a75ce8b7514314d9beaa7f9ffab6`; the tip adds the review-only
-PHONE-UX7 design screenshots and is pushed. PR #332 is merged and its
+`0256f48f92990bc7306e236b5ade5be84696447a` (PR #335 B0a is merged; baseline
+tag `v2-baseline-2026-09` remains at
+`57ee84310be38653835e3488104a9332771290ef`). The latest existing internal
+TestFlight artifact remains Build `0.1.0 (76)`; the backend/data-contract and
+documentation changes in B0a did not trigger a new upload. PR #333 code remains
+merged at `4f48a3267450a75ce8b7514314d9beaa7f9ffab6`, including the review-only
+PHONE-UX7 design screenshots. PR #332 is merged and its
 post-deploy gates are complete: Source CI `35838477517`, exact-SHA Native Mobile
 CI `35847317420`, homeserver deployment on production `127.0.0.1:39055`, and
 internal TestFlight CD `35853831558` uploaded Build `0.1.0 (74)` with
@@ -96,11 +97,15 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-09-27 14:05 UTC):** `B0` is `in-progress`: implement the
+**Current slice (2026-09-28 02:15 UTC):** `B0` is `in-progress`: implement the
 data底座 contract in `docs/design/2026-09-25-ui-redesign/IMPLEMENTATION_PLAN.md`
 (fairway outline, tee-result classification, score source, correction log and
-the new statistics fields) with contract-first tests. PR334 housekeeping is
-done; the prior `PHONE-UX9-LIVE-ROUTE-COVERAGE` slice remains
+the new statistics fields) with contract-first tests. PR #335 completed B0a:
+the backend publishes factual fairway outlines, the shared 16-case classifier
+handles `hit` without requiring a route, and the optimized real-geometry pass
+adds about 353 ms per 18 holes in the measured corpus. B0b Swift decoding,
+classifier parity, and old/new package compatibility are next. PR334
+housekeeping is done; the prior `PHONE-UX9-LIVE-ROUTE-COVERAGE` slice remains
 `evidence-open` pending physical iPhone/Watch installation and interaction
 evidence. Commits `7341d499`
 and `d7f69971` keep the phone's factual
@@ -2632,7 +2637,8 @@ project-level task list; historical plans are reference material.
 | `PR333` | `evidence-open` | Integrate and verify tee-aware CoursePrep and deferred boot prep warm from PR #333 without regressing the factual route/default-hazard slice. | Merged at `4f48a3267450a75ce8b7514314d9beaa7f9ffab6`; Source CI `36107619479` is green (`2214 tests`, 13 skips), targeted homeserver suite `77/77` (2 existing geometry skips), real package comparison confirms Blue parity plus 31795 Red release set 4 / shorter route, and Native Mobile CI `36107680114` passed all iOS/Watch stages. First-time course startup and multi-planner caddie behavior remain out of scope. No TestFlight or production promotion. |
 | `PR334-HOUSEKEEPING` | `done` | Finish the Claude-to-Codex repository housekeeping handoff: archive/delete the approved remote branches, rename `integration/v2` to `main`, update active references, classify outside-checkout references, preserve evidence, merge, tag the baseline, and advance the queue to B0. | PR #334 merged as `57ee84310be38653835e3488104a9332771290ef`; 817fa3aa archived at `archive/claude/code-audit-performance-17wqcv`; baseline tag `v2-baseline-2026-09` created; merged PR branch deleted; focused homeserver checks 109/109 (94 host + 15 API image); active call-chain scan 0; external shell classification 120/120; review snapshot cleanup recorded under `20260927T1355Z-pr334-review-snapshot`. |
 | `CODEX-CHECKOUT-STAGED-17` | `done` | Owner decision 2026-09-28: keep the 17 staged spec files in `/home/codex/garmin-ai-caddie`, but record which are stale; migrate that checkout's local branch to `main` without resetting or unstaging. | Checkout HEAD stays `d847cf28` (behind `origin/main` by 595; no pull/merge/reset). Staged patch SHA-256 unchanged before/after: `fc152731cb5c78c83ef21b3499153280bc4f1856d1b50aab0cd4fe59ba10727d`. 15 of 17 staged blobs are byte-identical to `main@9785a0cd`; `docs/superpowers/specs/ai-caddie-spec.md` and `docs/superpowers/specs/work-board.md` are **stale** (their authority/archive paragraphs are already on `main`, while the staged copies still say `integration/v2` and would revert the 2026-09-27 `main`/TestFlight status; no remaining novel content). Full per-file classification: `/home/codex/garmin-ai-caddie/STAGED-CHANGES-README.md`. Local branch renamed `integration/v2` → `main`, upstream `origin/main`, `origin/HEAD` → `origin/main`; `stash@{0}: predeploy-wip` untouched. A prior root-run had left the `origin/main` ref and its reflog root-owned; ownership of exactly those two files was changed back to `codex` (no recursive change). Evidence: `/home/jason/garmin-ai-caddie-data/operations/pr335-review-20260928/`. |
-| `B0` | `in-progress` | Implement the B0 data foundation from `docs/design/2026-09-25-ui-redesign/IMPLEMENTATION_PLAN.md`: fairway outline contract, tee-result classifier, score source, correction log, and new statistics fields. Keep Python/Swift contracts and tests aligned; no UI batch should invent missing backend fields. | Not started in this slice. Exit evidence will be the shared contract fixtures, backend/client compatibility tests, focused homeserver suite, and exact-SHA CI. |
+| `PR176-HISTORY` | `done` | Preserve the owner-approved multi-user design documents as explicitly historical material, then close the superseded PR without treating it as the current product specification. | The four documents landed unchanged apart from historical headers through PR #335 at `0256f48f`. PR #176 was closed with `landed as history in #335`; tag `archive/superpowers/multi-user-redesign-spec` points to exact former head `b5aa51ef`, and the matching remote branch was compare-and-deleted. |
+| `B0` | `in-progress` | Implement the B0 data foundation from `docs/design/2026-09-25-ui-redesign/IMPLEMENTATION_PLAN.md`: fairway outline contract, tee-result classifier, score source, correction log, and new statistics fields. Keep Python/Swift contracts and tests aligned; no UI batch should invent missing backend fields. | B0a merged through PR #335 at `0256f48f`: `fairwayOutline` v1, the Python classifier, and 16 shared vectors. Focused tests pass 5/5 and exact-head CI `36368636866` is green. Across 45 real holes, optimized output is byte-identical to the pre-optimization report (`ed5c3629...`), while the isolated 18-hole estimate fell from 946 ms to 353 ms; evidence is under `/home/jason/garmin-ai-caddie-data/operations/pr335-review-20260928/`. The read-only snapshot was removed after inactivity checks; cleanup evidence is under `cleanup-manifests/20260928T021739Z-pr335-review-snapshot/`. B0b Swift decoding/classifier parity and old/new package compatibility are next, followed by B0c/B0d. |
 | `SYNC-RECOVERY-20260925` | `done` | Restore the Garmin cron after the API deployment, then make API-to-sync image binding and missing-image alerting part of the deployment/runtime contract. | Same-revision image built and one-shot incremental sync completed; production history overview shows round `17711803`. Remote deployment-manifest tests `17/17` pass. Installed wrapper check-only probe passes against production; prior wrapper is checksum-preserved. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
