@@ -161,12 +161,50 @@ class LoopIdentityTest(unittest.TestCase):
         self.assertEqual([(row["frontKey"], row["backKey"]) for row in scoring["nineCombos"]],
                          [("gid:2003:1-9", "gid:2001:1-9")])
 
-    def test_labels_do_not_depend_on_history_order(self) -> None:
-        rows = _history().rounds
+    def _assert_order_independent(self, rows: list[dict]) -> dict:
+        keys = ("loops", "nineCombos", "hardestHoles", "roundSequences", "penalties", "scrambling", "nineOnlyRounds")
         forward = _scoring_of(rows)
         backward = _scoring_of(list(reversed(rows)))
-        self.assertEqual(forward["loops"], backward["loops"])
-        self.assertEqual(forward["nineCombos"], backward["nineCombos"])
+        for key in keys:
+            self.assertEqual(forward[key], backward[key], key)
+        return forward
+
+    def test_output_does_not_depend_on_history_order(self) -> None:
+        self._assert_order_independent(_history().rounds)
+
+    def test_conflicting_source_pars_resolve_to_the_most_common_then_lower(self) -> None:
+        def row(rid: str, par: int) -> dict:
+            return {"id": rid, "date": "2026-09-01", "course": "Plain", "courseKey": "plain", "courseGlobalId": 7,
+                    "holesCompleted": 9, "strokes": 36, "holes": _holes({1: {"par": par, "strokes": 4}}, count=9)}
+        tied = self._assert_order_independent([row("a", 3), row("b", 4)])
+        self.assertEqual(tied["loops"][0]["holes"][0]["par"], 3)
+        majority = self._assert_order_independent([row("a", 3), row("b", 4), row("c", 4)])
+        self.assertEqual(majority["loops"][0]["holes"][0]["par"], 4)
+
+    def test_combos_with_equal_labels_sort_by_physical_key(self) -> None:
+        def row(rid: str, front: int, back: int) -> dict:
+            return {"id": rid, "date": "2026-09-01", "course": "Twin", "courseKey": "twin",
+                    "frontNineGlobalCourseId": front, "backNineGlobalCourseId": back,
+                    "holesCompleted": 18, "strokes": 80, "holes": _holes({})}
+        scoring = self._assert_order_independent([row("a", 3002, 3001), row("b", 3001, 3002)])
+        self.assertEqual([(combo["frontKey"], combo["backKey"]) for combo in scoring["nineCombos"]],
+                         [("gid:3001:1-9", "gid:3002:1-9"), ("gid:3002:1-9", "gid:3001:1-9")])
+
+    def test_same_gid_composite_card_is_one_physical_nine(self) -> None:
+        a_a = {"id": "aa", "date": "2026-09-01", "course": "Solo ~ A/A", "courseKey": "solo",
+               "frontNineGlobalCourseId": 31794, "backNineGlobalCourseId": 31794,
+               "holesCompleted": 18, "strokes": 72, "holes": _holes({})}
+        scoring = _scoring_of([a_a])
+        loops = {loop["loopKey"]: loop for loop in scoring["loops"]}
+        self.assertEqual(set(loops), {"gid:31794:1-9"})
+        self.assertEqual(loops["gid:31794:1-9"]["label"], "Solo A")
+        self.assertEqual([hole["samples"] for hole in loops["gid:31794:1-9"]["holes"]], [2] * 9)
+        self.assertEqual([(combo["frontKey"], combo["backKey"]) for combo in scoring["nineCombos"]],
+                         [("gid:31794:1-9", "gid:31794:1-9")])
+        # Without a back-nine id the card is one 18-hole course and 10-18 stay their own span.
+        plain = dict(a_a, id="p", course="Solo", backNineGlobalCourseId=None)
+        self.assertEqual({loop["loopKey"] for loop in _scoring_of([plain])["loops"]},
+                         {"gid:31794:1-9", "gid:31794:10-18"})
 
     def test_combos_need_a_completed_eighteen(self) -> None:
         partial = {"id": "p1", "date": "2026-09-01", "course": "Black Knight ~ A/B", "courseKey": "bk",
@@ -202,6 +240,27 @@ class LoopIdentityTest(unittest.TestCase):
         self.assertEqual(loops["gid:7:1-9"]["holes"][0], {"hole": 1, "par": 4, "averageToPar": 1.0, "samples": 1})
         self.assertEqual([(row["frontKey"], row["backKey"]) for row in scoring["nineCombos"]],
                          [("gid:7:10-18", "gid:7:1-9")])
+
+    def test_back_numbered_merge_gives_each_hole_its_own_ref_and_par(self) -> None:
+        # Real shape (merged_15179207_15179548): both member cards were stored as 10..18.
+        first = [dict(hole, number=hole["number"] + 9) for hole in _holes({}, count=9)]
+        second = [dict(hole, number=hole["number"] + 9) for hole in _holes({}, count=9)]
+        for hole in first + second:
+            del hole["par"]  # force the holePars fallback
+        row = {"id": "merged_1_2", "date": "2026-09-01", "course": "Plain", "courseKey": "plain", "merged": True,
+               "frontNineGlobalCourseId": 7, "backNineGlobalCourseId": 8, "holesCompleted": 18, "strokes": 72,
+               "holePars": "444444444" + "345345345", "holes": first + second}
+        corrections = [{"kind": "putt_correction", "targetId": "merged_1_2:3", "payload": {"to": 1}},
+                       {"kind": "putt_correction", "targetId": "merged_1_2:12", "payload": {"to": 3}}]
+        scoring = _scoring_of([row], corrections)
+        seq = scoring["roundSequences"][0]
+        self.assertEqual(seq["holes"], list(range(1, 19)))
+        self.assertEqual(seq["putts"][2], 1)    # first half, stored as 12
+        self.assertEqual(seq["putts"][11], 3)   # second half, stored as 12
+        self.assertEqual(seq["putts"].count(1) + seq["putts"].count(3), 2)
+        loops = {loop["loopKey"]: loop for loop in scoring["loops"]}
+        self.assertEqual([hole["par"] for hole in loops["gid:7:10-18"]["holes"]], [4] * 9)
+        self.assertEqual([hole["par"] for hole in loops["gid:8:1-9"]["holes"]], [3, 4, 5] * 3)
 
 
 class PuttAndPenaltyEdgeTest(unittest.TestCase):

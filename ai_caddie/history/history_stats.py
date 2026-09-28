@@ -2141,8 +2141,11 @@ def _loop_identity(row: dict[str, Any], side: str, physical: int) -> tuple[str, 
     front_gid = row.get("frontNineGlobalCourseId") or row.get("courseGlobalId")
     back_gid = row.get("backNineGlobalCourseId")
     gid = (back_gid or front_gid) if side == "back" else front_gid
-    if side == "back" and not row.get("merged") and back_gid and back_gid != front_gid:
-        physical -= 9  # one composite scorecard: the back loop is holes 1-9 of its own id
+    if side == "back" and not row.get("merged") and back_gid:
+        # One composite scorecard with an explicit back loop ("A/C", and also "A/A" where both
+        # ids are equal): the back loop is holes 1-9 of its own id. Only a card without a
+        # back-nine id is a plain 18-hole course whose 10-18 share the front id.
+        physical -= 9
     span = "10-18" if physical > 9 else "1-9"
     base = f"gid:{gid}" if gid else f"course:{row.get('courseKey') or row.get('course') or ''}"
     return f"{base}:{span}", ("10–18 洞" if span == "10-18" else "1–9 洞")
@@ -2160,13 +2163,31 @@ def _loop_name_evidence(row: dict[str, Any]) -> dict[str, str]:
     return {}  # composite names such as "C/B+A" are ambiguous, not evidence
 
 
+def _breakdown_fallback_par(row: dict[str, Any], display: int, physical: int, side: str, back_count: int) -> int | None:
+    """Par from ``holePars`` when a hole carries none. A merged row's ``holePars`` is the first
+    card's string followed by the second card's, so each half reads its own part."""
+    hole_pars = str(row.get("holePars") or "")
+    if not row.get("merged"):
+        return _par_from_string(hole_pars, display)
+    split = max(len(hole_pars) - back_count, 0)
+    if side == "back":
+        return _par_from_string(hole_pars[split:], display - 9)
+    front = hole_pars[:split]
+    return _par_from_string(front, physical) if len(front) >= 10 else _par_from_string(front, display)
+
+
 def _round_breakdowns(data: HistoryData, putt_corrections: dict[str, Any]) -> dict[str, Any]:
     """B0 statistics fields (IMPLEMENTATION_PLAN 新统计字段), all computed from normalized holes.
 
     Putts / GIR go through the B0c eligibility helpers, so unedited default holes are skipped and
     putt corrections apply. Penalties count only holes that actually carry a ``penalties`` field
     and are not unedited defaults (absence is not zero). Loops are keyed by physical identity and
-    labelled once per key, so output does not depend on history order.
+    labelled once per key; a loop hole's par is its most common source par (ties: the lower par);
+    every list has a total sort order. Output therefore does not depend on history order.
+
+    Hole refs here use the display number (1...18), which equals the stored number except for a
+    merged round whose first card Garmin numbered 10...18; there the stored numbers repeat 10...18
+    across both halves and could not name a unique hole.
     """
     sequences: list[dict[str, Any]] = []
     penalty_total = 0
@@ -2182,17 +2203,17 @@ def _round_breakdowns(data: HistoryData, putt_corrections: dict[str, Any]) -> di
     nine_only_rounds = 0
     for row in data.rounds:
         round_id = _round_id(row)
-        hole_pars = str(row.get("holePars") or "")
         course_name = str(row.get("course") or "")
         venue = course_name.split("~", 1)[0].strip() or course_name
         evidence = _loop_name_evidence(row)
         seq = {"roundId": round_id, "date": row.get("date"), "course": row.get("course"),
                "holes": [], "putts": [], "gir": [], "fairway": []}
         side_keys: dict[str, str] = {}
-        for hole, display, physical, side in _hole_sides(row):
-            number = int(hole.get("number") or 0)
-            ref = _hole_ref(row, number)
-            par = _hole_to_par(hole, _par_from_string(hole_pars, number))
+        sides = _hole_sides(row)
+        back_count = sum(1 for item in sides if item[3] == "back")
+        for hole, display, physical, side in sides:
+            ref = _hole_ref(row, display)
+            par = _hole_to_par(hole, _breakdown_fallback_par(row, display, physical, side, back_count))
             strokes = hole.get("strokes")
             gir = _stat_gir(hole)
             seq["holes"].append(display)
@@ -2220,7 +2241,8 @@ def _round_breakdowns(data: HistoryData, putt_corrections: dict[str, Any]) -> di
             loop = loops.setdefault(key, {"rounds": set(), "holes": {}})
             loop["rounds"].add(round_id)
             loop_hole = physical if physical <= 9 or key.endswith(":10-18") else physical - 9
-            cell = loop["holes"].setdefault(loop_hole, {"par": int(par), "toPar": []})
+            cell = loop["holes"].setdefault(loop_hole, {"pars": Counter(), "toPar": []})
+            cell["pars"][int(par)] += 1
             cell["toPar"].append(int(strokes) - int(par))
         sequences.append(seq)
         if row.get("holesCompleted") == 18 and row.get("strokes") is not None and len(side_keys) == 2:
@@ -2242,22 +2264,23 @@ def _round_breakdowns(data: HistoryData, putt_corrections: dict[str, Any]) -> di
         hole_rows = []
         for number in sorted(loop["holes"]):
             cell = loop["holes"][number]
+            par = min(cell["pars"].items(), key=lambda item: (-item[1], item[0]))[0]
             samples = len(cell["toPar"])
             average_to_par = round(sum(cell["toPar"]) / samples, 2)
-            hole_rows.append({"hole": number, "par": cell["par"], "averageToPar": average_to_par, "samples": samples})
+            hole_rows.append({"hole": number, "par": par, "averageToPar": average_to_par, "samples": samples})
             if samples >= 2:
                 hardest.append({"loopKey": key, "label": label(key), "hole": number,
-                                "par": cell["par"], "averageToPar": average_to_par, "samples": samples})
+                                "par": par, "averageToPar": average_to_par, "samples": samples})
         loop_rows.append({"loopKey": key, "label": label(key), "roundCount": len(loop["rounds"]), "holes": hole_rows})
     loop_rows.sort(key=lambda row: (-row["roundCount"], row["label"], row["loopKey"]))
-    hardest.sort(key=lambda row: (-row["averageToPar"], -row["samples"], row["label"], row["hole"]))
-    sequences.sort(key=lambda row: str(row.get("date") or ""), reverse=True)
+    hardest.sort(key=lambda row: (-row["averageToPar"], -row["samples"], row["label"], row["hole"], row["loopKey"]))
+    sequences.sort(key=lambda row: (str(row.get("date") or ""), str(row["roundId"])), reverse=True)
     combo_rows = [
         {"frontKey": front, "backKey": back, "front": label(front), "back": label(back),
          "rounds": len(scores), "average": round(sum(scores) / len(scores), 1)}
         for (front, back), scores in combos.items()
     ]
-    combo_rows.sort(key=lambda row: (-row["rounds"], row["front"], row["back"]))
+    combo_rows.sort(key=lambda row: (-row["rounds"], row["front"], row["back"], row["frontKey"], row["backKey"]))
     return {
         "penalties": {
             "total": penalty_total,
