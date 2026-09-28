@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-28 07:35 UTC
+**Updated:** 2026-09-28 08:07 UTC
 **Branch:** `main`; product canonical source revision is
 `895ea5ded72ef8648520f08cef53fc73fa06b87a` (PR #340 B0d-2 is merged after
 the PR #339 B0c test-isolation closeout; PR #338 B0d-1 and PR #337 B0c remain merged; baseline
@@ -138,17 +138,25 @@ The all-PR feedback monitor is running in homeserver tmux
 `/home/jason/garmin-ai-caddie-data/operations/pr-feedback-monitor/`; its
 session/resource manifest is
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T0612Z-pr-feedback-monitor/`.
-At 07:18 UTC the monitor was upgraded in place to schema v2: `state_value`
+At 07:18 UTC the monitor was upgraded in place to state schema v2: `state_value`
 now forwards jq arguments, submitted reviews have an independent watermark
 from inline review comments, and a one-time migration rebuilt both watermarks
 from their seen-ID sets. At 07:24 UTC it was hardened to retain the last known
-CI result when GitHub returns an unavailable empty check set. Two complete
-post-restart scans reached stable state without repeated head/CI events; the
-latest processed issue comment is #5865462819 on PR #333. The monitor has no
-containers, ports, tunnels, or dependency installs; its only runtime is the
-allow-listed tmux session above.
+CI result when GitHub returns an unavailable empty check set. At 07:50 UTC the
+runtime was upgraded to use repository-wide incremental issue/review-comment
+streams (`issues/comments` and `pulls/comments`), to query submitted reviews
+only for open or changed PRs, and to use scan-start cursors so comments created
+during a scan cannot be skipped. The lookback now uses `updatedAt` for all PR
+states (limit 1000), so a new comment on an old PR is included; unchanged
+closed/merged PRs are metadata-only. The first v4 baseline registered 215 PRs;
+the next scan advanced from 08:01:34 to 08:04:04 UTC with no duplicate head,
+CI, or comment events. The latest processed issue comment is #5865462819 on
+PR #333. The monitor has no containers, ports, tunnels, or dependency
+installs; its only runtime is the allow-listed tmux session above. The
+append-only log retains the interrupted v3 baseline observations; they are
+historical discovery records, not repeated changes.
 Next action is to continue the remaining B0 data-foundation queue while the
-monitor tracks open and recently closed PR feedback. PR334
+monitor tracks all recently updated PR feedback. PR334
 housekeeping is done; the prior `PHONE-UX9-LIVE-ROUTE-COVERAGE` slice remains
 `evidence-open` pending physical iPhone/Watch installation and interaction
 evidence. Commits `7341d499`
