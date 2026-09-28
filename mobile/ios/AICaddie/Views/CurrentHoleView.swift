@@ -555,7 +555,10 @@ public struct CurrentHoleView: View {
 
             HStack {
                 LivePlaySideControls(
-                    hasHazards: !isPreciseHoleMapPending && !liveHazardDisplayRows.isEmpty,
+                    // 地图降级契约: the obstacle facts the partial map already has are browsable
+                    // while the precise topo is pending (outline when known, else the factual
+                    // edge points); a selection survives the upgrade (LiveMapCarryOver).
+                    hasHazards: !liveHazardDisplayRows.isEmpty,
                     hazardShown: selectedLiveHazard != nil,
                     planPosition: livePlanPosition,
                     showsRecenter: heroMapScale > 1.01,
@@ -572,8 +575,7 @@ public struct CurrentHoleView: View {
                 HStack(alignment: .bottom, spacing: 10) {
                     LivePlayScoreButton(action: beginScoreConfirmation)
                     Spacer(minLength: 0)
-                    if !isPreciseHoleMapPending,
-                       let selectedLiveHazard,
+                    if let selectedLiveHazard,
                        let selectedLiveHazardIndex {
                         LivePlayHazardBar(
                             row: selectedLiveHazard,

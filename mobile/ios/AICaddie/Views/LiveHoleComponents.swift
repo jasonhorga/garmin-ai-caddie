@@ -2063,8 +2063,8 @@ enum LiveMapCarryOver {
 
 /// What the live hole shows for the map data it has (README 地图降级契约 / IMPLEMENTATION_PLAN map
 /// table). `pending` means a partial CourseView map while the precise topo is still expected
-/// online and not cached: the factual route and green outline draw at once, and the provisional
-/// obstacle subset, Touch Target and flag entries wait for the precise map.
+/// online and not cached: the factual route, green outline and existing obstacle facts (browsable
+/// through 障碍) draw at once; the Touch Target and flag entries wait for the precise map.
 enum LiveMapDisplayState: Equatable {
     /// No drawable route: the one full-screen waiting page (hole · Par · yards).
     case waiting

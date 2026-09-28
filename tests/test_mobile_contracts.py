@@ -1727,7 +1727,8 @@ class MobileContractTests(unittest.TestCase):
         # The map itself waits for precise geometry (the retired Touch Target page had its own
         # placeholder); the green editor keeps one.
         self.assertIn("精确果岭图准备中", current_hole)
-        self.assertIn("if !isPreciseHoleMapPending,", current_hole)
+        # 地图降级契约: the obstacle bar is not gated on the precise map (existing facts are browsable).
+        self.assertIn("if let selectedLiveHazard,", current_hole)
         self.assertIn("let selectedLiveHazard", current_hole)
         # B1: the one selected obstacle is browsed from the bottom-centre bar on the map.
         self.assertIn("LivePlayHazardBar(", current_hole)
@@ -3683,6 +3684,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("LiveMapCarryOver.hazardSelection(", current_hole)
         self.assertIn("LiveMapCarryOver.transfer(pixel, from: oldOverlay, to: newOverlay)", current_hole)
         self.assertTrue((IOS_DIR.parent / "AICaddieTests" / "LiveMapCarryOverTests.swift").exists())
+        # README 地图降级契约: existing obstacle facts stay browsable while the precise topo is pending.
+        self.assertIn("hasHazards: !liveHazardDisplayRows.isEmpty,", current_hole)
+        self.assertNotIn("hasHazards: !isPreciseHoleMapPending", current_hole)
+        self.assertNotIn("if !isPreciseHoleMapPending,\n                       let selectedLiveHazard,", current_hole)
         self.assertIn("RoundShotPrecisionEditor", shot_edit)
         self.assertIn('round-shot-precision-zoom-in', shot_edit)
         self.assertIn('round-shot-precision-zoom-out', shot_edit)

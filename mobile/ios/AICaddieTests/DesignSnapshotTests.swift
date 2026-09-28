@@ -555,8 +555,9 @@ final class DesignSnapshotTests: XCTestCase {
                 missingData: nil
             ))
             // Pending: the precise topo is still expected online (a service URL, nothing cached).
-            // Factual route + green outline draw at once; the provisional obstacle subset, Touch
-            // Target and flag entries wait for the precise map. The unreachable host keeps it pending.
+            // Factual route + green outline + the obstacle facts it already has draw at once; one
+            // obstacle is selected through the 障碍 control, with its 前 / 后 labels. The unreachable
+            // host keeps it pending.
             XCTAssertEqual(
                 LiveMapDisplayState.resolve(
                     prep: partialPrep,
@@ -574,11 +575,24 @@ final class DesignSnapshotTests: XCTestCase {
                     CurrentHoleView(
                         package: partialPackage,
                         hole: firstHole,
-                        snapshotState: .init(caddieRoutes: routes),
+                        snapshotState: .init(selectsFirstHazard: true, caddieRoutes: routes),
                         caddieBaseURL: URL(string: "http://127.0.0.1:9")
                     )
                 },
                 named: "full-hole-map-partial-pending",
+                dark: true
+            )
+            // Pending without a selection: the 障碍 control is offered for the existing facts.
+            try captureScreen(
+                NavigationStack {
+                    CurrentHoleView(
+                        package: partialPackage,
+                        hole: firstHole,
+                        snapshotState: .init(caddieRoutes: routes),
+                        caddieBaseURL: URL(string: "http://127.0.0.1:9")
+                    )
+                },
+                named: "full-hole-map-partial-pending-default",
                 dark: true
             )
             // Partial facts with nothing better coming (offline / no service): the same map, and the
