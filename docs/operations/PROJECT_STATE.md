@@ -9,10 +9,10 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-28 04:54 UTC
+**Updated:** 2026-09-28 06:40 UTC
 **Branch:** `main`; product canonical source revision is
-`390e72ed2582c8de131ae688def87311a314e919` (PR #338 B0d-1 is merged after
-the PR #339 B0c test-isolation closeout; PR #337 B0c remains merged; baseline
+`895ea5ded72ef8648520f08cef53fc73fa06b87a` (PR #340 B0d-2 is merged after
+the PR #339 B0c test-isolation closeout; PR #338 B0d-1 and PR #337 B0c remain merged; baseline
 tag `v2-baseline-2026-09` remains at
 `57ee84310be38653835e3488104a9332771290ef`). The latest existing internal
 TestFlight artifact remains Build `0.1.0 (76)`; the B0a/B0b/B0c data-contract and
@@ -98,7 +98,7 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-09-28 04:54 UTC):** `B0` is `in-progress`: implement the
+**Current slice (2026-09-28 06:40 UTC):** `B0` remains `in-progress`: implement the
 data底座 contract in `docs/design/2026-09-25-ui-redesign/IMPLEMENTATION_PLAN.md`
 (fairway outline, tee-result classification, score source, correction log and
 the new statistics fields) with contract-first tests. PR #335 completed B0a:
@@ -124,13 +124,22 @@ reversal/ref-uniqueness checks pass, source CI `36377589609` is green, and
 post-merge main CI `36378361410` is green. The three exact-head review
 snapshots were removed under the allow-list and capacity record at
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T0450Z-pr338-review-snapshot/`.
-PR #340 B0d-2 is now the active design-review slice at head `303443cb`; its
-design-only CI `36379022039` is green. Codex accepted the direction subject to
-four final contract clarifications (one total cross-store audit order,
-conditional `geometryChanged`, typed repair/torn-tail records, and
-legacy/cursor identity); implementation is not yet authorized until those are
-explicit. Proceed to B0d-2 implementation only after the amended design is
-reviewed. PR334
+PR #340 B0d-2 is merged at `895ea5de` from exact head `946b082b` after the
+security-redaction follow-up. Homeserver exact-head focused suites pass
+`101/101`; source head CI `36385272588` and post-merge main CI `36386586960`
+are green (backend, Docker, frontend). The implementation includes coherent
+source reads, merged-round alias idempotency, typed pending/unrecoverable
+repair records, and redacted failure text in durable audits and HTTP responses.
+The PR review/merge evidence is in comments `5864451350`, `5864474333`, and
+`5864646381`; the read-only review snapshot cleanup manifest is
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T0620Z-pr340-review-snapshot/`.
+The all-PR feedback monitor is running in homeserver tmux
+`codex-pr-monitor-20260928`, with durable state/events under
+`/home/jason/garmin-ai-caddie-data/operations/pr-feedback-monitor/`; its
+session/resource manifest is
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T0612Z-pr-feedback-monitor/`.
+Next action is to continue the remaining B0 data-foundation queue while the
+monitor tracks open and recently closed PR feedback. PR334
 housekeeping is done; the prior `PHONE-UX9-LIVE-ROUTE-COVERAGE` slice remains
 `evidence-open` pending physical iPhone/Watch installation and interaction
 evidence. Commits `7341d499`
@@ -2664,7 +2673,7 @@ project-level task list; historical plans are reference material.
 | `PR334-HOUSEKEEPING` | `done` | Finish the Claude-to-Codex repository housekeeping handoff: archive/delete the approved remote branches, rename `integration/v2` to `main`, update active references, classify outside-checkout references, preserve evidence, merge, tag the baseline, and advance the queue to B0. | PR #334 merged as `57ee84310be38653835e3488104a9332771290ef`; 817fa3aa archived at `archive/claude/code-audit-performance-17wqcv`; baseline tag `v2-baseline-2026-09` created; merged PR branch deleted; focused homeserver checks 109/109 (94 host + 15 API image); active call-chain scan 0; external shell classification 120/120; review snapshot cleanup recorded under `20260927T1355Z-pr334-review-snapshot`. |
 | `CODEX-CHECKOUT-STAGED-17` | `done` | Owner decision 2026-09-28: keep the 17 staged spec files in `/home/codex/garmin-ai-caddie`, but record which are stale; migrate that checkout's local branch to `main` without resetting or unstaging. | Checkout HEAD stays `d847cf28` (behind `origin/main` by 595; no pull/merge/reset). Staged patch SHA-256 unchanged before/after: `fc152731cb5c78c83ef21b3499153280bc4f1856d1b50aab0cd4fe59ba10727d`. 15 of 17 staged blobs are byte-identical to `main@9785a0cd`; `docs/superpowers/specs/ai-caddie-spec.md` and `docs/superpowers/specs/work-board.md` are **stale** (their authority/archive paragraphs are already on `main`, while the staged copies still say `integration/v2` and would revert the 2026-09-27 `main`/TestFlight status; no remaining novel content). Full per-file classification: `/home/codex/garmin-ai-caddie/STAGED-CHANGES-README.md`. Local branch renamed `integration/v2` → `main`, upstream `origin/main`, `origin/HEAD` → `origin/main`; `stash@{0}: predeploy-wip` untouched. A prior root-run had left the `origin/main` ref and its reflog root-owned; ownership of exactly those two files was changed back to `codex` (no recursive change). Evidence: `/home/jason/garmin-ai-caddie-data/operations/pr335-review-20260928/`. |
 | `PR176-HISTORY` | `done` | Preserve the owner-approved multi-user design documents as explicitly historical material, then close the superseded PR without treating it as the current product specification. | The four documents landed unchanged apart from historical headers through PR #335 at `0256f48f`. PR #176 was closed with `landed as history in #335`; tag `archive/superpowers/multi-user-redesign-spec` points to exact former head `b5aa51ef`, and the matching remote branch was compare-and-deleted. |
-| `B0` | `in-progress` | Implement the B0 data foundation from `docs/design/2026-09-25-ui-redesign/IMPLEMENTATION_PLAN.md`: fairway outline contract, tee-result classifier, score source, correction log, and new statistics fields. Keep Python/Swift contracts aligned; no UI batch should invent missing backend fields. | B0a merged through PR #335 at `0256f48f`; B0b merged through PR #336 at `6a8e295d` with Source CI `36369961305` and Native CI `36369961338` (iOS `365/365`, Watch `337/337`). B0c merged through PR #337 at `be3867f2`, with the test-isolation closeout in PR #339 at `556dea43` and Source CI `36375145151`. B0d-1 merged through PR #338 at `390e72ed` from exact head `24614bd2`; focused homeserver suites `36/36`, real 471-round reversal/ref checks, source CI `36377589609`, and post-merge main CI `36378361410` are green. PR #340 is the active B0d-2 design-only draft at `303443cb` (CI `36379022039` green); implementation waits for the four contract clarifications recorded in comments `5863592646` and `5863755865`. Review cleanup evidence is under `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T0450Z-pr338-review-snapshot/`. |
+| `B0` | `in-progress` | Implement the B0 data foundation from `docs/design/2026-09-25-ui-redesign/IMPLEMENTATION_PLAN.md`: fairway outline contract, tee-result classifier, score source, correction log, and new statistics fields. Keep Python/Swift contracts aligned; no UI batch should invent missing backend fields. | B0a merged through PR #335 at `0256f48f`; B0b merged through PR #336 at `6a8e295d` with Source CI `36369961305` and Native CI `36369961338` (iOS `365/365`, Watch `337/337`). B0c merged through PR #337 at `be3867f2`, with the test-isolation closeout in PR #339 at `556dea43` and Source CI `36375145151`. B0d-1 merged through PR #338 at `390e72ed` from exact head `24614bd2`; focused homeserver suites `36/36`, real 471-round reversal/ref checks, source CI `36377589609`, and post-merge main CI `36378361410` are green. B0d-2 merged through PR #340 at `895ea5de` from exact head `946b082b`; homeserver focused suites `101/101`, source CI `36385272588`, and post-merge main CI `36386586960` are green. Review snapshot cleanup is recorded under `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T0620Z-pr340-review-snapshot/`; the all-PR monitor is recorded under `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T0612Z-pr-feedback-monitor/`. |
 | `SYNC-RECOVERY-20260925` | `done` | Restore the Garmin cron after the API deployment, then make API-to-sync image binding and missing-image alerting part of the deployment/runtime contract. | Same-revision image built and one-shot incremental sync completed; production history overview shows round `17711803`. Remote deployment-manifest tests `17/17` pass. Installed wrapper check-only probe passes against production; prior wrapper is checksum-preserved. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
