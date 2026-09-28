@@ -10,7 +10,7 @@ final class LivePlannedRouteLayoutTests: XCTestCase {
 
     private func fixtureMap() throws -> HoleImageMapView {
         let json = """
-        {"hole":1,"par":4,"route_len_m":375,"route":[[120,330],[118,180],[120,55]],"steps":[],\
+        {"hole":1,"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":375,"route":[[120,330],[118,180],[120,55]],"steps":[],\
         "cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
         "map":{"overlay":{"w":240,"h":360,"ppm":1.0,"ln":375,\
         "route":[[120,330,0],[118,180,150],[120,55,375]]}}}
