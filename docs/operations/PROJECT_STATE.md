@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-28 19:16 UTC
+**Updated:** 2026-09-28 19:22 UTC
 **Branch:** `main`; product canonical source revision is
 `8a1180d2fbffaccf84dbb3275a34554abf03b4d9` (PR #357 B1d is merged after
 exact-head review; PR #356 B1c is merged after
@@ -127,7 +127,8 @@ were moved out of active storage to project cleanup-trash, with manifest
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T190000Z-review-pr357-027512ca50be5198c2b06391a8664a5125874e8c.txt`;
 the test log remains at
 `/home/jason/garmin-ai-caddie-data/tmp/review-pr357-mobile-contracts.log`.
-Post-merge main CI `36470698428` is running; no production resources changed.
+Post-merge main CI `36470698428` is green; the state-record CI
+`36471399794` is also green; no production resources changed.
 
 PR #354 (B1a flag edge distances) was reviewed at exact
 head `e65f3adc0cb3d1a6c93b1ae3477bd03dbb4533de`: homeserver mobile contracts
