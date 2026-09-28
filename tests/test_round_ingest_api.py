@@ -52,6 +52,13 @@ class RoundIngestApiTests(unittest.TestCase):
             p.start()
         stats_cache.clear()
         self.addCleanup(stats_cache.clear)
+        # The endpoint intentionally starts a fire-and-forget prep warmer.  A real daemon
+        # worker can outlive this TestCase and later cross an unrelated global mock (the
+        # package tests assert that their own course was not prepped).  Keep the producer
+        # tests deterministic while preserving a separate assertion that the trigger fires.
+        self._recent_patch = mock.patch("server_v2.main._prepare_recent_bg")
+        self.recent_mock = self._recent_patch.start()
+        self.addCleanup(self._recent_patch.stop)
         self.alice = players.create_player("Alice", root=self.root)
         self.bob = players.create_player("Bob", root=self.root)
         self.client = TestClient(app)
@@ -77,6 +84,7 @@ class RoundIngestApiTests(unittest.TestCase):
         self.assertEqual(out["holesCompleted"], 1)
         self.assertEqual(out["source"], "manual")
         self.assertFalse(out["idempotent"])
+        self.recent_mock.assert_called_once_with(self.alice["id"])
 
     def test_player_cannot_ingest_for_another_player(self) -> None:
         with mock.patch.dict("os.environ", ADMIN_ENV):
