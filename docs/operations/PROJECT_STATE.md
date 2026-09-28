@@ -98,21 +98,52 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-09-28 13:16 UTC):** `B1-B7` review queue is `in-progress`:
+**Current slice (2026-09-28 15:18 UTC):** `B1-B7` review queue is `in-progress`:
 Codex is the review owner for PRs opened from
 `claude/code-audit-performance-17wqcv`. Each PR must be checked at its exact
 head against `docs/design/2026-09-25-ui-redesign/README.md` and
 `IMPLEMENTATION_PLAN.md`; mobile changes require green Native Mobile CI and
 inspection of the matching `design-snapshots` / `watch-snapshots` artifacts
-before a PR comment and merge decision. As of this update the branch points at
-the merged B1a head. PR #354 (B1a flag edge distances) was reviewed at exact
+before a PR comment and merge decision. PR #354 (B1a flag edge distances) was reviewed at exact
 head `e65f3adc0cb3d1a6c93b1ae3477bd03dbb4533de`: homeserver mobile contracts
 passed `99/99`, Source CI `36424558065` and Native Mobile CI `36424557986`
 were green, and artifacts `10971447902` / `10971558078` were inspected. The
 PR was merged as `b7523cefa3ae69679931c704406e3bdd9bded853` and its remote
-branch was explicitly deleted. There are currently no open B1-B7 PRs; resume
-by polling for a new PR, then run the bounded tests and screenshot review
-before commenting. The retained Native CI artifact scratch is allow-listed at
+branch was explicitly deleted. PR #355 (B1b full-screen live hole) is now the
+active review. Exact head `952ddba62c0fce93d55faa306869f5def12080a8` has green
+Source CI `36428889274` and Native Mobile CI `36428889449`; homeserver mobile
+contracts passed `99/99`, and the matching iOS/Watch artifacts were inspected.
+Review comment `5871283980` blocked merge with P1 (missing per-leg club + yardage
+labels on the live map) and P2 (insufficient deterministic snapshot coverage for
+obstacle selection, multiple plans, and zoom/recenter states). Claude pushed
+`c65f23b52bbeb4566023af4bd62057edb5c6d58b` to address both, but Native Mobile
+CI `36433095000` fails the iOS compile at
+`LivePlayChrome.swift:507:16` (Swift type-check timeout in `samples(along:)`).
+Review comments `5871638966` and `5871670679` kept the failed head blocked.
+Claude then pushed exact head `2a03384579ccb651e260a8b2685e68e4219a5d4b`.
+Source CI is green; Native Mobile CI `36434036314` is green (iOS and Watch),
+and homeserver `tests.test_mobile_contracts` passes `99/99` in the writable
+exact-head test copy using the existing API image `/app/.venv`. Artifacts
+`design-snapshots` `10974479749` and `watch-snapshots` `10975890511` were
+downloaded. Watch PNGs are byte-identical to the prior reviewed run. However,
+the four new live-map PNGs are byte-identical to each other (SHA-256
+`341ecdf6f1e27df1946d7cbe31440616cbfba0223260c4b4fdd844321291765f`), so the
+hazard-selected, plan-2, and zoomed/recenter states are not evidenced; the
+default image also shows all three legs as `八号铁 157` despite the injected
+distinct-route fixture. Review comment `5872274787` keeps this P2 evidence
+blocker active. Claude then pushed exact head
+`2c05e0734a54f3beae107347eadc5581426a5c14`. Source CI `36438174333` and
+Native Mobile CI `36438174312` are green; the exact-head homeserver contract
+test still needs a fresh run (the homeserver is below the capacity gate while
+an unrelated slow suite is running). Artifacts `design-snapshots`
+`10976797626` and `watch-snapshots` `10977505812` were downloaded and
+inspected. The four live iOS states are now visibly distinct, and the Watch
+files remain unchanged, but the default, hazard, and zoomed images show the
+`220码` tee-distance label overlapping the `一号木 246` leg label; the leg
+text is obscured, more severely at 2x. Review comment `5872973024` marks this
+P1 and requests a shared collision/placement fix plus new exact-head
+artifacts. Re-review only after Claude pushes that fix and all required
+tests/evidence are fresh. The retained Native CI artifact scratch is allow-listed at
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T-review-pr354-artifacts/`
 until 2026-09-29; its disposable exact-head source snapshot was removed after
 testing. Post-merge main CI `36427341719` is green and no production resources
