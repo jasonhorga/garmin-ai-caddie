@@ -350,53 +350,47 @@ final class TeeSelectionUITests: XCTestCase {
             "the no-GPS hero must label its F/M/B values as Tee-referenced static distances"
         )
 
+        // B1c: the Touch Target lives on the main map itself. A tap places it, a tap on it clears it.
         let openMap = app.descendants(matching: .any)
             .matching(identifier: "live-open-map-from-hero")
             .firstMatch
         XCTAssertTrue(
             openMap.waitForExistence(timeout: 8) && openMap.isHittable,
-            "the first map hero must expose the Touch Target entry point"
-        )
-        openMap.tap()
-
-        let distancePanel = app.descendants(matching: .any)
-            .matching(identifier: "live-map-distance-panel")
-            .firstMatch
-        XCTAssertTrue(
-            distancePanel.waitForExistence(timeout: 8),
-            "Touch Target must expose its distance panel before a target is placed"
+            "the full-screen hole map must be the Touch Target surface"
         )
         let targetMarker = app.descendants(matching: .any)
             .matching(identifier: "live-map-target-marker")
             .firstMatch
         XCTAssertFalse(targetMarker.exists)
-        // The interaction layer is intentionally accessibility-hidden; a normalized coordinate is the
-        // closest representation of the player's tap on the real map surface.
+        // The interaction layer is one gesture surface; a normalized coordinate is the closest
+        // representation of the player's tap on the real map.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.45)).tap()
         XCTAssertTrue(
             targetMarker.waitForExistence(timeout: 8),
-            "a map tap without GPS must create a local Touch Target marker"
+            "a map tap without GPS must place a local Touch Target on the main map"
         )
-        let teeToTarget = app.descendants(matching: .any).matching(
-            NSPredicate(format: "label CONTAINS %@", "发球台 → 目标")
-        ).firstMatch
         XCTAssertTrue(
-            teeToTarget.waitForExistence(timeout: 5),
+            targetMarker.label.contains("发球台 → 目标"),
             "no-GPS Touch Target distances must be labelled from the Tee, not from the phone"
         )
         XCTAssertFalse(
-            app.descendants(matching: .any).matching(
-                NSPredicate(format: "label CONTAINS %@", "当前位置 → 目标")
-            ).firstMatch.exists,
+            targetMarker.label.contains("当前位置 → 目标"),
             "a no-GPS map target must never claim to start at the current phone location"
         )
-        let zoomIn = app.buttons["live-map-zoom-in"]
-        XCTAssertTrue(zoomIn.waitForExistence(timeout: 5) && zoomIn.isHittable)
-        zoomIn.tap()
-        XCTAssertTrue(app.buttons["live-map-zoom-out"].waitForExistence(timeout: 5))
-        let closeMap = app.buttons["关闭详细地图"]
-        XCTAssertTrue(closeMap.waitForExistence(timeout: 5) && closeMap.isHittable)
-        closeMap.tap()
+        XCTAssertFalse(
+            app.descendants(matching: .any).matching(identifier: "live-map-distance-panel").firstMatch.exists,
+            "the retired Touch Target page must not reappear"
+        )
+        targetMarker.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let cleared = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: targetMarker
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [cleared], timeout: 5),
+            .completed,
+            "a tap on the target clears it"
+        )
 
         // The green itself is the entry point from the same no-GPS round. Verify its real zoom surface; the
         // active drag loupe remains a video/device-evidence concern because XCTest cannot snapshot a

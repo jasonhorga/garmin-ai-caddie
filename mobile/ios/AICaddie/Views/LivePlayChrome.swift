@@ -378,18 +378,8 @@ enum LivePlannedRouteRenderer {
         offset: CGSize,
         topInset: CGFloat
     ) -> ScreenGeometry {
-        let centre = CGPoint(x: size.width / 2, y: size.height / 2)
         func screen(_ point: CGPoint) -> CGPoint? {
-            guard let base = LivePlayMapOverlayLayout.project(
-                overlayPoint: [Double(point.x), Double(point.y)],
-                overlayWidth: overlay.w,
-                overlayHeight: overlay.h,
-                into: size,
-                topInset: topInset
-            ) else { return nil }
-            let x: CGFloat = centre.x + (base.x - centre.x) * scale + offset.width
-            let y: CGFloat = centre.y + (base.y - centre.y) * scale + offset.height
-            return CGPoint(x: x, y: y)
+            transformedPoint(point, size: size, overlay: overlay, scale: scale, offset: offset, topInset: topInset)
         }
         let screenLegs = legs.compactMap { leg -> (leg: MapPlannedLeg, origin: CGPoint, destination: CGPoint)? in
             guard let origin = screen(leg.origin), let destination = screen(leg.destination) else { return nil }
@@ -409,6 +399,27 @@ enum LivePlannedRouteRenderer {
             teeArc: screenTeeArc,
             teeArcYards: screenTeeArc == nil ? nil : teeArcYards
         )
+    }
+
+    /// A topo pixel in the viewport: the aspect-fit projection, then the hero's pan/zoom.
+    static func transformedPoint(
+        _ point: CGPoint,
+        size: CGSize,
+        overlay: CoursePrepOverlay,
+        scale: CGFloat,
+        offset: CGSize,
+        topInset: CGFloat
+    ) -> CGPoint? {
+        guard let base = LivePlayMapOverlayLayout.project(
+            overlayPoint: [Double(point.x), Double(point.y)],
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            into: size,
+            topInset: topInset
+        ) else { return nil }
+        let x: CGFloat = size.width / 2 + (base.x - size.width / 2) * scale + offset.width
+        let y: CGFloat = size.height / 2 + (base.y - size.height / 2) * scale + offset.height
+        return CGPoint(x: x, y: y)
     }
 
     /// Label strings in layout order: one per leg, then the tee-distance "N码".
@@ -440,15 +451,32 @@ enum LivePlannedRouteRenderer {
         flagScale: CGFloat,
         viewportSize: CGSize,
         hazard: LiveHazardOverlayRenderer.ScreenGeometry? = nil,
-        hazardLabelSizes: [CGSize] = []
+        hazardLabelSizes: [CGSize] = [],
+        target: LiveTargetRenderer.ScreenTarget? = nil
     ) -> (route: [CGRect?], hazard: [CGRect?]) {
         var lineSamples: [CGPoint] = geometry.arcs.flatMap { Self.samples(along: $0) }
         if let teeArc = geometry.teeArc { lineSamples += Self.samples(along: teeArc) }
+        var reserved: [CGRect] = []
+        if let target {
+            // The Touch Target readout sits at a fixed spot beside its ring (the prototype's
+            // layout); every other label is placed around it and its dashed legs.
+            reserved = target.labelRects
+            for leg in target.legs {
+                lineSamples += Self.samples(along: MapFlightArc(
+                    start: leg.start,
+                    control: CGPoint(x: (leg.start.x + leg.end.x) / 2, y: (leg.start.y + leg.end.y) / 2),
+                    end: leg.end
+                ))
+            }
+        }
         var obstacles: [CGRect] = geometry.legs.map {
             CGRect(x: $0.destination.x - 8, y: $0.destination.y - 8, width: 16, height: 16)
         }
         if let pinLeg = geometry.legs.last(where: { $0.leg.endsAtPin }) {
             obstacles.append(flagRect(foot: pinLeg.destination, scale: flagScale))
+        }
+        if let target {
+            obstacles.append(CGRect(x: target.point.x - 15, y: target.point.y - 15, width: 30, height: 30))
         }
         if let hazard {
             lineSamples += outlineSamples(hazard.outline)
@@ -496,7 +524,13 @@ enum LivePlannedRouteRenderer {
             }
         }
         let viewport = screenBounds.insetBy(dx: 4, dy: 4)
-        let placed = layoutLabels(requests, viewport: viewport, obstacles: obstacles, samples: lineSamples)
+        let placed = layoutLabels(
+            requests,
+            viewport: viewport,
+            obstacles: obstacles,
+            samples: lineSamples,
+            reserved: reserved
+        )
         var route = [CGRect?](repeating: nil, count: labelSizes.count)
         var hazardRects = [CGRect?](repeating: nil, count: hazard?.edges.count ?? 0)
         for (rect, slot) in zip(placed, slots) {
@@ -538,7 +572,8 @@ enum LivePlannedRouteRenderer {
         scale: CGFloat,
         offset: CGSize,
         topInset: CGFloat,
-        hazard selectedHazard: (hole: CoursePrepHole, row: LiveHazardDisplayItem)? = nil
+        hazard selectedHazard: (hole: CoursePrepHole, row: LiveHazardDisplayItem)? = nil,
+        target: LiveTargetGeometry? = nil
     ) {
         let geometry = screenGeometry(
             size: size,
@@ -601,13 +636,32 @@ enum LivePlannedRouteRenderer {
         let hazardSizes: [CGSize] = hazardGeometry?.edges.map {
             LiveHazardOverlayRenderer.labelSize(for: $0.text, in: context)
         } ?? []
+        var screenTarget: LiveTargetRenderer.ScreenTarget?
+        if let target {
+            screenTarget = LiveTargetRenderer.screenTarget(
+                target,
+                in: context,
+                viewportSize: size,
+                transform: { point in
+                    transformedPoint(
+                        point,
+                        size: size,
+                        overlay: overlay,
+                        scale: scale,
+                        offset: offset,
+                        topInset: topInset
+                    )
+                }
+            )
+        }
         let placed = layout(
             geometry,
             labelSizes: sizes,
             flagScale: scale,
             viewportSize: size,
             hazard: hazardGeometry,
-            hazardLabelSizes: hazardSizes
+            hazardLabelSizes: hazardSizes,
+            target: screenTarget
         )
         for (index, rect) in placed.route.enumerated() where index < resolvedTexts.count {
             guard let rect else { continue }
@@ -615,6 +669,9 @@ enum LivePlannedRouteRenderer {
             context.fill(Path(roundedRect: rect, cornerRadius: rect.height / 2),
                          with: .color(.black.opacity(dimmed ? 0.5 : 0.74)))
             context.draw(resolvedTexts[index], at: CGPoint(x: rect.midX, y: rect.midY))
+        }
+        if let screenTarget {
+            LiveTargetRenderer.draw(&context, screenTarget)
         }
         // The obstacle is drawn last with the label rectangles from the same layout.
         if let selectedHazard {
@@ -644,9 +701,12 @@ enum LivePlannedRouteRenderer {
         _ requests: [LabelRequest],
         viewport: CGRect,
         obstacles: [CGRect],
-        samples: [CGPoint]
+        samples: [CGPoint],
+        reserved: [CGRect] = []
     ) -> [CGRect] {
-        var placed: [CGRect] = []
+        // `reserved` are labels that are already fixed (the Touch Target readout); they count as
+        // placed labels but are not returned.
+        var placed: [CGRect] = reserved
         for request in requests {
             let halfW: CGFloat = request.size.width / 2
             let halfH: CGFloat = request.size.height / 2
@@ -673,7 +733,7 @@ enum LivePlannedRouteRenderer {
             }
             placed.append(best)
         }
-        return placed
+        return Array(placed.dropFirst(reserved.count))
     }
 
     /// Beside the landing across the flight direction (either side), then above/below, then the
@@ -771,5 +831,206 @@ enum LivePlannedRouteRenderer {
         result.origin.x = min(max(result.minX, bounds.minX), max(bounds.minX, bounds.maxX - result.width))
         result.origin.y = min(max(result.minY, bounds.minY), max(bounds.minY, bounds.maxY - result.height))
         return result
+    }
+}
+
+/// Touch Target on the main live map (`live-play.html`, B1c): tap the map to place it, hold and drag
+/// it to move it with the loupe, tap it again to clear it. Points are topo pixels; distances come
+/// from the same pixel frame (`LiveMapPixelDistanceLayout`), so they work without GPS.
+struct LiveTargetGeometry: Equatable {
+    let reference: CGPoint?
+    let target: CGPoint
+    let pin: CGPoint?
+    let toTargetYards: Int?
+    let toPinYards: Int?
+}
+
+enum LiveTargetRenderer {
+    static let yellow = Color(red: 1, green: 0.847, blue: 0.29)
+    static let ringRadius: CGFloat = 13
+    /// A press within this distance of the ring grabs the target (drag) or clears it (tap).
+    static let grabRadius: CGFloat = 36
+
+    struct ScreenTarget {
+        let point: CGPoint
+        let legs: [(start: CGPoint, end: CGPoint)]
+        let yards: GraphicsContext.ResolvedText?
+        let remain: GraphicsContext.ResolvedText?
+        let labelRects: [CGRect]
+    }
+
+    /// Player (or Tee) → target, then target → flag; the second leg only when the flag is known.
+    static func legs(reference: CGPoint?, target: CGPoint, pin: CGPoint?) -> [(start: CGPoint, end: CGPoint)] {
+        var result: [(start: CGPoint, end: CGPoint)] = []
+        if let reference { result.append((reference, target)) }
+        if let pin { result.append((target, pin)) }
+        return result
+    }
+
+    /// The readout sits beside the ring, on the side with more room: the yardage (22 pt) above
+    /// the centre line, "再 N 到旗" (12 pt) below it.
+    static func labelRects(target: CGPoint, viewportWidth: CGFloat, yardsSize: CGSize?, remainSize: CGSize?) -> [CGRect] {
+        let onLeft = target.x > viewportWidth / 2
+        func rect(_ size: CGSize, centreY: CGFloat) -> CGRect {
+            let x: CGFloat = onLeft ? target.x - 20 - size.width : target.x + 20
+            return CGRect(x: x, y: centreY - size.height / 2, width: size.width, height: size.height)
+        }
+        var rects: [CGRect] = []
+        if let yardsSize { rects.append(rect(yardsSize, centreY: target.y - 4 - yardsSize.height / 2 + 6)) }
+        if let remainSize { rects.append(rect(remainSize, centreY: target.y + 10)) }
+        return rects
+    }
+
+    static func screenTarget(
+        _ geometry: LiveTargetGeometry,
+        in context: GraphicsContext,
+        viewportSize: CGSize,
+        transform: (CGPoint) -> CGPoint?
+    ) -> ScreenTarget? {
+        guard let point = transform(geometry.target) else { return nil }
+        let reference: CGPoint? = geometry.reference.flatMap { transform($0) }
+        let pin: CGPoint? = geometry.pin.flatMap { transform($0) }
+        let yards = geometry.toTargetYards.map {
+            context.resolve(
+                Text("\($0)")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(yellow)
+            )
+        }
+        let remain = geometry.toPinYards.map {
+            context.resolve(
+                Text("再 \($0) 到旗")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white)
+            )
+        }
+        let limit = CGSize(width: 200, height: 40)
+        let rects = labelRects(
+            target: point,
+            viewportWidth: viewportSize.width,
+            yardsSize: yards?.measure(in: limit),
+            remainSize: remain?.measure(in: limit)
+        )
+        return ScreenTarget(
+            point: point,
+            legs: legs(reference: reference, target: point, pin: pin),
+            yards: yards,
+            remain: remain,
+            labelRects: rects
+        )
+    }
+
+    static func draw(_ context: inout GraphicsContext, _ target: ScreenTarget) {
+        for (index, leg) in target.legs.enumerated() {
+            var path = Path()
+            path.move(to: leg.start)
+            path.addLine(to: leg.end)
+            context.stroke(path, with: .color(.black.opacity(0.45)),
+                           style: StrokeStyle(lineWidth: 4, lineCap: .round, dash: [5, 5]))
+            context.stroke(path, with: .color(yellow.opacity(index == 0 ? 1 : 0.7)),
+                           style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [5, 5]))
+        }
+        let p = target.point
+        let ring = Path(ellipseIn: CGRect(x: p.x - ringRadius, y: p.y - ringRadius, width: ringRadius * 2, height: ringRadius * 2))
+        context.stroke(ring, with: .color(.black.opacity(0.5)), lineWidth: 4.5)
+        context.stroke(ring, with: .color(yellow), lineWidth: 2.5)
+        context.fill(Path(ellipseIn: CGRect(x: p.x - 2.5, y: p.y - 2.5, width: 5, height: 5)), with: .color(yellow))
+
+        let texts = [target.yards, target.remain].compactMap { $0 }
+        for (text, rect) in zip(texts, target.labelRects) {
+            var shadowed = context
+            shadowed.addFilter(.shadow(color: .black.opacity(0.75), radius: 2))
+            shadowed.draw(text, at: CGPoint(x: rect.midX, y: rect.midY))
+        }
+    }
+}
+
+/// Compact, transform-aware map window used while the Touch Target is dragged (100 pt, 2.35x,
+/// white crosshair). The main map applies `C + s(p-C) + O`; the extra magnification keeps the exact
+/// source pixel under the finger at the loupe crosshair even after pinch zooming or map panning.
+struct LiveMapTargetMagnifierLoupe<Content: View>: View {
+    static var diameter: CGFloat { 100 }
+    static var magnification: CGFloat { 2.35 }
+
+    let content: Content
+    let mapSize: CGSize
+    let focus: CGPoint
+    let displayedScale: CGFloat
+    let displayedOffset: CGSize
+    let diameter: CGFloat
+    let magnification: CGFloat
+
+    init(
+        mapSize: CGSize,
+        focus: CGPoint,
+        displayedScale: CGFloat,
+        displayedOffset: CGSize,
+        diameter: CGFloat = 100,
+        magnification: CGFloat = 2.35,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.content = content()
+        self.mapSize = mapSize
+        self.focus = focus
+        self.displayedScale = displayedScale
+        self.displayedOffset = displayedOffset
+        self.diameter = diameter
+        self.magnification = magnification
+    }
+
+    var body: some View {
+        let safeScale = max(displayedScale.isFinite ? displayedScale : 1, 0.001)
+        let safeMagnification = max(magnification.isFinite ? magnification : 1, 1)
+        let safeFocus = CGPoint(
+            x: focus.x.isFinite ? focus.x : mapSize.width / 2,
+            y: focus.y.isFinite ? focus.y : mapSize.height / 2
+        )
+        let center = CGPoint(x: mapSize.width / 2, y: mapSize.height / 2)
+        let dx: CGFloat = diameter / 2
+            + safeMagnification * ((1 - safeScale) * center.x + displayedOffset.width - safeFocus.x)
+        let dy: CGFloat = diameter / 2
+            + safeMagnification * ((1 - safeScale) * center.y + displayedOffset.height - safeFocus.y)
+
+        ZStack(alignment: .topLeading) {
+            content
+                .frame(width: mapSize.width, height: mapSize.height)
+                .scaleEffect(safeScale * safeMagnification, anchor: .topLeading)
+                .offset(x: dx, y: dy)
+        }
+        .frame(width: diameter, height: diameter, alignment: .topLeading)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            ZStack {
+                Circle()
+                    .stroke(LiveTargetRenderer.yellow, lineWidth: 2.5)
+                    .frame(width: 26, height: 26)
+                Rectangle().fill(.white.opacity(0.95)).frame(width: 1.4, height: 18)
+                Rectangle().fill(.white.opacity(0.95)).frame(width: 18, height: 1.4)
+            }
+            .shadow(color: .black.opacity(0.6), radius: 0.6)
+        }
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.86), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.black.opacity(0.24), lineWidth: 1))
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.38), radius: 7, y: 3)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("拖动目标点时的放大视图")
+        .accessibilityIdentifier("live-map-target-magnifier")
+    }
+
+    /// Keep the loupe fully visible above the finger, clear of the top hole facts and the bottom
+    /// 记分 / 记一杆 row; below the finger only when there is no room above.
+    static func position(for location: CGPoint, in size: CGSize, diameter: CGFloat = 100) -> CGPoint {
+        let half = diameter / 2
+        let fingerClearance: CGFloat = 72
+        let minX = half + 8
+        let maxX = max(minX, size.width - half - 8)
+        let minY = half + 150
+        let maxY = max(minY, size.height - half - 130)
+        let x = min(max(location.x, minX), maxX)
+        let above = location.y - half - fingerClearance
+        let below = location.y + half + fingerClearance
+        let preferred = above >= minY ? above : below
+        return CGPoint(x: x, y: min(max(preferred, minY), maxY))
     }
 }
