@@ -1,3 +1,4 @@
+import AICaddieDomain
 import Foundation
 
 public struct WatchClubOption: Codable, Equatable, Identifiable {
@@ -435,6 +436,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     /// Retaining that source key lets on-demand focused assets use the correct backend endpoint.
     public let sourceLocalHole: Int?
     public let holeMap: WatchHoleMap?
+    /// B0 fairway rings carried from the downloaded prep so the offline tee-result preselect works
+    /// after a restart. `nil` for older cached templates, unsupported versions or no geometry.
+    public let fairwayOutline: FairwayOutline?
     // round-13 spec ②⑤: AI-caddie play options (激进/推荐/保守) + measured hazard facts, pushed from
     // the phone. Additive/optional — default [] so older payloads decode unchanged.
     public let caddieOptions: [WatchCaddieOption]
@@ -483,6 +487,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case globalId
         case sourceLocalHole
         case holeMap
+        case fairwayOutline
         case playsLikeDistanceM
         case elevationDeltaM
         case lastShotDistanceM
@@ -537,6 +542,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         globalId: Int? = nil,
         sourceLocalHole: Int? = nil,
         holeMap: WatchHoleMap? = nil,
+        fairwayOutline: FairwayOutline? = nil,
         playsLikeDistanceM: Double? = nil,
         elevationDeltaM: Double? = nil,
         lastShotDistanceM: Double? = nil,
@@ -589,6 +595,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.globalId = globalId
         self.sourceLocalHole = sourceLocalHole
         self.holeMap = holeMap
+        self.fairwayOutline = fairwayOutline
         self.playsLikeDistanceM = playsLikeDistanceM
         self.elevationDeltaM = elevationDeltaM
         self.lastShotDistanceM = lastShotDistanceM
@@ -642,6 +649,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.globalId = try container.decodeIfPresent(Int.self, forKey: .globalId)
         self.sourceLocalHole = try container.decodeIfPresent(Int.self, forKey: .sourceLocalHole)
         self.holeMap = try container.decodeIfPresent(WatchHoleMap.self, forKey: .holeMap)
+        self.fairwayOutline = container.decodeSupportedFairwayOutline(forKey: .fairwayOutline)
         self.centerGreenM = try container.decodeIfPresent(Double.self, forKey: .centerGreenM)
         self.backGreenM = try container.decodeIfPresent(Double.self, forKey: .backGreenM)
         self.playsLikeDistanceM = try container.decodeIfPresent(Double.self, forKey: .playsLikeDistanceM)
@@ -702,6 +710,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             globalId: globalId,
             sourceLocalHole: sourceLocalHole,
             holeMap: holeMap,
+            fairwayOutline: fairwayOutline,
             playsLikeDistanceM: playsLikeDistanceM,
             elevationDeltaM: elevationDeltaM,
             lastShotDistanceM: lastShotDistanceM,
@@ -767,6 +776,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             globalId: upgraded.globalId ?? globalId,
             sourceLocalHole: upgraded.sourceLocalHole ?? sourceLocalHole,
             holeMap: replacesGeometryAuthority ? upgraded.holeMap : (upgraded.holeMap ?? holeMap),
+            fairwayOutline: replacesGeometryAuthority ? upgraded.fairwayOutline : (upgraded.fairwayOutline ?? fairwayOutline),
             playsLikeDistanceM: replacesGeometryAuthority ? upgraded.playsLikeDistanceM : (upgraded.playsLikeDistanceM ?? playsLikeDistanceM),
             elevationDeltaM: replacesGeometryAuthority ? upgraded.elevationDeltaM : (upgraded.elevationDeltaM ?? elevationDeltaM),
             lastShotDistanceM: lastShotDistanceM,
@@ -853,6 +863,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             globalId: globalId,
             sourceLocalHole: sourceLocalHole,
             holeMap: holeMap,
+            fairwayOutline: fairwayOutline,
             playsLikeDistanceM: playsLikeDistanceM,
             elevationDeltaM: elevationDeltaM,
             lastShotDistanceM: lastShotDistanceM,

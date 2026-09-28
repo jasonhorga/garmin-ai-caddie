@@ -520,7 +520,7 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
         playsLike = try container.decodeIfPresent(WatchCoursePrepPlaysLike.self, forKey: .playsLike)
         holeImageProjection = try container.decodeIfPresent(WatchCoursePrepProjection.self, forKey: .holeImageProjection)
         greenOutline = try container.decodeIfPresent(WatchCoursePrepGreenOutline.self, forKey: .greenOutline)
-        fairwayOutline = (try? container.decodeIfPresent(FairwayOutline.self, forKey: .fairwayOutline)) ?? nil
+        fairwayOutline = container.decodeSupportedFairwayOutline(forKey: .fairwayOutline)
     }
 
     /// Composite package holes use display numbers (10...18), while prep requests use the source

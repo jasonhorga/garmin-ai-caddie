@@ -49,6 +49,16 @@ public struct FairwayPolygon: Codable, Equatable {
     }
 }
 
+public extension KeyedDecodingContainer {
+    /// B0 decode boundary for `fairwayOutline`: a missing key, `null`, a malformed value or an
+    /// unsupported `version` all become `nil`, and none of them fails the enclosing hole.
+    func decodeSupportedFairwayOutline(forKey key: Key) -> FairwayOutline? {
+        guard let outline = (try? decodeIfPresent(FairwayOutline.self, forKey: key)) ?? nil,
+              outline.version == TeeResultClassifier.supportedVersion else { return nil }
+        return outline
+    }
+}
+
 public enum TeeResult: String, Codable, Equatable {
     case hit
     case left

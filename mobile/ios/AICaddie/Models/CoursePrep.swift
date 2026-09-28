@@ -743,8 +743,8 @@ public struct CoursePrepHole: Codable, Equatable {
         self.playsLike = try container.decodeIfPresent(CoursePrepPlaysLike.self, forKey: .playsLike)
         self.holeImageProjection = try container.decodeIfPresent(CoursePrepHoleImageProjection.self, forKey: .holeImageProjection)
         self.greenOutline = try container.decodeIfPresent(CoursePrepGreenOutline.self, forKey: .greenOutline)
-        // Additive B0 field: a malformed outline must never make the whole hole undecodable.
-        self.fairwayOutline = (try? container.decodeIfPresent(FairwayOutline.self, forKey: .fairwayOutline)) ?? nil
+        // Additive B0 field: malformed or unsupported outlines become nil, never a failed hole.
+        self.fairwayOutline = container.decodeSupportedFairwayOutline(forKey: .fairwayOutline)
     }
 
     /// Yardage of the Tee this prep's playing facts describe: the selected Tee when resolved, else Blue.

@@ -586,4 +586,15 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertEqual(hole.par, 4)
     }
 
+    func testUnsupportedFairwayOutlineVersionDecodesAsNil() throws {
+        let ring: [[Double]] = [[40.0, 116.0], [40.0, 116.001], [40.001, 116.0]]
+        let polygon: [String: Any] = ["outerLatLon": ring]
+        let hole = try JSONDecoder().decode(
+            CoursePrepHole.self,
+            from: holeJSON(fairwayOutline: ["version": 2, "polygons": [polygon]] as [String: Any])
+        )
+        XCTAssertNil(hole.fairwayOutline)
+        XCTAssertEqual(hole.par, 4)
+    }
+
 }

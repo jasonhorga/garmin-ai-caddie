@@ -1102,6 +1102,54 @@ final class WatchCourseDownloadTests: XCTestCase {
         ))
         XCTAssertNil(malformed.fairwayOutline)
         XCTAssertEqual(malformed.par, 4)
+
+        let unsupported = try decoder.decode(WatchCoursePrepHole.self, from: Data(
+            #"{"hole":1,"par":4,"fairwayOutline":{"version":2,"polygons":[{"outerLatLon":[[40.0,116.0],[40.0,116.001],[40.001,116.0]]}]}}"#.utf8
+        ))
+        XCTAssertNil(unsupported.fairwayOutline)
+        XCTAssertEqual(unsupported.par, 4)
+    }
+
+    func testDownloadedCourseKeepsFairwayOutlineThroughSaveLoadAndMakeRound() throws {
+        let client = WatchBackendClient(baseURL: URL(string: "https://caddie.example")!)
+        let package = try client.decodeCoursePackage(Data(
+            #"{"roundId":"fairway-1","course":{"globalId":7003,"name":"Fairway Course","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":400,"geometryCoverage":"partial","sourceGlobalId":7003,"sourceLocalHole":1}]}"#.utf8
+        ))
+        let prep = try client.decodeCoursePrep(Data(
+            #"{"globalId":7003,"clubs":[],"holes":[{"hole":1,"par":4,"geometryCoverage":"partial","landing_m":180.0,"route":[[0.0,0.0,0.0],[0.0,180.0,180.0]],"holeImageProjection":{"available":true,"widthPx":500,"heightPx":700,"refs":[{"lat":40.0,"lon":116.0,"px":100.0,"py":600.0},{"lat":40.0,"lon":116.001,"px":220.0,"py":600.0},{"lat":40.001,"lon":116.0,"px":100.0,"py":480.0}]},"fairwayOutline":{"version":1,"source":"prodgeometry.Fairway.drc","polygons":[{"outerPx":[[1,2],[3,4],[5,6]],"holesPx":[],"outerLatLon":[[40.0,116.0],[40.0,116.001],[40.001,116.0]],"holesLatLon":[]}]}}]}"#.utf8
+        ))
+        let expected = try XCTUnwrap(prep.holes.first?.fairwayOutline)
+        let download = try WatchCourseTemplateBuilder.build(
+            option: WatchCourseOption(globalId: 7003, name: "Fairway Course", holes: 18, teeBox: "Blue"),
+            package: package,
+            prepsByGlobalId: [7003: prep],
+            cachedAt: "2026-09-28T00:00:00Z"
+        )
+        XCTAssertEqual(download.template.holeStates.first?.fairwayOutline, expected)
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("watch-fairway-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try WatchCourseStore(directoryURL: directory).save(download.template)
+        let reloaded = try XCTUnwrap(WatchCourseStore(directoryURL: directory).course(globalId: 7003))
+        XCTAssertEqual(reloaded.holeStates.first?.fairwayOutline, expected)
+        XCTAssertEqual(reloaded.makeRound(roundId: "fairway-round").holeStates.first?.fairwayOutline, expected)
+    }
+
+    func testOldCachedRoundStateWithoutFairwayOutlineStillDecodes() throws {
+        let state = WatchRoundState(
+            roundId: "old", hole: 1, par: 4, distanceM: nil, selectedClub: nil,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+        object.removeValue(forKey: "fairwayOutline")
+        let old = try JSONDecoder().decode(WatchRoundState.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertNil(old.fairwayOutline)
+        XCTAssertEqual(old.par, 4)
+
+        object["fairwayOutline"] = ["version": 9, "polygons": 1] as [String: Any]
+        let unsupported = try JSONDecoder().decode(WatchRoundState.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertNil(unsupported.fairwayOutline)
     }
 
 }
