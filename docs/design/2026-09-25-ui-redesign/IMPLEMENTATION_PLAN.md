@@ -229,6 +229,8 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 - 文件：`LiveScoreConfirmationView.swift`、`LiveRoundScorecardView.swift`、`LiveRoundFinishSummaryView.swift`、`Models/LiveScoreConfirmation.swift`。
 - 本洞记分改为一屏：总杆记分符号条（从 1 杆排起、不自动居中）、推杆分段、开球三块小图、罚杆 −/+；不写任何来源提示。
 - 预选优先级：手表挥杆 → 手机“记一杆”次数 + 2 推 → 默认标准杆；开球用 B0 判定预选。保存时写 `source`。
+  - “记一杆”次数 = 本洞所有手动标的落点（`.location` 事件），手机标的和手表上标的（经手机转存，clientId `apple-watch`）同样计入，来源记 `phone_shots`；
+    开球预选用第二个标点，不分设备。`watch_detected` 只留给 B7 的手表自动挥杆检测，不从手动标点推断。
 - 计分卡：大号成绩 + 累计走势 + 前 / 后九符号卡；“结束本场”入口移到这里。
 - 本场汇总：复盘同版式（成绩、记分卡、四格含 GIR“按推杆推算”）；去掉同步状态；放弃前确认。
 - 验收：草稿模型单测（预选优先级、推杆超总杆时总杆自动加）；三屏 UI 截图。

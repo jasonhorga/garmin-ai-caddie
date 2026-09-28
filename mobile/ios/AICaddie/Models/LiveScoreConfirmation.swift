@@ -186,3 +186,15 @@ public enum LiveScoreSubmission {
         return result
     }
 }
+
+/// The shots the player marked on one hole ("记一杆"), in the order they were marked. A mark made on
+/// the watch is relayed into the phone's event log as the same `.location` event (clientId
+/// `apple-watch`) and counts exactly like a phone mark: both are the player saying "I hit a shot
+/// here". They preselect the score as `phone_shots` (marked shots + 2 putts) and the second mark
+/// drives the tee-result preselection. `watch_detected` is reserved for the watch's automatic swing
+/// detection (B7), which is passed separately as `watchSwingCount` and is never inferred from marks.
+enum LiveMarkedShots {
+    static func locations(in events: [LiveRoundEvent], roundId: String, hole: Int) -> [LiveRoundEvent] {
+        events.filter { $0.roundId == roundId && $0.hole == hole && $0.kind == .location }
+    }
+}

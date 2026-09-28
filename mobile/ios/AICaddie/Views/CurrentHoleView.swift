@@ -3898,9 +3898,7 @@ public struct CurrentHoleView: View {
               let outline = prep.fairwayOutline,
               let offlineStore,
               let events = try? offlineStore.loadEvents() else { return nil }
-        let shots = events.filter {
-            $0.roundId == package.roundId && $0.hole == hole.number && $0.kind == .location
-        }
+        let shots = LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number)
         guard shots.count >= 2,
               case .number(let latitude)? = shots[1].payload["latitude"],
               case .number(let longitude)? = shots[1].payload["longitude"] else { return nil }
@@ -3927,9 +3925,7 @@ public struct CurrentHoleView: View {
 
     private var recordedNonPuttShotCount: Int {
         guard let offlineStore, let events = try? offlineStore.loadEvents() else { return 0 }
-        return events.filter { event in
-            event.roundId == package.roundId && event.hole == hole.number && event.kind == .location
-        }.count
+        return LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number).count
     }
 
     private var actualClubChoices: [LiveActualClubChoice] {

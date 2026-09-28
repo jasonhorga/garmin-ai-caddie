@@ -148,11 +148,19 @@ final class LiveRoundScoreSummaryTests: XCTestCase {
         XCTAssertEqual(summary.cumulativeToPar, [0, 1, 0])
     }
 
+    /// README §2 / §6: GIR = the first putt is stroke ≤ Par − 1, i.e. strokes − putts ≤ Par − 2.
     func testGIRIsEstimatedFromStrokesAndPutts() {
         XCTAssertTrue(hole(1, par: 4, score: 4, putts: 2).estimatedGIR)
         XCTAssertTrue(hole(2, par: 4, score: 3, putts: 1).estimatedGIR)
         XCTAssertFalse(hole(3, par: 4, score: 5, putts: 2).estimatedGIR)
         XCTAssertFalse(hole(4, par: 3, score: 3, putts: 1).estimatedGIR)
+        // Boundary: on in regulation, then three putts — still a GIR (first putt is stroke 3 on a par 4).
+        XCTAssertTrue(hole(5, par: 4, score: 5, putts: 3).estimatedGIR)
+        XCTAssertTrue(hole(6, par: 5, score: 6, putts: 3).estimatedGIR)
+        XCTAssertTrue(hole(7, par: 3, score: 3, putts: 2).estimatedGIR)
+        // One stroke later to the green is a miss, however many putts follow.
+        XCTAssertFalse(hole(8, par: 4, score: 6, putts: 3).estimatedGIR)
+        XCTAssertFalse(hole(9, par: 5, score: 5, putts: 1).estimatedGIR)
     }
 
     func testUntouchedDefaultHolesAreSkippedForPuttsAndGIR() {
@@ -169,5 +177,37 @@ final class LiveRoundScoreSummaryTests: XCTestCase {
         let allDefault = LiveRoundScoreSummary(holes: [hole(1, par: 4, score: 4, putts: 2, source: "default")])
         XCTAssertNil(allDefault.putts)
         XCTAssertNil(LiveRoundScoreSummary.percent(allDefault.girHit, of: allDefault.girRecorded))
+    }
+}
+
+/// Marked shots ("记一杆") from the phone and from the watch count the same; other holes, other
+/// rounds and non-location events never do.
+final class LiveMarkedShotsTests: XCTestCase {
+    private func event(_ id: String, round: String = "r1", hole: Int = 3, kind: LiveRoundEventKind = .location, client: String? = "ios-phone") -> LiveRoundEvent {
+        LiveRoundEvent(
+            eventId: id,
+            roundId: round,
+            clientId: client,
+            timestamp: "2026-09-28T00:00:00Z",
+            hole: hole,
+            kind: kind,
+            payload: ["latitude": .number(40), "longitude": .number(116)]
+        )
+    }
+
+    func testWatchMarksCountLikePhoneMarksInMarkOrder() {
+        let events = [
+            event("a", client: "apple-watch"),
+            event("b"),
+            event("c", hole: 4),
+            event("d", round: "r2"),
+            event("e", kind: .club),
+            event("f", client: "apple-watch"),
+        ]
+        let marked = LiveMarkedShots.locations(in: events, roundId: "r1", hole: 3)
+        XCTAssertEqual(marked.map(\.eventId), ["a", "b", "f"])
+        let draft = LiveScoreDraft(hole: 3, par: 4, watchSwingCount: nil, phoneShotCount: marked.count)
+        XCTAssertEqual(draft.score, 5)
+        XCTAssertEqual(draft.source, .phoneShots, "marks are never reported as automatic watch detection")
     }
 }
