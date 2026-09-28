@@ -25,6 +25,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -32,6 +33,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from ai_caddie.connectors.redaction import sanitize_secret_text
 from ai_caddie.core.data import clean_club_name
 from ai_caddie.history import history as _history
 from ai_caddie.history.history import HistoryData, round_source_shots
@@ -168,6 +170,16 @@ def request_digest(body: dict[str, Any]) -> str:
     """Idempotency body identity: the request without ``clientTime`` and without null fields."""
     canonical = {key: value for key, value in body.items() if key != "clientTime" and value is not None}
     return hashlib.sha256(json.dumps(canonical, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+
+
+_ABSOLUTE_PATH = re.compile(r"(?<![\w.])(?:/|[A-Za-z]:\\)[^\s,;'\"]+")
+
+
+def safe_reason(prefix: str, exc: BaseException) -> str:
+    """An exception summary fit for a durable record or an HTTP response: credentials, token dirs and
+    every absolute path are redacted (the original stays on ``__cause__`` / in server logs)."""
+    text = sanitize_secret_text(f"{type(exc).__name__}: {exc}", limit=400)
+    return f"{prefix}: {_ABSOLUTE_PATH.sub('<path>', text)}"[:500]
 
 
 def _now(now: datetime | None) -> str:
@@ -465,7 +477,7 @@ def build_correction_audit(data: HistoryData, round_ref: str, existing: list[dic
             fingerprint = correction_fingerprint(data, round_ref, hole, existing, None)
         except Exception:
             fingerprint = None
-        return {"status": "pending", "reason": f"{type(exc).__name__}: {exc}"[:500],
+        return {"status": "pending", "reason": safe_reason("audit failed", exc),
                 "sourceFingerprint": fingerprint, "entries": []}
     audit: dict[str, Any] = {"status": "ok", "entries": _finish_entries(entries, event_id=stored["eventId"], hole=hole),
                              "sourceFingerprint": fingerprint}
@@ -486,7 +498,7 @@ def write_correction(
         except Exception as exc:
             # Without history the round's identity is unknown: reject instead of guessing (see
             # IdentityUnavailable). A diff failure on readable history still stores a pending audit.
-            raise IdentityUnavailable(f"history unavailable: {exc}") from exc
+            raise IdentityUnavailable(safe_reason("history unavailable", exc)) from exc
         canonical_ref, refs = round_identity(data, round_ref)
         existing = rc.load_round_events(player_id, refs, root=root)
         cmid = event.get("clientMutationId")
@@ -592,7 +604,7 @@ def build_annotation_audit(
             entry["clientFrom"] = payload.get("from")
         fingerprint = annotation_fingerprint(row, hole, prior, corrections)
     except Exception as exc:
-        return {"status": "pending", "reason": f"{type(exc).__name__}: {exc}"[:500], "sourceFingerprint": None, "entries": []}
+        return {"status": "pending", "reason": safe_reason("audit failed", exc), "sourceFingerprint": None, "entries": []}
     return {"status": "ok", "entries": _finish_entries([entry], event_id=record["eventId"], hole=hole),
             "sourceFingerprint": fingerprint}
 
@@ -622,7 +634,7 @@ def write_annotation(
             try:
                 data, source_revision = load_coherent(player_id, data_loader or _default_loader(player_id))
             except Exception as exc:
-                record["audit"] = {"status": "pending", "reason": f"history unavailable: {exc}"[:500],
+                record["audit"] = {"status": "pending", "reason": safe_reason("history unavailable", exc),
                                    "sourceFingerprint": None, "entries": []}
             else:
                 record["audit"] = build_annotation_audit(data, record, existing, player_id=player_id, root=root)

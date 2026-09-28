@@ -571,6 +571,47 @@ class CorrectionLogRouteTest(unittest.TestCase):
         log = self.client.get("/api/v2/history/rounds/42/correction-log", headers=self.a).json()
         self.assertEqual(len(log["entries"]), 1)
 
+    SECRET = "token=abc123 /home/jason/private/file.json /app/data/players/me/.garmin_tokens/oauth.json"
+
+    def assert_clean(self, text: str) -> None:
+        for leaked in ("abc123", "/home/jason", "/app/data", ".garmin_tokens", "private/file.json"):
+            self.assertNotIn(leaked, text)
+
+    def stored_text(self) -> str:
+        files = list(self.root.rglob("*.jsonl"))
+        return "".join(path.read_text(encoding="utf-8") for path in files)
+
+    def test_failure_text_is_redacted_in_records_and_responses(self) -> None:
+        secret = RuntimeError(self.SECRET)
+        with mock.patch("server_v2.main.load_history_data_for_mode",
+                        side_effect=[(self.data, "local")] + [secret] * 3):
+            unavailable = self.client.post("/api/v2/history/rounds/42/corrections", headers=self.a,
+                                           json={"op": "setHolePenalty", "hole": 4, "value": 1})
+        self.assertEqual(unavailable.status_code, 503)
+        self.assert_clean(unavailable.text)
+
+        with mock.patch.object(ca, "_hole_view", side_effect=RuntimeError(self.SECRET)):
+            pending = self.client.post("/api/v2/history/rounds/42/corrections", headers=self.a,
+                                       json={"op": "setHolePenalty", "hole": 4, "value": 1})
+        self.assertEqual(pending.status_code, 201)
+        self.assertTrue(pending.json()["auditPending"])
+        self.assert_clean(pending.text)
+
+        with mock.patch("server_v2.annotations.load_history_data_for_mode", side_effect=RuntimeError(self.SECRET)):
+            note = self.client.post("/api/v2/annotations", headers=self.a, json={
+                "targetType": "hole", "targetId": "42:4", "kind": "putt_correction", "payload": {"to": 1}})
+        self.assertEqual(note.status_code, 200)
+        self.assert_clean(note.text)
+        with mock.patch.object(ca, "_effective_value", side_effect=RuntimeError(self.SECRET)):
+            self.client.post("/api/v2/annotations", headers=self.a, json={
+                "targetType": "hole", "targetId": "42:4", "kind": "putt_correction", "payload": {"to": 2}})
+
+        text = self.stored_text()
+        self.assertIn("history unavailable", text)
+        self.assertIn("audit failed", text)
+        self.assert_clean(text)
+        self.assert_clean(self.client.get("/api/v2/history/rounds/42/correction-log", headers=self.a).text)
+
     def test_late_repair_appears_after_the_cursor(self) -> None:
         with mock.patch.object(ca, "_hole_view", side_effect=RuntimeError("geometry failed")):
             response = self.client.post("/api/v2/history/rounds/42/corrections", headers=self.a,
