@@ -98,15 +98,23 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-09-28 12:50 UTC):** `B1-B7` review queue is `in-progress`:
+**Current slice (2026-09-28 13:16 UTC):** `B1-B7` review queue is `in-progress`:
 Codex is the review owner for PRs opened from
 `claude/code-audit-performance-17wqcv`. Each PR must be checked at its exact
 head against `docs/design/2026-09-25-ui-redesign/README.md` and
 `IMPLEMENTATION_PLAN.md`; mobile changes require green Native Mobile CI and
 inspection of the matching `design-snapshots` / `watch-snapshots` artifacts
 before a PR comment and merge decision. As of this update the branch points at
-the merged B0d-2 head and there are no open B1-B7 PRs; resume by polling for a
-new PR, then run the bounded tests and screenshot review before commenting.
+the merged B1a head. PR #354 (B1a flag edge distances) was reviewed at exact
+head `e65f3adc0cb3d1a6c93b1ae3477bd03dbb4533de`: homeserver mobile contracts
+passed `99/99`, Source CI `36424558065` and Native Mobile CI `36424557986`
+were green, and artifacts `10971447902` / `10971558078` were inspected. The
+PR was merged as `b7523cefa3ae69679931c704406e3bdd9bded853` and its remote
+branch was explicitly deleted. There are currently no open B1-B7 PRs; resume
+by polling for a new PR, then run the bounded tests and screenshot review
+before commenting. The Native CI review artifact scratch is allow-listed at
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T-review-pr354-artifacts/`
+and expires 2026-09-29; no production resources were changed.
 The background all-PR feedback monitor remains active in
 `codex-pr-monitor-20260928`.
 
