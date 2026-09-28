@@ -57,6 +57,35 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 - `hardestHoles`：各环逐洞平均杆差最高的 5 个，至少 2 个样本。
 - 体积：用真实历史跑一遍，`/stats` 的 scoring 多出约 298,568 字节（gzip 后约 28,412 字节），主要是 `roundSequences`。B5（统计页）上线前定一个移动端载荷预算（比如按最近 N 场截断 `roundSequences`，或拆成按需请求），不在 B0d-1 里改。
 
+### B0 纠错日志设计草案（B0d-2，待 Codex 确认后实现）
+
+现状：`/history/rounds/{ref}/corrections` 只存事件本身（iOS 只发 `replaceHoleShots` / `replaceHoleFacts` 两种整洞快照），没有前值、没有计划里的操作类型、没有客户端时间；推杆 / 总杆 / 罚杆的更正走另一条路（annotation 的 `putt_correction / score_correction / penalty_correction`，对账生成的那些已带 `from / to`）。B7 要的是“系统当时给出什么、人改成了什么”。
+
+建议（每条都可以单独否决）：
+
+1. **写入时生成，不在读取时推导。** 更正事件落库成功后，同一请求里把“这次改之前用户看到的整洞状态”和“改之后的状态”做差，生成若干条日志。前值取改之前的 `build_round_hole_shot_map(..., include_image=False)`（就是用户编辑时看到的那张图：稳定 id、显示顺序、像素起止点、球杆、球位、手填罚杆）。读取时推导的问题是：Garmin 重同步会改原始数据，事后算出的“前值”不再是用户当时看到的。
+2. **单独一本 append-only 日志**：`data/players/<pid>/correction_log/<round_ref>.jsonl`，schema `ai-caddie-correction-log-v1`，更正事件原文件不变。每条：
+   `seq, ts(服务器), clientTime(可空), roundRef, hole, op, shotId(可空), before, after, sourceKind("round_correction" | "annotation"), sourceRef(更正事件 seq 或 annotation id), clientMutationId(可空)`。
+   以 `(sourceKind, sourceRef)` 幂等：同一个 `clientMutationId` 重放不会多写日志。
+3. **操作类型**：计划里的 7 种加 3 种现有编辑能产生、但计划没列的：
+   `add / delete / move / club / putts / total / drive`，外加 `lie`（改球位）、`penalty`（改罚杆）、`reorder`（只调顺序、位置不变）。
+4. **整洞快照怎么拆**（按稳定 shot id 对齐前后两份列表）：
+   - 只在后 → `add`，只在前 → `delete`；
+   - 起点或落点像素变化超过 1 px → `move`，前后值是 `{start, end}` 像素加 `geometryRevision`；
+   - `replaceHoleFacts` 不带位置，永远不产生 `move`；
+   - 球杆不同 → `club`，球位不同 → `lie`；
+   - 剩下的杆相对顺序变了 → 一条 `reorder`（前后值是 id 列表）；
+   - `manualPenalty` 变了 → `penalty`。
+   - 旧的逐杆 op（`deleteShot / restoreShot / editField / addShot / reorderShot / setHolePenalty`）按同样的词表各映射一条。
+5. **推杆 / 总杆**：`add_annotation` 写入 `putt_correction / score_correction / penalty_correction`（目标是 `round:hole`）时，同步写 `putts / total / penalty` 日志。前值优先用 payload 里的 `from`；没有就用当前生效值（成绩卡原值叠加之前的更正）。**加杆 / 删杆引起的总杆变化不再单独记一条 `total`**，由 add/delete 本身表达，避免重复计数。
+6. **`drive`（改开球结果）**：现在没有任何接口能改开球结果，词表先保留，生产方是 B3 的开球编辑。
+7. **客户端时间**：`RoundCorrectionRequest` 和 annotation 请求各加一个可选 `clientTime`（ISO 8601，只存不信，排序仍按服务器 `seq`）；iOS 在 B3 里开始发送。“位置”指洞号 + 稳定 shot id + 改前 / 改后的显示序号，不记录人的 GPS。
+8. **不回填历史**：已有的更正事件不补日志（补出来的前值不可信）。如果 B7 需要，可以单独做一次标记为 `derivation: "backfill"` 的回填。
+9. **读取接口**：`GET /api/v2/history/rounds/{ref}/correction-log`（只读本人），B7 用；本 PR 不接 iOS。
+10. **代价**：每次写更正多一次该洞 shot map 构建（不含图片）。日志写失败时更正本身已经落库，接口仍返回 201，日志缺口记 warning，不回滚。
+
+测试：每种操作至少一条日志（含 `replaceHoleShots` 里同时加 / 删 / 挪 / 换杆 / 改球位 / 调序 / 改罚杆的组合）；`replaceHoleFacts` 不产生 `move`；幂等重放不重复；annotation 路径的 `putts / total / penalty` 带前值。
+
 ### B0 契约细节（Python 与 Swift 各自实现时以此为准）
 
 现有字段（`ai_caddie/courses/course_prep.py` 的 `HolePrep`）先写清楚，新字段照它们的坐标系：
