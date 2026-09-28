@@ -315,7 +315,7 @@ def _ordered_component_boundary(triangles) -> list[tuple[float, float]]:
     return loops[0] if loops else []
 
 
-def _component_boundary_loops(triangles) -> list[list[tuple[float, float]]]:
+def _component_boundary_loops(triangles, edges=None) -> list[list[tuple[float, float]]]:
     """Every closed boundary loop of a triangulated surface, largest area first.
 
     ``Green.drc`` is a filled triangle mesh, not a display ellipse.  Its factual edge is the set of
@@ -325,7 +325,8 @@ def _component_boundary_loops(triangles) -> list[list[tuple[float, float]]]:
     the outside of the putting surface.  The helper is deliberately geometry-only and deterministic
     so a changed triangle ordering cannot make the UI jump between equivalent outlines.
     """
-    edges = _component_boundary_edges(triangles)
+    if edges is None:
+        edges = _component_boundary_edges(triangles)
     if not edges:
         return []
 
@@ -440,21 +441,47 @@ def _signed_area(ring) -> float:
     )
 
 
-def _route_to_component_distance(route, boundary_edges) -> float:
-    """Shortest distance from the tee-to-green polyline to a component, 0 when the route enters it."""
+def _segment_bbox_gap(start, end, bbox) -> float:
+    """Lower bound of the distance between a segment and an axis-aligned box (0 when they overlap)."""
+    min_x, min_y, max_x, max_y = bbox
+    gap_x = max(min_x - max(start[0], end[0]), min(start[0], end[0]) - max_x, 0.0)
+    gap_y = max(min_y - max(start[1], end[1]), min(start[1], end[1]) - max_y, 0.0)
+    return math.hypot(gap_x, gap_y)
+
+
+def _route_within(route, component, limit: float) -> tuple[bool, list | None]:
+    """Whether the route passes within ``limit`` metres of a mesh component.
+
+    Returns ``(near, boundary_edges)`` so the caller can reuse the boundary graph.  Components
+    whose bounding box is farther than ``limit`` from every route segment are rejected before any
+    boundary work (most of a Fairway.drc tile belongs to other holes); the edge scan stops at the
+    first edge within the limit.
+    """
     points = [(float(point[0]), float(point[1])) for point in route]
-    if any(_point_inside_boundary(point, boundary_edges) for point in points):
-        return 0.0
-    best = math.inf
-    for start, end in zip(points, points[1:]):
-        if _segment_edges_intersect(start, end, boundary_edges):
-            return 0.0
-        for edge_start, edge_end in boundary_edges:
+    segments = list(zip(points, points[1:]))
+    bbox = component.get("bbox")
+    if bbox and all(_segment_bbox_gap(start, end, bbox) > limit for start, end in segments):
+        return False, None
+    edges = _component_boundary_edges(component.get("triangles") or [])
+    if not edges:
+        return False, edges
+    if any(_point_inside_boundary(point, edges) for point in points):
+        return True, edges
+    for start, end in segments:
+        seg_box = (min(start[0], end[0]) - limit, min(start[1], end[1]) - limit,
+                   max(start[0], end[0]) + limit, max(start[1], end[1]) + limit)
+        for edge_start, edge_end in edges:
+            if (max(edge_start[0], edge_end[0]) < seg_box[0] or min(edge_start[0], edge_end[0]) > seg_box[2]
+                    or max(edge_start[1], edge_end[1]) < seg_box[1] or min(edge_start[1], edge_end[1]) > seg_box[3]):
+                continue
+            if _segment_edges_intersect(start, end, [(edge_start, edge_end)]):
+                return True, edges
             for a, b, c in ((start, edge_start, edge_end), (end, edge_start, edge_end),
                             (edge_start, start, end), (edge_end, start, end)):
                 closest = _closest_point_on_segment(a, b, c)
-                best = min(best, math.hypot(a[0] - closest[0], a[1] - closest[1]))
-    return best
+                if math.hypot(a[0] - closest[0], a[1] - closest[1]) <= limit:
+                    return True, edges
+    return False, edges
 
 
 def _segment_edges_intersect(start, end, boundary_edges) -> bool:
@@ -467,6 +494,43 @@ def _segment_edges_intersect(start, end, boundary_edges) -> bool:
         if ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0)) and d1 and d2 and d3 and d4:
             return True
     return False
+
+
+def _mesh_components_near_route(mesh: dict, route, limit: float) -> list[dict]:
+    """Connected components of a surface mesh whose bounding box comes within ``limit`` of the route.
+
+    A lighter sibling of ``measure_prodgeometry_distances.mesh_components`` for the per-hole
+    fairway pass: a ``Fairway.drc`` tile holds every nearby hole's fairway, so triangles, bbox and
+    boundary are only built for the few components the route can reach.  Vertices are unioned per
+    face (no per-vertex face lists) and component areas/centroids are not computed.
+    """
+    from ai_caddie.geometry.measure_prodgeometry_distances import Dsu
+
+    raw_positions = mesh.get("positions") or []
+    faces = mesh.get("faces") or []
+    dsu = Dsu(len(raw_positions))
+    for a, b, c in faces:
+        dsu.union(a, b)
+        dsu.union(a, c)
+    grouped: dict[int, list] = {}
+    for face in faces:
+        grouped.setdefault(dsu.find(face[0]), []).append(face)
+    points = [(float(point[0]), float(point[1])) for point in route]
+    segments = list(zip(points, points[1:]))
+    out = []
+    for group in grouped.values():
+        vertices = {index for face in group for index in face}
+        xs = [-float(raw_positions[index][0]) for index in vertices]
+        ys = [float(raw_positions[index][2]) for index in vertices]
+        bbox = (min(xs), min(ys), max(xs), max(ys))
+        if all(_segment_bbox_gap(start, end, bbox) > limit for start, end in segments):
+            continue
+        local = {index: (-float(raw_positions[index][0]), float(raw_positions[index][2])) for index in vertices}
+        out.append({
+            "triangles": [(local[a], local[b], local[c]) for a, b, c in group],
+            "bbox": bbox,
+        })
+    return out
 
 
 def _fairway_outline(by: dict, route, md: dict | None, to_px) -> dict | None:
@@ -485,10 +549,8 @@ def _fairway_outline(by: dict, route, md: dict | None, to_px) -> dict | None:
     if not isinstance(fairway, dict) or not route or len(route) < 2 or ref_lat is None or ref_lon is None:
         return None
     try:
-        from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components
-
         ref_lat, ref_lon = float(ref_lat), float(ref_lon)
-        components = mesh_components(fairway)
+        components = _mesh_components_near_route(fairway, route, FAIRWAY_ROUTE_MAX_M)
     except Exception:
         return None
 
@@ -503,11 +565,10 @@ def _fairway_outline(by: dict, route, md: dict | None, to_px) -> dict | None:
 
     polygons = []
     for component in components:
-        triangles = component.get("triangles") or []
-        edges = _component_boundary_edges(triangles)
-        if not edges or _route_to_component_distance(route, edges) > FAIRWAY_ROUTE_MAX_M:
+        near, edges = _route_within(route, component, FAIRWAY_ROUTE_MAX_M)
+        if not near:
             continue
-        loops = _component_boundary_loops(triangles)
+        loops = _component_boundary_loops(component.get("triangles") or [], edges)
         if not loops:
             continue
         outer = oriented(_compact_boundary_points(loops[0], maximum=MAX_FAIRWAY_RING_POINTS), True)
@@ -525,15 +586,21 @@ def _fairway_outline(by: dict, route, md: dict | None, to_px) -> dict | None:
         def world_ring(ring):
             return [[round(lat, 7), round(lon, 7)] for lat, lon in (to_world(point) for point in ring)]
 
-        polygons.append({
+        polygons.append((abs(_signed_area(outer)), {
             "outerPx": px_ring(outer),
             "holesPx": [px_ring(hole) for hole in holes],
             "outerLatLon": world_ring(outer),
             "holesLatLon": [world_ring(hole) for hole in holes],
-        })
+        }))
     if not polygons:
         return None
-    return {"version": FAIRWAY_OUTLINE_VERSION, "source": "prodgeometry.Fairway.drc", "polygons": polygons}
+    # Largest section first, deterministic whatever order the mesh stores its components in.
+    polygons.sort(key=lambda row: (-row[0], row[1]["outerLatLon"]))
+    return {
+        "version": FAIRWAY_OUTLINE_VERSION,
+        "source": "prodgeometry.Fairway.drc",
+        "polygons": [row[1] for row in polygons],
+    }
 
 
 def _closest_point_on_segment(point, start, end):

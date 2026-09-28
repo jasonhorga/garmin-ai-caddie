@@ -67,7 +67,7 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 1. 输入：第二杆位置（没有第二杆用首推位置）的经纬度、`fairwayOutline`、`route`、本洞 Par。Par 3、`fairwayOutline = null`、没有位置 → `null`。
 2. 以球道 `outerLatLon` 全部点的平均经纬度为原点，等距矩形投影到米（x 东、y 北，地球半径 6378137 m，与 `shot_projection` 相同）。
 3. 在任一球道 polygon 内，或到最近球道边界 ≤ 0.5 m → `hit`。
-4. 否则取 `route` 上离该点最近的一段（先把 `route` 用 `holeImageProjection` 或 hazards 的 refLat/refLon 转到同一米制坐标；两者都没有 → `null`），
+4. 否则取 `route` 上离该点最近的一段（先把 `route` 用 `holeImageProjection` 或 hazards 的 refLat/refLon 转到同一米制坐标；两者都没有、或路线少于 2 点 → `null`；路线只用来分左右，第 3 步的 `hit` 不依赖路线），
    按“沿路线前进方向”的叉积符号：左侧 `left`，右侧 `right`。
 实现：Python `ai_caddie/courses/tee_result.py`（服务端 / 统计）；取轮廓 `course_prep._fairway_outline`（本洞路线 15 m 内的 `Fairway.drc` 连通块）。
 5. 向量至少覆盖：球道中、左、右、贴边 0.4 m / 0.6 m、多段之间、在挖空里、Par 3、无轮廓、无路线。

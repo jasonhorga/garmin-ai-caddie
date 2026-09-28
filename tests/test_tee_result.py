@@ -111,6 +111,14 @@ class FairwayOutlineTest(unittest.TestCase):
         self.assertEqual(classify_tee_result(at(40, 240), outline, route, 4), "right")
         self.assertEqual(classify_tee_result(at(-2, 205), outline, route, 4), "left")  # in the cut-out
 
+    def test_sections_are_largest_first_whatever_the_mesh_order(self) -> None:
+        small, large = grid_mesh(-12, 12, 320, 380), grid_mesh(-15, 15, 150, 300)
+        for mesh in (merge_meshes(small, large), merge_meshes(large, small)):
+            row = self.prep(self.hole(RefLat=REF_LAT, RefLon=REF_LON), {"Fairway.drc": mesh})
+            first, second = row["fairwayOutline"]["polygons"]
+            # The 150-300 m section (larger) comes first; it lies south of the 320-380 m one.
+            self.assertLess(min(p[0] for p in first["outerLatLon"]), min(p[0] for p in second["outerLatLon"]))
+
     def test_outline_is_null_without_fairway_mesh_or_geo_anchor(self) -> None:
         fairway = {"Fairway.drc": grid_mesh(-15, 15, 150, 300)}
         self.assertIsNone(self.prep(self.hole(), fairway)["fairwayOutline"])  # no RefLat/RefLon

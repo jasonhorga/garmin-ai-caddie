@@ -13,8 +13,9 @@ Inputs are plain WGS84 values so no client needs the server's local mesh frame:
 * ``par``: the hole's par.
 
 The result is ``"hit"``, ``"left"``, ``"right"`` or ``None``.  ``None`` means "do not preselect":
-par 3, no outline, an unknown outline version, no position, no usable route, or a point exactly
-on the route line outside the fairway.
+par 3, no outline, an unknown outline version, no position, or a point outside the fairway that
+cannot be sided (no usable route, or exactly on the route line).  A point inside the fairway is
+``"hit"`` even without a route.
 """
 
 from __future__ import annotations
@@ -112,8 +113,7 @@ def classify_tee_result(point, fairway_outline, route, par) -> str | None:
         return None
     position = _latlon(point) if point is not None else None
     polygons = _polygons(fairway_outline)
-    route_points = [p for p in (_latlon(value) for value in (route or [])) if p is not None]
-    if position is None or not polygons or len(route_points) < 2:
+    if position is None or not polygons:
         return None
 
     # Origin = mean of every outer-ring vertex, so the flat projection error stays sub-millimetre.
@@ -133,6 +133,10 @@ def classify_tee_result(point, fairway_outline, route, par) -> str | None:
         if in_polygon or near_edge:
             return "hit"
 
+    # The route is only needed to tell left from right; "hit" above never depends on it.
+    route_points = [p for p in (_latlon(value) for value in (route or [])) if p is not None]
+    if len(route_points) < 2:
+        return None
     route_m = [project(vertex) for vertex in route_points]
     best: tuple[float, int] | None = None
     for index in range(len(route_m) - 1):

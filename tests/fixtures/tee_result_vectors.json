@@ -957,7 +957,91 @@
    "expected": null
   },
   {
-   "name": "no usable route",
+   "name": "inside the fairway with no route is still hit",
+   "note": "local (0, 240) m",
+   "point": [
+    40.100256,
+    116.6123
+   ],
+   "fairwayOutline": {
+    "version": 1,
+    "source": "test",
+    "polygons": [
+     {
+      "outerPx": [],
+      "holesPx": [
+       []
+      ],
+      "outerLatLon": [
+       [
+        40.0994475,
+        116.6121238
+       ],
+       [
+        40.0994475,
+        116.6124762
+       ],
+       [
+        40.1007949,
+        116.6124762
+       ],
+       [
+        40.1007949,
+        116.6121238
+       ]
+      ],
+      "holesLatLon": [
+       [
+        [
+         40.0998966,
+         116.6122413
+        ],
+        [
+         40.0999865,
+         116.6122413
+        ],
+        [
+         40.0999865,
+         116.6123587
+        ],
+        [
+         40.0998966,
+         116.6123587
+        ]
+       ]
+      ]
+     },
+     {
+      "outerPx": [],
+      "holesPx": [],
+      "outerLatLon": [
+       [
+        40.1009746,
+        116.6121591
+       ],
+       [
+        40.1009746,
+        116.6124409
+       ],
+       [
+        40.1015136,
+        116.6124409
+       ],
+       [
+        40.1015136,
+        116.6121591
+       ]
+      ],
+      "holesLatLon": []
+     }
+    ]
+   },
+   "route": [],
+   "par": 4,
+   "expected": "hit"
+  },
+  {
+   "name": "outside the fairway with no usable route",
    "note": "local (30, 240) m",
    "point": [
     40.100256,
