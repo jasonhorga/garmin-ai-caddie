@@ -2,8 +2,9 @@ import XCTest
 
 /// Real running-app screenshots of the **复盘编辑** flow (PR2) from the iOS Simulator (XCUITest).
 /// Launches the ACTUAL app against the live backend (funnel) with the owner admin token, navigates
-/// 成绩 → 全部球局 → a round → a hole's 落点图, taps 「编辑」, and captures the whole-hole draft flow:
-/// numbered landings, tap-to-add, long-press move, details, count-list delete/reorder, then Cancel or final Save.
+/// 成绩 → 全部球局 → a round → a hole's full-screen 落点图, taps 「编辑」, and captures the B3 in-place
+/// whole-hole draft flow: numbered handles, tap-to-add, select + drag move, the bottom edit bar (club
+/// pills, 击球时球位, ‹ › order, 删除, 推杆 −/+), then Cancel or final Save.
 ///
 /// Runs on-demand only (`native-mobile.yml` gates the AICaddieUITests scheme behind workflow_dispatch),
 /// same as ``RealFlowUITests``. PNGs + per-screen element-tree dumps land in the test process Documents
@@ -83,16 +84,19 @@ final class ReviewEditUITests: XCTestCase {
         }
         settle(2); save("02-round-review"); dump("02-round-review")
 
-        // The scorecard rows are buttons ("点一洞看落点图 →"); tapping one opens the 落点图 pager sheet.
-        // The resolver selected this hole only after proving multiple separated, club-labelled GPS
-        // positions; they must remain editable before the add-shot flow counts.
+        // The scorecard cells are buttons (`round-review-hole-N`); tapping one opens the full-screen
+        // hole pager. The resolver selected this hole only after proving multiple separated,
+        // club-labelled GPS positions; they must remain editable before the add-shot flow counts.
         let holeButton = app.buttons["round-review-hole-\(reviewEvidence.hole)"]
         guard holeButton.waitForExistence(timeout: 60), bringIntoViewAndTap(holeButton, maxSwipes: 4) else {
             save("nohole"); dump("nohole")
             XCTFail("review-edit evidence must open its resolver-verified real hole")
             return
         }
-        guard app.buttons["关闭"].waitForExistence(timeout: 12) else {
+        // B3: the hole is full screen with the navigation bar hidden; the glass close button is the
+        // stable proof that the pager was presented.
+        let closeButton = app.buttons["round-shot-map-close"]
+        guard closeButton.waitForExistence(timeout: 12) else {
             XCTFail("review-edit evidence must enter the shot-map pager before capture")
             return
         }
@@ -105,270 +109,234 @@ final class ReviewEditUITests: XCTestCase {
             XCTFail("review-edit evidence must load the verified evidence-hole topo")
             return
         }
+        XCTAssertTrue(
+            element("round-shot-score-box").waitForExistence(timeout: 5),
+            "the full-screen hole must show its glass score box"
+        )
         settle(2); save("03-shot-map"); dump("03-shot-map")
 
-        guard app.buttons["编辑"].waitForExistence(timeout: 12) else {
+        let editButton = app.buttons["round-edit-begin"]
+        guard editButton.waitForExistence(timeout: 12) else {
             save("noeditbtn"); dump("noeditbtn")
             XCTFail("review-edit evidence must expose the map edit action")
             return
         }
 
-        // ---- Enter edit mode → drag handles appear on every landing ----
-        guard tapButton("编辑") else {
+        // ---- Enter edit mode on the same screen → numbered landings become drag handles ----
+        guard editButton.isHittable else {
             save("noeditbtn2"); dump("noeditbtn2")
             XCTFail("review-edit evidence must enter map edit mode")
             return
         }
+        editButton.tap()
         XCTAssertTrue(
-            waitUntilGone(app.buttons["关闭"], timeout: 5),
+            app.buttons["round-edit-cancel"].waitForExistence(timeout: 5)
+                && app.buttons["round-edit-save"].exists,
+            "edit mode must expose the explicit zero-write Cancel and final Save actions"
+        )
+        XCTAssertTrue(
+            waitUntilGone(closeButton, timeout: 5),
             "edit mode must expose only the explicit zero-write Cancel and final Save actions"
         )
-        // Pulling the containing sheet down must not silently discard the local whole-hole draft.
-        // Start in the sheet navigation-bar lane rather than the topo/outer ScrollView gesture area.
+        // A downward pull must not silently discard the local whole-hole draft. Start in the top
+        // score-box lane rather than on the editable map, whose empty-ground gesture adds a shot.
         let dismissStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.11))
         let dismissEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.92))
         dismissStart.press(forDuration: 0.15, thenDragTo: dismissEnd)
         XCTAssertTrue(
             app.buttons["round-edit-cancel"].waitForExistence(timeout: 5)
                 && app.buttons["round-edit-save"].exists,
-            "sheet pull-down must not become an implicit third Cancel action while editing"
+            "a pull-down must not become an implicit third Cancel action while editing"
         )
+        // A precise map is edited in place; the fact-only draft list exists only without a map.
+        let editMap = element("round-shot-edit-map")
         let editTopoReady = app.descendants(matching: .any)
             .matching(identifier: "topo-hole-base-ready").firstMatch
-        let lastBaselineRow = app.descendants(matching: .any)
-            .matching(identifier: "shot-draft-row-\(reviewEvidence.shotCount)").firstMatch
-        guard editTopoReady.waitForExistence(timeout: 75), lastBaselineRow.waitForExistence(timeout: 12) else {
-            XCTFail("edit evidence requires the real topo and the two real recorded shots returned for this hole")
+        guard editTopoReady.waitForExistence(timeout: 75), editMap.waitForExistence(timeout: 12) else {
+            XCTFail("edit evidence requires the real topo and the in-place edit map for this hole")
             return
         }
+        XCTAssertTrue(
+            waitForLabel(editMap, containing: "共 \(reviewEvidence.shotCount) 杆", timeout: 5),
+            "the edit map must carry one handle for every real recorded shot returned for this hole"
+        )
+        XCTAssertFalse(
+            element("shot-draft-row-1").exists,
+            "a precise map must not fall back to the fact-only draft list"
+        )
+        XCTAssertTrue(
+            element("round-edit-putts-value").waitForExistence(timeout: 5)
+                && element("round-edit-penalty-value").exists,
+            "with nothing selected the edit bar must offer 推杆 and 罚杆 −/+"
+        )
         settle(2); save("04-edit-handles"); dump("04-edit-handles")
 
         // ---- 连续草稿: tap verified empty topo once to append a numbered point; no sheet/no write ----
         // The resolver computes the point farthest from every real landing in this exact map, so this
         // proves tap-to-add rather than accidentally selecting an existing numbered handle.
-        editTopoReady.coordinate(withNormalizedOffset: CGVector(
+        editMap.coordinate(withNormalizedOffset: CGVector(
             dx: reviewEvidence.emptyMapPoint.x,
             dy: reviewEvidence.emptyMapPoint.y
         )).tap()
-        let addedCount = app.staticTexts.matching(
-            NSPredicate(format: "label BEGINSWITH %@", "共 \(reviewEvidence.shotCount + 1) 杆")
-        ).firstMatch
-        XCTAssertTrue(addedCount.waitForExistence(timeout: 5), "one empty-map tap must append a numbered local draft")
+        let addedNumber = reviewEvidence.shotCount + 1
+        XCTAssertTrue(
+            waitForLabel(editMap, containing: "共 \(addedNumber) 杆", timeout: 5),
+            "one empty-map tap must append a numbered local draft"
+        )
         XCTAssertFalse(app.navigationBars["补一杆"].exists, "adding a draft point must not interrupt with the old sheet")
-        // A newly added landing has the same S70-style precision editor as an existing shot. Exercise
-        // the real route through zoom and explicit confirmation; the transient held-finger loupe is
-        // retained in the workflow video because XCTest cannot inspect a view between drag frames.
-        let precisionOpen = app.buttons["round-shot-precision-open"]
+        let selectedShot = element("round-edit-selected")
         XCTAssertTrue(
-            bringIntoViewAndTap(precisionOpen, maxSwipes: 5),
-            "a newly added landing must expose its precision magnification action"
+            selectedShot.waitForExistence(timeout: 5)
+                && selectedShot.label.hasPrefix("第 \(addedNumber) 杆"),
+            "the added shot must be selected in the bottom bar as the last shot"
         )
-        let precisionEditor = app.descendants(matching: .any)["round-shot-precision-editor"].firstMatch
-        XCTAssertTrue(
-            precisionEditor.waitForExistence(timeout: 8),
-            "the added landing must open the full-screen precision editor"
+        let clubPills = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "round-edit-club-")
         )
         XCTAssertTrue(
-            app.descendants(matching: .any)["round-shot-precision-marker"].waitForExistence(timeout: 5),
-            "the precision editor must retain the numbered landing marker"
-        )
-        let precisionZoomIn = app.buttons["round-shot-precision-zoom-in"]
-        XCTAssertTrue(precisionZoomIn.waitForExistence(timeout: 5) && precisionZoomIn.isHittable)
-        precisionZoomIn.tap()
-        XCTAssertTrue(app.buttons["round-shot-precision-zoom-out"].waitForExistence(timeout: 5))
-        let precisionConfirm = app.buttons["round-shot-precision-confirm"]
-        XCTAssertTrue(precisionConfirm.waitForExistence(timeout: 5) && precisionConfirm.isHittable)
-        precisionConfirm.tap()
-        XCTAssertTrue(
-            waitUntilGone(precisionEditor, timeout: 8),
-            "confirming the precision edit must return to the local whole-hole draft"
+            clubPills.firstMatch.waitForExistence(timeout: 5),
+            "the selected added shot must offer club pills (the distance guess first)"
         )
         settle(2); save("05-add-draft"); dump("05-add-draft")
 
-        // ---- 改这一杆: tap selects the landing first; the explicit details button opens the sheet ----
-        // A landing tap must remain available for a drag and therefore must not unexpectedly replace
-        // the map with a sheet. Use the real topo coordinate, prove selection via the newly exposed
-        // 第 N 杆详情 action, then open the editor deliberately.
-        editTopoReady.coordinate(withNormalizedOffset: CGVector(
+        // ---- 改这一杆: tap a recorded landing handle to select it; the bottom bar edits it ----
+        editMap.coordinate(withNormalizedOffset: CGVector(
             dx: reviewEvidence.landing.x,
             dy: reviewEvidence.landing.y
         )).tap()
-        let editSheet = app.navigationBars["改这一杆"]
-        XCTAssertFalse(
-            editSheet.waitForExistence(timeout: 1),
-            "a landing tap must select for drag instead of immediately covering the map"
-        )
-        let detailsButton = app.buttons.matching(
-            NSPredicate(format: "label BEGINSWITH '第 ' AND label CONTAINS '杆详情'")
-        ).firstMatch
         XCTAssertTrue(
-            detailsButton.waitForExistence(timeout: 5) && detailsButton.isHittable,
-            "the selected landing must expose its explicit details action"
+            waitForLabel(selectedShot, notPrefixed: "第 \(addedNumber) 杆", timeout: 5),
+            "a landing tap must select that recorded shot"
         )
-        XCTAssertTrue(editTopoReady.exists, "the selected landing must remain on the editable map")
-        detailsButton.tap()
-        XCTAssertTrue(editSheet.waitForExistence(timeout: 5), "06 must edit the deliberately selected recorded landing")
-        let deleteShot = app.buttons["删除这一杆"]
+        XCTAssertTrue(
+            waitForLabel(editMap, containing: "共 \(addedNumber) 杆", timeout: 2),
+            "a tap on a handle must select it, never add another shot"
+        )
+        XCTAssertFalse(app.navigationBars["改这一杆"].exists, "selection must not cover the map with the old sheet")
+        let deleteShot = app.buttons["round-edit-delete"]
         XCTAssertTrue(
             deleteShot.waitForExistence(timeout: 5) && deleteShot.isHittable,
-            "the destructive action must be visible and tappable without scrolling into the Home Indicator"
+            "the destructive action must be visible and tappable in the bottom bar"
         )
         XCTAssertLessThanOrEqual(
             deleteShot.frame.maxY,
             app.windows.firstMatch.frame.maxY - 30,
             "the destructive action must remain above the iPhone Home Indicator safe area"
         )
-        let clubPicker = app.descendants(matching: .any)
-            .matching(identifier: "shot-edit-club-picker").firstMatch
+        let recordedClubPill = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND selected == true", "round-edit-club-")
+        ).firstMatch
         XCTAssertTrue(
-            clubPicker.waitForExistence(timeout: 5),
-            "the edit sheet must expose the recorded club picker"
+            recordedClubPill.waitForExistence(timeout: 5),
+            "the selected recorded shot must highlight its recorded club pill"
         )
-        let recordedClub = (clubPicker.value as? String) ?? ""
+        let recordedClub = recordedClubPill.label
         XCTAssertFalse(
             recordedClub.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            "a Garmin raw club token must resolve to a visible picker value"
+            "a Garmin raw club token must resolve to a visible club pill"
         )
         XCTAssertNotEqual(recordedClub, "未知", "verified club-labelled evidence must not render as unknown")
-        settle(2); save("06-edit-sheet"); dump("06-edit-sheet")
-        let finishEditSheet = editSheet.buttons["完成"]
-        XCTAssertTrue(finishEditSheet.exists && finishEditSheet.isHittable, "the edit sheet must expose its own completion action")
-        finishEditSheet.tap()
-        XCTAssertTrue(waitUntilGone(editSheet, timeout: 5), "sheet completion must return to the editable map")
-        settle(1)
+        XCTAssertTrue(
+            app.buttons["round-edit-lie-unknown"].exists,
+            "the bottom bar must expose the 击球时球位 grid"
+        )
+        settle(2); save("06-selected-shot"); dump("06-selected-shot")
 
-        // ---- Long-press drag a real numbered handle. Finger-up still stays in the local draft. ----
-        // Reuse the verified landing coordinate that opened 改这一杆 above. Move inward so an edge
-        // landing still produces a real handle drag rather than an off-map gesture.
+        // ---- Drag the selected real numbered handle. Finger-up still stays in the local draft. ----
+        // Reuse the verified landing coordinate selected above. Move inward so an edge landing still
+        // produces a real handle drag rather than an off-map gesture.
         let dragDestination = dragDestination(from: reviewEvidence.landing)
-        let dragStart = editTopoReady.coordinate(withNormalizedOffset: CGVector(
+        let dragStart = editMap.coordinate(withNormalizedOffset: CGVector(
             dx: reviewEvidence.landing.x,
             dy: reviewEvidence.landing.y
         ))
-        let dragEnd = editTopoReady.coordinate(withNormalizedOffset: CGVector(
+        let dragEnd = editMap.coordinate(withNormalizedOffset: CGVector(
             dx: dragDestination.x,
             dy: dragDestination.y
         ))
         // Hold the real gesture at its destination long enough for the workflow's simulator video
         // to retain a clean frame of the product loupe before release. The still captured below is
-        // intentionally the committed post-drag state; the held video frame is the same-state I30
-        // evidence for the approved magnifier instead of mislabelling that still as an active drag.
+        // intentionally the committed post-drag state.
         dragStart.press(
             forDuration: 0.7,
             thenDragTo: dragEnd,
             withVelocity: .slow,
             thenHoldForDuration: 2
         )
+        XCTAssertTrue(
+            waitForLabel(editMap, containing: "共 \(addedNumber) 杆", timeout: 3),
+            "dragging a handle must move it, never add a shot"
+        )
+        XCTAssertTrue(selectedShot.exists, "the dragged shot must stay selected")
         settle(2); save("07-drag-move"); dump("07-drag-move")
 
-        // ---- Delete from the count list. The other draft points stay available until final action. ----
-        let addedDraftRow = app.descendants(matching: .any)
-            .matching(identifier: "shot-draft-row-\(reviewEvidence.shotCount + 1)").firstMatch
-        XCTAssertTrue(addedDraftRow.waitForExistence(timeout: 5), "the added point must exist in the count list")
-        let editScroll = app.scrollViews["round-shot-edit-scroll"]
-        XCTAssertTrue(editScroll.waitForExistence(timeout: 5), "edit mode must expose its vertical review scroll")
-        for _ in 0..<4 where !addedDraftRow.isHittable {
-            // Start below the topo on the penalty/instruction lane. A generic app-level swipe begins
-            // in the centre of the editable map and correctly belongs to its landing gesture layer,
-            // so it cannot prove that the count list itself is reachable.
-            let start = editScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.90))
-            let end = editScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.34))
-            start.press(forDuration: 0.05, thenDragTo: end)
-            settle(0.5)
-        }
-        XCTAssertTrue(addedDraftRow.isHittable, "the count-list row must be reachable in the review scroll")
-        let baselineCount = app.staticTexts.matching(
-            NSPredicate(format: "label BEGINSWITH %@", "共 \(reviewEvidence.shotCount) 杆")
-        ).firstMatch
-        // SwiftUI suppresses row swipe actions while `EditMode.active` is exposing its reorder
-        // handles. The shipping count list therefore gives every row a simultaneous, visible trash
-        // action instead of advertising an unreachable swipe gesture.
-        let deleteAdded = app.buttons["shot-draft-delete-\(reviewEvidence.shotCount + 1)"]
+        // ---- Reorder with the bottom bar's ‹ › arrows: one place later, then back. ----
+        let orderLater = app.buttons["round-edit-order-later"]
+        let orderEarlier = app.buttons["round-edit-order-earlier"]
         XCTAssertTrue(
-            deleteAdded.waitForExistence(timeout: 5) && deleteAdded.isHittable,
-            "the reorderable row must expose its visible destructive action"
+            orderLater.waitForExistence(timeout: 5) && orderEarlier.exists,
+            "the selected shot must expose its ‹ › order arrows"
         )
-        deleteAdded.tap()
-        XCTAssertTrue(baselineCount.waitForExistence(timeout: 5), "delete must renumber the same local list")
-        settle(2); save("08-delete-draft"); dump("08-delete-draft")
+        let numberBeforeReorder = shotNumber(selectedShot.label)
+        // The added shot is last, so the recorded landing can always move one place later.
+        XCTAssertTrue(orderLater.isEnabled, "a recorded shot before the added one must be movable later")
+        orderLater.tap()
+        XCTAssertTrue(
+            waitForLabel(selectedShot, notPrefixed: numberBeforeReorder, timeout: 5),
+            "› must move the selected shot one place later and keep it selected"
+        )
+        let numberAfterReorder = shotNumber(selectedShot.label)
+        XCTAssertTrue(waitForLabel(editMap, containing: "共 \(addedNumber) 杆", timeout: 2), "reordering must retain every draft point")
+        settle(1); save("08-reorder-draft"); dump("08-reorder-draft")
+        XCTAssertTrue(orderEarlier.isEnabled)
+        orderEarlier.tap()
+        XCTAssertTrue(
+            waitForLabel(selectedShot, notPrefixed: numberAfterReorder, timeout: 5)
+                && shotNumber(selectedShot.label) == numberBeforeReorder,
+            "‹ must move the same shot back to its original place"
+        )
 
-        // ---- Reorder the same count list through SwiftUI's real trailing drag controls. ----
-        // Model tests already prove the resulting payload order; this gesture gate proves the
-        // shipping nested List actually lets a finger move a row instead of merely drawing handles.
-        let upperIndex = max(1, reviewEvidence.shotCount - 1)
-        let upperDraftRow = app.descendants(matching: .any)
-            .matching(identifier: "shot-draft-row-\(upperIndex)").firstMatch
-        let lastDraftRow = app.descendants(matching: .any)
-            .matching(identifier: "shot-draft-row-\(reviewEvidence.shotCount)").firstMatch
-        let upperReorder = app.buttons["Reorder \(upperIndex)"]
-        let lastReorder = app.buttons["Reorder \(reviewEvidence.shotCount)"]
-        XCTAssertTrue(upperDraftRow.waitForExistence(timeout: 5) && lastDraftRow.waitForExistence(timeout: 5))
-        XCTAssertTrue(upperReorder.waitForExistence(timeout: 5) && lastReorder.waitForExistence(timeout: 5))
-        XCTAssertTrue(upperReorder.isHittable && lastReorder.isHittable)
-        let upperLabelBeforeReorder = upperDraftRow.label
-        let lastLabelBeforeReorder = lastDraftRow.label
-        // End over the preceding row's insertion lane instead of another reorder control. UIKit can
-        // cancel a handle drag when its finger-up lands on a second handle, and an endpoint at the
-        // row centre can resolve to the no-op side of the insertion threshold on some simulator
-        // frames. Keep the first gesture representative, then retry at the explicit upper boundary
-        // (and finally the reverse direction) if the accessibility labels did not swap.
-        let reorderStart = lastReorder.coordinate(
-            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
-        )
-        let reorderDestination = upperDraftRow.coordinate(
-            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)
-        )
-        reorderStart.press(
-            forDuration: 0.7,
-            thenDragTo: reorderDestination,
-            withVelocity: .slow,
-            thenHoldForDuration: 0.4
-        )
-        settle(2)
-        var didReorder = upperDraftRow.label != upperLabelBeforeReorder
-            && lastDraftRow.label != lastLabelBeforeReorder
-        if !didReorder {
-            let boundaryDestination = upperDraftRow.coordinate(
-                withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)
-            )
-            let boundaryStart = lastReorder.coordinate(
-                withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
-            )
-            boundaryStart.press(
-                forDuration: 1.0,
-                thenDragTo: boundaryDestination,
-                withVelocity: .slow,
-                thenHoldForDuration: 0.8
-            )
-            settle(2)
-            didReorder = upperDraftRow.label != upperLabelBeforeReorder
-                && lastDraftRow.label != lastLabelBeforeReorder
-        }
-        if !didReorder {
-            // A reverse move exercises the same product path when UIKit's upward insertion lane is
-            // clipped by the nested List's top edge. It still proves that the visible order changes.
-            let reverseStart = upperReorder.coordinate(
-                withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
-            )
-            let reverseDestination = lastDraftRow.coordinate(
-                withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)
-            )
-            reverseStart.press(
-                forDuration: 1.0,
-                thenDragTo: reverseDestination,
-                withVelocity: .slow,
-                thenHoldForDuration: 0.8
-            )
-            settle(2)
-            didReorder = upperDraftRow.label != upperLabelBeforeReorder
-                && lastDraftRow.label != lastLabelBeforeReorder
-        }
+        // ---- Delete the added point. The other draft points stay available until final action. ----
+        editMap.coordinate(withNormalizedOffset: CGVector(
+            dx: reviewEvidence.emptyMapPoint.x,
+            dy: reviewEvidence.emptyMapPoint.y
+        )).tap()
         XCTAssertTrue(
-            didReorder,
-            "a real reorder gesture must change both displaced row labels"
+            waitForLabel(selectedShot, prefixed: "第 \(addedNumber) 杆", timeout: 5),
+            "a tap on the added handle must select it instead of adding another shot"
         )
-        XCTAssertTrue(baselineCount.exists, "reordering must retain every draft point")
-        save("09-reorder-draft"); dump("09-reorder-draft")
+        XCTAssertTrue(deleteShot.waitForExistence(timeout: 5) && deleteShot.isHittable)
+        deleteShot.tap()
+        XCTAssertTrue(
+            waitForLabel(editMap, containing: "共 \(reviewEvidence.shotCount) 杆", timeout: 5),
+            "delete must renumber the same local draft"
+        )
+        XCTAssertTrue(waitUntilGone(selectedShot, timeout: 5), "deleting the selected shot must clear the selection")
+        settle(2); save("09-delete-draft"); dump("09-delete-draft")
+
+        // ---- 推杆 −/+ with nothing selected: change once and restore (a local draft only). ----
+        let puttsValue = element("round-edit-putts-value")
+        XCTAssertTrue(puttsValue.waitForExistence(timeout: 5), "with nothing selected the bar must return to 推杆 / 罚杆")
+        let puttsBefore = puttsValue.label
+        // An unrecorded count ("–") cannot be restored by −/+; never fabricate a putt count here.
+        if !puttsBefore.hasSuffix("–") {
+            // Step up first unless the count is already at the bar's maximum (9).
+            let increaseFirst = !puttsBefore.hasSuffix(" 9")
+            let first = app.buttons[increaseFirst ? "round-edit-putts-plus" : "round-edit-putts-minus"]
+            let second = app.buttons[increaseFirst ? "round-edit-putts-minus" : "round-edit-putts-plus"]
+            XCTAssertTrue(first.waitForExistence(timeout: 5) && first.isEnabled)
+            first.tap()
+            XCTAssertTrue(
+                waitForLabel(puttsValue, notEqual: puttsBefore, timeout: 5),
+                "推杆 −/+ must change the draft putt count"
+            )
+            settle(1); save("09b-putts-draft"); dump("09b-putts-draft")
+            second.tap()
+            XCTAssertTrue(
+                waitForLabel(puttsValue, equal: puttsBefore, timeout: 5),
+                "the opposite step must restore the recorded putt count"
+            )
+        }
 
         // Routine evidence must leave the owner's history untouched. A dedicated writable fixture
         // takes the identical path through the one final Save action.
@@ -378,16 +346,20 @@ final class ReviewEditUITests: XCTestCase {
         XCTAssertTrue(finalAction.waitForExistence(timeout: 5) && finalAction.isHittable)
         finalAction.tap()
         XCTAssertTrue(
-            app.buttons["编辑"].waitForExistence(timeout: 12),
+            app.buttons["round-edit-begin"].waitForExistence(timeout: 12),
             "10 may be captured only after Save/Cancel returns to read-only mode"
         )
+        XCTAssertTrue(
+            app.buttons["round-shot-map-close"].waitForExistence(timeout: 5),
+            "leaving edit mode must restore the close button"
+        )
         XCTAssertFalse(app.navigationBars["补一杆"].exists, "10 must never retain the removed add sheet")
-        XCTAssertFalse(app.navigationBars["改这一杆"].exists, "10 must never retain the detail sheet")
-        // Switching from RoundShotEditContent back to the read-only RoundShotMapView creates a new
-        // AsyncImage.  The 编辑 button returns before that image has finished loading, so waiting a
-        // fixed two seconds can capture the transient "球场地图加载中…" overlay as if it were I31.
-        // A fast cache hit may make the loading element too brief to observe; either way, the final
-        // gate is a newly-ready real topo with no loading element left in the hierarchy.
+        XCTAssertFalse(app.navigationBars["改这一杆"].exists, "10 must never retain the removed detail sheet")
+        // Switching from the edit map back to the read-only RoundShotMapView creates a new topo image
+        // view. The 编辑 button returns before that image has finished loading, so waiting a fixed
+        // two seconds can capture the transient loading overlay as if it were I31. A fast cache hit
+        // may make the loading element too brief to observe; either way, the final gate is a
+        // newly-ready real topo with no loading element left in the hierarchy.
         let readOnlyTopoLoading = app.descendants(matching: .any)
             .matching(identifier: "topo-hole-base-loading").firstMatch
         _ = readOnlyTopoLoading.waitForExistence(timeout: 5)
@@ -403,6 +375,46 @@ final class ReviewEditUITests: XCTestCase {
         )
         XCTAssertFalse(readOnlyTopoLoading.exists, "10 must not contain 球场地图加载中…")
         settle(2); save("10-edit-done"); dump("10-edit-done")
+    }
+
+    // MARK: - element helpers
+
+    private func element(_ identifier: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    /// "第 3 杆 · 150 码" → "第 3 杆".
+    private func shotNumber(_ label: String) -> String {
+        label.components(separatedBy: " · ").first ?? label
+    }
+
+    private func waitForLabel(_ element: XCUIElement, matching predicate: NSPredicate, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForLabel(_ element: XCUIElement, containing text: String, timeout: TimeInterval) -> Bool {
+        waitForLabel(element, matching: NSPredicate(format: "label CONTAINS %@", text), timeout: timeout)
+    }
+
+    private func waitForLabel(_ element: XCUIElement, prefixed text: String, timeout: TimeInterval) -> Bool {
+        waitForLabel(element, matching: NSPredicate(format: "label BEGINSWITH %@", text), timeout: timeout)
+    }
+
+    private func waitForLabel(_ element: XCUIElement, notPrefixed text: String, timeout: TimeInterval) -> Bool {
+        waitForLabel(
+            element,
+            matching: NSPredicate(format: "exists == true AND NOT (label BEGINSWITH %@)", text),
+            timeout: timeout
+        )
+    }
+
+    private func waitForLabel(_ element: XCUIElement, equal text: String, timeout: TimeInterval) -> Bool {
+        waitForLabel(element, matching: NSPredicate(format: "label == %@", text), timeout: timeout)
+    }
+
+    private func waitForLabel(_ element: XCUIElement, notEqual text: String, timeout: TimeInterval) -> Bool {
+        waitForLabel(element, matching: NSPredicate(format: "exists == true AND label != %@", text), timeout: timeout)
     }
 
     // MARK: - navigation helpers

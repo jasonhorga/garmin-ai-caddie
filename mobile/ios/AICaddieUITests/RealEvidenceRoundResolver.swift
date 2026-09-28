@@ -228,7 +228,8 @@ final class RealEvidenceRoundResolver {
                     globalId: globalId,
                     localHole: localHole,
                     clubs: [pair.first.club, pair.second.club],
-                    shotCount: shots.count,
+                    // The edit map numbers full shots only (putts are a counter), so count those.
+                    shotCount: shots.filter { !isPuttRow($0) }.count,
                     landing: landing,
                     emptyMapPoint: farthestEmptyPoint(from: allPoints, width: width, height: height)
                 )
@@ -313,6 +314,12 @@ final class RealEvidenceRoundResolver {
     private struct RecordedLanding {
         let club: String
         let point: RealEvidencePoint
+    }
+
+    private func isPuttRow(_ shot: [String: Any]) -> Bool {
+        let type = (shot["shotType"] as? String ?? "").uppercased()
+        let club = shot["club"] as? String ?? ""
+        return type == "PUTT" || club.localizedCaseInsensitiveContains("putt") || club.contains("推")
     }
 
     private func recordedLandings(_ shots: [[String: Any]]) -> [RecordedLanding] {

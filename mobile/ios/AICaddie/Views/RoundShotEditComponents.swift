@@ -79,7 +79,9 @@ public struct RoundShotEditLayer: View {
             if let frame = mapFrame(in: geo.size) {
                 ZStack {
                     Canvas { ctx, _ in
-                        for (index, shot) in editModel.map.shots.enumerated() {
+                        // Putts are counted by 推杆 −/+, not dragged: only full shots get a handle,
+                        // numbered as in read mode.
+                        for (index, shot) in fullShots.enumerated() {
                             guard let p = screenPoint(for: shot.end, frame: frame) else { continue }
                             let selected = editModel.selectedShotId == shot.id
                             let dragging = editModel.draggingShotId == shot.id
@@ -99,7 +101,7 @@ public struct RoundShotEditLayer: View {
                     .contentShape(Rectangle())
                     .gesture(touchGesture(frame: frame))
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("编辑地图，共 \(editModel.map.shots.count) 杆")
+                    .accessibilityLabel("编辑地图，共 \(fullShots.count) 杆")
                     .accessibilityHint("拖动编号改落点，点空白加一杆")
                     .accessibilityIdentifier("round-shot-edit-map")
 
@@ -123,7 +125,14 @@ public struct RoundShotEditLayer: View {
         }
     }
 
-    /// One gesture for tap and drag, so a drag that starts on a handle never also adds a shot.
+    private var fullShots: [RoundShot] {
+        editModel.map.shots.filter { !roundShotIsPutt($0) }
+    }
+
+    /// One gesture for tap and drag: a drag that starts on a handle moves it, a drag that starts on
+    /// empty ground does nothing, and only a real tap (the finger barely moved) selects or adds.
+    /// The dragged shot is selected on finger-up, so the bottom bar does not change height (and the
+    /// map does not shift) under the finger mid-drag.
     private func touchGesture(frame: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
@@ -135,7 +144,6 @@ public struct RoundShotEditLayer: View {
                 let distance = hypot(value.translation.width, value.translation.height)
                 if !isDragging, distance >= dragThreshold {
                     isDragging = true
-                    editModel.selectedShotId = id
                     editModel.draggingShotId = id
                 }
                 guard isDragging else { return }
@@ -150,8 +158,10 @@ public struct RoundShotEditLayer: View {
                     if let px = pixel(at: value.location, frame: frame, clampToMap: true) {
                         editModel.move(shotId: id, px: px)
                     }
+                    editModel.selectedShotId = id
                     return
                 }
+                guard hypot(value.translation.width, value.translation.height) < dragThreshold else { return }
                 if let id = touchedShotId {
                     editModel.selectedShotId = editModel.selectedShotId == id ? nil : id
                     return
@@ -191,7 +201,7 @@ public struct RoundShotEditLayer: View {
     private func nearestHit(to location: CGPoint, frame: CGRect) -> RoundShot? {
         guard frame.contains(location) else { return nil }
         var best: (shot: RoundShot, distance: CGFloat)?
-        for shot in editModel.map.shots {
+        for shot in fullShots {
             guard let end = screenPoint(for: shot.end, frame: frame) else { continue }
             let distance = hypot(end.x - location.x, end.y - location.y)
             guard distance <= hitRadius else { continue }
@@ -407,11 +417,12 @@ public struct RoundShotEditBar: View {
     private func selectedShotControls(_ shot: RoundShot, index: Int) -> some View {
         let count = editModel.map.shots.count
         let yards = editModel.yards(of: shot.id)
+        let number = editModel.displayNumber(of: shot.id) ?? index + 1
         HStack(spacing: 8) {
             orderButton("chevron.left", label: "往前挪一杆", enabled: index > 0, identifier: "round-edit-order-earlier") {
                 editModel.moveShot(shot.id, by: -1)
             }
-            Text(yards.map { "第 \(index + 1) 杆 · \($0) 码" } ?? "第 \(index + 1) 杆")
+            Text(yards.map { "第 \(number) 杆 · \($0) 码" } ?? "第 \(number) 杆")
                 .font(.system(size: 16, weight: .bold))
                 .monospacedDigit()
                 .foregroundStyle(LivePlayStyle.ink)
@@ -432,7 +443,7 @@ public struct RoundShotEditBar: View {
                     .background(LivePlayStyle.fill08, in: Capsule())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("删除第 \(index + 1) 杆")
+            .accessibilityLabel("删除第 \(number) 杆")
             .accessibilityIdentifier("round-edit-delete")
             Button {
                 editModel.selectedShotId = nil

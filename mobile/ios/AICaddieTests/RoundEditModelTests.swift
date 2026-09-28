@@ -240,6 +240,23 @@ final class RoundEditModelTests: XCTestCase {
         XCTAssertEqual(model.selectedShotId, added)
     }
 
+    func testAddingWithNothingSelectedGoesBeforeThePuttsAndNumbersFullShotsOnly() {
+        let shots = [
+            RoundShot(shotId: "shot-1", start: [50, 95], end: [40, 65], club: "Driver", lie: "teebox", order: 1),
+            RoundShot(shotId: "shot-2", start: [40, 65], end: [50, 20], club: "7I", lie: "fairway", order: 2),
+            RoundShot(shotId: "putt-1", start: [50, 20], end: [50, 18], club: "Putter", shotType: "PUTT", order: 3),
+        ]
+        let model = makeModel(shots: shots) { request in Self.response(request, status: 503) }
+        model.enterEdit()
+
+        let added = model.addShot(px: [52, 30])
+
+        XCTAssertEqual(model.map.shots.map(\.id), ["shot-1", "shot-2", added, "putt-1"])
+        XCTAssertEqual(model.fullShotCount, 3)
+        XCTAssertEqual(model.displayNumber(of: added), 3)
+        XCTAssertEqual(model.map.shots[2].start, [50, 20])
+    }
+
     func testClubGuessPicksTheNearestTypicalCarryAndListsItFirst() {
         XCTAssertEqual(RoundClubGuess.club(forYards: 228), "一号木")
         XCTAssertEqual(RoundClubGuess.club(forYards: 152), "七号铁")

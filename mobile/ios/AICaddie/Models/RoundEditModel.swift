@@ -105,7 +105,8 @@ public final class RoundEditModel: ObservableObject {
            let index = map.shots.firstIndex(where: { $0.id == afterShotId }) {
             insertIndex = index + 1
         } else {
-            insertIndex = map.shots.count
+            // Nothing selected: the new full shot goes after the last full shot, before any putts.
+            insertIndex = map.shots.firstIndex(where: roundShotIsPutt) ?? map.shots.count
         }
         let previous = insertIndex > 0 ? map.shots[insertIndex - 1] : nil
         let shotId = "draft-\(UUID().uuidString.lowercased())"
@@ -239,6 +240,16 @@ public final class RoundEditModel: ObservableObject {
     }
 
     public static let maximumPutts = 9
+
+    /// The number a shot carries on the map: its place among the full shots (putts are counted by
+    /// 推杆 −/+, not numbered), so read and edit mode show the same numbers.
+    public func displayNumber(of shotId: String) -> Int? {
+        let fullShots = map.shots.filter { !roundShotIsPutt($0) }
+        if let index = fullShots.firstIndex(where: { $0.id == shotId }) { return index + 1 }
+        return map.shots.firstIndex(where: { $0.id == shotId }).map { $0 + 1 }
+    }
+
+    public var fullShotCount: Int { map.shots.filter { !roundShotIsPutt($0) }.count }
 
     /// Straight-line yards of one draft shot (the bottom bar's "第 N 杆 · D 码").
     public func yards(of shotId: String) -> Int? {

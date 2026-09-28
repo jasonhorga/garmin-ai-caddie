@@ -724,7 +724,6 @@ public struct RoundHoleShotMapScreen: View {
         } else if let shotMap, shotMap.found, shotMap.map != nil {
             RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap), putts: scoreRow?.putts)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityIdentifier("round-shot-read-map")
         } else if let shotMap, shotMap.found, !shotMap.shots.isEmpty {
             ScrollView {
                 RoundShotFactList(shots: shotMap.shots, ppm: shotMap.map?.overlay.ppm)
