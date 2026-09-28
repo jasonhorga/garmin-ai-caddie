@@ -41,6 +41,7 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 - 每洞来源 = 该洞 score / putt / penalty 事件依次合并：全是 `default` 才是 `default`；出现过别的来源就取最近一个非 default 的，之后再来 `default` 也不降级（改过就是改过）。
 - 落点：`build_round_state` 每洞 `scoreSource`；`round_ingest` 写进成绩卡每洞 `scoreSource`，且整场推杆总数不计默认洞（全是默认洞时为空，不写 0）。
 - 统计：`history_stats` 里推杆 / GIR 的读取都经 `_stat_putts` / `_stat_gir`，默认洞返回空；用户对该洞的推杆更正（annotation）仍然生效。球道不受影响。复盘明细仍显示原始值，默认洞怎么显示由 B3 定。
+- “跳过”指不参与：默认洞同时退出推杆 / GIR 的分母（覆盖率、Approach、approachMiss）、推杆数据质量和 `missing_putt_data` 诊断，不算“缺数据”；对该洞做过推杆更正则重新计入。持久化快照（`snapshot._played_holes`）保留 `scoreSource`，没有该字段的旧 / Garmin 洞形状不变。
 - 客户端发送新来源放在 B2（记分三屏重做时一起做“是否改过”的判断），B7 发 `watch_detected`。在那之前客户端仍发旧值，统计与现在一致。
 
 ### B0 契约细节（Python 与 Swift 各自实现时以此为准）
