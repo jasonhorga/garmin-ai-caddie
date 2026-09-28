@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-28 20:37 UTC
+**Updated:** 2026-09-28 23:34 UTC
 **Branch:** `main`; product canonical source revision is
 `8a1180d2fbffaccf84dbb3275a34554abf03b4d9` (PR #357 B1d is merged after
 exact-head review; PR #356 B1c is merged after
@@ -101,7 +101,7 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-09-28 20:37 UTC):** `B1-B7` review queue remains
+**Current slice (2026-09-28 23:34 UTC):** `B1-B7` review queue remains
 `in-progress`; Codex is the review owner for PRs opened from
 `claude/code-audit-performance-17wqcv`. Each PR is checked at its exact head
 against `docs/design/2026-09-25-ui-redesign/README.md` and
@@ -229,6 +229,33 @@ explicitly deleted. The exact-head snapshot and contract container were
 removed; cleanup evidence is
 `/home/jason/codex-runs/aicaddie-pr356-review-20260928T1729Z/resource-manifest.txt`.
 Post-merge main CI `36460613903` is running; no production resources changed.
+
+PR #358 B2 final review: exact head
+`1798179af77b7587a79dd2e610aee34359ebeb29` passed Source CI
+`36495072140` (backend/frontend/docker), Native Mobile CI `36495072157`
+(iOS `410/410`, Watch `337/337`), and the homeserver exact-head contract
+command `/app/.venv/bin/python -m unittest tests.test_mobile_contracts -v`
+(`100/100`, 5.229s, exit 0) in the existing API image's read-only
+`/app/.venv`. Matching artifacts inspected were iOS
+`design-snapshots` `11003138291`, Watch `watch-snapshots` `11003557839`, and
+native evidence `11003428044` (both statuses `passed`). The six B2 iOS
+screens matched the README/prototype/plan; `score-summary-nine.png` confirms
+the played-nine Par line and `score-hole-4plus.png` confirms the real 4+
+putt count. All 38 Watch PNGs were byte-identical to the prior reviewed
+artifact. The B2 pre-save summary's scorecard tap is intentionally deferred
+to B3 and this boundary is recorded in the implementation plan. Final review
+comment `5880668998` reported no P1/P2 findings. GitHub disallowed a formal
+approval because the authenticated owner cannot approve its own PR; the
+required checks were clean, so PR #358 was squash-merged as
+`6059181e16678a83ef01a495b356233b65a156d6` with the exact-head match and the
+remote Claude branch was deleted. Review source/artifact roots remain under
+allow-listed paths `/home/jason/codex-runs/aicaddie-pr358-1798179-review-20260928`
+and `/home/jason/codex-runs/aicaddie-pr358-1798179-artifacts-20260928` until
+cleanup; manifests are
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T231700Z-pr358-1798179-review.txt`
+and `20260928T232000Z-pr358-1798179-artifacts.txt`. Superseded PR #358
+snapshots were removed under
+`20260928T231457Z-pr358-superseded-snapshots.txt`.
 
 Next action: keep the background all-PR feedback monitor active in
 `codex-pr-monitor-20260928`, watch for the next B1-B7 PR or Claude comment,
