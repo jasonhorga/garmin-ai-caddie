@@ -347,6 +347,48 @@ final class DesignSnapshotTests: XCTestCase {
         try render(view, named: "caddie-plan")
     }
 
+    /// B1 旗位界面: no green outline, four edge guides with yardage capsules, the four-cell card and
+    /// the flag-position line. Synthetic 240 x 360 hole at 1 px = 1 m, flag behind-right of centre.
+    @MainActor
+    func testCaptureGreenFlagScreen() throws {
+        let mapW = 240, mapH = 360
+        let holeImage = UIGraphicsImageRenderer(size: CGSize(width: mapW, height: mapH)).image { ctx in
+            UIColor(red: 0.46, green: 0.66, blue: 0.40, alpha: 1).setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: mapW, height: mapH))
+            UIColor(red: 0.50, green: 0.80, blue: 0.43, alpha: 1).setFill()
+            ctx.cgContext.fillEllipse(in: CGRect(x: 96, y: 28, width: 48, height: 42))
+        }
+        let b64 = "data:image/jpeg;base64," + (holeImage.jpegData(compressionQuality: 0.85)?.base64EncodedString() ?? "")
+        let outline = (0..<24).map { index -> String in
+            let angle = Double(index) / 24 * 2 * Double.pi
+            return String(format: "[%.1f,%.1f]", 120 + 24 * cos(angle), 49 + 21 * sin(angle))
+        }.joined(separator: ",")
+        let prepJSON = """
+        {"hole":7,"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":375,\
+        "route":[[120,330],[118,180],[120,49]],"steps":[],"cautions":[],\
+        "hazards":{"water_carry":[],"bunkers":[]},"landing_m":150,"tee_club":"D",\
+        "map":{"image":"\(b64)","overlay":{"w":\(mapW),"h":\(mapH),"ppm":1.0,"ln":375,\
+        "route":[[120,330,0],[118,180,150],[120,49,375]]}},\
+        "holeImageProjection":{"available":true,"widthPx":\(mapW),"heightPx":\(mapH)},\
+        "greenOutline":{"available":true,"source":"fixture","pointsPx":[\(outline)]}}
+        """
+        let hole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(prepJSON.utf8))
+        try captureScreen(
+            LiveGreenDetailView(
+                hole: hole,
+                detailURL: nil,
+                topoURL: nil,
+                targetCoordinate: .constant(nil),
+                targetPixel: .constant(CGPoint(x: 128, y: 42)),
+                referenceCoordinate: nil,
+                referenceIsLive: false,
+                pinCoordinate: nil
+            ),
+            named: "full-green-flag",
+            dark: true
+        )
+    }
+
     /// Full-screen capture of a REAL screen (NavigationStack + ScrollView render fully here,
     /// unlike SwiftUI ImageRenderer). Hosts the view in an on-screen UIWindow and snapshots
     /// the rendered hierarchy — what the running app actually draws (top viewport).
