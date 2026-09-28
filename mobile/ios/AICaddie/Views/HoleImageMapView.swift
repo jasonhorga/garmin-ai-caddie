@@ -17,6 +17,17 @@ struct MapFlightArc: Equatable {
     let end: CGPoint
 }
 
+/// One resolved leg of the caddie route in topo pixels: where the ball leaves, where it lands (the
+/// flag for a true scoring leg) and whether the caddie sheet highlights it. Live play draws these in
+/// the viewport plane so labels and line widths stay at screen size at every zoom.
+struct MapPlannedLeg: Equatable {
+    let shot: MapPlannedShot
+    let origin: CGPoint
+    let destination: CGPoint
+    let endsAtPin: Bool
+    let isSelected: Bool
+}
+
 /// One planned leg in the shared prep/live map. `routeOffsetM` is cumulative along the hole route;
 /// `carryM` remains the club's own target carry and is used only as a compatibility fallback when
 /// an older package has no cumulative offset.
@@ -115,6 +126,11 @@ public struct HoleImageMapView: View {
     /// Preparation-only viewport rotation. The complete map stack rotates as one unit; live play
     /// keeps Garmin's fixed orientation and Watch callers never enable this control.
     public let allowsRotation: Bool
+    /// Live play draws the multi-leg caddie route (arcs, landings and "杆名 码数" labels) and the
+    /// tee-distance arc in its own viewport-plane layer from `plannedLegs()` /
+    /// `teeDistanceArcPixels()`, so all labels share one collision layout. The bitmap then skips
+    /// both so nothing is doubled.
+    public let drawsPlannedRouteInMap: Bool
 
     public init(hole: CoursePrepHole, selectedClub: String? = nil, selectedClubMetres: Double? = nil,
                 pinOverlayPixel: CGPoint? = nil,
@@ -124,7 +140,8 @@ public struct HoleImageMapView: View {
                 showsPrepFactOverlays: Bool = false, allowsRotation: Bool = false,
                 showsPrepClubLabel: Bool = true, showsClubLabel: Bool = true,
                 teeDistanceArcYards: Int? = nil,
-                plannedShots: [MapPlannedShot] = [], selectedPlanIndex: Int? = nil) {
+                plannedShots: [MapPlannedShot] = [], selectedPlanIndex: Int? = nil,
+                drawsPlannedRouteInMap: Bool = true) {
         self.hole = hole
         self.selectedClub = selectedClub
         self.selectedClubMetres = selectedClubMetres
@@ -141,6 +158,7 @@ public struct HoleImageMapView: View {
         self.teeDistanceArcYards = teeDistanceArcYards
         self.plannedShots = plannedShots
         self.selectedPlanIndex = selectedPlanIndex
+        self.drawsPlannedRouteInMap = drawsPlannedRouteInMap
     }
 
     public var body: some View {
@@ -245,12 +263,14 @@ public struct HoleImageMapView: View {
         // drawing a misleading tee-to-flag line that looks like a recommendation.
         if showsRecommendedRoute, let tee = routePoints.first {
             if !projectedPlan.isEmpty {
-                _ = drawPlannedRoute(
-                    &context,
-                    tee: tee,
-                    pin: pin,
-                    shots: projectedPlan
-                )
+                if drawsPlannedRouteInMap {
+                    _ = drawPlannedRoute(
+                        &context,
+                        tee: tee,
+                        pin: pin,
+                        shots: projectedPlan
+                    )
+                }
             } else if let landing, let pin {
                 for arc in Self.flightArcs(tee: tee, landing: landing, pin: pin) {
                     drawFlightArc(&context, arc: arc)
@@ -276,7 +296,8 @@ public struct HoleImageMapView: View {
             }
             context.fill(Path(ellipseIn: CGRect(x: tee.x - 5, y: tee.y - 5, width: 10, height: 10)), with: .color(.white))
         }
-        if let teeDistanceArcYards,
+        if drawsPlannedRouteInMap,
+           let teeDistanceArcYards,
            teeDistanceArcYards > 0,
            let arc = Self.teeDistanceArc(
                overlay: overlay,
@@ -397,13 +418,45 @@ public struct HoleImageMapView: View {
         pin: CGPoint?,
         shots: [(shot: MapPlannedShot, point: CGPoint)]
     ) -> Bool {
-        var origin = tee
         var drewFlightPlan = false
+        for item in resolvedLegs(tee: tee, pin: pin, shots: shots) {
+            let legLength = hypot(item.destination.x - item.origin.x, item.destination.y - item.origin.y)
+            // Do not let a duplicate/legacy landing suppress the final scoring leg. The origin is
+            // still advanced for every planned step, and the final step always targets the flag.
+            if legLength > 1 {
+                drawFlightArc(&context, arc: Self.flightArc(from: item.origin, to: item.destination))
+                drewFlightPlan = true
+            }
+            let isSelected = item.isSelected
+            let isAtPin = item.endsAtPin && pin != nil
+            if !isAtPin {
+                drawPlanMarker(&context, at: item.destination, selected: isSelected)
+            }
+            if showsClubLabel && isSelected {
+                let label = zhClubDisplayName(zhClubName(item.shot.clubName))
+                context.draw(
+                    Text(label).font(.caption2.weight(.bold)).foregroundColor(.white),
+                    at: Self.clubLabelPoint(landing: item.destination, pin: pin)
+                )
+            }
+        }
+        return drewFlightPlan
+    }
+
+    /// Chain the projected landings into legs: each leg starts where the previous one landed and a
+    /// true scoring leg ends on the flag.
+    private func resolvedLegs(
+        tee: CGPoint,
+        pin: CGPoint?,
+        shots: [(shot: MapPlannedShot, point: CGPoint)]
+    ) -> [MapPlannedLeg] {
+        let routeEndMetres = hole.resolvedMapOverlay?.route.last.flatMap { $0.count >= 3 ? $0[2] : nil }
+            ?? hole.resolvedMapOverlay?.ln
+            ?? hole.routeLenM
+        var origin = tee
+        var legs: [MapPlannedLeg] = []
         for (index, item) in shots.enumerated() {
             let isFinal = index == shots.count - 1
-            let routeEndMetres = hole.resolvedMapOverlay?.route.last.flatMap { $0.count >= 3 ? $0[2] : nil }
-                ?? hole.resolvedMapOverlay?.ln
-                ?? hole.routeLenM
             let endsAtPin = isFinal && effectiveShouldEndAtPin(
                 item.shot,
                 index: index,
@@ -412,28 +465,50 @@ public struct HoleImageMapView: View {
             let destination = endsAtPin
                 ? (pin ?? item.point)
                 : item.point
-            let legLength = hypot(destination.x - origin.x, destination.y - origin.y)
-            // Do not let a duplicate/legacy landing suppress the final scoring leg. The origin is
-            // still advanced for every planned step, and the final step always targets the flag.
-            if legLength > 1 {
-                drawFlightArc(&context, arc: Self.flightArc(from: origin, to: destination))
-                drewFlightPlan = true
-            }
             let isSelected = selectedPlanIndex == nil || selectedPlanIndex == item.shot.planIndex
-            let isAtPin = endsAtPin && pin != nil
-            if !isAtPin {
-                drawPlanMarker(&context, at: destination, selected: isSelected)
-            }
-            if showsClubLabel && isSelected {
-                let label = zhClubDisplayName(zhClubName(item.shot.clubName))
-                context.draw(
-                    Text(label).font(.caption2.weight(.bold)).foregroundColor(.white),
-                    at: Self.clubLabelPoint(landing: destination, pin: pin)
-                )
-            }
+            legs.append(MapPlannedLeg(
+                shot: item.shot,
+                origin: origin,
+                destination: destination,
+                endsAtPin: endsAtPin && pin != nil,
+                isSelected: isSelected
+            ))
             origin = destination
         }
-        return drewFlightPlan
+        return legs
+    }
+
+    /// The tee-distance reference arc in topo pixels, for the live viewport layer that lays out its
+    /// "N码" label together with the leg labels.
+    func teeDistanceArcPixels() -> MapFlightArc? {
+        guard let overlay = hole.resolvedMapOverlay,
+              let teeDistanceArcYards,
+              teeDistanceArcYards > 0 else { return nil }
+        return Self.teeDistanceArc(
+            overlay: overlay,
+            targetYards: teeDistanceArcYards,
+            size: CGSize(width: overlay.w, height: overlay.h)
+        )
+    }
+
+    /// The planned route in topo pixels (the overlay's own frame), exactly as the bitmap would draw
+    /// it. Empty when the map has no projectable route or recommendation.
+    func plannedLegs() -> [MapPlannedLeg] {
+        guard let overlay = hole.resolvedMapOverlay, overlay.w > 0, overlay.h > 0 else { return [] }
+        let routePoints: [CGPoint] = overlay.route.compactMap { row in
+            guard row.count >= 2, row[0].isFinite, row[1].isFinite else { return nil }
+            return CGPoint(x: row[0], y: row[1])
+        }
+        guard let tee = routePoints.first else { return [] }
+        let pin = resolvedPinPoint(overlay: overlay, sx: 1, sy: 1) ?? routePoints.last
+        let projected = projectedPlannedShots(
+            overlay: overlay,
+            sx: 1,
+            sy: 1,
+            fallbackStart: routePoints.first,
+            fallbackEnd: pin
+        )
+        return resolvedLegs(tee: tee, pin: pin, shots: projected)
     }
 
     private func effectiveShouldEndAtPin(

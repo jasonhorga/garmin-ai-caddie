@@ -6,6 +6,13 @@ import AICaddieDomain
 import UIKit
 #endif
 
+/// Round actions chosen on the scorecard sheet (the live screen's 返回 destination) run after the
+/// sheet has closed.
+enum LiveScorecardFollowUp: Equatable {
+    case finishRound
+    case leaveToHome
+}
+
 private struct PendingPhoneShot: Identifiable {
     let locationEvent: LiveRoundEvent
     let shotOrder: Int
@@ -164,8 +171,10 @@ public struct CurrentHoleView: View {
     @State private var showScorecard = false
     @State private var gpsHoleCandidate: LiveHoleGPSCandidate?
     @State private var pendingHistoricalScoreHole: Int?
+    /// What to do after the scorecard sheet (the 返回 destination) closes: its round actions need the
+    /// sheet gone before presenting the summary or leaving the live round.
+    @State private var pendingScorecardAction: LiveScorecardFollowUp?
     @State private var pendingPhoneShot: PendingPhoneShot?
-    @State private var holeRootScrollRequest = 0
     @State private var heroMapScale: CGFloat = 1
     @State private var heroMapOffset: CGSize = .zero
     /// Direct-manipulation offset is ordinary state, matching the Touch Target detail surface.
@@ -178,21 +187,13 @@ public struct CurrentHoleView: View {
     /// only changes the emphasized landing after a player taps a step in the detail sheet.
     @State private var selectedPlanIndex: Int?
     @AppStorage("liveTeeDistanceArcYards") private var teeDistanceArcYards: Int = 220
+    /// Design snapshots only (see `init(package:hole:snapshotState:)`); nil in the app.
+    private var snapshotState: SnapshotState?
 
     private static let holeRootScrollAnchor = "live-hole-root"
     /// The capture implementation remains available, but this evidence card is intentionally absent
     /// from live play until it has a product-worthy entry point.
     static let showsMediaCaptureCard = false
-
-    private var liveHeroHeight: CGFloat {
-        // The previous fixed 360pt card made the factual hole map a thumbnail. Keep the first screen
-        // map-led on every phone while leaving enough of the distance instrument visible below it.
-        #if canImport(UIKit)
-        min(max(UIScreen.main.bounds.height * 0.60, 480), 590)
-        #else
-        520
-        #endif
-    }
 
     public init(
         package: LiveRoundPackage,
@@ -289,6 +290,60 @@ public struct CurrentHoleView: View {
         self._lastTargetEditKind = State(initialValue: restoredTarget?.kind)
     }
 
+    /// Deterministic starting state for design snapshots: one selected obstacle, pre-resolved
+    /// caddie routes and a zoomed map. Applied after the per-hole reset so the capture is stable.
+    struct SnapshotState {
+        var selectsFirstHazard = false
+        var caddieRoutes: [CaddiePlanSequence] = []
+        var selectedRouteIndex = 0
+        var mapScale: CGFloat = 1
+    }
+
+    init(package: LiveRoundPackage, hole: Hole, snapshotState: SnapshotState) {
+        self.init(package: package, hole: hole)
+        self.snapshotState = snapshotState
+        // Seed the state directly: a headless capture can render before `.task(id:)` runs, so the
+        // snapshot must not depend on that task. `applySnapshotState()` re-applies it after the
+        // per-hole reset if the task does run first.
+        let prep = package.coursePrep?.holes.first { $0.hole == hole.number }
+        if snapshotState.selectsFirstHazard, let prep,
+           let first = LiveHazardDisplayItem.rows(for: prep, liveReadouts: nil).first {
+            _selectedHazardID = State(initialValue: first.id)
+        }
+        let routes = snapshotState.caddieRoutes
+        if let first = routes.first {
+            let selected = routes.indices.contains(snapshotState.selectedRouteIndex)
+                ? routes[snapshotState.selectedRouteIndex]
+                : first
+            _caddieRoutesByHole = State(initialValue: [hole.number: routes])
+            _retainedCaddieRouteByHole = State(initialValue: [hole.number: first])
+            _selectedCaddieRouteByHole = State(
+                initialValue: [hole.number: LiveCaddieRouteAuthority.routeSignature(selected)]
+            )
+            _explicitlySelectedCaddieRouteHoles = State(initialValue: [hole.number])
+        }
+        _heroMapScale = State(initialValue: min(max(snapshotState.mapScale, 1), 4))
+    }
+
+    @MainActor
+    private func applySnapshotState() {
+        guard let snapshotState else { return }
+        if snapshotState.selectsFirstHazard, let first = liveHazardDisplayRows.first {
+            selectedHazardID = first.id
+        }
+        let routes = snapshotState.caddieRoutes
+        if let first = routes.first {
+            let selected = routes.indices.contains(snapshotState.selectedRouteIndex)
+                ? routes[snapshotState.selectedRouteIndex]
+                : first
+            caddieRoutesByHole[hole.number] = routes
+            retainedCaddieRouteByHole[hole.number] = first
+            selectedCaddieRouteByHole[hole.number] = routeKey(selected)
+            explicitlySelectedCaddieRouteHoles.insert(hole.number)
+        }
+        heroMapScale = min(max(snapshotState.mapScale, 1), 4)
+    }
+
     public var body: some View {
         liveHoleContent
         // The app shell is intentionally light, but this approved live-play surface is dark.
@@ -357,6 +412,7 @@ public struct CurrentHoleView: View {
             // Publish the deterministic package/offline route before the first network frame. A
             // deferred hole therefore never renders a lone club while the map request is pending.
             reconcileCaddieRoutes()
+            applySnapshotState()
             #if DEBUG
             // The package already carries factual Tee coordinates for every ready hole. Move the
             // deterministic multi-hole simulator journey before waiting on the per-hole prep GET;
@@ -412,14 +468,10 @@ public struct CurrentHoleView: View {
         .sheet(item: $scoreDraft) { presentedDraft in
             scoreConfirmationSurface(for: presentedDraft)
         }
-        .sheet(item: $pendingPhoneShot, onDismiss: {
-            // Recording starts from the lower action panel. After selecting or skipping the optional
-            // club, restore the S70-style Hole Root instead of leaving the player below the map.
-            holeRootScrollRequest += 1
-        }) { pendingShot in
+        .sheet(item: $pendingPhoneShot) { pendingShot in
             actualClubPromptSurface(for: pendingShot)
         }
-        .sheet(isPresented: $showScorecard, onDismiss: presentPendingHistoricalScoreEdit) {
+        .sheet(isPresented: $showScorecard, onDismiss: handleScorecardDismissed) {
             scorecardSurface
         }
         .sheet(isPresented: $showRoundSummary) {
@@ -443,130 +495,169 @@ public struct CurrentHoleView: View {
     // Keep the large live-play layout in its own opaque view boundary. Besides making the
     // hierarchy easier to read, this prevents SwiftUI's modifier chain in `body` from forcing the
     // compiler to infer every map, panel, and sheet expression as one type-checking problem.
+    //
+    // B1 (live-play.html): the hole map owns the whole screen. There is no bottom panel and no plan
+    // card; the route and landing labels are drawn on the map and every control floats on its edges.
     private var liveHoleContent: some View {
         ZStack {
             LivePlayStyle.base.ignoresSafeArea()
-            // Keep the command dock in the layout tree instead of overlaying it with
-            // safeAreaInset. The latter left the scroll view at full-window height on
-            // recent iOS runtimes, allowing the selected hazard distances to sit under
-            // the fixed buttons.
-            VStack(spacing: 0) {
-                liveHoleScrollView
-                    .frame(maxHeight: .infinity)
-                liveActionDock
-            }
+            heroSection
+                .ignoresSafeArea()
+                .id(Self.holeRootScrollAnchor)
+            liveMapChrome
             #if DEBUG
             offlineReadyMarker
             #endif
         }
     }
 
-    private var liveHoleScrollView: some View {
-        ScrollViewReader { scrollProxy in
-            ScrollView(showsIndicators: false) {
-                liveHoleStack
-                    .padding(.bottom, 24)
-            }
-            // Once the hero is zoomed, vertical drags belong to the map. Disabling the parent
-            // scroll view for that short interaction window prevents it from swallowing the drag.
-            // A pinch is a live gesture even before the committed scale changes. Disable the
-            // ancestor scroll for both the committed and in-flight scale so a vertical map drag
-            // cannot be stolen by the hole page while zooming.
-            .scrollDisabled(
-                heroMapScale > 1.01 || abs(heroMapPinchScale - 1) > 0.01
-            )
-            .onChange(of: holeRootScrollRequest) { _, _ in
-                withAnimation(.easeOut(duration: 0.22)) {
-                    scrollProxy.scrollTo(Self.holeRootScrollAnchor, anchor: .top)
+    private var liveMapChrome: some View {
+        ZStack {
+            VStack(spacing: 0) {
+                HStack(alignment: .top, spacing: 8) {
+                    LivePlayTopInfo(
+                        holeNumber: hole.number,
+                        par: hole.par,
+                        yards: hole.yards,
+                        roundLine: liveRoundLine,
+                        onBack: { showScorecard = true }
+                    )
+                    Spacer(minLength: 8)
+                    LivePlayGreenLadder(
+                        frontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
+                        middleYards: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
+                        backYards: liveGreenYards?.back ?? greenYards(liveGreenDistances?.backM),
+                        flagYards: placedFlagYards,
+                        isLive: isGreenRangeLive
+                    )
                 }
+                .padding(.horizontal, 14)
+                .padding(.top, 6)
+                Spacer(minLength: 0)
+            }
+
+            HStack {
+                LivePlaySideControls(
+                    hasHazards: !isPreciseHoleMapPending && !liveHazardDisplayRows.isEmpty,
+                    hazardShown: selectedLiveHazard != nil,
+                    planPosition: livePlanPosition,
+                    showsRecenter: heroMapScale > 1.01,
+                    onToggleHazards: toggleHazardDisplay,
+                    onNextPlan: selectNextPlan,
+                    onRecenter: recenterHeroMap
+                )
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 14)
+
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                HStack(alignment: .bottom, spacing: 10) {
+                    LivePlayScoreButton(action: beginScoreConfirmation)
+                    Spacer(minLength: 0)
+                    if !isPreciseHoleMapPending,
+                       let selectedLiveHazard,
+                       let selectedLiveHazardIndex {
+                        LivePlayHazardBar(
+                            row: selectedLiveHazard,
+                            index: selectedLiveHazardIndex,
+                            count: liveHazardDisplayRows.count,
+                            onPrevious: { selectHazard(at: selectedLiveHazardIndex - 1) },
+                            onNext: { selectHazard(at: selectedLiveHazardIndex + 1) }
+                        )
+                        .frame(maxWidth: 230)
+                        .padding(.bottom, 10)
+                        Spacer(minLength: 0)
+                    }
+                    LivePlayRecordShotButton(
+                        enabled: liveCoordinateForCurrentHole != nil,
+                        recordedShotCount: recordedNonPuttShotCount,
+                        action: recordShotLocation
+                    )
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
             }
         }
-    }
-
-    private var liveHoleStack: some View {
-        VStack(spacing: 0) {
-            heroSection
-                .id(Self.holeRootScrollAnchor)
-            livePrimaryPanel
-            liveSecondaryCards
-        }
-    }
-
-    private var livePrimaryPanel: some View {
-        // The map and its two spatial instruments stay on one surface: complete shot plan first,
-        // then one selected obstacle. High-frequency actions remain fixed in the bottom HUD.
-        LivePlayPanel {
-            LiveCaddiePlanPanel(
-                isLoading: isLoadingCaddieDecision,
-                routes: liveCaddieRoutes,
-                selectedRouteID: selectedLiveCaddieRoute.map { routeKey($0) },
-                selectedPlanIndex: selectedPlanIndex,
-                errorText: caddieErrorMessage,
-                onSelectRoute: { route in
-                    selectStrategyMode(CaddiePlanPresentation.selectionToken(for: route))
-                },
-                onSelectStep: selectPlanStep,
-                onRefresh: { Task { await loadCaddieDecision() } }
-            )
-            if !isPreciseHoleMapPending,
-               let selectedLiveHazard,
-               let selectedLiveHazardIndex {
-                Divider().overlay(LivePlayStyle.stroke10)
-                LiveHazardBrowserPanel(
-                    row: selectedLiveHazard,
-                    index: selectedLiveHazardIndex,
-                    count: liveHazardDisplayRows.count,
-                    onPrevious: { selectHazard(at: selectedLiveHazardIndex - 1) },
-                    onNext: { selectHazard(at: selectedLiveHazardIndex + 1) }
-                )
-            } else if !isPreciseHoleMapPending, !liveHazardDisplayRows.isEmpty {
-                Divider().overlay(LivePlayStyle.stroke10)
-                LiveHazardPickerPanel(
-                    rows: liveHazardDisplayRows,
-                    onSelect: { selectHazard(at: $0) }
-                )
-            }
-        }
-        .padding(.horizontal, 10)
-        // Let the gameplay sheet overlap the quiet map footer enough to keep the selected
-        // obstacle's complete front/back row above the fixed command HUD on a standard phone.
-        .padding(.top, -54)
-        .zIndex(2)
-    }
-
-    /// Route and hazard rows can grow without pushing the playing actions below the first glance.
-    /// Keep one compact HUD row fixed above the home indicator so it never covers hazard ranges.
-    private var liveActionDock: some View {
-        LiveHoleActionDock(
-            canRecordShot: liveCoordinateForCurrentHole != nil,
-            recordedShotCount: recordedNonPuttShotCount,
-            onRecordShot: recordShotLocation,
-            onConfirmScore: beginScoreConfirmation,
-            onOpenScorecard: { showScorecard = true }
-        )
-        .padding(.horizontal, 12)
-        .padding(.top, 7)
-        .padding(.bottom, 6)
-        .background(LivePlayStyle.panelFill.opacity(0.98).ignoresSafeArea(edges: .bottom))
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(LivePlayStyle.stroke10)
-                .frame(height: 1)
-        }
+        .overlay(alignment: .topLeading) { liveCaddieRouteSummary }
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("live-action-dock")
+        .accessibilityIdentifier("live-map-chrome")
     }
 
-    private var liveSecondaryCards: some View {
-        // Secondary live controls remain part of the dark playing instrument.
-        VStack(spacing: 12) {
-            if Self.showsMediaCaptureCard {
-                mediaCard
-            }
-            manageSection
+    /// The selected caddie route is drawn on the map; this invisible element reads it out for
+    /// VoiceOver (and lets UI tests prove the structured recommendation arrived).
+    @ViewBuilder
+    private var liveCaddieRouteSummary: some View {
+        if let route = selectedLiveCaddieRoute, !route.steps.isEmpty {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .padding(.top, 120)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(
+                    "球童路线：" + route.steps.enumerated()
+                        .map { "第 \($0.offset + 1) 杆，\($0.element.summaryText)" }
+                        .joined(separator: "；")
+                )
+                .accessibilityIdentifier("live-caddie-complete-route")
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 16)
+    }
+
+    /// "本场 +2 · 第 3 杆": the round to par and the stroke about to be played on this hole.
+    private var liveRoundLine: String {
+        "\(roundToParText) · 第 \(recordedNonPuttShotCount + 1) 杆"
+    }
+
+    /// "旗 N" appears in the ladder only once the player has placed today's flag.
+    private var placedFlagYards: Int? {
+        guard greenPinCoordinate != nil || greenPinPixel != nil else { return nil }
+        return effectiveDistanceToPinMetres.flatMap { greenYards($0) }
+    }
+
+    private var livePlanPosition: (index: Int, count: Int)? {
+        let routes = liveCaddieRoutes
+        guard !routes.isEmpty else { return nil }
+        let selectedKey = selectedLiveCaddieRoute.map { routeKey($0) }
+        let index = routes.firstIndex { routeKey($0) == selectedKey } ?? 0
+        return (index, routes.count)
+    }
+
+    /// 打法 steps through the caddie's routes; the map redraws the selected one.
+    private func selectNextPlan() {
+        let routes = liveCaddieRoutes
+        guard routes.count > 1, let position = livePlanPosition else { return }
+        let next = routes[(position.index + 1) % routes.count]
+        selectStrategyMode(CaddiePlanPresentation.selectionToken(for: next))
+    }
+
+    /// 障碍 shows one obstacle (the first) or hides it again; ‹ › in the bar then steps through them.
+    private func toggleHazardDisplay() {
+        if selectedLiveHazard != nil {
+            selectedHazardID = nil
+        } else if !liveHazardDisplayRows.isEmpty {
+            selectHazard(at: 0)
+        }
+    }
+
+    private func recenterHeroMap() {
+        withAnimation(.easeOut(duration: 0.18)) {
+            heroMapScale = 1
+            heroMapOffset = .zero
+            heroMapTransientDragOffset = .zero
+        }
+    }
+
+    private func handleScorecardDismissed() {
+        presentPendingHistoricalScoreEdit()
+        let followUp = pendingScorecardAction
+        pendingScorecardAction = nil
+        switch followUp {
+        case .finishRound:
+            showRoundSummary = true
+        case .leaveToHome:
+            dismiss()
+        case nil:
+            break
+        }
     }
 
     #if DEBUG
@@ -697,7 +788,23 @@ public struct CurrentHoleView: View {
             onEdit: { selectedHole in
                 pendingHistoricalScoreHole = selectedHole
                 showScorecard = false
-            }
+            },
+            onFinishRound: {
+                pendingScorecardAction = .finishRound
+                showScorecard = false
+            },
+            onLeaveToHome: {
+                pendingScorecardAction = .leaveToHome
+                showScorecard = false
+            },
+            roundAdjustments: AnyView(
+                VStack(spacing: 12) {
+                    if Self.showsMediaCaptureCard {
+                        mediaCard
+                    }
+                    manageSection
+                }
+            )
         )
     }
 
@@ -779,67 +886,8 @@ public struct CurrentHoleView: View {
                 .frame(maxWidth: .infinity, alignment: .top)
                 .allowsHitTesting(false)
             heroInteractionLayer
-            LivePlayHeader(
-                holeNumber: hole.number,
-                par: hole.par,
-                yards: hole.yards,
-                teeLabel: teeLabelZh,
-                roundToParText: roundToParText,
-                onBack: { dismiss() },
-                onFinishRound: { showRoundSummary = true }
-            )
-            .padding(.horizontal, 20)
-            .padding(.top, 4)
-            if heroMapScale > 1.01 {
-                Button {
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        heroMapScale = 1
-                        heroMapOffset = .zero
-                        heroMapTransientDragOffset = .zero
-                    }
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.caption.weight(.bold))
-                        .frame(width: 34, height: 34)
-                        .background(.black.opacity(0.68), in: Circle())
-                        .foregroundStyle(.white)
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 48)
-                .padding(.trailing, 14)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .accessibilityLabel("重置地图缩放")
-                .accessibilityIdentifier("live-hero-map-reset-zoom")
-            }
-            if showsTeeDistanceArc {
-                Menu {
-                    ForEach([200, 210, 220, 230, 240], id: \.self) { yards in
-                        Button {
-                            teeDistanceArcYards = yards
-                        } label: {
-                            if teeDistanceArcYards == yards {
-                                Label("\(yards) 码", systemImage: "checkmark")
-                            } else {
-                                Text("\(yards) 码")
-                            }
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ruler")
-                        .font(.caption.weight(.bold))
-                        .frame(width: 34, height: 34)
-                        .background(.black.opacity(0.68), in: Circle())
-                        .foregroundStyle(.white)
-                }
-                .menuStyle(.borderlessButton)
-                .padding(.top, 48)
-                .padding(.trailing, heroMapScale > 1.01 ? 56 : 14)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .accessibilityLabel("设置发球台距离弧线")
-                .accessibilityIdentifier("live-tee-distance-arc-settings")
-            }
         }
-        .frame(height: liveHeroHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// The course bitmap and GPS marker share one transform. Fixed-size instruments stay in the
@@ -862,32 +910,31 @@ public struct CurrentHoleView: View {
                 .scaleEffect(heroDisplayedMapScale)
                 .offset(heroDisplayedMapOffset(in: geo.size))
 
-                if let holePrep, let selectedLiveHazard {
+                if let holePrep, let overlay = holePrep.resolvedMapOverlay {
+                    let liveMap = liveHoleImageMap(holePrep)
+                    let legs = liveMap.plannedLegs()
+                    let teeArc = liveMap.teeDistanceArcPixels()
+                    let teeArcYards = liveMap.teeDistanceArcYards
                     Canvas { context, size in
-                        LiveHazardOverlayRenderer.draw(
+                        LivePlannedRouteRenderer.draw(
                             &context,
                             size: size,
-                            hole: holePrep,
-                            row: selectedLiveHazard,
+                            legs: legs,
+                            teeArc: teeArc,
+                            teeArcYards: teeArcYards,
+                            overlay: overlay,
                             scale: heroDisplayedMapScale,
                             offset: heroDisplayedMapOffset(in: size),
-                            topInset: LivePlayMapOverlayLayout.liveMapTopInset
+                            topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+                            // The selected obstacle is drawn in the same pass so its 前 / 后
+                            // labels share one collision layout with the route and tee labels.
+                            hazard: selectedLiveHazard.map { (hole: holePrep, row: $0) }
                         )
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
                 }
-
-                LiveMapGreenDistanceOverlay(
-                    frontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
-                    middleYards: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
-                    backYards: liveGreenYards?.back ?? greenYards(liveGreenDistances?.backM),
-                    toPinYards: displayedTargetYards,
-                    isLive: isGreenRangeLive
-                )
-                .position(x: min(max(88, geo.size.width * 0.22), 112), y: 112)
-                .allowsHitTesting(false)
 
                 // A cached topo image is already a usable map.  Do not cover it with the old
                 // "hazards later" pill while a background metadata refresh catches up.
@@ -900,7 +947,7 @@ public struct CurrentHoleView: View {
             .frame(width: geo.size.width, height: geo.size.height)
             .animation(nil, value: heroMapTransientDragOffset)
         }
-        .frame(height: liveHeroHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
     }
 
@@ -1023,7 +1070,7 @@ public struct CurrentHoleView: View {
             .accessibilityHint("左右滑动切换球洞")
             .accessibilityIdentifier("live-open-map-from-hero")
         }
-        .frame(height: liveHeroHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func heroMapHoleSwipeGesture() -> some Gesture {
@@ -1129,6 +1176,23 @@ public struct CurrentHoleView: View {
     /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时回退暗色渐变占位。
     @ViewBuilder private var liveMapBackdrop: some View {
         if let holePrep, holePrep.resolvedMapOverlay != nil {
+            liveHoleImageMap(holePrep)
+                .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier(
+                        holePrep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
+                            ? "live-hole-map-partial"
+                            : "live-hole-map-\(holePrep.geometryCoverage.lowercased())"
+                    )
+        } else {
+            // A loading surface is warranted only when there is no route projection to draw yet.
+            // `isPreciseHoleMapPending` must never hide an already usable lightweight map.
+            LiveMapPreparingSurface(holeNumber: hole.number)
+        }
+    }
+
+    /// One configured map for both the bitmap layer and the viewport-plane route layer, so the
+    /// labelled legs are exactly the ones the bitmap would have drawn.
+    private func liveHoleImageMap(_ holePrep: CoursePrepHole) -> HoleImageMapView {
             HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
                              pinOverlayPixel: effectiveMapPinPixel,
                              topoURL: liveTopoURL, showsCardChrome: false,
@@ -1145,18 +1209,10 @@ public struct CurrentHoleView: View {
                              showsClubLabel: false,
                              teeDistanceArcYards: showsTeeDistanceArc ? teeDistanceArcYards : nil,
                              plannedShots: livePlannedShots,
-                             selectedPlanIndex: selectedPlanIndex)
-                .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier(
-                        holePrep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
-                            ? "live-hole-map-partial"
-                            : "live-hole-map-\(holePrep.geometryCoverage.lowercased())"
-                    )
-        } else {
-            // A loading surface is warranted only when there is no route projection to draw yet.
-            // `isPreciseHoleMapPending` must never hide an already usable lightweight map.
-            LiveMapPreparingSurface(holeNumber: hole.number)
-        }
+                             selectedPlanIndex: selectedPlanIndex,
+                             // `LivePlannedRouteRenderer` draws the route with its "杆名 码数"
+                             // labels in the viewport plane (screen-size type at every zoom).
+                             drawsPlannedRouteInMap: false)
     }
 
     /// The distance reference is useful only before the first full shot of a hole. With no GPS

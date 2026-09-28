@@ -219,16 +219,29 @@ struct LiveHazardDisplayItem: Identifiable, Equatable {
 /// the polygon follows pan/zoom while its red stroke, edge points and labels remain the same screen
 /// size at every scale.
 enum LiveHazardOverlayRenderer {
-    static func draw(
-        _ context: inout GraphicsContext,
+    static let labelFontSize: CGFloat = 10
+    static let red = Color(red: 0.95, green: 0.16, blue: 0.14)
+
+    /// One selected obstacle transformed into the viewport (pan/zoom applied).
+    struct ScreenGeometry {
+        struct Edge {
+            let point: CGPoint
+            let isFront: Bool
+            let text: String
+        }
+        let outline: [CGPoint]
+        let edges: [Edge]
+    }
+
+    static func screenGeometry(
         size: CGSize,
         hole: CoursePrepHole,
         row: LiveHazardDisplayItem,
         scale: CGFloat,
         offset: CGSize,
         topInset: CGFloat = 0
-    ) {
-        guard let overlay = hole.resolvedMapOverlay else { return }
+    ) -> ScreenGeometry? {
+        guard let overlay = hole.resolvedMapOverlay else { return nil }
         let baseFront = hazardPoint(
             pixels: row.frontPx,
             routeMetres: row.frontRouteM,
@@ -254,8 +267,93 @@ enum LiveHazardOverlayRenderer {
             ) else { return nil }
             return transformed(projected, in: size, scale: scale, offset: offset)
         }
+        var edges: [ScreenGeometry.Edge] = []
+        if let front {
+            edges.append(.init(point: front, isFront: true, text: "前 \(row.frontYards)"))
+        }
+        if let back {
+            edges.append(.init(point: back, isFront: false, text: row.backYards.map { "后 \($0)" } ?? "后"))
+        }
+        return ScreenGeometry(outline: outline, edges: edges)
+    }
 
-        let red = Color(red: 0.95, green: 0.16, blue: 0.14)
+    /// Label rectangle size for an edge text at the renderer's fixed screen-size font.
+    static func labelSize(for text: String, in context: GraphicsContext) -> CGSize {
+        let resolved = context.resolve(labelText(text))
+        let raw = resolved.measure(in: CGSize(width: 200, height: 40))
+        let width: CGFloat = max(LiveHazardAnnotationLayout.labelWidth, ceil(raw.width) + 12)
+        return CGSize(width: width, height: LiveHazardAnnotationLayout.labelHeight)
+    }
+
+    static func labelText(_ text: String) -> Text {
+        Text(text)
+            .font(.system(size: labelFontSize, weight: .heavy, design: .rounded))
+            .foregroundColor(.white)
+    }
+
+    /// Candidate centres for an edge label, all outside the obstacle: the outward direction first,
+    /// then slid along the edge either way, at growing distance. The real label size keeps the
+    /// whole rectangle, not just its centre, off the outline.
+    static func labelCandidates(
+        for edge: ScreenGeometry.Edge,
+        outline: [CGPoint],
+        labelSize: CGSize,
+        viewportSize: CGSize
+    ) -> [CGPoint] {
+        var centres: [CGPoint] = []
+        for gap in [CGFloat(8), 22, 40] {
+            for slide in [CGFloat(0), 1, -1] {
+                centres.append(LiveHazardAnnotationLayout.outsideLabelCenter(
+                    for: edge.point,
+                    isFront: edge.isFront,
+                    outline: outline,
+                    viewportSize: viewportSize,
+                    labelSize: labelSize,
+                    gap: gap,
+                    slide: slide * (labelSize.width / 2 + 6)
+                ))
+            }
+        }
+        guard outline.count >= 3 else { return centres }
+        let outside = centres.filter { centre in
+            let rect = CGRect(
+                x: centre.x - labelSize.width / 2,
+                y: centre.y - labelSize.height / 2,
+                width: labelSize.width,
+                height: labelSize.height
+            )
+            let probes = [
+                CGPoint(x: rect.midX, y: rect.midY),
+                CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
+                CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY),
+            ]
+            return !probes.contains { LivePolygonGeometry.contains($0, polygon: outline) }
+        }
+        return outside.isEmpty ? centres : outside
+    }
+
+    /// Draw the selected obstacle. `labelRects` (one per `screenGeometry` edge, nil = omitted)
+    /// comes from the live map's shared label layout; without it the labels use their own
+    /// outside-the-outline placement (the stand-alone hazard browser).
+    static func draw(
+        _ context: inout GraphicsContext,
+        size: CGSize,
+        hole: CoursePrepHole,
+        row: LiveHazardDisplayItem,
+        scale: CGFloat,
+        offset: CGSize,
+        topInset: CGFloat = 0,
+        labelRects: [CGRect?]? = nil
+    ) {
+        guard let geometry = screenGeometry(
+            size: size,
+            hole: hole,
+            row: row,
+            scale: scale,
+            offset: offset,
+            topInset: topInset
+        ) else { return }
+        let outline = geometry.outline
         if outline.count >= 3 {
             var path = Path()
             path.move(to: outline[0])
@@ -263,41 +361,36 @@ enum LiveHazardOverlayRenderer {
             path.closeSubpath()
             context.stroke(path, with: .color(red), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
         }
-
-        let annotations: [(point: CGPoint?, label: String, yards: Int?)] = [
-            (front, "前", Optional(row.frontYards)),
-            (back, "后", row.backYards),
-        ]
-        for (point, label, yards) in annotations {
-            guard let point else { continue }
+        for (index, edge) in geometry.edges.enumerated() {
+            let point = edge.point
             context.fill(
                 Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)),
                 with: .color(red)
             )
-            let labelCenter = LiveHazardAnnotationLayout.outsideLabelCenter(
-                for: point,
-                isFront: label == "前",
-                outline: outline,
-                viewportSize: size
-            )
-            let labelText = yards.map { "\(label) \($0)" } ?? label
-            let labelWidth: CGFloat = yards == nil ? LiveHazardAnnotationLayout.labelWidth : 52
-            let labelRect = CGRect(
-                x: labelCenter.x - labelWidth / 2,
-                y: labelCenter.y - LiveHazardAnnotationLayout.labelHeight / 2,
-                width: labelWidth,
-                height: LiveHazardAnnotationLayout.labelHeight
-            )
+            let edgeLabelSize = labelSize(for: edge.text, in: context)
+            let rect: CGRect
+            if let labelRects {
+                guard index < labelRects.count, let placed = labelRects[index] else { continue }
+                rect = placed
+            } else {
+                let centre = labelCandidates(
+                    for: edge,
+                    outline: outline,
+                    labelSize: edgeLabelSize,
+                    viewportSize: size
+                ).first ?? point
+                rect = CGRect(
+                    x: centre.x - edgeLabelSize.width / 2,
+                    y: centre.y - edgeLabelSize.height / 2,
+                    width: edgeLabelSize.width,
+                    height: edgeLabelSize.height
+                )
+            }
             context.fill(
-                Path(roundedRect: labelRect, cornerRadius: 5),
+                Path(roundedRect: rect, cornerRadius: 5),
                 with: .color(.black.opacity(0.64))
             )
-            context.draw(
-                Text(labelText)
-                    .font(.system(size: 10, weight: .heavy, design: .rounded))
-                    .foregroundColor(.white),
-                at: labelCenter
-            )
+            context.draw(labelText(edge.text), at: CGPoint(x: rect.midX, y: rect.midY))
         }
     }
 

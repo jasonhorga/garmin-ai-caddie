@@ -13,6 +13,10 @@ struct LiveRoundScorecardView: View {
     let gpsCandidate: LiveHoleGPSCandidate?
     let onGoToHole: (Int) -> Void
     let onEdit: (Int) -> Void
+    /// B1: the live screen's 返回 opens this sheet, so the round-level actions live here.
+    let onFinishRound: (() -> Void)?
+    let onLeaveToHome: (() -> Void)?
+    let roundAdjustments: AnyView?
 
     @State private var selectedHole: Int
 
@@ -23,7 +27,10 @@ struct LiveRoundScorecardView: View {
         recordedScoreHoles: Set<Int>,
         gpsCandidate: LiveHoleGPSCandidate? = nil,
         onGoToHole: @escaping (Int) -> Void = { _ in },
-        onEdit: @escaping (Int) -> Void
+        onEdit: @escaping (Int) -> Void,
+        onFinishRound: (() -> Void)? = nil,
+        onLeaveToHome: (() -> Void)? = nil,
+        roundAdjustments: AnyView? = nil
     ) {
         self.courseName = courseName
         self.holes = holes.sorted { $0.number < $1.number }
@@ -32,6 +39,9 @@ struct LiveRoundScorecardView: View {
         self.gpsCandidate = gpsCandidate
         self.onGoToHole = onGoToHole
         self.onEdit = onEdit
+        self.onFinishRound = onFinishRound
+        self.onLeaveToHome = onLeaveToHome
+        self.roundAdjustments = roundAdjustments
         _selectedHole = State(
             initialValue: liveRoundState?.activeHole
                 ?? holes.sorted { $0.number < $1.number }.first?.number
@@ -57,6 +67,12 @@ struct LiveRoundScorecardView: View {
                         totalSummary(totalScore: totalScore, toPar: totalToPar)
                     }
                     selectedActions
+                    if let roundAdjustments {
+                        roundAdjustments
+                    }
+                    if onFinishRound != nil || onLeaveToHome != nil {
+                        roundActions
+                    }
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 18)
@@ -281,6 +297,39 @@ struct LiveRoundScorecardView: View {
         .padding(12)
         .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 15))
         .overlay(RoundedRectangle(cornerRadius: 15).stroke(LivePlayStyle.stroke10))
+    }
+
+    private var roundActions: some View {
+        HStack(spacing: 9) {
+            if let onLeaveToHome {
+                Button(action: onLeaveToHome) {
+                    Label("回到首页", systemImage: "house")
+                        .font(.subheadline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundStyle(LivePlayStyle.ink)
+                        .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LivePlayStyle.stroke14))
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("本场保留，可以随时继续")
+                .accessibilityIdentifier("live-scorecard-leave-home")
+            }
+            if let onFinishRound {
+                Button(action: onFinishRound) {
+                    Label("结束本场", systemImage: "flag.checkered")
+                        .font(.subheadline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundStyle(LivePlayStyle.ink)
+                        .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LivePlayStyle.stroke14))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("结束或放弃本场")
+                .accessibilityIdentifier("live-round-end-menu")
+            }
+        }
     }
 
     private func score(for hole: Hole) -> Int? {

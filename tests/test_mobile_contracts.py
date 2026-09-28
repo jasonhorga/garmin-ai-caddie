@@ -1727,7 +1727,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("精确球道图准备中", current_hole)
         self.assertIn("if !isPreciseHoleMapPending,", current_hole)
         self.assertIn("let selectedLiveHazard", current_hole)
-        self.assertIn("LiveHazardBrowserPanel(", current_hole)
+        # B1: the one selected obstacle is browsed from the bottom-centre bar on the map.
+        self.assertIn("LivePlayHazardBar(", current_hole)
         self.assertIn("var delaySeconds: UInt64 = 2", current_hole)
         self.assertIn("min(delaySeconds * 2, 15)", current_hole)
         self.assertNotIn(":\\(package.holes.count):", round_home)
@@ -2250,8 +2251,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("showsRoute: showsFactualRoute", hole_map_view)
         self.assertIn("if showsFactualRoute, routePoints.count >= 2", hole_map_view)
         self.assertNotIn("showsRoute: showsRecommendedRoute", hole_map_view)
-        self.assertIn("LiveHazardOverlayRenderer.draw", current_hole)
-        self.assertIn("LiveHazardPickerPanel", current_hole)
+        # The selected obstacle is drawn by the route renderer's shared label layout.
+        self.assertIn("hazard: selectedLiveHazard.map { (hole: holePrep, row: $0) }", current_hole)
+        # B1: obstacles stay hidden until the explicit 障碍 control (left column) selects one.
+        self.assertIn("LivePlaySideControls(", current_hole)
+        self.assertIn("toggleHazardDisplay", current_hole)
         self.assertIn("drawFactualRoute", hole_map_view)
         self.assertIn("_ = drawPlannedRoute(", hole_map_view)
         self.assertLess(
@@ -2261,6 +2265,24 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn("row[0].isFinite", hole_map_view)
         self.assertIn(") -> Bool", hole_map_view[hole_map_view.index("private func drawPlannedRoute"):])
+        # B1 live-play.html: every leg carries a "杆名 码数" label at its landing. Live play draws the
+        # route in the viewport plane from the same legs, so labels follow pan/zoom at screen size.
+        live_chrome = _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift")
+        self.assertIn("func plannedLegs() -> [MapPlannedLeg]", hole_map_view)
+        self.assertIn("if drawsPlannedRouteInMap {", hole_map_view)
+        self.assertIn("drawsPlannedRouteInMap: false", current_hole)
+        self.assertIn("let legs = liveMap.plannedLegs()", current_hole)
+        self.assertIn("let teeArc = liveMap.teeDistanceArcPixels()", current_hole)
+        # The tee-distance "N码" label shares the one collision layout with the leg labels.
+        self.assertIn("if drawsPlannedRouteInMap,\n           let teeDistanceArcYards,", hole_map_view)
+        self.assertIn("static func layoutLabels(", live_chrome)
+        self.assertIn("teeArcCandidates(arc: teeArc, labelSize: labelSize)", live_chrome)
+        self.assertIn("LivePlannedRouteRenderer.draw(", current_hole)
+        self.assertIn("enum LivePlannedRouteRenderer", live_chrome)
+        self.assertIn("static let labelFontSize: CGFloat = 13", live_chrome)
+        self.assertIn('return "\\(club) \\(yards)"', live_chrome)
+        self.assertIn("lineWidth: 3, lineCap: .round", live_chrome)
+        self.assertIn("obstacles.append(flagRect(foot: pinLeg.destination, scale: flagScale))", live_chrome)
         self.assertIn("LiveMapPreparingSurface(holeNumber: hole.number)", current_hole)
         self.assertIn("preciseMapTimedOut", current_hole)
         self.assertIn('accessibilityIdentifier("live-map-preparing-surface")', live_hole_components)
@@ -3550,27 +3572,25 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("@State private var requestedStrategyMode: String? = nil", current_hole)
         self.assertIn("requestedStrategyMode = nil", current_hole)
         self.assertNotIn('Picker("策略"', current_hole)
-        self.assertIn("LiveCaddiePlanPanel(", current_hole)
-        self.assertIn("routes: liveCaddieRoutes", current_hole)
-        # Complete routes and inline hazards vary in height. High-frequency play actions belong to a
-        # sibling layout row, so the scrolling primary panel cannot render underneath the HUD.
-        self.assertIn("VStack(spacing: 0)", current_hole)
-        self.assertIn("liveHoleScrollView", current_hole)
-        self.assertIn(".frame(maxHeight: .infinity)", current_hole)
+        # B1 (live-play.html): the hole map owns the whole screen. No plan card and no bottom panel;
+        # the caddie route is drawn on the map and 打法 (left column) steps through the routes.
+        self.assertNotIn("LiveCaddiePlanPanel(", current_hole)
+        self.assertIn("let routes = liveCaddieRoutes", current_hole)
+        self.assertIn("planPosition: livePlanPosition", current_hole)
+        self.assertIn("onNextPlan: selectNextPlan", current_hole)
+        self.assertIn("heroSection\n                .ignoresSafeArea()", current_hole)
+        self.assertIn("private var liveMapChrome: some View", current_hole)
+        self.assertNotIn("liveHoleScrollView", current_hole)
         self.assertNotIn(".safeAreaInset(edge: .bottom, spacing: 0)", current_hole)
-        self.assertIn("private var liveActionDock: some View", current_hole)
-        self.assertIn('accessibilityIdentifier("live-action-dock")', current_hole)
-        primary_panel = current_hole.split("private var livePrimaryPanel: some View", 1)[1].split(
-            "private var liveActionDock: some View", 1
+        self.assertNotIn("LiveHoleActionDock(", current_hole)
+        self.assertNotIn("LiveHolePrimaryActions(", current_hole)
+        self.assertNotIn("LiveScorecardButton(", current_hole)
+        chrome = current_hole.split("private var liveMapChrome: some View", 1)[1].split(
+            "private var liveRoundLine: String", 1
         )[0]
-        self.assertNotIn("LiveHolePrimaryActions(", primary_panel)
-        self.assertNotIn("LiveScorecardButton(", primary_panel)
-        action_dock = current_hole.split("private var liveActionDock: some View", 1)[1].split(
-            "private var liveSecondaryCards: some View", 1
-        )[0]
-        self.assertIn("LiveHoleActionDock(", action_dock)
-        self.assertNotIn("LiveHolePrimaryActions(", action_dock)
-        self.assertNotIn("LiveScorecardButton(", action_dock)
+        # 记分 bottom-left and the single white 记一杆 bottom-right, on opposite sides of the screen.
+        self.assertLess(chrome.index("LivePlayScoreButton("), chrome.index("LivePlayRecordShotButton("))
+        self.assertIn("onBack: { showScorecard = true }", chrome)
         self.assertNotIn("在线方案尚未完成", current_hole)
         self.assertIn('.accessibilityValue(Text(subtitle ?? ""))', live_components)
         # A container identifier propagates through SwiftUI and overwrites the route/leg
@@ -3586,10 +3606,10 @@ class MobileContractTests(unittest.TestCase):
             live_caddie_panel,
         )
         self.assertIn(
-            "selectStrategyMode(CaddiePlanPresentation.selectionToken(for: route))",
+            "selectStrategyMode(CaddiePlanPresentation.selectionToken(for: next))",
             current_hole,
         )
-        self.assertIn("onSelectStep: selectPlanStep", current_hole)
+        self.assertNotIn("onSelectStep:", current_hole)
         self.assertNotIn("showCaddieDetail", current_hole)
         self.assertIn("strategyMode: requestStrategyMode", current_hole)
         self.assertIn("selectedStrategyMode = authoritative", current_hole)
@@ -3608,8 +3628,11 @@ class MobileContractTests(unittest.TestCase):
         # outline. There is no second navigation surface that can drift from it.
         self.assertIn("LiveHazardDisplayItem.rows(for: holePrep", current_hole)
         self.assertIn("liveHazardDisplayRows", current_hole)
-        self.assertIn("LiveHazardBrowserPanel(", current_hole)
-        self.assertIn("LiveHazardOverlayRenderer.draw(", current_hole)
+        self.assertIn("LivePlayHazardBar(", current_hole)
+        self.assertIn("hazard: selectedLiveHazard.map { (hole: holePrep, row: $0) }", current_hole)
+        live_chrome_source = _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift")
+        self.assertIn("LiveHazardOverlayRenderer.draw(", live_chrome_source)
+        self.assertIn("labelRects: placed.hazard", live_chrome_source)
         self.assertNotIn("showHazardDetail", current_hole)
         self.assertIn("selectedOfflineOption", current_hole)
         self.assertIn("sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)", current_hole)
@@ -4060,8 +4083,8 @@ class MobileContractTests(unittest.TestCase):
         for label in ["前果岭", "中果岭", "后果岭"]:
             self.assertIn(label, live_components)
         self.assertIn("greenCenterYards", live_components)
-        # F/M/B now sits directly on the map instead of feeding the legacy green header.
-        self.assertIn("LiveMapGreenDistanceOverlay(", current_hole)
+        # B1: F/M/B is the top-right ladder floating on the full-screen map.
+        self.assertIn("LivePlayGreenLadder(", current_hole)
         self.assertIn("middleYards:", current_hole)
 
     def test_live_gps_rangefinder_to_green(self) -> None:
