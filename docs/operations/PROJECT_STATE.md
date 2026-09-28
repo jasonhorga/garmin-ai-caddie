@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-28 18:31 UTC
+**Updated:** 2026-09-28 18:54 UTC
 **Branch:** `main`; product canonical source revision is
 `6b59eafe3c08569d585ca610168c1127c7562e96` (PR #356 B1c is merged after
 exact-head review; PR #355 B1b is merged after exact-head review; PR #340
@@ -108,23 +108,27 @@ head against `docs/design/2026-09-25-ui-redesign/README.md` and
 inspection of the matching `design-snapshots` / `watch-snapshots` artifacts
 before a PR comment and merge decision. PR #357 (B1d map-degradation
 carry-over and screenshot cases) is the active review at exact head
-`e2e7eca04acb06d7c6811df19c26a3e0a5a5a7bc`, based on merged B1c commit
-`6b59eafe3c08569d585ca610168c1127c7562e96`. Claude's follow-up claims the
-hazard ordinal-shift identity bug and pending-state policy are fixed. Source
-CI run `36464212429` and Native Mobile CI run `36464212458` are currently
-queued/running; fresh exact-head homeserver contracts and matching iOS/Watch
-artifact inspection remain open. Prior review artifacts were iOS
-`design-snapshots` `10988366940` and Watch `watch-snapshots` `10986876134`;
-the prior head's Watch PNGs were byte-identical to the preceding run. Review
+`027512ca50be5198c2b06391a8664a5125874e8c`, based on merged B1c commit
+`6b59eafe3c08569d585ca610168c1127c7562e96`. Source CI run `36465563481`
+and Native Mobile CI run `36465563399` are green. Matching artifacts are iOS
+`design-snapshots` `10990525542`, Watch `watch-snapshots` `10989884676`, and
+native evidence `10990196323`. The two new pending screenshots were visually
+inspected: default pending exposes the obstacle selector without drawing one;
+selected pending draws one factual red outline, front/back points and labels,
+and the bottom selector bar. The selected pending and settled partial images
+are byte-identical, as expected for an in-place precise-map replacement. All
+38 Watch PNGs are byte-identical to the preceding reviewed artifact. Review
 comment `5875872912` identified the original P1 hazard identity carry-over
 bug and P2 false pending snapshot. After Claude's follow-up, comment
 `5876070758` identifies a further P1: the new real pending state still hides
 the existing hazard selector/bar, contradicting the README and implementation
 plan requirement to show existing obstacles alongside the factual route when
-topo is unavailable. Do not merge until that P1 is fixed and a pending
-screenshot proves the selector/obstacle rendering. Homeserver verification is
-temporarily blocked by the capacity gate (about 5.2 GiB available while an
-unrelated slow pytest process runs); do not stop or alter that process. PR #354 (B1a flag edge distances) was reviewed at exact
+topo is unavailable. Claude fixed that item in `027512ca`; code and artifact
+inspection show the pending gate is removed only for existing obstacle facts,
+without inventing a fallback outline. The remaining gate is exact-head
+homeserver contracts. Verification is temporarily blocked by the capacity
+gate (about 5.2 GiB available while unrelated slow pytest PID `3058294`
+runs); do not stop or alter that process. PR #354 (B1a flag edge distances) was reviewed at exact
 head `e65f3adc0cb3d1a6c93b1ae3477bd03dbb4533de`: homeserver mobile contracts
 passed `99/99`, Source CI `36424558065` and Native Mobile CI `36424557986`
 were green, and artifacts `10971447902` / `10971558078` were inspected. The
@@ -224,11 +228,10 @@ removed; cleanup evidence is
 `/home/jason/codex-runs/aicaddie-pr356-review-20260928T1729Z/resource-manifest.txt`.
 Post-merge main CI `36460613903` is running; no production resources changed.
 
-The next action is to monitor PR #357 for Claude's response or a new head;
-then rerun exact-head Source/Native CI, homeserver contracts once capacity is
-safe, and fresh iOS/Watch artifact inspection. Post a severity-tagged
-conclusion and merge/delete the branch only if no P1/P2 item remains. Then
-repeat the same gates for the next B1-B7 PR.
+The next action is to run PR #357 exact-head homeserver contracts once
+capacity is safe, then post the final severity-tagged conclusion. Merge and
+delete the branch only if the contracts pass and no new P1/P2 item appears;
+then repeat the same gates for the next B1-B7 PR.
 The background all-PR feedback monitor remains active in
 `codex-pr-monitor-20260928`.
 
