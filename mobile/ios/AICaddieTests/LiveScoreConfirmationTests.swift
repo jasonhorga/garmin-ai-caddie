@@ -158,7 +158,7 @@ final class LiveRoundScoreSummaryTests: XCTestCase {
     func testUntouchedDefaultHolesAreSkippedForPuttsAndGIR() {
         let summary = LiveRoundScoreSummary(holes: [
             hole(1, par: 4, score: 4, putts: 2, fairway: "hit", source: "default"),
-            hole(2, par: 4, score: 5, putts: 3, fairway: "left", source: "phone_shots"),
+            hole(2, par: 4, score: 6, putts: 3, fairway: "left", source: "phone_shots"),
         ])
         XCTAssertEqual(summary.putts, 3)
         XCTAssertEqual(summary.puttHoles, 1)
