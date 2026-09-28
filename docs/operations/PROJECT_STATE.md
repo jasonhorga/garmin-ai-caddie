@@ -142,8 +142,25 @@ files remain unchanged, but the default, hazard, and zoomed images show the
 `220码` tee-distance label overlapping the `一号木 246` leg label; the leg
 text is obscured, more severely at 2x. Review comment `5872973024` marks this
 P1 and requests a shared collision/placement fix plus new exact-head
-artifacts. Re-review only after Claude pushes that fix and all required
-tests/evidence are fresh. The retained Native CI artifact scratch is allow-listed at
+artifacts. Claude pushed exact head
+`208440963853d56434f06813ff0bc1f3221c7c46` with a shared tee-arc/leg label
+layout and deterministic collision tests. Source CI `36442997914` passed, but
+Native Mobile CI `36442997837` failed: both new layout tests throw
+`DecodingError.keyNotFound("par_source")` at
+`LivePlannedRouteLayoutTests.swift:18`, so iOS ended at 369 tests / 2 failures;
+Watch completed 337/337. Review comment `5873428275` keeps this P1 active and
+requests a valid current `CoursePrepHole` fixture, a green iOS + Watch run,
+and fresh artifacts before visual re-review. Claude pushed exact head
+`555e8465d8446ed23c764c92713700da630ef530`, fixing the fixture; Source CI and
+Native Mobile CI `36445053242` are green, with iOS/Watch artifacts
+`10980776856` / `10979913202`. The arc/leg labels are now separated, but
+`full-hole-map-hazard.png` still shows the `220码` tee label intersecting the
+obstacle `后 213` label. Review comment `5873726575` marks this P2 and asks
+for hazard annotations to join the collision layout (including the real 52pt
+distance-label width) before merge. On the homeserver, the writable exact-head
+copy passed `tests.test_mobile_contracts`: 99 tests in 13.022s, exit 0, using
+the API image's read-only `/app/.venv`; this is recorded in comment
+`5874096123`. The P2 visual blocker remains open. The retained Native CI artifact scratch is allow-listed at
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T-review-pr354-artifacts/`
 until 2026-09-29; its disposable exact-head source snapshot was removed after
 testing. Post-merge main CI `36427341719` is green and no production resources
