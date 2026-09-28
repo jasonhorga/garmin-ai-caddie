@@ -9,10 +9,11 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-28 17:20 UTC
+**Updated:** 2026-09-28 17:50 UTC
 **Branch:** `main`; product canonical source revision is
-`a6cc9a7dfaa450b5dafca3e1fde6cb1268893b33` (PR #355 B1b is merged after
-exact-head review; PR #340 B0d-2 is merged after
+`6b59eafe3c08569d585ca610168c1127c7562e96` (PR #356 B1c is merged after
+exact-head review; PR #355 B1b is merged after exact-head review; PR #340
+B0d-2 is merged after
 the PR #339 B0c test-isolation closeout; PR #338 B0d-1 and PR #337 B0c remain merged; baseline
 tag `v2-baseline-2026-09` remains at
 `57ee84310be38653835e3488104a9332771290ef`). The latest existing internal
@@ -99,7 +100,7 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-09-28 15:18 UTC):** `B1-B7` review queue is `in-progress`:
+**Current slice (2026-09-28 17:50 UTC):** `B1-B7` review queue is `in-progress`:
 Codex is the review owner for PRs opened from
 `claude/code-audit-performance-17wqcv`. Each PR must be checked at its exact
 head against `docs/design/2026-09-25-ui-redesign/README.md` and
@@ -185,6 +186,25 @@ The retained Native CI artifact scratch for PR #354 remains allow-listed at
 until 2026-09-29; its disposable exact-head source snapshot was removed after
 testing. Post-merge main CI `36456437444` for `a6cc9a7d` is green; no
 production resources were changed.
+
+PR #356 B1c final review: Claude pushed exact head
+`18b032e917eb2a2f0eee3cfc042814527640dcf1`, moving Touch Target placement,
+clearing, dragging and the 100pt / 2.35x loupe onto the full-screen live map
+and retiring `LivePlayMapDetailView`. Source CI `36457265247` and Native
+Mobile CI `36457265205` passed (iOS and Watch). The exact-head homeserver
+`tests.test_mobile_contracts` run passed `99/99` in 12.347s, exit 0, using the
+API image's read-only `/app/.venv`. iOS artifact `design-snapshots`
+`10986950790` and Watch artifact `watch-snapshots` `10986876134` were
+downloaded and inspected. The four existing B1b iOS states were byte-identical
+to the prior reviewed artifact; the two new target states were distinct and
+matched the README / `live-play.html` target interaction. All 38 Watch PNGs
+were byte-identical to the prior B1b artifact. Review comment `5875429586`
+reported no P1/P2 findings and approved the merge. PR #356 was squash-merged
+as `6b59eafe3c08569d585ca610168c1127c7562e96`; the remote Claude branch was
+explicitly deleted. The exact-head snapshot and contract container were
+removed; cleanup evidence is
+`/home/jason/codex-runs/aicaddie-pr356-review-20260928T1729Z/resource-manifest.txt`.
+Post-merge main CI `36460613903` is running; no production resources changed.
 
 The next action is to monitor `claude/code-audit-performance-17wqcv` for the
 next B1-B7 PR and repeat exact-head CI, artifact, review-comment, merge and
