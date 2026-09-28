@@ -94,6 +94,10 @@ struct ScoreChip: View {
     let score: Int?
     let toPar: Int?
     var size: CGFloat = 30
+    /// The live screens are always dark; their chips use the `score.html` dark palette.
+    var dark: Bool = false
+    /// Overrides the colour (a selected chip on a white cell is drawn in dark ink).
+    var ink: Color? = nil
 
     private enum Frame { case doubleCircle, circle, none, square, doubleSquare, triangle }
 
@@ -110,6 +114,8 @@ struct ScoreChip: View {
     }
 
     private var color: Color {
+        if let ink { return ink }
+        if dark { return Self.darkColor(toPar: toPar) }
         guard let toPar else { return HubStyle.neutralInk }
         switch toPar {
         case ...(-2): return HubStyle.eagle
@@ -153,6 +159,36 @@ struct ScoreChip: View {
             }
         case .triangle:
             ScoreTriangle().stroke(color, style: StrokeStyle(lineWidth: 2, lineJoin: .round)).padding(2)
+        }
+    }
+}
+
+extension ScoreChip {
+    /// `score.html` dark palette: eagle #7CC4F2, birdie #56A8E8, par #F4F6F2, bogey #E6B04E,
+    /// double #E8814B, triple+ #D9644A.
+    static func darkColor(toPar: Int?) -> Color {
+        guard let toPar else { return Color(red: 0.957, green: 0.965, blue: 0.949) }
+        switch toPar {
+        case ...(-2): return Color(red: 0.486, green: 0.769, blue: 0.949)
+        case -1: return Color(red: 0.337, green: 0.659, blue: 0.910)
+        case 0: return Color(red: 0.957, green: 0.965, blue: 0.949)
+        case 1: return Color(red: 0.902, green: 0.690, blue: 0.306)
+        case 2: return Color(red: 0.910, green: 0.506, blue: 0.294)
+        default: return Color(red: 0.851, green: 0.392, blue: 0.290)
+        }
+    }
+
+    /// 信天翁 / 老鹰 / 小鸟 / 标准杆 / 柏忌 / 双柏忌 / 三柏忌, then "+N".
+    static func name(toPar: Int) -> String {
+        switch toPar {
+        case ...(-3): return "信天翁"
+        case -2: return "老鹰"
+        case -1: return "小鸟"
+        case 0: return "标准杆"
+        case 1: return "柏忌"
+        case 2: return "双柏忌"
+        case 3: return "三柏忌"
+        default: return "+\(toPar)"
         }
     }
 }

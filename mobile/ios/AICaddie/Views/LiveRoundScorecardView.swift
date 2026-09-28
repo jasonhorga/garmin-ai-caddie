@@ -53,18 +53,32 @@ struct LiveRoundScorecardView: View {
         ZStack {
             LivePlayStyle.panelFill.ignoresSafeArea()
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 14) {
                     header
                     if let gpsCandidate,
                        gpsCandidate.hole != liveRoundState?.activeHole {
                         gpsSuggestion(gpsCandidate)
                     }
-                    scoreNine(title: "前九", holes: Array(holes.prefix(9)))
+                    scoreHero
+                    LiveCumulativeTrend(values: summary.cumulativeToPar, holeCount: holes.count)
+                        .frame(height: 84)
+                    LiveNineCard(
+                        label: "OUT",
+                        holes: Array(holes.prefix(9)),
+                        scores: holeScores,
+                        currentHole: liveRoundState?.activeHole,
+                        selectedHole: selectedHole,
+                        onSelect: { selectedHole = $0 }
+                    )
                     if holes.count > 9 {
-                        scoreNine(title: "后九", holes: Array(holes.dropFirst(9).prefix(9)))
-                    }
-                    if let totalScore {
-                        totalSummary(totalScore: totalScore, toPar: totalToPar)
+                        LiveNineCard(
+                            label: "IN",
+                            holes: Array(holes.dropFirst(9).prefix(9)),
+                            scores: holeScores,
+                            currentHole: liveRoundState?.activeHole,
+                            selectedHole: selectedHole,
+                            onSelect: { selectedHole = $0 }
+                        )
                     }
                     selectedActions
                     if let roundAdjustments {
@@ -74,51 +88,71 @@ struct LiveRoundScorecardView: View {
                         roundActions
                     }
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 20)
                 .padding(.top, 18)
                 .padding(.bottom, 24)
             }
         }
         .preferredColorScheme(.dark)
-        .presentationDetents([.fraction(0.68), .large])
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
 
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("本场计分卡")
-                    .font(.title2.weight(.heavy))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("计分卡")
+                    .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(LivePlayStyle.ink)
+                    .accessibilityAddTraits(.isHeader)
                 Text("\(localizedCourseDisplayName(courseName)) · 已记 \(recordedScoreHoles.count)/\(holes.count) 洞")
-                    .font(.caption)
+                    .font(.system(size: 13))
                     .foregroundStyle(LivePlayStyle.ink60)
             }
             Spacer(minLength: 0)
-            VStack(alignment: .trailing, spacing: 3) {
-                if let totalScore {
-                    Text("总杆 \(totalScore)")
-                        .font(.subheadline.monospacedDigit().weight(.heavy))
-                        .foregroundStyle(LivePlayStyle.ink)
-                        .accessibilityIdentifier("live-scorecard-total-score-header")
-                }
-                if let totalToPar {
-                    Text(toParText(totalToPar))
-                        .font(.headline.monospacedDigit().weight(.heavy))
-                        .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: totalToPar))
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 8)
-                        .background(LivePlayStyle.fill08, in: Capsule())
-                }
-            }
             Button { dismiss() } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(LivePlayStyle.ink45)
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(LivePlayStyle.ink60)
+                    .frame(width: 30, height: 30)
+                    .background(LivePlayStyle.fill12, in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("关闭计分卡")
         }
+    }
+
+    /// The big "+4", then strokes and the two nines.
+    private var scoreHero: some View {
+        HStack(alignment: .bottom, spacing: 14) {
+            Text(summary.toPar.map(LiveRoundScoreSummary.toParText) ?? "—")
+                .font(.system(size: 56, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(LivePlayStyle.ink)
+                .accessibilityLabel(summary.toPar.map { "本场 \(LiveRoundScoreSummary.toParText($0))" } ?? "本场还没有成绩")
+                .accessibilityIdentifier("live-scorecard-total-summary")
+            VStack(alignment: .leading, spacing: 1) {
+                Text(summary.holes.isEmpty ? "—" : "\(summary.strokes) 杆")
+                    .font(.system(size: 17, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(LivePlayStyle.ink)
+                    .accessibilityIdentifier("live-scorecard-total-score")
+                Text(ninesText)
+                    .font(.system(size: 12.5))
+                    .monospacedDigit()
+                    .foregroundStyle(LivePlayStyle.ink60)
+            }
+            .padding(.bottom, 4)
+        }
+    }
+
+    private var ninesText: String {
+        func nine(_ slice: ArraySlice<Hole>) -> String {
+            let recorded = slice.compactMap { holeScores[$0.number]?.score }
+            return recorded.isEmpty ? "—" : "\(recorded.reduce(0, +))"
+        }
+        guard holes.count > 9 else { return "前九 \(nine(holes.prefix(9)))" }
+        return "前九 \(nine(holes.prefix(9))) · 后九 \(nine(holes.dropFirst(9).prefix(9)))"
     }
 
     private func gpsSuggestion(_ candidate: LiveHoleGPSCandidate) -> some View {
@@ -128,14 +162,9 @@ struct LiveRoundScorecardView: View {
             HStack(spacing: 9) {
                 Image(systemName: "location.fill")
                     .foregroundStyle(LivePlayStyle.greenLabel)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("GPS 建议第 \(candidate.hole) 洞")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(LivePlayStyle.ink)
-                    Text("距离发球台约 \(Int(candidate.distanceM.rounded())) 米 · 点此后确认")
-                        .font(.caption2)
-                        .foregroundStyle(LivePlayStyle.ink60)
-                }
+                Text("你在第 \(candidate.hole) 洞附近")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(LivePlayStyle.ink)
                 Spacer()
                 Image(systemName: "chevron.forward")
                     .font(.caption.weight(.bold))
@@ -143,231 +172,110 @@ struct LiveRoundScorecardView: View {
             }
             .padding(11)
             .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 13))
-            .overlay(RoundedRectangle(cornerRadius: 13).stroke(LivePlayStyle.greenLabel.opacity(0.35)))
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("live-scorecard-gps-candidate")
     }
 
-    private func scoreNine(title: String, holes: [Hole]) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title)
-                .font(.caption.weight(.bold))
-                .foregroundStyle(LivePlayStyle.ink60)
-            scoreRow(label: "洞", holes: holes) { hole in
-                Text("\(hole.number)")
-                    .font(.caption.monospacedDigit().weight(.heavy))
-                    .foregroundStyle(cellInk(hole))
-                    .accessibilityIdentifier("live-scorecard-hole-index-\(hole.number)")
-            }
-            scoreRow(label: "Par", holes: holes) { hole in
-                Text("\(hole.par)")
-                    .font(.caption2.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(LivePlayStyle.ink60)
-            }
-            scoreRow(label: "成绩", holes: holes) { hole in
-                if let score = score(for: hole) {
-                    ScoreChip(score: score, toPar: score - hole.par, size: 27)
-                        .accessibilityIdentifier("live-scorecard-score-chip-\(hole.number)")
-                } else {
-                    Text("—")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(LivePlayStyle.ink45)
-                }
-            }
-        }
-        .padding(10)
-        .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 15))
-        .overlay(RoundedRectangle(cornerRadius: 15).stroke(LivePlayStyle.stroke10))
-    }
-
-    private func totalSummary(totalScore: Int, toPar: Int?) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("本场总分")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(LivePlayStyle.ink60)
-                Text("\(totalScore) 杆")
-                    .font(.system(size: 25, weight: .heavy, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(LivePlayStyle.ink)
-                    .accessibilityIdentifier("live-scorecard-total-score")
-            }
-            Spacer(minLength: 0)
-            if let toPar {
-                Text(toParText(toPar))
-                    .font(.headline.monospacedDigit().weight(.heavy))
-                    .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
-                    .padding(.vertical, 7)
-                    .padding(.horizontal, 11)
-                    .background(LivePlayStyle.fill08, in: Capsule())
-                    .accessibilityLabel("本场 \(toParText(toPar))")
-            }
-        }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(LivePlayStyle.stroke10))
-        .accessibilityIdentifier("live-scorecard-total-summary")
-    }
-
-    private func scoreRow<Content: View>(
-        label: String,
-        holes: [Hole],
-        @ViewBuilder content: @escaping (Hole) -> Content
-    ) -> some View {
-        HStack(spacing: 3) {
-            Text(label)
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(LivePlayStyle.ink45)
-                .frame(width: 34, alignment: .leading)
-            ForEach(holes) { hole in
-                Button {
-                    selectedHole = hole.number
-                } label: {
-                    content(hole)
-                        .frame(maxWidth: .infinity, minHeight: 29)
-                        .background(cellFill(hole), in: RoundedRectangle(cornerRadius: 6))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(cellStroke(hole)))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("选择第 \(hole.number) 洞")
-            }
-        }
-    }
-
     private var selectedActions: some View {
-        VStack(spacing: 10) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("第 \(selectedHole) 洞")
-                        .font(.headline.weight(.heavy))
-                        .foregroundStyle(LivePlayStyle.ink)
-                    if selectedHole == liveRoundState?.activeHole {
-                        Text("当前正在记录")
-                            .font(.caption)
-                            .foregroundStyle(LivePlayStyle.greenLabel)
-                    } else {
-                        Text("选择去此洞或只修改成绩")
-                            .font(.caption)
-                            .foregroundStyle(LivePlayStyle.ink60)
-                    }
-                }
-                Spacer()
-                if let hole = holes.first(where: { $0.number == selectedHole }),
-                   let score = score(for: hole) {
-                    Text("\(score) 杆 · \(toParText(score - hole.par))")
-                        .font(.subheadline.monospacedDigit().weight(.bold))
-                        .foregroundStyle(LivePlayStyle.ink)
-                }
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(selectedTitle)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(LivePlayStyle.ink)
+                Text(selectedStatus)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(LivePlayStyle.ink60)
             }
-            HStack(spacing: 9) {
+            HStack(spacing: 10) {
                 Button {
                     onGoToHole(selectedHole)
                 } label: {
-                    Label("去第 \(selectedHole) 洞", systemImage: "location.circle.fill")
-                        .font(.subheadline.weight(.bold))
+                    Text("去第 \(selectedHole) 洞")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(LiveScoreStyle.primaryInk)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .foregroundStyle(LivePlayStyle.onAccent)
-                        .background(LivePlayStyle.accent, in: RoundedRectangle(cornerRadius: 12))
+                        .frame(height: 46)
+                        .background(LiveScoreStyle.primaryFill, in: Capsule())
                 }
                 .buttonStyle(.plain)
                 .disabled(selectedHole == liveRoundState?.activeHole)
-                .opacity(selectedHole == liveRoundState?.activeHole ? 0.45 : 1)
+                .opacity(selectedHole == liveRoundState?.activeHole ? 0.35 : 1)
                 .accessibilityIdentifier("live-scorecard-go-hole")
 
                 Button {
                     onEdit(selectedHole)
                 } label: {
-                    Label("编辑成绩", systemImage: "pencil")
-                        .font(.subheadline.weight(.bold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                    Text("改成绩")
+                        .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(LivePlayStyle.ink)
-                        .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 12))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LivePlayStyle.stroke14))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(LivePlayStyle.fill08, in: Capsule())
+                        .overlay(Capsule().stroke(LivePlayStyle.stroke14, lineWidth: 0.5))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("编辑第 \(selectedHole) 洞成绩")
+                .accessibilityLabel("改第 \(selectedHole) 洞成绩")
                 .accessibilityIdentifier("live-scorecard-edit-hole")
             }
         }
-        .padding(12)
-        .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 15))
-        .overlay(RoundedRectangle(cornerRadius: 15).stroke(LivePlayStyle.stroke10))
+        .padding(.top, 4)
     }
 
+    private var selectedTitle: String {
+        let par = holes.first(where: { $0.number == selectedHole })?.par
+        return par.map { "第 \(selectedHole) 洞 · Par \($0)" } ?? "第 \(selectedHole) 洞"
+    }
+
+    private var selectedStatus: String {
+        if let recorded = holeScores[selectedHole] {
+            return "\(recorded.score) 杆 · \(ScoreChip.name(toPar: recorded.score - recorded.par)) · \(recorded.putts) 推"
+        }
+        return selectedHole == liveRoundState?.activeHole ? "正在打这一洞" : "还没记成绩"
+    }
+
+    /// 回到首页 keeps the round; 结束本场… opens the round summary (README §2).
     private var roundActions: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: 28) {
             if let onLeaveToHome {
-                Button(action: onLeaveToHome) {
-                    Label("回到首页", systemImage: "house")
-                        .font(.subheadline.weight(.bold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .foregroundStyle(LivePlayStyle.ink)
-                        .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 12))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LivePlayStyle.stroke14))
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("本场保留，可以随时继续")
-                .accessibilityIdentifier("live-scorecard-leave-home")
+                Button("回到首页", action: onLeaveToHome)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(LivePlayStyle.ink60)
+                    .buttonStyle(.plain)
+                    .accessibilityHint("本场保留，可以随时继续")
+                    .accessibilityIdentifier("live-scorecard-leave-home")
             }
             if let onFinishRound {
-                Button(action: onFinishRound) {
-                    Label("结束本场", systemImage: "flag.checkered")
-                        .font(.subheadline.weight(.bold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .foregroundStyle(LivePlayStyle.ink)
-                        .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 12))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LivePlayStyle.stroke14))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("结束或放弃本场")
-                .accessibilityIdentifier("live-round-end-menu")
+                Button("结束本场…", action: onFinishRound)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(LivePlayStyle.ink60)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("结束或放弃本场")
+                    .accessibilityIdentifier("live-round-end-menu")
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
-    private func score(for hole: Hole) -> Int? {
-        recordedScoreHoles.contains(hole.number)
-            ? liveRoundState?.holeState(for: hole.number)?.score
-            : nil
-    }
-
-    private func cellFill(_ hole: Hole) -> Color {
-        if selectedHole == hole.number { return LivePlayStyle.accent.opacity(0.22) }
-        if liveRoundState?.activeHole == hole.number { return LivePlayStyle.greenLabel.opacity(0.10) }
-        return .clear
-    }
-
-    private func cellStroke(_ hole: Hole) -> Color {
-        if selectedHole == hole.number { return LivePlayStyle.accent.opacity(0.8) }
-        if liveRoundState?.activeHole == hole.number { return LivePlayStyle.greenLabel.opacity(0.5) }
-        return .clear
-    }
-
-    private func cellInk(_ hole: Hole) -> Color {
-        liveRoundState?.activeHole == hole.number ? LivePlayStyle.greenLabel : LivePlayStyle.ink
-    }
-
-    private var totalToPar: Int? {
-        let recorded = holes.compactMap { hole -> Int? in
-            score(for: hole).map { $0 - hole.par }
+    private var holeScores: [Int: LiveHoleScore] {
+        var result: [Int: LiveHoleScore] = [:]
+        for hole in holes where recordedScoreHoles.contains(hole.number) {
+            guard let state = liveRoundState?.holeState(for: hole.number) else { continue }
+            result[hole.number] = LiveHoleScore(
+                hole: hole.number,
+                par: hole.par,
+                score: state.score,
+                putts: state.putts,
+                penalties: state.penaltyCount,
+                fairway: state.fairwayResult,
+                source: state.scoreSource
+            )
         }
-        return recorded.isEmpty ? nil : recorded.reduce(0, +)
+        return result
     }
 
-    private var totalScore: Int? {
-        let recorded = holes.compactMap { score(for: $0) }
-        return recorded.isEmpty ? nil : recorded.reduce(0, +)
-    }
-
-    private func toParText(_ value: Int) -> String {
-        if value == 0 { return "E" }
-        return value > 0 ? "+\(value)" : "\(value)"
+    private var summary: LiveRoundScoreSummary {
+        let scores = holeScores
+        return LiveRoundScoreSummary(holes: holes.compactMap { scores[$0.number] })
     }
 }

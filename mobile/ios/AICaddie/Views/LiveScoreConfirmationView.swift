@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// 本洞记分 (README §2, `score.html` screen 1): one sheet, everything preselected, no source hints.
+/// Total on a strip of score symbols starting at 1 (it never auto-centres), putts as segments, the
+/// tee result as three small fairway tiles (hidden on a Par 3) and penalties as a small −/+.
 struct LiveScoreConfirmationView: View {
     @Binding var draft: LiveScoreDraft
     let nextHole: Int?
@@ -9,215 +12,267 @@ struct LiveScoreConfirmationView: View {
     var body: some View {
         ZStack {
             LivePlayStyle.panelFill.ignoresSafeArea()
-            VStack(spacing: 18) {
+            VStack(alignment: .leading, spacing: 16) {
                 header
-                Group {
-                    if draft.step == .recommendation {
-                        recommendation
-                    } else {
-                        manualEntry
-                    }
+                scoreStrip
+                puttRow
+                if draft.par != 3 {
+                    teeRow
                 }
+                penaltyRow
                 Spacer(minLength: 0)
+                saveButton
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, 20)
             .padding(.top, 18)
             .padding(.bottom, 16)
         }
         .preferredColorScheme(.dark)
-        .presentationDetents([.height(430)])
+        .presentationDetents([.height(draft.par == 3 ? 400 : 500)])
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled()
     }
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("第 \(draft.hole) 洞 · Par \(draft.par)")
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(LivePlayStyle.ink)
-                Text(draft.step == .recommendation ? "确认上一洞成绩" : manualStepTitle)
-                    .font(.caption)
-                    .foregroundStyle(LivePlayStyle.ink60)
-            }
+            Text("第 \(draft.hole) 洞 · Par \(draft.par)")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(LivePlayStyle.ink)
+                .accessibilityAddTraits(.isHeader)
             Spacer()
             Button("取消", action: onCancel)
-                .font(.subheadline.weight(.semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(LivePlayStyle.ink60)
+                .accessibilityIdentifier("score-cancel")
         }
     }
 
-    private var recommendation: some View {
-        VStack(spacing: 16) {
-            VStack(spacing: 3) {
-                Text("推荐 \(draft.score) 杆")
-                    .font(.system(size: 42, weight: .heavy, design: .rounded))
-                    .foregroundStyle(LivePlayStyle.ink)
-                Text("\(draft.putts) 推 · \(draft.penalty) 罚杆")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(LivePlayStyle.ink60)
-                if let nextHole {
-                    Text("确认后进入第 \(nextHole) 洞")
-                        .font(.caption)
-                        .foregroundStyle(LivePlayStyle.greenLabel)
+    /// Starts at 1 and stays there: the player taps where they stop, the strip does not jump to the
+    /// preselection.
+    private var scoreStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(Array(draft.scoreChoices), id: \.self) { value in
+                    scoreCell(value)
                 }
             }
-
-            primaryButton("接受推荐 \(draft.score) 杆") {
-                onAccept(draft)
-            }
-            secondaryButton("手动确认") {
-                updateDraft { $0.startManualEntry() }
-            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 2)
         }
+        .padding(.horizontal, -20)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("总杆")
+        .accessibilityIdentifier("score-strip")
     }
 
-    @ViewBuilder private var manualEntry: some View {
-        VStack(spacing: 18) {
-            switch draft.step {
-            case .score:
-                counter(title: "总杆", value: draft.score, lower: 1, upper: 20) { value in
-                    draft.score = value
-                    draft.putts = min(draft.putts, value)
-                }
-                primaryButton("下一步 · 推杆") { updateDraft { $0.advanceManualEntry() } }
-            case .putts:
-                counter(title: "推杆", value: draft.putts, lower: 0, upper: max(0, draft.score)) {
-                    draft.putts = $0
-                }
-                primaryButton(draft.par == 3 ? "下一步 · 罚杆" : "下一步 · 开球结果") {
-                    updateDraft { $0.advanceManualEntry() }
-                }
-            case .fairway:
-                fairwayPicker
-            case .penalty:
-                counter(title: "罚杆", value: draft.penalty, lower: 0, upper: 10) {
-                    draft.penalty = $0
-                }
-                primaryButton(nextHole.map { "保存并进入第 \($0) 洞" } ?? "保存本洞") {
-                    onAccept(draft)
-                }
-            case .recommendation:
-                EmptyView()
-            }
-
-            // A historical edit starts directly at 总杆, so there is no recommendation screen to
-            // return to. Current-hole manual confirmation still returns to its offered recommendation.
-            if draft.step != .recommendation && (draft.step != .score || draft.advanceAfterSave) {
-                Button("‹ 返回上一步") { updateDraft { $0.retreatManualEntry() } }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(LivePlayStyle.ink60)
-                    .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private var fairwayPicker: some View {
-        VStack(spacing: 12) {
-            Text("第一杆开球结果")
-                .font(.title3.weight(.bold))
-                .foregroundStyle(LivePlayStyle.ink)
-            HStack(spacing: 9) {
-                fairwayButton(.left, "偏左")
-                fairwayButton(.hit, "上球道")
-                fairwayButton(.right, "偏右")
-            }
-            Text("偏左 / 偏右均表示未上球道")
-                .font(.caption)
-                .foregroundStyle(LivePlayStyle.ink45)
-        }
-    }
-
-    private func fairwayButton(_ result: LiveFairwayResult, _ label: String) -> some View {
-        Button {
-            updateDraft { $0.selectFairway(result) }
+    private func scoreCell(_ value: Int) -> some View {
+        let toPar = value - draft.par
+        let selected = value == draft.score
+        return Button {
+            update { $0.selectScore(value) }
         } label: {
-            Text(label)
-                .font(.subheadline.weight(.bold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .foregroundStyle(draft.fairway == result ? LivePlayStyle.onAccent : LivePlayStyle.ink)
-                .background(
-                    draft.fairway == result ? LivePlayStyle.accent : LivePlayStyle.fill08,
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            VStack(spacing: 5) {
+                ScoreChip(
+                    score: value,
+                    toPar: toPar,
+                    size: 30,
+                    dark: true,
+                    ink: selected ? Color(red: 0.043, green: 0.059, blue: 0.047) : nil
                 )
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(LivePlayStyle.stroke14))
+                Text(ScoreChip.name(toPar: toPar))
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(selected ? Color.black.opacity(0.62) : LivePlayStyle.ink45)
+                    .lineLimit(1)
+            }
+            .frame(width: 54, height: 78)
+            .background(
+                selected ? Color(red: 0.957, green: 0.965, blue: 0.949) : LivePlayStyle.fill08,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(value) 杆 \(ScoreChip.name(toPar: toPar))")
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .accessibilityIdentifier("score-choice-\(value)")
     }
 
-    private func counter(
-        title: String,
-        value: Int,
-        lower: Int,
-        upper: Int,
-        onChange: @escaping (Int) -> Void
-    ) -> some View {
-        VStack(spacing: 12) {
-            Text(title)
-                .font(.title3.weight(.bold))
-                .foregroundStyle(LivePlayStyle.ink60)
-            HStack(spacing: 28) {
-                counterButton("−") { onChange(max(lower, value - 1)) }
-                Text("\(value)")
-                    .font(.system(size: 52, weight: .heavy, design: .rounded))
+    private var puttRow: some View {
+        HStack {
+            rowLabel("推杆")
+            Spacer()
+            HStack(spacing: 2) {
+                ForEach(Array(LiveScoreDraft.puttChoices), id: \.self) { value in
+                    Button {
+                        update { $0.selectPutts(value) }
+                    } label: {
+                        Text("\(value)")
+                            .font(.system(size: 15, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(LivePlayStyle.ink)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 34)
+                            .background(
+                                draft.putts == value ? Color.white.opacity(0.22) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(value) 推")
+                    .accessibilityAddTraits(draft.putts == value ? [.isSelected] : [])
+                    .accessibilityIdentifier("score-putts-\(value)")
+                }
+            }
+            .padding(2)
+            .frame(width: 230)
+            .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+    }
+
+    private var teeRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            rowLabel("开球")
+            HStack(spacing: 8) {
+                teeTile(.left, "偏左")
+                teeTile(.hit, "球道")
+                teeTile(.right, "偏右")
+            }
+        }
+    }
+
+    private func teeTile(_ result: LiveFairwayResult, _ label: String) -> some View {
+        let selected = draft.fairway == result
+        let tint = result == .hit
+            ? Color(red: 0.361, green: 0.769, blue: 0.498)
+            : Color(red: 0.902, green: 0.690, blue: 0.306)
+        return Button {
+            update { $0.selectFairway(result) }
+        } label: {
+            VStack(spacing: 3) {
+                LiveTeeMiniFairway(result: result)
+                    .frame(width: 60, height: 30)
+                Text(label)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(selected ? LivePlayStyle.ink : LivePlayStyle.ink60)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 72)
+            .background(
+                selected ? tint.opacity(0.17) : LivePlayStyle.fill08,
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(selected ? tint.opacity(0.8) : LivePlayStyle.stroke14, lineWidth: selected ? 1 : 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("开球\(label)")
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .accessibilityIdentifier("score-tee-\(result.rawValue)")
+    }
+
+    private var penaltyRow: some View {
+        HStack {
+            rowLabel("罚杆")
+            Spacer()
+            HStack(spacing: 0) {
+                stepperButton("−", label: "罚杆减一", enabled: draft.penalty > 0) {
+                    update { $0.adjustPenalty(by: -1) }
+                }
+                Rectangle().fill(LivePlayStyle.stroke14).frame(width: 0.5, height: 18)
+                Text("\(draft.penalty)")
+                    .font(.system(size: 15, weight: .bold))
                     .monospacedDigit()
                     .foregroundStyle(LivePlayStyle.ink)
-                    .frame(minWidth: 70)
-                counterButton("＋") { onChange(min(upper, value + 1)) }
+                    .frame(minWidth: 30)
+                    .accessibilityIdentifier("score-penalty-value")
+                Rectangle().fill(LivePlayStyle.stroke14).frame(width: 0.5, height: 18)
+                stepperButton("+", label: "罚杆加一", enabled: draft.penalty < LiveScoreDraft.maximumPenalty) {
+                    update { $0.adjustPenalty(by: 1) }
+                }
             }
+            .frame(height: 34)
+            .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
     }
 
-    private func counterButton(_ glyph: String, action: @escaping () -> Void) -> some View {
+    private func stepperButton(
+        _ glyph: String,
+        label: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Text(glyph)
-                .font(.title2.weight(.bold))
-                .foregroundStyle(LivePlayStyle.accentSystem)
-                .frame(width: 52, height: 52)
-                .background(LivePlayStyle.fill12, in: Circle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func primaryButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.headline.weight(.heavy))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 15)
-                .foregroundStyle(LivePlayStyle.onAccent)
-                .background(LivePlayStyle.accent, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func secondaryButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.headline.weight(.bold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+                .font(.system(size: 20, weight: .medium))
                 .foregroundStyle(LivePlayStyle.ink)
-                .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 15).stroke(LivePlayStyle.stroke14))
+                .frame(width: 44, height: 34)
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.28)
+        .accessibilityLabel(label)
     }
 
-    private var manualStepTitle: String {
-        switch draft.step {
-        case .score: return "手动确认 · 总杆"
-        case .putts: return "手动确认 · 推杆"
-        case .fairway: return "手动确认 · 开球结果"
-        case .penalty: return "手动确认 · 罚杆"
-        case .recommendation: return "确认上一洞成绩"
+    private var saveButton: some View {
+        Button {
+            onAccept(draft)
+        } label: {
+            Text(Self.saveTitle(score: draft.score, nextHole: draft.advanceAfterSave ? nextHole : nil))
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(Color(red: 0.043, green: 0.059, blue: 0.047))
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .background(Color(red: 0.957, green: 0.965, blue: 0.949), in: Capsule())
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("score-save")
     }
 
-    private func updateDraft(_ update: (inout LiveScoreDraft) -> Void) {
+    /// "保存 5 杆 · 去第 2 洞", or "保存 5 杆" for the last hole or a scorecard edit.
+    static func saveTitle(score: Int, nextHole: Int?) -> String {
+        guard let nextHole else { return "保存 \(score) 杆" }
+        return "保存 \(score) 杆 · 去第 \(nextHole) 洞"
+    }
+
+    private func rowLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(LivePlayStyle.ink60)
+    }
+
+    private func update(_ change: (inout LiveScoreDraft) -> Void) {
         var next = draft
-        update(&next)
+        change(&next)
         draft = next
+    }
+}
+
+/// A tiny fairway strip with the ball left of it, on it, or right of it.
+struct LiveTeeMiniFairway: View {
+    let result: LiveFairwayResult
+
+    var body: some View {
+        Canvas { context, size in
+            let sx = size.width / 60
+            let sy = size.height / 30
+            var strip = Path()
+            strip.move(to: CGPoint(x: 22 * sx, y: 29 * sy))
+            strip.addLine(to: CGPoint(x: 25 * sx, y: 1 * sy))
+            strip.addLine(to: CGPoint(x: 35 * sx, y: 1 * sy))
+            strip.addLine(to: CGPoint(x: 38 * sx, y: 29 * sy))
+            strip.closeSubpath()
+            context.fill(strip, with: .color(Color(red: 0.549, green: 0.804, blue: 0.431).opacity(0.55)))
+            let bx: CGFloat
+            switch result {
+            case .left: bx = 9
+            case .hit: bx = 30
+            case .right: bx = 51
+            }
+            let ball = Path(ellipseIn: CGRect(x: (bx - 4.2) * sx, y: (13 - 4.2) * sy, width: 8.4 * sx, height: 8.4 * sy))
+            context.fill(ball, with: .color(Color(red: 0.957, green: 0.965, blue: 0.949)))
+            context.stroke(ball, with: .color(.black.opacity(0.35)), lineWidth: 1)
+        }
+        .accessibilityHidden(true)
     }
 }

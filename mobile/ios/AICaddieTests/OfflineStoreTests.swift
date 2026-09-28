@@ -2611,11 +2611,8 @@ final class OfflineStoreTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let package = try twoHoleFixturePackage()
         let store = OfflineStore(directoryURL: directory)
-        var draft = LiveScoreDraft(
-            hole: 1, par: 4, recordedShotCount: 2,
-            currentScore: 4, currentPutts: 2, currentPenalty: 0
-        )
-        draft.startManualEntry()
+        var draft = LiveScoreDraft(hole: 1, par: 4, phoneShotCount: 2)
+        draft.selectPutts(3)
 
         try store.saveActiveHole(roundId: package.roundId, hole: 2)
         try store.saveLiveScoreDraft(roundId: package.roundId, draft: draft)
@@ -2659,10 +2656,7 @@ final class OfflineStoreTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let package = try twoHoleFixturePackage()
         let store = OfflineStore(directoryURL: directory)
-        let draft = LiveScoreDraft(
-            hole: 1, par: 4, recordedShotCount: 1,
-            currentScore: 4, currentPutts: 2, currentPenalty: 0
-        )
+        let draft = LiveScoreDraft(hole: 1, par: 4, phoneShotCount: 1)
         try store.saveRoundPackage(package)
         try store.saveActiveHole(roundId: package.roundId, hole: 2)
         try store.saveLiveScoreDraft(roundId: package.roundId, draft: draft)
@@ -3032,5 +3026,30 @@ final class OfflineStoreTests: XCTestCase {
             current.appendPathComponent(component, isDirectory: true)
         }
         return parents
+    }
+}
+
+extension OfflineStoreTests {
+    /// B0c merge on the phone replay: a hole saved as an untouched default stays `default`; once
+    /// any score / putt / penalty event carries another source, a later `default` cannot undo it.
+    func testReplayMergesPerHoleScoreSource() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let package = try twoHoleFixturePackage()
+        let store = OfflineStore(directoryURL: directory)
+        func append(_ id: String, hole: Int, kind: LiveRoundEventKind, _ payload: [String: JSONValue]) throws {
+            try store.appendEvent(LiveRoundEvent(
+                eventId: id, roundId: package.roundId, timestamp: "2026-09-28T00:00:0\(id.count % 10)Z",
+                hole: hole, kind: kind, payload: payload
+            ))
+        }
+        try append("a", hole: 1, kind: .score, ["strokes": .number(4), "source": .string("default")])
+        try append("b", hole: 1, kind: .putt, ["putts": .number(2), "source": .string("default")])
+        try append("c", hole: 2, kind: .score, ["strokes": .number(5), "source": .string("phone_shots")])
+        try append("dd", hole: 2, kind: .putt, ["putts": .number(2), "source": .string("default")])
+
+        let state = try store.restoreLiveRoundState(roundId: package.roundId, package: package)
+        XCTAssertEqual(state.holeState(for: 1)?.scoreSource, "default")
+        XCTAssertEqual(state.holeState(for: 2)?.scoreSource, "phone_shots")
     }
 }

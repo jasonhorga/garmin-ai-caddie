@@ -350,6 +350,103 @@ final class DesignSnapshotTests: XCTestCase {
     /// B1 旗位界面: no green outline, four edge guides with yardage capsules, the four-cell card and
     /// the flag-position line. Synthetic 240 x 360 hole at 1 px = 1 m, flag behind-right of centre.
     @MainActor
+    /// B2 记分三屏 (`score.html`): the one-screen hole score, the scorecard mid-round and the round
+    /// summary, from a fixed 18-hole fixture (Par 72, the prototype's example scores).
+    @MainActor
+    func testCaptureScoringScreens() throws {
+        let pars = [5, 4, 3, 4, 4, 5, 3, 4, 4, 4, 4, 3, 5, 4, 4, 3, 5, 4]
+        let toPar = [0, 1, 0, -1, 1, 0, 1, 2, 0, 0, 1, 0, -1, 1, 0, 1, 0, 0]
+        let putts = [2, 2, 1, 1, 2, 2, 2, 2, 2, 2, 2, 1, 1, 2, 2, 2, 2, 2]
+        let fairways: [String?] = ["hit", "left", nil, "hit", "hit", "left", nil, "left", "hit",
+                                   "hit", "hit", nil, "hit", "left", "hit", nil, "left", "hit"]
+        let holes = pars.enumerated().map { index, par in
+            Hole(number: index + 1, par: par, yards: nil, geometryCoverage: .ready)
+        }
+        func state(recorded: Int) -> LiveRoundStateSnapshot {
+            LiveRoundStateSnapshot(
+                roundId: "snapshot-round",
+                activeHole: min(recorded + 1, 18),
+                holes: holes.map { hole in
+                    let index = hole.number - 1
+                    var snapshot = LiveHoleStateSnapshot(
+                        roundId: "snapshot-round", hole: hole.number, par: hole.par,
+                        score: hole.par + toPar[index], putts: putts[index], penaltyCount: index == 7 ? 1 : 0,
+                        fairwayResult: fairways[index], selectedClub: "", selectedShotType: "tee",
+                        selectedStrategyMode: "stock", distanceToPinM: nil, lie: "fairway",
+                        latitude: nil, longitude: nil, horizontalAccuracyM: nil,
+                        targetLatitude: nil, targetLongitude: nil, targetKind: nil, updatedAt: nil
+                    )
+                    snapshot.scoreSource = "manual_edit"
+                    return snapshot
+                },
+                scoredHoles: Array(1...recorded)
+            )
+        }
+
+        // 1. 本洞记分: nothing recorded (default par), the tee result preselected from the fairway check.
+        try captureScreen(
+            LiveScoreConfirmationView(
+                draft: .constant(LiveScoreDraft(hole: 1, par: 5, phoneShotCount: 0, teeResult: .right)),
+                nextHole: 2,
+                onAccept: { _ in },
+                onCancel: {}
+            ),
+            named: "score-hole",
+            dark: true
+        )
+        // The phone recorded one shot (1 + 2 putts); Par 3 hides the tee tiles.
+        try captureScreen(
+            LiveScoreConfirmationView(
+                draft: .constant(LiveScoreDraft(hole: 3, par: 3, phoneShotCount: 1)),
+                nextHole: 4,
+                onAccept: { _ in },
+                onCancel: {}
+            ),
+            named: "score-hole-par3",
+            dark: true
+        )
+
+        // 2. 计分卡 after nine holes, the tenth being played.
+        let midRound = state(recorded: 9)
+        try captureScreen(
+            LiveRoundScorecardView(
+                courseName: "黑骑士球员俱乐部 B/C",
+                holes: holes,
+                liveRoundState: midRound,
+                recordedScoreHoles: Set(1...9),
+                onEdit: { _ in },
+                onFinishRound: {},
+                onLeaveToHome: {}
+            ),
+            named: "score-scorecard",
+            dark: true
+        )
+
+        // 3. 本场汇总 after 18 holes.
+        let finished = state(recorded: 18)
+        let scores = Dictionary(uniqueKeysWithValues: holes.compactMap { hole -> (Int, LiveHoleScore)? in
+            guard let state = finished.holeState(for: hole.number) else { return nil }
+            return (hole.number, LiveHoleScore(
+                hole: hole.number, par: hole.par, score: state.score, putts: state.putts,
+                penalties: state.penaltyCount, fairway: state.fairwayResult, source: state.scoreSource
+            ))
+        })
+        try captureScreen(
+            LiveRoundFinishSummaryView(
+                courseName: "黑骑士球员俱乐部 B/C",
+                holes: holes,
+                scores: scores,
+                isFinishingRound: false,
+                finishErrorMessage: nil,
+                onFinish: {},
+                onContinue: {},
+                onDiscard: {}
+            ),
+            named: "score-summary",
+            dark: true
+        )
+    }
+
     func testCaptureGreenFlagScreen() throws {
         let mapW = 240, mapH = 360
         let holeImage = UIGraphicsImageRenderer(size: CGSize(width: mapW, height: mapH)).image { ctx in
