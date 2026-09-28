@@ -347,9 +347,6 @@ final class DesignSnapshotTests: XCTestCase {
         try render(view, named: "caddie-plan")
     }
 
-    /// B1 旗位界面: no green outline, four edge guides with yardage capsules, the four-cell card and
-    /// the flag-position line. Synthetic 240 x 360 hole at 1 px = 1 m, flag behind-right of centre.
-    @MainActor
     /// B2 记分三屏 (`score.html`): the one-screen hole score, the scorecard mid-round and the round
     /// summary, from a fixed 18-hole fixture (Par 72, the prototype's example scores).
     @MainActor
@@ -447,6 +444,9 @@ final class DesignSnapshotTests: XCTestCase {
         )
     }
 
+    /// B1 旗位界面: no green outline, four edge guides with yardage capsules, the four-cell card and
+    /// the flag-position line. Synthetic 240 x 360 hole at 1 px = 1 m, flag behind-right of centre.
+    @MainActor
     func testCaptureGreenFlagScreen() throws {
         let mapW = 240, mapH = 360
         let holeImage = UIGraphicsImageRenderer(size: CGSize(width: mapW, height: mapH)).image { ctx in
