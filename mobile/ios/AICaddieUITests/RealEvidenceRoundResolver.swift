@@ -228,8 +228,9 @@ final class RealEvidenceRoundResolver {
                     globalId: globalId,
                     localHole: localHole,
                     clubs: [pair.first.club, pair.second.club],
-                    // The edit map numbers full shots only (putts are a counter), so count those.
-                    shotCount: shots.filter { !isPuttRow($0) }.count,
+                    // The edit map numbers full shots only (putts are a counter; the synthetic tee
+                    // fill is never editable), so count those.
+                    shotCount: shots.filter { !isPuttRow($0) && ($0["synthetic"] as? Bool) != true }.count,
                     landing: landing,
                     emptyMapPoint: farthestEmptyPoint(from: allPoints, width: width, height: height)
                 )

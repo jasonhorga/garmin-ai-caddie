@@ -4691,6 +4691,12 @@ class RoundEditContractTests(unittest.TestCase):
         model = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
         move = model.split("public func moveShot(_ shotId: String, by offset: Int) {", 1)[1].split("\n    }\n", 1)[0]
         self.assertIn("guard offset != 0, map.shots.indices.contains(target),", move)
+        model = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
+        shot_map = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
+        # The synthetic tee fill never enters the draft, numbering or snapshot (B0d-2 section 3).
+        self.assertIn("? source.shots.filter { !$0.synthetic }", model)
+        self.assertIn("!roundShotIsPutt(shot) && !shot.synthetic", shot_map)
+        self.assertIn("return roundShotIsFullShot(shot)", model)
         # Putt rows are fail-closed: never moved, never a swap target (putts are the 推杆 counter).
         self.assertIn("isEditableShot(shotId), !roundShotIsPutt(map.shots[target]) else { return }", move)
         self.assertIn("ids.swapAt(index, target)", move)

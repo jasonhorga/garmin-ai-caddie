@@ -353,6 +353,12 @@ private struct ZoomableRoundMapViewport<Content: View>: View {
 }
 #endif
 
+/// A numbered, editable shot: not a putt (putts are a count) and not the server's synthetic tee
+/// fill (no stable id; it never enters the correction diff). Read and edit mode number the same set.
+func roundShotIsFullShot(_ shot: RoundShot) -> Bool {
+    !roundShotIsPutt(shot) && !shot.synthetic
+}
+
 func roundShotIsPutt(_ shot: RoundShot) -> Bool {
     (shot.shotType ?? "").uppercased() == "PUTT"
         || (shot.club ?? "").localizedCaseInsensitiveContains("putt")
@@ -410,7 +416,7 @@ func drawRoundShotPath(
     }
 
     // Numbered dot at each full shot's landing: dark fill, landing-lie ring, white number.
-    let fullShots = shots.filter { !roundShotIsPutt($0) }
+    let fullShots = shots.filter(roundShotIsFullShot)
     for (index, shot) in fullShots.enumerated() {
         guard let b = point(shot.end) else { continue }
         let radius: CGFloat = 9

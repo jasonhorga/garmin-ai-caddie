@@ -126,7 +126,7 @@ public struct RoundShotEditLayer: View {
     }
 
     private var fullShots: [RoundShot] {
-        editModel.map.shots.filter { !roundShotIsPutt($0) }
+        editModel.map.shots.filter(roundShotIsFullShot)
     }
 
     /// One gesture for tap and drag: a drag that starts on a handle moves it, a drag that starts on
@@ -564,7 +564,7 @@ public struct RoundShotFactEditList: View {
                     .foregroundStyle(LivePlayStyle.ink60)
                     .padding(.bottom, 4)
                 // Putts are the 推杆 counter below, not rows to edit.
-                ForEach(Array(editModel.map.shots.filter { !roundShotIsPutt($0) }.enumerated()), id: \.element.id) { index, shot in
+                ForEach(Array(editModel.map.shots.filter(roundShotIsFullShot).enumerated()), id: \.element.id) { index, shot in
                     let selected = editModel.selectedShotId == shot.id
                     Button {
                         editModel.selectedShotId = selected ? nil : shot.id

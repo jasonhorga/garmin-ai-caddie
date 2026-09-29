@@ -70,6 +70,10 @@ public final class RoundEditModel: ObservableObject {
         guard !isSaving else { return }
         map = editableCopy(of: originalMap)
         routeOrigin = Self.resolvedRouteOrigin(in: originalMap)
+        // Without the synthetic tee fill the first real shot starts at the tee again.
+        if canEditPositions, originalMap.shots.contains(where: \.synthetic) {
+            reconnectDraft()
+        }
         putts = originalPutts
         isEditing = true
         resetDraftState()
@@ -261,12 +265,12 @@ public final class RoundEditModel: ObservableObject {
     /// The number a shot carries on the map: its place among the full shots (putts are counted by
     /// 推杆 −/+, not numbered), so read and edit mode show the same numbers.
     public func displayNumber(of shotId: String) -> Int? {
-        let fullShots = map.shots.filter { !roundShotIsPutt($0) }
+        let fullShots = map.shots.filter(roundShotIsFullShot)
         if let index = fullShots.firstIndex(where: { $0.id == shotId }) { return index + 1 }
         return map.shots.firstIndex(where: { $0.id == shotId }).map { $0 + 1 }
     }
 
-    public var fullShotCount: Int { map.shots.filter { !roundShotIsPutt($0) }.count }
+    public var fullShotCount: Int { map.shots.filter(roundShotIsFullShot).count }
 
     /// Straight-line yards of one draft shot (the bottom bar's "第 N 杆 · D 码").
     public func yards(of shotId: String) -> Int? {
@@ -419,7 +423,7 @@ public final class RoundEditModel: ObservableObject {
     /// A full shot of the draft (putt rows are handled by the putts counter, fail-closed here).
     private func isEditableShot(_ id: String) -> Bool {
         guard let shot = map.shots.first(where: { $0.id == id }) else { return false }
-        return !roundShotIsPutt(shot)
+        return roundShotIsFullShot(shot)
     }
 
     private func reconnectDraft() {
@@ -460,8 +464,11 @@ public final class RoundEditModel: ObservableObject {
 
     private func editableCopy(of source: RoundHoleShotMap) -> RoundHoleShotMap {
         var seen = Set<String>()
+        // The server's synthetic tee fill has no stable id and never enters the correction diff
+        // (IMPLEMENTATION_PLAN B0d-2 §3): it is dropped from the draft in both modes, so it can
+        // never be selected, get a draft id, change the numbering or reach the saved snapshot.
         let candidates = canEditPositions
-            ? source.shots
+            ? source.shots.filter { !$0.synthetic }
             : source.shots.filter { shot in
                 guard !shot.synthetic,
                       let id = shot.shotId?.trimmingCharacters(in: .whitespacesAndNewlines) else {

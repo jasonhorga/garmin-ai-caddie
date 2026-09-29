@@ -317,6 +317,40 @@ final class RoundEditModelTests: XCTestCase {
         XCTAssertEqual(shots.last?["start"] as? [Int], [48, 22])
     }
 
+    func testSyntheticTeeFillIsNeverAnEditableShotOrPartOfTheSnapshot() async throws {
+        let shots = [
+            RoundShot(shotId: nil, start: [50, 95], end: [45, 70], club: nil, lie: "teebox", shotType: "TEE", order: 1, synthetic: true),
+            RoundShot(shotId: "shot-2", start: [45, 70], end: [50, 20], club: "7I", lie: "fairway", order: 2),
+            RoundShot(shotId: "putt-1", start: [49, 21], end: [50, 18], club: "Putter", shotType: "PUTT", order: 3),
+        ]
+        var payload: [String: Any] = [:]
+        let model = makeModel(shots: shots) { request in
+            if request.httpMethod == "POST" {
+                let body = try CapturingURLProtocol.requestBodyData(from: request)
+                payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                return Self.response(request, status: 201, body: #"{"stored":{}}"#)
+            }
+            return Self.response(request, status: 503)
+        }
+        model.enterEdit()
+
+        XCTAssertEqual(model.map.shots.map(\.id), ["shot-2", "putt-1"], "no draft id for the synthetic row")
+        XCTAssertFalse(model.map.shots.contains { $0.synthetic })
+        XCTAssertEqual(model.fullShotCount, 1)
+        XCTAssertEqual(model.displayNumber(of: "shot-2"), 1)
+        XCTAssertEqual(model.map.shots[0].start, [50, 95], "the first real shot re-chains from the tee")
+        XCTAssertFalse(model.hasUnsavedChanges)
+
+        model.editClub(shotId: "shot-2", "八号铁")
+        let saved = await model.save()
+        XCTAssertTrue(saved)
+        let sent = try XCTUnwrap(payload["shots"] as? [[String: Any]])
+        XCTAssertEqual(sent.compactMap { $0["id"] as? String }, ["shot-2", "putt-1"])
+        XCTAssertEqual(sent.count, 2, "the synthetic tee row is not in replaceHoleShots")
+        XCTAssertFalse(sent.contains { ($0["synthetic"] as? Bool) == true })
+        XCTAssertEqual(sent.first?["start"] as? [Int], [50, 95])
+    }
+
     func testPuttCorrectionTargetsTheCanonicalRound() async throws {
         var targetId: String?
         let configuration = URLSessionConfiguration.ephemeral
