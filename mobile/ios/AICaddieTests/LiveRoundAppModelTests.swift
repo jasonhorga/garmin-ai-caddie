@@ -1368,6 +1368,73 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
+    /// B4 turn: choosing the second loop adds it to this round AND opens its first hole. The model
+    /// owns that navigation (pendingLiveHole + the saved cursor), because the live destination is
+    /// rebuilt when the hole set changes and cannot keep a pending advance in its own state.
+    func testContinueIntoSecondLoopComposesTheRoundAndOpensHoleTen() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let frontTemplate = try blackKnightLoopPackage(source: source, globalId: 31794, label: "A")
+        let backTemplate = try blackKnightLoopPackage(source: source, globalId: 31795, label: "B")
+        try store.saveCourseTemplate(frontTemplate)
+        try store.saveCourseTemplate(backTemplate)
+        for template in [frontTemplate, backTemplate] {
+            for hole in template.holes {
+                _ = try store.saveCourseTopoImage(
+                    minimalPNGData(),
+                    globalId: hole.sourceGlobalId ?? template.course.globalId,
+                    localHole: hole.sourceLocalHole ?? hole.number,
+                    geometryRevision: hole.geometryRevision
+                )
+            }
+        }
+
+        let roundId = "black-knight-turn"
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 503,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"detail":"offline"}"#.utf8)
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://offline.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            preferredRoundId: roundId,
+            syncClient: client
+        )
+
+        await model.prepareCourseRound(globalId: 31794, roundId: roundId, teeBox: "blue", nine: "all")
+        XCTAssertEqual(model.package?.holes.map(\.number), Array(1...9))
+        model.consumePendingLiveHole()
+        model.setActiveHole(9)
+        XCTAssertEqual(model.liveRoundState?.activeHole, 9)
+
+        await model.continueIntoSecondLoop(globalId: 31794, backGlobalId: 31795, roundId: roundId, teeBox: "blue")
+
+        XCTAssertEqual(model.package?.holes.map(\.number), Array(1...18))
+        XCTAssertEqual(model.package?.holes.first(where: { $0.number == 10 })?.sourceGlobalId, 31795)
+        XCTAssertEqual(model.liveRoundState?.activeHole, 10, "the saved cursor moves to the second loop")
+        XCTAssertEqual(model.pendingLiveHole, 10, "RoundHomeView routes to the second loop's first hole")
+    }
+
     func testPrepareCourseRoundEntersDownloadedTemplateBeforeRevalidatingInBackground() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

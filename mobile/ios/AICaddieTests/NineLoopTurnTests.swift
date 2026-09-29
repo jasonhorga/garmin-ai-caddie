@@ -41,6 +41,29 @@ final class NineLoopTurnTests: XCTestCase {
         XCTAssertEqual(plan.second, .loop("7"))
     }
 
+    func testLoopsWithoutAFactualLabelAreNeverOfferedUnderASynthesizedName() throws {
+        let unlabeledSibling = MobileCourseOption(globalId: 9, name: "黑骑士", holes: 9, venueName: "黑骑士", segmentHoles: 9)
+        let loops = [loop(1, "A"), loop(2, "B"), unlabeledSibling]
+        let plan = try XCTUnwrap(NineLoopTurn.plan(front: loops[0], siblings: loops, remembered: [:], history: []))
+        XCTAssertEqual(plan.course.loops.map(\.id), ["1", "2"], "an unlabeled loop is not a choice")
+        for name in plan.course.loops.map(\.displayName) + [plan.turnTitle, plan.turnActionTitle] {
+            XCTAssertFalse(name.contains("洞组"), name)
+        }
+
+        // The loop just played keeps its factual course name when it has no loop label.
+        let plain = MobileCourseOption(globalId: 5, name: "翠湖", holes: 9, venueName: "翠湖", segmentHoles: 9)
+        let single = try XCTUnwrap(NineLoopTurn.plan(front: plain, siblings: [], remembered: [:], history: []))
+        XCTAssertEqual(single.course.loops.map(\.id), ["5"])
+        XCTAssertEqual(single.course.loops.first?.name, plain.localizedName)
+        XCTAssertFalse(single.turnTitle.contains("洞组"))
+    }
+
+    func testTheSecondLoopStartsAtTheFirstHoleAfterTheFirstNine() {
+        XCTAssertEqual(NineLoopTurn.firstHoleOfSecondLoop(Array(1...18)), 10)
+        XCTAssertEqual(NineLoopTurn.firstHoleOfSecondLoop([12, 1, 10, 9]), 10)
+        XCTAssertNil(NineLoopTurn.firstHoleOfSecondLoop(Array(1...9)))
+    }
+
     func testPairingsRoundTripPerAccount() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)

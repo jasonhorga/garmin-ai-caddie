@@ -6,11 +6,22 @@ import Foundation
 /// pairings — the last pairing chosen on this phone first, else the most recent pairing in the
 /// round history.
 enum NineLoopTurn {
-    static func loop(_ option: MobileCourseOption) -> NineLoop {
-        NineLoop(
-            id: String(option.globalId),
-            name: option.resolvedSegmentLabel ?? option.segmentDisplayTitle
-        )
+    /// A loop named by the course's own factual loop label (A / 东 / 湖景场). A loop without one is
+    /// not offered: the turn never invents a "9 洞组" name for a choice.
+    static func loop(_ option: MobileCourseOption) -> NineLoop? {
+        guard let label = option.resolvedSegmentLabel else { return nil }
+        return NineLoop(id: String(option.globalId), name: label)
+    }
+
+    /// The loop just played is always part of the plan (it can be played again). Without a loop
+    /// label it keeps the course's own name, which is factual, rather than a synthesized one.
+    static func firstLoop(_ option: MobileCourseOption) -> NineLoop {
+        loop(option) ?? NineLoop(id: String(option.globalId), name: option.localizedName)
+    }
+
+    /// Round hole where the second loop starts (the first hole after the first nine).
+    static func firstHoleOfSecondLoop(_ holes: [Int]) -> Int? {
+        holes.filter { $0 > 9 }.min()
     }
 
     /// Front loop id → back loop id. `remembered` wins; history is newest first.
@@ -36,12 +47,15 @@ enum NineLoopTurn {
         remembered: [Int: Int],
         history: [HistoryRoundCard]
     ) -> NineLoopPlan? {
-        let loops = siblings.isEmpty ? [front] : siblings
-        guard loops.contains(where: { $0.globalId == front.globalId }) else { return nil }
+        guard siblings.isEmpty || siblings.contains(where: { $0.globalId == front.globalId }) else { return nil }
+        let options = siblings.isEmpty ? [front] : siblings
+        let loops = options.compactMap { option -> NineLoop? in
+            option.globalId == front.globalId ? firstLoop(option) : loop(option)
+        }
         let course = NineLoopCourse(
             id: front.venueName ?? String(front.globalId),
-            loops: loops.map(loop),
-            usualPairs: usualPairs(remembered: remembered, history: history, loopIds: Set(loops.map(\.globalId)))
+            loops: loops,
+            usualPairs: usualPairs(remembered: remembered, history: history, loopIds: Set(loops.compactMap { Int($0.id) }))
         )
         guard var plan = NineLoopPlan(course: course, first: String(front.globalId)) else { return nil }
         plan.beginFirstLoop()

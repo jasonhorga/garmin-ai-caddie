@@ -102,6 +102,7 @@ public struct CurrentHoleView: View {
     private let onChangeNine: (String) -> Void
     private let onPrepareCourseRound: (Int, String, String, String) -> Void
     private let onPrepareCompositeRound: (Int, Int, String, String) -> Void
+    private let onContinueIntoSecondLoop: (Int, Int, String, String) -> Void
     private let onFinishRound: () async -> Bool
     private let onDiscardRound: () -> Void
     private let onAdvanceHole: (Int) -> Void
@@ -165,9 +166,6 @@ public struct CurrentHoleView: View {
     @State private var showRoundSummary = false
     /// B4 turn: after the last hole of a single first loop, ask which nine comes next.
     @State private var turnPlan: NineLoopPlan?
-    /// Set when the turn composed the second loop; the first hole of that loop opens once the
-    /// 18-hole package is active.
-    @State private var pendingTurnAdvance = false
     @State private var showDiscardConfirmation = false
     /// B1c Touch Target on the main map: screen point of the finger while the target is dragged
     /// (drives the loupe), whether that drag owns the gesture, and a one-runloop tap suppressor.
@@ -222,6 +220,7 @@ public struct CurrentHoleView: View {
         onChangeNine: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
+        onContinueIntoSecondLoop: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
         onFinishRound: @escaping () async -> Bool = { false },
         onDiscardRound: @escaping () -> Void = {},
         onAdvanceHole: @escaping (Int) -> Void = { _ in },
@@ -248,6 +247,7 @@ public struct CurrentHoleView: View {
         self.onChangeNine = onChangeNine
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onPrepareCompositeRound = onPrepareCompositeRound
+        self.onContinueIntoSecondLoop = onContinueIntoSecondLoop
         self.onFinishRound = onFinishRound
         self.onDiscardRound = onDiscardRound
         self.onAdvanceHole = onAdvanceHole
@@ -515,12 +515,6 @@ public struct CurrentHoleView: View {
                     onLater: { self.turnPlan = nil }
                 )
             }
-        }
-        .onChange(of: package.holes.count) { _, _ in
-            guard pendingTurnAdvance,
-                  let firstOfSecondLoop = package.holes.map(\.number).first(where: { $0 > 9 }) else { return }
-            pendingTurnAdvance = false
-            onAdvanceHole(firstOfSecondLoop)
         }
         .confirmationDialog(
             "放弃这场球局？",
@@ -3296,8 +3290,9 @@ public struct CurrentHoleView: View {
         let front = package.course.globalId
         try? offlineStore?.rememberNineLoopPairing(front: front, back: back)
         turnPlan = nil
-        pendingTurnAdvance = true
-        onPrepareCompositeRound(front, back, package.course.teeBox, package.roundId)
+        // The model adds the loop and opens its first hole: this view is rebuilt for the new hole
+        // set, so it cannot own that navigation.
+        onContinueIntoSecondLoop(front, back, package.course.teeBox, package.roundId)
     }
 
     /// The second loop can still be changed until its first hole has anything recorded.
@@ -3414,8 +3409,9 @@ public struct CurrentHoleView: View {
                 let currentBack = package.holes.first { $0.number > 9 }?.sourceGlobalId
                 if !siblingLoops.isEmpty {
                     Menu {
-                        ForEach(siblingLoops.filter { $0.globalId != currentBack }) { loop in
-                            Button("改打 \(loopLabel(loop))") {
+                        // Only loops with a factual loop label are offered (never a made-up "9 洞组").
+                        ForEach(siblingLoops.filter { $0.globalId != currentBack && NineLoopTurn.loop($0) != nil }) { loop in
+                            Button("改打 \(NineLoopTurn.loop(loop)?.displayName ?? "")") {
                                 try? offlineStore?.rememberNineLoopPairing(front: package.course.globalId, back: loop.globalId)
                                 onPrepareCompositeRound(package.course.globalId, loop.globalId, package.course.teeBox, package.roundId)
                             }

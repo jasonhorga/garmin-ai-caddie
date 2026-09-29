@@ -2370,7 +2370,21 @@ class MobileContractTests(unittest.TestCase):
             self.assertIn(identifier, sheet)
         self.assertIn("plan.turnActionTitle", sheet)
         self.assertIn("if let plan = turnPlanAtEndOfFirstLoop", current_hole)
-        self.assertIn("onPrepareCompositeRound(front, back, package.course.teeBox, package.roundId)", current_hole)
+        # The model composes the second loop and opens its first hole; the live view is rebuilt for
+        # the new hole set, so it must not own a pending advance.
+        self.assertIn("onContinueIntoSecondLoop(front, back, package.course.teeBox, package.roundId)", current_hole)
+        self.assertNotIn("pendingTurnAdvance", current_hole)
+        app = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        continue_body = app.split("public func continueIntoSecondLoop(", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("await prepareCompositeRound(", continue_body)
+        self.assertIn("setActiveHole(first)", continue_body)
+        self.assertIn("pendingLiveHole = first", continue_body)
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        self.assertIn("onContinueIntoSecondLoop: onContinueIntoSecondLoop", round_home)
+        self.assertIn("await model.continueIntoSecondLoop(", app)
+        # No synthesized loop names: only factual loop labels are choices.
+        self.assertNotIn("segmentDisplayTitle", turn)
+        self.assertIn("guard let label = option.resolvedSegmentLabel else { return nil }", turn)
         self.assertIn("rememberNineLoopPairing(front: front, back: back)", current_hole)
         # Changeable until the second loop's first hole has a record, then locked.
         self.assertIn("} else if !secondLoopStarted {", current_hole)

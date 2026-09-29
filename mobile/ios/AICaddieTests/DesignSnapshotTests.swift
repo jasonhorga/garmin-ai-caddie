@@ -482,10 +482,19 @@ final class DesignSnapshotTests: XCTestCase {
         )
 
         // B4 turn: "B 场打完了 — 接着打哪个 9 洞", the usual pairing preselected.
-        let turnLoops = ["A", "B", "C"].enumerated().map { index, label in
+        // The labels are typed `String`: an untyped literal here is inferred as `[String?]` from the
+        // optional `segmentLabel` parameter, and the interpolated name then reads `Optional("B")`.
+        let turnLabels: [String] = ["A", "B", "C"]
+        let turnLoops = turnLabels.enumerated().map { index, label in
             MobileCourseOption(globalId: 100 + index, name: "黑骑士 ~ \(label)", holes: 9, venueName: "黑骑士", segmentLabel: label, segmentHoles: 9)
         }
         let turn = try XCTUnwrap(NineLoopTurn.plan(front: turnLoops[1], siblings: turnLoops, remembered: [101: 102], history: []))
+        XCTAssertEqual(turn.turnTitle, "B 场打完了")
+        XCTAssertEqual(turn.course.loops.map(\.displayName), ["A 场", "B 场", "C 场"])
+        XCTAssertEqual(turn.turnActionTitle, "接着打 C 场")
+        for text in [turn.turnTitle, turn.turnActionTitle] + turn.course.loops.map(\.displayName) {
+            XCTAssertFalse(text.contains("Optional("), text)
+        }
         try captureScreen(
             LiveRoundTurnSheet(plan: turn, isPreparing: false, onContinue: { _ in }, onStop: {}, onLater: {}),
             named: "turn-sheet",
