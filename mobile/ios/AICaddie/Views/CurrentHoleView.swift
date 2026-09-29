@@ -599,8 +599,11 @@ public struct CurrentHoleView: View {
             }
         }
         .overlay(alignment: .topLeading) { liveCaddieRouteSummary }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("live-map-chrome")
+        // No accessibility container here: the chrome floats over the whole map, and a `.contain`
+        // element with an identifier becomes the front-most accessibility hit target for every
+        // point inside its frame. That made the green entry (`live-open-green-from-hero`) and the
+        // map itself unreachable for VoiceOver and XCTest even though touches passed through the
+        // transparent spacers. The controls stay individual elements.
     }
 
     /// The selected caddie route is drawn on the map; this invisible element reads it out for
