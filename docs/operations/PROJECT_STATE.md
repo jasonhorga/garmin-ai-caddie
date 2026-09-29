@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-29 12:27 UTC
+**Updated:** 2026-09-29 12:37 UTC
 **Branch:** `main`; product canonical source revision is
 `5ac43253d924ecfbe496f42a026dcc5896aa3bd0` (PR #360 B4a and PR #359 B3 are
 merged after exact-head review; PR #357 B1d is merged after
@@ -304,7 +304,12 @@ PR #361 B4b is now the active review at exact head
 The prior head `cf1dda519274619edd424a1df74df32a5ab1beb3` failed Native Mobile
 CI `36566329562` at `StartRoundPresentation.swift:83` with a Swift type-check
 timeout; Claude split that expression in `c356ba4b`. Source CI `36567300652`
-is green and Native Mobile CI `36567300565` is running. Static review comment
+is green. Native Mobile CI `36567300565` then failed its iOS target at
+`HubHeroTests.testUnknownTeeIsNotWrittenIntoTheHeroTitle`: the implementation
+returned `从 前九 开始` while the test expected `开始 18 洞` (457 tests, one
+failure); Watch passed. The exact-head fixture dispatch `36567298167` reached
+the same failed iOS step while its Watch target passed and the workflow was
+still completing its artifact tail at the last check. Static review comment
 `5890295864` blocks merge with two P1 and two P2 findings: the home hero uses
 the globally recent course instead of the nearby course, is not a one-tap
 start, and omits the no-nearby replay action; the 18-hole half flow forbids
@@ -312,6 +317,16 @@ start, and omits the no-nearby replay action; the 18-hole half flow forbids
 split 18-hole choices display whole-course Tee yardage; and the unified list
 drops downloaded courses outside the current 50 km radius. The PR's added
 implementation-plan notes may not defer or redefine the approved B4b scope.
+Claude accepted all four findings and asked whether the single-18-hole
+front/back package expansion should stay in this PR. Scope decision comment
+`5890417143` selects a bounded split: PR #361 must remove its incomplete
+front/back implementation, restore the prior usable behavior, finish the home
+hero and both P2 items, and keep the README contract unchanged. A named
+**B4b-2** must immediately follow #361 and land before B4c; it owns the server
+package physical-hole/round-order contract, client composition/revalidation,
+all four front/back orders including same-loop replay, and event-based locking.
+B4 remains incomplete until B4b-2 lands. This is a review-risk split, not a
+deferral or removal of the approved requirement.
 The shared Claude branch was not deleted after PR #360 because PR #361 was
 opened on it immediately.
 
@@ -319,7 +334,7 @@ Next action: keep the background all-PR feedback monitor active in
 `codex-pr-monitor-20260928`, wait for Claude's new PR #361 head, then repeat
 focused homeserver tests and the full exact-head Source/Native gates. Download
 and inspect the matching iOS/Watch design and runtime artifacts only from the
-candidate head. Do not merge while comment `5890295864` has unresolved P1/P2
+candidate head. Do not merge while comments `5890295864` / `5890417143` have unresolved P1/P2
 findings. Repeat all gates from scratch after every further commit. Do not
 treat the archived B0 queue below as the active slice.
 
