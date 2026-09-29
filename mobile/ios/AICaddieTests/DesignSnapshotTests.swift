@@ -1001,6 +1001,40 @@ final class DesignSnapshotTests: XCTestCase {
             dark: true
         )
 
+        // B3 9-of-18 round: the strip keeps holes 10–18 visible; unplayed holes are dimmed and cannot
+        // be opened.
+        let partialRows = (1...18).map { hole -> String in
+            hole <= 9 ? #"{"hole":\#(hole),"par":4,"score":\#(hole % 3 + 3)}"# : #"{"hole":\#(hole),"par":4}"#
+        }
+        let partialScorecard = try JSONDecoder().decode(
+            [RoundDetailHole].self, from: Data("[\(partialRows.joined(separator: ","))]".utf8)
+        )
+        let partialHoles = RoundReviewHoles(partialScorecard)
+        XCTAssertEqual(partialHoles.strip, Array(1...18))
+        XCTAssertEqual(partialHoles.played, Array(1...9))
+        try captureScreen(
+            VStack(spacing: 12) {
+                Spacer(minLength: 0)
+                LiveNineCard(
+                    label: "IN",
+                    holes: Array(RoundReviewScorecard(partialScorecard).holes.dropFirst(9)),
+                    scores: RoundReviewScorecard(partialScorecard).scores,
+                    onSelect: { _ in },
+                    cellIdentifier: { "round-review-hole-\($0)" },
+                    canSelect: partialHoles.canOpen
+                )
+                .padding(.horizontal, 20)
+                RoundHoleScoreStrip(
+                    holes: partialHoles.strip, current: 9, scorecard: partialScorecard,
+                    onSelect: { _ in }, canSelect: partialHoles.canOpen
+                )
+            }
+            .padding(.bottom, 12)
+            .background(RoundHoleMapStyle.base),
+            named: "round-hole-strip-partial",
+            dark: true
+        )
+
         // B3 mapless fallback: full shots numbered like the map, putts as one "推 ×N" line.
         let factShots = [
             RoundShot(shotId: "f1", start: nil, end: nil, club: "Driver", lie: "teebox", endLie: "fairway", order: 1),

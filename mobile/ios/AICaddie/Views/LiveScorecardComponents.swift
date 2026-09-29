@@ -19,6 +19,9 @@ struct LiveNineCard: View {
     var onSelect: ((Int) -> Void)? = nil
     /// Accessibility id of a tappable score cell (the review keeps `round-review-hole-N`).
     var cellIdentifier: ((Int) -> String)? = nil
+    /// Holes whose cell can be tapped; others render as blank, disabled cells (an unplayed hole of a
+    /// 9-of-18 review). nil ⇒ every cell is tappable.
+    var canSelect: ((Int) -> Bool)? = nil
 
     init(
         label: String,
@@ -27,7 +30,8 @@ struct LiveNineCard: View {
         currentHole: Int? = nil,
         selectedHole: Int? = nil,
         onSelect: ((Int) -> Void)? = nil,
-        cellIdentifier: ((Int) -> String)? = nil
+        cellIdentifier: ((Int) -> String)? = nil,
+        canSelect: ((Int) -> Bool)? = nil
     ) {
         self.label = label
         self.holes = holes
@@ -36,6 +40,7 @@ struct LiveNineCard: View {
         self.selectedHole = selectedHole
         self.onSelect = onSelect
         self.cellIdentifier = cellIdentifier
+        self.canSelect = canSelect
     }
 
     init(
@@ -131,8 +136,10 @@ struct LiveNineCard: View {
                 .stroke(hole.number == currentHole ? LiveScoreStyle.good.opacity(0.8) : .clear, lineWidth: 1.2)
         )
         if let onSelect {
+            let enabled = canSelect?(hole.number) ?? true
             let button = Button { onSelect(hole.number) } label: { content }
                 .buttonStyle(.plain)
+                .disabled(!enabled)
                 .accessibilityLabel(cellLabel(hole))
                 .accessibilityAddTraits(hole.number == selectedHole ? [.isSelected] : [])
             // An identifier on the button replaces the ones inside it, so only callers that need a

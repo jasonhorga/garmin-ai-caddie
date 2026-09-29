@@ -647,8 +647,10 @@ public struct RoundHoleShotMapScreen: View {
     public let teeBox: String?
     /// The round's scorecard (score box, putts, strip). Empty for a standalone screen.
     public let scorecard: [RoundDetailHole]
-    /// Holes the strip offers (played holes); empty hides the strip.
+    /// Holes the strip shows (the course's full width, up to 18); empty hides the strip.
     public let stripHoles: [Int]
+    /// Strip holes that can be opened (the played ones); nil ⇒ every strip hole.
+    let openableHoles: [Int]?
     public let onSelectHole: ((Int) -> Void)?
     public let onClose: (() -> Void)?
     /// Called when this hole enters/leaves edit mode, so the pager can lock horizontal 翻洞 while
@@ -686,7 +688,7 @@ public struct RoundHoleShotMapScreen: View {
          scorecard: [RoundDetailHole], stripHoles: [Int], onSelectHole: ((Int) -> Void)?,
          onClose: (() -> Void)?, onEditingChange: ((Bool) -> Void)?, onSaved: (() -> Void)?,
          mapRepository: RoundShotMapRepository, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil,
-         canonicalRoundRef: String? = nil) {
+         canonicalRoundRef: String? = nil, openableHoles: [Int]? = nil) {
         self.roundRef = roundRef
         self.hole = hole
         self.apiBaseURL = apiBaseURL
@@ -702,8 +704,11 @@ public struct RoundHoleShotMapScreen: View {
         self.onEditingChange = onEditingChange
         self.onSaved = onSaved
         self.canonicalRoundRef = canonicalRoundRef
+        self.openableHoles = openableHoles
         _mapRepository = StateObject(wrappedValue: mapRepository)
     }
+
+    private func canSelectHole(_ hole: Int) -> Bool { openableHoles?.contains(hole) ?? true }
 
     private var shotMap: RoundHoleShotMap? { mapRepository.map(for: hole) }
     private var isLoading: Bool { mapRepository.isLoading(hole) }
@@ -855,7 +860,7 @@ public struct RoundHoleShotMapScreen: View {
             RoundShotEditBar(editModel: editModel)
                 .disabled(isSaving)
         } else if !stripHoles.isEmpty, let onSelectHole {
-            RoundHoleScoreStrip(holes: stripHoles, current: hole, scorecard: scorecard, onSelect: onSelectHole)
+            RoundHoleScoreStrip(holes: stripHoles, current: hole, scorecard: scorecard, onSelect: onSelectHole, canSelect: canSelectHole)
         }
     }
 
@@ -1002,12 +1007,14 @@ struct RoundHoleScoreBox: View {
     }
 }
 
-/// Bottom 18-hole strip: each hole's number over its score symbol; tap to change hole.
+/// Bottom 18-hole strip: each hole's number over its score symbol; tap to change hole. The strip
+/// keeps the course's full width; a hole that was not played stays visible but cannot be opened.
 struct RoundHoleScoreStrip: View {
     let holes: [Int]
     let current: Int
     let scorecard: [RoundDetailHole]
     let onSelect: (Int) -> Void
+    var canSelect: (Int) -> Bool = { _ in true }
 
     var body: some View {
         ScrollViewReader { reader in
@@ -1030,6 +1037,7 @@ struct RoundHoleScoreStrip: View {
     private func cell(_ hole: Int) -> some View {
         let row = scorecard.first { $0.hole == hole }
         let selected = hole == current
+        let enabled = canSelect(hole)
         return Button { onSelect(hole) } label: {
             VStack(spacing: 3) {
                 Text("\(hole)")
@@ -1058,7 +1066,9 @@ struct RoundHoleScoreStrip: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(row?.score.map { "第 \(hole) 洞，\($0) 杆" } ?? "第 \(hole) 洞")
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.55)
+        .accessibilityLabel(row?.score.map { "第 \(hole) 洞，\($0) 杆" } ?? "第 \(hole) 洞，未打")
         .accessibilityAddTraits(selected ? [.isSelected] : [])
         .accessibilityIdentifier("round-hole-strip-\(hole)")
     }
@@ -1079,6 +1089,8 @@ public struct RoundShotMapPagerScreen: View {
     public let onClose: (() -> Void)?
     public let onSaved: (() -> Void)?
     let canonicalRoundRef: String?
+    /// The strip's holes: the course's full width. `holes` (the played ones) page and prefetch.
+    let stripHoles: [Int]
     @StateObject private var mapRepository: RoundShotMapRepository
     @State private var current: Int
     /// Holes currently in edit mode. Non-empty ⇒ 翻洞 is locked.
@@ -1129,10 +1141,12 @@ public struct RoundShotMapPagerScreen: View {
         teeBox: String? = nil,
         scorecard: [RoundDetailHole] = [],
         onSaved: (() -> Void)? = nil,
-        canonicalRoundRef: String? = nil
+        canonicalRoundRef: String? = nil,
+        stripHoles: [Int]? = nil
     ) {
         self.roundRef = roundRef
         self.holes = holes
+        self.stripHoles = stripHoles ?? holes
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
         self.globalId = globalId
@@ -1156,9 +1170,9 @@ public struct RoundShotMapPagerScreen: View {
             apiBaseURL: apiBaseURL,
             adminToken: adminToken,
             scorecard: scorecard,
-            stripHoles: holes,
+            stripHoles: stripHoles,
             onSelectHole: { hole in
-                guard !isLocked else { return }
+                guard !isLocked, holes.contains(hole) else { return }
                 current = hole
             },
             onClose: onClose,
@@ -1171,7 +1185,8 @@ public struct RoundShotMapPagerScreen: View {
             backGlobalId: backGlobalId,
             nine: nine,
             teeBox: teeBox,
-            canonicalRoundRef: canonicalRoundRef
+            canonicalRoundRef: canonicalRoundRef,
+            openableHoles: holes
         )
         .id("\(roundRef):\(current)")
         .gesture(

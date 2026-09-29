@@ -3462,7 +3462,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('URLQueryItem(name: "includeImage", value: "false")', sync_client)
         self.assertIn("struct RoundShotMapView", shot_map_view)
         self.assertIn("struct RoundHoleShotMapScreen", shot_map_view)
-        self.assertIn("onSelectHole: { shotMapHole = ShotMapHole(hole: $0) }", round_review)
+        self.assertIn("shotMapHole = ShotMapHole(hole: hole)", round_review)
         self.assertIn("onSelect: onSelectHole,", round_review)
         # 复盘 base layer = realistic TOPO png for the physical (globalId, localHole) the shots were
         # projected onto (front/back-nine aware); degrades to the flat render with no network / no geo.
@@ -3480,7 +3480,17 @@ class MobileContractTests(unittest.TestCase):
         # B3: full-screen hole, glass score box on top, the 18-hole strip (or the edit bar) below.
         self.assertIn(".safeAreaInset(edge: .top, spacing: 0) { topBar }", shot_map_view)
         self.assertIn(".safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }", shot_map_view)
-        self.assertIn("RoundHoleScoreStrip(holes: stripHoles, current: hole, scorecard: scorecard, onSelect: onSelectHole)", shot_map_view)
+        self.assertIn("RoundHoleScoreStrip(holes: stripHoles, current: hole, scorecard: scorecard, onSelect: onSelectHole, canSelect: canSelectHole)", shot_map_view)
+        # A 9-of-18 round keeps holes 10–18 on the strip and the IN card; only played holes open.
+        self.assertIn("struct RoundReviewHoles", round_review)
+        self.assertIn("holes: reviewHoles.played, startHole: item.hole", round_review)
+        self.assertIn("stripHoles: reviewHoles.strip", round_review)
+        self.assertIn("guard reviewHoles.canOpen(hole) else { return }", round_review)
+        self.assertEqual(round_review.count("canSelect: card.canOpen"), 2)
+        self.assertIn("stripHoles: stripHoles,", shot_map_view)
+        self.assertIn("guard !isLocked, holes.contains(hole) else { return }", shot_map_view)
+        self.assertIn("openableHoles: holes", shot_map_view)
+        self.assertIn(".disabled(!enabled)", shot_map_view)
         self.assertIn(".toolbar(.hidden, for: .navigationBar)", shot_map_view)
         self.assertNotIn("bottomControlClearance", shot_map_view)
         self.assertNotIn("showsNavigationTitle", shot_map_view)
@@ -3521,7 +3531,8 @@ class MobileContractTests(unittest.TestCase):
         # The pager owns progressive all-hole warming. The summary hands it the shared repository
         # rather than duplicating requests before the player opens a map.
         self.assertIn("mapRepository: shotMapRepository", round_review)
-        self.assertIn("scorecard.filter { $0.score != nil }", round_review)
+        # Only scored holes page and prefetch (no fabricated maps for blank holes of a 9/18 round).
+        self.assertIn("let scored = rows.filter { $0.score != nil }.map(\\.hole)", round_review)
         # 成绩合并入口: compact stats + complete archive, then drill into existing round review.
         stats_view = _read_required_source(self, IOS_DIR / "Views" / "StatsView.swift")
         results_view = _read_required_source(self, IOS_DIR / "Views" / "ResultsView.swift")
@@ -3908,7 +3919,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn(".toolbar(.hidden, for: .navigationBar)", shot_map)
         self.assertIn('.accessibilityIdentifier("round-hole-strip-\\(hole)")', shot_map)
         self.assertIn(".frame(width: 40, height: 52)", shot_map)
-        self.assertIn("guard !isLocked else { return }", shot_map)
+        self.assertIn("guard !isLocked, holes.contains(hole) else { return }", shot_map)
         self.assertIn("enabled: !isLocked", shot_map)
         self.assertIn(".interactiveDismissDisabled(isLocked)", shot_map)
         for removed in ('"上一洞"', '"下一洞"', "round-shot-map-download-progress", "· 编辑中"):
@@ -4588,7 +4599,7 @@ class MobileContractTests(unittest.TestCase):
             self.assertEqual(positions, sorted(positions), text)
         self.assertIn("roundRef: roundRef,", pager_call)
         self.assertIn("hole: current,", pager_call)
-        self.assertIn("stripHoles: holes,", pager_call)
+        self.assertIn("stripHoles: stripHoles,", pager_call)
 
 
 class RoundEditContractTests(unittest.TestCase):

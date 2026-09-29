@@ -82,7 +82,10 @@ public struct RoundReviewView: View {
                         detail: detail, isLoading: isLoading, errorText: errorText,
                         fallbackCourseName: fallbackCourseName,
                         globalId: globalId,
-                        onSelectHole: { shotMapHole = ShotMapHole(hole: $0) },
+                        onSelectHole: { hole in
+                            guard reviewHoles.canOpen(hole) else { return }
+                            shotMapHole = ShotMapHole(hole: hole)
+                        },
                         onRetry: { Task { await load() } }
                     )
                 }
@@ -98,7 +101,7 @@ public struct RoundReviewView: View {
         .fullScreenCover(item: $shotMapHole) { item in
             NavigationStack {
                 RoundShotMapPagerScreen(
-                    roundRef: roundRef, holes: roundHoles, startHole: item.hole,
+                    roundRef: roundRef, holes: reviewHoles.played, startHole: item.hole,
                     apiBaseURL: apiBaseURL, adminToken: adminToken,
                     onClose: { shotMapHole = nil },
                     mapRepository: shotMapRepository,
@@ -108,20 +111,14 @@ public struct RoundReviewView: View {
                     teeBox: teeBox,
                     scorecard: detail?.scorecard ?? [],
                     onSaved: { Task { await load() } },
-                    canonicalRoundRef: detail?.roundRef
+                    canonicalRoundRef: detail?.roundRef,
+                    stripHoles: reviewHoles.strip
                 )
             }
         }
     }
 
-    /// Page and prefetch only holes that were actually scored. A 9-of-18 round keeps blank cells in
-    /// the backend scorecard for context; treating those blanks as played would fabricate maps and
-    /// waste nine requests.
-    private var roundHoles: [Int] {
-        let scorecard = detail?.scorecard ?? []
-        let played = scorecard.filter { $0.score != nil }.map(\.hole)
-        return played.isEmpty ? scorecard.map(\.hole) : played
-    }
+    private var reviewHoles: RoundReviewHoles { RoundReviewHoles(detail?.scorecard ?? []) }
 
     struct ShotMapHole: Identifiable {
         let hole: Int
@@ -309,7 +306,8 @@ struct RoundReviewContent: View {
                 holes: Array(card.holes.prefix(9)),
                 scores: card.scores,
                 onSelect: onSelectHole,
-                cellIdentifier: { "round-review-hole-\($0)" }
+                cellIdentifier: { "round-review-hole-\($0)" },
+                canSelect: card.canOpen
             )
             if card.holes.count > 9 {
                 LiveNineCard(
@@ -317,7 +315,8 @@ struct RoundReviewContent: View {
                     holes: Array(card.holes.dropFirst(9).prefix(9)),
                     scores: card.scores,
                     onSelect: onSelectHole,
-                    cellIdentifier: { "round-review-hole-\($0)" }
+                    cellIdentifier: { "round-review-hole-\($0)" },
+                    canSelect: card.canOpen
                 )
             }
         }
@@ -461,18 +460,48 @@ struct RoundReviewContent: View {
     }
 }
 
-/// The round detail's scorecard as the shared nine cards read it: the played holes (every hole when
-/// none is scored yet), each with its score.
+/// The holes of a reviewed round (README B3, `review.html`): the strip and the scorecard keep the
+/// course's full width (up to 18) so a 9-of-18 round still shows holes 10–18, while only holes that
+/// were actually scored page, prefetch and open a shot map. Treating a blank hole as played would
+/// fabricate maps and waste requests. A round with no score at all pages every hole.
+struct RoundReviewHoles: Equatable {
+    static let maximumHoles = 18
+
+    let strip: [Int]
+    let played: [Int]
+
+    init(_ scorecard: [RoundDetailHole]) {
+        let rows = RoundReviewHoles.courseRows(scorecard)
+        strip = rows.map(\.hole)
+        let scored = rows.filter { $0.score != nil }.map(\.hole)
+        played = scored.isEmpty ? strip : scored
+    }
+
+    func canOpen(_ hole: Int) -> Bool { played.contains(hole) }
+
+    /// One row per hole, in hole order, capped at the course width.
+    static func courseRows(_ scorecard: [RoundDetailHole]) -> [RoundDetailHole] {
+        var seen = Set<Int>()
+        return scorecard
+            .sorted { $0.hole < $1.hole }
+            .filter { seen.insert($0.hole).inserted }
+            .prefix(maximumHoles)
+            .map { $0 }
+    }
+}
+
+/// The round detail's scorecard as the shared nine cards read it: every hole of the course (up to
+/// 18), each scored hole with its score. Unplayed holes stay as blank, unselectable cells.
 struct RoundReviewScorecard: Equatable {
     let holes: [ScorecardHole]
     let scores: [Int: LiveHoleScore]
+    let reviewHoles: RoundReviewHoles
 
     init(_ scorecard: [RoundDetailHole]) {
-        let played = scorecard.filter { $0.score != nil }
-        let rows = (played.isEmpty ? scorecard : played).sorted { $0.hole < $1.hole }
+        reviewHoles = RoundReviewHoles(scorecard)
         var holes: [ScorecardHole] = []
         var scores: [Int: LiveHoleScore] = [:]
-        for row in rows {
+        for row in RoundReviewHoles.courseRows(scorecard) {
             let derivedPar = row.score.flatMap { score in row.toPar.map { score - $0 } }
             guard let par = row.par ?? derivedPar else { continue }
             holes.append(ScorecardHole(number: row.hole, par: par))
@@ -487,6 +516,8 @@ struct RoundReviewScorecard: Equatable {
         self.holes = holes
         self.scores = scores
     }
+
+    func canOpen(_ hole: Int) -> Bool { reviewHoles.canOpen(hole) }
 
     var strokes: Int { scores.values.reduce(0) { $0 + $1.score } }
 
