@@ -1,109 +1,153 @@
-# B4b-2 contract proposal: an 18-hole course played as two halves
+# B4b-2 contract: an 18-hole course played as two halves
 
-Status: **proposal for owner decision**. Implementation waits for the decisions in §6.
+Status: **approved direction, corrected contract** (owner review on PR #362). This document is
+the contract the implementation follows.
 
-README §8: a single 18-hole course with two halves follows the same flow as a 27-hole venue.
-The player picks the first loop (前九 or 后九), then picks the second loop at the turn. The
-second loop can be the same half, can be changed until its first hole is played, and is
-locked after that. The plan requires all four orders (前→前, 前→后, 后→前, 后→后) and
-lock-before/after tests.
+README §8: a single 18-hole course follows the same flow as a 27-hole venue. The player picks
+the first nine (前九 or 后九) and picks the second at the turn. The second can be the same
+half, can be changed until its first hole is played, and is locked after that. Acceptance
+covers 前→前, 前→后, 后→前, 后→后 and lock before/after.
 
 ## 1. What exists today (facts)
 
-- **Holes.** Each package hole has `number`, `sourceGlobalId` and `sourceLocalHole` (`_package_holes`).
-  - For 9-hole loop compositions, `number` is already the round order (1–18) and
-    `sourceGlobalId` / `sourceLocalHole` are the physical loop and hole (`_merge_nines`,
-    `composingBackNine`).
-  - For a single 18-hole course, `number == sourceLocalHole`. `nine=back` returns holes
-    **10–18** (`test_mobile_course_package_can_start_a_chosen_nine`). No request can put
-    physical 10–18 at round positions 1–9, or physical 1–9 at 10–18.
-- **Events.** `LiveRoundEvent.hole` and the server projection key everything by
-  `number`. Neither side maps events to physical holes.
-- **Lock.** The second-loop lock is "any event with hole > 9" (`CurrentHoleView`).
-- **Local and online paths.**
-  - Local composition takes the back package's first 9 holes by position.
-  - Revalidation refetches with `nine` / `back_global_id` and matches prep rows by `number`.
-- **Turn.** The turn plan only knows 9-hole catalogue loops, so an 18-hole course has no turn.
+- **Package holes.** They carry `number` and optional `sourceGlobalId` / `sourceLocalHole` (the
+  iOS model falls back when these are missing).
+  - For 9-hole loop compositions, `number` is already round order.
+  - For a single 18-hole course, `number == sourceLocalHole`, and `nine=back` returns holes
+    10–18.
+- **Events and lock.** Events and the server projection key on `number`. The second-loop lock
+  is "any event with hole > 9".
+- **Identity stores keyed on `nine` / `back_global_id`.** None of these can tell the four
+  orders of one 18-hole course apart:
+  - the server package single-flight key (`server_v2/mobile.py`);
+  - the install journal id (`server_v2/course_install.py`);
+  - the Watch template `cacheKey` / `matches` (`WatchCourseDownload.swift`);
+  - the iOS revalidation request;
+  - the web install-status call.
+- **Schema.** The package schema is `ai-caddie-live-round-package-v1`.
 
-## 2. Proposed contract
+## 2. Coordinates
 
-1. **`number` is the round-order hole.** It is the only hole key everywhere: events, the
-   projection, seeds, prep rows, recent history, scorecard columns and "继续第 N 洞". First
-   loop = 1–9, second loop = 10–18, in the order played.
-2. **Every hole carries its physical identity explicitly**: `sourceGlobalId` +
-   `sourceLocalHole`. For a single 18-hole course, `sourceLocalHole` is the physical 1–18.
-   Geometry, topo, install refs and stats loop keys (plan: `gid:10-18`) use only this.
-3. **New package field `roundLoops`.** It is
-   `[{ "globalId": Int, "half": "all"|"front"|"back", "firstHole": 1|10 }]`: the round's
-   loops in play order. This is the single mapping that local composition, revalidation
-   and the lock read.
-4. **Request.** `GET /api/v2/mobile/courses/{globalId}/package?loops=G:H[,G2:H2]`, where
-   `H` is `all` for a 9-hole loop and `front` / `back` for a half of an 18-hole course. The
-   first entry's `G` is the path id. The server builds each distinct course once (`nine=all`),
-   selects each loop's physical holes by `sourceLocalHole` (front 1–9, back 10–18, or the
-   loop's 9), renumbers them in round order, and shifts seeds / prep / history / weather /
-   priority holes with the existing `_merge_nines` machinery.
-   - 前→后 = `G:front,G:back`
-   - 前→前 = `G:front,G:front`
-   - 后→前 = `G:back,G:front`
-   - 后→后 = `G:back,G:back`
-   - A first-loop-only start is one entry.
-5. **Local composition** (offline turn): the second loop comes from the installed whole-course
-   template (`nine=all`, 18 physical holes). Select the half by `sourceLocalHole`, renumber it
-   10–18, and append to `roundLoops`. Revalidation refetches with the package's own
-   `roundLoops`, so online and offline produce the same `(number → sourceGlobalId,
-   sourceLocalHole)` table.
-6. **Lock**: unchanged rule, now correct for every order. The second loop is locked once any
-   event has `hole >= roundLoops[1].firstHole`.
-7. **Turn**: an 18-hole course offers its halves as loops named 前九 / 后九 (ids `G:front` /
-   `G:back`). The other half is preselected, the same half is allowed, and "只打 9 洞" is
-   allowed. This is the same `NineLoopPlan` state machine. The start screen shows 前九 / 后九
-   tiles and "从 后九 开始 · 蓝 T".
+There are two axes, and no field serves both.
 
-## 3. Displayed hole number
+| Axis | Values | Used for |
+| --- | --- | --- |
+| Round hole: `number` | 1–9 = first loop, 10–18 = second loop, in play order | events, projection, navigation state, score aggregation, the lock, source refs (`{roundId}:{number}`), seeds / prep / history / weather keys |
+| Physical hole: `sourceGlobalId` + `sourceLocalHole` | the loop's Garmin id; its hole 1–9 (9-hole loop) or 1–18 (18-hole course) | geometry, topo, install refs, stats loop keys, tee yards |
+| Presentation: `courseHoleNumber` | half of an 18-hole course → `sourceLocalHole`; 9-hole loop (`all`) → `number` | text only: live header, "继续第 N 洞", scorecard, summary, review, Watch |
 
-**Recommendation: show the physical hole for a half of an 18-hole course, and the round
-order for 9-hole loop combinations.**
-- A 后→前 round shows 第 10…18 洞, then 第 1…9 洞, which matches the course's own hole signage.
-- A+B at a 27-hole venue keeps today's 1–18.
+`displayHole` keeps its existing meaning (the round-order key in caddie seed context) and is
+not reused.
 
-Each hole would carry `displayHole`, set by the server and by local composition, used only
-for text. Navigation, keys and the lock stay on `number`. The scorecard's two cards become
-"第一环 / 第二环", labelled by loop name (前九 / 后九 / A 场), with OUT/IN = first / second
-loop.
+## 3. `roundLoops` and the canonical loop key
 
-## 4. Existing parameters
+Every package carries `roundLoops`, the round's loops in play order:
 
-`nine` and `back_global_id` would be removed from the iOS client in this PR, with every start,
-turn and revalidation going through `loops`.
-- On the server they become an internal translation to `loops` (`nine=back` → `G:back`),
-  because other callers still send them: the Watch course download (`WatchCourseDownload`,
-  until B6) and the web install-status call (`web_v2/src/api.ts` `fetchCourseInstallStatus`).
-  The translated `nine=back` would then return round holes **1–9** (physical 10–18), not
-  10–18.
+```json
+[
+  { "globalId": 41825, "half": "back",  "roundStartHole": 1,  "sourceStartHole": 10, "holeCount": 9 },
+  { "globalId": 41825, "half": "front", "roundStartHole": 10, "sourceStartHole": 1,  "holeCount": 9 }
+]
+```
 
-## 5. Acceptance tests
+- `half`: `all` for a 9-hole loop; `front` / `back` for a half of an 18-hole course.
+- `roundStartHole`: 1 for the first entry, 10 for the second.
+- `sourceStartHole`: 1 for `all` / `front`, 10 for `back`.
+- `holeCount`: always 9.
+- Hole `number` `roundStartHole + i` maps to `sourceLocalHole` `sourceStartHole + i` on
+  `globalId`.
 
-- **Server:** the four orders plus first-loop-only front/back. Check `number` 1–18,
-  `sourceLocalHole`, `displayHole`, `roundLoops`, and seeds / prep / history / weather on the
-  round numbers. Also check the `nine` / `back_global_id` translation, and that the install
-  refs use physical holes.
-- **Client:**
-  - Local composition of the four orders from the whole-course template equals the
-    server table.
-  - Revalidation keeps the mapping.
-  - The lock holds before and after the first second-loop event.
-  - The turn plan offers 前九 / 后九 with the same half allowed.
-  - Start-screen tiles.
-- **Real journey:** the RealFlow 18-hole round starts 前九, takes the turn after hole 9, and
-  continues 后九 on hole 10. A second fixture journey starts 后九 and continues 前九. The CI
-  fixture server gets the same `loops` resolver.
+**Canonical loop key** `loopKey` = the entries in order as `"{globalId}:{half}"`, joined with
+`+`, e.g. `41825:back+41825:front`. It preserves order and duplicates, so 前→前
+`41825:front+41825:front` and 后→后 `41825:back+41825:back` are distinct. The package carries
+it as `loopKey`.
 
-## 6. Decisions requested
+**Lock:** the second loop is locked once any event has `hole >= roundLoops[1].roundStartHole`
+(i.e. 10). Nothing reads `sourceStartHole` for the lock.
 
-1. The contract in §2: round-order `number` as the only key, physical identity on each hole,
-   `roundLoops`, and the `loops=` request.
-2. The displayed hole number in §3: physical for 18-hole halves (recommended), or round
-   order everywhere.
-3. §4: whether `nine=back` may change to round holes 1–9 for the remaining callers, or must
-   keep 10–18 until those callers move.
+## 4. API
+
+`GET /api/v2/mobile/courses/{globalId}/package?loops=G:H[,G2:H2]&tee_box=…` and
+`GET /api/v2/courses/{globalId}/install/status?loops=…&tee_box=…`.
+
+The parser rejects ambiguous input with a 422:
+- exactly one or two ordered entries; duplicates allowed;
+- the path id must equal the first entry's `G`;
+- `front` / `back` only when `G`'s authoritative course is 18 holes; `all` only when it is an
+  authoritative 9-hole loop;
+- every entry must resolve to exactly nine holes;
+- all entries must belong to the same physical venue.
+
+The server builds each distinct course once, selects each loop's physical holes by
+`sourceLocalHole`, and assigns `number` in round order. It shifts seeds / prep / history /
+weather / priority holes onto round numbers.
+
+An 18-hole course is always requested as halves. The whole course in the usual order is
+`G:front,G:back`.
+
+**`nine` and `back_global_id` are removed** from the package endpoint, the install-status
+endpoint, the install journal, the server models and every first-party caller: iPhone, Watch
+and web. No translator ships. Any intermediate commit that still carries an old route keeps its
+old semantics.
+
+## 5. Identity stores (all keyed by `loopKey`)
+
+- **Server:** the package single-flight key (replacing `nine` / `back_global_id`), the install
+  job id and status lookup, and the install journal's recorded selection.
+- **iOS:**
+  - the package request, including every start, turn and revalidation;
+  - the offline package and round restore;
+  - the course-install back-loop inference, which is replaced by `roundLoops`;
+  - local composition at the turn;
+  - the remembered pairing.
+- **Watch:** the selection, the template `cacheKey` / `matches`, the seeds, and WCSession round
+  state.
+- **Web:** the install-status call.
+
+## 6. Strict, versioned contract
+
+- The package schema becomes `ai-caddie-live-round-package-v2`.
+- `roundLoops`, `loopKey` and, on every playable hole, `sourceGlobalId`, `sourceLocalHole` and
+  `courseHoleNumber` are required. iOS and Watch decoding reject a v2 package missing any of them.
+- Stored v1 templates and packages are invalidated and re-downloaded. Source identity is never
+  fabricated from `number`.
+
+## 7. Client behaviour
+
+- **Start screen.** An 18-hole course shows 前九 / 后九 tiles, and the action reads
+  "从 后九 开始 · 蓝 T". Its request is one entry: `G:back`.
+- **Turn.** The halves are loops named 前九 / 后九 (loop ids `G:front` / `G:back`) in the same
+  `NineLoopPlan` state machine. The other half is preselected, the same half is allowed, and
+  "只打 9 洞" is allowed.
+  - **Online:** the turn requests `loops=<first>,<second>`.
+  - **Offline:** the turn composes from the installed whole-course template: it selects the
+    half by `sourceLocalHole`, assigns `number` 10–18 and appends to `roundLoops`.
+  - Both paths produce the same `number → (sourceGlobalId, sourceLocalHole)` table.
+- **Scorecard / summary.** Two cards, one per loop, in play order. Each is labelled
+  "第一环 · 后九" / "第二环 · 前九" (A/B/C: "第一环 · A 场"), and hole columns show
+  `courseHoleNumber`. OUT/IN labels are dropped; a physical half is never relabelled.
+
+## 8. Acceptance
+
+- **Server:**
+  - The parser rejects each invalid shape.
+  - The four orders plus first-loop-only front / back produce `number` 1–18 (or 1–9),
+    `sourceLocalHole`, `courseHoleNumber`, `roundLoops` and `loopKey`, with seeds / prep /
+    history / weather on round numbers.
+  - The four orders' `loopKey`, single-flight keys and install job ids are pairwise distinct.
+  - Install refs use physical holes.
+- **iOS:**
+  - Local composition of each order equals the server table.
+  - Offline round restore and revalidation keep `loopKey` and the table.
+  - The lock holds before and after the first round-10 event, including 后→前.
+  - The turn offers 前九 / 后九 with the same half allowed.
+  - Start tiles and title.
+  - Header / scorecard use `courseHoleNumber`.
+  - A v1 package is rejected and re-downloaded.
+- **Watch:** the four orders' template keys do not collide and survive restore; the round state
+  carries `loopKey`.
+- **Web:** install status by `loops`.
+- **Real journeys.** The CI fixture server gets the same `loops` resolver.
+  - The RealFlow 18-hole round starts 前九, takes the turn after hole 9 and continues 后九 on
+    round hole 10 (shown 第 10 洞).
+  - A second journey starts 后九 (shown 第 10 洞) and continues 前九.
