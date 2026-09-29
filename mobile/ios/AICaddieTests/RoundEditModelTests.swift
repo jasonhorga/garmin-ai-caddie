@@ -288,6 +288,21 @@ final class RoundEditModelTests: XCTestCase {
         }
     }
 
+    func testOrderArrowsAreEnabledOnlyForMovesTheModelPerforms() {
+        let model = makeModel(shots: shotsWithPutt) { request in Self.response(request, status: 503) }
+        model.enterEdit()
+        XCTAssertFalse(model.canMoveShot("shot-1", by: -1))
+        XCTAssertTrue(model.canMoveShot("shot-1", by: 1))
+        XCTAssertTrue(model.canMoveShot("shot-2", by: -1))
+        XCTAssertFalse(model.canMoveShot("shot-2", by: 1), "the next row is a putt: › is disabled")
+        XCTAssertFalse(model.canMoveShot("putt-1", by: -1))
+        model.moveShot("shot-2", by: 1)
+        XCTAssertFalse(model.hasUnsavedChanges)
+        model.moveShot("shot-2", by: -1)
+        XCTAssertEqual(model.map.shots.map(\.id), ["shot-2", "shot-1", "putt-1"])
+        XCTAssertEqual(model.displayNumber(of: "shot-1"), 2)
+    }
+
     func testPreciseSaveKeepsThePuttRowAsRecordedAfterFullShotEdits() async throws {
         var payload: [String: Any] = [:]
         let model = makeModel(shots: shotsWithPutt) { request in

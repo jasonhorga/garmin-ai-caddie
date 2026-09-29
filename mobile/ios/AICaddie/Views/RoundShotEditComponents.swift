@@ -415,11 +415,10 @@ public struct RoundShotEditBar: View {
 
     @ViewBuilder
     private func selectedShotControls(_ shot: RoundShot, index: Int) -> some View {
-        let count = editModel.map.shots.count
         let yards = editModel.yards(of: shot.id)
         let number = editModel.displayNumber(of: shot.id) ?? index + 1
         HStack(spacing: 8) {
-            orderButton("chevron.left", label: "往前挪一杆", enabled: index > 0, identifier: "round-edit-order-earlier") {
+            orderButton("chevron.left", label: "往前挪一杆", enabled: editModel.canMoveShot(shot.id, by: -1), identifier: "round-edit-order-earlier") {
                 editModel.moveShot(shot.id, by: -1)
             }
             Text(yards.map { "第 \(number) 杆 · \($0) 码" } ?? "第 \(number) 杆")
@@ -428,7 +427,7 @@ public struct RoundShotEditBar: View {
                 .foregroundStyle(LivePlayStyle.ink)
                 .lineLimit(1)
                 .accessibilityIdentifier("round-edit-selected")
-            orderButton("chevron.right", label: "往后挪一杆", enabled: index < count - 1, identifier: "round-edit-order-later") {
+            orderButton("chevron.right", label: "往后挪一杆", enabled: editModel.canMoveShot(shot.id, by: 1), identifier: "round-edit-order-later") {
                 editModel.moveShot(shot.id, by: 1)
             }
             Spacer(minLength: 4)

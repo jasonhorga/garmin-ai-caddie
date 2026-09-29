@@ -236,14 +236,22 @@ public final class RoundEditModel: ObservableObject {
     /// ‹ › in the bottom bar: move one shot one place earlier (-1) or later (+1). The numbers, the
     /// chained starts and the selection follow the shot.
     public func moveShot(_ shotId: String, by offset: Int) {
-        guard let index = map.shots.firstIndex(where: { $0.id == shotId }) else { return }
+        guard canMoveShot(shotId, by: offset),
+              let index = map.shots.firstIndex(where: { $0.id == shotId }) else { return }
         let target = index + offset
-        guard offset != 0, map.shots.indices.contains(target),
-              isEditableShot(shotId), !roundShotIsPutt(map.shots[target]) else { return }
         var ids = map.shots.map(\.id)
         ids.swapAt(index, target)
         reorder(ids)
         selectedShotId = shotId
+    }
+
+    /// Whether ‹ / › can move this full shot: its neighbour in that direction must be another full
+    /// shot (never a putt row), so the bar enables exactly the moves `moveShot` performs.
+    public func canMoveShot(_ shotId: String, by offset: Int) -> Bool {
+        guard offset != 0, isEditableShot(shotId),
+              let index = map.shots.firstIndex(where: { $0.id == shotId }) else { return false }
+        let target = index + offset
+        return map.shots.indices.contains(target) && roundShotIsFullShot(map.shots[target])
     }
 
     /// 推杆 −/+ (only while no shot is selected). An unrecorded count starts from zero.

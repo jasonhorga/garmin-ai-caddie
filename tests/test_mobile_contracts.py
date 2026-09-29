@@ -4684,13 +4684,16 @@ class RoundEditContractTests(unittest.TestCase):
         comps = _read_required_source(self, IOS_DIR / "Views" / "RoundShotEditComponents.swift")
         self.assertIn("editModel.moveShot(shot.id, by: -1)", comps)
         self.assertIn("editModel.moveShot(shot.id, by: 1)", comps)
-        self.assertIn('enabled: index > 0, identifier: "round-edit-order-earlier"', comps)
-        self.assertIn('enabled: index < count - 1, identifier: "round-edit-order-later"', comps)
+        # The arrows are enabled exactly when the model would move the shot (never onto a putt).
+        self.assertIn('enabled: editModel.canMoveShot(shot.id, by: -1), identifier: "round-edit-order-earlier"', comps)
+        self.assertIn('enabled: editModel.canMoveShot(shot.id, by: 1), identifier: "round-edit-order-later"', comps)
         for removed in ["RoundShotReorderList", ".onMove", "\\.editMode", "EditButton()"]:
             self.assertNotIn(removed, comps)
         model = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
         move = model.split("public func moveShot(_ shotId: String, by offset: Int) {", 1)[1].split("\n    }\n", 1)[0]
-        self.assertIn("guard offset != 0, map.shots.indices.contains(target),", move)
+        self.assertIn("guard canMoveShot(shotId, by: offset),", move)
+        can_move = model.split("public func canMoveShot(_ shotId: String, by offset: Int) -> Bool {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("roundShotIsFullShot(map.shots[target])", can_move)
         model = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
         shot_map = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
         # The synthetic tee fill never enters the draft, numbering or snapshot (B0d-2 section 3).
@@ -4698,7 +4701,7 @@ class RoundEditContractTests(unittest.TestCase):
         self.assertIn("!roundShotIsPutt(shot) && !shot.synthetic", shot_map)
         self.assertIn("return roundShotIsFullShot(shot)", model)
         # Putt rows are fail-closed: never moved, never a swap target (putts are the 推杆 counter).
-        self.assertIn("isEditableShot(shotId), !roundShotIsPutt(map.shots[target]) else { return }", move)
+        self.assertIn("guard offset != 0, isEditableShot(shotId),", can_move)
         self.assertIn("ids.swapAt(index, target)", move)
         self.assertIn("reorder(ids)", move)
         self.assertIn("selectedShotId = shotId", move)
