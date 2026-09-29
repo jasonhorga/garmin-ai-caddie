@@ -1750,8 +1750,8 @@ final class RealFlowUITests: XCTestCase {
         saveScore.tap()
     }
 
-    /// B4b home main card: "换球场或组合" (a known course) or the search card both open 开始一场
-    /// without a preselected course; the main card's "开始" would preselect it.
+    /// B4b home main card: "换球场或组合" (the course-here card) opens 开始一场 with that course
+    /// preselected; the search card opens it with nothing selected. The card's "开始" skips 开始一场.
     @discardableResult
     private func openStartRound() -> Bool {
         let change = app.buttons["home-change-course"]

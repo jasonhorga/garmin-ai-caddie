@@ -2335,6 +2335,12 @@ class MobileContractTests(unittest.TestCase):
         tee_ui = _read_required_source(self, IOS_DIR.parent / "AICaddieUITests" / "TeeSelectionUITests.swift")
         self.assertIn("换球场或组合 must carry the course here into 开始一场 as the selected venue", tee_ui)
         self.assertEqual(tee_ui.count("assertRetainedRowsAreUnselectedWithoutDistance(\""), 2)
+        retained_helper = tee_ui.split("private func assertRetainedRowsAreUnselectedWithoutDistance(", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("retainedGlobalId: Int = 31793,", retained_helper)
+        self.assertIn("XCTAssertTrue(\n            retained.waitForExistence(timeout: 10),", retained_helper)
+        self.assertIn('retained.label.contains("公里")', retained_helper)
+        self.assertNotIn("the explicit nearby-course choice must become the active segment", tee_ui)
+        self.assertNotIn("without a preselected course; the main card", tee_ui)
         self.assertNotIn("multiple nearby venues must wait for the player's explicit choice", tee_ui)
         self.assertNotIn("must not be repopulated from play history", tee_ui)
         # No compatibility-only inputs on the new home cards.

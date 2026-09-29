@@ -93,11 +93,11 @@ final class TeeSelectionUITests: XCTestCase {
         save("02b-start-round-selected"); dump("02b-start-round-selected")
         XCTAssertTrue(
             becameSelected,
-            "the explicit nearby-course choice must become the active segment"
+            "the course carried by 换球场或组合 must be the active segment"
         )
         XCTAssertTrue(
             waitUntilEnabled(app.buttons["start-round-primary-action"], timeout: 90),
-            "the selected nearby course must load its Tee authority and become startable"
+            "the carried course must load its Tee authority and become startable"
         )
         XCTAssertTrue(
             palace.label.contains("18 洞"),
@@ -734,12 +734,32 @@ final class TeeSelectionUITests: XCTestCase {
     }
 
     /// Provider-nearby rows are the only rows that carry a distance ("1.2 公里").
-    /// No venue row claims a distance, and every retained (recent / downloaded) row is unselected.
+    /// The known retained course (this fixture's recent 31793) is still listed — README §8's one
+    /// list keeps recently played courses — without a nearby distance and unselected; no venue row
+    /// claims a distance, and every retained (recent / downloaded) row is unselected.
     private func assertRetainedRowsAreUnselectedWithoutDistance(
         _ situation: String,
+        retainedGlobalId: Int = 31793,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
+        let retained = app.buttons["start-round-venue-\(retainedGlobalId)"]
+        XCTAssertTrue(
+            retained.waitForExistence(timeout: 10),
+            "\(situation) must keep the recently played course \(retainedGlobalId) in the one list",
+            file: file, line: line
+        )
+        XCTAssertEqual(
+            retained.value as? String,
+            "未选择",
+            "\(situation) must not select the retained course \(retainedGlobalId)",
+            file: file, line: line
+        )
+        XCTAssertFalse(
+            retained.label.contains("公里"),
+            "\(situation) must not attribute a nearby distance to the retained course",
+            file: file, line: line
+        )
         XCTAssertFalse(
             nearbyDistanceRows().firstMatch.exists,
             "\(situation) must not list any row with a nearby distance",
@@ -778,8 +798,8 @@ final class TeeSelectionUITests: XCTestCase {
         return tile
     }
 
-    /// B4b home main card: "换球场或组合" (a known course) or the search card both open 开始一场
-    /// without a preselected course; the main card's "开始" would preselect it.
+    /// B4b home main card: "换球场或组合" (the course-here card) opens 开始一场 with that course
+    /// preselected; the search card opens it with nothing selected. The card's "开始" skips 开始一场.
     @discardableResult
     private func openStartRound() -> Bool {
         let change = app.buttons["home-change-course"]
