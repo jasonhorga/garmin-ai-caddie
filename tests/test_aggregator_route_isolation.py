@@ -77,7 +77,7 @@ ALL_SENTINELS = (
 )
 
 _ROUND_PACKAGE = f"/api/v2/mobile/rounds/{_FIXTURE_ROUND_ID}/package"
-_COURSE_PACKAGE = f"/api/v2/mobile/courses/{_FIXTURE_GLOBAL_ID}/package?round_id={_FIXTURE_ROUND_ID}"
+_COURSE_PACKAGE = f"/api/v2/mobile/courses/{_FIXTURE_GLOBAL_ID}/package?round_id={_FIXTURE_ROUND_ID}&loops={_FIXTURE_GLOBAL_ID}:front,{_FIXTURE_GLOBAL_ID}:back"
 _RECONCILIATION = f"/api/v2/mobile/rounds/{_FIXTURE_ROUND_ID}/reconciliation"
 _CADDIE_CONTEXT = f"/api/v2/caddie/context?source_ref={_FIXTURE_ROUND_ID}:{_SEED_HOLE}&shot_type=approach"
 _ALL_ROUTES = (_ROUND_PACKAGE, _COURSE_PACKAGE, _RECONCILIATION, _CADDIE_CONTEXT)

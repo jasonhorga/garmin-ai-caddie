@@ -783,7 +783,8 @@ class CourseInstallStatusResponse(BaseModel):
     jobId: str
     globalId: int
     teeBox: str
-    nine: Literal["all", "front", "back"]
+    # The ordered round-loop key the job was prepared for (B4b-2), e.g. "41825:back+41825:front".
+    loopKey: str
     phase: Literal["queued", "running", "ready", "failed", "cancelled"]
     stage: str
     progress: int = Field(default=0, ge=0, le=100)
@@ -1066,10 +1067,24 @@ class VisionFindingsListResponse(BaseModel):
     target: dict[str, str]
 
 
+class RoundLoop(BaseModel):
+    """One loop of a round in play order (B4b-2). ``roundStartHole`` is the round-number axis
+    (1 or 10); ``sourceStartHole`` is the physical axis on ``globalId`` (1 for a 9-hole loop or a
+    front half, 10 for a back half)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    globalId: int = Field(ge=1)
+    half: Literal["all", "front", "back"]
+    roundStartHole: int = Field(ge=1)
+    sourceStartHole: Literal[1, 10]
+    holeCount: int = Field(ge=1, le=9)
+
+
 class LiveRoundPackageResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
-    schema_: Literal["ai-caddie-live-round-package-v1"] = Field(alias="schema")
+    schema_: Literal["ai-caddie-live-round-package-v2"] = Field(alias="schema")
     roundId: str
     dataMode: ResolvedDataModeName
     sourceCoverage: dict[str, Any]
@@ -1080,7 +1095,11 @@ class LiveRoundPackageResponse(BaseModel):
     coursePrep: dict[str, Any] | None = None
     geometryCoverage: dict[str, Any]
     readinessChecks: list[dict[str, Any]] = Field(default_factory=list)
-    nine: Literal["all", "front", "back"] = "all"
+    # The round's loops in play order and their canonical key (B4b-2). Hole ``number`` is the
+    # round hole; ``sourceGlobalId`` / ``sourceLocalHole`` the physical hole; ``courseHoleNumber``
+    # the presentation number.
+    roundLoops: list[RoundLoop]
+    loopKey: str
     caddieContextSeeds: list[dict[str, Any]]
     enrichmentState: dict[str, Any] | None = None
     weatherSnapshot: dict[str, Any]
@@ -1095,6 +1114,19 @@ class LiveRoundPackageResponse(BaseModel):
     # Present when the caller requested a background course install. Older iOS/Watch clients ignore
     # unknown JSON keys; the field is intentionally public-progress only (no player data).
     courseInstallJob: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _every_hole_has_physical_identity(self) -> "LiveRoundPackageResponse":
+        # A degraded package with no playable hole (unknown round) names no loop; any playable
+        # hole requires the round-loop table.
+        if self.holes and (not self.roundLoops or not self.loopKey):
+            raise ValueError("a package with holes must carry roundLoops and loopKey")
+        for hole in self.holes:
+            for key in ("number", "sourceGlobalId", "sourceLocalHole", "courseHoleNumber"):
+                value = hole.get(key)
+                if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                    raise ValueError(f"package hole is missing {key}")
+        return self
 
 
 class MobileCourseOption(BaseModel):

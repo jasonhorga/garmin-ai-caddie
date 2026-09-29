@@ -3895,8 +3895,6 @@ def build_live_round_package_for_course(
     weather_transport: WeatherTransport | None = None,
     client_id: str | None = None,
     ensure_geometry: bool = False,
-    nine: str = "all",
-    back_global_id: int | None = None,
     include_course_prep: bool = True,
     include_event_cursor: bool = True,
     ensure_lightweight: bool = False,
@@ -3906,6 +3904,8 @@ def build_live_round_package_for_course(
     defer_non_priority_enrichment: bool = False,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
+    """The whole authoritative course (a 9-hole loop is capped to its nine holes). Round order
+    and halves are applied by :func:`build_live_round_package_for_loops`."""
     source = data or fixture_history_data()
     selected_round_id = None
     for row in source.rounds:
@@ -3988,14 +3988,14 @@ def build_live_round_package_for_course(
     # A 9-hole loop gid (CourseView) must yield only its 9 holes even though its played rounds were
     # 18-hole combos — the loop is the front nine of that combo. Otherwise picking "C 场(9洞)" wrongly
     # opens 18 holes (and holes 10–18 are bogus, which also broke "随便选一个洞进去").
-    effective_nine = nine
+    effective_nine = "all"
     is_loop_cap = False
     segment = None
     try:
         segment = _courseview_segment_resolver(int(global_id))
     except Exception:
         segment = None
-    if nine == "all" and segment and segment[1] == 9:
+    if segment and segment[1] == 9:
         effective_nine = "front"
         is_loop_cap = True
     front_package = _filter_package_to_nine(package, effective_nine)
@@ -4021,33 +4021,275 @@ def build_live_round_package_for_course(
         front_package["nine"] = "all"
         # The canonicalization above already removed a played combination such as
         # `C/A` and retained only the current CourseView loop (`C`).
-    if back_global_id is None:
-        return front_package
-    # Composite 18: this loop (holes 1–9) + a second loop (holes 10–18). Each loop is its own
-    # CourseView course with its own holes/par/geometry; merge them into one round.
-    back_package = build_live_round_package_for_course(
-        int(back_global_id),
+    return front_package
+
+
+LIVE_ROUND_PACKAGE_SCHEMA = "ai-caddie-live-round-package-v2"
+ROUND_LOOP_HALVES = ("all", "front", "back")
+ROUND_LOOP_HOLES = 9
+
+
+class RoundLoopError(ValueError):
+    """A ``loops=`` request that does not name one unambiguous round order."""
+
+
+def parse_round_loops(raw: str | None, *, path_global_id: int) -> list[tuple[int, str]]:
+    """Parse ``G:H[,G2:H2]`` into the round's ordered loops (duplicates allowed)."""
+    entries = [part.strip() for part in str(raw or "").split(",") if part.strip()]
+    if not 1 <= len(entries) <= 2:
+        raise RoundLoopError("loops must name one or two ordered loops")
+    loops: list[tuple[int, str]] = []
+    for entry in entries:
+        gid_text, separator, half = entry.partition(":")
+        if not separator:
+            raise RoundLoopError(f"loop {entry!r} must be globalId:half")
+        try:
+            gid = int(gid_text.strip())
+        except ValueError as exc:
+            raise RoundLoopError(f"loop {entry!r} has no numeric globalId") from exc
+        half = half.strip().lower()
+        if gid <= 0 or half not in ROUND_LOOP_HALVES:
+            raise RoundLoopError(f"loop {entry!r} must be a positive globalId and all|front|back")
+        loops.append((gid, half))
+    if loops[0][0] != int(path_global_id):
+        raise RoundLoopError("the first loop must be the requested course")
+    return loops
+
+
+def round_loop_key(loops: list[tuple[int, str]]) -> str:
+    """The canonical ordered loop identity: order and duplicates are preserved."""
+    return "+".join(f"{int(gid)}:{half}" for gid, half in loops)
+
+
+def _round_loop_source_start(half: str) -> int:
+    return 10 if half == "back" else 1
+
+
+def _round_loops_payload(loops: list[tuple[int, str]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "globalId": int(gid),
+            "half": half,
+            "roundStartHole": 1 + index * ROUND_LOOP_HOLES,
+            "sourceStartHole": _round_loop_source_start(half),
+            "holeCount": ROUND_LOOP_HOLES,
+        }
+        for index, (gid, half) in enumerate(loops)
+    ]
+
+
+def _with_explicit_source_identity(package: dict[str, Any], global_id: int) -> dict[str, Any]:
+    """Pin each hole's physical identity before its round number moves."""
+    out = dict(package)
+    holes: list[Any] = []
+    for raw in package.get("holes") or []:
+        if isinstance(raw, dict):
+            hole = dict(raw)
+            hole["sourceGlobalId"] = int(hole.get("sourceGlobalId") or global_id)
+            hole["sourceLocalHole"] = int(hole.get("sourceLocalHole") or hole.get("number") or 0)
+            raw = hole
+        holes.append(raw)
+    out["holes"] = holes
+    return out
+
+
+def _shift_loop_package(package: dict[str, Any], offset: int) -> dict[str, Any]:
+    """Move every round-hole-indexed fact of one loop by ``offset`` (physical ids unchanged)."""
+    if offset == 0:
+        return package
+    round_id = str(package.get("roundId") or "")
+    course_name = str((package.get("course") or {}).get("name") or "")
+    ref_replacements: dict[str, str] = {}
+    for seed in package.get("caddieContextSeeds") or []:
+        if not isinstance(seed, dict):
+            continue
+        old_ref = str(seed.get("sourceRef") or "")
+        shifted_hole = _shift_hole_number(seed.get("hole"), offset)
+        if old_ref and isinstance(shifted_hole, int):
+            ref_replacements[old_ref] = f"{round_id}:{shifted_hole}"
+    weather, _ = _merge_composite_weather(
+        {},
+        package.get("weatherSnapshot") or {},
+        offset=offset,
+        ref_replacements=ref_replacements,
         round_id=round_id,
-        tee_box=tee_box,
-        data=data,
-        data_mode=data_mode,
-        root=root,
-        annotations_root=annotations_root,
-        captured_at=captured_at,
-        weather_transport=weather_transport,
-        client_id=client_id,
-        ensure_geometry=ensure_geometry,
-        nine="all",
-        include_course_prep=include_course_prep,
-        include_event_cursor=include_event_cursor,
-        ensure_lightweight=ensure_lightweight,
-        allow_lightweight_fetch=allow_lightweight_fetch,
-        stats_window=stats_window,
-        priority_holes=priority_holes,
-        defer_non_priority_enrichment=defer_non_priority_enrichment,
-        player_id=player_id,
     )
-    return _merge_nines(front_package, back_package)
+    shifted = dict(package)
+
+    def _shift(rows: Any, key: str) -> list[Any]:
+        out: list[Any] = []
+        for row in rows or []:
+            if isinstance(row, dict):
+                row = dict(row)
+                row[key] = _shift_hole_number(row.get(key), offset)
+            out.append(row)
+        return out
+
+    shifted["holes"] = _shift(package.get("holes"), "number")
+    shifted["caddieContextSeeds"] = [
+        _shift_composite_seed(
+            seed,
+            offset=offset,
+            ref_replacements=ref_replacements,
+            round_id=round_id,
+            course_name=course_name,
+            merged_weather=weather,
+        )
+        for seed in package.get("caddieContextSeeds") or []
+    ]
+    prep = package.get("coursePrep")
+    if isinstance(prep, dict):
+        prep = dict(prep)
+        prep["holes"] = _shift(prep.get("holes"), "hole")
+        shifted["coursePrep"] = prep
+    recent = package.get("recentHistory")
+    if isinstance(recent, dict):
+        recent = dict(recent)
+        recent["holes"] = _shift(recent.get("holes"), "number")
+        shifted["recentHistory"] = recent
+    shifted["weatherSnapshot"] = weather
+    enrichment = package.get("enrichmentState")
+    if isinstance(enrichment, dict):
+        enrichment = dict(enrichment)
+        enrichment["priorityHoles"] = [
+            int(number) + offset
+            for number in enrichment.get("priorityHoles") or []
+            if _safe_int(number)
+        ]
+        shifted["enrichmentState"] = enrichment
+    return shifted
+
+
+def _package_venue_key(package: dict[str, Any]) -> str:
+    course = package.get("course") or {}
+    venue = str(course.get("venueName") or "").strip() or _venue_base_name(str(course.get("name") or ""))
+    return normalize_course_text(venue).casefold()
+
+
+def apply_round_loop_identity(
+    package: dict[str, Any],
+    loops: list[tuple[int, str]] | None = None,
+) -> dict[str, Any]:
+    """Stamp the v2 round identity: ``roundLoops`` / ``loopKey`` and each hole's
+    ``courseHoleNumber`` (the physical number for a half of an 18-hole course, the round number
+    for a 9-hole loop). Without explicit ``loops`` the order is derived from the holes' physical
+    identity, which a past round's package already carries."""
+    out = dict(package)
+    course_gid = int((package.get("course") or {}).get("globalId") or 0)
+    holes = [dict(h) if isinstance(h, dict) else h for h in package.get("holes") or []]
+    if course_gid <= 0 and not any(
+        isinstance(h, dict) and int(h.get("sourceGlobalId") or 0) > 0 for h in holes
+    ):
+        # An unknown round/course (degraded package) has no physical course, so it has no
+        # playable hole and names no loop; placeholders would fabricate a source identity.
+        holes = []
+    for hole in holes:
+        if isinstance(hole, dict):
+            hole["sourceGlobalId"] = int(hole.get("sourceGlobalId") or course_gid)
+            hole["sourceLocalHole"] = int(hole.get("sourceLocalHole") or hole.get("number") or 0)
+    derived = loops is None
+    if loops is None:
+        loops = _derive_round_loops(holes, course_gid)
+    table = _round_loops_payload(loops)
+    if derived:
+        # A past round may have stopped mid-loop: its last loop counts only the holes it has.
+        numbers = [int(h.get("number") or 0) for h in holes if isinstance(h, dict)]
+        for row in table:
+            start = row["roundStartHole"]
+            row["holeCount"] = max(1, sum(1 for n in numbers if start <= n < start + ROUND_LOOP_HOLES))
+    for hole in holes:
+        if not isinstance(hole, dict):
+            continue
+        number = int(hole.get("number") or 0)
+        loop = next(
+            (
+                row for row in table
+                if row["roundStartHole"] <= number < row["roundStartHole"] + row["holeCount"]
+            ),
+            None,
+        )
+        half = loop["half"] if loop else "all"
+        hole["courseHoleNumber"] = int(hole["sourceLocalHole"]) if half in {"front", "back"} else number
+    out["holes"] = holes
+    out["roundLoops"] = table
+    out["loopKey"] = round_loop_key(loops)
+    out["schema"] = LIVE_ROUND_PACKAGE_SCHEMA
+    out.pop("nine", None)
+    return out
+
+
+def _derive_round_loops(holes: list[Any], course_gid: int) -> list[tuple[int, str]]:
+    """A past round's loops from its holes: consecutive nines of round numbers, each named by its
+    physical course and half (``all`` for an authoritative 9-hole loop)."""
+    ordered = sorted(
+        (h for h in holes if isinstance(h, dict) and int(h.get("number") or 0) > 0),
+        key=lambda h: int(h.get("number") or 0),
+    )
+    loops: list[tuple[int, str]] = []
+    for start in range(0, len(ordered), ROUND_LOOP_HOLES):
+        chunk = ordered[start:start + ROUND_LOOP_HOLES]
+        gid = int(chunk[0].get("sourceGlobalId") or course_gid)
+        first_local = min(int(h.get("sourceLocalHole") or h.get("number") or 1) for h in chunk)
+        segment = None
+        try:
+            segment = _courseview_segment_resolver(gid)
+        except Exception:
+            segment = None
+        if segment and segment[1] == 9:
+            half = "all"
+        else:
+            half = "back" if first_local >= 10 else "front"
+        loops.append((gid, half))
+    return loops
+
+
+def build_live_round_package_for_loops(
+    loops: list[tuple[int, str]],
+    *,
+    priority_holes: list[int] | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Build a round in the given loop order (B4b-2).
+
+    Each distinct course is built once as its whole authoritative course; each loop selects its
+    physical holes (a 9-hole loop, or the front / back half of an 18-hole course), is renumbered
+    to round holes 1–9 / 10–18 in play order, and keeps its physical ``sourceGlobalId`` /
+    ``sourceLocalHole``. Raises :class:`RoundLoopError` for an ambiguous or unplayable order.
+    """
+    if not 1 <= len(loops) <= 2:
+        raise RoundLoopError("loops must name one or two ordered loops")
+    base_by_gid: dict[int, dict[str, Any]] = {}
+    for gid in dict.fromkeys(int(gid) for gid, _ in loops):
+        starts = sorted({_round_loop_source_start(half) for g, half in loops if int(g) == gid})
+        base = build_live_round_package_for_course(
+            gid,
+            priority_holes=starts,
+            **kwargs,
+        )
+        base_by_gid[gid] = _with_explicit_source_identity(base, gid)
+    venues = {_package_venue_key(base) for base in base_by_gid.values()}
+    if len(venues) > 1:
+        raise RoundLoopError("every loop must belong to the same physical venue")
+    loop_packages: list[dict[str, Any]] = []
+    for gid, half in loops:
+        base = base_by_gid[int(gid)]
+        course_holes = len([h for h in base.get("holes") or [] if isinstance(h, dict)])
+        if half == "all":
+            if course_holes != ROUND_LOOP_HOLES:
+                raise RoundLoopError(f"{gid}:all needs an authoritative 9-hole loop")
+            selected = base
+        else:
+            if course_holes != 2 * ROUND_LOOP_HOLES:
+                raise RoundLoopError(f"{gid}:{half} needs an authoritative 18-hole course")
+            selected = _filter_package_to_nine(base, half)
+        playable = [h for h in selected.get("holes") or [] if isinstance(h, dict)]
+        if len(playable) != ROUND_LOOP_HOLES:
+            raise RoundLoopError(f"{gid}:{half} does not resolve to nine holes")
+        loop_packages.append(_shift_loop_package(selected, 1 - _round_loop_source_start(half)))
+    package = loop_packages[0]
+    if len(loop_packages) == 2:
+        package = _merge_nines(package, loop_packages[1])
+    return apply_round_loop_identity(package, loops)
 
 
 def _merge_geometry_coverage(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:

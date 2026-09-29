@@ -61,16 +61,12 @@ def job_id(
     *,
     global_id: int,
     tee_box: str,
-    nine: str,
+    loop_key: str,
     player_id: str,
-    back_global_id: int | None = None,
 ) -> str:
-    # Preserve the pre-composite id format for ordinary courses so queued jobs from an older
-    # process remain resumable. A composite 9+9 selection must include its second physical loop;
-    # otherwise two different back-nine choices would share one journal and leak progress.
-    raw = f"{int(global_id)}|{tee_box.strip().lower()}|{nine.strip().lower() or 'all'}|{_player_key(player_id)}"
-    if back_global_id is not None and int(back_global_id) > 0:
-        raw = f"{int(global_id)}|back:{int(back_global_id)}|{tee_box.strip().lower()}|{nine.strip().lower() or 'all'}|{_player_key(player_id)}"
+    # The ordered loop key (B4b-2) is the selection identity: 前→前, 前→后, 后→前 and 后→后 of
+    # one 18-hole course, and every A/B/C pairing, each own a separate journal.
+    raw = f"{int(global_id)}|loops:{loop_key.strip()}|{tee_box.strip().lower()}|{_player_key(player_id)}"
     return "course-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 
@@ -137,7 +133,7 @@ def _initial_state(
     identifier: str,
     global_id: int,
     tee_box: str,
-    nine: str,
+    loop_key: str,
     player_id: str,
     refs: list[dict[str, Any]],
     requested: dict[int, list[int]],
@@ -157,7 +153,7 @@ def _initial_state(
         "jobId": identifier,
         "globalId": int(global_id),
         "teeBox": tee_box,
-        "nine": nine,
+        "loopKey": loop_key,
         "playerKey": _player_key(player_id),
         "phase": "queued",
         "stage": "queued",
@@ -333,34 +329,18 @@ def enqueue(
     *,
     global_id: int,
     tee_box: str,
-    nine: str,
+    loop_key: str,
     player_id: str,
     refs: list[dict[str, Any]],
     requested: dict[int, list[int]],
     ready: dict[int, list[int]],
-    back_global_id: int | None = None,
 ) -> dict[str, Any]:
     tee = tee_box.strip().lower() or "blue"
-    selected_nine = nine.strip().lower() or "all"
-    # Derive the second physical loop as a compatibility guard for callers that only know the
-    # package refs. The HTTP route passes it explicitly, but an older internal caller should not
-    # silently collapse a composite job into the ordinary primary-course journal.
-    source_ids = {
-        int(row.get("globalId") or 0)
-        for row in refs
-        if isinstance(row, dict) and int(row.get("globalId") or 0) > 0
-    }
-    resolved_back_global_id = (
-        int(back_global_id)
-        if back_global_id is not None and int(back_global_id) > 0
-        else next((source_id for source_id in sorted(source_ids) if source_id != int(global_id)), None)
-    )
     identifier = job_id(
         global_id=global_id,
         tee_box=tee,
-        nine=selected_nine,
+        loop_key=loop_key,
         player_id=player_id,
-        back_global_id=resolved_back_global_id,
     )
     # Keep the launch decision outside the journal lock.  A repeated enqueue may find a
     # completely-installed record (in which case no worker is needed), while a queued or
@@ -373,7 +353,7 @@ def enqueue(
                 identifier=identifier,
                 global_id=global_id,
                 tee_box=tee,
-                nine=selected_nine,
+                loop_key=loop_key,
                 player_id=player_id,
                 refs=refs,
                 requested=requested,
@@ -557,7 +537,7 @@ def public_state(state: dict[str, Any]) -> dict[str, Any]:
         "jobId": state.get("jobId"),
         "globalId": int(state.get("globalId") or 0),
         "teeBox": state.get("teeBox"),
-        "nine": state.get("nine"),
+        "loopKey": str(state.get("loopKey") or ""),
         "phase": state.get("phase"),
         "stage": state.get("stage"),
         "progress": max(0, min(100, int(state.get("progress") or 0))),
@@ -581,16 +561,14 @@ def status(
     *,
     global_id: int,
     tee_box: str,
-    nine: str,
+    loop_key: str,
     player_id: str,
-    back_global_id: int | None = None,
 ) -> dict[str, Any] | None:
     identifier = job_id(
         global_id=global_id,
         tee_box=tee_box,
-        nine=nine,
+        loop_key=loop_key,
         player_id=player_id,
-        back_global_id=back_global_id,
     )
     with _LOCK:
         state = _read(identifier)

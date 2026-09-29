@@ -77,6 +77,7 @@ from .mobile import (
     replay_mobile_events_response,
     round_state_response,
 )
+from ai_caddie.caddie.mobile_live import RoundLoopError, parse_round_loops, round_loop_key
 from .auth_api import auth_router
 from .players_api import (
     admin_request_disposition,
@@ -2128,6 +2129,13 @@ def run_course_install_job(identifier: str) -> None:
         course_install.update(identifier, phase="queued", stage="queued", error=None, clear_error=True)
 
 
+def _parse_round_loops_or_422(raw: str, global_id: int) -> list[tuple[int, str]]:
+    try:
+        return parse_round_loops(raw, path_global_id=int(global_id))
+    except RoundLoopError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @app.get("/api/v2/mobile/courses/{global_id}/package", response_model=LiveRoundPackageResponse)
 def mobile_course_package(
     global_id: int,
@@ -2139,22 +2147,24 @@ def mobile_course_package(
     ensure_geometry: bool = False,
     background_geometry: bool = False,
     include_event_cursor: bool = True,
-    nine: str = Query(default="all", pattern="^(all|front|back)$"),
-    back_global_id: int | None = None,
+    loops: str = Query(..., description="Ordered round loops, G:H[,G2:H2] with H = all|front|back"),
     player_id: str = Depends(current_player_id),
 ) -> LiveRoundPackageResponse:
-    package = build_mobile_course_package_response(
-        global_id,
-        round_id=round_id,
-        tee_box=tee_box,
-        captured_at=captured_at,
-        client_id=client_id,
-        ensure_geometry=ensure_geometry,
-        include_event_cursor=include_event_cursor,
-        nine=nine,
-        back_global_id=back_global_id,
-        player_id=player_id,
-    )
+    round_loops = _parse_round_loops_or_422(loops, global_id)
+    try:
+        package = build_mobile_course_package_response(
+            global_id,
+            round_id=round_id,
+            tee_box=tee_box,
+            captured_at=captured_at,
+            client_id=client_id,
+            ensure_geometry=ensure_geometry,
+            include_event_cursor=include_event_cursor,
+            loops=round_loops,
+            player_id=player_id,
+        )
+    except RoundLoopError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     mark_request_stage("package_route")
     if not background_geometry or ensure_geometry:
         return package
@@ -2192,12 +2202,11 @@ def mobile_course_package(
     job = course_install.enqueue(
         global_id=int(global_id),
         tee_box=str(tee_box or package.course.get("teeBox") or "blue"),
-        nine=nine,
+        loop_key=round_loop_key(round_loops),
         player_id=player_id,
         refs=refs,
         requested=requested,
         ready=ready,
-        back_global_id=back_global_id,
     )
     mark_request_stage("background_enqueue")
     # Pydantic response models are mutable in the current contract, but use model_copy when
@@ -2215,16 +2224,14 @@ def mobile_course_package(
 def course_install_status(
     global_id: int,
     tee_box: str | None = Query(default=None, alias="tee_box"),
-    nine: str = Query(default="all", pattern="^(all|front|back)$"),
-    back_global_id: int | None = Query(default=None, alias="back_global_id", ge=1),
+    loops: str = Query(..., description="The package's ordered round loops, G:H[,G2:H2]"),
     player_id: str = Depends(current_player_id),
 ) -> CourseInstallStatusResponse:
     state = course_install.status(
         global_id=int(global_id),
         tee_box=str(tee_box or "blue"),
-        nine=nine,
+        loop_key=round_loop_key(_parse_round_loops_or_422(loops, global_id)),
         player_id=player_id,
-        back_global_id=back_global_id,
     )
     if state is None:
         raise HTTPException(status_code=404, detail="course install job not found")

@@ -17,7 +17,9 @@ from ai_caddie.caddie.mobile_live import (
     ack_event_cursor,
     append_event_batch,
     build_live_round_package,
-    build_live_round_package_for_course,
+    apply_round_loop_identity,
+    build_live_round_package_for_loops,
+    round_loop_key,
     build_mobile_course_options,
     build_round_state,
     _event_cursor,
@@ -381,6 +383,8 @@ def build_mobile_round_package_response(
             # background stats path and remains available to history/review routes.
             stats_window="last20",
         )
+        # A past round names its loops from its holes' physical identity (v2 contract).
+        package = apply_round_loop_identity(package)
         # Resuming an existing round used to omit CoursePrep entirely. The phone then had to
         # request one hole at a time after every swipe, so holes 2+ rendered a base bitmap with
         # no factual centreline until the request completed. Keep the same cheap, release-bound
@@ -416,8 +420,7 @@ def build_mobile_course_package_response(
     captured_at: str | None = None,
     client_id: str | None = None,
     ensure_geometry: bool = False,
-    nine: str = "all",
-    back_global_id: int | None = None,
+    loops: list[tuple[int, str]],
     include_event_cursor: bool = True,
     player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
@@ -428,8 +431,8 @@ def build_mobile_course_package_response(
         player_id,
         int(global_id),
         str(tee_box or ""),
-        str(nine),
-        int(back_global_id) if back_global_id is not None else None,
+        # The ordered loop identity: 前→前 / 前→后 / 后→前 / 后→后 never share a result.
+        round_loop_key(loops),
         bool(ensure_geometry),
         _package_time_bucket(captured_at),
         _history_package_signature(data),
@@ -439,12 +442,12 @@ def build_mobile_course_package_response(
         # Refresh every selected physical loop before historical `ready` or cached precise files are
         # evaluated. This applies equally to played and never-played catalogue courses.
         _refresh_course_release_authority(
-            [int(global_id), *([int(back_global_id)] if back_global_id is not None else [])],
+            list(dict.fromkeys(int(gid) for gid, _ in loops)),
             allow_fetch=False,
         )
         mark_request_stage("release_lookup")
-        package = build_live_round_package_for_course(
-            global_id,
+        package = build_live_round_package_for_loops(
+            loops,
             # The shared projection deliberately has no caller-specific round identity. It is
             # rebound after the single-flight result is obtained below.
             round_id=None,
@@ -458,8 +461,6 @@ def build_mobile_course_package_response(
             weather_transport=OPEN_METEO_TRANSPORT,
             client_id=None,
             ensure_geometry=ensure_geometry,
-            nine=nine,
-            back_global_id=back_global_id,
             # The package contract is always a complete 18-hole fact set.  Expensive precise
             # geometry installation remains a separate durable job queued by the route below.
             include_course_prep=False,
@@ -470,7 +471,6 @@ def build_mobile_course_package_response(
             # on the full historical per-hole geometry audit; the package records the scope under
             # sourceCoverage.playerStatsWindow.
             stats_window="last20",
-            priority_holes=[10] if str(nine).lower() == "back" else [1],
             defer_non_priority_enrichment=True,
         )
         mark_request_stage("facts_package")

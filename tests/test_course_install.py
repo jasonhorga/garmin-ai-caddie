@@ -19,7 +19,7 @@ def _course_install_status_payload(*, phase: str = "queued", stage: str = "queue
         "jobId": "course-route-test",
         "globalId": 123,
         "teeBox": "blue",
-        "nine": "all",
+        "loopKey": "123:all",
         "phase": phase,
         "stage": stage,
         "progress": 0,
@@ -121,15 +121,21 @@ class CourseInstallJournalTests(unittest.TestCase):
         from server_v2.models import LiveRoundPackageResponse
 
         return LiveRoundPackageResponse(
-            schema="ai-caddie-live-round-package-v1",
+            schema="ai-caddie-live-round-package-v2",
             roundId="prep-123",
             dataMode="local",
             sourceCoverage={},
             missingData=[],
             playerProfile={},
             course={"globalId": 123, "teeBox": "blue"},
+            roundLoops=[{
+                "globalId": 123, "half": "all", "roundStartHole": 1,
+                "sourceStartHole": 1, "holeCount": 9,
+            }],
+            loopKey="123:all",
             holes=[{
                 "number": 1,
+                "courseHoleNumber": 1,
                 "sourceGlobalId": 123,
                 "sourceLocalHole": 1,
                 "geometryCoverage": "partial",
@@ -177,6 +183,7 @@ class CourseInstallJournalTests(unittest.TestCase):
                 123,
                 background_tasks=BackgroundTasks(),
                 background_geometry=True,
+                loops="123:all",
                 player_id="owner",
             )
 
@@ -186,6 +193,7 @@ class CourseInstallJournalTests(unittest.TestCase):
         self.assertEqual(enqueue.call_args.kwargs["requested"], {123: [1]})
         self.assertEqual(enqueue.call_args.kwargs["ready"], {123: [2]})
         self.assertEqual(enqueue.call_args.kwargs["refs"][1]["geometryRevision"], "revision-2")
+        self.assertEqual(enqueue.call_args.kwargs["loop_key"], "123:all")
 
     def test_enqueue_is_idempotent_and_public_state_has_no_player_identity(self) -> None:
         from server_v2 import course_install
@@ -196,7 +204,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             first = course_install.enqueue(
                 global_id=123,
                 tee_box="Blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="private-player-id",
                 refs=[
                     {"globalId": 123, "localHole": 1, "displayHole": 1},
@@ -208,7 +216,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             second = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="private-player-id",
                 refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
                 requested={123: [1]},
@@ -230,7 +238,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             queued = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="private-player-id",
                 refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
                 requested={123: [1]},
@@ -272,7 +280,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             queued = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="private-player-id",
                 refs=[
                     {"globalId": 123, "localHole": 1, "displayHole": 1},
@@ -292,7 +300,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             halfway = course_install.status(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="private-player-id",
             )
             self.assertIsNotNone(halfway)
@@ -304,7 +312,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             after = course_install.status(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="private-player-id",
             )
 
@@ -326,6 +334,7 @@ class CourseInstallJournalTests(unittest.TestCase):
                 123,
                 background_tasks=BackgroundTasks(),
                 background_geometry=True,
+                loops="123:all",
                 player_id="owner",
             )
 
@@ -343,7 +352,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             state = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[
                     {"globalId": 123, "localHole": 1, "displayHole": 1},
@@ -385,7 +394,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             final = course_install.status(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
             )
 
@@ -414,7 +423,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             state = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
                 requested={123: [1]},
@@ -460,7 +469,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             final = course_install.status(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
             )
 
@@ -478,7 +487,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             state = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
                 requested={123: [1]},
@@ -514,7 +523,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             final = course_install.status(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
             )
 
@@ -536,7 +545,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             state = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
                 requested={123: [1]},
@@ -576,7 +585,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             final = course_install.status(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
             )
 
@@ -596,7 +605,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             state = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
                 requested={123: [1]},
@@ -624,7 +633,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             state = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
                 requested={123: [1]},
@@ -651,7 +660,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             state = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
                 requested={123: [1]},
@@ -667,7 +676,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             final = course_install.status(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
             )
 
@@ -686,7 +695,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[
                     {
@@ -703,7 +712,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             state = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[
                     {
@@ -731,7 +740,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             first = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[
                     {
@@ -762,7 +771,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             rebound = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[
                     {
@@ -792,7 +801,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             first = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[{
                     "globalId": 123,
@@ -819,7 +828,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             retried = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[{
                     "globalId": 123,
@@ -857,44 +866,43 @@ class CourseInstallJournalTests(unittest.TestCase):
         self.assertEqual(revision, "revision-current")
         self.assertEqual(coverage.call_count, 2)
 
-    def test_composite_back_course_has_an_independent_journal(self) -> None:
+    def test_every_loop_order_has_an_independent_journal(self) -> None:
+        # B4b-2: the ordered loop key is the job identity, so the four orders of one 18-hole
+        # course and a 9+9 pairing never share progress.
         from server_v2 import course_install
 
+        orders = [
+            "123:front+123:back",
+            "123:front+123:front",
+            "123:back+123:front",
+            "123:back+123:back",
+            "123:front",
+            "123:back",
+            "123:all+456:all",
+        ]
         with TemporaryDirectory() as directory, patch.dict(
             os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}
         ), patch.object(course_install, "_launch"):
-            front_only = course_install.enqueue(
-                global_id=123,
-                tee_box="blue",
-                nine="all",
-                player_id="owner",
-                refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
-                requested={123: [1]},
-                ready={},
-            )
-            composite = course_install.enqueue(
-                global_id=123,
-                tee_box="blue",
-                nine="all",
-                player_id="owner",
-                back_global_id=456,
-                refs=[
-                    {"globalId": 123, "localHole": 1, "displayHole": 1},
-                    {"globalId": 456, "localHole": 1, "displayHole": 10},
-                ],
-                requested={123: [1], 456: [1]},
-                ready={},
-            )
-            self.assertNotEqual(front_only["jobId"], composite["jobId"])
-            self.assertIsNotNone(
-                course_install.status(
+            jobs = [
+                course_install.enqueue(
                     global_id=123,
                     tee_box="blue",
-                    nine="all",
+                    loop_key=loop_key,
                     player_id="owner",
-                    back_global_id=456,
+                    refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
+                    requested={123: [1]},
+                    ready={},
                 )
-            )
+                for loop_key in orders
+            ]
+            self.assertEqual(len({job["jobId"] for job in jobs}), len(orders))
+            self.assertEqual([job["loopKey"] for job in jobs], orders)
+            for loop_key in orders:
+                state = course_install.status(
+                    global_id=123, tee_box="blue", loop_key=loop_key, player_id="owner",
+                )
+                self.assertIsNotNone(state)
+                self.assertEqual(state["loopKey"], loop_key)
 
     def test_status_is_scoped_by_player_hash(self) -> None:
         from server_v2 import course_install
@@ -905,7 +913,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
                 requested={123: [1]},
@@ -915,7 +923,7 @@ class CourseInstallJournalTests(unittest.TestCase):
                 course_install.status(
                     global_id=123,
                     tee_box="blue",
-                    nine="all",
+                    loop_key="123:all",
                     player_id="another-player",
                 )
             )
@@ -929,7 +937,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             state = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
                 requested={123: [1]},
@@ -965,7 +973,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             pending = course_install.enqueue(
                 global_id=123,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
                 requested={123: [1]},
@@ -982,7 +990,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             terminal = course_install.enqueue(
                 global_id=456,
                 tee_box="blue",
-                nine="all",
+                loop_key="123:all",
                 player_id="owner",
                 refs=[{
                     "globalId": 456,
@@ -1018,7 +1026,7 @@ class CourseInstallJournalTests(unittest.TestCase):
             "jobId": "course-test",
             "globalId": 123,
             "teeBox": "blue",
-            "nine": "all",
+            "loopKey": "123:all",
             "phase": "failed",
             "stage": "error",
             "totalHoles": 1,
