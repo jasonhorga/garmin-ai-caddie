@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-29 13:10 UTC
+**Updated:** 2026-09-29 13:24 UTC
 **Branch:** `main`; product canonical source revision is
 `5ac43253d924ecfbe496f42a026dcc5896aa3bd0` (PR #360 B4a and PR #359 B3 are
 merged after exact-head review; PR #357 B1d is merged after
@@ -300,7 +300,7 @@ Production `/api/v2/health` remained HTTP 200. B4a does not complete B4: the
 factual 18-hole front/back start/turn path remained assigned to B4b.
 
 PR #361 B4b is now the active review at exact head
-`22a9a6199241fb85175b123dae906692c6626130`, based on the merged B4a commit.
+`a296d496a9d1d6a114a80883a892ba01f4448cb7`, based on the merged B4a commit.
 The prior head `cf1dda519274619edd424a1df74df32a5ab1beb3` failed Native Mobile
 CI `36566329562` at `StartRoundPresentation.swift:83` with a Swift type-check
 timeout; Claude split that expression in `c356ba4b`. Source CI `36567300652`
@@ -368,13 +368,28 @@ therefore does not prove the direct nearby `开始` or `换球场或组合` path
 must add a deterministic production-path location/nearby fixture, recapture a
 real nearby state, and retain a separate no-nearby+replay screenshot. The
 remaining exact-head iOS/Watch artifacts still require inspection.
+
+Claude addressed that evidence blocker in `a296d496` by injecting an
+authorized fixed location and provider-nearby rows through the production
+resolution chain, and by adding a separate `full-home-replay.png` state. This
+claim is not yet accepted: Source CI `36573198259` is green, while PR Native
+Mobile CI `36573198262` and exact-head fixture dispatch `36573193288` are still
+running. The superseded exact fixture run `36570941023` is confirmed cancelled.
+All `22a9a619` tests and artifacts are non-acceptance evidence after the push;
+the old homeserver snapshot/testdata/artifact roots were removed under manifest
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260929T125727Z-pr361-22a9a619-review.txt`.
+The new head still needs fresh focused homeserver tests and complete visual
+inspection of matching iOS/Watch design and runtime artifacts. Static review
+must also verify that an archived `unknown`/blank Tee actually falls back to a
+known same-course recent Tee rather than being normalized only after it has
+already won precedence.
 The shared Claude branch was not deleted after PR #360 because PR #361 was
 opened on it immediately.
 
 Next action: keep the background all-PR feedback monitor active in
-`codex-pr-monitor-20260928`, finish the current-head Watch/runtime artifact
-inspection, and wait for Claude to fix comment `5890943653`; then repeat
-focused homeserver tests and the full exact-head Source/Native gates.
+`codex-pr-monitor-20260928`, create a fresh `a296d496` read-only homeserver
+snapshot and isolated writable testdata, rerun the focused suites, then inspect
+the matching iOS/Watch design and runtime artifacts when both Native runs end.
 Download and inspect the matching iOS/Watch design and runtime artifacts only
 from the final candidate head. Do not merge while any P1/P2 is unresolved.
 Repeat all gates from scratch after every further commit. Do not
