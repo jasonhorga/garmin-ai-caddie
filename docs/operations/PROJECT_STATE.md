@@ -9,9 +9,10 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-28 23:34 UTC
+**Updated:** 2026-09-29 12:13 UTC
 **Branch:** `main`; product canonical source revision is
-`8a1180d2fbffaccf84dbb3275a34554abf03b4d9` (PR #357 B1d is merged after
+`5ac43253d924ecfbe496f42a026dcc5896aa3bd0` (PR #360 B4a and PR #359 B3 are
+merged after exact-head review; PR #357 B1d is merged after
 exact-head review; PR #356 B1c is merged after
 exact-head review; PR #355 B1b is merged after exact-head review; PR #340
 B0d-2 is merged after
@@ -101,7 +102,7 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-09-28 23:34 UTC):** `B1-B7` review queue remains
+**Current slice (2026-09-29 12:13 UTC):** `B1-B7` review queue remains
 `in-progress`; Codex is the review owner for PRs opened from
 `claude/code-audit-performance-17wqcv`. Each PR is checked at its exact head
 against `docs/design/2026-09-25-ui-redesign/README.md` and
@@ -257,10 +258,60 @@ and `20260928T232000Z-pr358-1798179-artifacts.txt`. Superseded PR #358
 snapshots were removed under
 `20260928T231457Z-pr358-superseded-snapshots.txt`.
 
+PR #359 B3 completed review at exact head
+`38888b8be33f9aff771831ea13437f82eee39da1` and was squash-merged as
+`72877335e9e710fd53b481098a74b3783ebca161`. The Claude branch was retained
+because PR #360 was already open on the same branch; deleting it would delete
+the active B4 work. Final review comment is `5885623379` (no P1/P2 findings).
+Source CI `36526817494` and PR-triggered Native CI `36526817493` passed; the
+matching full fixture/live Native run `36526818833` passed with exact-head
+evidence. Artifacts inspected: iOS design `11015522729`, iOS real
+`11016518578`, Watch design `11017520075`, Watch real `11017181274`, and
+native evidence `11017066411`. The exact-head homeserver suites
+`tests.test_ci_fixture_contract tests.test_mobile_contracts
+tests.test_server_v2_history_round_detail tests.test_round_edit_start_lie_contract`
+passed `153/153` in `5.687s`; log:
+`/home/jason/garmin-ai-caddie-data/tmp/pr359-38888b-20260929-tests.log`.
+The real iOS labels include club + yards, and all B3-relevant design/Watch
+states matched the README and implementation plan. The fixture has no putt
+rows/scorecard putt field, so `推 ×2` is correctly omitted under the documented
+missing-field degradation rule; the populated-data path remains implemented
+and covered by the design snapshot.
+
+PR #360 B4a completed review at exact head
+`d516b335573c2aa1e4356b93e90e8c85e9b80c27` and was squash-merged as
+`5ac43253d924ecfbe496f42a026dcc5896aa3bd0`. Final review comment
+`5889970151` reports no remaining P1/P2 findings for B4a. Source CI
+`36558869039` and exact-head full fixture/live Native run `36558878452` passed;
+native evidence artifact `11031635759` binds both the commit and workflow run
+and reports iOS/Watch `passed`. Artifacts inspected: iOS design `11028713312`,
+iOS runtime `11030119171`, Watch design `11030951139`, and Watch runtime
+`11031615722`. The corrected turn sheet renders factual A/B/C labels and its
+preparing state freezes every control; all 38 Watch design PNGs matched the
+previous approved baseline byte-for-byte, and all 11 Watch runtime PNGs were
+visually checked. The exact-head homeserver suites
+`tests.test_mobile_contracts tests.test_server_v2_mobile` passed `205/205` in
+`13.852s`; retained log:
+`/home/jason/garmin-ai-caddie-data/tmp/pr360-d516b335-20260929-tests.log`.
+Current artifact/test roots and both `--rm` containers were removed; cleanup
+manifest:
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260929T115724Z-pr360-d516b335-review.txt`.
+Production `/api/v2/health` remained HTTP 200. B4a does not complete B4: the
+factual 18-hole front/back start/turn path remained assigned to B4b.
+
+PR #361 B4b is now the active review at exact head
+`cf1dda519274619edd424a1df74df32a5ab1beb3`, based on the merged B4a commit.
+It covers the home hero, one-list start screen, first-loop-only selection, and
+the deferred factual 18-hole 前九/后九 flow. Source CI `36566329729` is green;
+Native Mobile CI `36566329562` is running. The shared Claude branch was not
+deleted after PR #360 because PR #361 was opened on it immediately.
+
 Next action: keep the background all-PR feedback monitor active in
-`codex-pr-monitor-20260928`, watch for the next B1-B7 PR or Claude comment,
-and repeat the exact-head, Native Mobile, artifact, and homeserver contract
-gates. Do not treat the archived B0 queue below as the active slice.
+`codex-pr-monitor-20260928`, review PR #361 at exact head `cf1dda51`, run its
+focused homeserver tests, and inspect its exact-head iOS/Watch design and
+runtime artifacts before commenting or merging. Repeat all gates from scratch
+after any further commit. Do not treat the
+archived B0 queue below as the active slice.
 
 At 20:14 UTC the owned monitor was hardened after transient scan failures at
 19:57 and 20:08 UTC. Each GitHub list/API/check request now retries up to
