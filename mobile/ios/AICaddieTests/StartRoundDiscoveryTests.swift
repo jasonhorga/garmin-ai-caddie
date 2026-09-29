@@ -817,6 +817,53 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertNil(StartRoundPresentation.teeYards(total: 3201, teeHoleCount: 9, playedHoles: nil))
     }
 
+    func testChangeCourseKeepsANeverPlayedVenueSelectedWhenTheRequeryFails() {
+        // The home's course-here rows for a venue that is in no catalogue, download or recent
+        // record (never played, not downloaded).
+        let labels: [String] = ["A", "B", "C"]
+        let matches: [MobileCourseSearchMatch] = labels.enumerated().map { index, label in
+            MobileCourseSearchMatch(
+                globalId: 90_001 + index, name: "新球场 ~ \(label)", holes: 9, city: "北京",
+                province: nil, ratio: 1, latitude: 40.0, longitude: 116.0 + Double(index) * 0.001,
+                distanceKm: 0.2, venueName: "新球场", segmentLabel: label
+            )
+        }
+        let homeRows = HubNearby.options(from: matches, catalogue: [], downloaded: [])
+        let carried = HubNearby.venueLoops(containing: 90_002, in: homeRows)
+        XCTAssertEqual(carried.map(\.globalId), [90_001, 90_002, 90_003])
+
+        // 开始一场's own nearby query failed (no current rows); nothing else lists the venue.
+        let selected = StartRoundView.selectedSegment(
+            globalId: 90_002,
+            current: [],
+            preselectedVenue: carried,
+            offline: [],
+            explicit: [],
+            recent: nil
+        )
+        XCTAssertEqual(selected?.globalId, 90_002, "the known loop stays selected without a second request")
+        let loops = StartRoundView.sameVenueNineHoleCandidates(
+            selected: selected!,
+            candidates: [selected!] + carried
+        )
+        XCTAssertEqual(loops.map(\.globalId), [90_001, 90_002, 90_003], "the complete provider sibling set")
+        let rows = StartRoundPresentation.mergedCourseRows(nearby: [], recent: loops)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.holes, 27)
+
+        // A current nearby row for the same id still wins over the carried one.
+        let fresh = MobileCourseOption(
+            globalId: 90_002, name: "新球场", holes: 9, venueName: "新球场", segmentLabel: "B", segmentHoles: 9
+        )
+        XCTAssertEqual(
+            StartRoundView.selectedSegment(
+                globalId: 90_002, current: [fresh], preselectedVenue: carried, offline: [], explicit: [], recent: nil
+            ),
+            fresh
+        )
+        XCTAssertTrue(HubNearby.venueLoops(containing: 12_345, in: homeRows).isEmpty)
+    }
+
     func testADownloadedCourseFarFromHereStaysInTheListTail() {
         let near = loop(1, venue: "黑骑士", label: "A")
         let recent = loop(2, venue: "北湖", label: "A")

@@ -2316,6 +2316,18 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("initialCourseTees: loopBTees", selected_capture)
         self.assertIn("onLoadCourseTees: { _ in loopBTees }", selected_capture)
         self.assertIn("must open 开始一场 with the course here preselected", real_flow)
+        # 换球场或组合 carries the course-here venue's provider loops; they own the preselected venue
+        # after this screen's own nearby query fails, and the tee fixture carries production yards.
+        self.assertIn(
+            "preselectedVenueOptions: globalId.map { HubNearby.venueLoops(containing: $0, in: heroNearbyOptions) } ?? [],",
+            round_home,
+        )
+        self.assertIn("?? preselectedVenue.first { $0.globalId == globalId }", start_view_src)
+        self.assertIn("if preselectedVenueOptions.contains(where: { $0.globalId == selectedID }) {", start_view_src)
+        self.assertIn('"yards": 3393, "holeCount": 9', snapshots)
+        self.assertIn("[3585, 3393, 3019, 2533]", snapshots)
+        discovery = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "StartRoundDiscoveryTests.swift")
+        self.assertIn("func testChangeCourseKeepsANeverPlayedVenueSelectedWhenTheRequeryFails()", discovery)
         # No compatibility-only inputs on the new home cards.
         self.assertNotIn("let total: Int", round_home.split("struct HubInProgressCard: View {", 1)[1].split("\n}\n", 1)[0])
         self.assertNotIn("lastCourseName", round_home)

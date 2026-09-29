@@ -129,7 +129,14 @@ enum HubNearby {
             }
         }
         guard let nearest, nearest.metres <= withinMetres else { return nil }
-        let venue = nearest.option.venueDisplayName
+        return venueLoops(containing: nearest.option.globalId, in: options)
+    }
+
+    /// The venue of `globalId` with all of its loops from the same rows, in loop order (what
+    /// 换球场或组合 carries into 开始一场). Empty when the rows do not list `globalId`.
+    static func venueLoops(containing globalId: Int, in options: [MobileCourseOption]) -> [MobileCourseOption] {
+        guard let anchor = options.first(where: { $0.globalId == globalId }) else { return [] }
+        let venue = anchor.venueDisplayName
         var seen = Set<Int>()
         return options
             .filter { $0.venueDisplayName == venue && seen.insert($0.globalId).inserted }

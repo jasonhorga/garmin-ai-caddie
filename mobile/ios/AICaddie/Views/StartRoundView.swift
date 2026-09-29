@@ -14,6 +14,10 @@ public struct StartRoundView: View {
     public let defaultRoundId: String
     public let courseOptions: [MobileCourseOption]
     public let downloadedCourseOptions: [MobileCourseOption]
+    /// 换球场或组合: the course-here venue's provider loops the home already fetched. They own the
+    /// preselected venue (its selection and sibling loops) from the first render, so a course never
+    /// played and not downloaded stays selected even if this screen's own nearby query fails.
+    public let preselectedVenueOptions: [MobileCourseOption]
     /// The last explicitly started Garmin course. It is shown separately when nearby omits it;
     /// this source never contributes to the nearby/GPS result set.
     public let recentCourseOption: MobileCourseOption?
@@ -69,6 +73,7 @@ public struct StartRoundView: View {
         defaultCourseGlobalId: Int? = nil,
         defaultTeeBox: String = "unknown",
         initialCourseTees: [CourseTee] = [],
+        preselectedVenueOptions: [MobileCourseOption] = [],
         courseOptions: [MobileCourseOption] = [],
         downloadedCourseOptions: [MobileCourseOption] = [],
         recentCourseOption: MobileCourseOption? = nil,
@@ -87,6 +92,7 @@ public struct StartRoundView: View {
     ) {
         self.defaultRoundId = defaultRoundId
         self.courseOptions = courseOptions
+        self.preselectedVenueOptions = preselectedVenueOptions
         self.downloadedCourseOptions = downloadedCourseOptions
         self.recentCourseOption = recentCourseOption
         self.syncStatus = syncStatus
@@ -108,7 +114,8 @@ public struct StartRoundView: View {
         // supplied only through `courseOptions` must not become an implicit nearby selection.
         self._userPickedVenue = State(initialValue: defaultCourseGlobalId != nil)
         // The home "开始" preselects the recent course, which may be in neither list.
-        let selected = (courseOptions + downloadedCourseOptions + (recentCourseOption.map { [$0] } ?? [])).first {
+        let selected = (preselectedVenueOptions + courseOptions + downloadedCourseOptions
+            + (recentCourseOption.map { [$0] } ?? [])).first {
             String($0.globalId) == resolvedCourseId
         }
         self._courseGlobalIdText = State(initialValue: resolvedCourseId)
@@ -715,10 +722,32 @@ public struct StartRoundView: View {
 
     private var selectedSegment: MobileCourseOption? {
         guard let globalId = courseGlobalId else { return nil }
-        return availableCourseOptions.first { $0.globalId == globalId }
-            ?? offlineResolvedCourseOptions.first { $0.globalId == globalId }
-            ?? explicitCourseOptions.first { $0.globalId == globalId }
-            ?? recentResolvedCourseOption.flatMap { $0.globalId == globalId ? $0 : nil }
+        return Self.selectedSegment(
+            globalId: globalId,
+            current: availableCourseOptions,
+            preselectedVenue: preselectedVenueOptions,
+            offline: offlineResolvedCourseOptions,
+            explicit: explicitCourseOptions,
+            recent: recentResolvedCourseOption
+        )
+    }
+
+    /// The selected loop, from the first source that lists it: this screen's current nearby /
+    /// search rows, then the course-here venue carried from the home, then offline packages, the
+    /// catalogue and the recent course.
+    static func selectedSegment(
+        globalId: Int,
+        current: [MobileCourseOption],
+        preselectedVenue: [MobileCourseOption],
+        offline: [MobileCourseOption],
+        explicit: [MobileCourseOption],
+        recent: MobileCourseOption?
+    ) -> MobileCourseOption? {
+        current.first { $0.globalId == globalId }
+            ?? preselectedVenue.first { $0.globalId == globalId }
+            ?? offline.first { $0.globalId == globalId }
+            ?? explicit.first { $0.globalId == globalId }
+            ?? recent.flatMap { $0.globalId == globalId ? $0 : nil }
     }
 
     // MARK: - Tees (README §8: colour dots + this loop's yards)
@@ -1097,6 +1126,11 @@ public struct StartRoundView: View {
                 catalogue: courseOptions,
                 downloaded: downloadedCourseOptions
             )
+        }
+        // The home's course-here rows own the preselected venue's loops (no mixing with other
+        // sources); they stay the authority after this screen's own nearby query fails.
+        if preselectedVenueOptions.contains(where: { $0.globalId == selectedID }) {
+            return preselectedVenueOptions
         }
         if offlineCourseOptions.contains(where: { $0.globalId == selectedID }) {
             return offlineResolvedCourseOptions

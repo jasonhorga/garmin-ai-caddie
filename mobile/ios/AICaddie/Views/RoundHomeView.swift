@@ -444,6 +444,8 @@ public struct RoundHomeView: View {
         StartRoundView(
             defaultCourseGlobalId: globalId,
             defaultTeeBox: teeBox ?? "unknown",
+            // 换球场或组合 carries the course-here venue's provider loops (already fetched here).
+            preselectedVenueOptions: globalId.map { HubNearby.venueLoops(containing: $0, in: heroNearbyOptions) } ?? [],
             courseOptions: courseOptions,
             downloadedCourseOptions: downloadedCourseOptions,
             recentCourseOption: recentCourseOption,
