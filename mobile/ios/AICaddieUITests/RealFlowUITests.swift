@@ -1108,11 +1108,16 @@ final class RealFlowUITests: XCTestCase {
             scrollTo(result, maxSwipes: 60),
             "nearby results must contain the resolver-verified uninstalled course"
         )
+        // 开始一场 shows no download state (README §8): the row is still selectable and the
+        // course is prepared in the background after selection.
         XCTAssertEqual(
-            result.value as? String,
-            "选择后下载",
-            "a provider-wide row must remain metadata-only until selected"
+            (result.value as? String) ?? "",
+            "",
+            "the start-round catalogue must not announce a download state"
         )
+        XCTAssertFalse(app.staticTexts["选择后下载"].exists, "no download-state copy in 开始一场")
+        XCTAssertFalse(app.staticTexts["已准备"].exists, "no download-state copy in 开始一场")
+        XCTAssertFalse(app.staticTexts["正在定位…"].exists, "no positioning copy in 开始一场")
         settle(1); save("09-new-course-nearby"); dump("09-new-course-nearby")
         result.tap()
 
@@ -1146,7 +1151,8 @@ final class RealFlowUITests: XCTestCase {
             scrollTo(namedResult, maxSwipes: 60),
             "name search must return the same provider globalId selected from nearby"
         )
-        XCTAssertEqual(namedResult.value as? String, "选择后下载")
+        XCTAssertEqual((namedResult.value as? String) ?? "", "", "no download state in 开始一场")
+        XCTAssertFalse(app.staticTexts["选择后下载"].exists)
         settle(1); save("09b-new-course-name-search"); dump("09b-new-course-name-search")
         namedResult.tap()
         XCTAssertTrue(selectedSegment.waitForExistence(timeout: 12))

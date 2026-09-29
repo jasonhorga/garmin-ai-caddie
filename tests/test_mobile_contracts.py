@@ -2289,6 +2289,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("HubHeroState.resolve(", round_home)
         self.assertIn("nearbyOptions: heroNearbyOptions,", round_home)
         self.assertIn("heroNearbyOptions = HubNearby.options(", round_home)
+        # 开始一场's catalogue sheet renders without positioning / download status copy; 备战 keeps it.
+        search_view = _read_required_source(self, IOS_DIR / "Views" / "MobileCourseSearchView.swift")
+        start_view_src = _read_required_source(self, IOS_DIR / "Views" / "StartRoundView.swift")
+        self.assertIn("presentation: .startRound,", start_view_src)
+        self.assertIn('guard presentation == .prep else { return "查看附近球场" }', search_view)
+        self.assertIn("if presentation == .prep && !retainedDownloads.isEmpty {", search_view)
+        self.assertIn('.accessibilityValue(presentation == .prep ? (isInstalled ? "已准备" : "选择后下载") : "")', search_view)
+        self.assertIn('.accessibilityIdentifier("course-catalog-retry-nearby")', search_view)
+        self.assertIn("presentation: .startRound,", snapshots.split('named: "full-course-search"', 1)[0].rsplit("try captureScreen(", 1)[1])
+        real_flow = _read_required_source(self, IOS_DIR.parent / "AICaddieUITests" / "RealFlowUITests.swift")
+        self.assertNotIn('XCTAssertEqual(namedResult.value as? String, "选择后下载")', real_flow)
         # Each tee source is normalised before precedence.
         self.assertIn("knownTee(played.teeBox) ?? knownTee(stored?.teeBox)", hero)
         self.assertIn("knownTee(played.teeBox) ?? knownTee(sameLoopRecent)", hero)

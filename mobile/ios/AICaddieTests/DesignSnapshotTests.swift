@@ -682,16 +682,31 @@ final class DesignSnapshotTests: XCTestCase {
             named: "full-start-selected"
         )
         try captureScreen(NavigationStack { PrepCoursePickerView(courseOptions: courses, apiBaseURL: apiBaseURL, adminToken: nil) }, named: "full-prep-picker")
+        // 开始一场's catalogue sheet: no positioning / download status copy (README §8).
         try captureScreen(
             NavigationStack {
                 MobileCourseSearchView(
                     locationProvider: LocationProvider(),
+                    presentation: .startRound,
                     onSearch: { _, _ in [] },
                     onNearby: { _, _, _ in [] },
                     onSelect: { _, _ in }
                 )
             },
             named: "full-course-search"
+        )
+        // 备战's catalogue sheet keeps its positioning progress and download state.
+        try captureScreen(
+            NavigationStack {
+                MobileCourseSearchView(
+                    locationProvider: LocationProvider(),
+                    presentation: .prep,
+                    onSearch: { _, _ in [] },
+                    onNearby: { _, _, _ in [] },
+                    onSelect: { _, _ in }
+                )
+            },
+            named: "full-prep-course-search"
         )
         if let hole = package.holes.first {
             try captureScreen(NavigationStack { CurrentHoleView(package: package, hole: hole) }, named: "full-hole")

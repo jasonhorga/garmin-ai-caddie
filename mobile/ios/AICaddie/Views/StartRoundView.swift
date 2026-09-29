@@ -215,6 +215,8 @@ public struct StartRoundView: View {
             NavigationStack {
                 MobileCourseSearchView(
                     locationProvider: locationProvider,
+                    // 开始一场: no positioning / download status copy (README §8).
+                    presentation: .startRound,
                     // The parent owns the sheet binding. Selection must commit the course and tee
                     // provenance here before the sheet closes; a child NavigationStack dismiss can
                     // otherwise race SwiftUI's state transaction and lose the selected row.
