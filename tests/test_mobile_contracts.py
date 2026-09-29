@@ -2394,6 +2394,10 @@ class MobileContractTests(unittest.TestCase):
         # Every control (稍后, loop tiles, 只打 9 洞, CTA) is frozen while a continuation is in flight.
         self.assertEqual(sheet.count("guard Self.acceptsInput(isPreparing: isPreparing) else { return }"), 4)
         self.assertGreaterEqual(sheet.count(".disabled(isPreparing)"), 4)
+        # Offline: the live hole resolves its loops from the network catalogue plus installed
+        # templates, so the turn appears without course discovery.
+        self.assertIn("courseOptions: NineLoopTurn.loopCatalogue(network: courseOptions, downloaded: downloadedCourseOptions)", round_home)
+        self.assertIn("return NineLoopTurn.siblings(of: active, in: courseOptions)", current_hole)
         # Changing the second loop before it starts recomposes from installed templates offline.
         compose = app.split("public func prepareCompositeRound(", 1)[1].split("let fetched = await", 1)[0]
         self.assertNotIn("!current.isCompositeNineRound", compose)

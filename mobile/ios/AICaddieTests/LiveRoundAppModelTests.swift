@@ -1507,6 +1507,38 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertFalse(model.isPreparingRound)
     }
 
+    /// Offline, with the network catalogue empty, the turn still resolves the venue's loops from
+    /// the installed templates (factual A/B/C labels), and the chosen second loop is added offline.
+    func testOfflineTurnResolvesLoopsFromInstalledTemplatesAndAddsTheSecondLoop() async throws {
+        let roundId = "black-knight-offline-turn"
+        let (model, _) = try offlineBlackKnightModel(roundId: roundId, installedGlobalIds: [31794, 31795, 31796])
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        await model.prepareCourseRound(globalId: 31794, roundId: roundId, teeBox: "blue", nine: "all")
+        model.consumePendingLiveHole()
+        model.setActiveHole(9)
+        XCTAssertTrue(model.courseOptions.isEmpty, "no network catalogue in this test")
+
+        // What RoundHomeView hands the live hole: the network catalogue plus installed templates.
+        let catalogue = NineLoopTurn.loopCatalogue(network: model.courseOptions, downloaded: model.downloadedCourseOptions)
+        let front = try XCTUnwrap(catalogue.first { $0.globalId == 31794 })
+        let siblings = NineLoopTurn.siblings(of: front, in: catalogue)
+        XCTAssertEqual(siblings.map(\.globalId), [31794, 31795, 31796])
+        let plan = try XCTUnwrap(NineLoopTurn.plan(front: front, siblings: siblings, remembered: [:], history: []))
+        XCTAssertEqual(plan.course.loops.map(\.displayName), ["A 场", "B 场", "C 场"])
+        XCTAssertEqual(plan.turnTitle, "A 场打完了")
+        let second = try XCTUnwrap(plan.secondLoop)
+        XCTAssertEqual(second.id, "31795", "the next loop is preselected without a usual pairing")
+
+        await model.continueIntoSecondLoop(
+            globalId: 31794, backGlobalId: try XCTUnwrap(Int(second.id)), roundId: roundId, teeBox: "blue"
+        )
+        XCTAssertEqual(model.package?.holes.map(\.number), Array(1...18))
+        XCTAssertEqual(Set(model.package?.holes.filter { $0.number >= 10 }.compactMap(\.sourceGlobalId) ?? []), [31795])
+        XCTAssertEqual(model.liveRoundState?.activeHole, 10)
+        XCTAssertEqual(model.pendingLiveHole, 10)
+    }
+
     /// Before the second loop's first hole is played it can change — A+B → A+C → A+A — entirely from
     /// installed templates, with the network down.
     func testChangingTheSecondLoopRecomposesFromInstalledTemplatesOffline() async throws {

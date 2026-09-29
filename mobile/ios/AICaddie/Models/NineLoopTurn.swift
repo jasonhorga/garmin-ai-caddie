@@ -19,6 +19,23 @@ enum NineLoopTurn {
         loop(option) ?? NineLoop(id: String(option.globalId), name: option.localizedName)
     }
 
+    /// The course options the live round resolves its loops from: the network catalogue, plus
+    /// every installed template it does not list (offline, or discovery failed). Downloaded
+    /// templates keep their factual venue and loop labels, so the turn works offline.
+    static func loopCatalogue(network: [MobileCourseOption], downloaded: [MobileCourseOption]) -> [MobileCourseOption] {
+        let listed = Set(network.map(\.globalId))
+        return network + downloaded.filter { !listed.contains($0.globalId) }
+    }
+
+    /// The venue's nine-hole loops for `active` (itself included), in loop-label order.
+    static func siblings(of active: MobileCourseOption, in catalogue: [MobileCourseOption]) -> [MobileCourseOption] {
+        guard let venue = active.venueName else { return [] }
+        var seen = Set<Int>()
+        return catalogue
+            .filter { ($0.venueName ?? "") == venue && $0.resolvedHoles == 9 && seen.insert($0.globalId).inserted }
+            .sorted { ($0.resolvedSegmentLabel ?? "~~") < ($1.resolvedSegmentLabel ?? "~~") }
+    }
+
     /// Round hole where the second loop starts (the first hole after the first nine).
     static func firstHoleOfSecondLoop(_ holes: [Int]) -> Int? {
         holes.filter { $0 > 9 }.min()

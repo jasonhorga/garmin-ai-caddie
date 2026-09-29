@@ -3384,11 +3384,8 @@ public struct CurrentHoleView: View {
 
     /// 同球场可作为「另一个 9 洞」的环(9 洞、同球场),含当前环本身。按 A/B/C 排序。
     private var siblingLoops: [MobileCourseOption] {
-        guard let venue = activeCourseOption?.venueName else { return [] }
-        return courseOptions
-            .filter { ($0.venueName ?? "") == venue
-                && ($0.segmentHoles ?? $0.holes) == 9 }
-            .sorted { ($0.resolvedSegmentLabel ?? "~~") < ($1.resolvedSegmentLabel ?? "~~") }
+        guard let active = activeCourseOption else { return [] }
+        return NineLoopTurn.siblings(of: active, in: courseOptions)
     }
 
     /// Sibling loops a menu may offer: only loops with a factual loop label, shown under that

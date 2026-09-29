@@ -380,7 +380,9 @@ public struct RoundHomeView: View {
             CurrentHoleView(
                 package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken,
                 offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState,
-                courseOptions: courseOptions, startingNine: startingNine, isPreparingRound: isPreparingRound,
+                // Network catalogue + installed templates: the turn's loops must resolve offline too.
+                courseOptions: NineLoopTurn.loopCatalogue(network: courseOptions, downloaded: downloadedCourseOptions),
+                startingNine: startingNine, isPreparingRound: isPreparingRound,
                 pendingEventCount: pendingEventCount, isFinishingRound: isFinishingRound,
                 finishErrorMessage: finishErrorMessage,
                 onChangeNine: onChangeNine, onPrepareCourseRound: onPrepareCourseRound,

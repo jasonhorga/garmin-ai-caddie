@@ -64,6 +64,19 @@ final class NineLoopTurnTests: XCTestCase {
         XCTAssertNil(NineLoopTurn.firstHoleOfSecondLoop(Array(1...9)))
     }
 
+    func testTheLiveCatalogueAddsInstalledLoopsTheNetworkDidNotList() {
+        let networkA = loop(1, "A")
+        let installedA = loop(1, "A")
+        let installedB = loop(2, "B")
+        XCTAssertEqual(NineLoopTurn.loopCatalogue(network: [], downloaded: [installedA, installedB]).map(\.globalId), [1, 2])
+        XCTAssertEqual(NineLoopTurn.loopCatalogue(network: [networkA], downloaded: [installedA, installedB]).map(\.globalId), [1, 2])
+        let other = MobileCourseOption(globalId: 9, name: "北湖 ~ A", holes: 9, venueName: "北湖", segmentLabel: "A", segmentHoles: 9)
+        XCTAssertEqual(
+            NineLoopTurn.siblings(of: installedB, in: [installedB, other, installedA, installedA]).map(\.globalId), [1, 2],
+            "same venue only, one row per loop, in loop order"
+        )
+    }
+
     func testTheTurnSheetFreezesEveryControlWhileTheLoopIsBeingAdded() {
         XCTAssertTrue(LiveRoundTurnSheet.acceptsInput(isPreparing: false))
         XCTAssertFalse(
