@@ -1435,6 +1435,109 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(model.pendingLiveHole, 10, "RoundHomeView routes to the second loop's first hole")
     }
 
+    /// An offline store with installed Black Knight loops and a network that answers 503.
+    private func offlineBlackKnightModel(
+        roundId: String,
+        installedGlobalIds: [Int]
+    ) throws -> (model: LiveRoundAppModel, store: OfflineStore) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let labels = [31794: "A", 31795: "B", 31796: "C"]
+        for globalId in installedGlobalIds {
+            let template = try blackKnightLoopPackage(source: source, globalId: globalId, label: labels[globalId] ?? "A")
+            try store.saveCourseTemplate(template)
+            for hole in template.holes {
+                _ = try store.saveCourseTopoImage(
+                    minimalPNGData(),
+                    globalId: hole.sourceGlobalId ?? template.course.globalId,
+                    localHole: hole.sourceLocalHole ?? hole.number,
+                    geometryRevision: hole.geometryRevision
+                )
+            }
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 503,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"detail":"offline"}"#.utf8)
+            )
+        }
+        let client = SyncClient(
+            baseURL: URL(string: "https://offline.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            preferredRoundId: roundId,
+            syncClient: client
+        )
+        return (model, store)
+    }
+
+    /// The turn's continuation fails offline when the chosen loop is not installed: the round and
+    /// its cursor stay on the first loop and nothing navigates, so the turn sheet (still on
+    /// screen, since the hole set did not change) can offer a retry.
+    func testContinueIntoSecondLoopOfflineWithoutTheLoopKeepsTheRoundOnHoleNine() async throws {
+        let roundId = "black-knight-turn-offline"
+        let (model, _) = try offlineBlackKnightModel(roundId: roundId, installedGlobalIds: [31794])
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        await model.prepareCourseRound(globalId: 31794, roundId: roundId, teeBox: "blue", nine: "all")
+        model.consumePendingLiveHole()
+        model.setActiveHole(9)
+
+        await model.continueIntoSecondLoop(globalId: 31794, backGlobalId: 31795, roundId: roundId, teeBox: "blue")
+
+        XCTAssertEqual(model.package?.holes.map(\.number), Array(1...9), "no installed B: the round keeps its nine")
+        XCTAssertEqual(model.liveRoundState?.activeHole, 9)
+        XCTAssertNil(model.pendingLiveHole, "a failed continuation must not navigate")
+        XCTAssertFalse(model.isPreparingRound)
+    }
+
+    /// Before the second loop's first hole is played it can change — A+B → A+C → A+A — entirely from
+    /// installed templates, with the network down.
+    func testChangingTheSecondLoopRecomposesFromInstalledTemplatesOffline() async throws {
+        let roundId = "black-knight-change-back"
+        let (model, _) = try offlineBlackKnightModel(roundId: roundId, installedGlobalIds: [31794, 31795, 31796])
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        await model.prepareCourseRound(globalId: 31794, roundId: roundId, teeBox: "blue", nine: "all")
+        await model.prepareCompositeRound(globalId: 31794, backGlobalId: 31795, roundId: roundId, teeBox: "blue")
+        XCTAssertEqual(Set(model.package?.holes.filter { $0.number >= 10 }.compactMap(\.sourceGlobalId) ?? []), [31795])
+
+        await model.prepareCompositeRound(globalId: 31794, backGlobalId: 31796, roundId: roundId, teeBox: "blue")
+        XCTAssertEqual(model.package?.holes.map(\.number), Array(1...18))
+        XCTAssertEqual(
+            Set(model.package?.holes.filter { $0.number >= 10 }.compactMap(\.sourceGlobalId) ?? []), [31796],
+            "A+B → A+C must use the installed C template offline"
+        )
+        XCTAssertEqual(
+            Set(model.package?.holes.filter { $0.number <= 9 }.compactMap(\.sourceGlobalId) ?? []), [31794],
+            "the first loop is untouched"
+        )
+
+        await model.prepareCompositeRound(globalId: 31794, backGlobalId: 31794, roundId: roundId, teeBox: "blue")
+        XCTAssertEqual(model.package?.holes.map(\.number), Array(1...18))
+        XCTAssertEqual(
+            Set(model.package?.holes.filter { $0.number >= 10 }.compactMap(\.sourceGlobalId) ?? []), [31794],
+            "A+C → A+A replays the first loop as holes 10–18"
+        )
+        XCTAssertEqual(model.package?.holes.first(where: { $0.number == 10 })?.sourceLocalHole, 1)
+    }
+
     func testPrepareCourseRoundEntersDownloadedTemplateBeforeRevalidatingInBackground() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

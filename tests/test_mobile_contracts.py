@@ -2382,6 +2382,20 @@ class MobileContractTests(unittest.TestCase):
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
         self.assertIn("onContinueIntoSecondLoop: onContinueIntoSecondLoop", round_home)
         self.assertIn("await model.continueIntoSecondLoop(", app)
+        # The turn sheet stays up while the continuation prepares; the model's package replacement
+        # rebuilds the destination (dismissing it), and a preparation that ends without that keeps
+        # the choice on screen with a retry message.
+        cont = current_hole.split("    private func continueIntoSecondLoop(_ loop: NineLoop) {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertNotIn("turnPlan = nil", cont)
+        self.assertIn("turnContinuationPending = true", cont)
+        self.assertIn("isPreparing: isPreparingRound || turnContinuationPending", current_hole)
+        self.assertIn('failureText: turnContinuationFailed ? "没能接上这个 9 洞，请重试" : nil', current_hole)
+        self.assertIn('.accessibilityIdentifier("turn-failure")', sheet)
+        # Changing the second loop before it starts recomposes from installed templates offline.
+        compose = app.split("public func prepareCompositeRound(", 1)[1].split("let fetched = await", 1)[0]
+        self.assertNotIn("!current.isCompositeNineRound", compose)
+        self.assertIn("current.removingCompositeBackNine() ?? current", compose)
+        self.assertIn("firstLoop.composingBackNine(", compose)
         # No synthesized loop names in any selectable B4 control: the turn and both live-round
         # loop menus (＋加打 / 改打) offer only factual loop labels.
         self.assertIn("siblingLoops.compactMap { option in NineLoopTurn.loop(option).map { (option: option, loop: $0) } }", current_hole)

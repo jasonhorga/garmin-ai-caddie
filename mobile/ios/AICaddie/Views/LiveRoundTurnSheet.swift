@@ -7,6 +7,8 @@ import SwiftUI
 struct LiveRoundTurnSheet: View {
     @State var plan: NineLoopPlan
     let isPreparing: Bool
+    /// Shown when the last continuation could not add the loop; the choice stays actionable.
+    var failureText: String? = nil
     let onContinue: (NineLoop) -> Void
     let onStop: () -> Void
     let onLater: () -> Void
@@ -37,6 +39,12 @@ struct LiveRoundTurnSheet: View {
                 }
             }
             stopTile
+            if let failureText, !isPreparing {
+                Label(failureText, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.orange)
+                    .accessibilityIdentifier("turn-failure")
+            }
             Button {
                 if let loop = plan.secondLoop { onContinue(loop) } else { onStop() }
             } label: {

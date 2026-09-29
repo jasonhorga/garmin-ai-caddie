@@ -2371,11 +2371,15 @@ public final class LiveRoundAppModel: ObservableObject {
             if !isNewRound,
                let current = package,
                current.roundId == requestedRoundId,
-               current.course.globalId == globalId,
-               !current.isCompositeNineRound {
+               current.course.globalId == globalId {
+                // Adding the second loop, or changing it before it starts (A+B → A+C / A+A), is a
+                // local composition of installed loops: trim an existing back nine first.
+                let firstLoop = current.isCompositeNineRound
+                    ? (current.removingCompositeBackNine() ?? current)
+                    : current
                 let installedBack: LiveRoundPackage?
                 if backGlobalId == globalId {
-                    installedBack = current
+                    installedBack = firstLoop
                 } else {
                     installedBack = try offlineStore.loadCourseTemplate(
                         globalId: backGlobalId,
@@ -2384,7 +2388,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     )
                 }
                 if let installedBack,
-                   let localComposite = current.composingBackNine(
+                   let localComposite = firstLoop.composingBackNine(
                        from: installedBack,
                        roundId: requestedRoundId
                    ) {

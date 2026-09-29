@@ -166,6 +166,11 @@ public struct CurrentHoleView: View {
     @State private var showRoundSummary = false
     /// B4 turn: after the last hole of a single first loop, ask which nine comes next.
     @State private var turnPlan: NineLoopPlan?
+    /// A turn continuation is in flight. The sheet stays up (spinner, disabled) until the model
+    /// replaces the package — which rebuilds this destination for the new hole set — so a failed
+    /// or offline preparation leaves the choice on screen with a retry message.
+    @State private var turnContinuationPending = false
+    @State private var turnContinuationFailed = false
     @State private var showDiscardConfirmation = false
     /// B1c Touch Target on the main map: screen point of the finger while the target is dragged
     /// (drives the loupe), whether that drag owns the gesture, and a one-runloop tap suppressor.
@@ -506,7 +511,8 @@ public struct CurrentHoleView: View {
             if let turnPlan {
                 LiveRoundTurnSheet(
                     plan: turnPlan,
-                    isPreparing: isPreparingRound,
+                    isPreparing: isPreparingRound || turnContinuationPending,
+                    failureText: turnContinuationFailed ? "没能接上这个 9 洞，请重试" : nil,
                     onContinue: continueIntoSecondLoop,
                     onStop: {
                         self.turnPlan = nil
@@ -515,6 +521,13 @@ public struct CurrentHoleView: View {
                     onLater: { self.turnPlan = nil }
                 )
             }
+        }
+        .onChange(of: isPreparingRound) { wasPreparing, preparing in
+            // Still here after the preparation ended: the package did not grow (offline, no
+            // installed template, request failed). Keep the sheet and offer a retry.
+            guard wasPreparing, !preparing, turnContinuationPending else { return }
+            turnContinuationPending = false
+            turnContinuationFailed = true
         }
         .confirmationDialog(
             "放弃这场球局？",
@@ -3289,9 +3302,10 @@ public struct CurrentHoleView: View {
         guard let back = Int(loop.id) else { return }
         let front = package.course.globalId
         try? offlineStore?.rememberNineLoopPairing(front: front, back: back)
-        turnPlan = nil
         // The model adds the loop and opens its first hole: this view is rebuilt for the new hole
-        // set, so it cannot own that navigation.
+        // set, so it cannot own that navigation. The sheet stays until then.
+        turnContinuationFailed = false
+        turnContinuationPending = true
         onContinueIntoSecondLoop(front, back, package.course.teeBox, package.roundId)
     }
 
