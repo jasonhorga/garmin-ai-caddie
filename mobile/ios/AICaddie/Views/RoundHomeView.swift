@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 import SwiftUI
 
@@ -106,6 +107,13 @@ public struct RoundHomeView: View {
     @State private var path: [HubRoute] = []
     /// The last round's 18-hole symbol strip, from the cached round archive (empty when unknown).
     @State private var lastRoundStrip: [HistoryScoreCell] = []
+    /// README §8 "在球场附近": the home's own fix (never a permission prompt here — the start
+    /// screen asks) and the provider-nearby courses around it, from the same nearby authority as
+    /// 开始一场.
+    @StateObject private var heroLocation = LocationProvider()
+    @State private var heroNearbyOptions: [MobileCourseOption] = []
+    /// Archived rounds, newest first: each venue's last first loop and tee.
+    @State private var heroHistory: [HistoryRoundCard] = []
 
     public init(
         package: LiveRoundPackage,
@@ -312,6 +320,10 @@ public struct RoundHomeView: View {
             .task(id: package.recentHistory.rounds.first?.roundId) {
                 loadLastRoundStrip()
             }
+            .onAppear(perform: startHeroLocation)
+            .task(id: heroNearbyKey) {
+                await refreshHeroNearby()
+            }
         }
         // The NavigationStack owns the system status bar, so the immersive hole destination cannot
         // hide it reliably from inside CurrentHoleView. Keep normal chrome on every non-live route.
@@ -451,15 +463,73 @@ public struct RoundHomeView: View {
     // MARK: - 主卡(README §8:进行中 / 上次的球场 / 搜索)
 
     private var heroState: HubHeroState {
-        HubHeroState.resolve(
+        var nearby: HubCourseSuggestion?
+        if let fix = heroLocation.latestFix,
+           let loops = HubNearby.currentVenue(
+               options: heroNearbyOptions,
+               latitude: fix.coordinate.latitude,
+               longitude: fix.coordinate.longitude
+           ) {
+            nearby = HubCourseSuggestion.forVenue(loops, history: heroHistory, recent: recentCourseOption)
+        }
+        return HubHeroState.resolve(
             hasActiveRound: liveRoundState != nil,
             hasPendingWatchRound: pendingWatchRoundStart != nil,
-            suggestion: HubCourseSuggestion.make(
+            nearby: nearby,
+            replay: HubCourseSuggestion.make(
                 recent: recentCourseOption,
                 homeCourse: package.course,
                 catalogue: courseOptions,
                 downloaded: downloadedCourseOptions
             )
+        )
+    }
+
+    /// The home never prompts for location; it listens when the player has already allowed it.
+    private func startHeroLocation() {
+        switch heroLocation.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            heroLocation.startUpdatingLocation()
+        default:
+            break
+        }
+        heroHistory = (try? offlineStore?.loadHistoryRoundsArchive())?.groups.flatMap(\.rounds) ?? []
+    }
+
+    /// Re-query nearby only when the fix moves materially (≈100 m) and no round is active.
+    private var heroNearbyKey: String {
+        guard liveRoundState == nil, let fix = heroLocation.latestFix else { return "none" }
+        let lat = (fix.coordinate.latitude * 1_000).rounded() / 1_000
+        let lon = (fix.coordinate.longitude * 1_000).rounded() / 1_000
+        return "\(lat),\(lon)"
+    }
+
+    @MainActor
+    private func refreshHeroNearby() async {
+        guard liveRoundState == nil, let fix = heroLocation.latestFix else { return }
+        guard let matches = try? await onNearbyCourses(
+            fix.coordinate.latitude,
+            fix.coordinate.longitude,
+            5
+        ) else { return }
+        heroNearbyOptions = matches.compactMap { match -> MobileCourseOption? in
+            guard let provider = match.courseOption else { return nil }
+            return StartRoundView.reconciledCourseOption(
+                provider: provider,
+                catalogue: courseOptions.first { $0.globalId == match.globalId },
+                downloaded: downloadedCourseOptions.first { $0.globalId == match.globalId }
+            )
+        }
+    }
+
+    /// "开始" / "再打上次那个": start that loop and tee directly; the Hub enters the first hole when
+    /// the round is prepared (pendingLiveHole → path).
+    private func startSuggested(_ suggestion: HubCourseSuggestion) {
+        onPrepareCourseRound(
+            suggestion.globalId,
+            StartRoundView.freshLiveRoundId(globalId: suggestion.globalId),
+            suggestion.teeBox ?? "unknown",
+            suggestion.nine
         )
     }
 
@@ -495,30 +565,42 @@ public struct RoundHomeView: View {
                     activeHole: pendingWatchRoundStart.activeHole
                 )
             }
-        case .suggestion(let suggestion):
-            // "开始" opens 开始一场 with this course and tee preselected; "换球场或组合" opens it plain.
+        case .nearby(let suggestion):
+            // At this course: "开始" starts its last first loop + tee directly; "换球场或组合" opens
+            // 开始一场.
             HubSuggestedCourseCard(courseName: suggestion.courseName, startTitle: suggestion.startTitle) {
-                NavigationLink(
-                    value: HubRoute.startCourse(globalId: suggestion.globalId, teeBox: suggestion.teeBox)
-                ) {
+                Button {
+                    startSuggested(suggestion)
+                } label: {
                     HubPrimaryPill(title: "开始")
                 }
                 .buttonStyle(.plain)
-                .accessibilityIdentifier("home-new-round")
+                .disabled(isPreparingRound)
+                .accessibilityIdentifier("home-start-nearby")
                 NavigationLink(value: HubRoute.start) {
                     HubSecondaryLinkLabel(title: "换球场或组合")
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("home-change-course")
             }
-        case .search:
-            NavigationLink(value: HubRoute.start) {
-                HubSearchHeroCard(
-                    lastCourseName: package.recentHistory.rounds.first?.localizedCourseDisplayName
-                )
+        case .search(let replay):
+            VStack(spacing: 10) {
+                NavigationLink(value: HubRoute.start) {
+                    HubSearchHeroCard(lastCourseName: nil)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("home-new-round")
+                if let replay {
+                    Button {
+                        startSuggested(replay)
+                    } label: {
+                        HubReplayLastCard(courseName: replay.courseName, startTitle: replay.startTitle)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isPreparingRound)
+                    .accessibilityIdentifier("home-replay-last")
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("home-new-round")
         }
     }
 
@@ -876,6 +958,45 @@ struct HubPrimaryPill: View {
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .background(LiveHoleStyle.green)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+/// "再打上次那个": the last course with its first loop + tee, one tap starts it.
+struct HubReplayLastCard: View {
+    let courseName: String
+    let startTitle: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.counterclockwise")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(LiveHoleStyle.green)
+                .frame(width: 36, height: 36)
+                .background(HubStyle.iconTint)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("再打上次那个")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(courseName)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(startTitle)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "play.fill")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(LiveHoleStyle.green)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(Rectangle())
     }
 }
 

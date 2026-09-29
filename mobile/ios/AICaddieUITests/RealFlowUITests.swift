@@ -1032,9 +1032,18 @@ final class RealFlowUITests: XCTestCase {
 
         app.buttons["保存并结束"].tap()
         XCTAssertTrue(
-            app.buttons["home-new-round"].waitForExistence(timeout: 8),
+            waitForHomeNewRoundEntry(timeout: 8),
             "a finished round must return to the approved product home with a new-round entry"
         )
+        // README §8: standing at the course (the journey's GPS fix), the main card offers this
+        // course's last first loop + tee and "开始" starts it directly — not the setup form.
+        let startHere = app.buttons["home-start-nearby"]
+        if startHere.exists {
+            XCTAssertTrue(
+                app.buttons["home-change-course"].exists,
+                "the course-here card keeps 换球场或组合 next to its one-tap 开始"
+            )
+        }
         XCTAssertFalse(app.navigationBars["开始一场"].exists, "finish must not strand the player in the setup form")
         XCTAssertFalse(app.staticTexts["进行中"].exists, "the explicitly finished round must no longer be active")
         settle(1); save("journey-finished-home"); dump("journey-finished-home")
@@ -1359,7 +1368,7 @@ final class RealFlowUITests: XCTestCase {
             ).firstMatch.exists
         )
         app.buttons["保存并结束"].tap()
-        XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForHomeNewRoundEntry(timeout: 10))
         XCTAssertTrue(
             waitUntilGone(app.buttons["home-in-progress-round"], timeout: 8),
             "local UI-test cleanup must remove only the temporary new-course round"
@@ -1367,6 +1376,14 @@ final class RealFlowUITests: XCTestCase {
     }
 
     // MARK: - navigation helpers
+
+    /// The home's new-round entry: the course-here card's one-tap 开始, or the search card.
+    private func waitForHomeNewRoundEntry(timeout: TimeInterval) -> Bool {
+        let entry = app.buttons.matching(
+            NSPredicate(format: "identifier IN %@", ["home-start-nearby", "home-new-round"])
+        ).firstMatch
+        return entry.waitForExistence(timeout: timeout)
+    }
 
     private func restoreDefaultGPSLaunchEnvironment() {
         app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.0454995"

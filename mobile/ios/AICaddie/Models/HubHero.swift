@@ -7,8 +7,10 @@ struct HubCourseSuggestion: Equatable {
     let courseName: String
     /// "从 B 场 开始 · 蓝 T".
     let startTitle: String
-    /// The tee to preselect on 开始一场; nil when unknown.
+    /// The tee to start with / preselect on 开始一场; nil when unknown (the course default).
     let teeBox: String?
+    /// The loop's `nine` for a one-tap start (a nine-hole loop, or a whole course, is "all").
+    var nine: String = "all"
 
     static func make(
         recent: MobileCourseOption?,
@@ -37,6 +39,27 @@ struct HubCourseSuggestion: Equatable {
         return nil
     }
 
+    /// The course the player is at (README §8 "在球场附近"): that venue's own last first loop and
+    /// tee — the newest archived round on one of its loops, else the recent course when it is one
+    /// of them, else the venue's first loop with the course default tee.
+    static func forVenue(
+        _ loops: [MobileCourseOption],
+        history: [HistoryRoundCard],
+        recent: MobileCourseOption?
+    ) -> HubCourseSuggestion? {
+        guard let first = loops.first else { return nil }
+        let ids = Set(loops.map(\.globalId))
+        if let played = history.first(where: { $0.globalId.map(ids.contains) ?? false }),
+           let loopId = played.globalId,
+           let loop = loops.first(where: { $0.globalId == loopId }) {
+            return suggestion(for: loop, teeBox: played.teeBox)
+        }
+        if let recent, let loop = loops.first(where: { $0.globalId == recent.globalId }) {
+            return suggestion(for: loop, teeBox: recent.teeBox)
+        }
+        return suggestion(for: first, teeBox: nil)
+    }
+
     private static func suggestion(for option: MobileCourseOption, teeBox: String?) -> HubCourseSuggestion {
         let tee = teeBox.flatMap { raw -> String? in
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -56,26 +79,58 @@ struct HubCourseSuggestion: Equatable {
     }
 }
 
+/// The venue the player is standing at: the nearest provider-nearby course within an on-course
+/// radius, with all of that venue's loops in loop order. Uses the same nearby authority as
+/// 开始一场 (`model.nearbyCourses`); nothing here guesses a venue without a fix.
+enum HubNearby {
+    /// Within this distance of a loop's tee anchor the player is at that venue.
+    static let onCourseMetres: Double = 3_000
+
+    static func currentVenue(
+        options: [MobileCourseOption],
+        latitude: Double,
+        longitude: Double,
+        withinMetres: Double = onCourseMetres
+    ) -> [MobileCourseOption]? {
+        var nearest: (option: MobileCourseOption, metres: Double)?
+        for option in options {
+            guard let lat = option.latitude, let lon = option.longitude else { continue }
+            let metres = StartRoundView.haversineMetres(latitude, longitude, lat, lon)
+            if nearest == nil || metres < nearest!.metres {
+                nearest = (option, metres)
+            }
+        }
+        guard let nearest, nearest.metres <= withinMetres else { return nil }
+        let venue = nearest.option.venueDisplayName
+        var seen = Set<Int>()
+        return options
+            .filter { $0.venueDisplayName == venue && seen.insert($0.globalId).inserted }
+            .sorted { ($0.resolvedSegmentLabel ?? "~~") < ($1.resolvedSegmentLabel ?? "~~") }
+    }
+}
+
 /// Which main card the home shows (README §8, `pre-round.html` screen 1).
 enum HubHeroState: Equatable {
     /// A round is in progress → "继续第 N 洞".
     case inProgress
     /// A Watch-started round is still being fetched; no new-round entry.
     case pendingWatch
-    /// A known course → "从 B 场 开始 · 蓝 T" + 开始 + 换球场或组合.
-    case suggestion(HubCourseSuggestion)
-    /// No course known → "今天去哪打？" + search.
-    case search
+    /// At a course → that course with its last first loop + tee, "开始" starts it directly.
+    case nearby(HubCourseSuggestion)
+    /// Not at a course → "今天去哪打？" + search, and a separate one-tap "再打上次那个" when a
+    /// last course is known.
+    case search(replay: HubCourseSuggestion?)
 
     static func resolve(
         hasActiveRound: Bool,
         hasPendingWatchRound: Bool,
-        suggestion: HubCourseSuggestion?
+        nearby: HubCourseSuggestion?,
+        replay: HubCourseSuggestion?
     ) -> HubHeroState {
         if hasActiveRound { return .inProgress }
         if hasPendingWatchRound { return .pendingWatch }
-        if let suggestion { return .suggestion(suggestion) }
-        return .search
+        if let nearby { return .nearby(nearby) }
+        return .search(replay: replay)
     }
 
     /// The round's score to par over the holes that have a recorded score; nil when nothing is

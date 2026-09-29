@@ -1898,7 +1898,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn('Text("打球")', round_home)
         self.assertIn("case startCourse(globalId: Int, teeBox: String?)", round_home)
         self.assertIn("defaultCourseGlobalId: globalId,", round_home)
-        self.assertIn("HubRoute.startCourse(globalId: suggestion.globalId, teeBox: suggestion.teeBox)", round_home)
         self.assertIn('.accessibilityIdentifier("home-change-course")', round_home)
         self.assertIn('HubSecondaryLinkLabel(title: "换球场或组合")', round_home)
 
@@ -2240,13 +2239,26 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('"下午好"', round_home)
 
         # B4b (README §8): the home's main card switches by situation — in progress → 继续第 N 洞
-        # (big to-par when known, 已打 N 洞); a known course (recent, else the home package course
-        # the catalogue knows) → its first loop + tee + 开始 / 换球场或组合; none → 今天去哪打？ + search.
+        # (big to-par when known, 已打 N 洞); at a course (the same nearby authority as 开始一场)
+        # → that course's last first loop + tee, 开始 starts it directly, 换球场或组合; not at a course
+        # → 今天去哪打？ + search, plus a separate one-tap 再打上次那个.
         hero = _read_required_source(self, IOS_DIR / "Models" / "HubHero.swift")
         self.assertIn("switch heroState {", round_home)
         self.assertIn("case .inProgress:", round_home)
-        self.assertIn("case .suggestion(let suggestion):", round_home)
-        self.assertIn("case .search:", round_home)
+        self.assertIn("case .nearby(let suggestion):", round_home)
+        self.assertIn("case .search(let replay):", round_home)
+        self.assertIn("HubNearby.currentVenue(", round_home)
+        self.assertIn("HubCourseSuggestion.forVenue(loops, history: heroHistory, recent: recentCourseOption)", round_home)
+        self.assertIn("try? await onNearbyCourses(", round_home)
+        self.assertIn('.accessibilityIdentifier("home-start-nearby")', round_home)
+        self.assertIn('.accessibilityIdentifier("home-replay-last")', round_home)
+        self.assertIn('Text("再打上次那个")', round_home)
+        # 开始 / 再打上次那个 start directly (no setup form); the home never prompts for location.
+        start = round_home.split("private func startSuggested(_ suggestion: HubCourseSuggestion) {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("onPrepareCourseRound(", start)
+        self.assertIn("StartRoundView.freshLiveRoundId(globalId: suggestion.globalId)", start)
+        self_location = round_home.split("private func startHeroLocation() {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertNotIn("requestAuthorization", self_location)
         self.assertIn('HubPrimaryPill(title: "继续第 \\(activeHole) 洞", fullWidth: true)', round_home)
         self.assertIn('Text("已打 \\(recorded) 洞")', round_home)
         self.assertIn('Text("进行中")', round_home)
@@ -2254,7 +2266,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('Text("今天去哪打？")', round_home)
         self.assertIn('Text("搜索球场或城市")', round_home)
         self.assertIn('.accessibilityIdentifier("home-in-progress-round")', round_home)
-        self.assertEqual(round_home.count('.accessibilityIdentifier("home-new-round")'), 2)
+        self.assertEqual(round_home.count('.accessibilityIdentifier("home-new-round")'), 1)
         self.assertIn("recent: recentCourseOption,", round_home)
         self.assertIn("homeCourse: package.course,", round_home)
         self.assertIn("StartRoundPresentation.startActionTitle(", hero)

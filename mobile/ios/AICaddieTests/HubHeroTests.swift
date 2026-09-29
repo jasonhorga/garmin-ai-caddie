@@ -15,24 +15,90 @@ final class HubHeroTests: XCTestCase {
         tees: ["Gold", "Blue", "White"]
     )
 
-    func testHeroStatePrefersTheActiveRoundThenWatchThenACourseThenSearch() {
-        let suggestion = HubCourseSuggestion(globalId: 1, courseName: "x", startTitle: "开始", teeBox: nil)
+    func testHeroStatePrefersTheActiveRoundThenWatchThenTheCourseHereThenSearch() {
+        let here = HubCourseSuggestion(globalId: 1, courseName: "x", startTitle: "开始", teeBox: nil)
+        let last = HubCourseSuggestion(globalId: 2, courseName: "y", startTitle: "开始", teeBox: nil)
         XCTAssertEqual(
-            HubHeroState.resolve(hasActiveRound: true, hasPendingWatchRound: true, suggestion: suggestion),
+            HubHeroState.resolve(hasActiveRound: true, hasPendingWatchRound: true, nearby: here, replay: last),
             .inProgress
         )
         XCTAssertEqual(
-            HubHeroState.resolve(hasActiveRound: false, hasPendingWatchRound: true, suggestion: suggestion),
+            HubHeroState.resolve(hasActiveRound: false, hasPendingWatchRound: true, nearby: here, replay: last),
             .pendingWatch
         )
         XCTAssertEqual(
-            HubHeroState.resolve(hasActiveRound: false, hasPendingWatchRound: false, suggestion: suggestion),
-            .suggestion(suggestion)
+            HubHeroState.resolve(hasActiveRound: false, hasPendingWatchRound: false, nearby: here, replay: last),
+            .nearby(here)
         )
         XCTAssertEqual(
-            HubHeroState.resolve(hasActiveRound: false, hasPendingWatchRound: false, suggestion: nil),
-            .search
+            HubHeroState.resolve(hasActiveRound: false, hasPendingWatchRound: false, nearby: nil, replay: last),
+            .search(replay: last),
+            "no course here: search plus a separate 再打上次那个"
         )
+        XCTAssertEqual(
+            HubHeroState.resolve(hasActiveRound: false, hasPendingWatchRound: false, nearby: nil, replay: nil),
+            .search(replay: nil)
+        )
+    }
+
+    private func loop(_ id: Int, _ venue: String, _ label: String, lat: Double, lon: Double) -> MobileCourseOption {
+        MobileCourseOption(
+            globalId: id,
+            name: "\(venue) ~ \(label)",
+            holes: 9,
+            teeBox: "blue",
+            venueName: venue,
+            segmentLabel: label,
+            segmentHoles: 9,
+            latitude: lat,
+            longitude: lon
+        )
+    }
+
+    private func card(_ id: String, globalId: Int, teeBox: String?) throws -> HistoryRoundCard {
+        var json = #"{"id":"\#(id)","courseName":"x","globalId":\#(globalId)"#
+        if let teeBox { json += #","teeBox":"\#(teeBox)""# }
+        json += "}"
+        return try JSONDecoder().decode(HistoryRoundCard.self, from: Data(json.utf8))
+    }
+
+    func testTheCurrentVenueIsTheNearestCourseWithinTheOnCourseRadius() throws {
+        let knightA = loop(31794, "黑骑士", "A", lat: 40.10, lon: 116.50)
+        let knightB = loop(31795, "黑骑士", "B", lat: 40.101, lon: 116.501)
+        let palace = loop(31793, "丽宫", "A", lat: 40.02, lon: 116.40)
+        let here = try XCTUnwrap(
+            HubNearby.currentVenue(options: [palace, knightB, knightA], latitude: 40.1002, longitude: 116.5002)
+        )
+        XCTAssertEqual(here.map(\.globalId), [31794, 31795], "that venue's loops, in loop order")
+        XCTAssertNil(
+            HubNearby.currentVenue(options: [palace, knightA], latitude: 40.30, longitude: 116.90),
+            "20+ km away is not \"at a course\""
+        )
+        let unlocated = MobileCourseOption(globalId: 9, name: "x", holes: 9, venueName: "x", segmentHoles: 9)
+        XCTAssertNil(HubNearby.currentVenue(options: [unlocated], latitude: 40.1, longitude: 116.5))
+    }
+
+    func testNearXAfterLastPlayingYOffersXsOwnLastLoopAndTee() throws {
+        let knightA = loop(31794, "黑骑士", "A", lat: 40.10, lon: 116.50)
+        let knightB = loop(31795, "黑骑士", "B", lat: 40.101, lon: 116.501)
+        // The newest round was elsewhere (Y); the newest round at 黑骑士 started on B with the white tee.
+        let history = [
+            try card("y-newest", globalId: 31793, teeBox: "blue"),
+            try card("x-last", globalId: 31795, teeBox: "white"),
+            try card("x-older", globalId: 31794, teeBox: "red"),
+        ]
+        let recentY = loop(31793, "丽宫", "A", lat: 40.02, lon: 116.40)
+        let here = try XCTUnwrap(HubCourseSuggestion.forVenue([knightA, knightB], history: history, recent: recentY))
+        XCTAssertEqual(here.globalId, 31795)
+        XCTAssertEqual(here.teeBox, "white")
+        XCTAssertEqual(here.startTitle, "从 B 场 开始 · 白 T")
+        XCTAssertEqual(here.nine, "all")
+
+        // Never played here: the venue's first loop with the course default tee.
+        let fresh = try XCTUnwrap(HubCourseSuggestion.forVenue([knightA, knightB], history: [], recent: recentY))
+        XCTAssertEqual(fresh.globalId, 31794)
+        XCTAssertNil(fresh.teeBox)
+        XCTAssertEqual(fresh.startTitle, "从 A 场 开始")
     }
 
     func testRecentCourseOffersItsFirstLoopAndLastTee() throws {
