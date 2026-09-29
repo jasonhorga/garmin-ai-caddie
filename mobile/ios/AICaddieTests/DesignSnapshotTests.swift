@@ -261,19 +261,29 @@ final class DesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderRoundHome() throws {
+        // README §8 home main card, all three states: in progress, a known course, no course.
+        let deltas: [Int] = [0, 1, 0, -1, 1, 0, 1, 2, 0, 0, 1, 0, -1, 1, 0, 1, 0, 3]
+        let strip: [HistoryScoreCell] = deltas.enumerated().map { index, delta in
+            HistoryScoreCell(hole: index + 1, par: 4, score: 4 + delta, toPar: delta, className: nil)
+        }
         let view = VStack(spacing: 14) {
-            HubInProgressCard(courseName: "北京丽宫 · 前九", activeHole: 8, recorded: 7, total: 9)
-            HubPlayTile()
+            HubInProgressCard(courseName: "北京丽宫", activeHole: 7, recorded: 6, total: 9, toPar: 2)
+            HubSuggestedCourseCard(courseName: "北京天竺黑骑士球员俱乐部", startTitle: "从 B 场 开始 · 蓝 T") {
+                HubPrimaryPill(title: "开始")
+                HubSecondaryLinkLabel(title: "换球场或组合")
+            }
+            HubSearchHeroCard(lastCourseName: "北京天竺黑骑士球员俱乐部")
             HStack(spacing: 11) {
                 HubTile(icon: "scope", title: "备战", subtitle: "搜索 · 球童试算")
                 HubTile(icon: "chart.line.uptrend.xyaxis", title: "成绩", subtitle: "球局 · 统计")
             }
             VStack(alignment: .leading, spacing: 9) {
                 HubSectionLabel("上一场")
-                HubLastRoundCard(courseName: "Cypress Point Club", date: "2026-07-30", score: 55, toPar: -20,
-                                 holesCompleted: 18, par: 75,
+                HubLastRoundCard(courseName: "Cypress Point Club", date: "2026-07-30", score: 82, toPar: 10,
+                                 holesCompleted: 18, par: 72,
                                  topoURL: SyncClient.topoImageURL(
-                                     baseURL: URL(string: "https://caddie.example")!, globalId: 3881, localHole: 1))
+                                     baseURL: URL(string: "https://caddie.example")!, globalId: 3881, localHole: 1),
+                                 scoreStrip: strip)
             }
         }
         .padding(16)
@@ -589,7 +599,16 @@ final class DesignSnapshotTests: XCTestCase {
         // Pass a non-nil apiBaseURL so the 备战 tile (gated on apiBaseURL) renders — without it
         // the snapshot hides 备战 and misrepresents the real app.
         let apiBaseURL = URL(string: "https://caddie.example")
+        // The fixture package's course (31795 = 黑骑士 B) is in the catalogue → the home offers it.
         try captureScreen(RoundHomeView(package: package, apiBaseURL: apiBaseURL, courseOptions: courses), named: "full-home")
+        // README §8 "near": the last explicitly started course + its first loop and tee.
+        let recentBlackKnightB = MobileCourseOption(globalId: 31795, name: "北京天竺黑骑士球员俱乐部 ~ B", holes: 9, teeBox: "blue", venueName: "北京天竺黑骑士球员俱乐部", segmentLabel: "B", segmentHoles: 9, tees: ["blue"])
+        try captureScreen(
+            RoundHomeView(package: package, apiBaseURL: apiBaseURL, courseOptions: courses, recentCourseOption: recentBlackKnightB),
+            named: "full-home-near"
+        )
+        // No known course → "今天去哪打？" + search.
+        try captureScreen(RoundHomeView(package: package, apiBaseURL: apiBaseURL), named: "full-home-search")
         // Hub WITH an in-progress round → shows the 进行中 card + 「结束本场」(cancel) button.
         let activeState = LiveRoundStateSnapshot(roundId: package.roundId, activeHole: package.holes.first?.number ?? 1, holes: [])
         try captureScreen(
@@ -597,6 +616,12 @@ final class DesignSnapshotTests: XCTestCase {
             named: "full-home-active"
         )
         try captureScreen(NavigationStack { StartRoundView(courseOptions: courses) }, named: "full-start")
+        // 开始一场 with 黑骑士 B preselected (the home "开始"): one list row, A/B/C tiles, tee dots,
+        // "从 B 场 开始 · 蓝 T".
+        try captureScreen(
+            NavigationStack { StartRoundView(defaultCourseGlobalId: 31795, courseOptions: courses) },
+            named: "full-start-selected"
+        )
         try captureScreen(NavigationStack { PrepCoursePickerView(courseOptions: courses, apiBaseURL: apiBaseURL, adminToken: nil) }, named: "full-prep-picker")
         try captureScreen(
             NavigationStack {

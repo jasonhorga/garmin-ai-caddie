@@ -2,9 +2,9 @@ import XCTest
 
 /// Real running-app screenshots of the 发球台 (tee) picker on 开始一场 (XCUITest, not ImageRenderer).
 /// Launches the ACTUAL app pointed at the live backend (funnel) with the owner admin token + a
-/// simulated on-course GPS fix (all via launchEnvironment), navigates 打球 → 开始一场, opens the tee
-/// selector and captures it. The tee options come from `GET /api/v2/courses/{id}/tees` (colour + total
-/// yards + default), so the open menu shows real tee choices with yardage. PNGs + per-screen
+/// simulated on-course GPS fix (all via launchEnvironment), navigates 首页主卡 → 开始一场, selects a
+/// tee dot and captures it. The tee options come from `GET /api/v2/courses/{id}/tees` (colour + total
+/// yards + default), so the tee row shows real tee choices with yardage. PNGs + per-screen
 /// accessibility-tree dumps are written to the test process Documents dir; native-mobile.yml collects
 /// `*Documents/real-screenshots/*`.
 final class TeeSelectionUITests: XCTestCase {
@@ -59,30 +59,29 @@ final class TeeSelectionUITests: XCTestCase {
         launchFresh()
         save("01-home"); dump("01-home")
 
-        // 打球 → 开始一场 (StartRoundView). The wide primary tile opens the start screen.
-        guard tapContaining(["打球", "开始一场", "开始记分"]) else {
+        // 首页主卡 → 开始一场 (StartRoundView), opened without a preselected course.
+        guard openStartRound() else {
             save("02-start-missing"); dump("02-start-missing")
             XCTFail("the real home must expose and open 开始一场")
             return
         }
         settle(9)
-        save("02-start-round"); dump("02-start-round")  // 选球场 + 发球台 row + 开始记分
+        save("02-start-round"); dump("02-start-round")  // 一个球场列表 + 第一个环 + 发球台圆点
 
         // This injected coordinate can legitimately return several nearby venues. Reaching the Tee
-        // selector therefore requires an explicit venue/segment choice; history must never silently
-        // select one for the player. Use the real Beijing Palace catalogue row verified by the same GPS.
-        let palace = app.buttons["start-round-course-segment-31793"]
-        guard palace.waitForExistence(timeout: 15), palace.isHittable else {
-            XCTFail("the production nearby response must expose Beijing Palace segment 31793")
+        // row therefore requires an explicit venue choice; history must never silently select one
+        // for the player. Use the real Beijing Palace catalogue row verified by the same GPS.
+        let palaceRow = app.buttons["start-round-venue-31793"]
+        guard palaceRow.waitForExistence(timeout: 15), palaceRow.isHittable else {
+            XCTFail("the production nearby response must list Beijing Palace (31793)")
             return
         }
         XCTAssertTrue(
-            app.descendants(matching: .any)["start-round-nearby-results-summary"]
-                .waitForExistence(timeout: 60),
-            "the complete provider nearby result must replace any interim downloaded row"
+            nearbyDistanceRows().firstMatch.waitForExistence(timeout: 60),
+            "the complete provider nearby result must list nearby venues with their distance"
         )
         XCTAssertEqual(
-            palace.value as? String,
+            palaceRow.value as? String,
             "未选择",
             "multiple nearby venues must wait for the player's explicit choice"
         )
@@ -90,21 +89,14 @@ final class TeeSelectionUITests: XCTestCase {
             app.buttons["start-round-primary-action"].isEnabled,
             "a course from history must not become the implicit nearby selection"
         )
-        palace.tap()
-        let teeLoading = app.staticTexts["正在获取发球台…"]
+        palaceRow.tap()
+        let palace = app.buttons["start-round-course-segment-31793"]
+        XCTAssertTrue(palace.waitForExistence(timeout: 8), "the selected venue must show its loop tile")
         let startAction = app.buttons["start-round-primary-action"]
-        let teeLoadingAppeared = teeLoading.waitForExistence(timeout: 4)
-        if teeLoadingAppeared {
-            XCTAssertFalse(
-                startAction.isEnabled,
-                "Start must not race an in-flight Tee request"
-            )
-        } else {
-            XCTAssertTrue(
-                waitUntilEnabled(startAction, timeout: 8),
-                "a course with trusted cached Tee authority may skip the network loading state, but must remain startable"
-            )
-        }
+        XCTAssertTrue(
+            waitUntilEnabled(startAction, timeout: 90),
+            "the selected course must load its Tee authority and become startable"
+        )
         let becameSelected = waitForValue("已选择", on: palace, timeout: 8)
         save("02b-start-round-selected"); dump("02b-start-round-selected")
         XCTAssertTrue(
@@ -116,48 +108,37 @@ final class TeeSelectionUITests: XCTestCase {
             "the selected nearby course must load its Tee authority and become startable"
         )
         XCTAssertTrue(
-            app.staticTexts["选择全场开始 18 洞球局。"].waitForExistence(timeout: 5),
-            "an 18-hole whole-course selection must not describe itself as a 9-hole loop"
+            palace.label.contains("18 洞"),
+            "an 18-hole whole-course selection must be one \"18 洞\" tile, not a 9-hole loop"
+        )
+        XCTAssertTrue(
+            startAction.label.hasPrefix("开始 18 洞"),
+            "the primary action must name the whole-course start and its tee"
         )
 
-        // Open the controlled 发球台 selector. Its options and yardages come from
-        // GET /courses/{id}/tees; choosing or cancelling must deterministically dismiss it.
-        if tapTeeSelector() {
-            settle(2)
-            save("03-tee-menu"); dump("03-tee-menu")  // open menu: colour + yards choices
-            let cancel = app.buttons["取消"]
-            XCTAssertTrue(
-                cancel.waitForExistence(timeout: 5),
-                "the open tee menu must offer an explicit non-mutating dismissal"
-            )
-            cancel.tap()
-            XCTAssertTrue(waitUntilGone(cancel, timeout: 5), "cancelling the Tee menu must close it")
-
-            // Opening a menu is not enough evidence that the player's Tee choice is usable. Change
-            // from the real default to the real white Tee and prove the selected label survives the
-            // menu dismissal while the course remains startable.
-            XCTAssertTrue(tapTeeSelector(), "the Tee menu must remain reopenable after cancellation")
-            let whiteTee = app.buttons.matching(
-                NSPredicate(format: "label BEGINSWITH %@", "白 T")
-            ).firstMatch
-            XCTAssertTrue(
-                whiteTee.waitForExistence(timeout: 5) && whiteTee.isHittable,
-                "the real Beijing Palace Tee authority must expose its white Tee"
-            )
-            whiteTee.tap()
-            XCTAssertTrue(waitUntilGone(cancel, timeout: 5), "selecting a Tee must dismiss the menu")
-            XCTAssertTrue(
-                app.descendants(matching: .any).matching(
-                    NSPredicate(format: "label BEGINSWITH %@", "白 T")
-                ).firstMatch.waitForExistence(timeout: 5),
-                "the start form must retain the newly selected white Tee"
-            )
-            XCTAssertTrue(app.buttons["start-round-primary-action"].isEnabled)
-            save("04-white-tee-selected"); dump("04-white-tee-selected")
-        } else {
-            dump("03-tee-menu-missing")
-            XCTFail("the selected real course must expose a tappable Tee menu")
-        }
+        // The 发球台 row: colour dots with this course's yardages from GET /courses/{id}/tees.
+        let teeRow = app.descendants(matching: .any)["start-round-tee-selector"]
+        XCTAssertTrue(teeRow.waitForExistence(timeout: 10), "the selected course must show its tee dots")
+        settle(2)
+        save("03-tee-row"); dump("03-tee-row")
+        // Change from the real default to the real white Tee and prove the selection is reflected in
+        // the primary action while the course remains startable.
+        let whiteTee = app.buttons.matching(
+            NSPredicate(format: "identifier ==[c] %@", "start-round-tee-white")
+        ).firstMatch
+        XCTAssertTrue(
+            whiteTee.waitForExistence(timeout: 5) && whiteTee.isHittable,
+            "the real Beijing Palace Tee authority must expose its white Tee"
+        )
+        XCTAssertTrue(whiteTee.label.hasPrefix("白 T"), "a tee dot is labelled with its colour and yards")
+        whiteTee.tap()
+        XCTAssertTrue(waitForValue("已选择", on: whiteTee, timeout: 5), "the tapped tee must become selected")
+        XCTAssertTrue(
+            startAction.label.hasSuffix("· 白 T"),
+            "the primary action must name the newly selected white Tee"
+        )
+        XCTAssertTrue(app.buttons["start-round-primary-action"].isEnabled)
+        save("04-white-tee-selected"); dump("04-white-tee-selected")
     }
 
     /// Unlike the deterministic journeys below, this path must use the simulator's real
@@ -170,7 +151,7 @@ final class TeeSelectionUITests: XCTestCase {
         app.launchEnvironment.removeValue(forKey: "UITEST_LOCATION_AUTHORIZATION")
         launchFresh()
 
-        guard tapContaining(["打球", "开始一场", "开始记分"]) else {
+        guard openStartRound() else {
             XCTFail("the home must expose 开始一场 before the real Core Location request")
             return
         }
@@ -193,28 +174,24 @@ final class TeeSelectionUITests: XCTestCase {
         allow?.tap()
 
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
-        let palace = app.buttons["start-round-course-segment-31793"]
+        let palace = app.buttons["start-round-venue-31793"]
         XCTAssertTrue(
             palace.waitForExistence(timeout: 60),
             "a real Core Location fix at Beijing Palace must reach the Garmin nearby result"
         )
-        let summary = app.descendants(matching: .any)["start-round-nearby-results-summary"]
         XCTAssertTrue(
-            summary.waitForExistence(timeout: 60),
-            "real Core Location must reach a terminal provider result, not only the interim local cache"
+            palace.label.contains("公里"),
+            "real Core Location must reach the provider result (nearby rows carry their distance)"
         )
-        XCTAssertFalse(
-            summary.label.contains("· 1 个球场 ·"),
+        XCTAssertGreaterThan(
+            nearbyDistanceRows().count,
+            1,
             "the live Beijing coordinate is known to return several physical venues"
         )
         XCTAssertEqual(
             palace.value as? String,
             "未选择",
             "real GPS with several nearby venues must not silently select a historical course"
-        )
-        XCTAssertFalse(
-            app.staticTexts["正在定位并查找附近球场…"].exists,
-            "the authorization callback must leave the waiting state after the real fix arrives"
         )
         save("real-core-location-01-nearby")
         dump("real-core-location-01-nearby")
@@ -226,16 +203,16 @@ final class TeeSelectionUITests: XCTestCase {
         app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "denied"
         launchFresh()
 
-        guard tapContaining(["打球", "开始一场", "开始记分"]) else {
+        guard openStartRound() else {
             XCTFail("the home must keep the new-round entry available when GPS is denied")
             return
         }
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
         save("denied-01-start-round"); dump("denied-01-start-round")
-        XCTAssertTrue(
-            app.staticTexts["定位权限未开启；可以直接按城市或球场名搜索。"]
-                .waitForExistence(timeout: 12),
-            "denied GPS must explain the manual catalogue fallback"
+        settle(4)
+        XCTAssertFalse(
+            nearbyDistanceRows().firstMatch.exists,
+            "denied GPS must not list any course as nearby"
         )
         let search = app.buttons["start-round-search-all-courses"]
         XCTAssertTrue(
@@ -291,14 +268,14 @@ final class TeeSelectionUITests: XCTestCase {
         app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
         launchFresh()
 
-        guard tapContaining(["打球", "开始一场", "开始记分"]) else {
+        guard openStartRound() else {
             XCTFail("the home must keep the new-round entry available while an authorized GPS waits for a fix")
             return
         }
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
-        XCTAssertTrue(
-            app.staticTexts["正在定位并查找附近球场…"].waitForExistence(timeout: 12),
-            "authorized Core Location without a fix must be represented honestly"
+        XCTAssertFalse(
+            nearbyDistanceRows().firstMatch.exists,
+            "authorized Core Location without a fix must not claim any nearby course"
         )
         let search = app.buttons["start-round-search-all-courses"]
         XCTAssertTrue(
@@ -441,22 +418,20 @@ final class TeeSelectionUITests: XCTestCase {
         app.launchEnvironment.removeValue(forKey: "UITEST_LOCATION_AUTHORIZATION")
         launchFresh()
 
-        guard tapContaining(["打球", "开始一场", "开始记分"]) else {
+        guard openStartRound() else {
             XCTFail("the home must open a new round even when the current area has no course")
             return
         }
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
-        let emptyCopy = "当前位置 50 km 内没有找到球场；可以扩大范围或按名称搜索。"
-        let failureCopy = "附近球场暂时无法读取；可重试，或按城市或球场名搜索。"
-        let terminal = app.staticTexts.matching(
-            NSPredicate(format: "label == %@ OR label == %@", emptyCopy, failureCopy)
-        ).firstMatch
-        XCTAssertTrue(
-            terminal.waitForExistence(timeout: 60),
-            "a valid remote coordinate must settle to an empty or honest recoverable network state"
+        // No status prose any more: an empty result simply lists no nearby row (a transport
+        // failure adds only the retry icon).
+        settle(20)
+        XCTAssertFalse(
+            nearbyDistanceRows().firstMatch.exists,
+            "an ocean coordinate must not list any nearby course"
         )
         XCTAssertFalse(
-            app.buttons["start-round-course-segment-31793"].exists,
+            app.buttons["start-round-venue-31793"].exists,
             "the empty nearby result must not be repopulated from play history"
         )
         XCTAssertFalse(app.buttons["start-round-primary-action"].isEnabled)
@@ -482,21 +457,20 @@ final class TeeSelectionUITests: XCTestCase {
         app.launchEnvironment.removeValue(forKey: "UITEST_LOCATION_AUTHORIZATION")
         launchFresh()
 
-        guard tapContaining(["打球", "开始一场", "开始记分"]) else {
+        guard openStartRound() else {
             XCTFail("the home must keep the new-round entry available when nearby discovery fails")
             return
         }
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
         XCTAssertTrue(
-            app.staticTexts["附近球场暂时无法读取；可重试，或按城市或球场名搜索。"]
-                .waitForExistence(timeout: 20),
-            "a transport failure without a factual local candidate must settle to the manual fallback"
+            app.buttons["start-round-retry-nearby"].waitForExistence(timeout: 20),
+            "a transport failure without a factual local candidate must settle to the retry icon + search"
         )
         XCTAssertFalse(
             app.buttons.matching(
-                NSPredicate(format: "identifier BEGINSWITH %@", "start-round-course-segment-")
+                NSPredicate(format: "identifier BEGINSWITH %@", "start-round-venue-")
             ).firstMatch.exists,
-            "a failed request at an ocean coordinate must not repopulate the picker from history"
+            "a failed request at an ocean coordinate must not repopulate the list from history"
         )
         XCTAssertFalse(app.buttons["start-round-primary-action"].isEnabled)
 
@@ -516,19 +490,16 @@ final class TeeSelectionUITests: XCTestCase {
         // facts and topo bitmaps. Start remains immediate; this marker arrives from its background
         // download and proves that the later offline launch is not relying on another test's cache.
         launchFresh()
-        guard tapContaining(["打球", "开始一场", "开始记分"]) else {
+        guard openStartRound() else {
             XCTFail("the real home must open a course for the offline-cache setup")
             return
         }
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
-        let palace = app.buttons["start-round-course-segment-31793"]
+        let palace = selectCourse(31793, timeout: 20)
         XCTAssertTrue(
-            palace.waitForExistence(timeout: 20),
-            "the production nearby result must expose the real Beijing Palace segment"
+            palace.exists,
+            "the production nearby result must expose the real Beijing Palace course"
         )
-        if palace.value as? String != "已选择" {
-            palace.tap()
-        }
         XCTAssertTrue(waitForValue("已选择", on: palace, timeout: 8))
         let onlineStart = app.buttons["start-round-primary-action"]
         XCTAssertTrue(
@@ -572,18 +543,15 @@ final class TeeSelectionUITests: XCTestCase {
         app.launchEnvironment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] = "1"
         launchFresh(resetActiveRound: true)
 
-        guard tapContaining(["打球", "开始一场", "开始记分"]) else {
+        guard openStartRound() else {
             XCTFail("the home must open a new round with all live services offline")
             return
         }
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
-        XCTAssertTrue(
-            app.staticTexts["附近球场暂时无法读取；可重试，或按城市或球场名搜索。"]
-                .waitForExistence(timeout: 20)
-        )
+        XCTAssertTrue(app.buttons["start-round-retry-nearby"].waitForExistence(timeout: 20))
         XCTAssertFalse(
-            app.descendants(matching: .any)["start-round-nearby-results-summary"].exists,
-            "a failed nearby request must not expose a nearby summary"
+            nearbyDistanceRows().firstMatch.exists,
+            "a failed nearby request must not list any course as nearby"
         )
 
         let downloaded = firstDownloadedCourseSegment()
@@ -600,6 +568,12 @@ final class TeeSelectionUITests: XCTestCase {
             downloaded.tap()
         }
         XCTAssertTrue(waitForValue("已选择", on: downloaded, timeout: 8))
+        XCTAssertTrue(
+            app.buttons.matching(
+                NSPredicate(format: "identifier BEGINSWITH %@", "start-round-course-segment-")
+            ).firstMatch.waitForExistence(timeout: 5),
+            "the selected downloaded venue must show its loop tile"
+        )
 
         let start = app.buttons["start-round-primary-action"]
         XCTAssertTrue(
@@ -761,10 +735,51 @@ final class TeeSelectionUITests: XCTestCase {
         return !frame.isNull && !frame.isEmpty && visibleSafeRect().contains(frame)
     }
 
+    /// B4b: 开始一场 is one course list. After a failed nearby request the only rows left are
+    /// local ones (downloaded / recent); the first venue row is the downloaded course.
     private func firstDownloadedCourseSegment() -> XCUIElement {
         app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "start-round-offline-course-segment-")
+            NSPredicate(format: "identifier BEGINSWITH %@", "start-round-venue-")
         ).firstMatch
+    }
+
+    /// Provider-nearby rows are the only rows that carry a distance ("1.2 公里").
+    private func nearbyDistanceRows() -> XCUIElementQuery {
+        app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "start-round-venue-", "公里")
+        )
+    }
+
+    /// Select a course in the one list (its venue row), then return its loop tile.
+    @discardableResult
+    private func selectCourse(_ globalId: Int, timeout: TimeInterval) -> XCUIElement {
+        let tile = app.buttons["start-round-course-segment-\(globalId)"]
+        if tile.exists, tile.value as? String == "已选择" { return tile }
+        let row = app.buttons["start-round-venue-\(globalId)"]
+        if row.waitForExistence(timeout: timeout), row.isHittable {
+            row.tap()
+        }
+        if tile.waitForExistence(timeout: 8), tile.value as? String != "已选择", tile.isHittable {
+            tile.tap()
+        }
+        return tile
+    }
+
+    /// B4b home main card: "换球场或组合" (a known course) or the search card both open 开始一场
+    /// without a preselected course; the main card's "开始" would preselect it.
+    @discardableResult
+    private func openStartRound() -> Bool {
+        let change = app.buttons["home-change-course"]
+        if change.waitForExistence(timeout: 4), change.isHittable {
+            change.tap()
+            return true
+        }
+        let entry = app.buttons["home-new-round"]
+        if entry.waitForExistence(timeout: 4), entry.isHittable {
+            entry.tap()
+            return true
+        }
+        return tapContaining(["换球场或组合", "今天去哪打"])
     }
 
     /// Keep the no-GPS interaction journey isolated from the next UI test. This follows the same
@@ -800,24 +815,6 @@ final class TeeSelectionUITests: XCTestCase {
                 if match.waitForExistence(timeout: 4), match.isHittable { match.tap(); return true }
             }
         }
-        return false
-    }
-
-    /// Tap the tee-selector Menu. Its label is the current tee ("默认" or a colour + yardage), so try
-    /// the known tee labels; fall back to any button carrying the "码" (yards) suffix.
-    @discardableResult
-    private func tapTeeSelector() -> Bool {
-        let selector = app.buttons["start-round-tee-selector"]
-        if selector.waitForExistence(timeout: 5), selector.isHittable {
-            selector.tap()
-            return true
-        }
-        if tapContaining(["默认", "蓝 T", "白 T", "红 T", "金 T", "黑 T", "黄 T", "绿 T", "银 T"]) {
-            return true
-        }
-        let predicate = NSPredicate(format: "label CONTAINS '码'")
-        let byYards = app.buttons.matching(predicate).firstMatch
-        if byYards.waitForExistence(timeout: 4), byYards.isHittable { byYards.tap(); return true }
         return false
     }
 

@@ -1,9 +1,10 @@
 import SwiftUI
 import AICaddieDomain
 
-/// 开始一场 — GPS 先列附近球场；其他球场由玩家按城市或名称主动搜索。
-/// 附近只有一个球场时自动进入该球场的洞组/发球台选择，多个时由玩家选择。
-/// 手动 ID / 仅刷新离线包 / 后端连接等工程项收进折叠的「高级设置」,默认不打扰。
+/// 开始一场(README §8, `pre-round.html` 第 2 屏)— 一个球场列表(附近在前带距离，其后是搜索、
+/// 最近、已下载，不分区、不写状态文字)；只选第一个 9 洞环(A / B / C 大块)；发球台是颜色圆点 +
+/// 这个环的码数；按钮写明“从 B 场 开始 · 蓝 T”。第二个环在打完第一个环时选(NineLoopPlan)。
+/// 附近只有一个球场时自动选中，多个时由玩家选择；GPS 不可用时搜索照常可用。
 public struct StartRoundView: View {
     struct CourseSelectionState: Equatable {
         let globalIdText: String
@@ -22,7 +23,8 @@ public struct StartRoundView: View {
     public let adminTokenConfigured: Bool
     public let onPrepareRound: (String) -> Void
     public let onPrepareCourseRound: (Int, String, String, String) -> Void
-    /// 组合 18 洞:(front 环 globalId, back 环 globalId, teeBox, roundId)。选了第二个环时调用。
+    /// Kept for caller source compatibility only. 开始一场 prepares the first loop alone; the second
+    /// loop is chosen at the turn (NineLoopPlan), which owns the composite preparation.
     public let onPrepareCompositeRound: (Int, Int, String, String) -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
@@ -39,7 +41,6 @@ public struct StartRoundView: View {
     @StateObject private var locationProvider = LocationProvider()
     @State private var roundId: String
     @State private var courseGlobalIdText: String
-    @State private var backGlobalIdText: String = ""
     @State private var userPickedVenue = false
     /// A text-search result is an explicit course choice even when Garmin is still loading its
     /// Tee authority.  Keep that provenance separate from the nearby picker so a cold/no-GPS
@@ -55,7 +56,6 @@ public struct StartRoundView: View {
     /// provider-nearby list: a stale local package is not evidence that the course is nearby.
     @State private var offlineCourseOptions: [MobileCourseOption] = []
     @State private var showingCourseSearch = false
-    @State private var showingTeeSelector = false
     @State private var isLoadingTees = false
     @State private var teeLoadFailed = false
     @State private var isLoadingNearby = false
@@ -111,7 +111,8 @@ public struct StartRoundView: View {
         // A caller-provided course is an explicit choice (for example a resumed deep link). History
         // supplied only through `courseOptions` must not become an implicit nearby selection.
         self._userPickedVenue = State(initialValue: defaultCourseGlobalId != nil)
-        let selected = (courseOptions + downloadedCourseOptions).first {
+        // The home "开始" preselects the recent course, which may be in neither list.
+        let selected = (courseOptions + downloadedCourseOptions + (recentCourseOption.map { [$0] } ?? [])).first {
             String($0.globalId) == resolvedCourseId
         }
         self._courseGlobalIdText = State(initialValue: resolvedCourseId)
@@ -172,29 +173,33 @@ public struct StartRoundView: View {
             && (!selectedCourseRequiresRemoteTees || !teeOptions.isEmpty || hasManualSearchFallback)
     }
 
+    private static let surface = Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255)
+
+    /// `pre-round.html` screen 2: one course list, the first nine-hole loop as big tiles, tee dots,
+    /// and one primary action that names the choice. No location / download status prose.
     public var body: some View {
-        GeometryReader { viewport in
-            ScrollView {
-                VStack(spacing: 0) {
-                    VStack(spacing: 12) {
-                        courseCard
-                        recentCourseCard
-                        offlineCourseCard
-                        secondNineCard
-                    }
-                    Spacer(minLength: 12)
-                    startCard
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                searchEntry
+                courseList
+                if selectedSegment != nil {
+                    loopSection
+                    teeSection
                 }
-                // Keep the primary action in the approved lower action band when a real course
-                // exposes only one playable 18-hole segment. Longer 9-hole combinations still
-                // expand and scroll naturally instead of being compressed to the viewport.
-                .frame(minHeight: max(0, viewport.size.height - 112), alignment: .top)
-                .padding(.horizontal, 14)
-                .padding(.top, 14)
-                .padding(.bottom, 98)
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
         }
-        .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
+        // The primary action stays in the lower action band while the list scrolls.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            startCard
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .padding(.bottom, 8)
+                .background(Self.surface)
+        }
+        .background(Self.surface)
         .navigationTitle("开始一场")
         .onAppear {
             locationProvider.requestAuthorization()
@@ -242,27 +247,21 @@ public struct StartRoundView: View {
             teeLoadFailed = false
             return
         }
-        // A recent row was produced from a successfully activated package and already carries
-        // the accepted Tee authority. Do not make the recovery action wait behind a second Tee
-        // request when the nearby catalogue is the thing that was incomplete.
-        if recentResolvedCourseOption?.globalId == globalId,
-           recentResolvedCourseOption?.tees?.isEmpty == false {
-            isLoadingTees = false
-            teeLoadFailed = false
-            fetchedTees = []
-            return
-        }
         let requiresRemoteTees = selectedCourseRequiresRemoteTees
         let hasCatalogueTeeAuthority = selectedSegment?.tees?.isEmpty == false
+        // A recent row was produced from a successfully activated package and already carries
+        // the accepted Tee authority. Do not make the recovery action wait behind a second Tee
+        // request; still fetch the course's full tee list (colours + yards) in the background so
+        // the player can change tee on the recent course.
+        let recentHasTeeAuthority = recentResolvedCourseOption?.globalId == globalId
+            && recentResolvedCourseOption?.tees?.isEmpty == false
+        fetchedTees = []
+        teeLoadFailed = false
         // A cached/history course may already have factual Tee names, but this request still
         // enriches them with Garmin yardage/default authority. Do not let Start race that request:
         // URLSession can otherwise queue the course-package behind a cold CourseView release and
         // silently hit its 60 s timeout. A failed refresh still falls back to the known Tee list.
-        isLoadingTees = true
-        if requiresRemoteTees && !hasCatalogueTeeAuthority {
-            teeLoadFailed = false
-            fetchedTees = []
-        }
+        isLoadingTees = !recentHasTeeAuthority
         defer {
             if teeRequestToken == requestToken {
                 isLoadingTees = false
@@ -273,7 +272,7 @@ public struct StartRoundView: View {
               teeRequestToken == requestToken,
               courseGlobalId == globalId else { return }
         guard !tees.isEmpty else {
-            if requiresRemoteTees && !hasCatalogueTeeAuthority { teeLoadFailed = true }
+            if requiresRemoteTees && !hasCatalogueTeeAuthority && !recentHasTeeAuthority { teeLoadFailed = true }
             return
         }
         fetchedTees = tees
@@ -287,8 +286,7 @@ public struct StartRoundView: View {
     /// that can desync from courseGlobalIdText). Falls back to the top venue when nothing is selected.
     private var selectedVenueName: String {
         selectedSegment.map(\.venueDisplayName)
-            ?? displayVenues.first?.venue
-            ?? offlineVenues.first?.venue
+            ?? courseRows.first?.venue
             ?? ""
     }
 
@@ -303,24 +301,8 @@ public struct StartRoundView: View {
         return courseVenueName(front)
     }
 
-    /// Keep "no venue selected" as a real Picker value. Falling back to the first venue here used
-    /// to let SwiftUI normalise the binding by calling its setter when the first cached row arrived;
-    /// that looked exactly like a user tap and pinned the cached/history course before the complete
-    /// Garmin nearby response could add the other venues.
-    private var selectedVenueBinding: Binding<String?> {
-        Binding(
-            get: {
-                selectedSegment.map(\.venueDisplayName)
-            },
-            set: { newVenue in
-                guard let newVenue else { return }
-                selectVenue(newVenue, userInitiated: true)
-            }
-        )
-    }
-
     /// Select a venue → switch the chosen segment to that venue's first segment (keeps venue +
-    /// segment list + 加打 + tee all consistent).
+    /// loop tiles + tee all consistent).
     private func selectVenue(_ venue: String, userInitiated: Bool) {
         guard let group = displayVenues.first(where: { $0.venue == venue }) ?? displayVenues.first,
               let first = group.segments.first else {
@@ -335,7 +317,6 @@ public struct StartRoundView: View {
         // loops in that same physical venue. Crossing to another venue returns to the normal Tee
         // loading gate, even when SwiftUI invokes this setter during catalogue refresh.
         selectedCourseWasManualSearch = retainsManualSearch
-        backGlobalIdText = ""
         fetchedTees = []
         teeLoadFailed = false
         applySelectedCourse(first)
@@ -353,18 +334,14 @@ public struct StartRoundView: View {
         }
     }
 
-    /// Provider nearby/search venues. Offline packages are deliberately excluded: they have their
-    /// own section and must not influence the nearby summary or picker.
+    /// Provider nearby/search venues. Offline packages are deliberately excluded: they are listed
+    /// after the provider rows and must never count as nearby evidence (auto-selection).
     private var displayVenues: [(venue: String, segments: [MobileCourseOption])] {
         orderedVenues(makeVenueGroups(from: nearbyCourseOptions + remoteCourseOptions))
     }
 
     private var nearbyVenues: [(venue: String, segments: [MobileCourseOption])] {
         orderedVenues(makeVenueGroups(from: nearbyCourseOptions))
-    }
-
-    private var offlineVenues: [(venue: String, segments: [MobileCourseOption])] {
-        makeVenueGroups(from: offlineDisplayOptions)
     }
 
     /// A cancelled/restarted GPS task can clear the async `offlineCourseOptions` assignment after
@@ -418,8 +395,8 @@ public struct StartRoundView: View {
     /// A downloaded course is an offline fallback only when its retained provider coordinate proves
     /// that it is actually near the current fix. `courseOptions` also contains play history, so rows
     /// without coordinates or outside the radius must never reappear as a disguised history list.
-    /// The recovery-only `includeUnknownCoordinates` exception is safe because the caller renders
-    /// those rows in the explicitly labelled offline section, never as nearby/provider evidence.
+    /// The recovery-only `includeUnknownCoordinates` exception is safe because the caller lists
+    /// those rows after the provider rows as downloaded courses, never as nearby/provider evidence.
     static func locallyAvailableNearbyCourses(
         _ options: [MobileCourseOption],
         latitude: Double,
@@ -439,8 +416,8 @@ public struct StartRoundView: View {
             guard let courseLatitude = option.latitude,
                   let courseLongitude = option.longitude else {
                 // A complete downloaded package is still an explicit offline source even when an
-                // older CourseView package did not carry a Tee anchor. It stays in the separate
-                // 本机已下载 section; this flag is only used after the provider request fails and
+                // older CourseView package did not carry a Tee anchor. It is listed as a downloaded
+                // row (no distance); this flag is only used after the provider request fails and
                 // never promotes the row into nearby/provider evidence.
                 return includeUnknownCoordinates
             }
@@ -457,302 +434,277 @@ public struct StartRoundView: View {
         }
     }
 
-    /// 按真实结构选场:每个球场列出它的各 9 洞环(黑骑士 A/B/C)或整场(北湖 18);选一个开始。
-    @ViewBuilder private var courseCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("附近球场").font(.caption).foregroundStyle(.secondary)
-            if displayVenues.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    if isLoadingNearby {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("正在定位并查找附近球场…")
-                        }
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    } else {
-                        Label(
-                            effectiveNearbyStatusText,
-                            systemImage: "location"
-                        )
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        if nearbyDiscoveryFailed {
-                            Button {
-                                nearbyRetryToken &+= 1
-                            } label: {
-                                Label("重试附近球场", systemImage: "arrow.clockwise")
-                                    .font(.caption.weight(.semibold))
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(LiveHoleStyle.green)
-                            .accessibilityIdentifier("start-round-retry-nearby")
-                        }
-                    }
-                }
-            } else {
-                if !nearbyVenues.isEmpty, isLoadingNearby {
-                    ProgressView("正在更新附近球场…")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("start-round-nearby-loading")
-                } else if !nearbyVenues.isEmpty, !nearbyDiscoveryFailed {
-                    Label(
-                        "当前位置 50 km · \(nearbyVenues.count) 个球场 · 最近在前",
-                        systemImage: "location.fill"
-                    )
-                    .font(.caption2)
-                    .foregroundStyle(LiveHoleStyle.green)
-                    .accessibilityIdentifier("start-round-nearby-results-summary")
-                } else if !remoteCourseOptions.isEmpty {
-                    Label("已选择搜索结果", systemImage: "magnifyingglass")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                if let nearbyStatusText {
-                    Text(nearbyStatusText)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                if nearbyDiscoveryFailed {
-                    Button {
-                        nearbyRetryToken &+= 1
-                    } label: {
-                        Label("重试附近球场", systemImage: "arrow.clockwise")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(LiveHoleStyle.green)
-                    .accessibilityIdentifier("start-round-retry-nearby")
-                }
-                // Only provider-nearby venues (plus one explicit text-search selection) appear here.
-                Picker("球场", selection: selectedVenueBinding) {
-                    Text("选择附近球场").tag(String?.none)
-                    ForEach(displayVenues, id: \.venue) { group in
-                        Text(group.venue).tag(Optional(group.venue))
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("start-round-course-venue-picker")
-                // 选中球场的各 9 洞环 / 整场。
-                if let group = displayVenues.first(where: { $0.venue == selectedVenueName }) ?? displayVenues.first {
-                    ForEach(group.segments) { segment in
-                        segmentRow(segment)
-                    }
-                }
-                Text(segmentSelectionHelp)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                if selectedSegment != nil {
-                    Divider().padding(.vertical, 2)
-                    HStack(spacing: 8) {
-                        Text("发球台").font(.subheadline).foregroundStyle(.secondary)
-                        Spacer()
-                        Button {
-                            showingTeeSelector = true
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(teeBox.isEmpty ? "默认" : teeMenuLabel(teeBox))
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(LiveHoleStyle.green)
-                                Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
-                            }
-                        }
-                        .disabled(teeOptions.isEmpty)
-                        .accessibilityIdentifier("start-round-tee-selector")
-                        .confirmationDialog(
-                            "选择发球台",
-                            isPresented: $showingTeeSelector,
-                            titleVisibility: .visible
-                        ) {
-                            ForEach(teeOptions, id: \.self) { tee in
-                                Button {
-                                    teeBox = tee
-                                } label: {
-                                    if tee.caseInsensitiveCompare(teeBox) == .orderedSame {
-                                        Label(teeMenuLabel(tee), systemImage: "checkmark")
-                                    } else {
-                                        Text(teeMenuLabel(tee))
-                                    }
-                                }
-                            }
-                            Button("取消", role: .cancel) {
-                                showingTeeSelector = false
-                            }
-                        } message: {
-                            Text("选择本轮使用的发球台")
-                        }
-                    }
-                }
-                if isLoadingTees {
-                    ProgressView("正在获取发球台…")
-                        .font(.caption)
-                } else if selectedCourseRequiresRemoteTees, teeLoadFailed, teeOptions.isEmpty {
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text("这个球场暂时没有可用的发球台数据。")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                        Button {
-                            Task { await loadTees() }
-                        } label: {
-                            Label("重试获取发球台", systemImage: "arrow.clockwise")
-                                .font(.caption.weight(.semibold))
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(LiveHoleStyle.green)
-                        .accessibilityIdentifier("start-round-retry-course-tees")
-                        Button {
-                            teeBox = "unknown"
-                            teeLoadFailed = false
-                        } label: {
-                            Text("使用球场默认发球台")
-                                .font(.caption.weight(.semibold))
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("start-round-use-course-default-tee")
-                    }
-                }
-            }
+    // MARK: - Course list (README §8: one list, nearby first)
 
-            Divider().padding(.vertical, 1)
+    /// Compact search entry. A failed nearby request adds only a retry icon; the list simply shows
+    /// the other sources (no error prose).
+    private var searchEntry: some View {
+        HStack(spacing: 10) {
             Button {
                 showingCourseSearch = true
             } label: {
-                Label("按城市或球场名搜索", systemImage: "magnifyingglass")
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                    Text("搜索球场或城市")
+                    Spacer(minLength: 0)
+                }
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+                .background(Color.black.opacity(0.05))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .foregroundStyle(LiveHoleStyle.green)
             .accessibilityIdentifier("start-round-search-all-courses")
+            if nearbyDiscoveryFailed {
+                Button {
+                    nearbyRetryToken &+= 1
+                } label: {
+                    Image(systemName: "location.circle")
+                        .font(.title3.weight(.semibold))
+                        .frame(width: 42, height: 42)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(LiveHoleStyle.green)
+                .accessibilityLabel(nearbyStatusText ?? "重试附近球场")
+                .accessibilityIdentifier("start-round-retry-nearby")
+            } else if isLoadingNearby, courseRows.isEmpty {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 42, height: 42)
+            }
         }
-        .liveCard()
     }
 
-    /// Local packages remain startable when the nearby service is unavailable, but they are shown in
-    /// a visibly separate section. This prevents an old course (or an old A/B/C combination) from
-    /// looking like a current GPS result and requires an explicit tap before it becomes selected.
-    @ViewBuilder private var offlineCourseCard: some View {
-        if !offlineVenues.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("本机已下载")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("start-round-offline-courses")
-                    Spacer()
-                    Text("仅供离线开始")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                Text(offlineCourseExplanation)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                ForEach(offlineVenues, id: \.venue) { group in
-                    Text(group.venue)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    ForEach(group.segments) { segment in
-                        segmentRow(segment, identifierPrefix: "start-round-offline-course-segment")
+    /// Nearby (distance order when a fix exists), the explicit search pick, the recent course (and
+    /// a preselected course that no list carries), then downloaded packages — one row per venue.
+    private var courseRows: [StartCourseListRow] {
+        let nearby: [MobileCourseOption]
+        if let fix = locationProvider.latestFix {
+            nearby = StartRoundPresentation.sortedByDistance(
+                nearbyCourseOptions,
+                latitude: fix.coordinate.latitude,
+                longitude: fix.coordinate.longitude
+            )
+        } else {
+            nearby = nearbyCourseOptions
+        }
+        let downloaded = offlineDisplayOptions
+        var recent = recentCourseFallbackOption.map { [$0] } ?? []
+        // A preselected course (the home "开始") that no source lists still gets its row; a listed
+        // one keeps its own position so selecting a row never moves it.
+        if let selectedSegment,
+           !(nearbyCourseOptions + remoteCourseOptions + recent + downloaded).contains(where: {
+               Self.samePhysicalVenue($0, selectedSegment)
+           }) {
+            recent.append(selectedSegment)
+        }
+        return StartRoundPresentation.mergedCourseRows(
+            nearby: nearby,
+            search: remoteCourseOptions,
+            recent: recent,
+            downloaded: downloaded
+        )
+    }
+
+    @ViewBuilder private var courseList: some View {
+        let rows = courseRows
+        if !rows.isEmpty {
+            VStack(spacing: 0) {
+                ForEach(rows) { row in
+                    courseRow(row)
+                    if row.id != rows.last?.id {
+                        Divider().padding(.leading, 60)
                     }
                 }
             }
-            .liveCard()
+            .padding(.vertical, 4)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("start-round-course-list")
+            .accessibilityValue(selectedVenueName)
         }
     }
 
-    private var offlineCourseExplanation: String {
-        if nearbyDiscoveryFailed {
-            return "附近服务暂时不可用；这些球场来自本机，不代表当前附近结果。"
+    /// One venue row: name + "1.2 公里 · 27 洞". Distance only for provider-nearby rows with a fix.
+    private func courseRow(_ row: StartCourseListRow) -> some View {
+        let selected: Bool
+        if let segment = selectedSegment {
+            let sameVenue = row.segments.first.map { Self.samePhysicalVenue(segment, $0) } ?? false
+            selected = sameVenue || row.segments.contains { $0.globalId == segment.globalId }
+        } else {
+            selected = false
         }
-        if locationProvider.latestFix == nil {
-            return "暂时没有 GPS；这些球场来自本机，选择后可直接开始离线球局。"
-        }
-        return "这些球场来自本机；选择后可直接开始离线球局。"
-    }
-
-    /// Keep a recently started course visible when Garmin's nearby response is valid but transiently
-    /// incomplete. The row is intentionally separate from the nearby picker and never claims that
-    /// the course is within the current GPS radius.
-    @ViewBuilder private var recentCourseCard: some View {
-        if let recent = recentCourseFallbackOption {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("最近使用")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("start-round-recent-course")
-                    Spacer()
-                    Text("不代表当前位置")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                Text("上次明确开始过的球场，可直接重新开始。")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                // Keep the same selection action, but expose a distinct accessibility identity:
-                // this row is a recovery affordance, never evidence that the course is nearby.
-                segmentRow(recent, identifierPrefix: "start-round-recent-course-segment")
-            }
-            .liveCard()
-        }
-    }
-
-    /// 单个可打段(9 洞环 / 整场)的可选行;选中绿描边高亮。
-    @ViewBuilder private func segmentRow(
-        _ segment: MobileCourseOption,
-        identifierPrefix: String = "start-round-course-segment"
-    ) -> some View {
-        let selected = String(segment.globalId) == courseGlobalIdText
-        Button {
-            userPickedVenue = true
-            selectedCourseWasManualSearch = Self.preservesManualSearchProvenance(
-                wasManualSearch: selectedCourseWasManualSearch,
-                previous: selectedSegment,
-                next: segment
-            )
-            backGlobalIdText = ""  // changing the front loop resets any "add second nine" choice
-            fetchedTees = []
-            teeLoadFailed = false
-            applySelectedCourse(segment)
+        return Button {
+            selectCourseRow(row)
         } label: {
-            HStack(spacing: 10) {
-                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
-                    .foregroundStyle(selected ? LiveHoleStyle.green : .secondary)
-                Text(segmentTitle(segment))
-                    .font(.subheadline.weight(selected ? .semibold : .regular))
-                    .foregroundStyle(.primary)
-                Spacer()
-                Text(segmentHolesText(segment))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Image(systemName: "flag.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(LiveHoleStyle.green)
+                    .frame(width: 36, height: 36)
+                    .background(HubStyle.iconTint)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(row.venue)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    if let subtitle = courseRowSubtitle(row) {
+                        Text(subtitle)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 8)
+                if selected {
+                    Image(systemName: "checkmark")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(LiveHoleStyle.green)
+                }
             }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            // The transparent Spacer is most of a wide course row. Without an explicit shape,
-            // tapping that centre area (including Voice Control/XCUITest's default tap point) can
-            // miss the Button even though its accessibility frame advertises the full row.
+            // The transparent Spacer is most of a wide row. Without an explicit shape, tapping that
+            // centre area (including XCUITest's default tap point) can miss the Button.
             .contentShape(Rectangle())
-            .background(selected ? LiveHoleStyle.green.opacity(0.10) : Color.clear)
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? LiveHoleStyle.green : LiveHoleStyle.line))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .background(selected ? LiveHoleStyle.green.opacity(0.08) : Color.clear)
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("\(identifierPrefix)-\(segment.globalId)")
+        .accessibilityIdentifier("start-round-venue-\(row.id)")
         .accessibilityValue(selected ? "已选择" : "未选择")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private func segmentTitle(_ segment: MobileCourseOption) -> String {
-        segment.segmentDisplayTitle
+    private func courseRowSubtitle(_ row: StartCourseListRow) -> String? {
+        var parts: [String] = []
+        if row.source == .nearby, let fix = locationProvider.latestFix {
+            let metres = row.segments.compactMap { segment -> Double? in
+                guard let lat = segment.latitude, let lon = segment.longitude else { return nil }
+                return Self.haversineMetres(fix.coordinate.latitude, fix.coordinate.longitude, lat, lon)
+            }.min()
+            if let metres, let distance = StartRoundPresentation.distanceText(metres: metres) {
+                parts.append(distance)
+            }
+        }
+        if row.holes > 0 {
+            parts.append("\(row.holes) 洞")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    private func segmentHolesText(_ segment: MobileCourseOption) -> String {
-        "\(segment.segmentHoles ?? segment.holes) 洞"
+    /// Choosing a venue selects its first loop; tapping the already-selected venue keeps the loop.
+    private func selectCourseRow(_ row: StartCourseListRow) {
+        guard let first = row.segments.first else { return }
+        if let current = selectedSegment, Self.samePhysicalVenue(current, first) { return }
+        userPickedVenue = true
+        selectedCourseWasManualSearch = Self.preservesManualSearchProvenance(
+            wasManualSearch: selectedCourseWasManualSearch,
+            previous: selectedSegment,
+            next: first
+        )
+        fetchedTees = []
+        teeLoadFailed = false
+        applySelectedCourse(first)
+    }
+
+    // MARK: - First loop (README §8: only the first nine is chosen here)
+
+    /// The selected venue's loops from the authority that supplied the selection, in the course's
+    /// order. An 18-hole single course is one tile and starts as today (nine "all").
+    private var selectedVenueLoops: [MobileCourseOption] {
+        guard let selectedSegment else { return [] }
+        guard selectedSegment.resolvedHoles == 9 else { return [selectedSegment] }
+        let loops = Self.sameVenueNineHoleCandidates(
+            selected: selectedSegment,
+            candidates: [selectedSegment] + selectedAuthorityOptions
+        )
+        return loops.isEmpty ? [selectedSegment] : loops
+    }
+
+    @ViewBuilder private var loopSection: some View {
+        let loops = selectedVenueLoops
+        VStack(alignment: .leading, spacing: 10) {
+            Text(loops.contains(where: { $0.resolvedHoles == 9 }) ? "从哪个 9 洞开始" : "从第 1 洞开始")
+                .font(.footnote.weight(.bold))
+                .foregroundStyle(.secondary)
+            LazyVGrid(
+                columns: Array(
+                    repeating: GridItem(.flexible(), spacing: 8),
+                    count: max(1, min(3, loops.count))
+                ),
+                spacing: 8
+            ) {
+                ForEach(loops) { segment in
+                    segmentRow(segment)
+                }
+            }
+        }
+    }
+
+    /// One loop tile: "B 场" + "9 洞 · 3201 码" (yards only when this tee's are known), or "18 洞".
+    @ViewBuilder private func segmentRow(_ segment: MobileCourseOption) -> some View {
+        let selected = String(segment.globalId) == courseGlobalIdText
+        Button {
+            selectLoop(segment)
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Spacer(minLength: 0)
+                Text(StartRoundPresentation.loopTileTitle(segment))
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                if let subtitle = loopTileSubtitle(segment, selected: selected) {
+                    Text(subtitle)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 84, alignment: .bottomLeading)
+            .background(selected ? LiveHoleStyle.green.opacity(0.10) : Color.white)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(selected ? LiveHoleStyle.green : LiveHoleStyle.line, lineWidth: selected ? 2 : 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("start-round-course-segment-\(segment.globalId)")
+        .accessibilityValue(selected ? "已选择" : "未选择")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func loopTileSubtitle(_ segment: MobileCourseOption, selected: Bool) -> String? {
+        var parts: [String] = []
+        if segment.resolvedHoles == 9 {
+            parts.append("9 洞")
+        }
+        if selected, let yards = teeYards(teeBox) {
+            parts.append("\(yards) 码")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private func selectLoop(_ segment: MobileCourseOption) {
+        guard String(segment.globalId) != courseGlobalIdText else { return }
+        userPickedVenue = true
+        selectedCourseWasManualSearch = Self.preservesManualSearchProvenance(
+            wasManualSearch: selectedCourseWasManualSearch,
+            previous: selectedSegment,
+            next: segment
+        )
+        fetchedTees = []
+        teeLoadFailed = false
+        applySelectedCourse(segment)
     }
 
     private var selectedSegment: MobileCourseOption? {
@@ -763,64 +715,95 @@ public struct StartRoundView: View {
             ?? recentResolvedCourseOption.flatMap { $0.globalId == globalId ? $0 : nil }
     }
 
-    private var segmentSelectionHelp: String {
-        guard let selectedSegment else {
-            return "选择一个球场开始。"
-        }
-        let holes = selectedSegment.segmentHoles ?? selectedSegment.holes
-        if holes == 9 {
-            return "选一个 9 洞环开始；想打 18 洞可在下方加打另一个环。"
-        }
-        return "选择全场开始 \(holes) 洞球局。"
-    }
+    // MARK: - Tees (README §8: colour dots + this loop's yards)
 
-    /// 选中的是 9 洞环、且同球场有 9 洞环可作第二环时,提供「加打凑 18」。
-    /// 含已选环本身 —— 同一个 9 洞环打两轮(A+A/B+B/C+C)是真实打法,不排除。
-    private var secondNineCandidates: [MobileCourseOption] {
-        guard let selectedSegment else { return [] }
-        return Self.sameVenueNineHoleCandidates(
-            selected: selectedSegment,
-            candidates: selectedAuthorityOptions
-        )
-    }
-
-    /// 加打另一个 9 洞凑 18(可选):列出同球场的各 9 洞环 + 「不加打」。
-    @ViewBuilder private var secondNineCard: some View {
-        if !secondNineCandidates.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("加打另一个 9 洞(可选,凑 18 洞)").font(.caption).foregroundStyle(.secondary)
-                secondNineRow(title: "不加打 · 只打 9 洞", globalId: nil)
-                ForEach(secondNineCandidates) { segment in
-                    secondNineRow(title: "＋ \(segmentTitle(segment)) · 后九", globalId: segment.globalId)
+    @ViewBuilder private var teeSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("发球台")
+                .font(.footnote.weight(.bold))
+                .foregroundStyle(.secondary)
+            if selectedCourseRequiresRemoteTees, teeLoadFailed, teeOptions.isEmpty {
+                // Tee authority failed: the course default still starts; retry is an icon.
+                HStack(spacing: 12) {
+                    Button {
+                        teeBox = "unknown"
+                        teeLoadFailed = false
+                    } label: {
+                        teeChipLabel("unknown", selected: false)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("start-round-use-course-default-tee")
+                    Button {
+                        Task { await loadTees() }
+                    } label: {
+                        Label("重试获取发球台", systemImage: "arrow.clockwise")
+                            .labelStyle(.iconOnly)
+                            .font(.title3.weight(.semibold))
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(LiveHoleStyle.green)
+                    .accessibilityIdentifier("start-round-retry-course-tees")
+                }
+            } else if teeOptions.isEmpty {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(height: 44)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(teeOptions, id: \.self) { tee in
+                            teeChip(tee)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("start-round-tee-selector")
                 }
             }
-            .liveCard()
         }
     }
 
-    @ViewBuilder private func secondNineRow(title: String, globalId: Int?) -> some View {
-        let value = globalId.map(String.init) ?? ""
-        let selected = backGlobalIdText == value
-        Button {
-            backGlobalIdText = value
+    private func teeChip(_ tee: String) -> some View {
+        let selected = tee.caseInsensitiveCompare(teeBox) == .orderedSame
+        return Button {
+            teeBox = tee
         } label: {
-            HStack(spacing: 10) {
-                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
-                    .foregroundStyle(selected ? LiveHoleStyle.green : .secondary)
-                Text(title)
-                    .font(.subheadline.weight(selected ? .semibold : .regular))
-                    .foregroundStyle(.primary)
-                Spacer()
-            }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .background(selected ? LiveHoleStyle.green.opacity(0.10) : Color.clear)
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? LiveHoleStyle.green : LiveHoleStyle.line))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            teeChipLabel(tee, selected: selected)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(teeMenuLabel(tee))
+        .accessibilityIdentifier("start-round-tee-\(tee)")
+        .accessibilityValue(selected ? "已选择" : "未选择")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// A filled dot in the tee's colour (shared `TeeColor`), "蓝 T" and this loop's yards.
+    private func teeChipLabel(_ tee: String, selected: Bool) -> some View {
+        let color = TeeColor.forTee(tee)
+        return VStack(spacing: 4) {
+            Circle()
+                .fill(Color(red: color.red, green: color.green, blue: color.blue))
+                .frame(width: 30, height: 30)
+                .overlay(
+                    Circle().stroke(Color.black.opacity(color.isLight ? 0.25 : 0.08), lineWidth: 1)
+                )
+                .padding(4)
+                .overlay(
+                    Circle().stroke(selected ? LiveHoleStyle.green : Color.clear, lineWidth: 2.5)
+                )
+            Text(zhTeeLabel(tee))
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+            if let yards = teeYards(tee) {
+                Text("\(yards) 码")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(minWidth: 64)
+        .contentShape(Rectangle())
     }
 
     /// 发球台候选:优先用 /courses/{id}/tees 接口返回的台(带码数,back→forward 排序);没有则回退
@@ -878,69 +861,55 @@ public struct StartRoundView: View {
     }
 
     private func zhTeeLabel(_ tee: String) -> String {
-        switch tee.lowercased() {
-        case "unknown":
-            return "球场默认 T"
-        case "blue":
-            return "蓝 T"
-        case "white":
-            return "白 T"
-        case "red":
-            return "红 T"
-        case "gold":
-            return "金 T"
-        case "black", "championship", "tips":
-            return "黑 T(锦标)"
-        case "green":
-            return "绿 T"
-        case "yellow":
-            return "黄 T"
-        case "silver":
-            return "银 T"
-        case "back":
-            return "后 T"
-        case "middle":
-            return "中 T"
-        case "forward":
-            return "前 T"
-        default:
-            return tee
-        }
+        StartRoundPresentation.teeShortLabel(tee) ?? tee
+    }
+
+    /// "从 B 场 开始 · 蓝 T" — the shared `NineLoopPlan` copy for the chosen first loop.
+    private var startActionTitle: String {
+        StartRoundPresentation.startActionTitle(
+            selected: selectedSegment,
+            loops: selectedVenueLoops,
+            teeBox: teeBox
+        )
     }
 
     private var startCard: some View {
         VStack(spacing: 8) {
-            Button {
-                if let courseGlobalId {
-                    if let backGlobalId = Int(backGlobalIdText), backGlobalId != 0 {
-                        onPrepareCompositeRound(courseGlobalId, backGlobalId, teeBox, roundId)
-                    } else {
-                        onPrepareCourseRound(courseGlobalId, roundId, teeBox, nine)
-                    }
-                    // Don't pop manually — once the round is prepared the Hub navigates straight
-                    // into the live hole (pendingLiveHole → path), so 开始记分 enters the round.
-                }
-            } label: {
-                Label("开始记分", systemImage: "flag.checkered")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .background(canStart ? LiveHoleStyle.green : Color.gray.opacity(0.4))
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .disabled(!canStart)
-            .accessibilityIdentifier("start-round-primary-action")
-            if isPreparing {
-                ProgressView("准备中…").font(.caption)
-            } else if let failure = Self.roundPreparationFailureMessage(from: syncStatus) {
+            if !isPreparing, let failure = Self.roundPreparationFailureMessage(from: syncStatus) {
                 Label(failure, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("start-round-preparation-error")
             }
+            Button {
+                if let courseGlobalId {
+                    // Only the first loop is prepared. The second loop is chosen at the turn
+                    // (NineLoopPlan / LiveRoundTurnSheet), never composed here.
+                    onPrepareCourseRound(courseGlobalId, roundId, teeBox, nine)
+                    // Don't pop manually — once the round is prepared the Hub navigates straight
+                    // into the live hole (pendingLiveHole → path).
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    if isPreparing {
+                        ProgressView()
+                            .tint(.white)
+                    }
+                    Text(startActionTitle)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .background(canStart ? LiveHoleStyle.green : Color.gray.opacity(0.4))
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(!canStart)
+            .accessibilityIdentifier("start-round-primary-action")
         }
     }
 
@@ -1332,7 +1301,6 @@ public struct StartRoundView: View {
         )
         userPickedVenue = true
         selectedCourseWasManualSearch = true
-        backGlobalIdText = ""
         // Re-selecting the same search result (for example nearby first, then name search) keeps
         // its already-fetched Tee authority. Clearing it would not retrigger `.task(id:)` because
         // the globalId is unchanged, leaving the primary action disabled forever.
@@ -1489,18 +1457,6 @@ public struct StartRoundView: View {
         return "附近球场暂时无法读取；可重试，或按球场名搜索。"
     }
 
-    /// Permission denial is a synchronous product state, not a network result. Derive its copy
-    /// directly from the provider so the player never sees a transient "waiting for GPS" message
-    /// while Core Location has already denied/restricted access. The async discovery task still
-    /// owns empty-result and transport-error copy for authorized fixes.
-    private var effectiveNearbyStatusText: String {
-        if locationProvider.authorizationStatus == .denied
-            || locationProvider.authorizationStatus == .restricted {
-            return "定位权限未开启；可以直接按城市或球场名搜索。"
-        }
-        return nearbyStatusText ?? "等待 GPS 定位；也可以直接按城市或球场名搜索。"
-    }
-
     @MainActor
     private func discoverNearbyCourses() async {
         let requestToken = UUID()
@@ -1618,7 +1574,6 @@ public struct StartRoundView: View {
         guard !userPickedVenue else { return }
         courseGlobalIdText = ""
         roundId = defaultRoundId
-        backGlobalIdText = ""
         teeBox = ""
         fetchedTees = []
         teeLoadFailed = false

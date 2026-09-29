@@ -26,7 +26,13 @@ class NativeVisualParityTests(unittest.TestCase):
         )
         self.assertIn("the loaded real shot map must expose a tappable edit action", real_flow)
         self.assertIn("the real home must expose and open 开始一场", tee_selection)
-        self.assertIn("the selected real course must expose a tappable Tee menu", tee_selection)
+        # B4b: tees are a row of colour dots (no menu); a missing row fails closed.
+        self.assertIn(
+            'XCTAssertTrue(teeRow.waitForExistence(timeout: 10), "the selected course must show its tee dots")',
+            tee_selection,
+        )
+        self.assertIn("the real Beijing Palace Tee authority must expose its white Tee", tee_selection)
+        self.assertNotIn("tapTeeSelector", tee_selection)
 
     def test_real_review_capture_selects_resolver_verified_spatial_garmin_round(self) -> None:
         ui_tests = Path("mobile/ios/AICaddieUITests")
