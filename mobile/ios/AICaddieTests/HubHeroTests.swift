@@ -231,7 +231,8 @@ final class HubHeroTests: XCTestCase {
     }
 
     func testAFixAtAVenueWithItsNearbyMatchesResolvesToTheCourseHereCard() throws {
-        let matches: [MobileCourseSearchMatch] = ["A", "B"].enumerated().map { index, label in
+        let loopLabels: [String] = ["A", "B"]
+        let matches: [MobileCourseSearchMatch] = loopLabels.enumerated().map { index, label in
             MobileCourseSearchMatch(
                 globalId: 31794 + index, name: "北京天竺黑骑士球员俱乐部 ~ \(label)", holes: 9, city: "北京",
                 province: nil, ratio: 1, latitude: 40.1203, longitude: 116.5791 + Double(index) * 0.001,

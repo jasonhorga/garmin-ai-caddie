@@ -612,7 +612,10 @@ final class DesignSnapshotTests: XCTestCase {
             altitudeM: nil,
             capturedAt: "2026-09-29T08:00:00Z"
         )
-        let nearbyBlackKnight = ["A", "B", "C"].enumerated().map { index, label in
+        // Typed: an untyped literal here infers as [String?] (segmentLabel is optional) and the
+        // name interpolates as "~ Optional(\"B\")".
+        let loopLabels: [String] = ["A", "B", "C"]
+        let nearbyBlackKnight = loopLabels.enumerated().map { index, label in
             MobileCourseSearchMatch(
                 globalId: 31794 + index,
                 name: "北京天竺黑骑士球员俱乐部 ~ \(label)",
