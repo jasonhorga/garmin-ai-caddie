@@ -80,20 +80,21 @@ enum StartRoundPresentation {
         latitude: Double,
         longitude: Double
     ) -> [MobileCourseOption] {
-        options.enumerated()
-            .map { entry -> (offset: Int, option: MobileCourseOption, distance: Double) in
-                let distance: Double
-                if let lat = entry.element.latitude, let lon = entry.element.longitude {
-                    distance = StartRoundView.haversineMetres(latitude, longitude, lat, lon)
-                } else {
-                    distance = .greatestFiniteMagnitude
-                }
-                return (offset: entry.offset, option: entry.element, distance: distance)
+        // Split into typed steps: the chained form exceeds the type checker's time budget.
+        var ranked: [(offset: Int, option: MobileCourseOption, distance: Double)] = []
+        ranked.reserveCapacity(options.count)
+        for (offset, option) in options.enumerated() {
+            var distance = Double.greatestFiniteMagnitude
+            if let lat = option.latitude, let lon = option.longitude {
+                distance = StartRoundView.haversineMetres(latitude, longitude, lat, lon)
             }
-            .sorted { lhs, rhs in
-                lhs.distance == rhs.distance ? lhs.offset < rhs.offset : lhs.distance < rhs.distance
-            }
-            .map { $0.option }
+            ranked.append((offset: offset, option: option, distance: distance))
+        }
+        ranked.sort { lhs, rhs in
+            if lhs.distance != rhs.distance { return lhs.distance < rhs.distance }
+            return lhs.offset < rhs.offset
+        }
+        return ranked.map { $0.option }
     }
 
     /// "1.2 公里" below 10 km, "23 公里" beyond (`pre-round.html`).
