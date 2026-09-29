@@ -900,6 +900,28 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
         XCTAssertEqual(current.first?.source, .nearby)
         XCTAssertEqual(current.first?.segments.map(\.globalId), [90_002])
+
+        // A current nearby / search row with only a sibling (A, not the selected B): the carried
+        // A/B/C own that venue row in place, keeping its source and position.
+        let other = MobileCourseOption(
+            globalId: 70_001, name: "别的球场", holes: 18, venueName: "别的球场", segmentHoles: 18
+        )
+        let siblingNearby = StartRoundView.courseRows(
+            nearby: [other, downloadedA], search: [], recent: [], downloaded: [],
+            selected: selected, selectedLoops: loops, preselectedVenue: carried
+        )
+        XCTAssertEqual(siblingNearby.map(\.source), [.nearby, .nearby])
+        XCTAssertEqual(siblingNearby.map(\.venue), ["别的球场", "新球场"])
+        XCTAssertEqual(siblingNearby.last?.segments.map(\.globalId), [90_001, 90_002, 90_003])
+        XCTAssertEqual(siblingNearby.last?.holes, 27)
+        let siblingSearch = StartRoundView.courseRows(
+            nearby: [], search: [downloadedA], recent: [], downloaded: [downloadedA],
+            selected: selected, selectedLoops: loops, preselectedVenue: carried
+        )
+        XCTAssertEqual(siblingSearch.count, 1)
+        XCTAssertEqual(siblingSearch.first?.source, .search)
+        XCTAssertEqual(siblingSearch.first?.segments.map(\.globalId), [90_001, 90_002, 90_003])
+        XCTAssertEqual(siblingSearch.first?.holes, 27)
     }
 
     func testChangeCourseKeepsTheCardsLastTeeWhenTheCourseOffersIt() {

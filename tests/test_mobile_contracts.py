@@ -2308,7 +2308,8 @@ class MobileContractTests(unittest.TestCase):
             "NavigationLink(value: HubRoute.startCourse(globalId: suggestion.globalId, teeBox: suggestion.teeBox))",
             round_home,
         )
-        self.assertIn("if carriedOwnsSelection || !listedElsewhere {", start_view_src)
+        self.assertIn("if let owned = replacingVenue(of: selected, in: nearby, with: selectedLoops) {", start_view_src)
+        self.assertIn("} else if let owned = replacingVenue(of: selected, in: search, with: selectedLoops) {", start_view_src)
         self.assertIn("self._teeBox = State(initialValue: Self.initialTee(", start_view_src)
         self.assertIn("teeBox = Self.teeAfterRefresh(current: teeBox, rows: tees)", start_view_src)
         self.assertIn("func testTheCarriedVenueOwnsItsRowOverAPartialDownloadOfTheSameVenue()", _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "StartRoundDiscoveryTests.swift"))

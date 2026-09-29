@@ -524,12 +524,24 @@ public struct StartRoundView: View {
         selectedLoops: [MobileCourseOption],
         preselectedVenue: [MobileCourseOption]
     ) -> [StartCourseListRow] {
+        var nearby = nearby
+        var search = search
         var recent = recent
         if let selected,
            !(nearby + search).contains(where: { $0.globalId == selected.globalId }) {
             let carriedOwnsSelection = preselectedVenue.contains { $0.globalId == selected.globalId }
-            let listedElsewhere = (nearby + search + downloaded).contains { samePhysicalVenue($0, selected) }
-            if carriedOwnsSelection || !listedElsewhere {
+            if carriedOwnsSelection {
+                // The carried loops own the venue row at the highest-priority place the venue
+                // already appears (a sibling-only nearby / search row keeps its position and
+                // source); every lower same-venue row dedupes behind it.
+                if let owned = replacingVenue(of: selected, in: nearby, with: selectedLoops) {
+                    nearby = owned
+                } else if let owned = replacingVenue(of: selected, in: search, with: selectedLoops) {
+                    search = owned
+                } else {
+                    recent = recent.filter { !samePhysicalVenue($0, selected) } + selectedLoops
+                }
+            } else if !(nearby + search + downloaded).contains(where: { samePhysicalVenue($0, selected) }) {
                 recent = recent.filter { !samePhysicalVenue($0, selected) } + selectedLoops
             }
         }
@@ -539,6 +551,20 @@ public struct StartRoundView: View {
             recent: recent,
             downloaded: downloaded
         )
+    }
+
+    /// `options` with `selected`'s venue replaced, at its first position, by `loops`; nil when the
+    /// venue is not in `options`.
+    private static func replacingVenue(
+        of selected: MobileCourseOption,
+        in options: [MobileCourseOption],
+        with loops: [MobileCourseOption]
+    ) -> [MobileCourseOption]? {
+        guard let first = options.firstIndex(where: { samePhysicalVenue($0, selected) }) else { return nil }
+        var result = options.filter { !samePhysicalVenue($0, selected) }
+        let insertAt = options[..<first].filter { !samePhysicalVenue($0, selected) }.count
+        result.insert(contentsOf: loops, at: insertAt)
+        return result
     }
 
     /// The first tee: the caller's tee (the home card's last tee) when the course offers it or
