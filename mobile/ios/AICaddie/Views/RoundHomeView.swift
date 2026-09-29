@@ -453,7 +453,6 @@ public struct RoundHomeView: View {
             adminTokenConfigured: adminTokenConfigured,
             onPrepareRound: onPrepareRound,
             onPrepareCourseRound: onPrepareCourseRound,
-            onPrepareCompositeRound: onPrepareCompositeRound,
             onSaveBackendConfiguration: onSaveBackendConfiguration,
             onClearBackendConfiguration: onClearBackendConfiguration,
             onConnectGarmin: { showSettings = true },
@@ -537,7 +536,6 @@ public struct RoundHomeView: View {
                         ),
                         activeHole: activeHole,
                         recorded: scored.count,
-                        total: package.holes.count,
                         toPar: liveToPar(scoredHoles: scored)
                     )
                 }
@@ -572,7 +570,7 @@ public struct RoundHomeView: View {
         case .search(let replay):
             VStack(spacing: 10) {
                 NavigationLink(value: HubRoute.start) {
-                    HubSearchHeroCard(lastCourseName: nil)
+                    HubSearchHeroCard()
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("home-new-round")
@@ -818,12 +816,11 @@ public struct RoundHomeView: View {
 // MARK: - 表现型卡片(纯输入 → CI 设计快照可复用)
 
 /// 主卡 · 进行中(`pre-round.html` live):“进行中”、球场、大号累计成绩(已知时)、“已打 N 洞”、
-/// “继续第 N 洞”。白卡 + 淡绿描边。`total` is kept for callers; progress shows recorded holes only.
+/// “继续第 N 洞”。白卡 + 淡绿描边。Progress shows recorded holes only.
 struct HubInProgressCard: View {
     let courseName: String
     let activeHole: Int
     let recorded: Int
-    let total: Int
     /// Score to par over the recorded holes; nil → omitted, never guessed.
     var toPar: Int? = nil
 
@@ -899,19 +896,11 @@ struct HubSuggestedCourseCard<Actions: View>: View {
 
 /// 主卡 · 没有已知球场:“今天去哪打？” + 搜索入口(整卡打开开始一场)。
 struct HubSearchHeroCard: View {
-    let lastCourseName: String?
-
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("今天去哪打？")
                 .font(.title2.weight(.bold))
                 .foregroundStyle(.primary)
-            if let lastCourseName {
-                Text("上次：\(lastCourseName)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                 Text("搜索球场或城市")

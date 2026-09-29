@@ -331,9 +331,6 @@ private struct NoPackageHubView: View {
             onPrepareCourseRound: { globalId, roundId, teeBox, nine in
                 Task { await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine) }
             },
-            onPrepareCompositeRound: { globalId, backGlobalId, teeBox, roundId in
-                Task { await model.prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox) }
-            },
             onSaveBackendConfiguration: { baseURL, token in
                 Task { await model.saveBackendConfiguration(apiBaseURLText: baseURL, adminTokenText: token) }
             },

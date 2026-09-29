@@ -268,12 +268,13 @@ final class DesignSnapshotTests: XCTestCase {
             HistoryScoreCell(hole: index + 1, par: 4, score: 4 + delta, toPar: delta, className: nil)
         }
         let view = VStack(spacing: 14) {
-            HubInProgressCard(courseName: "北京丽宫", activeHole: 7, recorded: 6, total: 9, toPar: 2)
+            HubInProgressCard(courseName: "北京丽宫", activeHole: 7, recorded: 6, toPar: 2)
             HubSuggestedCourseCard(courseName: "北京天竺黑骑士球员俱乐部", startTitle: "从 B 场 开始 · 蓝 T") {
                 HubPrimaryPill(title: "开始")
                 HubSecondaryLinkLabel(title: "换球场或组合")
             }
-            HubSearchHeroCard(lastCourseName: "北京天竺黑骑士球员俱乐部")
+            HubSearchHeroCard()
+            HubReplayLastCard(courseName: "北京天竺黑骑士球员俱乐部", startTitle: "从 B 场 开始 · 蓝 T")
             HStack(spacing: 11) {
                 HubTile(icon: "scope", title: "备战", subtitle: "搜索 · 球童试算")
                 HubTile(icon: "chart.line.uptrend.xyaxis", title: "成绩", subtitle: "球局 · 统计")

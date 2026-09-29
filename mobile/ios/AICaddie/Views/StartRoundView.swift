@@ -23,9 +23,6 @@ public struct StartRoundView: View {
     public let adminTokenConfigured: Bool
     public let onPrepareRound: (String) -> Void
     public let onPrepareCourseRound: (Int, String, String, String) -> Void
-    /// Kept for caller source compatibility only. 开始一场 prepares the first loop alone; the second
-    /// loop is chosen at the turn (NineLoopPlan), which owns the composite preparation.
-    public let onPrepareCompositeRound: (Int, Int, String, String) -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
     /// 还没有球场时的「连接 Garmin」CTA:由 app 注入(打开 Garmin 连接流程),拉取球场后就能记分。
@@ -80,7 +77,6 @@ public struct StartRoundView: View {
         adminTokenConfigured: Bool = false,
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
-        onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
         onConnectGarmin: @escaping () -> Void = {},
@@ -98,7 +94,6 @@ public struct StartRoundView: View {
         self.adminTokenConfigured = adminTokenConfigured
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
-        self.onPrepareCompositeRound = onPrepareCompositeRound
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
         self.onConnectGarmin = onConnectGarmin

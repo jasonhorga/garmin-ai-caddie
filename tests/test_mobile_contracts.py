@@ -1742,11 +1742,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("await model.prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)", app_swift)
         self.assertIn("backGlobalId: Int? = nil", sync_client)
         self.assertIn('URLQueryItem(name: "back_global_id"', sync_client)
-        # B4b: 开始一场 chooses only the FIRST loop. The composite callback stays for caller source
-        # compatibility, but the start screen never composes 18 — the second loop is chosen at the
-        # turn (NineLoopPlan / LiveRoundTurnSheet), and the old 加打 card is gone.
-        self.assertIn("public let onPrepareCompositeRound: (Int, Int, String, String) -> Void", start_view)
-        self.assertNotIn("onPrepareCompositeRound(courseGlobalId, backGlobalId, teeBox, roundId)", start_view)
+        # B4b: 开始一场 chooses only the FIRST loop and has no composite callback at all; the second
+        # loop is chosen at the turn (NineLoopPlan / LiveRoundTurnSheet), whose live path keeps
+        # onPrepareCompositeRound (RoundHomeView → CurrentHoleView), and the old 加打 card is gone.
+        self.assertNotIn("onPrepareCompositeRound", start_view)
+        start_call = round_home.split("        StartRoundView(", 1)[1].split("\n        )\n", 1)[0]
+        self.assertNotIn("onPrepareCompositeRound", start_call)
         self.assertNotIn("backGlobalIdText", start_view)
         self.assertNotIn("secondNineCard", start_view)
         self.assertNotIn("加打另一个 9 洞", start_view)
@@ -2300,6 +2301,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("presentation: .startRound,", snapshots.split('named: "full-course-search"', 1)[0].rsplit("try captureScreen(", 1)[1])
         real_flow = _read_required_source(self, IOS_DIR.parent / "AICaddieUITests" / "RealFlowUITests.swift")
         self.assertNotIn('XCTAssertEqual(namedResult.value as? String, "选择后下载")', real_flow)
+        # No compatibility-only inputs on the new home cards.
+        self.assertNotIn("let total: Int", round_home.split("struct HubInProgressCard: View {", 1)[1].split("\n}\n", 1)[0])
+        self.assertNotIn("lastCourseName", round_home)
         # Each tee source is normalised before precedence.
         self.assertIn("knownTee(played.teeBox) ?? knownTee(stored?.teeBox)", hero)
         self.assertIn("knownTee(played.teeBox) ?? knownTee(sameLoopRecent)", hero)
