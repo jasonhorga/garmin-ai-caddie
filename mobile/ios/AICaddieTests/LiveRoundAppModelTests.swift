@@ -1148,26 +1148,33 @@ final class LiveRoundAppModelTests: XCTestCase {
                 geometryCoverage: "partial"
             )
         ).holes[0]
-        let compositeHoles = [
-            Hole(
-                number: 9,
+        // A contract-valid two-loop round (`G:all+G+1:all`): round holes 1–9 are physical holes
+        // 1–9 of the first loop, round holes 10–18 physical holes 1–9 of the second. Round hole 10
+        // carries the factual prep's physical hole (local hole 1 of the second loop).
+        XCTAssertEqual(factualPrep.hole, 1)
+        let compositeHoles = (1...18).map { number -> Hole in
+            if number == 10 {
+                return Hole(
+                    number: 10,
+                    par: factualPrep.par,
+                    yards: factualPrep.blueYards,
+                    geometryCoverage: .ready,
+                    sourceGlobalId: source.course.globalId + 1,
+                    sourceLocalHole: factualPrep.hole,
+                    courseHoleNumber: 10
+                )
+            }
+            let inSecondLoop = number > 9
+            return Hole(
+                number: number,
                 par: 4,
-                yards: 390,
+                yards: 380 + number,
                 geometryCoverage: .ready,
-                sourceGlobalId: source.course.globalId,
-                sourceLocalHole: 9,
-                courseHoleNumber: 9
-            ),
-            Hole(
-                number: 10,
-                par: factualPrep.par,
-                yards: factualPrep.blueYards,
-                geometryCoverage: .ready,
-                sourceGlobalId: source.course.globalId + 1,
-                sourceLocalHole: factualPrep.hole,
-                courseHoleNumber: 10
-            ),
-        ]
+                sourceGlobalId: inSecondLoop ? source.course.globalId + 1 : source.course.globalId,
+                sourceLocalHole: inSecondLoop ? number - 9 : number,
+                courseHoleNumber: number
+            )
+        }
         let round = package(
             source,
             roundId: "foreground-prep-retention",
@@ -2586,8 +2593,8 @@ final class LiveRoundAppModelTests: XCTestCase {
             nine: nil,
             teeBox: nil
         )
-        // The finished round is a local one-hole table; the server's home package for the same
-        // course is a contract-valid whole loop (B4b-2 §6).
+        // The finished round is the local nine-hole loop; the server's home package for the same
+        // course is the same contract-valid whole loop under its home round id (B4b-2 §6).
         let refreshedHome = try serverPackage(
             roundId: "home-\(fixture.package.course.globalId)",
             recentRounds: [finishedRound]
@@ -2753,7 +2760,10 @@ final class LiveRoundAppModelTests: XCTestCase {
         let meta = try XCTUnwrap(body["meta"] as? [String: Any])
         XCTAssertEqual(meta["courseName"] as? String, fixture.package.course.name)
         XCTAssertEqual(meta["courseGlobalId"] as? Int, fixture.package.course.globalId)
-        XCTAssertEqual(meta["holePars"] as? [Int], [4])
+        XCTAssertEqual(
+            meta["holePars"] as? [Int],
+            fixture.package.holes.sorted { $0.number < $1.number }.map(\.par)
+        )
         XCTAssertEqual(meta["holesCompleted"] as? Int, 1)
         XCTAssertEqual(model.package?.roundId, refreshedHome.roundId)
         XCTAssertEqual(model.package?.recentHistory.rounds.first, finishedRound)
@@ -4385,12 +4395,93 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
-    /// A local one-hole `G:all` test table built from the fixture's hole 1, for rounds and templates
-    /// that live only on disk (stored rounds, prep rows, revalidation of an installed template).
-    /// It is never a server response: SyncClient rejects anything but whole loops (B4b-2 §6), so
-    /// mocked package routes serve ``serverPackage(roundId:recentRounds:)`` or a nine-hole table.
+    /// B4b-2 §6: a stored round whose bytes carry a contradictory v2 identity (valid JSON, every
+    /// field present) is never resumed at launch — the store invalidates the per-round file and
+    /// the current pointer instead. The same round with a valid identity resumes (control).
+    func testBootstrapNeverResumesAStoredRoundWithContradictoryIdentity() async throws {
+        func storedRound(
+            roundId: String,
+            mutate: ((inout [String: Any]) -> Void)?
+        ) throws -> (store: OfflineStore, roundURL: URL, currentURL: URL) {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let store = OfflineStore(directoryURL: directory)
+            let source = try localFixturePackage()
+            let round = package(source, roundId: roundId, recentRounds: [])
+            try store.saveRoundPackage(round)
+            try store.appendEvent(LiveRoundEvent(
+                eventId: "\(roundId)-score",
+                roundId: roundId,
+                timestamp: "2026-09-29T08:00:00Z",
+                hole: 1,
+                kind: .score,
+                payload: ["strokes": .number(4)]
+            ))
+            let roundURL = directory
+                .appendingPathComponent("packages", isDirectory: true)
+                .appendingPathComponent("\(roundId).json")
+            let currentURL = directory.appendingPathComponent("current_package.json")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: roundURL.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: currentURL.path))
+            if let mutate {
+                var object = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: JSONEncoder().encode(round)) as? [String: Any]
+                )
+                mutate(&object)
+                let bytes = try JSONSerialization.data(withJSONObject: object)
+                let decoded = try JSONDecoder().decode(LiveRoundPackage.self, from: bytes)
+                XCTAssertThrowsError(try decoded.validatedRoundIdentity())
+                try bytes.write(to: roundURL, options: [.atomic])
+                try bytes.write(to: currentURL, options: [.atomic])
+            }
+            return (store, roundURL, currentURL)
+        }
+
+        let validRoundId = "identity-control-round"
+        let valid = try storedRound(roundId: validRoundId, mutate: nil)
+        let resumed = LiveRoundAppModel(
+            offlineStore: valid.store,
+            apiBaseURL: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: nil
+        )
+        await resumed.bootstrap()
+        XCTAssertEqual(resumed.liveRoundState?.roundId, validRoundId, "control: a valid stored round resumes")
+        XCTAssertEqual(resumed.package?.roundId, validRoundId)
+
+        let mutatedRoundId = "identity-mutated-round"
+        let mutated = try storedRound(roundId: mutatedRoundId, mutate: { object in
+            // A `31795:all` table that names itself the back half.
+            object["loopKey"] = "31795:back"
+        })
+        XCTAssertEqual(try mutated.store.inProgressRoundId(), mutatedRoundId)
+        let model = LiveRoundAppModel(
+            offlineStore: mutated.store,
+            apiBaseURL: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: nil
+        )
+        await model.bootstrap()
+
+        XCTAssertNotEqual(model.liveRoundState?.roundId, mutatedRoundId, "a contradictory round never resumes")
+        XCTAssertNotEqual(model.package?.roundId, mutatedRoundId)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: mutated.roundURL.path),
+            "the contradictory per-round file is invalidated"
+        )
+        XCTAssertNotEqual(try mutated.store.loadCurrentRoundPackage()?.roundId, mutatedRoundId)
+        XCTAssertNotEqual(try mutated.store.loadResumablePackage()?.roundId, mutatedRoundId)
+        XCTAssertNil(try mutated.store.loadRoundPackage(roundId: mutatedRoundId))
+    }
+
+    /// The fixture's nine holes as the local 9-hole loop `31795:all`, for rounds and templates that
+    /// live on disk (stored rounds, prep rows, revalidation of an installed template). The durable
+    /// store validates every package it writes or reads against the v2 identity contract (B4b-2
+    /// §6), so a stored round is always a whole, consistent loop — never a narrowed test table.
     private func localFixturePackage() throws -> LiveRoundPackage {
-        try LiveRoundPackageFixture.singleHole(dataMode: "local")
+        try LiveRoundPackageFixture.nineHoleLoop(dataMode: "local")
     }
 
     private func blackKnightLoopPackage(
@@ -4734,7 +4825,8 @@ final class LiveRoundAppModelTests: XCTestCase {
     }
 
     /// The loop table of a test package whose hole list was replaced: a one-loop source keeps its
-    /// loop and counts the replacement holes (a 1-, 2- or 3-hole test loop is only a table).
+    /// loop and counts the replacement holes. Callers replace a loop with a whole nine-hole loop;
+    /// anything shorter is not contract-valid and cannot be stored or served.
     private func replacedHoleRoundLoops(_ source: LiveRoundPackage, holes: [Hole]?) -> [RoundLoop] {
         guard let holes, source.roundLoops.count == 1, let loop = source.roundLoops.first else {
             return source.roundLoops

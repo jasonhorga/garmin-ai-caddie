@@ -127,9 +127,11 @@ public enum RoundIdentityError: Error, Equatable {
 }
 
 public struct LiveRoundPackage: Codable, Equatable {
-    /// The only package contract this client accepts. A server package is checked with
-    /// ``validatedRoundIdentity()`` before use (SyncClient); v1 packages fail to decode (no
-    /// `roundLoops`) or are rejected there, and source identity is never fabricated from `number`.
+    /// The only package contract this client accepts. Every package is checked with
+    /// ``validatedRoundIdentity()`` when it arrives from the server (SyncClient) and whenever it is
+    /// written to or read from durable storage (OfflineStore: round, current pointer, home,
+    /// templates — invalid bytes are removed and re-downloaded). v1 packages fail to decode or are
+    /// rejected, and source identity is never fabricated from `number`.
     public static let supportedSchema = "ai-caddie-live-round-package-v2"
 
     public let schema: String
@@ -401,19 +403,57 @@ public struct LiveRoundPackage: Codable, Equatable {
     /// package without holes names no loop. Throws ``RoundIdentityError``; returns `self`.
     @discardableResult
     public func validatedRoundIdentity() throws -> LiveRoundPackage {
-        guard schema == Self.supportedSchema else { throw RoundIdentityError.unsupportedSchema(schema) }
+        try Self.validateRoundIdentity(
+            schema: schema,
+            roundLoops: roundLoops,
+            loopKey: loopKey,
+            holes: holes.map {
+                RoundIdentityHole(
+                    number: $0.number,
+                    sourceGlobalId: $0.sourceGlobalId,
+                    sourceLocalHole: $0.sourceLocalHole,
+                    courseHoleNumber: $0.courseHoleNumber
+                )
+            }
+        )
+        return self
+    }
+
+    /// The identity fields of one hole, as the shared validation rule set sees them.
+    public struct RoundIdentityHole: Decodable, Equatable {
+        public let number: Int
+        public let sourceGlobalId: Int
+        public let sourceLocalHole: Int
+        public let courseHoleNumber: Int
+
+        public init(number: Int, sourceGlobalId: Int, sourceLocalHole: Int, courseHoleNumber: Int) {
+            self.number = number
+            self.sourceGlobalId = sourceGlobalId
+            self.sourceLocalHole = sourceLocalHole
+            self.courseHoleNumber = courseHoleNumber
+        }
+    }
+
+    /// The shared v2 round-identity rule set (server `validate_round_identity`, Watch decoding and
+    /// this are all tested against `round_identity_cases.json`).
+    public static func validateRoundIdentity(
+        schema: String,
+        roundLoops: [RoundLoop],
+        loopKey: String,
+        holes: [RoundIdentityHole]
+    ) throws {
+        guard schema == supportedSchema else { throw RoundIdentityError.unsupportedSchema(schema) }
         if holes.isEmpty {
             guard roundLoops.isEmpty, loopKey.isEmpty else { throw RoundIdentityError.invalidRoundLoops }
-            return self
+            return
         }
         guard (1...2).contains(roundLoops.count) else { throw RoundIdentityError.invalidRoundLoops }
         var expected: [Int: (globalId: Int, localHole: Int, courseHole: Int)] = [:]
         for (index, loop) in roundLoops.enumerated() {
-            let entry = loop.entry
             guard ["all", "front", "back"].contains(loop.half),
                   loop.globalId > 0,
                   loop.roundStartHole == 1 + index * RoundLoopEntry.holesPerLoop,
-                  loop.sourceStartHole == entry.sourceStartHole,
+                  loop.sourceStartHole == loop.entry.sourceStartHole,
                   loop.holeCount == RoundLoopEntry.holesPerLoop else {
                 throw RoundIdentityError.invalidRoundLoops
             }
@@ -423,7 +463,7 @@ public struct LiveRoundPackage: Codable, Equatable {
                 expected[number] = (loop.globalId, local, loop.isCourseHalf ? local : number)
             }
         }
-        guard loopKey == RoundLoopEntry.loopKey(loopEntries) else {
+        guard loopKey == RoundLoopEntry.loopKey(roundLoops.map(\.entry)) else {
             throw RoundIdentityError.nonCanonicalLoopKey
         }
         var seen = Set<Int>()
@@ -437,7 +477,6 @@ public struct LiveRoundPackage: Codable, Equatable {
             }
         }
         guard seen == Set(expected.keys) else { throw RoundIdentityError.invalidRoundLoops }
-        return self
     }
 
     /// The round's loops as request entries, in play order (the `loops=` of this package).

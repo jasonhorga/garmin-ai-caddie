@@ -6,7 +6,9 @@ import Foundation
 /// The shared fixture is a contract-valid v2 package: the front nine (`31795:front`) of the
 /// fixture world's 18-hole course 31795 — round holes 1–9 are physical holes 1–9, each with its
 /// own caddie seed and recent-history row. Unit tests that model something else derive it here,
-/// at the JSON level, so every derivation stays a decodable package.
+/// at the JSON level, so every derivation stays a decodable package. Every derivation is also a
+/// contract-valid v2 round identity (whole nine-hole loops): OfflineStore validates each package it
+/// writes or reads, so a narrowed one- or two-hole table can no longer be stored.
 enum LiveRoundPackageFixture {
     enum FixtureError: Error {
         case malformed(String)
@@ -37,40 +39,6 @@ enum LiveRoundPackageFixture {
         return try decode(root)
     }
 
-    /// Only round hole 1 (with its seed and history row) as a one-hole `G:all` test table — the
-    /// shape older store / sync / prep tests were written against (one topo asset, one install
-    /// row). iOS does not validate the loop table; the server never emits this shape.
-    static func singleHole(dataMode: String? = nil) throws -> LiveRoundPackage {
-        var root = try object(dataMode: dataMode)
-        let globalId = try courseGlobalId(root)
-        let roundId = root["roundId"] as? String ?? ""
-        root["holes"] = try rows(root["holes"], key: "holes").filter { ($0["number"] as? Int) == 1 }
-        root["caddieContextSeeds"] = try rows(root["caddieContextSeeds"], key: "caddieContextSeeds")
-            .filter { ($0["hole"] as? Int) == 1 }
-        if var history = root["recentHistory"] as? [String: Any] {
-            history["holes"] = try rows(history["holes"], key: "recentHistory.holes")
-                .filter { ($0["number"] as? Int) == 1 }
-            root["recentHistory"] = history
-        }
-        if var coverage = root["sourceCoverage"] as? [String: Any] {
-            coverage["holeCount"] = 1
-            root["sourceCoverage"] = coverage
-        }
-        root["readinessChecks"] = try rows(root["readinessChecks"], key: "readinessChecks").map {
-            (check: [String: Any]) -> [String: Any] in
-            guard (check["label"] as? String) == "caddie_seeds" else { return check }
-            var narrowed = check
-            narrowed["ready"] = 1
-            narrowed["total"] = 1
-            narrowed["reason"] = "1/1 holes have cached caddie context seeds and offline options"
-            narrowed["sourceRefs"] = ["\(roundId):1"]
-            return narrowed
-        }
-        root["roundLoops"] = [loopRow(globalId: globalId, half: "all", holeCount: 1)]
-        root["loopKey"] = "\(globalId):all"
-        return try decode(root)
-    }
-
     private static func object(dataMode: String?) throws -> [String: Any] {
         let data = try Data(contentsOf: url)
         guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -92,11 +60,6 @@ enum LiveRoundPackageFixture {
             throw FixtureError.malformed("course.globalId")
         }
         return globalId
-    }
-
-    private static func rows(_ value: Any?, key: String) throws -> [[String: Any]] {
-        guard let rows = value as? [[String: Any]] else { throw FixtureError.malformed(key) }
-        return rows
     }
 
     private static func loopRow(globalId: Int, half: String, holeCount: Int) -> [String: Any] {

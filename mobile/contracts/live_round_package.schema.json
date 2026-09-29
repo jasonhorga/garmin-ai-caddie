@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "AI Caddie Live Round Package",
+  "description": "Shape of ai-caddie-live-round-package-v2. JSON Schema cannot compare fields, so the cross-field round identity (loopKey equals roundLoops in order; every hole on its loop row: sourceGlobalId, sourceLocalHole, courseHoleNumber; nine holes per loop; unique numbers) is NOT proven here. It is enforced by the shared validators — server validate_round_identity, iPhone LiveRoundPackage.validatedRoundIdentity, Watch WatchCoursePackage decoding — which are all tested against mobile/contracts/fixtures/round_identity_cases.json. A document that passes this schema alone is not a valid package.",
   "type": "object",
   "additionalProperties": false,
   "required": [

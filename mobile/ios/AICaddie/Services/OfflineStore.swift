@@ -827,6 +827,8 @@ public final class OfflineStore {
         } else {
             persistedPackage = package
         }
+        // Nothing contradictory is ever persisted as playable state.
+        try persistedPackage.validatedRoundIdentity()
         let encoded = try encoder.encode(persistedPackage)
         try encoded.write(to: packageURL(roundId: persistedPackage.roundId), options: [.atomic])
         try encoded.write(to: currentPackageURL, options: [.atomic])
@@ -836,18 +838,29 @@ public final class OfflineStore {
     }
 
     public func loadRoundPackage(roundId: String) throws -> LiveRoundPackage? {
-        let url = packageURL(roundId: roundId)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            return nil
-        }
-        return try decoder.decode(LiveRoundPackage.self, from: Data(contentsOf: url))
+        validPackage(at: packageURL(roundId: roundId))
     }
 
     public func loadCurrentRoundPackage() throws -> LiveRoundPackage? {
-        guard FileManager.default.fileExists(atPath: currentPackageURL.path) else {
+        validPackage(at: currentPackageURL)
+    }
+
+    /// Every durable package passes the same v2 identity check as a server response before it
+    /// can become the live round, the home package or a template (B4b-2 §6). Bytes that fail to
+    /// decode or validate are invalidated (removed), so the caller re-downloads instead of
+    /// resuming or composing from a contradictory table.
+    private func validPackage(at url: URL) -> LiveRoundPackage? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        do {
+            return try decoder.decode(LiveRoundPackage.self, from: Data(contentsOf: url))
+                .validatedRoundIdentity()
+        } catch {
+            AICaddieLog.storage.error(
+                "Invalidated stored package \(url.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)"
+            )
+            try? FileManager.default.removeItem(at: url)
             return nil
         }
-        return try decoder.decode(LiveRoundPackage.self, from: Data(contentsOf: currentPackageURL))
     }
 
     /// An explicit live cursor/draft is the strongest in-progress signal. Older rounds without that
@@ -902,16 +915,14 @@ public final class OfflineStore {
     /// (saveRoundPackage) is the active round that resumes on relaunch.
     public func saveHomePackage(_ package: LiveRoundPackage) throws {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try package.validatedRoundIdentity()
         let encoded = try encoder.encode(package)
         try encoded.write(to: homePackageURL, options: [.atomic])
         try saveCourseTemplate(package)
     }
 
     public func loadHomePackage() throws -> LiveRoundPackage? {
-        guard FileManager.default.fileExists(atPath: homePackageURL.path) else {
-            return nil
-        }
-        return try decoder.decode(LiveRoundPackage.self, from: Data(contentsOf: homePackageURL))
+        validPackage(at: homePackageURL)
     }
 
     /// The last course the player explicitly started. This is deliberately separate from the
@@ -1006,6 +1017,7 @@ public final class OfflineStore {
               source.dataMode != "fixture",
               !source.holes.isEmpty,
               let package = source.wholeCourseTemplate() else { return }
+        try package.validatedRoundIdentity()
         try FileManager.default.createDirectory(
             at: courseTemplatesDirectoryURL,
             withIntermediateDirectories: true
@@ -1014,7 +1026,7 @@ public final class OfflineStore {
         if !replacingExisting,
            FileManager.default.fileExists(atPath: url.path),
            let data = try? Data(contentsOf: url),
-           let existing = try? decoder.decode(LiveRoundPackage.self, from: data),
+           let existing = try? decoder.decode(LiveRoundPackage.self, from: data).validatedRoundIdentity(),
            !Self.shouldReplaceCourseTemplate(existing, with: package) {
             return
         }
@@ -1037,8 +1049,8 @@ public final class OfflineStore {
                   values.isRegularFile == true,
                   values.isSymbolicLink != true,
                   let data = try? Data(contentsOf: url),
-                  let package = try? decoder.decode(LiveRoundPackage.self, from: data),
-                  package.schema == LiveRoundPackage.supportedSchema,
+                  let package = try? decoder.decode(LiveRoundPackage.self, from: data)
+                    .validatedRoundIdentity(),
                   package.course.globalId > 0,
                   package.isWholeCourseTemplate,
                   package.dataMode != "fixture" else {
@@ -1063,11 +1075,13 @@ public final class OfflineStore {
               values.isRegularFile == true,
               values.isSymbolicLink != true,
               let data = try? Data(contentsOf: url),
-              let package = try? decoder.decode(LiveRoundPackage.self, from: data) else {
+              let package = try? decoder.decode(LiveRoundPackage.self, from: data)
+                .validatedRoundIdentity() else {
+            // Undecodable, v1 or contradictory bytes are invalidated; the course re-downloads.
+            try? FileManager.default.removeItem(at: url)
             return nil
         }
-        guard package.schema == LiveRoundPackage.supportedSchema,
-              package.course.globalId == globalId,
+        guard package.course.globalId == globalId,
               package.isWholeCourseTemplate,
               Set(package.holes.map(\.sourceGlobalId)) == Set([globalId]),
               package.course.teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == requestedTee else {

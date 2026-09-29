@@ -109,11 +109,26 @@ final class TemplateAcquisitionTests: XCTestCase {
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
             if url.path == "/api/v2/mobile/courses/\(gid)/package" {
-                let loops = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                    .queryItems?.first { $0.name == "loops" }?.value ?? ""
+                let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                let loops = queryItems.first { $0.name == "loops" }?.value ?? ""
                 lock.withLock { requestedLoops.append(loops) }
                 if let body = oracle.responses[loops] {
-                    return try Self.response(request, status: 200, body: body)
+                    // Every oracle package carries the oracle round id; the server answers with
+                    // the round the request names (the background prep download asks for its own
+                    // `prep-library-…` id and must never claim the live round's id).
+                    guard let requestedRoundId = queryItems.first(where: { $0.name == "round_id" })?.value,
+                          !requestedRoundId.isEmpty else {
+                        return try Self.response(request, status: 200, body: body)
+                    }
+                    var object = try XCTUnwrap(
+                        JSONSerialization.jsonObject(with: body) as? [String: Any]
+                    )
+                    object["roundId"] = requestedRoundId
+                    return try Self.response(
+                        request,
+                        status: 200,
+                        body: try JSONSerialization.data(withJSONObject: object)
+                    )
                 }
                 return try Self.response(request, status: 422, body: Data(#"{"detail":"loops"}"#.utf8))
             }

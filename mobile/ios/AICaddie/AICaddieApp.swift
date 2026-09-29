@@ -4510,45 +4510,9 @@ public final class LiveRoundAppModel: ObservableObject {
 
     #if DEBUG
     private func loadScoringUITestFixture() throws -> LiveRoundPackage {
-        // The bundled fixture is the front nine (`31795:front`) of an 18-hole course. The scoring
-        // UI test only needs its first two factual holes; iOS does not validate the loop table, so
-        // the table is narrowed to those two holes with the same physical identity.
-        let package = try loadFixturePackage()
-        let holes = Array(package.holes.sorted { $0.number < $1.number }.prefix(2))
-        guard let first = holes.first,
-              let firstLoop = package.roundLoops.first else { return package }
-        let numbers = Set(holes.map(\.number))
-        let loops = [RoundLoop(
-            globalId: firstLoop.globalId,
-            half: firstLoop.half,
-            roundStartHole: first.number,
-            sourceStartHole: first.sourceLocalHole,
-            holeCount: holes.count
-        )]
-        return LiveRoundPackage(
-            schema: package.schema,
-            roundId: package.roundId,
-            dataMode: package.dataMode,
-            sourceCoverage: package.sourceCoverage,
-            missingData: package.missingData,
-            playerProfile: package.playerProfile,
-            course: package.course,
-            holes: holes,
-            roundLoops: loops,
-            loopKey: package.loopKey,
-            coursePrep: package.coursePrep,
-            geometryCoverage: package.geometryCoverage,
-            readinessChecks: package.readinessChecks,
-            caddieContextSeeds: package.caddieContextSeeds.filter { numbers.contains($0.hole) },
-            weatherSnapshot: package.weatherSnapshot,
-            clubProfiles: package.clubProfiles,
-            caddieDecisionEndpoint: package.caddieDecisionEndpoint,
-            offlinePackageStatus: package.offlinePackageStatus,
-            eventCursor: package.eventCursor,
-            recentHistory: package.recentHistory,
-            cachedCaddieRules: package.cachedCaddieRules,
-            generatedAt: package.generatedAt
-        )
+        // The bundled fixture is a contract-valid front nine (`31795:front`). A narrowed table
+        // would be rejected by the durable store's v2 identity check, so the whole loop is used.
+        try loadFixturePackage().validatedRoundIdentity()
     }
     #endif
 }

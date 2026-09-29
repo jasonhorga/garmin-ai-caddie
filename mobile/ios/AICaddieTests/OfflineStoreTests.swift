@@ -118,13 +118,14 @@ final class OfflineStoreTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
-        let full = try LiveRoundPackageFixture.package(dataMode: "local")
-        XCTAssertEqual(full.holes.count, 9)
-        let partial = replacingHoles(
-            in: full,
-            with: [try XCTUnwrap(full.holes.first)],
-            generatedAt: "2026-09-12T00:00:00Z"
-        )
+        // Both are contract-valid (the store validates every write): the 18-hole round and the
+        // same round narrowed to its front nine.
+        let front = RoundLoopEntry(globalId: 41825, half: "front")
+        let back = RoundLoopEntry(globalId: 41825, half: "back")
+        let full = try courseRoundPackage(globalId: 41825, loops: [front, back], roundId: "downgrade-round")
+        XCTAssertEqual(full.holes.count, 18)
+        let partial = try courseRoundPackage(globalId: 41825, loops: [front], roundId: "downgrade-round")
+        XCTAssertEqual(partial.holes.count, 9)
 
         try store.saveRoundPackage(full)
         let effective = try store.saveRoundPackage(partial)
@@ -138,8 +139,9 @@ final class OfflineStoreTests: XCTestCase {
             partial,
             allowHoleCountDecrease: true
         )
-        XCTAssertEqual(narrowed.holes.count, 1)
-        XCTAssertEqual(try store.loadRoundPackage(roundId: full.roundId)?.holes.count, 1)
+        XCTAssertEqual(narrowed.holes.count, 9)
+        XCTAssertEqual(narrowed.loopKey, "41825:front")
+        XCTAssertEqual(try store.loadRoundPackage(roundId: full.roundId)?.holes.count, 9)
     }
 
     func testSealedRoundIsNotResumableAndOutboxSurvivesRelaunch() throws {
@@ -621,7 +623,7 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(loaded.coursePrep?.holes.first?.geometryCoverage, "partial")
     }
 
-    func testCourseTemplateDoesNotReplaceEighteenPlayableHolesWithANewerSingleHolePackage() throws {
+    func testCourseTemplateDoesNotReplaceEighteenPlayableHolesWithANewerNineHolePackage() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
@@ -649,14 +651,17 @@ final class OfflineStoreTests: XCTestCase {
             loopKey: RoundLoopEntry.loopKey(wholeCourse)
         )
         XCTAssertTrue(full.isWholeCourseTemplate)
-        let laterSingleHole = replacingHoles(
+        // A newer, contract-valid 9-hole loop of the same course and Tee (fewer playable holes).
+        let laterNine = replacingGeometryCoverage(
             in: partial,
-            with: [sourceHole],
+            with: partial.geometryCoverage,
             generatedAt: "2026-08-07T00:00:00Z"
         )
+        XCTAssertEqual(laterNine.holes.count, 9)
+        XCTAssertTrue(laterNine.isWholeCourseTemplate)
 
         try store.saveCourseTemplate(full)
-        try store.saveCourseTemplate(laterSingleHole)
+        try store.saveCourseTemplate(laterNine)
 
         let retained = try XCTUnwrap(store.loadCourseTemplate(
             globalId: full.course.globalId,
@@ -784,8 +789,10 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertNil(try store.loadCourseTemplate(globalId: 41825, teeBox: "blue"))
         XCTAssertTrue(try store.loadCourseTemplates().isEmpty)
 
+        // Undecodable or rejected bytes under the canonical name are invalidated (removed).
+        XCTAssertFalse(FileManager.default.fileExists(atPath: canonicalURL.path))
+
         // A leftover file under the v1 name is ignored as well.
-        try FileManager.default.removeItem(at: canonicalURL)
         try legacyData.write(
             to: templatesDirectory.appendingPathComponent("41825--blue--all--41825.json"),
             options: [.atomic]
@@ -935,11 +942,13 @@ final class OfflineStoreTests: XCTestCase {
 
         let partial = replacingCoursePrep(in: source, geometryCoverage: "partial")
         XCTAssertFalse(partial.hasCompleteOfflineCoursePrep)
-        XCTAssertTrue(try store.saveCourseTopoImage(
-            validOnePixelPNGData(),
-            globalId: source.course.globalId,
-            localHole: source.holes[0].sourceLocalHole
-        ))
+        for hole in source.holes {
+            XCTAssertTrue(try store.saveCourseTopoImage(
+                validOnePixelPNGData(),
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole
+            ))
+        }
         XCTAssertFalse(
             store.hasCourseTopoImages(for: partial),
             "a lightweight outline plus PNG must not masquerade as a precise offline course"
@@ -2769,7 +2778,7 @@ final class OfflineStoreTests: XCTestCase {
     func testLiveProgressSurvivesStoreRecreation() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let package = try twoHoleFixturePackage()
+        let package = try fixturePackage()
         let store = OfflineStore(directoryURL: directory)
         var draft = LiveScoreDraft(hole: 1, par: 4, phoneShotCount: 2)
         draft.selectPutts(3)
@@ -2790,7 +2799,7 @@ final class OfflineStoreTests: XCTestCase {
     func testEditingEarlierHoleDoesNotMoveLiveCursorBackward() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let package = try twoHoleFixturePackage()
+        let package = try fixturePackage()
         let store = OfflineStore(directoryURL: directory)
         try store.saveActiveHole(roundId: package.roundId, hole: 2)
 
@@ -2814,7 +2823,7 @@ final class OfflineStoreTests: XCTestCase {
     func testDiscardRoundClearsLiveProgress() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let package = try twoHoleFixturePackage()
+        let package = try fixturePackage()
         let store = OfflineStore(directoryURL: directory)
         let draft = LiveScoreDraft(hole: 1, par: 4, phoneShotCount: 1)
         try store.saveRoundPackage(package)
@@ -3011,11 +3020,12 @@ final class OfflineStoreTests: XCTestCase {
         try LiveRoundPackageFixture.package()
     }
 
-    /// A local one-hole `G:all` test table built from the fixture's hole 1. The course-template,
-    /// topo and prep tests below are written against one physical hole that is its own
-    /// whole-course template; the shipped front-nine fixture is never a template by itself.
+    /// The fixture's nine holes as the local 9-hole loop `31795:all`: a contract-valid package that
+    /// is its own whole-course template (the shipped front-nine fixture is never a template by
+    /// itself). The store validates every durable write, so course-template, topo and prep tests use
+    /// a whole loop rather than a narrowed test table.
     private func localFixturePackage() throws -> LiveRoundPackage {
-        try LiveRoundPackageFixture.singleHole(dataMode: "local")
+        try LiveRoundPackageFixture.nineHoleLoop(dataMode: "local")
     }
 
     private func replacingGeometryCoverage(
@@ -3175,44 +3185,6 @@ final class OfflineStoreTests: XCTestCase {
         )
     }
 
-    private func twoHoleFixturePackage() throws -> LiveRoundPackage {
-        // The fixture's first two factual holes, narrowed to a two-hole test table.
-        let package = try fixturePackage()
-        let holes = Array(package.holes.sorted { $0.number < $1.number }.prefix(2))
-        XCTAssertEqual(holes.map(\.number), [1, 2])
-        let loop = try XCTUnwrap(package.roundLoops.first)
-        return LiveRoundPackage(
-            schema: package.schema,
-            roundId: package.roundId,
-            dataMode: package.dataMode,
-            sourceCoverage: package.sourceCoverage,
-            missingData: package.missingData,
-            playerProfile: package.playerProfile,
-            course: package.course,
-            holes: holes,
-            roundLoops: [RoundLoop(
-                globalId: loop.globalId,
-                half: loop.half,
-                roundStartHole: loop.roundStartHole,
-                sourceStartHole: loop.sourceStartHole,
-                holeCount: holes.count
-            )],
-            loopKey: package.loopKey,
-            coursePrep: package.coursePrep,
-            geometryCoverage: package.geometryCoverage,
-            readinessChecks: package.readinessChecks,
-            caddieContextSeeds: package.caddieContextSeeds,
-            weatherSnapshot: package.weatherSnapshot,
-            clubProfiles: package.clubProfiles,
-            caddieDecisionEndpoint: package.caddieDecisionEndpoint,
-            offlinePackageStatus: package.offlinePackageStatus,
-            eventCursor: package.eventCursor,
-            recentHistory: package.recentHistory,
-            cachedCaddieRules: package.cachedCaddieRules,
-            generatedAt: package.generatedAt
-        )
-    }
-
     private func directoryCreationParents(from anchor: URL, to target: URL) throws -> [URL] {
         let resolvedAnchor = anchor.standardizedFileURL.resolvingSymlinksInPath()
         let resolvedTarget = target.standardizedFileURL.resolvingSymlinksInPath()
@@ -3247,7 +3219,7 @@ extension OfflineStoreTests {
     func testReplayMergesPerHoleScoreSource() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let package = try twoHoleFixturePackage()
+        let package = try fixturePackage()
         let store = OfflineStore(directoryURL: directory)
         func append(_ id: String, hole: Int, kind: LiveRoundEventKind, _ payload: [String: JSONValue]) throws {
             try store.appendEvent(LiveRoundEvent(
@@ -3263,5 +3235,240 @@ extension OfflineStoreTests {
         let state = try store.restoreLiveRoundState(roundId: package.roundId, package: package)
         XCTAssertEqual(state.holeState(for: 1)?.scoreSource, "default")
         XCTAssertEqual(state.holeState(for: 2)?.scoreSource, "phone_shots")
+    }
+}
+
+// MARK: - B4b-2 §6: a contradictory v2 identity never becomes durable state
+
+extension OfflineStoreTests {
+    /// One contradictory identity edit to a v2 package JSON object. Every field stays present and
+    /// the bytes still decode as a `LiveRoundPackage`; only the round identity disagrees with itself.
+    private struct IdentityMutation {
+        let name: String
+        let expected: RoundIdentityError
+        let apply: (inout [String: Any]) throws -> Void
+    }
+
+    private var identityMutations: [IdentityMutation] {
+        [
+            IdentityMutation(
+                name: "loopKey names the back half of a front/all table",
+                expected: .nonCanonicalLoopKey,
+                apply: { object in object["loopKey"] = "31795:back" }
+            ),
+            IdentityMutation(
+                name: "round hole 1 carries physical hole 2",
+                expected: .holeDoesNotMatchItsLoop(1),
+                apply: { object in
+                    object["holes"] = try OfflineStoreTests.editingHole(1, in: object) { row in
+                        row["sourceLocalHole"] = 2
+                    }
+                }
+            ),
+            IdentityMutation(
+                name: "round hole 1 renumbered to 9",
+                expected: .holeDoesNotMatchItsLoop(9),
+                apply: { object in
+                    object["holes"] = try OfflineStoreTests.editingHole(1, in: object) { row in
+                        row["number"] = 9
+                    }
+                }
+            ),
+        ]
+    }
+
+    private static func editingHole(
+        _ number: Int,
+        in object: [String: Any],
+        _ edit: (inout [String: Any]) -> Void
+    ) throws -> [[String: Any]] {
+        let holes = try XCTUnwrap(object["holes"] as? [[String: Any]])
+        XCTAssertEqual(holes.first?["number"] as? Int, number, "the edited row is the first hole row")
+        return holes.map { row -> [String: Any] in
+            guard (row["number"] as? Int) == number else { return row }
+            var edited = row
+            edit(&edited)
+            return edited
+        }
+    }
+
+    /// `package` re-encoded with `mutation` applied: valid JSON that decodes, whose identity the
+    /// shared v2 rule set rejects with the mutation's expected error.
+    private func contradictoryBytes(
+        of package: LiveRoundPackage,
+        _ mutation: IdentityMutation
+    ) throws -> Data {
+        XCTAssertNoThrow(try package.validatedRoundIdentity(), "the unmutated package is valid")
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(package)) as? [String: Any]
+        )
+        try mutation.apply(&object)
+        let data = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(LiveRoundPackage.self, from: data)
+        XCTAssertThrowsError(try decoded.validatedRoundIdentity(), mutation.name) { error in
+            XCTAssertEqual(error as? RoundIdentityError, mutation.expected, mutation.name)
+        }
+        return data
+    }
+
+    private func fileExists(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
+    }
+
+    /// `packages/<roundId>.json`, as OfflineStore names it for a round id of URL-safe characters.
+    private func storedRoundURL(in directory: URL, roundId: String) -> URL {
+        directory
+            .appendingPathComponent("packages", isDirectory: true)
+            .appendingPathComponent("\(roundId).json")
+    }
+
+    func testContradictoryStoredRoundBytesNeverBecomeTheLiveRound() throws {
+        for mutation in identityMutations {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let store = OfflineStore(directoryURL: directory)
+            let package = try fixturePackage()
+            try store.saveRoundPackage(package)
+            try store.appendEvent(LiveRoundEvent(
+                eventId: "identity-score",
+                roundId: package.roundId,
+                timestamp: "2026-09-29T08:00:00Z",
+                hole: 1,
+                kind: .score,
+                payload: ["strokes": .number(4)]
+            ))
+            let roundURL = storedRoundURL(in: directory, roundId: package.roundId)
+            let currentURL = directory.appendingPathComponent("current_package.json")
+            XCTAssertTrue(fileExists(roundURL), mutation.name)
+            XCTAssertTrue(fileExists(currentURL), mutation.name)
+            XCTAssertEqual(try store.loadResumablePackage()?.roundId, package.roundId, mutation.name)
+            let bytes = try contradictoryBytes(of: package, mutation)
+
+            // Resume (event log → per-round file → current pointer) never yields the round.
+            try bytes.write(to: roundURL, options: [.atomic])
+            try bytes.write(to: currentURL, options: [.atomic])
+            XCTAssertEqual(try store.inProgressRoundId(), package.roundId, mutation.name)
+            XCTAssertNil(try store.loadResumablePackage(), mutation.name)
+            XCTAssertFalse(fileExists(roundURL), "\(mutation.name): the per-round file is invalidated")
+            XCTAssertFalse(fileExists(currentURL), "\(mutation.name): the current pointer is invalidated")
+
+            // Each direct read invalidates too, including through a freshly opened store.
+            try bytes.write(to: roundURL, options: [.atomic])
+            try bytes.write(to: currentURL, options: [.atomic])
+            let reopened = OfflineStore(directoryURL: directory)
+            XCTAssertNil(try reopened.loadRoundPackage(roundId: package.roundId), mutation.name)
+            XCTAssertFalse(fileExists(roundURL), mutation.name)
+            XCTAssertNil(try reopened.loadCurrentRoundPackage(), mutation.name)
+            XCTAssertFalse(fileExists(currentURL), mutation.name)
+            XCTAssertNil(try reopened.loadResumablePackage(), mutation.name)
+
+            // The invalidated bytes never block a later valid package for the same round.
+            try reopened.saveRoundPackage(package)
+            XCTAssertEqual(try reopened.loadResumablePackage()?.roundId, package.roundId, mutation.name)
+        }
+    }
+
+    func testContradictoryStoredHomePackageBytesAreInvalidated() throws {
+        for mutation in identityMutations {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let store = OfflineStore(directoryURL: directory)
+            let package = try fixturePackage()
+            try store.saveHomePackage(package)
+            let homeURL = directory.appendingPathComponent("home_package.json")
+            XCTAssertTrue(fileExists(homeURL), mutation.name)
+            XCTAssertEqual(try store.loadHomePackage()?.roundId, package.roundId, mutation.name)
+
+            try contradictoryBytes(of: package, mutation).write(to: homeURL, options: [.atomic])
+
+            XCTAssertNil(try OfflineStore(directoryURL: directory).loadHomePackage(), mutation.name)
+            XCTAssertFalse(fileExists(homeURL), "\(mutation.name): the home package is invalidated")
+            XCTAssertNil(try store.loadHomePackage(), mutation.name)
+        }
+    }
+
+    func testContradictoryStoredCourseTemplateBytesAreInvalidated() throws {
+        for mutation in identityMutations {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let store = OfflineStore(directoryURL: directory)
+            let source = try localFixturePackage()
+            let globalId = source.course.globalId
+            XCTAssertEqual(source.course.teeBox, "blue")
+            try store.saveCourseTemplate(source)
+            let template = try XCTUnwrap(
+                store.loadCourseTemplate(globalId: globalId, teeBox: "blue"),
+                mutation.name
+            )
+            // `v2--<globalId>--<tee>--whole.json` under the course templates directory.
+            let templateURL = directory
+                .appendingPathComponent("course_templates", isDirectory: true)
+                .appendingPathComponent("v2--\(globalId)--blue--whole.json")
+            XCTAssertTrue(fileExists(templateURL), mutation.name)
+            XCTAssertEqual(try store.loadCourseTemplates().map(\.loopKey), ["\(globalId):all"], mutation.name)
+
+            try contradictoryBytes(of: template, mutation).write(to: templateURL, options: [.atomic])
+
+            let reopened = OfflineStore(directoryURL: directory)
+            XCTAssertTrue(try reopened.loadCourseTemplates().isEmpty, "\(mutation.name): never listed")
+            XCTAssertNil(try reopened.loadCourseTemplate(globalId: globalId, teeBox: "blue"), mutation.name)
+            XCTAssertFalse(fileExists(templateURL), "\(mutation.name): the template file is invalidated")
+            XCTAssertTrue(try reopened.loadCourseTemplates().isEmpty, mutation.name)
+
+            // A fresh valid install replaces it.
+            try reopened.saveCourseTemplate(source)
+            XCTAssertEqual(
+                try reopened.loadCourseTemplate(globalId: globalId, teeBox: "blue")?.loopKey,
+                "\(globalId):all",
+                mutation.name
+            )
+        }
+    }
+
+    func testSavingAContradictoryPackageThrowsRoundIdentityErrorAndWritesNothing() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        // A local (non-fixture) whole loop, so every durable path including the template applies.
+        let source = try localFixturePackage()
+        for mutation in identityMutations {
+            let invalid = try JSONDecoder().decode(
+                LiveRoundPackage.self,
+                from: contradictoryBytes(of: source, mutation)
+            )
+            XCTAssertThrowsError(try store.saveRoundPackage(invalid), mutation.name) { error in
+                XCTAssertEqual(error as? RoundIdentityError, mutation.expected, mutation.name)
+            }
+            XCTAssertThrowsError(
+                try store.saveRoundPackage(invalid, allowHoleCountDecrease: true),
+                mutation.name
+            ) { error in
+                XCTAssertEqual(error as? RoundIdentityError, mutation.expected, mutation.name)
+            }
+            XCTAssertThrowsError(try store.saveHomePackage(invalid), mutation.name) { error in
+                XCTAssertEqual(error as? RoundIdentityError, mutation.expected, mutation.name)
+            }
+            if invalid.isWholeCourseTemplate {
+                // The derived whole-course template is the package itself, so it is rejected too.
+                XCTAssertThrowsError(
+                    try store.saveCourseTemplate(invalid, replacingExisting: true),
+                    mutation.name
+                ) { error in
+                    XCTAssertTrue(error is RoundIdentityError, "\(mutation.name): \(error)")
+                }
+            }
+        }
+
+        XCTAssertFalse(fileExists(storedRoundURL(in: directory, roundId: source.roundId)))
+        XCTAssertFalse(fileExists(directory.appendingPathComponent("current_package.json")))
+        XCTAssertFalse(fileExists(directory.appendingPathComponent("home_package.json")))
+        let written = (FileManager.default.subpaths(atPath: directory.path) ?? [])
+            .filter { $0.hasSuffix(".json") }
+        XCTAssertEqual(written, [], "a rejected package must leave no durable bytes")
+        XCTAssertNil(try store.loadRoundPackage(roundId: source.roundId))
+        XCTAssertNil(try store.loadCurrentRoundPackage())
+        XCTAssertNil(try store.loadResumablePackage())
+        XCTAssertNil(try store.loadHomePackage())
+        XCTAssertTrue(try store.loadCourseTemplates().isEmpty)
     }
 }
