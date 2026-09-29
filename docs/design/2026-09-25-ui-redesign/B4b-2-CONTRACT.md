@@ -123,6 +123,17 @@ old semantics.
   - **Offline:** the turn composes from the installed whole-course template: it selects the
     half by `sourceLocalHole`, assigns `number` 10–18 and appends to `roundLoops`.
   - Both paths produce the same `number → (sourceGlobalId, sourceLocalHole)` table.
+- **Whole-course template acquisition.** A one-half start (e.g. `G:back`) publishes that
+  half immediately and enters round hole 1 without waiting.
+  - In the background it then fetches and persists the canonical physical template: an 18-hole
+    course as `G:front,G:back` (a 9-hole loop as `G:all`, one per sibling loop). The template's
+    topo / geometry assets go through the same install job.
+  - Templates are keyed by their canonical `loopKey`. Ordered round packages stay distinct per
+    round `loopKey`, while immutable physical assets (topo, geometry) are shared by
+    `(sourceGlobalId, sourceLocalHole)`.
+  - The offline turn reads the persisted template and projects whichever ordered / duplicate
+    `loopKey` the player picks. The result is the same
+    `number → (sourceGlobalId, sourceLocalHole, courseHoleNumber)` table the server returns.
 - **Scorecard / summary.** Two cards, one per loop, in play order. Each is labelled
   "第一环 · 后九" / "第二环 · 前九" (A/B/C: "第一环 · A 场"), and hole columns show
   `courseHoleNumber`. OUT/IN labels are dropped; a physical half is never relabelled.
@@ -144,6 +155,14 @@ old semantics.
   - Start tiles and title.
   - Header / scorecard use `courseHoleNumber`.
   - A v1 package is rejected and re-downloaded.
+- **Offline acquisition** (not a pre-seeded template): the run starts with no v2 cache and
+  starts one half.
+  - It waits until the background template install is durable, then disables the network and
+    restarts the client.
+  - From that state it composes both the opposite-half and the same-half second loop. Each
+    must equal the server's `number → (sourceGlobalId, sourceLocalHole, courseHoleNumber)`
+    table.
+  - 后→前 is covered specifically.
 - **Watch:** the four orders' template keys do not collide and survive restore; the round state
   carries `loopKey`.
 - **Web:** install status by `loops`.
