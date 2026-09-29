@@ -1421,6 +1421,17 @@ public final class LiveRoundAppModel: ObservableObject {
         "\(globalId):\(localHole)"
     }
 
+    /// True only when an asset pass works on the live round itself: the same round id AND the
+    /// same ordered loop identity (B4b-2). A course template or prep-library download is an asset
+    /// source — even if a response reused the live round's id, it never replaces the live round
+    /// (e.g. a background `G:front+G:back` template over a `G:back` round).
+    private func isLiveRoundSnapshot(_ snapshot: LiveRoundPackage, prepDownloadID: String?) -> Bool {
+        prepDownloadID == nil
+            && liveRoundState?.roundId == snapshot.roundId
+            && package?.roundId == snapshot.roundId
+            && package?.loopKey == snapshot.loopKey
+    }
+
     private func offlinePrepIsPrecise(_ prep: CoursePrepHole?) -> Bool {
         guard let prep, prep.resolvedMapOverlay != nil else { return false }
         return prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
@@ -1703,7 +1714,7 @@ public final class LiveRoundAppModel: ObservableObject {
             snapshot = current
             // Once the server has positively identified a newer release, do not let a force-quit
             // reopen the old precise package. Network failure never enters this branch.
-            if package?.roundId == current.roundId, liveRoundState != nil {
+            if isLiveRoundSnapshot(current, prepDownloadID: prepDownloadID) {
                 do {
                     let persisted = try offlineStore.saveRoundPackage(current)
                     snapshot = persisted
@@ -1802,8 +1813,7 @@ public final class LiveRoundAppModel: ObservableObject {
             do {
                 if !deferTemplateReplacement {
                     try offlineStore.saveCourseTemplate(assembled)
-                    if package?.roundId == snapshot.roundId,
-                       liveRoundState?.roundId == snapshot.roundId {
+                    if isLiveRoundSnapshot(snapshot, prepDownloadID: prepDownloadID) {
                         let persisted = try offlineStore.saveRoundPackage(assembled)
                         package = persisted
                     }
@@ -2195,7 +2205,7 @@ public final class LiveRoundAppModel: ObservableObject {
             if !deferTemplateReplacement {
                 try offlineStore.saveCourseTemplate(durableEnriched)
             }
-            if package?.roundId == snapshot.roundId, liveRoundState != nil {
+            if isLiveRoundSnapshot(snapshot, prepDownloadID: prepDownloadID) {
                 let persisted = try offlineStore.saveRoundPackage(durableEnriched)
                 package = persisted
             }
@@ -2348,7 +2358,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 )
                 replacementCompleted = replacementIsComplete
             }
-            if package?.roundId == snapshot.roundId, liveRoundState != nil {
+            if isLiveRoundSnapshot(snapshot, prepDownloadID: prepDownloadID) {
                 let persisted = try offlineStore.saveRoundPackage(durableEnriched)
                 package = persisted
             }

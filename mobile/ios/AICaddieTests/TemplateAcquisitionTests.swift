@@ -92,6 +92,16 @@ final class TemplateAcquisitionTests: XCTestCase {
     }
 
     func testOneHalfStartAcquiresTheWholeCourseThenComposesEitherSecondLoopOffline() async throws {
+        try await assertOneHalfAcquisition(serverEchoesRequestedRoundId: true)
+    }
+
+    /// The template is an asset source, never the live round's identity: even a template response
+    /// that (wrongly) claims the live round's id cannot replace the active `G:back` round.
+    func testWholeCourseTemplateNeverReplacesTheActiveOneHalfRound() async throws {
+        try await assertOneHalfAcquisition(serverEchoesRequestedRoundId: false)
+    }
+
+    private func assertOneHalfAcquisition(serverEchoesRequestedRoundId: Bool) async throws {
         let oracle = try oracle()
         let gid = oracle.globalId
         let roundId = oracle.roundId
@@ -116,7 +126,8 @@ final class TemplateAcquisitionTests: XCTestCase {
                     // Every oracle package carries the oracle round id; the server answers with
                     // the round the request names (the background prep download asks for its own
                     // `prep-library-…` id and must never claim the live round's id).
-                    guard let requestedRoundId = queryItems.first(where: { $0.name == "round_id" })?.value,
+                    guard serverEchoesRequestedRoundId,
+                          let requestedRoundId = queryItems.first(where: { $0.name == "round_id" })?.value,
                           !requestedRoundId.isEmpty else {
                         return try Self.response(request, status: 200, body: body)
                     }
@@ -172,6 +183,12 @@ final class TemplateAcquisitionTests: XCTestCase {
             "the whole-course template must be durable before the network goes away"
         )
         XCTAssertEqual(durable.loopKey, "\(gid):front+\(gid):back")
+        XCTAssertEqual(
+            try store.loadRoundPackage(roundId: roundId)?.loopKey,
+            "\(gid):back",
+            "the durable live round keeps its own ordered identity after the template install"
+        )
+        XCTAssertEqual(online.package?.loopKey, "\(gid):back")
         XCTAssertEqual(rows(durable), oracle.tables["\(gid):front+\(gid):back"]?.holes)
 
         // The first loop is played.
