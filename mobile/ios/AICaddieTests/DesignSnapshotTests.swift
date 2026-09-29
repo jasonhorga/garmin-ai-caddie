@@ -627,23 +627,42 @@ final class DesignSnapshotTests: XCTestCase {
                 segmentLabel: label
             )
         }
-        try captureScreen(
+        // The first render is seeded with the rows `HubNearby.options` builds from those matches
+        // (the same mapping refreshHeroNearby applies), so the capture never races the task.
+        let nearbyRows = HubNearby.options(from: nearbyBlackKnight, catalogue: courses, downloaded: [])
+        let nearState = HubHeroState.resolve(
+            hasActiveRound: false,
+            hasPendingWatchRound: false,
+            fix: (latitude: atBlackKnight.coordinate.latitude, longitude: atBlackKnight.coordinate.longitude),
+            nearbyOptions: nearbyRows,
+            history: [],
+            recent: recentBlackKnightB,
+            catalogue: courses,
+            downloaded: []
+        )
+        guard case .nearby(let here) = nearState else {
+            return XCTFail("full-home-near inputs must resolve to the course-here card, got \(nearState)")
+        }
+        XCTAssertEqual(here.courseName, "北京天竺黑骑士球员俱乐部")
+        XCTAssertEqual(here.startTitle, "从 B 场 开始 · 蓝 T")
+        let nearPNG = try captureScreen(
             RoundHomeView(
                 package: package,
                 apiBaseURL: apiBaseURL,
                 courseOptions: courses,
                 recentCourseOption: recentBlackKnightB,
                 onNearbyCourses: { _, _, _ in nearbyBlackKnight },
-                heroLocationProvider: LocationProvider(fixedFix: atBlackKnight)
+                heroLocationProvider: LocationProvider(fixedFix: atBlackKnight),
+                initialHeroNearbyOptions: nearbyRows
             ),
-            named: "full-home-near",
-            settle: 2.0
+            named: "full-home-near"
         )
         // Not at a course: "今天去哪打？" + search, and the last course as a separate 再打上次那个.
-        try captureScreen(
+        let replayPNG = try captureScreen(
             RoundHomeView(package: package, apiBaseURL: apiBaseURL, courseOptions: courses, recentCourseOption: recentBlackKnightB),
             named: "full-home-replay"
         )
+        XCTAssertNotEqual(nearPNG, replayPNG, "the course-here card and the search + replay state are different screens")
         // No known course → "今天去哪打？" + search.
         try captureScreen(RoundHomeView(package: package, apiBaseURL: apiBaseURL), named: "full-home-search")
         // Hub WITH an in-progress round → shows the 进行中 card + 「结束本场」(cancel) button.
@@ -1244,12 +1263,13 @@ final class DesignSnapshotTests: XCTestCase {
         }
     }
 
+    @discardableResult
     private func captureScreen(
         _ view: some View,
         named name: String,
         dark: Bool = false,
         settle: TimeInterval = 1.0
-    ) throws {
+    ) throws -> Data {
         let size = CGSize(width: 390, height: 844)
         let style: UIUserInterfaceStyle = dark ? .dark : .light
         let host = UIHostingController(rootView: view)
@@ -1272,7 +1292,7 @@ final class DesignSnapshotTests: XCTestCase {
         }
         guard let data = image.pngData() else {
             XCTFail("no png for \(name)")
-            return
+            return Data()
         }
         let dir = try FileManager.default
             .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
@@ -1280,6 +1300,7 @@ final class DesignSnapshotTests: XCTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try data.write(to: dir.appendingPathComponent("\(name).png"))
         print("WROTE_SCREEN \(name)")
+        return data
     }
 
     @MainActor

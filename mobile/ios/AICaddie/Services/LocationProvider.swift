@@ -133,6 +133,12 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
             }
             return
         }
+        // An injected fix (UI-test environment or in-process fixture) is already authorised; the
+        // host's real CoreLocation answer must not replace it or clear the fix.
+        if simulatedFix != nil {
+            authorizationStatus = .authorizedWhenInUse
+            return
+        }
         authorizationStatus = manager.authorizationStatus
         AICaddieLog.location.debug("Location authorization changed: \(manager.authorizationStatus.rawValue, privacy: .public)")
         switch manager.authorizationStatus {

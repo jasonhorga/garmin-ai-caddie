@@ -168,11 +168,15 @@ public struct RoundHomeView: View {
         onConsumePendingLiveHole: @escaping () -> Void = {},
         onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
         onLiveAppearanceChanged: @escaping (Bool) -> Void = { _ in },
-        heroLocationProvider: LocationProvider? = nil
+        heroLocationProvider: LocationProvider? = nil,
+        initialHeroNearbyOptions: [MobileCourseOption] = []
     ) {
-        // The home's location authority; a fixture passes an authorised fixed fix so the nearby
-        // card resolves through the same fix → onNearbyCourses → venue path as the app.
+        // The home's location authority and its first nearby rows; a fixture passes an authorised
+        // fixed fix and the rows `HubNearby.options` built from its nearby matches, so the first
+        // render already resolves through the production venue path (the task refresh then
+        // re-queries onNearbyCourses as in the app).
         _heroLocation = StateObject(wrappedValue: heroLocationProvider ?? LocationProvider())
+        _heroNearbyOptions = State(initialValue: initialHeroNearbyOptions)
         self.package = package
         self.pendingEventCount = pendingEventCount
         self.syncStatus = syncStatus
@@ -462,25 +466,15 @@ public struct RoundHomeView: View {
     // MARK: - 主卡(README §8:进行中 / 上次的球场 / 搜索)
 
     private var heroState: HubHeroState {
-        var nearby: HubCourseSuggestion?
-        if let fix = heroLocation.latestFix,
-           let loops = HubNearby.currentVenue(
-               options: heroNearbyOptions,
-               latitude: fix.coordinate.latitude,
-               longitude: fix.coordinate.longitude
-           ) {
-            nearby = HubCourseSuggestion.forVenue(loops, history: heroHistory, recent: recentCourseOption)
-        }
-        return HubHeroState.resolve(
+        HubHeroState.resolve(
             hasActiveRound: liveRoundState != nil,
             hasPendingWatchRound: pendingWatchRoundStart != nil,
-            nearby: nearby,
-            replay: HubCourseSuggestion.make(
-                history: heroHistory,
-                recent: recentCourseOption,
-                catalogue: courseOptions,
-                downloaded: downloadedCourseOptions
-            )
+            fix: heroLocation.latestFix.map { (latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude) },
+            nearbyOptions: heroNearbyOptions,
+            history: heroHistory,
+            recent: recentCourseOption,
+            catalogue: courseOptions,
+            downloaded: downloadedCourseOptions
         )
     }
 
@@ -511,14 +505,11 @@ public struct RoundHomeView: View {
             fix.coordinate.longitude,
             5
         ) else { return }
-        heroNearbyOptions = matches.compactMap { match -> MobileCourseOption? in
-            guard let provider = match.courseOption else { return nil }
-            return StartRoundView.reconciledCourseOption(
-                provider: provider,
-                catalogue: courseOptions.first { $0.globalId == match.globalId },
-                downloaded: downloadedCourseOptions.first { $0.globalId == match.globalId }
-            )
-        }
+        heroNearbyOptions = HubNearby.options(
+            from: matches,
+            catalogue: courseOptions,
+            downloaded: downloadedCourseOptions
+        )
     }
 
     /// "开始" / "再打上次那个": start that loop and tee directly; the Hub enters the first hole when

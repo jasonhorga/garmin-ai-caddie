@@ -1,3 +1,4 @@
+import CoreLocation
 import XCTest
 @testable import AICaddie
 
@@ -188,6 +189,92 @@ final class HubHeroTests: XCTestCase {
         )
         XCTAssertEqual(fallback.globalId, 31794)
         XCTAssertEqual(fallback.teeBox, "gold")
+    }
+
+    func testAnUnknownOrBlankHistoryTeeFallsBackToTheSameCoursesKnownTee() throws {
+        let knightA = loop(31794, "北京天竺黑骑士球员俱乐部", "A", lat: 40.1, lon: 116.5)
+        let recentB = MobileCourseOption(
+            globalId: 31795, name: "北京天竺黑骑士球员俱乐部 ~ B", holes: 9, teeBox: "white",
+            venueName: "北京天竺黑骑士球员俱乐部", segmentLabel: "B", segmentHoles: 9
+        )
+        for blank in ["unknown", "   ", "Unknown"] {
+            let played = try card("x", globalId: 31795, teeBox: blank)
+            let replay = try XCTUnwrap(
+                HubCourseSuggestion.make(history: [played], recent: recentB, catalogue: [knightA, blackKnightB], downloaded: [])
+            )
+            XCTAssertEqual(replay.teeBox, "white", "history tee \"\(blank)\" → the known tee of that same course")
+            XCTAssertEqual(replay.startTitle, "从 B 场 开始 · 白 T")
+
+            // The course here: the same loop's played row with no usable tee keeps the recent tee.
+            let here = try XCTUnwrap(
+                HubCourseSuggestion.forVenue([knightA, blackKnightB], history: [played], recent: recentB)
+            )
+            XCTAssertEqual(here.globalId, 31795)
+            XCTAssertEqual(here.teeBox, "white")
+        }
+        // A different course's recent tee is never borrowed.
+        let otherRecent = MobileCourseOption(
+            globalId: 31794, name: "北京天竺黑骑士球员俱乐部 ~ A", holes: 9, teeBox: "gold",
+            venueName: "北京天竺黑骑士球员俱乐部", segmentLabel: "A", segmentHoles: 9
+        )
+        let played = try card("x", globalId: 31795, teeBox: "unknown")
+        let replay = try XCTUnwrap(
+            HubCourseSuggestion.make(history: [played], recent: otherRecent, catalogue: [knightA, blackKnightB], downloaded: [])
+        )
+        XCTAssertEqual(replay.globalId, 31795)
+        XCTAssertNil(replay.teeBox)
+        XCTAssertEqual(replay.startRequest(roundId: "r").teeBox, "unknown")
+        let here = try XCTUnwrap(
+            HubCourseSuggestion.forVenue([knightA, blackKnightB], history: [played], recent: otherRecent)
+        )
+        XCTAssertNil(here.teeBox)
+    }
+
+    func testAFixAtAVenueWithItsNearbyMatchesResolvesToTheCourseHereCard() throws {
+        let matches: [MobileCourseSearchMatch] = ["A", "B"].enumerated().map { index, label in
+            MobileCourseSearchMatch(
+                globalId: 31794 + index, name: "北京天竺黑骑士球员俱乐部 ~ \(label)", holes: 9, city: "北京",
+                province: nil, ratio: 1, latitude: 40.1203, longitude: 116.5791 + Double(index) * 0.001,
+                distanceKm: 0.1, venueName: "北京天竺黑骑士球员俱乐部", segmentLabel: label
+            )
+        } + [
+            // No factual hole count → not startable, dropped.
+            MobileCourseSearchMatch(globalId: 9, name: "?", holes: nil, city: nil, province: nil, ratio: 1)
+        ]
+        let rows = HubNearby.options(from: matches, catalogue: [blackKnightB], downloaded: [])
+        XCTAssertEqual(rows.map(\.globalId), [31794, 31795])
+        let here = HubHeroState.resolve(
+            hasActiveRound: false, hasPendingWatchRound: false,
+            fix: (latitude: 40.1203, longitude: 116.5791), nearbyOptions: rows,
+            history: [], recent: nil, catalogue: [blackKnightB], downloaded: []
+        )
+        guard case .nearby(let suggestion) = here else { return XCTFail("at the venue → course here, got \(here)") }
+        XCTAssertEqual(suggestion.courseName, "北京天竺黑骑士球员俱乐部")
+        XCTAssertEqual(suggestion.startTitle, "从 A 场 开始")
+        let away = HubHeroState.resolve(
+            hasActiveRound: false, hasPendingWatchRound: false,
+            fix: (latitude: 39.9, longitude: 116.3), nearbyOptions: rows,
+            history: [], recent: nil, catalogue: [blackKnightB], downloaded: []
+        )
+        XCTAssertEqual(away, .search(replay: nil))
+        let noFix = HubHeroState.resolve(
+            hasActiveRound: false, hasPendingWatchRound: false,
+            fix: nil, nearbyOptions: rows,
+            history: [], recent: nil, catalogue: [blackKnightB], downloaded: []
+        )
+        XCTAssertEqual(noFix, .search(replay: nil))
+    }
+
+    func testAnInjectedFixSurvivesTheHostsAuthorizationCallback() {
+        let fix = LocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: 40.1203, longitude: 116.5791),
+            horizontalAccuracyM: 5, altitudeM: nil, capturedAt: "2026-09-29T08:00:00Z"
+        )
+        let manager = CLLocationManager()
+        let provider = LocationProvider(manager: manager, fixedFix: fix)
+        provider.locationManagerDidChangeAuthorization(manager)
+        XCTAssertEqual(provider.authorizationStatus, .authorizedWhenInUse)
+        XCTAssertEqual(provider.latestFix?.coordinate.latitude, 40.1203)
     }
 
     func testUnknownTeeIsNotWrittenIntoTheHeroTitle() throws {

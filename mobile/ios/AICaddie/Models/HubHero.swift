@@ -33,7 +33,7 @@ struct HubCourseSuggestion: Equatable {
                 catalogue: catalogue.first { $0.globalId == playedId },
                 downloaded: downloaded.first { $0.globalId == playedId }
             )
-            return suggestion(for: option, teeBox: played.teeBox ?? stored?.teeBox)
+            return suggestion(for: option, teeBox: knownTee(played.teeBox) ?? knownTee(stored?.teeBox))
         }
         guard let recent,
               recent.globalId > 0,
@@ -74,7 +74,8 @@ struct HubCourseSuggestion: Equatable {
         if let played = history.first(where: { $0.globalId.map(ids.contains) ?? false }),
            let loopId = played.globalId,
            let loop = loops.first(where: { $0.globalId == loopId }) {
-            return suggestion(for: loop, teeBox: played.teeBox)
+            let sameLoopRecent = recent.flatMap { $0.globalId == loopId ? $0.teeBox : nil }
+            return suggestion(for: loop, teeBox: knownTee(played.teeBox) ?? knownTee(sameLoopRecent))
         }
         if let recent, let loop = loops.first(where: { $0.globalId == recent.globalId }) {
             return suggestion(for: loop, teeBox: recent.teeBox)
@@ -82,12 +83,17 @@ struct HubCourseSuggestion: Equatable {
         return suggestion(for: first, teeBox: nil)
     }
 
+    /// A usable tee name; blank and "unknown" are no tee (each source is normalised before one
+    /// source is preferred over another).
+    static func knownTee(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              trimmed.caseInsensitiveCompare("unknown") != .orderedSame else { return nil }
+        return trimmed
+    }
+
     private static func suggestion(for option: MobileCourseOption, teeBox: String?) -> HubCourseSuggestion {
-        let tee = teeBox.flatMap { raw -> String? in
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, trimmed.caseInsensitiveCompare("unknown") != .orderedSame else { return nil }
-            return trimmed
-        }
+        let tee = knownTee(teeBox)
         return HubCourseSuggestion(
             globalId: option.globalId,
             courseName: option.venueDisplayName,
@@ -131,6 +137,25 @@ enum HubNearby {
     }
 }
 
+extension HubNearby {
+    /// Provider-nearby matches as startable loops, reconciled with catalogue/download facts
+    /// (the same rows 开始一场 shows). A match without a factual hole count is dropped.
+    static func options(
+        from matches: [MobileCourseSearchMatch],
+        catalogue: [MobileCourseOption],
+        downloaded: [MobileCourseOption]
+    ) -> [MobileCourseOption] {
+        matches.compactMap { match -> MobileCourseOption? in
+            guard let provider = match.courseOption else { return nil }
+            return StartRoundView.reconciledCourseOption(
+                provider: provider,
+                catalogue: catalogue.first { $0.globalId == match.globalId },
+                downloaded: downloaded.first { $0.globalId == match.globalId }
+            )
+        }
+    }
+}
+
 /// Which main card the home shows (README §8, `pre-round.html` screen 1).
 enum HubHeroState: Equatable {
     /// A round is in progress → "继续第 N 洞".
@@ -142,6 +167,31 @@ enum HubHeroState: Equatable {
     /// Not at a course → "今天去哪打？" + search, and a separate one-tap "再打上次那个" when a
     /// last course is known.
     case search(replay: HubCourseSuggestion?)
+
+    /// The home's full resolution from its inputs: the fix and provider-nearby rows decide the
+    /// course here; history and the app-started course decide the replay.
+    static func resolve(
+        hasActiveRound: Bool,
+        hasPendingWatchRound: Bool,
+        fix: (latitude: Double, longitude: Double)?,
+        nearbyOptions: [MobileCourseOption],
+        history: [HistoryRoundCard],
+        recent: MobileCourseOption?,
+        catalogue: [MobileCourseOption],
+        downloaded: [MobileCourseOption]
+    ) -> HubHeroState {
+        var nearby: HubCourseSuggestion?
+        if let fix,
+           let loops = HubNearby.currentVenue(options: nearbyOptions, latitude: fix.latitude, longitude: fix.longitude) {
+            nearby = HubCourseSuggestion.forVenue(loops, history: history, recent: recent)
+        }
+        return resolve(
+            hasActiveRound: hasActiveRound,
+            hasPendingWatchRound: hasPendingWatchRound,
+            nearby: nearby,
+            replay: HubCourseSuggestion.make(history: history, recent: recent, catalogue: catalogue, downloaded: downloaded)
+        )
+    }
 
     static func resolve(
         hasActiveRound: Bool,

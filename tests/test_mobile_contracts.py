@@ -2247,8 +2247,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("case .inProgress:", round_home)
         self.assertIn("case .nearby(let suggestion):", round_home)
         self.assertIn("case .search(let replay):", round_home)
-        self.assertIn("HubNearby.currentVenue(", round_home)
-        self.assertIn("HubCourseSuggestion.forVenue(loops, history: heroHistory, recent: recentCourseOption)", round_home)
+        self.assertIn("HubNearby.currentVenue(options: nearbyOptions, latitude: fix.latitude, longitude: fix.longitude)", hero)
+        self.assertIn("nearby = HubCourseSuggestion.forVenue(loops, history: history, recent: recent)", hero)
+        self.assertIn("history: heroHistory,", round_home)
         self.assertIn("try? await onNearbyCourses(", round_home)
         self.assertIn('.accessibilityIdentifier("home-start-nearby")', round_home)
         self.assertIn('.accessibilityIdentifier("home-replay-last")', round_home)
@@ -2279,7 +2280,18 @@ class MobileContractTests(unittest.TestCase):
         near = snapshots.split('named: "full-home-near"', 1)[0].rsplit("try captureScreen(", 1)[1]
         self.assertIn("onNearbyCourses: { _, _, _ in nearbyBlackKnight },", near)
         self.assertIn("heroLocationProvider: LocationProvider(fixedFix: atBlackKnight)", near)
+        self.assertIn("initialHeroNearbyOptions: nearbyRows", near)
+        self.assertIn("let nearbyRows = HubNearby.options(from: nearbyBlackKnight, catalogue: courses, downloaded: [])", snapshots)
+        self.assertIn('guard case .nearby(let here) = nearState else {', snapshots)
         self.assertIn('named: "full-home-replay"', snapshots)
+        self.assertIn("XCTAssertNotEqual(nearPNG, replayPNG", snapshots)
+        # The view and the fixture share one resolution and one nearby-row mapping.
+        self.assertIn("HubHeroState.resolve(", round_home)
+        self.assertIn("nearbyOptions: heroNearbyOptions,", round_home)
+        self.assertIn("heroNearbyOptions = HubNearby.options(", round_home)
+        # Each tee source is normalised before precedence.
+        self.assertIn("knownTee(played.teeBox) ?? knownTee(stored?.teeBox)", hero)
+        self.assertIn("knownTee(played.teeBox) ?? knownTee(sameLoopRecent)", hero)
         self.assertIn("StartRoundPresentation.startActionTitle(", hero)
         self.assertIn("static func toPar(", hero)
         # The last-round card gains the 18-hole symbol strip from the cached archive's newest card
