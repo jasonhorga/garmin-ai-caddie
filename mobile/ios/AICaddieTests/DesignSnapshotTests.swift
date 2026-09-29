@@ -678,8 +678,24 @@ final class DesignSnapshotTests: XCTestCase {
         try captureScreen(NavigationStack { StartRoundView(courseOptions: courses) }, named: "full-start")
         // 开始一场 with 黑骑士 B preselected (the home "开始"): one list row, A/B/C tiles, tee dots,
         // "从 B 场 开始 · 蓝 T".
+        // 换球场或组合 from the 黑骑士 card: B preselected, the row carries all three loops (27 洞),
+        // and each tee shows this 9-hole loop's own yards (factual 9-hole tee rows).
+        let loopBTees = [
+            CourseTee(teeBox: "gold", name: "Gold", yards: 3_520, holeCount: 9),
+            CourseTee(teeBox: "blue", name: "Blue", yards: 3_268, holeCount: 9, isDefault: true),
+            CourseTee(teeBox: "white", name: "White", yards: 3_041, holeCount: 9),
+            CourseTee(teeBox: "red", name: "Red", yards: 2_655, holeCount: 9),
+        ]
         try captureScreen(
-            NavigationStack { StartRoundView(defaultCourseGlobalId: 31795, courseOptions: courses) },
+            NavigationStack {
+                StartRoundView(
+                    defaultCourseGlobalId: 31795,
+                    defaultTeeBox: "blue",
+                    initialCourseTees: loopBTees,
+                    courseOptions: courses,
+                    onLoadCourseTees: { _ in loopBTees }
+                )
+            },
             named: "full-start-selected"
         )
         try captureScreen(NavigationStack { PrepCoursePickerView(courseOptions: courses, apiBaseURL: apiBaseURL, adminToken: nil) }, named: "full-prep-picker")

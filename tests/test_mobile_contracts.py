@@ -1775,7 +1775,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("nearby: nearby,", start_view)
         self.assertIn("search: remoteCourseOptions,", start_view)
         self.assertIn("var recent = recentCourseFallbackOption.map { [$0] } ?? []", start_view)
-        self.assertIn("recent.append(selectedSegment)", start_view)
+        self.assertIn("+ selectedVenueLoops", start_view)
+        self.assertNotIn("recent.append(selectedSegment)", start_view)
         self.assertIn("let downloaded = resolvedOfflineOptions(offlineDisplayOptions + downloadedCourseOptions)", start_view)
         self.assertIn("StartRoundPresentation.sortedByDistance(", start_view)
         self.assertIn("StartRoundPresentation.distanceText(metres: metres)", start_view)
@@ -2301,6 +2302,20 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("presentation: .startRound,", snapshots.split('named: "full-course-search"', 1)[0].rsplit("try captureScreen(", 1)[1])
         real_flow = _read_required_source(self, IOS_DIR.parent / "AICaddieUITests" / "RealFlowUITests.swift")
         self.assertNotIn('XCTAssertEqual(namedResult.value as? String, "选择后下载")', real_flow)
+        # 换球场或组合 opens 开始一场 with the course here preselected (the live producer of
+        # .startCourse); a preselected venue's row carries the same sibling loops as its tiles.
+        self.assertIn(
+            "NavigationLink(value: HubRoute.startCourse(globalId: suggestion.globalId, teeBox: suggestion.teeBox))",
+            round_home,
+        )
+        self.assertIn(
+            "recent = recent.filter { !Self.samePhysicalVenue($0, selectedSegment) } + selectedVenueLoops",
+            start_view_src,
+        )
+        selected_capture = snapshots.split('named: "full-start-selected"', 1)[0].rsplit("try captureScreen(", 1)[1]
+        self.assertIn("initialCourseTees: loopBTees", selected_capture)
+        self.assertIn("onLoadCourseTees: { _ in loopBTees }", selected_capture)
+        self.assertIn("must open 开始一场 with the course here preselected", real_flow)
         # No compatibility-only inputs on the new home cards.
         self.assertNotIn("let total: Int", round_home.split("struct HubInProgressCard: View {", 1)[1].split("\n}\n", 1)[0])
         self.assertNotIn("lastCourseName", round_home)

@@ -1024,7 +1024,8 @@ final class RealFlowUITests: XCTestCase {
         // README §8: standing at the course (the journey's GPS fix), the main card offers this
         // course's last first loop + tee and "开始" starts it directly — not the setup form.
         let startHere = app.buttons["home-start-nearby"]
-        if startHere.exists {
+        let courseHereOffered = startHere.exists
+        if courseHereOffered {
             XCTAssertTrue(
                 app.buttons["home-change-course"].exists,
                 "the course-here card keeps 换球场或组合 next to its one-tap 开始"
@@ -1039,6 +1040,16 @@ final class RealFlowUITests: XCTestCase {
         // package id, deciding “not new”, and remaining forever on the preparation screen.
         XCTAssertTrue(openStartRound())
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
+        if courseHereOffered {
+            // 换球场或组合 opens 开始一场 with the course here already selected (no extra tap).
+            let preselected = app.buttons["start-round-course-segment-\(approvedJourneyCourseGlobalId)"]
+            XCTAssertTrue(preselected.waitForExistence(timeout: 12))
+            XCTAssertEqual(
+                preselected.value as? String,
+                "已选择",
+                "换球场或组合 must open 开始一场 with the course here preselected"
+            )
+        }
         let repeatSegment = selectStartCourse(approvedJourneyCourseGlobalId)
         XCTAssertTrue(repeatSegment.exists)
         XCTAssertEqual(repeatSegment.value as? String, "已选择")

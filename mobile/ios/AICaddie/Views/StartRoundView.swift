@@ -68,6 +68,7 @@ public struct StartRoundView: View {
         defaultRoundId: String = "live-\(UUID().uuidString)",
         defaultCourseGlobalId: Int? = nil,
         defaultTeeBox: String = "unknown",
+        initialCourseTees: [CourseTee] = [],
         courseOptions: [MobileCourseOption] = [],
         downloadedCourseOptions: [MobileCourseOption] = [],
         recentCourseOption: MobileCourseOption? = nil,
@@ -124,6 +125,9 @@ public struct StartRoundView: View {
             ?? selected?.teeBox.flatMap { $0 == "unknown" ? nil : $0 }
             ?? (defaultTeeBox == "unknown" ? "" : defaultTeeBox)
         self._teeBox = State(initialValue: resolvedTee)
+        // A fixture's tee rows for the preselected course (the same rows onLoadCourseTees returns),
+        // so the first render already shows each tee's yards; the tee task then refreshes them.
+        self._fetchedTees = State(initialValue: initialCourseTees)
         // The chosen segment (a 9-hole loop, or a whole 18) IS the unit now → no front/back slice.
         self._nine = State(initialValue: "all")
     }
@@ -493,13 +497,15 @@ public struct StartRoundView: View {
         // nearby / search / recent row collapse into that row. Distance is never shown for them.
         let downloaded = resolvedOfflineOptions(offlineDisplayOptions + downloadedCourseOptions)
         var recent = recentCourseFallbackOption.map { [$0] } ?? []
-        // A preselected course (the home "开始") that no source lists still gets its row; a listed
-        // one keeps its own position so selecting a row never moves it.
+        // A preselected course (换球场或组合 / a recent course) that no nearby, search or download
+        // row lists gets its own row, carrying the same source-owned sibling loops as the loop
+        // tiles (A/B/C → 27 洞, never the selected loop alone). A listed one keeps its own
+        // position so selecting a row never moves it.
         if let selectedSegment,
-           !(nearbyCourseOptions + remoteCourseOptions + recent + downloaded).contains(where: {
+           !(nearbyCourseOptions + remoteCourseOptions + downloaded).contains(where: {
                Self.samePhysicalVenue($0, selectedSegment)
            }) {
-            recent.append(selectedSegment)
+            recent = recent.filter { !Self.samePhysicalVenue($0, selectedSegment) } + selectedVenueLoops
         }
         return StartRoundPresentation.mergedCourseRows(
             nearby: nearby,

@@ -561,7 +561,8 @@ public struct RoundHomeView: View {
                 .buttonStyle(.plain)
                 .disabled(isPreparingRound)
                 .accessibilityIdentifier("home-start-nearby")
-                NavigationLink(value: HubRoute.start) {
+                // 开始一场 opens with the course here (its loop and tee) already selected.
+                NavigationLink(value: HubRoute.startCourse(globalId: suggestion.globalId, teeBox: suggestion.teeBox)) {
                     HubSecondaryLinkLabel(title: "换球场或组合")
                 }
                 .buttonStyle(.plain)
