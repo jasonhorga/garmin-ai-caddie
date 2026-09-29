@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-29 12:13 UTC
+**Updated:** 2026-09-29 12:27 UTC
 **Branch:** `main`; product canonical source revision is
 `5ac43253d924ecfbe496f42a026dcc5896aa3bd0` (PR #360 B4a and PR #359 B3 are
 merged after exact-head review; PR #357 B1d is merged after
@@ -300,18 +300,28 @@ Production `/api/v2/health` remained HTTP 200. B4a does not complete B4: the
 factual 18-hole front/back start/turn path remained assigned to B4b.
 
 PR #361 B4b is now the active review at exact head
-`cf1dda519274619edd424a1df74df32a5ab1beb3`, based on the merged B4a commit.
-It covers the home hero, one-list start screen, first-loop-only selection, and
-the deferred factual 18-hole 前九/后九 flow. Source CI `36566329729` is green;
-Native Mobile CI `36566329562` is running. The shared Claude branch was not
-deleted after PR #360 because PR #361 was opened on it immediately.
+`c356ba4bafd08efc70580161aaed5b642483e068`, based on the merged B4a commit.
+The prior head `cf1dda519274619edd424a1df74df32a5ab1beb3` failed Native Mobile
+CI `36566329562` at `StartRoundPresentation.swift:83` with a Swift type-check
+timeout; Claude split that expression in `c356ba4b`. Source CI `36567300652`
+is green and Native Mobile CI `36567300565` is running. Static review comment
+`5890295864` blocks merge with two P1 and two P2 findings: the home hero uses
+the globally recent course instead of the nearby course, is not a one-tap
+start, and omits the no-nearby replay action; the 18-hole half flow forbids
+后九→后九 and does not model the before/after-second-loop lock correctly;
+split 18-hole choices display whole-course Tee yardage; and the unified list
+drops downloaded courses outside the current 50 km radius. The PR's added
+implementation-plan notes may not defer or redefine the approved B4b scope.
+The shared Claude branch was not deleted after PR #360 because PR #361 was
+opened on it immediately.
 
 Next action: keep the background all-PR feedback monitor active in
-`codex-pr-monitor-20260928`, review PR #361 at exact head `cf1dda51`, run its
-focused homeserver tests, and inspect its exact-head iOS/Watch design and
-runtime artifacts before commenting or merging. Repeat all gates from scratch
-after any further commit. Do not treat the
-archived B0 queue below as the active slice.
+`codex-pr-monitor-20260928`, wait for Claude's new PR #361 head, then repeat
+focused homeserver tests and the full exact-head Source/Native gates. Download
+and inspect the matching iOS/Watch design and runtime artifacts only from the
+candidate head. Do not merge while comment `5890295864` has unresolved P1/P2
+findings. Repeat all gates from scratch after every further commit. Do not
+treat the archived B0 queue below as the active slice.
 
 At 20:14 UTC the owned monitor was hardened after transient scan failures at
 19:57 and 20:08 UTC. Each GitHub list/API/check request now retries up to
