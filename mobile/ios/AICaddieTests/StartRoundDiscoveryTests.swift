@@ -823,7 +823,12 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let wholeCourse = MobileCourseOption(globalId: 9201, name: "北湖", holes: 18, venueName: "北湖", segmentHoles: 18)
         XCTAssertEqual(
             StartRoundPresentation.startActionTitle(selected: wholeCourse, loops: [wholeCourse], teeBox: "white"),
-            "开始 18 洞 · 白 T"
+            "从 前九 开始 · 白 T",
+            "an 18-hole course starts on one half, like any two-loop venue"
+        )
+        XCTAssertEqual(
+            StartRoundPresentation.startActionTitle(selected: wholeCourse, loops: [wholeCourse], teeBox: "white", half: "back"),
+            "从 后九 开始 · 白 T"
         )
         XCTAssertEqual(StartRoundPresentation.startActionTitle(selected: nil, loops: [], teeBox: "blue"), "开始")
     }

@@ -104,6 +104,30 @@ final class NineLoopTurnTests: XCTestCase {
         )
     }
 
+    func testAnEighteenHoleCourseUsesItsHalvesAsTheTwoLoops() throws {
+        let front = try XCTUnwrap(NineLoopTurn.halvesPlan(globalId: 31793, startedOn: "front"))
+        XCTAssertEqual(front.phase, .atTurn)
+        XCTAssertEqual(front.turnTitle, "前九打完了")
+        XCTAssertEqual(front.second, .loop("31793:back"), "the usual second loop is the other half")
+        XCTAssertEqual(front.turnActionTitle, "接着打 后九")
+        XCTAssertEqual(NineLoopTurn.turnChoices(front).map(\.name), ["前九", "后九"], "前九 can be played again")
+
+        let back = try XCTUnwrap(NineLoopTurn.halvesPlan(globalId: 31793, startedOn: "back"))
+        XCTAssertEqual(back.turnTitle, "后九打完了")
+        XCTAssertEqual(back.second, .loop("31793:front"))
+        XCTAssertEqual(
+            NineLoopTurn.turnChoices(back).map(\.name), ["前九"],
+            "a 后九 start already uses holes 10–18, so 后九 cannot be added again"
+        )
+
+        XCTAssertNil(NineLoopTurn.halvesPlan(globalId: 31793, startedOn: "all"))
+        XCTAssertEqual(NineLoopTurn.half(ofLoopId: "31793:back"), "back")
+        XCTAssertNil(NineLoopTurn.half(ofLoopId: "31793"))
+        XCTAssertNil(NineLoopTurn.half(ofLoopId: "x:front"))
+        XCTAssertEqual(NineLoopTurn.firstHoleOfOtherHalf(startedOn: "front"), 10)
+        XCTAssertEqual(NineLoopTurn.firstHoleOfOtherHalf(startedOn: "back"), 1)
+    }
+
     func testPairingsRoundTripPerAccount() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)

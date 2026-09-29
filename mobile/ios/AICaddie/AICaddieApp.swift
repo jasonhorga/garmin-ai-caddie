@@ -108,6 +108,11 @@ public struct AICaddieApp: App {
                                 await model.continueIntoSecondLoop(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)
                             }
                         },
+                        onContinueIntoOtherHalf: { roundId in
+                            Task {
+                                await model.continueIntoOtherHalf(roundId: roundId)
+                            }
+                        },
                         onChangeNine: { nine in
                             Task {
                                 await model.setActiveNine(nine)
@@ -2456,6 +2461,21 @@ public final class LiveRoundAppModel: ObservableObject {
         guard let package,
               package.roundId == roundId.trimmingCharacters(in: .whitespacesAndNewlines),
               let first = NineLoopTurn.firstHoleOfSecondLoop(package.holes.map(\.number)) else { return }
+        setActiveHole(first)
+        pendingLiveHole = first
+    }
+
+    /// B4 turn on an 18-hole course started on one half: add the other half (the course's own
+    /// 18 holes), then open its first hole — 10 after 前九, 1 after 后九. Like
+    /// `continueIntoSecondLoop`, the model owns the navigation.
+    public func continueIntoOtherHalf(roundId: String) async {
+        guard let current = package,
+              current.roundId == roundId,
+              let nine = current.nine?.lowercased(),
+              nine == "front" || nine == "back" else { return }
+        await setActiveNine("all")
+        guard let package, package.roundId == roundId, package.holes.count > 9 else { return }
+        let first = NineLoopTurn.firstHoleOfOtherHalf(startedOn: nine)
         setActiveHole(first)
         pendingLiveHole = first
     }

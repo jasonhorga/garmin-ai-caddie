@@ -68,6 +68,8 @@ public struct RoundHomeView: View {
     public let onPrepareCompositeRound: (Int, Int, String, String) -> Void
     /// B4 turn: add the chosen second loop and open its first hole (the model navigates).
     public let onContinueIntoSecondLoop: (Int, Int, String, String) -> Void
+    /// B4 turn on an 18-hole course: add the other half (round id) and open its first hole.
+    public let onContinueIntoOtherHalf: (String) -> Void
     public let onChangeNine: (String) -> Void
     public let onFinishRound: () async -> Bool
     public let onDiscardRound: () -> Void
@@ -137,6 +139,7 @@ public struct RoundHomeView: View {
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
         onContinueIntoSecondLoop: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
+        onContinueIntoOtherHalf: @escaping (String) -> Void = { _ in },
         onChangeNine: @escaping (String) -> Void = { _ in },
         onFinishRound: @escaping () async -> Bool = { false },
         onDiscardRound: @escaping () -> Void = {},
@@ -193,6 +196,7 @@ public struct RoundHomeView: View {
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onPrepareCompositeRound = onPrepareCompositeRound
         self.onContinueIntoSecondLoop = onContinueIntoSecondLoop
+        self.onContinueIntoOtherHalf = onContinueIntoOtherHalf
         self.onChangeNine = onChangeNine
         self.onFinishRound = onFinishRound
         self.onDiscardRound = onDiscardRound
@@ -397,7 +401,8 @@ public struct RoundHomeView: View {
                 finishErrorMessage: finishErrorMessage,
                 onChangeNine: onChangeNine, onPrepareCourseRound: onPrepareCourseRound,
                 onPrepareCompositeRound: onPrepareCompositeRound,
-                onContinueIntoSecondLoop: onContinueIntoSecondLoop, onFinishRound: onFinishRound,
+                onContinueIntoSecondLoop: onContinueIntoSecondLoop,
+                onContinueIntoOtherHalf: onContinueIntoOtherHalf, onFinishRound: onFinishRound,
                 onDiscardRound: onDiscardRound,
                 onAdvanceHole: { next in
                     onSetActiveHole(next)

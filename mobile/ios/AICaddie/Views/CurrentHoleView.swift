@@ -66,10 +66,14 @@ enum LiveHoleAdvanceResolution: Equatable {
     case advance(to: Int)
     case finish
 
-    static func resolve(after acceptedHole: Int, package: LiveRoundPackage) -> Self {
+    /// The next hole in round order that has no score yet. `scored` skips holes already played,
+    /// e.g. after a round started on 后九 (holes 10–18) turns to 前九 (holes 1–9): saving hole 9
+    /// finishes instead of reopening hole 10.
+    static func resolve(after acceptedHole: Int, package: LiveRoundPackage, scored: Set<Int> = []) -> Self {
         let ordered = package.holes.map(\.number)
-        if let index = ordered.firstIndex(of: acceptedHole), ordered.indices.contains(index + 1) {
-            return .advance(to: ordered[index + 1])
+        guard let index = ordered.firstIndex(of: acceptedHole) else { return .finish }
+        if let next = ordered[(index + 1)...].first(where: { !scored.contains($0) }) {
+            return .advance(to: next)
         }
         return .finish
     }
@@ -103,6 +107,8 @@ public struct CurrentHoleView: View {
     private let onPrepareCourseRound: (Int, String, String, String) -> Void
     private let onPrepareCompositeRound: (Int, Int, String, String) -> Void
     private let onContinueIntoSecondLoop: (Int, Int, String, String) -> Void
+    /// B4 turn on an 18-hole course: add the other half and open its first hole (the model navigates).
+    private let onContinueIntoOtherHalf: (String) -> Void
     private let onFinishRound: () async -> Bool
     private let onDiscardRound: () -> Void
     private let onAdvanceHole: (Int) -> Void
@@ -226,6 +232,7 @@ public struct CurrentHoleView: View {
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
         onContinueIntoSecondLoop: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
+        onContinueIntoOtherHalf: @escaping (String) -> Void = { _ in },
         onFinishRound: @escaping () async -> Bool = { false },
         onDiscardRound: @escaping () -> Void = {},
         onAdvanceHole: @escaping (Int) -> Void = { _ in },
@@ -253,6 +260,7 @@ public struct CurrentHoleView: View {
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onPrepareCompositeRound = onPrepareCompositeRound
         self.onContinueIntoSecondLoop = onContinueIntoSecondLoop
+        self.onContinueIntoOtherHalf = onContinueIntoOtherHalf
         self.onFinishRound = onFinishRound
         self.onDiscardRound = onDiscardRound
         self.onAdvanceHole = onAdvanceHole
@@ -511,6 +519,7 @@ public struct CurrentHoleView: View {
             if let turnPlan {
                 LiveRoundTurnSheet(
                     plan: turnPlan,
+                    choices: NineLoopTurn.turnChoices(turnPlan),
                     isPreparing: isPreparingRound || turnContinuationPending,
                     failureText: turnContinuationFailed ? "没能接上这个 9 洞，请重试" : nil,
                     onContinue: continueIntoSecondLoop,
@@ -3298,6 +3307,18 @@ public struct CurrentHoleView: View {
     }
 
     private func continueIntoSecondLoop(_ loop: NineLoop) {
+        if let half = NineLoopTurn.half(ofLoopId: loop.id) {
+            // Same rule as a separate loop: the sheet stays until the model adds the half.
+            turnContinuationFailed = false
+            turnContinuationPending = true
+            if half == package.nine?.lowercased() {
+                // The same half again: compose it as holes 10–18 of this round.
+                onContinueIntoSecondLoop(package.course.globalId, package.course.globalId, package.course.teeBox, package.roundId)
+            } else {
+                onContinueIntoOtherHalf(package.roundId)
+            }
+            return
+        }
         guard let back = Int(loop.id) else { return }
         let front = package.course.globalId
         try? offlineStore?.rememberNineLoopPairing(front: front, back: back)
@@ -3892,7 +3913,11 @@ public struct CurrentHoleView: View {
             penaltyCount = accepted.penalty
         }
         if accepted.advanceAfterSave {
-            switch LiveHoleAdvanceResolution.resolve(after: accepted.hole, package: package) {
+            switch LiveHoleAdvanceResolution.resolve(
+                after: accepted.hole,
+                package: package,
+                scored: recordedScoreHoles.union([accepted.hole])
+            ) {
             case .advance(let next):
                 onAdvanceHole(next)
             case .finish:

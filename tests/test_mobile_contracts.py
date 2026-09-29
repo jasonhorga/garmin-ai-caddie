@@ -1881,7 +1881,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('let base = "开始 \\(selected.resolvedHoles) 洞"', presentation)
         self.assertIn('.accessibilityIdentifier("start-round-primary-action")', start_view)
         self.assertIn(".disabled(!canStart)", start_view)
-        self.assertIn("onPrepareCourseRound(courseGlobalId, roundId, teeBox, nine)", start_view)
+        self.assertIn("onPrepareCourseRound(courseGlobalId, roundId, teeBox, startNine)", start_view)
         self.assertIn("isPreparing", start_view)
         self.assertNotIn('Picker("起始 9 洞"', start_view)
         self.assertIn("baseCourseName", start_view)
@@ -1946,7 +1946,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("onFinishRound: onFinishRound", round_home)
         self.assertIn("private let onFinishRound: () async -> Bool", current_hole)
         self.assertIn("showRoundSummary = true", current_hole)
-        self.assertIn("LiveHoleAdvanceResolution.resolve(after: accepted.hole, package: package)", current_hole)
+        self.assertIn("LiveHoleAdvanceResolution.resolve(\n                after: accepted.hole,\n                package: package,\n                scored: recordedScoreHoles.union([accepted.hole])", current_hole)
         self.assertNotIn("未保存的记录会被丢弃", current_hole)
         # The former Save/Continue-only sheet could trap an invalid round. Keep a deliberate
         # destructive exit, but require a second confirmation before deleting local data.
@@ -2463,6 +2463,31 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("imageStore.failedURL == topoURL", topo_base)
         self.assertIn("if let image = imageStore.image", topo_base)
         self.assertIn("fallbackImage", topo_base)
+
+    def test_ios_b4_eighteen_hole_course_halves_are_its_two_loops(self) -> None:
+        turn = _read_required_source(self, IOS_DIR / "Models" / "NineLoopTurn.swift")
+        start = _read_required_source(self, IOS_DIR / "Views" / "StartRoundView.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        app = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        sheet = _read_required_source(self, IOS_DIR / "Views" / "LiveRoundTurnSheet.swift")
+        # README §8: a two-loop 18-hole course uses the same flow; 前九 / 后九 are its loops.
+        self.assertIn('NineLoop(id: "\\(globalId):front", name: "前九")', turn)
+        self.assertIn('NineLoop(id: "\\(globalId):back", name: "后九")', turn)
+        self.assertIn("static func halvesPlan(globalId: Int, startedOn nine: String) -> NineLoopPlan?", turn)
+        # Start: only the first half is chosen and prepared.
+        self.assertIn('halfTile(whole, half: "front")', start)
+        self.assertIn('halfTile(whole, half: "back")', start)
+        self.assertIn('"start-round-course-half-back-\\(course.globalId)"', start)
+        self.assertIn("selectedSegment?.resolvedHoles == 18 ? firstHalf : nine", start)
+        # Turn: the halves plan, the offered choices, and the model-owned continuation.
+        self.assertIn("return halvesPlan(globalId: package.course.globalId, startedOn: nine)", turn)
+        self.assertIn("choices: NineLoopTurn.turnChoices(turnPlan)", current_hole)
+        self.assertIn("onContinueIntoOtherHalf(package.roundId)", current_hole)
+        self.assertIn("ForEach(offered, id: \\.id)", sheet)
+        body = app.split("public func continueIntoOtherHalf(roundId: String) async {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn('await setActiveNine("all")', body)
+        self.assertIn("NineLoopTurn.firstHoleOfOtherHalf(startedOn: nine)", body)
+        self.assertIn("pendingLiveHole = first", body)
 
     def test_ios_b4_turn_uses_the_shared_nine_loop_plan(self) -> None:
         domain = _read_required_source(self, Path("mobile") / "ios" / "AICaddieDomain" / "NineLoopPlan.swift")

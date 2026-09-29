@@ -6,6 +6,8 @@ import SwiftUI
 /// closes the sheet without deciding; the choice stays open until the second loop's first hole.
 struct LiveRoundTurnSheet: View {
     @State var plan: NineLoopPlan
+    /// The loops offered (`NineLoopTurn.turnChoices`); nil ⇒ every loop of the course.
+    var choices: [NineLoop]? = nil
     let isPreparing: Bool
     /// Shown when the last continuation could not add the loop; the choice stays actionable.
     var failureText: String? = nil
@@ -35,10 +37,10 @@ struct LiveRoundTurnSheet: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(LivePlayStyle.ink60)
             LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: max(2, min(plan.course.loops.count, 3))),
+                columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: max(2, min(offered.count, 3))),
                 spacing: 8
             ) {
-                ForEach(plan.course.loops, id: \.id) { loop in
+                ForEach(offered, id: \.id) { loop in
                     loopTile(loop)
                 }
             }
@@ -82,6 +84,8 @@ struct LiveRoundTurnSheet: View {
     /// and the CTA — so a different choice or a dismissal can never race the captured one, and the
     /// sheet is still there to offer a retry if it fails.
     static func acceptsInput(isPreparing: Bool) -> Bool { !isPreparing }
+
+    private var offered: [NineLoop] { choices ?? plan.course.loops }
 
     private func loopTile(_ loop: NineLoop) -> some View {
         let selected = plan.second == .loop(loop.id)
