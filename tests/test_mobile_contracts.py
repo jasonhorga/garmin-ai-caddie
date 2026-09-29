@@ -2272,6 +2272,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("history: heroHistory,", round_home)
         self.assertNotIn("homeCourse: package.course", round_home)
         self.assertNotIn("homeCourse", hero)
+        # The nearby screenshot goes through the production fix → onNearbyCourses → venue path;
+        # the replay state has its own screenshot.
+        self.assertIn("_heroLocation = StateObject(wrappedValue: heroLocationProvider ?? LocationProvider())", round_home)
+        snapshots = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "DesignSnapshotTests.swift")
+        near = snapshots.split('named: "full-home-near"', 1)[0].rsplit("try captureScreen(", 1)[1]
+        self.assertIn("onNearbyCourses: { _, _, _ in nearbyBlackKnight },", near)
+        self.assertIn("heroLocationProvider: LocationProvider(fixedFix: atBlackKnight)", near)
+        self.assertIn('named: "full-home-replay"', snapshots)
         self.assertIn("StartRoundPresentation.startActionTitle(", hero)
         self.assertIn("static func toPar(", hero)
         # The last-round card gains the 18-hole symbol strip from the cached archive's newest card

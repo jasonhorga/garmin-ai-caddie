@@ -26,7 +26,9 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     /// still leaves the explicit city/name search usable. It is never read in Release/TestFlight.
     private let simulatedAuthorizationStatus: CLAuthorizationStatus?
 
-    public init(manager: CLLocationManager = CLLocationManager()) {
+    /// `fixedFix`: a deterministic, already-authorised fix for in-process fixtures (snapshot
+    /// tests); nil in the app, which reads CoreLocation (or the UI-test environment below).
+    public init(manager: CLLocationManager = CLLocationManager(), fixedFix: LocationFix? = nil) {
         self.manager = manager
         let env = ProcessInfo.processInfo.environment
         #if DEBUG
@@ -42,7 +44,9 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
         let forcedAuthorization: CLAuthorizationStatus? = nil
         #endif
         let injectedFix: LocationFix?
-        if forcedAuthorization == nil,
+        if let fixedFix {
+            injectedFix = fixedFix
+        } else if forcedAuthorization == nil,
            let latText = env["UITEST_GPS_LAT"], let lonText = env["UITEST_GPS_LON"],
            let lat = Double(latText), lat.isFinite, (-90...90).contains(lat),
            let lon = Double(lonText), lon.isFinite, (-180...180).contains(lon) {

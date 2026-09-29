@@ -167,8 +167,12 @@ public struct RoundHomeView: View {
         pendingLiveHole: Int? = nil,
         onConsumePendingLiveHole: @escaping () -> Void = {},
         onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
-        onLiveAppearanceChanged: @escaping (Bool) -> Void = { _ in }
+        onLiveAppearanceChanged: @escaping (Bool) -> Void = { _ in },
+        heroLocationProvider: LocationProvider? = nil
     ) {
+        // The home's location authority; a fixture passes an authorised fixed fix so the nearby
+        // card resolves through the same fix → onNearbyCourses → venue path as the app.
+        _heroLocation = StateObject(wrappedValue: heroLocationProvider ?? LocationProvider())
         self.package = package
         self.pendingEventCount = pendingEventCount
         self.syncStatus = syncStatus
