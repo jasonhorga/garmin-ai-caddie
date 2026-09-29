@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import AICaddieDomain
+import CoreLocation
 import XCTest
 @testable import AICaddie
 
@@ -261,19 +262,30 @@ final class DesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderRoundHome() throws {
+        // README §8 home main card, all three states: in progress, a known course, no course.
+        let deltas: [Int] = [0, 1, 0, -1, 1, 0, 1, 2, 0, 0, 1, 0, -1, 1, 0, 1, 0, 3]
+        let strip: [HistoryScoreCell] = deltas.enumerated().map { index, delta in
+            HistoryScoreCell(hole: index + 1, par: 4, score: 4 + delta, toPar: delta, className: nil)
+        }
         let view = VStack(spacing: 14) {
-            HubInProgressCard(courseName: "北京丽宫 · 前九", activeHole: 8, recorded: 7, total: 9)
-            HubPlayTile()
+            HubInProgressCard(courseName: "北京丽宫", activeHole: 7, recorded: 6, toPar: 2)
+            HubSuggestedCourseCard(courseName: "北京天竺黑骑士球员俱乐部", startTitle: "从 B 场 开始 · 蓝 T") {
+                HubPrimaryPill(title: "开始")
+                HubSecondaryLinkLabel(title: "换球场或组合")
+            }
+            HubSearchHeroCard()
+            HubReplayLastCard(courseName: "北京天竺黑骑士球员俱乐部", startTitle: "从 B 场 开始 · 蓝 T")
             HStack(spacing: 11) {
                 HubTile(icon: "scope", title: "备战", subtitle: "搜索 · 球童试算")
                 HubTile(icon: "chart.line.uptrend.xyaxis", title: "成绩", subtitle: "球局 · 统计")
             }
             VStack(alignment: .leading, spacing: 9) {
                 HubSectionLabel("上一场")
-                HubLastRoundCard(courseName: "Cypress Point Club", date: "2026-07-30", score: 55, toPar: -20,
-                                 holesCompleted: 18, par: 75,
+                HubLastRoundCard(courseName: "Cypress Point Club", date: "2026-07-30", score: 82, toPar: 10,
+                                 holesCompleted: 18, par: 72,
                                  topoURL: SyncClient.topoImageURL(
-                                     baseURL: URL(string: "https://caddie.example")!, globalId: 3881, localHole: 1))
+                                     baseURL: URL(string: "https://caddie.example")!, globalId: 3881, localHole: 1),
+                                 scoreStrip: strip)
             }
         }
         .padding(16)
@@ -589,7 +601,74 @@ final class DesignSnapshotTests: XCTestCase {
         // Pass a non-nil apiBaseURL so the 备战 tile (gated on apiBaseURL) renders — without it
         // the snapshot hides 备战 and misrepresents the real app.
         let apiBaseURL = URL(string: "https://caddie.example")
+        // No course here and no last course → "今天去哪打？" + search (the package course is not 上次).
         try captureScreen(RoundHomeView(package: package, apiBaseURL: apiBaseURL, courseOptions: courses), named: "full-home")
+        let recentBlackKnightB = MobileCourseOption(globalId: 31795, name: "北京天竺黑骑士球员俱乐部 ~ B", holes: 9, teeBox: "blue", venueName: "北京天竺黑骑士球员俱乐部", segmentLabel: "B", segmentHoles: 9, tees: ["blue"])
+        // README §8 "在球场附近": an authorised fix at 黑骑士 and the provider-nearby A/B/C loops,
+        // resolved through the production fix → onNearbyCourses → current venue path → the
+        // course card with its loop/Tee, 开始 and 换球场或组合.
+        let atBlackKnight = LocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: 40.1203, longitude: 116.5791),
+            horizontalAccuracyM: 5,
+            altitudeM: nil,
+            capturedAt: "2026-09-29T08:00:00Z"
+        )
+        // Typed: an untyped literal here infers as [String?] (segmentLabel is optional) and the
+        // name interpolates as "~ Optional(\"B\")".
+        let loopLabels: [String] = ["A", "B", "C"]
+        let nearbyBlackKnight = loopLabels.enumerated().map { index, label in
+            MobileCourseSearchMatch(
+                globalId: 31794 + index,
+                name: "北京天竺黑骑士球员俱乐部 ~ \(label)",
+                holes: 9,
+                city: "北京",
+                province: nil,
+                ratio: 1,
+                latitude: 40.1203 + Double(index) * 0.001,
+                longitude: 116.5791,
+                distanceKm: 0.1,
+                venueName: "北京天竺黑骑士球员俱乐部",
+                segmentLabel: label
+            )
+        }
+        // The first render is seeded with the rows `HubNearby.options` builds from those matches
+        // (the same mapping refreshHeroNearby applies), so the capture never races the task.
+        let nearbyRows = HubNearby.options(from: nearbyBlackKnight, catalogue: courses, downloaded: [])
+        let nearState = HubHeroState.resolve(
+            hasActiveRound: false,
+            hasPendingWatchRound: false,
+            fix: (latitude: atBlackKnight.coordinate.latitude, longitude: atBlackKnight.coordinate.longitude),
+            nearbyOptions: nearbyRows,
+            history: [],
+            recent: recentBlackKnightB,
+            catalogue: courses,
+            downloaded: []
+        )
+        guard case .nearby(let here) = nearState else {
+            return XCTFail("full-home-near inputs must resolve to the course-here card, got \(nearState)")
+        }
+        XCTAssertEqual(here.courseName, "北京天竺黑骑士球员俱乐部")
+        XCTAssertEqual(here.startTitle, "从 B 场 开始 · 蓝 T")
+        let nearPNG = try captureScreen(
+            RoundHomeView(
+                package: package,
+                apiBaseURL: apiBaseURL,
+                courseOptions: courses,
+                recentCourseOption: recentBlackKnightB,
+                onNearbyCourses: { _, _, _ in nearbyBlackKnight },
+                heroLocationProvider: LocationProvider(fixedFix: atBlackKnight),
+                initialHeroNearbyOptions: nearbyRows
+            ),
+            named: "full-home-near"
+        )
+        // Not at a course: "今天去哪打？" + search, and the last course as a separate 再打上次那个.
+        let replayPNG = try captureScreen(
+            RoundHomeView(package: package, apiBaseURL: apiBaseURL, courseOptions: courses, recentCourseOption: recentBlackKnightB),
+            named: "full-home-replay"
+        )
+        XCTAssertNotEqual(nearPNG, replayPNG, "the course-here card and the search + replay state are different screens")
+        // No known course → "今天去哪打？" + search.
+        try captureScreen(RoundHomeView(package: package, apiBaseURL: apiBaseURL), named: "full-home-search")
         // Hub WITH an in-progress round → shows the 进行中 card + 「结束本场」(cancel) button.
         let activeState = LiveRoundStateSnapshot(roundId: package.roundId, activeHole: package.holes.first?.number ?? 1, holes: [])
         try captureScreen(
@@ -597,17 +676,65 @@ final class DesignSnapshotTests: XCTestCase {
             named: "full-home-active"
         )
         try captureScreen(NavigationStack { StartRoundView(courseOptions: courses) }, named: "full-start")
+        // 开始一场 with 黑骑士 B preselected (the home "开始"): one list row, A/B/C tiles, tee dots,
+        // "从 B 场 开始 · 蓝 T".
+        // 换球场或组合 from the 黑骑士 card: B preselected, the row carries all three loops (27 洞),
+        // and each tee shows this 9-hole loop's own yards. Tee rows: the yards / holeCount of
+        // production GET /api/v2/courses/31795/tees?ensure_release=false (loop B, 2026-09-29).
+        let loopBTeesJSON = #"""
+        [
+          {"teeBox": "gold", "name": "Gold", "yards": 3585, "holeCount": 9, "default": false},
+          {"teeBox": "blue", "name": "Blue", "yards": 3393, "holeCount": 9, "default": true},
+          {"teeBox": "white", "name": "White", "yards": 3019, "holeCount": 9, "default": false},
+          {"teeBox": "red", "name": "Red", "yards": 2533, "holeCount": 9, "default": false}
+        ]
+        """#
+        let loopBTees = try JSONDecoder().decode([CourseTee].self, from: Data(loopBTeesJSON.utf8))
+        // The chips show exactly these loop yards (a 9-hole total over the 9 holes started).
+        XCTAssertEqual(
+            loopBTees.map {
+                StartRoundPresentation.teeYards(total: $0.yards, teeHoleCount: $0.holeCount, playedHoles: 9)
+            },
+            [3585, 3393, 3019, 2533]
+        )
+        try captureScreen(
+            NavigationStack {
+                StartRoundView(
+                    defaultCourseGlobalId: 31795,
+                    defaultTeeBox: "blue",
+                    initialCourseTees: loopBTees,
+                    courseOptions: courses,
+                    onLoadCourseTees: { _ in loopBTees }
+                )
+            },
+            named: "full-start-selected"
+        )
         try captureScreen(NavigationStack { PrepCoursePickerView(courseOptions: courses, apiBaseURL: apiBaseURL, adminToken: nil) }, named: "full-prep-picker")
+        // 开始一场's catalogue sheet: no positioning / download status copy (README §8).
         try captureScreen(
             NavigationStack {
                 MobileCourseSearchView(
                     locationProvider: LocationProvider(),
+                    presentation: .startRound,
                     onSearch: { _, _ in [] },
                     onNearby: { _, _, _ in [] },
                     onSelect: { _, _ in }
                 )
             },
             named: "full-course-search"
+        )
+        // 备战's catalogue sheet keeps its positioning progress and download state.
+        try captureScreen(
+            NavigationStack {
+                MobileCourseSearchView(
+                    locationProvider: LocationProvider(),
+                    presentation: .prep,
+                    onSearch: { _, _ in [] },
+                    onNearby: { _, _, _ in [] },
+                    onSelect: { _, _ in }
+                )
+            },
+            named: "full-prep-course-search"
         )
         if let hole = package.holes.first {
             try captureScreen(NavigationStack { CurrentHoleView(package: package, hole: hole) }, named: "full-hole")
@@ -1182,7 +1309,13 @@ final class DesignSnapshotTests: XCTestCase {
         }
     }
 
-    private func captureScreen(_ view: some View, named name: String, dark: Bool = false) throws {
+    @discardableResult
+    private func captureScreen(
+        _ view: some View,
+        named name: String,
+        dark: Bool = false,
+        settle: TimeInterval = 1.0
+    ) throws -> Data {
         let size = CGSize(width: 390, height: 844)
         let style: UIUserInterfaceStyle = dark ? .dark : .light
         let host = UIHostingController(rootView: view)
@@ -1197,7 +1330,7 @@ final class DesignSnapshotTests: XCTestCase {
         // Pump the runloop so SwiftUI commits its first render, then capture the layer tree
         // (synchronous; works headless, unlike drawHierarchy(afterScreenUpdates:) which needs
         // a live display and renders blank in CI).
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.0))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: settle))
         host.view.layoutIfNeeded()
         let renderer = UIGraphicsImageRenderer(size: size)
         let image = renderer.image { ctx in
@@ -1205,7 +1338,7 @@ final class DesignSnapshotTests: XCTestCase {
         }
         guard let data = image.pngData() else {
             XCTFail("no png for \(name)")
-            return
+            return Data()
         }
         let dir = try FileManager.default
             .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
@@ -1213,6 +1346,7 @@ final class DesignSnapshotTests: XCTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try data.write(to: dir.appendingPathComponent("\(name).png"))
         print("WROTE_SCREEN \(name)")
+        return data
     }
 
     @MainActor

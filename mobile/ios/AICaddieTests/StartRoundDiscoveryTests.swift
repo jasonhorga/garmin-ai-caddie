@@ -736,6 +736,280 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
+    // MARK: - B4b: one course list, first-loop tiles, start title
+
+    func testCourseListMergesSourcesNearbyFirstWithoutDuplicateVenues() {
+        let bkA = loop(9101, venue: "黑骑士", label: "A")
+        let bkB = loop(9102, venue: "黑骑士", label: "B")
+        let bkC = loop(9103, venue: "黑骑士", label: "C")
+        let northLake = MobileCourseOption(globalId: 9201, name: "北湖", holes: 18, venueName: "北湖", segmentHoles: 18)
+        let searched = loop(9301, venue: "天马", label: "东")
+        let recentStale = loop(9102, venue: "黑骑士", label: "B")
+        let downloaded = MobileCourseOption(globalId: 9401, name: "丽宫", holes: 18, venueName: "丽宫", segmentHoles: 18)
+
+        let rows = StartRoundPresentation.mergedCourseRows(
+            nearby: [bkC, northLake, bkA, bkB],
+            search: [searched],
+            recent: [recentStale],
+            downloaded: [downloaded, northLake]
+        )
+
+        XCTAssertEqual(rows.map(\.venue), ["黑骑士", "北湖", "天马", "丽宫"])
+        XCTAssertEqual(rows.map(\.source), [.nearby, .nearby, .search, .downloaded])
+        XCTAssertEqual(rows[0].segments.map(\.globalId), [9101, 9102, 9103], "loops keep the course's A/B/C order")
+        XCTAssertEqual(rows[0].holes, 27)
+        XCTAssertEqual(rows[1].holes, 18)
+        XCTAssertEqual(rows[0].id, 9101)
+    }
+
+    func testCourseListKeepsTheRecentCourseWhenNearbyOmitsIt() {
+        let nearby = MobileCourseOption(globalId: 1, name: "附近球场", holes: 18, venueName: "附近球场", segmentHoles: 18)
+        let recent = loop(2, venue: "黑骑士", label: "B")
+        let rows = StartRoundPresentation.mergedCourseRows(nearby: [nearby], recent: [recent])
+        XCTAssertEqual(rows.map(\.venue), ["附近球场", "黑骑士"])
+        XCTAssertEqual(rows.last?.source, .recent)
+    }
+
+    func testNearbyRowsSortByDistanceAndKeepUnlocatedRowsInProviderOrder() {
+        let far = MobileCourseOption(globalId: 1, name: "far", latitude: 40.30, longitude: 116.55)
+        let unknownFirst = MobileCourseOption(globalId: 2, name: "unknown-1")
+        let near = MobileCourseOption(globalId: 3, name: "near", latitude: 40.046, longitude: 116.546)
+        let unknownSecond = MobileCourseOption(globalId: 4, name: "unknown-2")
+        XCTAssertEqual(
+            StartRoundPresentation.sortedByDistance(
+                [far, unknownFirst, near, unknownSecond],
+                latitude: 40.0455,
+                longitude: 116.5462
+            ).map(\.globalId),
+            [3, 1, 2, 4]
+        )
+    }
+
+    func testDistanceCopyMatchesThePrototype() {
+        XCTAssertEqual(StartRoundPresentation.distanceText(metres: 1_200), "1.2 公里")
+        XCTAssertEqual(StartRoundPresentation.distanceText(metres: 8_640), "8.6 公里")
+        XCTAssertEqual(StartRoundPresentation.distanceText(metres: 23_400), "23 公里")
+        XCTAssertEqual(StartRoundPresentation.distanceText(metres: 9_990), "10 公里")
+        XCTAssertEqual(StartRoundPresentation.distanceText(metres: 350), "0.4 公里")
+        XCTAssertNil(StartRoundPresentation.distanceText(metres: .infinity))
+    }
+
+    func testLoopTilesUseTheCourseOwnLoopNames() {
+        XCTAssertEqual(StartRoundPresentation.loopTileTitle(loop(1, venue: "黑骑士", label: "A")), "A 场")
+        XCTAssertEqual(StartRoundPresentation.loopTileTitle(loop(2, venue: "天马", label: "东")), "东")
+        XCTAssertEqual(
+            StartRoundPresentation.loopTileTitle(
+                MobileCourseOption(globalId: 3, name: "北湖", holes: 18, venueName: "北湖", segmentHoles: 18)
+            ),
+            "18 洞"
+        )
+    }
+
+    func testTeeYardsAreShownOnlyWhenTheyCoverTheHolesBeingStarted() {
+        XCTAssertEqual(StartRoundPresentation.teeYards(total: 3201, teeHoleCount: 9, playedHoles: 9), 3201)
+        XCTAssertEqual(StartRoundPresentation.teeYards(total: 6412, teeHoleCount: 18, playedHoles: 18), 6412)
+        XCTAssertNil(
+            StartRoundPresentation.teeYards(total: 6412, teeHoleCount: 18, playedHoles: 9),
+            "a nine-hole start never shows an 18-hole total"
+        )
+        XCTAssertEqual(StartRoundPresentation.teeYards(total: 3201, teeHoleCount: nil, playedHoles: 9), 3201)
+        XCTAssertNil(StartRoundPresentation.teeYards(total: nil, teeHoleCount: 9, playedHoles: 9))
+        XCTAssertNil(StartRoundPresentation.teeYards(total: 3201, teeHoleCount: 9, playedHoles: nil))
+    }
+
+    func testChangeCourseKeepsANeverPlayedVenueSelectedWhenTheRequeryFails() {
+        // The home's course-here rows for a venue that is in no catalogue, download or recent
+        // record (never played, not downloaded).
+        let labels: [String] = ["A", "B", "C"]
+        let matches: [MobileCourseSearchMatch] = labels.enumerated().map { index, label in
+            MobileCourseSearchMatch(
+                globalId: 90_001 + index, name: "新球场 ~ \(label)", holes: 9, city: "北京",
+                province: nil, ratio: 1, latitude: 40.0, longitude: 116.0 + Double(index) * 0.001,
+                distanceKm: 0.2, venueName: "新球场", segmentLabel: label
+            )
+        }
+        let homeRows = HubNearby.options(from: matches, catalogue: [], downloaded: [])
+        let carried = HubNearby.venueLoops(containing: 90_002, in: homeRows)
+        XCTAssertEqual(carried.map(\.globalId), [90_001, 90_002, 90_003])
+
+        // 开始一场's own nearby query failed (no current rows); nothing else lists the venue.
+        let selected = StartRoundView.selectedSegment(
+            globalId: 90_002,
+            current: [],
+            preselectedVenue: carried,
+            offline: [],
+            explicit: [],
+            recent: nil
+        )
+        XCTAssertEqual(selected?.globalId, 90_002, "the known loop stays selected without a second request")
+        let loops = StartRoundView.sameVenueNineHoleCandidates(
+            selected: selected!,
+            candidates: [selected!] + carried
+        )
+        XCTAssertEqual(loops.map(\.globalId), [90_001, 90_002, 90_003], "the complete provider sibling set")
+        let rows = StartRoundPresentation.mergedCourseRows(nearby: [], recent: loops)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.holes, 27)
+
+        // A current nearby row for the same id still wins over the carried one.
+        let fresh = MobileCourseOption(
+            globalId: 90_002, name: "新球场", holes: 9, venueName: "新球场", segmentLabel: "B", segmentHoles: 9
+        )
+        XCTAssertEqual(
+            StartRoundView.selectedSegment(
+                globalId: 90_002, current: [fresh], preselectedVenue: carried, offline: [], explicit: [], recent: nil
+            ),
+            fresh
+        )
+        XCTAssertTrue(HubNearby.venueLoops(containing: 12_345, in: homeRows).isEmpty)
+    }
+
+    func testTheCarriedVenueOwnsItsRowOverAPartialDownloadOfTheSameVenue() {
+        let labels: [String] = ["A", "B", "C"]
+        let carried: [MobileCourseOption] = labels.enumerated().map { index, label in
+            MobileCourseOption(
+                globalId: 90_001 + index, name: "新球场", holes: 9,
+                venueName: "新球场", segmentLabel: label, segmentHoles: 9
+            )
+        }
+        let downloadedA = MobileCourseOption(
+            globalId: 90_001, name: "新球场", holes: 9, venueName: "新球场", segmentLabel: "A", segmentHoles: 9
+        )
+        let selected = carried[1]
+        let loops = StartRoundView.sameVenueNineHoleCandidates(selected: selected, candidates: [selected] + carried)
+        // The destination's nearby requery failed (no nearby / search rows); only A is downloaded.
+        let rows = StartRoundView.courseRows(
+            nearby: [], search: [], recent: [], downloaded: [downloadedA],
+            selected: selected, selectedLoops: loops, preselectedVenue: carried
+        )
+        XCTAssertEqual(rows.count, 1, "the partial download dedupes behind the carried venue")
+        XCTAssertEqual(rows.first?.segments.map(\.globalId), [90_001, 90_002, 90_003])
+        XCTAssertEqual(rows.first?.holes, 27)
+
+        // Without a carried venue, a downloaded selection keeps its own row (selecting never moves it).
+        let own = StartRoundView.courseRows(
+            nearby: [], search: [], recent: [], downloaded: [downloadedA],
+            selected: downloadedA, selectedLoops: [downloadedA], preselectedVenue: []
+        )
+        XCTAssertEqual(own.map(\.source), [.downloaded])
+        // A current nearby row for the selected loop owns the venue; the carried rows add nothing.
+        let nearbyB = carried[1]
+        let current = StartRoundView.courseRows(
+            nearby: [nearbyB], search: [], recent: [], downloaded: [downloadedA],
+            selected: nearbyB, selectedLoops: loops, preselectedVenue: carried
+        )
+        XCTAssertEqual(current.first?.source, .nearby)
+        XCTAssertEqual(current.first?.segments.map(\.globalId), [90_002])
+
+        // A current nearby / search row with only a sibling (A, not the selected B): the carried
+        // A/B/C own that venue row in place, keeping its source and position.
+        let other = MobileCourseOption(
+            globalId: 70_001, name: "别的球场", holes: 18, venueName: "别的球场", segmentHoles: 18
+        )
+        let siblingNearby = StartRoundView.courseRows(
+            nearby: [other, downloadedA], search: [], recent: [], downloaded: [],
+            selected: selected, selectedLoops: loops, preselectedVenue: carried
+        )
+        XCTAssertEqual(siblingNearby.map(\.source), [.nearby, .nearby])
+        XCTAssertEqual(siblingNearby.map(\.venue), ["别的球场", "新球场"])
+        XCTAssertEqual(siblingNearby.last?.segments.map(\.globalId), [90_001, 90_002, 90_003])
+        XCTAssertEqual(siblingNearby.last?.holes, 27)
+        let siblingSearch = StartRoundView.courseRows(
+            nearby: [], search: [downloadedA], recent: [], downloaded: [downloadedA],
+            selected: selected, selectedLoops: loops, preselectedVenue: carried
+        )
+        XCTAssertEqual(siblingSearch.count, 1)
+        XCTAssertEqual(siblingSearch.first?.source, .search)
+        XCTAssertEqual(siblingSearch.first?.segments.map(\.globalId), [90_001, 90_002, 90_003])
+        XCTAssertEqual(siblingSearch.first?.holes, 27)
+    }
+
+    func testChangeCourseKeepsTheCardsLastTeeWhenTheCourseOffersIt() {
+        let offered = ["Gold", "Blue", "White"]
+        let tee = StartRoundView.initialTee(callerTee: "white", offered: offered, courseTee: "blue")
+        XCTAssertEqual(tee, "White", "the card's last tee wins over the Blue/White default")
+        // The /tees refresh offers White too, so it stays White (not the default Blue row).
+        let rows = [
+            CourseTee(teeBox: "gold", name: "Gold", yards: 3585, holeCount: 9),
+            CourseTee(teeBox: "blue", name: "Blue", yards: 3393, holeCount: 9, isDefault: true),
+            CourseTee(teeBox: "white", name: "White", yards: 3019, holeCount: 9),
+        ]
+        let refreshed = StartRoundView.teeAfterRefresh(current: tee, rows: rows)
+        XCTAssertEqual(refreshed.lowercased(), "white")
+        let loopB = MobileCourseOption(
+            globalId: 31795, name: "北京天竺黑骑士球员俱乐部", holes: 9,
+            venueName: "北京天竺黑骑士球员俱乐部", segmentLabel: "B", segmentHoles: 9, tees: offered
+        )
+        XCTAssertEqual(
+            StartRoundPresentation.startActionTitle(selected: loopB, loops: [loopB], teeBox: refreshed),
+            "从 B 场 开始 · 白 T"
+        )
+
+        // Unknown / blank / not offered → the course default choice.
+        XCTAssertEqual(StartRoundView.initialTee(callerTee: "unknown", offered: offered, courseTee: nil), "Blue")
+        XCTAssertEqual(StartRoundView.initialTee(callerTee: "  ", offered: offered, courseTee: nil), "Blue")
+        XCTAssertEqual(StartRoundView.initialTee(callerTee: "red", offered: offered, courseTee: nil), "Blue")
+        // No tee list to check against → the caller's tee (the /tees refresh corrects an invalid one).
+        XCTAssertEqual(StartRoundView.initialTee(callerTee: "white", offered: [], courseTee: "blue"), "white")
+        XCTAssertEqual(StartRoundView.initialTee(callerTee: "unknown", offered: [], courseTee: "blue"), "blue")
+        XCTAssertEqual(StartRoundView.teeAfterRefresh(current: "red", rows: rows), "blue")
+    }
+
+    func testADownloadedCourseFarFromHereStaysInTheListTail() {
+        let near = loop(1, venue: "黑骑士", label: "A")
+        let recent = loop(2, venue: "北湖", label: "A")
+        let travel = loop(3, venue: "海南神州", label: "A")
+        let rows = StartRoundPresentation.mergedCourseRows(
+            nearby: [near],
+            recent: [recent],
+            downloaded: [near, travel]
+        )
+        XCTAssertEqual(rows.map(\.venue), ["黑骑士", "北湖", "海南神州"])
+        XCTAssertEqual(rows.map(\.source), [.nearby, .recent, .downloaded])
+    }
+
+    func testStartTitleNamesTheFirstLoopAndTee() {
+        let bkA = loop(9101, venue: "黑骑士", label: "A")
+        let bkB = loop(9102, venue: "黑骑士", label: "B")
+        XCTAssertEqual(
+            StartRoundPresentation.startActionTitle(selected: bkB, loops: [bkA, bkB], teeBox: "blue"),
+            "从 B 场 开始 · 蓝 T"
+        )
+        XCTAssertEqual(
+            StartRoundPresentation.startActionTitle(selected: bkB, loops: [], teeBox: ""),
+            "从 B 场 开始"
+        )
+        XCTAssertEqual(
+            StartRoundPresentation.startActionTitle(selected: loop(1, venue: "天马", label: "东"), loops: [], teeBox: "Black"),
+            "从 东 开始 · 黑 T"
+        )
+        let wholeCourse = MobileCourseOption(globalId: 9201, name: "北湖", holes: 18, venueName: "北湖", segmentHoles: 18)
+        XCTAssertEqual(
+            StartRoundPresentation.startActionTitle(selected: wholeCourse, loops: [wholeCourse], teeBox: "white"),
+            "开始 18 洞 · 白 T"
+        )
+        XCTAssertEqual(StartRoundPresentation.startActionTitle(selected: nil, loops: [], teeBox: "blue"), "开始")
+    }
+
+    func testTeeLabelsAreShortAndKeepUnknownNames() {
+        XCTAssertEqual(StartRoundPresentation.teeShortLabel("Blue"), "蓝 T")
+        XCTAssertEqual(StartRoundPresentation.teeShortLabel("championship"), "黑 T")
+        XCTAssertEqual(StartRoundPresentation.teeShortLabel("unknown"), "球场默认 T")
+        XCTAssertEqual(StartRoundPresentation.teeShortLabel("Combo"), "Combo")
+        XCTAssertNil(StartRoundPresentation.teeShortLabel("  "))
+    }
+
+    private func loop(_ globalId: Int, venue: String, label: String) -> MobileCourseOption {
+        MobileCourseOption(
+            globalId: globalId,
+            name: "\(venue) ~ \(label)",
+            holes: 9,
+            venueName: venue,
+            segmentLabel: label,
+            segmentHoles: 9
+        )
+    }
+
     private func option(
         globalId: Int,
         name: String,

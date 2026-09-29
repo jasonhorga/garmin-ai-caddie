@@ -1742,15 +1742,24 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("await model.prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)", app_swift)
         self.assertIn("backGlobalId: Int? = nil", sync_client)
         self.assertIn('URLQueryItem(name: "back_global_id"', sync_client)
-        self.assertIn("public let onPrepareCompositeRound: (Int, Int, String, String) -> Void", start_view)
-        self.assertIn("onPrepareCompositeRound(courseGlobalId, backGlobalId, teeBox, roundId)", start_view)
+        # B4b: 开始一场 chooses only the FIRST loop and has no composite callback at all; the second
+        # loop is chosen at the turn (NineLoopPlan / LiveRoundTurnSheet), whose live path keeps
+        # onPrepareCompositeRound (RoundHomeView → CurrentHoleView), and the old 加打 card is gone.
+        self.assertNotIn("onPrepareCompositeRound", start_view)
+        start_call = round_home.split("        StartRoundView(", 1)[1].split("\n        )\n", 1)[0]
+        self.assertNotIn("onPrepareCompositeRound", start_call)
+        self.assertNotIn("backGlobalIdText", start_view)
+        self.assertNotIn("secondNineCard", start_view)
+        self.assertNotIn("加打另一个 9 洞", start_view)
+        self.assertNotIn("不加打", start_view)
         # P1-3: the fallback live-round id is UUID-seeded so two real rounds on the same course don't
         # reuse a fixed "live-<globalId>" and merge. The bare reused fallback must be gone.
         self.assertIn("UUID().uuidString", start_view)
         self.assertNotIn('?? "live-\\(option.globalId)"', start_view)
-        # The "加打" list includes the same loop (A+A/B+B/C+C is a real way to play 18 on a 27-hole
-        # course), so it must NOT filter the selected loop out.
+        # The loop tiles come from the selected venue's factual 9-hole siblings (including the
+        # selected loop itself); the helper must NOT filter the selected loop out.
         self.assertNotIn("$0.globalId != selectedSegment.globalId", start_view)
+        self.assertIn("Self.sameVenueNineHoleCandidates(", start_view)
         self.assertIn("public let onPrepareCompositeRound: (Int, Int, String, String) -> Void", round_home)
         self.assertIn("onPrepareCompositeRound: onPrepareCompositeRound", round_home)
 
@@ -1758,19 +1767,62 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let courseOptions: [MobileCourseOption]", start_view)
         self.assertIn("public let onPrepareRound: (String) -> Void", start_view)
         self.assertIn("public let onPrepareCourseRound: (Int, String, String, String) -> Void",start_view)
-        # 按真实结构选场:GPS 只列附近球场 → 列出它的各 9 洞环(segmentLabel)/整场,
-        # 其他球场必须由玩家主动搜索；历史球场不能重新混入开局列表。
-        self.assertIn("附近球场", start_view)
-        self.assertIn("nearbyCourseOptions + remoteCourseOptions", start_view)
+        # B4b (README §8): ONE course list — nearby first (distance-sorted with a fix), then the
+        # explicit search pick, the recent course, and downloaded packages. History (courseOptions)
+        # never re-enters the list as an implicit source.
+        presentation = _read_required_source(self, IOS_DIR / "Models" / "StartRoundPresentation.swift")
+        self.assertIn("StartRoundPresentation.mergedCourseRows(", start_view)
+        self.assertIn("nearby: nearby,", start_view)
+        self.assertIn("search: remoteCourseOptions,", start_view)
+        self.assertIn("recent: recentCourseFallbackOption.map { [$0] } ?? [],", start_view)
+        self.assertIn("recent = recent.filter { !samePhysicalVenue($0, selected) } + selectedLoops", start_view)
+        self.assertNotIn("recent.append(selectedSegment)", start_view)
+        self.assertIn("let downloaded = resolvedOfflineOptions(offlineDisplayOptions + downloadedCourseOptions)", start_view)
+        self.assertIn("StartRoundPresentation.sortedByDistance(", start_view)
+        self.assertIn("StartRoundPresentation.distanceText(metres: metres)", start_view)
+        self.assertIn('return String(format: "%.1f 公里", tenths)', presentation)
+        self.assertIn("(.nearby, nearby),", presentation)
+        self.assertIn("(.downloaded, downloaded),", presentation)
+        self.assertIn('.accessibilityIdentifier("start-round-venue-\\(row.id)")', start_view)
+        self.assertIn('.accessibilityIdentifier("start-round-course-list")', start_view)
+        self.assertIn("nearbyCourseOptions + remoteCourseOptions", start_view)  # auto-select evidence
         self.assertNotIn("return (courseOptions + remoteCourseOptions)", start_view)
         self.assertIn("await discoverNearbyCourses()", start_view)
         self.assertIn("makeVenueGroups", start_view)
-        self.assertIn("func segmentRow(", start_view)
-        self.assertIn("segment.resolvedSegmentLabel", start_view)
-        # 球场用下拉菜单选(#2a),GPS 可用时按距离排序、否则最常打在前(#4a)。
-        self.assertIn('Picker("球场", selection: selectedVenueBinding)', start_view)
-        self.assertIn("displayVenues", start_view)
         self.assertIn("selectedVenueName", start_view)  # venue derived from the selected segment (no desync)
+        # No separate sections and no location / download / explanation prose.
+        for removed in [
+            'Picker("球场", selection: selectedVenueBinding)',
+            'Text("附近球场")',
+            'Text("本机已下载")',
+            'Text("最近使用")',
+            "offlineCourseExplanation",
+            "正在定位并查找附近球场",
+            "正在更新附近球场",
+            "当前位置 50 km · ",
+            "正在获取发球台",
+            "segmentSelectionHelp",
+            "不代表当前位置",
+            "仅供离线开始",
+            "effectiveNearbyStatusText",
+            'ProgressView("准备中…")',
+        ]:
+            self.assertNotIn(removed, start_view)
+        # A failed nearby request keeps only an icon retry; the list shows the other sources.
+        self.assertIn('.accessibilityIdentifier("start-round-retry-nearby")', start_view)
+        self.assertIn('Image(systemName: "location.circle")', start_view)
+        # Compact search entry.
+        self.assertIn('Text("搜索球场或城市")', start_view)
+        self.assertIn('.accessibilityIdentifier("start-round-search-all-courses")', start_view)
+        # First-loop tiles: the course's own loop names (NineLoop.displayName: A → "A 场"), "9 洞";
+        # an 18-hole single course is one "18 洞" tile.
+        self.assertIn('"从哪个 9 洞开始"', start_view)
+        self.assertIn("@ViewBuilder private func segmentRow(_ segment: MobileCourseOption)", start_view)
+        self.assertIn('.accessibilityIdentifier("start-round-course-segment-\\(segment.globalId)")', start_view)
+        self.assertIn('.accessibilityValue(selected ? "已选择" : "未选择")', start_view)
+        self.assertIn("segment.resolvedSegmentLabel", start_view)
+        self.assertIn("NineLoopTurn.firstLoop(segment).displayName", presentation)
+        self.assertIn('return "\\(segment.resolvedHoles) 洞"', presentation)
         self.assertNotIn(
             "onRememberCourseDisplayName(courseGlobalId, selectedRoundDisplayName)",
             start_view,
@@ -1784,6 +1836,19 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let tees: [String]?", course_options_model)
         self.assertIn("private func applySelectedCourse(_ option: MobileCourseOption)", start_view)
         self.assertIn('Text("发球台")', start_view)
+        # Tees are colour dots (the one shared AICaddieDomain.TeeColor mapping) + this loop's yards,
+        # selectable in a horizontal row; the old confirmation-dialog menu is gone.
+        self.assertIn("TeeColor.forTee(tee)", start_view)
+        self.assertIn("ScrollView(.horizontal, showsIndicators: false)", start_view)
+        self.assertIn('.accessibilityIdentifier("start-round-tee-selector")', start_view)
+        self.assertIn('.accessibilityIdentifier("start-round-tee-\\(tee)")', start_view)
+        self.assertNotIn("confirmationDialog", start_view)
+        self.assertNotIn("showingTeeSelector", start_view)
+        tee_color = _read_required_source(self, Path("mobile") / "ios" / "AICaddieDomain" / "TeeColor.swift")
+        self.assertIn("public static func forTee(_ teeBox: String) -> TeeColor", tee_color)
+        watch_setup = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundSetupView.swift")
+        self.assertIn("TeeColor.forTee(id)", watch_setup)
+        self.assertNotIn("case \"gold\", \"yellow\": return .yellow", watch_setup)
         # 选发球台:候选来自 GET /courses/{id}/tees(颜色 + 总码数 + 默认台),端到端镜像 nine —
         # StartRoundView 收 onLoadCourseTees 闭包 → LiveRoundAppModel.loadCourseTees → SyncClient.fetchCourseTees。
         self.assertIn("public let onLoadCourseTees: (Int) async -> [CourseTee]", start_view)
@@ -1809,7 +1874,15 @@ class MobileContractTests(unittest.TestCase):
         course_tee_model = _read_required_source(self, IOS_DIR / "Models" / "CourseTee.swift")
         self.assertIn('case isDefault = "default"', course_tee_model)
         self.assertIn("public let yards: Int?", course_tee_model)
-        self.assertIn('Label("开始记分"', start_view)
+        # The primary action names the choice with the shared NineLoopPlan copy:
+        # "从 B 场 开始 · 蓝 T" (whole course: "开始 18 洞 · 蓝 T"); it always prepares one loop.
+        self.assertNotIn('Label("开始记分"', start_view)
+        self.assertIn("Text(startActionTitle)", start_view)
+        self.assertIn("StartRoundPresentation.startActionTitle(", start_view)
+        self.assertIn("return plan.startTitle(teeName: tee)", presentation)
+        self.assertIn('let base = "开始 \\(selected.resolvedHoles) 洞"', presentation)
+        self.assertIn('.accessibilityIdentifier("start-round-primary-action")', start_view)
+        self.assertIn(".disabled(!canStart)", start_view)
         self.assertIn("onPrepareCourseRound(courseGlobalId, roundId, teeBox, nine)", start_view)
         self.assertIn("isPreparing", start_view)
         self.assertNotIn('Picker("起始 9 洞"', start_view)
@@ -1821,9 +1894,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let onPrepareCourseRound: (Int, String, String, String) -> Void",round_home)
         self.assertIn("public let courseOptions: [MobileCourseOption]", round_home)
         self.assertIn("StartRoundView(", round_home)
-        # 打球 = the wide primary tile on the light home (opens 开始一场 / StartRoundView).
-        self.assertIn("HubPlayTile", round_home)
-        self.assertIn('Text("打球")', round_home)
+        # B4b: the old 打球 tile is replaced by the home main card (README §8). Its 开始 opens
+        # 开始一场 with the card's course and tee preselected; 换球场或组合 opens it plain.
+        self.assertNotIn("HubPlayTile", round_home)
+        self.assertNotIn('Text("打球")', round_home)
+        self.assertIn("case startCourse(globalId: Int, teeBox: String?)", round_home)
+        self.assertIn("defaultCourseGlobalId: globalId,", round_home)
+        self.assertIn('.accessibilityIdentifier("home-change-course")', round_home)
+        self.assertIn('HubSecondaryLinkLabel(title: "换球场或组合")', round_home)
 
         # 选9洞 中途加打 / 撤销: nine 是对一局 18 洞的视图过滤,改 nine 重取同 roundId 保留已记杆。
         self.assertIn("@Published public private(set) var startingNine", app_swift)
@@ -2162,6 +2240,132 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("navigationTitle(greeting)", round_home)
         self.assertIn('"下午好"', round_home)
 
+        # B4b (README §8): the home's main card switches by situation — in progress → 继续第 N 洞
+        # (big to-par when known, 已打 N 洞); at a course (the same nearby authority as 开始一场)
+        # → that course's last first loop + tee, 开始 starts it directly, 换球场或组合; not at a course
+        # → 今天去哪打？ + search, plus a separate one-tap 再打上次那个.
+        hero = _read_required_source(self, IOS_DIR / "Models" / "HubHero.swift")
+        self.assertIn("switch heroState {", round_home)
+        self.assertIn("case .inProgress:", round_home)
+        self.assertIn("case .nearby(let suggestion):", round_home)
+        self.assertIn("case .search(let replay):", round_home)
+        self.assertIn("HubNearby.currentVenue(options: nearbyOptions, latitude: fix.latitude, longitude: fix.longitude)", hero)
+        self.assertIn("nearby = HubCourseSuggestion.forVenue(loops, history: history, recent: recent)", hero)
+        self.assertIn("history: heroHistory,", round_home)
+        self.assertIn("try? await onNearbyCourses(", round_home)
+        self.assertIn('.accessibilityIdentifier("home-start-nearby")', round_home)
+        self.assertIn('.accessibilityIdentifier("home-replay-last")', round_home)
+        self.assertIn('Text("再打上次那个")', round_home)
+        # 开始 / 再打上次那个 start directly (no setup form); the home never prompts for location.
+        start = round_home.split("private func startSuggested(_ suggestion: HubCourseSuggestion) {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("onPrepareCourseRound(request.globalId, request.roundId, request.teeBox, request.nine)", start)
+        self.assertIn("StartRoundView.freshLiveRoundId(globalId: suggestion.globalId)", start)
+        self_location = round_home.split("private func startHeroLocation() {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertNotIn("requestAuthorization", self_location)
+        self.assertIn('HubPrimaryPill(title: "继续第 \\(activeHole) 洞", fullWidth: true)', round_home)
+        self.assertIn('Text("已打 \\(recorded) 洞")', round_home)
+        self.assertIn('Text("进行中")', round_home)
+        self.assertIn("toPar: liveToPar(scoredHoles: scored)", round_home)
+        self.assertIn('Text("今天去哪打？")', round_home)
+        self.assertIn('Text("搜索球场或城市")', round_home)
+        self.assertIn('.accessibilityIdentifier("home-in-progress-round")', round_home)
+        self.assertEqual(round_home.count('.accessibilityIdentifier("home-new-round")'), 1)
+        self.assertIn("recent: recentCourseOption,", round_home)
+        # 再打上次那个 is the newest played course, never the most-played home package.
+        self.assertIn("history: heroHistory,", round_home)
+        self.assertNotIn("homeCourse: package.course", round_home)
+        self.assertNotIn("homeCourse", hero)
+        # The nearby screenshot goes through the production fix → onNearbyCourses → venue path;
+        # the replay state has its own screenshot.
+        self.assertIn("_heroLocation = StateObject(wrappedValue: heroLocationProvider ?? LocationProvider())", round_home)
+        snapshots = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "DesignSnapshotTests.swift")
+        near = snapshots.split('named: "full-home-near"', 1)[0].rsplit("try captureScreen(", 1)[1]
+        self.assertIn("onNearbyCourses: { _, _, _ in nearbyBlackKnight },", near)
+        self.assertIn("heroLocationProvider: LocationProvider(fixedFix: atBlackKnight)", near)
+        self.assertIn("initialHeroNearbyOptions: nearbyRows", near)
+        self.assertIn("let nearbyRows = HubNearby.options(from: nearbyBlackKnight, catalogue: courses, downloaded: [])", snapshots)
+        self.assertIn('guard case .nearby(let here) = nearState else {', snapshots)
+        self.assertIn('named: "full-home-replay"', snapshots)
+        self.assertIn("XCTAssertNotEqual(nearPNG, replayPNG", snapshots)
+        # The view and the fixture share one resolution and one nearby-row mapping.
+        self.assertIn("HubHeroState.resolve(", round_home)
+        self.assertIn("nearbyOptions: heroNearbyOptions,", round_home)
+        self.assertIn("heroNearbyOptions = HubNearby.options(", round_home)
+        # 开始一场's catalogue sheet renders without positioning / download status copy; 备战 keeps it.
+        search_view = _read_required_source(self, IOS_DIR / "Views" / "MobileCourseSearchView.swift")
+        start_view_src = _read_required_source(self, IOS_DIR / "Views" / "StartRoundView.swift")
+        self.assertIn("presentation: .startRound,", start_view_src)
+        self.assertIn('guard presentation == .prep else { return "查看附近球场" }', search_view)
+        self.assertIn("if presentation == .prep && !retainedDownloads.isEmpty {", search_view)
+        self.assertIn('.accessibilityValue(presentation == .prep ? (isInstalled ? "已准备" : "选择后下载") : "")', search_view)
+        self.assertIn('.accessibilityIdentifier("course-catalog-retry-nearby")', search_view)
+        self.assertIn("presentation: .startRound,", snapshots.split('named: "full-course-search"', 1)[0].rsplit("try captureScreen(", 1)[1])
+        real_flow = _read_required_source(self, IOS_DIR.parent / "AICaddieUITests" / "RealFlowUITests.swift")
+        self.assertNotIn('XCTAssertEqual(namedResult.value as? String, "选择后下载")', real_flow)
+        # 换球场或组合 opens 开始一场 with the course here preselected (the live producer of
+        # .startCourse); a preselected venue's row carries the same sibling loops as its tiles.
+        self.assertIn(
+            "NavigationLink(value: HubRoute.startCourse(globalId: suggestion.globalId, teeBox: suggestion.teeBox))",
+            round_home,
+        )
+        self.assertIn("if let owned = replacingVenue(of: selected, in: nearby, with: selectedLoops) {", start_view_src)
+        self.assertIn("} else if let owned = replacingVenue(of: selected, in: search, with: selectedLoops) {", start_view_src)
+        self.assertIn("self._teeBox = State(initialValue: Self.initialTee(", start_view_src)
+        self.assertIn("teeBox = Self.teeAfterRefresh(current: teeBox, rows: tees)", start_view_src)
+        self.assertIn("func testTheCarriedVenueOwnsItsRowOverAPartialDownloadOfTheSameVenue()", _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "StartRoundDiscoveryTests.swift"))
+        self.assertIn("func testChangeCourseKeepsTheCardsLastTeeWhenTheCourseOffersIt()", _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "StartRoundDiscoveryTests.swift"))
+        selected_capture = snapshots.split('named: "full-start-selected"', 1)[0].rsplit("try captureScreen(", 1)[1]
+        self.assertIn("initialCourseTees: loopBTees", selected_capture)
+        self.assertIn("onLoadCourseTees: { _ in loopBTees }", selected_capture)
+        self.assertIn("must open 开始一场 with the course here preselected", real_flow)
+        # 换球场或组合 carries the course-here venue's provider loops; they own the preselected venue
+        # after this screen's own nearby query fails, and the tee fixture carries production yards.
+        self.assertIn(
+            "preselectedVenueOptions: globalId.map { HubNearby.venueLoops(containing: $0, in: heroNearbyOptions) } ?? [],",
+            round_home,
+        )
+        self.assertIn("?? preselectedVenue.first { $0.globalId == globalId }", start_view_src)
+        self.assertIn("if preselectedVenueOptions.contains(where: { $0.globalId == selectedID }) {", start_view_src)
+        self.assertIn('"yards": 3393, "holeCount": 9', snapshots)
+        self.assertIn("[3585, 3393, 3019, 2533]", snapshots)
+        discovery = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "StartRoundDiscoveryTests.swift")
+        self.assertIn("func testChangeCourseKeepsANeverPlayedVenueSelectedWhenTheRequeryFails()", discovery)
+        # Real journeys follow the B4b contract: 换球场或组合 carries the course here (selected), and an
+        # empty / failed nearby result drops nearby attribution without erasing recent rows.
+        tee_ui = _read_required_source(self, IOS_DIR.parent / "AICaddieUITests" / "TeeSelectionUITests.swift")
+        self.assertIn("换球场或组合 must carry the course here into 开始一场 as the selected venue", tee_ui)
+        self.assertEqual(tee_ui.count("assertRetainedRowsAreUnselectedWithoutDistance(\""), 2)
+        retained_helper = tee_ui.split("private func assertRetainedRowsAreUnselectedWithoutDistance(", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("retainedGlobalId: Int = 31793,", retained_helper)
+        self.assertIn("XCTAssertTrue(\n            retained.waitForExistence(timeout: 10),", retained_helper)
+        self.assertIn('retained.label.contains("公里")', retained_helper)
+        self.assertNotIn("the explicit nearby-course choice must become the active segment", tee_ui)
+        self.assertNotIn("without a preselected course; the main card", tee_ui)
+        self.assertNotIn("multiple nearby venues must wait for the player's explicit choice", tee_ui)
+        self.assertNotIn("must not be repopulated from play history", tee_ui)
+        # No compatibility-only inputs on the new home cards.
+        self.assertNotIn("let total: Int", round_home.split("struct HubInProgressCard: View {", 1)[1].split("\n}\n", 1)[0])
+        self.assertNotIn("lastCourseName", round_home)
+        # Each tee source is normalised before precedence.
+        self.assertIn("knownTee(played.teeBox) ?? knownTee(stored?.teeBox)", hero)
+        self.assertIn("knownTee(played.teeBox) ?? knownTee(sameLoopRecent)", hero)
+        self.assertIn("StartRoundPresentation.startActionTitle(", hero)
+        self.assertIn("static func toPar(", hero)
+        # The last-round card gains the 18-hole symbol strip from the cached archive's newest card
+        # when it is the same round; otherwise no strip.
+        self.assertIn("scoreStrip: lastRoundStrip", round_home)
+        self.assertIn("offlineStore?.loadHistoryRoundsArchive()", round_home)
+        self.assertIn("guard let newest, newest.id == lastRoundId else { return [] }", hero)
+        self.assertIn("ScoreChip(score: cell.score, toPar: cell.toPar, size: 17)", round_home)
+        self.assertIn('.accessibilityIdentifier("home-last-round")', round_home)
+        # Garmin sync status lives only in settings: the home body never renders it.
+        home_body = round_home.split("public var body: some View {", 1)[1].split(
+            "private var settingsSheet: some View {", 1
+        )[0]
+        self.assertNotIn("garminConnectionState.statusText", home_body)
+        self.assertNotIn("Text(syncStatus", home_body)
+        self.assertNotIn("lastGarminSyncAt", home_body)
+
     def test_ios_last_round_card_shows_real_topo_preview(self) -> None:
         # 首页「上一场」卡配那盘球场第 1 洞的真实地形缩略图。globalId 随 recentHistory summary 下发
         # (后端 _recent_history + PR #263 已预渲最近一盘 topo → 取图快);缺 globalId / apiBaseURL →
@@ -2351,6 +2555,15 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("imageStore.failedURL == topoURL", topo_base)
         self.assertIn("if let image = imageStore.image", topo_base)
         self.assertIn("fallbackImage", topo_base)
+
+    def test_ios_b4b_start_list_keeps_downloads_and_factual_yards(self) -> None:
+        start = _read_required_source(self, IOS_DIR / "Views" / "StartRoundView.swift")
+        presentation = _read_required_source(self, IOS_DIR / "Models" / "StartRoundPresentation.swift")
+        # Every downloaded course stays in the one list, not only those within the GPS radius.
+        self.assertIn("let downloaded = resolvedOfflineOptions(offlineDisplayOptions + downloadedCourseOptions)", start)
+        # Tee yards only when the authority's total covers the holes being started.
+        self.assertIn("static func teeYards(total: Int?, teeHoleCount: Int?, playedHoles: Int?) -> Int?", presentation)
+        self.assertIn("playedHoles: selectedSegment?.resolvedHoles", start)
 
     def test_ios_b4_turn_uses_the_shared_nine_loop_plan(self) -> None:
         domain = _read_required_source(self, Path("mobile") / "ios" / "AICaddieDomain" / "NineLoopPlan.swift")

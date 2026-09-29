@@ -8,12 +8,22 @@ public enum MobileCourseSearchMode: Equatable {
     case nameOnly
 }
 
+/// Which contract the shared catalogue sheet renders for (README §8).
+public enum MobileCourseSearchPresentation: Equatable {
+    /// 备战: shows positioning progress, per-row download state and retained downloads.
+    case prep
+    /// 开始一场: no positioning, download or offline status copy; a course that is not downloaded
+    /// is still selectable and prepared in the background. A nearby failure shows only a retry icon.
+    case startRound
+}
+
 /// iPhone entry to Garmin's full CourseView catalogue. Search is deliberately explicit rather than
 /// firing on every keystroke; the result list is metadata-only and selecting a row does not install
 /// every match.
 public struct MobileCourseSearchView: View {
     @ObservedObject public var locationProvider: LocationProvider
     public let mode: MobileCourseSearchMode
+    public let presentation: MobileCourseSearchPresentation
     public let title: String
     public let dismissAfterSelection: Bool
     public let installedGlobalIds: Set<Int>
@@ -55,10 +65,13 @@ public struct MobileCourseSearchView: View {
     @State private var didSearch = false
     @State private var searchCompleted = false
     @State private var errorText: String?
+    /// 开始一场: the last nearby request failed (shown only as a retry icon).
+    @State private var nearbyFailed = false
 
     public init(
         locationProvider: LocationProvider,
         mode: MobileCourseSearchMode = .nearbyAndName,
+        presentation: MobileCourseSearchPresentation = .prep,
         title: String? = nil,
         dismissAfterSelection: Bool = true,
         installedGlobalIds: Set<Int> = [],
@@ -75,6 +88,7 @@ public struct MobileCourseSearchView: View {
     ) {
         self.locationProvider = locationProvider
         self.mode = mode
+        self.presentation = presentation
         self.title = title ?? (mode == .nameOnly ? "搜索备战球场" : "找球场")
         self.dismissAfterSelection = dismissAfterSelection
         self.installedGlobalIds = installedGlobalIds
@@ -111,9 +125,7 @@ public struct MobileCourseSearchView: View {
                             } else {
                                 Image(systemName: "location.fill")
                             }
-                            Text(activeSearch == .nearby
-                                ? "正在查找"
-                                : (hasNearbyLocation ? "查看附近球场" : "正在定位…"))
+                            Text(nearbyActionTitle)
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -121,6 +133,18 @@ public struct MobileCourseSearchView: View {
                     .tint(LiveHoleStyle.green)
                     .disabled(!canSearchNearby)
                     .accessibilityIdentifier("course-catalog-nearby-action")
+
+                    if presentation == .startRound && nearbyFailed && activeSearch == nil {
+                        Button {
+                            Task { await searchNearby() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .disabled(!canSearchNearby)
+                        .accessibilityLabel("重试")
+                        .accessibilityIdentifier("course-catalog-retry-nearby")
+                    }
                 } header: {
                     Text("附近球场")
                 }
@@ -169,7 +193,7 @@ public struct MobileCourseSearchView: View {
                 }
             }
 
-            if !retainedDownloads.isEmpty {
+            if presentation == .prep && !retainedDownloads.isEmpty {
                 Section {
                     ForEach(retainedDownloads) { download in
                         retainedDownloadRow(download)
@@ -189,7 +213,7 @@ public struct MobileCourseSearchView: View {
                 searchCompleted: searchCompleted,
                 isSearching: activeSearch != nil,
                 hasMatches: !matches.isEmpty,
-                hasError: errorText != nil
+                hasError: errorText != nil || nearbyFailed
             ) {
                 Section {
                     ContentUnavailableView(
@@ -228,12 +252,14 @@ public struct MobileCourseSearchView: View {
                                 Spacer(minLength: 4)
                                 if match.courseOption != nil {
                                     VStack(alignment: .trailing, spacing: 4) {
-                                        Text(searchResultStatus(
-                                            isInstalled: isInstalled,
-                                            download: download
-                                        ))
-                                            .font(.caption2.weight(.semibold))
-                                            .foregroundStyle(isInstalled ? .secondary : LiveHoleStyle.green)
+                                        if presentation == .prep {
+                                            Text(searchResultStatus(
+                                                isInstalled: isInstalled,
+                                                download: download
+                                            ))
+                                                .font(.caption2.weight(.semibold))
+                                                .foregroundStyle(isInstalled ? .secondary : LiveHoleStyle.green)
+                                        }
                                         Image(systemName: "chevron.right")
                                             .font(.caption.weight(.semibold))
                                             .foregroundStyle(.tertiary)
@@ -245,7 +271,7 @@ public struct MobileCourseSearchView: View {
                         .buttonStyle(.plain)
                         .disabled(match.courseOption == nil)
                         .accessibilityIdentifier("course-catalog-result-\(match.globalId)")
-                        .accessibilityValue(isInstalled ? "已准备" : "选择后下载")
+                        .accessibilityValue(presentation == .prep ? (isInstalled ? "已准备" : "选择后下载") : "")
                     }
                 }
             }
@@ -427,6 +453,14 @@ public struct MobileCourseSearchView: View {
             && nearbyLongitude.isFinite && (-180...180).contains(nearbyLongitude)
     }
 
+    /// 备战 names the positioning / lookup progress; 开始一场 keeps one plain action (a spinner
+    /// icon while it looks, disabled until a fix exists) and no status copy.
+    private var nearbyActionTitle: String {
+        guard presentation == .prep else { return "查看附近球场" }
+        if activeSearch == .nearby { return "正在查找" }
+        return hasNearbyLocation ? "查看附近球场" : "正在定位…"
+    }
+
     private var canSearchNearby: Bool {
         hasNearbyLocation && activeSearch == nil
     }
@@ -446,6 +480,7 @@ public struct MobileCourseSearchView: View {
         didSearch = true
         searchCompleted = false
         errorText = nil
+        nearbyFailed = false
         defer {
             activeSearch = nil
             searchCompleted = true
@@ -479,6 +514,7 @@ public struct MobileCourseSearchView: View {
         didSearch = true
         searchCompleted = false
         errorText = nil
+        nearbyFailed = false
         defer {
             activeSearch = nil
             searchCompleted = true
@@ -492,7 +528,11 @@ public struct MobileCourseSearchView: View {
             ).filter { seen.insert($0.globalId).inserted }
         } catch {
             matches = []
-            errorText = Self.searchErrorMessage(error, nearby: true)
+            if presentation == .startRound {
+                nearbyFailed = true
+            } else {
+                errorText = Self.searchErrorMessage(error, nearby: true)
+            }
         }
     }
 

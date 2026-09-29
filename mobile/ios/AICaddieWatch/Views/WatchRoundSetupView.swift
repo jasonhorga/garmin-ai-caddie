@@ -283,18 +283,10 @@ public struct WatchRoundSetupView: View {
         .accessibilityValue(choice.isSelected ? "已选择" : "未选择")
     }
 
+    /// The shared tee-colour mapping (`AICaddieDomain.TeeColor`, same as the phone's 开始一场).
     private func teeColor(_ id: String) -> Color {
-        let key = id.replacingOccurrences(of: "tee:", with: "").lowercased()
-        switch key {
-        case "blue": return .blue
-        case "white": return .white
-        case "red": return .red
-        case "gold", "yellow": return .yellow
-        case "black", "championship", "tips": return Color(white: 0.32)
-        case "green": return .green
-        case "silver": return Color(white: 0.72)
-        default: return .gray
-        }
+        let tee = TeeColor.forTee(id)
+        return Color(red: tee.red, green: tee.green, blue: tee.blue)
     }
 
     var loopChoices: [WatchRoundSetupChoicePresentation] {

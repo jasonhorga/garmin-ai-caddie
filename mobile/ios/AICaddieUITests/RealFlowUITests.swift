@@ -529,22 +529,17 @@ final class RealFlowUITests: XCTestCase {
 
         // ---- Section 5: start the selected real course — GET package only, no score/backend write ----
         launchFresh()
-        XCTAssertTrue(tapContaining(["打球", "开始一场"]), "home must expose the real start-round path")
+        XCTAssertTrue(openStartRound(), "home must expose the real start-round path")
         settle(9)
         // Provider-wide nearby discovery can legitimately change the form's default course. The
         // approved 18-hole evidence is Beijing Ligong, so select its stable globalId explicitly
-        // instead of mistaking a visible, unselected course name for the active choice.
-        let ligongSegment = app.buttons[
-            "start-round-course-segment-\(approvedJourneyCourseGlobalId)"
-        ]
+        // (its row in the one course list, then its "18 洞" tile) instead of mistaking a visible,
+        // unselected course name for the active choice.
+        let ligongSegment = selectStartCourse(approvedJourneyCourseGlobalId)
         XCTAssertTrue(
-            scrollTo(ligongSegment, maxSwipes: 24),
-            "the full journey must expose the approved 北京丽宫 course segment"
+            ligongSegment.exists,
+            "the full journey must expose the approved 北京丽宫 course"
         )
-        if ligongSegment.value as? String != "已选择" {
-            ligongSegment.tap()
-            settle(1)
-        }
         XCTAssertEqual(ligongSegment.value as? String, "已选择")
         let ligongPrimary = app.buttons["start-round-primary-action"]
         XCTAssertTrue(
@@ -924,7 +919,7 @@ final class RealFlowUITests: XCTestCase {
                     "a force-quit must restore the same real course and active hole on the home card"
                 )
                 XCTAssertTrue(
-                    app.staticTexts["已打 9 洞 · 共 18 洞"].exists,
+                    app.staticTexts["已打 9 洞"].exists,
                     "the restored round must retain all nine completed holes"
                 )
                 settle(1); save("journey-10-restored-home"); dump("journey-10-restored-home")
@@ -1023,9 +1018,19 @@ final class RealFlowUITests: XCTestCase {
 
         app.buttons["保存并结束"].tap()
         XCTAssertTrue(
-            app.buttons["home-new-round"].waitForExistence(timeout: 8),
+            waitForHomeNewRoundEntry(timeout: 8),
             "a finished round must return to the approved product home with a new-round entry"
         )
+        // README §8: standing at the course (the journey's GPS fix), the main card offers this
+        // course's last first loop + tee and "开始" starts it directly — not the setup form.
+        let startHere = app.buttons["home-start-nearby"]
+        let courseHereOffered = startHere.exists
+        if courseHereOffered {
+            XCTAssertTrue(
+                app.buttons["home-change-course"].exists,
+                "the course-here card keeps 换球场或组合 next to its one-tap 开始"
+            )
+        }
         XCTAssertFalse(app.navigationBars["开始一场"].exists, "finish must not strand the player in the setup form")
         XCTAssertFalse(app.staticTexts["进行中"].exists, "the explicitly finished round must no longer be active")
         settle(1); save("journey-finished-home"); dump("journey-finished-home")
@@ -1033,15 +1038,20 @@ final class RealFlowUITests: XCTestCase {
         // The last home package deliberately still describes 北京丽宫.  Starting that same course
         // immediately must create a distinct round and enter hole 1 instead of comparing the home
         // package id, deciding “not new”, and remaining forever on the preparation screen.
-        XCTAssertTrue(tapContaining(["打球", "开始一场"]))
+        XCTAssertTrue(openStartRound())
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
-        let repeatSegment = app.buttons[
-            "start-round-course-segment-\(approvedJourneyCourseGlobalId)"
-        ]
-        XCTAssertTrue(scrollTo(repeatSegment, maxSwipes: 24))
-        if repeatSegment.value as? String != "已选择" {
-            repeatSegment.tap()
+        if courseHereOffered {
+            // 换球场或组合 opens 开始一场 with the course here already selected (no extra tap).
+            let preselected = app.buttons["start-round-course-segment-\(approvedJourneyCourseGlobalId)"]
+            XCTAssertTrue(preselected.waitForExistence(timeout: 12))
+            XCTAssertEqual(
+                preselected.value as? String,
+                "已选择",
+                "换球场或组合 must open 开始一场 with the course here preselected"
+            )
         }
+        let repeatSegment = selectStartCourse(approvedJourneyCourseGlobalId)
+        XCTAssertTrue(repeatSegment.exists)
         XCTAssertEqual(repeatSegment.value as? String, "已选择")
         let repeatStart = app.buttons["start-round-primary-action"]
         XCTAssertTrue(waitUntilEnabled(repeatStart, timeout: 90))
@@ -1065,7 +1075,7 @@ final class RealFlowUITests: XCTestCase {
     /// the same course/hole; one real local score remains editable; explicit finish removes it again.
     private func exerciseNewCourseDiscovery(_ evidence: NewCourseEvidence) throws {
         launchFresh()
-        XCTAssertTrue(tapContaining(["打球", "开始一场"]), "home must expose the new-course start path")
+        XCTAssertTrue(openStartRound(), "home must expose the new-course start path")
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
 
         let openSearch = app.buttons["start-round-search-all-courses"]
@@ -1109,11 +1119,16 @@ final class RealFlowUITests: XCTestCase {
             scrollTo(result, maxSwipes: 60),
             "nearby results must contain the resolver-verified uninstalled course"
         )
+        // 开始一场 shows no download state (README §8): the row is still selectable and the
+        // course is prepared in the background after selection.
         XCTAssertEqual(
-            result.value as? String,
-            "选择后下载",
-            "a provider-wide row must remain metadata-only until selected"
+            (result.value as? String) ?? "",
+            "",
+            "the start-round catalogue must not announce a download state"
         )
+        XCTAssertFalse(app.staticTexts["选择后下载"].exists, "no download-state copy in 开始一场")
+        XCTAssertFalse(app.staticTexts["已准备"].exists, "no download-state copy in 开始一场")
+        XCTAssertFalse(app.staticTexts["正在定位…"].exists, "no positioning copy in 开始一场")
         settle(1); save("09-new-course-nearby"); dump("09-new-course-nearby")
         result.tap()
 
@@ -1147,7 +1162,8 @@ final class RealFlowUITests: XCTestCase {
             scrollTo(namedResult, maxSwipes: 60),
             "name search must return the same provider globalId selected from nearby"
         )
-        XCTAssertEqual(namedResult.value as? String, "选择后下载")
+        XCTAssertEqual((namedResult.value as? String) ?? "", "", "no download state in 开始一场")
+        XCTAssertFalse(app.staticTexts["选择后下载"].exists)
         settle(1); save("09b-new-course-name-search"); dump("09b-new-course-name-search")
         namedResult.tap()
         XCTAssertTrue(selectedSegment.waitForExistence(timeout: 12))
@@ -1156,13 +1172,18 @@ final class RealFlowUITests: XCTestCase {
             waitUntilEnabled(primary, timeout: 20),
             "re-selecting the same course must not clear Tees and strand the start action"
         )
-        let selectedVenue = app.buttons["start-round-course-venue-picker"]
+        // B4b: the selected venue is the checked row of the one course list; its label starts
+        // with the localized venue name ("北京丽宫, 18 洞").
+        let selectedVenue = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND value == %@", "start-round-venue-", "已选择")
+        ).firstMatch
         XCTAssertTrue(
             selectedVenue.waitForExistence(timeout: 5),
             "the selected course must retain a visible localized venue name"
         )
         selectedNewCourseDisplayName = selectedVenue.label
-            .replacingOccurrences(of: "球场, ", with: "")
+            .components(separatedBy: ", ")
+            .first?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         XCTAssertTrue(scrollTo(primary, maxSwipes: 20))
         settle(1); save("09c-new-course-ready-to-start"); dump("09c-new-course-ready-to-start")
@@ -1350,7 +1371,7 @@ final class RealFlowUITests: XCTestCase {
             ).firstMatch.exists
         )
         app.buttons["保存并结束"].tap()
-        XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForHomeNewRoundEntry(timeout: 10))
         XCTAssertTrue(
             waitUntilGone(app.buttons["home-in-progress-round"], timeout: 8),
             "local UI-test cleanup must remove only the temporary new-course round"
@@ -1358,6 +1379,14 @@ final class RealFlowUITests: XCTestCase {
     }
 
     // MARK: - navigation helpers
+
+    /// The home's new-round entry: the course-here card's one-tap 开始, or the search card.
+    private func waitForHomeNewRoundEntry(timeout: TimeInterval) -> Bool {
+        let entry = app.buttons.matching(
+            NSPredicate(format: "identifier IN %@", ["home-start-nearby", "home-new-round"])
+        ).firstMatch
+        return entry.waitForExistence(timeout: timeout)
+    }
 
     private func restoreDefaultGPSLaunchEnvironment() {
         app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.0454995"
@@ -1719,6 +1748,40 @@ final class RealFlowUITests: XCTestCase {
             "hole \(hole) must save the chosen par total (got \(saveScore.label))"
         )
         saveScore.tap()
+    }
+
+    /// B4b home main card: "换球场或组合" (the course-here card) opens 开始一场 with that course
+    /// preselected; the search card opens it with nothing selected. The card's "开始" skips 开始一场.
+    @discardableResult
+    private func openStartRound() -> Bool {
+        let change = app.buttons["home-change-course"]
+        if change.waitForExistence(timeout: 4), change.isHittable {
+            change.tap()
+            return true
+        }
+        let entry = app.buttons["home-new-round"]
+        if entry.waitForExistence(timeout: 4), entry.isHittable {
+            entry.tap()
+            return true
+        }
+        return tapContaining(["换球场或组合", "今天去哪打"])
+    }
+
+    /// B4b 开始一场: select a course by its row in the one course list, then its loop tile.
+    @discardableResult
+    private func selectStartCourse(_ globalId: Int) -> XCUIElement {
+        let tile = app.buttons["start-round-course-segment-\(globalId)"]
+        if tile.exists, tile.value as? String == "已选择" { return tile }
+        let row = app.buttons["start-round-venue-\(globalId)"]
+        if scrollTo(row, maxSwipes: 24) {
+            row.tap()
+            settle(1)
+        }
+        if scrollTo(tile, maxSwipes: 8), tile.value as? String != "已选择" {
+            tile.tap()
+            settle(1)
+        }
+        return tile
     }
 
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.

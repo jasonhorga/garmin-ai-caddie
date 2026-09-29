@@ -25,8 +25,12 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     /// DEBUG-only permission override used by the real simulator journey to prove that denying GPS
     /// still leaves the explicit city/name search usable. It is never read in Release/TestFlight.
     private let simulatedAuthorizationStatus: CLAuthorizationStatus?
+    /// True only for `fixedFix` (snapshot fixtures), never for the UI-test environment fix.
+    private let isFixtureFix: Bool
 
-    public init(manager: CLLocationManager = CLLocationManager()) {
+    /// `fixedFix`: a deterministic, already-authorised fix for in-process fixtures (snapshot
+    /// tests); nil in the app, which reads CoreLocation (or the UI-test environment below).
+    public init(manager: CLLocationManager = CLLocationManager(), fixedFix: LocationFix? = nil) {
         self.manager = manager
         let env = ProcessInfo.processInfo.environment
         #if DEBUG
@@ -42,7 +46,9 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
         let forcedAuthorization: CLAuthorizationStatus? = nil
         #endif
         let injectedFix: LocationFix?
-        if forcedAuthorization == nil,
+        if let fixedFix {
+            injectedFix = fixedFix
+        } else if forcedAuthorization == nil,
            let latText = env["UITEST_GPS_LAT"], let lonText = env["UITEST_GPS_LON"],
            let lat = Double(latText), lat.isFinite, (-90...90).contains(lat),
            let lon = Double(lonText), lon.isFinite, (-180...180).contains(lon) {
@@ -56,6 +62,7 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
             injectedFix = nil
         }
         self.simulatedFix = injectedFix
+        self.isFixtureFix = fixedFix != nil
         self.simulatedAuthorizationStatus = forcedAuthorization
         self.authorizationStatus = forcedAuthorization
             ?? (injectedFix == nil ? manager.authorizationStatus : .authorizedWhenInUse)
@@ -127,6 +134,13 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
             if simulatedAuthorizationStatus == .denied || simulatedAuthorizationStatus == .restricted {
                 latestFix = nil
             }
+            return
+        }
+        // An in-process fixture fix is already authorised; the test host's real CoreLocation
+        // answer must not replace it or clear the fix. (The UI-test environment fix keeps the
+        // simulator's real authorisation callback, which its journeys are written against.)
+        if isFixtureFix {
+            authorizationStatus = .authorizedWhenInUse
             return
         }
         authorizationStatus = manager.authorizationStatus
