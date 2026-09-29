@@ -675,9 +675,19 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     }
 
     public func replacingRoundId(_ newRoundId: String) -> WatchRoundState {
+        replacingRoundId(newRoundId, hole: hole, sourceLocalHole: sourceLocalHole)
+    }
+
+    /// The same physical hole's facts placed on another round hole (B4b-2 ordered halves: physical
+    /// 后九 hole 10 is round hole 1 of a `G:back` round). Player-owned facts are copied unchanged.
+    public func replacingRoundId(
+        _ newRoundId: String,
+        hole newHole: Int,
+        sourceLocalHole newSourceLocalHole: Int?
+    ) -> WatchRoundState {
         WatchRoundState(
             roundId: newRoundId,
-            hole: hole,
+            hole: newHole,
             par: par,
             distanceM: distanceM,
             teeLatitude: teeLatitude,
@@ -710,7 +720,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             backGreenLon: backGreenLon,
             holeImageProjection: holeImageProjection,
             globalId: globalId,
-            sourceLocalHole: sourceLocalHole,
+            sourceLocalHole: newSourceLocalHole,
             holeMap: holeMap,
             fairwayOutline: fairwayOutline,
             playsLikeDistanceM: playsLikeDistanceM,

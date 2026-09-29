@@ -305,32 +305,73 @@ public struct WatchCourseTee: Decodable, Equatable, Identifiable {
 /// The exact real-world setup the player chose before downloading or starting a Watch round.
 /// A 9-hole front loop can optionally be paired with a second loop; the selected tee always travels
 /// with that choice so an offline launch can never silently substitute a different setup.
+///
+/// An 18-hole course is played as its two halves (B4b-2 §7): the player starts on one ordered half
+/// (`firstHalf`, 前九 = "front" / 后九 = "back") and chooses the second half at the turn
+/// (`secondHalf`, the same half allowed). Without `firstHalf` an 18-hole selection is the canonical
+/// whole-course template (`G:front+G:back`), which is also what an offline turn projects from.
 public struct WatchCourseSelection: Equatable {
+    public static let halves = ["front", "back"]
+
     public let front: WatchCourseOption
     public let back: WatchCourseOption?
     public let teeBox: String
     public let ensureGeometry: Bool
+    /// 18-hole course only: the half the round starts on. Nil for a nine-hole loop / 9+9 pairing and
+    /// for the whole-course template.
+    public let firstHalf: String?
+    /// 18-hole course only: the half played after the turn. Nil until the turn is taken.
+    public let secondHalf: String?
 
     public init(
         front: WatchCourseOption,
         back: WatchCourseOption? = nil,
         teeBox: String,
-        ensureGeometry: Bool = false
+        ensureGeometry: Bool = false,
+        firstHalf: String? = nil,
+        secondHalf: String? = nil
     ) {
         self.front = front
         self.back = back
         self.teeBox = teeBox
         self.ensureGeometry = ensureGeometry
+        let playsHalves = back == nil && front.playableHoleCount == 18
+        let first = playsHalves ? Self.normalizedHalf(firstHalf) : nil
+        self.firstHalf = first
+        self.secondHalf = first == nil ? nil : Self.normalizedHalf(secondHalf)
+    }
+
+    /// Rebuild the exact selection a cached template was downloaded for (its halves come from the
+    /// template's own ordered loop key, so `G:back` stays a one-half selection).
+    public init(template: WatchCourseTemplate, ensureGeometry: Bool = false) {
+        var halves: [String]?
+        if template.backOption == nil, template.option.playableHoleCount == 18,
+           let loop = Self.halfLoop(loopKey: template.loopKey),
+           loop.globalId == template.option.globalId {
+            halves = loop.halves
+        }
+        self.init(
+            front: template.option,
+            back: template.backOption,
+            teeBox: template.teeBox,
+            ensureGeometry: ensureGeometry,
+            firstHalf: halves?.first,
+            secondHalf: (halves?.count ?? 0) > 1 ? halves?.last : nil
+        )
     }
 
     public var holeCount: Int {
-        front.playableHoleCount + (back?.playableHoleCount ?? 0)
+        if firstHalf != nil {
+            return secondHalf == nil ? 9 : 18
+        }
+        return front.playableHoleCount + (back?.playableHoleCount ?? 0)
     }
 
-    /// The round's canonical ordered loop key (B4b-2): an 18-hole course is its two halves
-    /// (`G:front+G:back`), a nine-hole loop is `G:all`, a 9+9 pairing appends the second loop.
+    /// The round's canonical ordered loop key (B4b-2): an 18-hole course is one or two ordered
+    /// halves (`G:back`, `G:back+G:front`, `G:front+G:front`, ...; the whole course is
+    /// `G:front+G:back`), a nine-hole loop is `G:all`, a 9+9 pairing appends the second loop.
     public var loopKey: String {
-        Self.loopKey(front: front, back: back)
+        Self.loopKey(front: front, back: back, firstHalf: firstHalf, secondHalf: secondHalf)
     }
 
     /// The `loops=` request value for this selection.
@@ -339,7 +380,20 @@ public struct WatchCourseSelection: Equatable {
     }
 
     public static func loopKey(front: WatchCourseOption, back: WatchCourseOption?) -> String {
+        loopKey(front: front, back: back, firstHalf: nil, secondHalf: nil)
+    }
+
+    public static func loopKey(
+        front: WatchCourseOption,
+        back: WatchCourseOption?,
+        firstHalf: String?,
+        secondHalf: String? = nil
+    ) -> String {
         if front.playableHoleCount == 18 {
+            if back == nil, let first = normalizedHalf(firstHalf) {
+                let halves = [first] + [normalizedHalf(secondHalf)].compactMap { $0 }
+                return halves.map { "\(front.globalId):\($0)" }.joined(separator: "+")
+            }
             return "\(front.globalId):front+\(front.globalId):back"
         }
         let first = "\(front.globalId):all"
@@ -352,6 +406,41 @@ public struct WatchCourseSelection: Equatable {
         loopKey.split(separator: "+").compactMap { part in
             part.split(separator: ":").first.flatMap { Int($0) }
         }
+    }
+
+    /// `"front"` / `"back"` (case-insensitive) or nil.
+    public static func normalizedHalf(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              halves.contains(value) else { return nil }
+        return value
+    }
+
+    /// One or two halves of one 18-hole course (`G:back`, `G:back+G:front`, ...), else nil.
+    public static func halfLoop(loopKey: String) -> (globalId: Int, halves: [String])? {
+        let entries = loopKey.split(separator: "+").map { $0.split(separator: ":").map(String.init) }
+        guard (1...2).contains(entries.count) else { return nil }
+        var globalId: Int?
+        var halves: [String] = []
+        for entry in entries {
+            guard entry.count == 2,
+                  let id = Int(entry[0]), id > 0,
+                  let half = normalizedHalf(entry[1]),
+                  globalId == nil || globalId == id else { return nil }
+            globalId = id
+            halves.append(half)
+        }
+        guard let globalId else { return nil }
+        return (globalId, halves)
+    }
+
+    /// The physical hole a half starts on: 前九 1, 后九 10 (`sourceLocalHole` = `courseHoleNumber`).
+    public static func physicalStartHole(_ half: String) -> Int {
+        normalizedHalf(half) == "back" ? 10 : 1
+    }
+
+    /// 前九 / 后九 — a physical half is never relabelled.
+    public static func halfName(_ half: String) -> String {
+        normalizedHalf(half) == "back" ? "后九" : "前九"
     }
 
     /// Stable, case/whitespace-insensitive Tee identity used by the on-watch course cache.
@@ -832,6 +921,7 @@ public struct WatchCourseTemplate: Codable, Equatable, Identifiable {
     public init(
         option: WatchCourseOption,
         backOption: WatchCourseOption? = nil,
+        loopKey: String? = nil,
         courseName: String,
         teeBox: String,
         holeStates: [WatchRoundState],
@@ -839,7 +929,9 @@ public struct WatchCourseTemplate: Codable, Equatable, Identifiable {
     ) {
         self.option = option
         self.backOption = backOption
-        self.loopKey = WatchCourseSelection.loopKey(front: option, back: backOption)
+        // An ordered half (`G:back`, `G:back+G:front`) is passed explicitly; otherwise the key is the
+        // options' canonical one (whole 18-hole course, nine-hole loop or 9+9 pairing).
+        self.loopKey = loopKey ?? WatchCourseSelection.loopKey(front: option, back: backOption)
         self.courseName = courseName
         self.teeBox = teeBox
         self.holeStates = holeStates
@@ -848,6 +940,16 @@ public struct WatchCourseTemplate: Codable, Equatable, Identifiable {
 
     public func matches(_ selection: WatchCourseSelection) -> Bool {
         matches(loopKey: selection.loopKey, teeBox: selection.teeBox)
+    }
+
+    /// Holes this template must hold: nine per ordered half, else the options' playable holes.
+    public var expectedHoleCount: Int {
+        if backOption == nil, option.playableHoleCount == 18,
+           let loop = WatchCourseSelection.halfLoop(loopKey: loopKey),
+           loop.globalId == option.globalId {
+            return loop.halves.count * 9
+        }
+        return option.playableHoleCount + (backOption?.playableHoleCount ?? 0)
     }
 
     public func matches(loopKey: String, teeBox: String?) -> Bool {
@@ -875,6 +977,89 @@ public struct WatchCourseTemplate: Codable, Equatable, Identifiable {
     }
 }
 
+/// One round position of a cached template: the physical hole it must hold.
+public struct WatchTemplateHoleRow: Equatable {
+    public let number: Int
+    public let globalId: Int
+    public let sourceLocalHole: Int
+}
+
+/// The durable-template side of the round-identity invariant (B4b-2 §6). A template read from disk is
+/// only trusted when its loop key is canonical for its own options and every hole sits on its loop
+/// row; anything else is dropped at the load boundary and re-downloaded, never played.
+extension WatchCourseTemplate {
+    /// The round positions `loopKey` names for these options, in play order. An 18-hole course is
+    /// one or two ordered halves (`G:back` → round 1–9 = physical 10–18); a nine-hole loop is `G:all`
+    /// (local = position in the loop); a 9+9 pairing appends the second loop's rows.
+    public static func expectedRows(
+        option: WatchCourseOption,
+        backOption: WatchCourseOption?,
+        loopKey: String
+    ) throws -> [WatchTemplateHoleRow] {
+        var loops: [(globalId: Int, half: String, size: Int)] = []
+        if option.playableHoleCount == 18 {
+            guard backOption == nil,
+                  let loop = WatchCourseSelection.halfLoop(loopKey: loopKey),
+                  loop.globalId == option.globalId else {
+                throw WatchRoundIdentityError.nonCanonicalLoopKey
+            }
+            loops = loop.halves.map { (globalId: loop.globalId, half: $0, size: 9) }
+        } else {
+            guard loopKey == WatchCourseSelection.loopKey(front: option, back: backOption) else {
+                throw WatchRoundIdentityError.nonCanonicalLoopKey
+            }
+            loops.append((globalId: option.globalId, half: "all", size: option.playableHoleCount))
+            if let backOption {
+                loops.append((globalId: backOption.globalId, half: "all", size: backOption.playableHoleCount))
+            }
+        }
+        var rows: [WatchTemplateHoleRow] = []
+        var number = 1
+        for loop in loops {
+            guard loop.size > 0 else { throw WatchRoundIdentityError.invalidRoundLoops }
+            let sourceStart = WatchCourseSelection.physicalStartHole(loop.half)
+            for offset in 0..<loop.size {
+                rows.append(WatchTemplateHoleRow(
+                    number: number,
+                    globalId: loop.globalId,
+                    sourceLocalHole: sourceStart + offset
+                ))
+                number += 1
+            }
+        }
+        return rows
+    }
+
+    /// Throws unless the loop key is canonical for `option` / `backOption` (order and repeats
+    /// preserved), the hole states are exactly the expected round positions, and each hole's
+    /// `globalId` / `sourceLocalHole` match its loop row. A provisional (`pending`) row that predates
+    /// source identity may omit `sourceLocalHole`; it never carries course facts.
+    public func validateIdentity() throws {
+        let rows = try Self.expectedRows(option: option, backOption: backOption, loopKey: loopKey)
+        let byNumber = Dictionary(uniqueKeysWithValues: rows.map { ($0.number, $0) })
+        var seen = Set<Int>()
+        for state in holeStates {
+            guard seen.insert(state.hole).inserted,
+                  let row = byNumber[state.hole],
+                  state.globalId == row.globalId else {
+                throw WatchRoundIdentityError.holeDoesNotMatchItsLoop(state.hole)
+            }
+            if let local = state.sourceLocalHole {
+                guard local == row.sourceLocalHole else {
+                    throw WatchRoundIdentityError.holeDoesNotMatchItsLoop(state.hole)
+                }
+            } else if state.geometryCoverage?.caseInsensitiveCompare("pending") != .orderedSame {
+                throw WatchRoundIdentityError.holeDoesNotMatchItsLoop(state.hole)
+            }
+        }
+        guard seen == Set(byNumber.keys) else { throw WatchRoundIdentityError.invalidRoundLoops }
+    }
+
+    public var hasValidIdentity: Bool {
+        (try? validateIdentity()) != nil
+    }
+}
+
 public struct WatchCourseImage: Equatable {
     public let globalId: Int
     public let hole: Int
@@ -897,4 +1082,36 @@ public struct WatchCourseImage: Equatable {
 public struct WatchCourseDownload: Equatable {
     public let template: WatchCourseTemplate
     public let images: [WatchCourseImage]
+}
+
+/// The turn's request for the second nine of a round started on one half of an 18-hole course.
+public struct WatchSecondLoopRequest: Equatable {
+    public let roundId: String
+    /// The round's current one-half loop key, e.g. `41825:back`.
+    public let firstLoopKey: String
+    /// `"front"` / `"back"`; the same half as the first loop is allowed.
+    public let secondHalf: String
+    public let teeBox: String?
+
+    public init(roundId: String, firstLoopKey: String, secondHalf: String, teeBox: String?) {
+        self.roundId = roundId
+        self.firstLoopKey = firstLoopKey
+        self.secondHalf = secondHalf
+        self.teeBox = teeBox
+    }
+
+    /// `G:first+G:second`, or nil when `firstLoopKey` is not one half of an 18-hole course.
+    public var loopKey: String? {
+        guard let loop = WatchCourseSelection.halfLoop(loopKey: firstLoopKey),
+              loop.halves.count == 1,
+              let second = WatchCourseSelection.normalizedHalf(secondHalf) else { return nil }
+        return "\(firstLoopKey)+\(loop.globalId):\(second)"
+    }
+}
+
+/// Round holes 10–18 for the second nine (physical holes of the chosen half, in play order), or an
+/// honest reason they are not available. Holes are never invented.
+public enum WatchSecondLoopResult: Equatable {
+    case ready(loopKey: String, holeStates: [WatchRoundState])
+    case unavailable(String)
 }

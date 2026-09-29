@@ -14,9 +14,17 @@ public final class WatchCourseStore {
         fileURL = directory.appendingPathComponent("courses.json")
     }
 
+    /// Durable templates are validated at the load boundary: an entry whose loop key is not
+    /// canonical for its options, or whose hole table is off its loop rows, is never returned (so it
+    /// cannot be started, restored or upgraded) and is removed from disk so it is re-downloaded.
     public func loadCourses() -> [WatchCourseTemplate] {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
-        return (try? decoder.decode([WatchCourseTemplate].self, from: data)) ?? []
+        let decoded = (try? decoder.decode([WatchCourseTemplate].self, from: data)) ?? []
+        let valid = decoded.filter(\.hasValidIdentity)
+        if valid.count != decoded.count {
+            try? encoder.encode(valid).write(to: fileURL, options: .atomic)
+        }
+        return valid
     }
 
     public func course(globalId: Int) -> WatchCourseTemplate? {
@@ -65,6 +73,8 @@ public final class WatchCourseStore {
     }
 
     public func save(_ course: WatchCourseTemplate) throws {
+        // Never persist a template that the load boundary would reject.
+        try course.validateIdentity()
         var courses = loadCourses()
         // Templates are immutable facts for one front/back/Tee setup. Replacing only the same
         // composite key lets several nine-hole pairings and Tee choices coexist in one file.
@@ -147,6 +157,7 @@ public enum WatchCourseTemplateBuilder {
     public static func build(
         option: WatchCourseOption,
         backOption: WatchCourseOption? = nil,
+        loopKey: String? = nil,
         package: WatchCoursePackage,
         prepsByGlobalId: [Int: WatchCoursePrepResponse],
         topoImagesByGlobalId: [Int: [Int: Data]] = [:],
@@ -284,6 +295,7 @@ public enum WatchCourseTemplateBuilder {
         let template = WatchCourseTemplate(
             option: locatedOption,
             backOption: locatedBackOption,
+            loopKey: loopKey,
             courseName: resolvedCourseName(
                 package: package,
                 option: option,

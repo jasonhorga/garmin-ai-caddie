@@ -1,4 +1,5 @@
 import SwiftUI
+import AICaddieDomain
 
 /// The permanent current-hole surface. Geometry and distance availability select an honest visual
 /// projection; they never change the scoring or shot state machine behind it.
@@ -541,6 +542,19 @@ public struct WatchRoundContainerView: View {
                 onSave: { model.saveManualScore() },
                 onCancel: { model.cancelScoring() }
             )
+        case .turn:
+            if let plan = model.turnPlan {
+                WatchTurnView(
+                    plan: plan,
+                    isLoading: model.isLoadingSecondLoop,
+                    message: model.turnMessage,
+                    onChoose: { model.chooseTurnSecond($0) },
+                    onConfirm: { Task { await model.confirmTurn() } },
+                    onBack: { model.leaveTurn() }
+                )
+            } else {
+                Color.black.onAppear { model.backToHome() }
+            }
         case .finishing:
             WatchFinishRoundView(
                 courseName: model.courseName,

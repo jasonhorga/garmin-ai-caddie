@@ -682,17 +682,19 @@ final class WatchCourseDownloadTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = WatchCourseStore(directoryURL: directory)
         let option = WatchCourseOption(globalId: 31669, name: "北京丽宫", holes: 18, teeBox: "Blue")
+        // A durable template must hold its whole physical table (load-boundary validation).
         let template = WatchCourseTemplate(
             option: option,
             courseName: "北京丽宫",
             teeBox: "Blue",
-            holeStates: [
+            holeStates: (1...18).map { hole in
                 WatchRoundState(
-                    roundId: "download-only", hole: 1, par: 4, distanceM: 369.4,
-                    selectedClub: nil, score: 0, putts: 0, penaltyCount: 0,
+                    roundId: "download-only", hole: hole, par: 4, distanceM: 369.4,
+                    selectedClub: nil, globalId: 31669, sourceLocalHole: hole,
+                    score: 0, putts: 0, penaltyCount: 0,
                     caddieConfidence: "offline"
                 )
-            ],
+            },
             cachedAt: "2026-07-26T00:00:00Z"
         )
 
@@ -728,18 +730,15 @@ final class WatchCourseDownloadTests: XCTestCase {
             backOption: back,
             courseName: "北京黑骑士 · A + B",
             teeBox: "Blue",
-            holeStates: [
+            holeStates: (1...18).map { hole in
                 WatchRoundState(
-                    roundId: "download-only", hole: 1, par: 4, distanceM: 369.4,
-                    selectedClub: nil, globalId: 31669,
+                    roundId: "download-only", hole: hole, par: 4, distanceM: 350,
+                    selectedClub: nil,
+                    globalId: hole <= 9 ? 31669 : 31670,
+                    sourceLocalHole: hole <= 9 ? hole : hole - 9,
                     score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
-                ),
-                WatchRoundState(
-                    roundId: "download-only", hole: 10, par: 4, distanceM: 350,
-                    selectedClub: nil, globalId: 31670,
-                    score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
-                ),
-            ],
+                )
+            },
             cachedAt: "2026-08-09T00:00:00Z"
         )
         try store.save(template)
@@ -783,20 +782,21 @@ final class WatchCourseDownloadTests: XCTestCase {
                 backOption: back,
                 courseName: "\(front.name)-\(back?.name ?? "single")-\(tee)",
                 teeBox: tee,
-                holeStates: [
+                holeStates: (1...(back == nil ? 9 : 18)).map { hole in
                     WatchRoundState(
                         roundId: "download-only",
-                        hole: 1,
+                        hole: hole,
                         par: 4,
                         distanceM: 300,
                         selectedClub: nil,
-                        globalId: front.globalId,
+                        globalId: hole <= 9 ? front.globalId : back?.globalId,
+                        sourceLocalHole: hole <= 9 ? hole : hole - 9,
                         score: 0,
                         putts: 0,
                         penaltyCount: 0,
                         caddieConfidence: "offline"
                     )
-                ],
+                },
                 cachedAt: "2026-09-01T00:00:00Z"
             )
         }
@@ -893,7 +893,13 @@ final class WatchCourseDownloadTests: XCTestCase {
             option: option,
             courseName: option.name,
             teeBox: "unknown",
-            holeStates: [],
+            holeStates: (1...9).map { hole in
+                WatchRoundState(
+                    roundId: "download-only", hole: hole, par: 4, distanceM: nil,
+                    selectedClub: nil, globalId: 7004, sourceLocalHole: hole,
+                    score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+                )
+            },
             cachedAt: "2026-09-01T00:00:00Z"
         )
         try store.save(template)
@@ -970,13 +976,14 @@ final class WatchCourseDownloadTests: XCTestCase {
             option: front,
             courseName: "北京黑骑士 ~ A",
             teeBox: "Blue",
-            holeStates: [
+            holeStates: (1...9).map { hole in
                 WatchRoundState(
-                    roundId: "download-only", hole: 1, par: 4, distanceM: 369.4,
-                    selectedClub: nil, score: 0, putts: 0, penaltyCount: 0,
+                    roundId: "download-only", hole: hole, par: 4, distanceM: 369.4,
+                    selectedClub: nil, globalId: 31669, sourceLocalHole: hole,
+                    score: 0, putts: 0, penaltyCount: 0,
                     caddieConfidence: "offline"
                 )
-            ],
+            },
             cachedAt: "2026-07-26T00:00:00Z"
         ))
         let library = WatchCourseLibrary(
@@ -1007,6 +1014,7 @@ final class WatchCourseDownloadTests: XCTestCase {
                 roundId: "download-only", hole: hole, par: 4, distanceM: 369.4,
                 selectedClub: nil,
                 globalId: 31669,
+                sourceLocalHole: hole,
                 holeMap: WatchHoleMap(
                     w: 678,
                     h: 1_060,
@@ -1060,6 +1068,7 @@ final class WatchCourseDownloadTests: XCTestCase {
                 roundId: "download-only", hole: hole, par: hole == 1 ? 5 : 4, distanceM: 372,
                 selectedClub: nil,
                 globalId: 3881,
+                sourceLocalHole: hole,
                 holeMap: WatchHoleMap(
                     w: 678,
                     h: 1_060,
@@ -1118,6 +1127,7 @@ final class WatchCourseDownloadTests: XCTestCase {
                 distanceM: 372,
                 selectedClub: nil,
                 globalId: 3882,
+                sourceLocalHole: hole,
                 holeMap: WatchHoleMap(
                     w: 678,
                     h: 1_060,
@@ -1210,7 +1220,7 @@ final class WatchCourseDownloadTests: XCTestCase {
         ))
         let expected = try XCTUnwrap(prep.holes.first?.fairwayOutline)
         let download = try WatchCourseTemplateBuilder.build(
-            option: WatchCourseOption(globalId: 7003, name: "Fairway Course", holes: 18, teeBox: "Blue"),
+            option: WatchCourseOption(globalId: 7003, name: "Fairway Course", holes: 9, teeBox: "Blue"),
             package: package,
             prepsByGlobalId: [7003: prep],
             cachedAt: "2026-09-28T00:00:00Z"

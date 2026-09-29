@@ -76,6 +76,17 @@ public struct WatchUITestRoot: View {
                 courses: [Self.setupFront, Self.setupBack],
                 hasCachedVersion: true
             )
+        case "course-setup-halves":
+            // B4b-2 §7: a normal 18-hole row (segmentHoles 18, no loop label) starts on 前九 / 后九.
+            WatchRoundSetupView(
+                front: Self.standaloneCourseOption,
+                courses: [Self.standaloneCourseOption],
+                hasCachedVersion: false
+            )
+        case "course-turn":
+            if let plan = WatchRoundModel.makeTurnPlan(loopKey: "\(Self.standaloneCourseOption.globalId):back") {
+                WatchTurnView(plan: plan)
+            }
         case "course-remote-setup":
             WatchRoundSetupView(
                 front: Self.remoteSetupOption,
@@ -869,16 +880,17 @@ public struct WatchUITestRoot: View {
     private func restoreRealCourseOffline(selectHazardHole: Bool = false) async {
         removeRealCourseMarkers()
         let store = WatchCourseStore()
-        guard let cached = store.course(globalId: Self.realCourseGlobalId) else {
+        // The download fixture installs the canonical whole-course template (`G:front+G:back`).
+        // Resolve it by that key so an ordered-half template of the same course is never mistaken
+        // for it.
+        let wholeCourseKey = "\(Self.realCourseGlobalId):front+\(Self.realCourseGlobalId):back"
+        guard let cached = store.course(loopKey: wholeCourseKey, teeBox: nil)
+                ?? store.course(globalId: Self.realCourseGlobalId) else {
             failRealCourse("找不到已下载的真实球场缓存")
             return
         }
 
-        let selection = WatchCourseSelection(
-            front: cached.option,
-            back: cached.backOption,
-            teeBox: cached.teeBox
-        )
+        let selection = WatchCourseSelection(template: cached)
         let library = WatchCourseLibrary()
         guard let prepared = await library.startCourse(selection, config: nil) else {
             failRealCourse(library.errorMessage ?? "离线球场开局失败")

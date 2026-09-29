@@ -105,6 +105,11 @@ public struct AICaddieWatchApp: App {
                     }
                 }
                 .onAppear {
+                    // The turn (B4b-2 §7) resolves round holes 10–18 through the course library:
+                    // the ordered package online, else the installed whole-course template.
+                    roundModel.secondLoopLoader = { [courseLibrary, syncClient] request in
+                        await courseLibrary.secondLoop(request, config: syncClient.config)
+                    }
                     reconcileLocationServices()
                     syncClient.requestConfigurationFromPhone()
                     Task { await roundModel.retryDeferredFinishes() }
