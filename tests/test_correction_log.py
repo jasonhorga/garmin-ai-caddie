@@ -80,7 +80,7 @@ class ShotEditDiffTest(_Store):
             {"id": "s:1", "club": "3W", "lie": "TeeBox", "start": [100, 900], "end": [110, 600]},   # club
             {"id": "s:3", "club": "PW", "lie": "Bunker", "start": [110, 600], "end": [150, 120]},  # lie + move, reordered
             {"id": "s:2", "club": "7I", "lie": "Fairway", "start": [150, 120], "end": [120, 300]},  # start reconnected only
-            {"id": "new", "club": "Putter", "lie": "Green", "start": [120, 300], "end": [130, 110]},  # add
+            {"id": "new", "club": "SW", "lie": "Rough", "start": [120, 300], "end": [130, 110]},  # add (a full shot; putts never enter the diff)
         ]}
         with self.with_view(_view(self.BEFORE)):
             stored = self.write(event)
@@ -118,6 +118,46 @@ class ShotEditDiffTest(_Store):
         with self.with_view(_view(self.BEFORE)):
             stored = self.write(event)
         self.assertEqual(self.ops(stored), ["reorder"])
+
+    def test_putt_rows_never_enter_the_shot_diff(self) -> None:
+        # B3: putts are the hole's putt count (putt_correction), never full shots. Reordering, adding
+        # or deleting full shots around a putt row must not log the putt.
+        putt = ("p:1", "Putter", "Green", (130, 100), (131, 96))
+        view = _view(self.BEFORE)
+        view["shots"].append({"id": putt[0], "club": putt[1], "lie": putt[2], "shotType": "PUTT",
+                              "start": list(putt[3]), "end": list(putt[4]), "synthetic": False})
+
+        def row(sid, club, lie, s, e, **extra):
+            return {"id": sid, "club": club, "lie": lie, "start": list(s), "end": list(e), **extra}
+
+        putt_row = row(*putt, shotType="PUTT")
+        reorder = {"op": "replaceHoleShots", "hole": 4, "geometryRevision": "r1", "manualPenalty": 0,
+                   "shots": [row(*self.BEFORE[1]), row(*self.BEFORE[0]), row(*self.BEFORE[2]), putt_row]}
+        with self.with_view(view):
+            stored = self.write(reorder)
+        self.assertIn("reorder", self.ops(stored))
+        for entry in stored["audit"]["entries"]:
+            self.assertNotIn("p:1", json.dumps(entry), entry)
+
+        delete = {"op": "replaceHoleShots", "hole": 4, "geometryRevision": "r1", "manualPenalty": 0,
+                  "shots": [row(*self.BEFORE[0]), row(*self.BEFORE[1]), putt_row]}
+        with self.with_view(view):
+            stored = self.write(delete)
+        self.assertEqual(self.ops(stored), ["delete"])
+        self.assertEqual(stored["audit"]["entries"][0]["before"]["club"], "PW")
+
+        # Dropping the putt row from a snapshot is not a full-shot delete either.
+        without_putt = {"op": "replaceHoleShots", "hole": 4, "geometryRevision": "r1", "manualPenalty": 0,
+                        "shots": [row(*shot) for shot in self.BEFORE]}
+        with self.with_view(view):
+            stored = self.write(without_putt)
+        self.assertEqual(self.ops(stored), [])
+
+    def test_putter_named_rows_count_as_putts(self) -> None:
+        rows = [{"id": "a", "club": "Driver"}, {"id": "b", "club": "推杆"}, {"id": "c", "clubName": "Putter"},
+                {"id": "d", "type": "PUTT"}, {"id": "e", "club": "7I", "shotType": "APPROACH"}]
+        state = ca._state_from_rows(rows, revision="r1", penalty=0, positions=False)
+        self.assertEqual([shot["id"] for shot in state["shots"]], ["a", "e"])
 
     def test_club_only_snapshot_across_a_geometry_refresh_has_no_position_entry(self) -> None:
         event = {"op": "replaceHoleShots", "hole": 4, "geometryRevision": "r0", "manualPenalty": 0, "shots": [

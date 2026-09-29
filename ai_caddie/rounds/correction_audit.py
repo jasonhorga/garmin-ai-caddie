@@ -320,10 +320,19 @@ def _shot_state(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _is_putt_row(row: dict[str, Any]) -> bool:
+    """A putt stroke row. Putts are a hole count (``putt_correction``), not full shots: they never
+    enter the shot diff, so moving full shots around them is never logged as a putt reorder."""
+    if str(row.get("shotType") or row.get("type") or "").strip().upper() == "PUTT":
+        return True
+    club = str(row.get("club") or row.get("clubName") or "").strip()
+    return "putt" in club.lower() or "推" in club
+
+
 def _state_from_rows(rows: list[dict[str, Any]], *, revision: Any, penalty: Any, positions: bool) -> dict[str, Any]:
     shots = [
         _shot_state(row) for row in rows
-        if isinstance(row, dict) and row.get("id") and not row.get("synthetic")
+        if isinstance(row, dict) and row.get("id") and not row.get("synthetic") and not _is_putt_row(row)
     ]
     if not positions:
         for shot in shots:
