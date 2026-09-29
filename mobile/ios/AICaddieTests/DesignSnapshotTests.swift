@@ -1001,6 +1001,24 @@ final class DesignSnapshotTests: XCTestCase {
             dark: true
         )
 
+        // B3 mapless fallback: full shots numbered like the map, putts as one "推 ×N" line.
+        let factShots = [
+            RoundShot(shotId: "f1", start: nil, end: nil, club: "Driver", lie: "teebox", endLie: "fairway", order: 1),
+            RoundShot(shotId: "f2", start: nil, end: nil, club: "7I", lie: "fairway", endLie: "green", order: 2),
+            RoundShot(shotId: "f3", start: nil, end: nil, lie: "Green", shotType: "PENALTY_PUTT", order: 3),
+            RoundShot(shotId: "f4", start: nil, end: nil, club: "Putter", lie: "green", shotType: "PUTT", order: 4),
+        ]
+        try captureScreen(
+            VStack {
+                RoundShotFactList(shots: factShots, ppm: nil, recordedPutts: 2)
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .background(RoundHoleMapStyle.base),
+            named: "round-shot-facts",
+            dark: true
+        )
+
         // B3 同屏改杆: the same map as drag handles. With a shot selected the bar shows ‹ 第 N 杆 · D 码 ›
         // + 删除, the club pills (guess first) and the lie grid; with none selected 推杆 / 罚杆 −/+.
         let editModel = RoundEditModel(

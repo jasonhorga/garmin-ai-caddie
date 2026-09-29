@@ -302,6 +302,20 @@ final class RoundEditModelTests: XCTestCase {
         XCTAssertFalse(roundShotIsPutt(shot("h", club: "7I", type: "APPROACH")))
     }
 
+    func testMaplessReadListNumbersFullShotsAndCountsPuttsSeparately() {
+        let shots = [
+            RoundShot(shotId: nil, start: nil, end: nil, lie: "teebox", shotType: "TEE", order: 1, synthetic: true),
+            RoundShot(shotId: "s1", start: nil, end: nil, club: "Driver", lie: "teebox", order: 2),
+            RoundShot(shotId: "s2", start: nil, end: nil, club: "7I", lie: "fairway", order: 3),
+            RoundShot(shotId: "p1", start: nil, end: nil, lie: "Green", shotType: "PENALTY_PUTT", order: 4),
+            RoundShot(shotId: "p2", start: nil, end: nil, lie: "green", shotType: "UNKNOWN", order: 5),
+        ]
+        XCTAssertEqual(RoundShotFactList.fullShots(shots).map(\.id), ["s1", "s2"])
+        XCTAssertEqual(RoundShotFactList.puttCount(shots: shots, recordedPutts: nil), 2)
+        XCTAssertEqual(RoundShotFactList.puttCount(shots: shots, recordedPutts: 3), 3, "the scorecard count wins")
+        XCTAssertNil(RoundShotFactList.puttCount(shots: Array(shots.prefix(3)), recordedPutts: nil))
+    }
+
     func testClublessPenaltyPuttIsNeverNumberedOrEditable() {
         let shots = [
             RoundShot(shotId: "shot-1", start: [50, 95], end: [40, 65], club: "Driver", lie: "teebox", order: 1),

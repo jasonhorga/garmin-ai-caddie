@@ -755,7 +755,7 @@ public struct RoundHoleShotMapScreen: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let shotMap, shotMap.found, !shotMap.shots.isEmpty {
             ScrollView {
-                RoundShotFactList(shots: shotMap.shots, ppm: shotMap.map?.overlay.ppm)
+                RoundShotFactList(shots: shotMap.shots, ppm: shotMap.map?.overlay.ppm, recordedPutts: scoreRow?.putts)
                     .padding(16)
             }
         } else {

@@ -592,13 +592,27 @@ public struct RoundShotFactEditList: View {
 }
 
 /// Read-only list for a hole whose map is not ready: the recorded shots, honestly, without a map.
+/// Numbered like the map (full shots only, via ``roundShotIsFullShot``); putts are one read-only
+/// "推 ×N" line from the scorecard count, else the putt rows, else "推杆 未记".
 public struct RoundShotFactList: View {
     let shots: [RoundShot]
     let ppm: Double?
+    let recordedPutts: Int?
 
-    public init(shots: [RoundShot], ppm: Double?) {
+    public init(shots: [RoundShot], ppm: Double?, recordedPutts: Int? = nil) {
         self.shots = shots
         self.ppm = ppm
+        self.recordedPutts = recordedPutts
+    }
+
+    static func fullShots(_ shots: [RoundShot]) -> [RoundShot] {
+        shots.filter(roundShotIsFullShot)
+    }
+
+    static func puttCount(shots: [RoundShot], recordedPutts: Int?) -> Int? {
+        if let recordedPutts { return recordedPutts }
+        let rows = shots.filter(roundShotIsPutt).count
+        return rows > 0 ? rows : nil
     }
 
     public var body: some View {
@@ -607,12 +621,21 @@ public struct RoundShotFactList: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(LivePlayStyle.ink60)
                 .padding(.bottom, 4)
-            ForEach(Array(shots.enumerated()), id: \.element.id) { index, shot in
+            ForEach(Array(Self.fullShots(shots).enumerated()), id: \.element.id) { index, shot in
                 RoundShotRow(shot: shot, ppm: ppm, displayNumber: index + 1)
                     .padding(.horizontal, 12)
                     .frame(height: 46)
                     .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
+            let putts = Self.puttCount(shots: shots, recordedPutts: recordedPutts)
+            Text(putts.map { "推 ×\($0)" } ?? "推杆 未记")
+                .font(.system(size: 15, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(putts == nil ? LivePlayStyle.ink60 : LivePlayStyle.ink)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .accessibilityIdentifier("round-shot-fact-putts")
         }
     }
 }
