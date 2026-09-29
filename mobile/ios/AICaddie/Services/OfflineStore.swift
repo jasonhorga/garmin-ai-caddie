@@ -942,6 +942,27 @@ public final class OfflineStore {
         return course
     }
 
+    /// The last second loop chosen after each first loop (front globalId → back globalId), so the
+    /// next turn preselects "上次搭配". Account-scoped like the recent course.
+    public func rememberNineLoopPairing(front: Int, back: Int) throws {
+        guard front > 0, back > 0 else { return }
+        var pairings = (try? loadNineLoopPairings()) ?? [:]
+        pairings[front] = back
+        let encoded = Dictionary(uniqueKeysWithValues: pairings.map { (String($0.key), $0.value) })
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try encoder.encode(encoded).write(to: nineLoopPairingsURL, options: [.atomic])
+    }
+
+    public func loadNineLoopPairings() throws -> [Int: Int] {
+        guard FileManager.default.fileExists(atPath: nineLoopPairingsURL.path) else { return [:] }
+        let stored = try decoder.decode([String: Int].self, from: Data(contentsOf: nineLoopPairingsURL))
+        return Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in Int(key).map { ($0, value) } })
+    }
+
+    private var nineLoopPairingsURL: URL {
+        directoryURL.appendingPathComponent("nine_loop_pairings.json")
+    }
+
     /// History is user-owned data, so keep it inside the account directory and replace it in one
     /// atomic write. A torn refresh must never erase the last usable archive shown on the phone.
     public func saveHistoryRoundsArchive(_ archive: HistoryRoundsArchive) throws {

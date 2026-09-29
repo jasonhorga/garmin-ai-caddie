@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import AICaddieDomain
 import XCTest
 @testable import AICaddie
 
@@ -477,6 +478,32 @@ final class DesignSnapshotTests: XCTestCase {
                 onDiscard: {}
             ),
             named: "score-summary-nine",
+            dark: true
+        )
+
+        // B4 turn: "B 场打完了 — 接着打哪个 9 洞", the usual pairing preselected.
+        // The labels are typed `String`: an untyped literal here is inferred as `[String?]` from the
+        // optional `segmentLabel` parameter, and the interpolated name then reads `Optional("B")`.
+        let turnLabels: [String] = ["A", "B", "C"]
+        let turnLoops = turnLabels.enumerated().map { index, label in
+            MobileCourseOption(globalId: 100 + index, name: "黑骑士 ~ \(label)", holes: 9, venueName: "黑骑士", segmentLabel: label, segmentHoles: 9)
+        }
+        let turn = try XCTUnwrap(NineLoopTurn.plan(front: turnLoops[1], siblings: turnLoops, remembered: [101: 102], history: []))
+        XCTAssertEqual(turn.turnTitle, "B 场打完了")
+        XCTAssertEqual(turn.course.loops.map(\.displayName), ["A 场", "B 场", "C 场"])
+        XCTAssertEqual(turn.turnActionTitle, "接着打 C 场")
+        for text in [turn.turnTitle, turn.turnActionTitle] + turn.course.loops.map(\.displayName) {
+            XCTAssertFalse(text.contains("Optional("), text)
+        }
+        try captureScreen(
+            LiveRoundTurnSheet(plan: turn, isPreparing: false, onContinue: { _ in }, onStop: {}, onLater: {}),
+            named: "turn-sheet",
+            dark: true
+        )
+        // While the chosen loop is being added: spinner on the CTA, every control disabled.
+        try captureScreen(
+            LiveRoundTurnSheet(plan: turn, isPreparing: true, onContinue: { _ in }, onStop: {}, onLater: {}),
+            named: "turn-sheet-preparing",
             dark: true
         )
     }

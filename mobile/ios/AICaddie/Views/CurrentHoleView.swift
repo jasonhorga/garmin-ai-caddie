@@ -102,6 +102,7 @@ public struct CurrentHoleView: View {
     private let onChangeNine: (String) -> Void
     private let onPrepareCourseRound: (Int, String, String, String) -> Void
     private let onPrepareCompositeRound: (Int, Int, String, String) -> Void
+    private let onContinueIntoSecondLoop: (Int, Int, String, String) -> Void
     private let onFinishRound: () async -> Bool
     private let onDiscardRound: () -> Void
     private let onAdvanceHole: (Int) -> Void
@@ -163,6 +164,13 @@ public struct CurrentHoleView: View {
     @State private var lastAppliedRestoredHoleState: LiveHoleStateSnapshot?
     @State private var showManage = false
     @State private var showRoundSummary = false
+    /// B4 turn: after the last hole of a single first loop, ask which nine comes next.
+    @State private var turnPlan: NineLoopPlan?
+    /// A turn continuation is in flight. The sheet stays up (spinner, disabled) until the model
+    /// replaces the package — which rebuilds this destination for the new hole set — so a failed
+    /// or offline preparation leaves the choice on screen with a retry message.
+    @State private var turnContinuationPending = false
+    @State private var turnContinuationFailed = false
     @State private var showDiscardConfirmation = false
     /// B1c Touch Target on the main map: screen point of the finger while the target is dragged
     /// (drives the loupe), whether that drag owns the gesture, and a one-runloop tap suppressor.
@@ -217,6 +225,7 @@ public struct CurrentHoleView: View {
         onChangeNine: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
+        onContinueIntoSecondLoop: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
         onFinishRound: @escaping () async -> Bool = { false },
         onDiscardRound: @escaping () -> Void = {},
         onAdvanceHole: @escaping (Int) -> Void = { _ in },
@@ -243,6 +252,7 @@ public struct CurrentHoleView: View {
         self.onChangeNine = onChangeNine
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onPrepareCompositeRound = onPrepareCompositeRound
+        self.onContinueIntoSecondLoop = onContinueIntoSecondLoop
         self.onFinishRound = onFinishRound
         self.onDiscardRound = onDiscardRound
         self.onAdvanceHole = onAdvanceHole
@@ -493,6 +503,31 @@ public struct CurrentHoleView: View {
         }
         .sheet(isPresented: $showRoundSummary) {
             roundSummarySurface
+        }
+        .sheet(isPresented: Binding(
+            get: { turnPlan != nil },
+            set: { if !$0 { turnPlan = nil } }
+        )) {
+            if let turnPlan {
+                LiveRoundTurnSheet(
+                    plan: turnPlan,
+                    isPreparing: isPreparingRound || turnContinuationPending,
+                    failureText: turnContinuationFailed ? "没能接上这个 9 洞，请重试" : nil,
+                    onContinue: continueIntoSecondLoop,
+                    onStop: {
+                        self.turnPlan = nil
+                        showRoundSummary = true
+                    },
+                    onLater: { self.turnPlan = nil }
+                )
+            }
+        }
+        .onChange(of: isPreparingRound) { wasPreparing, preparing in
+            // Still here after the preparation ended: the package did not grow (offline, no
+            // installed template, request failed). Keep the sheet and offer a retry.
+            guard wasPreparing, !preparing, turnContinuationPending else { return }
+            turnContinuationPending = false
+            turnContinuationFailed = true
         }
         .confirmationDialog(
             "放弃这场球局？",
@@ -3244,6 +3279,41 @@ public struct CurrentHoleView: View {
         selectedClub = club
     }
 
+    // MARK: - B4 turn (接着打哪个 9 洞)
+
+    /// The turn plan when this round is exactly one nine-hole loop of a known venue.
+    private var turnPlanAtEndOfFirstLoop: NineLoopPlan? {
+        guard liveRoundState != nil else { return nil }
+        var remembered: [Int: Int] = [:]
+        var history: [HistoryRoundCard] = []
+        if let offlineStore {
+            remembered = (try? offlineStore.loadNineLoopPairings()) ?? [:]
+            if let archive = try? offlineStore.loadHistoryRoundsArchive() {
+                history = archive.groups.flatMap(\.rounds)
+            }
+        }
+        return NineLoopTurn.planAtEndOfFirstLoop(
+            package: package, catalogue: courseOptions, remembered: remembered, history: history
+        )
+    }
+
+    private func continueIntoSecondLoop(_ loop: NineLoop) {
+        guard let back = Int(loop.id) else { return }
+        let front = package.course.globalId
+        try? offlineStore?.rememberNineLoopPairing(front: front, back: back)
+        // The model adds the loop and opens its first hole: this view is rebuilt for the new hole
+        // set, so it cannot own that navigation. The sheet stays until then.
+        turnContinuationFailed = false
+        turnContinuationPending = true
+        onContinueIntoSecondLoop(front, back, package.course.teeBox, package.roundId)
+    }
+
+    /// The second loop can still be changed until its first hole has anything recorded.
+    private var secondLoopStarted: Bool {
+        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return false }
+        return events.contains { $0.roundId == package.roundId && $0.hole > 9 }
+    }
+
     // MARK: - 球局洞数调整
 
     /// The header menu is the single finish entry. This section only mutates the playable hole set.
@@ -3313,27 +3383,26 @@ public struct CurrentHoleView: View {
 
     /// 同球场可作为「另一个 9 洞」的环(9 洞、同球场),含当前环本身。按 A/B/C 排序。
     private var siblingLoops: [MobileCourseOption] {
-        guard let venue = activeCourseOption?.venueName else { return [] }
-        return courseOptions
-            .filter { ($0.venueName ?? "") == venue
-                && ($0.segmentHoles ?? $0.holes) == 9 }
-            .sorted { ($0.resolvedSegmentLabel ?? "~~") < ($1.resolvedSegmentLabel ?? "~~") }
+        guard let active = activeCourseOption else { return [] }
+        return NineLoopTurn.siblings(of: active, in: courseOptions)
     }
 
-    private func loopLabel(_ option: MobileCourseOption) -> String {
-        option.segmentDisplayTitle
+    /// Sibling loops a menu may offer: only loops with a factual loop label, shown under that
+    /// label (README §8: never a synthesized "9 洞组" in a selectable B4 control).
+    private var selectableSiblingLoops: [(option: MobileCourseOption, loop: NineLoop)] {
+        siblingLoops.compactMap { option in NineLoopTurn.loop(option).map { (option: option, loop: $0) } }
     }
 
     @ViewBuilder private var loopAddControl: some View {
         // 仅进行中、且当前局是某球场的一个 9 洞环时显示。
         if liveRoundState != nil, let active = activeCourseOption, (active.segmentHoles ?? active.holes) == 9 {
             if package.holes.count <= 9 {
-                if !siblingLoops.isEmpty {
+                if !selectableSiblingLoops.isEmpty {
                     // 单 9 洞环进行中 → 选另一个环加打凑 18(同一局,已记杆保留)。
                     Menu {
-                        ForEach(siblingLoops) { loop in
-                            Button("＋ \(loopLabel(loop)) · 凑 18 洞") {
-                                onPrepareCompositeRound(package.course.globalId, loop.globalId, package.course.teeBox, package.roundId)
+                        ForEach(selectableSiblingLoops, id: \.option.globalId) { entry in
+                            Button("＋ \(entry.loop.displayName) · 凑 18 洞") {
+                                onPrepareCompositeRound(package.course.globalId, entry.option.globalId, package.course.teeBox, package.roundId)
                             }
                         }
                     } label: {
@@ -3346,8 +3415,29 @@ public struct CurrentHoleView: View {
                     }
                     .disabled(isPreparingRound)
                 }
-            } else {
-                // 已是组合 18(两个 9 洞环)→ 移除加打的后 9,只打起始 9 洞(前 9 已记杆保留)。
+            } else if !secondLoopStarted {
+                // 已是组合 18,第二个环还没开打 → 可以改打别的环,或移除加打的后 9(前 9 已记杆保留)。
+                // 第二个环的第一洞一有记录就锁定(README §8)。
+                let currentBack = package.holes.first { $0.number > 9 }?.sourceGlobalId
+                if selectableSiblingLoops.contains(where: { $0.option.globalId != currentBack }) {
+                    Menu {
+                        ForEach(selectableSiblingLoops.filter { $0.option.globalId != currentBack }, id: \.option.globalId) { entry in
+                            Button("改打 \(entry.loop.displayName)") {
+                                try? offlineStore?.rememberNineLoopPairing(front: package.course.globalId, back: entry.option.globalId)
+                                onPrepareCompositeRound(package.course.globalId, entry.option.globalId, package.course.teeBox, package.roundId)
+                            }
+                        }
+                    } label: {
+                        Label("改打别的 9 洞", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .foregroundStyle(LiveHoleStyle.green)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.green))
+                    }
+                    .disabled(isPreparingRound)
+                    .accessibilityIdentifier("live-change-second-loop")
+                }
                 Button {
                     onPrepareCourseRound(package.course.globalId, package.roundId, package.course.teeBox, "all")
                 } label: {
@@ -3806,7 +3896,11 @@ public struct CurrentHoleView: View {
             case .advance(let next):
                 onAdvanceHole(next)
             case .finish:
-                showRoundSummary = true
+                if let plan = turnPlanAtEndOfFirstLoop {
+                    turnPlan = plan
+                } else {
+                    showRoundSummary = true
+                }
             }
         }
         sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)

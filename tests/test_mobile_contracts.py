@@ -1841,7 +1841,7 @@ class MobileContractTests(unittest.TestCase):
         # 同 roundId 重取(组合包/单环包)+ restoreLiveRoundState 保留已记前 9 洞。
         self.assertIn("loopAddControl", current_hole)
         self.assertIn("private var siblingLoops: [MobileCourseOption]", current_hole)
-        self.assertIn("onPrepareCompositeRound(package.course.globalId, loop.globalId, package.course.teeBox, package.roundId)", current_hole)
+        self.assertIn("onPrepareCompositeRound(package.course.globalId, entry.option.globalId, package.course.teeBox, package.roundId)", current_hole)
         self.assertIn('onPrepareCourseRound(package.course.globalId, package.roundId, package.course.teeBox, "all")', current_hole)
         self.assertIn("加打另一个 9 洞", current_hole)
         self.assertIn("移除加打的 9 洞", current_hole)
@@ -2351,6 +2351,76 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("imageStore.failedURL == topoURL", topo_base)
         self.assertIn("if let image = imageStore.image", topo_base)
         self.assertIn("fallbackImage", topo_base)
+
+    def test_ios_b4_turn_uses_the_shared_nine_loop_plan(self) -> None:
+        domain = _read_required_source(self, Path("mobile") / "ios" / "AICaddieDomain" / "NineLoopPlan.swift")
+        turn = _read_required_source(self, IOS_DIR / "Models" / "NineLoopTurn.swift")
+        sheet = _read_required_source(self, IOS_DIR / "Views" / "LiveRoundTurnSheet.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
+        # One state machine in the shared domain framework (phone + watch).
+        self.assertIn("public struct NineLoopPlan: Codable, Equatable, Sendable", domain)
+        self.assertIn("case stopAfterNine", domain)
+        self.assertIn("public var canChangeSecond: Bool", domain)
+        self.assertIn('return trimmed + " 场"', domain)
+        # The turn: usual pairing (this phone, else history), any loop / same loop / stop after nine.
+        self.assertIn("plan.reachTurn()", turn)
+        self.assertIn("remembered", turn)
+        for identifier in ["turn-later", "turn-go", "turn-stop", "turn-loop-"]:
+            self.assertIn(identifier, sheet)
+        self.assertIn("plan.turnActionTitle", sheet)
+        self.assertIn("if let plan = turnPlanAtEndOfFirstLoop", current_hole)
+        # The model composes the second loop and opens its first hole; the live view is rebuilt for
+        # the new hole set, so it must not own a pending advance.
+        self.assertIn("onContinueIntoSecondLoop(front, back, package.course.teeBox, package.roundId)", current_hole)
+        self.assertNotIn("pendingTurnAdvance", current_hole)
+        app = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        continue_body = app.split("public func continueIntoSecondLoop(", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("await prepareCompositeRound(", continue_body)
+        self.assertIn("setActiveHole(first)", continue_body)
+        self.assertIn("pendingLiveHole = first", continue_body)
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        self.assertIn("onContinueIntoSecondLoop: onContinueIntoSecondLoop", round_home)
+        self.assertIn("await model.continueIntoSecondLoop(", app)
+        # The turn sheet stays up while the continuation prepares; the model's package replacement
+        # rebuilds the destination (dismissing it), and a preparation that ends without that keeps
+        # the choice on screen with a retry message.
+        cont = current_hole.split("    private func continueIntoSecondLoop(_ loop: NineLoop) {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertNotIn("turnPlan = nil", cont)
+        self.assertIn("turnContinuationPending = true", cont)
+        self.assertIn("isPreparing: isPreparingRound || turnContinuationPending", current_hole)
+        self.assertIn('failureText: turnContinuationFailed ? "没能接上这个 9 洞，请重试" : nil', current_hole)
+        self.assertIn('.accessibilityIdentifier("turn-failure")', sheet)
+        # Every control (稍后, loop tiles, 只打 9 洞, CTA) is frozen while a continuation is in flight.
+        self.assertEqual(sheet.count("guard Self.acceptsInput(isPreparing: isPreparing) else { return }"), 4)
+        self.assertGreaterEqual(sheet.count(".disabled(isPreparing)"), 4)
+        # Offline: the live hole resolves its loops from the network catalogue plus installed
+        # templates, so the turn appears without course discovery.
+        self.assertIn("courseOptions: NineLoopTurn.loopCatalogue(network: courseOptions, downloaded: downloadedCourseOptions)", round_home)
+        self.assertIn("return NineLoopTurn.siblings(of: active, in: courseOptions)", current_hole)
+        # A coarse same-id network row (18 holes / no loop label) never masks the installed loop.
+        self.assertIn("guard let local = installed[row.globalId], isFactualLoop(local), !isFactualLoop(row) else { return row }", turn)
+        self.assertIn("NineLoopTurn.planAtEndOfFirstLoop(\n            package: package, catalogue: courseOptions,", current_hole)
+        # Changing the second loop before it starts recomposes from installed templates offline.
+        compose = app.split("public func prepareCompositeRound(", 1)[1].split("let fetched = await", 1)[0]
+        self.assertNotIn("!current.isCompositeNineRound", compose)
+        self.assertIn("current.removingCompositeBackNine() ?? current", compose)
+        self.assertIn("firstLoop.composingBackNine(", compose)
+        # No synthesized loop names in any selectable B4 control: the turn and both live-round
+        # loop menus (＋加打 / 改打) offer only factual loop labels.
+        self.assertIn("siblingLoops.compactMap { option in NineLoopTurn.loop(option).map { (option: option, loop: $0) } }", current_hole)
+        self.assertIn('Button("＋ \\(entry.loop.displayName) · 凑 18 洞")', current_hole)
+        self.assertIn('Button("改打 \\(entry.loop.displayName)")', current_hole)
+        self.assertNotIn("loopLabel(", current_hole)
+        self.assertNotIn("segmentDisplayTitle", current_hole)
+        # No synthesized loop names: only factual loop labels are choices.
+        self.assertNotIn("segmentDisplayTitle", turn)
+        self.assertIn("guard let label = option.resolvedSegmentLabel else { return nil }", turn)
+        self.assertIn("rememberNineLoopPairing(front: front, back: back)", current_hole)
+        # Changeable until the second loop's first hole has a record, then locked.
+        self.assertIn("} else if !secondLoopStarted {", current_hole)
+        self.assertIn("$0.roundId == package.roundId && $0.hole > 9", current_hole)
+        self.assertIn('"nine_loop_pairings.json"', store)
 
     def test_ios_b2_one_screen_hole_score(self) -> None:
         sheet = _read_required_source(self, IOS_DIR / "Views" / "LiveScoreConfirmationView.swift")

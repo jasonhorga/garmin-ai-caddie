@@ -103,6 +103,11 @@ public struct AICaddieApp: App {
                                 await model.prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)
                             }
                         },
+                        onContinueIntoSecondLoop: { globalId, backGlobalId, teeBox, roundId in
+                            Task {
+                                await model.continueIntoSecondLoop(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)
+                            }
+                        },
                         onChangeNine: { nine in
                             Task {
                                 await model.setActiveNine(nine)
@@ -2366,11 +2371,15 @@ public final class LiveRoundAppModel: ObservableObject {
             if !isNewRound,
                let current = package,
                current.roundId == requestedRoundId,
-               current.course.globalId == globalId,
-               !current.isCompositeNineRound {
+               current.course.globalId == globalId {
+                // Adding the second loop, or changing it before it starts (A+B → A+C / A+A), is a
+                // local composition of installed loops: trim an existing back nine first.
+                let firstLoop = current.isCompositeNineRound
+                    ? (current.removingCompositeBackNine() ?? current)
+                    : current
                 let installedBack: LiveRoundPackage?
                 if backGlobalId == globalId {
-                    installedBack = current
+                    installedBack = firstLoop
                 } else {
                     installedBack = try offlineStore.loadCourseTemplate(
                         globalId: backGlobalId,
@@ -2379,7 +2388,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     )
                 }
                 if let installedBack,
-                   let localComposite = current.composingBackNine(
+                   let localComposite = firstLoop.composingBackNine(
                        from: installedBack,
                        roundId: requestedRoundId
                    ) {
@@ -2436,6 +2445,19 @@ public final class LiveRoundAppModel: ObservableObject {
             AICaddieLog.network.error("Course package prepare failed: \(String(describing: error), privacy: .public)")
             syncStatus = "开始失败,稍后重试"
         }
+    }
+
+    /// B4 turn: add the chosen second loop to this round, then open its first hole. The model owns
+    /// the navigation so it survives the live destination being rebuilt for the new hole set
+    /// (RoundHomeView keys that view by `holeSetIdentity`): `pendingLiveHole` is consumed by
+    /// RoundHomeView, and the saved cursor moves with it.
+    public func continueIntoSecondLoop(globalId: Int, backGlobalId: Int, roundId: String, teeBox: String) async {
+        await prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)
+        guard let package,
+              package.roundId == roundId.trimmingCharacters(in: .whitespacesAndNewlines),
+              let first = NineLoopTurn.firstHoleOfSecondLoop(package.holes.map(\.number)) else { return }
+        setActiveHole(first)
+        pendingLiveHole = first
     }
 
     /// 中途改当前局的起始九洞(加打另外 9 洞 → all,或撤销回起始九洞)。
