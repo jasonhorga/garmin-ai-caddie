@@ -125,13 +125,11 @@ public struct StartRoundView: View {
         self._roundId = State(initialValue: selected.map {
             Self.freshLiveRoundId(globalId: $0.globalId)
         } ?? defaultRoundId)
-        // Default to the course's real tee (prefer Blue/White), else the given/played tee.
-        let courseTees = selected?.tees ?? []
-        let resolvedTee = courseTees.first(where: { ["blue", "white"].contains($0.lowercased()) })
-            ?? courseTees.first
-            ?? selected?.teeBox.flatMap { $0 == "unknown" ? nil : $0 }
-            ?? (defaultTeeBox == "unknown" ? "" : defaultTeeBox)
-        self._teeBox = State(initialValue: resolvedTee)
+        self._teeBox = State(initialValue: Self.initialTee(
+            callerTee: defaultTeeBox,
+            offered: selected?.tees ?? [],
+            courseTee: selected?.teeBox
+        ))
         // A fixture's tee rows for the preselected course (the same rows onLoadCourseTees returns),
         // so the first render already shows each tee's yards; the tee task then refreshes them.
         self._fetchedTees = State(initialValue: initialCourseTees)
@@ -284,10 +282,7 @@ public struct StartRoundView: View {
             return
         }
         fetchedTees = tees
-        if !tees.contains(where: { $0.teeBox.lowercased() == teeBox.lowercased() }),
-           let fallback = tees.first(where: { $0.isDefault })?.teeBox ?? tees.first?.teeBox {
-            teeBox = fallback
-        }
+        teeBox = Self.teeAfterRefresh(current: teeBox, rows: tees)
     }
 
     /// The venue of the currently selected segment — the single source of truth (no separate state
@@ -503,23 +498,70 @@ public struct StartRoundView: View {
         // radius included); nearby local ones keep their earlier position, duplicates of a
         // nearby / search / recent row collapse into that row. Distance is never shown for them.
         let downloaded = resolvedOfflineOptions(offlineDisplayOptions + downloadedCourseOptions)
-        var recent = recentCourseFallbackOption.map { [$0] } ?? []
-        // A preselected course (换球场或组合 / a recent course) that no nearby, search or download
-        // row lists gets its own row, carrying the same source-owned sibling loops as the loop
-        // tiles (A/B/C → 27 洞, never the selected loop alone). A listed one keeps its own
-        // position so selecting a row never moves it.
-        if let selectedSegment,
-           !(nearbyCourseOptions + remoteCourseOptions + downloaded).contains(where: {
-               Self.samePhysicalVenue($0, selectedSegment)
-           }) {
-            recent = recent.filter { !Self.samePhysicalVenue($0, selectedSegment) } + selectedVenueLoops
+        return Self.courseRows(
+            nearby: nearby,
+            search: remoteCourseOptions,
+            recent: recentCourseFallbackOption.map { [$0] } ?? [],
+            downloaded: downloaded,
+            selected: selectedSegment,
+            selectedLoops: selectedVenueLoops,
+            preselectedVenue: preselectedVenueOptions
+        )
+    }
+
+    /// One row per venue: nearby, search, recent, downloaded. The selected venue's row carries the
+    /// same source-owned sibling loops as its loop tiles (A/B/C → 27 洞, never the selected loop
+    /// alone) when current nearby/search rows do not own it and either the home's carried venue
+    /// owns the selected loop (a partial download or recent row of that venue then dedupes behind
+    /// it) or no row lists the venue. Any other listed selection keeps its own row and position,
+    /// so selecting a row never moves it.
+    static func courseRows(
+        nearby: [MobileCourseOption],
+        search: [MobileCourseOption],
+        recent: [MobileCourseOption],
+        downloaded: [MobileCourseOption],
+        selected: MobileCourseOption?,
+        selectedLoops: [MobileCourseOption],
+        preselectedVenue: [MobileCourseOption]
+    ) -> [StartCourseListRow] {
+        var recent = recent
+        if let selected,
+           !(nearby + search).contains(where: { $0.globalId == selected.globalId }) {
+            let carriedOwnsSelection = preselectedVenue.contains { $0.globalId == selected.globalId }
+            let listedElsewhere = (nearby + search + downloaded).contains { samePhysicalVenue($0, selected) }
+            if carriedOwnsSelection || !listedElsewhere {
+                recent = recent.filter { !samePhysicalVenue($0, selected) } + selectedLoops
+            }
         }
         return StartRoundPresentation.mergedCourseRows(
             nearby: nearby,
-            search: remoteCourseOptions,
+            search: search,
             recent: recent,
             downloaded: downloaded
         )
+    }
+
+    /// The first tee: the caller's tee (the home card's last tee) when the course offers it or
+    /// lists no tees to check against; otherwise the course's Blue/White, its first tee, or its
+    /// stored tee. Unknown / blank is no tee.
+    static func initialTee(callerTee: String, offered: [String], courseTee: String?) -> String {
+        let caller = HubCourseSuggestion.knownTee(callerTee)
+        if let caller {
+            if let match = offered.first(where: { $0.caseInsensitiveCompare(caller) == .orderedSame }) {
+                return match
+            }
+            if offered.isEmpty { return caller }
+        }
+        return offered.first(where: { ["blue", "white"].contains($0.lowercased()) })
+            ?? offered.first
+            ?? HubCourseSuggestion.knownTee(courseTee)
+            ?? ""
+    }
+
+    /// After /tees answers: keep the current tee when the rows offer it, else the default row.
+    static func teeAfterRefresh(current: String, rows: [CourseTee]) -> String {
+        if rows.contains(where: { $0.teeBox.lowercased() == current.lowercased() }) { return current }
+        return rows.first(where: { $0.isDefault })?.teeBox ?? rows.first?.teeBox ?? current
     }
 
     @ViewBuilder private var courseList: some View {

@@ -1774,8 +1774,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("StartRoundPresentation.mergedCourseRows(", start_view)
         self.assertIn("nearby: nearby,", start_view)
         self.assertIn("search: remoteCourseOptions,", start_view)
-        self.assertIn("var recent = recentCourseFallbackOption.map { [$0] } ?? []", start_view)
-        self.assertIn("+ selectedVenueLoops", start_view)
+        self.assertIn("recent: recentCourseFallbackOption.map { [$0] } ?? [],", start_view)
+        self.assertIn("recent = recent.filter { !samePhysicalVenue($0, selected) } + selectedLoops", start_view)
         self.assertNotIn("recent.append(selectedSegment)", start_view)
         self.assertIn("let downloaded = resolvedOfflineOptions(offlineDisplayOptions + downloadedCourseOptions)", start_view)
         self.assertIn("StartRoundPresentation.sortedByDistance(", start_view)
@@ -2308,10 +2308,11 @@ class MobileContractTests(unittest.TestCase):
             "NavigationLink(value: HubRoute.startCourse(globalId: suggestion.globalId, teeBox: suggestion.teeBox))",
             round_home,
         )
-        self.assertIn(
-            "recent = recent.filter { !Self.samePhysicalVenue($0, selectedSegment) } + selectedVenueLoops",
-            start_view_src,
-        )
+        self.assertIn("if carriedOwnsSelection || !listedElsewhere {", start_view_src)
+        self.assertIn("self._teeBox = State(initialValue: Self.initialTee(", start_view_src)
+        self.assertIn("teeBox = Self.teeAfterRefresh(current: teeBox, rows: tees)", start_view_src)
+        self.assertIn("func testTheCarriedVenueOwnsItsRowOverAPartialDownloadOfTheSameVenue()", _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "StartRoundDiscoveryTests.swift"))
+        self.assertIn("func testChangeCourseKeepsTheCardsLastTeeWhenTheCourseOffersIt()", _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "StartRoundDiscoveryTests.swift"))
         selected_capture = snapshots.split('named: "full-start-selected"', 1)[0].rsplit("try captureScreen(", 1)[1]
         self.assertIn("initialCourseTees: loopBTees", selected_capture)
         self.assertIn("onLoadCourseTees: { _ in loopBTees }", selected_capture)

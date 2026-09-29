@@ -864,6 +864,75 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertTrue(HubNearby.venueLoops(containing: 12_345, in: homeRows).isEmpty)
     }
 
+    func testTheCarriedVenueOwnsItsRowOverAPartialDownloadOfTheSameVenue() {
+        let labels: [String] = ["A", "B", "C"]
+        let carried: [MobileCourseOption] = labels.enumerated().map { index, label in
+            MobileCourseOption(
+                globalId: 90_001 + index, name: "新球场", holes: 9,
+                venueName: "新球场", segmentLabel: label, segmentHoles: 9
+            )
+        }
+        let downloadedA = MobileCourseOption(
+            globalId: 90_001, name: "新球场", holes: 9, venueName: "新球场", segmentLabel: "A", segmentHoles: 9
+        )
+        let selected = carried[1]
+        let loops = StartRoundView.sameVenueNineHoleCandidates(selected: selected, candidates: [selected] + carried)
+        // The destination's nearby requery failed (no nearby / search rows); only A is downloaded.
+        let rows = StartRoundView.courseRows(
+            nearby: [], search: [], recent: [], downloaded: [downloadedA],
+            selected: selected, selectedLoops: loops, preselectedVenue: carried
+        )
+        XCTAssertEqual(rows.count, 1, "the partial download dedupes behind the carried venue")
+        XCTAssertEqual(rows.first?.segments.map(\.globalId), [90_001, 90_002, 90_003])
+        XCTAssertEqual(rows.first?.holes, 27)
+
+        // Without a carried venue, a downloaded selection keeps its own row (selecting never moves it).
+        let own = StartRoundView.courseRows(
+            nearby: [], search: [], recent: [], downloaded: [downloadedA],
+            selected: downloadedA, selectedLoops: [downloadedA], preselectedVenue: []
+        )
+        XCTAssertEqual(own.map(\.source), [.downloaded])
+        // A current nearby row for the selected loop owns the venue; the carried rows add nothing.
+        let nearbyB = carried[1]
+        let current = StartRoundView.courseRows(
+            nearby: [nearbyB], search: [], recent: [], downloaded: [downloadedA],
+            selected: nearbyB, selectedLoops: loops, preselectedVenue: carried
+        )
+        XCTAssertEqual(current.first?.source, .nearby)
+        XCTAssertEqual(current.first?.segments.map(\.globalId), [90_002])
+    }
+
+    func testChangeCourseKeepsTheCardsLastTeeWhenTheCourseOffersIt() {
+        let offered = ["Gold", "Blue", "White"]
+        let tee = StartRoundView.initialTee(callerTee: "white", offered: offered, courseTee: "blue")
+        XCTAssertEqual(tee, "White", "the card's last tee wins over the Blue/White default")
+        // The /tees refresh offers White too, so it stays White (not the default Blue row).
+        let rows = [
+            CourseTee(teeBox: "gold", name: "Gold", yards: 3585, holeCount: 9),
+            CourseTee(teeBox: "blue", name: "Blue", yards: 3393, holeCount: 9, isDefault: true),
+            CourseTee(teeBox: "white", name: "White", yards: 3019, holeCount: 9),
+        ]
+        let refreshed = StartRoundView.teeAfterRefresh(current: tee, rows: rows)
+        XCTAssertEqual(refreshed.lowercased(), "white")
+        let loopB = MobileCourseOption(
+            globalId: 31795, name: "北京天竺黑骑士球员俱乐部", holes: 9,
+            venueName: "北京天竺黑骑士球员俱乐部", segmentLabel: "B", segmentHoles: 9, tees: offered
+        )
+        XCTAssertEqual(
+            StartRoundPresentation.startActionTitle(selected: loopB, loops: [loopB], teeBox: refreshed),
+            "从 B 场 开始 · 白 T"
+        )
+
+        // Unknown / blank / not offered → the course default choice.
+        XCTAssertEqual(StartRoundView.initialTee(callerTee: "unknown", offered: offered, courseTee: nil), "Blue")
+        XCTAssertEqual(StartRoundView.initialTee(callerTee: "  ", offered: offered, courseTee: nil), "Blue")
+        XCTAssertEqual(StartRoundView.initialTee(callerTee: "red", offered: offered, courseTee: nil), "Blue")
+        // No tee list to check against → the caller's tee (the /tees refresh corrects an invalid one).
+        XCTAssertEqual(StartRoundView.initialTee(callerTee: "white", offered: [], courseTee: "blue"), "white")
+        XCTAssertEqual(StartRoundView.initialTee(callerTee: "unknown", offered: [], courseTee: "blue"), "blue")
+        XCTAssertEqual(StartRoundView.teeAfterRefresh(current: "red", rows: rows), "blue")
+    }
+
     func testADownloadedCourseFarFromHereStaysInTheListTail() {
         let near = loop(1, venue: "黑骑士", label: "A")
         let recent = loop(2, venue: "北湖", label: "A")
