@@ -500,6 +500,12 @@ final class DesignSnapshotTests: XCTestCase {
             named: "turn-sheet",
             dark: true
         )
+        // While the chosen loop is being added: spinner on the CTA, every control disabled.
+        try captureScreen(
+            LiveRoundTurnSheet(plan: turn, isPreparing: true, onContinue: { _ in }, onStop: {}, onLater: {}),
+            named: "turn-sheet-preparing",
+            dark: true
+        )
     }
 
     /// B1 旗位界面: no green outline, four edge guides with yardage capsules, the four-cell card and

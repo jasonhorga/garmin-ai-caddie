@@ -21,10 +21,14 @@ struct LiveRoundTurnSheet: View {
                     .foregroundStyle(LivePlayStyle.ink)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
-                Button("稍后", action: onLater)
+                Button("稍后") {
+                    guard Self.acceptsInput(isPreparing: isPreparing) else { return }
+                    onLater()
+                }
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(LivePlayStyle.ink60)
                     .buttonStyle(.plain)
+                    .disabled(isPreparing)
                     .accessibilityIdentifier("turn-later")
             }
             Text("接着打哪个 9 洞")
@@ -46,6 +50,7 @@ struct LiveRoundTurnSheet: View {
                     .accessibilityIdentifier("turn-failure")
             }
             Button {
+                guard Self.acceptsInput(isPreparing: isPreparing) else { return }
                 if let loop = plan.secondLoop { onContinue(loop) } else { onStop() }
             } label: {
                 HStack(spacing: 8) {
@@ -73,10 +78,16 @@ struct LiveRoundTurnSheet: View {
         .interactiveDismissDisabled(isPreparing)
     }
 
+    /// While a continuation is in flight every control is frozen — 稍后, the loop tiles, 只打 9 洞
+    /// and the CTA — so a different choice or a dismissal can never race the captured one, and the
+    /// sheet is still there to offer a retry if it fails.
+    static func acceptsInput(isPreparing: Bool) -> Bool { !isPreparing }
+
     private func loopTile(_ loop: NineLoop) -> some View {
         let selected = plan.second == .loop(loop.id)
         let isUsual = plan.course.usualSecond(after: plan.first) == loop.id
         return Button {
+            guard Self.acceptsInput(isPreparing: isPreparing) else { return }
             plan.chooseSecond(.loop(loop.id))
         } label: {
             VStack(spacing: 3) {
@@ -96,6 +107,7 @@ struct LiveRoundTurnSheet: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(isPreparing)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
         .accessibilityIdentifier("turn-loop-\(loop.id)")
     }
@@ -103,6 +115,7 @@ struct LiveRoundTurnSheet: View {
     private var stopTile: some View {
         let selected = plan.second == .stopAfterNine
         return Button {
+            guard Self.acceptsInput(isPreparing: isPreparing) else { return }
             plan.chooseSecond(.stopAfterNine)
         } label: {
             Text("不打了 · 只打 9 洞")
@@ -116,6 +129,7 @@ struct LiveRoundTurnSheet: View {
                 )
         }
         .buttonStyle(.plain)
+        .disabled(isPreparing)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
         .accessibilityIdentifier("turn-stop")
     }

@@ -64,6 +64,14 @@ final class NineLoopTurnTests: XCTestCase {
         XCTAssertNil(NineLoopTurn.firstHoleOfSecondLoop(Array(1...9)))
     }
 
+    func testTheTurnSheetFreezesEveryControlWhileTheLoopIsBeingAdded() {
+        XCTAssertTrue(LiveRoundTurnSheet.acceptsInput(isPreparing: false))
+        XCTAssertFalse(
+            LiveRoundTurnSheet.acceptsInput(isPreparing: true),
+            "稍后, loop tiles, 只打 9 洞 and the CTA must not act while a continuation is in flight"
+        )
+    }
+
     func testPairingsRoundTripPerAccount() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)

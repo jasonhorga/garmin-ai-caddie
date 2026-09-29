@@ -2391,6 +2391,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("isPreparing: isPreparingRound || turnContinuationPending", current_hole)
         self.assertIn('failureText: turnContinuationFailed ? "没能接上这个 9 洞，请重试" : nil', current_hole)
         self.assertIn('.accessibilityIdentifier("turn-failure")', sheet)
+        # Every control (稍后, loop tiles, 只打 9 洞, CTA) is frozen while a continuation is in flight.
+        self.assertEqual(sheet.count("guard Self.acceptsInput(isPreparing: isPreparing) else { return }"), 4)
+        self.assertGreaterEqual(sheet.count(".disabled(isPreparing)"), 4)
         # Changing the second loop before it starts recomposes from installed templates offline.
         compose = app.split("public func prepareCompositeRound(", 1)[1].split("let fetched = await", 1)[0]
         self.assertNotIn("!current.isCompositeNineRound", compose)
