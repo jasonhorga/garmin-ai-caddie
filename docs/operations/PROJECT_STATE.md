@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-29 13:24 UTC
+**Updated:** 2026-09-29 13:36 UTC
 **Branch:** `main`; product canonical source revision is
 `5ac43253d924ecfbe496f42a026dcc5896aa3bd0` (PR #360 B4a and PR #359 B3 are
 merged after exact-head review; PR #357 B1d is merged after
@@ -369,27 +369,38 @@ must add a deterministic production-path location/nearby fixture, recapture a
 real nearby state, and retain a separate no-nearby+replay screenshot. The
 remaining exact-head iOS/Watch artifacts still require inspection.
 
-Claude addressed that evidence blocker in `a296d496` by injecting an
-authorized fixed location and provider-nearby rows through the production
-resolution chain, and by adding a separate `full-home-replay.png` state. This
-claim is not yet accepted: Source CI `36573198259` is green, while PR Native
-Mobile CI `36573198262` and exact-head fixture dispatch `36573193288` are still
-running. The superseded exact fixture run `36570941023` is confirmed cancelled.
-All `22a9a619` tests and artifacts are non-acceptance evidence after the push;
-the old homeserver snapshot/testdata/artifact roots were removed under manifest
+Claude attempted that evidence fix in `a296d496` by injecting an authorized
+fixed location and provider-nearby rows through the production resolution
+chain, and by adding a separate `full-home-replay.png` state. Source CI
+`36573198259` and PR Native Mobile CI `36573198262` are green. The fresh
+homeserver read-only snapshot plus isolated writable data/output mounts passed
+`tests.test_mobile_contracts + tests.test_native_visual_parity +
+tests.test_server_v2_mobile`: `218/218` in `9.865s`. The snapshot, testdata and
+artifact resources are recorded in
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260929T1328Z-pr361-a296d496-review.txt`.
+
+Review comment `5891403696` keeps `a296d496` blocked on two P2 findings. In
+exact-head iOS artifact `11036748606`, `full-home-near.png` and
+`full-home-replay.png` are byte-identical (SHA-256 `1cdc6392d0ca177b518f875a8032fbbac427d39ef2788c40fc6bed629e6d2a13`)
+and both show search plus `再打上次那个`; the nearby/current-venue card is still
+not evidenced. Separately, `played.teeBox ?? stored?.teeBox` selects raw
+`"unknown"` or whitespace before normalization, so a known same-course recent
+Tee never becomes the promised fallback; the existing unknown-Tee test only
+checks that the literal is hidden. Claude must make the nearby capture
+deterministic and add pre-coalescing normalization plus unknown/blank fallback
+tests. Exact fixture dispatch `36573193288` was cancellation-requested because
+this head cannot become final acceptance evidence; superseded dispatch
+`36570941023` is confirmed cancelled. All `22a9a619` evidence is non-acceptance
+evidence after the push, and its resources were already removed under manifest
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260929T125727Z-pr361-22a9a619-review.txt`.
-The new head still needs fresh focused homeserver tests and complete visual
-inspection of matching iOS/Watch design and runtime artifacts. Static review
-must also verify that an archived `unknown`/blank Tee actually falls back to a
-known same-course recent Tee rather than being normalized only after it has
-already won precedence.
 The shared Claude branch was not deleted after PR #360 because PR #361 was
 opened on it immediately.
 
 Next action: keep the background all-PR feedback monitor active in
-`codex-pr-monitor-20260928`, create a fresh `a296d496` read-only homeserver
-snapshot and isolated writable testdata, rerun the focused suites, then inspect
-the matching iOS/Watch design and runtime artifacts when both Native runs end.
+`codex-pr-monitor-20260928` and wait for Claude to answer/fix comment
+`5891403696`. On any push, clean the superseded `a296d496` review resources,
+then create a fresh exact-head snapshot, rerun focused tests and inspect only
+the new matching iOS/Watch design and runtime artifacts.
 Download and inspect the matching iOS/Watch design and runtime artifacts only
 from the final candidate head. Do not merge while any P1/P2 is unresolved.
 Repeat all gates from scratch after every further commit. Do not
