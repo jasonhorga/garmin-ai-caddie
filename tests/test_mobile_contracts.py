@@ -1841,7 +1841,7 @@ class MobileContractTests(unittest.TestCase):
         # 同 roundId 重取(组合包/单环包)+ restoreLiveRoundState 保留已记前 9 洞。
         self.assertIn("loopAddControl", current_hole)
         self.assertIn("private var siblingLoops: [MobileCourseOption]", current_hole)
-        self.assertIn("onPrepareCompositeRound(package.course.globalId, loop.globalId, package.course.teeBox, package.roundId)", current_hole)
+        self.assertIn("onPrepareCompositeRound(package.course.globalId, entry.option.globalId, package.course.teeBox, package.roundId)", current_hole)
         self.assertIn('onPrepareCourseRound(package.course.globalId, package.roundId, package.course.teeBox, "all")', current_hole)
         self.assertIn("加打另一个 9 洞", current_hole)
         self.assertIn("移除加打的 9 洞", current_hole)
@@ -2382,6 +2382,13 @@ class MobileContractTests(unittest.TestCase):
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
         self.assertIn("onContinueIntoSecondLoop: onContinueIntoSecondLoop", round_home)
         self.assertIn("await model.continueIntoSecondLoop(", app)
+        # No synthesized loop names in any selectable B4 control: the turn and both live-round
+        # loop menus (＋加打 / 改打) offer only factual loop labels.
+        self.assertIn("siblingLoops.compactMap { option in NineLoopTurn.loop(option).map { (option: option, loop: $0) } }", current_hole)
+        self.assertIn('Button("＋ \\(entry.loop.displayName) · 凑 18 洞")', current_hole)
+        self.assertIn('Button("改打 \\(entry.loop.displayName)")', current_hole)
+        self.assertNotIn("loopLabel(", current_hole)
+        self.assertNotIn("segmentDisplayTitle", current_hole)
         # No synthesized loop names: only factual loop labels are choices.
         self.assertNotIn("segmentDisplayTitle", turn)
         self.assertIn("guard let label = option.resolvedSegmentLabel else { return nil }", turn)

@@ -3377,20 +3377,22 @@ public struct CurrentHoleView: View {
             .sorted { ($0.resolvedSegmentLabel ?? "~~") < ($1.resolvedSegmentLabel ?? "~~") }
     }
 
-    private func loopLabel(_ option: MobileCourseOption) -> String {
-        option.segmentDisplayTitle
+    /// Sibling loops a menu may offer: only loops with a factual loop label, shown under that
+    /// label (README §8: never a synthesized "9 洞组" in a selectable B4 control).
+    private var selectableSiblingLoops: [(option: MobileCourseOption, loop: NineLoop)] {
+        siblingLoops.compactMap { option in NineLoopTurn.loop(option).map { (option: option, loop: $0) } }
     }
 
     @ViewBuilder private var loopAddControl: some View {
         // 仅进行中、且当前局是某球场的一个 9 洞环时显示。
         if liveRoundState != nil, let active = activeCourseOption, (active.segmentHoles ?? active.holes) == 9 {
             if package.holes.count <= 9 {
-                if !siblingLoops.isEmpty {
+                if !selectableSiblingLoops.isEmpty {
                     // 单 9 洞环进行中 → 选另一个环加打凑 18(同一局,已记杆保留)。
                     Menu {
-                        ForEach(siblingLoops) { loop in
-                            Button("＋ \(loopLabel(loop)) · 凑 18 洞") {
-                                onPrepareCompositeRound(package.course.globalId, loop.globalId, package.course.teeBox, package.roundId)
+                        ForEach(selectableSiblingLoops, id: \.option.globalId) { entry in
+                            Button("＋ \(entry.loop.displayName) · 凑 18 洞") {
+                                onPrepareCompositeRound(package.course.globalId, entry.option.globalId, package.course.teeBox, package.roundId)
                             }
                         }
                     } label: {
@@ -3407,13 +3409,12 @@ public struct CurrentHoleView: View {
                 // 已是组合 18,第二个环还没开打 → 可以改打别的环,或移除加打的后 9(前 9 已记杆保留)。
                 // 第二个环的第一洞一有记录就锁定(README §8)。
                 let currentBack = package.holes.first { $0.number > 9 }?.sourceGlobalId
-                if !siblingLoops.isEmpty {
+                if selectableSiblingLoops.contains(where: { $0.option.globalId != currentBack }) {
                     Menu {
-                        // Only loops with a factual loop label are offered (never a made-up "9 洞组").
-                        ForEach(siblingLoops.filter { $0.globalId != currentBack && NineLoopTurn.loop($0) != nil }) { loop in
-                            Button("改打 \(NineLoopTurn.loop(loop)?.displayName ?? "")") {
-                                try? offlineStore?.rememberNineLoopPairing(front: package.course.globalId, back: loop.globalId)
-                                onPrepareCompositeRound(package.course.globalId, loop.globalId, package.course.teeBox, package.roundId)
+                        ForEach(selectableSiblingLoops.filter { $0.option.globalId != currentBack }, id: \.option.globalId) { entry in
+                            Button("改打 \(entry.loop.displayName)") {
+                                try? offlineStore?.rememberNineLoopPairing(front: package.course.globalId, back: entry.option.globalId)
+                                onPrepareCompositeRound(package.course.globalId, entry.option.globalId, package.course.teeBox, package.roundId)
                             }
                         }
                     } label: {
