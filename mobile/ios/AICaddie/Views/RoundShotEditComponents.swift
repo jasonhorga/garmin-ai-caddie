@@ -563,7 +563,8 @@ public struct RoundShotFactEditList: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(LivePlayStyle.ink60)
                     .padding(.bottom, 4)
-                ForEach(Array(editModel.map.shots.enumerated()), id: \.element.id) { index, shot in
+                // Putts are the 推杆 counter below, not rows to edit.
+                ForEach(Array(editModel.map.shots.filter { !roundShotIsPutt($0) }.enumerated()), id: \.element.id) { index, shot in
                     let selected = editModel.selectedShotId == shot.id
                     Button {
                         editModel.selectedShotId = selected ? nil : shot.id

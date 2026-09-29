@@ -12,7 +12,12 @@ public final class RoundEditModel: ObservableObject {
     @Published public private(set) var hasUnsavedChanges = false
     @Published public var saveError: String?
     @Published public var draggingShotId: String?
-    @Published public var selectedShotId: String?
+    /// Only a full shot can be selected: putts are a count (推杆 −/+), never a shot to edit.
+    @Published public var selectedShotId: String? {
+        didSet {
+            if let selectedShotId, !isEditableShot(selectedShotId) { self.selectedShotId = nil }
+        }
+    }
     /// The hole's putt count as the scorecard shows it (nil = not recorded). Edited with the bottom
     /// bar's 推杆 −/+ while no shot is selected; saved as a `putt_correction`.
     @Published public private(set) var putts: Int?
@@ -29,6 +34,9 @@ public final class RoundEditModel: ObservableObject {
 
     private let sync: SyncClient
     private let roundRef: String
+    /// The canonical round id for hole-level putt corrections (the stats read `{canonical}:{hole}`);
+    /// the requested ref when the detail has not told us the canonical one.
+    private let puttTargetRoundRef: String
     private let globalId: Int?
     private let backGlobalId: Int?
     private let nine: String?
@@ -42,7 +50,7 @@ public final class RoundEditModel: ObservableObject {
     private let now: () -> Date
 
     public init(map: RoundHoleShotMap, sync: SyncClient, roundRef: String, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil,
-                putts: Int? = nil, now: @escaping () -> Date = Date.init) {
+                putts: Int? = nil, puttTargetRoundRef: String? = nil, now: @escaping () -> Date = Date.init) {
         self.map = map
         self.putts = putts
         self.originalPutts = putts
@@ -50,6 +58,7 @@ public final class RoundEditModel: ObservableObject {
         self.originalMap = map
         self.sync = sync
         self.roundRef = roundRef
+        self.puttTargetRoundRef = puttTargetRoundRef.flatMap { $0.isEmpty ? nil : $0 } ?? roundRef
         self.globalId = globalId
         self.backGlobalId = backGlobalId
         self.nine = nine
@@ -102,6 +111,7 @@ public final class RoundEditModel: ObservableObject {
         let end = clampedPixel(px)
         let insertIndex: Int
         if let afterShotId,
+           isEditableShot(afterShotId),
            let index = map.shots.firstIndex(where: { $0.id == afterShotId }) {
             insertIndex = index + 1
         } else {
@@ -136,19 +146,20 @@ public final class RoundEditModel: ObservableObject {
 
     /// Live long-press drag preview. It remains local and is discarded with the rest of the draft.
     public func previewMove(shotId: String, px: [Double]) {
-        guard canEditPositions else { return }
+        guard canEditPositions, isEditableShot(shotId) else { return }
         if applyLandingMove(shotId: shotId, px: px) { markChanged() }
     }
 
     /// Finish a long-press drag locally. Save, not finger-up, owns persistence.
     public func move(shotId: String, px: [Double]) {
-        guard canEditPositions else { return }
+        guard canEditPositions, isEditableShot(shotId) else { return }
         guard applyLandingMove(shotId: shotId, px: px) else { return }
         selectedShotId = shotId
         markChanged()
     }
 
     public func editClub(shotId: String, _ value: String?) {
+        guard isEditableShot(shotId) else { return }
         let changed = replaceShot(shotId) { shot in
             RoundShot(
                 shotId: shot.shotId,
@@ -169,6 +180,7 @@ public final class RoundEditModel: ObservableObject {
     }
 
     public func editLie(shotId: String, _ value: String?) {
+        guard isEditableShot(shotId) else { return }
         let changed = replaceShot(shotId) { shot in
             RoundShot(
                 shotId: shot.shotId,
@@ -189,7 +201,7 @@ public final class RoundEditModel: ObservableObject {
     }
 
     public func delete(shotId: String) {
-        guard map.shots.contains(where: { $0.id == shotId }) else { return }
+        guard isEditableShot(shotId) else { return }
         map.shots.removeAll { $0.id == shotId }
         if selectedShotId == shotId { selectedShotId = nil }
         reconnectDraft()
@@ -201,6 +213,10 @@ public final class RoundEditModel: ObservableObject {
         guard ids.count == map.shots.count,
               Set(ids) == Set(byId.keys) else { return }
         guard ids != map.shots.map(\.id) else { return }
+        // Putt rows keep their places; only full shots are reordered.
+        for (index, shot) in map.shots.enumerated() where roundShotIsPutt(shot) {
+            guard ids[index] == shot.id else { return }
+        }
         map.shots = ids.compactMap { byId[$0] }
         reconnectDraft()
         markChanged()
@@ -218,7 +234,8 @@ public final class RoundEditModel: ObservableObject {
     public func moveShot(_ shotId: String, by offset: Int) {
         guard let index = map.shots.firstIndex(where: { $0.id == shotId }) else { return }
         let target = index + offset
-        guard offset != 0, map.shots.indices.contains(target) else { return }
+        guard offset != 0, map.shots.indices.contains(target),
+              isEditableShot(shotId), !roundShotIsPutt(map.shots[target]) else { return }
         var ids = map.shots.map(\.id)
         ids.swapAt(index, target)
         reorder(ids)
@@ -294,7 +311,7 @@ public final class RoundEditModel: ObservableObject {
         }
         if let putts, putts != originalPutts, pendingPuttCorrection == nil {
             pendingPuttCorrection = HolePuttCorrection(
-                roundRef: roundRef, hole: map.hole, to: putts, from: originalPutts, clientTime: clientTime
+                roundRef: puttTargetRoundRef, hole: map.hole, to: putts, from: originalPutts, clientTime: clientTime
             )
         }
         do {
@@ -399,13 +416,27 @@ public final class RoundEditModel: ObservableObject {
         return true
     }
 
+    /// A full shot of the draft (putt rows are handled by the putts counter, fail-closed here).
+    private func isEditableShot(_ id: String) -> Bool {
+        guard let shot = map.shots.first(where: { $0.id == id }) else { return false }
+        return !roundShotIsPutt(shot)
+    }
+
     private func reconnectDraft() {
         var previousEnd: [Int]?
+        var isFirstFullShot = true
         for index in map.shots.indices {
             let shot = map.shots[index]
-            let start = canEditPositions
-                ? (index == 0 ? (routeOrigin ?? shot.start) : (previousEnd ?? shot.start))
-                : shot.start
+            // Putt rows are never re-chained: their recorded positions stay as they were.
+            let isPutt = roundShotIsPutt(shot)
+            let start: [Int]?
+            if isPutt || !canEditPositions {
+                start = shot.start
+            } else if isFirstFullShot {
+                start = routeOrigin ?? shot.start
+            } else {
+                start = previousEnd ?? shot.start
+            }
             map.shots[index] = RoundShot(
                 shotId: shot.shotId,
                 start: start,
@@ -420,7 +451,10 @@ public final class RoundEditModel: ObservableObject {
                 synthetic: shot.synthetic,
                 gpsAvailable: shot.gpsAvailable
             )
-            previousEnd = canEditPositions ? shot.end : nil
+            if !isPutt {
+                isFirstFullShot = false
+                previousEnd = canEditPositions ? shot.end : nil
+            }
         }
     }
 

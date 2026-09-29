@@ -107,7 +107,8 @@ public struct RoundReviewView: View {
                     nine: nine,
                     teeBox: teeBox,
                     scorecard: detail?.scorecard ?? [],
-                    onSaved: { Task { await load() } }
+                    onSaved: { Task { await load() } },
+                    canonicalRoundRef: detail?.roundRef
                 )
             }
         }

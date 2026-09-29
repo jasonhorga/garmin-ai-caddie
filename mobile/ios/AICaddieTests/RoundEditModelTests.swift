@@ -257,6 +257,93 @@ final class RoundEditModelTests: XCTestCase {
         XCTAssertEqual(model.map.shots[2].start, [50, 20])
     }
 
+    private var shotsWithPutt: [RoundShot] {
+        [
+            RoundShot(shotId: "shot-1", start: [50, 95], end: [40, 65], club: "Driver", lie: "teebox", order: 1),
+            RoundShot(shotId: "shot-2", start: [40, 65], end: [50, 20], club: "7I", lie: "fairway", order: 2),
+            RoundShot(shotId: "putt-1", start: [48, 22], end: [50, 18], club: "Putter", lie: "green", shotType: "PUTT", order: 3),
+        ]
+    }
+
+    func testPuttRowsCannotBeSelectedEditedDeletedOrReordered() {
+        for includeMap in [true, false] {
+            let model = makeModel(shots: shotsWithPutt, includeMap: includeMap, geometryRevision: includeMap ? "geometry-r1" : nil) { request in
+                Self.response(request, status: 503)
+            }
+            model.enterEdit()
+            let before = model.map.shots
+
+            model.selectedShotId = "putt-1"
+            XCTAssertNil(model.selectedShotId, "a putt row never opens the shot controls")
+            model.editClub(shotId: "putt-1", "七号铁")
+            model.editLie(shotId: "putt-1", "fairway")
+            model.delete(shotId: "putt-1")
+            model.moveShot("putt-1", by: -1)
+            model.moveShot("shot-2", by: 1)
+            model.reorder(["shot-1", "putt-1", "shot-2"])
+            model.move(shotId: "putt-1", px: [10, 10])
+
+            XCTAssertEqual(model.map.shots, before, "includeMap=\(includeMap)")
+            XCTAssertFalse(model.hasUnsavedChanges)
+        }
+    }
+
+    func testPreciseSaveKeepsThePuttRowAsRecordedAfterFullShotEdits() async throws {
+        var payload: [String: Any] = [:]
+        let model = makeModel(shots: shotsWithPutt) { request in
+            if request.httpMethod == "POST" {
+                let body = try CapturingURLProtocol.requestBodyData(from: request)
+                payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                return Self.response(request, status: 201, body: #"{"stored":{}}"#)
+            }
+            return Self.response(request, status: 503)
+        }
+        model.enterEdit()
+        let putt = model.map.shots[2]
+        model.delete(shotId: "shot-1")
+        _ = model.addShot(px: [45, 40], afterShotId: "putt-1")
+
+        XCTAssertEqual(model.map.shots.last, RoundShot(
+            shotId: putt.shotId, start: putt.start, end: putt.end, club: putt.club, lie: putt.lie,
+            endLie: putt.endLie, shotType: putt.shotType, order: 3, clubSource: putt.clubSource,
+            lieSource: putt.lieSource, synthetic: putt.synthetic, gpsAvailable: putt.gpsAvailable
+        ), "the putt keeps its recorded start/end and stays last")
+        XCTAssertEqual(model.map.shots[0].start, [50, 95], "full shots re-chain from the tee")
+        let saved = await model.save()
+        XCTAssertTrue(saved)
+        let shots = try XCTUnwrap(payload["shots"] as? [[String: Any]])
+        XCTAssertEqual(shots.last?["id"] as? String, "putt-1")
+        XCTAssertEqual(shots.last?["shotType"] as? String, "PUTT")
+        XCTAssertEqual(shots.last?["start"] as? [Int], [48, 22])
+    }
+
+    func testPuttCorrectionTargetsTheCanonicalRound() async throws {
+        var targetId: String?
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        CapturingURLProtocol.requestHandler = { request in
+            if request.httpMethod == "POST" {
+                let body = try CapturingURLProtocol.requestBodyData(from: request)
+                let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                targetId = json["targetId"] as? String
+                return Self.response(request, status: 201, body: "{}")
+            }
+            return Self.response(request, status: 503)
+        }
+        let model = RoundEditModel(
+            map: RoundHoleShotMap(found: true, hole: 10, shots: []),
+            sync: SyncClient(baseURL: URL(string: "https://example.test")!, session: URLSession(configuration: configuration)),
+            roundRef: "member-back",
+            putts: 2,
+            puttTargetRoundRef: "merged_1_2"
+        )
+        model.enterEdit()
+        model.adjustPutts(by: 1)
+        let saved = await model.save()
+        XCTAssertTrue(saved)
+        XCTAssertEqual(targetId, "merged_1_2:10")
+    }
+
     func testClubGuessPicksTheNearestTypicalCarryAndListsItFirst() {
         XCTAssertEqual(RoundClubGuess.club(forYards: 228), "一号木")
         XCTAssertEqual(RoundClubGuess.club(forYards: 152), "七号铁")

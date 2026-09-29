@@ -271,6 +271,15 @@ private struct ZoomableRoundMapViewport<Content: View>: View {
                     .onTapGesture(count: 2) { toggleZoom() }
                     .accessibilityHint("双指缩放，放大后拖动；双击放大或还原")
 
+                // Zoom state for assistive tech and UI tests (the accessibility frame ignores
+                // `scaleEffect`).
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement()
+                    .accessibilityLabel("地图缩放")
+                    .accessibilityValue(displayedScale > 1.01 ? "已放大" : "全洞")
+                    .accessibilityIdentifier("round-map-zoom-state")
+                    .allowsHitTesting(false)
                 Button {
                     showsShotFacts.toggle()
                 } label: {
@@ -630,6 +639,8 @@ public struct RoundHoleShotMapScreen: View {
     /// editing (改的模式锁切洞，免误触换洞).
     public let onEditingChange: ((Bool) -> Void)?
     public let onSaved: (() -> Void)?
+    /// The round detail's canonical id (putt corrections target `{canonical}:{hole}`).
+    let canonicalRoundRef: String?
 
     @StateObject private var mapRepository: RoundShotMapRepository
     @State private var editModel: RoundEditModel?
@@ -658,7 +669,8 @@ public struct RoundHoleShotMapScreen: View {
     init(roundRef: String, hole: Int, apiBaseURL: URL?, adminToken: String?,
          scorecard: [RoundDetailHole], stripHoles: [Int], onSelectHole: ((Int) -> Void)?,
          onClose: (() -> Void)?, onEditingChange: ((Bool) -> Void)?, onSaved: (() -> Void)?,
-         mapRepository: RoundShotMapRepository, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil) {
+         mapRepository: RoundShotMapRepository, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil,
+         canonicalRoundRef: String? = nil) {
         self.roundRef = roundRef
         self.hole = hole
         self.apiBaseURL = apiBaseURL
@@ -673,6 +685,7 @@ public struct RoundHoleShotMapScreen: View {
         self.onClose = onClose
         self.onEditingChange = onEditingChange
         self.onSaved = onSaved
+        self.canonicalRoundRef = canonicalRoundRef
         _mapRepository = StateObject(wrappedValue: mapRepository)
     }
 
@@ -865,7 +878,8 @@ public struct RoundHoleShotMapScreen: View {
                 backGlobalId: backGlobalId,
                 nine: nine,
                 teeBox: teeBox,
-                putts: scoreRow?.putts
+                putts: scoreRow?.putts,
+                puttTargetRoundRef: canonicalRoundRef
             )
             : nil
     }
@@ -1048,6 +1062,7 @@ public struct RoundShotMapPagerScreen: View {
     public let scorecard: [RoundDetailHole]
     public let onClose: (() -> Void)?
     public let onSaved: (() -> Void)?
+    let canonicalRoundRef: String?
     @StateObject private var mapRepository: RoundShotMapRepository
     @State private var current: Int
     /// Holes currently in edit mode. Non-empty ⇒ 翻洞 is locked.
@@ -1097,7 +1112,8 @@ public struct RoundShotMapPagerScreen: View {
         nine: String? = nil,
         teeBox: String? = nil,
         scorecard: [RoundDetailHole] = [],
-        onSaved: (() -> Void)? = nil
+        onSaved: (() -> Void)? = nil,
+        canonicalRoundRef: String? = nil
     ) {
         self.roundRef = roundRef
         self.holes = holes
@@ -1110,6 +1126,7 @@ public struct RoundShotMapPagerScreen: View {
         self.scorecard = scorecard
         self.onClose = onClose
         self.onSaved = onSaved
+        self.canonicalRoundRef = canonicalRoundRef
         _mapRepository = StateObject(wrappedValue: mapRepository)
         _current = State(initialValue: holes.contains(startHole) ? startHole : (holes.first ?? startHole))
     }
@@ -1137,7 +1154,8 @@ public struct RoundShotMapPagerScreen: View {
             globalId: globalId,
             backGlobalId: backGlobalId,
             nine: nine,
-            teeBox: teeBox
+            teeBox: teeBox,
+            canonicalRoundRef: canonicalRoundRef
         )
         .id("\(roundRef):\(current)")
         .gesture(

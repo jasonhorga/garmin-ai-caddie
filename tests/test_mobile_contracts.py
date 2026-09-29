@@ -4690,7 +4690,9 @@ class RoundEditContractTests(unittest.TestCase):
             self.assertNotIn(removed, comps)
         model = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
         move = model.split("public func moveShot(_ shotId: String, by offset: Int) {", 1)[1].split("\n    }\n", 1)[0]
-        self.assertIn("guard offset != 0, map.shots.indices.contains(target) else { return }", move)
+        self.assertIn("guard offset != 0, map.shots.indices.contains(target),", move)
+        # Putt rows are fail-closed: never moved, never a swap target (putts are the 推杆 counter).
+        self.assertIn("isEditableShot(shotId), !roundShotIsPutt(map.shots[target]) else { return }", move)
         self.assertIn("ids.swapAt(index, target)", move)
         self.assertIn("reorder(ids)", move)
         self.assertIn("selectedShotId = shotId", move)

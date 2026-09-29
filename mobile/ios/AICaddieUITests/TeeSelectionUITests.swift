@@ -343,7 +343,8 @@ final class TeeSelectionUITests: XCTestCase {
             "the no-GPS start must still expose the static-map caddie recommendation"
         )
         let teeReference = app.descendants(matching: .any).matching(
-            NSPredicate(format: "label CONTAINS %@", "发球台 → 果岭")
+            // B1 distance ladder: the static tee reference reads "发球台 · 码" (live: "到果岭 · 码").
+            NSPredicate(format: "label CONTAINS %@", "发球台 · 码")
         ).firstMatch
         XCTAssertTrue(
             teeReference.waitForExistence(timeout: 5),

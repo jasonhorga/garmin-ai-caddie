@@ -235,21 +235,20 @@ final class RealFlowUITests: XCTestCase {
                         )
                         // Pinch / double-tap zoom stays on the map itself; double-tap zooms in and
                         // a second double-tap restores the fitted full hole before capture.
-                        let fittedWidth = topoReady.frame.width
+                        // The accessibility frame does not follow `scaleEffect`, so the viewport
+                        // publishes its zoom state on a dedicated marker.
+                        let zoomState = app.descendants(matching: .any)["round-map-zoom-state"]
+                        XCTAssertTrue(zoomState.waitForExistence(timeout: 3))
+                        XCTAssertEqual(zoomState.value as? String, "全洞")
                         topoReady.doubleTap()
-                        settle(1)
-                        XCTAssertGreaterThan(
-                            topoReady.frame.width,
-                            fittedWidth * 1.5,
+                        XCTAssertTrue(
+                            waitForValue("已放大", on: zoomState, timeout: 3),
                             "a double-tap must zoom the live viewport"
                         )
                         topoReady.doubleTap()
-                        settle(1)
-                        XCTAssertEqual(
-                            topoReady.frame.width,
-                            fittedWidth,
-                            accuracy: 2,
-                            "a second double-tap must restore the fitted viewport before capture"
+                        XCTAssertTrue(
+                            waitForValue("全洞", on: zoomState, timeout: 3),
+                            "a second double-tap must restore the fitted full hole"
                         )
                         settle(2); save("04b-shot-map"); dump("04b-shot-map")
                     }
