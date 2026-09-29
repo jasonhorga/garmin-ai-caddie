@@ -3283,10 +3283,7 @@ public struct CurrentHoleView: View {
 
     /// The turn plan when this round is exactly one nine-hole loop of a known venue.
     private var turnPlanAtEndOfFirstLoop: NineLoopPlan? {
-        guard liveRoundState != nil,
-              package.holes.count <= 9,
-              let active = activeCourseOption,
-              (active.segmentHoles ?? active.holes) == 9 else { return nil }
+        guard liveRoundState != nil else { return nil }
         var remembered: [Int: Int] = [:]
         var history: [HistoryRoundCard] = []
         if let offlineStore {
@@ -3295,7 +3292,9 @@ public struct CurrentHoleView: View {
                 history = archive.groups.flatMap(\.rounds)
             }
         }
-        return NineLoopTurn.plan(front: active, siblings: siblingLoops, remembered: remembered, history: history)
+        return NineLoopTurn.planAtEndOfFirstLoop(
+            package: package, catalogue: courseOptions, remembered: remembered, history: history
+        )
     }
 
     private func continueIntoSecondLoop(_ loop: NineLoop) {

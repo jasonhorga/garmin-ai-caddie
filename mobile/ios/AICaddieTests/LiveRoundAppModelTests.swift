@@ -1519,12 +1519,18 @@ final class LiveRoundAppModelTests: XCTestCase {
         model.setActiveHole(9)
         XCTAssertTrue(model.courseOptions.isEmpty, "no network catalogue in this test")
 
-        // What RoundHomeView hands the live hole: the network catalogue plus installed templates.
+        // What RoundHomeView hands the live hole: the network catalogue plus installed templates;
+        // CurrentHoleView's turn decision is exactly `planAtEndOfFirstLoop` on it.
         let catalogue = NineLoopTurn.loopCatalogue(network: model.courseOptions, downloaded: model.downloadedCourseOptions)
-        let front = try XCTUnwrap(catalogue.first { $0.globalId == 31794 })
-        let siblings = NineLoopTurn.siblings(of: front, in: catalogue)
-        XCTAssertEqual(siblings.map(\.globalId), [31794, 31795, 31796])
-        let plan = try XCTUnwrap(NineLoopTurn.plan(front: front, siblings: siblings, remembered: [:], history: []))
+        let package = try XCTUnwrap(model.package)
+        XCTAssertNil(
+            NineLoopTurn.planAtEndOfFirstLoop(package: package, catalogue: model.courseOptions, remembered: [:], history: []),
+            "the network catalogue alone (empty offline) cannot resolve the turn"
+        )
+        let plan = try XCTUnwrap(
+            NineLoopTurn.planAtEndOfFirstLoop(package: package, catalogue: catalogue, remembered: [:], history: []),
+            "installed A/B/C templates must bring the turn back offline"
+        )
         XCTAssertEqual(plan.course.loops.map(\.displayName), ["A 场", "B 场", "C 场"])
         XCTAssertEqual(plan.turnTitle, "A 场打完了")
         let second = try XCTUnwrap(plan.secondLoop)

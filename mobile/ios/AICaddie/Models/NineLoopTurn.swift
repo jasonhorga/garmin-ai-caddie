@@ -36,6 +36,26 @@ enum NineLoopTurn {
             .sorted { ($0.resolvedSegmentLabel ?? "~~") < ($1.resolvedSegmentLabel ?? "~~") }
     }
 
+    /// The live hole's turn decision (`CurrentHoleView`): a plan when the round is still one
+    /// nine-hole loop of a venue the catalogue knows (network or installed), else nil and the
+    /// round summary follows.
+    static func planAtEndOfFirstLoop(
+        package: LiveRoundPackage,
+        catalogue: [MobileCourseOption],
+        remembered: [Int: Int],
+        history: [HistoryRoundCard]
+    ) -> NineLoopPlan? {
+        guard package.holes.count <= 9,
+              let active = catalogue.first(where: { $0.globalId == package.course.globalId }),
+              active.resolvedHoles == 9 else { return nil }
+        return plan(
+            front: active,
+            siblings: siblings(of: active, in: catalogue),
+            remembered: remembered,
+            history: history
+        )
+    }
+
     /// Round hole where the second loop starts (the first hole after the first nine).
     static func firstHoleOfSecondLoop(_ holes: [Int]) -> Int? {
         holes.filter { $0 > 9 }.min()
