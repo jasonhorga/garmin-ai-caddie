@@ -496,13 +496,13 @@ public final class WatchCourseLibrary: ObservableObject {
     }
 
     /// Resume a precise-map download for an already-started/restored round. The immutable cached
-    /// template retains the chosen Tee and optional back nine, so the app can recover after being
-    /// killed without asking the golfer to choose the course again.
+    /// template retains the chosen Tee and loop key, so the app can recover after being killed
+    /// without asking the golfer to choose the course again.
     public func upgradeCachedCourseWhenReady(
         globalId: Int,
         roundId: String,
         config: WatchRoundConfig?,
-        backGlobalId: Int? = nil,
+        loopKey: String? = nil,
         teeBox: String? = nil,
         priorityHole: Int? = nil,
         onProgress: (([WatchRoundState]) -> Void)? = nil
@@ -511,12 +511,8 @@ public final class WatchCourseLibrary: ObservableObject {
             return nil
         }
         let cached: WatchCourseTemplate?
-        if backGlobalId != nil || teeBox != nil {
-            cached = store.course(
-                frontGlobalId: globalId,
-                backGlobalId: backGlobalId,
-                teeBox: teeBox
-            )
+        if let loopKey {
+            cached = store.course(loopKey: loopKey, teeBox: teeBox)
         } else {
             cached = store.compositeCourse(containingGlobalId: globalId)
         }
@@ -578,7 +574,7 @@ public final class WatchCourseLibrary: ObservableObject {
             globalId: selection.front.globalId,
             roundId: roundId,
             teeBox: selection.teeBox,
-            backGlobalId: selection.back?.globalId,
+            loops: selection.loopsQuery,
             ensureGeometry: false,
             backgroundGeometry: backgroundGeometry
         )
@@ -609,8 +605,8 @@ public final class WatchCourseLibrary: ObservableObject {
         var requestedByGlobalId: [Int: Set<Int>] = [:]
         var displayHoleByGlobalId: [Int: [Int: Int]] = [:]
         for hole in package.holes {
-            let globalId = hole.sourceGlobalId ?? package.course.globalId
-            let localHole = hole.sourceLocalHole ?? hole.number
+            let globalId = hole.sourceGlobalId
+            let localHole = hole.sourceLocalHole
             requestedByGlobalId[globalId, default: []].insert(localHole)
             displayHoleByGlobalId[globalId, default: [:]][localHole] = hole.number
         }
@@ -742,8 +738,8 @@ public final class WatchCourseLibrary: ObservableObject {
                 let displayHole = displayHoleByGlobalId[batch.globalId]?[localHole] ?? localHole
                 let prepHole = prep.holes.first { $0.hole == localHole }
                 let packageHole = package.holes.first {
-                    ($0.sourceGlobalId ?? package.course.globalId) == batch.globalId
-                        && ($0.sourceLocalHole ?? $0.number) == localHole
+                    $0.sourceGlobalId == batch.globalId
+                        && $0.sourceLocalHole == localHole
                 }
                 guard prepHole?.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame
                     || packageHole?.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame
@@ -1018,7 +1014,7 @@ public final class WatchCourseLibrary: ObservableObject {
             return try await makeClient(config).fetchCourseInstallStatus(
                 globalId: selection.front.globalId,
                 teeBox: selection.teeBox,
-                backGlobalId: selection.back?.globalId
+                loops: selection.loopsQuery
             )
         } catch {
             // The endpoint is additive and older deployments may not have it. The local Watch

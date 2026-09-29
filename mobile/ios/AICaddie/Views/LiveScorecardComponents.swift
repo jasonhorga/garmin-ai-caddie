@@ -1,10 +1,27 @@
 import SwiftUI
 
+/// Scorecard titles for a live round's loops (B4b-2): "第一环 · 后九", "第二环 · A 场".
+enum LiveScorecardLoops {
+    static let ordinals = ["第一环", "第二环"]
+
+    static func titles(package: LiveRoundPackage, catalogue: [MobileCourseOption]) -> [String] {
+        package.roundLoops.prefix(ordinals.count).enumerated().map { index, loop in
+            "\(ordinals[index]) · \(NineLoopTurn.loopName(loop, catalogue: catalogue))"
+        }
+    }
+
+    static func title(_ titles: [String], index: Int) -> String {
+        index < titles.count ? titles[index] : ordinals[min(index, ordinals.count - 1)]
+    }
+}
+
 /// The two facts a scorecard column needs; live rounds build it from `Hole`, the review from the
 /// round detail's scorecard.
 struct ScorecardHole: Identifiable, Equatable {
     let number: Int
     let par: Int
+    /// The number the course prints (B4b-2 `courseHoleNumber`); `number` stays the round-hole key.
+    var displayNumber: Int? = nil
     var id: Int { number }
 }
 
@@ -12,6 +29,8 @@ struct ScorecardHole: Identifiable, Equatable {
 /// OUT / IN subtotal. Shared by the live scorecard, the round summary and the round review.
 struct LiveNineCard: View {
     let label: String
+    /// The loop's name above the grid ("第一环 · 后九"); nil keeps the OUT / IN-only card.
+    var title: String? = nil
     let holes: [ScorecardHole]
     let scores: [Int: LiveHoleScore]
     var currentHole: Int? = nil
@@ -43,8 +62,10 @@ struct LiveNineCard: View {
         self.canSelect = canSelect
     }
 
+    /// A live round's loop: titled by the loop in play order, columns show `courseHoleNumber`, and
+    /// the subtotal is "合计" — a physical half is never relabelled OUT / IN (B4b-2).
     init(
-        label: String,
+        title: String,
         holes: [Hole],
         scores: [Int: LiveHoleScore],
         currentHole: Int? = nil,
@@ -52,13 +73,16 @@ struct LiveNineCard: View {
         onSelect: ((Int) -> Void)? = nil
     ) {
         self.init(
-            label: label,
-            holes: holes.map { ScorecardHole(number: $0.number, par: $0.par) },
+            label: "合计",
+            holes: holes.map {
+                ScorecardHole(number: $0.number, par: $0.par, displayNumber: $0.courseHoleNumber)
+            },
             scores: scores,
             currentHole: currentHole,
             selectedHole: selectedHole,
             onSelect: onSelect
         )
+        self.title = title
     }
 
     private var subtotal: Int? {
@@ -67,11 +91,24 @@ struct LiveNineCard: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let title {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(LivePlayStyle.ink60)
+                    .padding(.horizontal, 4)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            grid
+        }
+    }
+
+    private var grid: some View {
         Grid(horizontalSpacing: 2, verticalSpacing: 4) {
             GridRow {
                 Text("洞").gridLabel()
                 ForEach(holes) { hole in
-                    Text("\(hole.number)")
+                    Text("\(hole.displayNumber ?? hole.number)")
                         .font(.system(size: 12, weight: .bold))
                         .monospacedDigit()
                         .foregroundStyle(hole.number == currentHole ? LiveScoreStyle.good : LivePlayStyle.ink60)

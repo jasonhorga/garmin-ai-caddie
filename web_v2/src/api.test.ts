@@ -1912,7 +1912,7 @@ describe('mobile reconciliation API helpers', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        schema: 'ai-caddie-live-round-package-v1',
+        schema: 'ai-caddie-live-round-package-v2',
         roundId: 'round:1',
         dataMode: 'fixture',
         sourceCoverage: {
@@ -1955,7 +1955,7 @@ describe('mobile reconciliation API helpers', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v2/mobile/rounds/round%3A1/package?captured_at=2026-05-25T08%3A00%3A00Z&ensure_geometry=true', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
-    expect(data.schema).toBe('ai-caddie-live-round-package-v1')
+    expect(data.schema).toBe('ai-caddie-live-round-package-v2')
     expect(data.sourceCoverage.preparationMode).toBe('round')
   })
 
@@ -1963,7 +1963,7 @@ describe('mobile reconciliation API helpers', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        schema: 'ai-caddie-live-round-package-v1',
+        schema: 'ai-caddie-live-round-package-v2',
         roundId: 'live-black-knight',
         dataMode: 'fixture',
         sourceCoverage: {
@@ -2006,6 +2006,7 @@ describe('mobile reconciliation API helpers', () => {
       {
         roundId: 'live-black-knight',
         teeBox: 'blue',
+        loops: '31795:front,31795:back',
         capturedAt: '2026-05-25T08:00:00Z',
         ensureGeometry: true,
         backgroundGeometry: true,
@@ -2015,7 +2016,7 @@ describe('mobile reconciliation API helpers', () => {
     )
 
     expect(fetch).toHaveBeenCalledWith(
-      '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&captured_at=2026-05-25T08%3A00%3A00Z&ensure_geometry=true&background_geometry=true&include_event_cursor=false',
+      '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&loops=31795%3Afront%2C31795%3Aback&captured_at=2026-05-25T08%3A00%3A00Z&ensure_geometry=true&background_geometry=true&include_event_cursor=false',
       { headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' } },
     )
     expect(data.roundId).toBe('live-black-knight')

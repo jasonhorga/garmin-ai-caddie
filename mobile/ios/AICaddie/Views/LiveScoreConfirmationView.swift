@@ -8,6 +8,8 @@ struct LiveScoreConfirmationView: View {
     let nextHole: Int?
     let onAccept: (LiveScoreDraft) -> Void
     let onCancel: () -> Void
+    /// Round hole → the number the course prints (B4b-2 `courseHoleNumber`); text only.
+    var courseHoleNumber: (Int) -> Int = { $0 }
 
     var body: some View {
         ZStack {
@@ -35,7 +37,7 @@ struct LiveScoreConfirmationView: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text("第 \(draft.hole) 洞 · Par \(draft.par)")
+            Text("第 \(courseHoleNumber(draft.hole)) 洞 · Par \(draft.par)")
                 .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(LivePlayStyle.ink)
                 .accessibilityAddTraits(.isHeader)
@@ -240,7 +242,10 @@ struct LiveScoreConfirmationView: View {
         Button {
             onAccept(draft)
         } label: {
-            Text(Self.saveTitle(score: draft.score, nextHole: draft.advanceAfterSave ? nextHole : nil))
+            Text(Self.saveTitle(
+                score: draft.score,
+                nextHole: draft.advanceAfterSave ? nextHole.map(courseHoleNumber) : nil
+            ))
                 .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(Color(red: 0.043, green: 0.059, blue: 0.047))
                 .frame(maxWidth: .infinity)

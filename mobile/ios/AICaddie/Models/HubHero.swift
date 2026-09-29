@@ -9,8 +9,9 @@ struct HubCourseSuggestion: Equatable {
     let startTitle: String
     /// The tee to start with / preselect on 开始一场; nil when unknown (the course default).
     let teeBox: String?
-    /// The loop's `nine` for a one-tap start (a nine-hole loop, or a whole course, is "all").
-    var nine: String = "all"
+    /// The one-tap start's `loops=` (B4b-2): a nine-hole loop is `G:all`, an 18-hole course
+    /// starts on its 前九 (`G:front`) and picks the second nine at the turn.
+    var loops: [RoundLoopEntry] = []
 
     /// "再打上次那个": the course the player last played. The newest archived round with a course
     /// id decides (a newly synced Garmin round is 上次), then the last course this app started.
@@ -54,11 +55,11 @@ struct HubCourseSuggestion: Equatable {
         let globalId: Int
         let roundId: String
         let teeBox: String
-        let nine: String
+        let loops: [RoundLoopEntry]
     }
 
     func startRequest(roundId: String) -> StartRequest {
-        StartRequest(globalId: globalId, roundId: roundId, teeBox: teeBox ?? "unknown", nine: nine)
+        StartRequest(globalId: globalId, roundId: roundId, teeBox: teeBox ?? "unknown", loops: loops)
     }
 
     /// The course the player is at (README §8 "在球场附近"): that venue's own last first loop and
@@ -102,7 +103,8 @@ struct HubCourseSuggestion: Equatable {
                 loops: [option],
                 teeBox: tee ?? ""
             ),
-            teeBox: tee
+            teeBox: tee,
+            loops: StartRoundPresentation.startLoops(selected: option)
         )
     }
 }

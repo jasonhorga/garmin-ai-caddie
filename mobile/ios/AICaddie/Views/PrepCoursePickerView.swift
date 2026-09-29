@@ -231,8 +231,7 @@ public struct PrepCoursePickerView: View {
         let tee = course.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines)
         return PrepCourseDownloadRecord.key(
             globalId: course.globalId,
-            teeBox: tee?.isEmpty == false ? tee! : "blue",
-            nine: "all"
+            teeBox: tee?.isEmpty == false ? tee! : "blue"
         )
     }
 

@@ -944,23 +944,25 @@ public final class OfflineStore {
 
     /// The last second loop chosen after each first loop (front globalId → back globalId), so the
     /// next turn preselects "上次搭配". Account-scoped like the recent course.
-    public func rememberNineLoopPairing(front: Int, back: Int) throws {
-        guard front > 0, back > 0 else { return }
+    /// The last second loop chosen after a first loop, keyed by loop id (`"{globalId}:{half}"`,
+    /// B4b-2), so a half of an 18-hole course and a nine-hole loop are remembered alike.
+    public func rememberNineLoopPairing(first: String, second: String) throws {
+        guard RoundLoopEntry.entries(loopKey: first)?.count == 1,
+              RoundLoopEntry.entries(loopKey: second)?.count == 1 else { return }
         var pairings = (try? loadNineLoopPairings()) ?? [:]
-        pairings[front] = back
-        let encoded = Dictionary(uniqueKeysWithValues: pairings.map { (String($0.key), $0.value) })
+        pairings[first] = second
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        try encoder.encode(encoded).write(to: nineLoopPairingsURL, options: [.atomic])
+        try encoder.encode(pairings).write(to: nineLoopPairingsURL, options: [.atomic])
     }
 
-    public func loadNineLoopPairings() throws -> [Int: Int] {
+    public func loadNineLoopPairings() throws -> [String: String] {
         guard FileManager.default.fileExists(atPath: nineLoopPairingsURL.path) else { return [:] }
-        let stored = try decoder.decode([String: Int].self, from: Data(contentsOf: nineLoopPairingsURL))
-        return Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in Int(key).map { ($0, value) } })
+        return try decoder.decode([String: String].self, from: Data(contentsOf: nineLoopPairingsURL))
     }
 
+    /// v2: keyed by loop id. The v1 file (course id → course id) is simply no longer read.
     private var nineLoopPairingsURL: URL {
-        directoryURL.appendingPathComponent("nine_loop_pairings.json")
+        directoryURL.appendingPathComponent("nine_loop_pairings_v2.json")
     }
 
     /// History is user-owned data, so keep it inside the account directory and replace it in one
@@ -988,23 +990,27 @@ public final class OfflineStore {
         return try decoder.decode(MobileStats.self, from: Data(contentsOf: mobileStatsURL))
     }
 
-    /// Preserve one immutable package per factual course/Tee/hole-set signature after a round ends.
-    /// Events are not stored here. A future offline start rebases this template to a new roundId.
-    /// Persist a course template atomically. A replacement install may explicitly supersede a
-    /// richer older template once the new package has been fetched; the atomic write keeps the old
-    /// bytes available if encoding or the final file move fails.
+    /// Preserve one immutable whole-course template per physical course/Tee (B4b-2): the canonical
+    /// `G:front+G:back` (18 holes) or `G:all` (a 9-hole loop), keyed by that canonical `loopKey`.
+    /// A round played in any order is re-projected into it; a round carrying only one half is not
+    /// a template and is skipped. Events are not stored here. An offline start or turn projects
+    /// whichever ordered / duplicate `loopKey` the player picks from this template.
+    /// The write is atomic. A replacement install may explicitly supersede a richer older template
+    /// once the new package has been fetched; the atomic write keeps the old bytes available if
+    /// encoding or the final file move fails.
     public func saveCourseTemplate(
-        _ package: LiveRoundPackage,
+        _ source: LiveRoundPackage,
         replacingExisting: Bool = false
     ) throws {
-        guard package.course.globalId > 0,
-              package.dataMode != "fixture",
-              !package.holes.isEmpty else { return }
+        guard source.course.globalId > 0,
+              source.dataMode != "fixture",
+              !source.holes.isEmpty,
+              let package = source.wholeCourseTemplate() else { return }
         try FileManager.default.createDirectory(
             at: courseTemplatesDirectoryURL,
             withIntermediateDirectories: true
         )
-        let url = courseTemplateURL(package)
+        let url = courseTemplateURL(globalId: package.course.globalId, teeBox: package.course.teeBox)
         if !replacingExisting,
            FileManager.default.fileExists(atPath: url.path),
            let data = try? Data(contentsOf: url),
@@ -1032,27 +1038,26 @@ public final class OfflineStore {
                   values.isSymbolicLink != true,
                   let data = try? Data(contentsOf: url),
                   let package = try? decoder.decode(LiveRoundPackage.self, from: data),
+                  package.schema == LiveRoundPackage.supportedSchema,
                   package.course.globalId > 0,
+                  package.isWholeCourseTemplate,
                   package.dataMode != "fixture" else {
+                // A v1 template (no source identity) or a non-canonical file is never used; the
+                // course is re-downloaded instead of fabricating identity from `number`.
                 return nil
             }
             return package
         }
     }
 
+    /// The canonical whole-course template of one physical course and Tee, or nil when none is
+    /// installed (or only a stale v1 file exists).
     public func loadCourseTemplate(
         globalId: Int,
-        teeBox: String,
-        nine: String
+        teeBox: String
     ) throws -> LiveRoundPackage? {
         let requestedTee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let requestedNine = nine.isEmpty ? "all" : nine.lowercased()
-        let url = courseTemplateURL(
-            globalId: globalId,
-            teeBox: requestedTee,
-            nine: requestedNine,
-            sourceGlobalIds: [globalId]
-        )
+        let url = courseTemplateURL(globalId: globalId, teeBox: requestedTee)
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey]
         guard let values = try? url.resourceValues(forKeys: keys),
               values.isRegularFile == true,
@@ -1061,14 +1066,11 @@ public final class OfflineStore {
               let package = try? decoder.decode(LiveRoundPackage.self, from: data) else {
             return nil
         }
-        let packageNine = (package.nine ?? "all").lowercased()
-        let sourceGlobalIds = Set(package.holes.map {
-            $0.sourceGlobalId ?? package.course.globalId
-        })
-        guard package.course.globalId == globalId,
-              sourceGlobalIds == Set([globalId]),
-              package.course.teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == requestedTee,
-              packageNine == requestedNine else {
+        guard package.schema == LiveRoundPackage.supportedSchema,
+              package.course.globalId == globalId,
+              package.isWholeCourseTemplate,
+              Set(package.holes.map(\.sourceGlobalId)) == Set([globalId]),
+              package.course.teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == requestedTee else {
             return nil
         }
         return package
@@ -1080,21 +1082,15 @@ public final class OfflineStore {
     /// packages and immutable topo images remain available in either case.
     public func invalidateCourseTemplate(
         globalId: Int,
-        teeBox: String,
-        nine: String
+        teeBox: String
     ) throws {
-        let url = courseTemplateURL(
-            globalId: globalId,
-            teeBox: teeBox,
-            nine: nine,
-            sourceGlobalIds: [globalId]
-        )
+        let url = courseTemplateURL(globalId: globalId, teeBox: teeBox)
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         try FileManager.default.removeItem(at: url)
     }
 
     public func invalidateCourseTemplate(for package: LiveRoundPackage) throws {
-        let url = courseTemplateURL(package)
+        let url = courseTemplateURL(globalId: package.course.globalId, teeBox: package.course.teeBox)
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         try FileManager.default.removeItem(at: url)
     }
@@ -1223,8 +1219,8 @@ public final class OfflineStore {
                 $0.hole == hole.number
             })?.geometryRevision
             return loadCourseTopoImageURL(
-                globalId: hole.sourceGlobalId ?? package.course.globalId,
-                localHole: hole.sourceLocalHole ?? hole.number,
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole,
                 geometryRevision: prepRevision ?? hole.geometryRevision
             ) != nil
         }
@@ -1885,35 +1881,14 @@ public final class OfflineStore {
         return packagesDirectoryURL.appendingPathComponent("\(fileName).json")
     }
 
-    private func courseTemplateURL(_ package: LiveRoundPackage) -> URL {
-        courseTemplateURL(
-            globalId: package.course.globalId,
-            teeBox: package.course.teeBox,
-            nine: package.nine ?? "all",
-            sourceGlobalIds: Set(package.holes.map {
-                $0.sourceGlobalId ?? package.course.globalId
-            })
-        )
-    }
-
-    private func courseTemplateURL(
-        globalId: Int,
-        teeBox: String,
-        nine: String,
-        sourceGlobalIds: Set<Int>
-    ) -> URL {
+    /// One file per physical course and Tee, named after the v2 canonical template. v1 files had a
+    /// different name and are simply never read again.
+    private func courseTemplateURL(globalId: Int, teeBox: String) -> URL {
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
-        func safe(_ value: String) -> String {
-            value.addingPercentEncoding(withAllowedCharacters: allowed)
-                ?? value.replacingOccurrences(of: "/", with: "_")
-        }
-        let sources = sourceGlobalIds.sorted().map(String.init).joined(separator: "-")
-        let signature = [
-            String(globalId),
-            safe(teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()),
-            safe((nine.isEmpty ? "all" : nine).lowercased()),
-            sources,
-        ].joined(separator: "--")
+        let tee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let safeTee = tee.addingPercentEncoding(withAllowedCharacters: allowed)
+            ?? tee.replacingOccurrences(of: "/", with: "_")
+        let signature = ["v2", String(globalId), safeTee, "whole"].joined(separator: "--")
         return courseTemplatesDirectoryURL.appendingPathComponent("\(signature).json")
     }
 

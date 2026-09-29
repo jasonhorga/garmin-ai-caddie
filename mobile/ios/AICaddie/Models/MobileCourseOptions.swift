@@ -534,11 +534,12 @@ public enum PrepCourseDownloadPhase: String, Codable, Equatable {
 
 /// Durable library row for one explicitly selected prep course. Search results remain metadata-only;
 /// only a course the player opens/downloads is retained here and installed into OfflineStore.
+/// A row always installs the whole physical course — its canonical template (`G:front+G:back`
+/// for 18 holes, `G:all` for a 9-hole loop) — from which any round order is projected (B4b-2).
 public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
     public let id: String
     public let course: MobileCourseOption
     public let teeBox: String
-    public let nine: String
     public var phase: PrepCourseDownloadPhase
     public var preparedHoles: Int
     public var downloadedHoles: Int
@@ -552,7 +553,6 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
     public init(
         course: MobileCourseOption,
         teeBox: String? = nil,
-        nine: String = "all",
         phase: PrepCourseDownloadPhase = .queued,
         preparedHoles: Int = 0,
         downloadedHoles: Int = 0,
@@ -564,11 +564,9 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         let rawTee = (teeBox ?? course.teeBox ?? "blue")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTee = rawTee.isEmpty ? "blue" : rawTee
-        let resolvedNine = nine.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        self.id = Self.key(globalId: course.globalId, teeBox: resolvedTee, nine: resolvedNine)
+        self.id = Self.key(globalId: course.globalId, teeBox: resolvedTee)
         self.course = course
         self.teeBox = resolvedTee
-        self.nine = resolvedNine.isEmpty ? "all" : resolvedNine
         self.phase = phase
         self.preparedHoles = max(0, preparedHoles)
         self.downloadedHoles = max(0, downloadedHoles)
@@ -580,10 +578,38 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
             : nil
     }
 
-    public static func key(globalId: Int, teeBox: String, nine: String = "all") -> String {
+    public static func key(globalId: Int, teeBox: String) -> String {
         let tee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let selection = nine.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return "\(globalId):\(tee.isEmpty ? "blue" : tee):\(selection.isEmpty ? "all" : selection)"
+        return "\(globalId):\(tee.isEmpty ? "blue" : tee):whole"
+    }
+
+    /// The canonical whole-course request this row installs.
+    public var loops: [RoundLoopEntry] {
+        RoundLoopEntry.wholeCourse(globalId: course.globalId, holes: course.resolvedHoles)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, course, teeBox, phase, preparedHoles, downloadedHoles, totalHoles, updatedAt
+        case errorText, requiredGeometryRevisions
+    }
+
+    /// The id is re-derived on decode, so a row persisted under the v1 `gid:tee:nine` key joins
+    /// its whole-course row instead of lingering as a duplicate.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        course = try container.decode(MobileCourseOption.self, forKey: .course)
+        teeBox = try container.decode(String.self, forKey: .teeBox)
+        id = Self.key(globalId: course.globalId, teeBox: teeBox)
+        phase = try container.decode(PrepCourseDownloadPhase.self, forKey: .phase)
+        preparedHoles = try container.decode(Int.self, forKey: .preparedHoles)
+        downloadedHoles = try container.decode(Int.self, forKey: .downloadedHoles)
+        totalHoles = try container.decode(Int.self, forKey: .totalHoles)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        errorText = try container.decodeIfPresent(String.self, forKey: .errorText)
+        requiredGeometryRevisions = try container.decodeIfPresent(
+            [String: String].self,
+            forKey: .requiredGeometryRevisions
+        )
     }
 
     public var isActive: Bool {

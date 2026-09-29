@@ -992,7 +992,7 @@ export interface PackageEnrichmentState {
 }
 
 export interface LiveRoundPackageResponse {
-  schema: 'ai-caddie-live-round-package-v1'
+  schema: 'ai-caddie-live-round-package-v2'
   roundId: string
   dataMode: ResolvedDataMode
   sourceCoverage: LiveRoundSourceCoverage
@@ -1008,6 +1008,9 @@ export interface LiveRoundPackageResponse {
     teeBox: string
   }
   holes: Array<Record<string, unknown>>
+  /** The round's loops in play order and their canonical key (B4b-2). */
+  roundLoops: RoundLoop[]
+  loopKey: string
   geometryCoverage: {
     state: GeometryCoverageState
     readyHoles: number
@@ -1072,6 +1075,8 @@ export interface MobileRoundPackageParams {
 export interface MobileCoursePackageParams {
   roundId?: string
   teeBox?: string
+  /** B4b-2 ordered round loops, `G:H[,G2:H2]` (H = all | front | back). */
+  loops: string
   capturedAt?: string
   ensureGeometry?: boolean
   backgroundGeometry?: boolean
@@ -1089,12 +1094,21 @@ export interface CourseInstallHoleStatus {
   error?: string | null
 }
 
+export interface RoundLoop {
+  globalId: number
+  half: 'all' | 'front' | 'back'
+  roundStartHole: number
+  sourceStartHole: number
+  holeCount: number
+}
+
 export interface CourseInstallStatus {
   schema: 'ai-caddie-course-install-v1'
   jobId: string
   globalId: number
   teeBox: string
-  nine: string
+  /** The ordered round-loop key the job was prepared for (B4b-2). */
+  loopKey: string
   phase: string
   stage: string
   progress?: number

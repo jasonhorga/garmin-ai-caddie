@@ -457,13 +457,12 @@ export function fetchNearbyCourses(
 
 export function fetchCourseInstallStatus(
   globalId: number,
-  params: { teeBox?: string; nine?: string; backGlobalId?: number } = {},
+  params: { teeBox?: string; loops: string },
   adminToken?: string,
 ): Promise<CourseInstallStatus> {
   const query = new URLSearchParams()
   if (params.teeBox?.trim()) query.set('tee_box', params.teeBox.trim())
-  if (params.nine?.trim()) query.set('nine', params.nine.trim())
-  if (params.backGlobalId && params.backGlobalId > 0) query.set('back_global_id', String(params.backGlobalId))
+  query.set('loops', params.loops)
   const suffix = query.toString()
   return getJson<CourseInstallStatus>(
     `/api/v2/courses/${encodeURIComponent(String(globalId))}/install/status${suffix ? `?${suffix}` : ''}`,
@@ -661,12 +660,13 @@ export function fetchMobileRoundPackage(
 
 export function fetchMobileCoursePackage(
   globalId: number,
-  params: MobileCoursePackageParams = {},
+  params: MobileCoursePackageParams,
   adminToken?: string,
 ): Promise<LiveRoundPackageResponse> {
   const query = new URLSearchParams()
   appendParam(query, 'round_id', params.roundId)
   appendParam(query, 'tee_box', params.teeBox)
+  appendParam(query, 'loops', params.loops)
   appendParam(query, 'captured_at', params.capturedAt)
   appendParam(query, 'ensure_geometry', params.ensureGeometry)
   appendParam(query, 'background_geometry', params.backgroundGeometry)

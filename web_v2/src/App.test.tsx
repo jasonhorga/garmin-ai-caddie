@@ -320,7 +320,7 @@ function mobileReconciliationApplyPayload() {
 
 function mobilePackagePayload() {
   return {
-    schema: 'ai-caddie-live-round-package-v1',
+    schema: 'ai-caddie-live-round-package-v2',
     roundId: 'live-black-knight',
     dataMode: 'fixture',
     sourceCoverage: {
@@ -439,7 +439,7 @@ function courseInstallStatusPayload(globalId = 31795) {
     jobId: `fixture-install-${globalId}`,
     globalId,
     teeBox: 'blue',
-    nine: 'all',
+    loopKey: `${globalId}:front+${globalId}:back`,
     phase: 'ready',
     stage: 'complete',
     totalHoles: 2,
@@ -1510,7 +1510,7 @@ describe('App navigation', () => {
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         if (path === '/api/v2/courses/31795/prep?render=false&include_shots=true') return coursePrepPayload()
         if (path === '/api/v2/courses/31795/prep-tips') return prepTipsPayload()
-        if (path === '/api/v2/courses/31795/install/status') return courseInstallStatusPayload()
+        if (String(path).startsWith('/api/v2/courses/31795/install/status?')) return courseInstallStatusPayload()
         return overviewPayload()
       },
     }))
@@ -1571,7 +1571,7 @@ describe('App navigation', () => {
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         if (path === '/api/v2/courses/31795/prep?render=false&include_shots=true') return coursePrepPayload()
         if (path === '/api/v2/courses/31795/prep-tips') return prepTipsPayload()
-        if (path === '/api/v2/courses/31795/install/status') return courseInstallStatusPayload()
+        if (String(path).startsWith('/api/v2/courses/31795/install/status?')) return courseInstallStatusPayload()
         return overviewPayload()
       },
     }))
@@ -1608,7 +1608,7 @@ describe('App navigation', () => {
         }
         if (path === '/api/v2/courses/31870/prep?render=false&include_shots=true') return coursePrepPayload()
         if (path === '/api/v2/courses/31870/prep-tips') return prepTipsPayload()
-        if (path === '/api/v2/courses/31870/install/status') return courseInstallStatusPayload(31870)
+        if (String(path).startsWith('/api/v2/courses/31870/install/status?')) return courseInstallStatusPayload(31870)
         return overviewPayload()
       },
     }))
@@ -2319,7 +2319,7 @@ describe('App navigation', () => {
         if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         if (path === '/api/v2/readiness') return readinessPayload()
-        if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&ensure_geometry=true') return mobilePackagePayload()
+        if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&loops=31795%3Afront%2C31795%3Aback&ensure_geometry=true') return mobilePackagePayload()
         if (path === '/api/v2/mobile/rounds/900001/reconciliation') return mobileReconciliationPayload()
         if (path === '/api/v2/mobile/rounds/900001/reconciliation/apply' && init?.method === 'POST') {
           return mobileReconciliationApplyPayload()
@@ -2364,7 +2364,7 @@ describe('App navigation', () => {
 
     await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats')).toHaveLength(2))
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/readiness')
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&ensure_geometry=true', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&loops=31795%3Afront%2C31795%3Aback&ensure_geometry=true', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/rounds/900001/reconciliation', {
@@ -2387,7 +2387,7 @@ describe('App navigation', () => {
           if (path === '/api/v2/history/summary') return summaryPayload()
           if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
           if (path === '/api/v2/readiness') return readinessPayload()
-          if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&ensure_geometry=true') return mobilePackagePayload()
+          if (path === '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&loops=31795%3Afront%2C31795%3Aback&ensure_geometry=true') return mobilePackagePayload()
           return overviewPayload()
         },
       }
@@ -2408,7 +2408,7 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '生成离线包' }))
 
     expect(await screen.findByText('Fixture Links')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/31795/package?round_id=live-black-knight&ensure_geometry=true', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/mobile/courses/31795/package?round_id=live-black-knight&loops=31795%3Afront%2C31795%3Aback&ensure_geometry=true', {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
   })

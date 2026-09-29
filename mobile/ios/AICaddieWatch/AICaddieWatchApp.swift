@@ -13,7 +13,7 @@ public struct AICaddieWatchApp: App {
     private struct ActiveCourseUpgradeKey: Equatable {
         let roundId: String
         let frontGlobalId: Int
-        let backGlobalId: Int?
+        let loopKey: String?
         let teeBox: String?
         let config: WatchRoundConfig
     }
@@ -209,18 +209,16 @@ public struct AICaddieWatchApp: App {
                             activeHole: prepared.holeStates.first?.hole,
                             courseName: prepared.courseName,
                             courseGlobalId: selection.front.globalId,
-                            backCourseGlobalId: selection.back?.globalId,
                             teeBox: selection.teeBox,
-                            nine: "all"
+                            loopKey: selection.loopKey
                         )
                         syncClient.sendRoundStart(
                             WatchRoundStart(
                                 roundId: prepared.roundId,
                                 courseName: prepared.courseName,
                                 teeBox: selection.teeBox,
-                                nine: "all",
+                                loopKey: selection.loopKey,
                                 globalId: selection.front.globalId,
-                                backGlobalId: selection.back?.globalId,
                                 activeHole: prepared.holeStates.first?.hole ?? 1,
                                 holes: prepared.holeStates.map { state in
                                     WatchRoundSeedHole(
@@ -253,7 +251,7 @@ public struct AICaddieWatchApp: App {
                     globalId: key.frontGlobalId,
                     roundId: key.roundId,
                     config: key.config,
-                    backGlobalId: key.backGlobalId,
+                    loopKey: key.loopKey,
                     teeBox: key.teeBox,
                     priorityHole: roundModel.activeHole,
                     onProgress: { states in
@@ -305,7 +303,7 @@ public struct AICaddieWatchApp: App {
         return ActiveCourseUpgradeKey(
             roundId: round.roundId,
             frontGlobalId: frontGlobalId,
-            backGlobalId: round.backCourseGlobalId,
+            loopKey: round.loopKey,
             teeBox: round.teeBox,
             config: config
         )

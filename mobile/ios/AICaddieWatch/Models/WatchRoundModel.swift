@@ -788,9 +788,8 @@ public final class WatchRoundModel: ObservableObject {
             pendingEvents: existing?.pendingEvents ?? [],
             courseName: seed.courseName,
             courseGlobalId: seed.globalId ?? existing?.courseGlobalId ?? states.first?.globalId,
-            backCourseGlobalId: seed.backGlobalId ?? existing?.backCourseGlobalId,
             teeBox: seed.teeBox ?? existing?.teeBox,
-            nine: seed.nine ?? existing?.nine,
+            loopKey: seed.loopKey,
             pendingManualShot: retainedManualShot,
             pendingAutoShotCandidate: existing?.pendingAutoShotCandidate,
             scoreDraft: retainedScoreDraft,
@@ -843,9 +842,8 @@ public final class WatchRoundModel: ObservableObject {
         activeHole: Int? = nil,
         courseName: String? = nil,
         courseGlobalId: Int? = nil,
-        backCourseGlobalId: Int? = nil,
         teeBox: String? = nil,
-        nine: String? = nil
+        loopKey: String? = nil
     ) {
         guard let first = states.first else { return }
         var persisted = WatchRoundStore.PersistedRound(roundId: first.roundId)
@@ -853,9 +851,8 @@ public final class WatchRoundModel: ObservableObject {
         persisted.activeHole = activeHole ?? persisted.holeStates.first?.hole ?? 0
         persisted.courseName = courseName
         persisted.courseGlobalId = courseGlobalId
-        persisted.backCourseGlobalId = backCourseGlobalId
         persisted.teeBox = teeBox
-        persisted.nine = nine
+        persisted.loopKey = loopKey
         try? store.save(persisted)
         round = persisted
         restoreInteractionState(from: persisted)

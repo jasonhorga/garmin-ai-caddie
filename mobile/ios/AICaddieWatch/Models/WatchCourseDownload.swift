@@ -327,6 +327,33 @@ public struct WatchCourseSelection: Equatable {
         front.playableHoleCount + (back?.playableHoleCount ?? 0)
     }
 
+    /// The round's canonical ordered loop key (B4b-2): an 18-hole course is its two halves
+    /// (`G:front+G:back`), a nine-hole loop is `G:all`, a 9+9 pairing appends the second loop.
+    public var loopKey: String {
+        Self.loopKey(front: front, back: back)
+    }
+
+    /// The `loops=` request value for this selection.
+    public var loopsQuery: String {
+        loopKey.replacingOccurrences(of: "+", with: ",")
+    }
+
+    public static func loopKey(front: WatchCourseOption, back: WatchCourseOption?) -> String {
+        if front.playableHoleCount == 18 {
+            return "\(front.globalId):front+\(front.globalId):back"
+        }
+        let first = "\(front.globalId):all"
+        guard let back else { return first }
+        return first + "+\(back.globalId):all"
+    }
+
+    /// The course ids of a loop key in play order (a repeated loop appears twice).
+    public static func globalIds(loopKey: String) -> [Int] {
+        loopKey.split(separator: "+").compactMap { part in
+            part.split(separator: ":").first.flatMap { Int($0) }
+        }
+    }
+
     /// Stable, case/whitespace-insensitive Tee identity used by the on-watch course cache.
     /// Empty and provider placeholder values intentionally share the `unknown` bucket: they mean
     /// that the player did not choose a concrete Tee, rather than a real Tee named "unknown".
@@ -365,10 +392,17 @@ struct WatchCourseTeesEnvelope: Decodable {
     let tees: [WatchCourseTee]
 }
 
+/// The only package contract the Watch accepts (B4b-2). A v1 package, or a v2 package missing
+/// its loops or any hole's source identity, fails to decode — identity is never made up.
 public struct WatchCoursePackage: Decodable, Equatable {
+    public static let supportedSchema = "ai-caddie-live-round-package-v2"
+
+    public let schema: String
     public let roundId: String
     public let course: WatchCoursePackageCourse
     public let holes: [WatchCoursePackageHole]
+    public let roundLoops: [WatchRoundLoop]
+    public let loopKey: String
     /// A fast package may carry a CourseView-only first-hole seed. Older servers omit this field.
     public let coursePrep: WatchCoursePrepResponse?
     /// Shared server gate; Watch still validates every local raster before advertising offline use.
@@ -401,10 +435,20 @@ public struct WatchCoursePackageHole: Decodable, Equatable {
     public let yards: Int?
     public let geometryCoverage: String?
     public let geometryRevision: String?
-    public let sourceGlobalId: Int?
-    public let sourceLocalHole: Int?
+    /// `number` is the round hole; these two are the physical hole; `courseHoleNumber` is text.
+    public let sourceGlobalId: Int
+    public let sourceLocalHole: Int
+    public let courseHoleNumber: Int
     public let teeLatitude: Double?
     public let teeLongitude: Double?
+}
+
+public struct WatchRoundLoop: Decodable, Equatable {
+    public let globalId: Int
+    public let half: String
+    public let roundStartHole: Int
+    public let sourceStartHole: Int
+    public let holeCount: Int
 }
 
 public struct WatchCoursePrepResponse: Decodable, Equatable {
@@ -689,18 +733,16 @@ public struct WatchPreparedCourse: Equatable {
 public struct WatchCourseTemplate: Codable, Equatable, Identifiable {
     public var id: Int { option.globalId }
 
-    /// Composite cache identity. `id` remains the front Garmin id for source compatibility, while
-    /// this key prevents a different back loop or Tee from replacing an existing download.
+    /// Composite cache identity: the canonical ordered loop key plus Tee (B4b-2). `id` remains the
+    /// front Garmin id for source compatibility, while this key keeps every loop order and Tee apart.
     public var cacheKey: String {
-        Self.cacheKey(
-            frontGlobalId: option.globalId,
-            backGlobalId: backOption?.globalId,
-            teeBox: teeBox
-        )
+        Self.cacheKey(loopKey: loopKey, teeBox: teeBox)
     }
 
     public let option: WatchCourseOption
     public let backOption: WatchCourseOption?
+    /// Required: a template cached before loop keys (v1) fails to decode and is re-downloaded.
+    public let loopKey: String
     public let courseName: String
     public let teeBox: String
     public let holeStates: [WatchRoundState]
@@ -716,6 +758,7 @@ public struct WatchCourseTemplate: Codable, Equatable, Identifiable {
     ) {
         self.option = option
         self.backOption = backOption
+        self.loopKey = WatchCourseSelection.loopKey(front: option, back: backOption)
         self.courseName = courseName
         self.teeBox = teeBox
         self.holeStates = holeStates
@@ -723,17 +766,16 @@ public struct WatchCourseTemplate: Codable, Equatable, Identifiable {
     }
 
     public func matches(_ selection: WatchCourseSelection) -> Bool {
-        option.globalId == selection.front.globalId
-            && backOption?.globalId == selection.back?.globalId
-            && WatchCourseSelection.normalizedTeeKey(teeBox) == selection.normalizedTeeKey
+        matches(loopKey: selection.loopKey, teeBox: selection.teeBox)
     }
 
-    public static func cacheKey(
-        frontGlobalId: Int,
-        backGlobalId: Int?,
-        teeBox: String?
-    ) -> String {
-        "\(frontGlobalId)|\(backGlobalId.map(String.init) ?? "-")|\(WatchCourseSelection.normalizedTeeKey(teeBox))"
+    public func matches(loopKey: String, teeBox: String?) -> Bool {
+        self.loopKey == loopKey
+            && WatchCourseSelection.normalizedTeeKey(self.teeBox) == WatchCourseSelection.normalizedTeeKey(teeBox)
+    }
+
+    public static func cacheKey(loopKey: String, teeBox: String?) -> String {
+        "\(loopKey)|\(WatchCourseSelection.normalizedTeeKey(teeBox))"
     }
 
     public func makeRound(roundId: String, courseName overrideName: String? = nil) -> WatchPreparedCourse {

@@ -90,9 +90,9 @@ public final class WatchRoundStore {
         /// Optional setup identity used to resume the exact cached front/back/Tee template.
         /// These keys are absent in older persisted rounds and are intentionally nullable.
         public var courseGlobalId: Int?
-        public var backCourseGlobalId: Int?
         public var teeBox: String?
-        public var nine: String?
+        /// The round's canonical ordered loop key (B4b-2). Nil for rounds persisted before it.
+        public var loopKey: String?
         /// In-progress user facts are optional so rounds written by older app versions still decode.
         public var pendingManualShot: WatchPendingManualShot?
         public var pendingAutoShotCandidate: WatchPendingAutoShotCandidate?
@@ -108,9 +108,8 @@ public final class WatchRoundStore {
             pendingEvents: [WatchInputEvent] = [],
             courseName: String? = nil,
             courseGlobalId: Int? = nil,
-            backCourseGlobalId: Int? = nil,
             teeBox: String? = nil,
-            nine: String? = nil,
+            loopKey: String? = nil,
             pendingManualShot: WatchPendingManualShot? = nil,
             pendingAutoShotCandidate: WatchPendingAutoShotCandidate? = nil,
             scoreDraft: WatchScoreDraft? = nil,
@@ -122,9 +121,8 @@ public final class WatchRoundStore {
             self.pendingEvents = pendingEvents
             self.courseName = courseName
             self.courseGlobalId = courseGlobalId
-            self.backCourseGlobalId = backCourseGlobalId
             self.teeBox = teeBox
-            self.nine = nine
+            self.loopKey = loopKey
             self.pendingManualShot = pendingManualShot
             self.pendingAutoShotCandidate = pendingAutoShotCandidate
             self.scoreDraft = scoreDraft

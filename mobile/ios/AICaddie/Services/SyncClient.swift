@@ -371,7 +371,8 @@ public struct CourseInstallStatus: Codable, Equatable {
     public let jobId: String
     public let globalId: Int
     public let teeBox: String
-    public let nine: String
+    /// The ordered round-loop key the job was prepared for (B4b-2).
+    public let loopKey: String
     public let phase: String
     public let stage: String
     public let progress: Int?
@@ -394,7 +395,7 @@ public struct CourseInstallStatus: Codable, Equatable {
         jobId: String,
         globalId: Int,
         teeBox: String,
-        nine: String,
+        loopKey: String,
         phase: String,
         stage: String,
         progress: Int? = nil,
@@ -416,7 +417,7 @@ public struct CourseInstallStatus: Codable, Equatable {
         self.jobId = jobId
         self.globalId = globalId
         self.teeBox = teeBox
-        self.nine = nine
+        self.loopKey = loopKey
         self.phase = phase
         self.stage = stage
         self.progress = progress
@@ -536,28 +537,24 @@ public final class SyncClient {
         return try decoder.decode(LiveRoundPackage.self, from: data)
     }
 
-    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, nine: String = "all", capturedAt: Date = Date(), ensureGeometry: Bool = false, backgroundGeometry: Bool = false, backGlobalId: Int? = nil, includeEventCursor: Bool = true) async throws -> LiveRoundPackage {
+    /// The round's ordered loops (`loops=`): one or two entries, the first on `globalId`.
+    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date = Date(), ensureGeometry: Bool = false, backgroundGeometry: Bool = false, includeEventCursor: Bool = true) async throws -> LiveRoundPackage {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
             resolvingAgainstBaseURL: false
         ) else {
             throw URLError(.badURL)
         }
-        var items = [
+        components.queryItems = [
             URLQueryItem(name: "round_id", value: roundId),
             URLQueryItem(name: "tee_box", value: teeBox),
-            URLQueryItem(name: "nine", value: nine),
+            URLQueryItem(name: "loops", value: RoundLoopEntry.query(loops)),
             URLQueryItem(name: "captured_at", value: ISO8601DateFormatter().string(from: capturedAt)),
             URLQueryItem(name: "client_id", value: clientId),
             URLQueryItem(name: "ensure_geometry", value: ensureGeometry ? "true" : "false"),
             URLQueryItem(name: "background_geometry", value: backgroundGeometry ? "true" : "false"),
             URLQueryItem(name: "include_event_cursor", value: includeEventCursor ? "true" : "false"),
         ]
-        if let backGlobalId {
-            // Composite 18: play this loop (holes 1–9) + a second loop (holes 10–18).
-            items.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId)))
-        }
-        components.queryItems = items
         guard let url = components.url else {
             throw URLError(.badURL)
         }
@@ -583,14 +580,12 @@ public final class SyncClient {
     public func fetchCourseInstallStatus(
         globalId: Int,
         teeBox: String,
-        nine: String = "all",
-        backGlobalId: Int? = nil
+        loops: [RoundLoopEntry]
     ) async throws -> CourseInstallStatus? {
         try await fetchCourseInstallStatus(
             globalId: globalId,
             teeBox: teeBox,
-            nine: nine,
-            backGlobalId: backGlobalId,
+            loops: loops,
             timeoutInterval: Self.courseInstallStatusTimeoutInterval,
             maximumAttempts: Self.courseReleaseMaximumAttempts
         )
@@ -603,14 +598,12 @@ public final class SyncClient {
     public func probeCourseInstallStatusForRevalidation(
         globalId: Int,
         teeBox: String,
-        nine: String = "all",
-        backGlobalId: Int? = nil
+        loops: [RoundLoopEntry]
     ) async throws -> CourseInstallStatus? {
         try await fetchCourseInstallStatus(
             globalId: globalId,
             teeBox: teeBox,
-            nine: nine,
-            backGlobalId: backGlobalId,
+            loops: loops,
             timeoutInterval: Self.courseInstallRevalidationTimeoutInterval,
             maximumAttempts: 1
         )
@@ -619,8 +612,7 @@ public final class SyncClient {
     private func fetchCourseInstallStatus(
         globalId: Int,
         teeBox: String,
-        nine: String,
-        backGlobalId: Int?,
+        loops: [RoundLoopEntry],
         timeoutInterval: TimeInterval,
         maximumAttempts: Int
     ) async throws -> CourseInstallStatus? {
@@ -630,14 +622,10 @@ public final class SyncClient {
         ) else {
             throw URLError(.badURL)
         }
-        var queryItems = [
+        components.queryItems = [
             URLQueryItem(name: "tee_box", value: teeBox),
-            URLQueryItem(name: "nine", value: nine),
+            URLQueryItem(name: "loops", value: RoundLoopEntry.query(loops)),
         ]
-        if let backGlobalId, backGlobalId > 0 {
-            queryItems.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId)))
-        }
-        components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.timeoutInterval = timeoutInterval

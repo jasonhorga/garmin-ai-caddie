@@ -89,7 +89,7 @@ struct RecentReviewContent: View {
                             adminToken: adminToken,
                             globalId: round.globalId ?? package.course.globalId,
                             backGlobalId: packageBackGlobalId,
-                            nine: package.nine,
+                            nine: packageNine,
                             teeBox: package.course.teeBox
                         )
                     } label: {
@@ -154,9 +154,18 @@ struct RecentReviewContent: View {
 
     /// Composite packages identify back-nine geometry on each physical hole. Reuse that
     /// identity when opening a recent round so the review endpoints do not guess the course.
+    /// The past-round API still speaks back_global_id / nine: a sibling second loop is the back
+    /// course, a single half of an 18-hole course is its nine.
     private var packageBackGlobalId: Int? {
-        let front = package.course.globalId
-        return package.holes.lazy.compactMap(\.sourceGlobalId).first { $0 != front }
+        guard let second = package.secondLoop, second.globalId != package.course.globalId else { return nil }
+        return second.globalId
+    }
+
+    private var packageNine: String? {
+        guard package.roundLoops.count == 1, let only = package.roundLoops.first, only.isCourseHalf else {
+            return nil
+        }
+        return only.half
     }
 
     private func toParText(_ toPar: Int?) -> String {

@@ -19,12 +19,12 @@ vi.mock('../api', () => ({
   fetchMobileCoursePackage: vi.fn(),
   fetchPrepTips: vi.fn(),
   cancelCourseInstall: vi.fn(async (globalId: number, jobId: string) => ({
-    schema: 'ai-caddie-course-install-v1', jobId, globalId, teeBox: 'blue', nine: 'all',
+    schema: 'ai-caddie-course-install-v1', jobId, globalId, teeBox: 'blue', loopKey: '31795:front+31795:back',
     phase: 'cancelled', stage: 'cancelled', totalHoles: 2, geometryReady: 2, topoReady: 1,
     holes: [],
   })),
   retryCourseInstall: vi.fn(async (globalId: number, jobId: string) => ({
-    schema: 'ai-caddie-course-install-v1', jobId, globalId, teeBox: 'blue', nine: 'all',
+    schema: 'ai-caddie-course-install-v1', jobId, globalId, teeBox: 'blue', loopKey: '31795:front+31795:back',
     phase: 'ready', stage: 'complete', totalHoles: 2, geometryReady: 2, topoReady: 2,
     holes: [
       { globalId, localHole: 1, displayHole: 1, geometry: 'ready', topo: 'ready' },
@@ -56,12 +56,12 @@ describe('prepReadinessState', () => {
     expect(prepReadinessState({ ...prepResponse(1), holes: [prepHole(1, 4, 380, { geometryCoverage: 'partial' })] }, null)).toBe('preparing')
     expect(prepReadinessState(prepResponse(1), null)).toBe('precise_ready')
     expect(prepReadinessState(prepResponse(1), {
-      schema: 'ai-caddie-course-install-v1', jobId: 'job', globalId: 1, teeBox: 'blue', nine: 'all',
+      schema: 'ai-caddie-course-install-v1', jobId: 'job', globalId: 1, teeBox: 'blue', loopKey: '31795:front+31795:back',
       phase: 'running', stage: 'topo', totalHoles: 2, geometryReady: 2, topoReady: 1,
       holes: [],
     })).toBe('precise_ready')
     expect(prepReadinessState(prepResponse(1), {
-      schema: 'ai-caddie-course-install-v1', jobId: 'job', globalId: 1, teeBox: 'blue', nine: 'all',
+      schema: 'ai-caddie-course-install-v1', jobId: 'job', globalId: 1, teeBox: 'blue', loopKey: '31795:front+31795:back',
       phase: 'ready', stage: 'complete', totalHoles: 2, geometryReady: 2, topoReady: 2,
       holes: [
         { globalId: 1, localHole: 1, displayHole: 1, geometry: 'ready', topo: 'ready' },
@@ -232,7 +232,7 @@ beforeEach(() => {
     ],
   } as unknown as LiveRoundPackageResponse))
   fetchCourseInstallStatusMock.mockImplementation(async (globalId: number) => ({
-    schema: 'ai-caddie-course-install-v1', jobId: `job-${globalId}`, globalId, teeBox: 'blue', nine: 'all',
+    schema: 'ai-caddie-course-install-v1', jobId: `job-${globalId}`, globalId, teeBox: 'blue', loopKey: '31795:front+31795:back',
     phase: 'ready', stage: 'complete', totalHoles: 2, geometryReady: 2, topoReady: 2,
     holes: [
       { globalId, localHole: 1, displayHole: 1, geometry: 'ready', topo: 'ready' },
@@ -274,7 +274,7 @@ describe('PrepPage workbench', () => {
     expect(screen.getByText('你的战绩:打过 5 次 · 均杆 80.5')).toBeInTheDocument()
     expect(fetchMobileCoursePackageMock).toHaveBeenCalledWith(
       31795,
-      { roundId: 'web-prep-31795', backgroundGeometry: true, includeEventCursor: false },
+      { roundId: 'web-prep-31795', loops: '31795:front,31795:back', backgroundGeometry: true, includeEventCursor: false },
       'admin-secret',
     )
     expect(fetchCoursePrepMock).toHaveBeenCalledWith(
@@ -282,7 +282,7 @@ describe('PrepPage workbench', () => {
       { holes: [1, 2], render: false, includeShots: true },
       'admin-secret',
     )
-    await waitFor(() => expect(fetchCourseInstallStatusMock).toHaveBeenCalledWith(31795, {}, 'admin-secret'))
+    await waitFor(() => expect(fetchCourseInstallStatusMock).toHaveBeenCalledWith(31795, { loops: '31795:front,31795:back' }, 'admin-secret'))
     await waitFor(() => expect(fetchPrepTipsMock).toHaveBeenCalledWith(31795, 'admin-secret'))
     expect(screen.queryByText('选择球场开始备战')).not.toBeInTheDocument()
   })
@@ -394,7 +394,7 @@ describe('PrepPage workbench', () => {
 
   it('keeps precise geometry behind the offline install gate', async () => {
     fetchCourseInstallStatusMock.mockResolvedValueOnce({
-      schema: 'ai-caddie-course-install-v1', jobId: 'job-running', globalId: 31795, teeBox: 'blue', nine: 'all',
+      schema: 'ai-caddie-course-install-v1', jobId: 'job-running', globalId: 31795, teeBox: 'blue', loopKey: '31795:front+31795:back',
       phase: 'running', stage: 'topo', totalHoles: 2, geometryReady: 2, topoReady: 1,
       holes: [],
     })
@@ -407,7 +407,7 @@ describe('PrepPage workbench', () => {
 
   it('offers a recoverable retry when the offline install fails', async () => {
     fetchCourseInstallStatusMock.mockResolvedValueOnce({
-      schema: 'ai-caddie-course-install-v1', jobId: 'job-failed', globalId: 31795, teeBox: 'blue', nine: 'all',
+      schema: 'ai-caddie-course-install-v1', jobId: 'job-failed', globalId: 31795, teeBox: 'blue', loopKey: '31795:front+31795:back',
       phase: 'failed', stage: 'error', totalHoles: 2, geometryReady: 2, topoReady: 1,
       error: 'topo unavailable', holes: [],
     })

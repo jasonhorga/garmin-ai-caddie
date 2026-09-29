@@ -83,7 +83,6 @@ public struct AICaddieApp: App {
                         downloadedCourseKeys: model.downloadedCourseKeys,
                         prepCourseDownloads: model.prepCourseDownloads,
                         prepCourseDownloadPresentation: model.prepCourseDownloadPresentation,
-                        startingNine: model.startingNine,
                         isPreparingRound: model.isPreparingRound,
                         isFinishingRound: model.isFinishingRound,
                         finishErrorMessage: model.finishErrorMessage,
@@ -93,24 +92,19 @@ public struct AICaddieApp: App {
                                 await model.prepareRound(roundId: roundId)
                             }
                         },
-                        onPrepareCourseRound: { globalId, roundId, teeBox, nine in
+                        onPrepareCourseRound: { roundId, teeBox, loops in
                             Task {
-                                await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine)
+                                await model.prepareCourseRound(roundId: roundId, teeBox: teeBox, loops: loops)
                             }
                         },
-                        onPrepareCompositeRound: { globalId, backGlobalId, teeBox, roundId in
+                        onSetSecondLoop: { entry, roundId in
                             Task {
-                                await model.prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)
+                                await model.setSecondLoop(entry, roundId: roundId)
                             }
                         },
-                        onContinueIntoSecondLoop: { globalId, backGlobalId, teeBox, roundId in
+                        onContinueIntoSecondLoop: { entry, roundId in
                             Task {
-                                await model.continueIntoSecondLoop(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)
-                            }
-                        },
-                        onChangeNine: { nine in
-                            Task {
-                                await model.setActiveNine(nine)
+                                await model.continueIntoSecondLoop(entry, roundId: roundId)
                             }
                         },
                         onFinishRound: {
@@ -328,8 +322,8 @@ private struct NoPackageHubView: View {
             apiBaseURL: model.apiBaseURL,
             adminTokenConfigured: model.adminTokenConfigured,
             onPrepareRound: { roundId in Task { await model.prepareRound(roundId: roundId) } },
-            onPrepareCourseRound: { globalId, roundId, teeBox, nine in
-                Task { await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine) }
+            onPrepareCourseRound: { roundId, teeBox, loops in
+                Task { await model.prepareCourseRound(roundId: roundId, teeBox: teeBox, loops: loops) }
             },
             onSaveBackendConfiguration: { baseURL, token in
                 Task { await model.saveBackendConfiguration(apiBaseURLText: baseURL, adminTokenText: token) }
@@ -485,8 +479,6 @@ public final class LiveRoundAppModel: ObservableObject {
             prepCourseDownloadPresentation.replace(with: prepCourseDownloads)
         }
     }
-    /// 本局的起始九洞(用于「移除另外 9 洞」撤销目标);随新 roundId 重置。
-    @Published public private(set) var startingNine: String?
     public let watchBridge: WatchEventBridge?
     public let offlineStore: OfflineStore
     public let garminSessionStore: GarminSessionStore?
@@ -688,7 +680,6 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingWatchRoundStart = nil
         pendingEventCount = 0
         pendingLiveHole = nil
-        startingNine = nil
         courseOptions = []
         recentCourseOption = try? offlineStore.loadRecentCourseSelection()
         courseOptionsRefreshSucceeded = false
@@ -1103,14 +1094,20 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    public func prepareCourseRound(globalId: Int, roundId: String, teeBox: String, nine: String) async {
+    /// Start a round on ordered loops (B4b-2): one entry for a nine-hole start (`G:all`, or
+    /// `G:front` / `G:back` of an 18-hole course), two for a full round in play order. The same
+    /// round id re-prepares that round (e.g. after a failed start) and keeps its identity.
+    public func prepareCourseRound(roundId: String, teeBox: String, loops: [RoundLoopEntry]) async {
         let requestedRoundId = roundId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !requestedRoundId.isEmpty else {
+        guard !requestedRoundId.isEmpty,
+              (1...2).contains(loops.count),
+              let globalId = loops.first?.globalId else {
             syncStatus = "无法开始这一场,请重试"
             return
         }
+        let loopKey = RoundLoopEntry.loopKey(loops)
         recordUITestLatency(
-            "course-start.begin globalId=\(globalId) holes=\(nine) tee=\(teeBox)"
+            "course-start.begin globalId=\(globalId) loops=\(loopKey) tee=\(teeBox)"
         )
         let preparationToken = beginRoundPreparation()
         defer {
@@ -1120,60 +1117,24 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         // A home package can deliberately retain the last course/round id while no round is active.
         // `liveRoundState`, not package identity, therefore decides whether Start must enter hole 1.
-        // The same active round's 加打/移除九洞 keeps its identity and does not re-enter as a new one.
         let isNewRound = liveRoundState?.roundId != requestedRoundId
-        let isIntentionalHoleSetChange = !isNewRound
-            && (package?.nine ?? "all").caseInsensitiveCompare(nine) != .orderedSame
-        if isNewRound {
-            startingNine = (nine == "all") ? nil : nine
-        }
+        let isIntentionalHoleSetChange = !isNewRound && package?.loopKey != loopKey
         let preparedAt = Date()
 
         do {
-            // Removing a locally-added physical loop is a hole-set mutation, not a course
-            // download. Publish the retained front loop synchronously; immutable geometry/topo
-            // for both loops remains cached and the normal background pass only revalidates it.
-            if !isNewRound,
-               nine.caseInsensitiveCompare("all") == .orderedSame,
-               let current = package,
-               current.roundId == requestedRoundId,
-               current.course.globalId == globalId,
-               let trimmed = current.removingCompositeBackNine() {
-                let persisted = try offlineStore.saveRoundPackage(
-                    trimmed,
-                    allowHoleCountDecrease: true
-                )
-                try activatePackage(
-                    persisted,
-                    status: "已移除后 9 洞",
-                    rememberAsRecent: true
-                )
-                deferredOfflineCourseDownloadRevalidation = true
-                return
-            }
-
-            // A course advertised as downloaded already has the exact Tee/hole-set facts and every
-            // precise topo bitmap on disk.  Starting that new round must not sit behind a slow or
-            // unavailable package request: rebase its immutable template to the new round identity
-            // and enter hole 1 immediately.  Same-round nine changes deliberately keep the remote
-            // path below because they mutate the active package rather than start a fresh round.
+            // A course advertised as downloaded already has the exact Tee facts and every precise
+            // topo bitmap on disk. Starting that new round must not sit behind a slow or
+            // unavailable package request: project the requested order from the immutable
+            // whole-course template(s), rebased to the new round identity, and enter hole 1.
             if isNewRound,
-               let template = try offlineStore.loadCourseTemplate(
-                   globalId: globalId,
+               let local = installedRoundProjection(
+                   loops,
+                   roundId: requestedRoundId,
                    teeBox: teeBox,
-                   nine: nine
-               ),
-               template.hasCompleteOfflineCoursePrep,
-               offlineStore.hasCourseTopoImages(for: template),
-               template.hasCaddieContextForEveryHole {
-                let offlinePackage = template.rebasedForOfflineStart(
-                    roundId: requestedRoundId,
-                    generatedAt: preparedAt
-                )
-                let persisted = try offlineStore.saveRoundPackage(
-                    offlinePackage,
-                    allowHoleCountDecrease: isIntentionalHoleSetChange
-                )
+                   preparedAt: preparedAt,
+                   requireComplete: true
+               ) {
+                let persisted = try offlineStore.saveRoundPackage(local)
                 try activatePackage(persisted, status: "本地球场已就绪", rememberAsRecent: true)
                 signalFreshRoundEntry(revalidatePackage: true)
                 // Enter immediately from local facts, then verify the Garmin release in the
@@ -1186,9 +1147,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 globalId: globalId,
                 roundId: requestedRoundId,
                 teeBox: teeBox,
-                nine: nine,
+                loops: loops,
                 capturedAt: preparedAt,
-                preparationToken: preparationToken,
+                preparationToken: preparationToken
             )
             recordUITestLatency(
                 "course-start.fetch.end globalId=\(globalId) found=\(fetched != nil)"
@@ -1215,36 +1176,30 @@ public final class LiveRoundAppModel: ObservableObject {
                     signalFreshRoundEntry(cacheOfflineAssets: true)
                     recordUITestLatency("course-start.signal.end globalId=\(globalId)")
                 } else {
-                    // 加打另外九洞 changes the package in place but still needs the newly selected
-                    // holes retained. beginRoundPreparation cancelled the superseded download above.
                     beginOfflineCourseDownload()
                 }
                 return
             }
-            if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
+            if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId),
+               cachedPackage.loopKey == loopKey {
                 // Persist the active-round pointer for the offline/cached start too, so a round
                 // started without network still resumes on relaunch (continue card survives quit).
-                let persisted = try offlineStore.saveRoundPackage(
-                    cachedPackage,
-                    allowHoleCountDecrease: isIntentionalHoleSetChange
-                )
+                let persisted = try offlineStore.saveRoundPackage(cachedPackage)
                 try activatePackage(persisted, status: "已下载离线", rememberAsRecent: true)
                 if isNewRound {
                     signalFreshRoundEntry(revalidatePackage: true)
                 } else {
                     beginOfflineCourseDownload(revalidatePackage: true)
                 }
-            } else if let template = try offlineStore.loadCourseTemplate(
-                globalId: globalId,
+            } else if let local = installedRoundProjection(
+                loops,
+                roundId: requestedRoundId,
                 teeBox: teeBox,
-                nine: nine
+                preparedAt: preparedAt,
+                requireComplete: false
             ) {
-                let offlinePackage = template.rebasedForOfflineStart(
-                    roundId: requestedRoundId,
-                    generatedAt: preparedAt
-                )
                 let persisted = try offlineStore.saveRoundPackage(
-                    offlinePackage,
+                    local,
                     allowHoleCountDecrease: isIntentionalHoleSetChange
                 )
                 try activatePackage(persisted, status: "离线球场已就绪", rememberAsRecent: true)
@@ -1260,6 +1215,33 @@ public final class LiveRoundAppModel: ObservableObject {
             AICaddieLog.network.error("Course package prepare failed: \(String(describing: error), privacy: .public)")
             syncStatus = "开始失败,稍后重试"
         }
+    }
+
+    /// The ordered round projected offline from installed whole-course templates, rebased to a new
+    /// round identity. `requireComplete` asks for every precise map, topo bitmap and caddie seed,
+    /// the bar for skipping the network on a fresh start. Nil when any loop's template is missing.
+    private func installedRoundProjection(
+        _ loops: [RoundLoopEntry],
+        roundId: String,
+        teeBox: String,
+        preparedAt: Date,
+        requireComplete: Bool
+    ) -> LiveRoundPackage? {
+        var templates: [Int: LiveRoundPackage] = [:]
+        for globalId in Set(loops.map(\.globalId)) {
+            guard let template = try? offlineStore.loadCourseTemplate(
+                globalId: globalId,
+                teeBox: teeBox
+            ) else { return nil }
+            if requireComplete {
+                guard template.hasCompleteOfflineCoursePrep,
+                      offlineStore.hasCourseTopoImages(for: template),
+                      template.hasCaddieContextForEveryHole else { return nil }
+            }
+            templates[globalId] = template
+        }
+        return LiveRoundPackage.projecting(loops, templates: templates, roundId: roundId)?
+            .rebasedForOfflineStart(roundId: roundId, generatedAt: preparedAt)
     }
 
     /// After a fresh round is prepared, point the UI at its first hole so it enters the live screen.
@@ -1293,8 +1275,8 @@ public final class LiveRoundAppModel: ObservableObject {
             $0.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame && $0.resolvedMapOverlay != nil
         } ?? false
         guard prepReady || first.geometryCoverage == .ready else { return }
-        let globalId = first.sourceGlobalId ?? snapshot.course.globalId
-        let localHole = first.sourceLocalHole ?? first.number
+        let globalId = first.sourceGlobalId
+        let localHole = first.sourceLocalHole
         let revision = (prepReady ? prep?.geometryRevision : nil) ?? first.geometryRevision
         TopoHoleImageStore.prefetch(
             SyncClient.topoImageURL(
@@ -1330,6 +1312,9 @@ public final class LiveRoundAppModel: ObservableObject {
         let expectedGlobalId = initial.course.globalId
         // An explicit same-round refresh supersedes any earlier fresh-entry release still pending.
         deferredOfflineCourseDownloadRevalidation = nil
+        // Queue the whole-course template(s) this round does not carry itself; the prep queue
+        // starts after this round's own assets, so it never competes with the live hole.
+        enqueueWholeCourseTemplates(for: initial)
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = Task { @MainActor [weak self, syncClient, initial] in
             guard let self else { return }
@@ -1340,10 +1325,9 @@ public final class LiveRoundAppModel: ObservableObject {
             var snapshot = downloadSnapshot
             if let retained = try? self.offlineStore.loadCourseTemplate(
                 globalId: snapshot.course.globalId,
-                teeBox: snapshot.course.teeBox,
-                nine: snapshot.nine ?? "all"
+                teeBox: snapshot.course.teeBox
             ), retained.hasCompleteOfflineCoursePrep,
-               retained.holeSetIdentity == snapshot.holeSetIdentity {
+               retained.loopKey == snapshot.loopKey {
                 snapshot = snapshot.replacingCoursePrep(retained.coursePrep)
             }
             self.recordUITestLatency(
@@ -1358,6 +1342,55 @@ public final class LiveRoundAppModel: ObservableObject {
                 "offline-cache.task.end globalId=\(snapshot.course.globalId) holes=\(snapshot.holes.count)"
             )
             self.startPrepCourseDownloadQueueIfNeeded()
+        }
+    }
+
+    /// B4b-2 template acquisition. A round that does not carry a whole physical course — a
+    /// one-half start (`G:back`), or a second 9-hole loop of a sibling course — queues that
+    /// course's canonical template (`G:front,G:back`, or `G:all`) and its topo / geometry assets
+    /// through the prep install job. Once durable, an offline turn projects any ordered or
+    /// duplicate second loop from it instead of needing the network.
+    private func enqueueWholeCourseTemplates(for snapshot: LiveRoundPackage) {
+        guard snapshot.dataMode != "fixture", snapshot.course.globalId > 0 else { return }
+        var changed = false
+        var seen = Set<Int>()
+        for loop in snapshot.roundLoops where seen.insert(loop.globalId).inserted {
+            if loop.globalId == snapshot.course.globalId, snapshot.wholeCourseTemplate() != nil {
+                continue
+            }
+            let holes = loop.isCourseHalf ? RoundLoopEntry.holesPerLoop * 2 : RoundLoopEntry.holesPerLoop
+            let candidate = PrepCourseDownloadRecord(
+                course: MobileCourseOption(
+                    globalId: loop.globalId,
+                    name: snapshot.course.venueDisplayName,
+                    holes: holes,
+                    teeBox: snapshot.course.teeBox,
+                    venueName: snapshot.course.venueName,
+                    venueNameSource: snapshot.course.venueNameSource,
+                    segmentHoles: holes
+                ),
+                teeBox: snapshot.course.teeBox,
+                totalHoles: holes
+            )
+            if let index = prepCourseDownloads.firstIndex(where: { $0.id == candidate.id }) {
+                if prepCourseDownloads[index].phase == .failed,
+                   !prepCourseDownloads[index].isTerminalFailure {
+                    prepCourseDownloads[index].phase = .queued
+                    prepCourseDownloads[index].errorText = nil
+                    changed = true
+                }
+                continue
+            }
+            guard readyPrepTemplate(for: candidate) == nil else { continue }
+            prepCourseDownloads.append(candidate)
+            changed = true
+            recordUITestLatency(
+                "template-acquisition.queued globalId=\(loop.globalId) loops=\(RoundLoopEntry.loopKey(candidate.loops))"
+            )
+        }
+        if changed {
+            persistPrepCourseDownloads()
+            refreshDownloadedCourseOptions()
         }
     }
 
@@ -1388,21 +1421,6 @@ public final class LiveRoundAppModel: ObservableObject {
         "\(globalId):\(localHole)"
     }
 
-    private func courseInstallBackGlobalId(for snapshot: LiveRoundPackage) -> Int? {
-        let primaryGlobalId = snapshot.course.globalId
-        if snapshot.isCompositeNineRound,
-           let firstBack = snapshot.holes.sorted(by: { $0.number < $1.number }).first(where: {
-               $0.number > 9 && ($0.sourceLocalHole ?? $0.number) <= 9
-           }) {
-            // Same-loop rounds (A+A) deliberately return the primary gid here. The reset local
-            // hole number is the composite fact; gid inequality only detects A+B/A+C.
-            return firstBack.sourceGlobalId ?? primaryGlobalId
-        }
-        return snapshot.holes
-            .map { $0.sourceGlobalId ?? primaryGlobalId }
-            .first { $0 != primaryGlobalId }
-    }
-
     private func offlinePrepIsPrecise(_ prep: CoursePrepHole?) -> Bool {
         guard let prep, prep.resolvedMapOverlay != nil else { return false }
         return prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
@@ -1423,19 +1441,18 @@ public final class LiveRoundAppModel: ObservableObject {
         _ cached: LiveRoundPackage,
         using syncClient: SyncClient
     ) async -> LiveRoundPackage? {
-        let frontGlobalId = cached.course.globalId
-        let backGlobalId = courseInstallBackGlobalId(for: cached)
+        // The same ordered `loops=` as the cached round: its round-hole table and `loopKey`
+        // survive revalidation unchanged (B4b-2).
         let remote: LiveRoundPackage
         do {
             remote = try await syncClient.fetchCoursePackage(
-                globalId: frontGlobalId,
+                globalId: cached.course.globalId,
                 roundId: cached.roundId,
                 teeBox: cached.course.teeBox,
-                nine: backGlobalId == nil ? (cached.nine ?? "all") : "all",
+                loops: cached.loopEntries,
                 capturedAt: Date(),
                 ensureGeometry: false,
                 backgroundGeometry: true,
-                backGlobalId: backGlobalId,
                 includeEventCursor: false
             )
         } catch {
@@ -1444,7 +1461,9 @@ public final class LiveRoundAppModel: ObservableObject {
             )
             return nil
         }
-        guard remote.roundId == cached.roundId, !remote.holes.isEmpty else { return nil }
+        guard remote.roundId == cached.roundId,
+              remote.loopKey == cached.loopKey,
+              !remote.holes.isEmpty else { return nil }
         let remoteWithStableName = remote
 
         var prepByHole = Dictionary(
@@ -1703,15 +1722,15 @@ public final class LiveRoundAppModel: ObservableObject {
             guard let existing = snapshot.coursePrep?.holes.first(where: {
                 $0.hole == roundHole.number
             }) else { continue }
-            let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
-            let localHole = roundHole.sourceLocalHole ?? roundHole.number
+            let globalId = roundHole.sourceGlobalId
+            let localHole = roundHole.sourceLocalHole
             prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)] = existing
         }
 
         func assembledSnapshot() -> LiveRoundPackage {
             let mapped = snapshot.holes.compactMap { roundHole -> CoursePrepHole? in
-                let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
-                let localHole = roundHole.sourceLocalHole ?? roundHole.number
+                let globalId = roundHole.sourceGlobalId
+                let localHole = roundHole.sourceLocalHole
                 return prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]?
                     .renumbered(to: roundHole.number)
             }
@@ -1730,8 +1749,8 @@ public final class LiveRoundAppModel: ObservableObject {
 
         func preparedHoleCount() -> Int {
             snapshot.holes.reduce(into: 0) { count, roundHole in
-                let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
-                let localHole = roundHole.sourceLocalHole ?? roundHole.number
+                let globalId = roundHole.sourceGlobalId
+                let localHole = roundHole.sourceLocalHole
                 if offlinePrepIsPrecise(prepBySource[
                     offlinePrepKey(globalId: globalId, localHole: localHole)
                 ]) {
@@ -1742,8 +1761,8 @@ public final class LiveRoundAppModel: ObservableObject {
 
         func downloadedHoleCount() -> Int {
             snapshot.holes.reduce(into: 0) { count, roundHole in
-                let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
-                let localHole = roundHole.sourceLocalHole ?? roundHole.number
+                let globalId = roundHole.sourceGlobalId
+                let localHole = roundHole.sourceLocalHole
                 let prep = prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]
                 guard offlinePrepIsPrecise(prep),
                       offlineStore.loadCourseTopoImageURL(
@@ -1818,8 +1837,8 @@ public final class LiveRoundAppModel: ObservableObject {
         /// retry or app relaunch skips it.
         func downloadNewlyReadyTopoHoles() async {
             let ready = snapshot.holes.compactMap { roundHole -> (globalId: Int, localHole: Int, geometryRevision: String?)? in
-                let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
-                let localHole = roundHole.sourceLocalHole ?? roundHole.number
+                let globalId = roundHole.sourceGlobalId
+                let localHole = roundHole.sourceLocalHole
                 let prep = prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]
                 let revision = prep?.geometryRevision ?? roundHole.geometryRevision
                 let key = offlinePrepKey(globalId: globalId, localHole: localHole)
@@ -1891,11 +1910,11 @@ public final class LiveRoundAppModel: ObservableObject {
         }
 
         let groups = Dictionary(grouping: snapshot.holes) { hole in
-            hole.sourceGlobalId ?? snapshot.course.globalId
+            hole.sourceGlobalId
         }
         var orderedGlobalIds: [Int] = []
         for hole in snapshot.holes {
-            let globalId = hole.sourceGlobalId ?? snapshot.course.globalId
+            let globalId = hole.sourceGlobalId
             if !orderedGlobalIds.contains(globalId) {
                 orderedGlobalIds.append(globalId)
             }
@@ -1909,23 +1928,22 @@ public final class LiveRoundAppModel: ObservableObject {
         // coverage probe path.
         func refreshServerInstallStatus() async {
             let primaryGlobalId = snapshot.course.globalId
-            let backGlobalId = courseInstallBackGlobalId(for: snapshot)
             let expectedKeys = Set(snapshot.holes.map { roundHole in
                 offlinePrepKey(
-                    globalId: roundHole.sourceGlobalId ?? primaryGlobalId,
-                    localHole: roundHole.sourceLocalHole ?? roundHole.number
+                    globalId: roundHole.sourceGlobalId,
+                    localHole: roundHole.sourceLocalHole
                 )
             })
             let expectedGlobalIds = Set(snapshot.holes.map { roundHole in
-                roundHole.sourceGlobalId ?? primaryGlobalId
+                roundHole.sourceGlobalId
             })
             let expectedDisplayKeys = Dictionary(
                 grouping: snapshot.holes.map { roundHole in
                     (
                         roundHole.number,
                         offlinePrepKey(
-                            globalId: roundHole.sourceGlobalId ?? primaryGlobalId,
-                            localHole: roundHole.sourceLocalHole ?? roundHole.number
+                            globalId: roundHole.sourceGlobalId,
+                            localHole: roundHole.sourceLocalHole
                         )
                     )
                 },
@@ -1948,8 +1966,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     guard let candidate = try await syncClient.fetchCourseInstallStatus(
                         globalId: primaryGlobalId,
                         teeBox: tee,
-                        nine: snapshot.nine ?? "all",
-                        backGlobalId: backGlobalId
+                        loops: snapshot.loopEntries
                     ) else { continue }
                     let hasMatchingHole = candidate.holes.contains { row in
                         let exact = row.globalId > 0 && row.localHole > 0
@@ -1966,7 +1983,7 @@ public final class LiveRoundAppModel: ObservableObject {
                         return expectedDisplayKeys[row.displayHole] != nil
                     }
                     // A status row with the right course id but no matching hole can belong to a
-                    // different tee/nine job. Keep probing aliases instead of accepting it and
+                    // different tee/loop job. Keep probing aliases instead of accepting it and
                     // accidentally treating an empty journal as authoritative.
                     guard hasMatchingHole else { continue }
                     status = candidate
@@ -2029,8 +2046,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                   !revision.isEmpty else { continue }
             geometryReadyKeys.insert(offlinePrepKey(
-                globalId: roundHole.sourceGlobalId ?? snapshot.course.globalId,
-                localHole: roundHole.sourceLocalHole ?? roundHole.number
+                globalId: roundHole.sourceGlobalId,
+                localHole: roundHole.sourceLocalHole
             ))
         }
         let retryDelays = offlineGeometryRetryDelaysNanoseconds
@@ -2040,7 +2057,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 guard !Task.isCancelled else { return false }
                 guard let roundHoles = groups[globalId] else { continue }
                 let localHoles = Array(Set(roundHoles.map {
-                    $0.sourceLocalHole ?? $0.number
+                    $0.sourceLocalHole
                 })).sorted()
                 let requested = localHoles.filter { localHole in
                     let key = offlinePrepKey(globalId: globalId, localHole: localHole)
@@ -2123,7 +2140,7 @@ public final class LiveRoundAppModel: ObservableObject {
             ) { unresolved, globalId in
                 guard let roundHoles = groups[globalId] else { return }
                 let localHoles = Array(Set(roundHoles.map {
-                    $0.sourceLocalHole ?? $0.number
+                    $0.sourceLocalHole
                 })).sorted()
                 let missing = localHoles.filter { localHole in
                     !offlinePrepIsPrecise(prepBySource[
@@ -2209,8 +2226,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 await refreshServerInstallStatus()
             }
             let missingTopoHoles = snapshot.holes.compactMap { roundHole -> (globalId: Int, localHole: Int, geometryRevision: String?)? in
-                let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
-                let localHole = roundHole.sourceLocalHole ?? roundHole.number
+                let globalId = roundHole.sourceGlobalId
+                let localHole = roundHole.sourceLocalHole
                 let prep = prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]
                 let revision = prep?.geometryRevision ?? roundHole.geometryRevision
                 guard prep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
@@ -2349,148 +2366,40 @@ public final class LiveRoundAppModel: ObservableObject {
         return replacementCompleted
     }
 
-    /// 组合 18 洞:本环(1–9)+ 第二个环(10–18)。两个环各是独立 CourseView 球场,后端合并成一局。
-    /// 组合局已是 18 洞,不设「移除九洞」撤销目标(startingNine 保持 nil)。
-    public func prepareCompositeRound(globalId: Int, backGlobalId: Int, roundId: String, teeBox: String) async {
+    /// The turn (B4b-2): add the second loop to this round, change it before its first hole is
+    /// played (the caller owns the lock), or drop it again (`nil` → 只打 9 洞). The first loop never
+    /// changes. Offline — and whenever the loop's whole-course template is installed — the second
+    /// loop is projected locally from that template; otherwise the round is re-requested online
+    /// as `loops=<first>,<second>`. Both paths give the server's round-hole table.
+    public func setSecondLoop(_ entry: RoundLoopEntry?, roundId: String) async {
         let requestedRoundId = roundId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !requestedRoundId.isEmpty else {
-            syncStatus = "无法开始这一场,请重试"
-            return
-        }
+        guard let current = package,
+              current.roundId == requestedRoundId,
+              liveRoundState?.roundId == requestedRoundId,
+              let first = current.roundLoops.first else { return }
+        let teeBox = current.course.teeBox
+        let loops = [first.entry] + (entry.map { [$0] } ?? [])
+        guard RoundLoopEntry.loopKey(loops) != current.loopKey else { return }
         let preparationToken = beginRoundPreparation()
         defer { finishRoundPreparation(preparationToken) }
-        let isNewRound = liveRoundState?.roundId != requestedRoundId
-        if isNewRound {
-            startingNine = nil
-        }
-        let preparedAt = Date()
         do {
-            if !isNewRound,
-               let current = package,
-               current.roundId == requestedRoundId,
-               current.course.globalId == globalId {
-                // Adding the second loop, or changing it before it starts (A+B → A+C / A+A), is a
-                // local composition of installed loops: trim an existing back nine first.
-                let firstLoop = current.isCompositeNineRound
-                    ? (current.removingCompositeBackNine() ?? current)
-                    : current
-                let installedBack: LiveRoundPackage?
-                if backGlobalId == globalId {
-                    installedBack = firstLoop
-                } else {
-                    installedBack = try offlineStore.loadCourseTemplate(
-                        globalId: backGlobalId,
-                        teeBox: teeBox,
-                        nine: "all"
-                    )
-                }
-                if let installedBack,
-                   let localComposite = firstLoop.composingBackNine(
-                       from: installedBack,
-                       roundId: requestedRoundId
-                   ) {
-                    let persisted = try offlineStore.saveRoundPackage(localComposite)
-                    try activatePackage(
-                        persisted,
-                        status: "已加打后 9 洞",
-                        rememberAsRecent: true
-                    )
-                    deferredOfflineCourseDownloadRevalidation = true
-                    return
-                }
-            }
-
-            let fetched = await fetchRemoteCompositePackage(
-                globalId: globalId,
-                backGlobalId: backGlobalId,
-                roundId: requestedRoundId,
-                teeBox: teeBox,
-                capturedAt: preparedAt,
-                preparationToken: preparationToken
-            )
-            guard isCurrentRoundPreparation(preparationToken) else { return }
-            if let remotePackage = fetched {
-                let persisted = try offlineStore.saveRoundPackage(
-                    remotePackage,
-                    allowHoleCountDecrease: !isNewRound
-                )
-                try activatePackage(persisted, status: "球场已就绪", rememberAsRecent: true)
-                if isNewRound {
-                    signalFreshRoundEntry(cacheOfflineAssets: true)
-                } else {
-                    beginOfflineCourseDownload()
-                }
-                return
-            }
-            if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
-                // Persist the active-round pointer for the offline/cached start too, so a round
-                // started without network still resumes on relaunch (continue card survives quit).
-                let persisted = try offlineStore.saveRoundPackage(
-                    cachedPackage,
-                    allowHoleCountDecrease: !isNewRound
-                )
-                try activatePackage(persisted, status: "已下载离线", rememberAsRecent: true)
-                if isNewRound {
-                    signalFreshRoundEntry(revalidatePackage: true)
-                } else {
-                    beginOfflineCourseDownload(revalidatePackage: true)
-                }
+            let local: LiveRoundPackage?
+            if let entry {
+                local = (try? offlineStore.loadCourseTemplate(globalId: entry.globalId, teeBox: teeBox))
+                    .flatMap { current.composingSecondLoop(entry, from: $0, roundId: requestedRoundId) }
             } else {
-                syncStatus = "暂时无法开始,稍后重试"
+                local = current.removingSecondLoop()
             }
-        } catch {
-            AICaddieLog.network.error("Course package prepare failed: \(String(describing: error), privacy: .public)")
-            syncStatus = "开始失败,稍后重试"
-        }
-    }
-
-    /// B4 turn: add the chosen second loop to this round, then open its first hole. The model owns
-    /// the navigation so it survives the live destination being rebuilt for the new hole set
-    /// (RoundHomeView keys that view by `holeSetIdentity`): `pendingLiveHole` is consumed by
-    /// RoundHomeView, and the saved cursor moves with it.
-    public func continueIntoSecondLoop(globalId: Int, backGlobalId: Int, roundId: String, teeBox: String) async {
-        await prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)
-        guard let package,
-              package.roundId == roundId.trimmingCharacters(in: .whitespacesAndNewlines),
-              let first = NineLoopTurn.firstHoleOfSecondLoop(package.holes.map(\.number)) else { return }
-        setActiveHole(first)
-        pendingLiveHole = first
-    }
-
-    /// 中途改当前局的起始九洞(加打另外 9 洞 → all,或撤销回起始九洞)。
-    /// 同一 roundId 重取并重新激活,已记杆/事件按 roundId 保留(restoreLiveRoundState 重建)。
-    public func setActiveNine(_ nine: String) async {
-        guard let package, package.course.globalId != 0 else {
-            return
-        }
-        // 首次扩展到 18 洞时,记下当前九洞作为「移除」撤销目标(覆盖 bootstrap 恢复的局)。
-        if nine == "all", startingNine == nil {
-            let current = package.nine ?? "all"
-            startingNine = (current == "all") ? nil : current
-        }
-        do {
-            let localSelection: LiveRoundPackage?
-            if nine.caseInsensitiveCompare("all") == .orderedSame,
-               package.holes.count <= 9 {
-                localSelection = try offlineStore.loadCourseTemplate(
-                    globalId: package.course.globalId,
-                    teeBox: package.course.teeBox,
-                    nine: "all"
-                )?.rebasedForOfflineStart(roundId: package.roundId)
-            } else {
-                localSelection = package.selectingExistingNine(nine)
-            }
-            if let localSelection,
-               localSelection.holeSetIdentity != package.holeSetIdentity {
-                let preparationToken = beginRoundPreparation()
-                defer { finishRoundPreparation(preparationToken) }
+            if let local {
+                // Geometry / topo bytes stay in the course cache; only the playable hole set
+                // changes, so it is published synchronously and revalidated in the background.
                 let persisted = try offlineStore.saveRoundPackage(
-                    localSelection,
-                    allowHoleCountDecrease: localSelection.holes.count < package.holes.count
+                    local,
+                    allowHoleCountDecrease: local.holes.count < current.holes.count
                 )
                 try activatePackage(
                     persisted,
-                    status: nine == "all" ? "已加打后 9 洞" : "已调整本场洞数",
+                    status: entry == nil ? "已改为只打 9 洞" : "已加打第二环",
                     rememberAsRecent: true
                 )
                 deferredOfflineCourseDownloadRevalidation = true
@@ -2498,15 +2407,52 @@ public final class LiveRoundAppModel: ObservableObject {
             }
         } catch {
             AICaddieLog.storage.info(
-                "Local nine-hole update deferred to network: \(String(describing: error), privacy: .public)"
+                "Local second-loop update deferred to network: \(String(describing: error), privacy: .public)"
             )
         }
-        await prepareCourseRound(
-            globalId: package.course.globalId,
-            roundId: package.roundId,
-            teeBox: package.course.teeBox,
-            nine: nine
+        guard isCurrentRoundPreparation(preparationToken) else { return }
+        let fetched = await fetchRemoteCoursePackage(
+            globalId: first.globalId,
+            roundId: requestedRoundId,
+            teeBox: teeBox,
+            loops: loops,
+            preparationToken: preparationToken
         )
+        guard isCurrentRoundPreparation(preparationToken),
+              let fetched,
+              fetched.loopKey == RoundLoopEntry.loopKey(loops) else {
+            if isCurrentRoundPreparation(preparationToken) {
+                syncStatus = "第二环暂时无法加载,联网后重试"
+            }
+            return
+        }
+        do {
+            let persisted = try offlineStore.saveRoundPackage(
+                fetched,
+                allowHoleCountDecrease: true
+            )
+            try activatePackage(persisted, status: "球场已就绪", rememberAsRecent: true)
+            beginOfflineCourseDownload()
+        } catch {
+            AICaddieLog.storage.error(
+                "Second-loop package save failed: \(String(describing: error), privacy: .public)"
+            )
+            syncStatus = "第二环暂时无法加载,稍后重试"
+        }
+    }
+
+    /// B4 turn: add the chosen second loop to this round, then open its first hole. The model owns
+    /// the navigation so it survives the live destination being rebuilt for the new hole set
+    /// (RoundHomeView keys that view by `holeSetIdentity`): `pendingLiveHole` is consumed by
+    /// RoundHomeView, and the saved cursor moves with it.
+    public func continueIntoSecondLoop(_ entry: RoundLoopEntry, roundId: String) async {
+        await setSecondLoop(entry, roundId: roundId)
+        guard let package,
+              package.roundId == roundId.trimmingCharacters(in: .whitespacesAndNewlines),
+              package.secondLoop?.entry == entry,
+              let first = package.secondLoop?.roundStartHole else { return }
+        setActiveHole(first)
+        pendingLiveHole = first
     }
 
     /// Save & End is local-first. The tap seals the round and exits live play immediately; delivery
@@ -2569,7 +2515,6 @@ public final class LiveRoundAppModel: ObservableObject {
         } else {
             package = sealedPackage
             liveRoundState = nil
-            startingNine = nil
             pendingEventCount = 0
             pendingLiveHole = nil
             finishErrorMessage = nil
@@ -2645,8 +2590,11 @@ public final class LiveRoundAppModel: ObservableObject {
                     metadata: record.metadata
                 )
                 guard !Task.isCancelled, boundPlayerId == playerScope else { return }
-                let refreshedHome: LiveRoundPackage? = if let course = finishedPackage?.course {
-                    await fetchHomePackage(preferredCourse: course)
+                let refreshedHome: LiveRoundPackage? = if let finishedPackage,
+                    let loops = finishedPackage.wholeCourseEntries(
+                        globalId: finishedPackage.course.globalId
+                    ) {
+                    await fetchHomePackage(preferredCourse: finishedPackage.course, loops: loops)
                 } else {
                     nil
                 }
@@ -2691,7 +2639,6 @@ public final class LiveRoundAppModel: ObservableObject {
         if pendingWatchRoundStart?.roundId == roundId {
             pendingWatchRoundStart = nil
         }
-        startingNine = nil
         pendingEventCount = 0
         finishErrorMessage = nil
         syncStatus = "本场已保存"
@@ -2727,37 +2674,31 @@ public final class LiveRoundAppModel: ObservableObject {
         defer { watchRoundStartInFlight.remove(roundId) }
         pendingWatchRoundStart = start
 
-        let sourceIds = Set(start.holes.compactMap(\.globalId))
-        let frontGlobalId = start.globalId
-            ?? start.holes.compactMap(\.globalId).first
-        let requestedNine = (start.nine?.isEmpty == false ? start.nine : "all") ?? "all"
+        // The Watch sends its selection's canonical ordered loop key; the phone projects the same
+        // order from installed templates or requests it as `loops=` (B4b-2).
+        guard let loops = RoundLoopEntry.entries(loopKey: start.loopKey),
+              let firstGlobalId = loops.first?.globalId else {
+            syncStatus = "手表球局的球场信息无效"
+            return
+        }
 
         do {
-            var nextPackage: LiveRoundPackage?
-            if let frontGlobalId {
-                let templates = (try? offlineStore.loadCourseTemplates()) ?? []
-                nextPackage = templates.first { candidate in
-                    guard candidate.course.globalId == frontGlobalId,
-                          candidate.course.teeBox.caseInsensitiveCompare(start.teeBox) == .orderedSame,
-                          (candidate.nine ?? "all").caseInsensitiveCompare(requestedNine) == .orderedSame else {
-                        return false
-                    }
-                    let candidateSourceIds = Set(candidate.holes.map {
-                        $0.sourceGlobalId ?? candidate.course.globalId
-                    })
-                    return sourceIds.isEmpty || candidateSourceIds == sourceIds
-                }?.rebasedForOfflineStart(roundId: roundId)
-            }
+            var nextPackage = installedRoundProjection(
+                loops,
+                roundId: roundId,
+                teeBox: start.teeBox,
+                preparedAt: Date(),
+                requireComplete: false
+            )
 
-            if nextPackage == nil, let frontGlobalId, let syncClient {
+            if nextPackage == nil, let syncClient {
                 nextPackage = try await syncClient.fetchCoursePackage(
-                    globalId: frontGlobalId,
+                    globalId: firstGlobalId,
                     roundId: roundId,
                     teeBox: start.teeBox,
-                    nine: requestedNine,
+                    loops: loops,
                     ensureGeometry: false,
                     backgroundGeometry: true,
-                    backGlobalId: start.backGlobalId,
                     includeEventCursor: false
                 )
             }
@@ -2922,7 +2863,6 @@ public final class LiveRoundAppModel: ObservableObject {
                 if pendingWatchRoundStart?.roundId == package.roundId {
                     pendingWatchRoundStart = nil
                 }
-                startingNine = nil
                 pendingEventCount = 0
                 finishErrorMessage = nil
                 syncStatus = "本场已放弃"
@@ -3653,12 +3593,15 @@ public final class LiveRoundAppModel: ObservableObject {
         globalId courseGlobalId: Int,
         roundId: String,
         teeBox: String,
-        nine: String = "all",
+        loops: [RoundLoopEntry],
         capturedAt: Date = Date(),
         preparationToken: UUID? = nil
     ) async -> LiveRoundPackage? {
         #if DEBUG
-        if ProcessInfo.processInfo.environment["UITEST_FORCE_COURSE_PACKAGE_FAILURE"] == "1"
+        // The course-package failure hook covers a start; a turn request (two loops) keeps
+        // reaching the fixture server unless the whole live network is failed.
+        if (loops.count == 1
+            && ProcessInfo.processInfo.environment["UITEST_FORCE_COURSE_PACKAGE_FAILURE"] == "1")
             || ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
             if preparationToken == nil || preparationToken == roundPreparationToken {
                 syncStatus = "离线中,使用已保存数据"
@@ -3675,40 +3618,7 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             // A newly generated round has no server events yet. Replay/ACK owns recovery later;
             // scanning the owner's historical event log here only delays the first-hole screen.
-            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false)
-        } catch {
-            AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
-            if preparationToken == nil || preparationToken == roundPreparationToken {
-                syncStatus = "离线中,使用已保存数据"
-            }
-            return nil
-        }
-    }
-
-    private func fetchRemoteCompositePackage(
-        globalId courseGlobalId: Int,
-        backGlobalId: Int,
-        roundId: String,
-        teeBox: String,
-        capturedAt: Date = Date(),
-        preparationToken: UUID? = nil
-    ) async -> LiveRoundPackage? {
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
-            if preparationToken == nil || preparationToken == roundPreparationToken {
-                syncStatus = "离线中,使用已保存数据"
-            }
-            return nil
-        }
-        #endif
-        guard let syncClient else {
-            if preparationToken == nil || preparationToken == roundPreparationToken {
-                syncStatus = "未联网,稍后同步"
-            }
-            return nil
-        }
-        do {
-            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: "all", capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, backGlobalId: backGlobalId, includeEventCursor: false)
+            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false)
         } catch {
             AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             if preparationToken == nil || preparationToken == roundPreparationToken {
@@ -3774,8 +3684,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private func readyPrepTemplate(for record: PrepCourseDownloadRecord) -> LiveRoundPackage? {
         guard let template = try? offlineStore.loadCourseTemplate(
             globalId: record.course.globalId,
-            teeBox: record.teeBox,
-            nine: record.nine
+            teeBox: record.teeBox
         ), template.hasCompleteOfflineCoursePrep,
               offlineStore.hasCourseTopoImages(for: template),
               templateSatisfiesRequiredGeometryRevisions(template, record: record) else { return nil }
@@ -3784,8 +3693,8 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private func geometryRevisions(in template: LiveRoundPackage) -> [String: String] {
         template.holes.reduce(into: [:]) { result, hole in
-            let sourceGlobalId = hole.sourceGlobalId ?? template.course.globalId
-            let sourceLocalHole = hole.sourceLocalHole ?? hole.number
+            let sourceGlobalId = hole.sourceGlobalId
+            let sourceLocalHole = hole.sourceLocalHole
             let prepRevision = template.coursePrep?.holes.first(where: {
                 $0.hole == hole.number
             })?.geometryRevision
@@ -3800,8 +3709,8 @@ public final class LiveRoundAppModel: ObservableObject {
     private func geometryKeys(in template: LiveRoundPackage) -> Set<String> {
         Set(template.holes.map { hole in
             offlinePrepKey(
-                globalId: hole.sourceGlobalId ?? template.course.globalId,
-                localHole: hole.sourceLocalHole ?? hole.number
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole
             )
         })
     }
@@ -3922,8 +3831,7 @@ public final class LiveRoundAppModel: ObservableObject {
             status = try await syncClient.probeCourseInstallStatusForRevalidation(
                 globalId: record.course.globalId,
                 teeBox: record.teeBox,
-                nine: record.nine,
-                backGlobalId: courseInstallBackGlobalId(for: template)
+                loops: template.loopEntries
             )
         } catch {
             AICaddieLog.network.info(
@@ -4083,7 +3991,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 globalId: record.course.globalId,
                 roundId: "prep-library-\(record.course.globalId)",
                 teeBox: record.teeBox,
-                nine: record.nine,
+                loops: record.loops,
                 ensureGeometry: false,
                 backgroundGeometry: true,
                 includeEventCursor: false
@@ -4091,17 +3999,6 @@ public final class LiveRoundAppModel: ObservableObject {
             let canonicalFetched = fetched
             guard !Task.isCancelled,
                   prepCourseDownloadGeneration == generation else { throw CancellationError() }
-            if courseInstallBackGlobalId(for: canonicalFetched) != nil {
-                // The prep library currently installs one physical course. A composite 9+9
-                // package belongs to the live-round path; ending this job explicitly avoids a
-                // silent ready/failed/re-download loop while preserving the normal 9+9 scorer.
-                updatePrepCourseDownload(id: id, generation: generation) { state in
-                    state.phase = .failed
-                    state.errorText = "两段 9 洞组合暂不支持备战下载，请在开始一场中使用"
-                }
-                refreshDownloadedCourseOptions()
-                return
-            }
             // Keep the previous template available for an offline live round until this
             // replacement package has actually arrived. The atomic write then supersedes it even
             // when the old package has richer prep coverage than the newly fetched package.
@@ -4154,8 +4051,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     serverStatus = try await syncClient.fetchCourseInstallStatus(
                         globalId: record.course.globalId,
                         teeBox: record.teeBox,
-                        nine: record.nine,
-                        backGlobalId: courseInstallBackGlobalId(for: fetched)
+                        loops: fetched.loopEntries
                     )
                     statusProbeFailed = false
                 } catch {
@@ -4408,7 +4304,6 @@ public final class LiveRoundAppModel: ObservableObject {
     private func activateHomePackage(_ nextPackage: LiveRoundPackage, status: String) throws {
         package = nextPackage
         liveRoundState = nil
-        startingNine = nil
         pendingEventCount = 0
         try? offlineStore.saveHomePackage(nextPackage)
         refreshDownloadedCourseOptions()
@@ -4418,7 +4313,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private func refreshDownloadedCourseOptions() {
         let templates = (try? offlineStore.loadCourseTemplates()) ?? []
         let standalone = templates.filter { package in
-            Set(package.holes.map { $0.sourceGlobalId ?? package.course.globalId })
+            Set(package.holes.map { $0.sourceGlobalId })
                 == Set([package.course.globalId])
                 && package.hasCompleteOfflineCoursePrep
                 && offlineStore.hasCourseTopoImages(for: package)
@@ -4426,8 +4321,7 @@ public final class LiveRoundAppModel: ObservableObject {
         let prepReady = standalone.filter { package in
             let key = PrepCourseDownloadRecord.key(
                 globalId: package.course.globalId,
-                teeBox: package.course.teeBox,
-                nine: package.nine ?? "all"
+                teeBox: package.course.teeBox
             )
             guard let pendingRelease = prepCourseDownloads.first(where: { $0.id == key }) else {
                 return true
@@ -4438,8 +4332,7 @@ public final class LiveRoundAppModel: ObservableObject {
         downloadedCourseKeys = Set(prepReady.map { package in
             PrepCourseDownloadRecord.key(
                 globalId: package.course.globalId,
-                teeBox: package.course.teeBox,
-                nine: package.nine ?? "all"
+                teeBox: package.course.teeBox
             )
         })
         // Keep the ordinary live-round library independent from a prep-release refresh. A complete
@@ -4496,19 +4389,23 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// Fetch the home package for an explicitly finished course, or the most-played course during
     /// ordinary bootstrap. The bootstrap path falls back to cache offline; geometry is unnecessary.
-    private func fetchHomePackage(preferredCourse: Course? = nil) async -> LiveRoundPackage? {
+    /// `loops` is the preferred course's whole physical course (B4b-2 canonical order).
+    private func fetchHomePackage(
+        preferredCourse: Course? = nil,
+        loops preferredLoops: [RoundLoopEntry] = []
+    ) async -> LiveRoundPackage? {
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
             return try? offlineStore.loadHomePackage()
         }
         #endif
         if let preferredCourse {
-            guard let syncClient else { return nil }
+            guard let syncClient, !preferredLoops.isEmpty else { return nil }
             return try? await syncClient.fetchCoursePackage(
                 globalId: preferredCourse.globalId,
                 roundId: "home-\(preferredCourse.globalId)",
                 teeBox: preferredCourse.teeBox,
-                nine: "all",
+                loops: preferredLoops,
                 capturedAt: Date(),
                 ensureGeometry: false,
                 includeEventCursor: false
@@ -4522,7 +4419,10 @@ public final class LiveRoundAppModel: ObservableObject {
                 globalId: mostPlayed.globalId,
                 roundId: homeRoundId,
                 teeBox: teeBox,
-                nine: "all",
+                loops: RoundLoopEntry.wholeCourse(
+                    globalId: mostPlayed.globalId,
+                    holes: mostPlayed.resolvedHoles
+                ),
                 capturedAt: Date(),
                 ensureGeometry: false,
                 includeEventCursor: false
@@ -4618,8 +4518,16 @@ public final class LiveRoundAppModel: ObservableObject {
             yards: 165,
             geometryCoverage: .missing,
             sourceGlobalId: first.sourceGlobalId,
-            sourceLocalHole: 2
+            sourceLocalHole: 2,
+            courseHoleNumber: 2
         )
+        let loops = [RoundLoop(
+            globalId: first.sourceGlobalId,
+            half: "all",
+            roundStartHole: 1,
+            sourceStartHole: 1,
+            holeCount: 2
+        )]
         return LiveRoundPackage(
             schema: package.schema,
             roundId: package.roundId,
@@ -4629,7 +4537,8 @@ public final class LiveRoundAppModel: ObservableObject {
             playerProfile: package.playerProfile,
             course: package.course,
             holes: [first, second],
-            nine: package.nine,
+            roundLoops: loops,
+            loopKey: package.loopKey,
             coursePrep: package.coursePrep,
             geometryCoverage: package.geometryCoverage,
             readinessChecks: package.readinessChecks,

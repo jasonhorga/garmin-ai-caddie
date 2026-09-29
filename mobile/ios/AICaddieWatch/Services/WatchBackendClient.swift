@@ -90,7 +90,8 @@ public struct WatchCourseInstallStatus: Codable, Equatable {
     public let jobId: String
     public let globalId: Int
     public let teeBox: String
-    public let nine: String
+    /// The ordered round-loop key the install job was prepared for (B4b-2).
+    public let loopKey: String
     public let phase: String
     public let stage: String
     public let progress: Int?
@@ -113,7 +114,7 @@ public struct WatchCourseInstallStatus: Codable, Equatable {
         jobId: String,
         globalId: Int,
         teeBox: String,
-        nine: String,
+        loopKey: String,
         phase: String,
         stage: String,
         progress: Int? = nil,
@@ -135,7 +136,7 @@ public struct WatchCourseInstallStatus: Codable, Equatable {
         self.jobId = jobId
         self.globalId = globalId
         self.teeBox = teeBox
-        self.nine = nine
+        self.loopKey = loopKey
         self.phase = phase
         self.stage = stage
         self.progress = progress
@@ -378,7 +379,7 @@ public final class WatchBackendClient {
         globalId: Int,
         roundId: String,
         teeBox: String,
-        backGlobalId: Int? = nil,
+        loops: String,
         ensureGeometry: Bool = false,
         backgroundGeometry: Bool = false
     ) throws -> URLRequest {
@@ -391,14 +392,12 @@ public final class WatchBackendClient {
         var queryItems = [
             URLQueryItem(name: "round_id", value: roundId),
             URLQueryItem(name: "tee_box", value: teeBox),
-            URLQueryItem(name: "nine", value: "all"),
+            // B4b-2 ordered loops, e.g. "41825:front,41825:back".
+            URLQueryItem(name: "loops", value: loops),
             URLQueryItem(name: "client_id", value: clientId),
             URLQueryItem(name: "ensure_geometry", value: ensureGeometry ? "true" : "false"),
             URLQueryItem(name: "background_geometry", value: backgroundGeometry ? "true" : "false"),
         ]
-        if let backGlobalId {
-            queryItems.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId)))
-        }
         components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
@@ -413,8 +412,7 @@ public final class WatchBackendClient {
     public func makeCourseInstallStatusRequest(
         globalId: Int,
         teeBox: String,
-        nine: String = "all",
-        backGlobalId: Int? = nil
+        loops: String
     ) throws -> URLRequest {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/courses/\(globalId)/install/status"),
@@ -422,14 +420,10 @@ public final class WatchBackendClient {
         ) else {
             throw URLError(.badURL)
         }
-        var queryItems = [
+        components.queryItems = [
             URLQueryItem(name: "tee_box", value: teeBox),
-            URLQueryItem(name: "nine", value: nine),
+            URLQueryItem(name: "loops", value: loops),
         ]
-        if let backGlobalId, backGlobalId > 0 {
-            queryItems.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId)))
-        }
-        components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -542,7 +536,14 @@ public final class WatchBackendClient {
     }
 
     public func decodeCoursePackage(_ data: Data) throws -> WatchCoursePackage {
-        try JSONDecoder().decode(WatchCoursePackage.self, from: data)
+        let package = try JSONDecoder().decode(WatchCoursePackage.self, from: data)
+        guard package.schema == WatchCoursePackage.supportedSchema else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: [],
+                debugDescription: "Unsupported course package schema \(package.schema)"
+            ))
+        }
+        return package
     }
 
     public func decodeCourseInstallStatus(_ data: Data) throws -> WatchCourseInstallStatus {
@@ -589,7 +590,7 @@ public final class WatchBackendClient {
         globalId: Int,
         roundId: String,
         teeBox: String,
-        backGlobalId: Int? = nil,
+        loops: String,
         ensureGeometry: Bool = false,
         backgroundGeometry: Bool = false
     ) async throws -> WatchCoursePackage {
@@ -597,7 +598,7 @@ public final class WatchBackendClient {
             globalId: globalId,
             roundId: roundId,
             teeBox: teeBox,
-            backGlobalId: backGlobalId,
+            loops: loops,
             ensureGeometry: ensureGeometry,
             backgroundGeometry: backgroundGeometry
         )
@@ -611,14 +612,12 @@ public final class WatchBackendClient {
     public func fetchCourseInstallStatus(
         globalId: Int,
         teeBox: String,
-        nine: String = "all",
-        backGlobalId: Int? = nil
+        loops: String
     ) async throws -> WatchCourseInstallStatus? {
         let request = try makeCourseInstallStatusRequest(
             globalId: globalId,
             teeBox: teeBox,
-            nine: nine,
-            backGlobalId: backGlobalId
+            loops: loops
         )
         do {
             let data = try await sendForData(request, retryingTransientFailures: true)

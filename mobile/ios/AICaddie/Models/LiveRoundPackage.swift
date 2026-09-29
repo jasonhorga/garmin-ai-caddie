@@ -27,7 +27,102 @@ public struct PackageEnrichmentState: Codable, Equatable {
     public let onDemandEndpoint: String
 }
 
+/// One loop of a round in play order (B4b-2 package v2). `roundStartHole` is on the round-hole
+/// axis (1 or 10); `sourceStartHole` is on the physical axis of `globalId` (1 for a 9-hole loop or
+/// a front half, 10 for a back half).
+public struct RoundLoop: Codable, Equatable, Hashable {
+    public let globalId: Int
+    /// "all" (a 9-hole loop) · "front" / "back" (a half of an 18-hole course).
+    public let half: String
+    public let roundStartHole: Int
+    public let sourceStartHole: Int
+    public let holeCount: Int
+
+    public init(globalId: Int, half: String, roundStartHole: Int, sourceStartHole: Int, holeCount: Int) {
+        self.globalId = globalId
+        self.half = half
+        self.roundStartHole = roundStartHole
+        self.sourceStartHole = sourceStartHole
+        self.holeCount = holeCount
+    }
+
+    public var entry: RoundLoopEntry { RoundLoopEntry(globalId: globalId, half: half) }
+
+    /// True for a half of an 18-hole course, whose holes show their physical number.
+    public var isCourseHalf: Bool { half == "front" || half == "back" }
+
+    public func contains(roundHole: Int) -> Bool {
+        roundHole >= roundStartHole && roundHole < roundStartHole + holeCount
+    }
+}
+
+/// One requested loop: a course and which of its nines (the `loops=` request unit).
+public struct RoundLoopEntry: Codable, Equatable, Hashable {
+    public let globalId: Int
+    public let half: String
+
+    public init(globalId: Int, half: String) {
+        self.globalId = globalId
+        self.half = half
+    }
+
+    public static let holesPerLoop = 9
+
+    /// 1 for a 9-hole loop or a front half, 10 for a back half.
+    public var sourceStartHole: Int { half == "back" ? 10 : 1 }
+
+    /// The canonical ordered identity: order and duplicates preserved ("41825:back+41825:front").
+    public static func loopKey(_ entries: [RoundLoopEntry]) -> String {
+        entries.map { "\($0.globalId):\($0.half)" }.joined(separator: "+")
+    }
+
+    /// Parse a canonical loop key back into ordered entries; nil for anything malformed.
+    public static func entries(loopKey: String) -> [RoundLoopEntry]? {
+        let parts = loopKey.split(separator: "+", omittingEmptySubsequences: false)
+        guard (1...2).contains(parts.count) else { return nil }
+        var entries: [RoundLoopEntry] = []
+        for part in parts {
+            let fields = part.split(separator: ":", omittingEmptySubsequences: false)
+            guard fields.count == 2,
+                  let globalId = Int(fields[0]), globalId > 0,
+                  ["all", "front", "back"].contains(String(fields[1])) else { return nil }
+            entries.append(RoundLoopEntry(globalId: globalId, half: String(fields[1])))
+        }
+        return entries
+    }
+
+    /// The `loops=` query value ("41825:back,41825:front").
+    public static func query(_ entries: [RoundLoopEntry]) -> String {
+        entries.map { "\($0.globalId):\($0.half)" }.joined(separator: ",")
+    }
+
+    /// A whole physical course in its usual order: an 18-hole course is its two halves, a 9-hole
+    /// loop is itself. This is the canonical template identity for offline composition.
+    public static func wholeCourse(globalId: Int, holes: Int) -> [RoundLoopEntry] {
+        holes == holesPerLoop
+            ? [RoundLoopEntry(globalId: globalId, half: "all")]
+            : [RoundLoopEntry(globalId: globalId, half: "front"), RoundLoopEntry(globalId: globalId, half: "back")]
+    }
+
+    /// The loop table the server returns for these entries.
+    public static func table(_ entries: [RoundLoopEntry]) -> [RoundLoop] {
+        entries.enumerated().map { index, entry in
+            RoundLoop(
+                globalId: entry.globalId,
+                half: entry.half,
+                roundStartHole: 1 + index * holesPerLoop,
+                sourceStartHole: entry.sourceStartHole,
+                holeCount: holesPerLoop
+            )
+        }
+    }
+}
+
 public struct LiveRoundPackage: Codable, Equatable {
+    /// The only package contract this client accepts. Older cached packages (v1) fail to decode or
+    /// are discarded and re-downloaded; source identity is never fabricated from `number`.
+    public static let supportedSchema = "ai-caddie-live-round-package-v2"
+
     public let schema: String
     public let roundId: String
     public let dataMode: String
@@ -36,8 +131,11 @@ public struct LiveRoundPackage: Codable, Equatable {
     public let playerProfile: PlayerProfile
     public let course: Course
     public let holes: [Hole]
-    /// 当前视图的起始九洞:"front" / "back" / "all"(缺省视为 all)。后端按此过滤 holes/seeds。
-    public let nine: String?
+    /// The round's loops in play order and their canonical key (B4b-2). Hole `number` is the
+    /// round hole; `sourceGlobalId` / `sourceLocalHole` the physical hole; `courseHoleNumber` the
+    /// presentation number.
+    public let roundLoops: [RoundLoop]
+    public let loopKey: String
     public let coursePrep: CoursePrepPackage?
     public let geometryCoverage: GeometryCoverage
     public let readinessChecks: [PackageReadinessCheck]
@@ -55,7 +153,7 @@ public struct LiveRoundPackage: Codable, Equatable {
     public let generatedAt: String
 
     public init(
-        schema: String = "ai-caddie-live-round-package-v1",
+        schema: String = LiveRoundPackage.supportedSchema,
         roundId: String,
         dataMode: String,
         sourceCoverage: SourceCoverage,
@@ -63,7 +161,8 @@ public struct LiveRoundPackage: Codable, Equatable {
         playerProfile: PlayerProfile,
         course: Course,
         holes: [Hole],
-        nine: String? = nil,
+        roundLoops: [RoundLoop],
+        loopKey: String,
         coursePrep: CoursePrepPackage? = nil,
         geometryCoverage: GeometryCoverage,
         readinessChecks: [PackageReadinessCheck],
@@ -87,7 +186,8 @@ public struct LiveRoundPackage: Codable, Equatable {
         self.playerProfile = playerProfile
         self.course = course
         self.holes = holes
-        self.nine = nine
+        self.roundLoops = roundLoops
+        self.loopKey = loopKey
         self.coursePrep = coursePrep
         self.geometryCoverage = geometryCoverage
         self.readinessChecks = readinessChecks
@@ -146,7 +246,8 @@ public struct LiveRoundPackage: Codable, Equatable {
             playerProfile: playerProfile,
             course: course,
             holes: holes,
-            nine: nine,
+            roundLoops: roundLoops,
+            loopKey: loopKey,
             coursePrep: nextCoursePrep,
             geometryCoverage: geometryCoverage,
             readinessChecks: readinessChecks,
@@ -188,7 +289,8 @@ public struct LiveRoundPackage: Codable, Equatable {
                 segmentLabel: course.segmentLabel
             ),
             holes: holes,
-            nine: nine,
+            roundLoops: roundLoops,
+            loopKey: loopKey,
             coursePrep: coursePrep,
             geometryCoverage: geometryCoverage,
             readinessChecks: readinessChecks,
@@ -236,7 +338,8 @@ public struct LiveRoundPackage: Codable, Equatable {
             playerProfile: playerProfile,
             course: course,
             holes: holes,
-            nine: nine,
+            roundLoops: roundLoops,
+            loopKey: loopKey,
             coursePrep: coursePrep,
             geometryCoverage: geometryCoverage,
             readinessChecks: readinessChecks.map { check in
@@ -273,104 +376,232 @@ public struct LiveRoundPackage: Codable, Equatable {
     }
 
     /// Stable identity of the playable hole set. Precise-map enrichment deliberately does not
-    /// change this value, while adding/removing a physical nine does, so SwiftUI can refresh the
-    /// live destination exactly when navigation truth changes.
+    /// change this value, while adding / removing / reordering a loop does, so SwiftUI can refresh
+    /// the live destination exactly when navigation truth changes.
     public var holeSetIdentity: String {
-        holes
+        loopKey + "|" + holes
             .sorted { $0.number < $1.number }
-            .map {
-                "\($0.number):\($0.sourceGlobalId ?? course.globalId):\($0.sourceLocalHole ?? $0.number)"
-            }
+            .map { "\($0.number):\($0.sourceGlobalId):\($0.sourceLocalHole)" }
             .joined(separator: "|")
     }
 
-    /// A composite 9+9 resets the source-local number at round hole 10. A same-loop A+A round has
-    /// one global id, so source-id inequality alone is not a valid composite test.
-    public var isCompositeNineRound: Bool {
-        guard holes.count > 9,
-              let firstBack = holes.sorted(by: { $0.number < $1.number }).first(where: {
-                  $0.number > 9
-              }) else { return false }
-        return (firstBack.sourceLocalHole ?? firstBack.number) <= 9
+    /// The round's loops as request entries, in play order (the `loops=` of this package).
+    public var loopEntries: [RoundLoopEntry] { roundLoops.map(\.entry) }
+
+    /// The second loop once the round has one (added at the turn, or started as a pair).
+    public var secondLoop: RoundLoop? { roundLoops.count > 1 ? roundLoops[1] : nil }
+
+    /// The loop that owns a round hole.
+    public func loop(containingRoundHole number: Int) -> RoundLoop? {
+        roundLoops.first { $0.contains(roundHole: number) }
     }
 
-    /// Compose two already-installed physical loops without asking the server to rebuild or resend
-    /// their geometry. The second loop keeps its factual source gid/local-hole identity while only
-    /// its round/display number moves to 10...18.
-    public func composingBackNine(
-        from back: LiveRoundPackage,
+    /// The course's own number for a round hole: the physical hole on a half of an 18-hole course,
+    /// the round number on a 9-hole loop. Presentation only — never a key.
+    public func courseHoleNumber(forRoundHole number: Int) -> Int {
+        holes.first { $0.number == number }?.courseHoleNumber ?? number
+    }
+
+    /// The canonical whole-course entries of `globalId` as this round knows them: a 9-hole loop
+    /// is itself (`G:all`), an 18-hole course is its two halves in the usual order.
+    public func wholeCourseEntries(globalId: Int) -> [RoundLoopEntry]? {
+        let halves = Set(roundLoops.filter { $0.globalId == globalId }.map(\.half))
+        if halves.contains("all") { return [RoundLoopEntry(globalId: globalId, half: "all")] }
+        guard !halves.isEmpty else { return nil }
+        return RoundLoopEntry.wholeCourse(globalId: globalId, holes: RoundLoopEntry.holesPerLoop * 2)
+    }
+
+    /// True when this package is already the canonical whole-course template of its course.
+    public var isWholeCourseTemplate: Bool {
+        guard let entries = wholeCourseEntries(globalId: course.globalId) else { return false }
+        return loopKey == RoundLoopEntry.loopKey(entries)
+    }
+
+    /// The canonical physical template (`G:front+G:back` or `G:all`) of this package's course,
+    /// re-projected from whatever order the round was played in. Nil when the round does not
+    /// carry every physical hole of the course (e.g. one half only) — nothing is made up.
+    public func wholeCourseTemplate() -> LiveRoundPackage? {
+        if isWholeCourseTemplate { return self }
+        guard let entries = wholeCourseEntries(globalId: course.globalId) else { return nil }
+        return LiveRoundPackage.projecting(entries, templates: [course.globalId: self], roundId: roundId)
+    }
+
+    /// Project an ordered round from whole-course templates keyed by physical course id — the
+    /// offline path, which yields the server's `number → (sourceGlobalId, sourceLocalHole,
+    /// courseHoleNumber)` table for the same `loops=`.
+    public static func projecting(
+        _ entries: [RoundLoopEntry],
+        templates: [Int: LiveRoundPackage],
         roundId: String
     ) -> LiveRoundPackage? {
-        let frontHoles = holes.sorted { $0.number < $1.number }.filter { $0.number <= 9 }
-        let backHoles = back.holes.sorted { $0.number < $1.number }.prefix(9)
-        guard !frontHoles.isEmpty,
-              frontHoles.count <= 9,
-              !backHoles.isEmpty else { return nil }
-
-        let offset = frontHoles.count
-        let shiftedBackHoles = backHoles.enumerated().map { index, source in
-            source.renumbered(
-                to: offset + index + 1,
-                sourceGlobalId: source.sourceGlobalId ?? back.course.globalId,
-                sourceLocalHole: source.sourceLocalHole ?? source.number
-            )
+        guard (1...2).contains(entries.count),
+              let first = entries.first,
+              let base = templates[first.globalId] else { return nil }
+        let courseName = base.course.venueDisplayName
+        var projected = ProjectedLoop.empty
+        var clubProfiles = base.clubProfiles
+        var missingData = base.missingData
+        for (index, entry) in entries.enumerated() {
+            guard let template = templates[entry.globalId],
+                  let loop = template.projectedLoop(
+                    entry,
+                    roundStartHole: 1 + index * RoundLoopEntry.holesPerLoop,
+                    roundId: roundId,
+                    courseName: courseName
+                  ) else { return nil }
+            projected = projected.appending(loop)
+            if clubProfiles.isEmpty { clubProfiles = template.clubProfiles }
+            if template.course.globalId != base.course.globalId {
+                missingData += template.missingData
+            }
         }
-        let mergedHoles = frontHoles + shiftedBackHoles
-        let courseName = course.venueDisplayName
-
-        let frontPrep = frontHoles.compactMap { roundHole in
-            coursePrep?.holes.first(where: { $0.hole == roundHole.number })
-        }
-        let shiftedBackPrep = zip(Array(backHoles), shiftedBackHoles).compactMap { source, shifted in
-            back.coursePrep?.holes.first(where: { $0.hole == source.number })?
-                .renumbered(to: shifted.number)
-        }
-        let mergedPrepRows = frontPrep + shiftedBackPrep
-        let mergedPrep: CoursePrepPackage? = mergedPrepRows.isEmpty ? nil : CoursePrepPackage(
-            schema: coursePrep?.schema ?? back.coursePrep?.schema ?? "ai-caddie-course-prep-v1",
-            globalId: course.globalId,
-            holes: mergedPrepRows.sorted { $0.hole < $1.hole },
-            missingData: mergedPrepRows.count == mergedHoles.count ? nil : [
-                CoursePrepMissingData(
-                    label: "offline_course_prep",
-                    reason: "\(mergedPrepRows.count)/\(mergedHoles.count) locally composed hole maps"
-                )
-            ]
+        return base.assembling(
+            projected,
+            entries: entries,
+            roundId: roundId,
+            clubProfiles: clubProfiles,
+            missingData: missingData
         )
+    }
 
-        let frontSeeds = frontHoles.compactMap { roundHole in
-            caddieContextSeeds.first(where: { $0.hole == roundHole.number })?.rebased(
+    /// Add the second loop at the turn from an installed whole-course template, keeping this
+    /// round's first loop exactly as it is. The second loop keeps its physical identity and is
+    /// numbered after the first loop in play order.
+    public func composingSecondLoop(
+        _ entry: RoundLoopEntry,
+        from template: LiveRoundPackage,
+        roundId: String
+    ) -> LiveRoundPackage? {
+        guard let first = roundLoops.first else { return nil }
+        let courseName = course.venueDisplayName
+        let firstHoles = holes
+            .filter { first.contains(roundHole: $0.number) }
+            .sorted { $0.number < $1.number }
+        guard firstHoles.count == first.holeCount,
+              let second = template.projectedLoop(
+                entry,
+                roundStartHole: first.roundStartHole + first.holeCount,
                 roundId: roundId,
-                displayHole: roundHole.number,
-                courseName: courseName,
-                sourceGlobalId: roundHole.sourceGlobalId ?? course.globalId,
-                sourceLocalHole: roundHole.sourceLocalHole ?? roundHole.number
-            )
+                courseName: courseName
+              ) else { return nil }
+        let firstNumbers = Set(firstHoles.map(\.number))
+        let firstLoop = ProjectedLoop(
+            holes: firstHoles,
+            prep: coursePrep?.holes.filter { firstNumbers.contains($0.hole) } ?? [],
+            seeds: firstHoles.compactMap { hole in
+                caddieContextSeeds.first(where: { $0.hole == hole.number })?.rebased(
+                    roundId: roundId,
+                    displayHole: hole.number,
+                    courseName: courseName,
+                    sourceGlobalId: hole.sourceGlobalId,
+                    sourceLocalHole: hole.sourceLocalHole
+                )
+            },
+            recent: recentHistory.holes.filter { firstNumbers.contains($0.number) }
+        )
+        return assembling(
+            firstLoop.appending(second),
+            entries: [first.entry, entry],
+            roundId: roundId,
+            clubProfiles: clubProfiles.isEmpty ? template.clubProfiles : clubProfiles,
+            missingData: template.course.globalId == course.globalId
+                ? missingData
+                : missingData + template.missingData
+        )
+    }
+
+    /// Remove the second loop (only before it is played — the caller owns the lock). Geometry /
+    /// topo bytes stay in the course cache; only this round's playable hole set changes.
+    public func removingSecondLoop() -> LiveRoundPackage? {
+        guard roundLoops.count > 1, let first = roundLoops.first else { return nil }
+        let kept = holes
+            .filter { first.contains(roundHole: $0.number) }
+            .sorted { $0.number < $1.number }
+        guard !kept.isEmpty else { return nil }
+        let numbers = Set(kept.map(\.number))
+        return assembling(
+            ProjectedLoop(
+                holes: kept,
+                prep: coursePrep?.holes.filter { numbers.contains($0.hole) } ?? [],
+                seeds: caddieContextSeeds.filter { numbers.contains($0.hole) },
+                recent: recentHistory.holes.filter { numbers.contains($0.number) }
+            ),
+            entries: [first.entry],
+            roundId: roundId,
+            clubProfiles: clubProfiles,
+            missingData: missingData
+        )
+    }
+
+    /// One loop's holes, prep rows, seeds and hole history taken from this whole-course template
+    /// by physical identity and numbered from `roundStartHole`. Nil unless all nine physical holes
+    /// of the loop are present — a missing hole is never made up.
+    fileprivate func projectedLoop(
+        _ entry: RoundLoopEntry,
+        roundStartHole: Int,
+        roundId: String,
+        courseName: String
+    ) -> ProjectedLoop? {
+        let range = entry.sourceStartHole..<(entry.sourceStartHole + RoundLoopEntry.holesPerLoop)
+        let sources = holes
+            .filter { $0.sourceGlobalId == entry.globalId && range.contains($0.sourceLocalHole) }
+            .sorted { $0.sourceLocalHole < $1.sourceLocalHole }
+        guard sources.count == RoundLoopEntry.holesPerLoop,
+              Set(sources.map(\.sourceLocalHole)).count == sources.count else { return nil }
+        var loop = ProjectedLoop.empty
+        for (index, source) in sources.enumerated() {
+            let number = roundStartHole + index
+            loop.holes.append(source.renumbered(
+                to: number,
+                courseHoleNumber: entry.half == "all" ? number : source.sourceLocalHole
+            ))
+            if let prep = coursePrep?.holes.first(where: { $0.hole == source.number }) {
+                loop.prep.append(prep.renumbered(to: number))
+            }
+            if let seed = caddieContextSeeds.first(where: { $0.hole == source.number }) {
+                loop.seeds.append(seed.rebased(
+                    roundId: roundId,
+                    displayHole: number,
+                    courseName: courseName,
+                    sourceGlobalId: source.sourceGlobalId,
+                    sourceLocalHole: source.sourceLocalHole
+                ))
+            }
+            if let recent = recentHistory.holes.first(where: { $0.number == source.number }) {
+                loop.recent.append(HoleRecentHistory(
+                    number: number,
+                    sampleCount: recent.sampleCount,
+                    averageToPar: recent.averageToPar,
+                    repeatedIssues: recent.repeatedIssues
+                ))
+            }
         }
-        let shiftedBackSeeds = zip(Array(backHoles), shiftedBackHoles).compactMap { source, shifted in
-            back.caddieContextSeeds.first(where: { $0.hole == source.number })?.rebased(
-                roundId: roundId,
-                displayHole: shifted.number,
-                courseName: courseName,
-                sourceGlobalId: shifted.sourceGlobalId ?? back.course.globalId,
-                sourceLocalHole: shifted.sourceLocalHole ?? source.number
-            )
-        }
-        let mergedSeeds = frontSeeds + shiftedBackSeeds
-        let readyCount = mergedHoles.filter { $0.geometryCoverage == .ready }.count
-        let coverageState: GeometryCoverageState = readyCount == mergedHoles.count
+        return loop
+    }
+
+    fileprivate func assembling(
+        _ loop: ProjectedLoop,
+        entries: [RoundLoopEntry],
+        roundId: String,
+        clubProfiles: [ClubProfile],
+        missingData: [[String: JSONValue]]
+    ) -> LiveRoundPackage {
+        let sortedHoles = loop.holes.sorted { $0.number < $1.number }
+        let courseName = course.venueDisplayName
+        let readyCount = sortedHoles.filter { $0.geometryCoverage == .ready }.count
+        let coverageState: GeometryCoverageState = readyCount == sortedHoles.count
             ? .ready
             : (readyCount > 0 ? .partial : .missing)
-
+        let prepRows = loop.prep.sorted { $0.hole < $1.hole }
         return LiveRoundPackage(
-            schema: schema,
+            schema: LiveRoundPackage.supportedSchema,
             roundId: roundId,
             dataMode: dataMode,
             sourceCoverage: sourceCoverage.replacing(
                 requestedRoundId: roundId,
-                holeCount: mergedHoles.count
+                holeCount: sortedHoles.count
             ),
-            missingData: missingData + back.missingData,
+            missingData: missingData,
             playerProfile: playerProfile,
             course: Course(
                 globalId: course.globalId,
@@ -380,90 +611,27 @@ public struct LiveRoundPackage: Codable, Equatable {
                 venueNameSource: course.venueNameSource,
                 segmentLabel: course.segmentLabel
             ),
-            holes: mergedHoles,
-            nine: "all",
-            coursePrep: mergedPrep,
-            geometryCoverage: GeometryCoverage(
-                state: coverageState,
-                readyHoles: readyCount,
-                totalHoles: mergedHoles.count
-            ),
-            readinessChecks: readinessChecks,
-            caddieContextSeeds: mergedSeeds,
-            weatherSnapshot: weatherSnapshot,
-            clubProfiles: clubProfiles.isEmpty ? back.clubProfiles : clubProfiles,
-            caddieDecisionEndpoint: caddieDecisionEndpoint,
-            offlinePackageStatus: offlinePackageStatus,
-            eventCursor: eventCursor,
-            recentHistory: recentHistory,
-            cachedCaddieRules: cachedCaddieRules,
-            generatedAt: ISO8601DateFormatter().string(from: Date()),
-            readinessState: readinessState,
-            enrichmentState: nil
-        )
-    }
-
-    /// Remove a locally-added physical back loop immediately. Geometry/topo bytes stay in the
-    /// course cache and can be reattached later; only this round's playable hole set changes.
-    public func removingCompositeBackNine() -> LiveRoundPackage? {
-        guard isCompositeNineRound else { return nil }
-        return selectingExistingHoles(
-            holes.filter { $0.number <= 9 },
-            nine: "all"
-        )
-    }
-
-    /// Local subset for an ordinary 18-hole course's front/back toggle. Expansion still requires
-    /// an installed all-hole template (or the remote package) because absent holes are never made up.
-    public func selectingExistingNine(_ nine: String) -> LiveRoundPackage? {
-        let key = nine.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        switch key {
-        case "front":
-            return selectingExistingHoles(holes.filter { (1...9).contains($0.number) }, nine: key)
-        case "back":
-            return selectingExistingHoles(holes.filter { (10...18).contains($0.number) }, nine: key)
-        case "all":
-            return self
-        default:
-            return nil
-        }
-    }
-
-    private func selectingExistingHoles(_ selected: [Hole], nine: String) -> LiveRoundPackage? {
-        let selected = selected.sorted { $0.number < $1.number }
-        guard !selected.isEmpty else { return nil }
-        let numbers = Set(selected.map(\.number))
-        let prepRows = coursePrep?.holes.filter { numbers.contains($0.hole) } ?? []
-        let readyCount = selected.filter { $0.geometryCoverage == .ready }.count
-        let coverageState: GeometryCoverageState = readyCount == selected.count
-            ? .ready
-            : (readyCount > 0 ? .partial : .missing)
-        return LiveRoundPackage(
-            schema: schema,
-            roundId: roundId,
-            dataMode: dataMode,
-            sourceCoverage: sourceCoverage.replacing(
-                requestedRoundId: roundId,
-                holeCount: selected.count
-            ),
-            missingData: missingData,
-            playerProfile: playerProfile,
-            course: course,
-            holes: selected,
-            nine: nine,
+            holes: sortedHoles,
+            roundLoops: RoundLoopEntry.table(entries),
+            loopKey: RoundLoopEntry.loopKey(entries),
             coursePrep: prepRows.isEmpty ? nil : CoursePrepPackage(
                 schema: coursePrep?.schema ?? "ai-caddie-course-prep-v1",
-                globalId: coursePrep?.globalId ?? course.globalId,
+                globalId: course.globalId,
                 holes: prepRows,
-                missingData: prepRows.count == selected.count ? nil : coursePrep?.missingData
+                missingData: prepRows.count == sortedHoles.count ? nil : [
+                    CoursePrepMissingData(
+                        label: "offline_course_prep",
+                        reason: "\(prepRows.count)/\(sortedHoles.count) locally composed hole maps"
+                    )
+                ]
             ),
             geometryCoverage: GeometryCoverage(
                 state: coverageState,
                 readyHoles: readyCount,
-                totalHoles: selected.count
+                totalHoles: sortedHoles.count
             ),
             readinessChecks: readinessChecks,
-            caddieContextSeeds: caddieContextSeeds.filter { numbers.contains($0.hole) },
+            caddieContextSeeds: loop.seeds.sorted { $0.hole < $1.hole },
             weatherSnapshot: weatherSnapshot,
             clubProfiles: clubProfiles,
             caddieDecisionEndpoint: caddieDecisionEndpoint,
@@ -472,7 +640,7 @@ public struct LiveRoundPackage: Codable, Equatable {
             recentHistory: RecentHistory(
                 course: recentHistory.course,
                 rounds: recentHistory.rounds,
-                holes: recentHistory.holes.filter { numbers.contains($0.number) }
+                holes: loop.recent.sorted { $0.number < $1.number }
             ),
             cachedCaddieRules: cachedCaddieRules,
             generatedAt: ISO8601DateFormatter().string(from: Date()),
@@ -480,7 +648,25 @@ public struct LiveRoundPackage: Codable, Equatable {
             enrichmentState: nil
         )
     }
+}
 
+/// The per-loop pieces a round is assembled from.
+fileprivate struct ProjectedLoop {
+    var holes: [Hole]
+    var prep: [CoursePrepHole]
+    var seeds: [CaddieContextSeed]
+    var recent: [HoleRecentHistory]
+
+    static let empty = ProjectedLoop(holes: [], prep: [], seeds: [], recent: [])
+
+    func appending(_ other: ProjectedLoop) -> ProjectedLoop {
+        ProjectedLoop(
+            holes: holes + other.holes,
+            prep: prep + other.prep,
+            seeds: seeds + other.seeds,
+            recent: recent + other.recent
+        )
+    }
 }
 
 private extension SourceCoverage {
@@ -500,11 +686,8 @@ private extension SourceCoverage {
 }
 
 private extension Hole {
-    func renumbered(
-        to number: Int,
-        sourceGlobalId: Int,
-        sourceLocalHole: Int
-    ) -> Hole {
+    /// Move the round number (and its presentation number); the physical identity never moves.
+    func renumbered(to number: Int, courseHoleNumber: Int) -> Hole {
         Hole(
             number: number,
             par: par,
@@ -513,6 +696,7 @@ private extension Hole {
             geometryRevision: geometryRevision,
             sourceGlobalId: sourceGlobalId,
             sourceLocalHole: sourceLocalHole,
+            courseHoleNumber: courseHoleNumber,
             teeLatitude: teeLatitude,
             teeLongitude: teeLongitude
         )
@@ -624,10 +808,13 @@ public struct Hole: Codable, Equatable, Identifiable {
     /// Stable identity of the Garmin release-bound geometry used by prep/topo. Optional keeps
     /// packages saved by older app versions playable offline until the next online revalidation.
     public let geometryRevision: String?
-    /// Source course id + local hole for this hole's geometry (composite rounds: holes 10–18 live
-    /// in a second loop's gid). Optional → older payloads decode to nil and fall back to the course.
-    public let sourceGlobalId: Int?
-    public let sourceLocalHole: Int?
+    /// The physical hole: its Garmin course id and local hole (1–9 on a 9-hole loop, 1–18 on an
+    /// 18-hole course). Required in package v2; geometry, topo, install and stats use only this.
+    public let sourceGlobalId: Int
+    public let sourceLocalHole: Int
+    /// Presentation-only course number: the physical hole on a half of an 18-hole course, the
+    /// round number on a 9-hole loop. Text only (header, scorecard, summary, review, Watch).
+    public let courseHoleNumber: Int
     /// Selected Tee anchor from the same per-hole geometry. Optional keeps cached v1 packages valid.
     public let teeLatitude: Double?
     public let teeLongitude: Double?
@@ -638,8 +825,9 @@ public struct Hole: Codable, Equatable, Identifiable {
         yards: Int?,
         geometryCoverage: GeometryCoverageState,
         geometryRevision: String? = nil,
-        sourceGlobalId: Int? = nil,
-        sourceLocalHole: Int? = nil,
+        sourceGlobalId: Int,
+        sourceLocalHole: Int,
+        courseHoleNumber: Int,
         teeLatitude: Double? = nil,
         teeLongitude: Double? = nil
     ) {
@@ -650,6 +838,7 @@ public struct Hole: Codable, Equatable, Identifiable {
         self.geometryRevision = geometryRevision
         self.sourceGlobalId = sourceGlobalId
         self.sourceLocalHole = sourceLocalHole
+        self.courseHoleNumber = courseHoleNumber
         self.teeLatitude = teeLatitude
         self.teeLongitude = teeLongitude
     }
@@ -670,8 +859,6 @@ public struct PackageReadinessCheck: Codable, Equatable, Identifiable {
     public let total: Int
     public let reason: String
     public let sourceRefs: [String]
-    public let backGlobalId: Int? = nil
-    public let nine: String? = nil
     public let teeBox: String? = nil
 }
 

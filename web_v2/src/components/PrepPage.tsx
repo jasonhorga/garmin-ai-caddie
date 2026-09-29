@@ -8,6 +8,7 @@ import {
   prewarmCourseTopo,
   retryCourseInstall,
 } from '../api'
+import { wholeCourseLoops } from '../courseLoops'
 import type {
   CoursePrepResponse,
   CourseSearchMatch,
@@ -61,6 +62,7 @@ function packageHoleNumbers(data: LiveRoundPackageResponse, globalId: number): n
 
 async function fetchPreparedCourse(
   globalId: number,
+  loops: string,
   adminToken?: string,
 ): Promise<{ data: CoursePrepResponse; install: CourseInstallStatus | null }> {
   let packageError: unknown = null
@@ -71,6 +73,7 @@ async function fetchPreparedCourse(
       globalId,
       {
         roundId: `web-prep-${globalId}`,
+        loops,
         backgroundGeometry: true,
         includeEventCursor: false,
       },
@@ -92,7 +95,7 @@ async function fetchPreparedCourse(
   if (packageError && !data.holes.some((hole) => hole.geometryCoverage !== 'missing')) throw packageError
   let install: CourseInstallStatus | null = null
   try {
-    install = await fetchCourseInstallStatus(globalId, {}, adminToken)
+    install = await fetchCourseInstallStatus(globalId, { loops }, adminToken)
   } catch {
     // Older servers and courses without a queued install simply omit progress.
   }
@@ -277,6 +280,12 @@ export function PrepPage({
   // from an earlier course/attempt must never clobber the latest request.
   const prepSeq = useRef(0)
   const tipsSeq = useRef(0)
+  // Prep installs the whole physical course (B4b-2 canonical loops). Without a catalogue row the
+  // course is asked for as an 18-hole course; the server rejects a mismatch rather than guessing.
+  const loopsOption = globalId === null ? null : findCourseOption(courseOptions, globalId)
+  const coursePackageLoops = globalId === null
+    ? null
+    : wholeCourseLoops(globalId, loopsOption ? loopsOption.segmentHoles ?? loopsOption.holes : null)
   const prepKey = globalId === null ? null : `${globalId}:${prepAttempt}`
   const prepCurrent = prepKey !== null && prepDone?.key === prepKey ? prepDone.result : null
   const prepData = prepCurrent !== null && 'data' in prepCurrent ? prepCurrent.data : null
@@ -291,7 +300,7 @@ export function PrepPage({
     if (globalId === null) return
     const key = `${globalId}:${prepAttempt}`
     const seq = ++prepSeq.current
-    fetchPreparedCourse(globalId, adminToken)
+    fetchPreparedCourse(globalId, coursePackageLoops ?? wholeCourseLoops(globalId, null), adminToken)
       .then((data) => {
         if (prepSeq.current !== seq) return
         // Keep compatibility with test/adaptor callers that return the prep payload directly.
@@ -303,7 +312,7 @@ export function PrepPage({
         if (prepSeq.current !== seq) return
         setPrepDone({ key, result: { error: error instanceof Error ? error.message : '未知错误' } })
       })
-  }, [globalId, adminToken, prepAttempt])
+  }, [globalId, adminToken, prepAttempt, coursePackageLoops])
 
   const installCurrent = prepKey !== null && installDone?.key === prepKey ? installDone.data : null
   const readiness = prepReadinessState(prepData, installCurrent)
@@ -324,12 +333,12 @@ export function PrepPage({
           })
           .catch(() => {})
       }
-      void fetchCourseInstallStatus(globalId, {}, adminToken)
+      void fetchCourseInstallStatus(globalId, { loops: coursePackageLoops ?? wholeCourseLoops(globalId, null) }, adminToken)
         .then((status) => setInstallDone({ key: prepKey, data: status }))
         .catch(() => {})
     }, PRECISE_MAP_POLL_MS)
     return () => window.clearTimeout(timer)
-  }, [globalId, adminToken, prepData, prepKey, readiness])
+  }, [globalId, adminToken, prepData, prepKey, readiness, coursePackageLoops])
 
   // On course select, kick a background render of ALL the course's hole topo bitmaps so browsing
   // holes hits a warm cache instead of paying ~6–10s on each hole's first view. Fire-and-forget:
