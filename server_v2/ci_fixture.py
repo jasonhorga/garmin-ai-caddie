@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Query, Response
 
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.caddie.decision_api import build_decision_from_request
+from ai_caddie.caddie.mobile_live import RoundLoopError, parse_round_loops, round_loop_key
 
 FIXTURE_REVISION = "ci-fixture-20260827-v1"
 ROUND_REF = "900001"
@@ -414,11 +415,40 @@ def _with_markers(payload: dict) -> dict:
     return {**payload, **MARKERS}
 
 
-def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all", back_global_id: int | None = None, tee_box: str = "blue") -> dict:
+def _fixture_loops(raw: str, global_id: int) -> list[tuple[int, str]]:
+    """The production ``loops=`` parser, bounded to the fixture's 18-hole courses."""
+    try:
+        loops = parse_round_loops(raw, path_global_id=int(global_id))
+    except RoundLoopError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    for gid, half in loops:
+        _course_request(gid)
+        if half == "all":
+            raise HTTPException(status_code=422, detail=f"{gid}:all needs an authoritative 9-hole loop")
+        if gid != int(global_id):
+            raise HTTPException(status_code=422, detail="every loop must belong to the same physical venue")
+    return loops
+
+
+def _loop_holes(loops: list[tuple[int, str]]) -> list[tuple[int, int, int]]:
+    """(round hole, physical local hole, physical course) in play order."""
+    rows: list[tuple[int, int, int]] = []
+    for index, (gid, half) in enumerate(loops):
+        source_start = 10 if half == "back" else 1
+        for offset in range(9):
+            rows.append((1 + 9 * index + offset, source_start + offset, gid))
+    return rows
+
+
+def _package(round_id: str, global_id: int | None, loops: list[tuple[int, str]] | None, tee_box: str = "blue") -> dict:
     requested_tee = _fixture_tee(tee_box, default="blue") or "blue"
-    _, requested_course, requested_back = _bound_round_context(round_id, global_id, back_global_id, nine, requested_tee)
+    _, requested_course, _ = _bound_round_context(round_id, global_id, None, "all", requested_tee)
+    if loops is None:
+        # A fixture round is the whole 18-hole course played front then back.
+        loops = [(requested_course, "front"), (requested_course, "back")]
     requested_round = str(round_id)
-    segment_holes = _segment_holes(nine)
+    resolved_holes = _loop_holes(loops)
+    segment_holes = [number for number, _, _ in resolved_holes]
     payload = json.loads(json.dumps(PACKAGE_TEMPLATE))
     # Keep every nested provenance/reference field on the same deterministic fixture entities.
     def normalize(value: object, key: str | None = None) -> object:
@@ -443,23 +473,24 @@ def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all"
     payload["course"]["globalId"] = requested_course
     payload["course"]["name"] = _course_name(requested_course)
     payload["course"]["teeBox"] = requested_tee
-    payload["nine"] = nine
-    payload["frontCourseGlobalId"] = requested_course
-    if requested_back is not None:
-        payload["backGlobalId"] = requested_back
-        payload["backCourseGlobalId"] = requested_back
+    payload["schema"] = "ai-caddie-live-round-package-v2"
+    payload["roundLoops"] = [
+        {"globalId": gid, "half": half, "roundStartHole": 1 + 9 * index,
+         "sourceStartHole": 10 if half == "back" else 1, "holeCount": 9}
+        for index, (gid, half) in enumerate(loops)
+    ]
+    payload["loopKey"] = round_loop_key(loops)
     template_hole = payload["holes"][0]
     payload["holes"] = []
-    for number in segment_holes:
+    for number, local_hole, source_course in resolved_holes:
         hole = json.loads(json.dumps(template_hole))
+        # Round hole `number` in play order; the physical hole stays addressable by the geometry
+        # service and is what a half of an 18-hole course shows as its number.
         hole["number"] = number
-        # Composite rounds expose front-nine numbers 1..9 and back-nine numbers
-        # 10..18, while the geometry service addresses the back course locally.
-        display_hole, local_hole, source_course = _resolve_hole(nine, number, requested_course, requested_back)
-        hole["number"] = display_hole
         hole["par"] = _hole_par(source_course, local_hole)
         hole["sourceGlobalId"] = source_course
         hole["sourceLocalHole"] = local_hole
+        hole["courseHoleNumber"] = local_hole
         tee_latitude, tee_longitude = COURSE_COORDINATES[source_course]
         hole["teeLatitude"] = tee_latitude
         hole["teeLongitude"] = tee_longitude
@@ -467,7 +498,6 @@ def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all"
     payload["geometryCoverage"]["totalHoles"] = len(segment_holes)
     payload["geometryCoverage"]["readyHoles"] = len(segment_holes)
     payload["geometryCoverage"]["state"] = "ready"
-    resolved_holes = [_resolve_hole(nine, hole, requested_course, requested_back) for hole in segment_holes]
     source_holes = [local for _, local, _ in resolved_holes]
     source_courses = [course for _, _, course in resolved_holes]
     source_refs = [f"{requested_round}:{hole}" for hole in segment_holes]
@@ -475,13 +505,12 @@ def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all"
     payload["readinessChecks"] = [{"label": "source", "state": "ready", "ready": len(segment_holes), "total": len(segment_holes), "reason": "fixture round source is available", "sourceRefs": source_refs}, {"label": "geometry", "state": "ready", "ready": len(segment_holes), "total": len(segment_holes), "reason": "fixture geometry is available", "sourceRefs": [f"geometry:{course}:{local}" for course, local in zip(source_courses, source_holes)]}, {"label": "caddie_seeds", "state": "ready", "ready": len(segment_holes), "total": len(segment_holes), "reason": "fixture caddie seeds are available", "sourceRefs": source_refs}]
     seeds = []
     template_seed = payload.get("caddieContextSeeds", [{}])[0]
-    for hole in segment_holes:
+    for hole, local_hole, source_course in resolved_holes:
         seed = json.loads(json.dumps(template_seed))
         seed_ref = f"{requested_round}:{hole}"
         seed["hole"] = hole
         seed["sourceRef"] = seed_ref
-        display_hole, local_hole, source_course = _resolve_hole(nine, hole, requested_course, requested_back)
-        seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": display_hole, "displayHole": display_hole, "globalId": requested_course, "localHole": local_hole, "backGlobalId": requested_back, "nine": nine, "teeBox": requested_tee, "par": _hole_par(source_course, local_hole)})
+        seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": hole, "displayHole": hole, "globalId": source_course, "localHole": local_hole, "teeBox": requested_tee, "par": _hole_par(source_course, local_hole)})
         seed["context"].setdefault("geometry", {}).update({"coverage": "ready", "sourceGlobalId": source_course, "sourceLocalHole": local_hole})
         club_profiles = _seed_club_profiles(seed)
         existing_profiles = seed["context"].get("clubProfiles")
@@ -714,24 +743,24 @@ def sync_status() -> dict:
 
 
 @ROUTE.get("/api/v2/courses/{global_id}/install/status")
-def install_status(global_id: int, tee_box: str = "blue", nine: str = "all", back_global_id: int | None = None) -> dict:
+def install_status(global_id: int, loops: str = Query(...), tee_box: str = "blue") -> dict:
     requested_course = _course_request(global_id)
-    requested_back = _course_request(back_global_id) if back_global_id is not None else None
+    round_loops = _fixture_loops(loops, requested_course)
     requested_tee = _fixture_tee(tee_box, default="blue") or "blue"
-    segment_holes = _segment_holes(nine)
-    rows = [{"globalId": course, "localHole": local, "displayHole": display, "geometry": "ready", "geometryRevision": FIXTURE_REVISION, "topo": "ready", "topoRevision": FIXTURE_REVISION, "error": None} for display, local, course in (_resolve_hole(nine, hole, requested_course, requested_back) for hole in segment_holes)]
+    resolved = _loop_holes(round_loops)
+    rows = [{"globalId": course, "localHole": local, "displayHole": display, "geometry": "ready", "geometryRevision": FIXTURE_REVISION, "topo": "ready", "topoRevision": FIXTURE_REVISION, "error": None} for display, local, course in resolved]
     return _with_markers({"schema": "ai-caddie-course-install-v1", "jobId": "fixture-install", "globalId": requested_course,
-                          "teeBox": requested_tee, "nine": nine, "phase": "ready", "stage": "complete",
+                          "teeBox": requested_tee, "loopKey": round_loop_key(round_loops), "phase": "ready", "stage": "complete",
                           "progress": 100, "heartbeatAt": "2026-08-27T00:00:00Z", "cancelRequested": False,
                           "cancelRequestedAt": None, "terminalReason": "provider_complete", "retryCount": 0,
                           "generation": 1, "cancellable": False,
-                          "totalHoles": len(segment_holes), "geometryReady": len(segment_holes), "topoReady": len(segment_holes), "updatedAt": "2026-08-27T00:00:00Z",
+                          "totalHoles": len(resolved), "geometryReady": len(resolved), "topoReady": len(resolved), "updatedAt": "2026-08-27T00:00:00Z",
                           "error": None, "holes": rows})
 
 
 @ROUTE.post("/api/v2/courses/{global_id}/install/jobs/{job_id}/cancel")
-def cancel_install(global_id: int, job_id: str, tee_box: str = "blue", nine: str = "all", back_global_id: int | None = None) -> dict:
-    payload = install_status(global_id, tee_box=tee_box, nine=nine, back_global_id=back_global_id)
+def cancel_install(global_id: int, job_id: str, loops: str = Query(...), tee_box: str = "blue") -> dict:
+    payload = install_status(global_id, loops=loops, tee_box=tee_box)
     payload.update({"jobId": job_id, "phase": "cancelled", "stage": "cancelled", "progress": payload.get("progress", 0),
                     "cancelRequested": True, "cancelRequestedAt": "2026-08-27T00:00:00Z",
                     "terminalReason": "user_cancelled", "cancellable": False})
@@ -739,8 +768,8 @@ def cancel_install(global_id: int, job_id: str, tee_box: str = "blue", nine: str
 
 
 @ROUTE.post("/api/v2/courses/{global_id}/install/jobs/{job_id}/retry")
-def retry_install(global_id: int, job_id: str, tee_box: str = "blue", nine: str = "all", back_global_id: int | None = None) -> dict:
-    payload = install_status(global_id, tee_box=tee_box, nine=nine, back_global_id=back_global_id)
+def retry_install(global_id: int, job_id: str, loops: str = Query(...), tee_box: str = "blue") -> dict:
+    payload = install_status(global_id, loops=loops, tee_box=tee_box)
     payload.update({"jobId": job_id, "phase": "queued", "stage": "queued", "progress": 0,
                     "cancelRequested": False, "cancelRequestedAt": None, "terminalReason": None,
                     "retryCount": 1, "generation": 2, "cancellable": True})
@@ -774,15 +803,15 @@ def green_png(global_id: int, hole: int, x: float = 0, y: float = 0, width: floa
 
 
 @ROUTE.get("/api/v2/mobile/courses/{global_id}/package")
-def course_package(global_id: int, round_id: str | None = None, tee_box: str | None = None, nine: str = "all", back_global_id: int | None = None) -> dict:
+def course_package(global_id: int, loops: str = Query(...), round_id: str | None = None, tee_box: str | None = None) -> dict:
     if round_id is None:
         raise HTTPException(status_code=404, detail="fixture round not found")
-    return _package(round_id, global_id, nine, back_global_id, tee_box if tee_box is not None else "blue")
+    return _package(round_id, global_id, _fixture_loops(loops, global_id), tee_box if tee_box is not None else "blue")
 
 
 @ROUTE.get("/api/v2/mobile/rounds/{round_id}/package")
-def round_package(round_id: str, tee_box: str | None = None, nine: str = "all", back_global_id: int | None = None, global_id: int | None = None) -> dict:
-    return _package(round_id, global_id, nine, back_global_id, tee_box if tee_box is not None else "blue")
+def round_package(round_id: str, tee_box: str | None = None, global_id: int | None = None) -> dict:
+    return _package(round_id, global_id, None, tee_box if tee_box is not None else "blue")
 
 
 @ROUTE.post("/api/v2/caddie/decision")
@@ -795,8 +824,16 @@ def caddie_decision(body: dict) -> dict:
     hole = context["hole"]
     if not isinstance(hole, int) or hole < 1 or hole > 18:
         raise HTTPException(status_code=404, detail="fixture hole not found")
-    _, requested_course, requested_back = _bound_round_context(round_id, int(context["globalId"]), context.get("backGlobalId"), context.get("nine", "all"), context.get("teeBox"))
-    display_hole, expected_local, course_identity = _resolve_hole(context.get("nine", "all"), hole, requested_course, requested_back)
+    if "nine" not in context and "backGlobalId" not in context and isinstance(context.get("localHole"), int):
+        # v2 package seed: `hole` is the round hole, `globalId` / `localHole` the physical hole.
+        _, requested_course, _ = _bound_round_context(round_id, int(context["globalId"]), None, "all", context.get("teeBox"))
+        if not 1 <= context["localHole"] <= 18:
+            raise HTTPException(status_code=404, detail="fixture local hole not found")
+        display_hole, expected_local, course_identity = hole, context["localHole"], requested_course
+    else:
+        # Past-round (history) context: the round's own nine / back-course identity.
+        _, requested_course, requested_back = _bound_round_context(round_id, int(context["globalId"]), context.get("backGlobalId"), context.get("nine", "all"), context.get("teeBox"))
+        display_hole, expected_local, course_identity = _resolve_hole(context.get("nine", "all"), hole, requested_course, requested_back)
     if context.get("courseGlobalId") is not None and _course_request(int(context["courseGlobalId"])) != course_identity:
         raise HTTPException(status_code=400, detail="fixture decision course mismatch")
     if context.get("localHole") is not None and context["localHole"] != expected_local:

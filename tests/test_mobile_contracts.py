@@ -146,12 +146,14 @@ class MobileContractTests(unittest.TestCase):
     def test_live_round_package_schema_accepts_fixture(self) -> None:
         schema = _load_schema("live_round_package.schema.json")
         package = {
-            "schema": "ai-caddie-live-round-package-v1",
+            "schema": "ai-caddie-live-round-package-v2",
             "roundId": "live-round-1",
             "dataMode": "fixture",
-            # P2: nine was missing from the schema (additionalProperties:false) though the model emits
-            # it — a real package with a start-nine filter would have failed this strict validation.
-            "nine": "front",
+            # B4b-2: the round's loops in play order replace the old start-nine filter.
+            "roundLoops": [
+                {"globalId": 31795, "half": "back", "roundStartHole": 1, "sourceStartHole": 10, "holeCount": 9}
+            ],
+            "loopKey": "31795:back",
             "sourceCoverage": {
                 "state": "ready",
                 "dataMode": "fixture",
@@ -229,7 +231,17 @@ class MobileContractTests(unittest.TestCase):
                 "coverage": {"ready": 8, "total": 10, "pct": 80.0},
             },
             "course": {"globalId": 31795, "name": "Fixture Links", "teeBox": "blue"},
-            "holes": [{"number": 1, "par": 4, "yards": 410, "geometryCoverage": "ready"}],
+            "holes": [
+                {
+                    "number": 1,
+                    "sourceGlobalId": 31795,
+                    "sourceLocalHole": 10,
+                    "courseHoleNumber": 10,
+                    "par": 4,
+                    "yards": 410,
+                    "geometryCoverage": "ready",
+                }
+            ],
             "coursePrep": {
                 "schema": "ai-caddie-course-prep-package-v1",
                 "globalId": 31795,

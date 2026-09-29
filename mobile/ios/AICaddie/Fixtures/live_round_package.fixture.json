@@ -1,5 +1,5 @@
 {
-  "schema": "ai-caddie-live-round-package-v1",
+  "schema": "ai-caddie-live-round-package-v2",
   "roundId": "live-round-1",
   "dataMode": "fixture",
   "sourceCoverage": {
@@ -32,12 +32,25 @@
     "name": "Fixture Links",
     "teeBox": "blue"
   },
+  "roundLoops": [
+    {
+      "globalId": 31795,
+      "half": "all",
+      "roundStartHole": 1,
+      "sourceStartHole": 1,
+      "holeCount": 1
+    }
+  ],
+  "loopKey": "31795:all",
   "holes": [
     {
       "number": 1,
       "par": 4,
       "yards": 410,
-      "geometryCoverage": "ready"
+      "geometryCoverage": "ready",
+      "sourceGlobalId": 31795,
+      "sourceLocalHole": 1,
+      "courseHoleNumber": 1
     }
   ],
   "geometryCoverage": {
@@ -107,8 +120,15 @@
     {
       "hole": 1,
       "sourceRef": "live-round-1:1",
-      "shotTypes": ["tee", "approach", "recovery"],
-      "requiredLiveInputs": ["currentLocation", "lie"],
+      "shotTypes": [
+        "tee",
+        "approach",
+        "recovery"
+      ],
+      "requiredLiveInputs": [
+        "currentLocation",
+        "lie"
+      ],
       "context": {
         "roundId": "live-round-1",
         "source": "live_round_package",
@@ -146,7 +166,11 @@
           "averageToPar": 0.2,
           "worstToPar": 1,
           "scoreDistribution": [],
-          "holeRefs": ["round-a:1", "round-b:1", "round-c:1"]
+          "holeRefs": [
+            "round-a:1",
+            "round-b:1",
+            "round-c:1"
+          ]
         },
         "historicalHoleIssues": [
           {
@@ -166,11 +190,19 @@
           "p90M": 140.0,
           "sampleSize": 24,
           "confidence": "high",
-          "coverage": { "ready": 24, "total": 24, "pct": 100.0 },
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
           "riskScore": 1.0,
           "source": "offline_package_seed",
-          "sourceRefs": ["live-round-1:1"],
-          "sampleRefs": ["live-round-1:1:2"],
+          "sourceRefs": [
+            "live-round-1:1"
+          ],
+          "sampleRefs": [
+            "live-round-1:1:2"
+          ],
           "missingData": []
         },
         {
@@ -182,11 +214,19 @@
           "p90M": 153.0,
           "sampleSize": 24,
           "confidence": "high",
-          "coverage": { "ready": 24, "total": 24, "pct": 100.0 },
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
           "riskScore": 3.0,
           "source": "offline_package_seed",
-          "sourceRefs": ["live-round-1:1"],
-          "sampleRefs": ["live-round-1:1:1"],
+          "sourceRefs": [
+            "live-round-1:1"
+          ],
+          "sampleRefs": [
+            "live-round-1:1:1"
+          ],
           "missingData": []
         },
         {
@@ -198,11 +238,19 @@
           "p90M": 168.0,
           "sampleSize": 4,
           "confidence": "medium",
-          "coverage": { "ready": 4, "total": 10, "pct": 40.0 },
+          "coverage": {
+            "ready": 4,
+            "total": 10,
+            "pct": 40.0
+          },
           "riskScore": 5.0,
           "source": "offline_package_seed",
-          "sourceRefs": ["live-round-1:1"],
-          "sampleRefs": ["live-round-1:1:3"],
+          "sourceRefs": [
+            "live-round-1:1"
+          ],
+          "sampleRefs": [
+            "live-round-1:1:3"
+          ],
           "missingData": [
             {
               "label": "club_profile_sample",
@@ -271,8 +319,16 @@
       "averageScore": 82.7,
       "bestScore": 79,
       "worstScore": 86,
-      "recentScores": [81, 84, 83],
-      "roundIds": ["round-a", "round-b", "round-c"]
+      "recentScores": [
+        81,
+        84,
+        83
+      ],
+      "roundIds": [
+        "round-a",
+        "round-b",
+        "round-c"
+      ]
     },
     "rounds": [
       {
@@ -284,7 +340,9 @@
         "toPar": 9,
         "holesCompleted": 18,
         "globalId": 31795,
-        "sourceRefs": ["round-a"]
+        "sourceRefs": [
+          "round-a"
+        ]
       },
       {
         "roundId": "round-b",
@@ -294,7 +352,9 @@
         "par": 72,
         "toPar": 12,
         "holesCompleted": 18,
-        "sourceRefs": ["round-b"]
+        "sourceRefs": [
+          "round-b"
+        ]
       },
       {
         "roundId": "round-c",
@@ -304,7 +364,9 @@
         "par": 72,
         "toPar": 11,
         "holesCompleted": 18,
-        "sourceRefs": ["round-c"]
+        "sourceRefs": [
+          "round-c"
+        ]
       }
     ],
     "holes": [
@@ -324,8 +386,16 @@
   "cachedCaddieRules": {
     "decisionContract": "ai-caddie-decision-v2",
     "offlineCapable": true,
-    "requiredInputs": ["currentLocation", "hole", "clubProfiles"],
-    "degradeWhenMissing": ["geometry", "weather", "recentHistory"]
+    "requiredInputs": [
+      "currentLocation",
+      "hole",
+      "clubProfiles"
+    ],
+    "degradeWhenMissing": [
+      "geometry",
+      "weather",
+      "recentHistory"
+    ]
   },
   "generatedAt": "2026-05-25T00:00:00Z"
 }

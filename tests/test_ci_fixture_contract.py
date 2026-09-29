@@ -70,15 +70,18 @@ class CIFixtureContractTests(unittest.TestCase):
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
         for global_id in (31793, 31795, 3881, 31797):
-            package = _package(f"home-{global_id}", global_id)
+            package = _package(f"home-{global_id}", global_id, None)
             expected = COURSE_COORDINATES[global_id]
             self.assertEqual(len(package["holes"]), 18)
             self.assertEqual({(hole["teeLatitude"], hole["teeLongitude"]) for hole in package["holes"]}, {expected})
-        composite = _package("home-31795", 31795, back_global_id=3881)
-        front = [hole for hole in composite["holes"] if hole["number"] <= 9]
-        back = [hole for hole in composite["holes"] if hole["number"] >= 10]
-        self.assertEqual({(hole["teeLatitude"], hole["teeLongitude"]) for hole in front}, {COURSE_COORDINATES[31795]})
-        self.assertEqual({(hole["teeLatitude"], hole["teeLongitude"]) for hole in back}, {COURSE_COORDINATES[3881]})
+        # B4b-2: 后→前 keeps round numbers 1-18 on physical 10-18 then 1-9 of the same course.
+        reordered = _package("home-31795", 31795, [(31795, "back"), (31795, "front")])
+        self.assertEqual([hole["number"] for hole in reordered["holes"]], list(range(1, 19)))
+        physical = [*range(10, 19), *range(1, 10)]
+        self.assertEqual([hole["sourceLocalHole"] for hole in reordered["holes"]], physical)
+        self.assertEqual([hole["courseHoleNumber"] for hole in reordered["holes"]], physical)
+        self.assertEqual(reordered["loopKey"], "31795:back+31795:front")
+        self.assertEqual({(hole["teeLatitude"], hole["teeLongitude"]) for hole in reordered["holes"]}, {COURSE_COORDINATES[31795]})
 
     def test_beijing_palace_catalogue_and_identity_are_complete(self) -> None:
         try:
@@ -89,7 +92,7 @@ class CIFixtureContractTests(unittest.TestCase):
             palace = next(row for row in rows if row['globalId'] == 31793)
             self.assertEqual(palace['name'], '北京丽宫体育公园高尔夫俱乐部')
         self.assertEqual(tees(31793)['globalId'], 31793)
-        self.assertEqual(course_package(31793, round_id='home-31793')['course']['globalId'], 31793)
+        self.assertEqual(course_package(31793, loops='31793:front,31793:back', round_id='home-31793')['course']['globalId'], 31793)
         self.assertEqual(prep(31793, holes=[1])['globalId'], 31793)
         self.assertEqual(coverage(31793, holes=[1])['globalId'], 31793)
     def test_fixture_producer_candidate_set_is_resolver_compatible(self) -> None:
@@ -147,7 +150,7 @@ class CIFixtureContractTests(unittest.TestCase):
             from server_v2.ci_fixture import _package
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
-        package = _package("fixture-round-1", 3881)
+        package = _package("fixture-round-1", 3881, None)
         encoded = json.dumps(package)
         self.assertNotIn("live-round-1", encoded)
         self.assertNotIn("round-a", encoded)
@@ -164,8 +167,9 @@ class CIFixtureContractTests(unittest.TestCase):
             from server_v2.ci_fixture import GLOBAL_ID, ROUND_REF, _package, course_package, round_package
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
-        self.assertEqual(course_package(GLOBAL_ID, round_id=ROUND_REF, tee_box="blue")["roundId"], ROUND_REF)
-        front = course_package(3881, round_id="fixture-round-1", tee_box="white", nine="front")
+        whole = f"{GLOBAL_ID}:front,{GLOBAL_ID}:back"
+        self.assertEqual(course_package(GLOBAL_ID, loops=whole, round_id=ROUND_REF, tee_box="blue")["roundId"], ROUND_REF)
+        front = course_package(3881, loops="3881:front", round_id="fixture-round-1", tee_box="white")
         self.assertEqual(front["geometryCoverage"]["totalHoles"], 9)
         self.assertEqual(len(front["holes"]), 9)
         self.assertEqual(front["course"]["globalId"], 3881)
@@ -173,20 +177,20 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(front["holes"][0]["number"], 1)
         self.assertEqual(front["holes"][-1]["number"], 9)
         self.assertEqual(round_package(ROUND_REF)["course"]["globalId"], GLOBAL_ID)
-        for args in (("wrong-round", GLOBAL_ID), (ROUND_REF, 99999)):
+        for args in (("wrong-round", GLOBAL_ID, None), (ROUND_REF, 99999, None)):
             with self.assertRaises(HTTPException) as raised:
                 _package(*args)
             self.assertEqual(raised.exception.status_code, 404)
         with self.assertRaises(HTTPException):
-            course_package(99999, round_id=ROUND_REF, tee_box="blue")
-        with self.assertRaises(HTTPException):
-            course_package(GLOBAL_ID, round_id=ROUND_REF, tee_box="blue", back_global_id=99999)
+            course_package(99999, loops="99999:front", round_id=ROUND_REF, tee_box="blue")
+        # Every ambiguous or unplayable order is rejected by the production parser rules.
+        for loops in (f"{GLOBAL_ID}:all", f"{GLOBAL_ID}:front,99999:back", f"{GLOBAL_ID}:front,3881:back", "3881:front", "", f"{GLOBAL_ID}:front,{GLOBAL_ID}:back,{GLOBAL_ID}:front"):
+            with self.assertRaises(HTTPException, msg=loops):
+                course_package(GLOBAL_ID, loops=loops, round_id=ROUND_REF, tee_box="blue")
         with self.assertRaises(HTTPException):
             round_package("wrong-round")
         with self.assertRaises(HTTPException):
             round_package(ROUND_REF, tee_box="green")
-        with self.assertRaises(HTTPException):
-            round_package(ROUND_REF, back_global_id=99999)
 
     def test_manual_search_unknown_tee_uses_default_without_losing_provenance(self) -> None:
         try:
@@ -196,17 +200,17 @@ class CIFixtureContractTests(unittest.TestCase):
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
 
         self.assertEqual(_fixture_tee(" UNKNOWN "), "unknown")
-        package = course_package(31793, round_id="live-31793-12345678-1234-4234-8234-123456789abc", tee_box=" UNKNOWN ")
+        package = course_package(31793, loops="31793:front,31793:back", round_id="live-31793-12345678-1234-4234-8234-123456789abc", tee_box=" UNKNOWN ")
         self.assertEqual(package["course"]["teeBox"], "unknown")
         self.assertEqual(package["caddieContextSeeds"][0]["context"]["teeBox"], "unknown")
         self.assertEqual(coverage(31793, holes=[1], tee_box="unknown")["globalId"], 31793)
-        self.assertEqual(install_status(31793, tee_box="unknown")["teeBox"], "unknown")
+        self.assertEqual(install_status(31793, loops="31793:front,31793:back", tee_box="unknown")["teeBox"], "unknown")
 
         for call in (
             lambda: _fixture_tee("green"),
-            lambda: course_package(31793, round_id="home-31793", tee_box="green"),
+            lambda: course_package(31793, loops="31793:front,31793:back", round_id="home-31793", tee_box="green"),
             lambda: coverage(31793, holes=[1], tee_box="green"),
-            lambda: install_status(31793, tee_box="green"),
+            lambda: install_status(31793, loops="31793:front,31793:back", tee_box="green"),
         ):
             with self.assertRaises(HTTPException):
                 call()
@@ -218,7 +222,7 @@ class CIFixtureContractTests(unittest.TestCase):
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
 
-        package = course_package(31793, round_id="prep-library-31793", tee_box="blue")
+        package = course_package(31793, loops="31793:front,31793:back", round_id="prep-library-31793", tee_box="blue")
         self.assertEqual(package["roundId"], "prep-library-31793")
         self.assertEqual(package["course"]["globalId"], 31793)
         self.assertEqual(len(package["holes"]), 18)
@@ -228,7 +232,7 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual({hole["teeLatitude"] for hole in package["holes"]}, {40.0455})
         self.assertEqual({hole["teeLongitude"] for hole in package["holes"]}, {116.5462})
 
-        status = install_status(31793, tee_box="blue", nine="all")
+        status = install_status(31793, loops="31793:front,31793:back", tee_box="blue")
         self.assertEqual(status["globalId"], 31793)
         self.assertEqual(status["totalHoles"], 18)
         self.assertEqual(status["topoReady"], 18)
@@ -238,10 +242,10 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertGreater(len(asset.body), 1024)
 
         with self.assertRaises(HTTPException) as raised:
-            course_package(99999, round_id="prep-library-99999", tee_box="blue")
+            course_package(99999, loops="99999:front,99999:back", round_id="prep-library-99999", tee_box="blue")
         self.assertEqual(raised.exception.status_code, 404)
         with self.assertRaises(HTTPException):
-            course_package(31793, round_id="prep-library-31795", tee_box="blue")
+            course_package(31793, loops="31793:front,31793:back", round_id="prep-library-31795", tee_box="blue")
 
     def test_fixture_decision_and_shotmap_shapes_are_decodable_contracts(self) -> None:
         try:
@@ -271,13 +275,14 @@ class CIFixtureContractTests(unittest.TestCase):
             from server_v2.ci_fixture import caddie_decision, course_package
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
-        package = course_package(3881, round_id="live-round-1", tee_box="white", nine="back", back_global_id=31871)
+        package = course_package(3881, loops="3881:back", round_id="live-round-1", tee_box="white")
         self.assertEqual(package["roundId"], "live-round-1")
         self.assertEqual(package["course"]["globalId"], 3881)
-        self.assertEqual(package["backGlobalId"], 31871)
         self.assertEqual(len(package["holes"]), 9)
-        self.assertEqual(package["holes"][0]["sourceGlobalId"], 31871)
-        self.assertEqual(package["holes"][0]["sourceLocalHole"], 1)
+        self.assertEqual(package["holes"][0]["number"], 1)
+        self.assertEqual(package["holes"][0]["sourceGlobalId"], 3881)
+        self.assertEqual(package["holes"][0]["sourceLocalHole"], 10)
+        self.assertEqual(package["holes"][0]["courseHoleNumber"], 10)
         decision = caddie_decision({"shotType": "tee", "context": {"roundId": "live-round-1", "globalId": 3881, "hole": 1, "teeBox": "white", "sourceRef": "live-round-1:1"}})
         self.assertEqual(decision["context"]["roundId"], "live-round-1")
         self.assertEqual(decision["context"]["globalId"], 3881)
@@ -343,7 +348,7 @@ class CIFixtureContractTests(unittest.TestCase):
             self.assertGreaterEqual(live_distance, 260.0)
             self.assertAlmostEqual(live_distance, green["middleM"], delta=1.0)
 
-        package = course_package(31793, round_id="home-31793", tee_box="blue")
+        package = course_package(31793, loops="31793:front,31793:back", round_id="home-31793", tee_box="blue")
         seed = package["caddieContextSeeds"][0]
         green = prep(31793, holes=[1])["holes"][0]["greenDistances"]
         tee = COURSE_COORDINATES[31793]
@@ -487,7 +492,7 @@ class CIFixtureContractTests(unittest.TestCase):
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
         package = __import__("server_v2.ci_fixture", fromlist=["course_package"]).course_package(
-            3881, round_id="watch-12345678-1234-4234-8234-123456789abc", tee_box="blue"
+            3881, loops="3881:front,3881:back", round_id="watch-12345678-1234-4234-8234-123456789abc", tee_box="blue"
         )
         self.assertEqual([row["number"] for row in package["holes"]], list(range(1, 19)))
         self.assertEqual({row["sourceLocalHole"] for row in package["holes"]}, set(range(1, 19)))
@@ -510,16 +515,17 @@ class CIFixtureContractTests(unittest.TestCase):
             self.assertEqual(decision["selected"]["sourceRef"], f"home-3881:{hole}")
         with self.assertRaises(HTTPException):
             __import__("server_v2.ci_fixture", fromlist=["shotmap"]).shotmap("watch-12345678-1234-4234-8234-123456789abc", 1)
-        composite = __import__("server_v2.ci_fixture", fromlist=["course_package"]).course_package(31795, round_id="home-31795", tee_box="blue", nine="all", back_global_id=3881)
-        back_holes = [row for row in composite["holes"] if row["number"] >= 10]
-        self.assertEqual({row["sourceGlobalId"] for row in back_holes}, {3881})
-        self.assertEqual({row["sourceLocalHole"] for row in back_holes}, set(range(1, 10)))
-        back_decision = __import__("server_v2.ci_fixture", fromlist=["caddie_decision"]).caddie_decision({"shotType": "approach", "context": {"roundId": "home-31795", "globalId": 31795, "backGlobalId": 3881, "hole": 10, "localHole": 1, "sourceRef": "home-31795:10"}})
+        # 后→前: round hole 10 is physical hole 1; its seed identity reaches the decision unchanged.
+        reordered = __import__("server_v2.ci_fixture", fromlist=["course_package"]).course_package(31795, loops="31795:back,31795:front", round_id="home-31795", tee_box="blue")
+        second_loop = [row for row in reordered["holes"] if row["number"] >= 10]
+        self.assertEqual({row["sourceGlobalId"] for row in second_loop}, {31795})
+        self.assertEqual([row["sourceLocalHole"] for row in second_loop], list(range(1, 10)))
+        back_decision = __import__("server_v2.ci_fixture", fromlist=["caddie_decision"]).caddie_decision({"shotType": "approach", "context": {"roundId": "home-31795", "globalId": 31795, "hole": 10, "localHole": 1, "sourceRef": "home-31795:10"}})
         self.assertEqual(back_decision["context"]["globalId"], 31795)
-        self.assertEqual(back_decision["selected"]["courseGlobalId"], 3881)
+        self.assertEqual(back_decision["selected"]["courseGlobalId"], 31795)
         self.assertEqual(back_decision["selected"]["localHole"], 1)
         self.assertEqual(back_decision["selected"]["displayHole"], 10)
-        self.assertEqual(back_decision["selected"]["dispersion"]["courseGlobalId"], 3881)
+        self.assertEqual(back_decision["selected"]["dispersion"]["courseGlobalId"], 31795)
         self.assertEqual(back_decision["selected"]["dispersion"]["localHole"], 1)
 
     def test_palace_pars_are_consistent_across_fixture_routes(self) -> None:
@@ -529,7 +535,7 @@ class CIFixtureContractTests(unittest.TestCase):
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
 
         expected = [4, 4, 3, 5, 4, 4, 3, 4, 5, 4, 3, 5, 4, 4, 4, 3, 4, 5]
-        package = course_package(31793, round_id="home-31793", tee_box="blue")
+        package = course_package(31793, loops="31793:front,31793:back", round_id="home-31793", tee_box="blue")
         package_pars = [hole["par"] for hole in package["holes"]]
         prep_pars = [hole["par"] for hole in prep(31793, holes=list(range(1, 19)))["holes"]]
         detail = history_detail("home-31793", global_id=31793)
@@ -574,7 +580,7 @@ class CIFixtureContractTests(unittest.TestCase):
         live = "live-3881-12345678-1234-4234-8234-123456789abc"
         for call in (
             lambda: round_package(watch),
-            lambda: course_package(31795, round_id=live, tee_box="blue"),
+            lambda: course_package(31795, loops="31795:front,31795:back", round_id=live, tee_box="blue"),
             lambda: history_detail(live, global_id=31795),
             lambda: shotmap(live, 1, global_id=31795),
             lambda: caddie_decision({"context": {"roundId": watch, "hole": 1, "sourceRef": f"{watch}:1"}}),
@@ -625,11 +631,13 @@ class CIFixtureContractTests(unittest.TestCase):
             from server_v2.ci_fixture import caddie_decision, course_package
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
-        package = course_package(31795, round_id="home-31795", tee_box="blue", nine="all", back_global_id=3881)
+        package = course_package(31795, loops="31795:back,31795:front", round_id="home-31795", tee_box="blue")
         seed = next(seed for seed in package["caddieContextSeeds"] if seed["hole"] == 10)
         context = seed["context"]
-        for key, value in (("roundId", "home-31795"), ("globalId", 31795), ("backGlobalId", 3881), ("nine", "all"), ("teeBox", "blue"), ("localHole", 1), ("displayHole", 10)):
+        for key, value in (("roundId", "home-31795"), ("globalId", 31795), ("teeBox", "blue"), ("localHole", 1), ("displayHole", 10)):
             self.assertEqual(context[key], value)
+        self.assertNotIn("nine", context)
+        self.assertNotIn("backGlobalId", context)
         self.assertIsInstance(context["clubProfiles"], dict)
         self.assertGreaterEqual(len(context["clubProfiles"]), 3)
         tee_response = caddie_decision({"shotType": "tee", "context": context})
@@ -645,13 +653,9 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertTrue(all(sequence["sourceRefs"] for sequence in sequences))
         self.assertEqual(tee_response["selectedSequence"]["sourceRef"], "home-31795:10")
         response = caddie_decision({"shotType": "approach", "context": context})
-        self.assertEqual(response["selected"]["courseGlobalId"], 3881)
+        self.assertEqual(response["selected"]["courseGlobalId"], 31795)
         self.assertEqual(response["selected"]["localHole"], 1)
         self.assertEqual(response["selected"]["displayHole"], 10)
-        back_local = dict(context, hole=1, displayHole=10, sourceRef="home-31795:10", nine="back")
-        back_response = caddie_decision({"shotType": "approach", "context": back_local})
-        self.assertEqual(back_response["selected"]["localHole"], 1)
-        self.assertEqual(back_response["selected"]["displayHole"], 10)
 
     def test_package_repairs_legacy_list_shaped_club_profiles(self) -> None:
         try:
@@ -663,7 +667,7 @@ class CIFixtureContractTests(unittest.TestCase):
         original = fixture.PACKAGE_TEMPLATE
         fixture.PACKAGE_TEMPLATE = template
         try:
-            package = fixture.course_package(31793, round_id="prep-library-31793", tee_box="blue")
+            package = fixture.course_package(31793, loops="31793:front,31793:back", round_id="prep-library-31793", tee_box="blue")
         finally:
             fixture.PACKAGE_TEMPLATE = original
         seed = package["caddieContextSeeds"][0]
@@ -677,13 +681,14 @@ class CIFixtureContractTests(unittest.TestCase):
             from server_v2.ci_fixture import install_status
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
-        rows = install_status(31795, nine="back", back_global_id=3881)["holes"]
-        self.assertEqual(rows[0]["displayHole"], 10)
-        self.assertEqual(rows[0]["localHole"], 1)
-        self.assertEqual(rows[0]["globalId"], 3881)
-        for args in (("front", 3881), ("back", None)):
-            with self.assertRaises(HTTPException):
-                install_status(31795, nine=args[0], back_global_id=args[1])
+        status = install_status(31795, loops="31795:back,31795:front")
+        rows = status["holes"]
+        self.assertEqual(status["loopKey"], "31795:back+31795:front")
+        self.assertEqual((rows[0]["displayHole"], rows[0]["localHole"], rows[0]["globalId"]), (1, 10, 31795))
+        self.assertEqual((rows[9]["displayHole"], rows[9]["localHole"], rows[9]["globalId"]), (10, 1, 31795))
+        for loops in ("31795:all", "31795:front,3881:back", "3881:front"):
+            with self.assertRaises(HTTPException, msg=loops):
+                install_status(31795, loops=loops)
 
     def test_native_history_callers_expose_resolved_identity_query(self) -> None:
         source = Path("mobile/ios/AICaddie/Services/SyncClient.swift").read_text(encoding="utf-8")
@@ -715,7 +720,7 @@ class CIFixtureContractTests(unittest.TestCase):
             "eventCursor", "recentHistory", "cachedCaddieRules", "generatedAt",
         }
         self.assertTrue(required.issubset(package))
-        self.assertEqual(package["schema"], "ai-caddie-live-round-package-v1")
+        self.assertEqual(package["schema"], "ai-caddie-live-round-package-v2")
         self.assertIsInstance(package["holes"], list)
         self.assertIsInstance(package["readinessChecks"], list)
     def test_fixture_round_is_explicitly_non_manual_and_resolver_ready_metadata(self) -> None:

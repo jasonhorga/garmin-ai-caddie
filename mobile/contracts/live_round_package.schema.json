@@ -12,6 +12,8 @@
     "playerProfile",
     "course",
     "holes",
+    "roundLoops",
+    "loopKey",
     "geometryCoverage",
     "readinessChecks",
     "caddieContextSeeds",
@@ -27,7 +29,7 @@
   "properties": {
     "schema": {
       "type": "string",
-      "const": "ai-caddie-live-round-package-v1"
+      "const": "ai-caddie-live-round-package-v2"
     },
     "roundId": {
       "type": "string"
@@ -258,7 +260,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["number", "par", "geometryCoverage"],
+        "required": ["number", "par", "geometryCoverage", "sourceGlobalId", "sourceLocalHole", "courseHoleNumber"],
         "properties": {
           "number": {
             "type": "integer"
@@ -282,10 +284,16 @@
             "enum": ["current", "stale", "unknown"]
           },
           "sourceGlobalId": {
-            "type": ["integer", "null"]
+            "type": "integer",
+            "minimum": 1
           },
           "sourceLocalHole": {
-            "type": ["integer", "null"]
+            "type": "integer",
+            "minimum": 1
+          },
+          "courseHoleNumber": {
+            "type": "integer",
+            "minimum": 1
           },
           "teeLatitude": {
             "type": ["number", "null"],
@@ -417,9 +425,23 @@
         }
       }
     },
-    "nine": {
-      "type": "string",
-      "enum": ["all", "front", "back"]
+    "roundLoops": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["globalId", "half", "roundStartHole", "sourceStartHole", "holeCount"],
+        "properties": {
+          "globalId": {"type": "integer", "minimum": 1},
+          "half": {"type": "string", "enum": ["all", "front", "back"]},
+          "roundStartHole": {"type": "integer", "minimum": 1},
+          "sourceStartHole": {"type": "integer", "enum": [1, 10]},
+          "holeCount": {"type": "integer", "minimum": 1, "maximum": 9}
+        }
+      }
+    },
+    "loopKey": {
+      "type": "string"
     },
     "caddieContextSeeds": {
       "type": "array",

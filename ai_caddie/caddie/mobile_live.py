@@ -3564,8 +3564,10 @@ def build_live_round_package(
         caddie_context_seeds,
         package_course_name,
     )
-    return {
-        "schema": "ai-caddie-live-round-package-v1",
+    # v2: the round's loops and each hole's physical / presentation identity, derived from the
+    # holes' source identity (a course start re-stamps them from its explicit loop order).
+    return apply_round_loop_identity({
+        "schema": LIVE_ROUND_PACKAGE_SCHEMA,
         "roundId": round_id,
         "dataMode": data_mode,
         "sourceCoverage": source_coverage,
@@ -3608,7 +3610,7 @@ def build_live_round_package(
         "recentHistory": recent_history,
         "cachedCaddieRules": _cached_caddie_rules(),
         "generatedAt": _format_time(prepared_at),
-    }
+    })
 
 
 def _geometry_only_course_template(
@@ -4270,6 +4272,23 @@ def build_live_round_package_for_loops(
     venues = {_package_venue_key(base) for base in base_by_gid.values()}
     if len(venues) > 1:
         raise RoundLoopError("every loop must belong to the same physical venue")
+    unresolved = next(
+        (
+            base for base in base_by_gid.values()
+            if not [h for h in base.get("holes") or [] if isinstance(h, dict)]
+        ),
+        None,
+    )
+    if unresolved is not None:
+        # A course with no factual hole (unknown to history and CourseView) stays the explicit
+        # degraded package: the requested order is named, but no hole identity is invented.
+        degraded = dict(unresolved)
+        degraded["holes"] = []
+        degraded["roundLoops"] = _round_loops_payload(loops)
+        degraded["loopKey"] = round_loop_key(loops)
+        degraded["schema"] = LIVE_ROUND_PACKAGE_SCHEMA
+        degraded.pop("nine", None)
+        return degraded
     loop_packages: list[dict[str, Any]] = []
     for gid, half in loops:
         base = base_by_gid[int(gid)]
