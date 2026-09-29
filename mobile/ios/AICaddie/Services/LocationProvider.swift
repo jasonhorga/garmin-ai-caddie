@@ -25,6 +25,8 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     /// DEBUG-only permission override used by the real simulator journey to prove that denying GPS
     /// still leaves the explicit city/name search usable. It is never read in Release/TestFlight.
     private let simulatedAuthorizationStatus: CLAuthorizationStatus?
+    /// True only for `fixedFix` (snapshot fixtures), never for the UI-test environment fix.
+    private let isFixtureFix: Bool
 
     /// `fixedFix`: a deterministic, already-authorised fix for in-process fixtures (snapshot
     /// tests); nil in the app, which reads CoreLocation (or the UI-test environment below).
@@ -60,6 +62,7 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
             injectedFix = nil
         }
         self.simulatedFix = injectedFix
+        self.isFixtureFix = fixedFix != nil
         self.simulatedAuthorizationStatus = forcedAuthorization
         self.authorizationStatus = forcedAuthorization
             ?? (injectedFix == nil ? manager.authorizationStatus : .authorizedWhenInUse)
@@ -133,9 +136,10 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
             }
             return
         }
-        // An injected fix (UI-test environment or in-process fixture) is already authorised; the
-        // host's real CoreLocation answer must not replace it or clear the fix.
-        if simulatedFix != nil {
+        // An in-process fixture fix is already authorised; the test host's real CoreLocation
+        // answer must not replace it or clear the fix. (The UI-test environment fix keeps the
+        // simulator's real authorisation callback, which its journeys are written against.)
+        if isFixtureFix {
             authorizationStatus = .authorizedWhenInUse
             return
         }
