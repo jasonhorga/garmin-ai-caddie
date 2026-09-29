@@ -95,7 +95,7 @@ final class HubHeroTests: XCTestCase {
             globalId: 31795, name: "北京天竺黑骑士球员俱乐部 ~ B", holes: 9, teeBox: "white",
             venueName: "北京天竺黑骑士球员俱乐部", segmentLabel: "B", segmentHoles: 9
         )
-        let replay = HubCourseSuggestion.make(recent: recent, homeCourse: nil, catalogue: [], downloaded: [])
+        let replay = HubCourseSuggestion.make(history: [], recent: recent, catalogue: [], downloaded: [])
         let state = HubHeroState.resolve(hasActiveRound: false, hasPendingWatchRound: false, nearby: nil, replay: replay)
         guard case .search(let offered) = state else { return XCTFail("no course here → search") }
         XCTAssertEqual(offered?.globalId, 31795)
@@ -138,7 +138,7 @@ final class HubHeroTests: XCTestCase {
             tees: ["white"]
         )
         let suggestion = try XCTUnwrap(
-            HubCourseSuggestion.make(recent: recent, homeCourse: nil, catalogue: [blackKnightB], downloaded: [])
+            HubCourseSuggestion.make(history: [], recent: recent, catalogue: [blackKnightB], downloaded: [])
         )
         XCTAssertEqual(suggestion.globalId, 31795)
         XCTAssertEqual(suggestion.courseName, "北京天竺黑骑士球员俱乐部")
@@ -146,21 +146,48 @@ final class HubHeroTests: XCTestCase {
         XCTAssertEqual(suggestion.teeBox, "white")
     }
 
-    func testHomePackageCourseIsOfferedOnlyWhenTheCatalogueKnowsIt() throws {
-        let home = Course(globalId: 31795, name: "Fixture Links", teeBox: "blue")
-        let suggestion = try XCTUnwrap(
-            HubCourseSuggestion.make(recent: nil, homeCourse: home, catalogue: [blackKnightB], downloaded: [])
+    func testReplayIsTheNewestPlayedCourseNotTheMostPlayedHomePackage() throws {
+        // No app-started record; the newest archived round is X. The most-played home package (Y)
+        // is not an input at all, so it can never be offered as 上次.
+        let knightA = loop(31794, "北京天竺黑骑士球员俱乐部", "A", lat: 40.1, lon: 116.5)
+        let played = try card("x", globalId: 31795, teeBox: "white")
+        let replay = try XCTUnwrap(
+            HubCourseSuggestion.make(history: [played], recent: nil, catalogue: [knightA, blackKnightB], downloaded: [])
         )
-        XCTAssertEqual(suggestion.startTitle, "从 B 场 开始 · 蓝 T")
-        XCTAssertNil(HubCourseSuggestion.make(recent: nil, homeCourse: home, catalogue: [], downloaded: []))
+        XCTAssertEqual(replay.globalId, 31795)
+        XCTAssertEqual(replay.startTitle, "从 B 场 开始 · 白 T")
+        XCTAssertEqual(replay.startRequest(roundId: "r").teeBox, "white")
         XCTAssertNil(
+            HubCourseSuggestion.make(history: [], recent: nil, catalogue: [knightA, blackKnightB], downloaded: []),
+            "no played course and no app-started record → no 再打上次那个"
+        )
+    }
+
+    func testANewerSyncedRoundWinsOverAnOlderAppStartedCourse() throws {
+        let knightA = loop(31794, "北京天竺黑骑士球员俱乐部", "A", lat: 40.1, lon: 116.5)
+        let olderAppStart = MobileCourseOption(
+            globalId: 31794, name: "北京天竺黑骑士球员俱乐部 ~ A", holes: 9, teeBox: "gold",
+            venueName: "北京天竺黑骑士球员俱乐部", segmentLabel: "A", segmentHoles: 9
+        )
+        let newerGarmin = try card("g", globalId: 31795, teeBox: "blue")
+        let replay = try XCTUnwrap(
             HubCourseSuggestion.make(
-                recent: nil,
-                homeCourse: Course(globalId: 0, name: "", teeBox: "unknown"),
-                catalogue: [blackKnightB],
-                downloaded: []
+                history: [newerGarmin], recent: olderAppStart, catalogue: [knightA, blackKnightB], downloaded: []
             )
         )
+        XCTAssertEqual(replay.globalId, 31795)
+        XCTAssertEqual(replay.teeBox, "blue")
+        // The newest played course cannot be resolved to a start → no replay, never the older one.
+        XCTAssertNil(
+            HubCourseSuggestion.make(history: [newerGarmin], recent: olderAppStart, catalogue: [knightA], downloaded: [])
+        )
+        // A round without a course id is not a usable fact; the app-started course is used.
+        let unmatched = try JSONDecoder().decode(HistoryRoundCard.self, from: Data(#"{"id":"u","courseName":"?"}"#.utf8))
+        let fallback = try XCTUnwrap(
+            HubCourseSuggestion.make(history: [unmatched], recent: olderAppStart, catalogue: [knightA], downloaded: [])
+        )
+        XCTAssertEqual(fallback.globalId, 31794)
+        XCTAssertEqual(fallback.teeBox, "gold")
     }
 
     func testUnknownTeeIsNotWrittenIntoTheHeroTitle() throws {
@@ -173,7 +200,7 @@ final class HubHeroTests: XCTestCase {
             segmentHoles: 18
         )
         let suggestion = try XCTUnwrap(
-            HubCourseSuggestion.make(recent: recent, homeCourse: nil, catalogue: [], downloaded: [])
+            HubCourseSuggestion.make(history: [], recent: recent, catalogue: [], downloaded: [])
         )
         XCTAssertEqual(suggestion.startTitle, "开始 18 洞")
         XCTAssertNil(suggestion.teeBox)

@@ -472,8 +472,8 @@ public struct RoundHomeView: View {
             hasPendingWatchRound: pendingWatchRoundStart != nil,
             nearby: nearby,
             replay: HubCourseSuggestion.make(
+                history: heroHistory,
                 recent: recentCourseOption,
-                homeCourse: package.course,
                 catalogue: courseOptions,
                 downloaded: downloadedCourseOptions
             )

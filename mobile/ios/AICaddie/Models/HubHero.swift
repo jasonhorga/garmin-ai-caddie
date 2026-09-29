@@ -1,7 +1,7 @@
 import Foundation
 
-/// The course the home main card offers to start (README §8): the last explicitly started course
-/// (its first loop and tee), else the home package's course when the catalogue knows it.
+/// The course the home main card offers to start (README §8): the course here, or the last course
+/// played (its first loop and tee).
 struct HubCourseSuggestion: Equatable {
     let globalId: Int
     let courseName: String
@@ -12,31 +12,40 @@ struct HubCourseSuggestion: Equatable {
     /// The loop's `nine` for a one-tap start (a nine-hole loop, or a whole course, is "all").
     var nine: String = "all"
 
+    /// "再打上次那个": the course the player last played. The newest archived round with a course
+    /// id decides (a newly synced Garmin round is 上次), then the last course this app started.
+    /// The most-played / home package is never labelled 上次; when the newest played course cannot
+    /// be resolved to a start, no replay is offered rather than an older one.
     static func make(
+        history: [HistoryRoundCard],
         recent: MobileCourseOption?,
-        homeCourse: Course?,
         catalogue: [MobileCourseOption],
         downloaded: [MobileCourseOption]
     ) -> HubCourseSuggestion? {
-        if let recent,
-           recent.globalId > 0,
-           !recent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            // Current catalogue facts (loop structure) win over the stored row; the tee stays the
-            // one the player last started with.
+        if let played = history.first(where: { ($0.globalId ?? 0) > 0 }),
+           let playedId = played.globalId {
+            let known = catalogue.first { $0.globalId == playedId }
+                ?? downloaded.first { $0.globalId == playedId }
+            let stored = recent.flatMap { $0.globalId == playedId ? $0 : nil }
+            guard let provider = stored ?? known else { return nil }
             let option = StartRoundView.reconciledCourseOption(
-                provider: recent,
-                catalogue: catalogue.first { $0.globalId == recent.globalId },
-                downloaded: downloaded.first { $0.globalId == recent.globalId }
+                provider: provider,
+                catalogue: catalogue.first { $0.globalId == playedId },
+                downloaded: downloaded.first { $0.globalId == playedId }
             )
-            return suggestion(for: option, teeBox: recent.teeBox)
+            return suggestion(for: option, teeBox: played.teeBox ?? stored?.teeBox)
         }
-        // The home package is only offered when 开始一场 can resolve the same global id.
-        if let homeCourse, homeCourse.globalId > 0,
-           let option = catalogue.first(where: { $0.globalId == homeCourse.globalId })
-            ?? downloaded.first(where: { $0.globalId == homeCourse.globalId }) {
-            return suggestion(for: option, teeBox: homeCourse.teeBox)
-        }
-        return nil
+        guard let recent,
+              recent.globalId > 0,
+              !recent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        // Current catalogue facts (loop structure) win over the stored row; the tee stays the
+        // one the player last started with.
+        let option = StartRoundView.reconciledCourseOption(
+            provider: recent,
+            catalogue: catalogue.first { $0.globalId == recent.globalId },
+            downloaded: downloaded.first { $0.globalId == recent.globalId }
+        )
+        return suggestion(for: option, teeBox: recent.teeBox)
     }
 
     /// The one-tap start ("开始" / "再打上次那个"): prepare exactly this loop and tee as a fresh

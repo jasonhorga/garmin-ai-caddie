@@ -2268,7 +2268,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('.accessibilityIdentifier("home-in-progress-round")', round_home)
         self.assertEqual(round_home.count('.accessibilityIdentifier("home-new-round")'), 1)
         self.assertIn("recent: recentCourseOption,", round_home)
-        self.assertIn("homeCourse: package.course,", round_home)
+        # 再打上次那个 is the newest played course, never the most-played home package.
+        self.assertIn("history: heroHistory,", round_home)
+        self.assertNotIn("homeCourse: package.course", round_home)
+        self.assertNotIn("homeCourse", hero)
         self.assertIn("StartRoundPresentation.startActionTitle(", hero)
         self.assertIn("static func toPar(", hero)
         # The last-round card gains the 18-hole symbol strip from the cached archive's newest card
