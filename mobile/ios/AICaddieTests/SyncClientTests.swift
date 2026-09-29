@@ -695,6 +695,9 @@ final class SyncClientTests: XCTestCase {
         CapturingURLProtocol.requestHandler = { request in
             let queryItems = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
             XCTAssertEqual(queryItems?.first { $0.name == "ensure_geometry" }?.value, "true")
+            XCTAssertEqual(queryItems?.first { $0.name == "loops" }?.value, "10283:back,10283:front")
+            XCTAssertNil(queryItems?.first { $0.name == "nine" })
+            XCTAssertNil(queryItems?.first { $0.name == "back_global_id" })
             XCTAssertEqual(request.timeoutInterval, 900)
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
@@ -714,6 +717,7 @@ final class SyncClientTests: XCTestCase {
             globalId: 10283,
             roundId: "live-round-1",
             teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: 10283, half: "back"), RoundLoopEntry(globalId: 10283, half: "front")],
             ensureGeometry: true
         )
     }
@@ -753,6 +757,7 @@ final class SyncClientTests: XCTestCase {
             globalId: 10283,
             roundId: "live-round-lightweight",
             teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: 10283, half: "all")],
             backgroundGeometry: true
         )
     }
@@ -791,6 +796,7 @@ final class SyncClientTests: XCTestCase {
             globalId: 10283,
             roundId: "live-round-complete",
             teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: 10283, half: "all")],
             backgroundGeometry: true
         )
     }
@@ -830,6 +836,7 @@ final class SyncClientTests: XCTestCase {
             globalId: 10283,
             roundId: "live-round-cold-retry",
             teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: 10283, half: "all")],
             backgroundGeometry: true
         )
 
@@ -848,6 +855,7 @@ final class SyncClientTests: XCTestCase {
         CapturingURLProtocol.requestHandler = { request in
             let queryItems = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
             XCTAssertEqual(queryItems?.first { $0.name == "include_event_cursor" }?.value, "false")
+            XCTAssertEqual(queryItems?.first { $0.name == "loops" }?.value, "10283:all")
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
                 statusCode: 200,
@@ -866,6 +874,7 @@ final class SyncClientTests: XCTestCase {
             globalId: 10283,
             roundId: "home-10283",
             teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: 10283, half: "all")],
             includeEventCursor: false
         )
     }
@@ -1070,7 +1079,7 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(archive.availableCourses.first?.key, "hmb")
     }
 
-    func testFetchCourseInstallStatusDecodesHoleStagesAndSendsCompositeBackGlobalID() async throws {
+    func testFetchCourseInstallStatusDecodesHoleStagesAndSendsCompositeLoops() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -1081,7 +1090,7 @@ final class SyncClientTests: XCTestCase {
               "jobId":"install-1",
               "globalId":31870,
               "teeBox":"blue",
-              "nine":"all",
+              "loopKey":"31870:all+31871:all",
               "phase":"running",
               "stage":"topo",
               "totalHoles":18,
@@ -1105,8 +1114,9 @@ final class SyncClientTests: XCTestCase {
             )?.queryItems ?? []
             let values = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name, $0.value ?? "") })
             XCTAssertEqual(values["tee_box"], "blue")
-            XCTAssertEqual(values["nine"], "all")
-            XCTAssertEqual(values["back_global_id"], "31871")
+            XCTAssertEqual(values["loops"], "31870:all,31871:all")
+            XCTAssertNil(values["nine"])
+            XCTAssertNil(values["back_global_id"])
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
@@ -1126,10 +1136,10 @@ final class SyncClientTests: XCTestCase {
         let status = try await client.fetchCourseInstallStatus(
             globalId: 31870,
             teeBox: "blue",
-            nine: "all",
-            backGlobalId: 31871
+            loops: [RoundLoopEntry(globalId: 31870, half: "all"), RoundLoopEntry(globalId: 31871, half: "all")]
         )
 
+        XCTAssertEqual(status?.loopKey, "31870:all+31871:all")
         XCTAssertEqual(status?.phase, "running")
         XCTAssertEqual(status?.topoReady, 7)
         XCTAssertEqual(status?.holes.last?.displayHole, 10)
@@ -1169,7 +1179,8 @@ final class SyncClientTests: XCTestCase {
 
         let status = try await client.probeCourseInstallStatusForRevalidation(
             globalId: 31870,
-            teeBox: "blue"
+            teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: 31870, half: "front")]
         )
 
         XCTAssertNil(status)

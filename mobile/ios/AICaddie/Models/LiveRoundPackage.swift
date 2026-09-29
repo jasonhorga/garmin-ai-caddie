@@ -391,6 +391,14 @@ public struct LiveRoundPackage: Codable, Equatable {
     /// The second loop once the round has one (added at the turn, or started as a pair).
     public var secondLoop: RoundLoop? { roundLoops.count > 1 ? roundLoops[1] : nil }
 
+    /// README §8 lock: the second loop can change until its first hole has anything recorded —
+    /// any event of this round on a round hole at or after `roundLoops[1].roundStartHole`. Round
+    /// holes, not physical ones, so 后→前 locks on round hole 10 exactly like 前→后.
+    public func isSecondLoopLocked(by events: [LiveRoundEvent]) -> Bool {
+        guard let start = secondLoop?.roundStartHole else { return false }
+        return events.contains { $0.roundId == roundId && $0.hole >= start }
+    }
+
     /// The loop that owns a round hole.
     public func loop(containingRoundHole number: Int) -> RoundLoop? {
         roundLoops.first { $0.contains(roundHole: number) }

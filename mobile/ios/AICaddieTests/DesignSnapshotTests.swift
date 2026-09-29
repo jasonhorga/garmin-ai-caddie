@@ -370,7 +370,16 @@ final class DesignSnapshotTests: XCTestCase {
         let fairways: [String?] = ["hit", "left", nil, "hit", "hit", "left", nil, "left", "hit",
                                    "hit", "hit", nil, "hit", "left", "hit", nil, "left", "hit"]
         let holes = pars.enumerated().map { index, par in
-            Hole(number: index + 1, par: par, yards: nil, geometryCoverage: .ready)
+            // 黑骑士 B (31795) then C (31796): two nine-hole loops, shown by round number.
+            Hole(
+                number: index + 1,
+                par: par,
+                yards: nil,
+                geometryCoverage: .ready,
+                sourceGlobalId: index < 9 ? 31795 : 31796,
+                sourceLocalHole: index % 9 + 1,
+                courseHoleNumber: index + 1
+            )
         }
         func state(recorded: Int) -> LiveRoundStateSnapshot {
             LiveRoundStateSnapshot(
@@ -500,7 +509,7 @@ final class DesignSnapshotTests: XCTestCase {
         let turnLoops = turnLabels.enumerated().map { index, label in
             MobileCourseOption(globalId: 100 + index, name: "黑骑士 ~ \(label)", holes: 9, venueName: "黑骑士", segmentLabel: label, segmentHoles: 9)
         }
-        let turn = try XCTUnwrap(NineLoopTurn.plan(front: turnLoops[1], siblings: turnLoops, remembered: [101: 102], history: []))
+        let turn = try XCTUnwrap(NineLoopTurn.plan(front: turnLoops[1], siblings: turnLoops, remembered: ["101:all": "102:all"], history: []))
         XCTAssertEqual(turn.turnTitle, "B 场打完了")
         XCTAssertEqual(turn.course.loops.map(\.displayName), ["A 场", "B 场", "C 场"])
         XCTAssertEqual(turn.turnActionTitle, "接着打 C 场")
@@ -672,7 +681,7 @@ final class DesignSnapshotTests: XCTestCase {
         // Hub WITH an in-progress round → shows the 进行中 card + 「结束本场」(cancel) button.
         let activeState = LiveRoundStateSnapshot(roundId: package.roundId, activeHole: package.holes.first?.number ?? 1, holes: [])
         try captureScreen(
-            RoundHomeView(package: package, apiBaseURL: apiBaseURL, liveRoundState: activeState, courseOptions: courses, startingNine: "front"),
+            RoundHomeView(package: package, apiBaseURL: apiBaseURL, liveRoundState: activeState, courseOptions: courses),
             named: "full-home-active"
         )
         try captureScreen(NavigationStack { StartRoundView(courseOptions: courses) }, named: "full-start")

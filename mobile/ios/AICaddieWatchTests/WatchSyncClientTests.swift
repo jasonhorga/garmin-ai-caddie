@@ -101,7 +101,8 @@ final class WatchSyncClientTests: XCTestCase {
             holes: [
                 WatchRoundSeedHole(hole: 1, par: 4, distanceM: 365),
                 WatchRoundSeedHole(hole: 2, par: 3, distanceM: 148),
-            ]
+            ],
+            loopKey: "31669:front+31669:back"
         )
 
         client.receiveRoundSeed(seed)
@@ -118,6 +119,7 @@ final class WatchSyncClientTests: XCTestCase {
             roundId: "watch-start-1",
             courseName: "远方球场",
             teeBox: "Blue",
+            loopKey: "31795:all",
             activeHole: 1,
             holes: [WatchRoundSeedHole(hole: 1, par: 4, distanceM: nil)]
         )
@@ -141,7 +143,8 @@ final class WatchSyncClientTests: XCTestCase {
             roundId: "old-round",
             courseName: "Old course",
             activeHole: 1,
-            holes: [WatchRoundSeedHole(hole: 1, par: 4, distanceM: 350)]
+            holes: [WatchRoundSeedHole(hole: 1, par: 4, distanceM: 350)],
+            loopKey: "31795:all"
         ))
 
         client.applyApplicationContext([

@@ -761,7 +761,7 @@ public struct StartRoundView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("start-round-course-half-\(half)")
+        .accessibilityIdentifier("start-round-course-half-\(NineLoopTurn.entry(loop.id)?.globalId ?? 0)-\(half)")
         .accessibilityValue(selected ? "已选择" : "未选择")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }

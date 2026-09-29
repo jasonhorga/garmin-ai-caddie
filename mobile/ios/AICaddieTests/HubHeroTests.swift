@@ -85,7 +85,12 @@ final class HubHeroTests: XCTestCase {
         let here = try XCTUnwrap(HubCourseSuggestion.forVenue([knightB], history: [played], recent: nil))
         XCTAssertEqual(
             here.startRequest(roundId: "live-31795-new"),
-            HubCourseSuggestion.StartRequest(globalId: 31795, roundId: "live-31795-new", teeBox: "white", nine: "all")
+            HubCourseSuggestion.StartRequest(
+                globalId: 31795,
+                roundId: "live-31795-new",
+                teeBox: "white",
+                loops: [RoundLoopEntry(globalId: 31795, half: "all")]
+            )
         )
         let fresh = try XCTUnwrap(HubCourseSuggestion.forVenue([knightB], history: [], recent: nil))
         XCTAssertEqual(fresh.startRequest(roundId: "r").teeBox, "unknown", "no known tee → the course default")
@@ -117,7 +122,7 @@ final class HubHeroTests: XCTestCase {
         XCTAssertEqual(here.globalId, 31795)
         XCTAssertEqual(here.teeBox, "white")
         XCTAssertEqual(here.startTitle, "从 B 场 开始 · 白 T")
-        XCTAssertEqual(here.nine, "all")
+        XCTAssertEqual(here.loops, [RoundLoopEntry(globalId: 31795, half: "all")])
 
         // Never played here: the venue's first loop with the course default tee.
         let fresh = try XCTUnwrap(HubCourseSuggestion.forVenue([knightA, knightB], history: [], recent: recentY))
@@ -290,8 +295,18 @@ final class HubHeroTests: XCTestCase {
         let suggestion = try XCTUnwrap(
             HubCourseSuggestion.make(history: [], recent: recent, catalogue: [], downloaded: [])
         )
-        XCTAssertEqual(suggestion.startTitle, "开始 18 洞")
+        XCTAssertEqual(suggestion.startTitle, "从 前九 开始", "an 18-hole course starts on its 前九")
         XCTAssertNil(suggestion.teeBox)
+        XCTAssertEqual(
+            suggestion.startRequest(roundId: "r"),
+            HubCourseSuggestion.StartRequest(
+                globalId: 41825,
+                roundId: "r",
+                teeBox: "unknown",
+                loops: [RoundLoopEntry(globalId: 41825, half: "front")]
+            ),
+            "the one-tap start requests one half; the second nine is picked at the turn"
+        )
     }
 
     func testInProgressToParSumsRecordedHolesAndIsOmittedWhenUnknown() {

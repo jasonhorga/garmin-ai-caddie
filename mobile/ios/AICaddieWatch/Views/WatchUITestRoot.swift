@@ -654,7 +654,8 @@ public struct WatchUITestRoot: View {
                     teeLatitude: $0.teeLatitude,
                     teeLongitude: $0.teeLongitude
                 )
-            }
+            },
+            loopKey: "31669:front+31669:back"
         ))
         guard model.round == nil,
               store.load() == nil,
@@ -1698,7 +1699,8 @@ public struct WatchUITestRoot: View {
         activeHole: 1,
         holes: [
             WatchRoundSeedHole(hole: 1, par: 4, distanceM: 369.4176), // 404 yards
-        ]
+        ],
+        loopKey: "31669:front+31669:back"
     )
 
     private static let standaloneCourseOption = WatchCourseOption(
@@ -1940,21 +1942,24 @@ public struct WatchUITestRoot: View {
                 hole: 8, par: 5, distanceM: 472,
                 teeLatitude: 40.001, teeLongitude: 116.0
             ),
-        ]
+        ],
+        loopKey: "31669:front"
     )
 
     private static let interactionScoreSeed = WatchRoundSeed(
         roundId: "ci-interaction-score-round",
         courseName: "北京丽宫 · 前九",
         activeHole: 7,
-        holes: interactionClubSeed.holes
+        holes: interactionClubSeed.holes,
+        loopKey: "31669:front"
     )
 
     private static let interactionGPSAcquiringSeed = WatchRoundSeed(
         roundId: "ci-interaction-gps-acquiring-round",
         courseName: "北京丽宫 · 前九",
         activeHole: 7,
-        holes: interactionClubSeed.holes
+        holes: interactionClubSeed.holes,
+        loopKey: "31669:front"
     )
 
     private static let interactionFlagFix = WatchLocationFix(

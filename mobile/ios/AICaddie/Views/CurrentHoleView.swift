@@ -3309,10 +3309,10 @@ public struct CurrentHoleView: View {
     /// is any event on a round hole at or after the second loop's start (B4b-2 — round holes, so
     /// 后→前 locks on round hole 10 exactly like 前→后).
     private var secondLoopStarted: Bool {
-        guard let secondStart = package.secondLoop?.roundStartHole,
+        guard package.secondLoop != nil,
               let offlineStore,
               let events = try? offlineStore.loadEvents() else { return false }
-        return events.contains { $0.roundId == package.roundId && $0.hole >= secondStart }
+        return package.isSecondLoopLocked(by: events)
     }
 
     // MARK: - 球局洞数调整

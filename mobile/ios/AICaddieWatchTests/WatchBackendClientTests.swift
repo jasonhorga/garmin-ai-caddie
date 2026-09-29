@@ -212,14 +212,20 @@ final class WatchBackendClientTests: XCTestCase {
             globalId: 31669,
             roundId: "watch-round-1",
             teeBox: "White",
-            backGlobalId: 31670,
+            loops: "31669:all,31670:all",
             ensureGeometry: true
         )
         XCTAssertEqual(package.url?.path, "/api/v2/mobile/courses/31669/package")
         let packageQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(package.url), resolvingAgainstBaseURL: false))
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "round_id" })?.value, "watch-round-1")
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "tee_box" })?.value, "White")
-        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "back_global_id" })?.value, "31670")
+        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "loops" })?.value, "31669:all,31670:all")
+        XCTAssertTrue(
+            try XCTUnwrap(package.url?.absoluteString).contains("loops=31669:all,31670:all"),
+            "the ordered loops ride the query unescaped"
+        )
+        XCTAssertNil(packageQuery.queryItems?.first(where: { $0.name == "nine" }))
+        XCTAssertNil(packageQuery.queryItems?.first(where: { $0.name == "back_global_id" }))
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "ensure_geometry" })?.value, "true")
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "background_geometry" })?.value, "false")
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "client_id" })?.value, "apple-watch")
@@ -229,6 +235,7 @@ final class WatchBackendClientTests: XCTestCase {
             globalId: 31669,
             roundId: "watch-round-lightweight",
             teeBox: "White",
+            loops: "31669:front,31669:back",
             backgroundGeometry: true
         )
         let lightweightQuery = try XCTUnwrap(URLComponents(
@@ -242,6 +249,10 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual(
             lightweightQuery.queryItems?.first(where: { $0.name == "background_geometry" })?.value,
             "true"
+        )
+        XCTAssertEqual(
+            lightweightQuery.queryItems?.first(where: { $0.name == "loops" })?.value,
+            "31669:front,31669:back"
         )
         XCTAssertEqual(
             lightweightPackage.timeoutInterval,
@@ -308,8 +319,7 @@ final class WatchBackendClientTests: XCTestCase {
         let request = try client.makeCourseInstallStatusRequest(
             globalId: 31870,
             teeBox: "Blue",
-            nine: "all",
-            backGlobalId: 31871
+            loops: "31870:all,31871:all"
         )
 
         XCTAssertEqual(request.httpMethod, "GET")
@@ -320,21 +330,23 @@ final class WatchBackendClientTests: XCTestCase {
         )?.queryItems)
         let values = Dictionary(uniqueKeysWithValues: query.map { ($0.name, $0.value ?? "") })
         XCTAssertEqual(values["tee_box"], "Blue")
-        XCTAssertEqual(values["nine"], "all")
-        XCTAssertEqual(values["back_global_id"], "31871")
+        XCTAssertEqual(values["loops"], "31870:all,31871:all")
+        XCTAssertNil(values["nine"])
+        XCTAssertNil(values["back_global_id"])
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
         XCTAssertEqual(request.timeoutInterval, WatchBackendClient.nearbyDiscoveryTimeoutInterval)
 
-        let frontOnly = try client.makeCourseInstallStatusRequest(
+        let singleLoop = try client.makeCourseInstallStatusRequest(
             globalId: 31870,
             teeBox: "Blue",
-            nine: "front"
+            loops: "31870:all"
         )
-        let frontQuery = try XCTUnwrap(URLComponents(
-            url: try XCTUnwrap(frontOnly.url),
+        let singleQuery = try XCTUnwrap(URLComponents(
+            url: try XCTUnwrap(singleLoop.url),
             resolvingAgainstBaseURL: false
         )?.queryItems)
-        XCTAssertNil(frontQuery.first(where: { $0.name == "back_global_id" }))
+        XCTAssertEqual(singleQuery.first(where: { $0.name == "loops" })?.value, "31870:all")
+        XCTAssertNil(singleQuery.first(where: { $0.name == "back_global_id" }))
     }
 
     func testCourseInstallStatusDecodesDurableHoleProgressAndRevisions() throws {
@@ -345,7 +357,7 @@ final class WatchBackendClientTests: XCTestCase {
               "jobId":"install-1",
               "globalId":31870,
               "teeBox":"blue",
-              "nine":"all",
+              "loopKey":"31870:all+31871:all",
               "phase":"running",
               "stage":"topo",
               "totalHoles":18,
@@ -362,6 +374,7 @@ final class WatchBackendClientTests: XCTestCase {
         ))
 
         XCTAssertEqual(status.phase, "running")
+        XCTAssertEqual(status.loopKey, "31870:all+31871:all")
         XCTAssertEqual(status.topoReady, 7)
         XCTAssertEqual(status.holes.count, 2)
         XCTAssertEqual(status.holes.last?.displayHole, 10)
@@ -392,7 +405,8 @@ final class WatchBackendClientTests: XCTestCase {
 
         let status = try await client.fetchCourseInstallStatus(
             globalId: 31870,
-            teeBox: "blue"
+            teeBox: "blue",
+            loops: "31870:all"
         )
 
         XCTAssertNil(status)
@@ -557,7 +571,7 @@ final class WatchBackendClientTests: XCTestCase {
     func testCoursePackageAndPrepRetryTransientCooldowns() async throws {
         var attempts: [String: Int] = [:]
         let packagePayload = Data(
-            #"{"roundId":"watch-retry","course":{"globalId":3881,"name":"Cypress Point","teeBox":"championship"},"holes":[{"number":1,"par":5}]}"#.utf8
+            #"{"schema":"ai-caddie-live-round-package-v2","roundId":"watch-retry","course":{"globalId":3881,"name":"Cypress Point","teeBox":"championship"},"holes":[{"number":1,"par":5,"sourceGlobalId":3881,"sourceLocalHole":1,"courseHoleNumber":1}],"roundLoops":[{"globalId":3881,"half":"front","roundStartHole":1,"sourceStartHole":1,"holeCount":1}],"loopKey":"3881:front"}"#.utf8
         )
         let prepPayload = Data(
             #"{"globalId":3881,"clubs":[],"holes":[{"hole":1,"hazards":{}}]}"#.utf8
@@ -589,7 +603,8 @@ final class WatchBackendClientTests: XCTestCase {
         let package = try await client.fetchCoursePackage(
             globalId: 3881,
             roundId: "watch-retry",
-            teeBox: "championship"
+            teeBox: "championship",
+            loops: "3881:front"
         )
         let prep = try await client.fetchCoursePrep(globalId: 3881, localHoles: [1])
 
@@ -597,6 +612,41 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual(prep.holes.map(\.hole), [1])
         XCTAssertEqual(attempts["/api/v2/mobile/courses/3881/package"], 2)
         XCTAssertEqual(attempts["/api/v2/courses/3881/prep"], 2)
+    }
+
+    func testDecodeCoursePackageRejectsV1AndV2WithoutPhysicalHoleIdentity() throws {
+        let client = makeClient()
+        func payload(schema: String, hole: String) -> Data {
+            let parts: [String] = [
+                #"{"schema":""#, schema, #"","roundId":"r-1","#,
+                #""course":{"globalId":31795,"name":"观澜湖 A","teeBox":"Blue"},"#,
+                #""holes":["#, hole, #"],"#,
+                #""roundLoops":[{"globalId":31795,"half":"all","roundStartHole":1,"sourceStartHole":1,"holeCount":1}],"#,
+                #""loopKey":"31795:all"}"#,
+            ]
+            return Data(parts.joined().utf8)
+        }
+        let completeHole = #"{"number":1,"par":4,"sourceGlobalId":31795,"sourceLocalHole":1,"courseHoleNumber":1}"#
+        let holeWithoutLocal = #"{"number":1,"par":4,"sourceGlobalId":31795,"courseHoleNumber":1}"#
+
+        // Control: the well-formed v2 package decodes, so each rejection below is about the
+        // schema or the missing field only.
+        let valid = try client.decodeCoursePackage(
+            payload(schema: "ai-caddie-live-round-package-v2", hole: completeHole)
+        )
+        XCTAssertEqual(valid.loopKey, "31795:all")
+        XCTAssertEqual(valid.holes.first?.sourceLocalHole, 1)
+
+        // A v1 package is rejected even when it happens to carry every v2 field.
+        XCTAssertThrowsError(try client.decodeCoursePackage(
+            payload(schema: "ai-caddie-live-round-package-v1", hole: completeHole)
+        ))
+
+        // A v2 package whose hole lacks sourceLocalHole is rejected; physical identity is never
+        // made up from the round `number`.
+        XCTAssertThrowsError(try client.decodeCoursePackage(
+            payload(schema: "ai-caddie-live-round-package-v2", hole: holeWithoutLocal)
+        ))
     }
 
     func testCoursePrepRequestRejectsAnEdgeUnsafeHoleBatch() throws {
@@ -632,12 +682,15 @@ final class WatchBackendClientTests: XCTestCase {
         ])
 
         let package = try client.decodeCoursePackage(Data(
-            #"{"schema":"ai-caddie-live-round-package-v1","roundId":"watch-round-1","course":{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","sourceGlobalId":31669,"sourceLocalHole":1}],"ignored":{"large":"payload"}}"#.utf8
+            #"{"schema":"ai-caddie-live-round-package-v2","roundId":"watch-round-1","course":{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","sourceGlobalId":31669,"sourceLocalHole":1,"courseHoleNumber":1}],"roundLoops":[{"globalId":31669,"half":"front","roundStartHole":1,"sourceStartHole":1,"holeCount":1}],"loopKey":"31669:front","ignored":{"large":"payload"}}"#.utf8
         ))
         XCTAssertEqual(package.roundId, "watch-round-1")
         XCTAssertEqual(package.course.name, "北京丽宫")
         XCTAssertEqual(package.holes.first?.yards, 404)
         XCTAssertEqual(package.holes.first?.sourceLocalHole, 1)
+        XCTAssertEqual(package.holes.first?.courseHoleNumber, 1)
+        XCTAssertEqual(package.loopKey, "31669:front")
+        XCTAssertEqual(package.roundLoops.map(\.half), ["front"])
 
         let matches = try client.decodeCourseSearch(Data(
             #"{"schema":"ai-caddie-course-search-v1","query":"观澜湖","matches":[{"globalId":31870,"name":"Mission Hills ~ A","holes":9,"city":"深圳","province":"广东","ratio":0.92}]}"#.utf8

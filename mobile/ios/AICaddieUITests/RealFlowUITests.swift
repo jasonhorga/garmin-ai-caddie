@@ -48,6 +48,88 @@ final class RealFlowUITests: XCTestCase {
         app.launchEnvironment["UITEST_TRACE_EVENT_LATENCY"] = "1"
     }
 
+    /// B4b-2 second real journey: 北京丽宫 started on 后九. Round hole 1 is course hole 10 (shown
+    /// 第 10 洞); the turn preselects 前九, whose first hole is round hole 10 shown 第 1 洞. The
+    /// scorecard names the loops in play order.
+    func testBackNineThenFrontNineJourney() throws {
+        app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
+        app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
+        launchFresh()
+        app.launchEnvironment.removeValue(forKey: "UITEST_RESET_ACTIVE_ROUND")
+        XCTAssertTrue(openStartRound(), "home must expose the real start-round path")
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
+        _ = selectStartCourse(approvedJourneyCourseGlobalId)
+        let backHalf = app.buttons["start-round-course-half-\(approvedJourneyCourseGlobalId)-back"]
+        XCTAssertTrue(scrollTo(backHalf, maxSwipes: 8), "an 18-hole course offers its 后九 as a start")
+        backHalf.tap()
+        XCTAssertTrue(waitForValue("已选择", on: backHalf, timeout: 5))
+        let start = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(waitUntilEnabled(start, timeout: 90))
+        XCTAssertTrue(start.label.hasPrefix("从 后九 开始"), "the action names the half (got \(start.label))")
+        settle(1); save("b4b2-01-start-back-nine"); dump("b4b2-01-start-back-nine")
+        XCTAssertTrue(scrollTo(start, maxSwipes: 20))
+        start.tap()
+
+        // Round holes 1–9 are course holes 10–18.
+        for roundHole in 1...9 {
+            let shown = roundHole + 9
+            XCTAssertTrue(
+                app.staticTexts["第 \(shown) 洞"].waitForExistence(timeout: roundHole == 1 ? 90 : 30),
+                "round hole \(roundHole) of a 后九 start is course hole \(shown)"
+            )
+            if roundHole == 1 {
+                settle(1); save("b4b2-02-back-nine-first-hole"); dump("b4b2-02-back-nine-first-hole")
+            }
+            try saveQuickScore(shownHole: shown)
+        }
+
+        let turnGo = app.buttons["turn-go"]
+        XCTAssertTrue(turnGo.waitForExistence(timeout: 15), "finishing 后九 must open the turn")
+        XCTAssertEqual(turnGo.label, "接着打 前九", "后→前: the other half is preselected")
+        XCTAssertTrue(app.buttons["turn-loop-\(approvedJourneyCourseGlobalId):back"].exists, "the same half is allowed")
+        settle(1); save("b4b2-03-turn-back-to-front"); dump("b4b2-03-turn-back-to-front")
+        turnGo.tap()
+
+        // Round holes 10–18 are course holes 1–9.
+        for roundHole in 10...18 {
+            let shown = roundHole - 9
+            XCTAssertTrue(
+                app.staticTexts["第 \(shown) 洞"].waitForExistence(timeout: 30),
+                "round hole \(roundHole) after the turn is course hole \(shown)"
+            )
+            if roundHole == 10 {
+                settle(1); save("b4b2-04-front-nine-round-hole-10"); dump("b4b2-04-front-nine-round-hole-10")
+            }
+            try saveQuickScore(shownHole: shown)
+        }
+
+        XCTAssertTrue(
+            app.buttons["live-finish-save"].waitForExistence(timeout: 15),
+            "the last round hole opens the finish summary"
+        )
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "· 18/18 洞")).firstMatch.exists
+        )
+        for title in ["第一环 · 后九", "第二环 · 前九"] {
+            XCTAssertTrue(app.staticTexts[title].exists, "the scorecard names \(title) in play order")
+        }
+        settle(1); save("b4b2-05-summary-back-front"); dump("b4b2-05-summary-back-front")
+    }
+
+    /// Save the preselected score of the hole on screen (shown by its course number).
+    private func saveQuickScore(shownHole: Int) throws {
+        let confirm = app.buttons["完成本洞"]
+        XCTAssertTrue(scrollTo(confirm, maxSwipes: 18), "hole \(shownHole) must expose score confirmation")
+        confirm.tap()
+        let saveScore = app.buttons["score-save"]
+        XCTAssertTrue(saveScore.waitForExistence(timeout: 5), "hole \(shownHole) must offer one-tap save")
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "第 \(shownHole) 洞 · Par")).firstMatch.exists,
+            "the score sheet names the course's own hole \(shownHole)"
+        )
+        saveScore.tap()
+    }
+
     func testCaptureRealAppFlow() throws {
         // Read every screen from the live backend, but keep the synthetic simulator round local.
         // This lets the score flow use real 北京丽宫 data without polluting the owner's history.
@@ -881,8 +963,8 @@ final class RealFlowUITests: XCTestCase {
             "ending from the menu must show the same non-destructive summary used after the final hole"
         )
         XCTAssertTrue(
-            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "· 1/18 洞")).firstMatch.exists,
-            "the summary must count the one completed hole of 18"
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "· 1/9 洞")).firstMatch.exists,
+            "the summary must count the one completed hole of the 前九 being played (B4b-2)"
         )
         XCTAssertTrue(app.buttons["保存并结束"].exists)
         XCTAssertTrue(app.buttons["继续打球"].exists)
@@ -969,9 +1051,26 @@ final class RealFlowUITests: XCTestCase {
                 didPersistAdjustedPuttsAndPenalty = true
             }
 
+            if holeNumber == 9 {
+                // B4b-2 turn: 北京丽宫 started on 前九; saving hole 9 asks which nine comes next.
+                // 后九 is preselected, 前九 again is allowed, and the round continues on hole 10.
+                let turnGo = app.buttons["turn-go"]
+                XCTAssertTrue(turnGo.waitForExistence(timeout: 15), "finishing 前九 must open the turn")
+                XCTAssertEqual(turnGo.label, "接着打 后九", "the other half is the preselected second nine")
+                XCTAssertTrue(
+                    app.buttons["turn-loop-\(approvedJourneyCourseGlobalId):front"].exists,
+                    "the same half may be played again"
+                )
+                XCTAssertTrue(
+                    app.buttons["turn-loop-\(approvedJourneyCourseGlobalId):back"].exists,
+                    "the turn offers the course's own halves"
+                )
+                settle(1); save("journey-09-turn"); dump("journey-09-turn")
+                turnGo.tap()
+            }
             if holeNumber < 18 {
                 XCTAssertTrue(
-                    app.staticTexts["第 \(holeNumber + 1) 洞"].waitForExistence(timeout: 15),
+                    app.staticTexts["第 \(holeNumber + 1) 洞"].waitForExistence(timeout: 30),
                     "saving hole \(holeNumber) must advance the same round to hole \(holeNumber + 1)"
                 )
             }
@@ -993,6 +1092,12 @@ final class RealFlowUITests: XCTestCase {
             app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "· 18/18 洞")).firstMatch.exists,
             "the summary must count all 18 completed holes"
         )
+        for title in ["第一环 · 前九", "第二环 · 后九"] {
+            XCTAssertTrue(
+                app.staticTexts[title].exists,
+                "the summary scorecard names each loop in play order, never OUT / IN (\(title))"
+            )
+        }
         XCTAssertTrue(app.buttons["保存并结束"].exists)
         XCTAssertTrue(app.buttons["继续打球"].exists)
         // Every hole in this journey records one 记一杆 shot, so each preselection is `phone_shots`
@@ -1042,7 +1147,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
         if courseHereOffered {
             // 换球场或组合 opens 开始一场 with the course here already selected (no extra tap).
-            let preselected = app.buttons["start-round-course-segment-\(approvedJourneyCourseGlobalId)"]
+            let preselected = courseTile(approvedJourneyCourseGlobalId)
             XCTAssertTrue(preselected.waitForExistence(timeout: 12))
             XCTAssertEqual(
                 preselected.value as? String,
@@ -1132,7 +1237,7 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("09-new-course-nearby"); dump("09-new-course-nearby")
         result.tap()
 
-        let selectedSegment = app.buttons["start-round-course-segment-\(evidence.globalId)"]
+        let selectedSegment = courseTile(evidence.globalId)
         XCTAssertTrue(selectedSegment.waitForExistence(timeout: 12))
         XCTAssertEqual(selectedSegment.value as? String, "已选择")
         let primary = app.buttons["start-round-primary-action"]
@@ -1770,7 +1875,7 @@ final class RealFlowUITests: XCTestCase {
     /// B4b 开始一场: select a course by its row in the one course list, then its loop tile.
     @discardableResult
     private func selectStartCourse(_ globalId: Int) -> XCUIElement {
-        let tile = app.buttons["start-round-course-segment-\(globalId)"]
+        let tile = courseTile(globalId)
         if tile.exists, tile.value as? String == "已选择" { return tile }
         let row = app.buttons["start-round-venue-\(globalId)"]
         if scrollTo(row, maxSwipes: 24) {
@@ -1782,6 +1887,16 @@ final class RealFlowUITests: XCTestCase {
             settle(1)
         }
         return tile
+    }
+
+    /// B4b-2: a nine-hole loop is one tile (`start-round-course-segment-G`); an 18-hole course
+    /// shows 前九 / 后九 tiles (`start-round-course-half-G-front|back`) with 前九 preselected.
+    private func courseTile(_ globalId: Int) -> XCUIElement {
+        app.buttons.matching(NSPredicate(
+            format: "identifier == %@ OR identifier == %@",
+            "start-round-course-segment-\(globalId)",
+            "start-round-course-half-\(globalId)-front"
+        )).firstMatch
     }
 
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.

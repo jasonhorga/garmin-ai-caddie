@@ -101,7 +101,8 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
             geometryCoverage: .ready,
             geometryRevision: "black-knight-a3-r1",
             sourceGlobalId: 31794,
-            sourceLocalHole: 3
+            sourceLocalHole: 3,
+            courseHoleNumber: 3
         )
         let package = LiveRoundPackage(
             schema: source.schema,
@@ -129,7 +130,8 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
                 segmentLabel: "A"
             ),
             holes: [hole],
-            nine: "all",
+            roundLoops: [RoundLoop(globalId: 31794, half: "all", roundStartHole: 3, sourceStartHole: 3, holeCount: 1)],
+            loopKey: "31794:all",
             coursePrep: nil,
             geometryCoverage: GeometryCoverage(state: .ready, readyHoles: 1, totalHoles: 1),
             readinessChecks: source.readinessChecks,
@@ -222,9 +224,11 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
                 yards: 377,
                 geometryCoverage: .ready,
                 sourceGlobalId: 31794,
-                sourceLocalHole: 1
+                sourceLocalHole: 1,
+                courseHoleNumber: 1
             )],
-            nine: "all",
+            roundLoops: [RoundLoop(globalId: 31794, half: "all", roundStartHole: 1, sourceStartHole: 1, holeCount: 1)],
+            loopKey: "31794:all",
             coursePrep: nil,
             geometryCoverage: GeometryCoverage(state: .ready, readyHoles: 1, totalHoles: 1),
             readinessChecks: source.readinessChecks,

@@ -703,7 +703,7 @@ class CIFixtureContractTests(unittest.TestCase):
         for relative, snippets in {
             "mobile/ios/AICaddie/Views/ResultsView.swift": ("globalId: round.globalId", "backGlobalId: round.backGlobalId"),
             "mobile/ios/AICaddie/Views/StatsView.swift": ("globalId: r.globalId ?? course.globalId", "backGlobalId: r.backGlobalId ?? course.backGlobalId"),
-            "mobile/ios/AICaddie/Views/RoundHomeView.swift": ("backGlobalId: package.holes.lazy.compactMap", "case .roundReview(let roundRef, let courseName, let globalId"),
+            "mobile/ios/AICaddie/Views/RoundHomeView.swift": ("backGlobalId: package.secondLoop.map(\\.globalId)", "case .roundReview(let roundRef, let courseName, let globalId"),
         }.items():
             caller = Path(relative).read_text(encoding="utf-8")
             for snippet in snippets:

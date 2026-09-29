@@ -231,7 +231,8 @@ final class OfflineStoreTests: XCTestCase {
             playerProfile: oldRound.playerProfile,
             course: oldRound.course,
             holes: oldRound.holes,
-            nine: oldRound.nine,
+            roundLoops: oldRound.roundLoops,
+            loopKey: oldRound.loopKey,
             coursePrep: oldRound.coursePrep,
             geometryCoverage: oldRound.geometryCoverage,
             readinessChecks: oldRound.readinessChecks,
@@ -279,7 +280,12 @@ final class OfflineStoreTests: XCTestCase {
         let reopened = OfflineStore(directoryURL: directory)
         let restored = try XCTUnwrap(reopened.loadPrepCourseDownloads().first)
 
-        XCTAssertEqual(restored.id, "778899:white:all")
+        XCTAssertEqual(restored.id, "778899:white:whole")
+        XCTAssertEqual(
+            restored.loops,
+            [RoundLoopEntry(globalId: 778899, half: "front"), RoundLoopEntry(globalId: 778899, half: "back")],
+            "a prep row installs the whole 18-hole course"
+        )
         XCTAssertEqual(restored.phase, .downloading)
         XCTAssertEqual(restored.preparedHoles, 11)
         XCTAssertEqual(restored.downloadedHoles, 7)
@@ -410,7 +416,8 @@ final class OfflineStoreTests: XCTestCase {
             playerProfile: package.playerProfile,
             course: package.course,
             holes: package.holes,
-            nine: package.nine,
+            roundLoops: package.roundLoops,
+            loopKey: package.loopKey,
             coursePrep: package.coursePrep,
             geometryCoverage: package.geometryCoverage,
             readinessChecks: package.readinessChecks,
@@ -457,8 +464,7 @@ final class OfflineStoreTests: XCTestCase {
 
         let template = try XCTUnwrap(store.loadCourseTemplate(
             globalId: package.course.globalId,
-            teeBox: package.course.teeBox,
-            nine: package.nine ?? "all"
+            teeBox: package.course.teeBox
         ))
         let rebased = template.rebasedForOfflineStart(
             roundId: "offline-new-round",
@@ -505,8 +511,7 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertFalse(try store.loadEvents().contains { $0.roundId == rebased.roundId })
         XCTAssertNil(try store.loadCourseTemplate(
             globalId: package.course.globalId,
-            teeBox: "white",
-            nine: package.nine ?? "all"
+            teeBox: "white"
         ))
     }
 
@@ -539,8 +544,7 @@ final class OfflineStoreTests: XCTestCase {
 
         let retained = try XCTUnwrap(store.loadCourseTemplate(
             globalId: ready.course.globalId,
-            teeBox: ready.course.teeBox,
-            nine: ready.nine ?? "all"
+            teeBox: ready.course.teeBox
         ))
         XCTAssertEqual(retained.geometryCoverage.state, .ready)
         XCTAssertEqual(retained.geometryCoverage.readyHoles, ready.holes.count)
@@ -561,28 +565,26 @@ final class OfflineStoreTests: XCTestCase {
         for hole in ready.holes {
             XCTAssertTrue(try store.saveCourseTopoImage(
                 validOnePixelPNGData(),
-                globalId: hole.sourceGlobalId ?? ready.course.globalId,
-                localHole: hole.sourceLocalHole ?? hole.number,
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole,
                 geometryRevision: "release-a"
             ))
         }
         XCTAssertNotNil(try store.loadCourseTemplate(
             globalId: ready.course.globalId,
-            teeBox: ready.course.teeBox,
-            nine: ready.nine ?? "all"
+            teeBox: ready.course.teeBox
         ))
 
         try store.invalidateCourseTemplate(for: ready)
 
         XCTAssertNil(try store.loadCourseTemplate(
             globalId: ready.course.globalId,
-            teeBox: ready.course.teeBox,
-            nine: ready.nine ?? "all"
+            teeBox: ready.course.teeBox
         ))
         for hole in ready.holes {
             XCTAssertNotNil(store.loadCourseTopoImageURL(
-                globalId: hole.sourceGlobalId ?? ready.course.globalId,
-                localHole: hole.sourceLocalHole ?? hole.number,
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole,
                 geometryRevision: "release-a"
             ))
         }
@@ -609,8 +611,7 @@ final class OfflineStoreTests: XCTestCase {
 
         let loaded = try XCTUnwrap(store.loadCourseTemplate(
             globalId: replacement.course.globalId,
-            teeBox: replacement.course.teeBox,
-            nine: replacement.nine ?? "all"
+            teeBox: replacement.course.teeBox
         ))
         XCTAssertEqual(
             loaded.coursePrep?.holes.first?.geometryRevision,
@@ -633,15 +634,20 @@ final class OfflineStoreTests: XCTestCase {
                 geometryCoverage: sourceHole.geometryCoverage,
                 sourceGlobalId: partial.course.globalId,
                 sourceLocalHole: number,
+                courseHoleNumber: number,
                 teeLatitude: sourceHole.teeLatitude,
                 teeLongitude: sourceHole.teeLongitude
             )
         }
+        let wholeCourse = RoundLoopEntry.wholeCourse(globalId: partial.course.globalId, holes: 18)
         let full = replacingHoles(
             in: partial,
             with: fullHoles,
-            generatedAt: "2026-08-06T00:00:00Z"
+            generatedAt: "2026-08-06T00:00:00Z",
+            roundLoops: RoundLoopEntry.table(wholeCourse),
+            loopKey: RoundLoopEntry.loopKey(wholeCourse)
         )
+        XCTAssertTrue(full.isWholeCourseTemplate)
         let laterSingleHole = replacingHoles(
             in: partial,
             with: [sourceHole],
@@ -653,11 +659,164 @@ final class OfflineStoreTests: XCTestCase {
 
         let retained = try XCTUnwrap(store.loadCourseTemplate(
             globalId: full.course.globalId,
-            teeBox: full.course.teeBox,
-            nine: full.nine ?? "all"
+            teeBox: full.course.teeBox
         ))
         XCTAssertEqual(retained.holes.count, 18)
         XCTAssertEqual(retained.generatedAt, "2026-08-06T00:00:00Z")
+        XCTAssertEqual(retained.loopKey, "\(full.course.globalId):front+\(full.course.globalId):back")
+    }
+
+    func testRoundPlayedBackThenFrontStoresTheCanonicalWholeCourseTemplate() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let backThenFront = try courseRoundPackage(
+            globalId: 41825,
+            loops: [RoundLoopEntry(globalId: 41825, half: "back"), RoundLoopEntry(globalId: 41825, half: "front")],
+            roundId: "round-back-front"
+        )
+        XCTAssertEqual(backThenFront.loopKey, "41825:back+41825:front")
+        XCTAssertEqual(backThenFront.holes.first?.sourceLocalHole, 10, "round hole 1 is physical hole 10")
+        XCTAssertFalse(backThenFront.isWholeCourseTemplate)
+
+        try store.saveRoundPackage(backThenFront)
+
+        let template = try XCTUnwrap(store.loadCourseTemplate(globalId: 41825, teeBox: "blue"))
+        XCTAssertEqual(template.schema, LiveRoundPackage.supportedSchema)
+        XCTAssertEqual(template.loopKey, "41825:front+41825:back")
+        XCTAssertEqual(template.roundLoops, RoundLoopEntry.table([
+            RoundLoopEntry(globalId: 41825, half: "front"),
+            RoundLoopEntry(globalId: 41825, half: "back"),
+        ]))
+        XCTAssertTrue(template.isWholeCourseTemplate)
+        XCTAssertEqual(template.holes.map(\.number), Array(1...18))
+        XCTAssertEqual(template.holes.map(\.sourceLocalHole), Array(1...18))
+        XCTAssertEqual(template.holes.map(\.courseHoleNumber), Array(1...18))
+        XCTAssertTrue(template.holes.allSatisfy { $0.sourceGlobalId == 41825 })
+        XCTAssertEqual(
+            template.holes.map(\.par),
+            (1...18).map(Self.physicalPar),
+            "each physical hole keeps its own facts after re-projection"
+        )
+        XCTAssertEqual(try store.loadCourseTemplates().map(\.loopKey), ["41825:front+41825:back"])
+
+        // The round itself keeps its own play order.
+        let round = try XCTUnwrap(store.loadRoundPackage(roundId: "round-back-front"))
+        XCTAssertEqual(round.loopKey, "41825:back+41825:front")
+        XCTAssertEqual(round.holes.first?.sourceLocalHole, 10)
+    }
+
+    func testASingleHalfRoundIsNotACourseTemplate() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let backOnly = try courseRoundPackage(
+            globalId: 41825,
+            loops: [RoundLoopEntry(globalId: 41825, half: "back")],
+            roundId: "round-back-only"
+        )
+        XCTAssertNil(backOnly.wholeCourseTemplate(), "one half never stands in for the whole course")
+
+        try store.saveRoundPackage(backOnly)
+        try store.saveCourseTemplate(backOnly, replacingExisting: true)
+
+        XCTAssertNotNil(try store.loadRoundPackage(roundId: "round-back-only"))
+        XCTAssertNil(try store.loadCourseTemplate(globalId: 41825, teeBox: "blue"))
+        XCTAssertTrue(try store.loadCourseTemplates().isEmpty)
+
+        // The same half twice (后→后) carries only physical holes 10–18: still not a template.
+        let backTwice = try courseRoundPackage(
+            globalId: 41825,
+            loops: [RoundLoopEntry(globalId: 41825, half: "back"), RoundLoopEntry(globalId: 41825, half: "back")],
+            roundId: "round-back-back"
+        )
+        try store.saveCourseTemplate(backTwice)
+        XCTAssertNil(try store.loadCourseTemplate(globalId: 41825, teeBox: "blue"))
+    }
+
+    func testAVersionOneTemplateOnDiskIsIgnored() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let whole = try courseRoundPackage(
+            globalId: 41825,
+            loops: RoundLoopEntry.wholeCourse(globalId: 41825, holes: 18),
+            roundId: "round-whole"
+        )
+        try store.saveCourseTemplate(whole)
+        XCTAssertNotNil(try store.loadCourseTemplate(globalId: 41825, teeBox: "blue"))
+        let templatesDirectory = directory.appendingPathComponent("course_templates", isDirectory: true)
+        let files = try FileManager.default.contentsOfDirectory(
+            at: templatesDirectory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.pathExtension == "json" }
+        XCTAssertEqual(files.count, 1, "one canonical file per course and Tee")
+        let canonicalURL = try XCTUnwrap(files.first)
+
+        // The same bytes as a v1 package: v1 schema, `nine`, no loop table, no presentation number.
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(whole)) as? [String: Any]
+        )
+        object["schema"] = "ai-caddie-live-round-package-v1"
+        object["nine"] = "all"
+        object.removeValue(forKey: "roundLoops")
+        object.removeValue(forKey: "loopKey")
+        let holes = try XCTUnwrap(object["holes"] as? [[String: Any]])
+        object["holes"] = holes.map { hole -> [String: Any] in
+            var legacy = hole
+            legacy.removeValue(forKey: "courseHoleNumber")
+            return legacy
+        }
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        // A v1 file under the canonical name is never read.
+        try legacyData.write(to: canonicalURL, options: [.atomic])
+        XCTAssertNil(try store.loadCourseTemplate(globalId: 41825, teeBox: "blue"))
+        XCTAssertTrue(try store.loadCourseTemplates().isEmpty)
+
+        // A v2-shaped file that still declares the v1 schema is not trusted either.
+        var mislabelled = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(whole)) as? [String: Any]
+        )
+        mislabelled["schema"] = "ai-caddie-live-round-package-v1"
+        try JSONSerialization.data(withJSONObject: mislabelled).write(to: canonicalURL, options: [.atomic])
+        XCTAssertNil(try store.loadCourseTemplate(globalId: 41825, teeBox: "blue"))
+        XCTAssertTrue(try store.loadCourseTemplates().isEmpty)
+
+        // A leftover file under the v1 name is ignored as well.
+        try FileManager.default.removeItem(at: canonicalURL)
+        try legacyData.write(
+            to: templatesDirectory.appendingPathComponent("41825--blue--all--41825.json"),
+            options: [.atomic]
+        )
+        XCTAssertNil(try store.loadCourseTemplate(globalId: 41825, teeBox: "blue"))
+        XCTAssertTrue(try store.loadCourseTemplates().isEmpty)
+
+        // A fresh v2 install replaces it.
+        try store.saveCourseTemplate(whole)
+        XCTAssertEqual(try store.loadCourseTemplate(globalId: 41825, teeBox: "blue")?.loopKey, "41825:front+41825:back")
+    }
+
+    func testNineLoopPairingsRoundTripByLoopId() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        store.bindAccount(playerId: "player-a", migrateLegacyData: false)
+        XCTAssertEqual(try store.loadNineLoopPairings(), [:])
+
+        try store.rememberNineLoopPairing(first: "41825:back", second: "41825:front")
+        try store.rememberNineLoopPairing(first: "31795:all", second: "31796:all")
+        try store.rememberNineLoopPairing(first: "41825:front", second: "41825:front")
+
+        let reopened = OfflineStore(directoryURL: directory)
+        reopened.bindAccount(playerId: "player-a", migrateLegacyData: false)
+        let pairings = try reopened.loadNineLoopPairings()
+        XCTAssertEqual(pairings, [
+            "41825:back": "41825:front",
+            "31795:all": "31796:all",
+            "41825:front": "41825:front",
+        ])
+        XCTAssertEqual(pairings["41825:back"], "41825:front")
     }
 
     func testCourseTopoCacheAcceptsOnlyPngAndUsesStaticCourseHoleIdentity() throws {
@@ -778,7 +937,7 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertTrue(try store.saveCourseTopoImage(
             validOnePixelPNGData(),
             globalId: source.course.globalId,
-            localHole: source.holes[0].sourceLocalHole ?? source.holes[0].number
+            localHole: source.holes[0].sourceLocalHole
         ))
         XCTAssertFalse(
             store.hasCourseTopoImages(for: partial),
@@ -801,8 +960,8 @@ final class OfflineStoreTests: XCTestCase {
         for hole in source.holes {
             XCTAssertTrue(try store.saveCourseTopoImage(
                 validOnePixelPNGData(),
-                globalId: hole.sourceGlobalId ?? source.course.globalId,
-                localHole: hole.sourceLocalHole ?? hole.number,
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole,
                 geometryRevision: "aaaaaaaaaaaaaaaa"
             ))
         }
@@ -2879,7 +3038,8 @@ final class OfflineStoreTests: XCTestCase {
             playerProfile: package.playerProfile,
             course: package.course,
             holes: package.holes,
-            nine: package.nine,
+            roundLoops: package.roundLoops,
+            loopKey: package.loopKey,
             coursePrep: package.coursePrep,
             geometryCoverage: geometryCoverage,
             readinessChecks: package.readinessChecks,
@@ -2934,7 +3094,9 @@ final class OfflineStoreTests: XCTestCase {
     private func replacingHoles(
         in package: LiveRoundPackage,
         with holes: [Hole],
-        generatedAt: String
+        generatedAt: String,
+        roundLoops: [RoundLoop]? = nil,
+        loopKey: String? = nil
     ) -> LiveRoundPackage {
         LiveRoundPackage(
             schema: package.schema,
@@ -2945,7 +3107,8 @@ final class OfflineStoreTests: XCTestCase {
             playerProfile: package.playerProfile,
             course: package.course,
             holes: holes,
-            nine: package.nine,
+            roundLoops: roundLoops ?? package.roundLoops,
+            loopKey: loopKey ?? package.loopKey,
             coursePrep: package.coursePrep,
             geometryCoverage: GeometryCoverage(
                 state: package.geometryCoverage.state,
@@ -2965,6 +3128,59 @@ final class OfflineStoreTests: XCTestCase {
         )
     }
 
+    /// Par of a physical hole of the synthetic 18-hole course (distinct per hole so a projection
+    /// that moves a hole's facts is caught).
+    private static func physicalPar(_ localHole: Int) -> Int {
+        localHole % 3 == 0 ? 3 : (localHole % 5 == 0 ? 5 : 4)
+    }
+
+    /// A local (non-fixture) round on an 18-hole course in the given loop order, numbered the way
+    /// the server does: round hole `roundStartHole + i` is physical hole `sourceStartHole + i`.
+    private func courseRoundPackage(
+        globalId: Int,
+        loops: [RoundLoopEntry],
+        roundId: String
+    ) throws -> LiveRoundPackage {
+        let source = try localFixturePackage()
+        let table = RoundLoopEntry.table(loops)
+        let holes = table.flatMap { loop in
+            (0..<loop.holeCount).map { index -> Hole in
+                let localHole = loop.sourceStartHole + index
+                return Hole(
+                    number: loop.roundStartHole + index,
+                    par: Self.physicalPar(localHole),
+                    yards: 300 + localHole,
+                    geometryCoverage: .ready,
+                    sourceGlobalId: loop.globalId,
+                    sourceLocalHole: localHole,
+                    courseHoleNumber: loop.half == "all" ? loop.roundStartHole + index : localHole
+                )
+            }
+        }
+        return LiveRoundPackage(
+            roundId: roundId,
+            dataMode: source.dataMode,
+            sourceCoverage: source.sourceCoverage,
+            missingData: [],
+            playerProfile: source.playerProfile,
+            course: Course(globalId: globalId, name: "北湖", teeBox: "blue"),
+            holes: holes,
+            roundLoops: table,
+            loopKey: RoundLoopEntry.loopKey(loops),
+            geometryCoverage: GeometryCoverage(state: .ready, readyHoles: holes.count, totalHoles: holes.count),
+            readinessChecks: [],
+            caddieContextSeeds: [],
+            weatherSnapshot: source.weatherSnapshot,
+            clubProfiles: source.clubProfiles,
+            caddieDecisionEndpoint: source.caddieDecisionEndpoint,
+            offlinePackageStatus: source.offlinePackageStatus,
+            eventCursor: source.eventCursor,
+            recentHistory: source.recentHistory,
+            cachedCaddieRules: source.cachedCaddieRules,
+            generatedAt: source.generatedAt
+        )
+    }
+
     private func twoHoleFixturePackage() throws -> LiveRoundPackage {
         let package = try fixturePackage()
         let first = try XCTUnwrap(package.holes.first)
@@ -2974,7 +3190,8 @@ final class OfflineStoreTests: XCTestCase {
             yards: 165,
             geometryCoverage: .missing,
             sourceGlobalId: first.sourceGlobalId,
-            sourceLocalHole: 2
+            sourceLocalHole: 2,
+            courseHoleNumber: 2
         )
         return LiveRoundPackage(
             schema: package.schema,
@@ -2985,7 +3202,14 @@ final class OfflineStoreTests: XCTestCase {
             playerProfile: package.playerProfile,
             course: package.course,
             holes: [first, second],
-            nine: package.nine,
+            roundLoops: [RoundLoop(
+                globalId: first.sourceGlobalId,
+                half: "all",
+                roundStartHole: 1,
+                sourceStartHole: 1,
+                holeCount: 2
+            )],
+            loopKey: package.loopKey,
             coursePrep: package.coursePrep,
             geometryCoverage: package.geometryCoverage,
             readinessChecks: package.readinessChecks,

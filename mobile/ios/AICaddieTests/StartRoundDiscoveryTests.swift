@@ -986,9 +986,47 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let wholeCourse = MobileCourseOption(globalId: 9201, name: "北湖", holes: 18, venueName: "北湖", segmentHoles: 18)
         XCTAssertEqual(
             StartRoundPresentation.startActionTitle(selected: wholeCourse, loops: [wholeCourse], teeBox: "white"),
-            "开始 18 洞 · 白 T"
+            "从 前九 开始 · 白 T",
+            "an 18-hole course starts on one half, 前九 by default"
         )
+        XCTAssertEqual(
+            StartRoundPresentation.startActionTitle(selected: wholeCourse, loops: [wholeCourse], teeBox: "blue", half: "back"),
+            "从 后九 开始 · 蓝 T"
+        )
+        XCTAssertEqual(
+            StartRoundPresentation.startActionTitle(selected: wholeCourse, loops: [], teeBox: "blue", half: "front"),
+            "从 前九 开始 · 蓝 T"
+        )
+        for title in [
+            StartRoundPresentation.startActionTitle(selected: wholeCourse, loops: [wholeCourse], teeBox: "blue"),
+            StartRoundPresentation.startActionTitle(selected: wholeCourse, loops: [wholeCourse], teeBox: "blue", half: "back"),
+        ] {
+            XCTAssertFalse(title.contains("18 洞"), title)
+        }
         XCTAssertEqual(StartRoundPresentation.startActionTitle(selected: nil, loops: [], teeBox: "blue"), "开始")
+    }
+
+    func testStartLoopsRequestOneHalfOfAnEighteenHoleCourseAndTheWholeNineHoleLoop() {
+        let wholeCourse = MobileCourseOption(globalId: 9201, name: "北湖", holes: 18, venueName: "北湖", segmentHoles: 18)
+        XCTAssertEqual(
+            StartRoundPresentation.startLoops(selected: wholeCourse),
+            [RoundLoopEntry(globalId: 9201, half: "front")]
+        )
+        XCTAssertEqual(
+            StartRoundPresentation.startLoops(selected: wholeCourse, half: "front"),
+            [RoundLoopEntry(globalId: 9201, half: "front")]
+        )
+        XCTAssertEqual(
+            StartRoundPresentation.startLoops(selected: wholeCourse, half: "back"),
+            [RoundLoopEntry(globalId: 9201, half: "back")]
+        )
+        let bkB = loop(9102, venue: "黑骑士", label: "B")
+        XCTAssertEqual(StartRoundPresentation.startLoops(selected: bkB), [RoundLoopEntry(globalId: 9102, half: "all")])
+        XCTAssertEqual(
+            StartRoundPresentation.startLoops(selected: bkB, half: "back"),
+            [RoundLoopEntry(globalId: 9102, half: "all")],
+            "a nine-hole loop has no halves"
+        )
     }
 
     func testTeeLabelsAreShortAndKeepUnknownNames() {

@@ -621,10 +621,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         // Starting a live round must not pause or replace the independent durable prep job. Even when
         // that round fails, the original course finishes once and remains reattachable from disk.
         await model.prepareCourseRound(
-            globalId: 999_999,
             roundId: "unavailable-live-round",
             teeBox: "blue",
-            nine: "all"
+            loops: [RoundLoopEntry(globalId: 999_999, half: "all")]
         )
         await model.waitForPrepCourseDownloadForTesting()
 
@@ -635,8 +634,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(try store.loadPrepCourseDownloads().first?.phase, .ready)
         let template = try XCTUnwrap(store.loadCourseTemplate(
             globalId: course.globalId,
-            teeBox: source.course.teeBox,
-            nine: "all"
+            teeBox: source.course.teeBox
         ))
         XCTAssertTrue(template.hasCompleteOfflineCoursePrep)
         XCTAssertTrue(store.hasCourseTopoImages(for: template))
@@ -669,7 +667,8 @@ final class LiveRoundAppModelTests: XCTestCase {
                 geometryCoverage: .ready,
                 geometryRevision: revision,
                 sourceGlobalId: source.course.globalId,
-                sourceLocalHole: number
+                sourceLocalHole: number,
+                courseHoleNumber: number
             )
         }
         let base = package(
@@ -817,7 +816,8 @@ final class LiveRoundAppModelTests: XCTestCase {
                 geometryCoverage: .ready,
                 geometryRevision: revision,
                 sourceGlobalId: source.course.globalId,
-                sourceLocalHole: number
+                sourceLocalHole: number,
+                courseHoleNumber: number
             )
         }
         let online = package(
@@ -854,7 +854,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                 body = Data(
                     """
                     {"schema":"ai-caddie-course-install-v1","jobId":"status-gate",
-                     "globalId":\(online.course.globalId),"teeBox":"blue","nine":"all",
+                     "globalId":\(online.course.globalId),"teeBox":"blue","loopKey":"\(online.course.globalId):all",
                      "phase":"\(phase)","stage":"topo","totalHoles":2,"geometryReady":2,
                      "topoReady":\(topoState == "ready" ? 2 : 0),"updatedAt":null,"error":null,
                      "holes":[
@@ -931,8 +931,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(requestLock.withLock { topoRequestCount }, 2)
         XCTAssertTrue(try XCTUnwrap(store.loadCourseTemplate(
             globalId: online.course.globalId,
-            teeBox: online.course.teeBox,
-            nine: "all"
+            teeBox: online.course.teeBox
         )).hasCompleteOfflineCoursePrep)
     }
 
@@ -949,8 +948,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         for hole in oldTemplate.holes {
             _ = try store.saveCourseTopoImage(
                 minimalPNGData(),
-                globalId: hole.sourceGlobalId ?? oldTemplate.course.globalId,
-                localHole: hole.sourceLocalHole ?? hole.number,
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole,
                 geometryRevision: oldRevision
             )
         }
@@ -964,6 +963,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                 geometryRevision: newRevision,
                 sourceGlobalId: hole.sourceGlobalId,
                 sourceLocalHole: hole.sourceLocalHole,
+                courseHoleNumber: hole.courseHoleNumber,
                 teeLatitude: hole.teeLatitude,
                 teeLongitude: hole.teeLongitude
             )
@@ -1025,7 +1025,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                         revision: newRevision
                     )
                     : Data(
-                        #"{"schema":"ai-caddie-course-install-v1","jobId":"replacement-failed","globalId":0,"teeBox":"blue","nine":"all","phase":"failed","stage":"failed","totalHoles":1,"geometryReady":0,"topoReady":0,"updatedAt":null,"error":"render failed","holes":[]}"#.utf8
+                        #"{"schema":"ai-caddie-course-install-v1","jobId":"replacement-failed","globalId":0,"teeBox":"blue","loopKey":"0:all","phase":"failed","stage":"failed","totalHoles":1,"geometryReady":0,"topoReady":0,"updatedAt":null,"error":"render failed","holes":[]}"#.utf8
                     )
                 statusCode = 200
                 contentType = "application/json"
@@ -1083,8 +1083,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
         let retained = try XCTUnwrap(store.loadCourseTemplate(
             globalId: course.globalId,
-            teeBox: course.teeBox ?? "blue",
-            nine: "all"
+            teeBox: course.teeBox ?? "blue"
         ))
         XCTAssertEqual(
             retained.coursePrep?.holes.first?.geometryRevision,
@@ -1105,8 +1104,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertNil(model.prepCourseDownloads.first?.requiredGeometryRevisions)
         let replacement = try XCTUnwrap(store.loadCourseTemplate(
             globalId: course.globalId,
-            teeBox: course.teeBox ?? "blue",
-            nine: "all"
+            teeBox: course.teeBox ?? "blue"
         ))
         XCTAssertEqual(replacement.coursePrep?.holes.first?.geometryRevision, newRevision)
         XCTAssertNotNil(store.loadCourseTopoImageURL(
@@ -1126,14 +1124,14 @@ final class LiveRoundAppModelTests: XCTestCase {
             CoursePrepResponse.self,
             from: offlinePrepResponseData(
                 for: source,
-                localHoles: [frontSourceHole.sourceLocalHole ?? frontSourceHole.number]
+                localHoles: [frontSourceHole.sourceLocalHole]
             )
         ).holes[0]
         let partialPrep = try JSONDecoder().decode(
             CoursePrepResponse.self,
             from: offlinePrepResponseData(
                 for: source,
-                localHoles: [frontSourceHole.sourceLocalHole ?? frontSourceHole.number],
+                localHoles: [frontSourceHole.sourceLocalHole],
                 geometryCoverage: "partial"
             )
         ).holes[0]
@@ -1144,7 +1142,8 @@ final class LiveRoundAppModelTests: XCTestCase {
                 yards: 390,
                 geometryCoverage: .ready,
                 sourceGlobalId: source.course.globalId,
-                sourceLocalHole: 9
+                sourceLocalHole: 9,
+                courseHoleNumber: 9
             ),
             Hole(
                 number: 10,
@@ -1152,14 +1151,19 @@ final class LiveRoundAppModelTests: XCTestCase {
                 yards: factualPrep.blueYards,
                 geometryCoverage: .ready,
                 sourceGlobalId: source.course.globalId + 1,
-                sourceLocalHole: factualPrep.hole
+                sourceLocalHole: factualPrep.hole,
+                courseHoleNumber: 10
             ),
         ]
         let round = package(
             source,
             roundId: "foreground-prep-retention",
             recentRounds: [],
-            holes: compositeHoles
+            holes: compositeHoles,
+            roundLoops: RoundLoopEntry.table([
+                RoundLoopEntry(globalId: source.course.globalId, half: "all"),
+                RoundLoopEntry(globalId: source.course.globalId + 1, half: "all"),
+            ])
         ).replacingCoursePrep(CoursePrepPackage(
             schema: "ai-caddie-course-prep-v1",
             globalId: source.course.globalId,
@@ -1233,11 +1237,16 @@ final class LiveRoundAppModelTests: XCTestCase {
         let front = try blackKnightLoopPackage(source: source, globalId: 31794, label: "A")
         let back = try blackKnightLoopPackage(source: source, globalId: 31795, label: "B")
         let composite = try XCTUnwrap(
-            front.composingBackNine(from: back, roundId: "black-knight-live")
+            front.composingSecondLoop(
+                RoundLoopEntry(globalId: 31795, half: "all"),
+                from: back,
+                roundId: "black-knight-live"
+            )
         )
 
         XCTAssertEqual(composite.holes.count, 18)
-        XCTAssertTrue(composite.isCompositeNineRound)
+        XCTAssertEqual(composite.loopKey, "31794:all+31795:all")
+        XCTAssertEqual(composite.secondLoop?.roundStartHole, 10)
         XCTAssertEqual(composite.holes.first(where: { $0.number == 10 })?.sourceGlobalId, 31795)
         XCTAssertEqual(composite.holes.first(where: { $0.number == 10 })?.sourceLocalHole, 1)
         XCTAssertEqual(composite.coursePrep?.holes.map(\.hole), Array(1...18))
@@ -1247,15 +1256,20 @@ final class LiveRoundAppModelTests: XCTestCase {
             .number(31795)
         )
 
-        let trimmed = try XCTUnwrap(composite.removingCompositeBackNine())
+        let trimmed = try XCTUnwrap(composite.removingSecondLoop())
+        XCTAssertEqual(trimmed.loopKey, "31794:all")
         XCTAssertEqual(trimmed.holes.map(\.number), Array(1...9))
         XCTAssertEqual(trimmed.coursePrep?.holes.map(\.hole), Array(1...9))
         XCTAssertNotEqual(trimmed.holeSetIdentity, composite.holeSetIdentity)
 
         let sameLoop = try XCTUnwrap(
-            front.composingBackNine(from: front, roundId: "black-knight-a-again")
+            front.composingSecondLoop(
+                RoundLoopEntry(globalId: 31794, half: "all"),
+                from: front,
+                roundId: "black-knight-a-again"
+            )
         )
-        XCTAssertTrue(sameLoop.isCompositeNineRound)
+        XCTAssertEqual(sameLoop.loopKey, "31794:all+31794:all")
         XCTAssertEqual(sameLoop.holes.first(where: { $0.number == 10 })?.sourceGlobalId, 31794)
         XCTAssertEqual(sameLoop.holes.first(where: { $0.number == 10 })?.sourceLocalHole, 1)
     }
@@ -1273,8 +1287,8 @@ final class LiveRoundAppModelTests: XCTestCase {
             for hole in template.holes {
                 _ = try store.saveCourseTopoImage(
                     minimalPNGData(),
-                    globalId: hole.sourceGlobalId ?? template.course.globalId,
-                    localHole: hole.sourceLocalHole ?? hole.number,
+                    globalId: hole.sourceGlobalId,
+                    localHole: hole.sourceLocalHole,
                     geometryRevision: hole.geometryRevision
                 )
             }
@@ -1316,10 +1330,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
 
         await model.prepareCourseRound(
-            globalId: 31794,
             roundId: roundId,
             teeBox: "blue",
-            nine: "all"
+            loops: [RoundLoopEntry(globalId: 31794, half: "all")]
         )
 
         XCTAssertEqual(model.package?.holes.map(\.number), Array(1...9))
@@ -1328,14 +1341,10 @@ final class LiveRoundAppModelTests: XCTestCase {
             "starting an installed physical loop must use its local template"
         )
 
-        await model.prepareCompositeRound(
-            globalId: 31794,
-            backGlobalId: 31795,
-            roundId: roundId,
-            teeBox: "blue"
-        )
+        await model.setSecondLoop(RoundLoopEntry(globalId: 31795, half: "all"), roundId: roundId)
 
         XCTAssertEqual(model.package?.holes.map(\.number), Array(1...18))
+        XCTAssertEqual(model.package?.loopKey, "31794:all+31795:all")
         XCTAssertEqual(model.package?.holes.first(where: { $0.number == 10 })?.sourceGlobalId, 31795)
         XCTAssertEqual(model.package?.holes.first(where: { $0.number == 10 })?.sourceLocalHole, 1)
         XCTAssertEqual(
@@ -1344,14 +1353,10 @@ final class LiveRoundAppModelTests: XCTestCase {
             "adding an installed physical loop must publish locally before any revision check"
         )
 
-        await model.prepareCourseRound(
-            globalId: 31794,
-            roundId: roundId,
-            teeBox: "blue",
-            nine: "all"
-        )
+        await model.setSecondLoop(nil, roundId: roundId)
 
         XCTAssertEqual(model.package?.holes.map(\.number), Array(1...9))
+        XCTAssertEqual(model.package?.loopKey, "31794:all")
         XCTAssertEqual(model.liveRoundState?.activeHole, 1)
         XCTAssertEqual(
             requestLock.withLock { requestedPaths },
@@ -1384,8 +1389,8 @@ final class LiveRoundAppModelTests: XCTestCase {
             for hole in template.holes {
                 _ = try store.saveCourseTopoImage(
                     minimalPNGData(),
-                    globalId: hole.sourceGlobalId ?? template.course.globalId,
-                    localHole: hole.sourceLocalHole ?? hole.number,
+                    globalId: hole.sourceGlobalId,
+                    localHole: hole.sourceLocalHole,
                     geometryRevision: hole.geometryRevision
                 )
             }
@@ -1421,13 +1426,13 @@ final class LiveRoundAppModelTests: XCTestCase {
             syncClient: client
         )
 
-        await model.prepareCourseRound(globalId: 31794, roundId: roundId, teeBox: "blue", nine: "all")
+        await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: [RoundLoopEntry(globalId: 31794, half: "all")])
         XCTAssertEqual(model.package?.holes.map(\.number), Array(1...9))
         model.consumePendingLiveHole()
         model.setActiveHole(9)
         XCTAssertEqual(model.liveRoundState?.activeHole, 9)
 
-        await model.continueIntoSecondLoop(globalId: 31794, backGlobalId: 31795, roundId: roundId, teeBox: "blue")
+        await model.continueIntoSecondLoop(RoundLoopEntry(globalId: 31795, half: "all"), roundId: roundId)
 
         XCTAssertEqual(model.package?.holes.map(\.number), Array(1...18))
         XCTAssertEqual(model.package?.holes.first(where: { $0.number == 10 })?.sourceGlobalId, 31795)
@@ -1451,8 +1456,8 @@ final class LiveRoundAppModelTests: XCTestCase {
             for hole in template.holes {
                 _ = try store.saveCourseTopoImage(
                     minimalPNGData(),
-                    globalId: hole.sourceGlobalId ?? template.course.globalId,
-                    localHole: hole.sourceLocalHole ?? hole.number,
+                    globalId: hole.sourceGlobalId,
+                    localHole: hole.sourceLocalHole,
                     geometryRevision: hole.geometryRevision
                 )
             }
@@ -1495,11 +1500,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         let (model, _) = try offlineBlackKnightModel(roundId: roundId, installedGlobalIds: [31794])
         defer { CapturingURLProtocol.requestHandler = nil }
 
-        await model.prepareCourseRound(globalId: 31794, roundId: roundId, teeBox: "blue", nine: "all")
+        await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: [RoundLoopEntry(globalId: 31794, half: "all")])
         model.consumePendingLiveHole()
         model.setActiveHole(9)
 
-        await model.continueIntoSecondLoop(globalId: 31794, backGlobalId: 31795, roundId: roundId, teeBox: "blue")
+        await model.continueIntoSecondLoop(RoundLoopEntry(globalId: 31795, half: "all"), roundId: roundId)
 
         XCTAssertEqual(model.package?.holes.map(\.number), Array(1...9), "no installed B: the round keeps its nine")
         XCTAssertEqual(model.liveRoundState?.activeHole, 9)
@@ -1514,7 +1519,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let (model, _) = try offlineBlackKnightModel(roundId: roundId, installedGlobalIds: [31794, 31795, 31796])
         defer { CapturingURLProtocol.requestHandler = nil }
 
-        await model.prepareCourseRound(globalId: 31794, roundId: roundId, teeBox: "blue", nine: "all")
+        await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: [RoundLoopEntry(globalId: 31794, half: "all")])
         model.consumePendingLiveHole()
         model.setActiveHole(9)
         XCTAssertTrue(model.courseOptions.isEmpty, "no network catalogue in this test")
@@ -1534,13 +1539,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(plan.course.loops.map(\.displayName), ["A 场", "B 场", "C 场"])
         XCTAssertEqual(plan.turnTitle, "A 场打完了")
         let second = try XCTUnwrap(plan.secondLoop)
-        XCTAssertEqual(second.id, "31795", "the next loop is preselected without a usual pairing")
+        XCTAssertEqual(second.id, "31795:all", "the next loop is preselected without a usual pairing")
 
-        await model.continueIntoSecondLoop(
-            globalId: 31794, backGlobalId: try XCTUnwrap(Int(second.id)), roundId: roundId, teeBox: "blue"
-        )
+        await model.continueIntoSecondLoop(try XCTUnwrap(NineLoopTurn.entry(second.id)), roundId: roundId)
         XCTAssertEqual(model.package?.holes.map(\.number), Array(1...18))
-        XCTAssertEqual(Set(model.package?.holes.filter { $0.number >= 10 }.compactMap(\.sourceGlobalId) ?? []), [31795])
+        XCTAssertEqual(Set(model.package?.holes.filter { $0.number >= 10 }.map(\.sourceGlobalId) ?? []), [31795])
         XCTAssertEqual(model.liveRoundState?.activeHole, 10)
         XCTAssertEqual(model.pendingLiveHole, 10)
     }
@@ -1552,25 +1555,25 @@ final class LiveRoundAppModelTests: XCTestCase {
         let (model, _) = try offlineBlackKnightModel(roundId: roundId, installedGlobalIds: [31794, 31795, 31796])
         defer { CapturingURLProtocol.requestHandler = nil }
 
-        await model.prepareCourseRound(globalId: 31794, roundId: roundId, teeBox: "blue", nine: "all")
-        await model.prepareCompositeRound(globalId: 31794, backGlobalId: 31795, roundId: roundId, teeBox: "blue")
-        XCTAssertEqual(Set(model.package?.holes.filter { $0.number >= 10 }.compactMap(\.sourceGlobalId) ?? []), [31795])
+        await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: [RoundLoopEntry(globalId: 31794, half: "all")])
+        await model.setSecondLoop(RoundLoopEntry(globalId: 31795, half: "all"), roundId: roundId)
+        XCTAssertEqual(Set(model.package?.holes.filter { $0.number >= 10 }.map(\.sourceGlobalId) ?? []), [31795])
 
-        await model.prepareCompositeRound(globalId: 31794, backGlobalId: 31796, roundId: roundId, teeBox: "blue")
+        await model.setSecondLoop(RoundLoopEntry(globalId: 31796, half: "all"), roundId: roundId)
         XCTAssertEqual(model.package?.holes.map(\.number), Array(1...18))
         XCTAssertEqual(
-            Set(model.package?.holes.filter { $0.number >= 10 }.compactMap(\.sourceGlobalId) ?? []), [31796],
+            Set(model.package?.holes.filter { $0.number >= 10 }.map(\.sourceGlobalId) ?? []), [31796],
             "A+B → A+C must use the installed C template offline"
         )
         XCTAssertEqual(
-            Set(model.package?.holes.filter { $0.number <= 9 }.compactMap(\.sourceGlobalId) ?? []), [31794],
+            Set(model.package?.holes.filter { $0.number <= 9 }.map(\.sourceGlobalId) ?? []), [31794],
             "the first loop is untouched"
         )
 
-        await model.prepareCompositeRound(globalId: 31794, backGlobalId: 31794, roundId: roundId, teeBox: "blue")
+        await model.setSecondLoop(RoundLoopEntry(globalId: 31794, half: "all"), roundId: roundId)
         XCTAssertEqual(model.package?.holes.map(\.number), Array(1...18))
         XCTAssertEqual(
-            Set(model.package?.holes.filter { $0.number >= 10 }.compactMap(\.sourceGlobalId) ?? []), [31794],
+            Set(model.package?.holes.filter { $0.number >= 10 }.map(\.sourceGlobalId) ?? []), [31794],
             "A+C → A+A replays the first loop as holes 10–18"
         )
         XCTAssertEqual(model.package?.holes.first(where: { $0.number == 10 })?.sourceLocalHole, 1)
@@ -1580,13 +1583,16 @@ final class LiveRoundAppModelTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
-        let template = try offlineReadyPackage(localFixturePackage())
+        // A v2 offline start projects a whole nine-hole loop from the installed template.
+        let template = try offlineReadyPackage(nineHoleFixturePackage())
         try store.saveCourseTemplate(template)
-        _ = try store.saveCourseTopoImage(
-            minimalPNGData(),
-            globalId: template.course.globalId,
-            localHole: template.holes[0].sourceLocalHole ?? template.holes[0].number
-        )
+        for hole in template.holes {
+            _ = try store.saveCourseTopoImage(
+                minimalPNGData(),
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole
+            )
+        }
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
@@ -1623,14 +1629,16 @@ final class LiveRoundAppModelTests: XCTestCase {
 
         XCTAssertEqual(model.downloadedCourseOptions.map(\.globalId), [template.course.globalId])
         await model.prepareCourseRound(
-            globalId: template.course.globalId,
             roundId: "offline-new-round",
             teeBox: template.course.teeBox,
-            nine: template.nine ?? "all"
+            loops: template.loopEntries
         )
 
         XCTAssertEqual(model.package?.roundId, "offline-new-round")
-        XCTAssertEqual(model.package?.course, template.course)
+        XCTAssertEqual(model.package?.course.globalId, template.course.globalId)
+        XCTAssertEqual(model.package?.course.teeBox, template.course.teeBox)
+        XCTAssertEqual(model.package?.loopKey, template.loopKey)
+        XCTAssertEqual(model.package?.holes.map(\.number), template.holes.map(\.number))
         XCTAssertEqual(model.liveRoundState?.roundId, "offline-new-round")
         XCTAssertEqual(model.pendingLiveHole, template.holes.first?.number)
         XCTAssertEqual(try store.loadRoundPackage(roundId: "offline-new-round")?.roundId, "offline-new-round")
@@ -1665,7 +1673,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         _ = try store.saveCourseTopoImage(
             minimalPNGData(),
             globalId: seedless.course.globalId,
-            localHole: seedless.holes[0].sourceLocalHole ?? seedless.holes[0].number
+            localHole: seedless.holes[0].sourceLocalHole
         )
 
         let roundId = "seed-repaired-round"
@@ -1711,10 +1719,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
 
         await model.prepareCourseRound(
-            globalId: source.course.globalId,
             roundId: roundId,
             teeBox: source.course.teeBox,
-            nine: source.nine ?? "all"
+            loops: source.loopEntries
         )
 
         XCTAssertEqual(
@@ -1730,7 +1737,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
-        let source = try localFixturePackage()
+        // A v2 offline start projects a whole nine-hole loop from the installed template.
+        let source = try nineHoleFixturePackage()
         let revision = "aaaaaaaaaaaaaaaa"
         let revisedHoles = source.holes.map { hole in
             Hole(
@@ -1741,6 +1749,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                 geometryRevision: revision,
                 sourceGlobalId: hole.sourceGlobalId,
                 sourceLocalHole: hole.sourceLocalHole,
+                courseHoleNumber: hole.courseHoleNumber,
                 teeLatitude: hole.teeLatitude,
                 teeLongitude: hole.teeLongitude
             )
@@ -1759,8 +1768,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         for hole in template.holes {
             _ = try store.saveCourseTopoImage(
                 minimalPNGData(),
-                globalId: hole.sourceGlobalId ?? template.course.globalId,
-                localHole: hole.sourceLocalHole ?? hole.number,
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole,
                 geometryRevision: revision
             )
         }
@@ -1817,10 +1826,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
 
         await model.prepareCourseRound(
-            globalId: template.course.globalId,
             roundId: roundId,
             teeBox: template.course.teeBox,
-            nine: template.nine ?? "all"
+            loops: template.loopEntries
         )
         XCTAssertEqual(model.liveRoundState?.roundId, roundId)
         XCTAssertTrue(requestLock.withLock { paths }.isEmpty)
@@ -1960,8 +1968,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         // fallback until a fetched replacement is atomically persisted.
         let retained = try XCTUnwrap(fixture.store.loadCourseTemplate(
             globalId: fixture.course.globalId,
-            teeBox: record.teeBox,
-            nine: record.nine
+            teeBox: record.teeBox
         ))
         XCTAssertEqual(retained.coursePrep?.holes.first?.geometryRevision, "local-revision")
         XCTAssertEqual(requestLock.withLock { statusRequestCount }, 1)
@@ -2064,8 +2071,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         for hole in fresh.holes {
             _ = try fixture.store.saveCourseTopoImage(
                 minimalPNGData(),
-                globalId: hole.sourceGlobalId ?? fresh.course.globalId,
-                localHole: hole.sourceLocalHole ?? hole.number,
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole,
                 geometryRevision: "fresh-revision"
             )
         }
@@ -2086,7 +2093,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             let data = Data(
                 """
                 {"schema":"ai-caddie-course-install-v1","jobId":"merged-journal",
-                 "globalId":\(fixture.course.globalId),"teeBox":"blue","nine":"all",
+                 "globalId":\(fixture.course.globalId),"teeBox":"blue","loopKey":"\(fixture.course.globalId):all",
                  "phase":"ready","stage":"ready","totalHoles":2,"geometryReady":2,
                  "topoReady":2,"updatedAt":null,"error":null,"holes":[
                  {"globalId":\(fixture.course.globalId),"localHole":1,"displayHole":1,
@@ -2220,10 +2227,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
 
         await model.prepareCourseRound(
-            globalId: complete.course.globalId,
             roundId: roundId,
             teeBox: complete.course.teeBox,
-            nine: complete.nine ?? "all"
+            loops: complete.loopEntries
         )
 
         XCTAssertEqual(requestLock.withLock { packageRequestCount }, 1)
@@ -2243,7 +2249,8 @@ final class LiveRoundAppModelTests: XCTestCase {
                 yards: 320 + number * 10,
                 geometryCoverage: .ready,
                 sourceGlobalId: source.course.globalId,
-                sourceLocalHole: number
+                sourceLocalHole: number,
+                courseHoleNumber: number
             )
         }
         let online = package(
@@ -2288,8 +2295,8 @@ final class LiveRoundAppModelTests: XCTestCase {
                 if requestNumber == 2 {
                     let firstHole = try XCTUnwrap(online.holes.first)
                     let durable = store.loadCourseTopoImageURL(
-                        globalId: firstHole.sourceGlobalId ?? online.course.globalId,
-                        localHole: firstHole.sourceLocalHole ?? firstHole.number
+                        globalId: firstHole.sourceGlobalId,
+                        localHole: firstHole.sourceLocalHole
                     ) != nil
                     requestLock.withLock {
                         firstHoleWasDurableBeforeSecondRequest = durable
@@ -2298,8 +2305,8 @@ final class LiveRoundAppModelTests: XCTestCase {
                     let firstThree = Array(online.holes.prefix(3))
                     let durable = firstThree.allSatisfy { hole in
                         store.loadCourseTopoImageURL(
-                            globalId: hole.sourceGlobalId ?? online.course.globalId,
-                            localHole: hole.sourceLocalHole ?? hole.number
+                            globalId: hole.sourceGlobalId,
+                            localHole: hole.sourceLocalHole
                         ) != nil
                     }
                     requestLock.withLock {
@@ -2336,10 +2343,9 @@ final class LiveRoundAppModelTests: XCTestCase {
             syncClient: client
         )
         await model.prepareCourseRound(
-            globalId: online.course.globalId,
             roundId: online.roundId,
             teeBox: online.course.teeBox,
-            nine: online.nine ?? "all"
+            loops: online.loopEntries
         )
 
         let beforeAppearance = requestLock.withLock { requestedURLs }
@@ -2374,8 +2380,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
         XCTAssertNotNil(try store.loadCourseTemplate(
             globalId: online.course.globalId,
-            teeBox: online.course.teeBox,
-            nine: online.nine ?? "all"
+            teeBox: online.course.teeBox
         )?.coursePrep)
         let urls = requestLock.withLock { requestedURLs }
         let paths = urls.map(\.path)
@@ -2419,7 +2424,8 @@ final class LiveRoundAppModelTests: XCTestCase {
                 yards: 350 + number,
                 geometryCoverage: .partial,
                 sourceGlobalId: source.course.globalId,
-                sourceLocalHole: number
+                sourceLocalHole: number,
+                courseHoleNumber: number
             )
         }
         let online = package(
@@ -2434,8 +2440,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         for hole in holes {
             _ = try store.saveCourseTopoImage(
                 png,
-                globalId: hole.sourceGlobalId ?? online.course.globalId,
-                localHole: hole.sourceLocalHole ?? hole.number,
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole,
                 geometryRevision: "aaaaaaaaaaaaaaaa"
             )
         }
@@ -2524,10 +2530,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
 
         await model.prepareCourseRound(
-            globalId: online.course.globalId,
             roundId: online.roundId,
             teeBox: online.course.teeBox,
-            nine: "all"
+            loops: [RoundLoopEntry(globalId: online.course.globalId, half: "all")]
         )
         XCTAssertTrue(requestLock.withLock { prepCoverages }.isEmpty)
         XCTAssertEqual(requestLock.withLock { coverageRequestCount }, 0)
@@ -2741,10 +2746,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         // A home package intentionally keeps this same identity. Starting it again must still enter
         // hole 1; comparing only package.roundId used to leave the UI stuck on “准备中”.
         await model.prepareCourseRound(
-            globalId: fixture.package.course.globalId,
             roundId: refreshedHome.roundId,
             teeBox: refreshedHome.course.teeBox,
-            nine: refreshedHome.nine ?? "all"
+            loops: refreshedHome.loopEntries
         )
         XCTAssertEqual(model.liveRoundState?.roundId, refreshedHome.roundId)
         XCTAssertEqual(model.pendingLiveHole, refreshedHome.holes.first?.number)
@@ -2806,18 +2810,16 @@ final class LiveRoundAppModelTests: XCTestCase {
 
         let slowTask = Task {
             await model.prepareCourseRound(
-                globalId: source.course.globalId,
                 roundId: slow.roundId,
                 teeBox: source.course.teeBox,
-                nine: "all"
+                loops: [RoundLoopEntry(globalId: source.course.globalId, half: "all")]
             )
         }
         try await Task.sleep(nanoseconds: 20_000_000)
         await model.prepareCourseRound(
-            globalId: source.course.globalId,
             roundId: fast.roundId,
             teeBox: source.course.teeBox,
-            nine: "all"
+            loops: [RoundLoopEntry(globalId: source.course.globalId, half: "all")]
         )
         await slowTask.value
 
@@ -3425,10 +3427,9 @@ final class LiveRoundAppModelTests: XCTestCase {
             offlineGeometryRetryDelaysNanoseconds: [0]
         )
         await model.prepareCourseRound(
-            globalId: fixture.package.course.globalId,
             roundId: fixture.package.roundId,
             teeBox: fixture.package.course.teeBox,
-            nine: fixture.package.nine ?? "all"
+            loops: fixture.package.loopEntries
         )
         XCTAssertEqual(model.pendingEventCount, fixture.events.count)
 
@@ -3607,10 +3608,9 @@ final class LiveRoundAppModelTests: XCTestCase {
             )
         )
         await model.prepareCourseRound(
-            globalId: activePackage.course.globalId,
             roundId: activePackage.roundId,
             teeBox: activePackage.course.teeBox,
-            nine: activePackage.nine ?? "all"
+            loops: activePackage.loopEntries
         )
         XCTAssertEqual(model.liveRoundState?.roundId, activePackage.roundId)
         XCTAssertEqual(model.pendingEventCount, 1)
@@ -4374,7 +4374,8 @@ final class LiveRoundAppModelTests: XCTestCase {
                 geometryCoverage: .ready,
                 geometryRevision: "black-knight-\(globalId)-\(localHole)-r1",
                 sourceGlobalId: globalId,
-                sourceLocalHole: localHole
+                sourceLocalHole: localHole,
+                courseHoleNumber: localHole
             )
         }
         let prepHoles = holes.map { hole in
@@ -4473,7 +4474,8 @@ final class LiveRoundAppModelTests: XCTestCase {
                 segmentLabel: label
             ),
             holes: holes,
-            nine: "all",
+            roundLoops: RoundLoopEntry.table([RoundLoopEntry(globalId: globalId, half: "all")]),
+            loopKey: RoundLoopEntry.loopKey([RoundLoopEntry(globalId: globalId, half: "all")]),
             coursePrep: CoursePrepPackage(
                 schema: "ai-caddie-course-prep-v1",
                 globalId: globalId,
@@ -4498,6 +4500,48 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
+    /// The shared fixture models one hole of the 9-hole loop `31795:all`. A v2 template projects
+    /// only a whole loop (B4b-2), so an offline start from an installed fixture template needs all
+    /// nine physical holes, each with its own caddie seed.
+    private func nineHoleFixturePackage() throws -> LiveRoundPackage {
+        let base = try localFixturePackage()
+        let first = try XCTUnwrap(base.holes.first)
+        let seed = try XCTUnwrap(base.caddieContextSeeds.first)
+        let holes = (1...9).map { number in
+            number == first.number ? first : Hole(
+                number: number,
+                par: first.par,
+                yards: first.yards,
+                geometryCoverage: first.geometryCoverage,
+                geometryRevision: first.geometryRevision,
+                sourceGlobalId: base.course.globalId,
+                sourceLocalHole: number,
+                courseHoleNumber: number
+            )
+        }
+        let seeds = holes.map { hole in
+            hole.number == seed.hole ? seed : CaddieContextSeed(
+                hole: hole.number,
+                sourceRef: "\(base.roundId):\(hole.number)",
+                shotTypes: seed.shotTypes,
+                requiredLiveInputs: seed.requiredLiveInputs,
+                enrichmentState: seed.enrichmentState,
+                context: seed.context,
+                selectedOfflineOptionId: seed.selectedOfflineOptionId,
+                offlineOptions: seed.offlineOptions,
+                evidence: seed.evidence,
+                missingData: seed.missingData
+            )
+        }
+        return package(
+            base,
+            roundId: base.roundId,
+            recentRounds: base.recentHistory.rounds,
+            holes: holes,
+            caddieContextSeeds: seeds
+        )
+    }
+
     /// The shared fixture models one hole; multi-hole navigation tests need a second factual hole.
     private func multiHoleFixturePackage() throws -> LiveRoundPackage {
         let base = try localFixturePackage()
@@ -4508,7 +4552,8 @@ final class LiveRoundAppModelTests: XCTestCase {
             yards: (first.yards ?? 400) + 10,
             geometryCoverage: .ready,
             sourceGlobalId: base.course.globalId,
-            sourceLocalHole: first.number + 1
+            sourceLocalHole: first.number + 1,
+            courseHoleNumber: first.number + 1
         )
         return package(
             base,
@@ -4535,8 +4580,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         for hole in template.holes {
             _ = try store.saveCourseTopoImage(
                 minimalPNGData(),
-                globalId: hole.sourceGlobalId ?? template.course.globalId,
-                localHole: hole.sourceLocalHole ?? hole.number,
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole,
                 geometryRevision: revision
             )
         }
@@ -4561,7 +4606,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         Data(
             """
             {"schema":"ai-caddie-course-install-v1","jobId":"revalidation-test",
-             "globalId":\(globalId),"teeBox":"blue","nine":"all","phase":"ready","stage":"ready",
+             "globalId":\(globalId),"teeBox":"blue","loopKey":"\(globalId):all","phase":"ready","stage":"ready",
              "totalHoles":1,"geometryReady":1,"topoReady":1,"updatedAt":null,"error":null,
              "holes":[{"globalId":\(globalId),"localHole":1,"displayHole":1,
              "geometry":"ready","geometryRevision":"\(revision)","topo":"ready",
@@ -4598,7 +4643,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let requested = localHoles.map { Set($0) }
         let holes = package.holes.filter { hole in
             guard let requested else { return true }
-            return requested.contains(hole.sourceLocalHole ?? hole.number)
+            return requested.contains(hole.sourceLocalHole)
         }
         XCTAssertFalse(holes.isEmpty)
         let rows = holes.map { hole in
@@ -4607,7 +4652,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                 ",\"geometryRevision\":\"\($0)\""
             } ?? ""
             return """
-            {"hole":\(hole.sourceLocalHole ?? hole.number),"par":\(hole.par),
+            {"hole":\(hole.sourceLocalHole),"par":\(hole.par),
              "par_source":"courseview","blue_yards":\(blueYards),"route_len_m":360,
              "route":[[0,0,0],[0,360,360]],"geometryCoverage":"\(geometryCoverage)"\(revisionField),"steps":[],"cautions":[],
              "hazards":{"water_carry":[],"bunkers":[],"details":[]},
@@ -4630,9 +4675,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         roundId: String,
         recentRounds: [RecentRoundSummary],
         holes: [Hole]? = nil,
-        caddieContextSeeds: [CaddieContextSeed]? = nil
+        caddieContextSeeds: [CaddieContextSeed]? = nil,
+        roundLoops: [RoundLoop]? = nil
     ) -> LiveRoundPackage {
         let selectedHoles = holes ?? source.holes
+        let selectedLoops = roundLoops ?? replacedHoleRoundLoops(source, holes: holes)
         return LiveRoundPackage(
             schema: source.schema,
             roundId: roundId,
@@ -4642,7 +4689,8 @@ final class LiveRoundAppModelTests: XCTestCase {
             playerProfile: source.playerProfile,
             course: source.course,
             holes: selectedHoles,
-            nine: source.nine,
+            roundLoops: selectedLoops,
+            loopKey: RoundLoopEntry.loopKey(selectedLoops.map(\.entry)),
             coursePrep: source.coursePrep,
             geometryCoverage: GeometryCoverage(
                 state: source.geometryCoverage.state,
@@ -4666,6 +4714,23 @@ final class LiveRoundAppModelTests: XCTestCase {
             cachedCaddieRules: source.cachedCaddieRules,
             generatedAt: source.generatedAt
         )
+    }
+
+    /// The loop table of a test package whose hole list was replaced: a one-loop source keeps its
+    /// loop and counts the replacement holes (a 1-, 2- or 3-hole test loop is only a table).
+    private func replacedHoleRoundLoops(_ source: LiveRoundPackage, holes: [Hole]?) -> [RoundLoop] {
+        guard let holes, source.roundLoops.count == 1, let loop = source.roundLoops.first else {
+            return source.roundLoops
+        }
+        return [
+            RoundLoop(
+                globalId: loop.globalId,
+                half: loop.half,
+                roundStartHole: loop.roundStartHole,
+                sourceStartHole: loop.sourceStartHole,
+                holeCount: holes.count
+            ),
+        ]
     }
 
     private func completedFixtureRound() throws -> (
