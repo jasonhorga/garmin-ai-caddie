@@ -78,6 +78,30 @@ final class HubHeroTests: XCTestCase {
         XCTAssertNil(HubNearby.currentVenue(options: [unlocated], latitude: 40.1, longitude: 116.5))
     }
 
+    func testOneTapStartPreparesThatLoopAndTeeAsAFreshRound() throws {
+        let knightB = loop(31795, "黑骑士", "B", lat: 40.101, lon: 116.501)
+        let played = try card("x-last", globalId: 31795, teeBox: "white")
+        let here = try XCTUnwrap(HubCourseSuggestion.forVenue([knightB], history: [played], recent: nil))
+        XCTAssertEqual(
+            here.startRequest(roundId: "live-31795-new"),
+            HubCourseSuggestion.StartRequest(globalId: 31795, roundId: "live-31795-new", teeBox: "white", nine: "all")
+        )
+        let fresh = try XCTUnwrap(HubCourseSuggestion.forVenue([knightB], history: [], recent: nil))
+        XCTAssertEqual(fresh.startRequest(roundId: "r").teeBox, "unknown", "no known tee → the course default")
+    }
+
+    func testNoCourseHereKeepsTheLastCourseAsASeparateReplay() throws {
+        let recent = MobileCourseOption(
+            globalId: 31795, name: "北京天竺黑骑士球员俱乐部 ~ B", holes: 9, teeBox: "white",
+            venueName: "北京天竺黑骑士球员俱乐部", segmentLabel: "B", segmentHoles: 9
+        )
+        let replay = HubCourseSuggestion.make(recent: recent, homeCourse: nil, catalogue: [], downloaded: [])
+        let state = HubHeroState.resolve(hasActiveRound: false, hasPendingWatchRound: false, nearby: nil, replay: replay)
+        guard case .search(let offered) = state else { return XCTFail("no course here → search") }
+        XCTAssertEqual(offered?.globalId, 31795)
+        XCTAssertEqual(offered?.startTitle, "从 B 场 开始 · 白 T")
+    }
+
     func testNearXAfterLastPlayingYOffersXsOwnLastLoopAndTee() throws {
         let knightA = loop(31794, "黑骑士", "A", lat: 40.10, lon: 116.50)
         let knightB = loop(31795, "黑骑士", "B", lat: 40.101, lon: 116.501)

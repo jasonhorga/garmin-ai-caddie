@@ -810,7 +810,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(StartRoundPresentation.teeYards(total: 6412, teeHoleCount: 18, playedHoles: 18), 6412)
         XCTAssertNil(
             StartRoundPresentation.teeYards(total: 6412, teeHoleCount: 18, playedHoles: 9),
-            "a 前九 / 后九 half never shows the 18-hole total"
+            "a nine-hole start never shows an 18-hole total"
         )
         XCTAssertEqual(StartRoundPresentation.teeYards(total: 3201, teeHoleCount: nil, playedHoles: 9), 3201)
         XCTAssertNil(StartRoundPresentation.teeYards(total: nil, teeHoleCount: 9, playedHoles: 9))
@@ -848,12 +848,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let wholeCourse = MobileCourseOption(globalId: 9201, name: "北湖", holes: 18, venueName: "北湖", segmentHoles: 18)
         XCTAssertEqual(
             StartRoundPresentation.startActionTitle(selected: wholeCourse, loops: [wholeCourse], teeBox: "white"),
-            "从 前九 开始 · 白 T",
-            "an 18-hole course starts on one half, like any two-loop venue"
-        )
-        XCTAssertEqual(
-            StartRoundPresentation.startActionTitle(selected: wholeCourse, loops: [wholeCourse], teeBox: "white", half: "back"),
-            "从 后九 开始 · 白 T"
+            "开始 18 洞 · 白 T"
         )
         XCTAssertEqual(StartRoundPresentation.startActionTitle(selected: nil, loops: [], teeBox: "blue"), "开始")
     }

@@ -48,8 +48,6 @@ public struct StartRoundView: View {
     @State private var selectedCourseWasManualSearch = false
     @State private var teeBox: String
     @State private var nine: String
-    /// The first half of an 18-hole course ("front" / "back"); its two halves are the loops.
-    @State private var firstHalf = "front"
     /// 所选球场的发球台列表(含码数/默认),来自 GET /courses/{id}/tees;为空则用球场自带 Tee 名。
     @State private var fetchedTees: [CourseTee] = []
     @State private var nearbyCourseOptions: [MobileCourseOption] = []
@@ -621,7 +619,7 @@ public struct StartRoundView: View {
     // MARK: - First loop (README §8: only the first nine is chosen here)
 
     /// The selected venue's loops from the authority that supplied the selection, in the course's
-    /// order. An 18-hole course is one venue entry whose halves (前九 / 后九) are its loops.
+    /// order. An 18-hole single course is one tile and starts as today (nine "all").
     private var selectedVenueLoops: [MobileCourseOption] {
         guard let selectedSegment else { return [] }
         guard selectedSegment.resolvedHoles == 9 else { return [selectedSegment] }
@@ -635,68 +633,21 @@ public struct StartRoundView: View {
     @ViewBuilder private var loopSection: some View {
         let loops = selectedVenueLoops
         VStack(alignment: .leading, spacing: 10) {
-            Text("从哪个 9 洞开始")
+            Text(loops.contains(where: { $0.resolvedHoles == 9 }) ? "从哪个 9 洞开始" : "从第 1 洞开始")
                 .font(.footnote.weight(.bold))
                 .foregroundStyle(.secondary)
             LazyVGrid(
                 columns: Array(
                     repeating: GridItem(.flexible(), spacing: 8),
-                    count: loops.count == 1 && loops[0].resolvedHoles == 18 ? 2 : max(1, min(3, loops.count))
+                    count: max(1, min(3, loops.count))
                 ),
                 spacing: 8
             ) {
-                if let whole = loops.first, loops.count == 1, whole.resolvedHoles == 18 {
-                    halfTile(whole, half: "front")
-                    halfTile(whole, half: "back")
-                } else {
-                    ForEach(loops) { segment in
-                        segmentRow(segment)
-                    }
+                ForEach(loops) { segment in
+                    segmentRow(segment)
                 }
             }
         }
-    }
-
-    /// 前九 / 后九 of an 18-hole course (README §8: a two-loop 18-hole course uses the same
-    /// "choose the first loop, the second at the turn" flow). The 前九 tile keeps the course's
-    /// `start-round-course-segment-{id}` identity so selecting the course selects its first half.
-    @ViewBuilder private func halfTile(_ course: MobileCourseOption, half: String) -> some View {
-        let courseSelected = String(course.globalId) == courseGlobalIdText
-        let selected = courseSelected && firstHalf == half
-        Button {
-            if !courseSelected { selectLoop(course) }
-            firstHalf = half
-        } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                Spacer(minLength: 0)
-                Text(half == "front" ? "前九" : "后九")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.primary)
-                Text(half == "front" ? "第 1–9 洞" : "第 10–18 洞")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 84, alignment: .bottomLeading)
-            .background(selected ? LiveHoleStyle.green.opacity(0.10) : Color.white)
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(selected ? LiveHoleStyle.green : LiveHoleStyle.line, lineWidth: selected ? 2 : 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(
-            half == "front" ? "start-round-course-segment-\(course.globalId)" : "start-round-course-half-back-\(course.globalId)"
-        )
-        .accessibilityValue(selected ? "已选择" : "未选择")
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-
-    /// The `nine` a start prepares: the chosen half of an 18-hole course, else the loop itself.
-    private var startNine: String {
-        selectedSegment?.resolvedHoles == 18 ? firstHalf : nine
     }
 
     /// One loop tile: "B 场" + "9 洞 · 3201 码" (yards only when this tee's are known), or "18 洞".
@@ -901,13 +852,13 @@ public struct StartRoundView: View {
 
     /// This tee's yards for what is being started, from the tees authority, else nil. The
     /// authority's `yards` is the total over its `holeCount`; it is shown only when that is the
-    /// played hole count, so a 前九 / 后九 half of an 18-hole course never shows the 18-hole total.
+    /// played hole count, never a total for a different set of holes.
     private func teeYards(_ tee: String) -> Int? {
         guard let row = fetchedTees.first(where: { $0.teeBox.lowercased() == tee.lowercased() }) else { return nil }
         return StartRoundPresentation.teeYards(
             total: row.yards,
             teeHoleCount: row.holeCount,
-            playedHoles: selectedSegment?.resolvedHoles == 18 ? 9 : selectedSegment?.resolvedHoles
+            playedHoles: selectedSegment?.resolvedHoles
         )
     }
 
@@ -928,8 +879,7 @@ public struct StartRoundView: View {
         StartRoundPresentation.startActionTitle(
             selected: selectedSegment,
             loops: selectedVenueLoops,
-            teeBox: teeBox,
-            half: firstHalf
+            teeBox: teeBox
         )
     }
 
@@ -946,7 +896,7 @@ public struct StartRoundView: View {
                 if let courseGlobalId {
                     // Only the first loop is prepared. The second loop is chosen at the turn
                     // (NineLoopPlan / LiveRoundTurnSheet), never composed here.
-                    onPrepareCourseRound(courseGlobalId, roundId, teeBox, startNine)
+                    onPrepareCourseRound(courseGlobalId, roundId, teeBox, nine)
                     // Don't pop manually — once the round is prepared the Hub navigates straight
                     // into the live hole (pendingLiveHole → path).
                 }
@@ -1039,7 +989,6 @@ public struct StartRoundView: View {
         courseGlobalIdText = state.globalIdText
         roundId = state.roundId
         teeBox = state.teeBox
-        firstHalf = "front"
     }
 
     static func freshLiveRoundId(globalId: Int, uuid: UUID = UUID()) -> String {

@@ -1368,26 +1368,6 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
-    /// Saving a hole advances to the next hole in round order that has no score yet, so a round
-    /// that started on 后九 (holes 10–18) and turned to 前九 finishes after hole 9.
-    func testAdvanceSkipsHolesThatAlreadyHaveAScore() throws {
-        let source = try localFixturePackage()
-        let front = try blackKnightLoopPackage(source: source, globalId: 31794, label: "A")
-        let back = try blackKnightLoopPackage(source: source, globalId: 31795, label: "B")
-        let round = try XCTUnwrap(front.composingBackNine(from: back, roundId: "advance-skip"))
-        XCTAssertEqual(LiveHoleAdvanceResolution.resolve(after: 3, package: round), .advance(to: 4))
-        XCTAssertEqual(
-            LiveHoleAdvanceResolution.resolve(after: 3, package: round, scored: [1, 2, 3, 4, 5]),
-            .advance(to: 6)
-        )
-        XCTAssertEqual(
-            LiveHoleAdvanceResolution.resolve(after: 9, package: round, scored: Set(1...18)),
-            .finish,
-            "后九 then 前九: every hole after 9 is already scored"
-        )
-        XCTAssertEqual(LiveHoleAdvanceResolution.resolve(after: 18, package: round), .finish)
-    }
-
     /// B4 turn: choosing the second loop adds it to this round AND opens its first hole. The model
     /// owns that navigation (pendingLiveHole + the saved cursor), because the live destination is
     /// rebuilt when the hole set changes and cannot keep a pending advance in its own state.

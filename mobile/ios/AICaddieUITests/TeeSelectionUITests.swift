@@ -107,15 +107,13 @@ final class TeeSelectionUITests: XCTestCase {
             waitUntilEnabled(app.buttons["start-round-primary-action"], timeout: 90),
             "the selected nearby course must load its Tee authority and become startable"
         )
-        // README §8: an 18-hole course is two loops, 前九 / 后九; only the first is chosen here.
-        XCTAssertTrue(palace.label.contains("前九"), "the 18-hole course's first tile is its 前九")
         XCTAssertTrue(
-            app.buttons["start-round-course-half-back-31793"].exists,
-            "the 18-hole course must offer 后九 as the other first loop"
+            palace.label.contains("18 洞"),
+            "an 18-hole whole-course selection must be one \"18 洞\" tile, not a 9-hole loop"
         )
         XCTAssertTrue(
-            startAction.label.hasPrefix("从 前九 开始"),
-            "the primary action must name the chosen first loop and its tee"
+            startAction.label.hasPrefix("开始 18 洞"),
+            "the primary action must name the whole-course start and its tee"
         )
 
         // The 发球台 row: colour dots with this course's yardages from GET /courses/{id}/tees.

@@ -145,24 +145,15 @@ enum StartRoundPresentation {
         return NineLoopTurn.firstLoop(segment).displayName
     }
 
-    /// The primary action: "从 B 场 开始 · 蓝 T" for a nine-hole loop and "从 前九 开始 · 蓝 T" for
-    /// the chosen half of an 18-hole course (the shared `NineLoopPlan` copy), "开始" before a course
-    /// is chosen.
+    /// The primary action: "从 B 场 开始 · 蓝 T" for a nine-hole loop (the shared `NineLoopPlan`
+    /// copy), "开始 18 洞 · 蓝 T" for a whole course, "开始" before a course is chosen.
     static func startActionTitle(
         selected: MobileCourseOption?,
         loops: [MobileCourseOption],
-        teeBox: String,
-        half: String = "front"
+        teeBox: String
     ) -> String {
         let tee = teeShortLabel(teeBox)
         guard let selected else { return "开始" }
-        if selected.resolvedHoles == 18,
-           let plan = NineLoopPlan(
-               course: NineLoopCourse(id: String(selected.globalId), loops: NineLoopTurn.halfLoops(globalId: selected.globalId)),
-               first: "\(selected.globalId):\(half == "back" ? "back" : "front")"
-           ) {
-            return plan.startTitle(teeName: tee)
-        }
         if selected.resolvedHoles == 9 {
             let nineLoops = loops.contains(where: { $0.globalId == selected.globalId })
                 ? loops

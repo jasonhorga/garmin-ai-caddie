@@ -533,7 +533,7 @@ final class RealFlowUITests: XCTestCase {
         settle(9)
         // Provider-wide nearby discovery can legitimately change the form's default course. The
         // approved 18-hole evidence is Beijing Ligong, so select its stable globalId explicitly
-        // (its row in the one course list, then its 前九 tile) instead of mistaking a visible,
+        // (its row in the one course list, then its "18 洞" tile) instead of mistaking a visible,
         // unselected course name for the active choice.
         let ligongSegment = selectStartCourse(approvedJourneyCourseGlobalId)
         XCTAssertTrue(
@@ -881,8 +881,8 @@ final class RealFlowUITests: XCTestCase {
             "ending from the menu must show the same non-destructive summary used after the final hole"
         )
         XCTAssertTrue(
-            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "· 1/9 洞")).firstMatch.exists,
-            "the summary must count the one completed hole of the first nine (前九)"
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "· 1/18 洞")).firstMatch.exists,
+            "the summary must count the one completed hole of 18"
         )
         XCTAssertTrue(app.buttons["保存并结束"].exists)
         XCTAssertTrue(app.buttons["继续打球"].exists)
@@ -969,20 +969,6 @@ final class RealFlowUITests: XCTestCase {
                 didPersistAdjustedPuttsAndPenalty = true
             }
 
-            if holeNumber == 9 {
-                // B4 turn (README §8): the round started on 前九, so saving hole 9 asks which nine
-                // comes next. 后九 is preselected; continuing adds it to this round and opens hole 10.
-                let turnGo = app.buttons["turn-go"]
-                XCTAssertTrue(turnGo.waitForExistence(timeout: 15), "finishing 前九 must ask which nine comes next")
-                XCTAssertTrue(app.staticTexts["前九打完了"].exists, "the turn names the nine just played")
-                XCTAssertEqual(turnGo.label, "接着打 后九", "the other half is the preselected second loop")
-                XCTAssertTrue(
-                    app.buttons["turn-loop-\(approvedJourneyCourseGlobalId):back"].isSelected,
-                    "the 后九 tile is the preselected choice"
-                )
-                settle(1); save("journey-09-turn"); dump("journey-09-turn")
-                turnGo.tap()
-            }
             if holeNumber < 18 {
                 XCTAssertTrue(
                     app.staticTexts["第 \(holeNumber + 1) 洞"].waitForExistence(timeout: 15),

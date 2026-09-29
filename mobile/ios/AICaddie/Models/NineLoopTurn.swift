@@ -51,22 +51,17 @@ enum NineLoopTurn {
     }
 
     /// The live hole's turn decision (`CurrentHoleView`): a plan when the round is still one
-    /// nine-hole loop — a loop of a venue the catalogue knows (network or installed), or one half
-    /// of an 18-hole course — else nil and the round summary follows.
+    /// nine-hole loop of a venue the catalogue knows (network or installed), else nil and the
+    /// round summary follows.
     static func planAtEndOfFirstLoop(
         package: LiveRoundPackage,
         catalogue: [MobileCourseOption],
         remembered: [Int: Int],
         history: [HistoryRoundCard]
     ) -> NineLoopPlan? {
-        guard package.holes.count <= 9 else { return nil }
-        let active = catalogue.first(where: { $0.globalId == package.course.globalId })
-        // An 18-hole course started on one half: 前九 / 后九 are its two loops.
-        if let nine = package.nine?.lowercased(), nine == "front" || nine == "back",
-           active.map({ $0.resolvedHoles == 18 }) ?? true {
-            return halvesPlan(globalId: package.course.globalId, startedOn: nine)
-        }
-        guard let active, active.resolvedHoles == 9 else { return nil }
+        guard package.holes.count <= 9,
+              let active = catalogue.first(where: { $0.globalId == package.course.globalId }),
+              active.resolvedHoles == 9 else { return nil }
         return plan(
             front: active,
             siblings: siblings(of: active, in: catalogue),
@@ -78,55 +73,6 @@ enum NineLoopTurn {
     /// Round hole where the second loop starts (the first hole after the first nine).
     static func firstHoleOfSecondLoop(_ holes: [Int]) -> Int? {
         holes.filter { $0 > 9 }.min()
-    }
-
-    // MARK: 18-hole course: 前九 / 后九 are its two loops (README §8)
-
-    /// A two-loop 18-hole course uses the same flow: the round starts on one half (`nine` "front" /
-    /// "back", holes 1–9 / 10–18) and the other half, the same half again or stop after nine is
-    /// chosen at the turn. The halves are loops `"{globalId}:front"` / `"{globalId}:back"`.
-    static func halfLoops(globalId: Int) -> [NineLoop] {
-        [
-            NineLoop(id: "\(globalId):front", name: "前九"),
-            NineLoop(id: "\(globalId):back", name: "后九"),
-        ]
-    }
-
-    /// "front" / "back" for a half-loop id, else nil.
-    static func half(ofLoopId id: String) -> String? {
-        let parts = id.split(separator: ":")
-        guard parts.count == 2, Int(parts[0]) != nil else { return nil }
-        let half = String(parts[1])
-        return half == "front" || half == "back" ? half : nil
-    }
-
-    /// The turn plan for an 18-hole course round started on one half. The usual second loop is
-    /// the other half.
-    static func halvesPlan(globalId: Int, startedOn nine: String) -> NineLoopPlan? {
-        guard nine == "front" || nine == "back" else { return nil }
-        let front = "\(globalId):front"
-        let back = "\(globalId):back"
-        let course = NineLoopCourse(
-            id: String(globalId),
-            loops: halfLoops(globalId: globalId),
-            usualPairs: [front: back, back: front]
-        )
-        guard var plan = NineLoopPlan(course: course, first: nine == "front" ? front : back) else { return nil }
-        plan.beginFirstLoop()
-        plan.reachTurn()
-        return plan
-    }
-
-    /// The loops the turn offers. A round started on 后九 already uses round holes 10–18, so 后九
-    /// cannot be added again as a second loop; every other plan offers all of its loops.
-    static func turnChoices(_ plan: NineLoopPlan) -> [NineLoop] {
-        guard half(ofLoopId: plan.first) == "back" else { return plan.course.loops }
-        return plan.course.loops.filter { half(ofLoopId: $0.id) != "back" }
-    }
-
-    /// First round hole of the other half: 后九 starts at 10, 前九 (after a 后九 start) at 1.
-    static func firstHoleOfOtherHalf(startedOn nine: String) -> Int {
-        nine == "back" ? 1 : 10
     }
 
     /// Front loop id → back loop id. `remembered` wins; history is newest first.

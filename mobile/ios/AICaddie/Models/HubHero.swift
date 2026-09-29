@@ -39,6 +39,19 @@ struct HubCourseSuggestion: Equatable {
         return nil
     }
 
+    /// The one-tap start ("开始" / "再打上次那个"): prepare exactly this loop and tee as a fresh
+    /// round. No tee known → the course default (`unknown`), never a guessed colour.
+    struct StartRequest: Equatable {
+        let globalId: Int
+        let roundId: String
+        let teeBox: String
+        let nine: String
+    }
+
+    func startRequest(roundId: String) -> StartRequest {
+        StartRequest(globalId: globalId, roundId: roundId, teeBox: teeBox ?? "unknown", nine: nine)
+    }
+
     /// The course the player is at (README §8 "在球场附近"): that venue's own last first loop and
     /// tee — the newest archived round on one of its loops, else the recent course when it is one
     /// of them, else the venue's first loop with the course default tee.
