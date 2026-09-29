@@ -397,6 +397,15 @@ final class TeeSelectionUITests: XCTestCase {
         // active drag loupe remains a video/device-evidence concern because XCTest cannot snapshot a
         // transient, held gesture without mislabelling a post-release frame.
         let greenEditor = app.buttons["live-open-green-from-hero"]
+        if greenEditor.waitForExistence(timeout: 8), !greenEditor.isHittable {
+            // Diagnostics for the real-simulator log: what covers the green entry's hit point.
+            let point = CGPoint(x: greenEditor.frame.midX, y: greenEditor.frame.midY)
+            print("DIAG live-open-green-from-hero frame=\(greenEditor.frame) window=\(app.windows.firstMatch.frame)")
+            for element in app.descendants(matching: .any).allElementsBoundByIndex
+            where !element.identifier.isEmpty && element.frame.contains(point) {
+                print("DIAG covering id=\(element.identifier) type=\(element.elementType.rawValue) frame=\(element.frame)")
+            }
+        }
         XCTAssertTrue(greenEditor.waitForExistence(timeout: 8) && greenEditor.isHittable)
         greenEditor.tap()
         // View Green opens on the focused, centered putting surface. There is no redundant

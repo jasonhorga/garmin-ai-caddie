@@ -131,11 +131,18 @@ struct LiveNineCard: View {
                 .stroke(hole.number == currentHole ? LiveScoreStyle.good.opacity(0.8) : .clear, lineWidth: 1.2)
         )
         if let onSelect {
-            Button { onSelect(hole.number) } label: { content }
+            let button = Button { onSelect(hole.number) } label: { content }
                 .buttonStyle(.plain)
                 .accessibilityLabel(cellLabel(hole))
                 .accessibilityAddTraits(hole.number == selectedHole ? [.isSelected] : [])
-                .accessibilityIdentifier(cellIdentifier?(hole.number) ?? "live-scorecard-cell-\(hole.number)")
+            // An identifier on the button replaces the ones inside it, so only callers that need a
+            // cell id (the review's `round-review-hole-N`) set one; the live scorecard keeps its
+            // `live-scorecard-score-chip-N` on the score symbol.
+            if let cellIdentifier {
+                button.accessibilityIdentifier(cellIdentifier(hole.number))
+            } else {
+                button
+            }
         } else {
             content
         }

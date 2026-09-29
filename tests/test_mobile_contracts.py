@@ -3888,10 +3888,10 @@ class MobileContractTests(unittest.TestCase):
         # B3 reuses the live nine card; the review keeps the stable per-hole cell identifier.
         self.assertIn('cellIdentifier: { "round-review-hole-\\($0)" }', round_review)
         live_scorecard = _read_required_source(self, IOS_DIR / "Views" / "LiveScorecardComponents.swift")
-        self.assertIn(
-            '.accessibilityIdentifier(cellIdentifier?(hole.number) ?? "live-scorecard-cell-\\(hole.number)")',
-            live_scorecard,
-        )
+        self.assertIn("button.accessibilityIdentifier(cellIdentifier(hole.number))", live_scorecard)
+        # Without a cell id the button must not override the score chip's own identifier.
+        self.assertNotIn('"live-scorecard-cell-', live_scorecard)
+        self.assertIn('.accessibilityIdentifier("live-scorecard-score-chip-\\(hole.number)")', live_scorecard)
         self.assertIn("value: HubRoute.roundReview(", round_home)
         self.assertIn("NavigationLink {", recent_review)
         self.assertIn("RoundReviewView(", recent_review)
