@@ -156,9 +156,10 @@ final class RealFlowUITests: XCTestCase {
                 XCTAssertTrue(reachableHole, "the verified evidence hole must be tappable")
                 if reachableHole {
                     holeRow.tap()
-                    // The pager's navigationTitle is intentionally not visible in this sheet style.
-                    // Its explicit close action is the stable, user-visible proof that presentation occurred.
-                    let enteredShotMap = app.buttons["关闭"].waitForExistence(timeout: 12)
+                    // B3 presents the hole full screen with the navigation bar hidden. Its glass close
+                    // button is the stable, user-visible proof that presentation occurred.
+                    let closeButton = app.buttons["round-shot-map-close"]
+                    let enteredShotMap = closeButton.waitForExistence(timeout: 12)
                     XCTAssertTrue(enteredShotMap, "shot-map evidence must enter the pager before capture")
                     if enteredShotMap {
                         // Give the real network/decode/render task one quiet window before asking
@@ -169,7 +170,7 @@ final class RealFlowUITests: XCTestCase {
                     }
                     let topoReady = app.descendants(matching: .any)
                         .matching(identifier: "topo-hole-base-ready").firstMatch
-                    let editButton = app.buttons["编辑"]
+                    let editButton = app.buttons["round-edit-begin"]
                     let loading = app.staticTexts["载入落点…"]
                     let loadingFinished = enteredShotMap && waitUntilGone(loading, timeout: 20)
                     XCTAssertTrue(loadingFinished, "shot-map request must leave its loading state")
@@ -182,36 +183,82 @@ final class RealFlowUITests: XCTestCase {
                             app.staticTexts["逐杆"].exists,
                             "a drawable Garmin-style shot map must keep shot facts on the map, not repeat a list below it"
                         )
-                        let layerControl = app.buttons["round-map-layer"]
-                        let fitControl = app.buttons["round-map-fit"]
-                        let zoomControl = app.buttons["round-map-zoom"]
                         XCTAssertTrue(
-                            layerControl.waitForExistence(timeout: 5) && layerControl.isHittable,
-                            "the Garmin-style review map must expose its layer menu on the map"
+                            app.descendants(matching: .any).matching(identifier: "round-shot-score-box").firstMatch.exists,
+                            "the full-screen hole must show its glass score box"
+                        )
+                        // The 18-hole strip replaces the old previous/next controls; the open hole is selected.
+                        let stripCell = app.buttons["round-hole-strip-\(reviewEvidence.hole)"]
+                        XCTAssertTrue(
+                            stripCell.waitForExistence(timeout: 5) && stripCell.isSelected,
+                            "the bottom score strip must mark the open evidence hole"
+                        )
+                        // B3 keeps exactly one control on the read-only map: show / hide labels.
+                        for retired in ["round-map-layer", "round-map-fit", "round-map-zoom"] {
+                            XCTAssertFalse(
+                                app.buttons[retired].exists,
+                                "the review map must not bring back the retired \(retired) control"
+                            )
+                        }
+                        let labelsControl = app.buttons["round-map-labels"]
+                        XCTAssertTrue(
+                            labelsControl.waitForExistence(timeout: 5) && labelsControl.isHittable,
+                            "the review map must expose its show / hide labels control on the map"
+                        )
+                        XCTAssertEqual(labelsControl.label, "隐藏标签", "shot labels must start visible")
+                        let shotLabels = app.descendants(matching: .any).matching(
+                            NSPredicate(format: "identifier BEGINSWITH %@", "round-map-shot-")
                         )
                         XCTAssertTrue(
-                            fitControl.waitForExistence(timeout: 5) && fitControl.isHittable,
-                            "the review map must expose a one-tap full-hole reset"
+                            shotLabels.firstMatch.waitForExistence(timeout: 5),
+                            "club-labelled evidence landings must show their 球杆 码数 labels"
                         )
-                        XCTAssertTrue(
-                            zoomControl.waitForExistence(timeout: 5) && zoomControl.isHittable,
-                            "the visible zoom affordance must be a real button"
+                        // B3 label contract: club plus the shot's yards ("一号木 221"), computed from
+                        // the shot's real start and landing. A club-only label means the geometry is
+                        // missing an endpoint.
+                        let yardLabels = shotLabels.allElementsBoundByIndex.filter { label in
+                            label.label.range(of: #"\S+ \d{1,3}$"#, options: .regularExpression) != nil
+                        }
+                        XCTAssertFalse(
+                            yardLabels.isEmpty,
+                            "shot labels must carry the club and the yards, got \(shotLabels.allElementsBoundByIndex.map(\.label))"
                         )
-                        zoomControl.tap()
-                        let zoomedControl = app.buttons.matching(
-                            NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "round-map-zoom", "缩小")
+                        labelsControl.tap()
+                        let hiddenLabels = app.buttons.matching(
+                            NSPredicate(format: "identifier == %@ AND label == %@", "round-map-labels", "显示标签")
                         ).firstMatch
                         XCTAssertTrue(
-                            zoomedControl.waitForExistence(timeout: 3),
-                            "tapping the zoom button must change the live viewport state"
+                            hiddenLabels.waitForExistence(timeout: 3),
+                            "tapping the labels control must hide the shot labels"
                         )
-                        fitControl.tap()
-                        let resetZoomControl = app.buttons.matching(
-                            NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "round-map-zoom", "放大")
+                        XCTAssertTrue(
+                            waitUntilGone(shotLabels.firstMatch, timeout: 3),
+                            "hidden labels must leave the map"
+                        )
+                        labelsControl.tap()
+                        let shownLabels = app.buttons.matching(
+                            NSPredicate(format: "identifier == %@ AND label == %@", "round-map-labels", "隐藏标签")
                         ).firstMatch
                         XCTAssertTrue(
-                            resetZoomControl.waitForExistence(timeout: 3),
-                            "full-hole reset must restore the fitted viewport before capture"
+                            shownLabels.waitForExistence(timeout: 3),
+                            "tapping the labels control again must restore the shot labels"
+                        )
+                        // Pinch / double-tap zoom stays on the map itself; double-tap zooms in and
+                        // a second double-tap restores the fitted full hole before capture.
+                        // The accessibility frame does not follow `scaleEffect`, so the viewport
+                        // publishes its zoom state on a dedicated marker.
+                        let zoomState = app.descendants(matching: .any)["round-map-zoom-state"]
+                        XCTAssertTrue(zoomState.waitForExistence(timeout: 3))
+                        XCTAssertEqual(zoomState.value as? String, "全洞")
+                        topoReady.doubleTap()
+                        XCTAssertTrue(
+                            waitForValue("已放大", on: zoomState, timeout: 3),
+                            "a double-tap must zoom the live viewport"
+                        )
+                        topoReady.doubleTap()
+                        XCTAssertTrue(
+                            waitForValue("全洞", on: zoomState, timeout: 3),
+                            "a second double-tap must restore the fitted full hole"
                         )
                         settle(2); save("04b-shot-map"); dump("04b-shot-map")
                     }
@@ -223,11 +270,15 @@ final class RealFlowUITests: XCTestCase {
                         editButton.tap()
                         let editTopoReady = app.descendants(matching: .any)
                             .matching(identifier: "topo-hole-base-ready").firstMatch
-                        let secondReorderHandle = app.buttons["Reorder 2"]
+                        let editMap = app.descendants(matching: .any)
+                            .matching(identifier: "round-shot-edit-map").firstMatch
+                        let puttsPlus = app.buttons["round-edit-putts-plus"]
                         let loadedEditMap = editTopoReady.waitForExistence(timeout: 75)
-                            && secondReorderHandle.waitForExistence(timeout: 12)
-                        XCTAssertTrue(loadedEditMap, "edit evidence requires the real topo and the two real recorded shots returned for this hole")
+                            && editMap.waitForExistence(timeout: 12)
+                            && puttsPlus.waitForExistence(timeout: 12)
+                        XCTAssertTrue(loadedEditMap, "edit evidence requires the real topo, the in-place edit map and the bottom edit bar")
                         if loadedEditMap {
+                            XCTAssertFalse(closeButton.exists, "editing must hide the close button; Cancel and Save are the only exits")
                             settle(2); save("04c-edit-mode"); dump("04c-edit-mode")
                             // The dedicated ReviewEditUITests journey exercises continuous add,
                             // move, delete and reorder. This broad journey only verifies that the
@@ -241,7 +292,7 @@ final class RealFlowUITests: XCTestCase {
                             XCTAssertTrue(cancelDraft.waitForExistence(timeout: 5) && cancelDraft.isHittable)
                             cancelDraft.tap()
                             XCTAssertTrue(
-                                app.buttons["编辑"].waitForExistence(timeout: 12),
+                                app.buttons["round-edit-begin"].waitForExistence(timeout: 12),
                                 "Cancel must restore the read-only shot map"
                             )
                             settle(2); save("04d-edit-cancelled"); dump("04d-edit-cancelled")

@@ -36,6 +36,7 @@ def build_history_round_detail(
     shots = _shots_for_round(data, round_row)
     shots_by_hole = _shots_by_hole(shots)
     scorecard = _scorecard(round_row, shots_by_hole)
+    _apply_putt_corrections(scorecard, round_row, ref, annotations_root, player_id=player_id)
     hole_details = _hole_details(round_row, shots_by_hole)
     related_refs = _related_refs(round_row, shots, scorecard)
     source_fields = _pick(
@@ -562,6 +563,33 @@ def _missing_round_detail(ref: str) -> dict[str, Any]:
         "annotations": [],
         "corrections": [],
     }
+
+
+def _apply_putt_corrections(
+    scorecard: list[dict[str, Any]],
+    round_row: dict[str, Any],
+    requested_ref: str,
+    annotations_root: Path | str | None,
+    *,
+    player_id: str,
+) -> None:
+    """B3: the review shows a hole's putts after the player corrected them (`putt_correction` on
+    `{roundRef}:{hole}`, any ref of this round); the latest correction wins, as in the stats."""
+
+    refs = {requested_ref, _round_id(round_row), *[str(item) for item in (round_row.get("ids") or [])]}
+    latest: dict[int, int] = {}
+    for record in list_annotations(root=annotations_root, player_id=player_id):
+        if record.get("kind") != "putt_correction" or record.get("targetType") != "hole":
+            continue
+        ref, _sep, hole_text = str(record.get("targetId") or "").rpartition(":")
+        hole = _int_value(hole_text)
+        value = _int_value((record.get("payload") or {}).get("to"))
+        if ref in refs and hole is not None and value is not None and value >= 0:
+            latest[hole] = value
+    for cell in scorecard:
+        hole = _int_value(cell.get("hole"))
+        if hole in latest and cell.get("score") is not None:
+            cell["putts"] = latest[hole]
 
 
 def _attach_annotations(detail: dict[str, Any], annotations_root: Path | str | None, player_id: str = OWNER_ID) -> dict[str, Any]:

@@ -4,34 +4,28 @@ import SwiftUI
 import UIKit
 #endif
 
-/// 复盘逐洞落点图:把这一局这一洞**实际打的每一杆**画在真实球场 2D 图上 —— 开球→落点→…→果岭
-/// 连成实际打球路线,落点按球位(球道/长草/沙坑/果岭/水)配色,合成补的开球杆用虚线淡色。
-/// 可访问的球杆/距离标签由 SwiftUI 叠在真实落点旁。坐标使用服务端投影好的 overlay 像素。
+/// 复盘逐洞落点图 (B3, `review.html` screen 2): the hole's real topo with every shot this round drew
+/// on it — a white line per shot, a numbered dot at each landing coloured by the landing lie, a
+/// "一号木 221" label beside it and "推 ×2" on the green. Coordinates are the server-projected overlay
+/// pixels. Read-only it pinches / double-taps to zoom and keeps one control: show / hide labels.
 public struct RoundShotMapView: View {
     public let shotMap: RoundHoleShotMap
     /// 服务端真实地形底图 URL(`…/holes/{hole}/topo.png`)。有则底图用它,否则/加载失败回退到
     /// payload 里的 flat 渲染图。两者共用同一投影,实际打球路线叠加层像素级对齐。
     public let topoURL: URL?
-    /// 非 nil = 编辑态:在同一投影帧上叠一层拖动手柄 + 点击加/改(见 RoundShotEditLayer)。
+    /// 非 nil = 编辑态:在同一投影帧上叠一层拖柄 + 点空白加杆(见 RoundShotEditLayer)。
     public let editModel: RoundEditModel?
-    public let editClubs: [String]
-    /// Read-only pagers float their hole controls over the map. Keep the zoom affordance above that
-    /// overlay; standalone maps leave this at zero.
-    public let bottomControlClearance: CGFloat
+    /// The scorecard putt count ("推 ×N"); falls back to the putt rows on the map.
+    public let putts: Int?
 
-    /// Garmin keeps map tools on the map itself. The realistic topo remains the default, while a
-    /// factual flat render is available as a second layer when both assets exist.
-    @State private var showsTopoLayer = true
     @State private var showsShotFacts = true
 
     public init(shotMap: RoundHoleShotMap, topoURL: URL? = nil,
-                editModel: RoundEditModel? = nil, editClubs: [String] = [],
-                bottomControlClearance: CGFloat = 0) {
+                editModel: RoundEditModel? = nil, putts: Int? = nil) {
         self.shotMap = shotMap
         self.topoURL = topoURL
         self.editModel = editModel
-        self.editClubs = editClubs
-        self.bottomControlClearance = bottomControlClearance
+        self.putts = putts
     }
 
     public var body: some View {
@@ -42,7 +36,7 @@ public struct RoundShotMapView: View {
                 ZStack {
                     TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)
                     Canvas { context, size in
-                        draw(&context, size: size, overlay: overlay)
+                        drawRoundShotPath(&context, size: size, overlay: overlay, shots: shotMap.shots, numbered: false)
                     }
                 }
                 .aspectRatio(ratio, contentMode: .fit)
@@ -50,55 +44,28 @@ public struct RoundShotMapView: View {
                     RoundShotEditLayer(
                         editModel: editModel,
                         overlay: overlay,
-                        clubs: editClubs,
                         baseImage: decodedImage,
                         topoURL: topoURL
                     )
                 }
-                .overlay(alignment: .topLeading) { holeTag }
-                .mapSurface()
             } else {
                 ZoomableRoundMapViewport(
                     aspectRatio: ratio,
-                    supportsBaseLayerToggle: topoURL != nil && decodedImage != nil,
-                    showsTopoLayer: $showsTopoLayer,
-                    showsShotFacts: $showsShotFacts,
-                    bottomControlClearance: bottomControlClearance
+                    showsShotFacts: $showsShotFacts
                 ) {
                     ZStack {
-                        TopoHoleBaseImage(
-                            topoURL: showsTopoLayer ? topoURL : nil,
-                            fallback: decodedImage
-                        )
+                        TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)
                         Canvas { context, size in
-                            draw(&context, size: size, overlay: overlay)
+                            drawRoundShotPath(&context, size: size, overlay: overlay, shots: shotMap.shots)
                         }
                         if showsShotFacts {
                             reviewFactOverlays(overlay: overlay)
                         }
                     }
                 }
-                .overlay(alignment: .topLeading) { holeTag }
-                .background(Color(red: 0.10, green: 0.10, blue: 0.09))
-                .clipped()
             }
         }
         #endif
-    }
-
-    /// 第 N 洞 · Par X pill over the top-left of the render (score/relative isn't in this payload → omitted).
-    @ViewBuilder private var holeTag: some View {
-        if shotMap.hole > 0 {
-            Text(shotMap.par.map { "第 \(shotMap.hole) 洞 · Par \($0)" } ?? "第 \(shotMap.hole) 洞")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.primary)
-                .padding(.vertical, 5)
-                .padding(.horizontal, 10)
-                .background(Color.white.opacity(0.92))
-                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
-                .padding(10)
-        }
     }
 
     public var hasMap: Bool {
@@ -117,40 +84,35 @@ public struct RoundShotMapView: View {
     }
     #endif
 
-    private func draw(_ context: inout GraphicsContext, size: CGSize, overlay: CoursePrepOverlay) {
-        drawRoundShotPath(&context, size: size, overlay: overlay, shots: shotMap.shots)
-    }
-
-    /// Garmin Golf's review map keeps club/distance and the putt result beside their real landing.
-    /// The edit screen retains the reorder list because it is an action surface; read-only review does
-    /// not repeat the same shots underneath the map.
+    /// Club + yards beside each real landing and the putt count on the green.
     private func reviewFactOverlays(overlay: CoursePrepOverlay) -> some View {
         GeometryReader { proxy in
             let placements = reviewFactPlacements(in: proxy.size, overlay: overlay)
             ZStack {
                 ForEach(placements) { placement in
                     Text(placement.text)
-                        .font(.system(size: 10, weight: placement.isPutt ? .heavy : .bold))
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 11, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-                        .padding(.horizontal, placement.isPutt ? 8 : 7)
-                        .padding(.vertical, placement.isPutt ? 5 : 4)
-                        .background(Color.white.opacity(placement.isPutt ? 0.94 : 0.96), in: Capsule())
-                        .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+                        .fixedSize()
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color(red: 16 / 255, green: 20 / 255, blue: 18 / 255).opacity(0.82), in: Capsule())
+                        .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 0.5))
                         .position(placement.point)
-                        .accessibilityLabel(placement.text)
+                        .accessibilityLabel(placement.accessibilityText)
                         .accessibilityIdentifier(
                             placement.isPutt ? "round-map-putts" : "round-map-shot-\(placement.id)"
                         )
                 }
                 if shotMap.manualPenalty > 0 {
                     Text("罚杆 +\(shotMap.manualPenalty)")
-                        .font(.caption2.weight(.heavy))
-                        .foregroundStyle(.white)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color(red: 0.043, green: 0.059, blue: 0.047))
                         .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(Color.orange.opacity(0.9), in: Capsule())
+                        .padding(.vertical, 4)
+                        .background(LivePlayStyle.hazard, in: Capsule())
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                         .padding(10)
                         .accessibilityIdentifier("round-map-penalty")
@@ -163,6 +125,7 @@ public struct RoundShotMapView: View {
     private struct ReviewFactPlacement: Identifiable {
         let id: String
         let text: String
+        let accessibilityText: String
         let lane: Int
         let isPutt: Bool
         var point: CGPoint
@@ -175,22 +138,24 @@ public struct RoundShotMapView: View {
         var placements: [ReviewFactPlacement] = []
         for (index, shot) in nonPuttShots.enumerated() {
             guard let anchor = mapPoint(shot.end, in: size, overlay: overlay),
-                  let text = shotOverlayText(shot, ppm: overlay.ppm) else { continue }
+                  let text = roundShotLabelText(shot, ppm: overlay.ppm) else { continue }
             placements.append(
                 ReviewFactPlacement(
                     id: shot.id,
                     text: text,
+                    accessibilityText: "第 \(index + 1) 杆 \(text)",
                     lane: anchor.x < size.width * 0.58 ? 0 : 1,
                     isPutt: false,
                     point: reviewLabelPoint(anchor, index: index, in: size)
                 )
             )
         }
-        if puttCount > 0, let anchor = greenAnchor(in: size, overlay: overlay) {
+        if let puttCount, puttCount > 0, let anchor = greenAnchor(in: size, overlay: overlay) {
             placements.append(
                 ReviewFactPlacement(
                     id: "putts",
-                    text: "推杆 ×\(puttCount)",
+                    text: "推 ×\(puttCount)",
+                    accessibilityText: "推杆 \(puttCount) 次",
                     lane: anchor.x < size.width * 0.58 ? 0 : 1,
                     isPutt: true,
                     point: reviewLabelPoint(anchor, index: nonPuttShots.count, in: size)
@@ -200,7 +165,7 @@ public struct RoundShotMapView: View {
 
         let minimumY: CGFloat = 24
         let maximumY = max(minimumY, size.height - 24)
-        let spacing: CGFloat = 28
+        let spacing: CGFloat = 26
         for lane in 0...1 {
             let indices = placements.indices
                 .filter { placements[$0].lane == lane }
@@ -223,28 +188,17 @@ public struct RoundShotMapView: View {
     }
 
     private var nonPuttShots: [RoundShot] {
-        shotMap.shots.filter { !isPutt($0) && !$0.synthetic && $0.end != nil }
+        shotMap.shots.filter { !roundShotIsPutt($0) && !$0.synthetic && $0.end != nil }
     }
 
-    private var puttCount: Int { shotMap.shots.filter(isPutt).count }
-
-    private func isPutt(_ shot: RoundShot) -> Bool {
-        (shot.shotType ?? "").uppercased() == "PUTT"
-            || (shot.club ?? "").localizedCaseInsensitiveContains("putt")
-            || (shot.club ?? "").contains("推")
-    }
-
-    private func shotOverlayText(_ shot: RoundShot, ppm: Double?) -> String? {
-        let raw = shot.club?.trimmingCharacters(in: .whitespacesAndNewlines)
-        var facts: [String] = []
-        if let raw, !raw.isEmpty, raw.lowercased() != "unknown" { facts.append(zhClubName(raw)) }
-        if let yards = roundShotYards(shot, ppm: ppm) { facts.append("\(yards)码") }
-        guard !facts.isEmpty else { return nil }
-        return facts.joined(separator: " · ")
+    private var puttCount: Int? {
+        if let putts { return putts }
+        let rows = shotMap.shots.filter(roundShotIsPutt).count
+        return rows > 0 ? rows : nil
     }
 
     private func greenAnchor(in size: CGSize, overlay: CoursePrepOverlay) -> CGPoint? {
-        let puttEnd = shotMap.shots.reversed().first(where: { isPutt($0) && $0.end != nil })?.end
+        let puttEnd = shotMap.shots.reversed().first(where: { roundShotIsPutt($0) && $0.end != nil })?.end
         return mapPoint(puttEnd ?? overlay.route.last.map { [Int($0[0]), Int($0[1])] }, in: size, overlay: overlay)
     }
 
@@ -257,24 +211,22 @@ public struct RoundShotMapView: View {
     }
 
     private func reviewLabelPoint(_ anchor: CGPoint, index: Int, in size: CGSize) -> CGPoint {
-        let xShift: CGFloat = anchor.x < size.width * 0.58 ? 58 : -58
-        let yShift: CGFloat = index.isMultiple(of: 2) ? -14 : 16
+        let xShift: CGFloat = anchor.x < size.width * 0.58 ? 52 : -52
+        let yShift: CGFloat = index.isMultiple(of: 2) ? -12 : 14
         return CGPoint(
-            x: min(max(anchor.x + xShift, 55), size.width - 55),
+            x: min(max(anchor.x + xShift, 50), size.width - 50),
             y: min(max(anchor.y + yShift, 24), size.height - 24)
         )
     }
 }
 
 #if canImport(UIKit)
-/// Pinch/pan/double-tap viewport used only by the read-only history map. Edit mode keeps the
-/// unscaled coordinate plane so its landing-point drag gestures remain pixel-authoritative.
+/// Pinch / pan / double-tap viewport used only by the read-only map. Edit mode keeps the unscaled
+/// coordinate plane so its landing drags stay pixel-authoritative. The one control left on the map is
+/// 显示 / 隐藏标签 (README §7: no simple-map layer switch).
 private struct ZoomableRoundMapViewport<Content: View>: View {
     let aspectRatio: CGFloat
-    let supportsBaseLayerToggle: Bool
-    @Binding var showsTopoLayer: Bool
     @Binding var showsShotFacts: Bool
-    let bottomControlClearance: CGFloat
     let content: Content
 
     @State private var scale: CGFloat = 1
@@ -288,17 +240,11 @@ private struct ZoomableRoundMapViewport<Content: View>: View {
 
     init(
         aspectRatio: CGFloat,
-        supportsBaseLayerToggle: Bool,
-        showsTopoLayer: Binding<Bool>,
         showsShotFacts: Binding<Bool>,
-        bottomControlClearance: CGFloat,
         @ViewBuilder content: () -> Content
     ) {
         self.aspectRatio = aspectRatio
-        self.supportsBaseLayerToggle = supportsBaseLayerToggle
-        _showsTopoLayer = showsTopoLayer
         _showsShotFacts = showsShotFacts
-        self.bottomControlClearance = bottomControlClearance
         self.content = content()
     }
 
@@ -309,7 +255,7 @@ private struct ZoomableRoundMapViewport<Content: View>: View {
                 width: offset.width + dragOffset.width,
                 height: offset.height + dragOffset.height
             )
-            ZStack {
+            ZStack(alignment: .bottomTrailing) {
                 content
                     .frame(width: size.width, height: size.height)
                     .scaleEffect(displayedScale)
@@ -323,82 +269,35 @@ private struct ZoomableRoundMapViewport<Content: View>: View {
                         including: displayedScale > 1.01 ? .all : .none
                     )
                     .onTapGesture(count: 2) { toggleZoom() }
-                    .accessibilityHint("双指缩放，放大后拖动；双击可快速放大或还原")
+                    .accessibilityHint("双指缩放，放大后拖动；双击放大或还原")
 
-                VStack(spacing: 9) {
-                    Menu {
-                        Button {
-                            showsShotFacts.toggle()
-                        } label: {
-                            Label(
-                                showsShotFacts ? "隐藏逐杆标签" : "显示逐杆标签",
-                                systemImage: showsShotFacts ? "checkmark.circle.fill" : "circle"
-                            )
-                        }
-                        if supportsBaseLayerToggle {
-                            Button {
-                                showsTopoLayer.toggle()
-                            } label: {
-                                Label(
-                                    showsTopoLayer ? "切换到简洁球道图" : "切换到真实地形图",
-                                    systemImage: "map"
-                                )
-                            }
-                        }
-                    } label: {
-                        mapControlIcon(system: "square.3.layers.3d")
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("地图图层")
-                    .accessibilityIdentifier("round-map-layer")
-                    mapControl(
-                        system: "scope",
-                        label: "回到全洞",
-                        identifier: "round-map-fit"
-                    ) { resetViewport() }
-                    mapControl(
-                        system: scale > 1.05 ? "minus.magnifyingglass" : "plus.magnifyingglass",
-                        label: scale > 1.05 ? "缩小到全洞" : "放大地图",
-                        identifier: "round-map-zoom"
-                    ) { toggleZoom() }
+                // Zoom state for assistive tech and UI tests (the accessibility frame ignores
+                // `scaleEffect`).
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement()
+                    .accessibilityLabel("地图缩放")
+                    .accessibilityValue(displayedScale > 1.01 ? "已放大" : "全洞")
+                    .accessibilityIdentifier("round-map-zoom-state")
+                    .allowsHitTesting(false)
+                Button {
+                    showsShotFacts.toggle()
+                } label: {
+                    Image(systemName: showsShotFacts ? "text.bubble.fill" : "text.bubble")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .environment(\.colorScheme, .dark)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                .padding(.trailing, 10)
-                .padding(.bottom, bottomControlClearance * 0.35)
+                .buttonStyle(.plain)
+                .padding(10)
+                .accessibilityLabel(showsShotFacts ? "隐藏标签" : "显示标签")
+                .accessibilityIdentifier("round-map-labels")
             }
         }
         .aspectRatio(aspectRatio, contentMode: .fit)
         .clipped()
-    }
-
-    private func mapControl(
-        system: String,
-        label: String,
-        identifier: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            mapControlIcon(system: system)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityIdentifier(identifier)
-    }
-
-    private func mapControlIcon(system: String) -> some View {
-        Image(systemName: system)
-            .font(.system(size: 16, weight: .bold))
-            .foregroundStyle(.black)
-            .frame(width: 42, height: 42)
-            .background(Color.white.opacity(0.96), in: Circle())
-            .shadow(color: .black.opacity(0.24), radius: 4, y: 2)
-    }
-
-    private func resetViewport() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            scale = 1
-            offset = .zero
-        }
     }
 
     private func toggleZoom() {
@@ -454,69 +353,121 @@ private struct ZoomableRoundMapViewport<Content: View>: View {
 }
 #endif
 
-/// Shared shot-path rendering (white actual path + tee ring + landing dots), factored out of
-/// ``RoundShotMapView`` so the drag magnifier (``MagnifierLoupe``) draws the
-/// exact same picture — magnified — over the exact same projection.
-func drawRoundShotPath(_ context: inout GraphicsContext, size: CGSize, overlay: CoursePrepOverlay, shots: [RoundShot]) {
+/// A numbered, editable shot: not a putt (putts are a count) and not the server's synthetic tee
+/// fill (no stable id; it never enters the correction diff). Read and edit mode number the same set.
+func roundShotIsFullShot(_ shot: RoundShot) -> Bool {
+    !roundShotIsPutt(shot) && !shot.synthetic
+}
+
+/// One rule with the server audit (`correction_audit.is_putt_row`): any shot type containing
+/// PUTT (PUTT, PENALTY_PUTT); a putter club; or an UNKNOWN / untyped stroke played from the green
+/// without a full-swing club.
+func roundShotIsPutt(_ shot: RoundShot) -> Bool {
+    let type = (shot.shotType ?? "").trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    if type.contains("PUTT") { return true }
+    let club = (shot.club ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let lowered = club.lowercased()
+    if ["putter", "putt", "pt", "推杆"].contains(lowered) || lowered.contains("putt") || club.contains("推") {
+        return true
+    }
+    let fromGreen = (shot.lie ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "green"
+    let noClub = lowered.isEmpty || lowered == "unknown"
+    return fromGreen && noClub && (type.isEmpty || type == "UNKNOWN")
+}
+
+/// "一号木 221" / "221码" / "一号木" — nil when neither the club nor the distance is known.
+func roundShotLabelText(_ shot: RoundShot, ppm: Double?) -> String? {
+    let raw = shot.club?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let club = raw.flatMap { $0.isEmpty || $0.lowercased() == "unknown" ? nil : zhClubName($0) }
+    let yards = roundShotYards(shot, ppm: ppm)
+    switch (club, yards) {
+    case let (club?, yards?): return "\(club) \(yards)"
+    case let (club?, nil): return club
+    case let (nil, yards?): return "\(yards)码"
+    default: return nil
+    }
+}
+
+/// Shared shot-path rendering (white path + tee ring + numbered landing dots), factored out of
+/// ``RoundShotMapView`` so the drag magnifier (``MagnifierLoupe``) draws the exact same picture —
+/// magnified — over the exact same projection. Edit mode draws its own draggable handles instead
+/// of the numbers.
+func drawRoundShotPath(
+    _ context: inout GraphicsContext,
+    size: CGSize,
+    overlay: CoursePrepOverlay,
+    shots: [RoundShot],
+    numbered: Bool = true
+) {
     let sx = size.width / CGFloat(max(overlay.w, 1))
     let sy = size.height / CGFloat(max(overlay.h, 1))
     func point(_ p: [Int]?) -> CGPoint? {
         guard let p, p.count >= 2 else { return nil }
         return CGPoint(x: CGFloat(p[0]) * sx, y: CGFloat(p[1]) * sy)
     }
-    // Garmin's review map uses one bright route over the course art. A dark halo keeps the white
-    // path legible over sand and pale greens; synthetic (auto-filled) shots stay dashed + faded.
-    for shot in shots {
-        let isPutt = (shot.shotType ?? "").uppercased() == "PUTT"
-            || (shot.club ?? "").localizedCaseInsensitiveContains("putt")
-            || (shot.club ?? "").contains("推")
-        if isPutt { continue }
+    // One bright route over the course art. A dark halo keeps the white path legible over sand and
+    // pale greens; synthetic (auto-filled) shots stay dashed + faded.
+    for shot in shots where !roundShotIsPutt(shot) {
         guard let a = point(shot.start), let b = point(shot.end) else { continue }
         var path = Path()
         path.move(to: a)
         path.addLine(to: b)
-        let width: CGFloat = shot.synthetic ? 3.0 : 4.0
+        let width: CGFloat = shot.synthetic ? 2.5 : 3.0
         context.stroke(path, with: .color(.black.opacity(0.30)),
                        style: StrokeStyle(lineWidth: width + 1.6, lineCap: .round, lineJoin: .round))
         let line = StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round, dash: shot.synthetic ? [5, 5] : [])
         context.stroke(path, with: .color(.white.opacity(shot.synthetic ? 0.68 : 0.96)), style: line)
     }
 
-    // Tee marker: a hollow white ring (the start of the hole).
+    // Tee marker: a hollow ring in the tee colour (the start of the hole).
     if let tee = point(shots.first?.start) {
         context.stroke(Path(ellipseIn: CGRect(x: tee.x - 6, y: tee.y - 6, width: 12, height: 12)),
-                       with: .color(.white), style: StrokeStyle(lineWidth: 2.5))
+                       with: .color(reviewLieColor("teebox")), style: StrokeStyle(lineWidth: 2.5))
     }
 
-    // Landing dot at each full shot's end, colored by the lie. Read-only club/distance pills are
-    // SwiftUI overlays (so they remain legible and accessible); edit-mode labels live in its handles.
-    for shot in shots {
-        let isPutt = (shot.shotType ?? "").uppercased() == "PUTT"
-            || (shot.club ?? "").localizedCaseInsensitiveContains("putt")
-            || (shot.club ?? "").contains("推")
-        if isPutt { continue }
+    // Numbered dot at each full shot's landing: dark fill, landing-lie ring, white number.
+    let fullShots = shots.filter(roundShotIsFullShot)
+    for (index, shot) in fullShots.enumerated() {
         guard let b = point(shot.end) else { continue }
-        let rect = CGRect(x: b.x - 6, y: b.y - 6, width: 12, height: 12)
-        context.fill(Path(ellipseIn: rect), with: .color(shotLieColor(shot.endLie)))
-        context.stroke(Path(ellipseIn: rect), with: .color(.white), style: StrokeStyle(lineWidth: 1.5))
+        let radius: CGFloat = 9
+        let rect = CGRect(x: b.x - radius, y: b.y - radius, width: radius * 2, height: radius * 2)
+        let next = fullShots.indices.contains(index + 1) ? fullShots[index + 1] : nil
+        context.fill(Path(ellipseIn: rect), with: .color(Color(red: 16 / 255, green: 20 / 255, blue: 18 / 255)))
+        context.stroke(Path(ellipseIn: rect), with: .color(reviewLieColor(roundShotLandingLie(shot, next: next))),
+                       style: StrokeStyle(lineWidth: 2))
+        if numbered {
+            context.draw(
+                Text("\(index + 1)")
+                    .font(.system(size: 10, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundColor(.white),
+                at: b
+            )
+        }
     }
 }
 
-/// 落点球位 → 颜色(球道绿、长草橄榄、沙坑沙黄、果岭浅绿、水蓝、其它/未知 红)。
-/// 编辑态的颜色说明复用同一语义。
-public func shotLieColor(_ lie: String?) -> Color {
+/// Where a shot came to rest: its observed landing lie, else where the next shot was played from.
+func roundShotLandingLie(_ shot: RoundShot, next: RoundShot?) -> String? {
+    if let lie = shot.endLie, !lie.isEmpty, lie.lowercased() != "unknown" { return lie }
+    return next?.lie
+}
+
+/// Landing-lie colours of `review.html` (tee lilac, fairway light green, rough deep green, bunker
+/// sand, green pale green); water blue; anything unknown a neutral grey.
+public func reviewLieColor(_ lie: String?) -> Color {
     switch (lie ?? "").lowercased() {
-    case "fairway": return LiveHoleStyle.green
-    case "green": return Color(red: 90 / 255, green: 200 / 255, blue: 120 / 255)
-    case "bunker", "sand": return Color(red: 214 / 255, green: 190 / 255, blue: 138 / 255)
-    case "rough": return Color(red: 120 / 255, green: 140 / 255, blue: 70 / 255)
-    case "water", "hazard": return Color(red: 60 / 255, green: 130 / 255, blue: 200 / 255)
-    case "teebox", "tee": return .white
-    default: return Color(red: 185 / 255, green: 50 / 255, blue: 40 / 255)
+    case "teebox", "tee": return Color(red: 201 / 255, green: 194 / 255, blue: 242 / 255)
+    case "fairway": return Color(red: 139 / 255, green: 224 / 255, blue: 143 / 255)
+    case "rough", "trees", "tree_area": return Color(red: 47 / 255, green: 138 / 255, blue: 69 / 255)
+    case "bunker", "sand": return Color(red: 233 / 255, green: 214 / 255, blue: 160 / 255)
+    case "green", "fringe": return Color(red: 216 / 255, green: 247 / 255, blue: 184 / 255)
+    case "water", "hazard": return Color(red: 92 / 255, green: 176 / 255, blue: 255 / 255)
+    default: return Color.white.opacity(0.55)
     }
 }
 
-/// 球位中文(未知/缺失 → 「—」,不编造)。共享给地图标签与编辑态逐杆列表。
+/// 球位中文(未知/缺失 → 「—」,不编造)。共享给地图标签与编辑底栏。
 public func shotLieLabel(_ lie: String?) -> String {
     switch (lie ?? "").lowercased() {
     case "fairway": return "球道"
@@ -532,38 +483,9 @@ public func shotLieLabel(_ lie: String?) -> String {
 }
 
 /// 一杆的直线距离(码),由起终点像素 + overlay 的每米像素数(ppm)换算。推杆或缺端点 → nil(不显示)。
-/// 共享给只读逐杆行 + 编辑态可重排行,拖动后距离随之刷新(米→码)。
 public func roundShotYards(_ shot: RoundShot, ppm: Double?) -> Int? {
-    if (shot.shotType ?? "").uppercased() == "PUTT" || (shot.club ?? "").contains("推") { return nil }
-    guard let s = shot.start, s.count >= 2, let e = shot.end, e.count >= 2, let ppm, ppm > 0 else { return nil }
-    let dx = Double(e[0] - s[0]), dy = Double(e[1] - s[1])
-    let metres = (dx * dx + dy * dy).squareRoot() / ppm
-    return Int((metres * 1.09361).rounded())
-}
-
-/// 编辑态颜色说明。只读复盘把球位直接写在落点旁，不再重复展示一份图例。
-public struct RoundShotMapLegend: View {
-    public init() {}
-    private let items: [(String, String)] = [
-        ("fairway", "球道"), ("green", "果岭"), ("rough", "长草"),
-        ("bunker", "沙坑"), ("water", "水"), ("other", "其它/未知"),
-    ]
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("落点颜色").font(.caption).foregroundStyle(.secondary)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3), spacing: 6) {
-                ForEach(items, id: \.0) { item in
-                    HStack(spacing: 5) {
-                        Circle().fill(shotLieColor(item.0))
-                            .frame(width: 11, height: 11)
-                            .overlay(Circle().stroke(Color.black.opacity(0.12)))
-                        Text(item.1).font(.caption2).foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .hubCard()
-    }
+    if roundShotIsPutt(shot) { return nil }
+    return RoundEditModel.yards(from: shot.start, to: shot.end, ppm: ppm)
 }
 
 /// One round-level memory + disk cache. The visible pager renders exactly one hole; this repository
@@ -603,14 +525,6 @@ final class RoundShotMapRepository: ObservableObject {
     }
 
     func error(for hole: Int) -> String? { errors[hole] }
-
-    func cachedCount(in holes: [Int]) -> Int {
-        Set(holes).filter { maps[$0] != nil }.count
-    }
-
-    func failedCount(in holes: [Int]) -> Int {
-        Set(holes).filter { maps[$0] == nil && errors[$0] != nil }.count
-    }
 
     func store(_ map: RoundHoleShotMap, for hole: Int) {
         maps[hole] = map
@@ -717,7 +631,11 @@ private extension Array {
     }
 }
 
-/// 点开复盘某一洞 → 取该洞落点图并展示(图 + 逐杆列表)。无几何/无数据时优雅兜底。
+/// One hole of the review, full screen (`review.html` screen 2): the topo with this round's shots,
+/// a glass score box on top (第 N 洞 · Par, the score symbol, 推 / 罚) with 编辑, and the 18-hole
+/// score strip at the bottom. 编辑 turns the same screen into the editor (README §7): numbered dots
+/// become drag handles, a tap on empty ground adds a shot, and the bottom strip becomes the edit bar.
+/// No cache status, no legend, no separate precision page.
 public struct RoundHoleShotMapScreen: View {
     public let roundRef: String
     public let hole: Int
@@ -727,11 +645,20 @@ public struct RoundHoleShotMapScreen: View {
     public let backGlobalId: Int?
     public let nine: String?
     public let teeBox: String?
-    /// The pager owns the title (current hole); a standalone screen sets its own.
-    public let showsNavigationTitle: Bool
-    /// Called when this hole enters/leaves edit mode, so the pager can lock horizontal 翻洞 while editing
-    /// (设计 §1:改的模式锁切洞,免误触换洞)。nil for a standalone screen.
+    /// The round's scorecard (score box, putts, strip). Empty for a standalone screen.
+    public let scorecard: [RoundDetailHole]
+    /// Holes the strip shows (the course's full width, up to 18); empty hides the strip.
+    public let stripHoles: [Int]
+    /// Strip holes that can be opened (the played ones); nil ⇒ every strip hole.
+    let openableHoles: [Int]?
+    public let onSelectHole: ((Int) -> Void)?
+    public let onClose: (() -> Void)?
+    /// Called when this hole enters/leaves edit mode, so the pager can lock horizontal 翻洞 while
+    /// editing (改的模式锁切洞，免误触换洞).
     public let onEditingChange: ((Bool) -> Void)?
+    public let onSaved: (() -> Void)?
+    /// The round detail's canonical id (putt corrections target `{canonical}:{hole}`).
+    let canonicalRoundRef: String?
 
     @StateObject private var mapRepository: RoundShotMapRepository
     @State private var editModel: RoundEditModel?
@@ -739,19 +666,12 @@ public struct RoundHoleShotMapScreen: View {
     @State private var isSaving = false
 
     public init(roundRef: String, hole: Int, apiBaseURL: URL? = nil, adminToken: String? = nil, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil,
-                showsNavigationTitle: Bool = true, onEditingChange: ((Bool) -> Void)? = nil) {
-        self.roundRef = roundRef
-        self.hole = hole
-        self.apiBaseURL = apiBaseURL
-        self.adminToken = adminToken
-        self.globalId = globalId
-        self.backGlobalId = backGlobalId
-        self.nine = nine
-        self.teeBox = teeBox
-        self.showsNavigationTitle = showsNavigationTitle
-        self.onEditingChange = onEditingChange
-        _mapRepository = StateObject(
-            wrappedValue: RoundShotMapRepository(
+                scorecard: [RoundDetailHole] = [], onClose: (() -> Void)? = nil, onEditingChange: ((Bool) -> Void)? = nil) {
+        self.init(
+            roundRef: roundRef, hole: hole, apiBaseURL: apiBaseURL, adminToken: adminToken,
+            scorecard: scorecard, stripHoles: [], onSelectHole: nil, onClose: onClose,
+            onEditingChange: onEditingChange, onSaved: nil,
+            mapRepository: RoundShotMapRepository(
                 roundRef: roundRef,
                 apiBaseURL: apiBaseURL,
                 adminToken: adminToken,
@@ -759,13 +679,16 @@ public struct RoundHoleShotMapScreen: View {
                 backGlobalId: backGlobalId,
                 nine: nine,
                 teeBox: teeBox
-            )
+            ),
+            globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox
         )
     }
 
     init(roundRef: String, hole: Int, apiBaseURL: URL?, adminToken: String?,
-         showsNavigationTitle: Bool, onEditingChange: ((Bool) -> Void)?,
-         mapRepository: RoundShotMapRepository, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil) {
+         scorecard: [RoundDetailHole], stripHoles: [Int], onSelectHole: ((Int) -> Void)?,
+         onClose: (() -> Void)?, onEditingChange: ((Bool) -> Void)?, onSaved: (() -> Void)?,
+         mapRepository: RoundShotMapRepository, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil,
+         canonicalRoundRef: String? = nil, openableHoles: [Int]? = nil) {
         self.roundRef = roundRef
         self.hole = hole
         self.apiBaseURL = apiBaseURL
@@ -774,63 +697,43 @@ public struct RoundHoleShotMapScreen: View {
         self.backGlobalId = backGlobalId
         self.nine = nine
         self.teeBox = teeBox
-        self.showsNavigationTitle = showsNavigationTitle
+        self.scorecard = scorecard
+        self.stripHoles = stripHoles
+        self.onSelectHole = onSelectHole
+        self.onClose = onClose
         self.onEditingChange = onEditingChange
+        self.onSaved = onSaved
+        self.canonicalRoundRef = canonicalRoundRef
+        self.openableHoles = openableHoles
         _mapRepository = StateObject(wrappedValue: mapRepository)
     }
+
+    private func canSelectHole(_ hole: Int) -> Bool { openableHoles?.contains(hole) ?? true }
 
     private var shotMap: RoundHoleShotMap? { mapRepository.map(for: hole) }
     private var isLoading: Bool { mapRepository.isLoading(hole) }
     private var errorText: String? { mapRepository.error(for: hole) }
+    private var scoreRow: RoundDetailHole? { scorecard.first { $0.hole == hole } }
 
     public var body: some View {
-        Group {
+        ZStack {
+            RoundHoleMapStyle.base.ignoresSafeArea()
             if isLoading {
-                AICaddieLoadingView(text: "载入落点…")
+                ProgressView("载入落点…")
+                    .tint(.white)
+                    .foregroundStyle(LivePlayStyle.ink60)
             } else {
-                ScrollView { content }
-                    // The editable topo deliberately owns long-press/drag gestures. Give the outer
-                    // vertical scroller a stable accessibility target so assistive technology and
-                    // the real UI journey can start a scroll from the controls below the map rather
-                    // than accidentally moving a numbered landing.
-                    .accessibilityIdentifier(isEditing ? "round-shot-edit-scroll" : "round-shot-read-scroll")
+                content
             }
         }
-        .background(!isEditing && shotMap?.map != nil
-                    ? Color(red: 0.10, green: 0.10, blue: 0.09)
-                    : HubStyle.grouped)
-        .navigationTitle(showsNavigationTitle ? "第 \(hole) 洞 · 落点" : "")
-        .toolbar {
-            if let sm = shotMap, sm.found, editModel != nil {
-                if isEditing {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button("取消") { cancelEditing() }
-                            .disabled(isSaving)
-                            .accessibilityIdentifier("round-edit-cancel")
-                    }
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            Task { await saveEditing() }
-                        } label: {
-                            if isSaving {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .accessibilityLabel("保存中")
-                            } else {
-                                Text("保存")
-                            }
-                        }
-                        .disabled(isSaving)
-                        .accessibilityIdentifier("round-edit-save")
-                    }
-                } else {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("编辑") { beginEditing() }
-                    }
-                }
-            }
-        }
+        .safeAreaInset(edge: .top, spacing: 0) { topBar }
+        .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
+        .preferredColorScheme(.dark)
+        .toolbar(.hidden, for: .navigationBar)
         .task(id: hole) { await load() }
+        .onChange(of: scoreRow?.putts) { _, putts in
+            editModel?.adoptRecordedPutts(putts)
+        }
         .onDisappear {
             guard isEditing else { return }
             editModel?.cancelEdit()
@@ -840,88 +743,125 @@ public struct RoundHoleShotMapScreen: View {
         }
     }
 
+    // MARK: map / fallbacks
+
     @ViewBuilder private var content: some View {
         if isEditing, let editModel {
-            Group {
-                if editModel.canEditPositions {
-                    RoundShotEditContent(editModel: editModel, topoURL: topoURL(for: editModel.map))
-                } else {
-                    RoundShotFactEditContent(editModel: editModel)
-                }
+            if editModel.canEditPositions {
+                RoundShotEditMap(editModel: editModel, topoURL: topoURL(for: editModel.map))
+                    .allowsHitTesting(!isSaving)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                RoundShotFactEditList(editModel: editModel)
+                    .allowsHitTesting(!isSaving)
             }
-            .allowsHitTesting(!isSaving)
-            .padding(14)
         } else if let shotMap, shotMap.found, shotMap.map != nil {
-            ZStack(alignment: .bottomLeading) {
-                RoundShotMapView(
-                    shotMap: shotMap,
-                    topoURL: topoURL(for: shotMap),
-                    bottomControlClearance: showsNavigationTitle ? 0 : 58
-                )
-                if let reason = shotMap.missingData.first?.reason {
-                    Label(reason, systemImage: "arrow.clockwise.circle")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 10))
-                        .padding(10)
-                }
-            }
-            .frame(maxWidth: .infinity)
+            RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap), putts: scoreRow?.putts)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let shotMap, shotMap.found, !shotMap.shots.isEmpty {
-            VStack(spacing: 12) {
-                Label(
-                    shotMap.missingData.first?.reason
-                        ?? "已找到逐杆 GPS，球场地图素材正在准备",
-                    systemImage: "location.fill"
-                )
-                .font(.subheadline)
-                .foregroundStyle(.orange)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .hubCard()
-                shotListCard(shotMap)
+            ScrollView {
+                RoundShotFactList(shots: shotMap.shots, ppm: shotMap.map?.overlay.ppm, recordedPutts: scoreRow?.putts)
+                    .padding(16)
             }
-            .padding(14)
         } else {
-            VStack(spacing: 8) {
-                Image(systemName: "scope").font(.title).foregroundStyle(.secondary)
-                Text(
-                    errorText
-                        ?? shotMap?.missingData.first?.reason
-                        ?? "这一洞暂无落点数据"
-                )
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            VStack(spacing: 10) {
+                Image(systemName: "scope").font(.title).foregroundStyle(LivePlayStyle.ink45)
+                Text(errorText ?? "这一洞没有落点")
+                    .font(.subheadline)
+                    .foregroundStyle(LivePlayStyle.ink60)
                 if errorText != nil {
                     Button {
                         Task { await load() }
                     } label: {
                         Label("重新载入这一洞", systemImage: "arrow.clockwise")
                             .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(LivePlayStyle.ink)
+                            .padding(.horizontal, 16)
+                            .frame(height: 40)
+                            .background(LivePlayStyle.fill12, in: Capsule())
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
                     .accessibilityIdentifier("round-shot-map-retry")
                 }
             }
-            .frame(maxWidth: .infinity).padding(.vertical, 40).hubCard()
+            .padding(24)
         }
     }
 
-    /// Geometry-free fallback only. If positions cannot be drawn, the factual list is still the
-    /// only honest way to expose the recorded shots; a drawable map never repeats it underneath.
-    private func shotListCard(_ shotMap: RoundHoleShotMap) -> some View {
-        let ppm = shotMap.map?.overlay.ppm
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("逐杆").font(.caption).foregroundStyle(.secondary)
-            ForEach(shotMap.shots) { shot in
-                RoundShotRow(shot: shot, ppm: ppm)
-                    .padding(.vertical, 5)
-                    .overlay(alignment: .bottom) { Divider() }
+    // MARK: top score box
+
+    private var topBar: some View {
+        HStack(alignment: .top, spacing: 10) {
+            if !isEditing, let onClose {
+                glassButton(system: "xmark", label: "关闭", identifier: "round-shot-map-close", action: onClose)
+            }
+            if isEditing, let editModel {
+                RoundHoleDraftScoreBox(hole: hole, par: scoreRow?.par ?? shotMap?.par, row: scoreRow, editModel: editModel)
+            } else {
+                RoundHoleScoreBox(hole: hole, par: scoreRow?.par ?? shotMap?.par, row: scoreRow,
+                                  putts: scoreRow?.putts, penalties: scoreRow?.penalties)
+            }
+            Spacer(minLength: 0)
+            if isEditing {
+                HStack(spacing: 8) {
+                    pill("取消", filled: false, identifier: "round-edit-cancel") { cancelEditing() }
+                        .disabled(isSaving)
+                    pill(isSaving ? "保存中…" : "保存", filled: true, identifier: "round-edit-save") {
+                        Task { await saveEditing() }
+                    }
+                    .disabled(isSaving)
+                }
+            } else if let shotMap, shotMap.found, editModel != nil {
+                pill("编辑", filled: false, identifier: "round-edit-begin") { beginEditing() }
             }
         }
-        .hubCard()
+        .padding(.horizontal, 14)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
+    }
+
+    private func pill(_ title: String, filled: Bool, identifier: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(filled ? LiveScoreStyle.primaryInk : LivePlayStyle.ink)
+                .padding(.horizontal, 16)
+                .frame(height: 38)
+                .background {
+                    if filled {
+                        Capsule().fill(LiveScoreStyle.primaryFill)
+                    } else {
+                        Capsule().fill(.ultraThinMaterial)
+                    }
+                }
+                .overlay(Capsule().stroke(LivePlayStyle.stroke14, lineWidth: filled ? 0 : 0.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func glassButton(system: String, label: String, identifier: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: system)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(LivePlayStyle.ink)
+                .frame(width: 38, height: 38)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
+    }
+
+    // MARK: bottom strip / edit bar
+
+    @ViewBuilder private var bottomBar: some View {
+        if isEditing, let editModel {
+            RoundShotEditBar(editModel: editModel)
+                .disabled(isSaving)
+        } else if !stripHoles.isEmpty, let onSelectHole {
+            RoundHoleScoreStrip(holes: stripHoles, current: hole, scorecard: scorecard, onSelect: onSelectHole, canSelect: canSelectHole)
+        }
     }
 
     /// Topo base-image URL for this hole's render — the physical (gid, localHole) the shot map was
@@ -958,7 +898,9 @@ public struct RoundHoleShotMapScreen: View {
                 globalId: globalId,
                 backGlobalId: backGlobalId,
                 nine: nine,
-                teeBox: teeBox
+                teeBox: teeBox,
+                putts: scoreRow?.putts,
+                puttTargetRoundRef: canonicalRoundRef
             )
             : nil
     }
@@ -990,11 +932,150 @@ public struct RoundHoleShotMapScreen: View {
         mapRepository.store(editModel.map, for: hole)
         isEditing = false
         onEditingChange?(false)
+        onSaved?()
     }
 }
 
-/// One visible hole at a time. Previous/next/menu navigation avoids eagerly creating 18 child views,
-/// which was the source of duplicate Edit toolbars and endless task-driven redraws.
+enum RoundHoleMapStyle {
+    static let base = Color(red: 11 / 255, green: 15 / 255, blue: 12 / 255)
+}
+
+/// The edit-mode map: observes the draft so every drag, add and delete redraws the path underneath
+/// the handles.
+struct RoundShotEditMap: View {
+    @ObservedObject var editModel: RoundEditModel
+    let topoURL: URL?
+
+    var body: some View {
+        RoundShotMapView(shotMap: editModel.map, topoURL: topoURL, editModel: editModel)
+    }
+}
+
+/// While editing, the score box follows the draft's putts and penalty.
+struct RoundHoleDraftScoreBox: View {
+    let hole: Int
+    let par: Int?
+    let row: RoundDetailHole?
+    @ObservedObject var editModel: RoundEditModel
+
+    var body: some View {
+        RoundHoleScoreBox(hole: hole, par: par, row: row, putts: editModel.putts, penalties: editModel.map.manualPenalty)
+    }
+}
+
+/// The glass box on top of a hole: 第 N 洞 · Par P, the score symbol and its name, 推 / 罚.
+struct RoundHoleScoreBox: View {
+    let hole: Int
+    let par: Int?
+    let row: RoundDetailHole?
+    let putts: Int?
+    let penalties: Int?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let score = row?.score {
+                ScoreChip(score: score, toPar: par.map { score - $0 }, size: 34, dark: true)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(par.map { "第 \(hole) 洞 · Par \($0)" } ?? "第 \(hole) 洞")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(LivePlayStyle.ink)
+                    .lineLimit(1)
+                Text(detail)
+                    .font(.system(size: 12))
+                    .monospacedDigit()
+                    .foregroundStyle(LivePlayStyle.ink60)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(LivePlayStyle.stroke14, lineWidth: 0.5))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("round-shot-score-box")
+    }
+
+    private var detail: String {
+        var parts: [String] = []
+        if let score = row?.score, let par {
+            parts.append(ScoreChip.name(toPar: score - par))
+        }
+        if let putts { parts.append("推 \(putts)") }
+        if let penalties, penalties > 0 { parts.append("罚 \(penalties)") }
+        return parts.isEmpty ? "没有成绩" : parts.joined(separator: " · ")
+    }
+}
+
+/// Bottom 18-hole strip: each hole's number over its score symbol; tap to change hole. The strip
+/// keeps the course's full width; a hole that was not played stays visible but cannot be opened.
+struct RoundHoleScoreStrip: View {
+    let holes: [Int]
+    let current: Int
+    let scorecard: [RoundDetailHole]
+    let onSelect: (Int) -> Void
+    var canSelect: (Int) -> Bool = { _ in true }
+
+    var body: some View {
+        ScrollViewReader { reader in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(holes, id: \.self) { hole in
+                        cell(hole).id(hole)
+                    }
+                }
+                .padding(.horizontal, 12)
+            }
+            .onAppear { reader.scrollTo(current, anchor: .center) }
+        }
+        .frame(height: 60)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial)
+        .environment(\.colorScheme, .dark)
+    }
+
+    private func cell(_ hole: Int) -> some View {
+        let row = scorecard.first { $0.hole == hole }
+        let selected = hole == current
+        let enabled = canSelect(hole)
+        return Button { onSelect(hole) } label: {
+            VStack(spacing: 3) {
+                Text("\(hole)")
+                    .font(.system(size: 11, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(selected ? LiveScoreStyle.primaryInk.opacity(0.7) : LivePlayStyle.ink45)
+                if let score = row?.score {
+                    ScoreChip(
+                        score: score,
+                        toPar: row?.par.map { score - $0 },
+                        size: 24,
+                        dark: true,
+                        ink: selected ? LiveScoreStyle.primaryInk : nil
+                    )
+                } else {
+                    Text("–")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(LivePlayStyle.ink45)
+                        .frame(height: 24)
+                }
+            }
+            .frame(width: 40, height: 52)
+            .background(
+                selected ? LiveScoreStyle.primaryFill : LivePlayStyle.fill08,
+                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.55)
+        .accessibilityLabel(row?.score.map { "第 \(hole) 洞，\($0) 杆" } ?? "第 \(hole) 洞，未打")
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .accessibilityIdentifier("round-hole-strip-\(hole)")
+    }
+}
+
+/// One visible hole at a time; swipe or the bottom strip changes hole. Editing locks both, and the
+/// sheet cannot be pulled away while a draft is open.
 public struct RoundShotMapPagerScreen: View {
     public let roundRef: String
     public let holes: [Int]
@@ -1004,10 +1085,15 @@ public struct RoundShotMapPagerScreen: View {
     public let backGlobalId: Int?
     public let nine: String?
     public let teeBox: String?
+    public let scorecard: [RoundDetailHole]
     public let onClose: (() -> Void)?
+    public let onSaved: (() -> Void)?
+    let canonicalRoundRef: String?
+    /// The strip's holes: the course's full width. `holes` (the played ones) page and prefetch.
+    let stripHoles: [Int]
     @StateObject private var mapRepository: RoundShotMapRepository
     @State private var current: Int
-    /// Holes currently in edit mode. Non-empty ⇒ 翻洞 is locked (设计 §1:改的模式锁切洞)。
+    /// Holes currently in edit mode. Non-empty ⇒ 翻洞 is locked.
     @State private var editingHoles: Set<Int> = []
 
     public init(
@@ -1020,19 +1106,14 @@ public struct RoundShotMapPagerScreen: View {
         backGlobalId: Int? = nil,
         nine: String? = nil,
         teeBox: String? = nil,
-        onClose: (() -> Void)? = nil
+        scorecard: [RoundDetailHole] = [],
+        onClose: (() -> Void)? = nil,
+        onSaved: (() -> Void)? = nil
     ) {
-        self.roundRef = roundRef
-        self.holes = holes
-        self.apiBaseURL = apiBaseURL
-        self.adminToken = adminToken
-        self.globalId = globalId
-        self.backGlobalId = backGlobalId
-        self.nine = nine
-        self.teeBox = teeBox
-        self.onClose = onClose
-        _mapRepository = StateObject(
-            wrappedValue: RoundShotMapRepository(
+        self.init(
+            roundRef: roundRef, holes: holes, startHole: startHole,
+            apiBaseURL: apiBaseURL, adminToken: adminToken, onClose: onClose,
+            mapRepository: RoundShotMapRepository(
                 roundRef: roundRef,
                 apiBaseURL: apiBaseURL,
                 adminToken: adminToken,
@@ -1040,9 +1121,10 @@ public struct RoundShotMapPagerScreen: View {
                 backGlobalId: backGlobalId,
                 nine: nine,
                 teeBox: teeBox
-            )
+            ),
+            globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox,
+            scorecard: scorecard, onSaved: onSaved
         )
-        _current = State(initialValue: holes.contains(startHole) ? startHole : (holes.first ?? startHole))
     }
 
     init(
@@ -1056,32 +1138,30 @@ public struct RoundShotMapPagerScreen: View {
         globalId: Int? = nil,
         backGlobalId: Int? = nil,
         nine: String? = nil,
-        teeBox: String? = nil
+        teeBox: String? = nil,
+        scorecard: [RoundDetailHole] = [],
+        onSaved: (() -> Void)? = nil,
+        canonicalRoundRef: String? = nil,
+        stripHoles: [Int]? = nil
     ) {
         self.roundRef = roundRef
         self.holes = holes
+        self.stripHoles = stripHoles ?? holes
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
         self.globalId = globalId
         self.backGlobalId = backGlobalId
         self.nine = nine
         self.teeBox = teeBox
+        self.scorecard = scorecard
         self.onClose = onClose
+        self.onSaved = onSaved
+        self.canonicalRoundRef = canonicalRoundRef
         _mapRepository = StateObject(wrappedValue: mapRepository)
         _current = State(initialValue: holes.contains(startHole) ? startHole : (holes.first ?? startHole))
     }
 
     private var isLocked: Bool { !editingHoles.isEmpty }
-
-    private var currentIndex: Int? { holes.firstIndex(of: current) }
-
-    private var previousHole: Int? {
-        currentIndex.flatMap { holes[safe: $0 - 1] }
-    }
-
-    private var nextHole: Int? {
-        currentIndex.flatMap { holes[safe: $0 + 1] }
-    }
 
     public var body: some View {
         RoundHoleShotMapScreen(
@@ -1089,15 +1169,24 @@ public struct RoundShotMapPagerScreen: View {
             hole: current,
             apiBaseURL: apiBaseURL,
             adminToken: adminToken,
-            showsNavigationTitle: false,
+            scorecard: scorecard,
+            stripHoles: stripHoles,
+            onSelectHole: { hole in
+                guard !isLocked, holes.contains(hole) else { return }
+                current = hole
+            },
+            onClose: onClose,
             onEditingChange: { editing in
                 if editing { editingHoles.insert(current) } else { editingHoles.remove(current) }
             },
+            onSaved: onSaved,
             mapRepository: mapRepository,
             globalId: globalId,
             backGlobalId: backGlobalId,
             nine: nine,
-            teeBox: teeBox
+            teeBox: teeBox,
+            canonicalRoundRef: canonicalRoundRef,
+            openableHoles: holes
         )
         .id("\(roundRef):\(current)")
         .gesture(
@@ -1115,17 +1204,9 @@ public struct RoundShotMapPagerScreen: View {
                 },
             including: isLocked ? .none : .all
         )
-        .overlay(alignment: .topTrailing) {
-            if !isLocked { downloadProgress }
-        }
-        .overlay(alignment: .bottom) {
-            if !isLocked { pagerControls }
-        }
-        .background(HubStyle.grouped)
-        // Editing has exactly two exits: the explicit Cancel and Save actions.  A sheet pull-down
-        // must not become a third, silent way to discard the whole local draft.
+        // Editing has exactly two exits: the explicit Cancel and Save actions. A pull-down must not
+        // become a third, silent way to discard the whole local draft.
         .interactiveDismissDisabled(isLocked)
-        .navigationTitle(isLocked ? "第 \(current) 洞 · 编辑中" : "第 \(current) 洞 · 落点")
         .task(id: roundRef) {
             await mapRepository.load(current)
             await mapRepository.load(current, revalidate: true)
@@ -1142,77 +1223,6 @@ public struct RoundShotMapPagerScreen: View {
                 await mapRepository.prefetch(nearby, startingAt: newHole)
             }
         }
-        .toolbar {
-            if !isLocked, let onClose {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭", action: onClose)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder private var downloadProgress: some View {
-        let cached = mapRepository.cachedCount(in: holes)
-        let failed = mapRepository.failedCount(in: holes)
-        if cached < holes.count || failed > 0 {
-            HStack(spacing: 7) {
-                ProgressView(value: Double(cached), total: Double(max(holes.count, 1)))
-                    .tint(LiveHoleStyle.green)
-                    .frame(width: 42)
-                Text(failed > 0
-                    ? "\(cached)/\(holes.count) · \(failed) 待重试"
-                    : "缓存 \(cached)/\(holes.count)")
-                    .font(.caption2.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(failed > 0 ? Color.orange : Color.white)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.black.opacity(0.70), in: Capsule())
-            .shadow(color: .black.opacity(0.16), radius: 3, y: 1)
-            .padding(.top, 10)
-            .padding(.trailing, 12)
-            .accessibilityIdentifier("round-shot-map-download-progress")
-        }
-    }
-
-    private var pagerControls: some View {
-        HStack(spacing: 10) {
-            Button {
-                if let previousHole { current = previousHole }
-            } label: {
-                Label("上一洞", systemImage: "chevron.backward")
-                    .frame(maxWidth: .infinity)
-            }
-            .disabled(previousHole == nil)
-
-            Menu {
-                ForEach(holes, id: \.self) { hole in
-                    Button("第 \(hole) 洞") { current = hole }
-                }
-            } label: {
-                Text("第 \(current) 洞")
-                    .font(.subheadline.monospacedDigit().weight(.bold))
-                    .frame(maxWidth: .infinity)
-            }
-
-            Button {
-                if let nextHole { current = nextHole }
-            } label: {
-                Label("下一洞", systemImage: "chevron.forward")
-                    .labelStyle(.titleAndIcon)
-                    .frame(maxWidth: .infinity)
-            }
-            .disabled(nextHole == nil)
-        }
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(.black)
-        .tint(.black)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 9)
-        .background(Color.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.2), radius: 5, y: 2)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
     }
 }
 

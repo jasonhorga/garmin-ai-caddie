@@ -2238,7 +2238,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("enum MapSurfaceStyle", hub_style)
         self.assertIn("func mapSurface() -> some View", hub_style)
         self.assertIn("map.mapSurface()", hole_map_view)
-        self.assertIn(".mapSurface()", shot_map_view)
+        # B3 review map is full screen on the dark hole base, not a rounded card surface.
+        self.assertNotIn(".mapSurface()", shot_map_view)
+        self.assertIn("RoundHoleMapStyle.base.ignoresSafeArea()", shot_map_view)
         self.assertIn("topoURL: liveTopoURL", current_hole)
         self.assertIn("baseURL: caddieBaseURL", current_hole)
         self.assertIn("geometryRevision: geometryRevision", current_hole)
@@ -3415,7 +3417,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("package.recentHistory.holes", recent_review)
         self.assertNotIn('Text("球洞规律")', recent_review)
         # 单场复盘: tap a recent round → fetch /history/rounds/{ref} → hole-by-hole scorecard.
-        # Fixes "复盘点进去没数据": the round detail renders the scorecard + graceful missing-data.
+        # B3 (`review.html` screen 1): the round-summary layout. Missing data is not called out any
+        # more (a tile without data is hidden); an empty/failed load still says so, never blank.
         round_review = _read_required_source(self, IOS_DIR / "Views" / "RoundReviewView.swift")
         round_detail_model = _read_required_source(self, IOS_DIR / "Models" / "RoundDetail.swift")
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
@@ -3426,11 +3429,20 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct RoundReviewView: View", round_review)
         self.assertIn("fetchRoundDetail(roundRef:", round_review)
         self.assertIn("detail.scorecard", round_review)
-        self.assertIn("detail.missingData", round_review)  # graceful, never blank
-        self.assertIn("func scorecardGrid(", round_review)
-        self.assertIn("func scorecardNine(", round_review)
-        self.assertIn("Grid(horizontalSpacing: 0", round_review)
-        self.assertIn("func scoreToken(", round_review)
+        self.assertNotIn("detail.missingData", round_review)
+        self.assertIn('Text(errorText ?? "这场没有可显示的记录")', round_review)  # never blank
+        self.assertIn('.accessibilityIdentifier("round-review-retry")', round_review)
+        # The OUT / IN scorecard reuses the live nine card; every score cell opens its hole.
+        self.assertIn("let card = RoundReviewScorecard(detail.scorecard)", round_review)
+        self.assertIn("LiveNineCard(", round_review)
+        self.assertIn('cellIdentifier: { "round-review-hole-\\($0)" }', round_review)
+        self.assertIn("LiveCumulativeTrend(values: card.cumulativeToPar", round_review)
+        self.assertIn('.accessibilityIdentifier("round-review-trend")', round_review)
+        self.assertIn('identifier: "round-review-metric-\\(metric.id)"', round_review)
+        self.assertIn("ShareLink(item: Self.shareText(", round_review)
+        self.assertIn('.accessibilityIdentifier("round-review-share")', round_review)
+        for removed in ("func scorecardGrid(", "func scorecardNine(", "func scoreToken("):
+            self.assertNotIn(removed, round_review)
         self.assertIn("func metricGrid(", round_review)
         self.assertIn("func phaseMetrics(", round_review)
         self.assertNotIn('HubSectionLabel("各环节")', round_review)
@@ -3450,7 +3462,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('URLQueryItem(name: "includeImage", value: "false")', sync_client)
         self.assertIn("struct RoundShotMapView", shot_map_view)
         self.assertIn("struct RoundHoleShotMapScreen", shot_map_view)
-        self.assertIn("onSelectHole(hole.hole)", round_review)
+        self.assertIn("shotMapHole = ShotMapHole(hole: hole)", round_review)
+        self.assertIn("onSelect: onSelectHole,", round_review)
         # 复盘 base layer = realistic TOPO png for the physical (globalId, localHole) the shots were
         # projected onto (front/back-nine aware); degrades to the flat render with no network / no geo.
         self.assertIn("let globalId: Int?", shot_map_model)
@@ -3459,33 +3472,58 @@ class MobileContractTests(unittest.TestCase):
         # use fact-only editing, while only the precise editor can move pixels or request a topo URL.
         self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)", shot_map_view)
         self.assertIn("editModel.canEditPositions", shot_map_view)
-        self.assertIn("RoundShotFactEditContent(editModel: editModel)", shot_map_view)
+        self.assertIn("RoundShotFactEditList(editModel: editModel)", shot_map_view)
+        self.assertNotIn("RoundShotFactEditContent", shot_map_view)
         round_edit_model = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
         self.assertNotIn("map.map?.image != nil", round_edit_model)
         self.assertIn("shotMap.usesCourseDataFrame", shot_map_view)
-        self.assertIn("bottomControlClearance: showsNavigationTitle ? 0 : 58", shot_map_view)
+        # B3: full-screen hole, glass score box on top, the 18-hole strip (or the edit bar) below.
+        self.assertIn(".safeAreaInset(edge: .top, spacing: 0) { topBar }", shot_map_view)
+        self.assertIn(".safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }", shot_map_view)
+        self.assertIn("RoundHoleScoreStrip(holes: stripHoles, current: hole, scorecard: scorecard, onSelect: onSelectHole, canSelect: canSelectHole)", shot_map_view)
+        # A 9-of-18 round keeps holes 10–18 on the strip and the IN card; only played holes open.
+        self.assertIn("struct RoundReviewHoles", round_review)
+        self.assertIn("holes: reviewHoles.played, startHole: item.hole", round_review)
+        self.assertIn("stripHoles: reviewHoles.strip", round_review)
+        self.assertIn("guard reviewHoles.canOpen(hole) else { return }", round_review)
+        self.assertEqual(round_review.count("canSelect: card.canOpen"), 2)
+        self.assertIn("stripHoles: stripHoles,", shot_map_view)
+        self.assertIn("guard !isLocked, holes.contains(hole) else { return }", shot_map_view)
+        self.assertIn("openableHoles: holes", shot_map_view)
+        self.assertIn(".disabled(!enabled)", shot_map_view)
+        self.assertIn(".toolbar(.hidden, for: .navigationBar)", shot_map_view)
+        self.assertNotIn("bottomControlClearance", shot_map_view)
+        self.assertNotIn("showsNavigationTitle", shot_map_view)
         self.assertIn("geometryRevision: shotMap.geometryRevision", shot_map_view)
         # Map-first review: one visible hole + compact navigation, zoomable map, and every passive
         # shot fact attached to its landing. Lists remain only in the edit/reorder surface.
         self.assertIn("struct RoundShotMapPagerScreen", shot_map_view)
-        self.assertIn("func shotLieColor(", shot_map_view)
+        self.assertIn("public func reviewLieColor(", shot_map_view)
+        self.assertIn("func roundShotLandingLie(", shot_map_view)
+        self.assertNotIn("func shotLieColor(", shot_map_view)
         self.assertIn("func shotLieLabel(", shot_map_view)
         self.assertIn("reviewFactOverlays(overlay: overlay)", shot_map_view)
-        self.assertIn('text: "推杆 ×\\(puttCount)"', shot_map_view)
+        self.assertIn('text: "推 ×\\(puttCount)"', shot_map_view)
+        self.assertIn('case let (club?, yards?): return "\\(club) \\(yards)"', shot_map_view)
         self.assertIn('Text("罚杆 +\\(shotMap.manualPenalty)")', shot_map_view)
         self.assertIn("with: .color(.white.opacity", shot_map_view)
         self.assertIn("reviewFactPlacements(in: proxy.size, overlay: overlay)", shot_map_view)
-        self.assertIn("let spacing: CGFloat = 28", shot_map_view)
+        self.assertIn("let spacing: CGFloat = 26", shot_map_view)
         self.assertNotIn('facts.append("→\\(lie)")', shot_map_view)
         self.assertNotIn("shotLegendOverlay", shot_map_view)
+        self.assertNotIn("RoundShotMapLegend", shot_map_view)
         self.assertIn("RoundShotMapPagerScreen(", round_review)
         self.assertIn("MagnificationGesture()", shot_map_view)
         self.assertIn("displayedScale > 1.01 ? .all : .none", shot_map_view)
-        self.assertIn('.accessibilityIdentifier("round-map-layer")', shot_map_view)
-        self.assertIn('identifier: "round-map-fit"', shot_map_view)
-        self.assertIn('identifier: "round-map-zoom"', shot_map_view)
+        # B3 keeps exactly one read-only map control: show / hide labels. The layer switch and the
+        # fit / zoom buttons are gone; pinch and double-tap still zoom.
+        self.assertIn('.accessibilityIdentifier("round-map-labels")', shot_map_view)
+        self.assertIn('showsShotFacts ? "隐藏标签" : "显示标签"', shot_map_view)
+        for removed in ('"round-map-layer"', '"round-map-fit"', '"round-map-zoom"'):
+            self.assertNotIn(removed, shot_map_view)
         self.assertIn("showsShotFacts.toggle()", shot_map_view)
         self.assertIn("private func toggleZoom()", shot_map_view)
+        self.assertIn(".onTapGesture(count: 2) { toggleZoom() }", shot_map_view)
         self.assertNotIn('Image(systemName: "plus.magnifyingglass")', shot_map_view)
 
         self.assertIn("final class RoundShotMapRepository", shot_map_view)
@@ -3493,7 +3531,8 @@ class MobileContractTests(unittest.TestCase):
         # The pager owns progressive all-hole warming. The summary hands it the shared repository
         # rather than duplicating requests before the player opens a map.
         self.assertIn("mapRepository: shotMapRepository", round_review)
-        self.assertIn("scorecard.filter { $0.score != nil }", round_review)
+        # Only scored holes page and prefetch (no fabricated maps for blank holes of a 9/18 round).
+        self.assertIn("let scored = rows.filter { $0.score != nil }.map(\\.hole)", round_review)
         # 成绩合并入口: compact stats + complete archive, then drill into existing round review.
         stats_view = _read_required_source(self, IOS_DIR / "Views" / "StatsView.swift")
         results_view = _read_required_source(self, IOS_DIR / "Views" / "ResultsView.swift")
@@ -3603,6 +3642,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('if Self.showsMediaCaptureCard {', current_hole)
         self.assertIn('accessibilityIdentifier("live-open-map-from-hero")', current_hole)
         self.assertIn('accessibilityIdentifier("live-open-green-from-hero")', current_hole)
+        # The floating chrome must not be an accessibility container over the map: it would be the
+        # front-most hit target and make the green entry unhittable for VoiceOver/XCTest.
+        chrome = current_hole.split("    private var liveMapChrome: some View {", 1)[1].split("    private var liveCaddieRouteSummary", 1)[0]
+        self.assertNotIn(".accessibilityElement(children: .contain)", chrome)
+        self.assertNotIn('"live-map-chrome"', current_hole)
         self.assertIn(".accessibilityActivationPoint(", current_hole)
         self.assertIn("greenPath.boundingRect.midX", current_hole)
         self.assertIn('HoleSwipeNavigation.target(', current_hole)
@@ -3735,12 +3779,15 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("hasHazards: !liveHazardDisplayRows.isEmpty,", current_hole)
         self.assertNotIn("hasHazards: !isPreciseHoleMapPending", current_hole)
         self.assertNotIn("if !isPreciseHoleMapPending,\n                       let selectedLiveHazard,", current_hole)
-        self.assertIn("RoundShotPrecisionEditor", shot_edit)
-        self.assertIn('round-shot-precision-zoom-in', shot_edit)
-        self.assertIn('round-shot-precision-zoom-out', shot_edit)
-        self.assertIn('round-shot-precision-open', shot_edit)
+        # B3 edits landings in place on the hole map (drag a handle with the 100 pt / 2.35x loupe);
+        # the separate precision page and its zoom controls are gone.
+        self.assertNotIn("RoundShotPrecisionEditor", shot_edit)
+        self.assertNotIn("round-shot-precision-", shot_edit)
+        self.assertIn("public struct MagnifierLoupe", shot_edit)
+        self.assertIn("var magnification: CGFloat = 2.35", shot_edit)
+        self.assertIn("private let loupeDiameter: CGFloat = 100", shot_edit)
         self.assertIn('round-shot-drag-magnifier', shot_edit)
-        self.assertIn('round-shot-precision-magnifier', shot_edit)
+        self.assertIn('.accessibilityIdentifier("round-shot-edit-map")', shot_edit)
         self.assertIn("watchBridge?.sendStateToWatch", current_hole)
         # Location is an actual-shot fact built independently from end-of-hole score confirmation.
         # Keeping this contract on the event builder prevents the score-save view from having to
@@ -3854,7 +3901,13 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn('.accessibilityIdentifier("home-last-round")', round_home)
         self.assertIn('.accessibilityIdentifier("history-round-row")', recent_review)
-        self.assertIn('.accessibilityIdentifier("round-review-hole-\\(hole.hole)")', round_review)
+        # B3 reuses the live nine card; the review keeps the stable per-hole cell identifier.
+        self.assertIn('cellIdentifier: { "round-review-hole-\\($0)" }', round_review)
+        live_scorecard = _read_required_source(self, IOS_DIR / "Views" / "LiveScorecardComponents.swift")
+        self.assertIn("button.accessibilityIdentifier(cellIdentifier(hole.number))", live_scorecard)
+        # Without a cell id the button must not override the score chip's own identifier.
+        self.assertNotIn('"live-scorecard-cell-', live_scorecard)
+        self.assertIn('.accessibilityIdentifier("live-scorecard-score-chip-\\(hole.number)")', live_scorecard)
         self.assertIn("value: HubRoute.roundReview(", round_home)
         self.assertIn("NavigationLink {", recent_review)
         self.assertIn("RoundReviewView(", recent_review)
@@ -3865,16 +3918,26 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn(".navigationBarBackButtonDisplayMode", recent_review)
         self.assertIn(".navigationBarTitleDisplayMode(.inline)", round_review)
         self.assertNotIn(".navigationBarBackButtonDisplayMode", round_review)
-        self.assertIn('isLocked ? "第 \\(current) 洞 · 编辑中" : "第 \\(current) 洞 · 落点"', shot_map)
-        self.assertIn('Label("上一洞", systemImage: "chevron.backward")', shot_map)
-        self.assertIn('Label("下一洞", systemImage: "chevron.forward")', shot_map)
+        # B3: the hole is full screen (navigation bar hidden). The 18-hole score strip replaces the
+        # old 上一洞 / 下一洞 / menu controls; editing locks swipe, strip and pull-down dismissal.
+        self.assertIn(".fullScreenCover(item: $shotMapHole)", round_review)
+        self.assertIn(".toolbar(.hidden, for: .navigationBar)", shot_map)
+        self.assertIn('.accessibilityIdentifier("round-hole-strip-\\(hole)")', shot_map)
+        self.assertIn(".frame(width: 40, height: 52)", shot_map)
+        self.assertIn("guard !isLocked, holes.contains(hole) else { return }", shot_map)
+        self.assertIn("enabled: !isLocked", shot_map)
+        self.assertIn(".interactiveDismissDisabled(isLocked)", shot_map)
+        for removed in ('"上一洞"', '"下一洞"', "round-shot-map-download-progress", "· 编辑中"):
+            self.assertNotIn(removed, shot_map)
         for ui_test in [real_flow, review_edit]:
             self.assertIn("RealEvidenceRoundResolver(", ui_test)
             self.assertIn("resolveReviewEvidence()", ui_test)
             self.assertIn("reviewEvidence.hole", ui_test)
             self.assertIn('app.navigationBars["单场复盘"]', ui_test)
             self.assertIn('app.buttons["round-review-hole-\\(reviewEvidence.hole)"]', ui_test)
-            self.assertIn('app.buttons["关闭"]', ui_test)
+            self.assertIn('app.buttons["round-shot-map-close"]', ui_test)
+            self.assertNotIn('app.buttons["关闭"]', ui_test)
+            self.assertIn('app.buttons["round-edit-begin"]', ui_test)
             self.assertNotIn('identifier CONTAINS "落点"', ui_test)
             self.assertIn('matching(identifier: "topo-hole-base-ready")', ui_test)
         self.assertIn("struct RealEvidenceRoundRejection", resolver)
@@ -3885,27 +3948,47 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("missing geometry/image", resolver)
         self.assertIn("non-synthetic club-labelled landings", resolver)
         self.assertIn("not spatially separated", resolver)
-        self.assertIn('app.buttons["Reorder 2"]', real_flow)
-        self.assertIn('identifier: "shot-draft-row-\\(reviewEvidence.shotCount)"', review_edit)
+        # A precise map is edited in place: the UI tests address the edit map and the bottom bar,
+        # not the retired count list / reorder handles.
+        self.assertNotIn('app.buttons["Reorder ', real_flow)
+        self.assertNotIn('app.buttons["Reorder ', review_edit)
+        self.assertIn('identifier: "round-shot-edit-map"', real_flow)
+        self.assertIn('app.buttons["round-edit-putts-plus"]', real_flow)
+        self.assertIn('element("round-shot-edit-map")', review_edit)
+        self.assertIn('containing: "共 \\(reviewEvidence.shotCount) 杆"', review_edit)
+        self.assertIn('element("shot-draft-row-1").exists', review_edit)  # asserted absent on a precise map
         self.assertIn('identifier: allowWrites ? "round-edit-save" : "round-edit-cancel"', review_edit)
         self.assertIn('matching(identifier: "home-last-round")', real_flow)
         self.assertIn('save("03-history-list")', real_flow)
         self.assertIn('save("03b-history-real-round")', real_flow)
-        # The modal pager's close action remains explicit. Hole editing exposes distinct Cancel/Save
-        # identifiers rather than overloading another ambiguous "完成" action.
-        self.assertIn('ToolbarItem(placement: .topBarLeading)', shot_map)
-        self.assertIn('Button("关闭", action: onClose)', shot_map)
+        # The full-screen pager's close action remains explicit (a glass button, hidden while
+        # editing). Hole editing exposes distinct Cancel/Save identifiers rather than overloading
+        # another ambiguous "完成" action.
+        self.assertIn(
+            'glassButton(system: "xmark", label: "关闭", identifier: "round-shot-map-close", action: onClose)',
+            shot_map,
+        )
+        self.assertIn("if !isEditing, let onClose {", shot_map)
+        self.assertNotIn('ToolbarItem(placement: .topBarLeading)', shot_map)
+        self.assertIn('pill("编辑", filled: false, identifier: "round-edit-begin") { beginEditing() }', shot_map)
         self.assertNotIn('Button("完成") { shotMapHole = nil }', round_review)
-        self.assertIn('accessibilityIdentifier("round-edit-cancel")', shot_map)
-        self.assertIn('accessibilityIdentifier("round-edit-save")', shot_map)
+        self.assertIn('pill("取消", filled: false, identifier: "round-edit-cancel")', shot_map)
+        self.assertIn('identifier: "round-edit-save")', shot_map)
+        self.assertIn(".accessibilityIdentifier(identifier)", shot_map)
         # The broad journey exits the whole-hole draft through the real Cancel control. The focused
         # journey owns add/move/delete/reorder and proves the removed per-shot add sheet stays gone.
         self.assertIn('identifier: "round-edit-cancel"', real_flow)
         self.assertIn('app.navigationBars["补一杆"].exists', real_flow)
-        self.assertIn("let reorderStart = lastReorder.coordinate(", review_edit)
-        self.assertIn("let reorderDestination = upperDraftRow.coordinate(", review_edit)
-        self.assertIn("reorderStart.press(", review_edit)
-        self.assertIn("thenDragTo: reorderDestination", review_edit)
+        # The focused journey reorders through the bottom bar's ‹ › arrows and proves the selected
+        # shot's number changes, then deletes the added point from the same bar.
+        self.assertIn('let orderLater = app.buttons["round-edit-order-later"]', review_edit)
+        self.assertIn('let orderEarlier = app.buttons["round-edit-order-earlier"]', review_edit)
+        self.assertIn("orderLater.tap()", review_edit)
+        self.assertIn("orderEarlier.tap()", review_edit)
+        self.assertIn('let deleteShot = app.buttons["round-edit-delete"]', review_edit)
+        self.assertIn("dragStart.press(", review_edit)
+        for removed in ("round-shot-precision-", "shot-draft-delete-", "改这一杆\"].waitForExistence", "shot-edit-club-picker"):
+            self.assertNotIn(removed, review_edit)
         self.assertNotIn('app.staticTexts["击球时球位"]', real_flow)
 
     def test_native_visual_tokens_share_garmin_pro_score_semantics(self) -> None:
@@ -4506,10 +4589,22 @@ class MobileContractTests(unittest.TestCase):
 
     def test_round_shot_map_pager_identity_initializer_order(self) -> None:
         source = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
-        pager_call = source.split("RoundHoleShotMapScreen(", 1)[1].split("        )\n        .id", 1)[0]
-        self.assertLess(pager_call.index("showsNavigationTitle:"), pager_call.index("globalId:"))
-        for field in ("roundRef:", "globalId:", "backGlobalId:", "nine:", "teeBox:", "mapRepository:"):
-            self.assertIn(field, pager_call)
+        # The pager builds its one visible hole through the internal initializer. Swift requires the
+        # labelled arguments in declaration order, so pin both the declaration and the call.
+        declaration = source.split("    init(roundRef: String, hole: Int, apiBaseURL: URL?, adminToken: String?,", 1)[1]
+        declaration = declaration.split("{", 1)[0]
+        pager_call = source.split("        RoundHoleShotMapScreen(\n", 1)[1].split("        )\n        .id", 1)[0]
+        self.assertNotIn("showsNavigationTitle", source)
+        order = (
+            "scorecard:", "stripHoles:", "onSelectHole:", "onClose:", "onEditingChange:", "onSaved:",
+            "mapRepository:", "globalId:", "backGlobalId:", "nine:", "teeBox:",
+        )
+        for text in (declaration, pager_call):
+            positions = [text.index(field) for field in order]
+            self.assertEqual(positions, sorted(positions), text)
+        self.assertIn("roundRef: roundRef,", pager_call)
+        self.assertIn("hole: current,", pager_call)
+        self.assertIn("stripHoles: stripHoles,", pager_call)
 
 
 class RoundEditContractTests(unittest.TestCase):
@@ -4538,12 +4633,58 @@ class RoundEditContractTests(unittest.TestCase):
         self.assertNotIn("private func post(", engine)
 
     def test_edit_ui_controls_present(self):
+        """B3 同屏改杆: map layer + bottom edit bar replace the sheet / precision page / reorder list."""
         comps = _read_required_source(self, IOS_DIR / "Views" / "RoundShotEditComponents.swift")
-        for token in ["RoundShotEditLayer", "ShotEditSheet", "LongPressGesture", "RoundShotReorderList", "PenaltyStepper", "本洞罚杆"]:
+        for token in [
+            "public struct RoundShotEditLayer",
+            "public struct RoundShotEditBar",
+            "public struct RoundShotFactEditList",
+            "public struct RoundShotFactList",
+            "public struct RoundShotRow",
+        ]:
             self.assertIn(token, comps)
+        # Nothing selected: 推杆 / 罚杆 −/+ (identifier-value / -minus / -plus).
+        self.assertIn('identifier: "round-edit-putts",', comps)
+        self.assertIn('identifier: "round-edit-penalty",', comps)
+        self.assertIn('identifier: "\\(identifier)-minus"', comps)
+        self.assertIn('.accessibilityIdentifier("\\(identifier)-value")', comps)
+        self.assertIn('identifier: "\\(identifier)-plus"', comps)
+        self.assertIn("onChange: { editModel.adjustPutts(by: $0) }", comps)
+        self.assertIn("onChange: { editModel.adjustPenalty(by: $0) }", comps)
+        # A shot selected: ‹ 第 N 杆 · D 码 › + 删除 + deselect, club pills, start-lie grid.
+        for identifier in [
+            '"round-edit-order-earlier"', '"round-edit-order-later"', '"round-edit-selected"',
+            '"round-edit-delete"', '"round-edit-deselect"', '"round-edit-club-\\(club)"',
+            '"round-edit-lie-\\(option.0)"', '"round-edit-error"', '"round-shot-edit-map"',
+            '"shot-draft-row-\\(index + 1)"',
+        ]:
+            self.assertIn(identifier, comps)
+        self.assertIn("editModel.delete(shotId: shot.id)", comps)
+        self.assertIn("editModel.editClub(shotId: shot.id, club)", comps)
+        self.assertIn("RoundClubGuess.orderedClubs(", comps)
+        # One DragGesture owns tap (select / deselect / add) and drag, so a drag never also adds.
+        self.assertIn("DragGesture(minimumDistance: 0)", comps)
+        self.assertIn("editModel.selectedShotId = editModel.selectedShotId == id ? nil : id", comps)
+        self.assertIn("editModel.addShot(px: px, afterShotId: editModel.selectedShotId)", comps)
+        self.assertNotIn("LongPressGesture", comps)
+        for removed in [
+            "ShotEditSheet", "RoundShotPrecisionEditor", "RoundShotReorderList", "PenaltyStepper",
+            "RoundShotMapLegend", "本洞罚杆", "shot-draft-delete-", "shot-draft-precision-",
+            "round-shot-precision-",
+        ]:
+            self.assertNotIn(removed, comps)
         screen = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
         for token in ["RoundEditModel", "编辑", "取消", "保存", "saveEditing"]:
             self.assertIn(token, screen)
+        # Edit happens on the same full-screen hole: the edit bar replaces the score strip.
+        self.assertIn("RoundShotEditBar(editModel: editModel)", screen)
+        self.assertIn("RoundShotEditMap(editModel: editModel, topoURL: topoURL(for: editModel.map))", screen)
+        self.assertIn("RoundHoleDraftScoreBox(hole: hole", screen)
+        self.assertIn('.accessibilityIdentifier("round-shot-score-box")', screen)
+        self.assertIn(".onChange(of: scoreRow?.putts)", screen)
+        self.assertIn("editModel?.adoptRecordedPutts(putts)", screen)
+        for removed in ["ShotEditSheet", "RoundShotPrecisionEditor", "RoundShotReorderList", "RoundShotMapLegend"]:
+            self.assertNotIn(removed, screen)
 
     def test_drag_to_move_and_magnifier_present(self):
         """PR2 拖动改位置 + 放大镜:手柄拖动手势 + 拖动态 + loupe 都在源码里。"""
@@ -4555,10 +4696,31 @@ class RoundEditContractTests(unittest.TestCase):
         self.assertIn("previewMove", model)
 
     def test_landing_list_manual_reorder_present(self):
-        """PR2 落点列表手动重排:可重排列表 → .onMove → editModel.reorder。"""
+        """B3 手动重排:底栏 ‹ › → editModel.moveShot(±1) → reorder;可拖动的重排列表已移除。"""
         comps = _read_required_source(self, IOS_DIR / "Views" / "RoundShotEditComponents.swift")
-        for token in ["RoundShotReorderList", ".onMove", "editModel.reorder"]:
-            self.assertIn(token, comps)
+        self.assertIn("editModel.moveShot(shot.id, by: -1)", comps)
+        self.assertIn("editModel.moveShot(shot.id, by: 1)", comps)
+        # The arrows are enabled exactly when the model would move the shot (never onto a putt).
+        self.assertIn('enabled: editModel.canMoveShot(shot.id, by: -1), identifier: "round-edit-order-earlier"', comps)
+        self.assertIn('enabled: editModel.canMoveShot(shot.id, by: 1), identifier: "round-edit-order-later"', comps)
+        for removed in ["RoundShotReorderList", ".onMove", "\\.editMode", "EditButton()"]:
+            self.assertNotIn(removed, comps)
+        model = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
+        move = model.split("public func moveShot(_ shotId: String, by offset: Int) {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("guard canMoveShot(shotId, by: offset),", move)
+        can_move = model.split("public func canMoveShot(_ shotId: String, by offset: Int) -> Bool {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("roundShotIsFullShot(map.shots[target])", can_move)
+        model = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
+        shot_map = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
+        # The synthetic tee fill never enters the draft, numbering or snapshot (B0d-2 section 3).
+        self.assertIn("? source.shots.filter { !$0.synthetic }", model)
+        self.assertIn("!roundShotIsPutt(shot) && !shot.synthetic", shot_map)
+        self.assertIn("return roundShotIsFullShot(shot)", model)
+        # Putt rows are fail-closed: never moved, never a swap target (putts are the 推杆 counter).
+        self.assertIn("guard offset != 0, isEditableShot(shotId),", can_move)
+        self.assertIn("ids.swapAt(index, target)", move)
+        self.assertIn("reorder(ids)", move)
+        self.assertIn("selectedShotId = shotId", move)
 
     def test_pager_locks_paging_while_editing(self):
         """PR2 编辑时锁横滑翻洞:编辑态上报 pager,pager 锁分页。"""

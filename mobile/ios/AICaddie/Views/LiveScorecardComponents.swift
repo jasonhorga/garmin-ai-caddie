@@ -1,14 +1,65 @@
 import SwiftUI
 
+/// The two facts a scorecard column needs; live rounds build it from `Hole`, the review from the
+/// round detail's scorecard.
+struct ScorecardHole: Identifiable, Equatable {
+    let number: Int
+    let par: Int
+    var id: Int { number }
+}
+
 /// One nine of the scorecard (`score.html`): hole numbers, pars and score symbols in a grid with an
-/// OUT / IN subtotal. Shared by the live scorecard and the round summary.
+/// OUT / IN subtotal. Shared by the live scorecard, the round summary and the round review.
 struct LiveNineCard: View {
     let label: String
-    let holes: [Hole]
+    let holes: [ScorecardHole]
     let scores: [Int: LiveHoleScore]
     var currentHole: Int? = nil
     var selectedHole: Int? = nil
     var onSelect: ((Int) -> Void)? = nil
+    /// Accessibility id of a tappable score cell (the review keeps `round-review-hole-N`).
+    var cellIdentifier: ((Int) -> String)? = nil
+    /// Holes whose cell can be tapped; others render as blank, disabled cells (an unplayed hole of a
+    /// 9-of-18 review). nil ⇒ every cell is tappable.
+    var canSelect: ((Int) -> Bool)? = nil
+
+    init(
+        label: String,
+        holes: [ScorecardHole],
+        scores: [Int: LiveHoleScore],
+        currentHole: Int? = nil,
+        selectedHole: Int? = nil,
+        onSelect: ((Int) -> Void)? = nil,
+        cellIdentifier: ((Int) -> String)? = nil,
+        canSelect: ((Int) -> Bool)? = nil
+    ) {
+        self.label = label
+        self.holes = holes
+        self.scores = scores
+        self.currentHole = currentHole
+        self.selectedHole = selectedHole
+        self.onSelect = onSelect
+        self.cellIdentifier = cellIdentifier
+        self.canSelect = canSelect
+    }
+
+    init(
+        label: String,
+        holes: [Hole],
+        scores: [Int: LiveHoleScore],
+        currentHole: Int? = nil,
+        selectedHole: Int? = nil,
+        onSelect: ((Int) -> Void)? = nil
+    ) {
+        self.init(
+            label: label,
+            holes: holes.map { ScorecardHole(number: $0.number, par: $0.par) },
+            scores: scores,
+            currentHole: currentHole,
+            selectedHole: selectedHole,
+            onSelect: onSelect
+        )
+    }
 
     private var subtotal: Int? {
         let recorded = holes.compactMap { scores[$0.number]?.score }
@@ -63,7 +114,7 @@ struct LiveNineCard: View {
     }
 
     @ViewBuilder
-    private func cell(_ hole: Hole) -> some View {
+    private func cell(_ hole: ScorecardHole) -> some View {
         let content = Group {
             if let score = scores[hole.number]?.score {
                 ScoreChip(score: score, toPar: score - hole.par, size: 26, dark: true)
@@ -85,13 +136,69 @@ struct LiveNineCard: View {
                 .stroke(hole.number == currentHole ? LiveScoreStyle.good.opacity(0.8) : .clear, lineWidth: 1.2)
         )
         if let onSelect {
-            Button { onSelect(hole.number) } label: { content }
+            let enabled = canSelect?(hole.number) ?? true
+            let button = Button { onSelect(hole.number) } label: { content }
                 .buttonStyle(.plain)
-                .accessibilityLabel("选择第 \(hole.number) 洞")
+                .disabled(!enabled)
+                .accessibilityLabel(cellLabel(hole))
                 .accessibilityAddTraits(hole.number == selectedHole ? [.isSelected] : [])
+            // An identifier on the button replaces the ones inside it, so only callers that need a
+            // cell id (the review's `round-review-hole-N`) set one; the live scorecard keeps its
+            // `live-scorecard-score-chip-N` on the score symbol.
+            if let cellIdentifier {
+                button.accessibilityIdentifier(cellIdentifier(hole.number))
+            } else {
+                button
+            }
         } else {
             content
         }
+    }
+}
+
+private extension LiveNineCard {
+    func cellLabel(_ hole: ScorecardHole) -> String {
+        guard cellIdentifier != nil else { return "选择第 \(hole.number) 洞" }
+        guard let score = scores[hole.number] else { return "第 \(hole.number) 洞，未记" }
+        return "第 \(hole.number) 洞，\(score.score) 杆，\(ScoreChip.name(toPar: score.score - hole.par))"
+    }
+}
+
+/// One summary tile (球道命中 / GIR / 推杆 / 罚杆), shared by the round summary and the review.
+struct LiveSummaryTile: View {
+    let title: String
+    let value: String?
+    let detail: String?
+    let identifier: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(LivePlayStyle.ink60)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(value ?? "—")
+                    .font(.system(size: 24, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(LivePlayStyle.ink)
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: 12))
+                        .monospacedDigit()
+                        .foregroundStyle(LivePlayStyle.ink60)
+                }
+            }
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(LivePlayStyle.stroke14, lineWidth: 0.5))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title) \(value ?? "未记") \(detail ?? "")")
+        .accessibilityIdentifier(identifier)
     }
 }
 

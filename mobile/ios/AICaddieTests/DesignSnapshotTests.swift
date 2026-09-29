@@ -840,8 +840,9 @@ final class DesignSnapshotTests: XCTestCase {
             ScrollView {
                 RoundReviewContent(detail: roundDetail, isLoading: false, errorText: nil, fallbackCourseName: "Fixture Links")
             }
-            .background(HubStyle.grouped),
-            named: "round-review"
+            .background(LivePlayStyle.base),
+            named: "round-review",
+            dark: true
         )
 
         // 数据统计: overview KPIs + 近场折线图 + 成绩分布 + by-par(3/4/5) + putting + trends + quarter +
@@ -971,37 +972,119 @@ final class DesignSnapshotTests: XCTestCase {
 
         // 复盘逐洞落点图: this round's actual shots (tee→landing→green) on the hole, dots by lie.
         let shotMapJSON = """
-        {"found":true,"hole":1,"par":4,\
+        {"found":true,"hole":1,"par":4,"geometryRevision":"snapshot-r1",\
         "map":{"image":"\(b64)","overlay":{"w":\(mapW),"h":\(mapH),"ppm":1.0,"ln":360,\
         "route":[[120,330,0],[118,180,180],[120,55,360]]}},\
         "shots":[\
-        {"start":[120,330],"end":[122,200],"club":"Driver","lie":"TeeBox","endLie":"Fairway","shotType":"TEE","order":1,"synthetic":false},\
-        {"start":[122,200],"end":[110,120],"club":"7I","lie":"Fairway","endLie":"Bunker","shotType":"APPROACH","order":2,"synthetic":false},\
-        {"start":[110,120],"end":[119,60],"club":"SW","lie":"Bunker","endLie":"Green","shotType":"APPROACH","order":3,"synthetic":false}]}
+        {"id":"s1","start":[120,330],"end":[122,200],"club":"Driver","lie":"TeeBox","endLie":"Fairway","shotType":"TEE","order":1,"synthetic":false},\
+        {"id":"s2","start":[122,200],"end":[110,120],"club":"7I","lie":"Fairway","endLie":"Bunker","shotType":"APPROACH","order":2,"synthetic":false},\
+        {"id":"s3","start":[110,120],"end":[119,60],"club":"SW","lie":"Bunker","endLie":"Green","shotType":"APPROACH","order":3,"synthetic":false}]}
         """
         let shotMap = try JSONDecoder().decode(RoundHoleShotMap.self, from: Data(shotMapJSON.utf8))
+        let reviewScorecard = roundDetail.scorecard
+        // B3 每洞落点: score box on top, numbered landings coloured by lie with "一号木 200" labels and
+        // "推 ×2", the 18-hole score strip at the bottom.
         try captureScreen(
-            VStack(spacing: 0) {
-                RoundShotMapView(shotMap: shotMap)
+            VStack(spacing: 10) {
+                HStack {
+                    RoundHoleScoreBox(hole: 1, par: 4, row: reviewScorecard.first, putts: 2, penalties: 0)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                RoundShotMapView(shotMap: shotMap, putts: 2)
                 Spacer(minLength: 0)
+                RoundHoleScoreStrip(holes: reviewScorecard.map(\.hole), current: 1, scorecard: reviewScorecard, onSelect: { _ in })
             }
-            .background(Color(red: 0.10, green: 0.10, blue: 0.09)),
-            named: "round-shot-map"
+            .padding(.top, 12)
+            .background(RoundHoleMapStyle.base),
+            named: "round-shot-map",
+            dark: true
         )
 
-        // 复盘编辑态 (PR2): same shot map with the edit layer → a drag-handle ring on every landing +
-        // the per-hole 罚杆 stepper. (Non-nil editModel = editing; the reorder List is empty in the
-        // snapshot because ImageRenderer/window doesn't render List content — verified on device/XCUITest.)
-        let editModel = RoundEditModel(map: shotMap, sync: SyncClient(baseURL: URL(string: "https://caddie.example")!), roundRef: "r1")
-        editModel.enterEdit()
+        // B3 9-of-18 round: the strip keeps holes 10–18 visible; unplayed holes are dimmed and cannot
+        // be opened.
+        let partialRows = (1...18).map { hole -> String in
+            hole <= 9 ? #"{"hole":\#(hole),"par":4,"score":\#(hole % 3 + 3)}"# : #"{"hole":\#(hole),"par":4}"#
+        }
+        let partialScorecard = try JSONDecoder().decode(
+            [RoundDetailHole].self, from: Data("[\(partialRows.joined(separator: ","))]".utf8)
+        )
+        let partialHoles = RoundReviewHoles(partialScorecard)
+        XCTAssertEqual(partialHoles.strip, Array(1...18))
+        XCTAssertEqual(partialHoles.played, Array(1...9))
         try captureScreen(
             VStack(spacing: 12) {
-                RoundShotMapView(shotMap: shotMap, editModel: editModel).frame(height: 420)
-                PenaltyStepper(value: 1) { _ in }.hubCard()
+                Spacer(minLength: 0)
+                LiveNineCard(
+                    label: "IN",
+                    holes: Array(RoundReviewScorecard(partialScorecard).holes.dropFirst(9)),
+                    scores: RoundReviewScorecard(partialScorecard).scores,
+                    onSelect: { _ in },
+                    cellIdentifier: { "round-review-hole-\($0)" },
+                    canSelect: partialHoles.canOpen
+                )
+                .padding(.horizontal, 20)
+                RoundHoleScoreStrip(
+                    holes: partialHoles.strip, current: 9, scorecard: partialScorecard,
+                    onSelect: { _ in }, canSelect: partialHoles.canOpen
+                )
             }
-            .padding(24)
-            .background(HubStyle.grouped),
-            named: "review-edit-handles"
+            .padding(.bottom, 12)
+            .background(RoundHoleMapStyle.base),
+            named: "round-hole-strip-partial",
+            dark: true
+        )
+
+        // B3 mapless fallback: full shots numbered like the map, putts as one "推 ×N" line.
+        let factShots = [
+            RoundShot(shotId: "f1", start: nil, end: nil, club: "Driver", lie: "teebox", endLie: "fairway", order: 1),
+            RoundShot(shotId: "f2", start: nil, end: nil, club: "7I", lie: "fairway", endLie: "green", order: 2),
+            RoundShot(shotId: "f3", start: nil, end: nil, lie: "Green", shotType: "PENALTY_PUTT", order: 3),
+            RoundShot(shotId: "f4", start: nil, end: nil, club: "Putter", lie: "green", shotType: "PUTT", order: 4),
+        ]
+        try captureScreen(
+            VStack {
+                RoundShotFactList(shots: factShots, ppm: nil, recordedPutts: 2)
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .background(RoundHoleMapStyle.base),
+            named: "round-shot-facts",
+            dark: true
+        )
+
+        // B3 同屏改杆: the same map as drag handles. With a shot selected the bar shows ‹ 第 N 杆 · D 码 ›
+        // + 删除, the club pills (guess first) and the lie grid; with none selected 推杆 / 罚杆 −/+.
+        let editModel = RoundEditModel(
+            map: shotMap,
+            sync: SyncClient(baseURL: URL(string: "https://caddie.example")!),
+            roundRef: "r1",
+            putts: 2
+        )
+        editModel.enterEdit()
+        try captureScreen(
+            VStack(spacing: 0) {
+                RoundShotMapView(shotMap: editModel.map, editModel: editModel).frame(height: 460)
+                Spacer(minLength: 0)
+                RoundShotEditBar(editModel: editModel)
+            }
+            .background(RoundHoleMapStyle.base),
+            named: "review-edit-counters",
+            dark: true
+        )
+        // A precise overlay + revision and stable shot ids keep every recorded shot editable.
+        XCTAssertTrue(editModel.canEditPositions)
+        XCTAssertEqual(editModel.map.shots.map(\.id), ["s1", "s2", "s3"])
+        editModel.selectedShotId = "s2"
+        try captureScreen(
+            VStack(spacing: 0) {
+                RoundShotMapView(shotMap: editModel.map, editModel: editModel).frame(height: 460)
+                Spacer(minLength: 0)
+                RoundShotEditBar(editModel: editModel)
+            }
+            .background(RoundHoleMapStyle.base),
+            named: "review-edit-handles",
+            dark: true
         )
 
         // 拖动放大镜 loupe (PR2, 设计 §5): the circular magnifier that floats above the finger while

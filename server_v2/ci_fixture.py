@@ -542,7 +542,29 @@ def shotmap(round_ref: str, hole: int, includeImage: bool = True, global_id: int
     _, requested_course, requested_back = _bound_round_context(round_ref, global_id, back_global_id, nine, tee_box)
     display_hole, local_hole, source_course = _resolve_hole(nine, hole, requested_course, requested_back)
     map_body = {"image": _png_data_uri(seed=hole) if includeImage else None, "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + hole, "route": [[4, 4, 0], [60, 60, 220 + hole]]}}
-    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": str(round_ref), "hole": display_hole, "par": _hole_par(source_course, local_hole), "globalId": source_course, "localHole": local_hole, "sourceRef": f"{round_ref}:{display_hole}", "geometryRevision": FIXTURE_REVISION, "mapKind": "prodgeometry", "map": map_body, "shots": [{"id": f"s{display_hole}-1", "club": "1D", "synthetic": False, "end": [8 + display_hole, 8], "sourceRef": f"{round_ref}:{display_hole}:0"}, {"id": f"s{display_hole}-2", "club": "8I", "synthetic": False, "end": [56, 56 - display_hole], "sourceRef": f"{round_ref}:{display_hole}:1"}], "manualPenalty": 0, "missingData": []})
+    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": str(round_ref), "hole": display_hole, "par": _hole_par(source_course, local_hole), "globalId": source_course, "localHole": local_hole, "sourceRef": f"{round_ref}:{display_hole}", "geometryRevision": FIXTURE_REVISION, "mapKind": "prodgeometry", "map": map_body, "shots": _fixture_shot_rows(round_ref, display_hole), "manualPenalty": 0, "missingData": []})
+
+
+FIXTURE_TEE_PX = [4, 4]
+
+
+def _fixture_shot_rows(round_ref: str, display_hole: int) -> list[dict]:
+    """Two chained full shots in the 64 px overlay, like production `round_shot_map` rows.
+
+    Production projects both ends of every shot (the first from the tee, each next one from the
+    previous landing), so the fixture does too: the Native real flow then renders the B3
+    "一号木 221" / "八号铁 154" labels from real geometry. At ppm 0.17 the drive is ~220 yd and the
+    8-iron ~150 yd; the per-hole offset keeps landings distinct without changing the distances much.
+    """
+    offset = display_hole % 4
+    drive_end = [30, 28 - offset]
+    iron_end = [46, 46 - offset]
+    return [
+        {"id": f"s{display_hole}-1", "club": "1D", "synthetic": False, "start": list(FIXTURE_TEE_PX), "end": drive_end,
+         "lie": "TeeBox", "endLie": "Fairway", "sourceRef": f"{round_ref}:{display_hole}:0"},
+        {"id": f"s{display_hole}-2", "club": "8I", "synthetic": False, "start": list(drive_end), "end": iron_end,
+         "lie": "Fairway", "endLie": "Green", "sourceRef": f"{round_ref}:{display_hole}:1"},
+    ]
 
 
 @ROUTE.get("/api/v2/courses/search")

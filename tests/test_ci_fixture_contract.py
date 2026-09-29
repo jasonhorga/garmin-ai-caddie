@@ -36,6 +36,34 @@ class CIFixtureContractTests(unittest.TestCase):
             self.assertTrue(body["map"]["image"].startswith("data:image/png;base64,"))
             self.assertEqual((body["map"]["overlay"]["w"], body["map"]["overlay"]["h"]), (64, 64))
 
+    def test_fixture_shotmap_shots_are_chained_like_production_rows(self) -> None:
+        # B3 labels read "一号木 221": the yards come from each shot's start and landing, so the
+        # fixture must project both ends like `round_shot_map` does (first shot from the tee, each
+        # next shot from the previous landing) or the real Native flow can only show the club.
+        try:
+            from server_v2.ci_fixture import shotmap
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        for hole in range(1, 19):
+            body = shotmap("fixture-round-1", hole)
+            overlay = body["map"]["overlay"]
+            shots = body["shots"]
+            self.assertEqual(shots[0]["start"], [int(v) for v in overlay["route"][0][:2]])
+            self.assertEqual(shots[0]["lie"], "TeeBox")
+            previous_end = None
+            yards = {}
+            for shot in shots:
+                self.assertEqual(len(shot["start"]), 2)
+                self.assertEqual(len(shot["end"]), 2)
+                if previous_end is not None:
+                    self.assertEqual(shot["start"], previous_end)
+                for x, y in (shot["start"], shot["end"]):
+                    self.assertTrue(0 <= x <= overlay["w"] and 0 <= y <= overlay["h"])
+                previous_end = shot["end"]
+                yards[shot["club"]] = round(math.dist(shot["start"], shot["end"]) / overlay["ppm"] * 1.09361)
+            self.assertTrue(200 <= yards["1D"] <= 240, yards)
+            self.assertTrue(130 <= yards["8I"] <= 170, yards)
+
     def test_fixture_package_holes_preserve_canonical_tee_coordinates(self) -> None:
         try:
             from server_v2.ci_fixture import COURSE_COORDINATES, _package

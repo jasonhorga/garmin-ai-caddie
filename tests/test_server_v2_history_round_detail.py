@@ -281,6 +281,54 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in payload["annotations"]], [note["id"], correction["id"]])
         self.assertEqual([row["id"] for row in payload["corrections"]], [correction["id"]])
 
+    def test_hole_putt_corrections_on_any_round_ref_show_in_the_scorecard(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            add_annotation("hole", "700001:2", "putt_correction", {"to": 3}, root=root)
+            add_annotation("hole", "alias-700001:2", "putt_correction", {"to": 1, "from": 3}, root=root)
+            add_annotation("hole", "other-round:3", "putt_correction", {"to": 4}, root=root)
+
+            payload = build_history_round_detail(round_detail_data(), "700001", annotations_root=root)
+
+        putts = {cell["hole"]: cell["putts"] for cell in payload["scorecard"]}
+        self.assertEqual(putts, {1: 2, 2: 1, 3: 1, 4: 3})
+
+    def test_merged_round_putt_corrections_use_display_holes_for_every_ref(self) -> None:
+        # B0d-2 target contract: `{ref}:{hole}` always carries the 1-18 display hole, whichever ref
+        # (canonical or either member) the client used. Member-local numbering is not a target form.
+        merged_id = "merged_720001_720002"
+        row = {
+            "id": merged_id,
+            "ids": [720001, 720002],
+            "merged": True,
+            "date": "2026-05-27",
+            "course": "Two Loop Course",
+            "courseKey": "two_loop",
+            "courseId": 111111,
+            "frontNineGlobalCourseId": 111111,
+            "backNineGlobalCourseId": 222222,
+            "holesCompleted": 18,
+            "strokes": 72,
+            "par": 72,
+            "holePars": "4" * 18,
+            "holes": [{"number": number, "strokes": 4, "par": 4, "putts": 2} for number in range(1, 19)],
+            "hasShots": False,
+        }
+        data = HistoryData(raw_rounds=[], rounds=[row], shots=[])
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            add_annotation("hole", "720001:1", "putt_correction", {"to": 1}, root=root)
+            add_annotation("hole", "720002:10", "putt_correction", {"to": 3}, root=root)
+            add_annotation("hole", f"{merged_id}:18", "putt_correction", {"to": 0}, root=root)
+
+            payload = build_history_round_detail(data, "720002", annotations_root=root)
+
+        putts = {cell["hole"]: cell["putts"] for cell in payload["scorecard"]}
+        self.assertEqual(putts[1], 1)
+        self.assertEqual(putts[10], 3)
+        self.assertEqual(putts[18], 0)
+        self.assertEqual({hole for hole, value in putts.items() if value != 2}, {1, 10, 18})
+
     def test_missing_round_detail_degrades_cleanly(self) -> None:
         payload = build_history_round_detail(round_detail_data(), "missing-round")
 
