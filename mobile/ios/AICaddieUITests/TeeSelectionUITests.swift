@@ -59,7 +59,12 @@ final class TeeSelectionUITests: XCTestCase {
         launchFresh()
         save("01-home"); dump("01-home")
 
-        // 首页主卡 → 开始一场 (StartRoundView), opened without a preselected course.
+        // README §8: at the injected Beijing Palace tee the home shows the course-here card, and
+        // 换球场或组合 opens 开始一场 with that course (its loop and Tee) already selected.
+        XCTAssertTrue(
+            app.buttons["home-change-course"].waitForExistence(timeout: 30),
+            "at Beijing Palace the home must offer the course-here card with 换球场或组合"
+        )
         guard openStartRound() else {
             save("02-start-missing"); dump("02-start-missing")
             XCTFail("the real home must expose and open 开始一场")
@@ -68,28 +73,15 @@ final class TeeSelectionUITests: XCTestCase {
         settle(9)
         save("02-start-round"); dump("02-start-round")  // 一个球场列表 + 第一个环 + 发球台圆点
 
-        // This injected coordinate can legitimately return several nearby venues. Reaching the Tee
-        // row therefore requires an explicit venue choice; history must never silently select one
-        // for the player. Use the real Beijing Palace catalogue row verified by the same GPS.
         let palaceRow = app.buttons["start-round-venue-31793"]
-        guard palaceRow.waitForExistence(timeout: 15), palaceRow.isHittable else {
-            XCTFail("the production nearby response must list Beijing Palace (31793)")
+        guard palaceRow.waitForExistence(timeout: 15) else {
+            XCTFail("开始一场 must list the carried Beijing Palace (31793) row")
             return
         }
         XCTAssertTrue(
-            nearbyDistanceRows().firstMatch.waitForExistence(timeout: 60),
-            "the complete provider nearby result must list nearby venues with their distance"
+            waitForValue("已选择", on: palaceRow, timeout: 8),
+            "换球场或组合 must carry the course here into 开始一场 as the selected venue"
         )
-        XCTAssertEqual(
-            palaceRow.value as? String,
-            "未选择",
-            "multiple nearby venues must wait for the player's explicit choice"
-        )
-        XCTAssertFalse(
-            app.buttons["start-round-primary-action"].isEnabled,
-            "a course from history must not become the implicit nearby selection"
-        )
-        palaceRow.tap()
         let palace = app.buttons["start-round-course-segment-31793"]
         XCTAssertTrue(palace.waitForExistence(timeout: 8), "the selected venue must show its loop tile")
         let startAction = app.buttons["start-round-primary-action"]
@@ -430,10 +422,10 @@ final class TeeSelectionUITests: XCTestCase {
             nearbyDistanceRows().firstMatch.exists,
             "an ocean coordinate must not list any nearby course"
         )
-        XCTAssertFalse(
-            app.buttons["start-round-venue-31793"].exists,
-            "the empty nearby result must not be repopulated from play history"
-        )
+        // README §8: the one list keeps recently played / downloaded courses; an empty nearby
+        // result only removes nearby attribution. Any retained row carries no distance and none
+        // is selected, so nothing starts until the player chooses.
+        assertRetainedRowsAreUnselectedWithoutDistance("the empty nearby result")
         XCTAssertFalse(app.buttons["start-round-primary-action"].isEnabled)
         save("empty-nearby-01-start-round"); dump("empty-nearby-01-start-round")
 
@@ -466,13 +458,11 @@ final class TeeSelectionUITests: XCTestCase {
             app.buttons["start-round-retry-nearby"].waitForExistence(timeout: 20),
             "a transport failure without a factual local candidate must settle to the retry icon + search"
         )
-        XCTAssertFalse(
-            app.buttons.matching(
-                NSPredicate(format: "identifier BEGINSWITH %@", "start-round-venue-")
-            ).firstMatch.exists,
-            "a failed request at an ocean coordinate must not repopulate the list from history"
-        )
+        // A transport failure removes nearby attribution only: retained recent / downloaded rows
+        // stay, without distance and unselected; the retry icon is the only failure affordance.
+        assertRetainedRowsAreUnselectedWithoutDistance("a failed nearby request at an ocean coordinate")
         XCTAssertFalse(app.buttons["start-round-primary-action"].isEnabled)
+        save("nearby-failure-01-start-round"); dump("nearby-failure-01-start-round")
 
         let search = app.buttons["start-round-search-all-courses"]
         XCTAssertTrue(search.exists && search.isHittable)
@@ -744,6 +734,29 @@ final class TeeSelectionUITests: XCTestCase {
     }
 
     /// Provider-nearby rows are the only rows that carry a distance ("1.2 公里").
+    /// No venue row claims a distance, and every retained (recent / downloaded) row is unselected.
+    private func assertRetainedRowsAreUnselectedWithoutDistance(
+        _ situation: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertFalse(
+            nearbyDistanceRows().firstMatch.exists,
+            "\(situation) must not list any row with a nearby distance",
+            file: file, line: line
+        )
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "start-round-venue-"))
+        for index in 0..<rows.count {
+            let row = rows.element(boundBy: index)
+            XCTAssertEqual(
+                row.value as? String,
+                "未选择",
+                "\(situation) must not select a retained course (\(row.identifier))",
+                file: file, line: line
+            )
+        }
+    }
+
     private func nearbyDistanceRows() -> XCUIElementQuery {
         app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "start-round-venue-", "公里")

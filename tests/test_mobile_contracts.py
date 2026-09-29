@@ -2330,6 +2330,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("[3585, 3393, 3019, 2533]", snapshots)
         discovery = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "StartRoundDiscoveryTests.swift")
         self.assertIn("func testChangeCourseKeepsANeverPlayedVenueSelectedWhenTheRequeryFails()", discovery)
+        # Real journeys follow the B4b contract: 换球场或组合 carries the course here (selected), and an
+        # empty / failed nearby result drops nearby attribution without erasing recent rows.
+        tee_ui = _read_required_source(self, IOS_DIR.parent / "AICaddieUITests" / "TeeSelectionUITests.swift")
+        self.assertIn("换球场或组合 must carry the course here into 开始一场 as the selected venue", tee_ui)
+        self.assertEqual(tee_ui.count("assertRetainedRowsAreUnselectedWithoutDistance(\""), 2)
+        self.assertNotIn("multiple nearby venues must wait for the player's explicit choice", tee_ui)
+        self.assertNotIn("must not be repopulated from play history", tee_ui)
         # No compatibility-only inputs on the new home cards.
         self.assertNotIn("let total: Int", round_home.split("struct HubInProgressCard: View {", 1)[1].split("\n}\n", 1)[0])
         self.assertNotIn("lastCourseName", round_home)
