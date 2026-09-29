@@ -213,6 +213,16 @@ final class RealFlowUITests: XCTestCase {
                             shotLabels.firstMatch.waitForExistence(timeout: 5),
                             "club-labelled evidence landings must show their 球杆 码数 labels"
                         )
+                        // B3 label contract: club plus the shot's yards ("一号木 221"), computed from
+                        // the shot's real start and landing. A club-only label means the geometry is
+                        // missing an endpoint.
+                        let yardLabels = shotLabels.allElementsBoundByIndex.filter { label in
+                            label.label.range(of: #"\S+ \d{1,3}$"#, options: .regularExpression) != nil
+                        }
+                        XCTAssertFalse(
+                            yardLabels.isEmpty,
+                            "shot labels must carry the club and the yards, got \(shotLabels.allElementsBoundByIndex.map(\.label))"
+                        )
                         labelsControl.tap()
                         let hiddenLabels = app.buttons.matching(
                             NSPredicate(format: "identifier == %@ AND label == %@", "round-map-labels", "显示标签")
