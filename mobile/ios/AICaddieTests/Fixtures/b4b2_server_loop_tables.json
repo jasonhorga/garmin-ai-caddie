@@ -2079,7 +2079,7 @@
    "pendingEventCount": 0,
    "serverSequence": 0
   },
-  "generatedAt": "2026-09-29T21:14:05Z",
+  "generatedAt": "2026-09-29T21:40:25Z",
   "geometryCoverage": {
    "readyHoles": 0,
    "state": "missing",
@@ -2244,8 +2244,8 @@
     "expiresAfterHours": 24,
     "staleAfterHours": 6
    },
-   "expiresAt": "2026-09-30T21:14:05Z",
-   "preparedAt": "2026-09-29T21:14:05Z",
+   "expiresAt": "2026-09-30T21:40:25Z",
+   "preparedAt": "2026-09-29T21:40:25Z",
    "state": "degraded"
   },
   "playerProfile": {
@@ -2419,11 +2419,14 @@
    "state": "ready"
   },
   "weatherSnapshot": {
+   "capturedAt": null,
+   "confidence": "low",
    "coverage": {
     "pct": 0.0,
     "ready": 0,
     "total": 9
    },
+   "hole": null,
    "holeCoverage": [
     {
      "hole": 1,
@@ -2471,6 +2474,7 @@
      "state": "missing"
     }
    ],
+   "location": null,
    "missingData": [
     {
      "label": "location",
@@ -2485,7 +2489,14 @@
      "reason": "no observed or forecast weather values available"
     }
    ],
-   "roundId": "live-course-55555"
+   "precipitationMm": null,
+   "roundId": "live-course-55555",
+   "schema": "ai-caddie-weather-snapshot-v1",
+   "source": "missing",
+   "state": "missing",
+   "temperatureC": null,
+   "windDirectionDeg": null,
+   "windSpeedMps": null
   }
  },
  "frontHalf": {
@@ -4568,7 +4579,7 @@
    "pendingEventCount": 0,
    "serverSequence": 0
   },
-  "generatedAt": "2026-09-29T21:14:05Z",
+  "generatedAt": "2026-09-29T21:40:25Z",
   "geometryCoverage": {
    "readyHoles": 0,
    "state": "missing",
@@ -4733,8 +4744,8 @@
     "expiresAfterHours": 24,
     "staleAfterHours": 6
    },
-   "expiresAt": "2026-09-30T21:14:05Z",
-   "preparedAt": "2026-09-29T21:14:05Z",
+   "expiresAt": "2026-09-30T21:40:25Z",
+   "preparedAt": "2026-09-29T21:40:25Z",
    "state": "degraded"
   },
   "playerProfile": {
@@ -10642,7 +10653,7 @@
    "pendingEventCount": 0,
    "serverSequence": 0
   },
-  "generatedAt": "2026-09-29T21:14:05Z",
+  "generatedAt": "2026-09-29T21:40:25Z",
   "geometryCoverage": {
    "readyHoles": 0,
    "state": "missing",
@@ -10933,8 +10944,8 @@
     "expiresAfterHours": 24,
     "staleAfterHours": 6
    },
-   "expiresAt": "2026-09-30T21:14:05Z",
-   "preparedAt": "2026-09-29T21:14:05Z",
+   "expiresAt": "2026-09-30T21:40:25Z",
+   "preparedAt": "2026-09-29T21:40:25Z",
    "state": "degraded"
   },
   "playerProfile": {

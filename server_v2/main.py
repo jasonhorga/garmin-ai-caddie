@@ -77,7 +77,13 @@ from .mobile import (
     replay_mobile_events_response,
     round_state_response,
 )
-from ai_caddie.caddie.mobile_live import RoundLoopError, parse_round_loops, round_loop_key
+from ai_caddie.caddie.mobile_live import course_shape_from_release
+from ai_caddie.caddie.round_loops import (
+    RoundLoopError,
+    parse_round_loops,
+    resolve_round_loops,
+    round_loop_key,
+)
 from .auth_api import auth_router
 from .players_api import (
     admin_request_disposition,
@@ -2227,12 +2233,21 @@ def course_install_status(
     loops: str = Query(..., description="The package's ordered round loops, G:H[,G2:H2]"),
     player_id: str = Depends(current_player_id),
 ) -> CourseInstallStatusResponse:
+    # The same strict parser as the package route. A job exists only for loops the package route
+    # proved at enqueue; without one, the loops are proven against the Garmin release with the
+    # same resolver, so an invalid half or cross-venue order is a 422, never an aliased 404.
+    round_loops = _parse_round_loops_or_422(loops, global_id)
     state = course_install.status(
         global_id=int(global_id),
         tee_box=str(tee_box or "blue"),
-        loop_key=round_loop_key(_parse_round_loops_or_422(loops, global_id)),
+        loop_key=round_loop_key(round_loops),
         player_id=player_id,
     )
+    if state is None:
+        try:
+            resolve_round_loops(round_loops, course_shape_from_release)
+        except RoundLoopError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     if state is None:
         raise HTTPException(status_code=404, detail="course install job not found")
     return CourseInstallStatusResponse(**state)

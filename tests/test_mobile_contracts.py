@@ -17,8 +17,9 @@ from ai_caddie.history import stats_cache
 from ai_caddie.reports.annotations import add_annotation
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.history.history import HistoryData
-from ai_caddie.caddie.mobile_live import build_live_round_package
+from ai_caddie.caddie.mobile_live import apply_past_round_loop_identity, build_live_round_package
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
+from tests.round_loop_authority import fixture_course_authority
 
 
 CONTRACT_DIR = Path("mobile") / "contracts"
@@ -231,16 +232,18 @@ class MobileContractTests(unittest.TestCase):
                 "coverage": {"ready": 8, "total": 10, "pct": 80.0},
             },
             "course": {"globalId": 31795, "name": "Fixture Links", "teeBox": "blue"},
+            # The back half, all nine holes: round 1–9 on physical 10–18.
             "holes": [
                 {
-                    "number": 1,
+                    "number": number,
                     "sourceGlobalId": 31795,
-                    "sourceLocalHole": 10,
-                    "courseHoleNumber": 10,
+                    "sourceLocalHole": number + 9,
+                    "courseHoleNumber": number + 9,
                     "par": 4,
                     "yards": 410,
                     "geometryCoverage": "ready",
                 }
+                for number in range(1, 10)
             ],
             "coursePrep": {
                 "schema": "ai-caddie-course-prep-package-v1",
@@ -561,16 +564,19 @@ class MobileContractTests(unittest.TestCase):
                 patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=ready_coverage),
                 patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=ready_geometry),
                 patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
+                fixture_course_authority(),
             ):
-                package = build_live_round_package(
+                # The raw build carries no loop table; a past round is stamped from durable facts.
+                package = apply_past_round_loop_identity(build_live_round_package(
                     "900001",
                     data=fixture_history_data(),
                     data_mode="fixture",
                     root=root,
                     captured_at="2026-05-25T09:00:00Z",
-                )
+                ))
 
         _assert_schema_accepts(self, schema, package)
+        self.assertEqual(package["loopKey"], "31795:front+31795:back")
         self.assertEqual(package["offlinePackageStatus"]["state"], "ready")
         self.assertEqual(package["missingData"], [])
         checks = {row["label"]: row for row in package["readinessChecks"]}
@@ -707,16 +713,19 @@ class MobileContractTests(unittest.TestCase):
             patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
             patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=ready_geometry),
             patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", return_value={"missingData": [], "coverage": "ready"}),
+            # Course 88888 stands in for an 18-hole course with a CourseView release.
+            patch("ai_caddie.caddie.mobile_live._authoritative_course_holes", return_value=18),
         ):
-            package = build_live_round_package(
+            package = apply_past_round_loop_identity(build_live_round_package(
                 "prefetch-round",
                 data=data,
                 data_mode="fixture",
                 ensure_geometry=True,
-            )
+            ))
 
         _assert_schema_accepts(self, schema, package)
         _assert_json_schema_accepts(self, schema, package)
+        self.assertEqual(package["loopKey"], "88888:front+88888:back")
         self.assertEqual(package["geometryCoverage"], {"state": "ready", "readyHoles": 18, "totalHoles": 18})
         ensure = package["sourceCoverage"]["geometryEnsure"]
         self.assertEqual(ensure["state"], "ready")

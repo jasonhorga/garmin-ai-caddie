@@ -12,6 +12,7 @@ from ai_caddie.core.config import get_settings
 from ai_caddie.caddie.decision import list_decision_audits
 from ai_caddie.llm.llm_providers import StaticProvider
 from server_v2.main import app
+from tests.round_loop_authority import fixture_course_authority
 
 
 FIXTURE_PATH = Path("tests") / "fixtures" / "sanitized_private_round_acceptance.json"
@@ -32,6 +33,10 @@ class PrivateAcceptanceFlowTests(unittest.TestCase):
     def setUp(self) -> None:
         get_settings.cache_clear()
         self.addCleanup(get_settings.cache_clear)
+        # Fixture history courses have no CourseView release here; stand in for it (B4b-2).
+        authority = fixture_course_authority()
+        authority.start()
+        self.addCleanup(authority.stop)
 
     def test_sanitized_private_round_fixture_drives_end_to_end_flow(self) -> None:
         self.assertTrue(FIXTURE_PATH.exists(), f"missing acceptance fixture: {FIXTURE_PATH}")

@@ -180,8 +180,12 @@ final class WatchCourseDownloadTests: XCTestCase {
             holes: 18,
             teeBox: "Blue"
         )
-        let package = try client.decodeCoursePackage(Data(
-            #"{"schema":"ai-caddie-live-round-package-v2","roundId":"fast-seed-1","course":{"globalId":7002,"name":"Remote Course","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":400,"geometryCoverage":"partial","sourceGlobalId":7002,"sourceLocalHole":1,"courseHoleNumber":1}],"coursePrep":{"globalId":7002,"holes":[{"hole":1,"par":4,"geometryCoverage":"partial","landing_m":180.0,"route":[[0.0,0.0,0.0],[0.0,180.0,180.0]],"holeImageProjection":{"available":true,"widthPx":500,"heightPx":700,"refs":[{"lat":40.0,"lon":116.0,"px":100.0,"py":600.0},{"lat":40.0,"lon":116.001,"px":220.0,"py":600.0},{"lat":40.001,"lon":116.0,"px":100.0,"py":480.0}]},"greenOutline":{"available":false}}]},"roundLoops":[{"globalId":7002,"half":"front","roundStartHole":1,"sourceStartHole":1,"holeCount":1}],"loopKey":"7002:front"}"#.utf8
+        let package = try client.decodeCoursePackage(WatchPackageFixture.packageData(
+            roundId: "fast-seed-1",
+            course: #"{"globalId":7002,"name":"Remote Course","teeBox":"Blue"}"#,
+            loops: [.init(7002, "front")],
+            overrides: [1: #"{"number":1,"par":4,"yards":400,"geometryCoverage":"partial","sourceGlobalId":7002,"sourceLocalHole":1,"courseHoleNumber":1}"#],
+            extra: #""coursePrep":{"globalId":7002,"holes":[{"hole":1,"par":4,"geometryCoverage":"partial","landing_m":180.0,"route":[[0.0,0.0,0.0],[0.0,180.0,180.0]],"holeImageProjection":{"available":true,"widthPx":500,"heightPx":700,"refs":[{"lat":40.0,"lon":116.0,"px":100.0,"py":600.0},{"lat":40.0,"lon":116.001,"px":220.0,"py":600.0},{"lat":40.001,"lon":116.0,"px":100.0,"py":480.0}]},"greenOutline":{"available":false}}]}"#
         ))
 
         XCTAssertEqual(package.coursePrep?.clubs, [])
@@ -199,8 +203,15 @@ final class WatchCourseDownloadTests: XCTestCase {
     }
 
     func testSeededPrepMapsDisplayBackHoleToItsSourceLoopAndLocalHole() throws {
-        let package = try client.decodeCoursePackage(Data(
-            #"{"schema":"ai-caddie-live-round-package-v2","roundId":"fast-seed-composite","course":{"globalId":7001,"name":"Composite","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":400,"sourceGlobalId":7001,"sourceLocalHole":1,"courseHoleNumber":1},{"number":10,"par":4,"yards":390,"sourceGlobalId":7002,"sourceLocalHole":1,"courseHoleNumber":10}],"coursePrep":{"globalId":7001,"holes":[{"hole":1},{"hole":10}]},"roundLoops":[{"globalId":7001,"half":"all","roundStartHole":1,"sourceStartHole":1,"holeCount":9},{"globalId":7002,"half":"all","roundStartHole":10,"sourceStartHole":1,"holeCount":9}],"loopKey":"7001:all+7002:all"}"#.utf8
+        let package = try client.decodeCoursePackage(WatchPackageFixture.packageData(
+            roundId: "fast-seed-composite",
+            course: #"{"globalId":7001,"name":"Composite","teeBox":"Blue"}"#,
+            loops: [.init(7001, "all"), .init(7002, "all")],
+            overrides: [
+                1: #"{"number":1,"par":4,"yards":400,"sourceGlobalId":7001,"sourceLocalHole":1,"courseHoleNumber":1}"#,
+                10: #"{"number":10,"par":4,"yards":390,"sourceGlobalId":7002,"sourceLocalHole":1,"courseHoleNumber":10}"#,
+            ],
+            extra: #""coursePrep":{"globalId":7001,"holes":[{"hole":1},{"hole":10}]}"#
         ))
 
         let seeded = WatchCourseTemplateBuilder.seededPreps(from: package)
@@ -382,8 +393,11 @@ final class WatchCourseDownloadTests: XCTestCase {
             teeBox: "Blue",
             tees: ["Blue", "White"]
         )
-        let package = try client.decodeCoursePackage(Data(
-            #"{"schema":"ai-caddie-live-round-package-v2","roundId":"watch-download-1","course":{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","geometryRevision":"0123456789abcdef","sourceGlobalId":31669,"sourceLocalHole":1,"courseHoleNumber":1}],"roundLoops":[{"globalId":31669,"half":"front","roundStartHole":1,"sourceStartHole":1,"holeCount":1}],"loopKey":"31669:front"}"#.utf8
+        let package = try client.decodeCoursePackage(WatchPackageFixture.packageData(
+            roundId: "watch-download-1",
+            course: #"{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"}"#,
+            loops: [.init(31669, "front")],
+            overrides: [1: #"{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","geometryRevision":"0123456789abcdef","sourceGlobalId":31669,"sourceLocalHole":1,"courseHoleNumber":1}"#]
         ))
         let prep = try client.decodeCoursePrep(Data(
             #"{"schema":"ai-caddie-course-prep-v1","globalId":31669,"holeCount":1,"clubs":[{"name":"1W","m":220.0,"yd":241},{"name":"7I","m":140.0,"yd":153}],"holes":[{"hole":1,"par":4,"geometryCoverage":"ready","geometryRevision":"0123456789abcdef","landing_m":220.0,"tee_club":"1W","hazards":{"water_carry":[[100.0,130.0]],"bunkers":[[180.0,15.0]],"details":[{"kind":"water","frontM":100.0,"backM":130.0,"frontRouteM":100.0,"backRouteM":130.0,"frontPx":[300.0,550.0],"backPx":[360.0,505.0],"sideM":null},{"kind":"bunker","frontM":168.0,"backM":184.0,"frontRouteM":170.0,"backRouteM":190.0,"frontPx":[440.0,445.0],"backPx":[470.0,420.0],"sideM":15.0}]},"map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":1000,"h":800,"ppm":1.0,"ln":400.0,"route":[[100.0,700.0,0.0],[500.0,400.0,200.0],[600.0,100.0,400.0]]}},"greenDistances":{"available":true,"frontM":350.0,"middleM":360.0,"backM":370.0,"frontLat":40.0035,"frontLon":116.005,"middleLat":40.0036,"middleLon":116.0051,"backLat":40.0037,"backLon":116.0052},"playsLike":{"available":true,"deltaM":5.0,"deltaYd":5},"holeImageProjection":{"available":true,"widthPx":1000,"heightPx":800,"refs":[{"lat":40.0,"lon":116.0,"px":100.0,"py":700.0},{"lat":40.0,"lon":116.001,"px":200.0,"py":700.0},{"lat":40.001,"lon":116.0,"px":100.0,"py":600.0}]}}]}"#.utf8
@@ -400,7 +414,7 @@ final class WatchCourseDownloadTests: XCTestCase {
 
         XCTAssertEqual(download.template.courseName, "北京丽宫")
         XCTAssertEqual(download.template.teeBox, "Blue")
-        XCTAssertEqual(download.template.holeStates.count, 1)
+        XCTAssertEqual(download.template.holeStates.map(\.hole), Array(1...9))
         XCTAssertEqual(download.images, [
             WatchCourseImage(
                 globalId: 31669,
@@ -456,8 +470,11 @@ final class WatchCourseDownloadTests: XCTestCase {
             holes: 18,
             teeBox: "Blue"
         )
-        let package = try client.decodeCoursePackage(Data(
-            #"{"schema":"ai-caddie-live-round-package-v2","roundId":"watch-topo-v11","course":{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","sourceGlobalId":31669,"sourceLocalHole":1,"courseHoleNumber":1}],"roundLoops":[{"globalId":31669,"half":"front","roundStartHole":1,"sourceStartHole":1,"holeCount":1}],"loopKey":"31669:front"}"#.utf8
+        let package = try client.decodeCoursePackage(WatchPackageFixture.packageData(
+            roundId: "watch-topo-v11",
+            course: #"{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"}"#,
+            loops: [.init(31669, "front")],
+            overrides: [1: #"{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","sourceGlobalId":31669,"sourceLocalHole":1,"courseHoleNumber":1}"#]
         ))
         let prep = try client.decodeCoursePrep(Data(
             #"{"globalId":31669,"clubs":[],"holes":[{"hole":1,"hazards":{},"map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":678,"h":1060,"route":[]}}}]}"#.utf8
@@ -484,8 +501,11 @@ final class WatchCourseDownloadTests: XCTestCase {
             holes: 18,
             teeBox: "championship"
         )
-        let package = try client.decodeCoursePackage(Data(
-            #"{"schema":"ai-caddie-live-round-package-v2","roundId":"watch-light-prep","course":{"globalId":3881,"name":"Cypress Point Club","teeBox":"championship"},"holes":[{"number":1,"par":5,"yards":407,"geometryCoverage":"ready","sourceGlobalId":3881,"sourceLocalHole":1,"courseHoleNumber":1}],"roundLoops":[{"globalId":3881,"half":"front","roundStartHole":1,"sourceStartHole":1,"holeCount":1}],"loopKey":"3881:front"}"#.utf8
+        let package = try client.decodeCoursePackage(WatchPackageFixture.packageData(
+            roundId: "watch-light-prep",
+            course: #"{"globalId":3881,"name":"Cypress Point Club","teeBox":"championship"}"#,
+            loops: [.init(3881, "front")],
+            overrides: [1: #"{"number":1,"par":5,"yards":407,"geometryCoverage":"ready","sourceGlobalId":3881,"sourceLocalHole":1,"courseHoleNumber":1}"#]
         ))
         let prep = try client.decodeCoursePrep(Data(
             #"{"globalId":3881,"clubs":[],"holes":[{"hole":1,"par":5,"geometryCoverage":"ready","landing_m":220.0,"tee_club":"1W","route":[[0.0,0.0,0.0],[0.0,200.0,200.0],[30.0,320.0,323.7]],"hazards":{},"holeImageProjection":{"available":true,"widthPx":678,"heightPx":1060,"refs":[{"lat":36.58,"lon":-121.97,"px":100.0,"py":700.0},{"lat":36.58,"lon":-121.9686,"px":220.0,"py":700.0},{"lat":36.5811,"lon":-121.97,"px":100.0,"py":580.0}]}}]}"#.utf8
@@ -523,8 +543,11 @@ final class WatchCourseDownloadTests: XCTestCase {
             holes: 18,
             teeBox: "championship"
         )
-        let package = try client.decodeCoursePackage(Data(
-            #"{"schema":"ai-caddie-live-round-package-v2","roundId":"watch-partial","course":{"globalId":3881,"name":"Cypress Point Club","teeBox":"championship"},"holes":[{"number":1,"par":5,"yards":407,"geometryCoverage":"partial","sourceGlobalId":3881,"sourceLocalHole":1,"courseHoleNumber":1}],"roundLoops":[{"globalId":3881,"half":"front","roundStartHole":1,"sourceStartHole":1,"holeCount":1}],"loopKey":"3881:front"}"#.utf8
+        let package = try client.decodeCoursePackage(WatchPackageFixture.packageData(
+            roundId: "watch-partial",
+            course: #"{"globalId":3881,"name":"Cypress Point Club","teeBox":"championship"}"#,
+            loops: [.init(3881, "front")],
+            overrides: [1: #"{"number":1,"par":5,"yards":407,"geometryCoverage":"partial","sourceGlobalId":3881,"sourceLocalHole":1,"courseHoleNumber":1}"#]
         ))
         let prep = try client.decodeCoursePrep(Data(
             #"{"globalId":3881,"clubs":[],"holes":[{"hole":1,"par":5,"geometryCoverage":"partial","landing_m":220.0,"route":[[0.0,0.0,0.0],[0.0,200.0,200.0],[30.0,320.0,323.7]],"hazards":{"details":[{"kind":"water","frontM":120.0,"backM":150.0,"frontRouteM":120.0,"backRouteM":150.0,"frontPx":[95.0,570.0],"backPx":[108.0,540.0]}]},"greenOutline":{"available":true,"pointsPx":[[120.0,390.0],[140.0,400.0],[130.0,420.0]]},"holeImageProjection":{"available":true,"widthPx":678,"heightPx":1060,"refs":[{"lat":36.58,"lon":-121.97,"px":100.0,"py":700.0},{"lat":36.58,"lon":-121.9686,"px":220.0,"py":700.0},{"lat":36.5811,"lon":-121.97,"px":100.0,"py":580.0}]}}]}"#.utf8
@@ -560,8 +583,11 @@ final class WatchCourseDownloadTests: XCTestCase {
             holes: 18,
             teeBox: "championship"
         )
-        let package = try client.decodeCoursePackage(Data(
-            #"{"schema":"ai-caddie-live-round-package-v2","roundId":"watch-invalid-raster","course":{"globalId":3881,"name":"Cypress Point Club","teeBox":"championship"},"holes":[{"number":1,"par":5,"yards":407,"geometryCoverage":"ready","sourceGlobalId":3881,"sourceLocalHole":1,"courseHoleNumber":1}],"roundLoops":[{"globalId":3881,"half":"front","roundStartHole":1,"sourceStartHole":1,"holeCount":1}],"loopKey":"3881:front"}"#.utf8
+        let package = try client.decodeCoursePackage(WatchPackageFixture.packageData(
+            roundId: "watch-invalid-raster",
+            course: #"{"globalId":3881,"name":"Cypress Point Club","teeBox":"championship"}"#,
+            loops: [.init(3881, "front")],
+            overrides: [1: #"{"number":1,"par":5,"yards":407,"geometryCoverage":"ready","sourceGlobalId":3881,"sourceLocalHole":1,"courseHoleNumber":1}"#]
         ))
         let prep = try client.decodeCoursePrep(Data(
             #"{"globalId":3881,"clubs":[],"holes":[{"hole":1,"par":5,"geometryCoverage":"ready","landing_m":220.0,"route":[[0.0,0.0,0.0],[0.0,200.0,200.0],[30.0,320.0,323.7]],"hazards":{},"holeImageProjection":{"available":true,"widthPx":678,"heightPx":1060,"refs":[{"lat":36.58,"lon":-121.97,"px":100.0,"py":700.0},{"lat":36.58,"lon":-121.9686,"px":220.0,"py":700.0},{"lat":36.5811,"lon":-121.97,"px":100.0,"py":580.0}]}}]}"#.utf8
@@ -589,8 +615,11 @@ final class WatchCourseDownloadTests: XCTestCase {
             teeBox: "Blue",
             tees: ["Blue", "White"]
         )
-        let package = try client.decodeCoursePackage(Data(
-            #"{"schema":"ai-caddie-live-round-package-v2","roundId":"watch-fast-tee","course":{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","sourceGlobalId":31669,"sourceLocalHole":1,"courseHoleNumber":1,"teeLatitude":40.0454995,"teeLongitude":116.5461531}],"roundLoops":[{"globalId":31669,"half":"front","roundStartHole":1,"sourceStartHole":1,"holeCount":1}],"loopKey":"31669:front"}"#.utf8
+        let package = try client.decodeCoursePackage(WatchPackageFixture.packageData(
+            roundId: "watch-fast-tee",
+            course: #"{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"}"#,
+            loops: [.init(31669, "front")],
+            overrides: [1: #"{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","sourceGlobalId":31669,"sourceLocalHole":1,"courseHoleNumber":1,"teeLatitude":40.0454995,"teeLongitude":116.5461531}"#]
         ))
 
         let download = try WatchCourseTemplateBuilder.build(
@@ -630,8 +659,11 @@ final class WatchCourseDownloadTests: XCTestCase {
             segmentHoles: 9,
             tees: ["blue", "white"]
         )
-        let package = try client.decodeCoursePackage(Data(
-            #"{"schema":"ai-caddie-live-round-package-v2","roundId":"watch-new-1","course":{"globalId":31870,"name":"Course 31870","teeBox":"blue"},"holes":[{"number":1,"par":4,"yards":null,"geometryCoverage":"missing","sourceGlobalId":31870,"sourceLocalHole":1,"courseHoleNumber":1}],"roundLoops":[{"globalId":31870,"half":"all","roundStartHole":1,"sourceStartHole":1,"holeCount":1}],"loopKey":"31870:all"}"#.utf8
+        let package = try client.decodeCoursePackage(WatchPackageFixture.packageData(
+            roundId: "watch-new-1",
+            course: #"{"globalId":31870,"name":"Course 31870","teeBox":"blue"}"#,
+            loops: [.init(31870, "all")],
+            overrides: [1: #"{"number":1,"par":4,"yards":null,"geometryCoverage":"missing","sourceGlobalId":31870,"sourceLocalHole":1,"courseHoleNumber":1}"#]
         ))
 
         let download = try WatchCourseTemplateBuilder.build(
@@ -1167,8 +1199,11 @@ final class WatchCourseDownloadTests: XCTestCase {
 
     func testDownloadedCourseKeepsFairwayOutlineThroughSaveLoadAndMakeRound() throws {
         let client = WatchBackendClient(baseURL: URL(string: "https://caddie.example")!)
-        let package = try client.decodeCoursePackage(Data(
-            #"{"schema":"ai-caddie-live-round-package-v2","roundId":"fairway-1","course":{"globalId":7003,"name":"Fairway Course","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":400,"geometryCoverage":"partial","sourceGlobalId":7003,"sourceLocalHole":1,"courseHoleNumber":1}],"roundLoops":[{"globalId":7003,"half":"all","roundStartHole":1,"sourceStartHole":1,"holeCount":1}],"loopKey":"7003:all"}"#.utf8
+        let package = try client.decodeCoursePackage(WatchPackageFixture.packageData(
+            roundId: "fairway-1",
+            course: #"{"globalId":7003,"name":"Fairway Course","teeBox":"Blue"}"#,
+            loops: [.init(7003, "all")],
+            overrides: [1: #"{"number":1,"par":4,"yards":400,"geometryCoverage":"partial","sourceGlobalId":7003,"sourceLocalHole":1,"courseHoleNumber":1}"#]
         ))
         let prep = try client.decodeCoursePrep(Data(
             #"{"globalId":7003,"clubs":[],"holes":[{"hole":1,"par":4,"geometryCoverage":"partial","landing_m":180.0,"route":[[0.0,0.0,0.0],[0.0,180.0,180.0]],"holeImageProjection":{"available":true,"widthPx":500,"heightPx":700,"refs":[{"lat":40.0,"lon":116.0,"px":100.0,"py":600.0},{"lat":40.0,"lon":116.001,"px":220.0,"py":600.0},{"lat":40.001,"lon":116.0,"px":100.0,"py":480.0}]},"fairwayOutline":{"version":1,"source":"prodgeometry.Fairway.drc","polygons":[{"outerPx":[[1,2],[3,4],[5,6]],"holesPx":[],"outerLatLon":[[40.0,116.0],[40.0,116.001],[40.001,116.0]],"holesLatLon":[]}]}}]}"#.utf8

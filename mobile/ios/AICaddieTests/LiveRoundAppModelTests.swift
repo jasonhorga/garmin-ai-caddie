@@ -542,7 +542,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
-        let source = try localFixturePackage()
+        // The server emits only whole loops (B4b-2 §6): the fixture's nine holes as `31795:all`.
+        let source = try nineHoleFixturePackage()
         let course = MobileCourseOption(
             globalId: source.course.globalId,
             name: source.course.name,
@@ -560,15 +561,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         ])
 
         let packageData = try JSONEncoder().encode(source)
-        let prepData = try offlinePrepResponseData(
-            for: source,
-            geometryRevision: "dddddddddddddddd"
-        )
         let png = minimalPNGData()
         let requestLock = NSLock()
         var packageRequestCount = 0
-        var prepRequestCount = 0
-        var topoRequestCount = 0
+        var prepRequestedHoles: [Int] = []
+        var topoRequestedHoles: [Int] = []
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -582,11 +579,22 @@ final class LiveRoundAppModelTests: XCTestCase {
                 responseData = packageData
                 contentType = "application/json"
             case "/api/v2/courses/\(source.course.globalId)/prep":
-                requestLock.withLock { prepRequestCount += 1 }
-                responseData = prepData
+                let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                    .filter { $0.name == "holes" }
+                    .compactMap { $0.value.flatMap(Int.init) } ?? []
+                requestLock.withLock { prepRequestedHoles.append(contentsOf: requested) }
+                responseData = try self.offlinePrepResponseData(
+                    for: source,
+                    localHoles: requested,
+                    geometryRevision: "dddddddddddddddd"
+                )
                 contentType = "application/json"
-            case "/api/v2/courses/\(source.course.globalId)/holes/1/topo.png":
-                requestLock.withLock { topoRequestCount += 1 }
+            case let path where path.hasPrefix("/api/v2/courses/\(source.course.globalId)/holes/")
+                && path.hasSuffix("/topo.png"):
+                let components = url.pathComponents
+                let holesIndex = try XCTUnwrap(components.firstIndex(of: "holes"))
+                let localHole = try XCTUnwrap(Int(components[holesIndex + 1]))
+                requestLock.withLock { topoRequestedHoles.append(localHole) }
                 responseData = png
                 contentType = "image/png"
             default:
@@ -629,8 +637,8 @@ final class LiveRoundAppModelTests: XCTestCase {
 
         let finished = try XCTUnwrap(model.prepCourseDownloads.first)
         XCTAssertEqual(finished.phase, .ready)
-        XCTAssertEqual(finished.preparedHoles, 1)
-        XCTAssertEqual(finished.downloadedHoles, 1)
+        XCTAssertEqual(finished.preparedHoles, 9)
+        XCTAssertEqual(finished.downloadedHoles, 9)
         XCTAssertEqual(try store.loadPrepCourseDownloads().first?.phase, .ready)
         let template = try XCTUnwrap(store.loadCourseTemplate(
             globalId: course.globalId,
@@ -638,17 +646,18 @@ final class LiveRoundAppModelTests: XCTestCase {
         ))
         XCTAssertTrue(template.hasCompleteOfflineCoursePrep)
         XCTAssertTrue(store.hasCourseTopoImages(for: template))
+        // Every hole's facts and topo are fetched exactly once (prep in bounded batches).
         XCTAssertEqual(requestLock.withLock { packageRequestCount }, 1)
-        XCTAssertEqual(requestLock.withLock { prepRequestCount }, 1)
-        XCTAssertEqual(requestLock.withLock { topoRequestCount }, 1)
+        XCTAssertEqual(requestLock.withLock { prepRequestedHoles }.sorted(), Array(1...9))
+        XCTAssertEqual(requestLock.withLock { topoRequestedHoles }.sorted(), Array(1...9))
 
         model.downloadPrepCourse(course)
         await model.waitForPrepCourseDownloadForTesting()
         XCTAssertEqual(requestLock.withLock { packageRequestCount }, 1)
-        XCTAssertEqual(requestLock.withLock { prepRequestCount }, 1)
+        XCTAssertEqual(requestLock.withLock { prepRequestedHoles }.sorted(), Array(1...9))
         XCTAssertEqual(
-            requestLock.withLock { topoRequestCount },
-            1,
+            requestLock.withLock { topoRequestedHoles }.sorted(),
+            Array(1...9),
             "opening an already-ready retained course must adopt disk state, not restart downloads"
         )
     }
@@ -657,9 +666,10 @@ final class LiveRoundAppModelTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
-        let source = try localFixturePackage()
+        // The server emits only whole loops (B4b-2 §6): a nine-hole `31795:all` package.
+        let source = try nineHoleFixturePackage()
         let revision = "eeeeeeeeeeeeeeee"
-        let holes = (1...3).map { number in
+        let holes = (1...9).map { number in
             Hole(
                 number: number,
                 par: number == 2 ? 3 : 4,
@@ -725,15 +735,9 @@ final class LiveRoundAppModelTests: XCTestCase {
                 contentType = "application/json"
             case let path where path.contains("/geometry/course/"):
                 requestLock.withLock { coverageRequestCount += 1 }
-                body = Data(
-                    """
-                    {"schema":"ai-caddie-course-geometry-coverage-v1",\
-                    "globalId":\(online.course.globalId),"coverage":"ready",\
-                    "readyHoles":3,"partialHoles":0,"totalHoles":3,"holes":[\
-                    {"globalId":\(online.course.globalId),"localHole":1,"coverage":"ready"},\
-                    {"globalId":\(online.course.globalId),"localHole":2,"coverage":"ready"},\
-                    {"globalId":\(online.course.globalId),"localHole":3,"coverage":"ready"}]}
-                    """.utf8
+                body = self.geometryCoverageData(
+                    globalId: online.course.globalId,
+                    localHoles: online.holes.map(\.sourceLocalHole)
                 )
                 contentType = "application/json"
             case let path where path.hasSuffix("/topo.png"):
@@ -781,18 +785,19 @@ final class LiveRoundAppModelTests: XCTestCase {
         await model.waitForPrepCourseDownloadForTesting()
 
         XCTAssertEqual(model.prepCourseDownloads.first?.phase, .ready)
-        XCTAssertTrue(
-            requestLock.withLock { prepBatches }.contains([1, 2, 3]),
-            "pre-round prep should use the bounded whole-course batch"
-        )
+        // Batches run on two lanes, so their arrival order is not semantic; their content is.
         XCTAssertEqual(
-            requestLock.withLock { prepBatches }.first,
-            [1, 2, 3],
+            requestLock.withLock { prepBatches }.sorted { ($0.first ?? 0) < ($1.first ?? 0) },
+            [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
+            "pre-round prep should use bounded whole-course batches, each hole requested once"
+        )
+        XCTAssertFalse(
+            requestLock.withLock { prepBatches }.contains([1]),
             "pre-round prep should not serialize an invisible first-hole request"
         )
         XCTAssertEqual(
             Set(requestLock.withLock { topoOrder }),
-            Set([1, 2, 3]),
+            Set(1...9),
             "pre-round prep must persist every topo asset; network completion order is not semantic"
         )
         XCTAssertEqual(
@@ -806,12 +811,13 @@ final class LiveRoundAppModelTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
-        let source = try localFixturePackage()
+        // The server emits only whole loops (B4b-2 §6): a nine-hole `31795:all` package.
+        let source = try nineHoleFixturePackage()
         let revision = "status-revision"
-        let holes = (1...2).map { number in
+        let holes = (1...9).map { number in
             Hole(
                 number: number,
-                par: number == 1 ? 4 : 3,
+                par: number == 2 ? 3 : 4,
                 yards: 330 + number * 10,
                 geometryCoverage: .ready,
                 geometryRevision: revision,
@@ -851,18 +857,20 @@ final class LiveRoundAppModelTests: XCTestCase {
                 let topoState = statusNumber == 1 ? "queued" : "ready"
                 let phase = statusNumber == 1 ? "running" : "ready"
                 let topoRevisionJSON = topoState == "ready" ? "\"\(revision)\"" : "null"
+                let holeCount = online.holes.count
+                let rows = online.holes.map { hole in
+                    """
+                    {"globalId":\(online.course.globalId),"localHole":\(hole.sourceLocalHole),"displayHole":\(hole.number),
+                     "geometry":"ready","geometryRevision":"\(revision)","topo":"\(topoState)","topoRevision":\(topoRevisionJSON),"error":null}
+                    """
+                }.joined(separator: ",")
                 body = Data(
                     """
                     {"schema":"ai-caddie-course-install-v1","jobId":"status-gate",
                      "globalId":\(online.course.globalId),"teeBox":"blue","loopKey":"\(online.course.globalId):all",
-                     "phase":"\(phase)","stage":"topo","totalHoles":2,"geometryReady":2,
-                     "topoReady":\(topoState == "ready" ? 2 : 0),"updatedAt":null,"error":null,
-                     "holes":[
-                       {"globalId":\(online.course.globalId),"localHole":1,"displayHole":1,
-                        "geometry":"ready","geometryRevision":"\(revision)","topo":"\(topoState)","topoRevision":\(topoRevisionJSON),"error":null},
-                       {"globalId":\(online.course.globalId),"localHole":2,"displayHole":2,
-                        "geometry":"ready","geometryRevision":"\(revision)","topo":"\(topoState)","topoRevision":\(topoRevisionJSON),"error":null}
-                     ]}
+                     "phase":"\(phase)","stage":"topo","totalHoles":\(holeCount),"geometryReady":\(holeCount),
+                     "topoReady":\(topoState == "ready" ? holeCount : 0),"updatedAt":null,"error":null,
+                     "holes":[\(rows)]}
                     """.utf8
                 )
                 contentType = "application/json"
@@ -928,7 +936,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             requestLock.withLock { topoRequestedBeforeReady },
             "a running install journal with queued topo must gate PNG requests"
         )
-        XCTAssertEqual(requestLock.withLock { topoRequestCount }, 2)
+        XCTAssertEqual(requestLock.withLock { topoRequestCount }, online.holes.count)
         XCTAssertTrue(try XCTUnwrap(store.loadCourseTemplate(
             globalId: online.course.globalId,
             teeBox: online.course.teeBox
@@ -939,7 +947,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
-        let source = try localFixturePackage()
+        // The server emits only whole loops (B4b-2 §6): a nine-hole `31795:all` package.
+        let source = try nineHoleFixturePackage()
         let oldRevision = "old-release"
         let validationRevision = "validation-release"
         let newRevision = "new-release"
@@ -1000,9 +1009,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         let prepPath = "/api/v2/courses/"
             + String(fetched.course.globalId)
             + "/prep"
-        let topoPath = "/api/v2/courses/"
+        let topoPathPrefix = "/api/v2/courses/"
             + String(fetched.course.globalId)
-            + "/holes/1/topo.png"
+            + "/holes/"
         let requestLock = NSLock()
         var installationReady = false
         let configuration = URLSessionConfiguration.ephemeral
@@ -1022,7 +1031,8 @@ final class LiveRoundAppModelTests: XCTestCase {
                 body = ready
                     ? self.installStatusData(
                         globalId: fetched.course.globalId,
-                        revision: newRevision
+                        revision: newRevision,
+                        localHoles: fetched.holes.map(\.sourceLocalHole)
                     )
                     : Data(
                         #"{"schema":"ai-caddie-course-install-v1","jobId":"replacement-failed","globalId":0,"teeBox":"blue","loopKey":"0:all","phase":"failed","stage":"failed","totalHoles":1,"geometryReady":0,"topoReady":0,"updatedAt":null,"error":"render failed","holes":[]}"#.utf8
@@ -1038,7 +1048,8 @@ final class LiveRoundAppModelTests: XCTestCase {
                 )
                 statusCode = 200
                 contentType = "application/json"
-            } else if url.path == topoPath,
+            } else if url.path.hasPrefix(topoPathPrefix),
+                      url.path.hasSuffix("/topo.png"),
                       requestLock.withLock({ installationReady }) {
                 body = self.minimalPNGData()
                 statusCode = 200
@@ -1078,7 +1089,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(model.prepCourseDownloads.first?.phase, .failed)
         XCTAssertEqual(
             model.prepCourseDownloads.first?.requiredGeometryRevisions,
-            [String(course.globalId) + ":1": newRevision],
+            Dictionary(uniqueKeysWithValues: fetched.holes.map { hole in
+                (String(course.globalId) + ":" + String(hole.sourceLocalHole), newRevision)
+            }),
             "the fetched package becomes the replacement authority if Garmin advances again"
         )
         let retained = try XCTUnwrap(store.loadCourseTemplate(
@@ -1661,7 +1674,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
-        let source = try localFixturePackage()
+        // The server emits only whole loops (B4b-2 §6): a nine-hole `31795:all` package.
+        let source = try nineHoleFixturePackage()
         let prepared = try offlineReadyPackage(source)
         let seedless = package(
             prepared,
@@ -1670,11 +1684,13 @@ final class LiveRoundAppModelTests: XCTestCase {
             caddieContextSeeds: []
         )
         try store.saveCourseTemplate(seedless)
-        _ = try store.saveCourseTopoImage(
-            minimalPNGData(),
-            globalId: seedless.course.globalId,
-            localHole: seedless.holes[0].sourceLocalHole
-        )
+        for hole in seedless.holes {
+            _ = try store.saveCourseTopoImage(
+                minimalPNGData(),
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole
+            )
+        }
 
         let roundId = "seed-repaired-round"
         let remote = package(
@@ -2180,7 +2196,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
-        let source = try multiHoleFixturePackage()
+        // The server emits only whole loops (B4b-2 §6): a nine-hole `31795:all` package.
+        let source = try nineHoleFixturePackage()
         let roundId = "complete-package-default"
         let complete = package(
             source,
@@ -2241,8 +2258,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
-        let source = try localFixturePackage()
-        let holes = (1...7).map { number in
+        // The server emits only whole loops (B4b-2 §6): a nine-hole `31795:all` package.
+        let source = try nineHoleFixturePackage()
+        let holes = (1...9).map { number in
             Hole(
                 number: number,
                 par: number % 3 == 0 ? 3 : 4,
@@ -2416,8 +2434,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
-        let source = try localFixturePackage()
-        let holes = (1...2).map { number in
+        // The server emits only whole loops (B4b-2 §6): a nine-hole `31795:all` package.
+        let source = try nineHoleFixturePackage()
+        let holes = (1...9).map { number in
             Hole(
                 number: number,
                 par: 4,
@@ -2467,23 +2486,21 @@ final class LiveRoundAppModelTests: XCTestCase {
                     coverageRequestCount += 1
                     geometryReady = true
                 }
-                body = Data(
-                    """
-                    {"schema":"ai-caddie-course-geometry-coverage-v1",\
-                    "globalId":\(online.course.globalId),"coverage":"ready",\
-                    "readyHoles":2,"partialHoles":0,"totalHoles":2,"holes":[\
-                    {"globalId":\(online.course.globalId),"localHole":1,"coverage":"ready"},\
-                    {"globalId":\(online.course.globalId),"localHole":2,"coverage":"ready"}]}
-                    """.utf8
+                body = self.geometryCoverageData(
+                    globalId: online.course.globalId,
+                    localHoles: online.holes.map(\.sourceLocalHole)
                 )
                 contentType = "application/json"
             case let path where path.hasSuffix("/prep"):
                 let ready = requestLock.withLock { geometryReady }
                 let coverage = ready ? "ready" : "partial"
-                requestLock.withLock { prepCoverages.append(coverage) }
                 let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
                     .filter { $0.name == "holes" }
                     .compactMap { $0.value.flatMap(Int.init) } ?? []
+                // One observation per requested hole: prep is fetched in bounded batches.
+                requestLock.withLock {
+                    prepCoverages.append(contentsOf: Array(repeating: coverage, count: requested.count))
+                }
                 body = try self.offlinePrepResponseData(
                     for: online,
                     localHoles: requested,
@@ -2569,11 +2586,13 @@ final class LiveRoundAppModelTests: XCTestCase {
             nine: nil,
             teeBox: nil
         )
-        let refreshedHome = package(
-            fixture.package,
+        // The finished round is a local one-hole table; the server's home package for the same
+        // course is a contract-valid whole loop (B4b-2 §6).
+        let refreshedHome = try serverPackage(
             roundId: "home-\(fixture.package.course.globalId)",
             recentRounds: [finishedRound]
         )
+        XCTAssertEqual(refreshedHome.course.globalId, fixture.package.course.globalId)
         let morePlayedOtherCourseId = 3881
         let courseOptions = MobileCourseOptionsResponse(
             schema: "ai-caddie-mobile-course-options-v1",
@@ -2761,7 +2780,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
-        let source = try localFixturePackage()
+        // The server emits only whole loops (B4b-2 §6): a nine-hole `31795:all` package.
+        let source = try nineHoleFixturePackage()
         let slow = package(source, roundId: "slow-round", recentRounds: [])
         let fast = package(source, roundId: "fast-round", recentRounds: [])
         let slowData = try JSONEncoder().encode(slow)
@@ -3069,12 +3089,15 @@ final class LiveRoundAppModelTests: XCTestCase {
 
     func testLateEventDuringDeferredFinishIsRetainedAndRetried() async throws {
         let fixture = try completedFixtureRound()
-        let refreshedHome = package(
-            fixture.package,
+        // Server responses are contract-valid whole loops (B4b-2 §6) for the same course/round.
+        let refreshedHome = try serverPackage(
             roundId: "home-\(fixture.package.course.globalId)",
             recentRounds: []
         )
-        let activePackageBody = try JSONEncoder().encode(fixture.package)
+        let activePackageBody = try JSONEncoder().encode(try serverPackage(
+            roundId: fixture.package.roundId,
+            recentRounds: fixture.package.recentHistory.rounds
+        ))
         let refreshedHomeBody = try JSONEncoder().encode(refreshedHome)
         let homeRefreshStarted = expectation(description: "post-finish home refresh started")
         let releaseHomeRefresh = DispatchSemaphore(value: 0)
@@ -3277,7 +3300,11 @@ final class LiveRoundAppModelTests: XCTestCase {
 
     func testWatchFinishUploadsPendingPhoneEventsBeforeClearingRound() async throws {
         let fixture = try completedFixtureRound()
-        let packageData = try JSONEncoder().encode(fixture.package)
+        // The server's copy of this round is a contract-valid whole loop (B4b-2 §6).
+        let packageData = try JSONEncoder().encode(try serverPackage(
+            roundId: fixture.package.roundId,
+            recentRounds: fixture.package.recentHistory.rounds
+        ))
         let replayedWatchEvent = LiveRoundEvent(
             eventId: "watch-score-already-on-server",
             roundId: fixture.package.roundId,
@@ -3558,7 +3585,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
         let serverRequest = expectation(description: "detached pending tail reaches backend")
-        let packageData = try JSONEncoder().encode(activePackage)
+        // The server's copy of this round is a contract-valid whole loop (B4b-2 §6).
+        let packageData = try JSONEncoder().encode(try serverPackage(
+            roundId: activePackage.roundId,
+            recentRounds: activePackage.recentHistory.rounds
+        ))
         CapturingURLProtocol.requestHandler = { request in
             if request.url?.path == "/api/v2/mobile/courses/\(activePackage.course.globalId)/package" {
                 return (
@@ -4032,7 +4063,11 @@ final class LiveRoundAppModelTests: XCTestCase {
             ]
         )
         let logURL = directory.appendingPathComponent("events.jsonl")
-        let packageBody = try JSONEncoder().encode(package)
+        // The server's copy of this round is a contract-valid whole loop (B4b-2 §6).
+        let packageBody = try JSONEncoder().encode(try serverPackage(
+            roundId: package.roundId,
+            recentRounds: package.recentHistory.rounds
+        ))
         let replayBody = try JSONEncoder().encode(
             EventReplayResponse(
                 schema: "ai-caddie-mobile-event-replay-v1",
@@ -4350,14 +4385,12 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
+    /// A local one-hole `G:all` test table built from the fixture's hole 1, for rounds and templates
+    /// that live only on disk (stored rounds, prep rows, revalidation of an installed template).
+    /// It is never a server response: SyncClient rejects anything but whole loops (B4b-2 §6), so
+    /// mocked package routes serve ``serverPackage(roundId:recentRounds:)`` or a nine-hole table.
     private func localFixturePackage() throws -> LiveRoundPackage {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
-        let fixture = try String(contentsOf: url, encoding: .utf8)
-            .replacingOccurrences(of: #""dataMode": "fixture""#, with: #""dataMode": "local""#)
-        return try JSONDecoder().decode(LiveRoundPackage.self, from: Data(fixture.utf8))
+        try LiveRoundPackageFixture.singleHole(dataMode: "local")
     }
 
     private func blackKnightLoopPackage(
@@ -4500,66 +4533,19 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
-    /// The shared fixture models one hole of the 9-hole loop `31795:all`. A v2 template projects
-    /// only a whole loop (B4b-2), so an offline start from an installed fixture template needs all
-    /// nine physical holes, each with its own caddie seed.
+    /// The fixture's nine holes (1–9, each with its own caddie seed) as a standalone 9-hole loop
+    /// `31795:all`. A v2 template projects only a whole loop (B4b-2), so an offline start from an
+    /// installed fixture template needs all nine physical holes; as a 9-hole loop the package is
+    /// its own whole-course template (the shipped `31795:front` half is not).
     private func nineHoleFixturePackage() throws -> LiveRoundPackage {
-        let base = try localFixturePackage()
-        let first = try XCTUnwrap(base.holes.first)
-        let seed = try XCTUnwrap(base.caddieContextSeeds.first)
-        let holes = (1...9).map { number in
-            number == first.number ? first : Hole(
-                number: number,
-                par: first.par,
-                yards: first.yards,
-                geometryCoverage: first.geometryCoverage,
-                geometryRevision: first.geometryRevision,
-                sourceGlobalId: base.course.globalId,
-                sourceLocalHole: number,
-                courseHoleNumber: number
-            )
-        }
-        let seeds = holes.map { hole in
-            hole.number == seed.hole ? seed : CaddieContextSeed(
-                hole: hole.number,
-                sourceRef: "\(base.roundId):\(hole.number)",
-                shotTypes: seed.shotTypes,
-                requiredLiveInputs: seed.requiredLiveInputs,
-                enrichmentState: seed.enrichmentState,
-                context: seed.context,
-                selectedOfflineOptionId: seed.selectedOfflineOptionId,
-                offlineOptions: seed.offlineOptions,
-                evidence: seed.evidence,
-                missingData: seed.missingData
-            )
-        }
+        let base = try LiveRoundPackageFixture.nineHoleLoop(dataMode: "local")
+        XCTAssertEqual(base.holes.map(\.number), Array(1...9))
+        XCTAssertEqual(Set(base.caddieContextSeeds.map(\.hole)), Set(1...9))
         return package(
             base,
             roundId: base.roundId,
             recentRounds: base.recentHistory.rounds,
-            holes: holes,
-            caddieContextSeeds: seeds
-        )
-    }
-
-    /// The shared fixture models one hole; multi-hole navigation tests need a second factual hole.
-    private func multiHoleFixturePackage() throws -> LiveRoundPackage {
-        let base = try localFixturePackage()
-        let first = try XCTUnwrap(base.holes.first)
-        let second = Hole(
-            number: first.number + 1,
-            par: 4,
-            yards: (first.yards ?? 400) + 10,
-            geometryCoverage: .ready,
-            sourceGlobalId: base.course.globalId,
-            sourceLocalHole: first.number + 1,
-            courseHoleNumber: first.number + 1
-        )
-        return package(
-            base,
-            roundId: base.roundId,
-            recentRounds: base.recentHistory.rounds,
-            holes: [first, second]
+            holes: base.holes
         )
     }
 
@@ -4602,17 +4588,48 @@ final class LiveRoundAppModelTests: XCTestCase {
         return (directory, store, course, record)
     }
 
-    private func installStatusData(globalId: Int, revision: String) -> Data {
-        Data(
+    /// A ready install journal for `localHoles` of a 9-hole loop (default: one row, hole 1).
+    private func installStatusData(globalId: Int, revision: String, localHoles: [Int] = [1]) -> Data {
+        let rows = localHoles.map { localHole in
+            """
+            {"globalId":\(globalId),"localHole":\(localHole),"displayHole":\(localHole),
+             "geometry":"ready","geometryRevision":"\(revision)","topo":"ready",
+             "topoRevision":"\(revision)","error":null}
+            """
+        }.joined(separator: ",")
+        return Data(
             """
             {"schema":"ai-caddie-course-install-v1","jobId":"revalidation-test",
              "globalId":\(globalId),"teeBox":"blue","loopKey":"\(globalId):all","phase":"ready","stage":"ready",
-             "totalHoles":1,"geometryReady":1,"topoReady":1,"updatedAt":null,"error":null,
-             "holes":[{"globalId":\(globalId),"localHole":1,"displayHole":1,
-             "geometry":"ready","geometryRevision":"\(revision)","topo":"ready",
-             "topoRevision":"\(revision)","error":null}]}
+             "totalHoles":\(localHoles.count),"geometryReady":\(localHoles.count),"topoReady":\(localHoles.count),
+             "updatedAt":null,"error":null,"holes":[\(rows)]}
             """.utf8
         )
+    }
+
+    /// A cheap geometry-coverage probe reporting every listed physical hole as ready.
+    private func geometryCoverageData(globalId: Int, localHoles: [Int]) -> Data {
+        let rows = localHoles.map { localHole in
+            "{\"globalId\":\(globalId),\"localHole\":\(localHole),\"coverage\":\"ready\"}"
+        }.joined(separator: ",")
+        return Data(
+            """
+            {"schema":"ai-caddie-course-geometry-coverage-v1","globalId":\(globalId),"coverage":"ready",
+             "readyHoles":\(localHoles.count),"partialHoles":0,"totalHoles":\(localHoles.count),
+             "holes":[\(rows)]}
+            """.utf8
+        )
+    }
+
+    /// A contract-valid server copy of a test round: the fixture's nine holes as the 9-hole loop
+    /// `31795:all` under `roundId`. SyncClient rejects any other loop table (B4b-2 §6), so the
+    /// local one- and two-hole test tables are never served as a package response.
+    private func serverPackage(
+        roundId: String,
+        recentRounds: [RecentRoundSummary]? = nil
+    ) throws -> LiveRoundPackage {
+        let base = try nineHoleFixturePackage()
+        return package(base, roundId: roundId, recentRounds: recentRounds ?? base.recentHistory.rounds)
     }
 
     private func offlineReadyPackage(

@@ -534,7 +534,8 @@ public final class SyncClient {
         applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
-        return try decoder.decode(LiveRoundPackage.self, from: data)
+        // B4b-2 §6: a contradictory or incomplete v2 identity is rejected before any use.
+        return try decoder.decode(LiveRoundPackage.self, from: data).validatedRoundIdentity()
     }
 
     /// The round's ordered loops (`loops=`): one or two entries, the first on `globalId`.
@@ -571,7 +572,8 @@ public final class SyncClient {
             request,
             maximumAttempts: Self.courseAssetMaximumAttempts
         )
-        return try decoder.decode(LiveRoundPackage.self, from: data)
+        // B4b-2 §6: a contradictory or incomplete v2 identity is rejected before any use.
+        return try decoder.decode(LiveRoundPackage.self, from: data).validatedRoundIdentity()
     }
 
     /// Read the durable server preparation journal. A missing row is normal for older servers or

@@ -451,6 +451,87 @@ public struct WatchRoundLoop: Decodable, Equatable {
     public let holeCount: Int
 }
 
+/// The v2 round-identity invariant (B4b-2 contract §6), enforced while decoding: a package that
+/// names contradictory loops or holes is rejected, never played.
+public enum WatchRoundIdentityError: Error, Equatable {
+    case unsupportedSchema(String)
+    case invalidRoundLoops
+    case nonCanonicalLoopKey
+    case holeDoesNotMatchItsLoop(Int)
+}
+
+extension WatchCoursePackage {
+    private enum CodingKeys: String, CodingKey {
+        case schema, roundId, course, holes, roundLoops, loopKey, coursePrep, readinessState
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schema = try container.decode(String.self, forKey: .schema)
+        guard schema == Self.supportedSchema else {
+            throw WatchRoundIdentityError.unsupportedSchema(schema)
+        }
+        let holes = try container.decode([WatchCoursePackageHole].self, forKey: .holes)
+        let roundLoops = try container.decode([WatchRoundLoop].self, forKey: .roundLoops)
+        let loopKey = try container.decode(String.self, forKey: .loopKey)
+        try Self.validateRoundIdentity(roundLoops: roundLoops, loopKey: loopKey, holes: holes)
+        self.init(
+            schema: schema,
+            roundId: try container.decode(String.self, forKey: .roundId),
+            course: try container.decode(WatchCoursePackageCourse.self, forKey: .course),
+            holes: holes,
+            roundLoops: roundLoops,
+            loopKey: loopKey,
+            coursePrep: try container.decodeIfPresent(WatchCoursePrepResponse.self, forKey: .coursePrep),
+            readinessState: try container.decodeIfPresent(String.self, forKey: .readinessState)
+        )
+    }
+
+    /// One or two loops starting on round holes 1 then 10, nine holes each, `sourceStartHole`
+    /// matching `half`, the canonical `loopKey`, unique hole numbers, and every hole on its row.
+    /// A package without playable holes names no loop.
+    public static func validateRoundIdentity(
+        roundLoops: [WatchRoundLoop],
+        loopKey: String,
+        holes: [WatchCoursePackageHole]
+    ) throws {
+        if holes.isEmpty {
+            guard roundLoops.isEmpty, loopKey.isEmpty else { throw WatchRoundIdentityError.invalidRoundLoops }
+            return
+        }
+        guard (1...2).contains(roundLoops.count) else { throw WatchRoundIdentityError.invalidRoundLoops }
+        var expected: [Int: (globalId: Int, localHole: Int, courseHole: Int)] = [:]
+        for (index, loop) in roundLoops.enumerated() {
+            let sourceStart = loop.half == "back" ? 10 : 1
+            guard ["all", "front", "back"].contains(loop.half),
+                  loop.globalId > 0,
+                  loop.roundStartHole == 1 + index * 9,
+                  loop.sourceStartHole == sourceStart,
+                  loop.holeCount == 9 else {
+                throw WatchRoundIdentityError.invalidRoundLoops
+            }
+            for offset in 0..<9 {
+                let number = loop.roundStartHole + offset
+                let local = sourceStart + offset
+                expected[number] = (loop.globalId, local, loop.half == "all" ? number : local)
+            }
+        }
+        let canonical = roundLoops.map { "\($0.globalId):\($0.half)" }.joined(separator: "+")
+        guard loopKey == canonical else { throw WatchRoundIdentityError.nonCanonicalLoopKey }
+        var seen = Set<Int>()
+        for hole in holes {
+            guard seen.insert(hole.number).inserted,
+                  let row = expected[hole.number],
+                  row.globalId == hole.sourceGlobalId,
+                  row.localHole == hole.sourceLocalHole,
+                  row.courseHole == hole.courseHoleNumber else {
+                throw WatchRoundIdentityError.holeDoesNotMatchItsLoop(hole.number)
+            }
+        }
+        guard seen == Set(expected.keys) else { throw WatchRoundIdentityError.invalidRoundLoops }
+    }
+}
+
 public struct WatchCoursePrepResponse: Decodable, Equatable {
     public let globalId: Int
     public let clubs: [WatchCoursePrepClub]

@@ -118,9 +118,18 @@ public struct RoundLoopEntry: Codable, Equatable, Hashable {
     }
 }
 
+/// A package whose v2 round identity (B4b-2 contract §6) is contradictory or incomplete.
+public enum RoundIdentityError: Error, Equatable {
+    case unsupportedSchema(String)
+    case invalidRoundLoops
+    case nonCanonicalLoopKey
+    case holeDoesNotMatchItsLoop(Int)
+}
+
 public struct LiveRoundPackage: Codable, Equatable {
-    /// The only package contract this client accepts. Older cached packages (v1) fail to decode or
-    /// are discarded and re-downloaded; source identity is never fabricated from `number`.
+    /// The only package contract this client accepts. A server package is checked with
+    /// ``validatedRoundIdentity()`` before use (SyncClient); v1 packages fail to decode (no
+    /// `roundLoops`) or are rejected there, and source identity is never fabricated from `number`.
     public static let supportedSchema = "ai-caddie-live-round-package-v2"
 
     public let schema: String
@@ -383,6 +392,52 @@ public struct LiveRoundPackage: Codable, Equatable {
             .sorted { $0.number < $1.number }
             .map { "\($0.number):\($0.sourceGlobalId):\($0.sourceLocalHole)" }
             .joined(separator: "|")
+    }
+
+    /// The complete v2 identity invariant, checked on every package that arrives from the server:
+    /// the v2 schema; with playable holes, one or two loops starting on round holes 1 then 10,
+    /// nine holes each, `sourceStartHole` matching `half`, the canonical `loopKey`, unique hole
+    /// numbers and every hole on its row (physical course, local hole and course number). A
+    /// package without holes names no loop. Throws ``RoundIdentityError``; returns `self`.
+    @discardableResult
+    public func validatedRoundIdentity() throws -> LiveRoundPackage {
+        guard schema == Self.supportedSchema else { throw RoundIdentityError.unsupportedSchema(schema) }
+        if holes.isEmpty {
+            guard roundLoops.isEmpty, loopKey.isEmpty else { throw RoundIdentityError.invalidRoundLoops }
+            return self
+        }
+        guard (1...2).contains(roundLoops.count) else { throw RoundIdentityError.invalidRoundLoops }
+        var expected: [Int: (globalId: Int, localHole: Int, courseHole: Int)] = [:]
+        for (index, loop) in roundLoops.enumerated() {
+            let entry = loop.entry
+            guard ["all", "front", "back"].contains(loop.half),
+                  loop.globalId > 0,
+                  loop.roundStartHole == 1 + index * RoundLoopEntry.holesPerLoop,
+                  loop.sourceStartHole == entry.sourceStartHole,
+                  loop.holeCount == RoundLoopEntry.holesPerLoop else {
+                throw RoundIdentityError.invalidRoundLoops
+            }
+            for offset in 0..<RoundLoopEntry.holesPerLoop {
+                let number = loop.roundStartHole + offset
+                let local = loop.sourceStartHole + offset
+                expected[number] = (loop.globalId, local, loop.isCourseHalf ? local : number)
+            }
+        }
+        guard loopKey == RoundLoopEntry.loopKey(loopEntries) else {
+            throw RoundIdentityError.nonCanonicalLoopKey
+        }
+        var seen = Set<Int>()
+        for hole in holes {
+            guard seen.insert(hole.number).inserted,
+                  let row = expected[hole.number],
+                  row.globalId == hole.sourceGlobalId,
+                  row.localHole == hole.sourceLocalHole,
+                  row.courseHole == hole.courseHoleNumber else {
+                throw RoundIdentityError.holeDoesNotMatchItsLoop(hole.number)
+            }
+        }
+        guard seen == Set(expected.keys) else { throw RoundIdentityError.invalidRoundLoops }
+        return self
     }
 
     /// The round's loops as request entries, in play order (the `loops=` of this package).
@@ -813,8 +868,8 @@ public struct Hole: Codable, Equatable, Identifiable {
     public let par: Int
     public let yards: Int?
     public let geometryCoverage: GeometryCoverageState
-    /// Stable identity of the Garmin release-bound geometry used by prep/topo. Optional keeps
-    /// packages saved by older app versions playable offline until the next online revalidation.
+    /// Stable identity of the Garmin release-bound geometry used by prep/topo; nil when the server
+    /// has no current release for the hole. (v1 packages are never played — contract §6.)
     public let geometryRevision: String?
     /// The physical hole: its Garmin course id and local hole (1–9 on a 9-hole loop, 1–18 on an
     /// 18-hole course). Required in package v2; geometry, topo, install and stats use only this.
@@ -823,7 +878,7 @@ public struct Hole: Codable, Equatable, Identifiable {
     /// Presentation-only course number: the physical hole on a half of an 18-hole course, the
     /// round number on a 9-hole loop. Text only (header, scorecard, summary, review, Watch).
     public let courseHoleNumber: Int
-    /// Selected Tee anchor from the same per-hole geometry. Optional keeps cached v1 packages valid.
+    /// Selected Tee anchor from the same per-hole geometry; nil when the Tee has no position.
     public let teeLatitude: Double?
     public let teeLongitude: Double?
 

@@ -118,7 +118,8 @@ final class OfflineStoreTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
-        let full = try localFixturePackage()
+        let full = try LiveRoundPackageFixture.package(dataMode: "local")
+        XCTAssertEqual(full.holes.count, 9)
         let partial = replacingHoles(
             in: full,
             with: [try XCTUnwrap(full.holes.first)],
@@ -3005,23 +3006,16 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(merged.penaltyCount, incoming.penaltyCount + 2)
     }
 
+    /// The shared fixture as shipped: the front nine (`31795:front`) of an 18-hole course.
     private func fixturePackage() throws -> LiveRoundPackage {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
-        let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(LiveRoundPackage.self, from: data)
+        try LiveRoundPackageFixture.package()
     }
 
+    /// A local one-hole `G:all` test table built from the fixture's hole 1. The course-template,
+    /// topo and prep tests below are written against one physical hole that is its own
+    /// whole-course template; the shipped front-nine fixture is never a template by itself.
     private func localFixturePackage() throws -> LiveRoundPackage {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
-        let fixture = try String(contentsOf: url, encoding: .utf8)
-            .replacingOccurrences(of: #""dataMode": "fixture""#, with: #""dataMode": "local""#)
-        return try JSONDecoder().decode(LiveRoundPackage.self, from: Data(fixture.utf8))
+        try LiveRoundPackageFixture.singleHole(dataMode: "local")
     }
 
     private func replacingGeometryCoverage(
@@ -3182,17 +3176,11 @@ final class OfflineStoreTests: XCTestCase {
     }
 
     private func twoHoleFixturePackage() throws -> LiveRoundPackage {
+        // The fixture's first two factual holes, narrowed to a two-hole test table.
         let package = try fixturePackage()
-        let first = try XCTUnwrap(package.holes.first)
-        let second = Hole(
-            number: 2,
-            par: 3,
-            yards: 165,
-            geometryCoverage: .missing,
-            sourceGlobalId: first.sourceGlobalId,
-            sourceLocalHole: 2,
-            courseHoleNumber: 2
-        )
+        let holes = Array(package.holes.sorted { $0.number < $1.number }.prefix(2))
+        XCTAssertEqual(holes.map(\.number), [1, 2])
+        let loop = try XCTUnwrap(package.roundLoops.first)
         return LiveRoundPackage(
             schema: package.schema,
             roundId: package.roundId,
@@ -3201,13 +3189,13 @@ final class OfflineStoreTests: XCTestCase {
             missingData: package.missingData,
             playerProfile: package.playerProfile,
             course: package.course,
-            holes: [first, second],
+            holes: holes,
             roundLoops: [RoundLoop(
-                globalId: first.sourceGlobalId,
-                half: "all",
-                roundStartHole: 1,
-                sourceStartHole: 1,
-                holeCount: 2
+                globalId: loop.globalId,
+                half: loop.half,
+                roundStartHole: loop.roundStartHole,
+                sourceStartHole: loop.sourceStartHole,
+                holeCount: holes.count
             )],
             loopKey: package.loopKey,
             coursePrep: package.coursePrep,

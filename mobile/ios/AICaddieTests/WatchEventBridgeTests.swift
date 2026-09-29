@@ -32,13 +32,15 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(seed.roundId, "live-round-1")
         XCTAssertEqual(seed.courseName, "Fixture Links")
         XCTAssertEqual(seed.activeHole, 1)
-        XCTAssertEqual(seed.holes.map(\.hole), [1])
-        XCTAssertEqual(seed.holes.map(\.par), [4])
-        XCTAssertEqual(seed.holes.map(\.globalId), [31795])
-        XCTAssertEqual(seed.holes.map(\.localHole), [1])
-        XCTAssertEqual(seed.holes.map(\.courseHoleNumber), [1])
+        // The fixture is the front nine (`31795:front`) of an 18-hole course: round hole n is
+        // physical hole n and shows as course hole n.
+        XCTAssertEqual(seed.holes.map(\.hole), [1, 2, 3, 4, 5, 6, 7, 8, 9])
+        XCTAssertEqual(seed.holes.map(\.par), [4, 3, 5, 4, 4, 3, 5, 4, 4])
+        XCTAssertEqual(seed.holes.map(\.globalId), [31795, 31795, 31795, 31795, 31795, 31795, 31795, 31795, 31795])
+        XCTAssertEqual(seed.holes.map(\.localHole), [1, 2, 3, 4, 5, 6, 7, 8, 9])
+        XCTAssertEqual(seed.holes.map(\.courseHoleNumber), [1, 2, 3, 4, 5, 6, 7, 8, 9])
         XCTAssertEqual(seed.globalId, 31795)
-        XCTAssertEqual(seed.loopKey, "31795:all")
+        XCTAssertEqual(seed.loopKey, "31795:front")
         XCTAssertEqual(seed.schema, "ai-caddie-watch-round-seed-v2")
         XCTAssertEqual(try XCTUnwrap(seed.holes.first?.distanceM), 374.904, accuracy: 0.001)
     }

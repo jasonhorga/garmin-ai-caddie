@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from ai_caddie.caddie.round_loops import RoundLoopError, validate_round_identity
+
 
 def _reject_oversized(value: Any, *, label: str, max_bytes: int = 131_072) -> Any:
     """codex MEDIUM #7: reject an arbitrarily large nested object (decision context / audit payload /
@@ -1076,13 +1078,13 @@ class RoundLoop(BaseModel):
 
     globalId: int = Field(ge=1)
     half: Literal["all", "front", "back"]
-    roundStartHole: int = Field(ge=1)
+    roundStartHole: Literal[1, 10]
     sourceStartHole: Literal[1, 10]
-    holeCount: int = Field(ge=1, le=9)
+    holeCount: Literal[9]
 
 
 class LiveRoundPackageResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True, extra="forbid")
 
     schema_: Literal["ai-caddie-live-round-package-v2"] = Field(alias="schema")
     roundId: str
@@ -1116,16 +1118,23 @@ class LiveRoundPackageResponse(BaseModel):
     courseInstallJob: dict[str, Any] | None = None
 
     @model_validator(mode="after")
-    def _every_hole_has_physical_identity(self) -> "LiveRoundPackageResponse":
-        # A degraded package with no playable hole (unknown round) names no loop; any playable
-        # hole requires the round-loop table.
-        if self.holes and (not self.roundLoops or not self.loopKey):
-            raise ValueError("a package with holes must carry roundLoops and loopKey")
-        for hole in self.holes:
-            for key in ("number", "sourceGlobalId", "sourceLocalHole", "courseHoleNumber"):
-                value = hole.get(key)
-                if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-                    raise ValueError(f"package hole is missing {key}")
+    def _round_identity_is_complete(self) -> "LiveRoundPackageResponse":
+        # A degraded package with no playable hole names no loop. Any playable hole requires the
+        # complete B4b-2 invariant: 1–2 loops starting on round holes 1 then 10, nine holes per
+        # loop, half/source-start pairing, the canonical loopKey, unique hole numbers, and every
+        # hole matching its table row.
+        if not self.holes:
+            if self.roundLoops or self.loopKey:
+                raise ValueError("a package without holes names no loop")
+            return self
+        try:
+            validate_round_identity(
+                [loop.model_dump() for loop in self.roundLoops],
+                self.loopKey,
+                self.holes,
+            )
+        except RoundLoopError as exc:
+            raise ValueError(str(exc)) from exc
         return self
 
 

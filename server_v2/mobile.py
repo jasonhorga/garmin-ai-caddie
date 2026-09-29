@@ -17,7 +17,7 @@ from ai_caddie.caddie.mobile_live import (
     ack_event_cursor,
     append_event_batch,
     build_live_round_package,
-    apply_round_loop_identity,
+    apply_past_round_loop_identity,
     build_live_round_package_for_loops,
     round_loop_key,
     build_mobile_course_options,
@@ -383,8 +383,9 @@ def build_mobile_round_package_response(
             # background stats path and remains available to history/review routes.
             stats_window="last20",
         )
-        # A past round names its loops from its holes' physical identity (v2 contract).
-        package = apply_round_loop_identity(package)
+        # A past round names its loops only from durable facts (v2 contract); an unprovable
+        # order is an explicit degraded package, never a guess from cache availability.
+        package = apply_past_round_loop_identity(package)
         # Resuming an existing round used to omit CoursePrep entirely. The phone then had to
         # request one hole at a time after every swipe, so holes 2+ rendered a base bitmap with
         # no factual centreline until the request completed. Keep the same cheap, release-bound

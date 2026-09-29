@@ -18,9 +18,16 @@ from ai_caddie.history.history import HistoryData
 from ai_caddie.caddie.mobile_live import _hole_issue_label_zh
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
+from tests.round_loop_authority import fixture_course_authority
 
 
 class ServerV2MobileTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Fixture history courses have no CourseView release here; stand in for it (B4b-2).
+        authority = fixture_course_authority()
+        authority.start()
+        self.addCleanup(authority.stop)
+
     def test_course_start_defers_non_priority_caddie_enrichment_explicitly(self) -> None:
         from ai_caddie.caddie import mobile_live
         from ai_caddie.core.fixtures import fixture_history_data

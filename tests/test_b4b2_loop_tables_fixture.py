@@ -121,6 +121,14 @@ class B4b2LoopTablesFixtureTests(unittest.TestCase):
             self.assertEqual(stored[key]["loopKey"], current[key]["loopKey"], key)
             self.assertEqual(stored[key]["holes"], current[key]["holes"], key)
 
+    def test_every_package_keeps_a_complete_weather_snapshot(self) -> None:
+        # A lone back half is shifted onto round holes 1–9; its snapshot must keep schema/state.
+        stored = json.loads(FIXTURE.read_text())
+        for key in ("wholeCourseTemplate", "frontHalf", "backHalf"):
+            weather = stored[key]["weatherSnapshot"]
+            self.assertEqual(weather.get("schema"), "ai-caddie-weather-snapshot-v1", key)
+            self.assertIn("state", weather, key)
+
     def test_every_order_is_a_distinct_table(self) -> None:
         tables = json.loads(FIXTURE.read_text())["tables"]
         self.assertEqual(len(tables), len(ORDERS))

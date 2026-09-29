@@ -26,6 +26,21 @@
     "cachedCaddieRules",
     "generatedAt"
   ],
+  "allOf": [
+    {
+      "if": {"properties": {"holes": {"maxItems": 0}}},
+      "then": {"properties": {"roundLoops": {"maxItems": 0}, "loopKey": {"const": ""}}},
+      "else": {"properties": {"roundLoops": {"minItems": 1}, "loopKey": {"minLength": 1}}}
+    },
+    {
+      "if": {"properties": {"roundLoops": {"minItems": 1, "maxItems": 1}}},
+      "then": {"properties": {"holes": {"minItems": 9, "maxItems": 9}}}
+    },
+    {
+      "if": {"properties": {"roundLoops": {"minItems": 2}}},
+      "then": {"properties": {"holes": {"minItems": 18, "maxItems": 18}}}
+    }
+  ],
   "properties": {
     "schema": {
       "type": "string",
@@ -427,6 +442,16 @@
     },
     "roundLoops": {
       "type": "array",
+      "minItems": 0,
+      "maxItems": 2,
+      "allOf": [
+        {
+          "prefixItems": [
+            {"properties": {"roundStartHole": {"const": 1}}},
+            {"properties": {"roundStartHole": {"const": 10}}}
+          ]
+        }
+      ],
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -434,14 +459,18 @@
         "properties": {
           "globalId": {"type": "integer", "minimum": 1},
           "half": {"type": "string", "enum": ["all", "front", "back"]},
-          "roundStartHole": {"type": "integer", "minimum": 1},
+          "roundStartHole": {"type": "integer", "enum": [1, 10]},
           "sourceStartHole": {"type": "integer", "enum": [1, 10]},
-          "holeCount": {"type": "integer", "minimum": 1, "maximum": 9}
-        }
+          "holeCount": {"type": "integer", "const": 9}
+        },
+        "if": {"properties": {"half": {"const": "back"}}},
+        "then": {"properties": {"sourceStartHole": {"const": 10}}},
+        "else": {"properties": {"sourceStartHole": {"const": 1}}}
       }
     },
     "loopKey": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^$|^[1-9][0-9]*:(all|front|back)(\\+[1-9][0-9]*:(all|front|back))?$"
     },
     "caddieContextSeeds": {
       "type": "array",

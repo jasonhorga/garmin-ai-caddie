@@ -17,7 +17,13 @@ from fastapi import APIRouter, HTTPException, Query, Response
 
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.caddie.decision_api import build_decision_from_request
-from ai_caddie.caddie.mobile_live import RoundLoopError, parse_round_loops, round_loop_key
+from ai_caddie.caddie.round_loops import (
+    CourseShape,
+    RoundLoopError,
+    parse_round_loops,
+    resolve_round_loops,
+    round_loop_key,
+)
 
 FIXTURE_REVISION = "ci-fixture-20260827-v1"
 ROUND_REF = "900001"
@@ -416,18 +422,20 @@ def _with_markers(payload: dict) -> dict:
 
 
 def _fixture_loops(raw: str, global_id: int) -> list[tuple[int, str]]:
-    """The production ``loops=`` parser, bounded to the fixture's 18-hole courses."""
+    """The production ``loops=`` parser and resolver, over the fixture's 18-hole courses (each its
+    own venue)."""
     try:
         loops = parse_round_loops(raw, path_global_id=int(global_id))
     except RoundLoopError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    for gid, half in loops:
+    for gid, _half in loops:
         _course_request(gid)
-        if half == "all":
-            raise HTTPException(status_code=422, detail=f"{gid}:all needs an authoritative 9-hole loop")
-        if gid != int(global_id):
-            raise HTTPException(status_code=422, detail="every loop must belong to the same physical venue")
-    return loops
+    try:
+        return resolve_round_loops(
+            loops, lambda gid: CourseShape(holes=18, venue=f"fixture:{_course_id(gid)}")
+        )
+    except RoundLoopError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _loop_holes(loops: list[tuple[int, str]]) -> list[tuple[int, int, int]]:

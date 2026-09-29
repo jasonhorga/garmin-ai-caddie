@@ -27,6 +27,18 @@ from ai_caddie.courses.name_authority import (
     split_garmin_course_name,
 )
 from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
+from ai_caddie.caddie.round_loops import (
+    ROUND_LOOP_HALVES,
+    ROUND_LOOP_HOLES,
+    CourseShape,
+    RoundLoopError,
+    parse_round_loops,
+    resolve_round_loops,
+    round_loop_key,
+    round_loops_table,
+    source_start_hole,
+    validate_round_identity,
+)
 from ai_caddie.rounds.score_source import SCORE_EVENT_KINDS, fold_score_source
 from ai_caddie.reports.annotations import annotations_for_target, list_annotations
 from ai_caddie.core.data import hazard_path, read_json
@@ -730,14 +742,30 @@ def _round_hole_geometry_ref(round_row: dict[str, Any], hole: int) -> tuple[int 
     # nine holes, map the second display lap back to local holes 1-9 instead of asking for the
     # nonexistent local holes 10-18.  This keeps the factual route available while remaining
     # cache-only and offline-safe; an unknown/18-hole release retains the original local number.
-    if global_id is not None:
-        try:
-            segment = _courseview_segment_resolver(global_id)
-            if segment and segment[1] == 9:
-                return global_id, hole - 9
-        except Exception:
-            pass
+    if global_id is not None and _authoritative_course_holes(global_id) == ROUND_LOOP_HOLES:
+        return global_id, hole - 9
     return global_id, hole
+
+
+def _round_hole_identity_proven(round_row: dict[str, Any], hole: int) -> bool:
+    """True when ``_round_hole_geometry_ref`` did not have to guess. Holes 1–9 and a Garmin
+    back-nine course are durable scorecard facts; holes 10–18 on the same course need the course's
+    authoritative shape (9 = the loop played again, 18 = the back half)."""
+    if hole <= 9 or _safe_int(round_row.get("backNineGlobalCourseId")) is not None:
+        return True
+    global_id = _safe_int(round_row.get("globalId") or round_row.get("courseGlobalId") or round_row.get("courseId"))
+    return global_id is not None and _authoritative_course_holes(global_id) is not None
+
+
+def _authoritative_course_holes(global_id: int) -> int | None:
+    """A course's hole count from its Garmin CourseView release (stored under data/courseview).
+    Absence means "unknown" — callers degrade or reject rather than guess."""
+    try:
+        segment = _courseview_segment_resolver(int(global_id))
+    except Exception:
+        return None
+    holes = segment[1] if segment else None
+    return holes if holes in (ROUND_LOOP_HOLES, 2 * ROUND_LOOP_HOLES) else None
 
 
 def _geometry_evidence_for_package_hole(round_row: dict[str, Any], hole: int) -> dict[str, Any]:
@@ -1033,7 +1061,10 @@ def _package_holes(
                 geometry_evidence.get("authorityObservation") or "unknown"
             ),
             "sourceGlobalId": int(source_gid) if source_gid else None,
-            "sourceLocalHole": int(source_local) if source_local else number,
+            "sourceLocalHole": int(source_local) if source_local else None,
+            # Internal: whether the (course, local hole) mapping rests on durable authority rather
+            # than a cold-cache fallback. Consumed by the v2 identity stamp, never serialized.
+            "_sourceIdentityProven": _round_hole_identity_proven(round_row, number),
             "teeLatitude": tee_latitude,
             "teeLongitude": tee_longitude,
         })
@@ -3564,9 +3595,10 @@ def build_live_round_package(
         caddie_context_seeds,
         package_course_name,
     )
-    # v2: the round's loops and each hole's physical / presentation identity, derived from the
-    # holes' source identity (a course start re-stamps them from its explicit loop order).
-    return apply_round_loop_identity({
+    # v2 identity is stamped by the caller: a course start from its explicit, proven loop order
+    # (``build_live_round_package_for_loops``); a past round from durable proof only
+    # (``apply_past_round_loop_identity``). The raw build never guesses a loop table.
+    return {
         "schema": LIVE_ROUND_PACKAGE_SCHEMA,
         "roundId": round_id,
         "dataMode": data_mode,
@@ -3610,7 +3642,7 @@ def build_live_round_package(
         "recentHistory": recent_history,
         "cachedCaddieRules": _cached_caddie_rules(),
         "generatedAt": _format_time(prepared_at),
-    })
+    }
 
 
 def _geometry_only_course_template(
@@ -3997,7 +4029,7 @@ def build_live_round_package_for_course(
         segment = _courseview_segment_resolver(int(global_id))
     except Exception:
         segment = None
-    if segment and segment[1] == 9:
+    if _authoritative_course_holes(int(global_id)) == ROUND_LOOP_HOLES:
         effective_nine = "front"
         is_loop_cap = True
     front_package = _filter_package_to_nine(package, effective_nine)
@@ -4027,70 +4059,23 @@ def build_live_round_package_for_course(
 
 
 LIVE_ROUND_PACKAGE_SCHEMA = "ai-caddie-live-round-package-v2"
-ROUND_LOOP_HALVES = ("all", "front", "back")
-ROUND_LOOP_HOLES = 9
-
-
-class RoundLoopError(ValueError):
-    """A ``loops=`` request that does not name one unambiguous round order."""
-
-
-def parse_round_loops(raw: str | None, *, path_global_id: int) -> list[tuple[int, str]]:
-    """Parse ``G:H[,G2:H2]`` into the round's ordered loops (duplicates allowed)."""
-    entries = [part.strip() for part in str(raw or "").split(",") if part.strip()]
-    if not 1 <= len(entries) <= 2:
-        raise RoundLoopError("loops must name one or two ordered loops")
-    loops: list[tuple[int, str]] = []
-    for entry in entries:
-        gid_text, separator, half = entry.partition(":")
-        if not separator:
-            raise RoundLoopError(f"loop {entry!r} must be globalId:half")
-        try:
-            gid = int(gid_text.strip())
-        except ValueError as exc:
-            raise RoundLoopError(f"loop {entry!r} has no numeric globalId") from exc
-        half = half.strip().lower()
-        if gid <= 0 or half not in ROUND_LOOP_HALVES:
-            raise RoundLoopError(f"loop {entry!r} must be a positive globalId and all|front|back")
-        loops.append((gid, half))
-    if loops[0][0] != int(path_global_id):
-        raise RoundLoopError("the first loop must be the requested course")
-    return loops
-
-
-def round_loop_key(loops: list[tuple[int, str]]) -> str:
-    """The canonical ordered loop identity: order and duplicates are preserved."""
-    return "+".join(f"{int(gid)}:{half}" for gid, half in loops)
-
-
-def _round_loop_source_start(half: str) -> int:
-    return 10 if half == "back" else 1
-
-
-def _round_loops_payload(loops: list[tuple[int, str]]) -> list[dict[str, Any]]:
-    return [
-        {
-            "globalId": int(gid),
-            "half": half,
-            "roundStartHole": 1 + index * ROUND_LOOP_HOLES,
-            "sourceStartHole": _round_loop_source_start(half),
-            "holeCount": ROUND_LOOP_HOLES,
-        }
-        for index, (gid, half) in enumerate(loops)
-    ]
-
-
-def _with_explicit_source_identity(package: dict[str, Any], global_id: int) -> dict[str, Any]:
-    """Pin each hole's physical identity before its round number moves."""
+def _course_holes_with_identity(package: dict[str, Any], global_id: int) -> dict[str, Any]:
+    """The course's holes with explicit physical identity on ``global_id``. A playable hole whose
+    identity is missing is never filled from its round number: the course is then unresolved."""
     out = dict(package)
-    holes: list[Any] = []
+    holes: list[dict[str, Any]] = []
     for raw in package.get("holes") or []:
-        if isinstance(raw, dict):
-            hole = dict(raw)
-            hole["sourceGlobalId"] = int(hole.get("sourceGlobalId") or global_id)
-            hole["sourceLocalHole"] = int(hole.get("sourceLocalHole") or hole.get("number") or 0)
-            raw = hole
-        holes.append(raw)
+        if not isinstance(raw, dict):
+            continue
+        source_gid = _safe_int(raw.get("sourceGlobalId"))
+        local = _safe_int(raw.get("sourceLocalHole"))
+        if source_gid != int(global_id) or local is None or local <= 0:
+            # Another course's hole, or one with no physical identity, is not a fact about this
+            # course; without enough of its own holes the course stays unresolved (422).
+            continue
+        hole = dict(raw)
+        hole.pop("_sourceIdentityProven", None)
+        holes.append(hole)
     out["holes"] = holes
     return out
 
@@ -4109,13 +4094,20 @@ def _shift_loop_package(package: dict[str, Any], offset: int) -> dict[str, Any]:
         shifted_hole = _shift_hole_number(seed.get("hole"), offset)
         if old_ref and isinstance(shifted_hole, int):
             ref_replacements[old_ref] = f"{round_id}:{shifted_hole}"
-    weather, _ = _merge_composite_weather(
+    base_weather = package.get("weatherSnapshot") or {}
+    shifted_rows, _ = _merge_composite_weather(
         {},
-        package.get("weatherSnapshot") or {},
+        base_weather,
         offset=offset,
         ref_replacements=ref_replacements,
         round_id=round_id,
     )
+    # Only the round-indexed rows move; the snapshot's own facts (schema, state, source, capture
+    # time…) stay. Merging onto an empty front used to drop them, so a lone back half decoded as
+    # an invalid weather snapshot on the phone.
+    weather = {**_replace_exact_runtime_refs(base_weather, ref_replacements), **shifted_rows}
+    if isinstance(weather.get("hole"), int) and not isinstance(weather.get("hole"), bool):
+        weather["hole"] = _shift_hole_number(weather["hole"], offset)
     shifted = dict(package)
 
     def _shift(rows: Any, key: str) -> list[Any]:
@@ -4162,56 +4154,33 @@ def _shift_loop_package(package: dict[str, Any], offset: int) -> dict[str, Any]:
     return shifted
 
 
-def _package_venue_key(package: dict[str, Any]) -> str:
-    course = package.get("course") or {}
-    venue = str(course.get("venueName") or "").strip() or _venue_base_name(str(course.get("name") or ""))
-    return normalize_course_text(venue).casefold()
-
-
 def apply_round_loop_identity(
     package: dict[str, Any],
-    loops: list[tuple[int, str]] | None = None,
+    loops: list[tuple[int, str]],
 ) -> dict[str, Any]:
-    """Stamp the v2 round identity: ``roundLoops`` / ``loopKey`` and each hole's
-    ``courseHoleNumber`` (the physical number for a half of an 18-hole course, the round number
-    for a 9-hole loop). Without explicit ``loops`` the order is derived from the holes' physical
-    identity, which a past round's package already carries."""
+    """Stamp a proven v2 round identity: ``roundLoops`` / ``loopKey`` and each hole's
+    ``courseHoleNumber`` (the physical number on a half of an 18-hole course, the round number on
+    a 9-hole loop). Holes must already carry explicit physical identity; the full invariant is
+    checked before anything is returned."""
     out = dict(package)
-    course_gid = int((package.get("course") or {}).get("globalId") or 0)
-    holes = [dict(h) if isinstance(h, dict) else h for h in package.get("holes") or []]
-    if course_gid <= 0 and not any(
-        isinstance(h, dict) and int(h.get("sourceGlobalId") or 0) > 0 for h in holes
-    ):
-        # An unknown round/course (degraded package) has no physical course, so it has no
-        # playable hole and names no loop; placeholders would fabricate a source identity.
-        holes = []
-    for hole in holes:
-        if isinstance(hole, dict):
-            hole["sourceGlobalId"] = int(hole.get("sourceGlobalId") or course_gid)
-            hole["sourceLocalHole"] = int(hole.get("sourceLocalHole") or hole.get("number") or 0)
-    derived = loops is None
-    if loops is None:
-        loops = _derive_round_loops(holes, course_gid)
-    table = _round_loops_payload(loops)
-    if derived:
-        # A past round may have stopped mid-loop: its last loop counts only the holes it has.
-        numbers = [int(h.get("number") or 0) for h in holes if isinstance(h, dict)]
-        for row in table:
-            start = row["roundStartHole"]
-            row["holeCount"] = max(1, sum(1 for n in numbers if start <= n < start + ROUND_LOOP_HOLES))
-    for hole in holes:
-        if not isinstance(hole, dict):
+    table = round_loops_table(loops)
+    holes: list[dict[str, Any]] = []
+    for raw in package.get("holes") or []:
+        if not isinstance(raw, dict):
             continue
-        number = int(hole.get("number") or 0)
+        hole = dict(raw)
+        hole.pop("_sourceIdentityProven", None)
+        number = _safe_int(hole.get("number")) or 0
         loop = next(
-            (
-                row for row in table
-                if row["roundStartHole"] <= number < row["roundStartHole"] + row["holeCount"]
-            ),
+            (row for row in table if row["roundStartHole"] <= number < row["roundStartHole"] + ROUND_LOOP_HOLES),
             None,
         )
-        half = loop["half"] if loop else "all"
-        hole["courseHoleNumber"] = int(hole["sourceLocalHole"]) if half in {"front", "back"} else number
+        if loop is not None and _safe_int(hole.get("sourceLocalHole")):
+            hole["courseHoleNumber"] = (
+                int(hole["sourceLocalHole"]) if loop["half"] in ("front", "back") else number
+            )
+        holes.append(hole)
+    validate_round_identity(table, round_loop_key(loops), holes)
     out["holes"] = holes
     out["roundLoops"] = table
     out["loopKey"] = round_loop_key(loops)
@@ -4220,29 +4189,114 @@ def apply_round_loop_identity(
     return out
 
 
-def _derive_round_loops(holes: list[Any], course_gid: int) -> list[tuple[int, str]]:
-    """A past round's loops from its holes: consecutive nines of round numbers, each named by its
-    physical course and half (``all`` for an authoritative 9-hole loop)."""
-    ordered = sorted(
-        (h for h in holes if isinstance(h, dict) and int(h.get("number") or 0) > 0),
-        key=lambda h: int(h.get("number") or 0),
-    )
+def _degraded_without_round_identity(package: dict[str, Any], reason: str) -> dict[str, Any]:
+    """A past round whose loop table cannot be proven: no playable hole and no loop is published
+    (never a valid-looking guess), with the reason as explicit missing data."""
+    out = dict(package)
+    out["holes"] = []
+    out["roundLoops"] = []
+    out["loopKey"] = ""
+    out["caddieContextSeeds"] = []
+    out["coursePrep"] = None
+    out["schema"] = LIVE_ROUND_PACKAGE_SCHEMA
+    out.pop("nine", None)
+    out["missingData"] = [
+        *[row for row in package.get("missingData") or [] if isinstance(row, dict)],
+        {"label": "round_loop_authority", "reason": reason},
+    ]
+    return out
+
+
+def derive_past_round_loops(holes: list[Any]) -> list[tuple[int, str]]:
+    """A past round's loops from durable facts only (B4b-2).
+
+    Round holes must be exactly 1–9 or 1–18, each nine on one course with a consecutive physical
+    block. Physical holes 10–18 prove the back half of an 18-hole course; a Garmin two-course
+    round (different courses per nine) or one loop's holes 1–9 played twice proves 9-hole loops;
+    a lone nine on physical holes 1–9 needs the course's recorded shape. Anything else raises
+    :class:`RoundLoopError` — nothing is guessed from cache availability.
+    """
+    rows = [h for h in holes if isinstance(h, dict)]
+    if any(h.get("_sourceIdentityProven") is False for h in rows):
+        raise RoundLoopError("a hole's physical course is not proven yet")
+    numbers = sorted(_safe_int(h.get("number")) or 0 for h in rows)
+    if numbers not in (list(range(1, 10)), list(range(1, 19))):
+        raise RoundLoopError("a past round must cover whole nines")
+    by_number = {int(h["number"]): h for h in rows}
+    chunks: list[tuple[int, list[int]]] = []
+    for start in range(1, len(numbers) + 1, ROUND_LOOP_HOLES):
+        chunk = [by_number[n] for n in range(start, start + ROUND_LOOP_HOLES)]
+        gids = {_safe_int(h.get("sourceGlobalId")) for h in chunk}
+        locals_ = [_safe_int(h.get("sourceLocalHole")) for h in chunk]
+        if len(gids) != 1 or None in gids or None in locals_:
+            raise RoundLoopError("each nine must sit on one course with explicit holes")
+        if locals_ not in (list(range(1, 10)), list(range(10, 19))):
+            raise RoundLoopError("each nine must be one physical nine")
+        chunks.append((int(next(iter(gids))), [int(v) for v in locals_]))
     loops: list[tuple[int, str]] = []
-    for start in range(0, len(ordered), ROUND_LOOP_HOLES):
-        chunk = ordered[start:start + ROUND_LOOP_HOLES]
-        gid = int(chunk[0].get("sourceGlobalId") or course_gid)
-        first_local = min(int(h.get("sourceLocalHole") or h.get("number") or 1) for h in chunk)
-        segment = None
-        try:
-            segment = _courseview_segment_resolver(gid)
-        except Exception:
-            segment = None
-        if segment and segment[1] == 9:
-            half = "all"
+    for index, (gid, locals_) in enumerate(chunks):
+        if locals_[0] == 10:
+            half = "back"
         else:
-            half = "back" if first_local >= 10 else "front"
+            other = chunks[1 - index] if len(chunks) == 2 else None
+            known = _authoritative_course_holes(gid)
+            if known == ROUND_LOOP_HOLES:
+                half = "all"
+            elif known == 2 * ROUND_LOOP_HOLES:
+                half = "front"
+            elif other is not None and (other[0] != gid or other[1][0] == 1):
+                # Two different courses, or one course's holes 1–9 twice: Garmin recorded 9-hole
+                # loops (an 18-hole course's second nine is its holes 10–18).
+                half = "all"
+            elif other is not None and other[0] == gid and other[1][0] == 10:
+                half = "front"
+            else:
+                raise RoundLoopError(f"course {gid} has no durable hole layout for this nine")
         loops.append((gid, half))
     return loops
+
+
+def apply_past_round_loop_identity(package: dict[str, Any]) -> dict[str, Any]:
+    """v2 identity of a past round, or an explicit degraded package when it cannot be proven."""
+    try:
+        loops = derive_past_round_loops(list(package.get("holes") or []))
+        return apply_round_loop_identity(package, loops)
+    except RoundLoopError as exc:
+        return _degraded_without_round_identity(package, str(exc))
+
+
+def _package_venue_key(package: dict[str, Any]) -> str:
+    course = package.get("course") or {}
+    venue = str(course.get("venueName") or "").strip() or _venue_base_name(str(course.get("name") or ""))
+    return normalize_course_text(venue).casefold()
+
+
+def course_shape_from_release(global_id: int) -> CourseShape | None:
+    """A course's shape from its Garmin release alone (the install-status route has no package)."""
+    holes = _authoritative_course_holes(int(global_id))
+    if holes is None:
+        return None
+    try:
+        segment = _courseview_segment_resolver(int(global_id))
+    except Exception:
+        segment = None
+    name = str((segment or (None,))[0] or "")
+    return CourseShape(holes=holes, venue=normalize_course_text(_venue_base_name(name)).casefold())
+
+
+def _course_shape_from_package(package: dict[str, Any], global_id: int) -> CourseShape | None:
+    """The course's authoritative shape: the durable record or Garmin release, else a physical
+    hole 10+ among the course's own holes (only an 18-hole course has one). Unknown otherwise."""
+    holes = _authoritative_course_holes(int(global_id))
+    if holes is None and any(
+        (_safe_int(h.get("sourceLocalHole")) or 0) > ROUND_LOOP_HOLES
+        for h in package.get("holes") or []
+        if isinstance(h, dict)
+    ):
+        holes = 2 * ROUND_LOOP_HOLES
+    if holes is None:
+        return None
+    return CourseShape(holes=holes, venue=_package_venue_key(package))
 
 
 def build_live_round_package_for_loops(
@@ -4253,58 +4307,33 @@ def build_live_round_package_for_loops(
 ) -> dict[str, Any]:
     """Build a round in the given loop order (B4b-2).
 
-    Each distinct course is built once as its whole authoritative course; each loop selects its
-    physical holes (a 9-hole loop, or the front / back half of an 18-hole course), is renumbered
-    to round holes 1–9 / 10–18 in play order, and keeps its physical ``sourceGlobalId`` /
-    ``sourceLocalHole``. Raises :class:`RoundLoopError` for an ambiguous or unplayable order.
+    Each distinct course is built once as its whole authoritative course and its shape is proven
+    (:func:`resolve_round_loops`: known course, ``all`` on a 9-hole loop, ``front`` / ``back`` on
+    an 18-hole course, one venue) before any ``loopKey`` exists. Each loop then selects its
+    physical holes, is renumbered to round holes 1–9 / 10–18 in play order, and keeps its
+    physical ``sourceGlobalId`` / ``sourceLocalHole``. Raises :class:`RoundLoopError` otherwise.
     """
     if not 1 <= len(loops) <= 2:
         raise RoundLoopError("loops must name one or two ordered loops")
     base_by_gid: dict[int, dict[str, Any]] = {}
+    shapes: dict[int, CourseShape | None] = {}
     for gid in dict.fromkeys(int(gid) for gid, _ in loops):
-        starts = sorted({_round_loop_source_start(half) for g, half in loops if int(g) == gid})
-        base = build_live_round_package_for_course(
+        starts = sorted({source_start_hole(half) for g, half in loops if int(g) == gid})
+        base = _course_holes_with_identity(
+            build_live_round_package_for_course(gid, priority_holes=starts, **kwargs),
             gid,
-            priority_holes=starts,
-            **kwargs,
         )
-        base_by_gid[gid] = _with_explicit_source_identity(base, gid)
-    venues = {_package_venue_key(base) for base in base_by_gid.values()}
-    if len(venues) > 1:
-        raise RoundLoopError("every loop must belong to the same physical venue")
-    unresolved = next(
-        (
-            base for base in base_by_gid.values()
-            if not [h for h in base.get("holes") or [] if isinstance(h, dict)]
-        ),
-        None,
-    )
-    if unresolved is not None:
-        # A course with no factual hole (unknown to history and CourseView) stays the explicit
-        # degraded package: the requested order is named, but no hole identity is invented.
-        degraded = dict(unresolved)
-        degraded["holes"] = []
-        degraded["roundLoops"] = _round_loops_payload(loops)
-        degraded["loopKey"] = round_loop_key(loops)
-        degraded["schema"] = LIVE_ROUND_PACKAGE_SCHEMA
-        degraded.pop("nine", None)
-        return degraded
+        base_by_gid[gid] = base
+        shapes[gid] = _course_shape_from_package(base, gid)
+    resolve_round_loops(loops, lambda gid: shapes.get(int(gid)))
     loop_packages: list[dict[str, Any]] = []
     for gid, half in loops:
         base = base_by_gid[int(gid)]
-        course_holes = len([h for h in base.get("holes") or [] if isinstance(h, dict)])
-        if half == "all":
-            if course_holes != ROUND_LOOP_HOLES:
-                raise RoundLoopError(f"{gid}:all needs an authoritative 9-hole loop")
-            selected = base
-        else:
-            if course_holes != 2 * ROUND_LOOP_HOLES:
-                raise RoundLoopError(f"{gid}:{half} needs an authoritative 18-hole course")
-            selected = _filter_package_to_nine(base, half)
+        selected = base if half == "all" else _filter_package_to_nine(base, half)
         playable = [h for h in selected.get("holes") or [] if isinstance(h, dict)]
         if len(playable) != ROUND_LOOP_HOLES:
             raise RoundLoopError(f"{gid}:{half} does not resolve to nine holes")
-        loop_packages.append(_shift_loop_package(selected, 1 - _round_loop_source_start(half)))
+        loop_packages.append(_shift_loop_package(selected, 1 - source_start_hole(half)))
     package = loop_packages[0]
     if len(loop_packages) == 2:
         package = _merge_nines(package, loop_packages[1])

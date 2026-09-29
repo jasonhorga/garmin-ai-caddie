@@ -690,6 +690,32 @@ class CIFixtureContractTests(unittest.TestCase):
             with self.assertRaises(HTTPException, msg=loops):
                 install_status(31795, loops=loops)
 
+    def test_fixture_packages_satisfy_the_strict_round_identity(self) -> None:
+        try:
+            from fastapi import HTTPException
+            from server_v2.ci_fixture import GLOBAL_ID, ROUND_REF, PALACE_ID, course_package, install_status, round_package
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        from ai_caddie.caddie.round_loops import validate_round_identity
+
+        packages = [round_package(ROUND_REF)]
+        for gid in (GLOBAL_ID, PALACE_ID):
+            for loops in (f"{gid}:front", f"{gid}:back", f"{gid}:front,{gid}:back", f"{gid}:back,{gid}:front",
+                          f"{gid}:front,{gid}:front", f"{gid}:back,{gid}:back"):
+                packages.append(course_package(gid, loops=loops, round_id=ROUND_REF, tee_box="blue"))
+        for package in packages:
+            # Full nine per loop, canonical loopKey, every hole on its table row.
+            validate_round_identity(package["roundLoops"], package["loopKey"], package["holes"])
+        # Malformed lists are rejected by the same strict parser on both routes.
+        for loops in (f"{GLOBAL_ID}:front,", f",{GLOBAL_ID}:front", f"{GLOBAL_ID}:front,,{GLOBAL_ID}:back"):
+            for call in (
+                lambda: course_package(GLOBAL_ID, loops=loops, round_id=ROUND_REF, tee_box="blue"),
+                lambda: install_status(GLOBAL_ID, loops=loops),
+            ):
+                with self.assertRaises(HTTPException, msg=loops) as raised:
+                    call()
+                self.assertEqual(raised.exception.status_code, 422)
+
     def test_native_history_callers_expose_resolved_identity_query(self) -> None:
         source = Path("mobile/ios/AICaddie/Services/SyncClient.swift").read_text(encoding="utf-8")
         self.assertIn("fetchRoundShotMap(roundRef: String, hole: Int, globalId: Int? = nil, backGlobalId: Int? = nil", source)

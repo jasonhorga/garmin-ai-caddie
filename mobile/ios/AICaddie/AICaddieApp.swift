@@ -4510,23 +4510,20 @@ public final class LiveRoundAppModel: ObservableObject {
 
     #if DEBUG
     private func loadScoringUITestFixture() throws -> LiveRoundPackage {
+        // The bundled fixture is the front nine (`31795:front`) of an 18-hole course. The scoring
+        // UI test only needs its first two factual holes; iOS does not validate the loop table, so
+        // the table is narrowed to those two holes with the same physical identity.
         let package = try loadFixturePackage()
-        guard let first = package.holes.first else { return package }
-        let second = Hole(
-            number: 2,
-            par: 3,
-            yards: 165,
-            geometryCoverage: .missing,
-            sourceGlobalId: first.sourceGlobalId,
-            sourceLocalHole: 2,
-            courseHoleNumber: 2
-        )
+        let holes = Array(package.holes.sorted { $0.number < $1.number }.prefix(2))
+        guard let first = holes.first,
+              let firstLoop = package.roundLoops.first else { return package }
+        let numbers = Set(holes.map(\.number))
         let loops = [RoundLoop(
-            globalId: first.sourceGlobalId,
-            half: "all",
-            roundStartHole: 1,
-            sourceStartHole: 1,
-            holeCount: 2
+            globalId: firstLoop.globalId,
+            half: firstLoop.half,
+            roundStartHole: first.number,
+            sourceStartHole: first.sourceLocalHole,
+            holeCount: holes.count
         )]
         return LiveRoundPackage(
             schema: package.schema,
@@ -4536,13 +4533,13 @@ public final class LiveRoundAppModel: ObservableObject {
             missingData: package.missingData,
             playerProfile: package.playerProfile,
             course: package.course,
-            holes: [first, second],
+            holes: holes,
             roundLoops: loops,
             loopKey: package.loopKey,
             coursePrep: package.coursePrep,
             geometryCoverage: package.geometryCoverage,
             readinessChecks: package.readinessChecks,
-            caddieContextSeeds: package.caddieContextSeeds,
+            caddieContextSeeds: package.caddieContextSeeds.filter { numbers.contains($0.hole) },
             weatherSnapshot: package.weatherSnapshot,
             clubProfiles: package.clubProfiles,
             caddieDecisionEndpoint: package.caddieDecisionEndpoint,

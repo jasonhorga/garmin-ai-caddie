@@ -212,7 +212,7 @@ def _mobile_package_response() -> dict[str, object]:
             "selectedRoundId": "live-round-1",
             "roundFound": True,
             "availableRoundCount": 1,
-            "holeCount": 1,
+            "holeCount": 9,
             "clubProfileCount": 0,
         },
         "missingData": [],
@@ -222,16 +222,18 @@ def _mobile_package_response() -> dict[str, object]:
             {"globalId": 31795, "half": "all", "roundStartHole": 1, "sourceStartHole": 1, "holeCount": 9}
         ],
         "loopKey": "31795:all",
+        # A contract-valid 9-hole loop: every loop carries all nine of its holes (B4b-2).
         "holes": [
             {
-                "number": 1,
-                "courseHoleNumber": 1,
+                "number": number,
+                "courseHoleNumber": number,
                 "sourceGlobalId": 31795,
-                "sourceLocalHole": 1,
+                "sourceLocalHole": number,
                 "par": 4,
                 "yards": 410,
                 "geometryCoverage": "ready",
             }
+            for number in range(1, 10)
         ],
         "geometryCoverage": {"state": "partial", "readyHoles": 12, "totalHoles": 18},
         "caddieContextSeeds": [],
