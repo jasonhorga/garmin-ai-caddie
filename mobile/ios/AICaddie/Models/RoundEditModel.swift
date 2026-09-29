@@ -274,8 +274,7 @@ public final class RoundEditModel: ObservableObject {
     /// 推杆 −/+, not numbered), so read and edit mode show the same numbers.
     public func displayNumber(of shotId: String) -> Int? {
         let fullShots = map.shots.filter(roundShotIsFullShot)
-        if let index = fullShots.firstIndex(where: { $0.id == shotId }) { return index + 1 }
-        return map.shots.firstIndex(where: { $0.id == shotId }).map { $0 + 1 }
+        return fullShots.firstIndex(where: { $0.id == shotId }).map { $0 + 1 }
     }
 
     public var fullShotCount: Int { map.shots.filter(roundShotIsFullShot).count }

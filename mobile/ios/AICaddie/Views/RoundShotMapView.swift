@@ -359,10 +359,20 @@ func roundShotIsFullShot(_ shot: RoundShot) -> Bool {
     !roundShotIsPutt(shot) && !shot.synthetic
 }
 
+/// One rule with the server audit (`correction_audit.is_putt_row`): any shot type containing
+/// PUTT (PUTT, PENALTY_PUTT); a putter club; or an UNKNOWN / untyped stroke played from the green
+/// without a full-swing club.
 func roundShotIsPutt(_ shot: RoundShot) -> Bool {
-    (shot.shotType ?? "").uppercased() == "PUTT"
-        || (shot.club ?? "").localizedCaseInsensitiveContains("putt")
-        || (shot.club ?? "").contains("推")
+    let type = (shot.shotType ?? "").trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    if type.contains("PUTT") { return true }
+    let club = (shot.club ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let lowered = club.lowercased()
+    if ["putter", "putt", "pt", "推杆"].contains(lowered) || lowered.contains("putt") || club.contains("推") {
+        return true
+    }
+    let fromGreen = (shot.lie ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "green"
+    let noClub = lowered.isEmpty || lowered == "unknown"
+    return fromGreen && noClub && (type.isEmpty || type == "UNKNOWN")
 }
 
 /// "一号木 221" / "221码" / "一号木" — nil when neither the club nor the distance is known.
@@ -474,7 +484,7 @@ public func shotLieLabel(_ lie: String?) -> String {
 
 /// 一杆的直线距离(码),由起终点像素 + overlay 的每米像素数(ppm)换算。推杆或缺端点 → nil(不显示)。
 public func roundShotYards(_ shot: RoundShot, ppm: Double?) -> Int? {
-    if (shot.shotType ?? "").uppercased() == "PUTT" || (shot.club ?? "").contains("推") { return nil }
+    if roundShotIsPutt(shot) { return nil }
     return RoundEditModel.yards(from: shot.start, to: shot.end, ppm: ppm)
 }
 

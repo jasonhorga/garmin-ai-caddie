@@ -154,10 +154,40 @@ class ShotEditDiffTest(_Store):
         self.assertEqual(self.ops(stored), [])
 
     def test_putter_named_rows_count_as_putts(self) -> None:
-        rows = [{"id": "a", "club": "Driver"}, {"id": "b", "club": "推杆"}, {"id": "c", "clubName": "Putter"},
-                {"id": "d", "type": "PUTT"}, {"id": "e", "club": "7I", "shotType": "APPROACH"}]
+        rows = [
+            {"id": "a", "club": "Driver"},
+            {"id": "b", "club": "推杆"},
+            {"id": "c", "clubName": "Putter"},
+            {"id": "d", "type": "PUTT"},
+            {"id": "e", "club": "7I", "shotType": "APPROACH"},
+            {"id": "f", "shotType": "PENALTY_PUTT", "lie": "Green"},          # no club
+            {"id": "g", "shotType": "UNKNOWN", "lie": "Green"},               # untyped, from the green
+            {"id": "h", "shotType": "UNKNOWN", "lie": "Green", "club": "SW"},  # a chip from the green
+            {"id": "i", "shotType": "UNKNOWN", "lie": "Fairway"},
+            {"id": "j", "club": "pt"},
+            {"id": "k", "start": {"lie": "Green"}},                          # source-row shape
+        ]
         state = ca._state_from_rows(rows, revision="r1", penalty=0, positions=False)
-        self.assertEqual([shot["id"] for shot in state["shots"]], ["a", "e"])
+        self.assertEqual([shot["id"] for shot in state["shots"]], ["a", "e", "h", "i"])
+
+    def test_clubless_penalty_putt_never_enters_a_reorder_or_delete(self) -> None:
+        view = _view(self.BEFORE)
+        view["shots"].append({"id": "pp:1", "shotType": "PENALTY_PUTT", "lie": "Green",
+                              "start": [130, 100], "end": [131, 96], "synthetic": False})
+
+        def row(sid, club, lie, s, e):
+            return {"id": sid, "club": club, "lie": lie, "start": list(s), "end": list(e)}
+
+        penalty_putt = {"id": "pp:1", "shotType": "PENALTY_PUTT", "lie": "Green", "start": [130, 100], "end": [131, 96]}
+        for shots, expected in (
+            ([row(*self.BEFORE[1]), row(*self.BEFORE[0]), row(*self.BEFORE[2]), penalty_putt], "reorder"),
+            ([row(*self.BEFORE[0]), row(*self.BEFORE[1]), penalty_putt], "delete"),
+        ):
+            event = {"op": "replaceHoleShots", "hole": 4, "geometryRevision": "r1", "manualPenalty": 0, "shots": shots}
+            with self.with_view(view):
+                stored = self.write(event)
+            self.assertIn(expected, self.ops(stored))
+            self.assertNotIn("pp:1", json.dumps(stored["audit"]["entries"]))
 
     def test_club_only_snapshot_across_a_geometry_refresh_has_no_position_entry(self) -> None:
         event = {"op": "replaceHoleShots", "hole": 4, "geometryRevision": "r0", "manualPenalty": 0, "shots": [

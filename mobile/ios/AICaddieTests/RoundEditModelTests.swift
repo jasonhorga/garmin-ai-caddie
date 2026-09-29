@@ -288,6 +288,41 @@ final class RoundEditModelTests: XCTestCase {
         }
     }
 
+    func testPuttRuleMatchesTheServerAudit() {
+        func shot(_ id: String, club: String? = nil, lie: String? = nil, type: String? = nil) -> RoundShot {
+            RoundShot(shotId: id, start: [0, 0], end: [1, 1], club: club, lie: lie, shotType: type)
+        }
+        XCTAssertTrue(roundShotIsPutt(shot("a", type: "PUTT")))
+        XCTAssertTrue(roundShotIsPutt(shot("b", lie: "Green", type: "PENALTY_PUTT")), "no club, penalty putt")
+        XCTAssertTrue(roundShotIsPutt(shot("c", lie: "green", type: "UNKNOWN")), "untyped stroke from the green")
+        XCTAssertTrue(roundShotIsPutt(shot("d", club: "推杆")))
+        XCTAssertTrue(roundShotIsPutt(shot("e", club: "pt")))
+        XCTAssertFalse(roundShotIsPutt(shot("f", club: "SW", lie: "Green", type: "UNKNOWN")), "a chip from the green")
+        XCTAssertFalse(roundShotIsPutt(shot("g", lie: "Fairway", type: "UNKNOWN")))
+        XCTAssertFalse(roundShotIsPutt(shot("h", club: "7I", type: "APPROACH")))
+    }
+
+    func testClublessPenaltyPuttIsNeverNumberedOrEditable() {
+        let shots = [
+            RoundShot(shotId: "shot-1", start: [50, 95], end: [40, 65], club: "Driver", lie: "teebox", order: 1),
+            RoundShot(shotId: "shot-2", start: [40, 65], end: [50, 20], club: "7I", lie: "fairway", order: 2),
+            RoundShot(shotId: "pp-1", start: [49, 21], end: [50, 18], club: nil, lie: "Green", shotType: "PENALTY_PUTT", order: 3),
+        ]
+        let model = makeModel(shots: shots) { request in Self.response(request, status: 503) }
+        model.enterEdit()
+        let before = model.map.shots
+        XCTAssertEqual(model.fullShotCount, 2)
+        XCTAssertNil(model.displayNumber(of: "pp-1"), "a putt row has no shot number")
+        model.selectedShotId = "pp-1"
+        XCTAssertNil(model.selectedShotId)
+        model.editClub(shotId: "pp-1", "七号铁")
+        model.delete(shotId: "pp-1")
+        model.moveShot("shot-2", by: 1)
+        XCTAssertFalse(model.canMoveShot("shot-2", by: 1))
+        XCTAssertEqual(model.map.shots, before)
+        XCTAssertFalse(model.hasUnsavedChanges)
+    }
+
     func testOrderArrowsAreEnabledOnlyForMovesTheModelPerforms() {
         let model = makeModel(shots: shotsWithPutt) { request in Self.response(request, status: 503) }
         model.enterEdit()

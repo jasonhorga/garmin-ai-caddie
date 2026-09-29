@@ -320,19 +320,36 @@ def _shot_state(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _is_putt_row(row: dict[str, Any]) -> bool:
+PUTTER_CLUB_NAMES = {"putter", "putt", "pt", "推杆"}
+
+
+def is_putt_row(row: dict[str, Any]) -> bool:
     """A putt stroke row. Putts are a hole count (``putt_correction``), not full shots: they never
-    enter the shot diff, so moving full shots around them is never logged as a putt reorder."""
-    if str(row.get("shotType") or row.get("type") or "").strip().upper() == "PUTT":
+    enter the shot diff, so moving full shots around them is never logged as a putt reorder.
+
+    One rule with iOS ``roundShotIsPutt`` (and ``analysis`` shot labels): any shot type containing
+    ``PUTT`` (``PUTT``, ``PENALTY_PUTT``); a putter club; or an ``UNKNOWN``/untyped stroke played
+    from the green without a full-swing club.
+    """
+    shot_type = str(row.get("shotType") or row.get("type") or "").strip().upper()
+    if "PUTT" in shot_type:
         return True
     club = str(row.get("club") or row.get("clubName") or "").strip()
-    return "putt" in club.lower() or "推" in club
+    lowered = club.lower()
+    is_putter = lowered in PUTTER_CLUB_NAMES or "putt" in lowered or "推" in club
+    if is_putter:
+        return True
+    start = row.get("start")
+    lie = row.get("lie") or (start.get("lie") if isinstance(start, dict) else None)
+    from_green = str(lie or "").strip().lower() == "green"
+    no_club = lowered in ("", "unknown")
+    return from_green and no_club and shot_type in ("", "UNKNOWN")
 
 
 def _state_from_rows(rows: list[dict[str, Any]], *, revision: Any, penalty: Any, positions: bool) -> dict[str, Any]:
     shots = [
         _shot_state(row) for row in rows
-        if isinstance(row, dict) and row.get("id") and not row.get("synthetic") and not _is_putt_row(row)
+        if isinstance(row, dict) and row.get("id") and not row.get("synthetic") and not is_putt_row(row)
     ]
     if not positions:
         for shot in shots:
