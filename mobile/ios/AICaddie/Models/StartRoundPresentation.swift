@@ -97,6 +97,16 @@ enum StartRoundPresentation {
         return ranked.map { $0.option }
     }
 
+    /// A tee's factual yards for the holes being started: the authority's total only when it
+    /// covers exactly those holes (a nine-hole loop's tee, or a whole course). A half of an
+    /// 18-hole course has no factual per-half total, so it shows none — never the 18-hole total
+    /// and never a guess such as half of it.
+    static func teeYards(total: Int?, teeHoleCount: Int?, playedHoles: Int?) -> Int? {
+        guard let total, total > 0, let playedHoles else { return nil }
+        let covered = teeHoleCount ?? playedHoles
+        return covered == playedHoles ? total : nil
+    }
+
     /// "1.2 公里" below 10 km, "23 公里" beyond (`pre-round.html`).
     static func distanceText(metres: Double) -> String? {
         guard metres.isFinite, metres >= 0 else { return nil }

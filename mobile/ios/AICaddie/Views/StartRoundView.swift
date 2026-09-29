@@ -493,7 +493,10 @@ public struct StartRoundView: View {
         } else {
             nearby = nearbyCourseOptions
         }
-        let downloaded = offlineDisplayOptions
+        // Every downloaded course stays in the downloaded tail (a travel course outside the GPS
+        // radius included); nearby local ones keep their earlier position, duplicates of a
+        // nearby / search / recent row collapse into that row. Distance is never shown for them.
+        let downloaded = resolvedOfflineOptions(offlineDisplayOptions + downloadedCourseOptions)
         var recent = recentCourseFallbackOption.map { [$0] } ?? []
         // A preselected course (the home "开始") that no source lists still gets its row; a listed
         // one keeps its own position so selecting a row never moves it.
@@ -896,9 +899,16 @@ public struct StartRoundView: View {
         return result
     }
 
-    /// 该台的总码数(来自接口),没有则 nil。
+    /// This tee's yards for what is being started, from the tees authority, else nil. The
+    /// authority's `yards` is the total over its `holeCount`; it is shown only when that is the
+    /// played hole count, so a 前九 / 后九 half of an 18-hole course never shows the 18-hole total.
     private func teeYards(_ tee: String) -> Int? {
-        fetchedTees.first { $0.teeBox.lowercased() == tee.lowercased() }?.yards
+        guard let row = fetchedTees.first(where: { $0.teeBox.lowercased() == tee.lowercased() }) else { return nil }
+        return StartRoundPresentation.teeYards(
+            total: row.yards,
+            teeHoleCount: row.holeCount,
+            playedHoles: selectedSegment?.resolvedHoles == 18 ? 9 : selectedSegment?.resolvedHoles
+        )
     }
 
     /// 选台菜单标签:中文台名 + 已知则附总码数,如「蓝 T · 6412 码」。

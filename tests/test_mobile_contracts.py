@@ -1775,7 +1775,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("search: remoteCourseOptions,", start_view)
         self.assertIn("var recent = recentCourseFallbackOption.map { [$0] } ?? []", start_view)
         self.assertIn("recent.append(selectedSegment)", start_view)
-        self.assertIn("let downloaded = offlineDisplayOptions", start_view)
+        self.assertIn("let downloaded = resolvedOfflineOptions(offlineDisplayOptions + downloadedCourseOptions)", start_view)
         self.assertIn("StartRoundPresentation.sortedByDistance(", start_view)
         self.assertIn("StartRoundPresentation.distanceText(metres: metres)", start_view)
         self.assertIn('return String(format: "%.1f 公里", tenths)', presentation)
@@ -2463,6 +2463,15 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("imageStore.failedURL == topoURL", topo_base)
         self.assertIn("if let image = imageStore.image", topo_base)
         self.assertIn("fallbackImage", topo_base)
+
+    def test_ios_b4b_start_list_keeps_downloads_and_factual_yards(self) -> None:
+        start = _read_required_source(self, IOS_DIR / "Views" / "StartRoundView.swift")
+        presentation = _read_required_source(self, IOS_DIR / "Models" / "StartRoundPresentation.swift")
+        # Every downloaded course stays in the one list, not only those within the GPS radius.
+        self.assertIn("let downloaded = resolvedOfflineOptions(offlineDisplayOptions + downloadedCourseOptions)", start)
+        # Tee yards only when the authority's total covers the holes being started.
+        self.assertIn("static func teeYards(total: Int?, teeHoleCount: Int?, playedHoles: Int?) -> Int?", presentation)
+        self.assertIn("playedHoles: selectedSegment?.resolvedHoles == 18 ? 9 : selectedSegment?.resolvedHoles", start)
 
     def test_ios_b4_eighteen_hole_course_halves_are_its_two_loops(self) -> None:
         turn = _read_required_source(self, IOS_DIR / "Models" / "NineLoopTurn.swift")

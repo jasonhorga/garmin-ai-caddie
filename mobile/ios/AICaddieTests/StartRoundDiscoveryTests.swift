@@ -805,6 +805,31 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
+    func testTeeYardsAreShownOnlyWhenTheyCoverTheHolesBeingStarted() {
+        XCTAssertEqual(StartRoundPresentation.teeYards(total: 3201, teeHoleCount: 9, playedHoles: 9), 3201)
+        XCTAssertEqual(StartRoundPresentation.teeYards(total: 6412, teeHoleCount: 18, playedHoles: 18), 6412)
+        XCTAssertNil(
+            StartRoundPresentation.teeYards(total: 6412, teeHoleCount: 18, playedHoles: 9),
+            "a 前九 / 后九 half never shows the 18-hole total"
+        )
+        XCTAssertEqual(StartRoundPresentation.teeYards(total: 3201, teeHoleCount: nil, playedHoles: 9), 3201)
+        XCTAssertNil(StartRoundPresentation.teeYards(total: nil, teeHoleCount: 9, playedHoles: 9))
+        XCTAssertNil(StartRoundPresentation.teeYards(total: 3201, teeHoleCount: 9, playedHoles: nil))
+    }
+
+    func testADownloadedCourseFarFromHereStaysInTheListTail() {
+        let near = loop(1, venue: "黑骑士", label: "A")
+        let recent = loop(2, venue: "北湖", label: "A")
+        let travel = loop(3, venue: "海南神州", label: "A")
+        let rows = StartRoundPresentation.mergedCourseRows(
+            nearby: [near],
+            recent: [recent],
+            downloaded: [near, travel]
+        )
+        XCTAssertEqual(rows.map(\.venue), ["黑骑士", "北湖", "海南神州"])
+        XCTAssertEqual(rows.map(\.source), [.nearby, .recent, .downloaded])
+    }
+
     func testStartTitleNamesTheFirstLoopAndTee() {
         let bkA = loop(9101, venue: "黑骑士", label: "A")
         let bkB = loop(9102, venue: "黑骑士", label: "B")
