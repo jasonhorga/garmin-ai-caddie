@@ -77,6 +77,25 @@ final class NineLoopTurnTests: XCTestCase {
         )
     }
 
+    func testACoarseSameIdNetworkRowNeverMasksTheInstalledLoop() {
+        let coarse = MobileCourseOption(globalId: 1, name: "黑骑士", holes: 18, venueName: "黑骑士", segmentHoles: 18)
+        let installedA = loop(1, "A")
+        let installedB = loop(2, "B")
+        let merged = NineLoopTurn.loopCatalogue(network: [coarse], downloaded: [installedA, installedB])
+        XCTAssertEqual(merged.map(\.globalId), [1, 2])
+        XCTAssertEqual(merged[0].resolvedHoles, 9, "the installed nine-hole A wins over a coarse 18-hole row")
+        XCTAssertEqual(merged[0].resolvedSegmentLabel, "A")
+
+        // The network row stays authoritative when it is the same factual loop.
+        let networkA = MobileCourseOption(globalId: 1, name: "黑骑士 ~ A", holes: 9, venueName: "黑骑士 (网络)", segmentLabel: "A", segmentHoles: 9)
+        let kept = NineLoopTurn.loopCatalogue(network: [networkA], downloaded: [installedA])
+        XCTAssertEqual(kept.first?.venueName, "黑骑士 (网络)")
+
+        // An unlabeled network nine-hole row is also coarser than an installed labeled loop.
+        let unlabeled = MobileCourseOption(globalId: 1, name: "黑骑士", holes: 9, venueName: "黑骑士", segmentHoles: 9)
+        XCTAssertEqual(NineLoopTurn.loopCatalogue(network: [unlabeled], downloaded: [installedA]).first?.resolvedSegmentLabel, "A")
+    }
+
     func testTheTurnSheetFreezesEveryControlWhileTheLoopIsBeingAdded() {
         XCTAssertTrue(LiveRoundTurnSheet.acceptsInput(isPreparing: false))
         XCTAssertFalse(

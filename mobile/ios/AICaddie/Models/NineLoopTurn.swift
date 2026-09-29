@@ -22,9 +22,23 @@ enum NineLoopTurn {
     /// The course options the live round resolves its loops from: the network catalogue, plus
     /// every installed template it does not list (offline, or discovery failed). Downloaded
     /// templates keep their factual venue and loop labels, so the turn works offline.
+    ///
+    /// The network row stays authoritative for the same id, except when it is coarser than the
+    /// installed template: a whole-course / unlabeled row (the CourseView-unavailable shape) never
+    /// masks an installed nine-hole loop with a factual label.
     static func loopCatalogue(network: [MobileCourseOption], downloaded: [MobileCourseOption]) -> [MobileCourseOption] {
+        let installed = Dictionary(downloaded.map { ($0.globalId, $0) }, uniquingKeysWith: { first, _ in first })
+        let merged = network.map { row -> MobileCourseOption in
+            guard let local = installed[row.globalId], isFactualLoop(local), !isFactualLoop(row) else { return row }
+            return local
+        }
         let listed = Set(network.map(\.globalId))
-        return network + downloaded.filter { !listed.contains($0.globalId) }
+        return merged + downloaded.filter { !listed.contains($0.globalId) }
+    }
+
+    /// A nine-hole loop with the course's own loop label.
+    static func isFactualLoop(_ option: MobileCourseOption) -> Bool {
+        option.resolvedHoles == 9 && option.resolvedSegmentLabel != nil
     }
 
     /// The venue's nine-hole loops for `active` (itself included), in loop-label order.

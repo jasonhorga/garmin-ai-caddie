@@ -2398,6 +2398,8 @@ class MobileContractTests(unittest.TestCase):
         # templates, so the turn appears without course discovery.
         self.assertIn("courseOptions: NineLoopTurn.loopCatalogue(network: courseOptions, downloaded: downloadedCourseOptions)", round_home)
         self.assertIn("return NineLoopTurn.siblings(of: active, in: courseOptions)", current_hole)
+        # A coarse same-id network row (18 holes / no loop label) never masks the installed loop.
+        self.assertIn("guard let local = installed[row.globalId], isFactualLoop(local), !isFactualLoop(row) else { return row }", turn)
         self.assertIn("NineLoopTurn.planAtEndOfFirstLoop(\n            package: package, catalogue: courseOptions,", current_hole)
         # Changing the second loop before it starts recomposes from installed templates offline.
         compose = app.split("public func prepareCompositeRound(", 1)[1].split("let fetched = await", 1)[0]
