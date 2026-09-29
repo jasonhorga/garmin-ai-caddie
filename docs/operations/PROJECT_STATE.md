@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-29 12:50 UTC
+**Updated:** 2026-09-29 13:10 UTC
 **Branch:** `main`; product canonical source revision is
 `5ac43253d924ecfbe496f42a026dcc5896aa3bd0` (PR #360 B4a and PR #359 B3 are
 merged after exact-head review; PR #357 B1d is merged after
@@ -300,7 +300,7 @@ Production `/api/v2/health` remained HTTP 200. B4a does not complete B4: the
 factual 18-hole front/back start/turn path remained assigned to B4b.
 
 PR #361 B4b is now the active review at exact head
-`e6bd4f189709a4dcd50af80918050210257cbc0f`, based on the merged B4a commit.
+`22a9a6199241fb85175b123dae906692c6626130`, based on the merged B4a commit.
 The prior head `cf1dda519274619edd424a1df74df32a5ab1beb3` failed Native Mobile
 CI `36566329562` at `StartRoundPresentation.swift:83` with a Swift type-check
 timeout; Claude split that expression in `c356ba4b`. Source CI `36567300652`
@@ -327,33 +327,54 @@ package physical-hole/round-order contract, client composition/revalidation,
 all four front/back orders including same-loop replay, and event-based locking.
 B4 remains incomplete until B4b-2 lands. This is a review-risk split, not a
 deferral or removal of the approved requirement.
-Claude's new head `e6bd4f18` removes the incomplete single-18-hole split,
+Claude's superseded head `e6bd4f18` removes the incomplete single-18-hole split,
 records the B4b-2 boundary, implements the nearby hero/direct start/replay
 surface, keeps every downloaded course in the list, and guards Tee yardage by
-the factual hole count. Source CI `36569276498` is green; PR Native run
-`36569276403` and exact-head fixture dispatch `36569275259` are running. The
-homeserver read-only exact-head snapshot is
-`/dev/shm/aicaddie-pr361-e6bd4f18-review`, with isolated writable test data at
-`/dev/shm/aicaddie-pr361-e6bd4f18-testdata` and manifest
+the factual hole count. Source CI `36569276498` was green and the homeserver
+focused suites passed `218/218` in `10.158s`, but that evidence is no longer an
+acceptance gate. Superseded fixture run `36569275259` was cancelled. Its exact
+snapshot and test data were removed after handle/ownership checks; production
+health remained `ok`. Cleanup evidence is in
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260929T124000Z-pr361-e6bd4f18-review.txt`.
-Using the pinned existing API image's `/app/.venv`, exact-head
-`tests.test_mobile_contracts + tests.test_native_visual_parity +
-tests.test_server_v2_mobile` passed `218/218` in `10.158s`.
 
-Follow-up review comment `5890647349` adds one unresolved P1: the
+Follow-up review comment `5890647349` identified a P1: the
 `再打上次那个` resolver falls back to `package.course`, but ordinary bootstrap
 chooses that package from the most-played course. `recentCourseOption` is only
 the last course explicitly started in this app and can be absent on upgrade or
 older than a newly synced Garmin round. The one-tap replay must use the newest
 factual history course first, then the explicit recent-start record, and omit
 the action when neither exists; it may never call a most-played home package
-"上次".
+"上次". Exact head `22a9a619` fixes that authority: newest resolvable factual
+history first, recent app-start only when no history card has a usable course
+id, no most-played package input, and no fallback to an older course when the
+newest factual course cannot resolve. Static review and focused tests confirm
+the requested structure and regression cases.
+
+At `22a9a619`, Source CI `36570941275` and PR Native Mobile CI `36570941200`
+are green. The exact-head fixture dispatch is `36570941023`. A fresh homeserver
+read-only snapshot at `/dev/shm/aicaddie-pr361-22a9a619-review`, isolated test
+data at `/dev/shm/aicaddie-pr361-22a9a619-testdata`, and the pinned API image's
+`/app/.venv` passed `tests.test_mobile_contracts +
+tests.test_native_visual_parity + tests.test_server_v2_mobile`: `218/218` in
+`10.667s`. Manifest:
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260929T125727Z-pr361-22a9a619-review.txt`.
+
+Exact-head iOS `design-snapshots` artifact `11035135888` exposed a new P2
+evidence blocker in review comment `5890943653`: `full-home-near.png` renders
+the no-nearby state (`今天去哪打？` + search + `再打上次那个`), not the nearby
+course card. `DesignSnapshotTests` only passes `recentCourseOption`; it injects
+neither an authorized location fix nor provider-nearby rows. The artifact
+therefore does not prove the direct nearby `开始` or `换球场或组合` path. Claude
+must add a deterministic production-path location/nearby fixture, recapture a
+real nearby state, and retain a separate no-nearby+replay screenshot. The
+remaining exact-head iOS/Watch artifacts still require inspection.
 The shared Claude branch was not deleted after PR #360 because PR #361 was
 opened on it immediately.
 
 Next action: keep the background all-PR feedback monitor active in
-`codex-pr-monitor-20260928`, wait for Claude to fix comment `5890647349`, then
-repeat focused homeserver tests and the full exact-head Source/Native gates.
+`codex-pr-monitor-20260928`, finish the current-head Watch/runtime artifact
+inspection, and wait for Claude to fix comment `5890943653`; then repeat
+focused homeserver tests and the full exact-head Source/Native gates.
 Download and inspect the matching iOS/Watch design and runtime artifacts only
 from the final candidate head. Do not merge while any P1/P2 is unresolved.
 Repeat all gates from scratch after every further commit. Do not
