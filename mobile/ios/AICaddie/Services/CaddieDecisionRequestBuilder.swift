@@ -66,6 +66,28 @@ public struct LiveCaddieInput {
     }
 }
 
+public extension LiveCaddieInput {
+    /// The live hole's first-frame tee input before any GPS fix, manual distance, map target or
+    /// player choice (the no-GPS default 备战 shows): the distance `CurrentHoleView` resolves
+    /// through `LiveCaddieDistance` with only the static green middle, and the view's initial lie.
+    static func firstFrameTee(
+        greenDistances: CoursePrepGreenDistances?,
+        holeYards: Int?
+    ) -> LiveCaddieInput {
+        let staticMiddleM = greenDistances?.available == true ? greenDistances?.middleM : nil
+        return LiveCaddieInput(
+            shotType: "tee",
+            distanceToPinM: LiveCaddieDistance.resolve(
+                manualM: nil,
+                liveMiddleM: nil,
+                staticMiddleM: staticMiddleM,
+                holeYards: holeYards
+            ),
+            lie: "fairway"
+        )
+    }
+}
+
 public final class CaddieDecisionRequestBuilder {
     public init() {}
 

@@ -1649,47 +1649,20 @@ public struct CurrentHoleView: View {
         let installed = installedCaddieRoute
         let retained = retainedCaddieRouteByHole[hole.number]
 
-        func matching(_ route: CaddiePlanSequence?, in routes: [CaddiePlanSequence]) -> CaddiePlanSequence? {
-            guard let route else { return nil }
-            return routes.first(where: { LiveCaddieRouteAuthority.routeSignature($0) == LiveCaddieRouteAuthority.routeSignature(route) })
-                ?? routes.first(where: { LiveCaddieRouteAuthority.samePhysicalRoute($0, route) })
-        }
-
-        // Choose the visible first route once. A precise installed CoursePrep chain can replace an
-        // earlier sparse fallback, but subsequent refreshes keep the retained physical line. An
-        // explicit player selection has priority over that automatic upgrade.
-        let first: CaddiePlanSequence = {
-            if explicitlySelectedCaddieRouteHoles.contains(hole.number),
-               let selected = selectedCaddieRouteByHole[hole.number],
-               let route = incoming.first(where: { routeKey($0) == selected })
-                    ?? existing.first(where: { routeKey($0) == selected }) {
-                return route
-            }
-            if let retained,
-               let refreshed = matching(retained, in: incoming) {
-                return refreshed
-            }
-            if let retained,
-               let installed,
-               !LiveCaddieRouteAuthority.samePhysicalRoute(retained, installed),
-               !installed.steps.isEmpty {
-                // One-time sparse -> installed upgrade. Once retained is installed, the branch
-                // above keeps it stable across every later response.
-                return installed
-            }
-            if let retained { return retained }
-            return incoming[0]
-        }()
+        // Choose the visible first route once (shared pure rule, `LiveCaddieRouteAuthority`).
+        let first = LiveCaddieRouteAuthority.leadingRoute(
+            incoming: incoming,
+            existing: existing,
+            installed: installed,
+            retained: retained,
+            explicitSelectionKey: explicitlySelectedCaddieRouteHoles.contains(hole.number)
+                ? selectedCaddieRouteByHole[hole.number]
+                : nil
+        )
         retainedCaddieRouteByHole[hole.number] = first
 
         // Keep the retained route at index zero and append only physically distinct alternatives.
-        // Their order is the first order in which the server/offline planner revealed them, so a
-        // refresh cannot reshuffle the plan tabs either.
-        var merged: [CaddiePlanSequence] = [first]
-        for route in existing + incoming {
-            guard !merged.contains(where: { LiveCaddieRouteAuthority.sameVisibleRoute($0, route) }) else { continue }
-            merged.append(route)
-        }
+        let merged = LiveCaddieRouteAuthority.mergedRoutes(first: first, existing: existing, incoming: incoming)
         caddieRoutesByHole[hole.number] = merged
 
         let currentToken = selectedCaddieRouteByHole[hole.number]

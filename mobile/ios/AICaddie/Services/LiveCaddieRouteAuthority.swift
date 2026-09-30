@@ -216,6 +216,58 @@ enum LiveCaddieRouteAuthority {
         return offsetM >= routeEndM - 20.0
     }
 
+    /// The visible first route of a hole (`CurrentHoleView.reconcileCaddieRoutes`). An explicit
+    /// player selection wins; otherwise the retained route is kept stable across refreshes, a
+    /// sparse retained route is upgraded once to the installed CoursePrep chain, and a fresh hole
+    /// (nothing retained, nothing chosen) leads with the first resolved route. `incoming` must not
+    /// be empty.
+    static func leadingRoute(
+        incoming: [CaddiePlanSequence],
+        existing: [CaddiePlanSequence],
+        installed: CaddiePlanSequence?,
+        retained: CaddiePlanSequence?,
+        explicitSelectionKey: String?
+    ) -> CaddiePlanSequence {
+        func matching(_ route: CaddiePlanSequence, in routes: [CaddiePlanSequence]) -> CaddiePlanSequence? {
+            routes.first(where: { routeSignature($0) == routeSignature(route) })
+                ?? routes.first(where: { samePhysicalRoute($0, route) })
+        }
+        if let explicitSelectionKey,
+           let route = incoming.first(where: { routeSignature($0) == explicitSelectionKey })
+                ?? existing.first(where: { routeSignature($0) == explicitSelectionKey }) {
+            return route
+        }
+        if let retained,
+           let refreshed = matching(retained, in: incoming) {
+            return refreshed
+        }
+        if let retained,
+           let installed,
+           !samePhysicalRoute(retained, installed),
+           !installed.steps.isEmpty {
+            // One-time sparse -> installed upgrade. Once retained is installed, the branch
+            // above keeps it stable across every later response.
+            return installed
+        }
+        if let retained { return retained }
+        return incoming[0]
+    }
+
+    /// The leading route at index zero, then only physically distinct alternatives in the order
+    /// the server/offline planner first revealed them, so a refresh cannot reshuffle plan tabs.
+    static func mergedRoutes(
+        first: CaddiePlanSequence,
+        existing: [CaddiePlanSequence],
+        incoming: [CaddiePlanSequence]
+    ) -> [CaddiePlanSequence] {
+        var merged: [CaddiePlanSequence] = [first]
+        for route in existing + incoming {
+            guard !merged.contains(where: { sameVisibleRoute($0, route) }) else { continue }
+            merged.append(route)
+        }
+        return merged
+    }
+
     static func selected(
         routes: [CaddiePlanSequence],
         preferredToken: String?,

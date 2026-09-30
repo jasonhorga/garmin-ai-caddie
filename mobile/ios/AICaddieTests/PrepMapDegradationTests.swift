@@ -315,6 +315,121 @@ final class PrepMapDegradationTests: XCTestCase {
         return (rows, hole, template, first)
     }
 
+    /// A precise prep row of `lengthM` straight metres (1 px = 1 m) with its installed chain.
+    private func routePrep(hole: Int, par: Int, lengthM: Int, steps: String) throws -> CoursePrepHole {
+        let json = #"""
+        {"hole":\#(hole),"par":\#(par),"par_source":"courseview","blue_yards":\#(Int((Double(lengthM) * 1.09361).rounded())),\#
+        "route_len_m":\#(lengthM),"route":[[120,\#(lengthM + 30)],[120,30]],"cautions":[],\#
+        "hazards":{"water_carry":[],"bunkers":[]},"steps":\#(steps),"geometryCoverage":"ready","geometryRevision":"r1",\#
+        "map":{"overlay":{"w":240,"h":\#(lengthM + 60),"ppm":1,"ln":\#(lengthM),"route":[[120,\#(lengthM + 30),0],[120,30,\#(lengthM)]]}}}
+        """#
+        return try JSONDecoder().decode(CoursePrepHole.self, from: Data(json.utf8))
+    }
+
+    /// What `CurrentHoleView` shows first on a fresh tee with no GPS fix, manual distance, map
+    /// target, online response or player choice — built only from the functions live play calls:
+    /// `caddieContextSeed`, `effectiveDistanceToPinMetres`, `makeCaddieDecisionRequest`,
+    /// `makeOfflineCaddieDecision`, `resolvedCaddieRoutes` and `reconcileCaddieRoutes`.
+    private func liveNoGPSTeeDefault(
+        template: LiveRoundPackage,
+        hole: Hole,
+        prep: CoursePrepHole
+    ) throws -> (route: CaddiePlanSequence, routes: [CaddiePlanSequence]) {
+        let seed = try XCTUnwrap(LiveCaddieSeedFactory.resolve(package: template, hole: hole, prep: prep))
+        let green = prep.greenDistances
+        let distance = LiveCaddieDistance.resolve(
+            manualM: nil,
+            liveMiddleM: nil,
+            staticMiddleM: green?.available == true ? green?.middleM : nil,
+            holeYards: hole.yards
+        )
+        let base = CaddieDecisionRequestBuilder().makeDecisionRequest(
+            seed: seed,
+            input: LiveCaddieInput(
+                shotType: "tee",
+                distanceToPinM: distance,
+                lie: "fairway",
+                strategyMode: nil,
+                requestedOptionId: caddieOptionId(forStrategyMode: nil)
+            )
+        )
+        let request = CaddieDecisionRequestBuilder.addingCanonicalPlan(to: base, prep: prep)
+        let offline = OfflineCaddieDecisionEvaluator().makeDecision(seed: seed, request: request, strategyMode: nil)
+        let installed = LiveCaddieRouteAuthority.installedRoute(
+            prep: prep,
+            par: hole.par,
+            shotType: "tee",
+            fallbackRouteEndM: distance
+        )
+        let incoming = LiveCaddieRouteAuthority.resolve(
+            installed: installed,
+            online: nil,
+            offline: offline,
+            par: hole.par,
+            shotType: "tee"
+        )
+        XCTAssertFalse(incoming.isEmpty, "live resolves a route for hole \(hole.number)")
+        // reconcileCaddieRoutes on a fresh hole: nothing retained or explicitly chosen, and no
+        // decision token yet (offline only), so the default is the first merged route.
+        let first = LiveCaddieRouteAuthority.leadingRoute(
+            incoming: incoming,
+            existing: [],
+            installed: installed,
+            retained: nil,
+            explicitSelectionKey: nil
+        )
+        let merged = LiveCaddieRouteAuthority.mergedRoutes(first: first, existing: [], incoming: incoming)
+        let selected = try XCTUnwrap(
+            LiveCaddieRouteAuthority.selected(routes: merged, preferredToken: nil, fallbackToken: nil)
+        )
+        return (selected, merged)
+    }
+
+    func testPrepDefaultPlanIsLivePlaysNoGPSTeeDefaultOnParThreeFourAndFive() throws {
+        let package = try bagPackage()
+        let holes = Dictionary(uniqueKeysWithValues: package.holes.map { ($0.number, $0) })
+        let cases: [(par: Int, lengthM: Int, steps: String)] = [
+            (3, 150, #"[{"club":"8I","note":"上果岭","targetCarry_m":150,"routeOffset_m":150,"expectedRemaining_m":0,"role":"scoring"}]"#),
+            (4, 300, planSteps),
+            (5, 475, #"[{"club":"1D","note":"开球","targetCarry_m":210,"routeOffset_m":210,"role":"tee"},{"club":"7I","note":"铺垫","targetCarry_m":156,"routeOffset_m":366,"role":"position"},{"club":"8I","note":"攻果岭","targetCarry_m":144,"routeOffset_m":475,"expectedRemaining_m":0,"role":"approach"}]"#),
+        ]
+        for testCase in cases {
+            let hole = try XCTUnwrap(
+                package.holes.sorted { $0.number < $1.number }.first { $0.par == testCase.par },
+                "fixture: a Par \(testCase.par) hole"
+            )
+            XCTAssertNotNil(holes[hole.number])
+            let prep = try routePrep(hole: hole.number, par: hole.par, lengthM: testCase.lengthM, steps: testCase.steps)
+            let template = package.replacingCoursePrep(CoursePrepPackage(
+                schema: "ai-caddie-course-prep-v1",
+                globalId: package.course.globalId,
+                holes: [prep],
+                missingData: nil
+            ))
+            let live = try liveNoGPSTeeDefault(template: template, hole: hole, prep: prep)
+            let plans = PrepPlanOption.options(template: template, hole: hole, prep: prep)
+            let prepDefault = try XCTUnwrap(plans.first, "Par \(hole.par): prep has a default plan")
+
+            // The same route, the same complete club chain, in the same plan order as live.
+            XCTAssertEqual(prepDefault.id, live.route.id, "Par \(hole.par)")
+            XCTAssertEqual(prepDefault.shots.map(\.clubName), live.route.steps.map(\.clubName), "Par \(hole.par)")
+            XCTAssertEqual(plans.map(\.id), live.routes.map(\.id), "Par \(hole.par): plan order")
+            // With an installed CoursePrep chain the default is that chain, named 推荐.
+            XCTAssertEqual(prepDefault.id, LiveCaddieRouteAuthority.installedRouteId, "Par \(hole.par)")
+            XCTAssertEqual(prepDefault.title, "推荐", "Par \(hole.par)")
+
+            // 稳妥 and 进攻 are physically distinct alternatives (from the default and each other).
+            let routesByID = Dictionary(uniqueKeysWithValues: live.routes.map { ($0.id, $0) })
+            var alternatives: [CaddiePlanSequence] = []
+            for title in ["稳妥", "进攻"] {
+                let plan = try XCTUnwrap(plans.first { $0.title == title }, "Par \(hole.par) offers \(title)")
+                alternatives.append(try XCTUnwrap(routesByID[plan.id]))
+            }
+            let signatures = ([live.route] + alternatives).map(LiveCaddieRouteAuthority.physicalSignature)
+            XCTAssertEqual(Set(signatures).count, 3, "Par \(hole.par): 推荐 / 稳妥 / 进攻 are different routes")
+        }
+    }
+
     func testPlansComeFromTheLiveDecisionAuthorityAsDifferentCompleteRoutes() throws {
         let (rows, hole, template, first) = try bagRows()
         let plans = rows[0].plans

@@ -129,23 +129,21 @@ struct PrepPlanOption: Equatable, Identifiable {
         guard let seed = LiveCaddieSeedFactory.resolve(package: template, hole: hole, prep: prep) else {
             return []
         }
-        let base = CaddieDecisionRequestBuilder().makeDecisionRequest(
-            seed: seed,
-            input: LiveCaddieInput(shotType: "tee")
-        )
+        // The live hole's first-frame tee request before any GPS fix or player choice.
+        let input = LiveCaddieInput.firstFrameTee(greenDistances: prep.greenDistances, holeYards: hole.yards)
+        let base = CaddieDecisionRequestBuilder().makeDecisionRequest(seed: seed, input: input)
         let request = CaddieDecisionRequestBuilder.addingCanonicalPlan(to: base, prep: prep)
         let decision = OfflineCaddieDecisionEvaluator().makeDecision(
             seed: seed,
             request: request,
             strategyMode: nil
         )
-        // Exactly as live play: the installed CoursePrep chain leads (the tee shot's distance is
-        // the route length / yardage — there is no GPS before the round).
+        // Exactly as live play: the installed CoursePrep chain leads.
         let installed = LiveCaddieRouteAuthority.installedRoute(
             prep: prep,
             par: hole.par,
             shotType: "tee",
-            fallbackRouteEndM: hole.yards.map { CoursePrepRoute.metres(fromYards: Double($0)) }
+            fallbackRouteEndM: input.distanceToPinM
         )
         return LiveCaddieRouteAuthority.resolve(
             installed: installed,
