@@ -115,13 +115,10 @@ final class PrepDegradationUITests: XCTestCase {
         let map2 = element("prep-hole-map-2")
         XCTAssertTrue(map2.waitForExistence(timeout: 5))
         XCTAssertFalse(descendant("topo-hole-base-ready", of: map2).exists, "no precise topo yet")
-        XCTAssertEqual(
-            element("prep-club-order").label,
-            "一号木 230 → 八号铁 164",
-            "the panel shows this hole's club order"
-        )
+        let firstOrder = element("prep-club-order").label
+        assertInstalledChainClosesOnTheRoute(firstOrder)
         // Every landing on the map carries its 球杆 + 码数 label, the same strokes as the panel.
-        XCTAssertEqual(element("prep-map-route").label, "一号木 230 → 八号铁 164")
+        XCTAssertEqual(element("prep-map-route").label, firstOrder)
         assertEveryStrokeVisible("hole 2 plan 1")
         // Obstacles are off by default on 备战 (the default-none rule).
         XCTAssertFalse(element("prep-map-hazard-1").exists, "no obstacle is drawn without a selection")
@@ -132,7 +129,7 @@ final class PrepDegradationUITests: XCTestCase {
         secondPlan.tap()
         XCTAssertTrue(waitForValue(beginningWith: "已选择", on: secondPlan, timeout: 5))
         let secondOrder = element("prep-club-order").label
-        XCTAssertNotEqual(secondOrder, "一号木 230 → 八号铁 164", "the second plan is a different club order")
+        XCTAssertNotEqual(secondOrder, firstOrder, "the second plan is a different club order")
         XCTAssertEqual(element("prep-map-route").label, secondOrder, "the map follows the selected plan")
         assertEveryStrokeVisible("hole 2 plan 2")
         save("b4c-02a-second-plan")
@@ -222,6 +219,20 @@ final class PrepDegradationUITests: XCTestCase {
     /// The fitted map shows every stroke of the panel's club order: for each one, its label (the
     /// exact "球杆 码数" text) and its landing are drawn inside the window, below the navigation
     /// header, clear of the hole badge and above the bottom panel.
+    /// The degraded course's installed chain is one closure on its route
+    /// (`tests/test_prep_render_shapes_fixture.py`): the 210 m drive (the bag's 1D, 230 码) plus the
+    /// approach carry is the 333 m route, the Blue 364 码. The panel must show the drive then the
+    /// approach, and its yardages must add up to the hole (±1 码 of per-stroke rounding).
+    private func assertInstalledChainClosesOnTheRoute(_ order: String, file: StaticString = #filePath, line: UInt = #line) {
+        let strokes = order.components(separatedBy: " → ")
+        XCTAssertEqual(strokes.count, 2, "two strokes (got \(order))", file: file, line: line)
+        XCTAssertEqual(strokes.first, "一号木 230", "the drive is the bag's 1D carry (got \(order))", file: file, line: line)
+        XCTAssertTrue(strokes.last?.hasPrefix("八号铁 ") == true, "the approach is the 8I (got \(order))", file: file, line: line)
+        let yards = strokes.compactMap { $0.split(separator: " ").last.flatMap { Int($0) } }
+        XCTAssertEqual(yards.count, 2, "every stroke carries its yardage (got \(order))", file: file, line: line)
+        XCTAssertLessThanOrEqual(abs(yards.reduce(0, +) - 364), 1, "the chain closes on the Blue 364 码 (got \(order))", file: file, line: line)
+    }
+
     private func assertEveryStrokeVisible(_ context: String, file: StaticString = #filePath, line: UInt = #line) {
         let order = element("prep-club-order")
         XCTAssertTrue(order.waitForExistence(timeout: 20), "\(context): the plan's club order", file: file, line: line)

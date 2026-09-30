@@ -2490,6 +2490,13 @@ class MobileContractTests(unittest.TestCase):
             prep_screen,
         )
         self.assertIn("baseEdgeExtension: terrain,", prep_screen)
+        # The map-frame probe is a UI-test seam: DEBUG + UITEST_MODE only.
+        self.assertIn("if viewport.isFitted, Self.exposesMapFrameForUITests {", prep_screen)
+        self.assertEqual(prep_screen.count('.accessibilityIdentifier("prep-map-frame")'), 1)
+        frame_seam = prep_screen[prep_screen.index("static var exposesMapFrameForUITests: Bool {"):]
+        frame_seam = frame_seam[: frame_seam.index("#endif")]
+        self.assertIn("#if DEBUG", frame_seam)
+        self.assertIn('ProcessInfo.processInfo.environment["UITEST_MODE"] == "1"', frame_seam)
         self.assertIn("enum MapSurfaceStyle", hub_style)
         self.assertIn("func mapSurface() -> some View", hub_style)
         self.assertIn("map.mapSurface()", hole_map_view)

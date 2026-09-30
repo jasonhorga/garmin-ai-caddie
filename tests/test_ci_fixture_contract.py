@@ -351,7 +351,7 @@ class CIFixtureContractTests(unittest.TestCase):
             hole = prep(global_id, holes=[1])["holes"][0]
             expected_tee = COURSE_COORDINATES[global_id]
             refs = hole["holeImageProjection"]["refs"]
-            projected_tee = project_from_topo_px(*hole["route"][0][:2], refs)
+            projected_tee = project_from_topo_px(*hole["map"]["overlay"]["route"][0][:2], refs)
             self.assertAlmostEqual(projected_tee[0], expected_tee[0], places=8)
             self.assertAlmostEqual(projected_tee[1], expected_tee[1], places=8)
             green = hole["greenDistances"]
@@ -442,9 +442,10 @@ class CIFixtureContractTests(unittest.TestCase):
         # The prep frame is production-shaped: the hole sits inside a transparent margin and the
         # raster's course footprint never touches an edge. It is one spatial contract: ppm is
         # the route's pixel length over its metres, so every pixel distance measures true.
-        from server_v2.ci_fixture import PREP_GREEN_RADIUS_PX, PREP_ROUTE_PX, _course_png
+        from server_v2.ci_fixture import PREP_GREEN_RADIUS_PX, PREP_ROUTE_LOCAL_M, PREP_ROUTE_PX, _course_png
         overlay = hole["map"]["overlay"]
-        self.assertEqual(hole["route"], PREP_ROUTE_PX)
+        # Like production, the top-level route is hole-local metres; the overlay is its pixels.
+        self.assertEqual(hole["route"], PREP_ROUTE_LOCAL_M)
         self.assertEqual(overlay["route"], PREP_ROUTE_PX)
         (tee_x, tee_y, tee_m), (end_x, end_y, end_m) = overlay["route"]
         self.assertTrue(all(8.0 <= value <= 56.0 for value in (tee_x, tee_y, end_x, end_y)))

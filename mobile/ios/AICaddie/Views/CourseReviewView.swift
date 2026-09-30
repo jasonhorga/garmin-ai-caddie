@@ -654,8 +654,10 @@ struct PrepHoleMapHero: View {
                         }
                     }
                 }
-                if viewport.isFitted {
-                    // The fitted bitmap's frame, so a UI test can check the real screen along it.
+                if viewport.isFitted, Self.exposesMapFrameForUITests {
+                    // UI-test seam only: the fitted bitmap's frame, so a UI test can check the
+                    // real screen along it. Release builds and VoiceOver outside UI tests never
+                    // see this element.
                     Color.clear
                         .frame(width: rest.width, height: rest.height)
                         .position(x: rest.midX, y: rest.midY)
@@ -713,6 +715,15 @@ struct PrepHoleMapHero: View {
                 fittedFrame: rest
             )
         }
+    }
+
+    /// Whether the `prep-map-frame` seam exists: DEBUG builds launched with `UITEST_MODE=1` only.
+    static var exposesMapFrameForUITests: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["UITEST_MODE"] == "1"
+        #else
+        return false
+        #endif
     }
 
     /// One configured map for the bitmap layer and the viewport-plane route layer, so the labelled

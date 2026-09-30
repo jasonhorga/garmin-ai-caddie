@@ -1,0 +1,387 @@
+{
+ "lightweight": {
+  "clubs": [
+   {
+    "confidence": "high",
+    "distanceSource": "fixture",
+    "m": 210.0,
+    "name": "1D",
+    "sampleSize": 1,
+    "token": "1D",
+    "yd": 230
+   }
+  ],
+  "dataMode": "ci_fixture",
+  "fixtureRevision": "ci-fixture-20260827-v1",
+  "globalId": 31795,
+  "holeCount": 1,
+  "holes": [
+   {
+    "blue_yards": 364,
+    "candidateRoutes": [],
+    "carryTargets": [],
+    "cautions": [],
+    "geometryCoverage": "ready",
+    "geometryRevision": "ci-fixture-20260827-v1",
+    "greenDistances": {
+     "available": true,
+     "backLat": 39.90184001200571,
+     "backLon": 116.40319794158421,
+     "backM": 341.0,
+     "frontLat": 39.90175367713154,
+     "frontLon": 116.4030478915392,
+     "frontM": 325.0,
+     "middleLat": 39.90179684456862,
+     "middleLon": 116.40312291656171,
+     "middleM": 333.0
+    },
+    "greenOutline": {
+     "available": true,
+     "distanceUnit": "metres",
+     "pointsPx": [
+      [
+       56.5,
+       52.0
+      ],
+      [
+       55.182,
+       55.182
+      ],
+      [
+       52.0,
+       56.5
+      ],
+      [
+       48.818,
+       55.182
+      ],
+      [
+       47.5,
+       52.0
+      ],
+      [
+       48.818,
+       48.818
+      ],
+      [
+       52.0,
+       47.5
+      ],
+      [
+       55.182,
+       48.818
+      ]
+     ],
+     "source": "ci_fixture"
+    },
+    "hazards": {
+     "bunkers": [
+      [
+       215.0,
+       12.0
+      ]
+     ],
+     "details": [
+      {
+       "backM": 135.0,
+       "backPx": [
+        28.2162,
+        28.2162
+       ],
+       "backRouteM": 135.0,
+       "frontM": 105.0,
+       "frontPx": [
+        24.6126,
+        24.6126
+       ],
+       "frontRouteM": 105.0,
+       "kind": "water",
+       "sideM": null
+      },
+      {
+       "backM": 245.3,
+       "backPx": [
+        42.8709,
+        39.988
+       ],
+       "backRouteM": 245.0,
+       "frontM": 215.3,
+       "frontPx": [
+        39.2673,
+        36.3844
+       ],
+       "frontRouteM": 215.0,
+       "kind": "bunker",
+       "sideM": 12.0
+      }
+     ],
+     "water_carry": [
+      [
+       105.0,
+       135.0
+      ]
+     ]
+    },
+    "hole": 1,
+    "holeImageProjection": {
+     "available": true,
+     "heightPx": 64,
+     "refs": [
+      {
+       "lat": 39.9,
+       "lon": 116.4,
+       "px": 12.0,
+       "py": 12.0
+      },
+      {
+       "lat": 39.9,
+       "lon": 116.40140671917194,
+       "px": 14.8829,
+       "py": 32.1802
+      },
+      {
+       "lat": 39.9010791859271,
+       "lon": 116.4,
+       "px": 32.1802,
+       "py": 9.1171
+      }
+     ],
+     "widthPx": 64
+    },
+    "landing_m": 210.0,
+    "missingData": [],
+    "par": 4,
+    "par_source": "garmin",
+    "playsLike": {
+     "available": true,
+     "deltaM": 0.0
+    },
+    "route": [
+     [
+      0.0,
+      0.0,
+      0.0
+     ],
+     [
+      266.4,
+      199.8,
+      333.0
+     ]
+    ],
+    "route_len_m": 333.0,
+    "sourceGlobalId": 31795,
+    "sourceLocalHole": 1,
+    "sourceRefs": [
+     "900001:1"
+    ],
+    "steps": [],
+    "tee_club": "1D"
+   }
+  ],
+  "schema": "ai-caddie-course-prep-v1",
+  "source": "non_production"
+ },
+ "rendered": {
+  "clubs": [
+   {
+    "confidence": "high",
+    "distanceSource": "fixture",
+    "m": 210.0,
+    "name": "1D",
+    "sampleSize": 1,
+    "token": "1D",
+    "yd": 230
+   }
+  ],
+  "dataMode": "ci_fixture",
+  "fixtureRevision": "ci-fixture-20260827-v1",
+  "globalId": 31795,
+  "holeCount": 1,
+  "holes": [
+   {
+    "blue_yards": 364,
+    "candidateRoutes": [],
+    "carryTargets": [],
+    "cautions": [],
+    "geometryCoverage": "ready",
+    "geometryRevision": "ci-fixture-20260827-v1",
+    "greenDistances": {
+     "available": true,
+     "backLat": 39.90184001200571,
+     "backLon": 116.40319794158421,
+     "backM": 341.0,
+     "frontLat": 39.90175367713154,
+     "frontLon": 116.4030478915392,
+     "frontM": 325.0,
+     "middleLat": 39.90179684456862,
+     "middleLon": 116.40312291656171,
+     "middleM": 333.0
+    },
+    "greenOutline": {
+     "available": true,
+     "distanceUnit": "metres",
+     "pointsPx": [
+      [
+       56.5,
+       52.0
+      ],
+      [
+       55.182,
+       55.182
+      ],
+      [
+       52.0,
+       56.5
+      ],
+      [
+       48.818,
+       55.182
+      ],
+      [
+       47.5,
+       52.0
+      ],
+      [
+       48.818,
+       48.818
+      ],
+      [
+       52.0,
+       47.5
+      ],
+      [
+       55.182,
+       48.818
+      ]
+     ],
+     "source": "ci_fixture"
+    },
+    "hazards": {
+     "bunkers": [
+      [
+       215.0,
+       12.0
+      ]
+     ],
+     "details": [
+      {
+       "backM": 135.0,
+       "backPx": [
+        28.2162,
+        28.2162
+       ],
+       "backRouteM": 135.0,
+       "frontM": 105.0,
+       "frontPx": [
+        24.6126,
+        24.6126
+       ],
+       "frontRouteM": 105.0,
+       "kind": "water",
+       "sideM": null
+      },
+      {
+       "backM": 245.3,
+       "backPx": [
+        42.8709,
+        39.988
+       ],
+       "backRouteM": 245.0,
+       "frontM": 215.3,
+       "frontPx": [
+        39.2673,
+        36.3844
+       ],
+       "frontRouteM": 215.0,
+       "kind": "bunker",
+       "sideM": 12.0
+      }
+     ],
+     "water_carry": [
+      [
+       105.0,
+       135.0
+      ]
+     ]
+    },
+    "hole": 1,
+    "holeImageProjection": {
+     "available": true,
+     "heightPx": 64,
+     "refs": [
+      {
+       "lat": 39.9,
+       "lon": 116.4,
+       "px": 12.0,
+       "py": 12.0
+      },
+      {
+       "lat": 39.9,
+       "lon": 116.40140671917194,
+       "px": 14.8829,
+       "py": 32.1802
+      },
+      {
+       "lat": 39.9010791859271,
+       "lon": 116.4,
+       "px": 32.1802,
+       "py": 9.1171
+      }
+     ],
+     "widthPx": 64
+    },
+    "landing_m": 210.0,
+    "map": {
+     "image": "data:image/png;base64,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",
+     "overlay": {
+      "h": 64,
+      "ln": 333.0,
+      "ppm": 0.16987550298775916,
+      "route": [
+       [
+        12.0,
+        12.0,
+        0.0
+       ],
+       [
+        52.0,
+        52.0,
+        333.0
+       ]
+      ],
+      "w": 64
+     }
+    },
+    "missingData": [],
+    "par": 4,
+    "par_source": "garmin",
+    "playsLike": {
+     "available": true,
+     "deltaM": 0.0
+    },
+    "route": [
+     [
+      0.0,
+      0.0,
+      0.0
+     ],
+     [
+      266.4,
+      199.8,
+      333.0
+     ]
+    ],
+    "route_len_m": 333.0,
+    "sourceGlobalId": 31795,
+    "sourceLocalHole": 1,
+    "sourceRefs": [
+     "900001:1"
+    ],
+    "steps": [],
+    "tee_club": "1D"
+   }
+  ],
+  "schema": "ai-caddie-course-prep-v1",
+  "source": "non_production"
+ }
+}

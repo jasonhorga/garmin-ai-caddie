@@ -283,7 +283,7 @@ _PREP_SPAN_PX = 64.0 - 2 * PREP_MARGIN_PX
 PREP_ROUTE_PX = [[PREP_MARGIN_PX, PREP_MARGIN_PX, 0.0], [64.0 - PREP_MARGIN_PX, 64.0 - PREP_MARGIN_PX, _ROUTE_LENGTH_M]]
 # One local-metre-to-pixel transform for the whole prep frame, as production's hole frame: a
 # uniform scale (ppm) and a rotation (with the image's downward y), anchored at the tee. The
-# geographic route (east 300 m, north 225 m from the tee) maps onto the pixel route; the GPS
+# geographic route (east 266.4 m, north 199.8 m from the tee) maps onto the pixel route; the GPS
 # projection refs, route, hazards, raster green, outline and F/M/B all come from it.
 PREP_PPM = math.hypot(_PREP_SPAN_PX, _PREP_SPAN_PX) / _ROUTE_LENGTH_M
 # Unit vectors of the route (tee to green) and of its left side, in local metres (east, north).
@@ -294,6 +294,20 @@ _PX_ALONG = (1 / math.sqrt(2), 1 / math.sqrt(2))
 _PX_LEFT = (_PX_ALONG[1], -_PX_ALONG[0])
 # The raster's green: a disc on the route's end (the pin).
 PREP_GREEN_RADIUS_PX = 5.0
+# The route in production's hole-local metres (x east, y north, cumulative metres), with the
+# local origin on the tee: the top-level prep ``route`` in both render modes.
+PREP_ROUTE_LOCAL_M = [[0.0, 0.0, 0.0], [_ROUTE_EAST_M, _ROUTE_NORTH_M, _ROUTE_LENGTH_M]]
+# Production's three projection anchors (`course_prep._hole_image_projection`), in this order.
+PREP_PROJECTION_ANCHORS_M = ((0.0, 0.0), (120.0, 0.0), (0.0, 120.0))
+# The two-stroke caddie chain on the degraded course. It closes on the route: the drive's landing
+# plus the approach's carry is the route length (the green middle), so every distance agrees.
+PREP_DRIVE_CARRY_M = 210.0
+PREP_APPROACH_CARRY_M = _ROUTE_LENGTH_M - PREP_DRIVE_CARRY_M
+
+
+def _yd(metres: float) -> int:
+    """Production's yard rounding (`course_prep.yd`)."""
+    return round(metres / 0.9144)
 
 
 def prep_local_px(east_m: float, north_m: float) -> list[float]:
@@ -333,15 +347,12 @@ def _prep_green_outline() -> list[list[float]]:
 def _fixture_hole_projection(source_course: int) -> dict[str, object]:
     """Build the affine refs used by iOS/Watch for this course's fixture hole."""
     tee = COURSE_COORDINATES[source_course]
-    # Three non-collinear refs of the same transform: the tee, the route's end (the pin) and a
-    # point 100 m left of mid-route. Clients solve one affine from them, so any GPS point maps
-    # exactly as prep_local_px maps its local metres.
+    # Production's three anchors, in its order: local (0,0), (120,0) and (0,120) metres (x east,
+    # y north) from the local origin, the tee. Clients solve one affine from them (and the
+    # render=false rows project their local-metre route through it), so any GPS point or local
+    # metre maps exactly as prep_local_px maps it.
     refs = []
-    for east_m, north_m in (
-        (0.0, 0.0),
-        prep_route_offset_m(_ROUTE_LENGTH_M),
-        prep_route_offset_m(_ROUTE_LENGTH_M / 2, side_m=100.0),
-    ):
+    for east_m, north_m in PREP_PROJECTION_ANCHORS_M:
         lat, lon = _offset_coordinate(tee, north_m=north_m, east_m=east_m)
         px, py = prep_local_px(east_m, north_m)
         refs.append({"lat": lat, "lon": lon, "px": px, "py": py})
@@ -858,7 +869,7 @@ def geometry_hole(global_id: int, local_hole: int, source_ref: str | None = None
     if local_hole < 1 or local_hole > 18:
         raise HTTPException(status_code=404, detail="fixture geometry not found")
     requested_course = _course_request(global_id)
-    return _with_markers({"schema": "ai-caddie-geometry-evidence-v1", "globalId": requested_course, "localHole": local_hole, "coverage": "ready", "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + local_hole, "route": [[0.0, 0.0, 0.0], [64.0, 64.0, 374.0 + local_hole]]}, "sourceRef": source_ref or f"geometry:{requested_course}:{local_hole}"})
+    return _with_markers({"schema": "ai-caddie-geometry-evidence-v1", "globalId": requested_course, "localHole": local_hole, "coverage": "ready", "overlay": _prep_overlay(), "sourceRef": source_ref or f"geometry:{requested_course}:{local_hole}"})
 
 
 def _degrade_prep_hole(hole: dict, state: str) -> None:
@@ -869,18 +880,21 @@ def _degrade_prep_hole(hole: dict, state: str) -> None:
     ``missing`` has no drawable route at all (no overlay, no projection, no outline).
     """
     hole["steps"] = [
-        {"club": "1D", "clubName": "1D", "note": "开球打球道中间", "targetCarry_m": 210.0, "routeOffset_m": 210.0,
-         "landing_m": 210.0, "expectedRemaining_m": 165.0, "role": "tee", "planIndex": 0,
+        {"club": "1D", "clubName": "1D", "note": "开球打球道中间", "targetCarry_m": PREP_DRIVE_CARRY_M,
+         "routeOffset_m": PREP_DRIVE_CARRY_M, "landing_m": PREP_DRIVE_CARRY_M,
+         "expectedRemaining_m": round(_ROUTE_LENGTH_M - PREP_DRIVE_CARRY_M, 1), "role": "tee", "planIndex": 0,
          "planVersion": "ai-caddie-shot-plan-v1"},
-        {"club": "8I", "clubName": "8I", "note": "攻果岭中心", "targetCarry_m": 150.0, "routeOffset_m": _ROUTE_LENGTH_M,
-         "landing_m": _ROUTE_LENGTH_M, "expectedRemaining_m": 0.0, "role": "approach", "planIndex": 1,
-         "planVersion": "ai-caddie-shot-plan-v1"},
+        {"club": "8I", "clubName": "8I", "note": "攻果岭中心", "targetCarry_m": round(PREP_APPROACH_CARRY_M, 1),
+         "routeOffset_m": _ROUTE_LENGTH_M, "landing_m": _ROUTE_LENGTH_M, "expectedRemaining_m": 0.0,
+         "role": "approach", "planIndex": 1, "planVersion": "ai-caddie-shot-plan-v1"},
     ]
     if state == "ready":
         return
     hole["geometryCoverage"] = state
     if state == "partial":
-        hole["map"] = {"overlay": hole["map"]["overlay"]}
+        # Like production's route-only bootstrap row: the pixel overlay without a raster, in
+        # either render mode.
+        hole["map"] = {"overlay": _prep_overlay()}
         return
     hole["route"] = []
     hole["map"] = None
@@ -891,8 +905,13 @@ def _degrade_prep_hole(hole: dict, state: str) -> None:
     hole["landing_m"] = None
 
 
+def _prep_overlay() -> dict:
+    """The rendered prep row's pixel overlay: the route in the 64 px frame, ``ln`` its metres."""
+    return {"w": 64, "h": 64, "ppm": PREP_PPM, "ln": _ROUTE_LENGTH_M, "route": [list(point) for point in PREP_ROUTE_PX]}
+
+
 @ROUTE.get("/api/v2/courses/{global_id}/prep")
-def prep(global_id: int, holes: list[int] | None = Query(default=None), render: bool = False, nine: str = "all", back_global_id: int | None = None) -> dict:
+def prep(global_id: int, holes: list[int] | None = Query(default=None), render: bool = True, nine: str = "all", back_global_id: int | None = None) -> dict:
     requested_course = _course_request(global_id)
     requested_back = _course_request(back_global_id) if back_global_id is not None else None
     segment_holes = _segment_holes(nine)
@@ -905,15 +924,18 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
         source_course = requested_back if requested_back is not None and number >= 10 else requested_course
         green_distances = _fixture_green_distances(source_course)
         hole_projection = _fixture_hole_projection(source_course)
-        hole = {"hole": number, "par": _hole_par(source_course, local_hole), "par_source": "garmin", "blue_yards": 410, "route_len_m": round(_ROUTE_LENGTH_M, 3),
-            "route": [list(point) for point in PREP_ROUTE_PX], "geometryCoverage": "ready", "geometryRevision": FIXTURE_REVISION,
+        hole = {"hole": number, "par": _hole_par(source_course, local_hole), "par_source": "garmin", "blue_yards": _yd(_ROUTE_LENGTH_M), "route_len_m": round(_ROUTE_LENGTH_M, 1),
+            "route": [list(point) for point in PREP_ROUTE_LOCAL_M], "geometryCoverage": "ready", "geometryRevision": FIXTURE_REVISION,
             "sourceRefs": ["900001:1"], "missingData": [], "candidateRoutes": [], "carryTargets": [],
-            "steps": [], "cautions": [], "landing_m": 210.0, "tee_club": "1D",
+            "steps": [], "cautions": [], "landing_m": PREP_DRIVE_CARRY_M, "tee_club": "1D",
             "hazards": _fixture_prep_hazards(),
-            "map": {"image": _flat_course_data_uri(number), "overlay": {"w": 64, "h": 64, "ppm": PREP_PPM, "ln": 374.0 + number, "route": [list(point) for point in PREP_ROUTE_PX]}},
             "greenDistances": green_distances, "playsLike": {"available": True, "deltaM": 0.0},
             "holeImageProjection": hole_projection,
             "greenOutline": {"available": True, "source": "ci_fixture", "distanceUnit": "metres", "pointsPx": _prep_green_outline()}}
+        # Production: render=true embeds the raster and its pixel overlay; render=false omits
+        # ``map`` and clients project the local-metre route through the projection refs.
+        if render:
+            hole["map"] = {"image": _flat_course_data_uri(number), "overlay": _prep_overlay()}
         hole["sourceRefs"] = [f"{ROUND_REF}:{local_hole}"]
         hole["sourceGlobalId"] = source_course
         hole["sourceLocalHole"] = local_hole
