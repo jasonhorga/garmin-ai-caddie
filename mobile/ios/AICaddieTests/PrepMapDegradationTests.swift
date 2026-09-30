@@ -565,15 +565,47 @@ final class PrepMapDegradationTests: XCTestCase {
         // An iPhone-sized layout: status bar + navigation bar above the content, home indicator below.
         let safeTop: CGFloat = 103
         let safeBottom: CGFloat = 34
-        let insets = PrepChromeLayout.mapInsets(safeTop: safeTop, safeBottom: safeBottom)
-        let header = PrepChromeLayout.header(
-            contentFrame: CGRect(x: 0, y: safeTop, width: viewport.width, height: viewport.height - safeTop - safeBottom)
-        )
+        let heroFrame = CGRect(origin: .zero, size: viewport)
+        let contentFrame = CGRect(x: 0, y: safeTop, width: viewport.width, height: viewport.height - safeTop - safeBottom)
+        let insets = PrepChromeLayout.mapInsets(contentFrame: contentFrame, in: heroFrame)
+        XCTAssertEqual(insets, PrepChromeLayout.Insets(
+            top: safeTop + PrepChromeLayout.badgeRowHeight,
+            bottom: safeBottom + PrepChromeLayout.bottomPanelHeight
+        ))
         // The badge and panel as the screen lays them out (badge text "1 Par 5 · 543 码").
-        let badge = CGRect(x: 16, y: safeTop + PrepChromeLayout.badgeTopPadding, width: 172, height: 40)
+        let badgeWidth = PrepChromeLayout.badgeWidth(number: 1, subtitle: "Par 5 · 543 码")
+        XCTAssertGreaterThan(badgeWidth, 110, "the badge text is measured, not guessed")
+        XCTAssertLessThan(badgeWidth, 220)
+        let badge = CGRect(x: 16, y: safeTop + PrepChromeLayout.badgeTopPadding, width: badgeWidth, height: 40)
         let panel = CGRect(x: 12, y: viewport.height - safeBottom - 8 - 156, width: viewport.width - 24, height: 156)
-        let chrome = try XCTUnwrap(PrepChromeLayout.chrome(header: header, measured: [badge, panel]))
-        XCTAssertEqual(chrome.count, 3)
+        // The first frame: nothing measured yet, and the badge and panel are already excluded.
+        let firstFrame = PrepChromeLayout.exclusions(
+            viewport: viewport,
+            insets: insets,
+            contentFrame: contentFrame,
+            heroFrame: heroFrame,
+            badgeNumber: 1,
+            badgeSubtitle: "Par 5 · 543 码",
+            measured: [],
+            showsResetControl: false
+        )
+        for chromeRect in [badge, panel] {
+            XCTAssertTrue(
+                firstFrame.contains { $0.contains(chromeRect) },
+                "unmeasured first frame already excludes \(chromeRect)"
+            )
+        }
+        let chrome = PrepChromeLayout.exclusions(
+            viewport: viewport,
+            insets: insets,
+            contentFrame: contentFrame,
+            heroFrame: heroFrame,
+            badgeNumber: 1,
+            badgeSubtitle: "Par 5 · 543 码",
+            measured: [badge, panel],
+            showsResetControl: false
+        )
+        XCTAssertTrue(chrome.contains(badge) && chrome.contains(panel), "measured rects only extend the set")
 
         let precise = try snapshotPrep(coverage: "ready")
         let factual = try snapshotPrep(coverage: "partial")
@@ -610,6 +642,16 @@ final class PrepMapDegradationTests: XCTestCase {
             var exclusions = chrome
             if !fitted {
                 exclusions.append(PrepChromeLayout.resetControl(viewport: viewport, topInset: insets.top))
+                XCTAssertEqual(exclusions, PrepChromeLayout.exclusions(
+                    viewport: viewport,
+                    insets: insets,
+                    contentFrame: contentFrame,
+                    heroFrame: heroFrame,
+                    badgeNumber: 1,
+                    badgeSubtitle: "Par 5 · 543 码",
+                    measured: [badge, panel],
+                    showsResetControl: true
+                ))
             }
             let legs = HoleImageMapView(
                 hole: testCase.hole,
@@ -644,6 +686,33 @@ final class PrepMapDegradationTests: XCTestCase {
                 }
             }
         }
+    }
+
+    /// Root cause of the first-render overlap: the full-screen map read the content area's
+    /// (near-zero) safe-area insets as its own, so the fallback band ended above the hole badge.
+    /// The insets now come from the content frame in the map's own coordinates.
+    func testPrepChromeInsetsComeFromTheContentFrameInTheMapsCoordinates() {
+        let heroFrame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let contentFrame = CGRect(x: 0, y: 103, width: 390, height: 707)
+        let insets = PrepChromeLayout.mapInsets(contentFrame: contentFrame, in: heroFrame)
+        XCTAssertEqual(insets.top, 103 + PrepChromeLayout.badgeRowHeight)
+        XCTAssertEqual(insets.bottom, 34 + PrepChromeLayout.bottomPanelHeight)
+        // The badge (content top + 12, 40 pt tall) lies wholly inside the top band, and the
+        // computed badge sits there, below the header (never at the map's own y = 12).
+        let badgeBottom = contentFrame.minY + PrepChromeLayout.badgeTopPadding + 40
+        XCTAssertLessThanOrEqual(badgeBottom, insets.top)
+        let badge = PrepChromeLayout.badge(contentFrame: contentFrame, in: heroFrame, number: 1, subtitle: "Par 5 · 543 码")
+        XCTAssertEqual(badge.minY, 103 + PrepChromeLayout.badgeTopPadding - PrepChromeLayout.badgeSlack)
+        XCTAssertEqual(badge.minX, PrepChromeLayout.badgeLeadingPadding - PrepChromeLayout.badgeSlack)
+        XCTAssertEqual(
+            PrepChromeLayout.header(contentFrame: contentFrame, in: heroFrame),
+            CGRect(x: 0, y: 0, width: 390, height: 103)
+        )
+        // An unmeasured content frame still reserves the badge row and panel.
+        XCTAssertEqual(
+            PrepChromeLayout.mapInsets(contentFrame: .zero, in: heroFrame),
+            PrepChromeLayout.Insets(top: PrepChromeLayout.badgeRowHeight, bottom: PrepChromeLayout.bottomPanelHeight)
+        )
     }
 
     func testLiveLabelLayoutHasNoExclusionsByDefault() {

@@ -156,45 +156,52 @@ struct CoursePrepStrategyScreen: View {
     let selectedTee: String
     let onSelectTee: (String) -> Void
 
+    /// Layout audit (design snapshots only): the header, hole badge and bottom panel are painted
+    /// in `chromeAuditColor` and the route layer is drawn above them without the map, so any route
+    /// label on the chrome shows in the captured image itself.
+    var chromeAudit = false
+
     /// The measured hole badge and bottom panel (global coordinates), reported by the chrome
-    /// itself; the map keeps every route label off them.
+    /// itself. They only extend the exclusions `PrepChromeLayout` computes in the drawing pass.
     @State private var chromeRects: [CGRect] = []
+
+    static let chromeAuditColor = Color(red: 1, green: 0, blue: 1)
 
     var body: some View {
         let current = currentRow
         GeometryReader { geo in
-            let insets = PrepChromeLayout.mapInsets(
-                safeTop: geo.safeAreaInsets.top,
-                safeBottom: geo.safeAreaInsets.bottom
-            )
+            let contentFrame = geo.frame(in: .global)
             ZStack(alignment: .top) {
                 LivePlayStyle.base
                     .ignoresSafeArea()
-                mapLayer(
-                    current,
-                    topInset: insets.top,
-                    bottomInset: insets.bottom,
-                    chrome: PrepChromeLayout.chrome(
-                        header: PrepChromeLayout.header(contentFrame: geo.frame(in: .global)),
-                        measured: chromeRects
-                    )
-                )
+                if chromeAudit {
+                    // The navigation header: everything above the content area.
+                    Self.chromeAuditColor
+                        .frame(height: max(contentFrame.minY, 0))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .ignoresSafeArea()
+                }
+                mapLayer(current, contentFrame: contentFrame)
+                    .zIndex(chromeAudit ? 2 : 0)
                 VStack(spacing: 0) {
                     if let current {
                         HStack {
                             holeBadge(current)
+                                .overlay { auditPaint }
                                 .reportsPrepChrome()
                             Spacer(minLength: 0)
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, PrepChromeLayout.badgeLeadingPadding)
                         .padding(.top, PrepChromeLayout.badgeTopPadding)
                     }
                     Spacer(minLength: 0)
                     bottomPanel(current)
+                        .overlay { auditPaint }
                         .reportsPrepChrome()
                         .padding(.horizontal, 12)
                         .padding(.bottom, 8)
                 }
+                .zIndex(1)
             }
             .onPreferenceChange(PrepChromeRectsKey.self) { rects in
                 chromeRects = rects
@@ -203,7 +210,7 @@ struct CoursePrepStrategyScreen: View {
         .navigationTitle("赛前球场攻略")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(LivePlayStyle.base.opacity(0.72), for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(chromeAudit ? .hidden : .visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -224,12 +231,14 @@ struct CoursePrepStrategyScreen: View {
     // MARK: Map
 
     @ViewBuilder
-    private func mapLayer(
-        _ row: PrepHoleRow?,
-        topInset: CGFloat,
-        bottomInset: CGFloat,
-        chrome: [CGRect]?
-    ) -> some View {
+    private var auditPaint: some View {
+        if chromeAudit {
+            Rectangle().fill(Self.chromeAuditColor)
+        }
+    }
+
+    @ViewBuilder
+    private func mapLayer(_ row: PrepHoleRow?, contentFrame: CGRect) -> some View {
         if let row, row.state != .waiting, let prep = row.prep {
             // One view identity per hole for both the factual and the precise map: the precise topo
             // replaces the factual route in place, and the screen-owned viewport keeps zoom and pan
@@ -239,9 +248,9 @@ struct CoursePrepStrategyScreen: View {
                 prep: prep,
                 plan: session.plan(in: row.plans),
                 viewport: $session.viewport,
-                topInset: topInset,
-                bottomInset: bottomInset,
-                chrome: chrome
+                contentFrame: contentFrame,
+                measuredChrome: chromeRects,
+                chromeAudit: chromeAudit
             )
             .id(row.number)
         } else {
@@ -258,19 +267,22 @@ struct CoursePrepStrategyScreen: View {
     // MARK: Chrome
 
     private func holeBadge(_ row: PrepHoleRow) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        // Laid out from `PrepChromeLayout`, which the map uses to keep route labels off the badge.
+        HStack(alignment: .firstTextBaseline, spacing: PrepChromeLayout.badgeSpacing) {
             Text("\(row.displayNumber)")
-                .font(.system(size: 20, weight: .bold))
+                .font(.system(size: PrepChromeLayout.badgeNumberFontSize, weight: .bold))
                 .monospacedDigit()
             if let subtitle = Self.holeSubtitle(par: row.par, yards: row.yards) {
                 Text(subtitle)
-                    .font(.system(size: 13.5, weight: .semibold))
+                    .font(.system(size: PrepChromeLayout.badgeSubtitleFontSize, weight: .semibold))
                     .monospacedDigit()
             }
         }
+        .lineLimit(1)
+        .fixedSize()
         .foregroundStyle(LivePlayStyle.ink)
-        .padding(.horizontal, 14)
-        .frame(height: 40)
+        .padding(.horizontal, PrepChromeLayout.badgeHorizontalPadding)
+        .frame(height: PrepChromeLayout.badgeHeight)
         .prepGlass(cornerRadius: 20)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("第 \(row.displayNumber) 洞")
@@ -459,11 +471,16 @@ struct PrepHoleMapHero: View {
     let prep: CoursePrepHole
     let plan: PrepPlanOption?
     @Binding var viewport: HoleMapViewportState
-    let topInset: CGFloat
-    let bottomInset: CGFloat
-    /// The chrome floating over the map (global coordinates); nil until it has been measured, when
-    /// its whole bands are kept clear instead.
-    let chrome: [CGRect]?
+    /// The screen's content area (below the navigation header, above the home indicator) in
+    /// global coordinates. The map itself ignores the safe area, so the chrome insets are derived
+    /// from this frame in the map's own coordinates, in the same layout pass that draws the route.
+    let contentFrame: CGRect
+    /// The measured badge and panel (global coordinates) when known. They only extend the
+    /// exclusions computed from `PrepChromeLayout`; they are never the only source.
+    let measuredChrome: [CGRect]
+    /// Layout audit (design snapshots only): draw just the route layer over the chrome, which the
+    /// screen paints in a flat audit colour, so any label on the chrome shows in the image.
+    let chromeAudit: Bool
 
     @GestureState private var pinchScale: CGFloat = 1
     @State private var dragTranslation: CGSize = .zero
@@ -473,29 +490,40 @@ struct PrepHoleMapHero: View {
         prep: CoursePrepHole,
         plan: PrepPlanOption?,
         viewport: Binding<HoleMapViewportState>,
-        topInset: CGFloat,
-        bottomInset: CGFloat,
-        chrome: [CGRect]? = nil
+        contentFrame: CGRect,
+        measuredChrome: [CGRect] = [],
+        chromeAudit: Bool = false
     ) {
         self.row = row
         self.prep = prep
         self.plan = plan
         self._viewport = viewport
-        self.topInset = topInset
-        self.bottomInset = bottomInset
-        self.chrome = chrome
+        self.contentFrame = contentFrame
+        self.measuredChrome = measuredChrome
+        self.chromeAudit = chromeAudit
     }
 
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
+            let heroFrame = geo.frame(in: .global)
+            let insets = PrepChromeLayout.mapInsets(contentFrame: contentFrame, in: heroFrame)
             let map = mapView
             let scale = displayedScale
-            let offset = displayedOffset(in: size)
+            let offset = displayedOffset(in: size, insets: insets)
             // The bitmap (or the factual route's ground) covers the whole viewport; the chrome only
             // moves where the hole rests inside it.
-            let rest = restFrame(in: size) ?? CGRect(origin: .zero, size: size)
-            let exclusions = labelExclusions(in: size, origin: geo.frame(in: .global).origin)
+            let rest = restFrame(in: size, insets: insets) ?? CGRect(origin: .zero, size: size)
+            let exclusions = PrepChromeLayout.exclusions(
+                viewport: size,
+                insets: insets,
+                contentFrame: contentFrame,
+                heroFrame: heroFrame,
+                badgeNumber: row.displayNumber,
+                badgeSubtitle: CoursePrepStrategyScreen.holeSubtitle(par: row.par, yards: row.yards),
+                measured: measuredChrome,
+                showsResetControl: !viewport.isFitted
+            )
             ZStack(alignment: .topTrailing) {
                 map
                     .frame(width: rest.width, height: rest.height)
@@ -503,6 +531,7 @@ struct PrepHoleMapHero: View {
                     .frame(width: size.width, height: size.height)
                     .scaleEffect(scale)
                     .offset(offset)
+                    .opacity(chromeAudit ? 0 : 1)
                     .allowsHitTesting(false)
                     // Keep the topo loading/ready children in the accessibility tree while retaining
                     // this hole-specific container identifier for UI navigation.
@@ -511,7 +540,8 @@ struct PrepHoleMapHero: View {
                 if let overlay = prep.resolvedMapOverlay {
                     let legs = map.plannedLegs()
                     Canvas { context, canvasSize in
-                        // Every "球杆 码数" label stays wholly clear of the chrome, or is omitted.
+                        // Every "球杆 码数" label stays wholly clear of the chrome, or is omitted —
+                        // from the very first frame, since the exclusions never wait for measuring.
                         let placed = LivePlannedRouteRenderer.draw(
                             &context,
                             size: canvasSize,
@@ -521,7 +551,7 @@ struct PrepHoleMapHero: View {
                             overlay: overlay,
                             scale: scale,
                             offset: offset,
-                            topInset: topInset,
+                            topInset: insets.top,
                             fittedFrame: rest,
                             exclusions: exclusions
                         )
@@ -542,7 +572,7 @@ struct PrepHoleMapHero: View {
                     // The drawn landing labels, read out (and checked by UI tests) in order.
                     Color.clear
                         .frame(width: 2, height: 2)
-                        .position(x: 1, y: topInset)
+                        .position(x: 1, y: insets.top)
                         .allowsHitTesting(false)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(
@@ -556,13 +586,13 @@ struct PrepHoleMapHero: View {
                             viewport = HoleMapViewportState()
                         }
                     } label: {
-                        LivePlayGlassCircle(diameter: 40) {
+                        LivePlayGlassCircle(diameter: PrepChromeLayout.resetControlSize) {
                             Image(systemName: "arrow.counterclockwise")
                                 .font(.system(size: 15, weight: .semibold))
                         }
                     }
                     .buttonStyle(.plain)
-                    .padding(.top, topInset)
+                    .padding(.top, insets.top)
                     .padding(.trailing, PrepChromeLayout.resetTrailingPadding)
                     .accessibilityLabel("重置地图视图")
                     .accessibilityIdentifier("prep-map-reset-rotation")
@@ -570,7 +600,10 @@ struct PrepHoleMapHero: View {
             }
             .frame(width: size.width, height: size.height)
             .contentShape(Rectangle())
-            .gesture(pinchGesture(in: size).simultaneously(with: panGesture(in: size)))
+            .gesture(
+                pinchGesture(in: size, insets: insets)
+                    .simultaneously(with: panGesture(in: size, insets: insets))
+            )
         }
         .ignoresSafeArea()
     }
@@ -602,38 +635,27 @@ struct PrepHoleMapHero: View {
         min(max(viewport.zoomScale * pinchScale, 1), 4)
     }
 
-    /// Chrome the route labels must keep clear of, in this view's coordinates: the navigation
-    /// header, hole badge and bottom panel as laid out (or their whole bands before they have been
-    /// measured), and the reset control while it shows.
-    private func labelExclusions(in size: CGSize, origin: CGPoint) -> [CGRect] {
-        var rects: [CGRect]
-        if let chrome {
-            rects = chrome.map { $0.offsetBy(dx: -origin.x, dy: -origin.y) }
-        } else {
-            rects = PrepChromeLayout.bands(viewport: size, topInset: topInset, bottomInset: bottomInset)
-        }
-        if !viewport.isFitted {
-            rects.append(PrepChromeLayout.resetControl(viewport: size, topInset: topInset))
-        }
-        return rects
-    }
-
     /// The bitmap's rest frame: an aspect fill of the whole viewport (`PrepMapLayout`).
-    private func restFrame(in size: CGSize) -> CGRect? {
+    private func restFrame(in size: CGSize, insets: PrepChromeLayout.Insets) -> CGRect? {
         guard let overlay = prep.resolvedMapOverlay else { return nil }
         return PrepMapLayout.restFrame(
             overlayWidth: overlay.w,
             overlayHeight: overlay.h,
             route: overlay.route,
             viewport: size,
-            topInset: topInset,
-            bottomInset: bottomInset
+            topInset: insets.top,
+            bottomInset: insets.bottom
         )
     }
 
-    private func clamped(_ proposed: CGSize, scale: CGFloat, in size: CGSize) -> CGSize {
+    private func clamped(
+        _ proposed: CGSize,
+        scale: CGFloat,
+        in size: CGSize,
+        insets: PrepChromeLayout.Insets
+    ) -> CGSize {
         // Pan keeps the zoomed bitmap covering the viewport.
-        guard let frame = restFrame(in: size) else { return proposed }
+        guard let frame = restFrame(in: size, insets: insets) else { return proposed }
         return LivePlayMapOverlayLayout.clampedOffset(
             proposed,
             mapFrame: frame,
@@ -642,15 +664,15 @@ struct PrepHoleMapHero: View {
         )
     }
 
-    private func displayedOffset(in size: CGSize) -> CGSize {
+    private func displayedOffset(in size: CGSize, insets: PrepChromeLayout.Insets) -> CGSize {
         let proposed = CGSize(
             width: viewport.offset.width + dragTranslation.width,
             height: viewport.offset.height + dragTranslation.height
         )
-        return clamped(proposed, scale: displayedScale, in: size)
+        return clamped(proposed, scale: displayedScale, in: size, insets: insets)
     }
 
-    private func pinchGesture(in size: CGSize) -> some Gesture {
+    private func pinchGesture(in size: CGSize, insets: PrepChromeLayout.Insets) -> some Gesture {
         MagnificationGesture()
             .updating($pinchScale) { value, state, _ in
                 state = value
@@ -659,13 +681,13 @@ struct PrepHoleMapHero: View {
                 var next = viewport
                 next.zoomScale = min(max(next.zoomScale * value, 1), 4)
                 next.offset = next.zoomScale > 1.01
-                    ? clamped(next.offset, scale: next.zoomScale, in: size)
+                    ? clamped(next.offset, scale: next.zoomScale, in: size, insets: insets)
                     : .zero
                 viewport = next
             }
     }
 
-    private func panGesture(in size: CGSize) -> some Gesture {
+    private func panGesture(in size: CGSize, insets: PrepChromeLayout.Insets) -> some Gesture {
         DragGesture(minimumDistance: viewport.zoomScale > 1.01 ? 4 : 10_000)
             .onChanged { value in
                 guard viewport.zoomScale > 1.01 else { return }
@@ -681,7 +703,8 @@ struct PrepHoleMapHero: View {
                         height: next.offset.height + value.translation.height
                     ),
                     scale: next.zoomScale,
-                    in: size
+                    in: size,
+                    insets: insets
                 )
                 viewport = next
             }
@@ -694,28 +717,118 @@ enum PrepChromeLayout {
     /// The hole badge row below the navigation bar (badge top padding + 40 pt badge + room).
     static let badgeRowHeight: CGFloat = 64
     static let badgeTopPadding: CGFloat = 12
+    static let badgeLeadingPadding: CGFloat = 16
+    static let badgeHeight: CGFloat = 40
+    static let badgeHorizontalPadding: CGFloat = 14
+    static let badgeSpacing: CGFloat = 8
+    static let badgeNumberFontSize: CGFloat = 20
+    static let badgeSubtitleFontSize: CGFloat = 13.5
+    /// Room around the computed badge for text-measurement rounding.
+    static let badgeSlack: CGFloat = 6
     /// The bottom glass panel (plans, club order, 18-hole strip) with its bottom margin.
     static let bottomPanelHeight: CGFloat = 176
     static let resetControlSize: CGFloat = 40
     static let resetTrailingPadding: CGFloat = 14
 
-    static func mapInsets(safeTop: CGFloat, safeBottom: CGFloat) -> (top: CGFloat, bottom: CGFloat) {
-        (safeTop + badgeRowHeight, safeBottom + bottomPanelHeight)
+    /// The map's chrome insets in the map's own (full-screen) coordinates.
+    struct Insets: Equatable {
+        /// Navigation header plus the hole badge row.
+        let top: CGFloat
+        /// Home indicator plus the bottom panel.
+        let bottom: CGFloat
     }
 
-    /// The navigation header (status bar, title, Tee dots): everything above the content area.
-    static func header(contentFrame: CGRect) -> CGRect {
-        CGRect(x: 0, y: 0, width: max(contentFrame.maxX, contentFrame.width), height: max(contentFrame.minY, 0))
+    /// Derives the insets from the screen's content frame and the map's frame (both global), so the
+    /// full-screen map never mistakes the content area's coordinates for its own. (A GeometryReader
+    /// inside the safe area reports near-zero safe-area insets; those must never place the chrome.)
+    static func mapInsets(contentFrame: CGRect, in heroFrame: CGRect) -> Insets {
+        guard contentFrame.width > 0, contentFrame.height > 0 else {
+            return Insets(top: badgeRowHeight, bottom: bottomPanelHeight)
+        }
+        return Insets(
+            top: headerHeight(contentFrame: contentFrame, in: heroFrame) + badgeRowHeight,
+            bottom: max(heroFrame.maxY - contentFrame.maxY, 0) + bottomPanelHeight
+        )
     }
 
-    /// The header plus the measured badge and panel; nil until both have been measured.
-    static func chrome(header: CGRect, measured: [CGRect]) -> [CGRect]? {
-        let rects = measured.filter { !$0.isEmpty && $0.width.isFinite && $0.height.isFinite }
-        guard rects.count >= 2 else { return nil }
-        return [header] + rects
+    private static func headerHeight(contentFrame: CGRect, in heroFrame: CGRect) -> CGFloat {
+        guard contentFrame.width > 0, contentFrame.height > 0 else { return 0 }
+        return max(contentFrame.minY - heroFrame.minY, 0)
     }
 
-    /// Before the chrome is measured: its whole top and bottom bands.
+    /// The navigation header (status bar, title, Tee dots): everything above the content area, in
+    /// the map's coordinates.
+    static func header(contentFrame: CGRect, in heroFrame: CGRect) -> CGRect {
+        CGRect(x: 0, y: 0, width: heroFrame.width, height: headerHeight(contentFrame: contentFrame, in: heroFrame))
+    }
+
+    /// The hole badge's width for its text ("1" + "Par 5 · 543 码"), measured with the badge's
+    /// own fonts, exactly as `CoursePrepStrategyScreen` lays it out.
+    static func badgeWidth(number: Int, subtitle: String?) -> CGFloat {
+        func textWidth(_ text: String, size: CGFloat, weight: UIFont.Weight) -> CGFloat {
+            let font = UIFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
+            let bounds = (text as NSString).boundingRect(
+                with: CGSize(width: 1_000, height: 100),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: font],
+                context: nil
+            )
+            return ceil(bounds.width)
+        }
+        var width = badgeHorizontalPadding * 2 + textWidth("\(number)", size: badgeNumberFontSize, weight: .bold)
+        if let subtitle {
+            width += badgeSpacing + textWidth(subtitle, size: badgeSubtitleFontSize, weight: .semibold)
+        }
+        return width
+    }
+
+    /// The hole badge in the map's coordinates, with `badgeSlack` all round.
+    static func badge(contentFrame: CGRect, in heroFrame: CGRect, number: Int, subtitle: String?) -> CGRect {
+        CGRect(
+            x: contentFrame.minX - heroFrame.minX + badgeLeadingPadding,
+            y: headerHeight(contentFrame: contentFrame, in: heroFrame) + badgeTopPadding,
+            width: badgeWidth(number: number, subtitle: subtitle),
+            height: badgeHeight
+        )
+        .insetBy(dx: -badgeSlack, dy: -badgeSlack)
+    }
+
+    /// Every rect the route labels must keep wholly clear of, computed synchronously in the pass
+    /// that draws the route, so the first frame is already right: the header, the hole badge, the
+    /// whole bottom band (panel + home indicator) and the reset control when shown. The measured
+    /// badge and panel (global) only extend this set; they are never its only source.
+    static func exclusions(
+        viewport: CGSize,
+        insets: Insets,
+        contentFrame: CGRect,
+        heroFrame: CGRect,
+        badgeNumber: Int?,
+        badgeSubtitle: String?,
+        measured: [CGRect],
+        showsResetControl: Bool
+    ) -> [CGRect] {
+        var rects: [CGRect] = []
+        let headerRect = Self.header(contentFrame: contentFrame, in: heroFrame)
+        if headerRect.height > 0 { rects.append(headerRect) }
+        if let badgeNumber {
+            rects.append(Self.badge(
+                contentFrame: contentFrame,
+                in: heroFrame,
+                number: badgeNumber,
+                subtitle: badgeSubtitle
+            ))
+        }
+        rects.append(Self.bands(viewport: viewport, topInset: insets.top, bottomInset: insets.bottom)[1])
+        for rect in measured where !rect.isEmpty && rect.width.isFinite && rect.height.isFinite {
+            rects.append(rect.offsetBy(dx: -heroFrame.minX, dy: -heroFrame.minY))
+        }
+        if showsResetControl {
+            rects.append(Self.resetControl(viewport: viewport, topInset: insets.top))
+        }
+        return rects
+    }
+
+    /// The chrome's whole top and bottom bands.
     static func bands(viewport: CGSize, topInset: CGFloat, bottomInset: CGFloat) -> [CGRect] {
         [
             CGRect(x: 0, y: 0, width: viewport.width, height: max(topInset, 0)),

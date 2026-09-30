@@ -1101,7 +1101,7 @@ final class DesignSnapshotTests: XCTestCase {
             guard name != "prep-hole-waiting" else { continue }
             let audit = try XCTUnwrap(PrepRouteLabelAudit.latest, "\(name): the route layer was drawn")
             XCTAssertEqual(audit.hole, session.holeNumber)
-            XCTAssertGreaterThanOrEqual(audit.chrome.count, 3, "\(name): the measured header, badge and panel")
+            XCTAssertGreaterThanOrEqual(audit.chrome.count, 3, "\(name): header, badge and panel, before any measuring")
             let row = try XCTUnwrap(prepRows.first { $0.number == audit.hole })
             let plan = try XCTUnwrap(session.plan(in: row.plans))
             XCTAssertEqual(audit.labels.count, plan.steps.count, "\(name): one label per stroke")
@@ -1118,6 +1118,39 @@ final class DesignSnapshotTests: XCTestCase {
             }
         }
         XCTAssertEqual(Set(prepPNGs).count, prepStates.count, "prep snapshot states rendered identically")
+        // Independent of the layout's own bookkeeping: render each state again with the header,
+        // hole badge and bottom panel painted flat magenta and only the route layer drawn above
+        // them, then look for label-pill pixels (the pill's black over magenta) in the image. The
+        // detector is first proven on a pill drawn over magenta.
+        XCTAssertGreaterThan(
+            try Self.pillOverChromePixels(in: Self.syntheticPillOverChrome()).count,
+            100,
+            "the detector finds a label pill drawn over the chrome"
+        )
+        for (name, session) in prepStates where name != "prep-hole-waiting" {
+            let png = try captureScreen(
+                NavigationStack {
+                    CoursePrepStrategyScreen(
+                        rows: prepRows,
+                        session: .constant(session),
+                        teeOptions: ["blue", "white"],
+                        selectedTee: "blue",
+                        onSelectTee: { _ in },
+                        chromeAudit: true
+                    )
+                },
+                named: "\(name)-chrome-audit",
+                dark: true,
+                settle: 2.0
+            )
+            let scan = try Self.pillOverChromePixels(in: png)
+            XCTAssertGreaterThan(scan.chromeFraction, 0.2, "\(name): the audit painted the chrome")
+            XCTAssertEqual(
+                scan.count,
+                0,
+                "\(name): a route label is drawn over the header, badge or panel near \(scan.first.map { "\($0)" } ?? "-")"
+            )
+        }
         // Full screen, not a framed rectangle: near every edge of the viewport (below the navigation
         // bar and above the bottom panel) the map surface is drawn, never the black screen base.
         let prepNames: [String] = prepStates.map { $0.0 }
@@ -1465,6 +1498,82 @@ final class DesignSnapshotTests: XCTestCase {
         }
         XCTAssertTrue(drawn, "pixel sampling context")
         return (Int(bytes[0]), Int(bytes[1]), Int(bytes[2]))
+    }
+
+    /// Pixels of a route-label pill composited over the magenta audit chrome: dark magenta
+    /// (the pill's translucent black over magenta, gamma or linear blended) filling a solid
+    /// 3 x 3 pt block. Route strokes' black edge is only 1.5 pt wide under their white core, and
+    /// label text is white, so neither can form such a block. Positions are in points from the
+    /// top-left; `chromeFraction` is the share of the image painted magenta.
+    private static func pillOverChromePixels(
+        in png: Data
+    ) throws -> (count: Int, first: CGPoint?, chromeFraction: Double) {
+        let image = try XCTUnwrap(UIImage(data: png)?.cgImage)
+        let width = image.width
+        let height = image.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        XCTAssertTrue(drawn, "pixel scan context")
+        let pointsPerPixel = 390 / CGFloat(max(width, 1))
+        // Summed-area table of candidate (dark magenta) pixels; row 0 of the buffer is the top.
+        var sums = [Int](repeating: 0, count: (width + 1) * (height + 1))
+        var magenta = 0
+        for y in 0..<height {
+            var rowSum = 0
+            for x in 0..<width {
+                let index = (y * width + x) * 4
+                let red = Int(bytes[index])
+                let green = Int(bytes[index + 1])
+                let blue = Int(bytes[index + 2])
+                if red > 235, green < 20, blue > 235 { magenta += 1 }
+                let candidate = green <= 24 && abs(red - blue) <= 16 && (45...160).contains(red)
+                rowSum += candidate ? 1 : 0
+                sums[(y + 1) * (width + 1) + x + 1] = sums[y * (width + 1) + x + 1] + rowSum
+            }
+        }
+        let block = max(Int((3 / pointsPerPixel).rounded(.up)), 2)
+        var count = 0
+        var first: CGPoint?
+        if width >= block, height >= block {
+            for y in 0...(height - block) {
+                for x in 0...(width - block) {
+                    let total = sums[(y + block) * (width + 1) + x + block]
+                        - sums[y * (width + 1) + x + block]
+                        - sums[(y + block) * (width + 1) + x]
+                        + sums[y * (width + 1) + x]
+                    guard total == block * block else { continue }
+                    count += 1
+                    if first == nil {
+                        first = CGPoint(x: CGFloat(x) * pointsPerPixel, y: CGFloat(y) * pointsPerPixel)
+                    }
+                }
+            }
+        }
+        return (count, first, Double(magenta) / Double(max(width * height, 1)))
+    }
+
+    /// A 390 x 120 pt image: magenta chrome with one route-label pill drawn over it exactly as
+    /// `LivePlannedRouteRenderer` fills it.
+    private static func syntheticPillOverChrome() throws -> Data {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 390, height: 120)).image { ctx in
+            UIColor(red: 1, green: 0, blue: 1, alpha: 1).setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 390, height: 120))
+            UIColor.black.withAlphaComponent(0.74).setFill()
+            UIBezierPath(roundedRect: CGRect(x: 40, y: 40, width: 72, height: 24), cornerRadius: 12).fill()
+        }
+        return try XCTUnwrap(image.pngData())
     }
 
     private static func snapshotCaddieRoutes(par: Int, routeLengthM: Double) -> [CaddiePlanSequence] {

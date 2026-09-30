@@ -3021,7 +3021,7 @@ class MobileContractTests(unittest.TestCase):
         # P1-4: the map fills the screen; chrome only moves the fitted rest position.
         self.assertIn("struct PrepHoleMapHero: View", course_review)
         self.assertIn(".frame(width: size.width, height: size.height)", course_review)
-        self.assertIn("bottomInset: bottomInset", course_review)
+        self.assertIn("bottomInset: insets.bottom", course_review)
         # The bitmap covers the whole viewport (aspect fill); insets only move its rest position.
         self.assertIn("enum PrepMapLayout", prep_presentation)
         self.assertIn("let scale = max(viewport.width / CGFloat(overlayWidth), viewport.height / CGFloat(overlayHeight))", prep_presentation)
@@ -3036,7 +3036,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("enum PrepChromeLayout", course_review)
         self.assertIn("exclusions: exclusions", course_review)
         self.assertIn(".reportsPrepChrome()", course_review)
-        self.assertIn("PrepChromeLayout.mapInsets(", course_review)
+        self.assertIn("PrepChromeLayout.mapInsets(contentFrame: contentFrame, in: heroFrame)", course_review)
+        # The first frame is deterministic: exclusions are computed in the drawing pass from the
+        # content frame (never the content area's near-zero safe-area insets); measured chrome
+        # rects only extend them.
+        self.assertNotIn("geo.safeAreaInsets", course_review)
+        self.assertIn("static func exclusions(", course_review)
+        self.assertIn("measured: measuredChrome,", course_review)
+        self.assertIn("static func badgeWidth(number: Int, subtitle: String?) -> CGFloat", course_review)
+        design_snapshots = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "DesignSnapshotTests.swift")
+        self.assertIn("chromeAudit: true", design_snapshots)
+        self.assertIn("pillOverChromePixels(in: png)", design_snapshots)
         self.assertIn("static func layoutLabelsAvoiding(", live_chrome_source)
         self.assertIn("exclusions: [CGRect] = []", live_chrome_source)
         self.assertIn("static func routeLabelSize(for text: String, isTeeLabel: Bool) -> CGSize", live_chrome_source)
