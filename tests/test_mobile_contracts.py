@@ -2318,7 +2318,15 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("presentation: .startRound,", start_view_src)
         self.assertIn('guard presentation == .prep else { return "查看附近球场" }', search_view)
         self.assertIn("if presentation == .prep && !retainedDownloads.isEmpty {", search_view)
-        self.assertIn('.accessibilityValue(presentation == .prep ? (isInstalled ? "已准备" : "选择后下载") : "")', search_view)
+        # README §8 / IMPLEMENTATION_PLAN: the prep picker carries no download / preparation state;
+        # UI tests read a DEBUG + UITEST_MODE-only token instead.
+        self.assertIn(".accessibilityValue(uiTestValue)", search_view)
+        for copy in ("选择后下载", "已完整下载到本机", "服务器会继续准备", "准备精确地图", "已保存 \\(", "等待下载", "ProgressView(value:"):
+            self.assertNotIn(copy, search_view)
+        seam = search_view.split("static func uiTestInstallValue(", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("#if DEBUG", seam)
+        self.assertIn('ProcessInfo.processInfo.environment["UITEST_MODE"] == "1"', seam)
+        self.assertIn('#else\n        return ""', seam)
         self.assertIn('.accessibilityIdentifier("course-catalog-retry-nearby")', search_view)
         self.assertIn("presentation: .startRound,", snapshots.split('named: "full-course-search"', 1)[0].rsplit("try captureScreen(", 1)[1])
         real_flow = _read_required_source(self, IOS_DIR.parent / "AICaddieUITests" / "RealFlowUITests.swift")
@@ -2426,7 +2434,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("hole: prep,", course_review)
         # B4c: only an installed, current topo is the precise map; otherwise the factual route.
         self.assertIn("topoURL: row.state == .precise ? row.topoURL : nil,", course_review)
-        self.assertIn("showsPrepFactOverlays: true", course_review)
+        # Default-none obstacles on 备战: no obstacle spans and no measured obstacle labels.
+        self.assertIn("showsHazards: false,", course_review)
+        self.assertIn("showsPrepFactOverlays: false,", course_review)
+        self.assertNotIn("showsHazards: true", course_review)
+        self.assertNotIn("showsPrepFactOverlays: true", course_review)
         self.assertIn("showsClubLabel: false", course_review)
         # B4b-2 v2 holes always carry their physical identity; nothing falls back to the course id.
         self.assertIn("let mapGlobalId = hole.sourceGlobalId", current_hole)
@@ -3002,12 +3014,32 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('accessibilityIdentifier("prep-map-waiting-\\(row?.number ?? 1)")', course_review)
         self.assertIn('accessibilityIdentifier("prep-hole-header-\\(row.number)")', course_review)
         self.assertIn('accessibilityIdentifier("prep-hole-map-\\(row.number)")', course_review)
-        self.assertIn("showsPrepFactOverlays: true", course_review)
-        # A precise map replacing the factual one keeps the caller-owned viewport (zoom/pan/rotation).
-        self.assertIn("viewportState: $session.viewport", course_review)
+        # A precise map replacing the factual one keeps the screen-owned viewport (zoom/pan).
+        self.assertIn("viewport: $session.viewport,", course_review)
         self.assertIn("struct PrepHoleMapSession: Equatable", prep_presentation)
-        self.assertIn("state: Binding<HoleMapViewportState>? = nil", hole_map_view_source)
-        self.assertIn("public struct HoleMapViewportState: Equatable", hole_map_view_source)
+        self.assertIn("struct HoleMapViewportState: Equatable", prep_presentation)
+        # P1-4: the map fills the screen; chrome only moves the fitted rest position.
+        self.assertIn("struct PrepHoleMapHero: View", course_review)
+        self.assertIn(".frame(width: size.width, height: size.height)", course_review)
+        self.assertIn("bottomInset: bottomInset", course_review)
+        self.assertIn("bottomInset: CGFloat = 0", live_components)
+        self.assertNotIn(".padding(.horizontal, 8)", course_review)
+        self.assertNotIn("allowsRotation: true", course_review)
+        # P1-1 / P1-2: plans come from the live decision authority and drive the map legs, whose
+        # landings carry the live "球杆 码数" labels, and the whole club order.
+        self.assertIn("OfflineCaddieDecisionEvaluator().makeDecision(", prep_presentation)
+        self.assertIn("LiveCaddieRouteAuthority.resolve(", prep_presentation)
+        self.assertIn("LiveCaddieSeedFactory.resolve(package: template, hole: hole, prep: prep)", prep_presentation)
+        self.assertIn("CaddieDecisionRequestBuilder.addingCanonicalPlan(to: base, prep: prep)", prep_presentation)
+        self.assertNotIn("球童建议", prep_presentation)
+        self.assertIn("plannedShots: plan?.shots ?? [],", course_review)
+        self.assertIn("drawsPlannedRouteInMap: false", course_review)
+        self.assertIn("LivePlannedRouteRenderer.draw(", course_review)
+        self.assertIn("LivePlannedRouteRenderer.labelText(for: $0, pixelsPerMetre: overlay.ppm)", course_review)
+        self.assertIn('accessibilityIdentifier("prep-map-route")', course_review)
+        self.assertIn('accessibilityIdentifier("prep-plan-\\(index)")', course_review)
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        self.assertIn("CaddieDecisionRequestBuilder.addingCanonicalPlan(to: baseRequest, prep: holePrep)", current_hole)
         # B4b-2 identity: the player sees the course's own hole number.
         self.assertIn("displayNumber: hole.courseHoleNumber", prep_presentation)
         # 右上换发球台 with the shared Tee colour table.

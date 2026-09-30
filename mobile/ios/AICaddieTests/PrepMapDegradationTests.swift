@@ -4,7 +4,7 @@ import XCTest
 
 /// B4c: 备战 and the README 地图降级契约 — which state each hole shows (precise / factual route /
 /// the one waiting page), the faded hole strip, and that a background precise map replacing a
-/// factual one keeps the player's hole, plan, zoom, pan and rotation.
+/// factual one keeps the player's hole, plan, zoom and pan.
 final class PrepMapDegradationTests: XCTestCase {
     private let overlayJSON = #""map":{"overlay":{"w":240,"h":360,"ppm":1,"ln":300,"route":[[120,330,0],[120,30,300]]}}"#
 
@@ -180,7 +180,7 @@ final class PrepMapDegradationTests: XCTestCase {
 
     // MARK: - The screen state survives a map replacement
 
-    func testPreciseReplacementKeepsHolePlanZoomPanAndRotation() throws {
+    func testPreciseReplacementKeepsHolePlanZoomAndPan() throws {
         let package = try fixturePackage()
         let holes = package.holes.sorted { $0.number < $1.number }
         let second = holes[1]
@@ -202,9 +202,8 @@ final class PrepMapDegradationTests: XCTestCase {
         session.adopt(holeNumbers: factualRows.map(\.number), planCount: 0)
         XCTAssertEqual(session.holeNumber, holes[0].number, "nothing shown yet: the first hole")
         session.select(hole: second.number)
-        let plans = PrepPlanOption.options(for: factualRows[1].prep)
-        session.selectPlan(0, planCount: plans.count)
-        session.viewport = HoleMapViewportState(rotationDegrees: 32, zoomScale: 2.5, offset: CGSize(width: -40, height: 18))
+        session.selectPlan(0, planCount: factualRows[1].plans.count)
+        session.viewport = HoleMapViewportState(zoomScale: 2.5, offset: CGSize(width: -40, height: 18))
         let before = session
 
         // The background download installs hole 2's precise facts and topo.
@@ -216,7 +215,7 @@ final class PrepMapDegradationTests: XCTestCase {
         XCTAssertEqual(preciseRows[1].state, .precise)
         session.adopt(
             holeNumbers: preciseRows.map(\.number),
-            planCount: PrepPlanOption.options(for: preciseRows[1].prep).count
+            planCount: preciseRows[1].plans.count
         )
         XCTAssertEqual(session, before, "a precise map replacing the factual one resets nothing")
         XCTAssertFalse(session.viewport.isFitted)
@@ -269,16 +268,123 @@ final class PrepMapDegradationTests: XCTestCase {
         }
     }
 
-    // MARK: - Plan and club order
+    // MARK: - Plans (方案), landings and club order
 
-    func testClubOrderUsesEachStepsOwnCarryInYards() throws {
-        let steps = #"[{"club":"1D","note":"开球","targetCarry_m":210},{"clubName":"8I","note":"攻果岭","targetCarry_m":150},{"club":"","note":"推杆"}]"#
-        let options = PrepPlanOption.options(for: try prep(coverage: "ready", withMap: true, steps: steps))
-        XCTAssertEqual(options.count, 1)
-        XCTAssertEqual(options[0].title, "球童建议")
-        XCTAssertEqual(options[0].steps.map(\.label), ["一号木 230", "八号铁 164"])
-        XCTAssertTrue(PrepPlanOption.options(for: try prep(coverage: "ready", withMap: true)).isEmpty)
-        XCTAssertTrue(PrepPlanOption.options(for: nil).isEmpty)
+    private let planSteps = #"[{"club":"1D","note":"开球","targetCarry_m":210,"routeOffset_m":210,"role":"tee"},{"club":"8I","note":"攻果岭","targetCarry_m":150,"routeOffset_m":300,"expectedRemaining_m":0,"role":"approach"}]"#
+
+    /// The fixture package with a real bag on its caddie seeds and package profiles, as a course
+    /// template installed for a player with club history.
+    private func bagPackage() throws -> LiveRoundPackage {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
+        var root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let bag: [(String, Double)] = [("1D", 210), ("7I", 156), ("8I", 144), ("9I", 132)]
+        root["clubProfiles"] = bag.map { name, carry -> [String: Any] in
+            ["clubName": name, "sampleSize": 20, "median_m": carry, "p10_m": carry - 10, "p90_m": carry + 10]
+        }
+        var profiles: [String: Any] = [:]
+        for (name, carry) in bag {
+            profiles[name] = ["clubName": name, "median": carry, "p10": carry - 10, "p90": carry + 10, "sampleSize": 20]
+        }
+        var seeds = try XCTUnwrap(root["caddieContextSeeds"] as? [[String: Any]])
+        for index in seeds.indices {
+            var context = seeds[index]["context"] as? [String: Any] ?? [:]
+            context["clubProfiles"] = profiles
+            seeds[index]["context"] = context
+        }
+        root["caddieContextSeeds"] = seeds
+        return try JSONDecoder().decode(LiveRoundPackage.self, from: JSONSerialization.data(withJSONObject: root))
+    }
+
+    private func bagRows() throws -> (rows: [PrepHoleRow], prep: CoursePrepHole, template: LiveRoundPackage, hole: Hole) {
+        let package = try bagPackage()
+        let first = try XCTUnwrap(package.holes.min { $0.number < $1.number })
+        let hole = try prep(hole: first.number, coverage: "ready", withMap: true, steps: planSteps)
+        let template = package.replacingCoursePrep(CoursePrepPackage(
+            schema: "ai-caddie-course-prep-v1",
+            globalId: package.course.globalId,
+            holes: [hole],
+            missingData: nil
+        ))
+        let rows = PrepHoleRows.build(
+            template: template, fallbackHoleCount: 9, downloadActive: false,
+            requiredRevisions: nil, topoURL: { _, _ in URL(fileURLWithPath: "/tmp/topo.png") }
+        )
+        return (rows, hole, template, first)
+    }
+
+    func testPlansComeFromTheLiveDecisionAuthorityAsDifferentCompleteRoutes() throws {
+        let (rows, hole, template, first) = try bagRows()
+        let plans = rows[0].plans
+        XCTAssertGreaterThanOrEqual(plans.count, 2, "备战 offers at least two caddie plans")
+        // The first plan is the installed CoursePrep chain (the decision engine's stock route).
+        XCTAssertEqual(plans[0].title, "推荐")
+        XCTAssertEqual(plans[0].steps.map(\.label), ["一号木 230", "八号铁 164"])
+        XCTAssertEqual(Set(plans.map(\.title)).count, plans.count, "every plan has its own name")
+        XCTAssertEqual(Set(plans.map { $0.steps.map(\.label) }).count, plans.count, "no two plans share a club order")
+        // Exactly the routes live play resolves for this hole before any network or GPS.
+        let authority = PrepPlanOption.decisionRoutes(template: template, hole: first, prep: hole)
+        XCTAssertEqual(plans.map(\.id), authority.map(\.id))
+        for (plan, route) in zip(plans, authority) {
+            XCTAssertEqual(plan.shots.map(\.clubName), route.steps.map(\.clubName), "the complete stroke sequence")
+        }
+    }
+
+    func testSelectingAnotherPlanDrawsAVisiblyDifferentPathWithLabelledLandings() throws {
+        let (rows, hole, _, _) = try bagRows()
+        let plans = rows[0].plans
+        XCTAssertGreaterThanOrEqual(plans.count, 2)
+        let overlay = try XCTUnwrap(hole.resolvedMapOverlay)
+        let legSets = plans.prefix(2).map { plan in
+            HoleImageMapView(hole: hole, showsCardChrome: false, plannedShots: plan.shots, drawsPlannedRouteInMap: false)
+                .plannedLegs()
+        }
+        for (plan, legs) in zip(plans.prefix(2), legSets) {
+            XCTAssertEqual(legs.count, plan.steps.count, "one leg per planned stroke")
+            // Every landing on the map is labelled 球杆 + 码数, and reads exactly as the club order.
+            let labels = PrepHoleMapHero.landingLabels(legs: legs, overlay: overlay)
+            XCTAssertEqual(labels, plan.steps.map(\.label))
+            for label in labels {
+                XCTAssertNotNil(
+                    label.range(of: #"^[^ ]+( [^ ]+)* \d+$"#, options: .regularExpression),
+                    "\(label) is 球杆 + 码数"
+                )
+            }
+        }
+        let firstPath = legSets[0].map(\.destination)
+        let secondPath = legSets[1].map(\.destination)
+        XCTAssertNotEqual(firstPath, secondPath, "the second plan's landings are elsewhere on the hole")
+        let firstLanding = try XCTUnwrap(firstPath.first)
+        let secondLanding = try XCTUnwrap(secondPath.first)
+        XCTAssertGreaterThan(
+            hypot(firstLanding.x - secondLanding.x, firstLanding.y - secondLanding.y),
+            10,
+            "the tee shots land visibly apart"
+        )
+    }
+
+    func testAPackageWithoutACaddieDecisionStillShowsTheInstalledChain() throws {
+        let package = try fixturePackage()
+        let first = try XCTUnwrap(package.holes.min { $0.number < $1.number })
+        let hole = try prep(hole: first.number, coverage: "ready", withMap: true, steps: planSteps)
+        let installed = try XCTUnwrap(PrepPlanOption.installedOption(prep: hole, par: 4))
+        XCTAssertEqual(installed.steps.map(\.label), ["一号木 230", "八号铁 164"])
+        XCTAssertEqual(installed.shots.map(\.clubName), ["1D", "8I"])
+        XCTAssertNil(PrepPlanOption.installedOption(prep: try prep(coverage: "ready", withMap: true), par: 4))
+        XCTAssertTrue(PrepPlanOption.options(template: package, hole: first, prep: nil).isEmpty)
+    }
+
+    func testSessionPlanFollowsTheSelectionAndIsClampedForDisplay() throws {
+        let plans = try bagRows().rows[0].plans
+        var session = PrepHoleMapSession()
+        session.select(hole: 1)
+        XCTAssertEqual(session.plan(in: plans), plans.first)
+        session.selectPlan(1, planCount: plans.count)
+        XCTAssertEqual(session.plan(in: plans), plans[1])
+        XCTAssertEqual(session.plan(in: Array(plans.prefix(1))), plans[0])
+        XCTAssertNil(session.plan(in: []))
     }
 
     func testHeaderSubtitleAndStateDescriptionNeverNameTheDownload() {

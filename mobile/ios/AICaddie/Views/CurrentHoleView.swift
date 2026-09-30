@@ -3478,58 +3478,7 @@ public struct CurrentHoleView: View {
         // A package created before PHONE-UX6 may have the prep chain in the course payload but not
         // in its caddie seed. Fill that one missing transport fact locally so an offline/older
         // package cannot resurrect the independent ``3H -> 3H`` planner on the first tee request.
-        guard baseRequest.context["canonicalShotPlan"] == nil,
-              let steps = canonicalPlanJSON(from: holePrep?.steps),
-              !steps.isEmpty else {
-            return baseRequest
-        }
-        var context = baseRequest.context
-        context["canonicalShotPlan"] = .array(steps.map { .object($0) })
-        context["canonicalPlanSource"] = .string("course_prep")
-        context["canonicalPlanVersion"] = .string("ai-caddie-shot-plan-v1")
-        if let routeLength = holePrep?.routeLenM, routeLength.isFinite, routeLength > 0 {
-            context["canonicalPlanRouteLength_m"] = .number(routeLength)
-        }
-        return CaddieDecisionRequest(
-            shotType: baseRequest.shotType,
-            context: context,
-            includeExplanation: baseRequest.includeExplanation
-        )
-    }
-
-    private func canonicalPlanJSON(
-        from steps: [CoursePrepStep]?
-    ) -> [[String: JSONValue]]? {
-        guard let steps else { return nil }
-        let rows = steps.enumerated().compactMap { index, step -> [String: JSONValue]? in
-            let name = (step.clubName ?? step.club ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty, name != "-" else { return nil }
-            var row: [String: JSONValue] = [
-                "clubName": .string(name),
-                "planIndex": .number(Double(step.planIndex ?? index)),
-            ]
-            if let value = step.targetCarryM, value.isFinite, value > 0 {
-                row["targetCarryM"] = .number(value)
-            }
-            if let value = step.routeOffsetM, value.isFinite, value >= 0 {
-                row["routeOffsetM"] = .number(value)
-            }
-            if let value = step.landingM, value.isFinite, value >= 0 {
-                row["landingM"] = .number(value)
-            }
-            if let value = step.expectedRemainingM, value.isFinite {
-                row["expectedRemainingM"] = .number(value)
-            }
-            if let role = step.role?.trimmingCharacters(in: .whitespacesAndNewlines), !role.isEmpty {
-                row["role"] = .string(role)
-            }
-            if let version = step.planVersion?.trimmingCharacters(in: .whitespacesAndNewlines), !version.isEmpty {
-                row["planVersion"] = .string(version)
-            }
-            return row
-        }
-        return rows.isEmpty ? nil : rows
+        return CaddieDecisionRequestBuilder.addingCanonicalPlan(to: baseRequest, prep: holePrep)
     }
 
     /// Adopt the route the decision engine actually selected. The request's strategy/option is a

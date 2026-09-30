@@ -1635,7 +1635,8 @@ enum LivePlayMapOverlayLayout {
         overlayWidth: Int,
         overlayHeight: Int,
         into heroSize: CGSize,
-        topInset: CGFloat = 0
+        topInset: CGFloat = 0,
+        bottomInset: CGFloat = 0
     ) -> CGPoint? {
         guard overlayPoint.count >= 2,
               overlayPoint[0].isFinite,
@@ -1655,7 +1656,8 @@ enum LivePlayMapOverlayLayout {
             overlayWidth: overlayWidth,
             overlayHeight: overlayHeight,
             in: heroSize,
-            topInset: topInset
+            topInset: topInset,
+            bottomInset: bottomInset
         ) else { return nil }
         let scale = frame.width / CGFloat(overlayWidth)
         return CGPoint(
@@ -1666,19 +1668,24 @@ enum LivePlayMapOverlayLayout {
 
     /// The exact fitted map rectangle used by `project`. Exposing it keeps interactive hit testing
     /// and marker overlays on the same aspect-fit frame instead of guessing from the phone width.
+    /// `bottomInset` is chrome that floats over the bottom of a full-screen map (备战's panel): the
+    /// map view still spans the whole viewport, only its fitted rest position avoids the chrome.
     static func mapFrame(
         overlayWidth: Int,
         overlayHeight: Int,
         in viewportSize: CGSize,
-        topInset: CGFloat = 0
+        topInset: CGFloat = 0,
+        bottomInset: CGFloat = 0
     ) -> CGRect? {
         guard overlayWidth > 0, overlayHeight > 0,
               viewportSize.width.isFinite, viewportSize.height.isFinite,
               viewportSize.width > 0, viewportSize.height > 0,
-              topInset.isFinite, topInset >= 0, topInset < viewportSize.height else {
+              topInset.isFinite, topInset >= 0,
+              bottomInset.isFinite, bottomInset >= 0,
+              topInset + bottomInset < viewportSize.height else {
             return nil
         }
-        let mapHeight = viewportSize.height - topInset
+        let mapHeight = viewportSize.height - topInset - bottomInset
         let scale = min(
             viewportSize.width / CGFloat(overlayWidth),
             mapHeight / CGFloat(overlayHeight)

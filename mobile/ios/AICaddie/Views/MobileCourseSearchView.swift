@@ -10,7 +10,7 @@ public enum MobileCourseSearchMode: Equatable {
 
 /// Which contract the shared catalogue sheet renders for (README §8).
 public enum MobileCourseSearchPresentation: Equatable {
-    /// 备战: shows positioning progress, per-row download state and retained downloads.
+    /// 备战: shows positioning progress and the retained 最近选择 courses (no download state).
     case prep
     /// 开始一场: no positioning, download or offline status copy; a course that is not downloaded
     /// is still selectable and prepared in the background. A nearby failure shows only a retry icon.
@@ -32,7 +32,6 @@ public struct MobileCourseSearchView: View {
     /// search responses are expected to use Garmin's locale-aware provider spelling as well.
     public let knownCourseOptions: [MobileCourseOption]
     public let retainedDownloads: [PrepCourseDownloadRecord]
-    public let validatingDownloadID: String?
     public let onSearch: (String, String?) async throws -> [MobileCourseSearchMatch]
     public let onNearby: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
     public let onSelect: (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void
@@ -78,7 +77,6 @@ public struct MobileCourseSearchView: View {
         installedCourseKeys: Set<String>? = nil,
         knownCourseOptions: [MobileCourseOption] = [],
         retainedDownloads: [PrepCourseDownloadRecord] = [],
-        validatingDownloadID: String? = nil,
         onSearch: @escaping (String, String?) async throws -> [MobileCourseSearchMatch],
         onNearby: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch],
         onSelect: @escaping (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void,
@@ -95,7 +93,6 @@ public struct MobileCourseSearchView: View {
         self.installedCourseKeys = installedCourseKeys
         self.knownCourseOptions = knownCourseOptions
         self.retainedDownloads = retainedDownloads
-        self.validatingDownloadID = validatingDownloadID
         self.onSearch = onSearch
         self.onNearby = onNearby
         self.onSelect = onSelect
@@ -200,8 +197,6 @@ public struct MobileCourseSearchView: View {
                     }
                 } header: {
                     Text("最近选择")
-                } footer: {
-                    Text("服务器会继续准备；iOS 若被系统挂起，回到前台会从已保存的洞继续。")
                 }
             }
 
@@ -231,6 +226,12 @@ public struct MobileCourseSearchView: View {
                     ForEach(matches) { match in
                         let isInstalled = courseIsInstalled(for: match)
                         let download = retainedDownload(for: match)
+                        let uiTestValue = presentation == .prep
+                            ? Self.uiTestInstallValue(
+                                phase: download?.phase,
+                                verifiedReady: isInstalled
+                            )
+                            : ""
                         Button {
                             guard match.courseOption != nil else { return }
                             onSelect(match, matches)
@@ -251,19 +252,11 @@ public struct MobileCourseSearchView: View {
                                 }
                                 Spacer(minLength: 4)
                                 if match.courseOption != nil {
-                                    VStack(alignment: .trailing, spacing: 4) {
-                                        if presentation == .prep {
-                                            Text(searchResultStatus(
-                                                isInstalled: isInstalled,
-                                                download: download
-                                            ))
-                                                .font(.caption2.weight(.semibold))
-                                                .foregroundStyle(isInstalled ? .secondary : LiveHoleStyle.green)
-                                        }
-                                        Image(systemName: "chevron.right")
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(.tertiary)
-                                    }
+                                    // README §8: the player selects a course and enters; download,
+                                    // preparation and install state stay out of the picker.
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
                                 }
                             }
                             .contentShape(Rectangle())
@@ -271,7 +264,7 @@ public struct MobileCourseSearchView: View {
                         .buttonStyle(.plain)
                         .disabled(match.courseOption == nil)
                         .accessibilityIdentifier("course-catalog-result-\(match.globalId)")
-                        .accessibilityValue(presentation == .prep ? (isInstalled ? "已准备" : "选择后下载") : "")
+                        .accessibilityValue(uiTestValue)
                     }
                 }
             }
@@ -287,36 +280,32 @@ public struct MobileCourseSearchView: View {
         }
     }
 
+    /// A retained 最近选择 row is just the course: the player taps it and enters 备战 (README §8
+    /// 选了就进). Its download keeps running in the app-owned library without any status copy,
+    /// progress bar or spinner here. The only visible states are the actionable ones: a failed
+    /// download offers 重试, and a course that can never be prepared says so and is disabled.
     @ViewBuilder
     private func retainedDownloadRow(_ download: PrepCourseDownloadRecord) -> some View {
         let verifiedReady = download.phase == .ready && retainedDownloadIsInstalled(download)
-        let isValidating = validatingDownloadID == download.id
         let isTerminalFailure = download.isTerminalFailure
-        let status = isValidating
-            ? "正在确认地图版本"
-            : downloadStatus(download, verifiedReady: verifiedReady)
         HStack(spacing: 10) {
             Button {
                 onOpenRetainedDownload(download)
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: verifiedReady ? "checkmark.circle.fill" : "flag.fill")
-                        .foregroundStyle(verifiedReady ? .secondary : LiveHoleStyle.green)
+                    Image(systemName: "flag.fill")
+                        .foregroundStyle(isTerminalFailure ? .secondary : LiveHoleStyle.green)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(download.course.localizedName)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
-                        Text("\(download.course.segmentDisplayTitle) · \(status)")
+                        Text(isTerminalFailure
+                            ? "\(download.course.segmentDisplayTitle) · 暂不支持备战"
+                            : download.course.segmentDisplayTitle)
                             .font(.caption)
-                            .foregroundStyle(download.phase == .failed ? .orange : .secondary)
+                            .foregroundStyle(.secondary)
                             .accessibilityHidden(true)
-                        if download.phase == .downloading || download.phase == .preparing {
-                            ProgressView(value: download.phase == .preparing
-                                ? Double(download.preparedHoles) / Double(max(download.totalHoles, 1))
-                                : download.progressFraction)
-                                .tint(LiveHoleStyle.green)
-                        }
                     }
                     Spacer(minLength: 4)
                 }
@@ -332,24 +321,20 @@ public struct MobileCourseSearchView: View {
             // opening action when a retry control is present beside it.
             .accessibilityIdentifier("prep-download-row-\(download.id)")
             .accessibilityLabel(download.course.localizedName)
-            .accessibilityValue(status)
+            .accessibilityValue(Self.uiTestInstallValue(phase: download.phase, verifiedReady: verifiedReady))
             .accessibilityHint(isTerminalFailure
                 ? "该球场暂不支持备战，请使用开始一场"
                 : "打开赛前攻略")
 
-            if !isTerminalFailure && (download.phase == .failed || (download.phase == .ready && !verifiedReady)) {
+            if !isTerminalFailure && download.phase == .failed {
                 Button {
                     onRetryRetainedDownload(download.id)
                 } label: {
-                    Label("下载", systemImage: "arrow.down.circle")
+                    Label("重试", systemImage: "arrow.clockwise")
                         .font(.caption.weight(.semibold))
                 }
                 .buttonStyle(.bordered)
                 .accessibilityIdentifier("prep-download-retry-\(download.id)")
-            } else if download.isActive || isValidating {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel(isValidating ? "正在确认地图版本" : "下载中")
             } else {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
@@ -359,37 +344,18 @@ public struct MobileCourseSearchView: View {
         }
     }
 
-    private func downloadStatus(
-        _ download: PrepCourseDownloadRecord,
-        verifiedReady: Bool
-    ) -> String {
-        switch download.phase {
-        case .queued:
-            return "等待下载"
-        case .preparing:
-            return "准备精确地图 \(download.preparedHoles)/\(download.totalHoles) 洞"
-        case .downloading:
-            return "已保存 \(download.downloadedHoles)/\(download.totalHoles) 洞"
-        case .ready:
-            return verifiedReady ? "已完整下载到本机" : "本地文件不完整，可继续下载"
-        case .failed:
-            return download.errorText ?? "下载中断，可继续"
-        }
-    }
-
-    private func searchResultStatus(
-        isInstalled: Bool,
-        download: PrepCourseDownloadRecord?
-    ) -> String {
-        if isInstalled { return "已准备" }
-        guard let download else { return "选择后下载" }
-        switch download.phase {
-        case .queued: return "等待下载"
-        case .preparing: return "准备中 \(download.preparedHoles)/\(download.totalHoles)"
-        case .downloading: return "下载中 \(download.downloadedHoles)/\(download.totalHoles)"
-        case .ready: return "需要重新下载"
-        case .failed: return download.isTerminalFailure ? "暂不支持备战" : "可继续下载"
-        }
+    /// UI-test seam only (DEBUG builds launched with `UITEST_MODE=1`): the durable install state as
+    /// an opaque token, so real-simulator journeys can prove that a selection is retained, keeps
+    /// downloading across relaunch and finishes installing — without any download wording on
+    /// screen or read out by VoiceOver. Release builds, and DEBUG outside UI tests, expose nothing.
+    static func uiTestInstallValue(phase: PrepCourseDownloadPhase?, verifiedReady: Bool) -> String {
+        #if DEBUG
+        guard ProcessInfo.processInfo.environment["UITEST_MODE"] == "1" else { return "" }
+        if verifiedReady { return "uitest-installed" }
+        return "uitest-\(phase?.rawValue ?? "none")"
+        #else
+        return ""
+        #endif
     }
 
     private var trimmedQuery: String {

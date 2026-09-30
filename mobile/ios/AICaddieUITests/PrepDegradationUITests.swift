@@ -115,6 +115,22 @@ final class PrepDegradationUITests: XCTestCase {
             "一号木 230 → 八号铁 164",
             "the panel shows this hole's club order"
         )
+        // Every landing on the map carries its 球杆 + 码数 label, the same strokes as the panel.
+        XCTAssertEqual(element("prep-map-route").label, "一号木 230 → 八号铁 164")
+        // Obstacles are off by default on 备战 (the default-none rule).
+        XCTAssertFalse(element("prep-map-hazard-1").exists, "no obstacle is drawn without a selection")
+        // 方案: the decision authority offers another complete route; choosing it redraws the
+        // route, the landings and the whole club order.
+        let secondPlan = app.buttons["prep-plan-1"]
+        XCTAssertTrue(secondPlan.waitForExistence(timeout: 5), "prep offers at least two caddie plans")
+        secondPlan.tap()
+        XCTAssertTrue(waitForValue(beginningWith: "已选择", on: secondPlan, timeout: 5))
+        let secondOrder = element("prep-club-order").label
+        XCTAssertNotEqual(secondOrder, "一号木 230 → 八号铁 164", "the second plan is a different club order")
+        XCTAssertEqual(element("prep-map-route").label, secondOrder, "the map follows the selected plan")
+        save("b4c-02a-second-plan")
+        app.buttons["prep-plan-0"].tap()
+        XCTAssertTrue(waitForValue(beginningWith: "已选择", on: app.buttons["prep-plan-0"], timeout: 5))
         // The player zooms the factual map.
         map2.pinch(withScale: 2.0, velocity: 1.0)
         let reset = app.buttons["prep-map-reset-rotation"]
@@ -170,8 +186,14 @@ final class PrepDegradationUITests: XCTestCase {
             "prep-download-row-\(degradedCourseGlobalId):"
         )).firstMatch
         XCTAssertTrue(scrollIntoView(retained, maxSwipes: 12), "the selection stays in 最近选择")
+        // The row shows no download copy; the DEBUG/UITEST_MODE-only token proves the durable,
+        // still-running download behind it.
         let retainedState = (retained.value as? String) ?? ""
-        XCTAssertFalse(retainedState.isEmpty, "the retained row exposes its durable download state")
+        XCTAssertTrue(retainedState.hasPrefix("uitest-"), "the retained row keeps its durable download (got \(retainedState))")
+        XCTAssertFalse(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "下载")).firstMatch.exists,
+            "the prep picker shows no download/preparation copy"
+        )
         save("b4c-05-library-retained")
     }
 

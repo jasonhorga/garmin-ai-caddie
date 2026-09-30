@@ -136,6 +136,67 @@ public final class CaddieDecisionRequestBuilder {
         return CaddieDecisionRequest(shotType: input.shotType, context: context)
     }
 
+    /// A request whose seed predates the installed CoursePrep chain gets that chain from the prep
+    /// row as its `canonicalShotPlan` (live play and 备战 use the same request).
+    public static func addingCanonicalPlan(
+        to request: CaddieDecisionRequest,
+        prep: CoursePrepHole?
+    ) -> CaddieDecisionRequest {
+        guard request.context["canonicalShotPlan"] == nil,
+              let steps = canonicalShotPlanRows(from: prep?.steps),
+              !steps.isEmpty else {
+            return request
+        }
+        var context = request.context
+        context["canonicalShotPlan"] = .array(steps.map { .object($0) })
+        context["canonicalPlanSource"] = .string("course_prep")
+        context["canonicalPlanVersion"] = .string("ai-caddie-shot-plan-v1")
+        if let routeLength = prep?.routeLenM, routeLength.isFinite, routeLength > 0 {
+            context["canonicalPlanRouteLength_m"] = .number(routeLength)
+        }
+        return CaddieDecisionRequest(
+            shotType: request.shotType,
+            context: context,
+            includeExplanation: request.includeExplanation
+        )
+    }
+
+    /// The installed CoursePrep steps as decision-contract `canonicalShotPlan` rows.
+    public static func canonicalShotPlanRows(
+        from steps: [CoursePrepStep]?
+    ) -> [[String: JSONValue]]? {
+        guard let steps else { return nil }
+        let rows = steps.enumerated().compactMap { index, step -> [String: JSONValue]? in
+            let name = (step.clubName ?? step.club ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, name != "-" else { return nil }
+            var row: [String: JSONValue] = [
+                "clubName": .string(name),
+                "planIndex": .number(Double(step.planIndex ?? index)),
+            ]
+            if let value = step.targetCarryM, value.isFinite, value > 0 {
+                row["targetCarryM"] = .number(value)
+            }
+            if let value = step.routeOffsetM, value.isFinite, value >= 0 {
+                row["routeOffsetM"] = .number(value)
+            }
+            if let value = step.landingM, value.isFinite, value >= 0 {
+                row["landingM"] = .number(value)
+            }
+            if let value = step.expectedRemainingM, value.isFinite {
+                row["expectedRemainingM"] = .number(value)
+            }
+            if let role = step.role?.trimmingCharacters(in: .whitespacesAndNewlines), !role.isEmpty {
+                row["role"] = .string(role)
+            }
+            if let version = step.planVersion?.trimmingCharacters(in: .whitespacesAndNewlines), !version.isEmpty {
+                row["planVersion"] = .string(version)
+            }
+            return row
+        }
+        return rows.isEmpty ? nil : rows
+    }
+
     private func normalizedClubProfiles(_ value: JSONValue) -> JSONValue? {
         switch value {
         case .object:

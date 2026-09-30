@@ -376,10 +376,19 @@ enum LivePlannedRouteRenderer {
         overlay: CoursePrepOverlay,
         scale: CGFloat,
         offset: CGSize,
-        topInset: CGFloat
+        topInset: CGFloat,
+        bottomInset: CGFloat = 0
     ) -> ScreenGeometry {
         func screen(_ point: CGPoint) -> CGPoint? {
-            transformedPoint(point, size: size, overlay: overlay, scale: scale, offset: offset, topInset: topInset)
+            transformedPoint(
+                point,
+                size: size,
+                overlay: overlay,
+                scale: scale,
+                offset: offset,
+                topInset: topInset,
+                bottomInset: bottomInset
+            )
         }
         let screenLegs = legs.compactMap { leg -> (leg: MapPlannedLeg, origin: CGPoint, destination: CGPoint)? in
             guard let origin = screen(leg.origin), let destination = screen(leg.destination) else { return nil }
@@ -408,14 +417,16 @@ enum LivePlannedRouteRenderer {
         overlay: CoursePrepOverlay,
         scale: CGFloat,
         offset: CGSize,
-        topInset: CGFloat
+        topInset: CGFloat,
+        bottomInset: CGFloat = 0
     ) -> CGPoint? {
         guard let base = LivePlayMapOverlayLayout.project(
             overlayPoint: [Double(point.x), Double(point.y)],
             overlayWidth: overlay.w,
             overlayHeight: overlay.h,
             into: size,
-            topInset: topInset
+            topInset: topInset,
+            bottomInset: bottomInset
         ) else { return nil }
         let x: CGFloat = size.width / 2 + (base.x - size.width / 2) * scale + offset.width
         let y: CGFloat = size.height / 2 + (base.y - size.height / 2) * scale + offset.height
@@ -572,6 +583,7 @@ enum LivePlannedRouteRenderer {
         scale: CGFloat,
         offset: CGSize,
         topInset: CGFloat,
+        bottomInset: CGFloat = 0,
         hazard selectedHazard: (hole: CoursePrepHole, row: LiveHazardDisplayItem)? = nil,
         target: LiveTargetGeometry? = nil
     ) {
@@ -583,7 +595,8 @@ enum LivePlannedRouteRenderer {
             overlay: overlay,
             scale: scale,
             offset: offset,
-            topInset: topInset
+            topInset: topInset,
+            bottomInset: bottomInset
         )
         let hazardGeometry = selectedHazard.flatMap {
             LiveHazardOverlayRenderer.screenGeometry(

@@ -51,6 +51,12 @@ DEGRADED_UPGRADE_SECONDS = 25.0
 # example a retried simulator run); one install's own later passes never restart the clock.
 DEGRADED_CLOCK_RESET_SECONDS = 300.0
 _DEGRADED_CLOCK: dict[str, float | None] = {"started": None}
+DEGRADED_BAG = (
+    {"clubName": "1D", "sampleSize": 24, "median_m": 210.0, "p10_m": 195.0, "p90_m": 225.0},
+    {"clubName": "7I", "sampleSize": 24, "median_m": 156.0, "p10_m": 142.0, "p90_m": 168.0},
+    {"clubName": "8I", "sampleSize": 24, "median_m": 144.0, "p10_m": 132.0, "p90_m": 153.0},
+    {"clubName": "9I", "sampleSize": 24, "median_m": 132.0, "p10_m": 120.0, "p90_m": 140.0},
+)
 COURSE_ALIASES = {PALACE_ID: PALACE_ID, 31795: GLOBAL_ID, 31797: 31797, 3881: 3881, 31670: 31670, 31871: 31871, DEGRADED_ID: DEGRADED_ID}
 ROUND_ALIASES = {"900001": ROUND_REF, "live-31795": ROUND_REF, "live-round-1": ROUND_REF, "fixture-round-1": ROUND_REF}
 UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
@@ -586,6 +592,10 @@ def _package(round_id: str, global_id: int | None, loops: list[tuple[int, str]] 
             seed["context"]["clubProfiles"] = club_profiles
         seeds.append(seed)
     payload["caddieContextSeeds"] = seeds
+    if requested_course == DEGRADED_ID:
+        # B4c 方案: the degraded course carries a real player bag, so the phone's offline caddie
+        # decision (the live play authority) resolves distinct complete routes for 备战.
+        payload["clubProfiles"] = [dict(row) for row in DEGRADED_BAG]
     payload["recentHistory"]["holes"] = [{"number": hole, "sampleCount": 3, "averageToPar": 0.2, "repeatedIssues": []} for hole in segment_holes]
     payload["recentHistory"]["course"]["roundCount"] = len(segment_holes)
     payload["eventCursor"].update({"serverSequence": len(segment_holes), "pendingEventCount": 0})

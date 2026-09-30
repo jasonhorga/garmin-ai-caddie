@@ -992,6 +992,14 @@ final class DesignSnapshotTests: XCTestCase {
             let prep: CoursePrepHole? = state == .waiting
                 ? nil
                 : (state == .precise ? prepCardHole : factualPrepHole).renumbered(to: number)
+            // Two complete caddie routes per hole, through the production route -> plan mapping.
+            let plans: [PrepPlanOption] = state == .waiting
+                ? []
+                : Self.snapshotCaddieRoutes(par: prepPars[number - 1], routeLengthM: 375)
+                    .enumerated()
+                    .compactMap { index, route in
+                        PrepPlanOption.option(route: route, index: index, par: prepPars[number - 1])
+                    }
             return PrepHoleRow(
                 number: number,
                 displayNumber: number,
@@ -999,17 +1007,49 @@ final class DesignSnapshotTests: XCTestCase {
                 yards: prepYards[number - 1],
                 prep: prep,
                 topoURL: state == .precise ? prepTopoURL : nil,
-                state: state
+                state: state,
+                plans: plans
             )
         }
-        func prepSession(hole: Int, viewport: HoleMapViewportState = HoleMapViewportState()) -> PrepHoleMapSession {
+        XCTAssertEqual(prepRows[0].plans.count, 2)
+        // Every stroke of the Par 5 plan is in the club order: tee shot, second shot, approach.
+        XCTAssertEqual(prepRows[0].plans[0].steps.count, 3)
+        XCTAssertNotEqual(
+            prepRows[0].plans[0].steps.map(\.label),
+            prepRows[0].plans[1].steps.map(\.label)
+        )
+        // Default-none obstacles: the prep map requests neither obstacle spans nor measured labels,
+        // and each landing reads 球杆 + 码数.
+        if let firstPrep = prepRows[0].prep, let overlay = firstPrep.resolvedMapOverlay {
+            let legs = HoleImageMapView(
+                hole: firstPrep,
+                showsCardChrome: false,
+                plannedShots: prepRows[0].plans[0].shots,
+                drawsPlannedRouteInMap: false
+            ).plannedLegs()
+            XCTAssertEqual(
+                PrepHoleMapHero.landingLabels(legs: legs, overlay: overlay),
+                prepRows[0].plans[0].steps.map(\.label)
+            )
+            XCTAssertEqual(PrepHoleMapHero.landingLabels(legs: legs, overlay: overlay).count, 3)
+        } else {
+            XCTFail("fixture: the precise prep row has a map")
+        }
+        func prepSession(
+            hole: Int,
+            plan: Int = 0,
+            viewport: HoleMapViewportState = HoleMapViewportState()
+        ) -> PrepHoleMapSession {
             var session = PrepHoleMapSession()
             session.select(hole: hole)
+            session.selectPlan(plan, planCount: 2)
             session.viewport = viewport
             return session
         }
         let prepStates: [(String, PrepHoleMapSession)] = [
             ("prep-hole", prepSession(hole: 1)),
+            // 方案 2: its own route, landings ("球杆 码数") and club order.
+            ("prep-hole-plan-2", prepSession(hole: 1, plan: 1)),
             ("prep-hole-factual", prepSession(hole: 5)),
             ("prep-hole-waiting", prepSession(hole: 14)),
             // The same precise hole with the zoom and pan the player set on its factual route: the

@@ -851,6 +851,17 @@ class CIFixtureContractTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as missing_topo:
             fixture.topo_png(gid, 2)
         self.assertEqual(missing_topo.exception.status_code, 404)
+        # 备战 方案: a real bag, so the phone's offline caddie decision offers distinct routes; the
+        # seeds keep their safe / stock / attack options.
+        self.assertEqual(
+            [row["clubName"] for row in package["clubProfiles"]], ["1D", "7I", "8I", "9I"]
+        )
+        self.assertEqual(
+            {option["id"] for option in package["caddieContextSeeds"][1]["offlineOptions"]},
+            {"safe", "stock", "attack"},
+        )
+        other = fixture.course_package(31793, loops="31793:front,31793:back", round_id="prep-library-31793")
+        self.assertEqual([row["clubName"] for row in other["clubProfiles"]], ["8I"])
         # Other courses keep every hole precise.
         self.assertEqual(
             {hole["geometryCoverage"] for hole in fixture.prep(31793, holes=[1, 2, 14])["holes"]},

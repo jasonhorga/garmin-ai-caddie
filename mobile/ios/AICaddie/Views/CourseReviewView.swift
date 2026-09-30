@@ -19,7 +19,7 @@ func coursePrepParSourceLabel(_ source: String) -> String {
 /// library. This screen only reads the local course template the download writes hole by hole and
 /// shows every hole by the map degradation contract — precise topo when installed, else the factual
 /// route and the geometry it already has, else the one full-screen waiting page. A background map
-/// that replaces a hole in place keeps the player's hole, plan, zoom, pan and rotation.
+/// that replaces a hole in place keeps the player's hole, plan, zoom and pan.
 public struct CourseReviewView: View {
     private let client: SyncClient
     private let globalId: Int
@@ -142,7 +142,7 @@ public struct CourseReviewView: View {
         let current = session.holeNumber.flatMap { number in rows.first { $0.number == number } }
         session.adopt(
             holeNumbers: rows.map(\.number),
-            planCount: PrepPlanOption.options(for: current?.prep).count
+            planCount: current?.plans.count ?? 0
         )
     }
 }
@@ -156,33 +156,42 @@ struct CoursePrepStrategyScreen: View {
     let selectedTee: String
     let onSelectTee: (String) -> Void
 
-    /// Room the bottom glass panel takes over the map, so the fitted hole is never under it.
-    private static let bottomPanelInset: CGFloat = 178
-    private static let topInset: CGFloat = 60
+    /// Chrome over the full-screen map: the hole badge row below the navigation bar and the
+    /// bottom glass panel. The map still spans the whole screen; only its fitted rest position
+    /// keeps the hole clear of them.
+    static let badgeRowHeight: CGFloat = 64
+    static let bottomPanelHeight: CGFloat = 176
 
     var body: some View {
         let current = currentRow
-        ZStack(alignment: .top) {
-            LivePlayStyle.base.ignoresSafeArea()
-            mapLayer(current)
-            VStack(spacing: 0) {
-                if let current {
-                    HStack {
-                        holeBadge(current)
-                        Spacer(minLength: 0)
+        GeometryReader { geo in
+            ZStack(alignment: .top) {
+                LivePlayStyle.base
+                    .ignoresSafeArea()
+                mapLayer(
+                    current,
+                    topInset: geo.safeAreaInsets.top + Self.badgeRowHeight,
+                    bottomInset: geo.safeAreaInsets.bottom + Self.bottomPanelHeight
+                )
+                VStack(spacing: 0) {
+                    if let current {
+                        HStack {
+                            holeBadge(current)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
+                    Spacer(minLength: 0)
+                    bottomPanel(current)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
                 }
-                Spacer(minLength: 0)
-                bottomPanel(current)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
             }
         }
         .navigationTitle("赛前球场攻略")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(LivePlayStyle.base, for: .navigationBar)
+        .toolbarBackground(LivePlayStyle.base.opacity(0.72), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
@@ -204,36 +213,20 @@ struct CoursePrepStrategyScreen: View {
     // MARK: Map
 
     @ViewBuilder
-    private func mapLayer(_ row: PrepHoleRow?) -> some View {
+    private func mapLayer(_ row: PrepHoleRow?, topInset: CGFloat, bottomInset: CGFloat) -> some View {
         if let row, row.state != .waiting, let prep = row.prep {
             // One view identity per hole for both the factual and the precise map: the precise topo
-            // replaces the factual route in place, and the caller-owned viewport keeps zoom, pan and
-            // rotation (README 地图降级契约).
-            HoleImageMapView(
-                hole: prep,
-                topoURL: row.state == .precise ? row.topoURL : nil,
-                showsCardChrome: false,
-                // A factual row draws the existing obstacle spans; the precise map labels its
-                // measured obstacles through the prep fact overlays instead.
-                showsHazards: true,
-                showsPrepFactOverlays: true,
-                allowsRotation: true,
-                // The club order in the panel is the readable summary; the map keeps the route
-                // and landings without a large club label over the fairway.
-                showsPrepClubLabel: false,
-                showsClubLabel: false,
-                showsPrepHoleInfo: false,
-                viewportState: $session.viewport
+            // replaces the factual route in place, and the screen-owned viewport keeps zoom and pan
+            // (README 地图降级契约).
+            PrepHoleMapHero(
+                row: row,
+                prep: prep,
+                plan: session.plan(in: row.plans),
+                viewport: $session.viewport,
+                topInset: topInset,
+                bottomInset: bottomInset
             )
-            // Keep the topo loading/ready children in the accessibility tree while retaining this
-            // hole-specific container identifier for UI navigation.
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("prep-hole-map-\(row.number)")
             .id(row.number)
-            .padding(.top, Self.topInset)
-            .padding(.bottom, Self.bottomPanelInset)
-            .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             HoleMapWaitingPage(
                 holeNumber: row?.displayNumber ?? 1,
@@ -321,13 +314,11 @@ struct CoursePrepStrategyScreen: View {
 
     @ViewBuilder
     private func bottomPanel(_ row: PrepHoleRow?) -> some View {
-        let plans = PrepPlanOption.options(for: row?.prep)
         VStack(alignment: .leading, spacing: 10) {
             // The waiting page is the whole hole: no plan or club order until its facts arrive.
-            if let row, row.state != .waiting, !plans.isEmpty {
-                planSwitcher(plans)
-                let index = min(session.selectedPlanIndex, plans.count - 1)
-                clubOrder(plans[index])
+            if let row, row.state != .waiting, let plan = session.plan(in: row.plans) {
+                planSwitcher(row.plans, selected: plan)
+                clubOrder(plan)
             }
             holeStrip(current: row?.number)
         }
@@ -337,10 +328,10 @@ struct CoursePrepStrategyScreen: View {
         .prepGlass(cornerRadius: 24)
     }
 
-    private func planSwitcher(_ plans: [PrepPlanOption]) -> some View {
+    private func planSwitcher(_ plans: [PrepPlanOption], selected: PrepPlanOption) -> some View {
         HStack(spacing: 6) {
             ForEach(Array(plans.enumerated()), id: \.element.id) { index, plan in
-                let selected = index == min(session.selectedPlanIndex, plans.count - 1)
+                let isSelected = plan.id == selected.id
                 Button {
                     session.selectPlan(index, planCount: plans.count)
                 } label: {
@@ -348,38 +339,41 @@ struct CoursePrepStrategyScreen: View {
                         .font(.system(size: 13, weight: .semibold))
                         .padding(.horizontal, 12)
                         .frame(height: 32)
-                        .foregroundStyle(selected ? Color.black : LivePlayStyle.ink)
+                        .foregroundStyle(isSelected ? Color.black : LivePlayStyle.ink)
                         .background(
-                            Capsule().fill(selected ? LivePlayStyle.ink : LivePlayStyle.fill08)
+                            Capsule().fill(isSelected ? LivePlayStyle.ink : LivePlayStyle.fill08)
                         )
                 }
                 .buttonStyle(.plain)
-                .accessibilityValue(selected ? "已选择" : "未选择")
-                .accessibilityAddTraits(selected ? .isSelected : [])
+                .accessibilityValue(isSelected ? "已选择" : "未选择")
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
                 .accessibilityIdentifier("prep-plan-\(index)")
             }
         }
     }
 
+    /// Every planned stroke of the selected plan, in order ("一号木 224 → 三号木 205 → 挖起杆 110").
     private func clubOrder(_ plan: PrepPlanOption) -> some View {
-        HStack(spacing: 6) {
-            ForEach(Array(plan.steps.enumerated()), id: \.element.id) { index, step in
-                if index > 0 {
-                    Text("→")
-                        .font(.system(size: 12))
-                        .foregroundStyle(LivePlayStyle.ink45)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(Array(plan.steps.enumerated()), id: \.element.id) { index, step in
+                    if index > 0 {
+                        Text("→")
+                            .font(.system(size: 12))
+                            .foregroundStyle(LivePlayStyle.ink45)
+                    }
+                    Text(step.label)
+                        .font(.system(size: 13, weight: .bold))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .foregroundStyle(Color(red: 159 / 255, green: 224 / 255, blue: 180 / 255))
+                        .background(Capsule().fill(LivePlayStyle.accent.opacity(0.2)))
                 }
-                Text(step.label)
-                    .font(.system(size: 13, weight: .bold))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .padding(.horizontal, 10)
-                    .frame(height: 28)
-                    .foregroundStyle(Color(red: 159 / 255, green: 224 / 255, blue: 180 / 255))
-                    .background(Capsule().fill(LivePlayStyle.accent.opacity(0.2)))
             }
         }
-        .minimumScaleFactor(0.8)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(plan.steps.map(\.label).joined(separator: " → "))
         .accessibilityIdentifier("prep-club-order")
@@ -435,6 +429,205 @@ struct CoursePrepStrategyScreen: View {
         .accessibilityValue(row.state.fadesInHoleStrip ? "未就绪" : "已就绪")
         .accessibilityAddTraits(isCurrent ? .isSelected : [])
         .accessibilityIdentifier("prep-hole-strip-\(row.number)")
+    }
+}
+
+/// The full-screen 备战 hole map: the live hero's transform (aspect-fit into the space the chrome
+/// leaves, then the player's pan / zoom) over the whole screen. The bitmap draws the factual route
+/// and green; the selected plan's legs, landings and their "球杆 码数" labels are drawn in the
+/// viewport plane by the live `LivePlannedRouteRenderer`, so they keep screen size at every zoom.
+/// Obstacles follow the default-none rule: none are drawn on this screen.
+struct PrepHoleMapHero: View {
+    let row: PrepHoleRow
+    let prep: CoursePrepHole
+    let plan: PrepPlanOption?
+    @Binding var viewport: HoleMapViewportState
+    let topInset: CGFloat
+    let bottomInset: CGFloat
+
+    @GestureState private var pinchScale: CGFloat = 1
+    @State private var dragTranslation: CGSize = .zero
+
+    init(
+        row: PrepHoleRow,
+        prep: CoursePrepHole,
+        plan: PrepPlanOption?,
+        viewport: Binding<HoleMapViewportState>,
+        topInset: CGFloat,
+        bottomInset: CGFloat
+    ) {
+        self.row = row
+        self.prep = prep
+        self.plan = plan
+        self._viewport = viewport
+        self.topInset = topInset
+        self.bottomInset = bottomInset
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let size = geo.size
+            let map = mapView
+            let scale = displayedScale
+            let offset = displayedOffset(in: size)
+            ZStack(alignment: .topTrailing) {
+                map
+                    .padding(.top, topInset)
+                    .padding(.bottom, bottomInset)
+                    .frame(width: size.width, height: size.height)
+                    .scaleEffect(scale)
+                    .offset(offset)
+                    .allowsHitTesting(false)
+                    // Keep the topo loading/ready children in the accessibility tree while retaining
+                    // this hole-specific container identifier for UI navigation.
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("prep-hole-map-\(row.number)")
+                if let overlay = prep.resolvedMapOverlay {
+                    let legs = map.plannedLegs()
+                    Canvas { context, canvasSize in
+                        LivePlannedRouteRenderer.draw(
+                            &context,
+                            size: canvasSize,
+                            legs: legs,
+                            teeArc: nil,
+                            teeArcYards: nil,
+                            overlay: overlay,
+                            scale: scale,
+                            offset: offset,
+                            topInset: topInset,
+                            bottomInset: bottomInset
+                        )
+                    }
+                    .frame(width: size.width, height: size.height)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    // The drawn landing labels, read out (and checked by UI tests) in order.
+                    Color.clear
+                        .frame(width: 2, height: 2)
+                        .position(x: 1, y: topInset)
+                        .allowsHitTesting(false)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(
+                            Self.landingLabels(legs: legs, overlay: overlay).joined(separator: " → ")
+                        )
+                        .accessibilityIdentifier("prep-map-route")
+                }
+                if !viewport.isFitted {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            viewport = HoleMapViewportState()
+                        }
+                    } label: {
+                        LivePlayGlassCircle(diameter: 40) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, topInset)
+                    .padding(.trailing, 14)
+                    .accessibilityLabel("重置地图视图")
+                    .accessibilityIdentifier("prep-map-reset-rotation")
+                }
+            }
+            .frame(width: size.width, height: size.height)
+            .contentShape(Rectangle())
+            .gesture(pinchGesture(in: size).simultaneously(with: panGesture(in: size)))
+        }
+        .ignoresSafeArea()
+    }
+
+    /// One configured map for the bitmap layer and the viewport-plane route layer, so the labelled
+    /// legs are exactly the ones the bitmap is aligned with.
+    private var mapView: HoleImageMapView {
+        HoleImageMapView(
+            hole: prep,
+            topoURL: row.state == .precise ? row.topoURL : nil,
+            showsCardChrome: false,
+            showsRecommendedRoute: true,
+            // Default-none obstacles (README §1): no spans, no measured labels on 备战.
+            showsHazards: false,
+            showsPrepFactOverlays: false,
+            showsPrepClubLabel: false,
+            showsClubLabel: false,
+            plannedShots: plan?.shots ?? [],
+            drawsPlannedRouteInMap: false
+        )
+    }
+
+    /// "一号木 224" for every leg, exactly as `LivePlannedRouteRenderer` draws them.
+    static func landingLabels(legs: [MapPlannedLeg], overlay: CoursePrepOverlay) -> [String] {
+        legs.map { LivePlannedRouteRenderer.labelText(for: $0, pixelsPerMetre: overlay.ppm) }
+    }
+
+    private var displayedScale: CGFloat {
+        min(max(viewport.zoomScale * pinchScale, 1), 4)
+    }
+
+    private func mapFrame(in size: CGSize) -> CGRect? {
+        guard let overlay = prep.resolvedMapOverlay else { return nil }
+        return LivePlayMapOverlayLayout.mapFrame(
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            in: size,
+            topInset: topInset,
+            bottomInset: bottomInset
+        )
+    }
+
+    private func clamped(_ proposed: CGSize, scale: CGFloat, in size: CGSize) -> CGSize {
+        guard let frame = mapFrame(in: size) else { return proposed }
+        return LivePlayMapOverlayLayout.clampedOffset(
+            proposed,
+            mapFrame: frame,
+            viewportSize: size,
+            scale: scale
+        )
+    }
+
+    private func displayedOffset(in size: CGSize) -> CGSize {
+        let proposed = CGSize(
+            width: viewport.offset.width + dragTranslation.width,
+            height: viewport.offset.height + dragTranslation.height
+        )
+        return clamped(proposed, scale: displayedScale, in: size)
+    }
+
+    private func pinchGesture(in size: CGSize) -> some Gesture {
+        MagnificationGesture()
+            .updating($pinchScale) { value, state, _ in
+                state = value
+            }
+            .onEnded { value in
+                var next = viewport
+                next.zoomScale = min(max(next.zoomScale * value, 1), 4)
+                next.offset = next.zoomScale > 1.01
+                    ? clamped(next.offset, scale: next.zoomScale, in: size)
+                    : .zero
+                viewport = next
+            }
+    }
+
+    private func panGesture(in size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: viewport.zoomScale > 1.01 ? 4 : 10_000)
+            .onChanged { value in
+                guard viewport.zoomScale > 1.01 else { return }
+                dragTranslation = value.translation
+            }
+            .onEnded { value in
+                defer { dragTranslation = .zero }
+                guard viewport.zoomScale > 1.01 else { return }
+                var next = viewport
+                next.offset = clamped(
+                    CGSize(
+                        width: next.offset.width + value.translation.width,
+                        height: next.offset.height + value.translation.height
+                    ),
+                    scale: next.zoomScale,
+                    in: size
+                )
+                viewport = next
+            }
     }
 }
 
