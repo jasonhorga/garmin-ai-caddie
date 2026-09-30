@@ -176,12 +176,8 @@ public struct HoleImageMapView: View {
                 // A partial CourseView package already has factual vectors but no prodgeometry
                 // bitmap. Do not issue a guaranteed 404 and pin AsyncImage in its failure state;
                 // the URL appears only when the same hole later upgrades to precise geometry.
-                TopoHoleBaseImage(
-                    topoURL: preciseTopoURL,
-                    fallback: decodedImage,
-                    edgeExtension: baseEdgeExtension,
-                    edgeFeather: baseEdgeFeather
-                )
+                TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)
+                    .continuingTerrain(baseEdgeExtension, feather: baseEdgeFeather)
                 Canvas { context, size in
                     draw(&context, size: size, overlay: overlay)
                 }

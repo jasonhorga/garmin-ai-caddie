@@ -155,6 +155,14 @@ struct TopoHoleBaseImage: View {
     var edgeFeather: CGFloat = 0
     @StateObject private var imageStore = TopoHoleImageStore()
 
+    /// This layer with its terrain continued past its frame (`edgeExtension`, `edgeFeather`).
+    func continuingTerrain(_ extension: EdgeInsets, feather: CGFloat) -> TopoHoleBaseImage {
+        var copy = self
+        copy.edgeExtension = `extension`
+        copy.edgeFeather = feather
+        return copy
+    }
+
     var body: some View {
         Group {
             if let topoURL {
