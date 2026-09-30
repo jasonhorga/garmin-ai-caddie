@@ -8,8 +8,20 @@ import subprocess
 import base64
 import math
 import struct
+import zlib
 
 from ai_caddie.core.fixtures import fixture_history_data
+
+
+def _png_chunks(data: bytes) -> dict[bytes, list[bytes]]:
+    chunks: dict[bytes, list[bytes]] = {}
+    offset = 8
+    while offset < len(data):
+        length = struct.unpack(">I", data[offset:offset + 4])[0]
+        kind = data[offset + 4:offset + 8]
+        chunks.setdefault(kind, []).append(data[offset + 8:offset + 8 + length])
+        offset += 12 + length
+    return chunks
 
 
 class CIFixtureContractTests(unittest.TestCase):
@@ -427,8 +439,23 @@ class CIFixtureContractTests(unittest.TestCase):
             self.assertIn(key, hole)
         self.assertEqual(hole["map"]["overlay"]["w"], 64)
         self.assertEqual(hole["map"]["overlay"]["h"], 64)
-        self.assertEqual(hole["map"]["overlay"]["ppm"], 0.17)
+        # The prep frame is production-shaped: the hole sits inside a transparent margin, so the
+        # full-frame fixture's 0.17 px/m scales with the inset route, and the raster's course
+        # footprint never touches an edge.
+        from server_v2.ci_fixture import PREP_MARGIN_PX, PREP_PPM, PREP_ROUTE_PX, _course_png
+        self.assertEqual(hole["map"]["overlay"]["ppm"], PREP_PPM)
+        self.assertAlmostEqual(PREP_PPM, 0.17 * (64 - 2 * PREP_MARGIN_PX) / 64, places=5)
+        self.assertEqual(hole["route"], PREP_ROUTE_PX)
         self.assertTrue(hole["map"]["image"].startswith("data:image/png;base64,"))
+        png = zlib.decompress(b"".join(
+            _png_chunks(_course_png(1))[b"IDAT"]
+        ))
+        stride = 1 + 64 * 4
+        for y in range(64):
+            for x in range(64):
+                alpha = png[y * stride + 1 + x * 4 + 3]
+                if x in (0, 63) or y in (0, 63):
+                    self.assertEqual(alpha, 0, f"topo edge pixel ({x}, {y}) is transparent")
         self.assertTrue(hole["greenDistances"]["available"])
         self.assertEqual(len(prep(31795, nine="front")["holes"]), 9)
         self.assertEqual(len(prep(31795, nine="all")["holes"]), 18)

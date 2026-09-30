@@ -985,9 +985,10 @@ final class DesignSnapshotTests: XCTestCase {
         // The installed topo is a local file, as the download writes it.
         let prepTopoURL = FileManager.default.temporaryDirectory.appendingPathComponent("prep-snapshot-topo.png")
         try XCTUnwrap(holeImage.pngData()).write(to: prepTopoURL, options: [.atomic])
-        // Hole 2 is the CI fixture's shape: a square topo whose route runs corner to corner, which
-        // cannot be fitted with its whole plan and still cover a portrait screen. Like production's
-        // topo-v11 its off-course canvas is transparent, so the hole floats on the screen's ground.
+        // Hole 2 is the CI fixture's shape: a square topo whose route runs diagonally, which cannot
+        // be fitted with its whole plan and still cover a portrait screen. Like production's
+        // topo-v11 its off-course canvas is transparent with a margin on every side (no course
+        // pixel at the raster's edge), so the hole floats on the screen's ground.
         let squareImage = Self.courseImage(ground: nil, noisyRough: false)
         let squarePNG = try XCTUnwrap(squareImage.pngData())
         let squareTopoURL = FileManager.default.temporaryDirectory.appendingPathComponent("prep-snapshot-square-topo.png")
@@ -997,15 +998,14 @@ final class DesignSnapshotTests: XCTestCase {
         func diagonalHole(_ number: Int, par: Int, png: Data, revision: String) throws -> CoursePrepHole {
             try JSONDecoder().decode(CoursePrepHole.self, from: Data("""
             {"hole":\(number),"par":\(par),"par_source":"garmin","blue_yards":410,"route_len_m":375,\
-            "route":[[4,4],[57,57]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
+            "route":[[12,12],[52,52]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
             "geometryCoverage":"ready","geometryRevision":"\(revision)",\
-            "map":{"image":"data:image/png;base64,\(png.base64EncodedString())","overlay":{"w":64,"h":64,"ppm":0.2,"ln":375,"route":[[4,4,0],[57,57,375]]}}}
+            "map":{"image":"data:image/png;base64,\(png.base64EncodedString())","overlay":{"w":64,"h":64,"ppm":0.15,"ln":375,"route":[[12,12,0],[52,52,375]]}}}
             """.utf8))
         }
         let squarePrepHole = try diagonalHole(2, par: 4, png: squarePNG, revision: "snapshot-square-r1")
-        // Hole 3 is production's flat render (a uniform ground) whose course edge is noisy,
-        // high-frequency texture reaching the bitmap's corners: the surround must be that ground,
-        // never those pixels magnified into bands.
+        // Hole 3 is production's flat render (a uniform ground) whose rough is noisy, high-frequency
+        // texture: the surround must be that ground, never those pixels magnified into bands.
         let noisyPNG = try XCTUnwrap(Self.courseImage(
             ground: UIColor(red: 191 / 255, green: 222 / 255, blue: 240 / 255, alpha: 1),
             noisyRough: true
@@ -1368,6 +1368,56 @@ final class DesignSnapshotTests: XCTestCase {
                 XCTAssertFalse(PrepMapLayout.covers(audit.mapFrame, viewport: audit.viewport), "\(name) is fitted inside the screen")
                 XCTAssertGreaterThanOrEqual(salience.count, 2, "\(name): the exposed sides are measured: \(salience)")
             }
+        }
+        // Hard-clipped terrain: course paint cut off by the bitmap's own edge shows as a sharp
+        // difference between just inside (3 pt) and just outside (6 pt) the fitted frame at some
+        // point along a side, which the per-side median above can miss. The largest such
+        // difference, over every unblocked point of every side, must stay small. Proven on a
+        // topo whose course runs out to its corners.
+        func clippedTerrain(_ png: Data, frame: CGRect, blocked: [CGRect], viewport: CGSize) throws -> Int {
+            let screen = CGRect(origin: .zero, size: viewport).insetBy(dx: 6, dy: 6)
+            var pairs: [(CGPoint, CGPoint)] = []
+            for y in stride(from: frame.minY + 4, to: frame.maxY - 4, by: 4) {
+                pairs.append((CGPoint(x: frame.minX + 3, y: y), CGPoint(x: frame.minX - 6, y: y)))
+                pairs.append((CGPoint(x: frame.maxX - 3, y: y), CGPoint(x: frame.maxX + 6, y: y)))
+            }
+            for x in stride(from: frame.minX + 4, to: frame.maxX - 4, by: 4) {
+                pairs.append((CGPoint(x: x, y: frame.minY + 3), CGPoint(x: x, y: frame.minY - 6)))
+                pairs.append((CGPoint(x: x, y: frame.maxY - 3), CGPoint(x: x, y: frame.maxY + 6)))
+            }
+            var largest = 0
+            for (inside, outside) in pairs {
+                guard screen.contains(inside), screen.contains(outside),
+                      !blocked.contains(where: { $0.contains(inside) || $0.contains(outside) }) else { continue }
+                largest = max(largest, Self.colorDistance(
+                    try Self.patchMean(in: png, at: inside, radius: 1.5),
+                    try Self.patchMean(in: png, at: outside, radius: 1.5)
+                ))
+            }
+            return largest
+        }
+        let edgeCourse = try diagonalHole(
+            20, par: 4,
+            png: try XCTUnwrap(Self.courseImage(ground: nil, noisyRough: false, reachesEdge: true).pngData()),
+            revision: "snapshot-edge-course-r1"
+        )
+        let clippedPNG = try edgeRender(edgeCourse, surround: true, named: "prep-map-edge-clipped-course")
+        XCTAssertGreaterThanOrEqual(
+            try clippedTerrain(clippedPNG, frame: edgeFrame, blocked: [], viewport: isolated), 60,
+            "the clipping detector sees course paint cut off by the bitmap's edge"
+        )
+        let marginPNG = try edgeRender(squarePrepHole, surround: true, named: "prep-map-edge-margin-course")
+        XCTAssertLessThan(
+            try clippedTerrain(marginPNG, frame: edgeFrame, blocked: [], viewport: isolated), 30,
+            "a production-shaped topo has no course paint at its edge"
+        )
+        for name in ["prep-hole-square", "prep-hole-noisy"] {
+            let audit = try XCTUnwrap(prepAudits[name])
+            let png = try XCTUnwrap(zip(prepNames, prepPNGs).first { $0.0 == name }?.1)
+            XCTAssertLessThan(
+                try clippedTerrain(png, frame: audit.mapFrame, blocked: blockedRects(audit), viewport: audit.viewport), 30,
+                "\(name): no terrain is cut off by the fitted map's edge"
+            )
         }
         // Directional striping / magnified edge texture: the spread of the surround's colour across
         // points 12 pt outside every exposed side. Proven on a synthetic surround of 4 pt
@@ -1891,10 +1941,13 @@ final class DesignSnapshotTests: XCTestCase {
         return try XCTUnwrap(image.pngData())
     }
 
-    /// A production-shaped 256 x 256 hole raster: a rough / fairway corridor from corner to corner
-    /// with a green near its end, on `ground` (the flat render) or a transparent off-course canvas
-    /// (topo-v11) when nil. `noisyRough` makes the rough high-frequency, vivid 4 px noise.
-    static func courseImage(ground: UIColor?, noisyRough: Bool) -> UIImage {
+    /// A production-shaped 256 x 256 hole raster: an irregular rough footprint with a fairway from
+    /// the tee (48, 48) to a green at (208, 208), on `ground` (the flat render) or a transparent
+    /// off-course canvas (topo-v11) when nil. Like production it keeps a margin on every side, so
+    /// no course pixel touches the raster's edge; `reachesEdge` instead runs the course out to the
+    /// corners (the hard-clipped shape the clipping detector must catch). `noisyRough` makes the
+    /// rough vivid 4 px noise.
+    static func courseImage(ground: UIColor?, noisyRough: Bool, reachesEdge: Bool = false) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = false
@@ -1904,42 +1957,39 @@ final class DesignSnapshotTests: XCTestCase {
             seed = seed &* 1_664_525 &+ 1_013_904_223
             return CGFloat(seed >> 24) / 255
         }
+        let start = reachesEdge ? CGPoint(x: -40, y: -40) : CGPoint(x: 48, y: 48)
+        let end = reachesEdge ? CGPoint(x: 296, y: 296) : CGPoint(x: 208, y: 208)
         return UIGraphicsImageRenderer(size: CGSize(width: 256, height: 256), format: format).image { ctx in
             if let ground {
                 ground.setFill()
                 ctx.fill(CGRect(x: 0, y: 0, width: 256, height: 256))
             }
-            let start = CGPoint(x: 16, y: 16)
-            let end = CGPoint(x: 240, y: 240)
-            if noisyRough {
-                for row in 0..<64 {
-                    for column in 0..<64 {
-                        let centre = CGPoint(x: CGFloat(column) * 4 + 2, y: CGFloat(row) * 4 + 2)
-                        let t = max(0, min(1, ((centre.x - start.x) + (centre.y - start.y)) / (2 * (end.x - start.x))))
-                        let nearest = CGPoint(x: start.x + t * (end.x - start.x), y: start.y + t * (end.y - start.y))
-                        guard hypot(centre.x - nearest.x, centre.y - nearest.y) <= 44 else { continue }
+            for row in 0..<64 {
+                for column in 0..<64 {
+                    let centre = CGPoint(x: CGFloat(column) * 4 + 2, y: CGFloat(row) * 4 + 2)
+                    let along = ((centre.x - start.x) + (centre.y - start.y)) / (2 * (end.x - start.x))
+                    let t = max(0, min(1, along))
+                    let nearest = CGPoint(x: start.x + t * (end.x - start.x), y: start.y + t * (end.y - start.y))
+                    // The rough's edge wanders along the hole.
+                    let radius = 24 + 6 * sin(t * 9) + 3.5 * sin(t * 23 + 1)
+                    guard hypot(centre.x - nearest.x, centre.y - nearest.y) <= radius else { continue }
+                    if noisyRough {
                         UIColor(red: noise(), green: noise(), blue: noise(), alpha: 1).setFill()
-                        ctx.fill(CGRect(x: column * 4, y: row * 4, width: 4, height: 4))
+                    } else {
+                        UIColor(red: 96 / 255, green: 140 / 255, blue: 86 / 255, alpha: 1).setFill()
                     }
+                    ctx.fill(CGRect(x: column * 4, y: row * 4, width: 4, height: 4))
                 }
-            } else {
-                let rough = UIBezierPath()
-                rough.move(to: start)
-                rough.addLine(to: end)
-                rough.lineWidth = 88
-                rough.lineCapStyle = .round
-                UIColor(red: 96 / 255, green: 140 / 255, blue: 86 / 255, alpha: 1).setStroke()
-                rough.stroke()
             }
             let fairway = UIBezierPath()
-            fairway.move(to: CGPoint(x: 28, y: 28))
-            fairway.addLine(to: CGPoint(x: 200, y: 200))
-            fairway.lineWidth = 40
+            fairway.move(to: CGPoint(x: start.x + 8, y: start.y + 8))
+            fairway.addLine(to: CGPoint(x: end.x - 22, y: end.y - 22))
+            fairway.lineWidth = 22
             fairway.lineCapStyle = .round
             UIColor(red: 0.60, green: 0.78, blue: 0.45, alpha: 1).setStroke()
             fairway.stroke()
             UIColor(red: 0.50, green: 0.80, blue: 0.43, alpha: 1).setFill()
-            ctx.cgContext.fillEllipse(in: CGRect(x: 202, y: 202, width: 36, height: 36))
+            ctx.cgContext.fillEllipse(in: CGRect(x: end.x - 20, y: end.y - 20, width: 40, height: 40))
         }
     }
 

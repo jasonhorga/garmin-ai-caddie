@@ -654,6 +654,16 @@ struct PrepHoleMapHero: View {
                         }
                     }
                 }
+                if viewport.isFitted {
+                    // The fitted bitmap's frame, so a UI test can check the real screen along it.
+                    Color.clear
+                        .frame(width: rest.width, height: rest.height)
+                        .position(x: rest.midX, y: rest.midY)
+                        .allowsHitTesting(false)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("地图范围")
+                        .accessibilityIdentifier("prep-map-frame")
+                }
                 if !viewport.isFitted {
                     Button {
                         withAnimation(.easeOut(duration: 0.18)) {

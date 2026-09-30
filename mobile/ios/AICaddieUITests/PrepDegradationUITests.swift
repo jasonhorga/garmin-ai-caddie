@@ -156,6 +156,13 @@ final class PrepDegradationUITests: XCTestCase {
         )
         XCTAssertTrue(reset.exists, "the precise map replacement must not reset the zoom")
         save("b4c-03-precise-replaced-zoom-kept")
+        // Back to the fitted resting view of the precise topo: the whole plan is visible, and the
+        // bitmap's boundary, now inside the screen, shows no course terrain cut off by it.
+        reset.tap()
+        XCTAssertTrue(waitForAbsence(reset, timeout: 5), "the reset control returns the map to its fitted view")
+        assertEveryStrokeVisible("hole 2 precise fitted")
+        assertNoClippedTerrain("hole 2 precise fitted")
+        save("b4c-03b-precise-fitted")
 
         // Hole 5 stays a factual route (its precise map is still coming): faded in the strip, but
         // it opens and draws its route.
@@ -254,6 +261,95 @@ final class PrepDegradationUITests: XCTestCase {
             "\(context): no label beyond the plan's strokes",
             file: file, line: line
         )
+    }
+
+    private func waitForAbsence(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element)
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    /// Along every side of the fitted bitmap's frame (`prep-map-frame`), the real screen just
+    /// inside (3 pt) and just outside (6 pt) the edge must match wherever no chrome, label or
+    /// landing covers it: course terrain cut off by the bitmap's edge would show as a sharp
+    /// difference there. Checked on the captured screen pixels.
+    private func assertNoClippedTerrain(_ context: String, file: StaticString = #filePath, line: UInt = #line) {
+        let frameElement = element("prep-map-frame")
+        XCTAssertTrue(frameElement.waitForExistence(timeout: 5), "\(context): the fitted map frame", file: file, line: line)
+        let frame = frameElement.frame
+        let window = app.windows.firstMatch.frame
+        XCTAssertTrue(
+            frame.minX > 12 || frame.minY > 12 || frame.maxX < window.maxX - 12 || frame.maxY < window.maxY - 12,
+            "\(context): the fitted bitmap's boundary is inside the screen (\(frame))",
+            file: file, line: line
+        )
+        var blocked: [CGRect] = [CGRect(x: 0, y: 0, width: window.width, height: app.navigationBars.firstMatch.frame.maxY + 4)]
+        let badge = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "prep-hole-header-")).firstMatch
+        if badge.exists { blocked.append(badge.frame.insetBy(dx: -8, dy: -8)) }
+        let order = element("prep-club-order")
+        let firstPlan = app.buttons["prep-plan-0"]
+        let panelTop = min(order.exists ? order.frame.minY : window.maxY, firstPlan.exists ? firstPlan.frame.minY : window.maxY)
+        blocked.append(CGRect(x: 0, y: panelTop - 24, width: window.width, height: window.maxY - panelTop + 24))
+        for index in 0..<8 {
+            let label = element("prep-map-label-\(index)")
+            if label.exists { blocked.append(label.frame.insetBy(dx: -8, dy: -8)) }
+            let landing = element("prep-map-landing-\(index)")
+            if landing.exists {
+                blocked.append(CGRect(x: landing.frame.midX - 30, y: landing.frame.midY - 30, width: 60, height: 60))
+            }
+        }
+        guard let image = XCUIScreen.main.screenshot().image.cgImage else {
+            XCTFail("\(context): screenshot pixels", file: file, line: line)
+            return
+        }
+        let width = image.width
+        let height = image.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        XCTAssertTrue(drawn, file: file, line: line)
+        let scale = CGFloat(width) / max(window.width, 1)
+        func colour(_ point: CGPoint) -> [Int] {
+            var sums = [0, 0, 0]
+            var count = 0
+            let cx = Int(point.x * scale)
+            let cy = Int(point.y * scale)
+            for y in max(cy - 2, 0)...min(cy + 2, height - 1) {
+                for x in max(cx - 2, 0)...min(cx + 2, width - 1) {
+                    let index = (y * width + x) * 4
+                    sums[0] += Int(bytes[index]); sums[1] += Int(bytes[index + 1]); sums[2] += Int(bytes[index + 2])
+                    count += 1
+                }
+            }
+            return sums.map { $0 / max(count, 1) }
+        }
+        var pairs: [(CGPoint, CGPoint)] = []
+        for y in stride(from: frame.minY + 4, to: frame.maxY - 4, by: 6) {
+            pairs.append((CGPoint(x: frame.minX + 3, y: y), CGPoint(x: frame.minX - 6, y: y)))
+            pairs.append((CGPoint(x: frame.maxX - 3, y: y), CGPoint(x: frame.maxX + 6, y: y)))
+        }
+        for x in stride(from: frame.minX + 4, to: frame.maxX - 4, by: 6) {
+            pairs.append((CGPoint(x: x, y: frame.minY + 3), CGPoint(x: x, y: frame.minY - 6)))
+            pairs.append((CGPoint(x: x, y: frame.maxY - 3), CGPoint(x: x, y: frame.maxY + 6)))
+        }
+        let screen = window.insetBy(dx: 6, dy: 6)
+        var checked = 0
+        var largest = 0
+        for (inside, outside) in pairs {
+            guard screen.contains(inside), screen.contains(outside),
+                  !blocked.contains(where: { $0.contains(inside) || $0.contains(outside) }) else { continue }
+            checked += 1
+            largest = max(largest, zip(colour(inside), colour(outside)).map { abs($0 - $1) }.reduce(0, +))
+        }
+        XCTAssertGreaterThanOrEqual(checked, 12, "\(context): the bitmap's boundary is sampled", file: file, line: line)
+        XCTAssertLessThan(largest, 45, "\(context): course terrain is cut off at the bitmap's edge", file: file, line: line)
     }
 
     private func element(_ identifier: String) -> XCUIElement {

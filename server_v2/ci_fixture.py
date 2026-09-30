@@ -271,12 +271,27 @@ def _offset_coordinate(
     )
 
 
+# The prep row's 64 px frame: like production topo-v11 rasters (none of which paint an image edge;
+# the smallest opaque margin is ~5% of the frame), the hole sits inside a transparent margin.
+# The tee is at (PREP_MARGIN_PX, PREP_MARGIN_PX) and the green end at the opposite corner.
+PREP_MARGIN_PX = 12.0
+_PREP_SPAN_PX = 64.0 - 2 * PREP_MARGIN_PX
+PREP_ROUTE_PX = [[PREP_MARGIN_PX, PREP_MARGIN_PX, 0.0], [64.0 - PREP_MARGIN_PX, 64.0 - PREP_MARGIN_PX, _ROUTE_LENGTH_M]]
+# The full-frame fixture's 0.17 px/m, scaled with the inset geometry.
+PREP_PPM = round(0.17 * _PREP_SPAN_PX / 64.0, 5)
+
+
+def _prep_px(value: float) -> float:
+    """A coordinate of the old full-frame (0...64) fixture geometry, inset into the margin."""
+    return PREP_MARGIN_PX + value * _PREP_SPAN_PX / 64.0
+
+
 def _fixture_hole_projection(source_course: int) -> dict[str, object]:
     """Build the affine refs used by iOS/Watch for this course's fixture hole."""
     tee = COURSE_COORDINATES[source_course]
-    # The route starts at pixel (0, 0), which is the third affine ref. The
-    # other refs are one route component behind the tee and keep the 64x64
-    # image axes non-degenerate.
+    # The route starts at the tee pixel, which is the third affine ref. The
+    # other refs are one route component behind the tee and keep the image
+    # axes non-degenerate (the old full-frame geometry, inset into the margin).
     frame_origin = _offset_coordinate(tee, north_m=-_ROUTE_NORTH_M)
     east_ref = _offset_coordinate(frame_origin, east_m=_ROUTE_EAST_M)
     return {
@@ -284,9 +299,9 @@ def _fixture_hole_projection(source_course: int) -> dict[str, object]:
         "widthPx": 64,
         "heightPx": 64,
         "refs": [
-            {"lat": frame_origin[0], "lon": frame_origin[1], "px": 0.0, "py": 64.0},
-            {"lat": east_ref[0], "lon": east_ref[1], "px": 64.0, "py": 64.0},
-            {"lat": tee[0], "lon": tee[1], "px": 0.0, "py": 0.0},
+            {"lat": frame_origin[0], "lon": frame_origin[1], "px": _prep_px(0.0), "py": _prep_px(64.0)},
+            {"lat": east_ref[0], "lon": east_ref[1], "px": _prep_px(64.0), "py": _prep_px(64.0)},
+            {"lat": tee[0], "lon": tee[1], "px": _prep_px(0.0), "py": _prep_px(0.0)},
         ],
     }
 
@@ -438,13 +453,13 @@ def _png_data_uri(width: int = 64, height: int = 64, seed: int = 0) -> str:
 
 
 def _course_png(seed: int = 0, background: tuple[int, int, int] | None = None, size: int = 64) -> bytes:
-    """A production-shaped hole raster: a mottled rough / fairway corridor along the fixture route
-    (corner to corner) and a green near its end, on the off-course canvas production uses.
+    """A production-shaped hole raster: an irregular mottled rough / fairway footprint along the
+    prep route (tee to green, inside the transparent margin) and a green at its end.
 
-    ``background=None`` is the topo-v11 shape (transparent off-course canvas);
-    a colour is the flat ``hole_render`` fallback (a uniform ground). Either way the only texture
-    is inside the course, as in production, never a full-frame noise field. The mottle keeps it a
-    real, non-trivial raster (well over 1 KiB compressed).
+    ``background=None`` is the topo-v11 shape (transparent off-course canvas); a colour is the
+    flat ``hole_render`` fallback (a uniform ground). Like production, the course never touches the
+    raster's edge: its footprint (with its irregular rough) keeps a margin on every side, and the
+    only texture is inside it. The mottle keeps it a real, non-trivial raster (over 1 KiB).
     """
     state = (seed * 7919 + 17) & 0xFFFFFFFF
 
@@ -454,8 +469,10 @@ def _course_png(seed: int = 0, background: tuple[int, int, int] | None = None, s
         return ((state >> 16) % (2 * spread + 1)) - spread
 
     scale = size / 64
-    ax, ay, bx, by = 4 * scale, 4 * scale, 60 * scale, 60 * scale
-    gx, gy, green_r = 55 * scale, 55 * scale, 6 * scale
+    (ax, ay, _), (bx, by, _) = PREP_ROUTE_PX
+    ax, ay, bx, by = ax * scale, ay * scale, bx * scale, by * scale
+    green_r = 5 * scale
+    phase = (seed % 7) * 0.9
     rows = []
     for y in range(size):
         row = bytearray(b"\x00")
@@ -463,11 +480,14 @@ def _course_png(seed: int = 0, background: tuple[int, int, int] | None = None, s
             px, py = x + 0.5, y + 0.5
             t = max(0.0, min(1.0, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2)))
             distance = math.hypot(px - (ax + t * (bx - ax)), py - (ay + t * (by - ay)))
-            if math.hypot(px - gx, py - gy) <= green_r:
+            # An irregular footprint: the rough's edge wanders along the hole.
+            rough_r = (6.0 + 1.6 * math.sin(t * 9.0 + phase) + 0.9 * math.sin(t * 23.0 + 2 * phase)) * scale
+            fairway_r = (3.0 + 0.7 * math.sin(t * 13.0 + phase)) * scale
+            if math.hypot(px - bx, py - by) <= green_r:
                 colour = (128 + jitter(6), 204 + jitter(6), 110 + jitter(6), 255)
-            elif distance <= 5 * scale:
+            elif distance <= fairway_r and 0.04 < t < 0.9:
                 colour = (153 + jitter(10), 199 + jitter(10), 115 + jitter(10), 255)
-            elif distance <= 11 * scale:
+            elif distance <= rough_r:
                 colour = (96 + jitter(16), 140 + jitter(16), 86 + jitter(16), 255)
             elif background is not None:
                 colour = background + (255,)
@@ -838,14 +858,14 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
         green_distances = _fixture_green_distances(source_course)
         hole_projection = _fixture_hole_projection(source_course)
         hole = {"hole": number, "par": _hole_par(source_course, local_hole), "par_source": "garmin", "blue_yards": 410, "route_len_m": 375.0,
-            "route": [[0.0, 0.0, 0.0], [64.0, 64.0, _ROUTE_LENGTH_M]], "geometryCoverage": "ready", "geometryRevision": FIXTURE_REVISION,
+            "route": [list(point) for point in PREP_ROUTE_PX], "geometryCoverage": "ready", "geometryRevision": FIXTURE_REVISION,
             "sourceRefs": ["900001:1"], "missingData": [], "candidateRoutes": [], "carryTargets": [],
             "steps": [], "cautions": [], "landing_m": 210.0, "tee_club": "1D",
             "hazards": _fixture_prep_hazards(),
-            "map": {"image": _flat_course_data_uri(number), "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + number, "route": [[0.0, 0.0, 0.0], [64.0, 64.0, _ROUTE_LENGTH_M]]}},
+            "map": {"image": _flat_course_data_uri(number), "overlay": {"w": 64, "h": 64, "ppm": PREP_PPM, "ln": 374.0 + number, "route": [list(point) for point in PREP_ROUTE_PX]}},
             "greenDistances": green_distances, "playsLike": {"available": True, "deltaM": 0.0},
             "holeImageProjection": hole_projection,
-            "greenOutline": {"available": True, "source": "ci_fixture", "distanceUnit": "metres", "pointsPx": [[52.0, 52.0], [60.0, 52.0], [60.0, 60.0], [52.0, 60.0] ]}}
+            "greenOutline": {"available": True, "source": "ci_fixture", "distanceUnit": "metres", "pointsPx": [[_prep_px(x), _prep_px(y)] for x, y in ((52.0, 52.0), (60.0, 52.0), (60.0, 60.0), (52.0, 60.0))]}}
         hole["sourceRefs"] = [f"{ROUND_REF}:{local_hole}"]
         hole["sourceGlobalId"] = source_course
         hole["sourceLocalHole"] = local_hole
