@@ -3030,6 +3030,16 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn(".padding(.top, topInset)\n                    .padding(.bottom, bottomInset)", course_review)
         self.assertIn("fittedFrame: CGRect? = nil", _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift"))
         self.assertNotIn("bottomInset", live_components)
+        # Route labels keep wholly clear of the prep chrome (header, badge, panel, reset control):
+        # one layout source (`PrepChromeLayout`) and hard exclusions in the shared label layout.
+        live_chrome_source = _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift")
+        self.assertIn("enum PrepChromeLayout", course_review)
+        self.assertIn("exclusions: exclusions", course_review)
+        self.assertIn(".reportsPrepChrome()", course_review)
+        self.assertIn("PrepChromeLayout.mapInsets(", course_review)
+        self.assertIn("static func layoutLabelsAvoiding(", live_chrome_source)
+        self.assertIn("exclusions: [CGRect] = []", live_chrome_source)
+        self.assertIn("static func routeLabelSize(for text: String, isTeeLabel: Bool) -> CGSize", live_chrome_source)
         self.assertNotIn(".padding(.horizontal, 8)", course_review)
         self.assertNotIn("allowsRotation: true", course_review)
         # P1-1 / P1-2: plans come from the live decision authority and drive the map legs, whose

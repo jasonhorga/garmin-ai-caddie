@@ -996,7 +996,7 @@ final class DesignSnapshotTests: XCTestCase {
             // landings, through the production route -> plan mapping.
             let plans: [PrepPlanOption] = state == .waiting
                 ? []
-                : Self.snapshotPrepRoutes(par: prepPars[number - 1], routeLengthM: 375)
+                : PrepRouteFixtures.routes(par: prepPars[number - 1], routeLengthM: 375)
                     .enumerated()
                     .compactMap { index, route in
                         PrepPlanOption.option(route: route, index: index, par: prepPars[number - 1])
@@ -1081,6 +1081,7 @@ final class DesignSnapshotTests: XCTestCase {
         ]
         var prepPNGs: [Data] = []
         for (name, session) in prepStates {
+            PrepRouteLabelAudit.latest = nil
             prepPNGs.append(try captureScreen(
                 NavigationStack {
                     CoursePrepStrategyScreen(
@@ -1095,6 +1096,26 @@ final class DesignSnapshotTests: XCTestCase {
                 dark: true,
                 settle: 2.0
             ))
+            // The labels actually drawn in this render never touch the chrome actually laid out
+            // (header, hole badge, bottom panel, reset control); at rest every stroke is labelled.
+            guard name != "prep-hole-waiting" else { continue }
+            let audit = try XCTUnwrap(PrepRouteLabelAudit.latest, "\(name): the route layer was drawn")
+            XCTAssertEqual(audit.hole, session.holeNumber)
+            XCTAssertGreaterThanOrEqual(audit.chrome.count, 3, "\(name): the measured header, badge and panel")
+            let row = try XCTUnwrap(prepRows.first { $0.number == audit.hole })
+            let plan = try XCTUnwrap(session.plan(in: row.plans))
+            XCTAssertEqual(audit.labels.count, plan.steps.count, "\(name): one label per stroke")
+            let screen = CGRect(origin: .zero, size: audit.viewport)
+            for label in audit.labels {
+                guard let label else {
+                    XCTAssertFalse(session.viewport.isFitted, "\(name): a fitted map labels every stroke")
+                    continue
+                }
+                XCTAssertTrue(screen.contains(label), "\(name): \(label) is on screen")
+                for chrome in audit.chrome {
+                    XCTAssertFalse(label.intersects(chrome), "\(name): label \(label) under chrome \(chrome)")
+                }
+            }
         }
         XCTAssertEqual(Set(prepPNGs).count, prepStates.count, "prep snapshot states rendered identically")
         // Full screen, not a framed rectangle: near every edge of the viewport (below the navigation
@@ -1444,64 +1465,6 @@ final class DesignSnapshotTests: XCTestCase {
         }
         XCTAssertTrue(drawn, "pixel sampling context")
         return (Int(bytes[0]), Int(bytes[1]), Int(bytes[2]))
-    }
-
-    /// 备战 fixture plans with the real strategy identities (the installed chain → 推荐, safe → 稳妥,
-    /// attack → 进攻) and genuinely different carries and landing stations. Stations are cumulative
-    /// fractions of the route; the last leg of each plan is its green-bound scoring leg.
-    private static func snapshotPrepRoutes(par: Int, routeLengthM: Double) -> [CaddiePlanSequence] {
-        let plans: [(id: String, clubs: [String], stations: [Double])]
-        switch par {
-        case 3:
-            plans = [
-                (LiveCaddieRouteAuthority.installedRouteId, ["8I"], [1]),
-                ("safe", ["7I"], [0.9]),
-                ("attack", ["9I"], [1]),
-            ]
-        case 4:
-            plans = [
-                (LiveCaddieRouteAuthority.installedRouteId, ["1W", "8I"], [0.55, 1]),
-                ("safe", ["3H", "7I"], [0.4, 1]),
-                ("attack", ["1W", "PW"], [0.68, 1]),
-            ]
-        default:
-            plans = [
-                (LiveCaddieRouteAuthority.installedRouteId, ["1W", "3W", "SW"], [0.41, 0.79, 1]),
-                ("safe", ["3W", "5I", "9I"], [0.3, 0.62, 1]),
-                ("attack", ["1W", "3W"], [0.52, 1]),
-            ]
-        }
-        return plans.map { plan -> CaddiePlanSequence in
-            var previous = 0.0
-            let steps = plan.stations.enumerated().map { index, station -> CaddiePlanSequenceStep in
-                let offset = (routeLengthM * station).rounded()
-                let carry = offset - previous
-                previous = offset
-                let isLast = index == plan.stations.count - 1
-                return CaddiePlanSequenceStep(
-                    id: "\(plan.id)-\(index)",
-                    role: isLast ? "scoring" : (index == 0 ? "tee" : "position"),
-                    clubName: plan.clubs[min(index, plan.clubs.count - 1)],
-                    targetCarryM: carry,
-                    expectedRemainingM: isLast ? 0 : routeLengthM - offset,
-                    sampleSize: 12,
-                    confidence: "medium",
-                    sourceRefs: [],
-                    routeOffsetM: offset,
-                    planIndex: index
-                )
-            }
-            return CaddiePlanSequence(
-                id: plan.id,
-                label: plan.clubs.joined(separator: "-"),
-                expectedRemainingM: 0,
-                riskScore: nil,
-                confidence: "medium",
-                coverageText: nil,
-                sourceRefs: [],
-                steps: steps
-            )
-        }
     }
 
     private static func snapshotCaddieRoutes(par: Int, routeLengthM: Double) -> [CaddiePlanSequence] {

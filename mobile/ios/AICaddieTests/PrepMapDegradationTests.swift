@@ -547,6 +547,127 @@ final class PrepMapDegradationTests: XCTestCase {
         XCTAssertEqual(noChrome.size, withChrome.size)
     }
 
+    // MARK: - Route labels vs the chrome
+
+    /// The design-snapshot hole: a 240 x 360 px Par 5 map, 1 px = 1 m, 375 m from tee to green.
+    private func snapshotPrep(coverage: String) throws -> CoursePrepHole {
+        let json = """
+        {"hole":1,"par":5,"par_source":"courseview","blue_yards":543,"route_len_m":375,\
+        "route":[[120,330],[118,180],[120,55]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
+        "geometryCoverage":"\(coverage)","geometryRevision":"snapshot-r1",\
+        "map":{"overlay":{"w":240,"h":360,"ppm":1.0,"ln":375,"route":[[120,330,0],[118,180,150],[120,55,375]]}}}
+        """
+        return try JSONDecoder().decode(CoursePrepHole.self, from: Data(json.utf8))
+    }
+
+    func testRouteLabelsStayWhollyClearOfThePrepChromeFittedAndZoomed() throws {
+        let viewport = CGSize(width: 390, height: 844)
+        // An iPhone-sized layout: status bar + navigation bar above the content, home indicator below.
+        let safeTop: CGFloat = 103
+        let safeBottom: CGFloat = 34
+        let insets = PrepChromeLayout.mapInsets(safeTop: safeTop, safeBottom: safeBottom)
+        let header = PrepChromeLayout.header(
+            contentFrame: CGRect(x: 0, y: safeTop, width: viewport.width, height: viewport.height - safeTop - safeBottom)
+        )
+        // The badge and panel as the screen lays them out (badge text "1 Par 5 · 543 码").
+        let badge = CGRect(x: 16, y: safeTop + PrepChromeLayout.badgeTopPadding, width: 172, height: 40)
+        let panel = CGRect(x: 12, y: viewport.height - safeBottom - 8 - 156, width: viewport.width - 24, height: 156)
+        let chrome = try XCTUnwrap(PrepChromeLayout.chrome(header: header, measured: [badge, panel]))
+        XCTAssertEqual(chrome.count, 3)
+
+        let precise = try snapshotPrep(coverage: "ready")
+        let factual = try snapshotPrep(coverage: "partial")
+        let plans = PrepRouteFixtures.routes(par: 5, routeLengthM: 375).enumerated().compactMap { index, route in
+            PrepPlanOption.option(route: route, index: index, par: 5)
+        }
+        XCTAssertEqual(plans.map(\.title), ["推荐", "稳妥", "进攻"])
+        let overlay = try XCTUnwrap(precise.resolvedMapOverlay)
+        let rest = try XCTUnwrap(PrepMapLayout.restFrame(
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            route: overlay.route,
+            viewport: viewport,
+            topInset: insets.top,
+            bottomInset: insets.bottom
+        ))
+
+        let cases: [(name: String, hole: CoursePrepHole, plan: PrepPlanOption, scale: CGFloat, offset: CGSize)] = [
+            ("plan 1", precise, plans[0], 1, .zero),
+            ("plan 2", precise, plans[1], 1, .zero),
+            ("factual", factual, plans[0], 1, .zero),
+            ("zoomed", precise, plans[0], 2, CGSize(width: -30, height: 40)),
+            ("zoomed far", precise, plans[1], 3, CGSize(width: 120, height: 400)),
+        ]
+        let screen = CGRect(origin: .zero, size: viewport)
+        for testCase in cases {
+            let fitted = testCase.scale <= 1.01
+            let offset = LivePlayMapOverlayLayout.clampedOffset(
+                testCase.offset,
+                mapFrame: rest,
+                viewportSize: viewport,
+                scale: testCase.scale
+            )
+            var exclusions = chrome
+            if !fitted {
+                exclusions.append(PrepChromeLayout.resetControl(viewport: viewport, topInset: insets.top))
+            }
+            let legs = HoleImageMapView(
+                hole: testCase.hole,
+                showsCardChrome: false,
+                plannedShots: testCase.plan.shots,
+                drawsPlannedRouteInMap: false
+            ).plannedLegs()
+            let labels = LivePlannedRouteRenderer.placedRouteLabels(
+                size: viewport,
+                legs: legs,
+                overlay: overlay,
+                scale: testCase.scale,
+                offset: offset,
+                topInset: insets.top,
+                fittedFrame: rest,
+                exclusions: exclusions
+            )
+            XCTAssertEqual(labels.count, testCase.plan.steps.count, "\(testCase.name): one label per stroke")
+            // The rects are laid out with the renderer's own label measurement.
+            for label in labels {
+                guard let rect = label.rect else {
+                    XCTAssertFalse(fitted, "\(testCase.name): at rest every stroke's label is placed (\(label.text))")
+                    continue
+                }
+                XCTAssertEqual(rect.size, LivePlannedRouteRenderer.routeLabelSize(for: label.text, isTeeLabel: false))
+                XCTAssertTrue(screen.contains(rect), "\(testCase.name): \(label.text) at \(rect) is on screen")
+                for excluded in exclusions {
+                    XCTAssertFalse(
+                        rect.intersects(excluded),
+                        "\(testCase.name): \(label.text) at \(rect) is partly under chrome \(excluded)"
+                    )
+                }
+            }
+        }
+    }
+
+    func testLiveLabelLayoutHasNoExclusionsByDefault() {
+        let request = LivePlannedRouteRenderer.LabelRequest(
+            size: CGSize(width: 90, height: 24),
+            candidates: [CGPoint(x: 100, y: 50)]
+        )
+        let viewportRect = CGRect(x: 4, y: 4, width: 382, height: 836)
+        XCTAssertEqual(
+            LivePlannedRouteRenderer.layoutLabels([request], viewport: viewportRect, obstacles: [], samples: []),
+            [CGRect(x: 55, y: 38, width: 90, height: 24)]
+        )
+        // The same label under a chrome rect with no other candidate is omitted, not covered.
+        let omitted = LivePlannedRouteRenderer.layoutLabelsAvoiding(
+            [request],
+            viewport: viewportRect,
+            obstacles: [],
+            samples: [],
+            exclusions: [CGRect(x: 0, y: 0, width: 390, height: 120)]
+        )
+        XCTAssertEqual(omitted.count, 1)
+        XCTAssertNil(omitted[0])
+    }
+
     func testHeaderSubtitleAndStateDescriptionNeverNameTheDownload() {
         XCTAssertEqual(CoursePrepStrategyScreen.holeSubtitle(par: 5, yards: 543), "Par 5 · 543 码")
         XCTAssertEqual(CoursePrepStrategyScreen.holeSubtitle(par: 4, yards: nil), "Par 4")
