@@ -1080,6 +1080,7 @@ final class DesignSnapshotTests: XCTestCase {
             )),
         ]
         var prepPNGs: [Data] = []
+        var prepMapFrames: [String: CGRect] = [:]
         for (name, session) in prepStates {
             PrepRouteLabelAudit.latest = nil
             prepPNGs.append(try captureScreen(
@@ -1101,6 +1102,7 @@ final class DesignSnapshotTests: XCTestCase {
             guard name != "prep-hole-waiting" else { continue }
             let audit = try XCTUnwrap(PrepRouteLabelAudit.latest, "\(name): the route layer was drawn")
             XCTAssertEqual(audit.hole, session.holeNumber)
+            prepMapFrames[name] = audit.mapFrame
             XCTAssertGreaterThanOrEqual(audit.chrome.count, 3, "\(name): header, badge and panel, before any measuring")
             let row = try XCTUnwrap(prepRows.first { $0.number == audit.hole })
             let plan = try XCTUnwrap(session.plan(in: row.plans))
@@ -1176,6 +1178,34 @@ final class DesignSnapshotTests: XCTestCase {
                 XCTAssertGreaterThan(fromBase, 24, "\(name): the map covers (\(point.x), \(point.y)), got \(pixel)")
             }
         }
+        // One map, drawn once: exactly one flag and one green are visible in every fitted map state,
+        // including those whose map does not cover the screen (the ground around it is flat).
+        // Pennant red; the green is the topo's green (precise) or the factual green fill, told
+        // apart from the fairway, rough, ground and the small landing dots by hue and size.
+        var seamChecked = 0
+        let fittedMapStates: Set<String> = ["prep-hole", "prep-hole-plan-2", "prep-hole-factual"]
+        for (name, png) in zip(prepNames, prepPNGs) where fittedMapStates.contains(name) {
+            let flags = try Self.colorRegions(in: png, minAreaPoints: 12) { red, green, blue in
+                red > 195 && green < 80 && blue < 80
+            }
+            XCTAssertEqual(flags.count, 1, "\(name): exactly one flag is drawn, got \(flags)")
+            let greens = try Self.colorRegions(in: png, minAreaPoints: 600) { red, green, blue in
+                green > 150 && green - red >= 65 && green - blue >= 65
+            }
+            XCTAssertEqual(greens.count, 1, "\(name): exactly one green is drawn, got \(greens)")
+            // Where the fitted map leaves ground beside it, its edge fades in with no hard seam.
+            if let frame = prepMapFrames[name], frame.minX > 12, frame.maxX < 390 - 12 {
+                seamChecked += 1
+                let steps = try Self.rowSteps(
+                    in: png,
+                    y: frame.midY,
+                    fromX: 2,
+                    toX: min(frame.minX + PrepHoleMapHero.groundFeather + 6, frame.midX)
+                )
+                XCTAssertLessThan(steps.max() ?? 0, 60, "\(name): the map edge at x \(frame.minX) is a hard seam")
+            }
+        }
+        XCTAssertGreaterThan(seamChecked, 0, "a fitted map that does not cover the screen is rendered")
 
         // 单场复盘: a representative 18-hole Garmin-style scorecard before the compact metrics,
         // rendered from a round-detail fixture (mirrors /api/v2/history/rounds/{ref}).
@@ -1509,6 +1539,99 @@ final class DesignSnapshotTests: XCTestCase {
         }
         XCTAssertTrue(drawn, "pixel sampling context")
         return (Int(bytes[0]), Int(bytes[1]), Int(bytes[2]))
+    }
+
+    /// The image as RGBA bytes, row 0 at the top.
+    private static func rgba(_ png: Data) throws -> (bytes: [UInt8], width: Int, height: Int) {
+        let image = try XCTUnwrap(UIImage(data: png)?.cgImage)
+        let width = image.width
+        let height = image.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        XCTAssertTrue(drawn, "pixel scan context")
+        return (bytes, width, height)
+    }
+
+    /// Connected regions (4-neighbour) of pixels matching `matches` with at least `minAreaPoints`
+    /// square points, as bounding boxes in points (the snapshots are 390 pt wide).
+    private static func colorRegions(
+        in png: Data,
+        minAreaPoints: CGFloat,
+        matches: (Int, Int, Int) -> Bool
+    ) throws -> [CGRect] {
+        let (bytes, width, height) = try rgba(png)
+        let pointsPerPixel = 390 / CGFloat(max(width, 1))
+        let minPixels = Int((minAreaPoints / (pointsPerPixel * pointsPerPixel)).rounded(.up))
+        var mask = [Bool](repeating: false, count: width * height)
+        for index in 0..<(width * height) {
+            mask[index] = matches(Int(bytes[index * 4]), Int(bytes[index * 4 + 1]), Int(bytes[index * 4 + 2]))
+        }
+        var seen = [Bool](repeating: false, count: width * height)
+        var regions: [CGRect] = []
+        var stack: [Int] = []
+        for start in 0..<(width * height) where mask[start] && !seen[start] {
+            seen[start] = true
+            stack.append(start)
+            var count = 0
+            var minX = width, minY = height, maxX = 0, maxY = 0
+            while let index = stack.popLast() {
+                count += 1
+                let x = index % width
+                let y = index / width
+                minX = min(minX, x); maxX = max(maxX, x)
+                minY = min(minY, y); maxY = max(maxY, y)
+                for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
+                    where nx >= 0 && ny >= 0 && nx < width && ny < height {
+                    let next = ny * width + nx
+                    if mask[next], !seen[next] {
+                        seen[next] = true
+                        stack.append(next)
+                    }
+                }
+            }
+            if count >= minPixels {
+                regions.append(CGRect(
+                    x: CGFloat(minX) * pointsPerPixel,
+                    y: CGFloat(minY) * pointsPerPixel,
+                    width: CGFloat(maxX - minX + 1) * pointsPerPixel,
+                    height: CGFloat(maxY - minY + 1) * pointsPerPixel
+                ))
+            }
+        }
+        return regions
+    }
+
+    /// Colour change (summed RGB) between neighbouring 1 pt samples along a row, in points.
+    private static func rowSteps(in png: Data, y: CGFloat, fromX: CGFloat, toX: CGFloat) throws -> [Int] {
+        let (bytes, width, height) = try rgba(png)
+        let pixelsPerPoint = CGFloat(width) / 390
+        let row = min(height - 1, max(0, Int(y * pixelsPerPoint)))
+        var previous: (Int, Int, Int)?
+        var steps: [Int] = []
+        var x = fromX
+        while x <= toX {
+            let column = min(width - 1, max(0, Int(x * pixelsPerPoint)))
+            let index = (row * width + column) * 4
+            let pixel = (Int(bytes[index]), Int(bytes[index + 1]), Int(bytes[index + 2]))
+            if let previous {
+                steps.append(abs(pixel.0 - previous.0) + abs(pixel.1 - previous.1) + abs(pixel.2 - previous.2))
+            }
+            previous = pixel
+            x += 1
+        }
+        return steps
     }
 
     /// Pixels of a route-label pill composited over the magenta audit chrome: dark magenta

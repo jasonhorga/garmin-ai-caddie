@@ -626,12 +626,6 @@ final class PrepMapDegradationTests: XCTestCase {
                     XCTAssertFalse(rect.intersects(excluded), "\(testCase.name): \(label.text) under chrome \(excluded)")
                 }
             }
-            // Whatever the fitted map leaves uncovered, the cover backdrop fills the whole screen.
-            let cover = try XCTUnwrap(PrepMapLayout.coverFrame(
-                overlayWidth: overlay.w, overlayHeight: overlay.h, route: overlay.route,
-                viewport: layout.viewport, topInset: layout.insets.top, bottomInset: layout.insets.bottom
-            ))
-            XCTAssertTrue(PrepMapLayout.covers(cover, viewport: layout.viewport), "\(testCase.name): \(cover)")
         }
         XCTAssertTrue(sawThreeShots, "a three-shot plan is covered")
 

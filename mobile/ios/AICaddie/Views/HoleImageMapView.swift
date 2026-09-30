@@ -131,6 +131,10 @@ public struct HoleImageMapView: View {
     /// `teeDistanceArcPixels()`, so all labels share one collision layout. The bitmap then skips
     /// both so nothing is doubled.
     public let drawsPlannedRouteInMap: Bool
+    /// 备战 only: when the fitted map does not cover the screen, the base image's edges fade over
+    /// this many points into `TopoHoleBaseImage.groundColor` (the screen's flat ground), so there is
+    /// no rectangular seam. Only the ground image fades; the route, green and flag stay crisp.
+    public let baseEdgeFeather: CGFloat
 
     public init(hole: CoursePrepHole, selectedClub: String? = nil, selectedClubMetres: Double? = nil,
                 pinOverlayPixel: CGPoint? = nil,
@@ -141,7 +145,7 @@ public struct HoleImageMapView: View {
                 showsPrepClubLabel: Bool = true, showsClubLabel: Bool = true,
                 teeDistanceArcYards: Int? = nil,
                 plannedShots: [MapPlannedShot] = [], selectedPlanIndex: Int? = nil,
-                drawsPlannedRouteInMap: Bool = true) {
+                drawsPlannedRouteInMap: Bool = true, baseEdgeFeather: CGFloat = 0) {
         self.hole = hole
         self.selectedClub = selectedClub
         self.selectedClubMetres = selectedClubMetres
@@ -159,6 +163,7 @@ public struct HoleImageMapView: View {
         self.plannedShots = plannedShots
         self.selectedPlanIndex = selectedPlanIndex
         self.drawsPlannedRouteInMap = drawsPlannedRouteInMap
+        self.baseEdgeFeather = baseEdgeFeather
     }
 
     public var body: some View {
@@ -169,6 +174,7 @@ public struct HoleImageMapView: View {
                 // bitmap. Do not issue a guaranteed 404 and pin AsyncImage in its failure state;
                 // the URL appears only when the same hole later upgrades to precise geometry.
                 TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)
+                    .mask { FeatheredEdgesMask(width: baseEdgeFeather) }
                 Canvas { context, size in
                     draw(&context, size: size, overlay: overlay)
                 }
@@ -1187,6 +1193,22 @@ struct RotatableMapViewport<Content: View>: View {
             width: min(max(value.width, -maxX), maxX),
             height: min(max(value.height, -maxY), maxY)
         )
+    }
+}
+
+/// Opaque inside, fading to clear over `width` points at every edge (no fade for 0).
+private struct FeatheredEdgesMask: View {
+    let width: CGFloat
+
+    var body: some View {
+        if width > 0.5 {
+            Rectangle()
+                .fill(Color.white)
+                .padding(width / 2)
+                .blur(radius: width / 2)
+        } else {
+            Rectangle().fill(Color.white)
+        }
     }
 }
 

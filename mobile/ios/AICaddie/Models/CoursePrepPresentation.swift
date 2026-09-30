@@ -303,9 +303,10 @@ struct PrepHoleMapSession: Equatable {
 /// The fitted (rest) frame shows the whole plan: the tee, every landing with room for its
 /// "球杆 码数" label, and the green all sit inside the content rect between the chrome (the badge
 /// row on top, the glass panel at the bottom). Among such frames it prefers one whose bitmap covers
-/// the viewport; when the hole's shape makes that impossible (a diagonal hole on a square topo in a
-/// portrait screen), the plan wins and the screen's surface is completed by the cover backdrop
-/// (`coverFrame`) behind the map, so it is never a framed rectangle on the black base.
+/// the viewport; when the hole's shape makes that impossible (a diagonal hole on a square topo in
+/// a portrait screen), the plan wins: the screen around the map is the flat, non-semantic ground
+/// (`TopoHoleBaseImage.groundColor`) and the map's base image fades into it, so there is one map,
+/// drawn once, with no seam and no black bands.
 enum PrepMapLayout {
     /// An overlay point the fitted map keeps inside the content rect with `clearance` points of
     /// room on each side (a landing's label, or a small margin for the tee and the route).
@@ -411,8 +412,8 @@ enum PrepMapLayout {
     }
 
     /// The bitmap's aspect fill of the whole viewport, the route's centre as near the middle of the
-    /// content rect as keeping every edge covered allows. It completes the screen behind a fitted
-    /// map that cannot cover it itself.
+    /// content rect as keeping every edge covered allows: the fitted frame of a hole with nothing
+    /// to fit.
     static func coverFrame(
         overlayWidth: Int,
         overlayHeight: Int,

@@ -141,6 +141,9 @@ final class TopoHoleImageStore: ObservableObject {
 /// projection frame (`hole_render._frame`), so a route/shot overlay drawn on top in overlay-pixel
 /// space aligns with either bitmap pixel-perfect — the caller draws that overlay as a sibling layer.
 struct TopoHoleBaseImage: View {
+    /// The flat ground of a hole without a raster (and 备战's screen ground around a fitted map).
+    static let groundColor = Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255)
+
     let topoURL: URL?
     let fallback: UIImage?
     @StateObject private var imageStore = TopoHoleImageStore()
@@ -193,7 +196,7 @@ struct TopoHoleBaseImage: View {
             Image(uiImage: fallback).resizable().scaledToFit()
                 .accessibilityIdentifier("topo-hole-base-fallback")
         } else {
-            Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255)
+            Self.groundColor
                 .accessibilityIdentifier("topo-hole-base-fallback")
         }
     }

@@ -461,8 +461,9 @@ struct CoursePrepStrategyScreen: View {
     }
 }
 
-/// The full-screen 备战 hole map: the bitmap covers the whole screen (aspect fill; the chrome only
-/// moves where the hole rests), then the live hero's pan / zoom. The bitmap draws the factual route
+/// The full-screen 备战 hole map: fitted, the whole plan sits between the chrome and the bitmap
+/// covers the screen when the hole's shape allows (`PrepMapLayout`), otherwise it fades into the
+/// flat screen ground; then the live hero's pan / zoom. The bitmap draws the factual route
 /// and green; the selected plan's legs, landings and their "球杆 码数" labels are drawn in the
 /// viewport plane by the live `LivePlannedRouteRenderer`, so they keep screen size at every zoom.
 /// Obstacles follow the default-none rule: none are drawn on this screen.
@@ -508,8 +509,7 @@ struct PrepHoleMapHero: View {
             let size = geo.size
             let heroFrame = geo.frame(in: .global)
             let insets = PrepChromeLayout.mapInsets(contentFrame: contentFrame, in: heroFrame)
-            let map = mapView
-            let legs = map.plannedLegs()
+            let legs = mapView(feather: 0).plannedLegs()
             let scale = displayedScale
             let badgeSubtitle = CoursePrepStrategyScreen.holeSubtitle(par: row.par, yards: row.yards)
             let chrome: (Bool) -> [CGRect] = { showsReset in
@@ -530,17 +530,15 @@ struct PrepHoleMapHero: View {
                 ?? CGRect(origin: .zero, size: size)
             let offset = displayedOffset(rest: rest, size: size)
             let exclusions = chrome(!viewport.isFitted)
+            let covering = PrepMapLayout.covers(rest, viewport: size)
+            // One map, drawn once. When the fitted plan leaves part of the screen outside it, the
+            // screen is a flat, non-semantic ground (no flag, green, tee, route or hazard) and the
+            // map's base image fades into it at its edges, so there is no rectangular seam.
+            let map = mapView(feather: covering ? 0 : Self.groundFeather)
             ZStack(alignment: .topTrailing) {
-                if !chromeAudit, !PrepMapLayout.covers(rest, viewport: size), let cover = coverFrame(in: size, insets: insets) {
-                    // The fitted plan leaves part of the screen outside the bitmap: the same map,
-                    // filling the screen, blurred and dimmed behind it completes the surface.
-                    map
-                        .frame(width: cover.width, height: cover.height)
-                        .position(x: cover.midX, y: cover.midY)
+                if !chromeAudit, !covering {
+                    TopoHoleBaseImage.groundColor
                         .frame(width: size.width, height: size.height)
-                        .blur(radius: 18, opaque: true)
-                        .overlay(Color.black.opacity(0.28))
-                        .clipped()
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
@@ -704,7 +702,10 @@ struct PrepHoleMapHero: View {
 
     /// One configured map for the bitmap layer and the viewport-plane route layer, so the labelled
     /// legs are exactly the ones the bitmap is aligned with.
-    private var mapView: HoleImageMapView {
+    /// How far the base image fades into the screen ground when the fitted map does not cover it.
+    static let groundFeather: CGFloat = 28
+
+    private func mapView(feather: CGFloat) -> HoleImageMapView {
         HoleImageMapView(
             hole: prep,
             topoURL: row.state == .precise ? row.topoURL : nil,
@@ -716,7 +717,8 @@ struct PrepHoleMapHero: View {
             showsPrepClubLabel: false,
             showsClubLabel: false,
             plannedShots: plan?.shots ?? [],
-            drawsPlannedRouteInMap: false
+            drawsPlannedRouteInMap: false,
+            baseEdgeFeather: feather
         )
     }
 
@@ -743,19 +745,6 @@ struct PrepHoleMapHero: View {
             viewport: size,
             insets: insets,
             chrome: chrome
-        )
-    }
-
-    /// The whole-screen backdrop frame (`PrepMapLayout.coverFrame`).
-    private func coverFrame(in size: CGSize, insets: PrepChromeLayout.Insets) -> CGRect? {
-        guard let overlay = prep.resolvedMapOverlay else { return nil }
-        return PrepMapLayout.coverFrame(
-            overlayWidth: overlay.w,
-            overlayHeight: overlay.h,
-            route: overlay.route,
-            viewport: size,
-            topInset: insets.top,
-            bottomInset: insets.bottom
         )
     }
 
