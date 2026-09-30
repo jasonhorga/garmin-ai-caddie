@@ -599,6 +599,19 @@ public final class LiveRoundAppModel: ObservableObject {
         garminConnectionState = storedGarminConnectionState()
         syncConfigToWatch()
         observeSessionForWatch()
+        #if DEBUG
+        // UI-test classes share one app container. A journey that must observe a not-yet-prepared
+        // course clears only the course library (prep rows + templates) before it is restored.
+        if ProcessInfo.processInfo.environment["UITEST_RESET_COURSE_LIBRARY"] == "1" {
+            do {
+                try offlineStore.resetCourseLibraryForUITesting()
+            } catch {
+                AICaddieLog.storage.error(
+                    "UI-test course library reset failed: \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+        #endif
         restorePrepCourseDownloadsFromDisk()
         refreshDownloadedCourseOptions()
         recentCourseOption = try? offlineStore.loadRecentCourseSelection()

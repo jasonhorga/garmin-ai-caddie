@@ -1125,6 +1125,17 @@ public final class OfflineStore {
         try encoder.encode(retained).write(to: prepCourseDownloadsURL, options: [.atomic])
     }
 
+    #if DEBUG
+    /// UI-test only: forget every prep-library row and course template so a journey starts with no
+    /// prepared course. Revision-keyed topo bitmaps stay shared; a template is the install authority.
+    public func resetCourseLibraryForUITesting() throws {
+        for url in [prepCourseDownloadsURL, courseTemplatesDirectoryURL]
+        where FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
+    }
+    #endif
+
     public func loadPrepCourseDownloads() throws -> [PrepCourseDownloadRecord] {
         guard FileManager.default.fileExists(atPath: prepCourseDownloadsURL.path) else { return [] }
         let records = try decoder.decode(

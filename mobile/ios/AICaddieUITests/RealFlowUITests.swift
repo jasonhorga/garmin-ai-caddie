@@ -114,6 +114,44 @@ final class RealFlowUITests: XCTestCase {
             XCTAssertTrue(app.staticTexts[title].exists, "the scorecard names \(title) in play order")
         }
         settle(1); save("b4b2-05-summary-back-front"); dump("b4b2-05-summary-back-front")
+
+        // The one-half start queued the canonical whole-course template in the background. Once it
+        // is installed, the course is prepared: selecting it from the prep search opens the prep
+        // map directly (an incomplete selection stays in the library — Section 4 of the main flow).
+        // The unsaved synthetic round is discarded so the relaunch lands on the home.
+        app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
+        launchFresh()
+        app.launchEnvironment.removeValue(forKey: "UITEST_RESET_ACTIVE_ROUND")
+        XCTAssertTrue(tapContaining(["备战", "搜索 · 球童试算"]), "home must expose pre-round prep")
+        XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 12))
+        let acquired = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@",
+            "prep-download-row-\(approvedJourneyCourseGlobalId):"
+        )).firstMatch
+        XCTAssertTrue(
+            scrollTo(acquired, maxSwipes: 12),
+            "a one-half start must queue its whole course in the prep library"
+        )
+        XCTAssertTrue(
+            waitForValue("已完整下载到本机", on: acquired, timeout: 240),
+            "the background whole-course template must finish installing"
+        )
+        let readyQuery = app.textFields["course-catalog-keyword-field"]
+        XCTAssertTrue(scrollTo(readyQuery, maxSwipes: 8))
+        readyQuery.tap()
+        readyQuery.typeText("北京丽宫")
+        let readySearch = app.buttons["course-catalog-search-action"]
+        XCTAssertTrue(waitUntilEnabled(readySearch, timeout: 5))
+        readySearch.tap()
+        XCTAssertTrue(waitUntilGone(app.keyboards.firstMatch, timeout: 8))
+        let readyResult = app.buttons["course-catalog-result-\(approvedJourneyCourseGlobalId)"]
+        XCTAssertTrue(scrollTo(readyResult, maxSwipes: 30), "prep search must return 北京丽宫")
+        readyResult.tap()
+        XCTAssertTrue(
+            app.navigationBars["赛前球场攻略"].waitForExistence(timeout: 20),
+            "selecting an already complete course opens its prep map immediately"
+        )
+        settle(1); save("b4b2-06-ready-course-opens-prep"); dump("b4b2-06-ready-course-opens-prep")
     }
 
     /// Save the preselected score of the hole on screen (shown by its course number).
@@ -411,7 +449,12 @@ final class RealFlowUITests: XCTestCase {
         // ---- Section 4: pre-round prep on a real downloaded course ----
         // READ-ONLY (GET /courses/{id}/prep) — shows real geometry F/M/B + caddie + hazards WITHOUT
         // starting a live round, so CI never writes a junk round into the owner's real history.
+        // Start from an empty course library: another journey in this app container (the 后九
+        // start) installs 北京丽宫's whole course, which would turn this "not yet prepared" path
+        // into the ready-course path. Only the library is reset; the relaunch below keeps it.
+        app.launchEnvironment["UITEST_RESET_COURSE_LIBRARY"] = "1"
         launchFresh()
+        app.launchEnvironment.removeValue(forKey: "UITEST_RESET_COURSE_LIBRARY")
         XCTAssertTrue(tapContaining(["备战", "搜索 · 球童试算"]), "home must expose pre-round prep")
         XCTAssertTrue(
             app.navigationBars["备战球场"].waitForExistence(timeout: 12),
