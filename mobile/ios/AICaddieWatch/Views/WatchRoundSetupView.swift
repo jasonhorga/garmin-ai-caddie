@@ -29,6 +29,8 @@ public struct WatchRoundSetupView: View {
     @State private var selectedTee: String
     @State private var selectedPrimaryGlobalId: Int
     @State private var selectedBackGlobalId: Int?
+    /// 18-hole course: the half the round starts on (前九 preselected). B4b-2 §7.
+    @State private var selectedHalf: String = "front"
     @State private var loadedTeesByCourseId: [Int: [WatchCourseTee]] = [:]
     @State private var isLoadingTees = false
     @State private var teeLoadAttempted = false
@@ -61,6 +63,7 @@ public struct WatchRoundSetupView: View {
         _selectedPrimaryGlobalId = State(initialValue: front.globalId)
         _selectedBackGlobalId = State(initialValue: nil)
         let startsWithHoles = Self.hasCompatibleBackLoop(front: front, courses: courses)
+            || Self.playsHalves(front)
         let initialStage: WatchRoundSetupStage = startsWithHoles ? .holes : .tees
         self.initialStage = initialStage
         _stage = State(initialValue: initialStage)
@@ -78,6 +81,13 @@ public struct WatchRoundSetupView: View {
         .task(id: selectedPrimary.globalId) {
             await loadTeesIfNeeded()
         }
+        .onChange(of: errorMessage) { _, newValue in
+            // A start that failed closed (malformed selection, unpersistable template) stays on
+            // this screen with its message; the start button becomes retryable.
+            if newValue != nil {
+                didSubmitStart = false
+            }
+        }
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
                 .onEnded { value in
@@ -93,12 +103,29 @@ public struct WatchRoundSetupView: View {
 
     private var holeSelection: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 7) {
-                WatchInstrumentHeader("打几洞", backLabel: "返回球场", onBack: handleBack)
+            holeSelectionContent
+        }
+        .ignoresSafeArea(edges: .top)
+        .scrollIndicators(.hidden)
+    }
 
-                ForEach(loopChoices) { choice in
+    /// The hole stage without its ScrollView (前九 / 后九 tiles for an 18-hole row, loop choices
+    /// otherwise). Design snapshots render this; watchOS' ImageRenderer skips ScrollView content.
+    var holeSelectionContent: some View {
+            VStack(alignment: .leading, spacing: 7) {
+                WatchInstrumentHeader(
+                    Self.playsHalves(front) ? "从哪个 9 洞开始" : "打几洞",
+                    backLabel: "返回球场",
+                    onBack: handleBack
+                )
+
+                ForEach(Self.playsHalves(front) ? halfChoices : loopChoices) { choice in
                     Button {
-                        selectLoop(choice.id)
+                        if Self.playsHalves(front) {
+                            selectHalf(choice.id)
+                        } else {
+                            selectLoop(choice.id)
+                        }
                         withAnimation(.easeOut(duration: 0.16)) { stage = .tees }
                     } label: {
                         HStack(spacing: 7) {
@@ -122,13 +149,12 @@ public struct WatchRoundSetupView: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier(choice.id)
+                    .accessibilityValue(choice.isSelected ? "已选择" : "未选择")
                 }
             }
             .padding(.horizontal, 8)
             .padding(.top, 8)
-        }
-        .ignoresSafeArea(edges: .top)
-        .scrollIndicators(.hidden)
     }
 
     private var teeSelection: some View {
@@ -221,12 +247,7 @@ public struct WatchRoundSetupView: View {
         Button {
             guard !isPreparing, !didSubmitStart else { return }
             didSubmitStart = true
-            onStart(WatchCourseSelection(
-                front: configuredFront,
-                back: selectedBack,
-                teeBox: selectedTee,
-                ensureGeometry: ensureGeometry
-            ))
+            onStart(startSelection)
         } label: {
             HStack(spacing: 5) {
                 if isPreparing {
@@ -234,6 +255,8 @@ public struct WatchRoundSetupView: View {
                         .controlSize(.small)
                 }
                 Text(isPreparing ? "正在准备" : startActionLabel)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
             .font(.system(size: 16, weight: .black))
             .foregroundStyle(.black)
@@ -246,6 +269,49 @@ public struct WatchRoundSetupView: View {
         .buttonStyle(.plain)
         .disabled(isPreparing || didSubmitStart)
         .opacity(isPreparing || didSubmitStart ? 0.52 : 1)
+        .accessibilityIdentifier("watch-setup-start")
+    }
+
+    /// Exactly what 开始 submits: the selected loop(s) or, for an 18-hole course, one ordered half
+    /// (`G:front` / `G:back`); the second half is chosen at the turn.
+    var startSelection: WatchCourseSelection {
+        WatchCourseSelection(
+            front: configuredFront,
+            back: Self.playsHalves(front) ? nil : selectedBack,
+            teeBox: selectedTee,
+            ensureGeometry: ensureGeometry,
+            firstHalf: Self.playsHalves(front) ? selectedHalf : nil
+        )
+    }
+
+    /// An 18-hole course (a normal `segmentHoles: 18` row) is played as 前九 / 后九.
+    static func playsHalves(_ option: WatchCourseOption) -> Bool {
+        option.playableHoleCount == 18
+    }
+
+    /// 前九 / 后九 start tiles; `id` is the accessibility identifier.
+    var halfChoices: [WatchRoundSetupChoicePresentation] {
+        guard Self.playsHalves(front) else { return [] }
+        return WatchCourseSelection.halves.map { half in
+            WatchRoundSetupChoicePresentation(
+                id: "watch-setup-half-\(half)",
+                title: WatchCourseSelection.halfName(half),
+                detail: half == "back" ? "第 10–18 洞" : "第 1–9 洞",
+                isSelected: selectedHalf == half
+            )
+        }
+    }
+
+    /// "从 后九 开始 · 蓝 T" — the shared `NineLoopPlan` start title for a half.
+    static func halfStartTitle(globalId: Int, half: String, teeName: String?) -> String {
+        let loops = WatchCourseSelection.halves.map {
+            NineLoop(id: "\(globalId):\($0)", name: WatchCourseSelection.halfName($0))
+        }
+        let plan = NineLoopPlan(
+            course: NineLoopCourse(id: String(globalId), loops: loops),
+            first: "\(globalId):\(WatchCourseSelection.normalizedHalf(half) ?? "front")"
+        )
+        return plan?.startTitle(teeName: teeName) ?? "从 \(WatchCourseSelection.halfName(half)) 开始"
     }
 
     private func teeChoiceRow(
@@ -352,7 +418,11 @@ public struct WatchRoundSetupView: View {
     }
 
     var startActionLabel: String {
-        hasCachedVersion ? "开始" : "立即开始"
+        if Self.playsHalves(front) {
+            let teeName = WatchCourseSelection.hasExplicitTee(selectedTee) ? selectedTeeSummary : nil
+            return Self.halfStartTitle(globalId: front.globalId, half: selectedHalf, teeName: teeName)
+        }
+        return hasCachedVersion ? "开始" : "立即开始"
     }
 
     private var selectedBack: WatchCourseOption? {
@@ -467,6 +537,13 @@ public struct WatchRoundSetupView: View {
             return
         }
         teeLoadAttempted = false
+    }
+
+    private func selectHalf(_ id: String) {
+        guard let half = WatchCourseSelection.normalizedHalf(
+            String(id.dropFirst("watch-setup-half-".count))
+        ) else { return }
+        selectedHalf = half
     }
 
     private func handleBack() {

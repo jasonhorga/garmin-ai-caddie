@@ -246,7 +246,11 @@ public struct WatchRoundSeedHolePayload: Codable, Equatable {
     public let distanceM: Double?
     public let teeLatitude: Double?
     public let teeLongitude: Double?
+    /// Physical identity (B4b-2): `hole` is the round hole; `globalId` / `localHole` the course
+    /// hole; `courseHoleNumber` is what the Watch shows.
     public let globalId: Int?
+    public let localHole: Int?
+    public let courseHoleNumber: Int?
 
     public init(
         hole: Int,
@@ -254,7 +258,9 @@ public struct WatchRoundSeedHolePayload: Codable, Equatable {
         distanceM: Double?,
         teeLatitude: Double? = nil,
         teeLongitude: Double? = nil,
-        globalId: Int? = nil
+        globalId: Int? = nil,
+        localHole: Int? = nil,
+        courseHoleNumber: Int? = nil
     ) {
         self.hole = hole
         self.par = par
@@ -262,21 +268,22 @@ public struct WatchRoundSeedHolePayload: Codable, Equatable {
         self.teeLatitude = teeLatitude
         self.teeLongitude = teeLongitude
         self.globalId = globalId
+        self.localHole = localHole
+        self.courseHoleNumber = courseHoleNumber
     }
 }
 
 public struct WatchRoundSeedPayload: Codable, Equatable {
-    public let schema: String = "ai-caddie-watch-round-seed-v1"
+    public let schema: String = "ai-caddie-watch-round-seed-v2"
     public let roundId: String
     public let courseName: String
     public let activeHole: Int
     public let holes: [WatchRoundSeedHolePayload]
-    /// Setup identity is optional for backward-compatible seeds, but lets the Watch select the
-    /// exact cached front/back/Tee template after a process restart.
+    /// Setup identity lets the Watch select the exact cached template after a process restart.
+    /// `loopKey` is the round's canonical ordered loop key (B4b-2), e.g. `41825:back+41825:front`.
     public let globalId: Int?
-    public let backGlobalId: Int?
     public let teeBox: String?
-    public let nine: String?
+    public let loopKey: String
 
     public init(
         roundId: String,
@@ -284,18 +291,16 @@ public struct WatchRoundSeedPayload: Codable, Equatable {
         activeHole: Int,
         holes: [WatchRoundSeedHolePayload],
         globalId: Int? = nil,
-        backGlobalId: Int? = nil,
         teeBox: String? = nil,
-        nine: String? = nil
+        loopKey: String
     ) {
         self.roundId = roundId
         self.courseName = courseName
         self.activeHole = activeHole
         self.holes = holes
         self.globalId = globalId
-        self.backGlobalId = backGlobalId
         self.teeBox = teeBox
-        self.nine = nine
+        self.loopKey = loopKey
     }
 }
 
@@ -307,20 +312,19 @@ public struct WatchRoundStartPayload: Codable, Equatable {
     public let roundId: String
     public let courseName: String
     public let teeBox: String
-    public let nine: String?
+    /// The Watch selection's canonical ordered loop key (B4b-2).
+    public let loopKey: String
     public let globalId: Int?
-    public let backGlobalId: Int?
     public let activeHole: Int
     public let holes: [WatchRoundSeedHolePayload]
 
     public init(
-        schema: String = "ai-caddie-watch-round-start-v1",
+        schema: String = "ai-caddie-watch-round-start-v2",
         roundId: String,
         courseName: String,
         teeBox: String,
-        nine: String? = "all",
+        loopKey: String,
         globalId: Int? = nil,
-        backGlobalId: Int? = nil,
         activeHole: Int,
         holes: [WatchRoundSeedHolePayload]
     ) {
@@ -328,9 +332,8 @@ public struct WatchRoundStartPayload: Codable, Equatable {
         self.roundId = roundId
         self.courseName = courseName
         self.teeBox = teeBox
-        self.nine = nine
+        self.loopKey = loopKey
         self.globalId = globalId
-        self.backGlobalId = backGlobalId
         self.activeHole = activeHole
         self.holes = holes
     }
@@ -645,15 +648,14 @@ public final class WatchEventBridge: NSObject {
                         distanceM: hole.yards.map { Double($0) * 0.9144 },
                         teeLatitude: tee?.latitude,
                         teeLongitude: tee?.longitude,
-                        globalId: hole.sourceGlobalId ?? package.course.globalId
+                        globalId: hole.sourceGlobalId,
+                        localHole: hole.sourceLocalHole,
+                        courseHoleNumber: hole.courseHoleNumber
                     )
                 },
             globalId: package.course.globalId,
-            backGlobalId: package.holes
-                .compactMap(\.sourceGlobalId)
-                .first(where: { $0 != package.course.globalId }),
             teeBox: package.course.teeBox,
-            nine: package.nine ?? "all"
+            loopKey: package.loopKey
         )
     }
 

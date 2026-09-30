@@ -1041,7 +1041,7 @@ def build_readiness_response() -> dict[str, Any]:
         package = build_mobile_round_package_response(round_id)
         seed_quality = _offline_seed_quality(package)
         package_ready = (
-            package.schema_ == "ai-caddie-live-round-package-v1"
+            package.schema_ == "ai-caddie-live-round-package-v2"
             and package.offlinePackageStatus.get("state") == "ready"
             and package.sourceCoverage.get("state") == "ready"
             and not package.missingData

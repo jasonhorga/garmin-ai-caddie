@@ -18,9 +18,16 @@ from ai_caddie.history.history import HistoryData
 from ai_caddie.caddie.mobile_live import _hole_issue_label_zh
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
+from tests.round_loop_authority import fixture_course_authority
 
 
 class ServerV2MobileTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Fixture history courses have no CourseView release here; stand in for it (B4b-2).
+        authority = fixture_course_authority()
+        authority.start()
+        self.addCleanup(authority.stop)
+
     def test_course_start_defers_non_priority_caddie_enrichment_explicitly(self) -> None:
         from ai_caddie.caddie import mobile_live
         from ai_caddie.core.fixtures import fixture_history_data
@@ -896,7 +903,7 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertEqual(payload["schema"], "ai-caddie-live-round-package-v1")
+        self.assertEqual(payload["schema"], "ai-caddie-live-round-package-v2")
         self.assertEqual(payload["roundId"], "900001")
         self.assertEqual(payload["dataMode"], "fixture")
         self.assertEqual(payload["sourceCoverage"]["state"], "ready")
@@ -1075,7 +1082,7 @@ class ServerV2MobileTests(unittest.TestCase):
         from server_v2 import mobile as mobile_service
 
         package = {
-            "schema": "ai-caddie-live-round-package-v1",
+            "schema": "ai-caddie-live-round-package-v2",
             "roundId": "singleflight-round",
             "dataMode": "fixture",
             "sourceCoverage": {},
@@ -1086,7 +1093,8 @@ class ServerV2MobileTests(unittest.TestCase):
             "coursePrep": None,
             "geometryCoverage": {},
             "readinessChecks": [],
-            "nine": "all",
+            "roundLoops": [],
+            "loopKey": "",
             "caddieContextSeeds": [],
             "weatherSnapshot": {},
             "clubProfiles": [],
@@ -1113,6 +1121,7 @@ class ServerV2MobileTests(unittest.TestCase):
             results.append(
                 mobile_service.build_mobile_course_package_response(
                     1,
+                    loops=[(1, "front")],
                     round_id="singleflight-round",
                     client_id=client_id,
                     captured_at="2026-01-01T00:00:00Z",
@@ -1123,7 +1132,7 @@ class ServerV2MobileTests(unittest.TestCase):
         with (
             patch.object(mobile_service, "load_history_data_for_mode", return_value=(data, "fixture")),
             patch.object(mobile_service, "_refresh_course_release_authority"),
-            patch.object(mobile_service, "build_live_round_package_for_course", side_effect=build_once),
+            patch.object(mobile_service, "build_live_round_package_for_loops", side_effect=build_once),
             patch.object(mobile_service, "first_hole_lightweight_course_prep", return_value=None),
             patch.object(
                 mobile_service,
@@ -1210,11 +1219,13 @@ class ServerV2MobileTests(unittest.TestCase):
                 31796,
                 background_tasks=BackgroundTasks(),
                 include_event_cursor=False,
+                loops="31796:all",
                 player_id="owner",
             )
 
         self.assertIs(actual, expected)
         self.assertFalse(build_package.call_args.kwargs["include_event_cursor"])
+        self.assertEqual(build_package.call_args.kwargs["loops"], [(31796, "all")])
         self.assertNotIn("fast_start", build_package.call_args.kwargs)
 
     def test_course_package_queues_only_missing_source_holes_for_background_upgrade(self) -> None:
@@ -1256,11 +1267,13 @@ class ServerV2MobileTests(unittest.TestCase):
                 31796,
                 background_tasks=BackgroundTasks(),
                 background_geometry=True,
+                loops="31796:all,31797:all",
                 player_id="owner",
             )
 
         self.assertIs(actual, package)
         enqueue.assert_called_once()
+        self.assertEqual(enqueue.call_args.kwargs["loop_key"], "31796:all+31797:all")
         self.assertEqual(enqueue.call_args.kwargs["requested"], {31796: [1], 31797: [1]})
         self.assertEqual(enqueue.call_args.kwargs["ready"], {31796: [2]})
 
@@ -1297,6 +1310,7 @@ class ServerV2MobileTests(unittest.TestCase):
                 31796,
                 background_tasks=BackgroundTasks(),
                 background_geometry=True,
+                loops="31796:all",
                 player_id="owner",
             )
 
@@ -1673,12 +1687,12 @@ class ServerV2MobileTests(unittest.TestCase):
             ):
                 response = client.get(
                     "/api/v2/mobile/courses/31795/package",
-                    params={"round_id": "live-black-knight", "tee_box": "blue"},
+                    params={"round_id": "live-black-knight", "tee_box": "blue", "loops": "31795:front,31795:back"},
                 )
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertEqual(payload["schema"], "ai-caddie-live-round-package-v1")
+        self.assertEqual(payload["schema"], "ai-caddie-live-round-package-v2")
         self.assertEqual(payload["roundId"], "live-black-knight")
         self.assertEqual(payload["course"]["globalId"], 31795)
         self.assertEqual(payload["course"]["teeBox"], "blue")
@@ -1740,7 +1754,7 @@ class ServerV2MobileTests(unittest.TestCase):
         ):
             response = client.get(
                 "/api/v2/mobile/courses/55555/package",
-                params={"round_id": "live-new-course", "tee_box": "blue"},
+                params={"round_id": "live-new-course", "tee_box": "blue", "loops": "55555:front,55555:back"},
             )
 
         self.assertEqual(response.status_code, 200)
@@ -1839,7 +1853,7 @@ class ServerV2MobileTests(unittest.TestCase):
         ):
             response = client.get(
                 "/api/v2/mobile/courses/55555/package",
-                params={"round_id": "live-manual-unknown", "tee_box": "unknown"},
+                params={"round_id": "live-manual-unknown", "tee_box": "unknown", "loops": "55555:front,55555:back"},
             )
 
         self.assertEqual(response.status_code, 200)
@@ -1980,7 +1994,7 @@ class ServerV2MobileTests(unittest.TestCase):
             patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
             patch.object(course_reference, "courseview_par", return_value=[4, 3, 4, 5, 4, 4, 5, 3, 4]),
         ):
-            response = self.client_get_course_package(31796, round_id="live-31796", nine="front")
+            response = self.client_get_course_package(31796, round_id="live-31796", loops="31796:front")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
@@ -2011,13 +2025,13 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(result["venueName"], "北京黄港国际高尔夫俱乐部")
         self.assertIsNone(result["venueNameSource"])
 
-    def client_get_course_package(self, global_id: int, *, round_id: str, nine: str):
-        return TestClient(app).get(f"/api/v2/mobile/courses/{global_id}/package", params={"round_id": round_id, "nine": nine})
+    def client_get_course_package(self, global_id: int, *, round_id: str, loops: str):
+        return TestClient(app).get(f"/api/v2/mobile/courses/{global_id}/package", params={"round_id": round_id, "loops": loops})
 
-    def test_mobile_course_package_can_start_a_chosen_nine(self) -> None:
-        # 选9洞: a player may tee off on just the front or back nine and add the
-        # rest later. The package must restrict both the hole list and the caddie
-        # context seeds to the chosen nine, and echo which nine it returned.
+    def test_mobile_course_package_plays_an_18_hole_course_as_two_halves_in_any_order(self) -> None:
+        # B4b-2: `number` is the round hole in play order; `sourceGlobalId` / `sourceLocalHole`
+        # the physical hole; `courseHoleNumber` the course's own number for a half. Every
+        # round-indexed fact (seeds, prep, history, weather, readiness) follows the round number.
         client = TestClient(app)
         data = HistoryData(raw_rounds=[], rounds=[], shots=[])
 
@@ -2035,10 +2049,7 @@ class ServerV2MobileTests(unittest.TestCase):
 
         from ai_caddie.courses import course_reference
 
-        def fetch(nine: str | None) -> dict[str, object]:
-            params = {"round_id": "live-nine", "tee_box": "blue"}
-            if nine is not None:
-                params["nine"] = nine
+        def request(loops: str):
             with (
                 patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "fixture")),
                 patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
@@ -2048,53 +2059,80 @@ class ServerV2MobileTests(unittest.TestCase):
                     return_value=[4, 5, 3, 4, 3, 4, 4, 5, 4, 4, 5, 3, 4, 3, 4, 4, 5, 4],
                 ),
             ):
-                response = client.get("/api/v2/mobile/courses/55555/package", params=params)
-            self.assertEqual(response.status_code, 200)
+                return client.get(
+                    "/api/v2/mobile/courses/55555/package",
+                    params={"round_id": "live-halves", "tee_box": "blue", "loops": loops},
+                )
+
+        def fetch(loops: str) -> dict[str, object]:
+            response = request(loops)
+            self.assertEqual(response.status_code, 200, response.text)
             return response.json()
 
-        full = fetch(None)
-        self.assertEqual(full["nine"], "all")
-        self.assertEqual([hole["number"] for hole in full["holes"]], list(range(1, 19)))
+        front, back = list(range(1, 10)), list(range(10, 19))
+        cases = {
+            "55555:front,55555:back": front + back,
+            "55555:front,55555:front": front + front,
+            "55555:back,55555:front": back + front,
+            "55555:back,55555:back": back + back,
+            "55555:front": front,
+            "55555:back": back,
+        }
+        keys: set[str] = set()
+        for loops, physical in cases.items():
+            package = fetch(loops)
+            count = len(physical)
+            self.assertEqual(package["schema"], "ai-caddie-live-round-package-v2")
+            self.assertNotIn("nine", package)
+            self.assertEqual(package["loopKey"], loops.replace(",", "+"))
+            keys.add(package["loopKey"])
+            self.assertEqual([h["number"] for h in package["holes"]], list(range(1, count + 1)), loops)
+            self.assertEqual([h["sourceGlobalId"] for h in package["holes"]], [55555] * count)
+            self.assertEqual([h["sourceLocalHole"] for h in package["holes"]], physical, loops)
+            self.assertEqual([h["courseHoleNumber"] for h in package["holes"]], physical, loops)
+            halves = [entry.split(":")[1] for entry in loops.split(",")]
+            self.assertEqual(
+                package["roundLoops"],
+                [
+                    {
+                        "globalId": 55555,
+                        "half": half,
+                        "roundStartHole": 1 + 9 * index,
+                        "sourceStartHole": 10 if half == "back" else 1,
+                        "holeCount": 9,
+                    }
+                    for index, half in enumerate(halves)
+                ],
+            )
+            seeds = package["caddieContextSeeds"]
+            self.assertEqual(sorted(seed["hole"] for seed in seeds), list(range(1, count + 1)), loops)
+            self.assertTrue(all(seed["sourceRef"] == f"live-halves:{seed['hole']}" for seed in seeds))
+            self.assertEqual(package["sourceCoverage"]["holeCount"], count)
+            self.assertEqual(package["geometryCoverage"]["totalHoles"], count)
+            self.assertEqual(package["weatherSnapshot"]["coverage"]["total"], count)
+            self.assertEqual(
+                sorted(row["hole"] for row in package["weatherSnapshot"]["holeCoverage"]),
+                list(range(1, count + 1)),
+            )
+            self.assertEqual(
+                sorted(row["number"] for row in package["recentHistory"]["holes"]),
+                list(range(1, count + 1)),
+            )
+            checks = {row["label"]: row for row in package["readinessChecks"]}
+            self.assertEqual(checks["geometry"]["total"], count)
+            self.assertEqual(checks["caddie_seeds"]["total"], count)
+        self.assertEqual(len(keys), len(cases), "every order has its own loop key")
 
-        front = fetch("front")
-        self.assertEqual(front["nine"], "front")
-        self.assertEqual([hole["number"] for hole in front["holes"]], list(range(1, 10)))
-        self.assertTrue(front["caddieContextSeeds"])
-        self.assertTrue(all(seed["hole"] <= 9 for seed in front["caddieContextSeeds"]))
-        self.assertEqual(front["sourceCoverage"]["holeCount"], 9)
-        self.assertEqual(front["geometryCoverage"]["totalHoles"], 9)
-        self.assertEqual(front["weatherSnapshot"]["coverage"]["total"], 9)
-        self.assertEqual(
-            [row["number"] for row in front["recentHistory"]["holes"]],
-            list(range(1, 10)),
-        )
-        front_checks = {row["label"]: row for row in front["readinessChecks"]}
-        self.assertEqual(front_checks["geometry"]["total"], 9)
-        self.assertEqual(front_checks["weather"]["total"], 9)
-        self.assertEqual(front_checks["caddie_seeds"]["total"], 9)
-
-        back = fetch("back")
-        self.assertEqual(back["nine"], "back")
-        self.assertEqual([hole["number"] for hole in back["holes"]], list(range(10, 19)))
-        self.assertTrue(back["caddieContextSeeds"])
-        self.assertTrue(all(seed["hole"] >= 10 for seed in back["caddieContextSeeds"]))
-        self.assertEqual(back["sourceCoverage"]["holeCount"], 9)
-        self.assertEqual(back["geometryCoverage"]["totalHoles"], 9)
-        self.assertEqual(back["weatherSnapshot"]["coverage"]["total"], 9)
-        self.assertEqual(
-            [row["number"] for row in back["recentHistory"]["holes"]],
-            list(range(10, 19)),
-        )
-        back_checks = {row["label"]: row for row in back["readinessChecks"]}
-        self.assertEqual(back_checks["geometry"]["total"], 9)
-        self.assertEqual(back_checks["weather"]["total"], 9)
-        self.assertEqual(back_checks["caddie_seeds"]["total"], 9)
-
-        invalid = client.get(
-            "/api/v2/mobile/courses/55555/package",
-            params={"round_id": "live-nine", "nine": "middle"},
-        )
-        self.assertEqual(invalid.status_code, 422)
+        # Ambiguous or unplayable orders are rejected, never guessed.
+        for loops in (
+            "",
+            "55555:all",  # an 18-hole course is requested as halves
+            "55555:middle",
+            "55555",
+            "31796:front",  # the path course must be the first loop
+            "55555:front,55555:back,55555:front",
+        ):
+            self.assertEqual(request(loops).status_code, 422, loops)
 
     def test_mobile_course_package_returns_complete_facts_with_lightweight_first_hole_seed(self) -> None:
         # The wire package is always the complete factual course.  Precise geometry is an
@@ -2113,7 +2151,7 @@ class ServerV2MobileTests(unittest.TestCase):
                 patch("server_v2.mobile.first_hole_lightweight_course_prep", return_value=seed) as first_seed:
             response = client.get(
                 "/api/v2/mobile/courses/31795/package",
-                params={"round_id": "live-31795"},
+                params={"round_id": "live-31795", "loops": "31795:front,31795:back"},
             )
 
         self.assertEqual(response.status_code, 200)
@@ -2400,13 +2438,16 @@ class ServerV2MobileTests(unittest.TestCase):
             # must stay Chinese (venue base from the round name) + the loop label from CourseView.
             patch("ai_caddie.caddie.mobile_live._courseview_segment_resolver", return_value=("The Players Club ~ C", 9)),
         ):
-            response = self.client_get_course_package(31796, round_id="live-31796", nine="all")
+            response = self.client_get_course_package(31796, round_id="live-31796", loops="31796:all")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(len(payload["holes"]), 9)
         self.assertEqual([h["number"] for h in payload["holes"]], list(range(1, 10)))
-        self.assertEqual(payload["nine"], "all")  # a complete 9-hole loop, not a partial of an 18
+        # A complete 9-hole loop: one `all` loop whose course numbers are the round numbers.
+        self.assertEqual(payload["loopKey"], "31796:all")
+        self.assertEqual([h["courseHoleNumber"] for h in payload["holes"]], list(range(1, 10)))
+        self.assertEqual([h["sourceLocalHole"] for h in payload["holes"]], list(range(1, 10)))
         # The package identity is the physical venue; the selected loop stays
         # structured beside it instead of becoming a second course name.
         self.assertEqual(payload["course"]["name"], "黑骑士")
@@ -2448,9 +2489,9 @@ class ServerV2MobileTests(unittest.TestCase):
             patch.object(mobile_live, "_courseview_segment_resolver", side_effect=resolver),
             patch.object(course_reference, "courseview_par", return_value=[4] * 9),
         ):
-            pkg = mobile_live.build_live_round_package_for_course(
-                31796, round_id="live-x", data=data, data_mode="local",
-                back_global_id=31794, include_course_prep=False,
+            pkg = mobile_live.build_live_round_package_for_loops(
+                [(31796, "all"), (31794, "all")], round_id="live-x", data=data, data_mode="local",
+                include_course_prep=False,
             )
 
         self.assertEqual([h["number"] for h in pkg["holes"]], list(range(1, 19)))
@@ -2527,12 +2568,11 @@ class ServerV2MobileTests(unittest.TestCase):
             ),
             patch.object(course_reference, "courseview_par", return_value=[4] * 9),
         ):
-            package = mobile_live.build_live_round_package_for_course(
-                31796,
+            package = mobile_live.build_live_round_package_for_loops(
+                [(31796, "all"), (31796, "all")],
                 round_id="live-c-twice",
                 data=data,
                 data_mode="local",
-                back_global_id=31796,
                 include_course_prep=False,
             )
 
@@ -2546,6 +2586,9 @@ class ServerV2MobileTests(unittest.TestCase):
             [hole["sourceLocalHole"] for hole in package["holes"]],
             [*range(1, 10), *range(1, 10)],
         )
+        # A 9-hole loop shows round order; the same loop twice keeps a distinct key.
+        self.assertEqual([hole["courseHoleNumber"] for hole in package["holes"]], list(range(1, 19)))
+        self.assertEqual(package["loopKey"], "31796:all+31796:all")
 
     def test_live_course_package_builds_stats_from_unaugmented_history(self) -> None:
         # Never-played courses get a synthetic template round added to the package data so the holes

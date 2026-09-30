@@ -59,17 +59,17 @@ public struct RoundHomeView: View {
     public let downloadedCourseKeys: Set<String>
     public let prepCourseDownloads: [PrepCourseDownloadRecord]
     public let prepCourseDownloadPresentation: PrepCourseDownloadPresentationState?
-    public let startingNine: String?
     public let isPreparingRound: Bool
     public let isFinishingRound: Bool
     public let finishErrorMessage: String?
     public let onEvent: (LiveRoundEvent) -> Void
     public let onPrepareRound: (String) -> Void
-    public let onPrepareCourseRound: (Int, String, String, String) -> Void
-    public let onPrepareCompositeRound: (Int, Int, String, String) -> Void
+    /// Start a round: (roundId, teeBox, ordered loops) — B4b-2 `loops=`.
+    public let onPrepareCourseRound: (String, String, [RoundLoopEntry]) -> Void
+    /// Set, change or drop (nil) the second loop before it is played: (entry, roundId).
+    public let onSetSecondLoop: (RoundLoopEntry?, String) -> Void
     /// B4 turn: add the chosen second loop and open its first hole (the model navigates).
-    public let onContinueIntoSecondLoop: (Int, Int, String, String) -> Void
-    public let onChangeNine: (String) -> Void
+    public let onContinueIntoSecondLoop: (RoundLoopEntry, String) -> Void
     public let onFinishRound: () async -> Bool
     public let onDiscardRound: () -> Void
     public let onSetActiveHole: (Int) -> Void
@@ -136,16 +136,14 @@ public struct RoundHomeView: View {
         downloadedCourseKeys: Set<String> = [],
         prepCourseDownloads: [PrepCourseDownloadRecord] = [],
         prepCourseDownloadPresentation: PrepCourseDownloadPresentationState? = nil,
-        startingNine: String? = nil,
         isPreparingRound: Bool = false,
         isFinishingRound: Bool = false,
         finishErrorMessage: String? = nil,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
-        onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
-        onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
-        onContinueIntoSecondLoop: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
-        onChangeNine: @escaping (String) -> Void = { _ in },
+        onPrepareCourseRound: @escaping (String, String, [RoundLoopEntry]) -> Void = { _, _, _ in },
+        onSetSecondLoop: @escaping (RoundLoopEntry?, String) -> Void = { _, _ in },
+        onContinueIntoSecondLoop: @escaping (RoundLoopEntry, String) -> Void = { _, _ in },
         onFinishRound: @escaping () async -> Bool = { false },
         onDiscardRound: @escaping () -> Void = {},
         onSetActiveHole: @escaping (Int) -> Void = { _ in },
@@ -200,16 +198,14 @@ public struct RoundHomeView: View {
         self.downloadedCourseKeys = downloadedCourseKeys
         self.prepCourseDownloads = prepCourseDownloads
         self.prepCourseDownloadPresentation = prepCourseDownloadPresentation
-        self.startingNine = startingNine
         self.isPreparingRound = isPreparingRound
         self.isFinishingRound = isFinishingRound
         self.finishErrorMessage = finishErrorMessage
         self.onEvent = onEvent
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
-        self.onPrepareCompositeRound = onPrepareCompositeRound
+        self.onSetSecondLoop = onSetSecondLoop
         self.onContinueIntoSecondLoop = onContinueIntoSecondLoop
-        self.onChangeNine = onChangeNine
         self.onFinishRound = onFinishRound
         self.onDiscardRound = onDiscardRound
         self.onSetActiveHole = onSetActiveHole
@@ -412,11 +408,10 @@ public struct RoundHomeView: View {
                 offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState,
                 // Network catalogue + installed templates: the turn's loops must resolve offline too.
                 courseOptions: NineLoopTurn.loopCatalogue(network: courseOptions, downloaded: downloadedCourseOptions),
-                startingNine: startingNine, isPreparingRound: isPreparingRound,
+                isPreparingRound: isPreparingRound,
                 pendingEventCount: pendingEventCount, isFinishingRound: isFinishingRound,
                 finishErrorMessage: finishErrorMessage,
-                onChangeNine: onChangeNine, onPrepareCourseRound: onPrepareCourseRound,
-                onPrepareCompositeRound: onPrepareCompositeRound,
+                onSetSecondLoop: onSetSecondLoop,
                 onContinueIntoSecondLoop: onContinueIntoSecondLoop, onFinishRound: onFinishRound,
                 onDiscardRound: onDiscardRound,
                 onAdvanceHole: { next in
@@ -517,7 +512,7 @@ public struct RoundHomeView: View {
     /// the round is prepared (pendingLiveHole → path).
     private func startSuggested(_ suggestion: HubCourseSuggestion) {
         let request = suggestion.startRequest(roundId: StartRoundView.freshLiveRoundId(globalId: suggestion.globalId))
-        onPrepareCourseRound(request.globalId, request.roundId, request.teeBox, request.nine)
+        onPrepareCourseRound(request.roundId, request.teeBox, request.loops)
     }
 
     /// An active or Watch-created round owns this card. Starting a second round would orphan the
@@ -536,7 +531,8 @@ public struct RoundHomeView: View {
                             package.course.venueDisplayName,
                             globalId: package.course.globalId
                         ),
-                        activeHole: activeHole,
+                        // "继续第 N 洞" names the course's own hole (B4b-2 courseHoleNumber).
+                        activeHole: package.courseHoleNumber(forRoundHole: activeHole),
                         recorded: scored.count,
                         toPar: liveToPar(scoredHoles: scored)
                     )
@@ -668,8 +664,14 @@ public struct RoundHomeView: View {
                         roundRef: last.roundId,
                         courseName: last.localizedCourseDisplayName,
                         globalId: last.globalId ?? package.course.globalId,
-                        backGlobalId: package.holes.lazy.compactMap(\.sourceGlobalId).first { $0 != package.course.globalId },
-                        nine: package.nine,
+                        // The past-round API still speaks nine / back_global_id: a single half
+                        // is its `nine`; a sibling second loop is its back course.
+                        backGlobalId: package.secondLoop.map(\.globalId).flatMap {
+                            $0 == package.course.globalId ? nil : $0
+                        },
+                        nine: package.roundLoops.count == 1 && package.roundLoops[0].isCourseHalf
+                            ? package.roundLoops[0].half
+                            : nil,
                         teeBox: package.course.teeBox
                     )
                 ) {

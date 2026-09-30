@@ -410,8 +410,7 @@ public struct MobileCourseSearchView: View {
         let tee = course.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines)
         return installedCourseKeys.contains(PrepCourseDownloadRecord.key(
             globalId: course.globalId,
-            teeBox: tee?.isEmpty == false ? tee! : "blue",
-            nine: "all"
+            teeBox: tee?.isEmpty == false ? tee! : "blue"
         ))
     }
 
@@ -432,8 +431,7 @@ public struct MobileCourseSearchView: View {
         guard let course = match.courseOption else { return nil }
         let key = retainedDownloadKey?(match) ?? PrepCourseDownloadRecord.key(
             globalId: course.globalId,
-            teeBox: course.teeBox ?? "blue",
-            nine: "all"
+            teeBox: course.teeBox ?? "blue"
         )
         return retainedDownloads.first { $0.id == key }
     }

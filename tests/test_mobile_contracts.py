@@ -17,8 +17,9 @@ from ai_caddie.history import stats_cache
 from ai_caddie.reports.annotations import add_annotation
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.history.history import HistoryData
-from ai_caddie.caddie.mobile_live import build_live_round_package
+from ai_caddie.caddie.mobile_live import apply_past_round_loop_identity, build_live_round_package
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
+from tests.round_loop_authority import fixture_course_authority
 
 
 CONTRACT_DIR = Path("mobile") / "contracts"
@@ -146,12 +147,14 @@ class MobileContractTests(unittest.TestCase):
     def test_live_round_package_schema_accepts_fixture(self) -> None:
         schema = _load_schema("live_round_package.schema.json")
         package = {
-            "schema": "ai-caddie-live-round-package-v1",
+            "schema": "ai-caddie-live-round-package-v2",
             "roundId": "live-round-1",
             "dataMode": "fixture",
-            # P2: nine was missing from the schema (additionalProperties:false) though the model emits
-            # it — a real package with a start-nine filter would have failed this strict validation.
-            "nine": "front",
+            # B4b-2: the round's loops in play order replace the old start-nine filter.
+            "roundLoops": [
+                {"globalId": 31795, "half": "back", "roundStartHole": 1, "sourceStartHole": 10, "holeCount": 9}
+            ],
+            "loopKey": "31795:back",
             "sourceCoverage": {
                 "state": "ready",
                 "dataMode": "fixture",
@@ -229,7 +232,19 @@ class MobileContractTests(unittest.TestCase):
                 "coverage": {"ready": 8, "total": 10, "pct": 80.0},
             },
             "course": {"globalId": 31795, "name": "Fixture Links", "teeBox": "blue"},
-            "holes": [{"number": 1, "par": 4, "yards": 410, "geometryCoverage": "ready"}],
+            # The back half, all nine holes: round 1–9 on physical 10–18.
+            "holes": [
+                {
+                    "number": number,
+                    "sourceGlobalId": 31795,
+                    "sourceLocalHole": number + 9,
+                    "courseHoleNumber": number + 9,
+                    "par": 4,
+                    "yards": 410,
+                    "geometryCoverage": "ready",
+                }
+                for number in range(1, 10)
+            ],
             "coursePrep": {
                 "schema": "ai-caddie-course-prep-package-v1",
                 "globalId": 31795,
@@ -549,16 +564,19 @@ class MobileContractTests(unittest.TestCase):
                 patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=ready_coverage),
                 patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=ready_geometry),
                 patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
+                fixture_course_authority(),
             ):
-                package = build_live_round_package(
+                # The raw build carries no loop table; a past round is stamped from durable facts.
+                package = apply_past_round_loop_identity(build_live_round_package(
                     "900001",
                     data=fixture_history_data(),
                     data_mode="fixture",
                     root=root,
                     captured_at="2026-05-25T09:00:00Z",
-                )
+                ))
 
         _assert_schema_accepts(self, schema, package)
+        self.assertEqual(package["loopKey"], "31795:front+31795:back")
         self.assertEqual(package["offlinePackageStatus"]["state"], "ready")
         self.assertEqual(package["missingData"], [])
         checks = {row["label"]: row for row in package["readinessChecks"]}
@@ -695,16 +713,19 @@ class MobileContractTests(unittest.TestCase):
             patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
             patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=ready_geometry),
             patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", return_value={"missingData": [], "coverage": "ready"}),
+            # Course 88888 stands in for an 18-hole course with a CourseView release.
+            patch("ai_caddie.caddie.mobile_live._authoritative_course_holes", return_value=18),
         ):
-            package = build_live_round_package(
+            package = apply_past_round_loop_identity(build_live_round_package(
                 "prefetch-round",
                 data=data,
                 data_mode="fixture",
                 ensure_geometry=True,
-            )
+            ))
 
         _assert_schema_accepts(self, schema, package)
         _assert_json_schema_accepts(self, schema, package)
+        self.assertEqual(package["loopKey"], "88888:front+88888:back")
         self.assertEqual(package["geometryCoverage"], {"state": "ready", "readyHoles": 18, "totalHoles": 18})
         ensure = package["sourceCoverage"]["geometryEnsure"]
         self.assertEqual(ensure["state"], "ready")
@@ -1349,8 +1370,8 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertGreaterEqual(
             len(call_bodies),
-            5,
-            "offline rebase, local composition and local hole-set selection must all preserve initializer order",
+            4,
+            "offline rebase, prep/name replacement and local loop assembly must all preserve initializer order",
         )
         for body in call_bodies:
             self.assertLess(body.index("generatedAt:"), body.index("readinessState:"))
@@ -1455,7 +1476,7 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn("fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)", app_swift)
         self.assertIn(
-            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false)",
+            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false)",
             app_swift,
         )
         self.assertIn(
@@ -1655,7 +1676,7 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("@Published public private(set) var isPreparingRound", app_swift)
         self.assertIn("public func prepareRound(roundId:", app_swift)
-        self.assertIn("public func prepareCourseRound(globalId: Int, roundId: String, teeBox: String, nine: String) async", app_swift)
+        self.assertIn("public func prepareCourseRound(roundId: String, teeBox: String, loops: [RoundLoopEntry]) async", app_swift)
         self.assertIn("@Published public private(set) var courseOptions: [MobileCourseOption] = []", app_swift)
         self.assertIn("courseOptions = try await syncClient.fetchCourseOptions().courses", app_swift)
         self.assertIn("let fetched = await fetchRemotePackage(", app_swift)
@@ -1672,7 +1693,7 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn("StartRoundView(", app_swift)
         self.assertIn("await model.prepareRound(roundId: roundId)", app_swift)
-        self.assertIn("await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine)", app_swift)
+        self.assertIn("await model.prepareCourseRound(roundId: roundId, teeBox: teeBox, loops: loops)", app_swift)
         # 1d: 开始记分后直接进实战屏(pendingLiveHole → Hub 路径导航到该洞),不弹回 Hub。
         self.assertIn("var pendingLiveHole: Int?", app_swift)
         self.assertIn("signalFreshRoundEntry(", app_swift)
@@ -1736,15 +1757,20 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("min(delaySeconds * 2, 15)", current_hole)
         self.assertNotIn(":\\(package.holes.count):", round_home)
 
-        # Composite 18: front loop + a second loop (holes 10–18). Wired front→model→SyncClient→backend.
+        # B4b-2: a round is ordered loops (holes 1–9, then 10–18). Wired front→model→SyncClient→backend
+        # as `loops=`; the second loop is set at the turn. `nine` / `back_global_id` are gone from
+        # the package request (the past-round history API keeps its own query).
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
-        self.assertIn("public func prepareCompositeRound(globalId: Int, backGlobalId: Int, roundId: String, teeBox: String) async", app_swift)
-        self.assertIn("await model.prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)", app_swift)
-        self.assertIn("backGlobalId: Int? = nil", sync_client)
-        self.assertIn('URLQueryItem(name: "back_global_id"', sync_client)
+        self.assertIn("public func setSecondLoop(_ entry: RoundLoopEntry?, roundId: String) async", app_swift)
+        self.assertIn("await model.setSecondLoop(entry, roundId: roundId)", app_swift)
+        self.assertNotIn("prepareCompositeRound", app_swift)
+        package_request = sync_client.split("public func fetchCoursePackage(", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn('URLQueryItem(name: "loops", value: RoundLoopEntry.query(loops))', package_request)
+        self.assertNotIn("back_global_id", package_request)
+        self.assertNotIn('name: "nine"', package_request)
         # B4b: 开始一场 chooses only the FIRST loop and has no composite callback at all; the second
-        # loop is chosen at the turn (NineLoopPlan / LiveRoundTurnSheet), whose live path keeps
-        # onPrepareCompositeRound (RoundHomeView → CurrentHoleView), and the old 加打 card is gone.
+        # loop is chosen at the turn (NineLoopPlan / LiveRoundTurnSheet), whose live path uses
+        # onSetSecondLoop (RoundHomeView → CurrentHoleView), and the old 加打 card is gone.
         self.assertNotIn("onPrepareCompositeRound", start_view)
         start_call = round_home.split("        StartRoundView(", 1)[1].split("\n        )\n", 1)[0]
         self.assertNotIn("onPrepareCompositeRound", start_call)
@@ -1760,13 +1786,14 @@ class MobileContractTests(unittest.TestCase):
         # selected loop itself); the helper must NOT filter the selected loop out.
         self.assertNotIn("$0.globalId != selectedSegment.globalId", start_view)
         self.assertIn("Self.sameVenueNineHoleCandidates(", start_view)
-        self.assertIn("public let onPrepareCompositeRound: (Int, Int, String, String) -> Void", round_home)
-        self.assertIn("onPrepareCompositeRound: onPrepareCompositeRound", round_home)
+        self.assertIn("public let onSetSecondLoop: (RoundLoopEntry?, String) -> Void", round_home)
+        self.assertIn("onSetSecondLoop: onSetSecondLoop", round_home)
+        self.assertNotIn("onPrepareCompositeRound", round_home)
 
         self.assertIn("struct StartRoundView: View", start_view)
         self.assertIn("public let courseOptions: [MobileCourseOption]", start_view)
         self.assertIn("public let onPrepareRound: (String) -> Void", start_view)
-        self.assertIn("public let onPrepareCourseRound: (Int, String, String, String) -> Void",start_view)
+        self.assertIn("public let onPrepareCourseRound: (String, String, [RoundLoopEntry]) -> Void", start_view)
         # B4b (README §8): ONE course list — nearby first (distance-sorted with a fix), then the
         # explicit search pick, the recent course, and downloaded packages. History (courseOptions)
         # never re-enters the list as an implicit source.
@@ -1875,7 +1902,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('case isDefault = "default"', course_tee_model)
         self.assertIn("public let yards: Int?", course_tee_model)
         # The primary action names the choice with the shared NineLoopPlan copy:
-        # "从 B 场 开始 · 蓝 T" (whole course: "开始 18 洞 · 蓝 T"); it always prepares one loop.
+        # "从 B 场 开始 · 蓝 T" (an 18-hole course: "从 后九 开始 · 蓝 T"); it always prepares one loop.
         self.assertNotIn('Label("开始记分"', start_view)
         self.assertIn("Text(startActionTitle)", start_view)
         self.assertIn("StartRoundPresentation.startActionTitle(", start_view)
@@ -1883,7 +1910,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('let base = "开始 \\(selected.resolvedHoles) 洞"', presentation)
         self.assertIn('.accessibilityIdentifier("start-round-primary-action")', start_view)
         self.assertIn(".disabled(!canStart)", start_view)
-        self.assertIn("onPrepareCourseRound(courseGlobalId, roundId, teeBox, nine)", start_view)
+        self.assertIn("StartRoundPresentation.startLoops(selected: course, half: startHalf)", start_view)
+        self.assertIn('"start-round-course-half-', start_view)
         self.assertIn("isPreparing", start_view)
         self.assertNotIn('Picker("起始 9 洞"', start_view)
         self.assertIn("baseCourseName", start_view)
@@ -1891,7 +1919,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn('Label("仅刷新离线包"', start_view)
 
         self.assertIn("public let onPrepareRound: (String) -> Void", round_home)
-        self.assertIn("public let onPrepareCourseRound: (Int, String, String, String) -> Void",round_home)
+        self.assertIn("public let onPrepareCourseRound: (String, String, [RoundLoopEntry]) -> Void", round_home)
         self.assertIn("public let courseOptions: [MobileCourseOption]", round_home)
         self.assertIn("StartRoundView(", round_home)
         # B4b: the old 打球 tile is replaced by the home main card (README §8). Its 开始 opens
@@ -1903,28 +1931,24 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('.accessibilityIdentifier("home-change-course")', round_home)
         self.assertIn('HubSecondaryLinkLabel(title: "换球场或组合")', round_home)
 
-        # 选9洞 中途加打 / 撤销: nine 是对一局 18 洞的视图过滤,改 nine 重取同 roundId 保留已记杆。
-        self.assertIn("@Published public private(set) var startingNine", app_swift)
-        self.assertIn("public func setActiveNine(", app_swift)
-        self.assertIn("await model.setActiveNine(nine)", app_swift)
-        self.assertIn("public let startingNine: String?", round_home)
-        self.assertIn("public let onChangeNine: (String) -> Void", round_home)
-        # round-11: the nine controls now live in the in-progress screen (CurrentHoleView), the Hub
-        # only forwards the closures into it.
-        self.assertIn('onChangeNine("all")', current_hole)
-        self.assertIn("加打另外 9 洞", current_hole)
-        self.assertIn("package.nine ?? \"all\"", current_hole)
+        # B4b-2: the old `nine` view filter (加打另外 9 洞 / startingNine / setActiveNine) is gone;
+        # an 18-hole course is two halves chosen like any other loops.
+        for removed in ("startingNine", "setActiveNine", "onChangeNine"):
+            self.assertNotIn(removed, app_swift)
+            self.assertNotIn(removed, round_home)
+            self.assertNotIn(removed, current_hole)
 
-        # 开局后再加打/移除另一个 9 洞环(凑 18):用户要求开始时不一定知道后九,开局没选后面也能加。
-        # 同 roundId 重取(组合包/单环包)+ restoreLiveRoundState 保留已记前 9 洞。
+        # 开局后再加打/改打/移除第二环(凑 18):开局没选后面也能加;同 roundId 保留已记前 9 洞。
+        # Halves of an 18-hole course and a venue's nine-hole loops are offered alike.
         self.assertIn("loopAddControl", current_hole)
-        self.assertIn("private var siblingLoops: [MobileCourseOption]", current_hole)
-        self.assertIn("onPrepareCompositeRound(package.course.globalId, entry.option.globalId, package.course.teeBox, package.roundId)", current_hole)
-        self.assertIn('onPrepareCourseRound(package.course.globalId, package.roundId, package.course.teeBox, "all")', current_hole)
+        self.assertIn("private var selectableSecondLoops: [NineLoop]", current_hole)
+        self.assertIn("return NineLoopTurn.halves(globalId: first.globalId)", current_hole)
+        self.assertIn("onSetSecondLoop(entry, package.roundId)", current_hole)
+        self.assertIn("onSetSecondLoop(nil, package.roundId)", current_hole)
         self.assertIn("加打另一个 9 洞", current_hole)
-        self.assertIn("移除加打的 9 洞", current_hole)
+        self.assertIn("移除第二环 · 只打 9 洞", current_hole)
         # The Hub forwards the round-management closures into the live screen.
-        self.assertIn("onChangeNine: onChangeNine", round_home)
+        self.assertIn("onSetSecondLoop: onSetSecondLoop", round_home)
         self.assertIn("onFinishRound: onFinishRound", round_home)
 
     def test_ios_round_finish_uses_shared_non_destructive_summary(self) -> None:
@@ -2213,10 +2237,7 @@ class MobileContractTests(unittest.TestCase):
 
         # No in-progress round → land on the Hub (choices) via a home package = the most-played
         # course's data, which does NOT mark an active round (liveRoundState stays nil → no 进行中).
-        self.assertIn(
-            "private func fetchHomePackage(preferredCourse: Course? = nil) async -> LiveRoundPackage?",
-            app_swift,
-        )
+        self.assertIn("private func fetchHomePackage(\n        preferredCourse: Course? = nil,", app_swift)
         self.assertIn("private func activateHomePackage(_ nextPackage: LiveRoundPackage, status: String) throws", app_swift)
         self.assertIn("courseOptions.max { $0.roundCount < $1.roundCount }", app_swift)
         self.assertIn("try activateHomePackage(home, status:", app_swift)
@@ -2258,7 +2279,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('Text("再打上次那个")', round_home)
         # 开始 / 再打上次那个 start directly (no setup form); the home never prompts for location.
         start = round_home.split("private func startSuggested(_ suggestion: HubCourseSuggestion) {", 1)[1].split("\n    }\n", 1)[0]
-        self.assertIn("onPrepareCourseRound(request.globalId, request.roundId, request.teeBox, request.nine)", start)
+        self.assertIn("onPrepareCourseRound(request.roundId, request.teeBox, request.loops)", start)
         self.assertIn("StartRoundView.freshLiveRoundId(globalId: suggestion.globalId)", start)
         self_location = round_home.split("private func startHeroLocation() {", 1)[1].split("\n    }\n", 1)[0]
         self.assertNotIn("requestAuthorization", self_location)
@@ -2406,7 +2427,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("topoURL: topoURL,", course_review)
         self.assertIn("showsPrepFactOverlays: true", course_review)
         self.assertIn("showsClubLabel: false", course_review)
-        self.assertIn("hole.sourceGlobalId ?? package.course.globalId", current_hole)
+        # B4b-2 v2 holes always carry their physical identity; nothing falls back to the course id.
+        self.assertIn("let mapGlobalId = hole.sourceGlobalId", current_hole)
+        self.assertNotIn("sourceGlobalId ??", current_hole)
         self.assertIn("func loadHoleMap()", current_hole)
         # Play line is a smooth curve, not a polyline; landing marker + club label track the
         # currently-selected club in real time (switching clubs moves the marker).
@@ -2499,7 +2522,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('return "\\(club) \\(yards)"', live_chrome)
         self.assertIn("lineWidth: 3, lineCap: .round", live_chrome)
         self.assertIn("obstacles.append(flagRect(foot: pinLeg.destination, scale: flagScale))", live_chrome)
-        self.assertIn("LiveMapPreparingSurface(holeNumber: hole.number)", current_hole)
+        self.assertIn("LiveMapPreparingSurface(holeNumber: hole.courseHoleNumber)", current_hole)
         self.assertIn("preciseMapTimedOut", current_hole)
         self.assertIn('accessibilityIdentifier("live-map-preparing-surface")', live_hole_components)
 
@@ -2563,7 +2586,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let downloaded = resolvedOfflineOptions(offlineDisplayOptions + downloadedCourseOptions)", start)
         # Tee yards only when the authority's total covers the holes being started.
         self.assertIn("static func teeYards(total: Int?, teeHoleCount: Int?, playedHoles: Int?) -> Int?", presentation)
-        self.assertIn("playedHoles: selectedSegment?.resolvedHoles", start)
+        # B4b-2: an 18-hole course starts on one half, so the played count is the requested loops'.
+        self.assertIn(
+            "playedHoles: selectedSegment.map { StartRoundPresentation.startLoops(selected: $0).count * RoundLoopEntry.holesPerLoop }",
+            start,
+        )
 
     def test_ios_b4_turn_uses_the_shared_nine_loop_plan(self) -> None:
         domain = _read_required_source(self, Path("mobile") / "ios" / "AICaddieDomain" / "NineLoopPlan.swift")
@@ -2585,11 +2612,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("if let plan = turnPlanAtEndOfFirstLoop", current_hole)
         # The model composes the second loop and opens its first hole; the live view is rebuilt for
         # the new hole set, so it must not own a pending advance.
-        self.assertIn("onContinueIntoSecondLoop(front, back, package.course.teeBox, package.roundId)", current_hole)
+        self.assertIn("onContinueIntoSecondLoop(entry, package.roundId)", current_hole)
         self.assertNotIn("pendingTurnAdvance", current_hole)
         app = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         continue_body = app.split("public func continueIntoSecondLoop(", 1)[1].split("\n    }\n", 1)[0]
-        self.assertIn("await prepareCompositeRound(", continue_body)
+        self.assertIn("await setSecondLoop(entry, roundId: roundId)", continue_body)
         self.assertIn("setActiveHole(first)", continue_body)
         self.assertIn("pendingLiveHole = first", continue_body)
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
@@ -2614,26 +2641,30 @@ class MobileContractTests(unittest.TestCase):
         # A coarse same-id network row (18 holes / no loop label) never masks the installed loop.
         self.assertIn("guard let local = installed[row.globalId], isFactualLoop(local), !isFactualLoop(row) else { return row }", turn)
         self.assertIn("NineLoopTurn.planAtEndOfFirstLoop(\n            package: package, catalogue: courseOptions,", current_hole)
-        # Changing the second loop before it starts recomposes from installed templates offline.
-        compose = app.split("public func prepareCompositeRound(", 1)[1].split("let fetched = await", 1)[0]
-        self.assertNotIn("!current.isCompositeNineRound", compose)
-        self.assertIn("current.removingCompositeBackNine() ?? current", compose)
-        self.assertIn("firstLoop.composingBackNine(", compose)
+        # Changing the second loop before it starts recomposes from the installed whole-course
+        # template offline (the first loop never changes); otherwise it asks for loops=first,second.
+        compose = app.split("public func setSecondLoop(", 1)[1].split("let fetched = await", 1)[0]
+        self.assertIn("offlineStore.loadCourseTemplate(globalId: entry.globalId, teeBox: teeBox)", compose)
+        self.assertIn("current.composingSecondLoop(entry, from: $0, roundId: requestedRoundId)", compose)
+        self.assertIn("current.removingSecondLoop()", compose)
         # No synthesized loop names in any selectable B4 control: the turn and both live-round
-        # loop menus (＋加打 / 改打) offer only factual loop labels.
-        self.assertIn("siblingLoops.compactMap { option in NineLoopTurn.loop(option).map { (option: option, loop: $0) } }", current_hole)
-        self.assertIn('Button("＋ \\(entry.loop.displayName) · 凑 18 洞")', current_hole)
-        self.assertIn('Button("改打 \\(entry.loop.displayName)")', current_hole)
+        # loop menus (＋加打 / 改打) offer only factual loop labels (or 前九 / 后九).
+        self.assertIn("NineLoopTurn.siblings(of: active, in: courseOptions).compactMap(NineLoopTurn.loop)", current_hole)
+        self.assertIn('Button("＋ \\(loop.displayName) · 凑 18 洞")', current_hole)
+        self.assertIn('Button("改打 \\(loop.displayName)")', current_hole)
         self.assertNotIn("loopLabel(", current_hole)
         self.assertNotIn("segmentDisplayTitle", current_hole)
         # No synthesized loop names: only factual loop labels are choices.
         self.assertNotIn("segmentDisplayTitle", turn)
         self.assertIn("guard let label = option.resolvedSegmentLabel else { return nil }", turn)
-        self.assertIn("rememberNineLoopPairing(front: front, back: back)", current_hole)
-        # Changeable until the second loop's first hole has a record, then locked.
+        self.assertIn("rememberNineLoopPairing(first: NineLoopTurn.loopId(first.entry), second: loop.id)", current_hole)
+        # Changeable until the second loop's first round hole has a record, then locked (B4b-2:
+        # the round hole `roundLoops[1].roundStartHole`, so 后→前 locks exactly like 前→后).
         self.assertIn("} else if !secondLoopStarted {", current_hole)
-        self.assertIn("$0.roundId == package.roundId && $0.hole > 9", current_hole)
-        self.assertIn('"nine_loop_pairings.json"', store)
+        self.assertIn("return package.isSecondLoopLocked(by: events)", current_hole)
+        package_model = _read_required_source(self, IOS_DIR / "Models" / "LiveRoundPackage.swift")
+        self.assertIn("events.contains { $0.roundId == roundId && $0.hole >= start }", package_model)
+        self.assertIn('"nine_loop_pairings_v2.json"', store)
 
     def test_ios_b2_one_screen_hole_score(self) -> None:
         sheet = _read_required_source(self, IOS_DIR / "Views" / "LiveScoreConfirmationView.swift")
@@ -2678,8 +2709,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('accessibilityIdentifier("live-scorecard-total-score")', scorecard)
         self.assertIn('accessibilityIdentifier("live-scorecard-total-summary")', scorecard)
         self.assertIn("LiveCumulativeTrend(values: summary.cumulativeToPar", scorecard)
-        self.assertIn('label: "OUT"', scorecard)
-        self.assertIn('label: "IN"', scorecard)
+        # B4b-2: one card per loop in play order ("第一环 · 后九"), never relabelled OUT / IN.
+        self.assertIn("title: LiveScorecardLoops.title(loopTitles, index: 0)", scorecard)
+        self.assertIn("title: LiveScorecardLoops.title(loopTitles, index: 1)", scorecard)
+        self.assertNotIn('label: "OUT"', scorecard)
+        self.assertIn('static let ordinals = ["第一环", "第二环"]', components)
         self.assertIn('Button("结束本场…", action: onFinishRound)', scorecard)
         self.assertIn('accessibilityIdentifier("live-round-end-menu")', scorecard)
         self.assertIn("for hole in holes where recordedScoreHoles.contains(hole.number)", scorecard)
@@ -2862,7 +2896,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("required.merge(fetchedRevisions)", app_source)
         self.assertIn("检测到地图有新版本，正在更新。", app_source)
         self.assertIn("本机地图文件不完整，正在重新下载。", app_source)
-        self.assertIn("两段 9 洞组合暂不支持备战下载", app_source)
+        # B4b-2: a prep row always installs one canonical whole course (`record.loops`), so the
+        # composite-package terminal failure no longer exists for new rows.
+        self.assertIn("loops: record.loops,", app_source)
+        self.assertNotIn("两段 9 洞组合暂不支持备战下载，请在开始一场中使用\"", app_source)
         self.assertIn("prepCourseDownloads.append(candidate)\n            persistPrepCourseDownloads()\n            refreshDownloadedCourseOptions()", app_source)
         self.assertIn("isTerminalFailure", _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift"))
         self.assertIn("!existing.isTerminalFailure", _read_required_source(self, IOS_DIR / "AICaddieApp.swift"))
@@ -2916,7 +2953,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("fetchCoursePackage(", course_review)
         self.assertNotIn("fetchCourseGeometryCoverage", course_review)
         self.assertIn("offlineStore.loadCourseTemplate(", course_review)
-        self.assertIn("nine: nine", course_review)
+        # B4b-2: one canonical whole-course template per course + Tee; no `nine` selector.
+        self.assertNotIn("nine: nine", course_review)
         self.assertIn("template.hasCompleteOfflineCoursePrep", course_review)
         self.assertIn("offlineStore.hasCourseTopoImages(for: template)", course_review)
         self.assertIn("holes = merged.values.sorted { $0.hole < $1.hole }", course_review)

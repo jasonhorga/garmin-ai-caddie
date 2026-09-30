@@ -18,7 +18,6 @@ public struct CourseReviewView: View {
     private let globalId: Int
     private let holeCount: Int
     private let teeBox: String
-    private let nine: String
     private let offlineStore: OfflineStore?
     private let download: PrepCourseDownloadRecord?
     @State private var holes: [CoursePrepHole] = []
@@ -41,9 +40,6 @@ public struct CourseReviewView: View {
         let trimmedTeeBox = (download?.teeBox ?? teeBox ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         self.teeBox = trimmedTeeBox.isEmpty ? "blue" : trimmedTeeBox
-        let trimmedNine = (download?.nine ?? "all")
-            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        self.nine = trimmedNine.isEmpty ? "all" : trimmedNine
         self.offlineStore = offlineStore
         self.download = download
     }
@@ -305,8 +301,7 @@ public struct CourseReviewView: View {
         guard let offlineStore,
               let template = try? offlineStore.loadCourseTemplate(
                   globalId: globalId,
-                  teeBox: teeBox,
-                  nine: nine
+                  teeBox: teeBox
               ), template.hasCompleteOfflineCoursePrep,
               offlineStore.hasCourseTopoImages(for: template),
               let prep = template.coursePrep else { return }

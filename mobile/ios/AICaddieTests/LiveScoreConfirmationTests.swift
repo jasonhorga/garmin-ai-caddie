@@ -316,7 +316,15 @@ final class LiveMarkedShotsTests: XCTestCase {
 /// 本场汇总 subtitle: the Par of the recorded holes, not of the whole package.
 final class LiveRoundFinishSummaryParLineTests: XCTestCase {
     private func hole(_ number: Int, par: Int) -> Hole {
-        Hole(number: number, par: par, yards: nil, geometryCoverage: .ready)
+        Hole(
+            number: number,
+            par: par,
+            yards: nil,
+            geometryCoverage: .ready,
+            sourceGlobalId: 41825,
+            sourceLocalHole: number,
+            courseHoleNumber: number
+        )
     }
 
     func testNineOfEighteenShowsTheParOfTheNinePlayed() {

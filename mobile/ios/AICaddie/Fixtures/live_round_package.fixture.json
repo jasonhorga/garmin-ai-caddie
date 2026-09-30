@@ -1,5 +1,5 @@
 {
-  "schema": "ai-caddie-live-round-package-v1",
+  "schema": "ai-caddie-live-round-package-v2",
   "roundId": "live-round-1",
   "dataMode": "fixture",
   "sourceCoverage": {
@@ -9,7 +9,7 @@
     "selectedRoundId": "live-round-1",
     "roundFound": true,
     "availableRoundCount": 3,
-    "holeCount": 1,
+    "holeCount": 9,
     "clubProfileCount": 1
   },
   "missingData": [
@@ -32,12 +32,97 @@
     "name": "Fixture Links",
     "teeBox": "blue"
   },
+  "roundLoops": [
+    {
+      "globalId": 31795,
+      "half": "front",
+      "roundStartHole": 1,
+      "sourceStartHole": 1,
+      "holeCount": 9
+    }
+  ],
+  "loopKey": "31795:front",
   "holes": [
     {
       "number": 1,
       "par": 4,
       "yards": 410,
-      "geometryCoverage": "ready"
+      "geometryCoverage": "ready",
+      "sourceGlobalId": 31795,
+      "sourceLocalHole": 1,
+      "courseHoleNumber": 1
+    },
+    {
+      "number": 2,
+      "par": 3,
+      "yards": 165,
+      "geometryCoverage": "ready",
+      "sourceGlobalId": 31795,
+      "sourceLocalHole": 2,
+      "courseHoleNumber": 2
+    },
+    {
+      "number": 3,
+      "par": 5,
+      "yards": 520,
+      "geometryCoverage": "ready",
+      "sourceGlobalId": 31795,
+      "sourceLocalHole": 3,
+      "courseHoleNumber": 3
+    },
+    {
+      "number": 4,
+      "par": 4,
+      "yards": 385,
+      "geometryCoverage": "ready",
+      "sourceGlobalId": 31795,
+      "sourceLocalHole": 4,
+      "courseHoleNumber": 4
+    },
+    {
+      "number": 5,
+      "par": 4,
+      "yards": 430,
+      "geometryCoverage": "ready",
+      "sourceGlobalId": 31795,
+      "sourceLocalHole": 5,
+      "courseHoleNumber": 5
+    },
+    {
+      "number": 6,
+      "par": 3,
+      "yards": 190,
+      "geometryCoverage": "ready",
+      "sourceGlobalId": 31795,
+      "sourceLocalHole": 6,
+      "courseHoleNumber": 6
+    },
+    {
+      "number": 7,
+      "par": 5,
+      "yards": 545,
+      "geometryCoverage": "ready",
+      "sourceGlobalId": 31795,
+      "sourceLocalHole": 7,
+      "courseHoleNumber": 7
+    },
+    {
+      "number": 8,
+      "par": 4,
+      "yards": 360,
+      "geometryCoverage": "ready",
+      "sourceGlobalId": 31795,
+      "sourceLocalHole": 8,
+      "courseHoleNumber": 8
+    },
+    {
+      "number": 9,
+      "par": 4,
+      "yards": 400,
+      "geometryCoverage": "ready",
+      "sourceGlobalId": 31795,
+      "sourceLocalHole": 9,
+      "courseHoleNumber": 9
     }
   ],
   "geometryCoverage": {
@@ -95,11 +180,19 @@
     {
       "label": "caddie_seeds",
       "state": "ready",
-      "ready": 1,
-      "total": 1,
-      "reason": "1/1 holes have cached caddie context seeds and offline options",
+      "ready": 9,
+      "total": 9,
+      "reason": "9/9 holes have cached caddie context seeds and offline options",
       "sourceRefs": [
-        "live-round-1:1"
+        "live-round-1:1",
+        "live-round-1:2",
+        "live-round-1:3",
+        "live-round-1:4",
+        "live-round-1:5",
+        "live-round-1:6",
+        "live-round-1:7",
+        "live-round-1:8",
+        "live-round-1:9"
       ]
     }
   ],
@@ -107,8 +200,15 @@
     {
       "hole": 1,
       "sourceRef": "live-round-1:1",
-      "shotTypes": ["tee", "approach", "recovery"],
-      "requiredLiveInputs": ["currentLocation", "lie"],
+      "shotTypes": [
+        "tee",
+        "approach",
+        "recovery"
+      ],
+      "requiredLiveInputs": [
+        "currentLocation",
+        "lie"
+      ],
       "context": {
         "roundId": "live-round-1",
         "source": "live_round_package",
@@ -146,7 +246,11 @@
           "averageToPar": 0.2,
           "worstToPar": 1,
           "scoreDistribution": [],
-          "holeRefs": ["round-a:1", "round-b:1", "round-c:1"]
+          "holeRefs": [
+            "round-a:1",
+            "round-b:1",
+            "round-c:1"
+          ]
         },
         "historicalHoleIssues": [
           {
@@ -166,11 +270,19 @@
           "p90M": 140.0,
           "sampleSize": 24,
           "confidence": "high",
-          "coverage": { "ready": 24, "total": 24, "pct": 100.0 },
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
           "riskScore": 1.0,
           "source": "offline_package_seed",
-          "sourceRefs": ["live-round-1:1"],
-          "sampleRefs": ["live-round-1:1:2"],
+          "sourceRefs": [
+            "live-round-1:1"
+          ],
+          "sampleRefs": [
+            "live-round-1:1:2"
+          ],
           "missingData": []
         },
         {
@@ -182,11 +294,19 @@
           "p90M": 153.0,
           "sampleSize": 24,
           "confidence": "high",
-          "coverage": { "ready": 24, "total": 24, "pct": 100.0 },
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
           "riskScore": 3.0,
           "source": "offline_package_seed",
-          "sourceRefs": ["live-round-1:1"],
-          "sampleRefs": ["live-round-1:1:1"],
+          "sourceRefs": [
+            "live-round-1:1"
+          ],
+          "sampleRefs": [
+            "live-round-1:1:1"
+          ],
           "missingData": []
         },
         {
@@ -198,11 +318,19 @@
           "p90M": 168.0,
           "sampleSize": 4,
           "confidence": "medium",
-          "coverage": { "ready": 4, "total": 10, "pct": 40.0 },
+          "coverage": {
+            "ready": 4,
+            "total": 10,
+            "pct": 40.0
+          },
           "riskScore": 5.0,
           "source": "offline_package_seed",
-          "sourceRefs": ["live-round-1:1"],
-          "sampleRefs": ["live-round-1:1:3"],
+          "sourceRefs": [
+            "live-round-1:1"
+          ],
+          "sampleRefs": [
+            "live-round-1:1:3"
+          ],
           "missingData": [
             {
               "label": "club_profile_sample",
@@ -219,6 +347,1278 @@
         {
           "label": "history_ref",
           "value": "live-round-1:1"
+        }
+      ],
+      "missingData": [
+        {
+          "label": "current_location",
+          "reason": "live GPS fixes distance at decision time"
+        }
+      ]
+    },
+    {
+      "hole": 2,
+      "sourceRef": "live-round-1:2",
+      "shotTypes": [
+        "tee",
+        "approach",
+        "recovery"
+      ],
+      "requiredLiveInputs": [
+        "currentLocation",
+        "lie"
+      ],
+      "context": {
+        "roundId": "live-round-1",
+        "source": "live_round_package",
+        "sourceRef": "live-round-1:2",
+        "courseName": "Fixture Links",
+        "hole": 2,
+        "globalId": 31795,
+        "localHole": 2,
+        "par": 3,
+        "yards": 165,
+        "geometry": {
+          "coverage": "ready",
+          "hasHazards": true,
+          "hasMeshes": true,
+          "hazardCount": 2,
+          "hazards": [
+            {
+              "kind": "water",
+              "id": "water-left",
+              "source": "geometry_map"
+            }
+          ]
+        },
+        "hazards": [
+          {
+            "kind": "water",
+            "id": "water-left",
+            "source": "geometry_map"
+          }
+        ],
+        "historicalHole": {
+          "courseKey": "fixture-links",
+          "hole": 2,
+          "sampleCount": 3,
+          "averageToPar": 0.2,
+          "worstToPar": 1,
+          "scoreDistribution": [],
+          "holeRefs": [
+            "round-a:2",
+            "round-b:2",
+            "round-c:2"
+          ]
+        },
+        "historicalHoleIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      "selectedOfflineOptionId": "stock",
+      "offlineOptions": [
+        {
+          "id": "safe",
+          "label": "Safe",
+          "clubName": "9I",
+          "carryM": 132.0,
+          "p10M": 120.0,
+          "p90M": 140.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 1.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:2"
+          ],
+          "sampleRefs": [
+            "live-round-1:2:2"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "stock",
+          "label": "Stock",
+          "clubName": "8I",
+          "carryM": 144.0,
+          "p10M": 132.0,
+          "p90M": 153.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 3.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:2"
+          ],
+          "sampleRefs": [
+            "live-round-1:2:1"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "attack",
+          "label": "Attack",
+          "clubName": "7I",
+          "carryM": 156.0,
+          "p10M": 142.0,
+          "p90M": 168.0,
+          "sampleSize": 4,
+          "confidence": "medium",
+          "coverage": {
+            "ready": 4,
+            "total": 10,
+            "pct": 40.0
+          },
+          "riskScore": 5.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:2"
+          ],
+          "sampleRefs": [
+            "live-round-1:2:3"
+          ],
+          "missingData": [
+            {
+              "label": "club_profile_sample",
+              "reason": "7I has 4/10 sampled shots for offline option confidence"
+            }
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "label": "live_round_package",
+          "value": "offline_seed"
+        },
+        {
+          "label": "history_ref",
+          "value": "live-round-1:2"
+        }
+      ],
+      "missingData": [
+        {
+          "label": "current_location",
+          "reason": "live GPS fixes distance at decision time"
+        }
+      ]
+    },
+    {
+      "hole": 3,
+      "sourceRef": "live-round-1:3",
+      "shotTypes": [
+        "tee",
+        "approach",
+        "recovery"
+      ],
+      "requiredLiveInputs": [
+        "currentLocation",
+        "lie"
+      ],
+      "context": {
+        "roundId": "live-round-1",
+        "source": "live_round_package",
+        "sourceRef": "live-round-1:3",
+        "courseName": "Fixture Links",
+        "hole": 3,
+        "globalId": 31795,
+        "localHole": 3,
+        "par": 5,
+        "yards": 520,
+        "geometry": {
+          "coverage": "ready",
+          "hasHazards": true,
+          "hasMeshes": true,
+          "hazardCount": 2,
+          "hazards": [
+            {
+              "kind": "water",
+              "id": "water-left",
+              "source": "geometry_map"
+            }
+          ]
+        },
+        "hazards": [
+          {
+            "kind": "water",
+            "id": "water-left",
+            "source": "geometry_map"
+          }
+        ],
+        "historicalHole": {
+          "courseKey": "fixture-links",
+          "hole": 3,
+          "sampleCount": 3,
+          "averageToPar": 0.2,
+          "worstToPar": 1,
+          "scoreDistribution": [],
+          "holeRefs": [
+            "round-a:3",
+            "round-b:3",
+            "round-c:3"
+          ]
+        },
+        "historicalHoleIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      "selectedOfflineOptionId": "stock",
+      "offlineOptions": [
+        {
+          "id": "safe",
+          "label": "Safe",
+          "clubName": "9I",
+          "carryM": 132.0,
+          "p10M": 120.0,
+          "p90M": 140.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 1.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:3"
+          ],
+          "sampleRefs": [
+            "live-round-1:3:2"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "stock",
+          "label": "Stock",
+          "clubName": "8I",
+          "carryM": 144.0,
+          "p10M": 132.0,
+          "p90M": 153.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 3.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:3"
+          ],
+          "sampleRefs": [
+            "live-round-1:3:1"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "attack",
+          "label": "Attack",
+          "clubName": "7I",
+          "carryM": 156.0,
+          "p10M": 142.0,
+          "p90M": 168.0,
+          "sampleSize": 4,
+          "confidence": "medium",
+          "coverage": {
+            "ready": 4,
+            "total": 10,
+            "pct": 40.0
+          },
+          "riskScore": 5.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:3"
+          ],
+          "sampleRefs": [
+            "live-round-1:3:3"
+          ],
+          "missingData": [
+            {
+              "label": "club_profile_sample",
+              "reason": "7I has 4/10 sampled shots for offline option confidence"
+            }
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "label": "live_round_package",
+          "value": "offline_seed"
+        },
+        {
+          "label": "history_ref",
+          "value": "live-round-1:3"
+        }
+      ],
+      "missingData": [
+        {
+          "label": "current_location",
+          "reason": "live GPS fixes distance at decision time"
+        }
+      ]
+    },
+    {
+      "hole": 4,
+      "sourceRef": "live-round-1:4",
+      "shotTypes": [
+        "tee",
+        "approach",
+        "recovery"
+      ],
+      "requiredLiveInputs": [
+        "currentLocation",
+        "lie"
+      ],
+      "context": {
+        "roundId": "live-round-1",
+        "source": "live_round_package",
+        "sourceRef": "live-round-1:4",
+        "courseName": "Fixture Links",
+        "hole": 4,
+        "globalId": 31795,
+        "localHole": 4,
+        "par": 4,
+        "yards": 385,
+        "geometry": {
+          "coverage": "ready",
+          "hasHazards": true,
+          "hasMeshes": true,
+          "hazardCount": 2,
+          "hazards": [
+            {
+              "kind": "water",
+              "id": "water-left",
+              "source": "geometry_map"
+            }
+          ]
+        },
+        "hazards": [
+          {
+            "kind": "water",
+            "id": "water-left",
+            "source": "geometry_map"
+          }
+        ],
+        "historicalHole": {
+          "courseKey": "fixture-links",
+          "hole": 4,
+          "sampleCount": 3,
+          "averageToPar": 0.2,
+          "worstToPar": 1,
+          "scoreDistribution": [],
+          "holeRefs": [
+            "round-a:4",
+            "round-b:4",
+            "round-c:4"
+          ]
+        },
+        "historicalHoleIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      "selectedOfflineOptionId": "stock",
+      "offlineOptions": [
+        {
+          "id": "safe",
+          "label": "Safe",
+          "clubName": "9I",
+          "carryM": 132.0,
+          "p10M": 120.0,
+          "p90M": 140.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 1.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:4"
+          ],
+          "sampleRefs": [
+            "live-round-1:4:2"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "stock",
+          "label": "Stock",
+          "clubName": "8I",
+          "carryM": 144.0,
+          "p10M": 132.0,
+          "p90M": 153.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 3.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:4"
+          ],
+          "sampleRefs": [
+            "live-round-1:4:1"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "attack",
+          "label": "Attack",
+          "clubName": "7I",
+          "carryM": 156.0,
+          "p10M": 142.0,
+          "p90M": 168.0,
+          "sampleSize": 4,
+          "confidence": "medium",
+          "coverage": {
+            "ready": 4,
+            "total": 10,
+            "pct": 40.0
+          },
+          "riskScore": 5.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:4"
+          ],
+          "sampleRefs": [
+            "live-round-1:4:3"
+          ],
+          "missingData": [
+            {
+              "label": "club_profile_sample",
+              "reason": "7I has 4/10 sampled shots for offline option confidence"
+            }
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "label": "live_round_package",
+          "value": "offline_seed"
+        },
+        {
+          "label": "history_ref",
+          "value": "live-round-1:4"
+        }
+      ],
+      "missingData": [
+        {
+          "label": "current_location",
+          "reason": "live GPS fixes distance at decision time"
+        }
+      ]
+    },
+    {
+      "hole": 5,
+      "sourceRef": "live-round-1:5",
+      "shotTypes": [
+        "tee",
+        "approach",
+        "recovery"
+      ],
+      "requiredLiveInputs": [
+        "currentLocation",
+        "lie"
+      ],
+      "context": {
+        "roundId": "live-round-1",
+        "source": "live_round_package",
+        "sourceRef": "live-round-1:5",
+        "courseName": "Fixture Links",
+        "hole": 5,
+        "globalId": 31795,
+        "localHole": 5,
+        "par": 4,
+        "yards": 430,
+        "geometry": {
+          "coverage": "ready",
+          "hasHazards": true,
+          "hasMeshes": true,
+          "hazardCount": 2,
+          "hazards": [
+            {
+              "kind": "water",
+              "id": "water-left",
+              "source": "geometry_map"
+            }
+          ]
+        },
+        "hazards": [
+          {
+            "kind": "water",
+            "id": "water-left",
+            "source": "geometry_map"
+          }
+        ],
+        "historicalHole": {
+          "courseKey": "fixture-links",
+          "hole": 5,
+          "sampleCount": 3,
+          "averageToPar": 0.2,
+          "worstToPar": 1,
+          "scoreDistribution": [],
+          "holeRefs": [
+            "round-a:5",
+            "round-b:5",
+            "round-c:5"
+          ]
+        },
+        "historicalHoleIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      "selectedOfflineOptionId": "stock",
+      "offlineOptions": [
+        {
+          "id": "safe",
+          "label": "Safe",
+          "clubName": "9I",
+          "carryM": 132.0,
+          "p10M": 120.0,
+          "p90M": 140.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 1.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:5"
+          ],
+          "sampleRefs": [
+            "live-round-1:5:2"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "stock",
+          "label": "Stock",
+          "clubName": "8I",
+          "carryM": 144.0,
+          "p10M": 132.0,
+          "p90M": 153.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 3.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:5"
+          ],
+          "sampleRefs": [
+            "live-round-1:5:1"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "attack",
+          "label": "Attack",
+          "clubName": "7I",
+          "carryM": 156.0,
+          "p10M": 142.0,
+          "p90M": 168.0,
+          "sampleSize": 4,
+          "confidence": "medium",
+          "coverage": {
+            "ready": 4,
+            "total": 10,
+            "pct": 40.0
+          },
+          "riskScore": 5.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:5"
+          ],
+          "sampleRefs": [
+            "live-round-1:5:3"
+          ],
+          "missingData": [
+            {
+              "label": "club_profile_sample",
+              "reason": "7I has 4/10 sampled shots for offline option confidence"
+            }
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "label": "live_round_package",
+          "value": "offline_seed"
+        },
+        {
+          "label": "history_ref",
+          "value": "live-round-1:5"
+        }
+      ],
+      "missingData": [
+        {
+          "label": "current_location",
+          "reason": "live GPS fixes distance at decision time"
+        }
+      ]
+    },
+    {
+      "hole": 6,
+      "sourceRef": "live-round-1:6",
+      "shotTypes": [
+        "tee",
+        "approach",
+        "recovery"
+      ],
+      "requiredLiveInputs": [
+        "currentLocation",
+        "lie"
+      ],
+      "context": {
+        "roundId": "live-round-1",
+        "source": "live_round_package",
+        "sourceRef": "live-round-1:6",
+        "courseName": "Fixture Links",
+        "hole": 6,
+        "globalId": 31795,
+        "localHole": 6,
+        "par": 3,
+        "yards": 190,
+        "geometry": {
+          "coverage": "ready",
+          "hasHazards": true,
+          "hasMeshes": true,
+          "hazardCount": 2,
+          "hazards": [
+            {
+              "kind": "water",
+              "id": "water-left",
+              "source": "geometry_map"
+            }
+          ]
+        },
+        "hazards": [
+          {
+            "kind": "water",
+            "id": "water-left",
+            "source": "geometry_map"
+          }
+        ],
+        "historicalHole": {
+          "courseKey": "fixture-links",
+          "hole": 6,
+          "sampleCount": 3,
+          "averageToPar": 0.2,
+          "worstToPar": 1,
+          "scoreDistribution": [],
+          "holeRefs": [
+            "round-a:6",
+            "round-b:6",
+            "round-c:6"
+          ]
+        },
+        "historicalHoleIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      "selectedOfflineOptionId": "stock",
+      "offlineOptions": [
+        {
+          "id": "safe",
+          "label": "Safe",
+          "clubName": "9I",
+          "carryM": 132.0,
+          "p10M": 120.0,
+          "p90M": 140.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 1.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:6"
+          ],
+          "sampleRefs": [
+            "live-round-1:6:2"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "stock",
+          "label": "Stock",
+          "clubName": "8I",
+          "carryM": 144.0,
+          "p10M": 132.0,
+          "p90M": 153.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 3.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:6"
+          ],
+          "sampleRefs": [
+            "live-round-1:6:1"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "attack",
+          "label": "Attack",
+          "clubName": "7I",
+          "carryM": 156.0,
+          "p10M": 142.0,
+          "p90M": 168.0,
+          "sampleSize": 4,
+          "confidence": "medium",
+          "coverage": {
+            "ready": 4,
+            "total": 10,
+            "pct": 40.0
+          },
+          "riskScore": 5.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:6"
+          ],
+          "sampleRefs": [
+            "live-round-1:6:3"
+          ],
+          "missingData": [
+            {
+              "label": "club_profile_sample",
+              "reason": "7I has 4/10 sampled shots for offline option confidence"
+            }
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "label": "live_round_package",
+          "value": "offline_seed"
+        },
+        {
+          "label": "history_ref",
+          "value": "live-round-1:6"
+        }
+      ],
+      "missingData": [
+        {
+          "label": "current_location",
+          "reason": "live GPS fixes distance at decision time"
+        }
+      ]
+    },
+    {
+      "hole": 7,
+      "sourceRef": "live-round-1:7",
+      "shotTypes": [
+        "tee",
+        "approach",
+        "recovery"
+      ],
+      "requiredLiveInputs": [
+        "currentLocation",
+        "lie"
+      ],
+      "context": {
+        "roundId": "live-round-1",
+        "source": "live_round_package",
+        "sourceRef": "live-round-1:7",
+        "courseName": "Fixture Links",
+        "hole": 7,
+        "globalId": 31795,
+        "localHole": 7,
+        "par": 5,
+        "yards": 545,
+        "geometry": {
+          "coverage": "ready",
+          "hasHazards": true,
+          "hasMeshes": true,
+          "hazardCount": 2,
+          "hazards": [
+            {
+              "kind": "water",
+              "id": "water-left",
+              "source": "geometry_map"
+            }
+          ]
+        },
+        "hazards": [
+          {
+            "kind": "water",
+            "id": "water-left",
+            "source": "geometry_map"
+          }
+        ],
+        "historicalHole": {
+          "courseKey": "fixture-links",
+          "hole": 7,
+          "sampleCount": 3,
+          "averageToPar": 0.2,
+          "worstToPar": 1,
+          "scoreDistribution": [],
+          "holeRefs": [
+            "round-a:7",
+            "round-b:7",
+            "round-c:7"
+          ]
+        },
+        "historicalHoleIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      "selectedOfflineOptionId": "stock",
+      "offlineOptions": [
+        {
+          "id": "safe",
+          "label": "Safe",
+          "clubName": "9I",
+          "carryM": 132.0,
+          "p10M": 120.0,
+          "p90M": 140.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 1.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:7"
+          ],
+          "sampleRefs": [
+            "live-round-1:7:2"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "stock",
+          "label": "Stock",
+          "clubName": "8I",
+          "carryM": 144.0,
+          "p10M": 132.0,
+          "p90M": 153.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 3.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:7"
+          ],
+          "sampleRefs": [
+            "live-round-1:7:1"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "attack",
+          "label": "Attack",
+          "clubName": "7I",
+          "carryM": 156.0,
+          "p10M": 142.0,
+          "p90M": 168.0,
+          "sampleSize": 4,
+          "confidence": "medium",
+          "coverage": {
+            "ready": 4,
+            "total": 10,
+            "pct": 40.0
+          },
+          "riskScore": 5.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:7"
+          ],
+          "sampleRefs": [
+            "live-round-1:7:3"
+          ],
+          "missingData": [
+            {
+              "label": "club_profile_sample",
+              "reason": "7I has 4/10 sampled shots for offline option confidence"
+            }
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "label": "live_round_package",
+          "value": "offline_seed"
+        },
+        {
+          "label": "history_ref",
+          "value": "live-round-1:7"
+        }
+      ],
+      "missingData": [
+        {
+          "label": "current_location",
+          "reason": "live GPS fixes distance at decision time"
+        }
+      ]
+    },
+    {
+      "hole": 8,
+      "sourceRef": "live-round-1:8",
+      "shotTypes": [
+        "tee",
+        "approach",
+        "recovery"
+      ],
+      "requiredLiveInputs": [
+        "currentLocation",
+        "lie"
+      ],
+      "context": {
+        "roundId": "live-round-1",
+        "source": "live_round_package",
+        "sourceRef": "live-round-1:8",
+        "courseName": "Fixture Links",
+        "hole": 8,
+        "globalId": 31795,
+        "localHole": 8,
+        "par": 4,
+        "yards": 360,
+        "geometry": {
+          "coverage": "ready",
+          "hasHazards": true,
+          "hasMeshes": true,
+          "hazardCount": 2,
+          "hazards": [
+            {
+              "kind": "water",
+              "id": "water-left",
+              "source": "geometry_map"
+            }
+          ]
+        },
+        "hazards": [
+          {
+            "kind": "water",
+            "id": "water-left",
+            "source": "geometry_map"
+          }
+        ],
+        "historicalHole": {
+          "courseKey": "fixture-links",
+          "hole": 8,
+          "sampleCount": 3,
+          "averageToPar": 0.2,
+          "worstToPar": 1,
+          "scoreDistribution": [],
+          "holeRefs": [
+            "round-a:8",
+            "round-b:8",
+            "round-c:8"
+          ]
+        },
+        "historicalHoleIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      "selectedOfflineOptionId": "stock",
+      "offlineOptions": [
+        {
+          "id": "safe",
+          "label": "Safe",
+          "clubName": "9I",
+          "carryM": 132.0,
+          "p10M": 120.0,
+          "p90M": 140.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 1.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:8"
+          ],
+          "sampleRefs": [
+            "live-round-1:8:2"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "stock",
+          "label": "Stock",
+          "clubName": "8I",
+          "carryM": 144.0,
+          "p10M": 132.0,
+          "p90M": 153.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 3.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:8"
+          ],
+          "sampleRefs": [
+            "live-round-1:8:1"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "attack",
+          "label": "Attack",
+          "clubName": "7I",
+          "carryM": 156.0,
+          "p10M": 142.0,
+          "p90M": 168.0,
+          "sampleSize": 4,
+          "confidence": "medium",
+          "coverage": {
+            "ready": 4,
+            "total": 10,
+            "pct": 40.0
+          },
+          "riskScore": 5.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:8"
+          ],
+          "sampleRefs": [
+            "live-round-1:8:3"
+          ],
+          "missingData": [
+            {
+              "label": "club_profile_sample",
+              "reason": "7I has 4/10 sampled shots for offline option confidence"
+            }
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "label": "live_round_package",
+          "value": "offline_seed"
+        },
+        {
+          "label": "history_ref",
+          "value": "live-round-1:8"
+        }
+      ],
+      "missingData": [
+        {
+          "label": "current_location",
+          "reason": "live GPS fixes distance at decision time"
+        }
+      ]
+    },
+    {
+      "hole": 9,
+      "sourceRef": "live-round-1:9",
+      "shotTypes": [
+        "tee",
+        "approach",
+        "recovery"
+      ],
+      "requiredLiveInputs": [
+        "currentLocation",
+        "lie"
+      ],
+      "context": {
+        "roundId": "live-round-1",
+        "source": "live_round_package",
+        "sourceRef": "live-round-1:9",
+        "courseName": "Fixture Links",
+        "hole": 9,
+        "globalId": 31795,
+        "localHole": 9,
+        "par": 4,
+        "yards": 400,
+        "geometry": {
+          "coverage": "ready",
+          "hasHazards": true,
+          "hasMeshes": true,
+          "hazardCount": 2,
+          "hazards": [
+            {
+              "kind": "water",
+              "id": "water-left",
+              "source": "geometry_map"
+            }
+          ]
+        },
+        "hazards": [
+          {
+            "kind": "water",
+            "id": "water-left",
+            "source": "geometry_map"
+          }
+        ],
+        "historicalHole": {
+          "courseKey": "fixture-links",
+          "hole": 9,
+          "sampleCount": 3,
+          "averageToPar": 0.2,
+          "worstToPar": 1,
+          "scoreDistribution": [],
+          "holeRefs": [
+            "round-a:9",
+            "round-b:9",
+            "round-c:9"
+          ]
+        },
+        "historicalHoleIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      "selectedOfflineOptionId": "stock",
+      "offlineOptions": [
+        {
+          "id": "safe",
+          "label": "Safe",
+          "clubName": "9I",
+          "carryM": 132.0,
+          "p10M": 120.0,
+          "p90M": 140.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 1.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:9"
+          ],
+          "sampleRefs": [
+            "live-round-1:9:2"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "stock",
+          "label": "Stock",
+          "clubName": "8I",
+          "carryM": 144.0,
+          "p10M": 132.0,
+          "p90M": 153.0,
+          "sampleSize": 24,
+          "confidence": "high",
+          "coverage": {
+            "ready": 24,
+            "total": 24,
+            "pct": 100.0
+          },
+          "riskScore": 3.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:9"
+          ],
+          "sampleRefs": [
+            "live-round-1:9:1"
+          ],
+          "missingData": []
+        },
+        {
+          "id": "attack",
+          "label": "Attack",
+          "clubName": "7I",
+          "carryM": 156.0,
+          "p10M": 142.0,
+          "p90M": 168.0,
+          "sampleSize": 4,
+          "confidence": "medium",
+          "coverage": {
+            "ready": 4,
+            "total": 10,
+            "pct": 40.0
+          },
+          "riskScore": 5.0,
+          "source": "offline_package_seed",
+          "sourceRefs": [
+            "live-round-1:9"
+          ],
+          "sampleRefs": [
+            "live-round-1:9:3"
+          ],
+          "missingData": [
+            {
+              "label": "club_profile_sample",
+              "reason": "7I has 4/10 sampled shots for offline option confidence"
+            }
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "label": "live_round_package",
+          "value": "offline_seed"
+        },
+        {
+          "label": "history_ref",
+          "value": "live-round-1:9"
         }
       ],
       "missingData": [
@@ -271,8 +1671,16 @@
       "averageScore": 82.7,
       "bestScore": 79,
       "worstScore": 86,
-      "recentScores": [81, 84, 83],
-      "roundIds": ["round-a", "round-b", "round-c"]
+      "recentScores": [
+        81,
+        84,
+        83
+      ],
+      "roundIds": [
+        "round-a",
+        "round-b",
+        "round-c"
+      ]
     },
     "rounds": [
       {
@@ -284,7 +1692,9 @@
         "toPar": 9,
         "holesCompleted": 18,
         "globalId": 31795,
-        "sourceRefs": ["round-a"]
+        "sourceRefs": [
+          "round-a"
+        ]
       },
       {
         "roundId": "round-b",
@@ -294,7 +1704,9 @@
         "par": 72,
         "toPar": 12,
         "holesCompleted": 18,
-        "sourceRefs": ["round-b"]
+        "sourceRefs": [
+          "round-b"
+        ]
       },
       {
         "roundId": "round-c",
@@ -304,12 +1716,102 @@
         "par": 72,
         "toPar": 11,
         "holesCompleted": 18,
-        "sourceRefs": ["round-c"]
+        "sourceRefs": [
+          "round-c"
+        ]
       }
     ],
     "holes": [
       {
         "number": 1,
+        "sampleCount": 3,
+        "averageToPar": 0.2,
+        "repeatedIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "number": 2,
+        "sampleCount": 3,
+        "averageToPar": 0.2,
+        "repeatedIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "number": 3,
+        "sampleCount": 3,
+        "averageToPar": 0.2,
+        "repeatedIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "number": 4,
+        "sampleCount": 3,
+        "averageToPar": 0.2,
+        "repeatedIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "number": 5,
+        "sampleCount": 3,
+        "averageToPar": 0.2,
+        "repeatedIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "number": 6,
+        "sampleCount": 3,
+        "averageToPar": 0.2,
+        "repeatedIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "number": 7,
+        "sampleCount": 3,
+        "averageToPar": 0.2,
+        "repeatedIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "number": 8,
+        "sampleCount": 3,
+        "averageToPar": 0.2,
+        "repeatedIssues": [
+          {
+            "label": "攻果岭偏短",
+            "count": 2
+          }
+        ]
+      },
+      {
+        "number": 9,
         "sampleCount": 3,
         "averageToPar": 0.2,
         "repeatedIssues": [
@@ -324,8 +1826,16 @@
   "cachedCaddieRules": {
     "decisionContract": "ai-caddie-decision-v2",
     "offlineCapable": true,
-    "requiredInputs": ["currentLocation", "hole", "clubProfiles"],
-    "degradeWhenMissing": ["geometry", "weather", "recentHistory"]
+    "requiredInputs": [
+      "currentLocation",
+      "hole",
+      "clubProfiles"
+    ],
+    "degradeWhenMissing": [
+      "geometry",
+      "weather",
+      "recentHistory"
+    ]
   },
   "generatedAt": "2026-05-25T00:00:00Z"
 }

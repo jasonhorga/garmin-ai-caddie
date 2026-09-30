@@ -32,9 +32,16 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(seed.roundId, "live-round-1")
         XCTAssertEqual(seed.courseName, "Fixture Links")
         XCTAssertEqual(seed.activeHole, 1)
-        XCTAssertEqual(seed.holes.map(\.hole), [1])
-        XCTAssertEqual(seed.holes.map(\.par), [4])
-        XCTAssertEqual(seed.holes.map(\.globalId), [31795])
+        // The fixture is the front nine (`31795:front`) of an 18-hole course: round hole n is
+        // physical hole n and shows as course hole n.
+        XCTAssertEqual(seed.holes.map(\.hole), [1, 2, 3, 4, 5, 6, 7, 8, 9])
+        XCTAssertEqual(seed.holes.map(\.par), [4, 3, 5, 4, 4, 3, 5, 4, 4])
+        XCTAssertEqual(seed.holes.map(\.globalId), [31795, 31795, 31795, 31795, 31795, 31795, 31795, 31795, 31795])
+        XCTAssertEqual(seed.holes.map(\.localHole), [1, 2, 3, 4, 5, 6, 7, 8, 9])
+        XCTAssertEqual(seed.holes.map(\.courseHoleNumber), [1, 2, 3, 4, 5, 6, 7, 8, 9])
+        XCTAssertEqual(seed.globalId, 31795)
+        XCTAssertEqual(seed.loopKey, "31795:front")
+        XCTAssertEqual(seed.schema, "ai-caddie-watch-round-seed-v2")
         XCTAssertEqual(try XCTUnwrap(seed.holes.first?.distanceM), 374.904, accuracy: 0.001)
     }
 
@@ -62,7 +69,8 @@ final class WatchEventBridgeTests: XCTestCase {
             roundId: "watch-start-round",
             courseName: "Cold GPS Links",
             teeBox: "blue",
-            globalId: 31795,
+            loopKey: "41825:back+41825:front",
+            globalId: 41825,
             activeHole: 1,
             holes: [
                 WatchRoundSeedHolePayload(
@@ -71,15 +79,23 @@ final class WatchEventBridgeTests: XCTestCase {
                     distanceM: 365,
                     teeLatitude: 40.0,
                     teeLongitude: -73.0,
-                    globalId: 31795
+                    globalId: 41825,
+                    localHole: 10,
+                    courseHoleNumber: 10
                 )
             ]
         )
         let object = try XCTUnwrap(try Self.jsonObject(from: start) as? [String: Any])
 
+        XCTAssertEqual(object["loopKey"] as? String, "41825:back+41825:front")
+        XCTAssertNil(object["nine"])
+        XCTAssertNil(object["backGlobalId"])
+
         bridge.handleWatchRoundStart(object)
 
         XCTAssertEqual(received, start)
+        XCTAssertEqual(received?.schema, "ai-caddie-watch-round-start-v2")
+        XCTAssertEqual(received?.holes.first?.localHole, 10)
     }
 
     func testWatchRoundSeedIncludesTeeCoordinateFromRealMapProjection() throws {

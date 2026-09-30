@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from ai_caddie.caddie.round_loops import RoundLoopError, validate_round_identity
+
 
 def _reject_oversized(value: Any, *, label: str, max_bytes: int = 131_072) -> Any:
     """codex MEDIUM #7: reject an arbitrarily large nested object (decision context / audit payload /
@@ -783,7 +785,8 @@ class CourseInstallStatusResponse(BaseModel):
     jobId: str
     globalId: int
     teeBox: str
-    nine: Literal["all", "front", "back"]
+    # The ordered round-loop key the job was prepared for (B4b-2), e.g. "41825:back+41825:front".
+    loopKey: str
     phase: Literal["queued", "running", "ready", "failed", "cancelled"]
     stage: str
     progress: int = Field(default=0, ge=0, le=100)
@@ -1066,10 +1069,24 @@ class VisionFindingsListResponse(BaseModel):
     target: dict[str, str]
 
 
-class LiveRoundPackageResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+class RoundLoop(BaseModel):
+    """One loop of a round in play order (B4b-2). ``roundStartHole`` is the round-number axis
+    (1 or 10); ``sourceStartHole`` is the physical axis on ``globalId`` (1 for a 9-hole loop or a
+    front half, 10 for a back half)."""
 
-    schema_: Literal["ai-caddie-live-round-package-v1"] = Field(alias="schema")
+    model_config = ConfigDict(extra="forbid")
+
+    globalId: int = Field(ge=1)
+    half: Literal["all", "front", "back"]
+    roundStartHole: Literal[1, 10]
+    sourceStartHole: Literal[1, 10]
+    holeCount: Literal[9]
+
+
+class LiveRoundPackageResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True, extra="forbid")
+
+    schema_: Literal["ai-caddie-live-round-package-v2"] = Field(alias="schema")
     roundId: str
     dataMode: ResolvedDataModeName
     sourceCoverage: dict[str, Any]
@@ -1080,7 +1097,11 @@ class LiveRoundPackageResponse(BaseModel):
     coursePrep: dict[str, Any] | None = None
     geometryCoverage: dict[str, Any]
     readinessChecks: list[dict[str, Any]] = Field(default_factory=list)
-    nine: Literal["all", "front", "back"] = "all"
+    # The round's loops in play order and their canonical key (B4b-2). Hole ``number`` is the
+    # round hole; ``sourceGlobalId`` / ``sourceLocalHole`` the physical hole; ``courseHoleNumber``
+    # the presentation number.
+    roundLoops: list[RoundLoop]
+    loopKey: str
     caddieContextSeeds: list[dict[str, Any]]
     enrichmentState: dict[str, Any] | None = None
     weatherSnapshot: dict[str, Any]
@@ -1095,6 +1116,26 @@ class LiveRoundPackageResponse(BaseModel):
     # Present when the caller requested a background course install. Older iOS/Watch clients ignore
     # unknown JSON keys; the field is intentionally public-progress only (no player data).
     courseInstallJob: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _round_identity_is_complete(self) -> "LiveRoundPackageResponse":
+        # A degraded package with no playable hole names no loop. Any playable hole requires the
+        # complete B4b-2 invariant: 1–2 loops starting on round holes 1 then 10, nine holes per
+        # loop, half/source-start pairing, the canonical loopKey, unique hole numbers, and every
+        # hole matching its table row.
+        if not self.holes:
+            if self.roundLoops or self.loopKey:
+                raise ValueError("a package without holes names no loop")
+            return self
+        try:
+            validate_round_identity(
+                [loop.model_dump() for loop in self.roundLoops],
+                self.loopKey,
+                self.holes,
+            )
+        except RoundLoopError as exc:
+            raise ValueError(str(exc)) from exc
+        return self
 
 
 class MobileCourseOption(BaseModel):

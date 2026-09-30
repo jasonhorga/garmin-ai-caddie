@@ -90,9 +90,9 @@ public final class WatchRoundStore {
         /// Optional setup identity used to resume the exact cached front/back/Tee template.
         /// These keys are absent in older persisted rounds and are intentionally nullable.
         public var courseGlobalId: Int?
-        public var backCourseGlobalId: Int?
         public var teeBox: String?
-        public var nine: String?
+        /// The round's canonical ordered loop key (B4b-2). Nil for rounds persisted before it.
+        public var loopKey: String?
         /// In-progress user facts are optional so rounds written by older app versions still decode.
         public var pendingManualShot: WatchPendingManualShot?
         public var pendingAutoShotCandidate: WatchPendingAutoShotCandidate?
@@ -108,9 +108,8 @@ public final class WatchRoundStore {
             pendingEvents: [WatchInputEvent] = [],
             courseName: String? = nil,
             courseGlobalId: Int? = nil,
-            backCourseGlobalId: Int? = nil,
             teeBox: String? = nil,
-            nine: String? = nil,
+            loopKey: String? = nil,
             pendingManualShot: WatchPendingManualShot? = nil,
             pendingAutoShotCandidate: WatchPendingAutoShotCandidate? = nil,
             scoreDraft: WatchScoreDraft? = nil,
@@ -122,9 +121,8 @@ public final class WatchRoundStore {
             self.pendingEvents = pendingEvents
             self.courseName = courseName
             self.courseGlobalId = courseGlobalId
-            self.backCourseGlobalId = backCourseGlobalId
             self.teeBox = teeBox
-            self.nine = nine
+            self.loopKey = loopKey
             self.pendingManualShot = pendingManualShot
             self.pendingAutoShotCandidate = pendingAutoShotCandidate
             self.scoreDraft = scoreDraft
@@ -150,16 +148,23 @@ public final class WatchRoundStore {
 
     // MARK: persistence
 
+    /// The active-round load boundary (B4b-2 §6/§8). A round whose loop key or physical hole table
+    /// is missing or contradictory is never restored: it is removed from disk, so setup starts over
+    /// and the course is downloaded again. Nothing is re-derived from round hole numbers.
     public func load() -> PersistedRound? {
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        guard let round = try? decoder.decode(PersistedRound.self, from: data),
-              !isClosed(roundId: round.roundId) else {
+        guard let data = try? Data(contentsOf: fileURL),
+              let round = try? decoder.decode(PersistedRound.self, from: data) else { return nil }
+        guard round.hasValidIdentity else {
+            try? FileManager.default.removeItem(at: fileURL)
             return nil
         }
+        guard !isClosed(roundId: round.roundId) else { return nil }
         return round
     }
 
+    /// Every write (seed, score/event, phone snapshot, map upgrade, turn) passes the same gate.
     public func save(_ round: PersistedRound) throws {
+        try round.validateIdentity()
         try encoder.encode(round).write(to: fileURL, options: [.atomic])
     }
 
@@ -342,5 +347,61 @@ public final class WatchRoundStore {
 
     public func holeState(hole: Int) -> WatchRoundState? {
         load()?.holeStates.first { $0.hole == hole }
+    }
+}
+
+/// The one active-round identity validator, shared by `WatchRoundStore.load` / `save` and the model's
+/// seed paths. It uses the canonical loop-key table (`WatchCourseSelection.roundRows`, the same row
+/// rule as packages and templates):
+/// - a course round names a canonical, parseable `loopKey` (one or two 18-hole halves of one
+///   course, or one or two nine-hole `all` loops);
+/// - the holes are exactly that table's round positions (non-empty, no gaps or duplicates), the
+///   active hole is one of them, and every snapshot's `roundId` is the round's;
+/// - each hole's `globalId`, `sourceLocalHole` and `courseHoleNumber` are present and equal its row;
+/// - `courseGlobalId`, when present, is the first loop's course.
+/// A score-only practice round (no loop key, no course id, no hole with any course identity) has
+/// no physical table to check and stays valid.
+extension WatchRoundStore.PersistedRound {
+    public func validateIdentity() throws {
+        // Every snapshot belongs to this round, course or score-only.
+        guard holeStates.allSatisfy({ $0.roundId == roundId }) else {
+            throw WatchRoundIdentityError.invalidRoundLoops
+        }
+        guard let loopKey else {
+            let carriesCourseIdentity = courseGlobalId != nil || holeStates.contains {
+                $0.globalId != nil || $0.sourceLocalHole != nil || $0.courseHoleNumber != nil
+            }
+            if carriesCourseIdentity { throw WatchRoundIdentityError.nonCanonicalLoopKey }
+            return
+        }
+        guard let rows = WatchCourseSelection.roundRows(loopKey: loopKey) else {
+            throw WatchRoundIdentityError.nonCanonicalLoopKey
+        }
+        if let courseGlobalId, courseGlobalId != rows.first?.globalId {
+            throw WatchRoundIdentityError.invalidRoundLoops
+        }
+        var byNumber: [Int: WatchTemplateHoleRow] = [:]
+        for row in rows { byNumber[row.number] = row }
+        var seen = Set<Int>()
+        for state in holeStates {
+            guard seen.insert(state.hole).inserted,
+                  let row = byNumber[state.hole],
+                  state.globalId == row.globalId,
+                  state.sourceLocalHole == row.sourceLocalHole,
+                  state.courseHoleNumber == row.courseHoleNumber else {
+                throw WatchRoundIdentityError.holeDoesNotMatchItsLoop(state.hole)
+            }
+        }
+        // A course round holds its complete table (1–9 or 1–18) and plays one of its holes.
+        guard !holeStates.isEmpty, seen == Set(byNumber.keys) else {
+            throw WatchRoundIdentityError.invalidRoundLoops
+        }
+        guard seen.contains(activeHole) else {
+            throw WatchRoundIdentityError.holeDoesNotMatchItsLoop(activeHole)
+        }
+    }
+
+    public var hasValidIdentity: Bool {
+        (try? validateIdentity()) != nil
     }
 }

@@ -13,9 +13,16 @@ from fastapi.testclient import TestClient
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
 from server_v2.readiness import build_readiness_response
+from tests.round_loop_authority import fixture_course_authority
 
 
 class ServerV2ReadinessTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Fixture history courses have no CourseView release here; stand in for it (B4b-2).
+        authority = fixture_course_authority()
+        authority.start()
+        self.addCleanup(authority.stop)
+
     def _write_backup_manifest(self, path: Path, created_at: datetime) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         snapshot = path.parent / "ai-caddie-snapshot.tar.gz"

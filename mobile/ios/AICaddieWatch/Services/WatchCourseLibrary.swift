@@ -44,21 +44,32 @@ public final class WatchCourseLibrary: ObservableObject {
     private let imageStore: WatchHoleImageStore
     private let makeRoundId: () -> String
     private let now: () -> String
+    /// Tests inject a stubbed transport; production builds the default URLSession client.
+    private let clientFactory: ((WatchRoundConfig) -> WatchBackendClient)?
+    /// The precise-upgrade backoff sleep (tests replace it; production waits the real delays).
+    private let retrySleep: (UInt64) async throws -> Void
     private var refreshRequestToken: UUID?
     private var nearbyRequestToken: UUID?
     private var searchRequestToken: UUID?
     private var teeRequestToken: UUID?
+    /// Background whole-course template installs (B4b-2 §7), keyed by the canonical template's
+    /// cache key. An entry exists only while its install runs, so a failure can retry later.
+    private var wholeTemplateTasks: [String: Task<Void, Never>] = [:]
 
     public init(
         store: WatchCourseStore = WatchCourseStore(),
         imageStore: WatchHoleImageStore = WatchHoleImageStore(),
         makeRoundId: @escaping () -> String = { "watch-\(UUID().uuidString)" },
-        now: @escaping () -> String = { ISO8601DateFormatter().string(from: Date()) }
+        now: @escaping () -> String = { ISO8601DateFormatter().string(from: Date()) },
+        clientFactory: ((WatchRoundConfig) -> WatchBackendClient)? = nil,
+        retrySleep: @escaping (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }
     ) {
         self.store = store
         self.imageStore = imageStore
         self.makeRoundId = makeRoundId
         self.now = now
+        self.clientFactory = clientFactory
+        self.retrySleep = retrySleep
         let cached = store.loadCourses()
         courses = Self.uniqueOptions(from: cached.flatMap { [$0.option, $0.backOption].compactMap { $0 } })
         cachedCourseIds = Set(cached.compactMap {
@@ -268,6 +279,9 @@ public final class WatchCourseLibrary: ObservableObject {
                 return nil
             }
             errorMessage = nil
+            if let config {
+                enqueueWholeCourseTemplate(for: selection, config: config)
+            }
             // The selected option is the current backend catalogue row. A cached
             // template may predate the canonical-name contract, so never let its
             // persisted display string override the current selection.
@@ -277,6 +291,15 @@ public final class WatchCourseLibrary: ObservableObject {
             )
         }
         guard let config else {
+            // A half of an 18-hole course can be composed from an installed whole-course template
+            // (same physical holes, renumbered); anything else is honestly unavailable offline.
+            if let projected = projectedTemplate(loopKey: selection.loopKey, teeBox: selection.teeBox) {
+                errorMessage = nil
+                return projected.makeRound(
+                    roundId: makeRoundId(),
+                    courseName: Self.immediateCourseName(selection, fallback: projected.courseName)
+                )
+            }
             errorMessage = "这个洞组和发球台尚未下载，请联网后重试"
             return nil
         }
@@ -293,6 +316,7 @@ public final class WatchCourseLibrary: ObservableObject {
                 includePreparedGeometry: false
             )
             try persist(download)
+            enqueueWholeCourseTemplate(for: selection, config: config)
             return download.template.makeRound(roundId: roundId)
         } catch {
             errorMessage = "球场下载失败，请保持联网后重试"
@@ -306,9 +330,12 @@ public final class WatchCourseLibrary: ObservableObject {
     /// still starts and the range screen can honestly show 999 until package facts arrive. The
     /// provisional template is persisted so the existing active-round upgrade task can resume after
     /// a process kill; it is replaced by the real package using the same round id.
+    ///
+    /// Fails closed (nil + `errorMessage`) when the selection's validated hole table cannot be built
+    /// or the provisional template cannot be persisted: no round starts on invented hole identity.
     public func startCourseImmediately(
         _ selection: WatchCourseSelection
-    ) -> WatchPreparedCourse {
+    ) -> WatchPreparedCourse? {
         var incompleteCachedHoles: [Int] = []
         if let cached = store.course(selection: selection) {
             if Self.preciseTemplateReady(cached, imageStore: imageStore) {
@@ -335,16 +362,37 @@ public final class WatchCourseLibrary: ObservableObject {
             )
         }
 
+        if let projected = projectedTemplate(loopKey: selection.loopKey, teeBox: selection.teeBox) {
+            errorMessage = nil
+            diagnosticErrorMessage = nil
+            courses = Self.uniqueOptions(from: [projected.option] + courses)
+            return projected.makeRound(
+                roundId: makeRoundId(),
+                courseName: Self.immediateCourseName(selection, fallback: projected.courseName)
+            )
+        }
+
         let roundId = makeRoundId()
-        let frontCount = max(1, selection.front.playableHoleCount)
-        let totalCount = max(frontCount + (selection.back?.playableHoleCount ?? 0), 1)
         let frontOption = selection.front.withTees([], selectedTee: selection.teeBox)
         let backOption = selection.back?.withTees([], selectedTee: selection.teeBox)
-        let states = (1...totalCount).map { number in
-            let option = number <= frontCount ? frontOption : (backOption ?? frontOption)
-            return WatchRoundState(
+        // The provisional table already has the round's physical identity (后九 round hole 1 is
+        // physical hole 10), so the persisted bootstrap passes the same load-boundary validation.
+        let rows: [WatchTemplateHoleRow]
+        do {
+            rows = try WatchCourseTemplate.expectedRows(
+                option: frontOption,
+                backOption: backOption,
+                loopKey: selection.loopKey
+            )
+        } catch {
+            errorMessage = Self.malformedSelectionMessage
+            diagnosticErrorMessage = "\(errorMessage!): \(selection.loopKey) · \(error)"
+            return nil
+        }
+        let states = rows.map { row in
+            WatchRoundState(
                 roundId: roundId,
-                hole: number,
+                hole: row.number,
                 // Par is explicitly provisional until the package arrives. It is never used for a
                 // caddie recommendation while geometryCoverage is pending, and the package upgrade
                 // replaces it with Garmin's factual Par before normal scoring is presented.
@@ -352,7 +400,9 @@ public final class WatchCourseLibrary: ObservableObject {
                 distanceM: nil,
                 selectedClub: nil,
                 missingDataSummary: "球场数据正在补齐",
-                globalId: option.globalId,
+                globalId: row.globalId,
+                sourceLocalHole: row.sourceLocalHole,
+                courseHoleNumber: row.courseHoleNumber,
                 geometryCoverage: "pending",
                 score: 0,
                 putts: 0,
@@ -367,13 +417,22 @@ public final class WatchCourseLibrary: ObservableObject {
         let template = WatchCourseTemplate(
             option: frontOption,
             backOption: backOption,
+            loopKey: selection.loopKey,
             courseName: courseName,
             teeBox: selection.teeBox,
             holeStates: states,
             cachedAt: now()
         )
         // A fresh setup (or no cache) persists the provisional identity for process-kill recovery.
-        try? store.save(template)
+        // Without it the background upgrade and a relaunch could not find this round's table, so
+        // an unpersisted template never starts a round.
+        do {
+            try store.save(template)
+        } catch {
+            errorMessage = Self.provisionalSaveFailedMessage
+            diagnosticErrorMessage = "\(errorMessage!): \(error.localizedDescription)"
+            return nil
+        }
         courses = Self.uniqueOptions(from: [frontOption, backOption].compactMap { $0 } + courses)
         errorMessage = nil
         diagnosticErrorMessage = incompleteCachedHoles.isEmpty
@@ -381,6 +440,9 @@ public final class WatchCourseLibrary: ObservableObject {
             : "球场数据后台补齐中：第 \(Self.holeList(incompleteCachedHoles)) 洞"
         return template.makeRound(roundId: roundId)
     }
+
+    static let malformedSelectionMessage = "这个洞组的球洞信息不完整，无法开局；请返回重新选择"
+    static let provisionalSaveFailedMessage = "本机无法保存球场数据，暂未开局，请重试"
 
     /// Resolve the provisional name used before the backend package arrives.
     /// `WatchCourseOption.name` is already the backend canonical display value;
@@ -418,10 +480,30 @@ public final class WatchCourseLibrary: ObservableObject {
         roundId: String,
         config: WatchRoundConfig?,
         priorityHole: Int? = nil,
-        onProgress: (([WatchRoundState]) -> Void)? = nil
+        onProgress: (([WatchRoundState]) -> Void)? = nil,
+        onFirstAttemptFinished: (() -> Void)? = nil
     ) async -> WatchPreparedCourse? {
         guard let config else { return nil }
         var shouldQueueGeometry = true
+        // Lower-priority follow-up work (the whole-course template) is released once this round's
+        // own first pass — priority hole first — has genuinely finished, successfully or not, and
+        // at the latest when this upgrade ends. A cancelled upgrade (the round ended, was replaced
+        // or changed its loop key) never releases it: the abandoned course is not downloaded.
+        // While the first pass runs, background template installs hold their next request.
+        beginActiveFirstPass()
+        var firstPassOpen = true
+        var followUpReleased = false
+        var cancelled = false
+        func finishFirstPass(releasingFollowUp: Bool) {
+            if firstPassOpen {
+                firstPassOpen = false
+                endActiveFirstPass()
+            }
+            guard releasingFollowUp, !cancelled, !Task.isCancelled, !followUpReleased else { return }
+            followUpReleased = true
+            onFirstAttemptFinished?()
+        }
+        defer { finishFirstPass(releasingFollowUp: true) }
 
         for attempt in 0..<Self.preciseUpgradeMaximumAttempts {
             guard !Task.isCancelled else { return nil }
@@ -461,10 +543,16 @@ public final class WatchCourseLibrary: ObservableObject {
                     return prepared
                 }
             } catch {
+                // Cancellation is the owner ending this upgrade, not a failed attempt.
+                if Task.isCancelled || Self.isCancellation(error) {
+                    cancelled = true
+                    return nil
+                }
                 // The lightweight template remains playable. Retry below without replacing the
                 // active-round screen with a transient network error. The status probe below is
                 // read-only, so a failed attempt never clears a partial Watch cache.
             }
+            finishFirstPass(releasingFollowUp: true)
 
             // The server journal is a scheduler hint, not a second local package store. When the
             // precise upgrade has to retry, consult it best-effort so a durable queued/running job
@@ -484,9 +572,7 @@ public final class WatchCourseLibrary: ObservableObject {
 
             guard attempt < Self.preciseUpgradeRetryDelaysSeconds.count else { break }
             do {
-                try await Task.sleep(
-                    nanoseconds: Self.preciseUpgradeRetryDelaysSeconds[attempt] * 1_000_000_000
-                )
+                try await retrySleep(Self.preciseUpgradeRetryDelaysSeconds[attempt] * 1_000_000_000)
             } catch {
                 return nil
             }
@@ -496,13 +582,13 @@ public final class WatchCourseLibrary: ObservableObject {
     }
 
     /// Resume a precise-map download for an already-started/restored round. The immutable cached
-    /// template retains the chosen Tee and optional back nine, so the app can recover after being
-    /// killed without asking the golfer to choose the course again.
+    /// template retains the chosen Tee and loop key, so the app can recover after being killed
+    /// without asking the golfer to choose the course again.
     public func upgradeCachedCourseWhenReady(
         globalId: Int,
         roundId: String,
         config: WatchRoundConfig?,
-        backGlobalId: Int? = nil,
+        loopKey: String? = nil,
         teeBox: String? = nil,
         priorityHole: Int? = nil,
         onProgress: (([WatchRoundState]) -> Void)? = nil
@@ -511,28 +597,25 @@ public final class WatchCourseLibrary: ObservableObject {
             return nil
         }
         let cached: WatchCourseTemplate?
-        if backGlobalId != nil || teeBox != nil {
-            cached = store.course(
-                frontGlobalId: globalId,
-                backGlobalId: backGlobalId,
-                teeBox: teeBox
-            )
+        if let loopKey {
+            cached = store.course(loopKey: loopKey, teeBox: teeBox)
         } else {
             cached = store.compositeCourse(containingGlobalId: globalId)
         }
         guard let cached else { return nil }
-        let selection = WatchCourseSelection(
-            front: cached.option,
-            back: cached.backOption,
-            teeBox: cached.teeBox,
-            ensureGeometry: true
-        )
+        let selection = WatchCourseSelection(template: cached, ensureGeometry: true)
+        // The active round keeps upgrading its own ordered key, priority hole first. Only after
+        // that first pass is the whole-course template for an offline turn queued — separately,
+        // never touching this round.
         return await upgradeCourseWhenReady(
             selection,
             roundId: roundId,
             config: config,
             priorityHole: priorityHole,
-            onProgress: onProgress
+            onProgress: onProgress,
+            onFirstAttemptFinished: { [weak self] in
+                self?.enqueueWholeCourseTemplate(for: selection, config: config)
+            }
         )
     }
 
@@ -549,19 +632,350 @@ public final class WatchCourseLibrary: ObservableObject {
               let cached = store.course(selection: selection) else {
             return nil
         }
-        let cachedSelection = WatchCourseSelection(
-            front: cached.option,
-            back: cached.backOption,
-            teeBox: cached.teeBox,
-            ensureGeometry: true
-        )
+        let cachedSelection = WatchCourseSelection(template: cached, ensureGeometry: true)
         return await upgradeCourseWhenReady(
             cachedSelection,
             roundId: roundId,
             config: config,
             priorityHole: priorityHole,
-            onProgress: onProgress
+            onProgress: onProgress,
+            onFirstAttemptFinished: { [weak self] in
+                self?.enqueueWholeCourseTemplate(for: cachedSelection, config: config)
+            }
         )
+    }
+
+    // MARK: - whole-course template acquisition (B4b-2 §7)
+
+    /// After a round starts on one half of an 18-hole course (`G:back`), acquire that course's
+    /// canonical whole-course template (`G:front+G:back`, the iPhone's `enqueueWholeCourseTemplates`)
+    /// in the background so a later offline turn can project either half — the other one or the
+    /// same one again — from installed physical holes.
+    ///
+    /// Independent of the active round: its own request id (`watch-template-…`), its own cache key,
+    /// never `round.json` and never the round's `loopKey`. Skipped when a complete template for the
+    /// course and Tee is already installed; a failed install simply ends and may run again later.
+    public func enqueueWholeCourseTemplate(for selection: WatchCourseSelection, config: WatchRoundConfig) {
+        guard selection.firstHalf != nil else { return }
+        let whole = WatchCourseSelection(front: selection.front, teeBox: selection.teeBox)
+        guard whole.loopKey != selection.loopKey else { return }
+        let key = WatchCourseTemplate.cacheKey(loopKey: whole.loopKey, teeBox: whole.teeBox)
+        guard wholeTemplateTasks[key] == nil,
+              wholeTemplateInstallState(whole) != .assetsInstalled else { return }
+        // Below active-round work: a low task priority, and every request waits for any active
+        // upgrade's first pass (its priority hole) to finish.
+        wholeTemplateTasks[key] = Task(priority: .utility) { @MainActor [weak self] in
+            guard let self else { return }
+            await self.installWholeCourseTemplate(whole, config: config)
+            self.wholeTemplateTasks[key] = nil
+        }
+    }
+
+    /// Active upgrades whose first pass (priority hole first) is still running.
+    private var activeFirstPasses = 0
+    private var activeFirstPassWaiters: [CheckedContinuation<Void, Never>] = []
+
+    private func beginActiveFirstPass() {
+        activeFirstPasses += 1
+    }
+
+    private func endActiveFirstPass() {
+        activeFirstPasses = max(0, activeFirstPasses - 1)
+        guard activeFirstPasses == 0 else { return }
+        let waiters = activeFirstPassWaiters
+        activeFirstPassWaiters = []
+        waiters.forEach { $0.resume() }
+    }
+
+    /// Background template work yields to every running active first pass.
+    private func waitForActiveFirstPasses() async {
+        while activeFirstPasses > 0 {
+            await withCheckedContinuation { continuation in
+                activeFirstPassWaiters.append(continuation)
+            }
+        }
+    }
+
+    static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        return false
+    }
+
+    /// Await every running whole-course template install (tests, and callers that must know the
+    /// offline turn source is durable).
+    public func waitForWholeCourseTemplateInstalls() async {
+        while let task = wholeTemplateTasks.values.first {
+            await task.value
+        }
+    }
+
+    /// How far a course's whole-course template install has got.
+    enum WholeTemplateInstallState: Equatable {
+        /// No usable whole-course template for this course and Tee.
+        case missing
+        /// The package facts are durable (enough for an offline turn), but the precise prep /
+        /// topo assets are not: a later enqueue or relaunch retries them.
+        case packageInstalled
+        /// Package, geometry and every raster are installed (`preciseTemplateReady`).
+        case assetsInstalled
+    }
+
+    func wholeTemplateInstallState(_ whole: WatchCourseSelection) -> WholeTemplateInstallState {
+        let installed = store.loadCourses().filter { template in
+            template.loopKey == whole.loopKey
+                && WatchCourseSelection.normalizedTeeKey(template.teeBox) == whole.normalizedTeeKey
+                && !template.holeStates.contains {
+                    $0.geometryCoverage?.caseInsensitiveCompare("pending") == .orderedSame
+                }
+        }
+        if installed.contains(where: { Self.preciseTemplateReady($0, imageStore: imageStore) }) {
+            return .assetsInstalled
+        }
+        return installed.isEmpty ? .missing : .packageInstalled
+    }
+
+    /// Background-only: never reads, writes or restores the active round's user-facing
+    /// `diagnosticErrorMessage` (its downloads run with `reportsDiagnostics: false`).
+    ///
+    /// Priority guarantee: immediately before every request this install issues — each package,
+    /// each prep batch (including the concurrent ones) and each topo raster — it waits until no
+    /// active upgrade's first pass (priority hole first) is running. An active pass that begins
+    /// while this install is mid-pipeline therefore gets every one of its first-pass requests out
+    /// before the install's next request. A request already in flight is not interrupted, and a
+    /// transport-level retry of that same request is not re-gated.
+    private func installWholeCourseTemplate(
+        _ whole: WatchCourseSelection,
+        config: WatchRoundConfig
+    ) async {
+        let templateRoundId = "watch-template-\(whole.front.globalId)-\(makeRoundId())"
+        let yieldToActiveRound: () async -> Void = { [weak self] in
+            await self?.waitForActiveFirstPasses()
+        }
+        if wholeTemplateInstallState(whole) == .missing {
+            do {
+                // Durable first: the package facts alone are enough to project a turn offline.
+                let lightweight = try await fetchCourseDownload(
+                    whole,
+                    roundId: templateRoundId,
+                    config: config,
+                    backgroundGeometry: true,
+                    includePreparedGeometry: false,
+                    reportsDiagnostics: false,
+                    beforeEachRequest: yieldToActiveRound
+                )
+                try persistTemplate(lightweight)
+            } catch {
+                return
+            }
+        }
+        // The prep / topo assets the builder needs for precise offline maps. A failure keeps the
+        // durable package template; the install state stays `packageInstalled`, so a later enqueue
+        // or relaunch retries exactly this step.
+        if let precise = try? await fetchCourseDownload(
+            whole,
+            roundId: templateRoundId,
+            config: config,
+            backgroundGeometry: false,
+            includePreparedGeometry: true,
+            reportsDiagnostics: false,
+            beforeEachRequest: yieldToActiveRound
+        ) {
+            try? persistTemplate(precise)
+        }
+    }
+
+    /// Persist a template that is not the active round's: images and the template only. It can
+    /// earn the downloaded badge but never clears one another template earned.
+    private func persistTemplate(_ download: WatchCourseDownload) throws {
+        for image in download.images {
+            try imageStore.store(
+                data: image.data,
+                globalId: image.globalId,
+                hole: image.hole,
+                geometryRevision: image.geometryRevision
+            )
+        }
+        try store.save(download.template)
+        if Self.preciseTemplateReady(download.template, imageStore: imageStore) {
+            cachedCourseIds.insert(download.template.option.globalId)
+        }
+    }
+
+    // MARK: - the turn (B4b-2 §7)
+
+    /// Round holes 10–18 for the second nine of a round started on one half of an 18-hole course.
+    ///
+    /// Online, the turn requests the ordered package `loops=G:first,G:second` for the same round id
+    /// (the server's table is the authority) and caches it under `G:first+G:second`. Offline — or when
+    /// that request fails — it composes the same table from installed facts: the physical holes of
+    /// the chosen half are taken (by `sourceLocalHole`) from a downloaded template of this course and
+    /// Tee, normally the whole-course `G:front+G:back` template, and renumbered 10–18. Without either
+    /// source the result is `.unavailable`; holes are never invented.
+    public func secondLoop(
+        _ request: WatchSecondLoopRequest,
+        config: WatchRoundConfig?
+    ) async -> WatchSecondLoopResult {
+        guard let loopKey = request.loopKey,
+              let loop = WatchCourseSelection.halfLoop(loopKey: loopKey),
+              loop.halves.count == 2 else {
+            return .unavailable("这一局不能接着打第二个 9 洞")
+        }
+        let secondName = WatchCourseSelection.halfName(loop.halves[1])
+        let firstTemplate = store.course(loopKey: request.firstLoopKey, teeBox: request.teeBox)
+        let teeBox = request.teeBox ?? firstTemplate?.teeBox
+
+        if let config {
+            var knownOption: WatchCourseOption? = firstTemplate?.option
+            if knownOption == nil {
+                knownOption = store.loadCourses().first { template in
+                    template.option.globalId == loop.globalId
+                        && template.backOption == nil
+                        && template.option.playableHoleCount == 18
+                }?.option
+            }
+            if knownOption == nil {
+                knownOption = courses.first { $0.globalId == loop.globalId && $0.playableHoleCount == 18 }
+            }
+            let option = knownOption
+                ?? WatchCourseOption(globalId: loop.globalId, name: "", holes: 18, segmentHoles: 18)
+            let selection = WatchCourseSelection(
+                front: option,
+                teeBox: teeBox ?? option.preferredTee,
+                firstHalf: loop.halves[0],
+                secondHalf: loop.halves[1]
+            )
+            do {
+                let download = try await fetchCourseDownload(
+                    selection,
+                    roundId: request.roundId,
+                    config: config,
+                    backgroundGeometry: true,
+                    includePreparedGeometry: false
+                )
+                try persist(download)
+                let states = Self.secondLoopStates(
+                    download.template.makeRound(roundId: request.roundId).holeStates,
+                    loop: loop
+                )
+                if let states {
+                    errorMessage = nil
+                    return .ready(loopKey: loopKey, holeStates: states)
+                }
+            } catch {
+                diagnosticErrorMessage = "第二个 9 洞下载失败: \(error.localizedDescription)"
+            }
+        }
+
+        if let projected = projectedTemplate(loopKey: loopKey, teeBox: teeBox),
+           let states = Self.secondLoopStates(
+               projected.makeRound(roundId: request.roundId).holeStates,
+               loop: loop
+           ) {
+            errorMessage = nil
+            return .ready(loopKey: loopKey, holeStates: states)
+        }
+        return .unavailable(config == nil
+            ? "离线：本机没有这座球场的整场下载，暂时无法接着打\(secondName)。联网后重试。"
+            : "无法获取\(secondName)的球场数据，请检查网络后重试。")
+    }
+
+    /// Holes 10–18 of an ordered two-half table, checked against the chosen half's physical holes.
+    private static func secondLoopStates(
+        _ states: [WatchRoundState],
+        loop: (globalId: Int, halves: [String])
+    ) -> [WatchRoundState]? {
+        let second = states.filter { $0.hole >= 10 }.sorted { $0.hole < $1.hole }
+        let start = WatchCourseSelection.physicalStartHole(loop.halves[1])
+        guard second.map(\.hole) == Array(10...18) else { return nil }
+        for (offset, state) in second.enumerated() {
+            guard state.globalId == loop.globalId,
+                  state.sourceLocalHole == start + offset else { return nil }
+        }
+        return second
+    }
+
+    /// Compose an ordered-half template (`G:back`, `G:back+G:front`, `G:front+G:front`, ...) from
+    /// physical holes already installed on this Watch for the same course and Tee, persist it under
+    /// its own loop key and return it. The whole-course template (`G:front+G:back`) is preferred as
+    /// the source; any other downloaded template of the course contributes the physical holes it
+    /// holds. Provisional (`pending`) rows are never a source. Returns nil unless every needed
+    /// physical hole is available — the result is the same `number → (sourceGlobalId,
+    /// sourceLocalHole, courseHoleNumber)` table the server builds for that loop key.
+    func projectedTemplate(loopKey: String, teeBox: String?) -> WatchCourseTemplate? {
+        guard let loop = WatchCourseSelection.halfLoop(loopKey: loopKey) else { return nil }
+        let wholeKey = "\(loop.globalId):front+\(loop.globalId):back"
+        let teeKey = WatchCourseSelection.normalizedTeeKey(teeBox)
+        let sources = store.loadCourses()
+            .filter {
+                $0.option.globalId == loop.globalId
+                    && $0.backOption == nil
+                    && $0.loopKey != loopKey
+                    && WatchCourseSelection.normalizedTeeKey($0.teeBox) == teeKey
+            }
+            .sorted { ($0.loopKey == wholeKey ? 0 : 1) < ($1.loopKey == wholeKey ? 0 : 1) }
+        guard let base = sources.first else { return nil }
+
+        // physical hole → (state, the source template's round hole that holds its raster)
+        var physical: [Int: (state: WatchRoundState, sourceHole: Int)] = [:]
+        for template in sources {
+            for state in template.holeStates {
+                guard state.geometryCoverage?.caseInsensitiveCompare("pending") != .orderedSame,
+                      state.globalId == loop.globalId,
+                      let local = state.sourceLocalHole ?? (template.loopKey == wholeKey ? state.hole : nil),
+                      (1...18).contains(local),
+                      physical[local] == nil else { continue }
+                physical[local] = (state: state, sourceHole: state.hole)
+            }
+        }
+
+        var states: [WatchRoundState] = []
+        for (index, half) in loop.halves.enumerated() {
+            let start = WatchCourseSelection.physicalStartHole(half)
+            for offset in 0..<9 {
+                guard let source = physical[start + offset] else { return nil }
+                let number = 1 + index * 9 + offset
+                // A half is printed as its physical hole (courseHoleNumber = sourceLocalHole).
+                states.append(source.state.replacingRoundId(
+                    "template",
+                    hole: number,
+                    sourceLocalHole: start + offset,
+                    courseHoleNumber: start + offset
+                ))
+                // Rasters are stored by (course, round hole, revision). Give the renumbered hole its
+                // own copy; without a revision the key could collide with another physical hole's
+                // image, so the vector map is kept and the precise upgrade fetches the raster.
+                if number != source.sourceHole,
+                   let revision = source.state.geometryRevision,
+                   !revision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let data = imageStore.data(
+                       globalId: loop.globalId,
+                       hole: source.sourceHole,
+                       geometryRevision: revision
+                   ) {
+                    try? imageStore.store(
+                        data: data,
+                        globalId: loop.globalId,
+                        hole: number,
+                        geometryRevision: revision
+                    )
+                }
+            }
+        }
+
+        let template = WatchCourseTemplate(
+            option: base.option,
+            loopKey: loopKey,
+            courseName: base.courseName,
+            teeBox: base.teeBox,
+            holeStates: states,
+            cachedAt: now()
+        )
+        try? store.save(template)
+        if Self.preciseTemplateReady(template, imageStore: imageStore) {
+            cachedCourseIds.insert(template.option.globalId)
+        }
+        return template
     }
 
     private func fetchCourseDownload(
@@ -571,17 +985,25 @@ public final class WatchCourseLibrary: ObservableObject {
         backgroundGeometry: Bool,
         includePreparedGeometry: Bool,
         priorityHole: Int? = nil,
+        reportsDiagnostics: Bool = true,
+        beforeEachRequest: (() async -> Void)? = nil,
         onProgress: ((WatchCourseDownload) -> Void)? = nil
     ) async throws -> WatchCourseDownload {
         let client = makeClient(config)
+        await beforeEachRequest?()
         let package = try await client.fetchCoursePackage(
             globalId: selection.front.globalId,
             roundId: roundId,
             teeBox: selection.teeBox,
-            backGlobalId: selection.back?.globalId,
+            loops: selection.loopsQuery,
             ensureGeometry: false,
             backgroundGeometry: backgroundGeometry
         )
+        // The template is cached under the requested ordered loop key; a package for any other
+        // loops (e.g. a server that ignored `loops=G:back`) must never be stored under it.
+        guard package.loopKey == selection.loopKey else {
+            throw WatchRoundIdentityError.nonCanonicalLoopKey
+        }
 
         // The fast package may already contain a drawable first-hole CourseView seed. Keep it in
         // the same source-global/local dictionary used by the full prep path so a cold start can
@@ -595,22 +1017,25 @@ public final class WatchCourseLibrary: ObservableObject {
             let lightweight = try WatchCourseTemplateBuilder.build(
                 option: selection.front,
                 backOption: selection.back,
+                loopKey: selection.loopKey,
                 package: package,
                 prepsByGlobalId: preps,
                 topoImagesByGlobalId: [:],
                 selectedTee: selection.teeBox,
                 cachedAt: now()
             )
-            let missing = Self.missingPreciseHoles(in: lightweight)
-            diagnosticErrorMessage = "地图后台准备中：第 \(Self.holeList(missing)) 洞"
+            if reportsDiagnostics {
+                let missing = Self.missingPreciseHoles(in: lightweight)
+                diagnosticErrorMessage = "地图后台准备中：第 \(Self.holeList(missing)) 洞"
+            }
             return lightweight
         }
 
         var requestedByGlobalId: [Int: Set<Int>] = [:]
         var displayHoleByGlobalId: [Int: [Int: Int]] = [:]
         for hole in package.holes {
-            let globalId = hole.sourceGlobalId ?? package.course.globalId
-            let localHole = hole.sourceLocalHole ?? hole.number
+            let globalId = hole.sourceGlobalId
+            let localHole = hole.sourceLocalHole
             requestedByGlobalId[globalId, default: []].insert(localHole)
             displayHoleByGlobalId[globalId, default: [:]][localHole] = hole.number
         }
@@ -620,6 +1045,7 @@ public final class WatchCourseLibrary: ObservableObject {
             let partial = try WatchCourseTemplateBuilder.build(
                 option: selection.front,
                 backOption: selection.back,
+                loopKey: selection.loopKey,
                 package: package,
                 prepsByGlobalId: preps,
                 topoImagesByGlobalId: topoImages,
@@ -692,6 +1118,7 @@ public final class WatchCourseLibrary: ObservableObject {
         // bounded retry loop rather than silently declaring an incomplete course ready.
         let prepTeeBox = selection.teeBox
         if let firstBatch = prepBatches.first {
+            await beforeEachRequest?()
             let response = try await client.fetchCoursePrep(
                 globalId: firstBatch.globalId,
                 localHoles: firstBatch.localHoles,
@@ -709,6 +1136,7 @@ public final class WatchCourseLibrary: ObservableObject {
             ) { taskGroup in
                 for batch in group {
                     taskGroup.addTask {
+                        await beforeEachRequest?()
                         let response = try await client.fetchCoursePrep(
                             globalId: batch.globalId,
                             localHoles: batch.localHoles,
@@ -742,8 +1170,8 @@ public final class WatchCourseLibrary: ObservableObject {
                 let displayHole = displayHoleByGlobalId[batch.globalId]?[localHole] ?? localHole
                 let prepHole = prep.holes.first { $0.hole == localHole }
                 let packageHole = package.holes.first {
-                    ($0.sourceGlobalId ?? package.course.globalId) == batch.globalId
-                        && ($0.sourceLocalHole ?? $0.number) == localHole
+                    $0.sourceGlobalId == batch.globalId
+                        && $0.sourceLocalHole == localHole
                 }
                 guard prepHole?.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame
                     || packageHole?.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame
@@ -771,6 +1199,7 @@ public final class WatchCourseLibrary: ObservableObject {
         }
 
         func fetchTopo(_ request: TopoRequest) async -> (TopoRequest, Data?) {
+            await beforeEachRequest?()
             do {
                 let data = try await client.fetchCourseTopo(
                     globalId: request.globalId,
@@ -818,16 +1247,19 @@ public final class WatchCourseLibrary: ObservableObject {
         let download = try WatchCourseTemplateBuilder.build(
             option: selection.front,
             backOption: selection.back,
+            loopKey: selection.loopKey,
             package: package,
             prepsByGlobalId: preps,
             topoImagesByGlobalId: topoImages,
             selectedTee: selection.teeBox,
             cachedAt: now()
         )
-        let missing = Self.missingPreciseHoles(in: download)
-        diagnosticErrorMessage = missing.isEmpty
-            ? nil
-            : "地图仍待补齐：第 \(Self.holeList(missing)) 洞"
+        if reportsDiagnostics {
+            let missing = Self.missingPreciseHoles(in: download)
+            diagnosticErrorMessage = missing.isEmpty
+                ? nil
+                : "地图仍待补齐：第 \(Self.holeList(missing)) 洞"
+        }
         return download
     }
 
@@ -993,7 +1425,7 @@ public final class WatchCourseLibrary: ObservableObject {
     }
 
     private static func expectedHoleCount(for template: WatchCourseTemplate) -> Int {
-        template.option.playableHoleCount + (template.backOption?.playableHoleCount ?? 0)
+        template.expectedHoleCount
     }
 
     private static func holeList(_ holes: [Int]) -> String {
@@ -1001,7 +1433,8 @@ public final class WatchCourseLibrary: ObservableObject {
     }
 
     private func makeClient(_ config: WatchRoundConfig) -> WatchBackendClient {
-        WatchBackendClient(
+        if let clientFactory { return clientFactory(config) }
+        return WatchBackendClient(
             baseURL: config.baseURL,
             adminToken: config.adminToken,
             sessionToken: config.sessionToken,
@@ -1018,7 +1451,7 @@ public final class WatchCourseLibrary: ObservableObject {
             return try await makeClient(config).fetchCourseInstallStatus(
                 globalId: selection.front.globalId,
                 teeBox: selection.teeBox,
-                backGlobalId: selection.back?.globalId
+                loops: selection.loopsQuery
             )
         } catch {
             // The endpoint is additive and older deployments may not have it. The local Watch

@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { wholeCourseLoops } from '../courseLoops'
 import { fmtYd } from '../units'
 import { confidenceZh, coverageZh, dataModeZh, stateZh } from '../zhLabels'
 import type {
@@ -232,6 +233,8 @@ export function MobilePackagePrepPanel({
   const [selectedCourseOption, setSelectedCourseOption] = useState('')
   const [liveRoundId, setLiveRoundId] = useState('')
   const [teeBox, setTeeBox] = useState('')
+  // B4b-2: the package is requested as ordered loops; this panel prepares the whole course.
+  const [courseHoles, setCourseHoles] = useState<9 | 18>(18)
   const [courseTees, setCourseTees] = useState<CourseTee[]>([])
   const [capturedAt, setCapturedAt] = useState('')
   const [ensureGeometry, setEnsureGeometry] = useState(true)
@@ -277,6 +280,7 @@ export function MobilePackagePrepPanel({
     setCourseGlobalId(String(option.globalId))
     setLiveRoundId(option.suggestedLiveRoundId ?? `live-${option.globalId}`)
     setTeeBox(option.teeBox && option.teeBox !== 'unknown' ? option.teeBox : '')
+    setCourseHoles((option.segmentHoles ?? option.holes) === 9 ? 9 : 18)
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -294,6 +298,7 @@ export function MobilePackagePrepPanel({
     void onPrepareCourse(parsedGlobalId, {
       roundId: trimmedOrUndefined(liveRoundId),
       teeBox: trimmedOrUndefined(teeBox),
+      loops: wholeCourseLoops(parsedGlobalId, courseHoles),
       capturedAt: captured,
       ensureGeometry,
     })
@@ -362,6 +367,13 @@ export function MobilePackagePrepPanel({
             <label>
               <span>球场全局编号</span>
               <input inputMode="numeric" value={courseGlobalId} onChange={(event) => setCourseGlobalId(event.target.value)} spellCheck={false} />
+            </label>
+            <label>
+              <span>球场洞数</span>
+              <select value={courseHoles} onChange={(event) => setCourseHoles(event.target.value === '9' ? 9 : 18)}>
+                <option value={18}>18 洞(前九 + 后九)</option>
+                <option value={9}>9 洞</option>
+              </select>
             </label>
             <label>
               <span>实战球局编号</span>

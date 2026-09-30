@@ -695,6 +695,9 @@ final class SyncClientTests: XCTestCase {
         CapturingURLProtocol.requestHandler = { request in
             let queryItems = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
             XCTAssertEqual(queryItems?.first { $0.name == "ensure_geometry" }?.value, "true")
+            XCTAssertEqual(queryItems?.first { $0.name == "loops" }?.value, "10283:back,10283:front")
+            XCTAssertNil(queryItems?.first { $0.name == "nine" })
+            XCTAssertNil(queryItems?.first { $0.name == "back_global_id" })
             XCTAssertEqual(request.timeoutInterval, 900)
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
@@ -714,6 +717,7 @@ final class SyncClientTests: XCTestCase {
             globalId: 10283,
             roundId: "live-round-1",
             teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: 10283, half: "back"), RoundLoopEntry(globalId: 10283, half: "front")],
             ensureGeometry: true
         )
     }
@@ -753,6 +757,7 @@ final class SyncClientTests: XCTestCase {
             globalId: 10283,
             roundId: "live-round-lightweight",
             teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: 10283, half: "all")],
             backgroundGeometry: true
         )
     }
@@ -791,6 +796,7 @@ final class SyncClientTests: XCTestCase {
             globalId: 10283,
             roundId: "live-round-complete",
             teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: 10283, half: "all")],
             backgroundGeometry: true
         )
     }
@@ -830,6 +836,7 @@ final class SyncClientTests: XCTestCase {
             globalId: 10283,
             roundId: "live-round-cold-retry",
             teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: 10283, half: "all")],
             backgroundGeometry: true
         )
 
@@ -848,6 +855,7 @@ final class SyncClientTests: XCTestCase {
         CapturingURLProtocol.requestHandler = { request in
             let queryItems = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
             XCTAssertEqual(queryItems?.first { $0.name == "include_event_cursor" }?.value, "false")
+            XCTAssertEqual(queryItems?.first { $0.name == "loops" }?.value, "10283:all")
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
                 statusCode: 200,
@@ -866,6 +874,7 @@ final class SyncClientTests: XCTestCase {
             globalId: 10283,
             roundId: "home-10283",
             teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: 10283, half: "all")],
             includeEventCursor: false
         )
     }
@@ -1070,7 +1079,7 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(archive.availableCourses.first?.key, "hmb")
     }
 
-    func testFetchCourseInstallStatusDecodesHoleStagesAndSendsCompositeBackGlobalID() async throws {
+    func testFetchCourseInstallStatusDecodesHoleStagesAndSendsCompositeLoops() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -1081,7 +1090,7 @@ final class SyncClientTests: XCTestCase {
               "jobId":"install-1",
               "globalId":31870,
               "teeBox":"blue",
-              "nine":"all",
+              "loopKey":"31870:all+31871:all",
               "phase":"running",
               "stage":"topo",
               "totalHoles":18,
@@ -1105,8 +1114,9 @@ final class SyncClientTests: XCTestCase {
             )?.queryItems ?? []
             let values = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name, $0.value ?? "") })
             XCTAssertEqual(values["tee_box"], "blue")
-            XCTAssertEqual(values["nine"], "all")
-            XCTAssertEqual(values["back_global_id"], "31871")
+            XCTAssertEqual(values["loops"], "31870:all,31871:all")
+            XCTAssertNil(values["nine"])
+            XCTAssertNil(values["back_global_id"])
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
@@ -1126,10 +1136,10 @@ final class SyncClientTests: XCTestCase {
         let status = try await client.fetchCourseInstallStatus(
             globalId: 31870,
             teeBox: "blue",
-            nine: "all",
-            backGlobalId: 31871
+            loops: [RoundLoopEntry(globalId: 31870, half: "all"), RoundLoopEntry(globalId: 31871, half: "all")]
         )
 
+        XCTAssertEqual(status?.loopKey, "31870:all+31871:all")
         XCTAssertEqual(status?.phase, "running")
         XCTAssertEqual(status?.topoReady, 7)
         XCTAssertEqual(status?.holes.last?.displayHole, 10)
@@ -1169,7 +1179,8 @@ final class SyncClientTests: XCTestCase {
 
         let status = try await client.probeCourseInstallStatusForRevalidation(
             globalId: 31870,
-            teeBox: "blue"
+            teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: 31870, half: "front")]
         )
 
         XCTAssertNil(status)
@@ -1361,6 +1372,228 @@ final class SyncClientTests: XCTestCase {
             XCTFail("expected SyncClientError for a 500 response")
         } catch let error as SyncClientError {
             XCTAssertEqual(error, .http(status: 500, body: #"{"detail":"boom"}"#))
+        }
+    }
+
+    // MARK: - B4b-2 §6: every server package must carry a complete, consistent v2 identity
+
+    func testFetchCoursePackageRejectsLoopNotStartingOnRoundHoleOneOrTen() async throws {
+        var object = try fixturePackageObject()
+        object["roundLoops"] = [loopRow(half: "front", roundStartHole: 7, sourceStartHole: 1)]
+        try await assertCoursePackageRejected(object, with: .invalidRoundLoops)
+    }
+
+    func testFetchCoursePackageRejectsLoopThatIsNotNineHoles() async throws {
+        var object = try fixturePackageObject()
+        object["roundLoops"] = [loopRow(half: "front", roundStartHole: 1, sourceStartHole: 1, holeCount: 1)]
+        try await assertCoursePackageRejected(object, with: .invalidRoundLoops)
+    }
+
+    func testFetchCoursePackageRejectsBackHalfStartingOnPhysicalHoleOne() async throws {
+        var object = try fixturePackageObject()
+        object["roundLoops"] = [loopRow(half: "back", roundStartHole: 1, sourceStartHole: 1)]
+        object["loopKey"] = "31795:back"
+        try await assertCoursePackageRejected(object, with: .invalidRoundLoops)
+    }
+
+    func testFetchCoursePackageRejectsNonCanonicalLoopKey() async throws {
+        var object = try fixturePackageObject()
+        object["loopKey"] = "31795:all"
+        try await assertCoursePackageRejected(object, with: .nonCanonicalLoopKey)
+    }
+
+    func testFetchCoursePackageRejectsDuplicateHoleNumber() async throws {
+        var object = try fixturePackageObject()
+        var holes = try holeRows(object)
+        holes.append(try XCTUnwrap(holes.first { ($0["number"] as? Int) == 1 }))
+        object["holes"] = holes
+        try await assertCoursePackageRejected(object, with: .holeDoesNotMatchItsLoop(1))
+    }
+
+    func testFetchCoursePackageRejectsHoleWhoseLocalHoleIsNotItsRow() async throws {
+        var object = try fixturePackageObject()
+        object["holes"] = try holeRows(object).map { (row: [String: Any]) -> [String: Any] in
+            guard (row["number"] as? Int) == 3 else { return row }
+            var changed = row
+            changed["sourceLocalHole"] = 4
+            return changed
+        }
+        try await assertCoursePackageRejected(object, with: .holeDoesNotMatchItsLoop(3))
+    }
+
+    func testFetchCoursePackageRejectsLoopMissingAHole() async throws {
+        var object = try fixturePackageObject()
+        object["holes"] = try holeRows(object).filter { ($0["number"] as? Int) != 9 }
+        try await assertCoursePackageRejected(object, with: .invalidRoundLoops)
+    }
+
+    func testFetchCoursePackageRejectsThreeLoops() async throws {
+        var object = try fixturePackageObject()
+        object["roundLoops"] = [
+            loopRow(half: "front", roundStartHole: 1, sourceStartHole: 1),
+            loopRow(half: "back", roundStartHole: 10, sourceStartHole: 10),
+            loopRow(half: "front", roundStartHole: 19, sourceStartHole: 1),
+        ]
+        object["loopKey"] = "31795:front+31795:back+31795:front"
+        try await assertCoursePackageRejected(object, with: .invalidRoundLoops)
+    }
+
+    func testFetchCoursePackageRejectsHolelessPackageThatNamesALoop() async throws {
+        var object = try fixturePackageObject()
+        object["holes"] = [[String: Any]]()
+        try await assertCoursePackageRejected(object, with: .invalidRoundLoops)
+    }
+
+    func testFetchCoursePackageAcceptsHolelessPackageWithoutLoops() async throws {
+        var object = try fixturePackageObject()
+        object["holes"] = [[String: Any]]()
+        object["roundLoops"] = [[String: Any]]()
+        object["loopKey"] = ""
+        let package = try await fetchServedPackage(object)
+        XCTAssertTrue(package.holes.isEmpty)
+        XCTAssertTrue(package.roundLoops.isEmpty)
+        XCTAssertEqual(package.loopKey, "")
+    }
+
+    func testFetchCoursePackageRejectsVersionOnePackage() async throws {
+        // A real v1 payload has no loop table: it fails to decode (or is rejected) before use.
+        var legacy = try fixturePackageObject()
+        legacy["schema"] = "ai-caddie-live-round-package-v1"
+        legacy.removeValue(forKey: "roundLoops")
+        legacy.removeValue(forKey: "loopKey")
+        do {
+            _ = try await fetchServedPackage(legacy)
+            XCTFail("a v1 package must never be accepted from the server")
+        } catch {
+            XCTAssertTrue(
+                error is DecodingError || error is RoundIdentityError,
+                "unexpected error \(error)"
+            )
+        }
+
+        // A v1 schema carrying a v2-shaped loop table is still not a v2 package.
+        var relabeled = try fixturePackageObject()
+        relabeled["schema"] = "ai-caddie-live-round-package-v1"
+        try await assertCoursePackageRejected(
+            relabeled,
+            with: .unsupportedSchema("ai-caddie-live-round-package-v1")
+        )
+    }
+
+    func testFetchRoundPackageRejectsContradictoryIdentity() async throws {
+        var object = try fixturePackageObject()
+        object["roundLoops"] = [loopRow(half: "front", roundStartHole: 1, sourceStartHole: 1, holeCount: 1)]
+        do {
+            _ = try await fetchServedPackage(object, viaRoundRoute: true)
+            XCTFail("expected RoundIdentityError.invalidRoundLoops")
+        } catch let error as RoundIdentityError {
+            XCTAssertEqual(error, .invalidRoundLoops)
+        }
+    }
+
+    func testFetchCoursePackageAcceptsBackHalfWithPhysicalCourseHoleNumbers() async throws {
+        // `G:back`: round holes 1–9 are physical holes 10–18 and show as course holes 10–18.
+        var object = try fixturePackageObject()
+        object["roundLoops"] = [loopRow(half: "back", roundStartHole: 1, sourceStartHole: 10)]
+        object["loopKey"] = "31795:back"
+        object["holes"] = try holeRows(object).map { (row: [String: Any]) -> [String: Any] in
+            var changed = row
+            let number = row["number"] as? Int ?? 0
+            changed["sourceLocalHole"] = number + 9
+            changed["courseHoleNumber"] = number + 9
+            return changed
+        }
+
+        let package = try await fetchServedPackage(object)
+
+        XCTAssertEqual(package.loopKey, "31795:back")
+        XCTAssertEqual(package.roundLoops, [
+            RoundLoop(globalId: 31795, half: "back", roundStartHole: 1, sourceStartHole: 10, holeCount: 9),
+        ])
+        let holes = package.holes.sorted { $0.number < $1.number }
+        XCTAssertEqual(holes.map(\.number), Array(1...9))
+        XCTAssertEqual(holes.map(\.sourceLocalHole), Array(10...18))
+        XCTAssertEqual(holes.map(\.courseHoleNumber), Array(10...18))
+        XCTAssertEqual(Set(holes.map(\.sourceGlobalId)), [31795])
+    }
+
+    /// The shipped fixture (a contract-valid `31795:front` package) as a mutable JSON object.
+    private func fixturePackageObject() throws -> [String: Any] {
+        let data = try Data(contentsOf: LiveRoundPackageFixture.url)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["loopKey"] as? String, "31795:front")
+        return object
+    }
+
+    private func holeRows(_ object: [String: Any]) throws -> [[String: Any]] {
+        try XCTUnwrap(object["holes"] as? [[String: Any]])
+    }
+
+    private func loopRow(
+        half: String,
+        roundStartHole: Int,
+        sourceStartHole: Int,
+        holeCount: Int = 9
+    ) -> [String: Any] {
+        [
+            "globalId": 31795,
+            "half": half,
+            "roundStartHole": roundStartHole,
+            "sourceStartHole": sourceStartHole,
+            "holeCount": holeCount,
+        ]
+    }
+
+    /// Serve `object` as the package response and fetch it through SyncClient.
+    private func fetchServedPackage(
+        _ object: [String: Any],
+        viaRoundRoute: Bool = false
+    ) async throws -> LiveRoundPackage {
+        let body = try JSONSerialization.data(withJSONObject: object)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let expectedPath = viaRoundRoute
+            ? "/api/v2/mobile/rounds/live-round-1/package"
+            : "/api/v2/mobile/courses/31795/package"
+        CapturingURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, expectedPath)
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, body)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session,
+            retrySleep: { _ in }
+        )
+        if viaRoundRoute {
+            return try await client.fetchRoundPackage(roundId: "live-round-1")
+        }
+        return try await client.fetchCoursePackage(
+            globalId: 31795,
+            roundId: "live-round-1",
+            teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: 31795, half: "front")]
+        )
+    }
+
+    private func assertCoursePackageRejected(
+        _ object: [String: Any],
+        with expected: RoundIdentityError,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        do {
+            _ = try await fetchServedPackage(object)
+            XCTFail("expected RoundIdentityError \(expected)", file: file, line: line)
+        } catch let error as RoundIdentityError {
+            XCTAssertEqual(error, expected, file: file, line: line)
         }
     }
 

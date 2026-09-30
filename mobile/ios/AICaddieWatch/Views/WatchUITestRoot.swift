@@ -76,6 +76,19 @@ public struct WatchUITestRoot: View {
                 courses: [Self.setupFront, Self.setupBack],
                 hasCachedVersion: true
             )
+        case "course-setup-halves":
+            // B4b-2 §7: a normal 18-hole row (segmentHoles 18, no loop label) starts on 前九 / 后九.
+            WatchRoundSetupView(
+                front: Self.halvesSetupOption,
+                courses: [Self.halvesSetupOption],
+                hasCachedVersion: false
+            )
+        case "course-turn":
+            // The turn after round hole 9 of a `G:back` round: 前九 preselected, 后九 allowed again,
+            // 只打 9 洞 available.
+            if let plan = WatchRoundModel.makeTurnPlan(loopKey: "\(Self.halvesSetupOption.globalId):back") {
+                WatchTurnView(plan: plan)
+            }
         case "course-remote-setup":
             WatchRoundSetupView(
                 front: Self.remoteSetupOption,
@@ -654,7 +667,8 @@ public struct WatchUITestRoot: View {
                     teeLatitude: $0.teeLatitude,
                     teeLongitude: $0.teeLongitude
                 )
-            }
+            },
+            loopKey: "31669:front+31669:back"
         ))
         guard model.round == nil,
               store.load() == nil,
@@ -856,7 +870,10 @@ public struct WatchUITestRoot: View {
         model.seedRound(
             prepared.holeStates,
             activeHole: prepared.holeStates.first?.hole,
-            courseName: prepared.courseName
+            courseName: prepared.courseName,
+            courseGlobalId: selection.front.globalId,
+            teeBox: selection.teeBox,
+            loopKey: selection.loopKey
         )
         writeRealCourseMarker(
             "real-course-download-ready",
@@ -868,16 +885,17 @@ public struct WatchUITestRoot: View {
     private func restoreRealCourseOffline(selectHazardHole: Bool = false) async {
         removeRealCourseMarkers()
         let store = WatchCourseStore()
-        guard let cached = store.course(globalId: Self.realCourseGlobalId) else {
+        // The download fixture installs the canonical whole-course template (`G:front+G:back`).
+        // Resolve it by that key so an ordered-half template of the same course is never mistaken
+        // for it.
+        let wholeCourseKey = "\(Self.realCourseGlobalId):front+\(Self.realCourseGlobalId):back"
+        guard let cached = store.course(loopKey: wholeCourseKey, teeBox: nil)
+                ?? store.course(globalId: Self.realCourseGlobalId) else {
             failRealCourse("找不到已下载的真实球场缓存")
             return
         }
 
-        let selection = WatchCourseSelection(
-            front: cached.option,
-            back: cached.backOption,
-            teeBox: cached.teeBox
-        )
+        let selection = WatchCourseSelection(template: cached)
         let library = WatchCourseLibrary()
         guard let prepared = await library.startCourse(selection, config: nil) else {
             failRealCourse(library.errorMessage ?? "离线球场开局失败")
@@ -900,7 +918,10 @@ public struct WatchUITestRoot: View {
         model.seedRound(
             prepared.holeStates,
             activeHole: activeHole,
-            courseName: prepared.courseName
+            courseName: prepared.courseName,
+            courseGlobalId: selection.front.globalId,
+            teeBox: selection.teeBox,
+            loopKey: selection.loopKey
         )
         if screen == "real-course-download-caddie" {
             model.openCaddie()
@@ -1482,7 +1503,10 @@ public struct WatchUITestRoot: View {
         model.seedRound(
             prepared.holeStates,
             activeHole: prepared.holeStates.first?.hole,
-            courseName: prepared.courseName
+            courseName: prepared.courseName,
+            courseGlobalId: Self.standaloneCourseOption.globalId,
+            teeBox: Self.standaloneCourseTemplate.teeBox,
+            loopKey: Self.standaloneCourseTemplate.loopKey
         )
     }
 
@@ -1673,23 +1697,39 @@ public struct WatchUITestRoot: View {
     /// reuses one simulator install, so the production phone-seed guard must not turn a later fixture
     /// into a silent no-op merely because an earlier fixture left a different round on disk.
     private func replaceFixtureRound(with seed: WatchRoundSeed) {
-        let states = seed.holes.map { hole in
-            WatchRoundState(
+        // DEBUG fixtures state their loop key. A course round holds that key's complete canonical
+        // table (the production identity gate), so every round position takes its physical
+        // identity from the table and the seed's facts where the fixture names the hole; the
+        // remaining positions are blank holes with no invented distance.
+        let rows = WatchCourseSelection.roundRows(loopKey: seed.loopKey) ?? []
+        let seeded = Dictionary(seed.holes.map { ($0.hole, $0) }, uniquingKeysWith: { first, _ in first })
+        let states = rows.map { row -> WatchRoundState in
+            let hole = seeded[row.number]
+            return WatchRoundState(
                 roundId: seed.roundId,
-                hole: hole.hole,
-                par: hole.par,
-                distanceM: hole.distanceM,
-                teeLatitude: hole.teeLatitude,
-                teeLongitude: hole.teeLongitude,
+                hole: row.number,
+                par: hole?.par ?? 4,
+                distanceM: hole?.distanceM,
+                teeLatitude: hole?.teeLatitude,
+                teeLongitude: hole?.teeLongitude,
                 selectedClub: nil,
-                globalId: hole.globalId,
+                globalId: row.globalId,
+                sourceLocalHole: row.sourceLocalHole,
+                courseHoleNumber: row.courseHoleNumber,
                 score: 0,
                 putts: 0,
                 penaltyCount: 0,
                 caddieConfidence: "offline"
             )
         }
-        model.seedRound(states, activeHole: seed.activeHole, courseName: seed.courseName)
+        model.seedRound(
+            states,
+            activeHole: seed.activeHole,
+            courseName: seed.courseName,
+            courseGlobalId: seed.globalId ?? rows.first?.globalId,
+            teeBox: seed.teeBox,
+            loopKey: seed.loopKey
+        )
     }
 
     private static let milestoneSeed = WatchRoundSeed(
@@ -1698,7 +1738,8 @@ public struct WatchUITestRoot: View {
         activeHole: 1,
         holes: [
             WatchRoundSeedHole(hole: 1, par: 4, distanceM: 369.4176), // 404 yards
-        ]
+        ],
+        loopKey: "31669:front+31669:back"
     )
 
     private static let standaloneCourseOption = WatchCourseOption(
@@ -1710,6 +1751,19 @@ public struct WatchUITestRoot: View {
         latitude: 40.0491,
         longitude: 116.5461531,
         tees: ["Blue", "White"]
+    )
+
+    /// A normal `/mobile/courses/options` 18-hole row (the CI fixture's Black Knight shape):
+    /// `holes: 18, segmentHoles: 18, segmentLabel: nil`.
+    private static let halvesSetupOption = WatchCourseOption(
+        globalId: 31795,
+        name: "Black Knight B/C",
+        holes: 18,
+        teeBox: "blue",
+        venueName: "Black Knight",
+        segmentLabel: nil,
+        segmentHoles: 18,
+        tees: ["blue", "white"]
     )
 
     private static let setupFront = WatchCourseOption(
@@ -1879,6 +1933,8 @@ public struct WatchUITestRoot: View {
         centerGreenM: 518.8,
         backGreenM: 531,
         globalId: 31669,
+        sourceLocalHole: 4,
+        courseHoleNumber: 4,
         holeMap: WatchHoleMap(
             w: Int(WatchHoleMapSample.imageSize.width),
             h: Int(WatchHoleMapSample.imageSize.height),
@@ -1920,6 +1976,8 @@ public struct WatchUITestRoot: View {
             distanceM: par == 3 ? 145 : (par == 4 ? 360 : 480),
             selectedClub: nil,
             globalId: 31669,
+            sourceLocalHole: hole,
+            courseHoleNumber: hole,
             score: score,
             putts: score > 0 ? 2 : 0,
             penaltyCount: 0,
@@ -1940,21 +1998,24 @@ public struct WatchUITestRoot: View {
                 hole: 8, par: 5, distanceM: 472,
                 teeLatitude: 40.001, teeLongitude: 116.0
             ),
-        ]
+        ],
+        loopKey: "31669:front"
     )
 
     private static let interactionScoreSeed = WatchRoundSeed(
         roundId: "ci-interaction-score-round",
         courseName: "北京丽宫 · 前九",
         activeHole: 7,
-        holes: interactionClubSeed.holes
+        holes: interactionClubSeed.holes,
+        loopKey: "31669:front"
     )
 
     private static let interactionGPSAcquiringSeed = WatchRoundSeed(
         roundId: "ci-interaction-gps-acquiring-round",
         courseName: "北京丽宫 · 前九",
         activeHole: 7,
-        holes: interactionClubSeed.holes
+        holes: interactionClubSeed.holes,
+        loopKey: "31669:front"
     )
 
     private static let interactionFlagFix = WatchLocationFix(

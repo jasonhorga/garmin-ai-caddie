@@ -6,11 +6,14 @@ import SwiftUI
 public struct WatchScorecardRow: Identifiable, Equatable {
     public var id: Int { hole }
     public let hole: Int
+    /// The printed hole number shown in the row (courseHoleNumber); `hole` stays the edit key.
+    public let displayHole: Int
     public let par: Int
     public let score: Int
 
-    public init(hole: Int, par: Int, score: Int) {
+    public init(hole: Int, par: Int, score: Int, displayHole: Int? = nil) {
         self.hole = hole
+        self.displayHole = displayHole ?? hole
         self.par = par
         self.score = score
     }
@@ -49,7 +52,7 @@ public struct WatchScorecardView: View {
             ForEach(holes) { row in
                 Button { onSelectHole(row.hole) } label: {
                     HStack(spacing: 6) {
-                        Text("\(row.hole)").font(.system(size: 16, weight: .black, design: .rounded).monospacedDigit())
+                        Text("\(row.displayHole)").font(.system(size: 16, weight: .black, design: .rounded).monospacedDigit())
                             .frame(width: 24, alignment: .leading).foregroundStyle(.secondary)
                         Text("Par \(row.par)").font(.system(size: 14, weight: .bold)).foregroundStyle(.secondary)
                         Spacer()

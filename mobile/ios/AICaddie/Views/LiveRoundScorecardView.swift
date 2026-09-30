@@ -17,6 +17,8 @@ struct LiveRoundScorecardView: View {
     let onFinishRound: (() -> Void)?
     let onLeaveToHome: (() -> Void)?
     let roundAdjustments: AnyView?
+    /// One title per loop in play order ("第一环 · 后九", "第二环 · 前九"), B4b-2.
+    let loopTitles: [String]
 
     @State private var selectedHole: Int
 
@@ -30,8 +32,10 @@ struct LiveRoundScorecardView: View {
         onEdit: @escaping (Int) -> Void,
         onFinishRound: (() -> Void)? = nil,
         onLeaveToHome: (() -> Void)? = nil,
-        roundAdjustments: AnyView? = nil
+        roundAdjustments: AnyView? = nil,
+        loopTitles: [String] = []
     ) {
+        self.loopTitles = loopTitles
         self.courseName = courseName
         self.holes = holes.sorted { $0.number < $1.number }
         self.liveRoundState = liveRoundState
@@ -63,7 +67,7 @@ struct LiveRoundScorecardView: View {
                     LiveCumulativeTrend(values: summary.cumulativeToPar, holeCount: holes.count)
                         .frame(height: 84)
                     LiveNineCard(
-                        label: "OUT",
+                        title: LiveScorecardLoops.title(loopTitles, index: 0),
                         holes: Array(holes.prefix(9)),
                         scores: holeScores,
                         currentHole: liveRoundState?.activeHole,
@@ -72,7 +76,7 @@ struct LiveRoundScorecardView: View {
                     )
                     if holes.count > 9 {
                         LiveNineCard(
-                            label: "IN",
+                            title: LiveScorecardLoops.title(loopTitles, index: 1),
                             holes: Array(holes.dropFirst(9).prefix(9)),
                             scores: holeScores,
                             currentHole: liveRoundState?.activeHole,
@@ -162,7 +166,7 @@ struct LiveRoundScorecardView: View {
             HStack(spacing: 9) {
                 Image(systemName: "location.fill")
                     .foregroundStyle(LivePlayStyle.greenLabel)
-                Text("你在第 \(candidate.hole) 洞附近")
+                Text("你在第 \(displayNumber(candidate.hole)) 洞附近")
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(LivePlayStyle.ink)
                 Spacer()
@@ -191,7 +195,7 @@ struct LiveRoundScorecardView: View {
                 Button {
                     onGoToHole(selectedHole)
                 } label: {
-                    Text("去第 \(selectedHole) 洞")
+                    Text("去第 \(displayNumber(selectedHole)) 洞")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(LiveScoreStyle.primaryInk)
                         .frame(maxWidth: .infinity)
@@ -215,7 +219,7 @@ struct LiveRoundScorecardView: View {
                         .overlay(Capsule().stroke(LivePlayStyle.stroke14, lineWidth: 0.5))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("改第 \(selectedHole) 洞成绩")
+                .accessibilityLabel("改第 \(displayNumber(selectedHole)) 洞成绩")
                 .accessibilityIdentifier("live-scorecard-edit-hole")
             }
         }
@@ -224,7 +228,13 @@ struct LiveRoundScorecardView: View {
 
     private var selectedTitle: String {
         let par = holes.first(where: { $0.number == selectedHole })?.par
-        return par.map { "第 \(selectedHole) 洞 · Par \($0)" } ?? "第 \(selectedHole) 洞"
+        let shown = displayNumber(selectedHole)
+        return par.map { "第 \(shown) 洞 · Par \($0)" } ?? "第 \(shown) 洞"
+    }
+
+    /// Round hole → the course's own number (text only).
+    private func displayNumber(_ roundHole: Int) -> Int {
+        holes.first(where: { $0.number == roundHole })?.courseHoleNumber ?? roundHole
     }
 
     private var selectedStatus: String {

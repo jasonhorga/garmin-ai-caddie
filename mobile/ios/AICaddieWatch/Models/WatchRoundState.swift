@@ -226,6 +226,9 @@ public struct WatchRoundSeedHole: Codable, Equatable {
     /// Optional for seeds written by older phone builds. It lets the Watch immediately resolve its
     /// downloaded course and upgrade from the compact seed to real hole geometry.
     public let globalId: Int?
+    /// Physical hole and the course's printed number (B4b-2); `hole` stays the round hole.
+    public let localHole: Int?
+    public let courseHoleNumber: Int?
 
     public init(
         hole: Int,
@@ -233,7 +236,9 @@ public struct WatchRoundSeedHole: Codable, Equatable {
         distanceM: Double?,
         teeLatitude: Double? = nil,
         teeLongitude: Double? = nil,
-        globalId: Int? = nil
+        globalId: Int? = nil,
+        localHole: Int? = nil,
+        courseHoleNumber: Int? = nil
     ) {
         self.hole = hole
         self.par = par
@@ -241,6 +246,8 @@ public struct WatchRoundSeedHole: Codable, Equatable {
         self.teeLatitude = teeLatitude
         self.teeLongitude = teeLongitude
         self.globalId = globalId
+        self.localHole = localHole
+        self.courseHoleNumber = courseHoleNumber
     }
 }
 
@@ -250,23 +257,21 @@ public struct WatchRoundSeed: Codable, Equatable {
     public let courseName: String
     public let activeHole: Int
     public let holes: [WatchRoundSeedHole]
-    /// Optional setup identity. Older phone seeds omit these keys; the Watch can still recover from
-    /// the per-hole global ids in that case.
+    /// Setup identity: the round's canonical ordered loop key (B4b-2), e.g.
+    /// `41825:back+41825:front`, plus the first course id and Tee.
     public let globalId: Int?
-    public let backGlobalId: Int?
     public let teeBox: String?
-    public let nine: String?
+    public let loopKey: String
 
     public init(
-        schema: String = "ai-caddie-watch-round-seed-v1",
+        schema: String = "ai-caddie-watch-round-seed-v2",
         roundId: String,
         courseName: String,
         activeHole: Int,
         holes: [WatchRoundSeedHole],
         globalId: Int? = nil,
-        backGlobalId: Int? = nil,
         teeBox: String? = nil,
-        nine: String? = nil
+        loopKey: String
     ) {
         self.schema = schema
         self.roundId = roundId
@@ -274,9 +279,8 @@ public struct WatchRoundSeed: Codable, Equatable {
         self.activeHole = activeHole
         self.holes = holes
         self.globalId = globalId
-        self.backGlobalId = backGlobalId
         self.teeBox = teeBox
-        self.nine = nine
+        self.loopKey = loopKey
     }
 }
 
@@ -289,20 +293,19 @@ public struct WatchRoundStart: Codable, Equatable {
     public let roundId: String
     public let courseName: String
     public let teeBox: String
-    public let nine: String?
+    /// The selection's canonical ordered loop key (B4b-2).
+    public let loopKey: String
     public let globalId: Int?
-    public let backGlobalId: Int?
     public let activeHole: Int
     public let holes: [WatchRoundSeedHole]
 
     public init(
-        schema: String = "ai-caddie-watch-round-start-v1",
+        schema: String = "ai-caddie-watch-round-start-v2",
         roundId: String,
         courseName: String,
         teeBox: String,
-        nine: String? = "all",
+        loopKey: String,
         globalId: Int? = nil,
-        backGlobalId: Int? = nil,
         activeHole: Int,
         holes: [WatchRoundSeedHole]
     ) {
@@ -310,9 +313,8 @@ public struct WatchRoundStart: Codable, Equatable {
         self.roundId = roundId
         self.courseName = courseName
         self.teeBox = teeBox
-        self.nine = nine
+        self.loopKey = loopKey
         self.globalId = globalId
-        self.backGlobalId = backGlobalId
         self.activeHole = activeHole
         self.holes = holes
     }
@@ -435,6 +437,11 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     /// Composite rounds display holes 10...18 while their source request uses local holes 1...9.
     /// Retaining that source key lets on-demand focused assets use the correct backend endpoint.
     public let sourceLocalHole: Int?
+    /// The course's printed hole number (B4b-2 §2): the physical hole for a half of an 18-hole course
+    /// (`G:back` round hole 1 → 10), the round number for a nine-hole loop. Every hole number the
+    /// Watch shows uses ``displayHoleNumber``; `hole` stays the round coordinate for events,
+    /// navigation and score keys.
+    public let courseHoleNumber: Int?
     public let holeMap: WatchHoleMap?
     /// B0 fairway rings carried from the downloaded prep so the offline tee-result preselect works
     /// after a restart. `nil` for older cached templates, unsupported versions or no geometry.
@@ -486,6 +493,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case holeImageProjection
         case globalId
         case sourceLocalHole
+        case courseHoleNumber
         case holeMap
         case fairwayOutline
         case playsLikeDistanceM
@@ -541,6 +549,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         holeImageProjection: WatchHoleImageProjection? = nil,
         globalId: Int? = nil,
         sourceLocalHole: Int? = nil,
+        courseHoleNumber: Int? = nil,
         holeMap: WatchHoleMap? = nil,
         fairwayOutline: FairwayOutline? = nil,
         playsLikeDistanceM: Double? = nil,
@@ -594,6 +603,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.holeImageProjection = holeImageProjection
         self.globalId = globalId
         self.sourceLocalHole = sourceLocalHole
+        self.courseHoleNumber = courseHoleNumber
         self.holeMap = holeMap
         self.fairwayOutline = fairwayOutline
         self.playsLikeDistanceM = playsLikeDistanceM
@@ -648,6 +658,10 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.holeImageProjection = try container.decodeIfPresent(WatchHoleImageProjection.self, forKey: .holeImageProjection)
         self.globalId = try container.decodeIfPresent(Int.self, forKey: .globalId)
         self.sourceLocalHole = try container.decodeIfPresent(Int.self, forKey: .sourceLocalHole)
+        // Absent in rounds/templates written before B4b-2 §2. Decoding stays exact (no invented
+        // value); the model fills it from the round's loop key and `displayHoleNumber` derives
+        // only what the hole alone proves.
+        self.courseHoleNumber = try container.decodeIfPresent(Int.self, forKey: .courseHoleNumber)
         self.holeMap = try container.decodeIfPresent(WatchHoleMap.self, forKey: .holeMap)
         self.fairwayOutline = container.decodeSupportedFairwayOutline(forKey: .fairwayOutline)
         self.centerGreenM = try container.decodeIfPresent(Double.self, forKey: .centerGreenM)
@@ -673,9 +687,35 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     }
 
     public func replacingRoundId(_ newRoundId: String) -> WatchRoundState {
+        replacingRoundId(
+            newRoundId,
+            hole: hole,
+            sourceLocalHole: sourceLocalHole,
+            courseHoleNumber: courseHoleNumber
+        )
+    }
+
+    /// The number shown to the player for this hole (header, scorecard, preparing, finish): the
+    /// course's printed hole. Every course hole carries it — the active-round and template
+    /// validators reject a course hole without it (or with a contradictory one) at load and on
+    /// every write, so it is never derived from `hole`. Only a score-only practice round, which has
+    /// no course identity at all, is numbered by play order.
+    public var displayHoleNumber: Int {
+        if let courseHoleNumber { return courseHoleNumber }
+        return hole
+    }
+
+    /// The same physical hole's facts placed on another round hole (B4b-2 ordered halves: physical
+    /// 后九 hole 10 is round hole 1 of a `G:back` round). Player-owned facts are copied unchanged.
+    public func replacingRoundId(
+        _ newRoundId: String,
+        hole newHole: Int,
+        sourceLocalHole newSourceLocalHole: Int?,
+        courseHoleNumber newCourseHoleNumber: Int?
+    ) -> WatchRoundState {
         WatchRoundState(
             roundId: newRoundId,
-            hole: hole,
+            hole: newHole,
             par: par,
             distanceM: distanceM,
             teeLatitude: teeLatitude,
@@ -708,7 +748,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             backGreenLon: backGreenLon,
             holeImageProjection: holeImageProjection,
             globalId: globalId,
-            sourceLocalHole: sourceLocalHole,
+            sourceLocalHole: newSourceLocalHole,
+            courseHoleNumber: newCourseHoleNumber,
             holeMap: holeMap,
             fairwayOutline: fairwayOutline,
             playsLikeDistanceM: playsLikeDistanceM,
@@ -775,6 +816,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             holeImageProjection: replacesGeometryAuthority ? upgraded.holeImageProjection : (upgraded.holeImageProjection ?? holeImageProjection),
             globalId: upgraded.globalId ?? globalId,
             sourceLocalHole: upgraded.sourceLocalHole ?? sourceLocalHole,
+            courseHoleNumber: upgraded.courseHoleNumber ?? courseHoleNumber,
             holeMap: replacesGeometryAuthority ? upgraded.holeMap : (upgraded.holeMap ?? holeMap),
             fairwayOutline: replacesGeometryAuthority ? upgraded.fairwayOutline : (upgraded.fairwayOutline ?? fairwayOutline),
             playsLikeDistanceM: replacesGeometryAuthority ? upgraded.playsLikeDistanceM : (upgraded.playsLikeDistanceM ?? playsLikeDistanceM),
@@ -862,6 +904,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             holeImageProjection: holeImageProjection,
             globalId: globalId,
             sourceLocalHole: sourceLocalHole,
+            courseHoleNumber: courseHoleNumber,
             holeMap: holeMap,
             fairwayOutline: fairwayOutline,
             playsLikeDistanceM: playsLikeDistanceM,

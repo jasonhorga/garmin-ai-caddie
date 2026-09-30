@@ -44,6 +44,7 @@ from server_v2 import caddie as caddie_handler
 from server_v2 import data_source
 from server_v2 import mobile as mobile_handler
 from server_v2.main import app
+from tests.round_loop_authority import fixture_course_authority
 
 
 ADMIN_ENV = {"AI_CADDIE_ADMIN_TOKEN": "admin-secret", "AI_CADDIE_DATA_MODE": "local_or_fixture"}
@@ -77,7 +78,7 @@ ALL_SENTINELS = (
 )
 
 _ROUND_PACKAGE = f"/api/v2/mobile/rounds/{_FIXTURE_ROUND_ID}/package"
-_COURSE_PACKAGE = f"/api/v2/mobile/courses/{_FIXTURE_GLOBAL_ID}/package?round_id={_FIXTURE_ROUND_ID}"
+_COURSE_PACKAGE = f"/api/v2/mobile/courses/{_FIXTURE_GLOBAL_ID}/package?round_id={_FIXTURE_ROUND_ID}&loops={_FIXTURE_GLOBAL_ID}:front,{_FIXTURE_GLOBAL_ID}:back"
 _RECONCILIATION = f"/api/v2/mobile/rounds/{_FIXTURE_ROUND_ID}/reconciliation"
 _CADDIE_CONTEXT = f"/api/v2/caddie/context?source_ref={_FIXTURE_ROUND_ID}:{_SEED_HOLE}&shot_type=approach"
 _ALL_ROUTES = (_ROUND_PACKAGE, _COURSE_PACKAGE, _RECONCILIATION, _CADDIE_CONTEXT)
@@ -113,6 +114,8 @@ class AggregatorRouteMemberIsolationTests(unittest.TestCase):
             mock.patch.object(data_source, "load_latest_snapshot_history", return_value=None),
             mock.patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=_missing_geometry),
             mock.patch("ai_caddie.caddie.caddie_context.geometry_coverage_for_hole", side_effect=_missing_geometry),
+            # the fixture courses have no CourseView release here; stand in for it (B4b-2)
+            fixture_course_authority(),
         ]
         for patch_ctx in self._patches:
             patch_ctx.start()
@@ -258,10 +261,14 @@ class AggregatorRouteMemberIsolationTests(unittest.TestCase):
         for seed in body["caddieContextSeeds"]:
             self.assertFalse((seed.get("context") or {}).get("manualNotes"))
 
-    def test_member_course_package_is_200(self) -> None:
+    def test_member_course_package_is_not_built_from_owner_holes(self) -> None:
+        # B4b-2: a loop order must resolve to nine factual holes per loop. The member has no
+        # history on this course (and the test has no CourseView template), so the owner's holes
+        # are never borrowed to fill it: the order is unresolvable (422) and nothing leaks.
         resp = self._member_get(_COURSE_PACKAGE)
-        self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertEqual(resp.json()["eventCursor"]["serverSequence"], 0)
+        self.assertEqual(resp.status_code, 422, resp.text)
+        for sentinel in ALL_SENTINELS:
+            self.assertNotIn(sentinel, resp.text)
 
     def test_member_reconciliation_is_empty(self) -> None:
         resp = self._member_get(_RECONCILIATION)
@@ -283,7 +290,9 @@ class AggregatorRouteMemberIsolationTests(unittest.TestCase):
     def test_no_owner_sentinel_appears_in_any_member_response(self) -> None:
         for url in _ALL_ROUTES:
             resp = self._member_get(url)
-            self.assertEqual(resp.status_code, 200, f"{url} -> {resp.status_code}: {resp.text[:200]}")
+            # The member's course order has no factual holes of the member's own (422, above).
+            expected = 422 if url == _COURSE_PACKAGE else 200
+            self.assertEqual(resp.status_code, expected, f"{url} -> {resp.status_code}: {resp.text[:200]}")
             for sentinel in ALL_SENTINELS:
                 self.assertNotIn(
                     sentinel,

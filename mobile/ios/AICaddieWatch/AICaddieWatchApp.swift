@@ -13,7 +13,7 @@ public struct AICaddieWatchApp: App {
     private struct ActiveCourseUpgradeKey: Equatable {
         let roundId: String
         let frontGlobalId: Int
-        let backGlobalId: Int?
+        let loopKey: String?
         let teeBox: String?
         let config: WatchRoundConfig
     }
@@ -105,6 +105,11 @@ public struct AICaddieWatchApp: App {
                     }
                 }
                 .onAppear {
+                    // The turn (B4b-2 §7) resolves round holes 10–18 through the course library:
+                    // the ordered package online, else the installed whole-course template.
+                    roundModel.secondLoopLoader = { [courseLibrary, syncClient] request in
+                        await courseLibrary.secondLoop(request, config: syncClient.config)
+                    }
                     reconcileLocationServices()
                     syncClient.requestConfigurationFromPhone()
                     Task { await roundModel.retryDeferredFinishes() }
@@ -203,36 +208,21 @@ public struct AICaddieWatchApp: App {
                         // A round is created locally before any package request. This mirrors the
                         // S70 cold-start behavior: no GPS or network spinner can erase the start
                         // fact. `activeCourseUpgradeKey` then upgrades this same round in place.
-                        let prepared = courseLibrary.startCourseImmediately(selection)
+                        // Fails closed: a malformed selection or an unpersistable provisional
+                        // template leaves the setup on screen with the library's error message.
+                        guard let prepared = courseLibrary.startCourseImmediately(selection) else {
+                            return
+                        }
                         roundModel.seedRound(
                             prepared.holeStates,
                             activeHole: prepared.holeStates.first?.hole,
                             courseName: prepared.courseName,
                             courseGlobalId: selection.front.globalId,
-                            backCourseGlobalId: selection.back?.globalId,
                             teeBox: selection.teeBox,
-                            nine: "all"
+                            loopKey: selection.loopKey
                         )
                         syncClient.sendRoundStart(
-                            WatchRoundStart(
-                                roundId: prepared.roundId,
-                                courseName: prepared.courseName,
-                                teeBox: selection.teeBox,
-                                nine: "all",
-                                globalId: selection.front.globalId,
-                                backGlobalId: selection.back?.globalId,
-                                activeHole: prepared.holeStates.first?.hole ?? 1,
-                                holes: prepared.holeStates.map { state in
-                                    WatchRoundSeedHole(
-                                        hole: state.hole,
-                                        par: state.par,
-                                        distanceM: state.distanceM,
-                                        teeLatitude: state.teeLatitude,
-                                        teeLongitude: state.teeLongitude,
-                                        globalId: state.globalId
-                                    )
-                                }
-                            )
+                            WatchRoundStart.watchStarted(prepared, selection: selection)
                         )
                     }
                 )
@@ -253,7 +243,7 @@ public struct AICaddieWatchApp: App {
                     globalId: key.frontGlobalId,
                     roundId: key.roundId,
                     config: key.config,
-                    backGlobalId: key.backGlobalId,
+                    loopKey: key.loopKey,
                     teeBox: key.teeBox,
                     priorityHole: roundModel.activeHole,
                     onProgress: { states in
@@ -305,7 +295,7 @@ public struct AICaddieWatchApp: App {
         return ActiveCourseUpgradeKey(
             roundId: round.roundId,
             frontGlobalId: frontGlobalId,
-            backGlobalId: round.backCourseGlobalId,
+            loopKey: round.loopKey,
             teeBox: round.teeBox,
             config: config
         )

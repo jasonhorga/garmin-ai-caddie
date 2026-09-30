@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "AI Caddie Live Round Package",
+  "description": "Shape of ai-caddie-live-round-package-v2. JSON Schema cannot compare fields, so the cross-field round identity (loopKey equals roundLoops in order; every hole on its loop row: sourceGlobalId, sourceLocalHole, courseHoleNumber; nine holes per loop; unique numbers) is NOT proven here. It is enforced by the shared validators — server validate_round_identity, iPhone LiveRoundPackage.validatedRoundIdentity, Watch WatchCoursePackage decoding — which are all tested against mobile/contracts/fixtures/round_identity_cases.json. A document that passes this schema alone is not a valid package.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -12,6 +13,8 @@
     "playerProfile",
     "course",
     "holes",
+    "roundLoops",
+    "loopKey",
     "geometryCoverage",
     "readinessChecks",
     "caddieContextSeeds",
@@ -24,10 +27,25 @@
     "cachedCaddieRules",
     "generatedAt"
   ],
+  "allOf": [
+    {
+      "if": {"properties": {"holes": {"maxItems": 0}}},
+      "then": {"properties": {"roundLoops": {"maxItems": 0}, "loopKey": {"const": ""}}},
+      "else": {"properties": {"roundLoops": {"minItems": 1}, "loopKey": {"minLength": 1}}}
+    },
+    {
+      "if": {"properties": {"roundLoops": {"minItems": 1, "maxItems": 1}}},
+      "then": {"properties": {"holes": {"minItems": 9, "maxItems": 9}}}
+    },
+    {
+      "if": {"properties": {"roundLoops": {"minItems": 2}}},
+      "then": {"properties": {"holes": {"minItems": 18, "maxItems": 18}}}
+    }
+  ],
   "properties": {
     "schema": {
       "type": "string",
-      "const": "ai-caddie-live-round-package-v1"
+      "const": "ai-caddie-live-round-package-v2"
     },
     "roundId": {
       "type": "string"
@@ -258,7 +276,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["number", "par", "geometryCoverage"],
+        "required": ["number", "par", "geometryCoverage", "sourceGlobalId", "sourceLocalHole", "courseHoleNumber"],
         "properties": {
           "number": {
             "type": "integer"
@@ -282,10 +300,16 @@
             "enum": ["current", "stale", "unknown"]
           },
           "sourceGlobalId": {
-            "type": ["integer", "null"]
+            "type": "integer",
+            "minimum": 1
           },
           "sourceLocalHole": {
-            "type": ["integer", "null"]
+            "type": "integer",
+            "minimum": 1
+          },
+          "courseHoleNumber": {
+            "type": "integer",
+            "minimum": 1
           },
           "teeLatitude": {
             "type": ["number", "null"],
@@ -417,9 +441,37 @@
         }
       }
     },
-    "nine": {
+    "roundLoops": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 2,
+      "allOf": [
+        {
+          "prefixItems": [
+            {"properties": {"roundStartHole": {"const": 1}}},
+            {"properties": {"roundStartHole": {"const": 10}}}
+          ]
+        }
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["globalId", "half", "roundStartHole", "sourceStartHole", "holeCount"],
+        "properties": {
+          "globalId": {"type": "integer", "minimum": 1},
+          "half": {"type": "string", "enum": ["all", "front", "back"]},
+          "roundStartHole": {"type": "integer", "enum": [1, 10]},
+          "sourceStartHole": {"type": "integer", "enum": [1, 10]},
+          "holeCount": {"type": "integer", "const": 9}
+        },
+        "if": {"properties": {"half": {"const": "back"}}},
+        "then": {"properties": {"sourceStartHole": {"const": 10}}},
+        "else": {"properties": {"sourceStartHole": {"const": 1}}}
+      }
+    },
+    "loopKey": {
       "type": "string",
-      "enum": ["all", "front", "back"]
+      "pattern": "^$|^[1-9][0-9]*:(all|front|back)(\\+[1-9][0-9]*:(all|front|back))?$"
     },
     "caddieContextSeeds": {
       "type": "array",

@@ -14,9 +14,17 @@ public final class WatchCourseStore {
         fileURL = directory.appendingPathComponent("courses.json")
     }
 
+    /// Durable templates are validated at the load boundary: an entry whose loop key is not
+    /// canonical for its options, or whose hole table is off its loop rows, is never returned (so it
+    /// cannot be started, restored or upgraded) and is removed from disk so it is re-downloaded.
     public func loadCourses() -> [WatchCourseTemplate] {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
-        return (try? decoder.decode([WatchCourseTemplate].self, from: data)) ?? []
+        let decoded = (try? decoder.decode([WatchCourseTemplate].self, from: data)) ?? []
+        let valid = decoded.filter(\.hasValidIdentity)
+        if valid.count != decoded.count {
+            try? encoder.encode(valid).write(to: fileURL, options: .atomic)
+        }
+        return valid
     }
 
     public func course(globalId: Int) -> WatchCourseTemplate? {
@@ -34,8 +42,7 @@ public final class WatchCourseStore {
         }
         guard !selection.hasExplicitTee else { return nil }
         return courses.last { template in
-            template.option.globalId == selection.front.globalId
-                && template.backOption?.globalId == selection.back?.globalId
+            template.loopKey == selection.loopKey
                 && WatchCourseSelection.hasExplicitTee(template.teeBox)
         }
     }
@@ -43,19 +50,17 @@ public final class WatchCourseStore {
     /// Identity-only variant for round restoration, where the original course-option display
     /// metadata is no longer available. The cache matcher intentionally uses only Garmin ids and Tee.
     public func course(
-        frontGlobalId: Int,
-        backGlobalId: Int?,
+        loopKey: String,
         teeBox: String?
     ) -> WatchCourseTemplate? {
-        let front = WatchCourseOption(globalId: frontGlobalId, name: "", holes: 1)
-        let back = backGlobalId.map { WatchCourseOption(globalId: $0, name: "", holes: 1) }
-        return course(
-            selection: WatchCourseSelection(
-                front: front,
-                back: back,
-                teeBox: teeBox ?? "unknown"
-            )
-        )
+        let courses = loadCourses()
+        if let exact = courses.first(where: { $0.matches(loopKey: loopKey, teeBox: teeBox) }) {
+            return exact
+        }
+        guard !WatchCourseSelection.hasExplicitTee(teeBox) else { return nil }
+        return courses.last { template in
+            template.loopKey == loopKey && WatchCourseSelection.hasExplicitTee(template.teeBox)
+        }
     }
 
     /// A composite 18-hole cache is stored under its front option, while active holes 10–18 carry
@@ -68,6 +73,8 @@ public final class WatchCourseStore {
     }
 
     public func save(_ course: WatchCourseTemplate) throws {
+        // Never persist a template that the load boundary would reject.
+        try course.validateIdentity()
         var courses = loadCourses()
         // Templates are immutable facts for one front/back/Tee setup. Replacing only the same
         // composite key lets several nine-hole pairings and Tee choices coexist in one file.
@@ -105,9 +112,7 @@ public enum WatchCourseTemplateBuilder {
             // First use the strongest available authority: the prep package's global id plus its
             // local hole number. This handles normal holes and repeated use of one physical loop.
             var matches = packageHoles.filter { hole in
-                let sourceGlobalId = hole.sourceGlobalId ?? package.course.globalId
-                let sourceLocalHole = hole.sourceLocalHole ?? hole.number
-                return sourceGlobalId == seed.globalId && sourceLocalHole == prepHole.hole
+                hole.sourceGlobalId == seed.globalId && hole.sourceLocalHole == prepHole.hole
             }
 
             // A nine-hole/back-loop fast seed can be numbered in display space (10...18), while
@@ -127,8 +132,8 @@ public enum WatchCourseTemplateBuilder {
             }
 
             for packageHole in matches {
-                let sourceGlobalId = packageHole.sourceGlobalId ?? package.course.globalId
-                let sourceLocalHole = packageHole.sourceLocalHole ?? packageHole.number
+                let sourceGlobalId = packageHole.sourceGlobalId
+                let sourceLocalHole = packageHole.sourceLocalHole
                 guard sourceGlobalId > 0, sourceLocalHole > 0 else { continue }
                 // The response is indexed by source local hole. Store a single row per local key;
                 // repeated display holes of the same physical loop intentionally share geometry.
@@ -152,6 +157,7 @@ public enum WatchCourseTemplateBuilder {
     public static func build(
         option: WatchCourseOption,
         backOption: WatchCourseOption? = nil,
+        loopKey: String? = nil,
         package: WatchCoursePackage,
         prepsByGlobalId: [Int: WatchCoursePrepResponse],
         topoImagesByGlobalId: [Int: [Int: Data]] = [:],
@@ -162,8 +168,8 @@ public enum WatchCourseTemplateBuilder {
 
         var images: [WatchCourseImage] = []
         let states = package.holes.sorted { $0.number < $1.number }.map { hole -> WatchRoundState in
-            let globalId = hole.sourceGlobalId ?? package.course.globalId
-            let localHole = hole.sourceLocalHole ?? hole.number
+            let globalId = hole.sourceGlobalId
+            let localHole = hole.sourceLocalHole
             let prepResponse = prepsByGlobalId[globalId]
             let prep = prepResponse?.holes.first { $0.hole == localHole }
             let geometryRevision = prep?.geometryRevision ?? hole.geometryRevision
@@ -260,6 +266,7 @@ public enum WatchCourseTemplateBuilder {
                 holeImageProjection: projection,
                 globalId: globalId,
                 sourceLocalHole: localHole,
+                courseHoleNumber: hole.courseHoleNumber,
                 holeMap: holeMap,
                 fairwayOutline: prep?.fairwayOutline,
                 playsLikeDistanceM: WatchUnits.playsLikeMetres(
@@ -289,6 +296,7 @@ public enum WatchCourseTemplateBuilder {
         let template = WatchCourseTemplate(
             option: locatedOption,
             backOption: locatedBackOption,
+            loopKey: loopKey,
             courseName: resolvedCourseName(
                 package: package,
                 option: option,

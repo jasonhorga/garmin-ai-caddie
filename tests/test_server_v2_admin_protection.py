@@ -202,7 +202,7 @@ def _reconciliation_apply_response() -> dict[str, object]:
 
 def _mobile_package_response() -> dict[str, object]:
     return {
-        "schema": "ai-caddie-live-round-package-v1",
+        "schema": "ai-caddie-live-round-package-v2",
         "roundId": "live-round-1",
         "dataMode": "fixture",
         "sourceCoverage": {
@@ -212,13 +212,29 @@ def _mobile_package_response() -> dict[str, object]:
             "selectedRoundId": "live-round-1",
             "roundFound": True,
             "availableRoundCount": 1,
-            "holeCount": 1,
+            "holeCount": 9,
             "clubProfileCount": 0,
         },
         "missingData": [],
         "playerProfile": {"playerId": "player-1", "displayName": "Test Player", "handedness": "right"},
         "course": {"globalId": 31795, "name": "Fixture Links", "teeBox": "blue"},
-        "holes": [{"number": 1, "par": 4, "yards": 410, "geometryCoverage": "ready"}],
+        "roundLoops": [
+            {"globalId": 31795, "half": "all", "roundStartHole": 1, "sourceStartHole": 1, "holeCount": 9}
+        ],
+        "loopKey": "31795:all",
+        # A contract-valid 9-hole loop: every loop carries all nine of its holes (B4b-2).
+        "holes": [
+            {
+                "number": number,
+                "courseHoleNumber": number,
+                "sourceGlobalId": 31795,
+                "sourceLocalHole": number,
+                "par": 4,
+                "yards": 410,
+                "geometryCoverage": "ready",
+            }
+            for number in range(1, 10)
+        ],
         "geometryCoverage": {"state": "partial", "readyHoles": 12, "totalHoles": 18},
         "caddieContextSeeds": [],
         "weatherSnapshot": {
@@ -528,7 +544,7 @@ class ServerV2AdminProtectionTests(unittest.TestCase):
         ):
             package = client.get("/api/v2/mobile/rounds/live-round-1/package")
             course_options = client.get("/api/v2/mobile/courses/options")
-            course_package = client.get("/api/v2/mobile/courses/31795/package?round_id=live-round-1")
+            course_package = client.get("/api/v2/mobile/courses/31795/package?round_id=live-round-1&loops=31795:all")
             replay = client.get("/api/v2/mobile/rounds/live-round-1/events/replay?client_id=ios-phone")
             reconciliation = client.get("/api/v2/mobile/rounds/live-round-1/reconciliation")
 
@@ -852,7 +868,7 @@ class MobilePackageAdminOnlyTests(unittest.TestCase):
             patch("server_v2.main.build_mobile_course_package_response", handler),
         ):
             resp = self.client.get(
-                "/api/v2/mobile/courses/31795/package?round_id=live-round-1",
+                "/api/v2/mobile/courses/31795/package?round_id=live-round-1&loops=31795:all",
                 headers={"Authorization": f"Bearer {self.member_token}"},
             )
         self.assertEqual(resp.status_code, 200)
@@ -864,8 +880,7 @@ class MobilePackageAdminOnlyTests(unittest.TestCase):
             client_id=None,
             ensure_geometry=False,
             include_event_cursor=True,
-            nine="all",
-            back_global_id=None,
+            loops=[(31795, "all")],
             player_id=self.member_id,
         )
 

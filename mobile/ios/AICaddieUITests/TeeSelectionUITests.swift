@@ -82,7 +82,7 @@ final class TeeSelectionUITests: XCTestCase {
             waitForValue("已选择", on: palaceRow, timeout: 8),
             "换球场或组合 must carry the course here into 开始一场 as the selected venue"
         )
-        let palace = app.buttons["start-round-course-segment-31793"]
+        let palace = courseTile(31793)
         XCTAssertTrue(palace.waitForExistence(timeout: 8), "the selected venue must show its loop tile")
         let startAction = app.buttons["start-round-primary-action"]
         XCTAssertTrue(
@@ -100,12 +100,12 @@ final class TeeSelectionUITests: XCTestCase {
             "the carried course must load its Tee authority and become startable"
         )
         XCTAssertTrue(
-            palace.label.contains("18 洞"),
-            "an 18-hole whole-course selection must be one \"18 洞\" tile, not a 9-hole loop"
+            palace.label.contains("前九"),
+            "an 18-hole course starts on one of its halves: 前九 is the preselected tile (B4b-2)"
         )
         XCTAssertTrue(
-            startAction.label.hasPrefix("开始 18 洞"),
-            "the primary action must name the whole-course start and its tee"
+            startAction.label.hasPrefix("从 前九 开始"),
+            "the primary action must name the half being started and its tee"
         )
 
         // The 发球台 row: colour dots with this course's yardages from GET /courses/{id}/tees.
@@ -239,7 +239,7 @@ final class TeeSelectionUITests: XCTestCase {
         )
         palaceResult.tap()
 
-        let selectedPalace = app.buttons["start-round-course-segment-31793"]
+        let selectedPalace = courseTile(31793)
         XCTAssertTrue(selectedPalace.waitForExistence(timeout: 12))
         XCTAssertTrue(
             waitForValue("已选择", on: selectedPalace, timeout: 8),
@@ -560,7 +560,11 @@ final class TeeSelectionUITests: XCTestCase {
         XCTAssertTrue(waitForValue("已选择", on: downloaded, timeout: 8))
         XCTAssertTrue(
             app.buttons.matching(
-                NSPredicate(format: "identifier BEGINSWITH %@", "start-round-course-segment-")
+                NSPredicate(
+                    format: "identifier BEGINSWITH %@ OR identifier BEGINSWITH %@",
+                    "start-round-course-segment-",
+                    "start-round-course-half-"
+                )
             ).firstMatch.waitForExistence(timeout: 5),
             "the selected downloaded venue must show its loop tile"
         )
@@ -674,12 +678,22 @@ final class TeeSelectionUITests: XCTestCase {
             "manual catalogue fallback must return the real Beijing Palace row"
         )
         result.tap()
-        let selected = app.buttons["start-round-course-segment-31793"]
+        let selected = courseTile(31793)
         XCTAssertTrue(selected.waitForExistence(timeout: 12))
         XCTAssertTrue(
             waitForValue("已选择", on: selected, timeout: 8),
             "the manually found course must become the explicit start-round selection"
         )
+    }
+
+    /// B4b-2: a nine-hole loop is one tile (`start-round-course-segment-G`); an 18-hole course
+    /// shows 前九 / 后九 tiles (`start-round-course-half-G-front|back`) with 前九 preselected.
+    private func courseTile(_ globalId: Int) -> XCUIElement {
+        app.buttons.matching(NSPredicate(
+            format: "identifier == %@ OR identifier == %@",
+            "start-round-course-segment-\(globalId)",
+            "start-round-course-half-\(globalId)-front"
+        )).firstMatch
     }
 
     private func bringIntoView(_ element: XCUIElement, maxSwipes: Int) -> Bool {
@@ -786,7 +800,7 @@ final class TeeSelectionUITests: XCTestCase {
     /// Select a course in the one list (its venue row), then return its loop tile.
     @discardableResult
     private func selectCourse(_ globalId: Int, timeout: TimeInterval) -> XCUIElement {
-        let tile = app.buttons["start-round-course-segment-\(globalId)"]
+        let tile = courseTile(globalId)
         if tile.exists, tile.value as? String == "已选择" { return tile }
         let row = app.buttons["start-round-venue-\(globalId)"]
         if row.waitForExistence(timeout: timeout), row.isHittable {

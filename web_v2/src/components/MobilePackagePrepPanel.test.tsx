@@ -5,7 +5,7 @@ import type { LiveRoundPackageResponse } from '../types'
 import { MobilePackagePrepPanel } from './MobilePackagePrepPanel'
 
 const packageFixture: LiveRoundPackageResponse = {
-  schema: 'ai-caddie-live-round-package-v1',
+  schema: 'ai-caddie-live-round-package-v2',
   roundId: 'live-black-knight',
   dataMode: 'fixture',
   sourceCoverage: {
@@ -52,7 +52,9 @@ const packageFixture: LiveRoundPackageResponse = {
   ],
   playerProfile: { playerId: 'player-1', displayName: 'Test Player', handedness: 'right' },
   course: { globalId: 31795, name: 'Fixture Links', teeBox: 'blue' },
-  holes: [{ number: 1, par: 4, yards: 410, geometryCoverage: 'ready' }],
+  holes: [{ number: 1, par: 4, yards: 410, geometryCoverage: 'ready', sourceGlobalId: 31795, sourceLocalHole: 1, courseHoleNumber: 1 }],
+  roundLoops: [{ globalId: 31795, half: 'all', roundStartHole: 1, sourceStartHole: 1, holeCount: 9 }],
+  loopKey: '31795:all',
   geometryCoverage: { state: 'partial', readyHoles: 12, totalHoles: 18 },
   readinessChecks: [
     {
@@ -217,6 +219,7 @@ describe('MobilePackagePrepPanel', () => {
     expect(onPrepareCourse).toHaveBeenCalledWith(31795, {
       roundId: 'live-black-knight',
       teeBox: 'blue',
+      loops: '31795:front,31795:back',
       capturedAt: undefined,
       ensureGeometry: true,
     })
@@ -269,6 +272,7 @@ describe('MobilePackagePrepPanel', () => {
     expect(onPrepareCourse).toHaveBeenCalledWith(31795, {
       roundId: 'live-31795',
       teeBox: 'blue',
+      loops: '31795:front,31795:back',
       capturedAt: undefined,
       ensureGeometry: true,
     })

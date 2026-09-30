@@ -7,6 +7,8 @@ import SwiftUI
 struct LiveRoundFinishSummaryView: View {
     let courseName: String
     let holes: [Hole]
+    /// One title per loop in play order (B4b-2), e.g. "第一环 · 后九".
+    var loopTitles: [String] = []
     let scores: [Int: LiveHoleScore]
     let isFinishingRound: Bool
     let finishErrorMessage: String?
@@ -84,9 +86,17 @@ struct LiveRoundFinishSummaryView: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(LivePlayStyle.ink)
                 .padding(.horizontal, 4)
-            LiveNineCard(label: "OUT", holes: Array(orderedHoles.prefix(9)), scores: scores)
+            LiveNineCard(
+                title: LiveScorecardLoops.title(loopTitles, index: 0),
+                holes: Array(orderedHoles.prefix(9)),
+                scores: scores
+            )
             if orderedHoles.count > 9 {
-                LiveNineCard(label: "IN", holes: Array(orderedHoles.dropFirst(9).prefix(9)), scores: scores)
+                LiveNineCard(
+                    title: LiveScorecardLoops.title(loopTitles, index: 1),
+                    holes: Array(orderedHoles.dropFirst(9).prefix(9)),
+                    scores: scores
+                )
             }
         }
     }

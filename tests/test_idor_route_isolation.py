@@ -57,7 +57,7 @@ _AGGREGATOR_CASES = [
     ),
     (
         "course package",
-        f"/api/v2/mobile/courses/{_FIXTURE_GLOBAL_ID}/package?round_id=test-round-1",
+        f"/api/v2/mobile/courses/{_FIXTURE_GLOBAL_ID}/package?round_id=test-round-1&loops={_FIXTURE_GLOBAL_ID}:front,{_FIXTURE_GLOBAL_ID}:back",
         "build_mobile_course_package_response",
         _mobile_package_response,
     ),

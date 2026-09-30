@@ -52,6 +52,9 @@ final class LiveHoleGPSResolverTests: XCTestCase {
             par: 4,
             yards: 400,
             geometryCoverage: .ready,
+            sourceGlobalId: 31795,
+            sourceLocalHole: number,
+            courseHoleNumber: number,
             teeLatitude: latitude,
             teeLongitude: longitude
         )

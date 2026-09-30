@@ -1,0 +1,3088 @@
+{
+ "invalid": {
+  "back_source_start_1": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 10,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 10,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 11,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 11,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 12,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 12,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 13,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 13,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 14,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 14,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 15,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 15,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 16,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 16,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 17,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 17,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 18,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 18,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:back",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "back",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "course_hole_number_contradicts_row": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 12,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:front",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "duplicate_hole": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:front",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "hole_count_not_9": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:front",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 1,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "hole_local_contradicts_row": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:front",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "hole_number_breaks_sequence": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:front",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "holes_without_loops": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    }
+   ],
+   "loopKey": "",
+   "roundId": "identity-case",
+   "roundLoops": [],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "loop_course_contradicts_holes": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    }
+   ],
+   "loopKey": "99999:front",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 99999,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "loop_without_holes": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [],
+   "loopKey": "31795:front",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "loopkey_comma": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 10,
+     "geometryCoverage": "ready",
+     "number": 10,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 10,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 11,
+     "geometryCoverage": "ready",
+     "number": 11,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 11,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 12,
+     "geometryCoverage": "ready",
+     "number": 12,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 12,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 13,
+     "geometryCoverage": "ready",
+     "number": 13,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 13,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 14,
+     "geometryCoverage": "ready",
+     "number": 14,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 14,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 15,
+     "geometryCoverage": "ready",
+     "number": 15,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 15,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 16,
+     "geometryCoverage": "ready",
+     "number": 16,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 16,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 17,
+     "geometryCoverage": "ready",
+     "number": 17,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 17,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 18,
+     "geometryCoverage": "ready",
+     "number": 18,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 18,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:front,31795:back",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    },
+    {
+     "globalId": 31795,
+     "half": "back",
+     "holeCount": 9,
+     "roundStartHole": 10,
+     "sourceStartHole": 10
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "loopkey_contradicts_loops": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:back",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "loopkey_order_swapped": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 10,
+     "geometryCoverage": "ready",
+     "number": 10,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 10,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 11,
+     "geometryCoverage": "ready",
+     "number": 11,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 11,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 12,
+     "geometryCoverage": "ready",
+     "number": 12,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 12,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 13,
+     "geometryCoverage": "ready",
+     "number": 13,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 13,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 14,
+     "geometryCoverage": "ready",
+     "number": 14,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 14,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 15,
+     "geometryCoverage": "ready",
+     "number": 15,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 15,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 16,
+     "geometryCoverage": "ready",
+     "number": 16,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 16,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 17,
+     "geometryCoverage": "ready",
+     "number": 17,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 17,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 18,
+     "geometryCoverage": "ready",
+     "number": 18,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 18,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:back+31795:front",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    },
+    {
+     "globalId": 31795,
+     "half": "back",
+     "holeCount": 9,
+     "roundStartHole": 10,
+     "sourceStartHole": 10
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "missing_hole": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:front",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "round_start_not_1": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:front",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 7,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "schema_v1": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:front",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v1"
+  },
+  "second_start_not_10": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 10,
+     "geometryCoverage": "ready",
+     "number": 10,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 10,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 11,
+     "geometryCoverage": "ready",
+     "number": 11,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 11,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 12,
+     "geometryCoverage": "ready",
+     "number": 12,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 12,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 13,
+     "geometryCoverage": "ready",
+     "number": 13,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 13,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 14,
+     "geometryCoverage": "ready",
+     "number": 14,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 14,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 15,
+     "geometryCoverage": "ready",
+     "number": 15,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 15,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 16,
+     "geometryCoverage": "ready",
+     "number": 16,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 16,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 17,
+     "geometryCoverage": "ready",
+     "number": 17,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 17,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 18,
+     "geometryCoverage": "ready",
+     "number": 18,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 18,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:front+31795:back",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    },
+    {
+     "globalId": 31795,
+     "half": "back",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 10
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "three_loops": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 10,
+     "geometryCoverage": "ready",
+     "number": 10,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 10,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 11,
+     "geometryCoverage": "ready",
+     "number": 11,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 11,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 12,
+     "geometryCoverage": "ready",
+     "number": 12,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 12,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 13,
+     "geometryCoverage": "ready",
+     "number": 13,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 13,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 14,
+     "geometryCoverage": "ready",
+     "number": 14,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 14,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 15,
+     "geometryCoverage": "ready",
+     "number": 15,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 15,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 16,
+     "geometryCoverage": "ready",
+     "number": 16,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 16,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 17,
+     "geometryCoverage": "ready",
+     "number": 17,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 17,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 18,
+     "geometryCoverage": "ready",
+     "number": 18,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 18,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:front+31795:back+31795:front",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    },
+    {
+     "globalId": 31795,
+     "half": "back",
+     "holeCount": 9,
+     "roundStartHole": 10,
+     "sourceStartHole": 10
+    },
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 19,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  }
+ },
+ "schema": "ai-caddie-round-identity-cases-v1",
+ "valid": {
+  "back": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 10,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 10,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 11,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 11,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 12,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 12,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 13,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 13,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 14,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 14,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 15,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 15,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 16,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 16,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 17,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 17,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 18,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 18,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:back",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "back",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 10
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "back_back": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 10,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 10,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 11,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 11,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 12,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 12,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 13,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 13,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 14,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 14,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 15,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 15,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 16,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 16,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 17,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 17,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 18,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 18,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 10,
+     "geometryCoverage": "ready",
+     "number": 10,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 10,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 11,
+     "geometryCoverage": "ready",
+     "number": 11,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 11,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 12,
+     "geometryCoverage": "ready",
+     "number": 12,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 12,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 13,
+     "geometryCoverage": "ready",
+     "number": 13,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 13,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 14,
+     "geometryCoverage": "ready",
+     "number": 14,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 14,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 15,
+     "geometryCoverage": "ready",
+     "number": 15,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 15,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 16,
+     "geometryCoverage": "ready",
+     "number": 16,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 16,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 17,
+     "geometryCoverage": "ready",
+     "number": 17,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 17,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 18,
+     "geometryCoverage": "ready",
+     "number": 18,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 18,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:back+31795:back",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "back",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 10
+    },
+    {
+     "globalId": 31795,
+     "half": "back",
+     "holeCount": 9,
+     "roundStartHole": 10,
+     "sourceStartHole": 10
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "back_front": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 10,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 10,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 11,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 11,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 12,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 12,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 13,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 13,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 14,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 14,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 15,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 15,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 16,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 16,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 17,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 17,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 18,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 18,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 10,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 11,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 12,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 13,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 14,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 15,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 16,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 17,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 18,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:back+31795:front",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "back",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 10
+    },
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 10,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "front": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:front",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "front_back": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 9,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 10,
+     "geometryCoverage": "ready",
+     "number": 10,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 10,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 11,
+     "geometryCoverage": "ready",
+     "number": 11,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 11,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 12,
+     "geometryCoverage": "ready",
+     "number": 12,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 12,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 13,
+     "geometryCoverage": "ready",
+     "number": 13,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 13,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 14,
+     "geometryCoverage": "ready",
+     "number": 14,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 14,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 15,
+     "geometryCoverage": "ready",
+     "number": 15,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 15,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 16,
+     "geometryCoverage": "ready",
+     "number": 16,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 16,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 17,
+     "geometryCoverage": "ready",
+     "number": 17,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 17,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 18,
+     "geometryCoverage": "ready",
+     "number": 18,
+     "par": 4,
+     "sourceGlobalId": 31795,
+     "sourceLocalHole": 18,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31795:front+31795:back",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31795,
+     "half": "front",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    },
+    {
+     "globalId": 31795,
+     "half": "back",
+     "holeCount": 9,
+     "roundStartHole": 10,
+     "sourceStartHole": 10
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "loop_all": {
+   "course": {
+    "globalId": 31870,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 9,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31870:all",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31870,
+     "half": "all",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "no_holes": {
+   "course": {
+    "globalId": 31795,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [],
+   "loopKey": "",
+   "roundId": "identity-case",
+   "roundLoops": [],
+   "schema": "ai-caddie-live-round-package-v2"
+  },
+  "two_loops_all": {
+   "course": {
+    "globalId": 31870,
+    "name": "Identity Case",
+    "teeBox": "blue"
+   },
+   "holes": [
+    {
+     "courseHoleNumber": 1,
+     "geometryCoverage": "ready",
+     "number": 1,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 2,
+     "geometryCoverage": "ready",
+     "number": 2,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 3,
+     "geometryCoverage": "ready",
+     "number": 3,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 4,
+     "geometryCoverage": "ready",
+     "number": 4,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 5,
+     "geometryCoverage": "ready",
+     "number": 5,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 6,
+     "geometryCoverage": "ready",
+     "number": 6,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 7,
+     "geometryCoverage": "ready",
+     "number": 7,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 8,
+     "geometryCoverage": "ready",
+     "number": 8,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 9,
+     "geometryCoverage": "ready",
+     "number": 9,
+     "par": 4,
+     "sourceGlobalId": 31870,
+     "sourceLocalHole": 9,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 10,
+     "geometryCoverage": "ready",
+     "number": 10,
+     "par": 4,
+     "sourceGlobalId": 31871,
+     "sourceLocalHole": 1,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 11,
+     "geometryCoverage": "ready",
+     "number": 11,
+     "par": 4,
+     "sourceGlobalId": 31871,
+     "sourceLocalHole": 2,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 12,
+     "geometryCoverage": "ready",
+     "number": 12,
+     "par": 4,
+     "sourceGlobalId": 31871,
+     "sourceLocalHole": 3,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 13,
+     "geometryCoverage": "ready",
+     "number": 13,
+     "par": 4,
+     "sourceGlobalId": 31871,
+     "sourceLocalHole": 4,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 14,
+     "geometryCoverage": "ready",
+     "number": 14,
+     "par": 4,
+     "sourceGlobalId": 31871,
+     "sourceLocalHole": 5,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 15,
+     "geometryCoverage": "ready",
+     "number": 15,
+     "par": 4,
+     "sourceGlobalId": 31871,
+     "sourceLocalHole": 6,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 16,
+     "geometryCoverage": "ready",
+     "number": 16,
+     "par": 4,
+     "sourceGlobalId": 31871,
+     "sourceLocalHole": 7,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 17,
+     "geometryCoverage": "ready",
+     "number": 17,
+     "par": 4,
+     "sourceGlobalId": 31871,
+     "sourceLocalHole": 8,
+     "yards": 400
+    },
+    {
+     "courseHoleNumber": 18,
+     "geometryCoverage": "ready",
+     "number": 18,
+     "par": 4,
+     "sourceGlobalId": 31871,
+     "sourceLocalHole": 9,
+     "yards": 400
+    }
+   ],
+   "loopKey": "31870:all+31871:all",
+   "roundId": "identity-case",
+   "roundLoops": [
+    {
+     "globalId": 31870,
+     "half": "all",
+     "holeCount": 9,
+     "roundStartHole": 1,
+     "sourceStartHole": 1
+    },
+    {
+     "globalId": 31871,
+     "half": "all",
+     "holeCount": 9,
+     "roundStartHole": 10,
+     "sourceStartHole": 1
+    }
+   ],
+   "schema": "ai-caddie-live-round-package-v2"
+  }
+ }
+}

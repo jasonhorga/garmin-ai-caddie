@@ -94,15 +94,14 @@ public struct CurrentHoleView: View {
     // 球局调整(加打 / 减九洞 / 结束本场)— round-11: 从首页 Hub 移进开球后的实战屏(用户反馈:
     // 这些该在球局里、不放首页)。控件与闭包原样保留,仅换了容身的屏。
     private let courseOptions: [MobileCourseOption]
-    private let startingNine: String?
     private let isPreparingRound: Bool
     private let pendingEventCount: Int
     private let isFinishingRound: Bool
     private let finishErrorMessage: String?
-    private let onChangeNine: (String) -> Void
-    private let onPrepareCourseRound: (Int, String, String, String) -> Void
-    private let onPrepareCompositeRound: (Int, Int, String, String) -> Void
-    private let onContinueIntoSecondLoop: (Int, Int, String, String) -> Void
+    /// B4b-2 second loop: set / change (entry) or drop (nil) it before its first hole is played.
+    private let onSetSecondLoop: (RoundLoopEntry?, String) -> Void
+    /// The turn: add the second loop and open its first hole (the model navigates).
+    private let onContinueIntoSecondLoop: (RoundLoopEntry, String) -> Void
     private let onFinishRound: () async -> Bool
     private let onDiscardRound: () -> Void
     private let onAdvanceHole: (Int) -> Void
@@ -217,15 +216,12 @@ public struct CurrentHoleView: View {
         watchBridge: WatchEventBridge? = nil,
         liveRoundState: LiveRoundStateSnapshot? = nil,
         courseOptions: [MobileCourseOption] = [],
-        startingNine: String? = nil,
         isPreparingRound: Bool = false,
         pendingEventCount: Int = 0,
         isFinishingRound: Bool = false,
         finishErrorMessage: String? = nil,
-        onChangeNine: @escaping (String) -> Void = { _ in },
-        onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
-        onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
-        onContinueIntoSecondLoop: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
+        onSetSecondLoop: @escaping (RoundLoopEntry?, String) -> Void = { _, _ in },
+        onContinueIntoSecondLoop: @escaping (RoundLoopEntry, String) -> Void = { _, _ in },
         onFinishRound: @escaping () async -> Bool = { false },
         onDiscardRound: @escaping () -> Void = {},
         onAdvanceHole: @escaping (Int) -> Void = { _ in },
@@ -244,14 +240,11 @@ public struct CurrentHoleView: View {
         self.watchBridge = watchBridge
         self.liveRoundState = liveRoundState
         self.courseOptions = courseOptions
-        self.startingNine = startingNine
         self.isPreparingRound = isPreparingRound
         self.pendingEventCount = pendingEventCount
         self.isFinishingRound = isFinishingRound
         self.finishErrorMessage = finishErrorMessage
-        self.onChangeNine = onChangeNine
-        self.onPrepareCourseRound = onPrepareCourseRound
-        self.onPrepareCompositeRound = onPrepareCompositeRound
+        self.onSetSecondLoop = onSetSecondLoop
         self.onContinueIntoSecondLoop = onContinueIntoSecondLoop
         self.onFinishRound = onFinishRound
         self.onDiscardRound = onDiscardRound
@@ -568,7 +561,7 @@ public struct CurrentHoleView: View {
             VStack(spacing: 0) {
                 HStack(alignment: .top, spacing: 8) {
                     LivePlayTopInfo(
-                        holeNumber: hole.number,
+                        holeNumber: hole.courseHoleNumber,
                         par: hole.par,
                         yards: hole.yards,
                         roundLine: liveRoundLine,
@@ -781,7 +774,8 @@ public struct CurrentHoleView: View {
             ),
             nextHole: presentedDraft.advanceAfterSave ? nextHole(after: presentedDraft.hole) : nil,
             onAccept: acceptScoreConfirmation,
-            onCancel: cancelScoreConfirmation
+            onCancel: cancelScoreConfirmation,
+            courseHoleNumber: package.courseHoleNumber(forRoundHole:)
         )
     }
 
@@ -824,7 +818,8 @@ public struct CurrentHoleView: View {
                     }
                     manageSection
                 }
-            )
+            ),
+            loopTitles: LiveScorecardLoops.titles(package: package, catalogue: courseOptions)
         )
     }
 
@@ -832,6 +827,7 @@ public struct CurrentHoleView: View {
         LiveRoundFinishSummaryView(
             courseName: package.course.venueDisplayName,
             holes: package.holes,
+            loopTitles: LiveScorecardLoops.titles(package: package, catalogue: courseOptions),
             scores: completedHoleScores,
             isFinishingRound: isFinishingRound,
             finishErrorMessage: finishErrorMessage,
@@ -1430,7 +1426,7 @@ public struct CurrentHoleView: View {
         } else {
             // A loading surface is warranted only when there is no route projection to draw yet.
             // `isPreciseHoleMapPending` must never hide an already usable lightweight map.
-            LiveMapPreparingSurface(holeNumber: hole.number)
+            LiveMapPreparingSurface(holeNumber: hole.courseHoleNumber)
         }
     }
 
@@ -1917,8 +1913,8 @@ public struct CurrentHoleView: View {
     private var hasCachedTopoForCurrentHole: Bool {
         guard let holePrep,
               let offlineStore else { return false }
-        let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
-        let mapLocalHole = hole.sourceLocalHole ?? hole.number
+        let mapGlobalId = hole.sourceGlobalId
+        let mapLocalHole = hole.sourceLocalHole
         return offlineStore.loadCourseTopoImageURL(
             globalId: mapGlobalId,
             localHole: mapLocalHole,
@@ -1929,8 +1925,8 @@ public struct CurrentHoleView: View {
     /// 本洞真实地形底图 URL(与 `loadHoleMap` 用同一 source 球场 + 本地洞号:组合局后九在第二个环的
     /// gid)。给 `HoleImageMapView` 当底图;无后端地址/占位球场时为 nil → 回退到 payload flat 渲染图。
     private var liveTopoURL: URL? {
-        let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
-        let mapLocalHole = hole.sourceLocalHole ?? hole.number
+        let mapGlobalId = hole.sourceGlobalId
+        let mapLocalHole = hole.sourceLocalHole
         let geometryRevision = holePrep?.geometryRevision ?? hole.geometryRevision
         if let local = offlineStore?.loadCourseTopoImageURL(
             globalId: mapGlobalId,
@@ -1969,8 +1965,8 @@ public struct CurrentHoleView: View {
                   imageWidth: Double(width),
                   imageHeight: Double(height)
               ) else { return nil }
-        let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
-        let mapLocalHole = hole.sourceLocalHole ?? hole.number
+        let mapGlobalId = hole.sourceGlobalId
+        let mapLocalHole = hole.sourceLocalHole
         return SyncClient.greenDetailImageURL(
             baseURL: caddieBaseURL,
             globalId: mapGlobalId,
@@ -2559,8 +2555,8 @@ public struct CurrentHoleView: View {
             return false
         }
         // 每洞用自己的 source 球场 + 本地洞号(组合局后九在第二个环的 gid)。
-        let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
-        let mapLocalHole = hole.sourceLocalHole ?? hole.number
+        let mapGlobalId = hole.sourceGlobalId
+        let mapLocalHole = hole.sourceLocalHole
         guard mapGlobalId != 0 else {
             return false
         }
@@ -2618,8 +2614,8 @@ public struct CurrentHoleView: View {
             preciseMapTimedOut = true
             return
         }
-        let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
-        let mapLocalHole = hole.sourceLocalHole ?? hole.number
+        let mapGlobalId = hole.sourceGlobalId
+        let mapLocalHole = hole.sourceLocalHole
         guard mapGlobalId != 0 else {
             preciseMapTimedOut = true
             return
@@ -3281,10 +3277,11 @@ public struct CurrentHoleView: View {
 
     // MARK: - B4 turn (接着打哪个 9 洞)
 
-    /// The turn plan when this round is exactly one nine-hole loop of a known venue.
+    /// The turn plan when this round is exactly one loop: a half of an 18-hole course, or a
+    /// nine-hole loop of a known venue.
     private var turnPlanAtEndOfFirstLoop: NineLoopPlan? {
         guard liveRoundState != nil else { return nil }
-        var remembered: [Int: Int] = [:]
+        var remembered: [String: String] = [:]
         var history: [HistoryRoundCard] = []
         if let offlineStore {
             remembered = (try? offlineStore.loadNineLoopPairings()) ?? [:]
@@ -3298,20 +3295,24 @@ public struct CurrentHoleView: View {
     }
 
     private func continueIntoSecondLoop(_ loop: NineLoop) {
-        guard let back = Int(loop.id) else { return }
-        let front = package.course.globalId
-        try? offlineStore?.rememberNineLoopPairing(front: front, back: back)
+        guard let entry = NineLoopTurn.entry(loop.id),
+              let first = package.roundLoops.first else { return }
+        try? offlineStore?.rememberNineLoopPairing(first: NineLoopTurn.loopId(first.entry), second: loop.id)
         // The model adds the loop and opens its first hole: this view is rebuilt for the new hole
         // set, so it cannot own that navigation. The sheet stays until then.
         turnContinuationFailed = false
         turnContinuationPending = true
-        onContinueIntoSecondLoop(front, back, package.course.teeBox, package.roundId)
+        onContinueIntoSecondLoop(entry, package.roundId)
     }
 
-    /// The second loop can still be changed until its first hole has anything recorded.
+    /// The second loop can still be changed until its first hole has anything recorded: the lock
+    /// is any event on a round hole at or after the second loop's start (B4b-2 — round holes, so
+    /// 后→前 locks on round hole 10 exactly like 前→后).
     private var secondLoopStarted: Bool {
-        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return false }
-        return events.contains { $0.roundId == package.roundId && $0.hole > 9 }
+        guard package.secondLoop != nil,
+              let offlineStore,
+              let events = try? offlineStore.loadEvents() else { return false }
+        return package.isSecondLoopLocked(by: events)
     }
 
     // MARK: - 球局洞数调整
@@ -3320,7 +3321,6 @@ public struct CurrentHoleView: View {
     @ViewBuilder private var manageSection: some View {
         DisclosureGroup(isExpanded: $showManage) {
             VStack(spacing: 8) {
-                nineControl
                 loopAddControl
             }
             .padding(.top, 8)
@@ -3331,78 +3331,31 @@ public struct CurrentHoleView: View {
         .livePlayAuxiliaryCard()
     }
 
-    /// 起始九洞的加打 / 撤销:nine 是对一局 18 洞的视图过滤,已记杆按 roundId 保留。
-    @ViewBuilder private var nineControl: some View {
-        if package.course.globalId != 0 {
-            let currentNine = package.nine ?? "all"
-            if currentNine != "all" {
-                Button {
-                    onChangeNine("all")
-                } label: {
-                    Label("＋加打另外 9 洞(凑 18)", systemImage: "plus.circle")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .foregroundStyle(LiveHoleStyle.green)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.green))
-                }
-                .buttonStyle(.plain)
-                .disabled(isPreparingRound)
-            } else if let startingNine, startingNine != "all" {
-                Button {
-                    onChangeNine(startingNine)
-                } label: {
-                    Label("移除另外 9 洞 · 只打\(nineText(startingNine))", systemImage: "minus.circle")
-                        .font(.subheadline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .foregroundStyle(.secondary)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.line))
-                }
-                .buttonStyle(.plain)
-                .disabled(isPreparingRound)
-            }
+    /// The loops this round may add or switch to as its second loop: the other half and the same
+    /// half of an 18-hole course (前九 / 后九), or the venue's labelled nine-hole loops (the
+    /// current loop included). README §8: never a synthesized "9 洞组" in a selectable B4 control.
+    private var selectableSecondLoops: [NineLoop] {
+        guard let first = package.roundLoops.first else { return [] }
+        if first.isCourseHalf {
+            return NineLoopTurn.halves(globalId: first.globalId)
         }
-    }
-
-    private func nineText(_ nine: String) -> String {
-        switch nine {
-        case "front":
-            return "前九"
-        case "back":
-            return "后九"
-        default:
-            return "全 18 洞"
-        }
-    }
-
-    /// 当前局对应的 CourseView 选项(用 course.globalId 反查;组合局的 globalId = 前环)。
-    private var activeCourseOption: MobileCourseOption? {
-        courseOptions.first { $0.globalId == package.course.globalId }
-    }
-
-    /// 同球场可作为「另一个 9 洞」的环(9 洞、同球场),含当前环本身。按 A/B/C 排序。
-    private var siblingLoops: [MobileCourseOption] {
-        guard let active = activeCourseOption else { return [] }
-        return NineLoopTurn.siblings(of: active, in: courseOptions)
-    }
-
-    /// Sibling loops a menu may offer: only loops with a factual loop label, shown under that
-    /// label (README §8: never a synthesized "9 洞组" in a selectable B4 control).
-    private var selectableSiblingLoops: [(option: MobileCourseOption, loop: NineLoop)] {
-        siblingLoops.compactMap { option in NineLoopTurn.loop(option).map { (option: option, loop: $0) } }
+        guard let active = courseOptions.first(where: { $0.globalId == first.globalId }),
+              active.resolvedHoles == 9 else { return [] }
+        return NineLoopTurn.siblings(of: active, in: courseOptions).compactMap(NineLoopTurn.loop)
     }
 
     @ViewBuilder private var loopAddControl: some View {
-        // 仅进行中、且当前局是某球场的一个 9 洞环时显示。
-        if liveRoundState != nil, let active = activeCourseOption, (active.segmentHoles ?? active.holes) == 9 {
-            if package.holes.count <= 9 {
-                if !selectableSiblingLoops.isEmpty {
-                    // 单 9 洞环进行中 → 选另一个环加打凑 18(同一局,已记杆保留)。
+        // 仅进行中:单环 → 加打第二环;已有第二环且未开打 → 改打或移除(第二环第一洞一有记录就锁定)。
+        if liveRoundState != nil, let first = package.roundLoops.first {
+            let firstId = NineLoopTurn.loopId(first.entry)
+            if package.roundLoops.count == 1 {
+                if !selectableSecondLoops.isEmpty {
                     Menu {
-                        ForEach(selectableSiblingLoops, id: \.option.globalId) { entry in
-                            Button("＋ \(entry.loop.displayName) · 凑 18 洞") {
-                                onPrepareCompositeRound(package.course.globalId, entry.option.globalId, package.course.teeBox, package.roundId)
+                        ForEach(selectableSecondLoops, id: \.id) { loop in
+                            Button("＋ \(loop.displayName) · 凑 18 洞") {
+                                guard let entry = NineLoopTurn.entry(loop.id) else { return }
+                                try? offlineStore?.rememberNineLoopPairing(first: firstId, second: loop.id)
+                                onSetSecondLoop(entry, package.roundId)
                             }
                         }
                     } label: {
@@ -3414,17 +3367,18 @@ public struct CurrentHoleView: View {
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.green))
                     }
                     .disabled(isPreparingRound)
+                    .accessibilityIdentifier("live-add-second-loop")
                 }
             } else if !secondLoopStarted {
-                // 已是组合 18,第二个环还没开打 → 可以改打别的环,或移除加打的后 9(前 9 已记杆保留)。
-                // 第二个环的第一洞一有记录就锁定(README §8)。
-                let currentBack = package.holes.first { $0.number > 9 }?.sourceGlobalId
-                if selectableSiblingLoops.contains(where: { $0.option.globalId != currentBack }) {
+                let currentSecond = package.secondLoop.map { NineLoopTurn.loopId($0.entry) }
+                let alternatives = selectableSecondLoops.filter { $0.id != currentSecond }
+                if !alternatives.isEmpty {
                     Menu {
-                        ForEach(selectableSiblingLoops.filter { $0.option.globalId != currentBack }, id: \.option.globalId) { entry in
-                            Button("改打 \(entry.loop.displayName)") {
-                                try? offlineStore?.rememberNineLoopPairing(front: package.course.globalId, back: entry.option.globalId)
-                                onPrepareCompositeRound(package.course.globalId, entry.option.globalId, package.course.teeBox, package.roundId)
+                        ForEach(alternatives, id: \.id) { loop in
+                            Button("改打 \(loop.displayName)") {
+                                guard let entry = NineLoopTurn.entry(loop.id) else { return }
+                                try? offlineStore?.rememberNineLoopPairing(first: firstId, second: loop.id)
+                                onSetSecondLoop(entry, package.roundId)
                             }
                         }
                     } label: {
@@ -3439,9 +3393,9 @@ public struct CurrentHoleView: View {
                     .accessibilityIdentifier("live-change-second-loop")
                 }
                 Button {
-                    onPrepareCourseRound(package.course.globalId, package.roundId, package.course.teeBox, "all")
+                    onSetSecondLoop(nil, package.roundId)
                 } label: {
-                    Label("移除加打的 9 洞 · 只打前 9", systemImage: "minus.circle")
+                    Label("移除第二环 · 只打 9 洞", systemImage: "minus.circle")
                         .font(.subheadline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -3449,6 +3403,7 @@ public struct CurrentHoleView: View {
                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.line))
                 }
                 .disabled(isPreparingRound)
+                .accessibilityIdentifier("live-remove-second-loop")
             }
         }
     }
@@ -3730,7 +3685,7 @@ public struct CurrentHoleView: View {
         // centreline route so the watch draws the map on the cached /topo.png with no projection math.
         // `you` follows the player's LIVE GPS (projected onto the topo via the same affine refs) when a
         // fix is available, else falls back to the tee — so the map pans as you walk (companion mode).
-        let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
+        let mapGlobalId = hole.sourceGlobalId
         let youPxOverride: [Double]? = {
             guard let coord = liveCoordinateForCurrentHole, let refs = hip?.refs, refs.count >= 3 else { return nil }
             return WatchEventBridge.projectToTopoPx(

@@ -145,15 +145,42 @@ enum StartRoundPresentation {
         return NineLoopTurn.firstLoop(segment).displayName
     }
 
-    /// The primary action: "从 B 场 开始 · 蓝 T" for a nine-hole loop (the shared `NineLoopPlan`
-    /// copy), "开始 18 洞 · 蓝 T" for a whole course, "开始" before a course is chosen.
+    /// True for a single 18-hole course, which starts on one of its halves (B4b-2).
+    static func isEighteenHoleCourse(_ option: MobileCourseOption) -> Bool {
+        option.resolvedHoles == RoundLoopEntry.holesPerLoop * 2
+    }
+
+    /// The `loops=` a start requests: a nine-hole loop is itself (`G:all`); an 18-hole course is
+    /// the chosen half (`G:front` / `G:back`, default 前九); any other shape (an unknown hole
+    /// count) starts on the 前九 and is left to the server to judge.
+    static func startLoops(selected: MobileCourseOption, half: String? = nil) -> [RoundLoopEntry] {
+        if selected.resolvedHoles == RoundLoopEntry.holesPerLoop {
+            return [RoundLoopEntry(globalId: selected.globalId, half: "all")]
+        }
+        let chosen = (half == "back") ? "back" : "front"
+        return [RoundLoopEntry(globalId: selected.globalId, half: chosen)]
+    }
+
+    /// The primary action: "从 B 场 开始 · 蓝 T" for a nine-hole loop and "从 后九 开始 · 蓝 T" for a
+    /// half of an 18-hole course (the shared `NineLoopPlan` copy), "开始" before a course is chosen.
     static func startActionTitle(
         selected: MobileCourseOption?,
         loops: [MobileCourseOption],
-        teeBox: String
+        teeBox: String,
+        half: String? = nil
     ) -> String {
         let tee = teeShortLabel(teeBox)
         guard let selected else { return "开始" }
+        if isEighteenHoleCourse(selected),
+           let entry = startLoops(selected: selected, half: half).first {
+            let course = NineLoopCourse(
+                id: String(selected.globalId),
+                loops: NineLoopTurn.halves(globalId: selected.globalId)
+            )
+            if let plan = NineLoopPlan(course: course, first: NineLoopTurn.loopId(entry)) {
+                return plan.startTitle(teeName: tee)
+            }
+        }
         if selected.resolvedHoles == 9 {
             let nineLoops = loops.contains(where: { $0.globalId == selected.globalId })
                 ? loops
@@ -162,7 +189,7 @@ enum StartRoundPresentation {
                 id: selected.venueDisplayName,
                 loops: nineLoops.map(NineLoopTurn.firstLoop)
             )
-            if let plan = NineLoopPlan(course: course, first: String(selected.globalId)) {
+            if let plan = NineLoopPlan(course: course, first: NineLoopTurn.firstLoop(selected).id) {
                 return plan.startTitle(teeName: tee)
             }
         }

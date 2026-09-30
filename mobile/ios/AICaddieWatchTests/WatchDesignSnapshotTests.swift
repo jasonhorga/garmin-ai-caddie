@@ -800,6 +800,123 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(firstDownload.startActionLabel, "立即开始")
     }
 
+    /// B4b-2 §7 (owner P1): a normal 18-hole row from `/api/v2/mobile/courses/options` — the CI
+    /// fixture's Black Knight shape `holes: 18, segmentHoles: 18, segmentLabel: null` — must present
+    /// explicit 前九 / 后九 tiles and start one ordered half, never `G:front+G:back`.
+    @MainActor
+    func testRoundSetupForANormalEighteenHoleRowOffersFrontAndBackNineTiles() throws {
+        let options = try WatchBackendClient(baseURL: URL(string: "https://caddie.example")!)
+            .decodeCourseOptions(Data(
+                #"{"schema":"ai-caddie-mobile-course-options-v1","dataMode":"ci_fixture","total":1,"courses":[{"globalId":31795,"courseKey":"31795","name":"Black Knight B/C","roundCount":1,"holes":18,"teeBox":"blue","geometryCoverage":"ready","sourceRefs":[],"venueName":"Black Knight","segmentLabel":null,"segmentHoles":18,"latitude":39.9,"longitude":116.4,"tees":["blue","white"]}],"generatedAt":"2026-08-27T00:00:00Z"}"#.utf8
+            ))
+        let option = try XCTUnwrap(options.first)
+        XCTAssertEqual(option.holes, 18)
+        XCTAssertEqual(option.segmentHoles, 18)
+        XCTAssertNil(option.segmentLabel)
+
+        let view = WatchRoundSetupView(front: option, courses: options)
+
+        XCTAssertEqual(view.initialStage, .holes, "an 18-hole row must not skip straight to Tee selection")
+        XCTAssertEqual(
+            view.halfChoices.map(\.id),
+            ["watch-setup-half-front", "watch-setup-half-back"]
+        )
+        XCTAssertEqual(view.halfChoices.map(\.title), ["前九", "后九"])
+        XCTAssertEqual(view.halfChoices.map(\.detail), ["第 1–9 洞", "第 10–18 洞"])
+        XCTAssertEqual(view.halfChoices.map(\.isSelected), [true, false], "前九 is preselected")
+        XCTAssertEqual(view.startSelection.firstHalf, "front")
+        XCTAssertNil(view.startSelection.secondHalf)
+        XCTAssertEqual(view.startSelection.loopKey, "31795:front")
+        XCTAssertEqual(view.startSelection.loopsQuery, "31795:front")
+        XCTAssertEqual(view.startSelection.holeCount, 9)
+        XCTAssertEqual(view.startActionLabel, "从 前九 开始 · 蓝 T")
+        XCTAssertEqual(
+            WatchRoundSetupView.halfStartTitle(globalId: 31795, half: "back", teeName: "蓝 T"),
+            "从 后九 开始 · 蓝 T"
+        )
+        XCTAssertEqual(
+            WatchRoundSetupView.halfStartTitle(globalId: 31795, half: "back", teeName: nil),
+            "从 后九 开始"
+        )
+
+        // Nine-hole loops keep the existing A/B choices and never show half tiles.
+        let loopA = WatchCourseOption(
+            globalId: 301, name: "黑骑士 ~ A", holes: 9, teeBox: "Blue",
+            venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9, tees: ["Blue"]
+        )
+        let nine = WatchRoundSetupView(front: loopA, courses: [loopA])
+        XCTAssertTrue(nine.halfChoices.isEmpty)
+        XCTAssertEqual(nine.startSelection.loopKey, "301:all")
+    }
+
+    /// Rendered start tiles for a normal 18-hole row (前九 selected). The production hole stage wraps
+    /// this content in a ScrollView, which ImageRenderer does not materialize on watchOS.
+    @MainActor
+    func testRenderWatchCourseSetupHalves() throws {
+        let option = WatchCourseOption(
+            globalId: 31795,
+            name: "Black Knight B/C",
+            holes: 18,
+            teeBox: "blue",
+            venueName: "Black Knight",
+            segmentLabel: nil,
+            segmentHoles: 18,
+            tees: ["blue", "white"]
+        )
+        let setup = WatchRoundSetupView(front: option, courses: [option])
+        XCTAssertEqual(setup.halfChoices.map(\.isSelected), [true, false])
+        let view = setup.holeSelectionContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color.black)
+            .watchSnapshotFrame(width: 198, height: 242)
+        try render(view, named: "watch-course-setup-halves")
+    }
+
+    /// Rendered turn after round hole 9 of a `G:back` round: 前九 preselected, 后九 allowed again,
+    /// 只打 9 洞 visible.
+    @MainActor
+    func testRenderWatchCourseTurn() throws {
+        let plan = try XCTUnwrap(WatchRoundModel.makeTurnPlan(loopKey: "31795:back"))
+        let turn = WatchTurnView(plan: plan)
+        XCTAssertEqual(WatchTurnView.choices(for: plan).map(\.isSelected), [true, false, false])
+        let view = turn.content
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color.black)
+            .watchSnapshotFrame(width: 198, height: 300)
+        try render(view, named: "watch-course-turn")
+    }
+
+    /// The Watch turn offers 前九 / 后九 through the shared `NineLoopPlan`: the other half is
+    /// preselected, the same half is allowed, and 只打 9 洞 ends the round.
+    @MainActor
+    func testTurnOffersBothHalvesWithTheOtherHalfPreselectedAndStopAfterNine() throws {
+        var plan = try XCTUnwrap(WatchRoundModel.makeTurnPlan(loopKey: "31795:back"))
+        XCTAssertEqual(plan.phase, .atTurn)
+        XCTAssertEqual(plan.first, "31795:back")
+        XCTAssertEqual(plan.second, .loop("31795:front"))
+        XCTAssertEqual(plan.turnTitle, "后九打完了")
+        XCTAssertEqual(plan.turnActionTitle, "接着打 前九")
+        XCTAssertEqual(
+            WatchTurnView.choices(for: plan).map(\.id),
+            ["watch-turn-half-front", "watch-turn-half-back", "watch-turn-stop-after-nine"]
+        )
+        XCTAssertEqual(WatchTurnView.choices(for: plan).map(\.title), ["前九", "后九", "只打 9 洞"])
+        XCTAssertEqual(WatchTurnView.choices(for: plan).map(\.isSelected), [true, false, false])
+
+        plan.chooseSecond(.loop("31795:back"))
+        XCTAssertEqual(plan.turnActionTitle, "接着打 后九", "the same half is allowed")
+        XCTAssertEqual(WatchTurnView.choices(for: plan).map(\.isSelected), [false, true, false])
+
+        plan.chooseSecond(.stopAfterNine)
+        XCTAssertEqual(plan.turnActionTitle, "结束 · 只打 9 洞")
+        XCTAssertEqual(WatchTurnView.choices(for: plan).map(\.isSelected), [false, false, true])
+
+        let frontFirst = try XCTUnwrap(WatchRoundModel.makeTurnPlan(loopKey: "31795:front"))
+        XCTAssertEqual(frontFirst.second, .loop("31795:back"))
+        XCTAssertNil(WatchRoundModel.makeTurnPlan(loopKey: "31795:front+31795:back"))
+        XCTAssertNil(WatchRoundModel.makeTurnPlan(loopKey: "301:all"))
+    }
+
     @MainActor
     func testClubStatsUsesOnlyUniqueMeasuredDistancesInBagOrder() {
         let view = WatchClubStatsView(clubs: [
@@ -877,21 +994,29 @@ final class WatchDesignSnapshotTests: XCTestCase {
             roundId: "r1", hole: 4, par: 5, distanceM: 262,
             suggestedClub: "3号木", selectedClub: nil,
             frontGreenM: 227, centerGreenM: 240, backGreenM: 251,
-            globalId: 31669, holeMap: hm,
+            globalId: 31669, sourceLocalHole: 4, courseHoleNumber: 4, holeMap: hm,
             elevationDeltaM: 7,   // real mesh slope ⇒ 实打 shown
             score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
         )
         // A few scored holes so the KEPT scoring ring has real pips (owner 2026-07-08).
         let holes = [
             WatchRoundState(roundId: "r1", hole: 1, par: 4, distanceM: 0, selectedClub: nil,
+                            globalId: 31669, sourceLocalHole: 1, courseHoleNumber: 1,
                             score: 4, putts: 2, penaltyCount: 0, caddieConfidence: "offline"),
             WatchRoundState(roundId: "r1", hole: 2, par: 3, distanceM: 0, selectedClub: nil,
+                            globalId: 31669, sourceLocalHole: 2, courseHoleNumber: 2,
                             score: 2, putts: 1, penaltyCount: 0, caddieConfidence: "offline"),
             WatchRoundState(roundId: "r1", hole: 3, par: 5, distanceM: 0, selectedClub: nil,
+                            globalId: 31669, sourceLocalHole: 3, courseHoleNumber: 3,
                             score: 6, putts: 2, penaltyCount: 0, caddieConfidence: "offline"),
             state,
-        ]
-        model.seedRound(holes, activeHole: 4, courseName: "测试球场")
+        ] + (5...9).map { number in
+            // A course round holds its whole 前九 table (production identity gate).
+            WatchRoundState(roundId: "r1", hole: number, par: 4, distanceM: nil, selectedClub: nil,
+                            globalId: 31669, sourceLocalHole: number, courseHoleNumber: number,
+                            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline")
+        }
+        model.seedRound(holes, activeHole: 4, courseName: "测试球场", courseGlobalId: 31669, loopKey: "31669:front")
         model.openHoleMap()
         let geometry = try XCTUnwrap(WatchHoleMapGeometry.from(holeMap: hm, image: WatchHoleMapSample.image))
         let view = WatchRoundContainerView(
