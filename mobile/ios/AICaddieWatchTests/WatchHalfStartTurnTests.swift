@@ -89,6 +89,20 @@ final class WatchHalfStartTurnTests: XCTestCase {
         )
     }
 
+    /// Wait in real time (bounded) until `condition` holds. The stub transport answers on another
+    /// queue, so a fixed number of main-actor yields is not enough on a loaded CI runner.
+    private func waitUntil(timeout: TimeInterval = 10, _ condition: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
+    /// Give background work a real interval to run, to prove that something does NOT happen.
+    private func settle(milliseconds: UInt64 = 500) async {
+        try? await Task.sleep(nanoseconds: milliseconds * 1_000_000)
+    }
+
     private func makeDirectory(_ label: String) -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(label)-\(UUID().uuidString)", isDirectory: true)
@@ -825,18 +839,14 @@ final class WatchHalfStartTurnTests: XCTestCase {
                 priorityHole: 1
             )
         }
-        for _ in 0..<10_000 where server.prepWaiting == nil {
-            await Task.yield()
-        }
+        await waitUntil { server.prepWaiting != nil }
         XCTAssertNotNil(server.prepWaiting, "the active upgrade is suspended before its first prep completes")
 
         // The round ends / is replaced: SwiftUI cancels the keyed task.
         upgrade.cancel()
         server.openPrepGate()
         _ = await upgrade.value
-        for _ in 0..<200 {
-            await Task.yield()
-        }
+        await settle()
         await library.waitForWholeCourseTemplateInstalls()
         XCTAssertTrue(log.templateRequests.isEmpty, "no template request for the abandoned upgrade")
         XCTAssertNil(
@@ -883,9 +893,7 @@ final class WatchHalfStartTurnTests: XCTestCase {
 
         // A template install is in flight (suspended in its package request).
         library.enqueueWholeCourseTemplate(for: back, config: Self.config)
-        for _ in 0..<10_000 where server.waiting == nil {
-            await Task.yield()
-        }
+        await waitUntil { server.waiting != nil }
         XCTAssertNotNil(server.waiting)
 
         // A new active round starts upgrading; hold its priority prep.
@@ -901,17 +909,13 @@ final class WatchHalfStartTurnTests: XCTestCase {
                 priorityHole: 1
             )
         }
-        for _ in 0..<10_000 where server.prepWaiting == nil {
-            await Task.yield()
-        }
+        await waitUntil { server.prepWaiting != nil }
         XCTAssertNotNil(server.prepWaiting)
 
         // Let the template's package through: its next request must wait for the active first pass.
         let templateRequestsBefore = log.templateRequests.count
         server.openGate()
-        for _ in 0..<500 {
-            await Task.yield()
-        }
+        await settle()
         XCTAssertEqual(log.templateRequests.count, templateRequestsBefore,
                        "no further template request while the active priority prep is pending")
         XCTAssertFalse(log.requests.contains { request in
@@ -938,9 +942,7 @@ final class WatchHalfStartTurnTests: XCTestCase {
         let back = WatchCourseSelection(front: Self.oracleCourse, teeBox: "blue", firstHalf: "back")
 
         library.enqueueWholeCourseTemplate(for: back, config: Self.config)
-        for _ in 0..<10_000 where server.waiting == nil {
-            await Task.yield()
-        }
+        await waitUntil { server.waiting != nil }
         XCTAssertNotNil(server.waiting, "the template passed its package phase and holds its precise package")
         XCTAssertEqual(log.templateRequests.count, 2)
         XCTAssertFalse(log.requests.contains { $0.url?.path.hasSuffix("/prep") == true })
@@ -958,17 +960,13 @@ final class WatchHalfStartTurnTests: XCTestCase {
                 priorityHole: 1
             )
         }
-        for _ in 0..<10_000 where server.prepWaiting == nil {
-            await Task.yield()
-        }
+        await waitUntil { server.prepWaiting != nil }
         XCTAssertNotNil(server.prepWaiting, "the active priority prep is issued")
 
         // Now the template's precise package returns: it is mid-pipeline, right before its first
         // prep, and must wait for the active first pass.
         server.openGate()
-        for _ in 0..<1_000 {
-            await Task.yield()
-        }
+        await settle()
         let preps = log.requests.filter { $0.url?.path.hasSuffix("/prep") == true }
         XCTAssertEqual(preps.count, 1, "only the active priority prep has gone out")
         XCTAssertTrue(preps.first.map { Self.prepHoles($0).contains(10) } ?? false)
@@ -999,9 +997,7 @@ final class WatchHalfStartTurnTests: XCTestCase {
         XCTAssertNil(library.diagnosticErrorMessage)
 
         library.enqueueWholeCourseTemplate(for: selection, config: Self.config)
-        for _ in 0..<10_000 where server.waiting == nil {
-            await Task.yield()
-        }
+        await waitUntil { server.waiting != nil }
         XCTAssertNotNil(server.waiting, "the template install is suspended in its request")
 
         // While it is suspended, the active path writes its own diagnostic.
