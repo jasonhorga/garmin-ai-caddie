@@ -105,9 +105,10 @@ struct PrepPlanOption: Equatable, Identifiable {
     /// The map legs, in the shared `HoleImageMapView` / `LivePlannedRouteRenderer` contract.
     let shots: [MapPlannedShot]
 
-    /// The hole's plans from the same decision authority as live play: the installed caddie seed
-    /// and CoursePrep chain through `OfflineCaddieDecisionEvaluator`, merged and de-duplicated by
-    /// `LiveCaddieRouteAuthority` exactly as the live hole does before any network response
+    /// The hole's plans from the same decision authority as live play: the installed CoursePrep
+    /// chain first, then the caddie seed's routes through `OfflineCaddieDecisionEvaluator`, merged
+    /// and de-duplicated by `LiveCaddieRouteAuthority` exactly as the live hole does before any
+    /// network response
     /// (for a tee shot, before any GPS). Each plan is a physically different complete route. A
     /// package without a caddie seed or bag still shows its installed CoursePrep chain.
     static func options(template: LiveRoundPackage, hole: Hole, prep: CoursePrepHole?) -> [PrepPlanOption] {
@@ -138,8 +139,16 @@ struct PrepPlanOption: Equatable, Identifiable {
             request: request,
             strategyMode: nil
         )
+        // Exactly as live play: the installed CoursePrep chain leads (the tee shot's distance is
+        // the route length / yardage — there is no GPS before the round).
+        let installed = LiveCaddieRouteAuthority.installedRoute(
+            prep: prep,
+            par: hole.par,
+            shotType: "tee",
+            fallbackRouteEndM: hole.yards.map { CoursePrepRoute.metres(fromYards: Double($0)) }
+        )
         return LiveCaddieRouteAuthority.resolve(
-            installed: nil,
+            installed: installed,
             online: nil,
             offline: decision,
             par: hole.par,
@@ -196,6 +205,7 @@ struct PrepPlanOption: Equatable, Identifiable {
 
     /// The strategy the decision engine labelled the route with; an unlabelled route is numbered.
     static func title(for route: CaddiePlanSequence, index: Int) -> String {
+        if route.id == LiveCaddieRouteAuthority.installedRouteId { return "推荐" }
         switch caddieStrategyMode(forRouteId: route.id) ?? "" {
         case "protect_score": return "稳妥"
         case "stock": return "推荐"

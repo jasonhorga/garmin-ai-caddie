@@ -1726,137 +1726,31 @@ public struct CurrentHoleView: View {
         requestedStrategyMode ?? (caddieDecision == nil ? nil : selectedStrategyMode)
     }
 
-    /// A factual front/back green window is a valid GIR destination. The map must not turn that
-    /// landing into a flag-targeted arc merely because the route's last semantic role is scoring.
-    private func isGreenWindowLanding(
-        offsetM: Double?,
-        shotIndex: Int
-    ) -> Bool {
-        guard hole.par >= 3,
-              shotIndex + 1 <= max(1, hole.par - 2),
-              let offsetM,
-              offsetM.isFinite,
-              let green = holePrep?.greenDistances,
-              green.available,
-              let front = green.frontM,
-              let back = green.backM,
-              front.isFinite,
-              back.isFinite else {
-            return false
-        }
-        let lower = min(front, back)
-        let upper = max(front, back) + 8.0
-        return offsetM >= lower && offsetM <= upper
-    }
-
+    /// A factual front/back green window is a valid GIR destination, never a flag-targeted arc
+    /// (the shared rule lives on `LiveCaddieRouteAuthority`).
     private func shouldTargetPin(
         offsetM: Double?,
         role: String,
         shotIndex: Int,
         routeEndM: Double
     ) -> Bool {
-        let normalizedRole = role.lowercased()
-        guard normalizedRole == "scoring" || normalizedRole == "approach" else { return false }
-        if isGreenWindowLanding(offsetM: offsetM, shotIndex: shotIndex) {
-            return false
-        }
-        guard let offsetM, offsetM.isFinite, routeEndM > 0 else {
-            // Legacy payloads without a cumulative station have no way to distinguish a pin
-            // endpoint, so retain the historical scoring fallback for those payloads only.
-            return true
-        }
-        return offsetM >= routeEndM - 20.0
+        LiveCaddieRouteAuthority.shouldTargetPin(
+            offsetM: offsetM,
+            role: role,
+            shotIndex: shotIndex,
+            routeEndM: routeEndM,
+            par: hole.par,
+            greenDistances: holePrep?.greenDistances
+        )
     }
 
+    /// The installed CoursePrep chain as a route (shared with 备战, `LiveCaddieRouteAuthority`).
     private var installedCaddieRoute: CaddiePlanSequence? {
-        guard selectedShotType.caseInsensitiveCompare("tee") == .orderedSame else { return nil }
-        let prepSteps: [CoursePrepStep] = {
-            let source = holePrep?.steps ?? []
-            guard hole.par >= 3,
-                  let green = holePrep?.greenDistances,
-                  green.available,
-                  let front = green.frontM,
-                  let back = green.backM,
-                  front.isFinite,
-                  back.isFinite else { return source }
-            let lower = min(front, back)
-            let upper = max(front, back) + 8.0
-            let shotLimit = max(1, hole.par - 2)
-            var cumulative = 0.0
-            var trimmed: [CoursePrepStep] = []
-            for (index, step) in source.enumerated() {
-                let carry = step.targetCarryM ?? 0
-                cumulative += carry
-                let offset = step.routeOffsetM ?? step.landingM ?? cumulative
-                trimmed.append(step)
-                if index + 1 <= shotLimit, offset >= lower, offset <= upper { break }
-            }
-            return trimmed
-        }()
-        let steps = prepSteps.enumerated().compactMap { index, step -> CaddiePlanSequenceStep? in
-            let club = (step.clubName ?? step.club ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !club.isEmpty, club != "-" else { return nil }
-            let isDirectPar3 = hole.par == 3 && selectedShotType.caseInsensitiveCompare("tee") == .orderedSame
-            let isLast = index == max(0, prepSteps.count - 1)
-            let remaining = step.expectedRemainingM
-            let routeEnd = holePrep?.resolvedMapOverlay?.ln ?? holePrep?.routeLenM ?? effectiveDistanceToPinMetres ?? 0
-            let actualOffset = step.routeOffsetM ?? step.landingM
-            let reachesPin = remaining.map { $0 <= 20 } == true
-                || (routeEnd > 0 && (actualOffset ?? 0) >= routeEnd - 20)
-            let suppliedRole = step.role?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let inferredRole: String = {
-                if isDirectPar3 { return "scoring" }
-                // CoursePrep producers before the shot-plan contract sometimes labelled the
-                // final approach as `advance`/`position`.  A last step whose factual leave is in
-                // the scoring window is the green-bound leg regardless of that stale label; keep
-                // the endpoint and map arc attached to the flag.
-                if isLast && reachesPin { return "scoring" }
-                if let suppliedRole, !suppliedRole.isEmpty { return suppliedRole }
-                return index == 0 ? selectedShotType : "position"
-            }()
-            let isScoring = inferredRole.caseInsensitiveCompare("scoring") == .orderedSame
-                || inferredRole.caseInsensitiveCompare("approach") == .orderedSame
-            let girLanding = isGreenWindowLanding(
-                offsetM: actualOffset,
-                shotIndex: index
-            )
-            let pinEndpoint = isDirectPar3 || (
-                isScoring
-                    && isLast
-                    && shouldTargetPin(
-                        offsetM: actualOffset,
-                        role: inferredRole,
-                        shotIndex: index,
-                        routeEndM: routeEnd
-                    )
-            )
-            return CaddiePlanSequenceStep(
-                id: "prep-\(step.planIndex ?? index)-\(club)",
-                role: inferredRole,
-                clubName: club,
-                targetCarryM: step.targetCarryM,
-                expectedRemainingM: pinEndpoint || girLanding ? 0 : step.expectedRemainingM,
-                sampleSize: nil,
-                confidence: nil,
-                sourceRefs: [],
-                routeOffsetM: pinEndpoint ? routeEnd : actualOffset,
-                landingM: pinEndpoint ? routeEnd : actualOffset,
-                planIndex: step.planIndex ?? index,
-                greenInRegulation: girLanding,
-                shotsToGreen: girLanding ? index + 1 : nil
-            )
-        }
-        guard !steps.isEmpty else { return nil }
-        return CaddiePlanSequence(
-            id: "installed-course-plan",
-            label: "本洞路线",
-            expectedRemainingM: steps.last?.expectedRemainingM,
-            riskScore: nil,
-            confidence: nil,
-            coverageText: nil,
-            sourceRefs: [],
-            steps: steps
+        LiveCaddieRouteAuthority.installedRoute(
+            prep: holePrep,
+            par: hole.par,
+            shotType: selectedShotType,
+            fallbackRouteEndM: effectiveDistanceToPinMetres
         )
     }
 
