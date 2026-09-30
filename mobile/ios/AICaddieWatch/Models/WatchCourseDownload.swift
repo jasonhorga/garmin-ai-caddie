@@ -1072,8 +1072,8 @@ extension WatchCourseTemplate {
 
     /// Throws unless the loop key is canonical for `option` / `backOption` (order and repeats
     /// preserved), the hole states are exactly the expected round positions, and each hole's
-    /// `globalId` / `sourceLocalHole` match its loop row. A provisional (`pending`) row that predates
-    /// source identity may omit `sourceLocalHole`; it never carries course facts.
+    /// `globalId`, `sourceLocalHole` and `courseHoleNumber` are all present and equal its loop row.
+    /// There is no legacy/pending exemption: an entry without full identity is re-downloaded.
     public func validateIdentity() throws {
         let rows = try Self.expectedRows(option: option, backOption: backOption, loopKey: loopKey)
         let byNumber = Dictionary(uniqueKeysWithValues: rows.map { ($0.number, $0) })
@@ -1084,14 +1084,10 @@ extension WatchCourseTemplate {
                   state.globalId == row.globalId else {
                 throw WatchRoundIdentityError.holeDoesNotMatchItsLoop(state.hole)
             }
-            if let printed = state.courseHoleNumber, printed != row.courseHoleNumber {
-                throw WatchRoundIdentityError.holeDoesNotMatchItsLoop(state.hole)
-            }
-            if let local = state.sourceLocalHole {
-                guard local == row.sourceLocalHole else {
-                    throw WatchRoundIdentityError.holeDoesNotMatchItsLoop(state.hole)
-                }
-            } else if state.geometryCoverage?.caseInsensitiveCompare("pending") != .orderedSame {
+            // Contract §6: every playable hole — provisional ones included — carries its physical
+            // (`sourceLocalHole`) and printed (`courseHoleNumber`) identity, equal to its row.
+            guard state.sourceLocalHole == row.sourceLocalHole,
+                  state.courseHoleNumber == row.courseHoleNumber else {
                 throw WatchRoundIdentityError.holeDoesNotMatchItsLoop(state.hole)
             }
         }

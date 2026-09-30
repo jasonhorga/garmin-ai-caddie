@@ -528,6 +528,91 @@ final class WatchHalfStartTurnTests: XCTestCase {
         XCTAssertThrowsError(try store.save(invalid))
     }
 
+    /// Contract §6 (Codex P2 5902271213): a durable template entry must carry `sourceLocalHole` and
+    /// `courseHoleNumber` on every hole — a pending/legacy row is no exception.
+    func testTemplatesMissingPhysicalOrPrintedIdentityAreDroppedAndRefused() async throws {
+        let directory = makeDirectory("watch-template-identity")
+        let client = WatchBackendClient(baseURL: Self.config.baseURL)
+        let sibling = try WatchCourseTemplateBuilder.build(
+            option: Self.blackKnight,
+            package: client.decodeCoursePackage(Self.packageData(loops: "31795:front,31795:back", roundId: "d")),
+            prepsByGlobalId: [:],
+            selectedTee: "blue",
+            cachedAt: "2026-09-30T00:00:00Z"
+        ).template
+        let backHalf = try WatchCourseTemplateBuilder.build(
+            option: Self.blackKnight,
+            loopKey: "31795:back",
+            package: client.decodeCoursePackage(Self.packageData(loops: "31795:back", roundId: "d")),
+            prepsByGlobalId: [:],
+            selectedTee: "white",
+            cachedAt: "2026-09-30T00:00:00Z"
+        ).template
+        XCTAssertEqual(backHalf.holeStates.map(\.courseHoleNumber), Array(10...18).map { Optional($0) })
+
+        func object(_ template: WatchCourseTemplate) throws -> [String: Any] {
+            try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(template)) as? [String: Any])
+        }
+        func mutatingHoles(
+            tee: String,
+            _ change: (inout [String: Any]) -> Void
+        ) throws -> [String: Any] {
+            var entry = try object(backHalf)
+            var holes = entry["holeStates"] as? [[String: Any]] ?? []
+            for index in holes.indices { change(&holes[index]) }
+            entry["holeStates"] = holes
+            entry["teeBox"] = tee
+            return entry
+        }
+        // every hole without its printed number
+        let noPrinted = try mutatingHoles(tee: "red") { $0.removeValue(forKey: "courseHoleNumber") }
+        // provisional rows without their physical hole
+        let pendingNoLocal = try mutatingHoles(tee: "gold") { hole in
+            hole["geometryCoverage"] = "pending"
+            hole.removeValue(forKey: "sourceLocalHole")
+        }
+        // loop key and every hole, but no physical or presentation identity at all
+        let noIdentity = try mutatingHoles(tee: "green") { hole in
+            hole["geometryCoverage"] = "pending"
+            hole.removeValue(forKey: "sourceLocalHole")
+            hole.removeValue(forKey: "courseHoleNumber")
+        }
+        let malformed: [(tee: String, entry: [String: Any])] = [
+            (tee: "red", entry: noPrinted),
+            (tee: "gold", entry: pendingNoLocal),
+            (tee: "green", entry: noIdentity),
+        ]
+        let siblingObject = try object(sibling)
+        let fileURL = directory.appendingPathComponent("courses.json")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: [siblingObject] + malformed.map(\.entry))
+            .write(to: fileURL)
+
+        let store = WatchCourseStore(directoryURL: directory)
+        XCTAssertEqual(store.loadCourses().map(\.cacheKey), [sibling.cacheKey], "only the malformed entries are dropped")
+        let onDisk = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: fileURL)) as? [[String: Any]]
+        )
+        XCTAssertEqual(onDisk.count, 1)
+        XCTAssertEqual(onDisk.first?["loopKey"] as? String, "31795:front+31795:back")
+
+        let library = WatchCourseLibrary(store: store, imageStore: WatchHoleImageStore(directoryURL: directory))
+        for (tee, entry) in malformed {
+            XCTAssertNil(store.course(loopKey: "31795:back", teeBox: tee), tee)
+            let started = await library.startCourse(
+                WatchCourseSelection(front: Self.blackKnight, teeBox: tee, firstHalf: "back"),
+                config: nil
+            )
+            XCTAssertNil(started, "\(tee): a malformed entry cannot be started")
+            let decoded = try JSONDecoder().decode(
+                WatchCourseTemplate.self,
+                from: JSONSerialization.data(withJSONObject: entry)
+            )
+            XCTAssertThrowsError(try store.save(decoded), "\(tee): save refuses it")
+        }
+        XCTAssertEqual(store.loadCourses().map(\.cacheKey), [sibling.cacheKey], "the sibling survives")
+    }
+
     // MARK: - printed hole numbers (courseHoleNumber)
 
     func testBackNineStartShowsPhysicalHoleTenAndSurvivesRelaunch() throws {

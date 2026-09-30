@@ -690,7 +690,7 @@ final class WatchCourseDownloadTests: XCTestCase {
             holeStates: (1...18).map { hole in
                 WatchRoundState(
                     roundId: "download-only", hole: hole, par: 4, distanceM: 369.4,
-                    selectedClub: nil, globalId: 31669, sourceLocalHole: hole,
+                    selectedClub: nil, globalId: 31669, sourceLocalHole: hole, courseHoleNumber: hole,
                     score: 0, putts: 0, penaltyCount: 0,
                     caddieConfidence: "offline"
                 )
@@ -736,6 +736,7 @@ final class WatchCourseDownloadTests: XCTestCase {
                     selectedClub: nil,
                     globalId: hole <= 9 ? 31669 : 31670,
                     sourceLocalHole: hole <= 9 ? hole : hole - 9,
+                    courseHoleNumber: hole,
                     score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
                 )
             },
@@ -791,6 +792,7 @@ final class WatchCourseDownloadTests: XCTestCase {
                         selectedClub: nil,
                         globalId: hole <= 9 ? front.globalId : back?.globalId,
                         sourceLocalHole: hole <= 9 ? hole : hole - 9,
+                    courseHoleNumber: hole,
                         score: 0,
                         putts: 0,
                         penaltyCount: 0,
@@ -896,7 +898,7 @@ final class WatchCourseDownloadTests: XCTestCase {
             holeStates: (1...9).map { hole in
                 WatchRoundState(
                     roundId: "download-only", hole: hole, par: 4, distanceM: nil,
-                    selectedClub: nil, globalId: 7004, sourceLocalHole: hole,
+                    selectedClub: nil, globalId: 7004, sourceLocalHole: hole, courseHoleNumber: hole,
                     score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
                 )
             },
@@ -979,7 +981,7 @@ final class WatchCourseDownloadTests: XCTestCase {
             holeStates: (1...9).map { hole in
                 WatchRoundState(
                     roundId: "download-only", hole: hole, par: 4, distanceM: 369.4,
-                    selectedClub: nil, globalId: 31669, sourceLocalHole: hole,
+                    selectedClub: nil, globalId: 31669, sourceLocalHole: hole, courseHoleNumber: hole,
                     score: 0, putts: 0, penaltyCount: 0,
                     caddieConfidence: "offline"
                 )
@@ -1014,7 +1016,7 @@ final class WatchCourseDownloadTests: XCTestCase {
                 roundId: "download-only", hole: hole, par: 4, distanceM: 369.4,
                 selectedClub: nil,
                 globalId: 31669,
-                sourceLocalHole: hole,
+                sourceLocalHole: hole, courseHoleNumber: hole,
                 holeMap: WatchHoleMap(
                     w: 678,
                     h: 1_060,
@@ -1068,7 +1070,7 @@ final class WatchCourseDownloadTests: XCTestCase {
                 roundId: "download-only", hole: hole, par: hole == 1 ? 5 : 4, distanceM: 372,
                 selectedClub: nil,
                 globalId: 3881,
-                sourceLocalHole: hole,
+                sourceLocalHole: hole, courseHoleNumber: hole,
                 holeMap: WatchHoleMap(
                     w: 678,
                     h: 1_060,
@@ -1127,7 +1129,7 @@ final class WatchCourseDownloadTests: XCTestCase {
                 distanceM: 372,
                 selectedClub: nil,
                 globalId: 3882,
-                sourceLocalHole: hole,
+                sourceLocalHole: hole, courseHoleNumber: hole,
                 holeMap: WatchHoleMap(
                     w: 678,
                     h: 1_060,
