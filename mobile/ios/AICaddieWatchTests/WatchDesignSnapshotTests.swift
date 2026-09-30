@@ -973,7 +973,12 @@ final class WatchDesignSnapshotTests: XCTestCase {
                             globalId: 31669, sourceLocalHole: 3, courseHoleNumber: 3,
                             score: 6, putts: 2, penaltyCount: 0, caddieConfidence: "offline"),
             state,
-        ]
+        ] + (5...9).map { number in
+            // A course round holds its whole 前九 table (production identity gate).
+            WatchRoundState(roundId: "r1", hole: number, par: 4, distanceM: nil, selectedClub: nil,
+                            globalId: 31669, sourceLocalHole: number, courseHoleNumber: number,
+                            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline")
+        }
         model.seedRound(holes, activeHole: 4, courseName: "测试球场", courseGlobalId: 31669, loopKey: "31669:front")
         model.openHoleMap()
         let geometry = try XCTUnwrap(WatchHoleMapGeometry.from(holeMap: hm, image: WatchHoleMapSample.image))

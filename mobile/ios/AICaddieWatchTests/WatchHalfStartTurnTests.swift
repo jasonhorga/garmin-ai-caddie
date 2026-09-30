@@ -606,6 +606,17 @@ final class WatchHalfStartTurnTests: XCTestCase {
             ("contradictory courseHoleNumber", { round in
                 Self.mutateHole(&round, 0) { $0["courseHoleNumber"] = 1 }
             }),
+            // The complete table (Codex P2 5901834965).
+            ("partial course round (one state)", { round in
+                let holes = round["holeStates"] as? [[String: Any]] ?? []
+                round["holeStates"] = Array(holes.prefix(1))
+            }),
+            ("empty course round", { $0["holeStates"] = [[String: Any]]() }),
+            ("activeHole 99", { $0["activeHole"] = 99 }),
+            ("activeHole missing from the table", { $0["activeHole"] = 0 }),
+            ("mismatched state roundId", { round in
+                Self.mutateHole(&round, 2) { $0["roundId"] = "another-round" }
+            }),
         ]
         for (label, mutate) in mutations {
             let directory = makeDirectory("watch-round-invalid")
@@ -644,6 +655,22 @@ final class WatchHalfStartTurnTests: XCTestCase {
             "persisted-back", hole: 1, sourceLocalHole: 10, courseHoleNumber: 1
         )
         XCTAssertThrowsError(try store.save(invalid))
+        XCTAssertNil(store.load())
+
+        // Writes also refuse an incomplete table, an active hole off the table and a foreign
+        // snapshot roundId.
+        var partial = backNineRound()
+        partial.holeStates = Array(partial.holeStates.prefix(1))
+        XCTAssertThrowsError(try store.save(partial))
+        var empty = backNineRound()
+        empty.holeStates = []
+        XCTAssertThrowsError(try store.save(empty))
+        var offTable = backNineRound()
+        offTable.activeHole = 99
+        XCTAssertThrowsError(try store.save(offTable))
+        var foreign = backNineRound()
+        foreign.holeStates[2] = foreign.holeStates[2].replacingRoundId("another-round")
+        XCTAssertThrowsError(try store.save(foreign))
         XCTAssertNil(store.load())
 
         try store.save(backNineRound())

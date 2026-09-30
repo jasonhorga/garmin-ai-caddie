@@ -736,8 +736,10 @@ public final class WatchRoundModel: ObservableObject {
                 caddieConfidence: "offline"
             )
         }
+        // Identity only: the real active hole is checked on the merged round before it is saved.
         return WatchRoundStore.PersistedRound(
             roundId: seed.roundId,
+            activeHole: states.first?.hole ?? 0,
             holeStates: states,
             courseGlobalId: seed.globalId,
             loopKey: seed.loopKey

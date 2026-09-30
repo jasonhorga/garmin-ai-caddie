@@ -355,13 +355,18 @@ public final class WatchRoundStore {
 /// rule as packages and templates):
 /// - a course round names a canonical, parseable `loopKey` (one or two 18-hole halves of one
 ///   course, or one or two nine-hole `all` loops);
-/// - every hole is a distinct round position of that table;
+/// - the holes are exactly that table's round positions (non-empty, no gaps or duplicates), the
+///   active hole is one of them, and every snapshot's `roundId` is the round's;
 /// - each hole's `globalId`, `sourceLocalHole` and `courseHoleNumber` are present and equal its row;
 /// - `courseGlobalId`, when present, is the first loop's course.
 /// A score-only practice round (no loop key, no course id, no hole with any course identity) has
 /// no physical table to check and stays valid.
 extension WatchRoundStore.PersistedRound {
     public func validateIdentity() throws {
+        // Every snapshot belongs to this round, course or score-only.
+        guard holeStates.allSatisfy({ $0.roundId == roundId }) else {
+            throw WatchRoundIdentityError.invalidRoundLoops
+        }
         guard let loopKey else {
             let carriesCourseIdentity = courseGlobalId != nil || holeStates.contains {
                 $0.globalId != nil || $0.sourceLocalHole != nil || $0.courseHoleNumber != nil
@@ -386,6 +391,13 @@ extension WatchRoundStore.PersistedRound {
                   state.courseHoleNumber == row.courseHoleNumber else {
                 throw WatchRoundIdentityError.holeDoesNotMatchItsLoop(state.hole)
             }
+        }
+        // A course round holds its complete table (1–9 or 1–18) and plays one of its holes.
+        guard !holeStates.isEmpty, seen == Set(byNumber.keys) else {
+            throw WatchRoundIdentityError.invalidRoundLoops
+        }
+        guard seen.contains(activeHole) else {
+            throw WatchRoundIdentityError.holeDoesNotMatchItsLoop(activeHole)
         }
     }
 

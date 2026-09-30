@@ -1695,22 +1695,25 @@ public struct WatchUITestRoot: View {
     /// reuses one simulator install, so the production phone-seed guard must not turn a later fixture
     /// into a silent no-op merely because an earlier fixture left a different round on disk.
     private func replaceFixtureRound(with seed: WatchRoundSeed) {
-        // DEBUG fixtures state their loop key; each hole takes its physical identity from that
-        // key's canonical table so the round passes the production identity gate.
+        // DEBUG fixtures state their loop key. A course round holds that key's complete canonical
+        // table (the production identity gate), so every round position takes its physical
+        // identity from the table and the seed's facts where the fixture names the hole; the
+        // remaining positions are blank holes with no invented distance.
         let rows = WatchCourseSelection.roundRows(loopKey: seed.loopKey) ?? []
-        let states = seed.holes.map { hole -> WatchRoundState in
-            let row = rows.first { $0.number == hole.hole }
+        let seeded = Dictionary(seed.holes.map { ($0.hole, $0) }, uniquingKeysWith: { first, _ in first })
+        let states = rows.map { row -> WatchRoundState in
+            let hole = seeded[row.number]
             return WatchRoundState(
                 roundId: seed.roundId,
-                hole: hole.hole,
-                par: hole.par,
-                distanceM: hole.distanceM,
-                teeLatitude: hole.teeLatitude,
-                teeLongitude: hole.teeLongitude,
+                hole: row.number,
+                par: hole?.par ?? 4,
+                distanceM: hole?.distanceM,
+                teeLatitude: hole?.teeLatitude,
+                teeLongitude: hole?.teeLongitude,
                 selectedClub: nil,
-                globalId: hole.globalId ?? row?.globalId,
-                sourceLocalHole: hole.localHole ?? row?.sourceLocalHole,
-                courseHoleNumber: hole.courseHoleNumber ?? row?.courseHoleNumber,
+                globalId: row.globalId,
+                sourceLocalHole: row.sourceLocalHole,
+                courseHoleNumber: row.courseHoleNumber,
                 score: 0,
                 putts: 0,
                 penaltyCount: 0,

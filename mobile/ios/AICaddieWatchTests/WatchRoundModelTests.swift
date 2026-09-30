@@ -44,6 +44,48 @@ final class WatchRoundModelTests: XCTestCase {
         )
     }
 
+    /// A course round holds its complete table: every round position of `loopKey` with its
+    /// physical identity. `holes` supply the facts for the positions a test cares about; the rest
+    /// are blank par-4 holes. All snapshots take `roundId`.
+    private func courseHoles(
+        _ loopKey: String,
+        roundId: String = "r1",
+        _ holes: [WatchRoundState] = []
+    ) -> [WatchRoundState] {
+        let given = Dictionary(holes.map { ($0.hole, $0) }, uniquingKeysWith: { first, _ in first })
+        return (WatchCourseSelection.roundRows(loopKey: loopKey) ?? []).map { row in
+            let base = given[row.number] ?? WatchRoundState(
+                roundId: roundId, hole: row.number, par: 4, distanceM: nil, selectedClub: nil,
+                globalId: row.globalId,
+                score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+            )
+            return base.replacingRoundId(
+                roundId,
+                hole: row.number,
+                sourceLocalHole: row.sourceLocalHole,
+                courseHoleNumber: row.courseHoleNumber
+            )
+        }
+    }
+
+    /// A phone seed carries the package's complete table.
+    private func courseSeedHoles(_ loopKey: String, _ holes: [WatchRoundSeedHole]) -> [WatchRoundSeedHole] {
+        let given = Dictionary(holes.map { ($0.hole, $0) }, uniquingKeysWith: { first, _ in first })
+        return (WatchCourseSelection.roundRows(loopKey: loopKey) ?? []).map { row in
+            let hole = given[row.number]
+            return WatchRoundSeedHole(
+                hole: row.number,
+                par: hole?.par ?? 4,
+                distanceM: hole?.distanceM,
+                teeLatitude: hole?.teeLatitude,
+                teeLongitude: hole?.teeLongitude,
+                globalId: row.globalId,
+                localHole: row.sourceLocalHole,
+                courseHoleNumber: row.courseHoleNumber
+            )
+        }
+    }
+
     /// Deterministic monotonically-increasing event ids so pending-event assertions are stable.
     private func sequentialIds() -> () -> String {
         var counter = 0
@@ -71,19 +113,13 @@ final class WatchRoundModelTests: XCTestCase {
         // Course fixtures seed under their whole-course key with full physical identity; score-only
         // fixtures stay a practice round (no loop key).
         let courseId = holes.compactMap(\.globalId).first
-        let identified = holes.map { state -> WatchRoundState in
-            guard state.globalId != nil else { return state }
-            return state.replacingRoundId(
-                state.roundId,
-                hole: state.hole,
-                sourceLocalHole: state.sourceLocalHole ?? state.hole,
-                courseHoleNumber: state.courseHoleNumber ?? state.hole
-            )
-        }
+        let loopKey = courseId.map { "\($0):front+\($0):back" }
+        let seeded = loopKey.map { courseHoles($0, roundId: holes.first?.roundId ?? "r1", holes) } ?? holes
         model.seedRound(
-            identified,
+            seeded,
+            activeHole: holes.first?.hole,
             courseName: "北京丽宫 · 前九",
-            loopKey: courseId.map { "\($0):front+\($0):back" }
+            loopKey: loopKey
         )
         return model
     }
@@ -99,18 +135,18 @@ final class WatchRoundModelTests: XCTestCase {
             roundId: "real-round-1",
             courseName: "北京丽宫",
             activeHole: 2,
-            holes: [
+            holes: courseSeedHoles("31795:all", [
                 WatchRoundSeedHole(hole: 1, par: 4, distanceM: 365, globalId: 31795, localHole: 1, courseHoleNumber: 1),
                 WatchRoundSeedHole(hole: 2, par: 3, distanceM: 148, globalId: 31795, localHole: 2, courseHoleNumber: 2),
                 WatchRoundSeedHole(hole: 3, par: 5, distanceM: 472, globalId: 31795, localHole: 3, courseHoleNumber: 3),
-            ],
+            ]),
             loopKey: "31795:all"
         )
 
         model.applyRoundSeed(seed)
 
         XCTAssertEqual(model.courseName, "北京丽宫")
-        XCTAssertEqual(model.holeCount, 3)
+        XCTAssertEqual(model.holeCount, 9, "a course round holds its whole loop")
         XCTAssertEqual(model.activeHole, 2)
         XCTAssertEqual(model.activeHoleState?.par, 3)
         XCTAssertEqual(model.activeHoleState?.distanceM, 148)
@@ -126,7 +162,7 @@ final class WatchRoundModelTests: XCTestCase {
             store: WatchRoundStore(directoryURL: directory)
         )
         XCTAssertEqual(relaunched.courseName, "北京丽宫")
-        XCTAssertEqual(relaunched.holeCount, 3)
+        XCTAssertEqual(relaunched.holeCount, 9)
         XCTAssertEqual(relaunched.activeHole, 2)
         XCTAssertEqual(relaunched.round?.loopKey, "31795:all")
         XCTAssertEqual(relaunched.screen, .resume)
@@ -140,10 +176,7 @@ final class WatchRoundModelTests: XCTestCase {
         try store.save(WatchRoundStore.PersistedRound(
             roundId: "r-back-front",
             activeHole: 10,
-            holeStates: [
-                hole(1, globalId: 41825, sourceLocalHole: 10, courseHoleNumber: 10),
-                hole(10, globalId: 41825, sourceLocalHole: 1, courseHoleNumber: 1),
-            ],
+            holeStates: courseHoles("41825:back+41825:front", roundId: "r-back-front"),
             courseGlobalId: 41825,
             teeBox: "Blue",
             loopKey: "41825:back+41825:front"
@@ -160,7 +193,7 @@ final class WatchRoundModelTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: seededDirectory) }
         let first = WatchRoundModel(store: WatchRoundStore(directoryURL: seededDirectory))
         first.seedRound(
-            [hole(1, globalId: 41825), hole(2, globalId: 41825)],
+            courseHoles("41825:front+41825:front"),
             activeHole: 1,
             courseName: "测试球场",
             courseGlobalId: 41825,
@@ -177,7 +210,8 @@ final class WatchRoundModelTests: XCTestCase {
             .appendingPathComponent("green-placement-\(UUID().uuidString)", isDirectory: true)
         let first = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
         first.seedRound(
-            [hole(1, globalId: 31669), hole(2, globalId: 31669)],
+            courseHoles("31669:front+31669:back"),
+            activeHole: 1,
             loopKey: "31669:front+31669:back"
         )
 
@@ -201,10 +235,10 @@ final class WatchRoundModelTests: XCTestCase {
             roundId: "r1",
             courseName: "刷新后的同一球局",
             activeHole: 1,
-            holes: [
+            holes: courseSeedHoles("31669:front+31669:back", [
                 WatchRoundSeedHole(hole: 1, par: 4, distanceM: 360, globalId: 31669, localHole: 1, courseHoleNumber: 1),
                 WatchRoundSeedHole(hole: 2, par: 4, distanceM: 350, globalId: 31669, localHole: 2, courseHoleNumber: 2),
-            ],
+            ]),
             loopKey: "31669:front+31669:back"
         ))
         XCTAssertEqual(
@@ -217,7 +251,7 @@ final class WatchRoundModelTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("green-placement-close-\(UUID().uuidString)", isDirectory: true)
         let model = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
-        model.seedRound([hole(1, globalId: 31669)], loopKey: "31669:front+31669:back")
+        model.seedRound(courseHoles("31669:front+31669:back"), activeHole: 1, loopKey: "31669:front+31669:back")
         model.saveGreenPlacement(
             hole: 1,
             globalId: 31669,
@@ -282,7 +316,7 @@ final class WatchRoundModelTests: XCTestCase {
             roundId: "r1",
             courseName: "北京丽宫",
             activeHole: 1,
-            holes: [WatchRoundSeedHole(hole: 1, par: 4, distanceM: 350, globalId: 31795, localHole: 1, courseHoleNumber: 1)],
+            holes: courseSeedHoles("31795:all", [WatchRoundSeedHole(hole: 1, par: 4, distanceM: 350, globalId: 31795, localHole: 1, courseHoleNumber: 1)]),
             loopKey: "31795:all"
         ))
         XCTAssertEqual(relaunched.screen, .resume)
@@ -301,7 +335,7 @@ final class WatchRoundModelTests: XCTestCase {
             roundId: "stale-or-new-phone-round",
             courseName: "Other course",
             activeHole: 1,
-            holes: [WatchRoundSeedHole(hole: 1, par: 3, distanceM: 120, globalId: 31795, localHole: 1, courseHoleNumber: 1)],
+            holes: courseSeedHoles("31795:all", [WatchRoundSeedHole(hole: 1, par: 3, distanceM: 120, globalId: 31795, localHole: 1, courseHoleNumber: 1)]),
             loopKey: "31795:all"
         ))
 
@@ -319,7 +353,7 @@ final class WatchRoundModelTests: XCTestCase {
             roundId: "phone-round",
             courseName: "Phone course",
             activeHole: 1,
-            holes: [WatchRoundSeedHole(hole: 1, par: 3, distanceM: 120, globalId: 31795, localHole: 1, courseHoleNumber: 1)],
+            holes: courseSeedHoles("31795:all", [WatchRoundSeedHole(hole: 1, par: 3, distanceM: 120, globalId: 31795, localHole: 1, courseHoleNumber: 1)]),
             loopKey: "31795:all"
         ))
 
@@ -339,7 +373,7 @@ final class WatchRoundModelTests: XCTestCase {
             roundId: "phone-round",
             courseName: "Phone course",
             activeHole: 1,
-            holes: [WatchRoundSeedHole(hole: 1, par: 3, distanceM: 120, globalId: 31795, localHole: 1, courseHoleNumber: 1)],
+            holes: courseSeedHoles("31795:all", [WatchRoundSeedHole(hole: 1, par: 3, distanceM: 120, globalId: 31795, localHole: 1, courseHoleNumber: 1)]),
             loopKey: "31795:all"
         ))
 
@@ -361,10 +395,10 @@ final class WatchRoundModelTests: XCTestCase {
             roundId: "r1",
             courseName: "北京丽宫 · 后九",
             activeHole: 1,
-            holes: [
+            holes: courseSeedHoles("31795:all", [
                 WatchRoundSeedHole(hole: 1, par: 4, distanceM: 350, globalId: 31795, localHole: 1, courseHoleNumber: 1),
                 WatchRoundSeedHole(hole: 2, par: 4, distanceM: 365, globalId: 31795, localHole: 2, courseHoleNumber: 2),
-            ],
+            ]),
             loopKey: "31795:all"
         ))
 
@@ -375,16 +409,18 @@ final class WatchRoundModelTests: XCTestCase {
     }
 
     func testPhoneReseedDropsScoreDraftForAHoleThatNoLongerExists() {
-        let model = seededModel(holes: [hole(1), hole(2)])
+        // A ten-hole score-only round; the phone's nine-hole course table has no hole 10.
+        let model = seededModel(holes: (1...10).map { hole($0) })
+        model.selectHole(10)
         model.startScoringActiveHole()
         model.adjustDraftScore(1)
-        XCTAssertEqual(model.round?.scoreDraft?.hole, 1)
+        XCTAssertEqual(model.round?.scoreDraft?.hole, 10)
 
         model.applyRoundSeed(WatchRoundSeed(
             roundId: "r1",
             courseName: "Back nine",
             activeHole: 2,
-            holes: [WatchRoundSeedHole(hole: 2, par: 4, distanceM: 350, globalId: 31795, localHole: 2, courseHoleNumber: 2)],
+            holes: courseSeedHoles("31795:all", [WatchRoundSeedHole(hole: 2, par: 4, distanceM: 350, globalId: 31795, localHole: 2, courseHoleNumber: 2)]),
             loopKey: "31795:all"
         ))
 
@@ -395,21 +431,22 @@ final class WatchRoundModelTests: XCTestCase {
     }
 
     func testPhoneReseedDropsVisibleManualShotForAHoleThatNoLongerExists() {
-        let model = seededModel(holes: [hole(1), hole(2)])
+        let model = seededModel(holes: (1...10).map { hole($0) })
+        model.selectHole(10)
         model.beginManualShot(
             latitude: 40.0,
             longitude: 116.0,
             horizontalAccuracyM: 5,
             capturedAt: "2026-08-09T08:00:00Z"
         )
-        XCTAssertEqual(model.pendingManualShot?.hole, 1)
+        XCTAssertEqual(model.pendingManualShot?.hole, 10)
         XCTAssertEqual(model.screen, .clubPrompt)
 
         model.applyRoundSeed(WatchRoundSeed(
             roundId: "r1",
             courseName: "Back nine",
             activeHole: 2,
-            holes: [WatchRoundSeedHole(hole: 2, par: 4, distanceM: 350, globalId: 31795, localHole: 2, courseHoleNumber: 2)],
+            holes: courseSeedHoles("31795:all", [WatchRoundSeedHole(hole: 2, par: 4, distanceM: 350, globalId: 31795, localHole: 2, courseHoleNumber: 2)]),
             loopKey: "31795:all"
         ))
 
@@ -1777,7 +1814,7 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(received.count, 2)               // uploader saw the queued events
         XCTAssertEqual(finishedRoundId, "r1")
         XCTAssertEqual(finishMetadata?.courseName, "北京丽宫 · 前九")
-        XCTAssertEqual(finishMetadata?.holePars, [4, 5])
+        XCTAssertEqual(finishMetadata?.holePars, [4, 5] + Array(repeating: 4, count: 16))
         XCTAssertEqual(finishMetadata?.holesCompleted, 1)
         XCTAssertEqual(finishMetadata?.courseGlobalId, 12345)
         XCTAssertNil(model.round)                       // round cleared after successful upload
@@ -1861,7 +1898,7 @@ final class WatchRoundModelTests: XCTestCase {
             roundId: "ghost-round",
             courseName: "Old course",
             activeHole: 1,
-            holes: [WatchRoundSeedHole(hole: 1, par: 4, distanceM: 350, globalId: 31795, localHole: 1, courseHoleNumber: 1)],
+            holes: courseSeedHoles("31795:all", [WatchRoundSeedHole(hole: 1, par: 4, distanceM: 350, globalId: 31795, localHole: 1, courseHoleNumber: 1)]),
             loopKey: "31795:all"
         )
         model.applyRoundSeed(seed)
