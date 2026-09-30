@@ -486,15 +486,24 @@ public final class WatchCourseLibrary: ObservableObject {
         guard let config else { return nil }
         var shouldQueueGeometry = true
         // Lower-priority follow-up work (the whole-course template) is released once this round's
-        // own first pass — priority hole first — has finished, successfully or not, and at the
-        // latest when this upgrade ends.
+        // own first pass — priority hole first — has genuinely finished, successfully or not, and
+        // at the latest when this upgrade ends. A cancelled upgrade (the round ended, was replaced
+        // or changed its loop key) never releases it: the abandoned course is not downloaded.
+        // While the first pass runs, background template installs hold their next request.
+        beginActiveFirstPass()
+        var firstPassOpen = true
         var followUpReleased = false
-        func releaseFollowUp() {
-            guard !followUpReleased else { return }
+        var cancelled = false
+        func finishFirstPass(releasingFollowUp: Bool) {
+            if firstPassOpen {
+                firstPassOpen = false
+                endActiveFirstPass()
+            }
+            guard releasingFollowUp, !cancelled, !Task.isCancelled, !followUpReleased else { return }
             followUpReleased = true
             onFirstAttemptFinished?()
         }
-        defer { releaseFollowUp() }
+        defer { finishFirstPass(releasingFollowUp: true) }
 
         for attempt in 0..<Self.preciseUpgradeMaximumAttempts {
             guard !Task.isCancelled else { return nil }
@@ -534,11 +543,16 @@ public final class WatchCourseLibrary: ObservableObject {
                     return prepared
                 }
             } catch {
+                // Cancellation is the owner ending this upgrade, not a failed attempt.
+                if Task.isCancelled || Self.isCancellation(error) {
+                    cancelled = true
+                    return nil
+                }
                 // The lightweight template remains playable. Retry below without replacing the
                 // active-round screen with a transient network error. The status probe below is
                 // read-only, so a failed attempt never clears a partial Watch cache.
             }
-            releaseFollowUp()
+            finishFirstPass(releasingFollowUp: true)
 
             // The server journal is a scheduler hint, not a second local package store. When the
             // precise upgrade has to retry, consult it best-effort so a durable queued/running job
@@ -648,11 +662,44 @@ public final class WatchCourseLibrary: ObservableObject {
         let key = WatchCourseTemplate.cacheKey(loopKey: whole.loopKey, teeBox: whole.teeBox)
         guard wholeTemplateTasks[key] == nil,
               wholeTemplateInstallState(whole) != .assetsInstalled else { return }
-        wholeTemplateTasks[key] = Task { @MainActor [weak self] in
+        // Below active-round work: a low task priority, and every request waits for any active
+        // upgrade's first pass (its priority hole) to finish.
+        wholeTemplateTasks[key] = Task(priority: .utility) { @MainActor [weak self] in
             guard let self else { return }
             await self.installWholeCourseTemplate(whole, config: config)
             self.wholeTemplateTasks[key] = nil
         }
+    }
+
+    /// Active upgrades whose first pass (priority hole first) is still running.
+    private var activeFirstPasses = 0
+    private var activeFirstPassWaiters: [CheckedContinuation<Void, Never>] = []
+
+    private func beginActiveFirstPass() {
+        activeFirstPasses += 1
+    }
+
+    private func endActiveFirstPass() {
+        activeFirstPasses = max(0, activeFirstPasses - 1)
+        guard activeFirstPasses == 0 else { return }
+        let waiters = activeFirstPassWaiters
+        activeFirstPassWaiters = []
+        waiters.forEach { $0.resume() }
+    }
+
+    /// Background template work yields to every running active first pass.
+    private func waitForActiveFirstPasses() async {
+        while activeFirstPasses > 0 {
+            await withCheckedContinuation { continuation in
+                activeFirstPassWaiters.append(continuation)
+            }
+        }
+    }
+
+    static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        return false
     }
 
     /// Await every running whole-course template install (tests, and callers that must know the
@@ -695,6 +742,7 @@ public final class WatchCourseLibrary: ObservableObject {
         config: WatchRoundConfig
     ) async {
         let templateRoundId = "watch-template-\(whole.front.globalId)-\(makeRoundId())"
+        await waitForActiveFirstPasses()
         if wholeTemplateInstallState(whole) == .missing {
             do {
                 // Durable first: the package facts alone are enough to project a turn offline.
@@ -714,6 +762,7 @@ public final class WatchCourseLibrary: ObservableObject {
         // The prep / topo assets the builder needs for precise offline maps. A failure keeps the
         // durable package template; the install state stays `packageInstalled`, so a later enqueue
         // or relaunch retries exactly this step.
+        await waitForActiveFirstPasses()
         if let precise = try? await fetchCourseDownload(
             whole,
             roundId: templateRoundId,

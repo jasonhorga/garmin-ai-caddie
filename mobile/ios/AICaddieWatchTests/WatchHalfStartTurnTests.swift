@@ -538,6 +538,23 @@ final class WatchHalfStartTurnTests: XCTestCase {
             waiting?.resume()
             waiting = nil
         }
+
+        /// Holds the next `/prep` request (the active half's priority prep) until opened.
+        var gatePrep = false
+        private(set) var prepWaiting: CheckedContinuation<Void, Never>?
+
+        func passPrepGate() async {
+            guard gatePrep else { return }
+            await withCheckedContinuation { continuation in
+                prepWaiting = continuation
+            }
+        }
+
+        func openPrepGate() {
+            gatePrep = false
+            prepWaiting?.resume()
+            prepWaiting = nil
+        }
     }
 
     private func makeOracleLibrary(
@@ -571,6 +588,9 @@ final class WatchHalfStartTurnTests: XCTestCase {
                             await server.passGate()
                         }
                         let url = try XCTUnwrap(request.url)
+                        if url.path.hasSuffix("/prep") {
+                            await server.passPrepGate()
+                        }
                         if url.path.hasSuffix("/prep"), server.servePrep {
                             // The server's prep for a course without rendered geometry.
                             return (Data(#"{"globalId":55555,"clubs":[],"holes":[]}"#.utf8), HTTPURLResponse(
@@ -775,6 +795,129 @@ final class WatchHalfStartTurnTests: XCTestCase {
         let table = roundTable(model.round?.holeStates ?? [])
         XCTAssertEqual(identityTable(table), identityTable(oracle))
         XCTAssertEqual(Array(table.suffix(9)), Array(oracle.suffix(9)))
+    }
+
+    // MARK: - a cancelled active upgrade never downloads the abandoned course
+
+    func testCancelledActiveUpgradeNeverQueuesTheAbandonedCourseTemplate() async throws {
+        let directory = makeDirectory("watch-cancelled-upgrade")
+        let log = RequestLog()
+        let server = OracleServer()
+        server.gatePrep = true
+        let library = try makeOracleLibrary(directory: directory, log: log, server: server)
+        let back = WatchCourseSelection(front: Self.oracleCourse, teeBox: "blue", firstHalf: "back")
+        let prepared = try XCTUnwrap(library.startCourseImmediately(back))
+
+        // The app's `.task(id: activeCourseUpgradeKey)`, suspended in its priority prep.
+        let upgrade = Task { @MainActor in
+            await library.upgradeCachedCourseWhenReady(
+                globalId: 55555,
+                roundId: prepared.roundId,
+                config: Self.config,
+                loopKey: "55555:back",
+                teeBox: "blue",
+                priorityHole: 1
+            )
+        }
+        for _ in 0..<10_000 where server.prepWaiting == nil {
+            await Task.yield()
+        }
+        XCTAssertNotNil(server.prepWaiting, "the active upgrade is suspended before its first prep completes")
+
+        // The round ends / is replaced: SwiftUI cancels the keyed task.
+        upgrade.cancel()
+        server.openPrepGate()
+        _ = await upgrade.value
+        for _ in 0..<200 {
+            await Task.yield()
+        }
+        await library.waitForWholeCourseTemplateInstalls()
+        XCTAssertTrue(log.templateRequests.isEmpty, "no template request for the abandoned upgrade")
+        XCTAssertNil(
+            WatchCourseStore(directoryURL: directory).course(loopKey: "55555:front+55555:back", teeBox: "blue")
+        )
+
+        // A replacement round (the same course, the other half) keeps active-first ordering: its
+        // priority prep goes out before the template that its own first pass makes eligible.
+        let replacementStart = log.requests.count
+        let front = WatchCourseSelection(front: Self.oracleCourse, teeBox: "blue", firstHalf: "front")
+        let replacement = try XCTUnwrap(library.startCourseImmediately(front))
+        _ = await library.upgradeCachedCourseWhenReady(
+            globalId: 55555,
+            roundId: replacement.roundId,
+            config: Self.config,
+            loopKey: "55555:front",
+            teeBox: "blue",
+            priorityHole: 1
+        )
+        await library.waitForWholeCourseTemplateInstalls()
+        let requests = Array(log.requests[replacementStart...])
+        let priorityPrep = try XCTUnwrap(requests.firstIndex { request in
+            request.url?.path.hasSuffix("/prep") == true && Self.prepHoles(request).contains(1)
+        })
+        let firstTemplate = try XCTUnwrap(
+            requests.firstIndex(where: Self.isTemplateRequest),
+            "the replacement's own first pass makes the whole template eligible"
+        )
+        XCTAssertLessThan(priorityPrep, firstTemplate)
+        XCTAssertNotNil(
+            WatchCourseStore(directoryURL: directory).course(loopKey: "55555:front+55555:back", teeBox: "blue")
+        )
+    }
+
+    /// A template install already running waits for a new active upgrade's first pass: the active
+    /// priority prep goes out before any further template request.
+    func testRunningTemplateInstallYieldsToANewActiveUpgradesPriorityPrep() async throws {
+        let directory = makeDirectory("watch-template-yields")
+        let log = RequestLog()
+        let server = OracleServer()
+        server.gateTemplates = true
+        let library = try makeOracleLibrary(directory: directory, log: log, server: server)
+        let back = WatchCourseSelection(front: Self.oracleCourse, teeBox: "blue", firstHalf: "back")
+
+        // A template install is in flight (suspended in its package request).
+        library.enqueueWholeCourseTemplate(for: back, config: Self.config)
+        for _ in 0..<10_000 where server.waiting == nil {
+            await Task.yield()
+        }
+        XCTAssertNotNil(server.waiting)
+
+        // A new active round starts upgrading; hold its priority prep.
+        server.gatePrep = true
+        let prepared = try XCTUnwrap(library.startCourseImmediately(back))
+        let upgrade = Task { @MainActor in
+            await library.upgradeCachedCourseWhenReady(
+                globalId: 55555,
+                roundId: prepared.roundId,
+                config: Self.config,
+                loopKey: "55555:back",
+                teeBox: "blue",
+                priorityHole: 1
+            )
+        }
+        for _ in 0..<10_000 where server.prepWaiting == nil {
+            await Task.yield()
+        }
+        XCTAssertNotNil(server.prepWaiting)
+
+        // Let the template's package through: its next request must wait for the active first pass.
+        let templateRequestsBefore = log.templateRequests.count
+        server.openGate()
+        for _ in 0..<500 {
+            await Task.yield()
+        }
+        XCTAssertEqual(log.templateRequests.count, templateRequestsBefore,
+                       "no further template request while the active priority prep is pending")
+        XCTAssertFalse(log.requests.contains { request in
+            request.url?.path.hasSuffix("/prep") == true && Self.prepHoles(request).contains(where: { hole in hole < 10 })
+        }, "no 前九 (template-only) prep ahead of the active priority prep")
+
+        server.openPrepGate()
+        _ = await upgrade.value
+        await library.waitForWholeCourseTemplateInstalls()
+        XCTAssertNotNil(
+            WatchCourseStore(directoryURL: directory).course(loopKey: "55555:front+55555:back", teeBox: "blue")
+        )
     }
 
     // MARK: - background template diagnostics (never the active round's)
