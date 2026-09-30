@@ -1005,13 +1005,17 @@ final class DesignSnapshotTests: XCTestCase {
             UIColor(red: 0.50, green: 0.80, blue: 0.43, alpha: 1).setFill()
             ctx.cgContext.fillEllipse(in: CGRect(x: 196, y: 196, width: 36, height: 36))
         }
+        let squarePNG = try XCTUnwrap(squareImage.pngData())
         let squareTopoURL = FileManager.default.temporaryDirectory.appendingPathComponent("prep-snapshot-square-topo.png")
-        try XCTUnwrap(squareImage.pngData()).write(to: squareTopoURL, options: [.atomic])
+        try squarePNG.write(to: squareTopoURL, options: [.atomic])
+        // Like the other prep fixtures, the package also carries the bitmap inline, so it is drawn
+        // from the first frame while the installed topo file loads (lossless, so colours are exact).
+        let squareB64 = "data:image/png;base64," + squarePNG.base64EncodedString()
         let squarePrepHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data("""
         {"hole":2,"par":4,"par_source":"garmin","blue_yards":410,"route_len_m":375,\
         "route":[[4,4],[57,57]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
         "geometryCoverage":"ready","geometryRevision":"snapshot-square-r1",\
-        "map":{"overlay":{"w":64,"h":64,"ppm":0.2,"ln":375,"route":[[4,4,0],[57,57,375]]}}}
+        "map":{"image":"\(squareB64)","overlay":{"w":64,"h":64,"ppm":0.2,"ln":375,"route":[[4,4,0],[57,57,375]]}}}
         """.utf8))
         let prepPars = [5, 4, 3, 4, 4, 5, 3, 4, 4, 4, 4, 3, 5, 4, 4, 3, 5, 4]
         let prepYards = [543, 410, 178, 395, 402, 528, 165, 388, 420, 415, 398, 172, 535, 405, 390, 188, 520, 430]
@@ -1276,7 +1280,7 @@ final class DesignSnapshotTests: XCTestCase {
         // surround (12 pt outside, clear of the chrome, labels and landings) matches the bitmap's
         // edge colour, so the map does not read as a rectangle.
         let squareAudit = try XCTUnwrap(prepAudits["prep-hole-square"])
-        let squarePNG = try XCTUnwrap(zip(prepNames, prepPNGs).first { $0.0 == "prep-hole-square" }?.1)
+        let squareCapture = try XCTUnwrap(zip(prepNames, prepPNGs).first { $0.0 == "prep-hole-square" }?.1)
         let squareFrame = squareAudit.mapFrame
         XCTAssertFalse(
             PrepMapLayout.covers(squareFrame, viewport: squareAudit.viewport),
@@ -1301,7 +1305,7 @@ final class DesignSnapshotTests: XCTestCase {
         }
         var distances: [Int] = []
         for point in samples where screen.contains(point) && !blocked.contains(where: { $0.contains(point) }) {
-            distances.append(Self.colorDistance(try Self.patchMean(in: squarePNG, at: point, radius: 2), squareRough))
+            distances.append(Self.colorDistance(try Self.patchMean(in: squareCapture, at: point, radius: 2), squareRough))
         }
         XCTAssertGreaterThanOrEqual(distances.count, 6, "the square hole exposes terrain around its map")
         let median = distances.sorted()[distances.count / 2]
