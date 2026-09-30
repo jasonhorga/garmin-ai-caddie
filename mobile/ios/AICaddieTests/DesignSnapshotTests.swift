@@ -1366,7 +1366,10 @@ final class DesignSnapshotTests: XCTestCase {
             XCTAssertTrue(salience.values.allSatisfy { $0 < 20 }, "\(name): a side of the fitted map reads as an edge: \(salience)")
             if name == "prep-hole-square" || name == "prep-hole-noisy" {
                 XCTAssertFalse(PrepMapLayout.covers(audit.mapFrame, viewport: audit.viewport), "\(name) is fitted inside the screen")
-                XCTAssertGreaterThanOrEqual(salience.count, 2, "\(name): the exposed sides are measured: \(salience)")
+                // A square map fitted on a tall screen spans its width (no outside band on the
+                // left/right) and meets the bottom panel's blocked zone, so the top is the side
+                // left exposed; it must be measured, not skipped.
+                XCTAssertNotNil(salience["top"], "\(name): the exposed top side is measured: \(salience)")
             }
         }
         // Hard-clipped terrain: course paint cut off by the bitmap's own edge shows as a sharp
