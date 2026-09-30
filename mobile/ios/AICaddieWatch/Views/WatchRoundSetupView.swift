@@ -103,6 +103,15 @@ public struct WatchRoundSetupView: View {
 
     private var holeSelection: some View {
         ScrollView {
+            holeSelectionContent
+        }
+        .ignoresSafeArea(edges: .top)
+        .scrollIndicators(.hidden)
+    }
+
+    /// The hole stage without its ScrollView (前九 / 后九 tiles for an 18-hole row, loop choices
+    /// otherwise). Design snapshots render this; watchOS' ImageRenderer skips ScrollView content.
+    var holeSelectionContent: some View {
             VStack(alignment: .leading, spacing: 7) {
                 WatchInstrumentHeader(
                     Self.playsHalves(front) ? "从哪个 9 洞开始" : "打几洞",
@@ -146,9 +155,6 @@ public struct WatchRoundSetupView: View {
             }
             .padding(.horizontal, 8)
             .padding(.top, 8)
-        }
-        .ignoresSafeArea(edges: .top)
-        .scrollIndicators(.hidden)
     }
 
     private var teeSelection: some View {

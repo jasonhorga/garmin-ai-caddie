@@ -33,17 +33,31 @@ final class WatchHalfStartTurnTests: XCTestCase {
     )
 
     /// A deterministic physical Par per physical hole, so a renumbered table is checkable.
+    nonisolated static func isTemplateRequest(_ request: URLRequest) -> Bool {
+        query(request, "round_id")?.hasPrefix("watch-template-") == true
+    }
+
     private nonisolated static func physicalPar(_ local: Int) -> Int { [4, 5, 3][local % 3] }
 
     private final class RequestLog {
         var requests: [URLRequest] = []
 
-        var packageRequests: [URLRequest] {
+        private var allPackageRequests: [URLRequest] {
             requests.filter { $0.url?.path.hasSuffix("/package") == true }
+        }
+
+        /// The active round's own package requests.
+        var packageRequests: [URLRequest] {
+            allPackageRequests.filter { !WatchHalfStartTurnTests.isTemplateRequest($0) }
+        }
+
+        /// Background whole-course template installs (their own `watch-template-…` request id).
+        var templateRequests: [URLRequest] {
+            allPackageRequests.filter { WatchHalfStartTurnTests.isTemplateRequest($0) }
         }
     }
 
-    private nonisolated static func query(_ request: URLRequest?, _ name: String) -> String? {
+    nonisolated static func query(_ request: URLRequest?, _ name: String) -> String? {
         guard let url = request?.url else { return nil }
         return URLComponents(url: url, resolvingAgainstBaseURL: false)?
             .queryItems?.first(where: { $0.name == name })?.value
@@ -87,7 +101,8 @@ final class WatchHalfStartTurnTests: XCTestCase {
     private func makeLibrary(
         directory: URL,
         log: RequestLog,
-        roundId: String = "watch-half-round"
+        roundId: String = "watch-half-round",
+        wholeTemplateAvailable: Bool = true
     ) -> WatchCourseLibrary {
         WatchCourseLibrary(
             store: WatchCourseStore(directoryURL: directory),
@@ -103,7 +118,8 @@ final class WatchHalfStartTurnTests: XCTestCase {
                         let url = try XCTUnwrap(request.url)
                         guard url.path.hasSuffix("/package"),
                               let loops = Self.query(request, "loops"),
-                              let round = Self.query(request, "round_id") else {
+                              let round = Self.query(request, "round_id"),
+                              wholeTemplateAvailable || !Self.isTemplateRequest(request) else {
                             return (Data(), HTTPURLResponse(
                                 url: url, statusCode: 404, httpVersion: nil, headerFields: nil
                             )!)
@@ -232,7 +248,14 @@ final class WatchHalfStartTurnTests: XCTestCase {
         XCTAssertEqual(cached.loopKey, "31795:back")
         XCTAssertEqual(WatchCourseSelection(template: cached).loopsQuery, "31795:back",
                        "the restore/upgrade path re-requests the same half")
-        XCTAssertNil(WatchCourseStore(directoryURL: directory).course(loopKey: "31795:front+31795:back", teeBox: "blue"))
+        // The active start requested only its half; the whole-course template for an offline turn
+        // arrives separately in the background under its own request id and cache key.
+        await library.waitForWholeCourseTemplateInstalls()
+        XCTAssertEqual(log.packageRequests.map { Self.query($0, "loops") }, ["31795:back"])
+        XCTAssertFalse(log.templateRequests.isEmpty)
+        XCTAssertTrue(log.templateRequests.allSatisfy { Self.query($0, "loops") == "31795:front,31795:back" })
+        XCTAssertNotNil(WatchCourseStore(directoryURL: directory).course(loopKey: "31795:front+31795:back", teeBox: "blue"))
+        XCTAssertEqual(WatchCourseStore(directoryURL: directory).course(loopKey: "31795:back", teeBox: "blue")?.loopKey, "31795:back")
 
         // Starting 后九 persists round loopKey `G:back`; a relaunch restores it.
         let roundDirectory = makeDirectory("watch-back-round")
@@ -421,10 +444,13 @@ final class WatchHalfStartTurnTests: XCTestCase {
 
     func testOfflineTurnWithoutInstalledHolesStaysAtTheTurnWithAClearMessage() async throws {
         let directory = makeDirectory("watch-turn-unavailable")
-        let library = makeLibrary(directory: directory, log: RequestLog())
+        // The background whole-course template install fails, so nothing but 后九 is installed.
+        let library = makeLibrary(directory: directory, log: RequestLog(), wholeTemplateAvailable: false)
         let selection = WatchCourseSelection(front: Self.blackKnight, teeBox: "blue", firstHalf: "back")
         let started = await library.startCourse(selection, config: Self.config)
         let prepared = try XCTUnwrap(started)
+        await library.waitForWholeCourseTemplateInstalls()
+        XCTAssertNil(WatchCourseStore(directoryURL: directory).course(loopKey: "31795:front+31795:back", teeBox: "blue"))
 
         let model = makeModel(directory: makeDirectory("watch-turn-unavailable-round"))
         model.secondLoopLoader = { request in await library.secondLoop(request, config: nil) }
@@ -442,6 +468,159 @@ final class WatchHalfStartTurnTests: XCTestCase {
         await model.confirmTurn()
         XCTAssertEqual(model.screen, .finishing, "只打 9 洞 ends the round")
         XCTAssertEqual(model.round?.loopKey, "31795:back")
+    }
+
+    // MARK: - whole-course template acquisition against the server oracle (no pre-seed)
+
+    /// `b4b2_server_loop_tables.json`: the real package route's output (a copy of
+    /// `AICaddieTests/Fixtures`, regenerated by `tests/test_b4b2_loop_tables_fixture.py`).
+    private nonisolated static func oracle() throws -> [String: Any] {
+        let url = Bundle(for: WatchHalfStartTurnTests.self)
+            .url(forResource: "b4b2_server_loop_tables", withExtension: "json")
+            ?? URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .appendingPathComponent("b4b2_server_loop_tables.json")
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    }
+
+    /// The oracle's `number → (sourceGlobalId, sourceLocalHole, courseHoleNumber, par)` table.
+    private func oracleTable(_ loopKey: String) throws -> [[Int]] {
+        let tables = try XCTUnwrap(try Self.oracle()["tables"] as? [String: Any])
+        let entry = try XCTUnwrap(tables[loopKey] as? [String: Any], loopKey)
+        let holes = try XCTUnwrap(entry["holes"] as? [[String: Any]])
+        return holes.map { hole in
+            ["number", "sourceGlobalId", "sourceLocalHole", "courseHoleNumber", "par"].map {
+                (hole[$0] as? Int) ?? -1
+            }
+        }.sorted { $0[0] < $1[0] }
+    }
+
+    private func roundTable(_ states: [WatchRoundState]) -> [[Int]] {
+        states.sorted { $0.hole < $1.hole }.map {
+            [$0.hole, $0.globalId ?? -1, $0.sourceLocalHole ?? -1, $0.courseHoleNumber ?? -1, $0.par]
+        }
+    }
+
+    private static let oracleCourse = WatchCourseOption(
+        globalId: 55555,
+        name: "Course 55555",
+        holes: 18,
+        teeBox: "blue",
+        venueName: "Course 55555",
+        segmentLabel: nil,
+        segmentHoles: 18,
+        tees: ["blue"]
+    )
+
+    /// The production library behind a transport that answers exactly the oracle's `loops=`
+    /// packages — or, `offline`, fails every request as the Watch does without a network.
+    private func makeOracleLibrary(
+        directory: URL,
+        log: RequestLog,
+        offline: Bool = false
+    ) throws -> WatchCourseLibrary {
+        let oracle = try Self.oracle()
+        let packages: [String: Data] = try [
+            "55555:front,55555:back": "wholeCourseTemplate",
+            "55555:front": "frontHalf",
+            "55555:back": "backHalf",
+        ].mapValues { key in
+            try JSONSerialization.data(withJSONObject: try XCTUnwrap(oracle[key] as? [String: Any]))
+        }
+        return WatchCourseLibrary(
+            store: WatchCourseStore(directoryURL: directory),
+            imageStore: WatchHoleImageStore(directoryURL: directory),
+            makeRoundId: { "watch-oracle-round" },
+            now: { "2026-09-30T00:00:00Z" },
+            clientFactory: { config in
+                WatchBackendClient(
+                    baseURL: config.baseURL,
+                    sessionToken: config.sessionToken,
+                    dataLoader: { request in
+                        log.requests.append(request)
+                        if offline { throw URLError(.notConnectedToInternet) }
+                        let url = try XCTUnwrap(request.url)
+                        guard url.path.hasSuffix("/package"),
+                              let loops = Self.query(request, "loops"),
+                              let body = packages[loops] else {
+                            return (Data(), HTTPURLResponse(
+                                url: url, statusCode: 404, httpVersion: nil, headerFields: nil
+                            )!)
+                        }
+                        return (body, HTTPURLResponse(
+                            url: url,
+                            statusCode: 200,
+                            httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!)
+                    },
+                    retrySleep: { _ in }
+                )
+            }
+        )
+    }
+
+    /// From an empty store: start 后九 online, let the background whole-course install finish,
+    /// then relaunch offline and reach the turn after round hole 9.
+    private func oracleRoundAtTheTurn(_ label: String) async throws -> WatchRoundModel {
+        let courseDirectory = makeDirectory("\(label)-courses")
+        let roundDirectory = makeDirectory("\(label)-round")
+        XCTAssertTrue(WatchCourseStore(directoryURL: courseDirectory).loadCourses().isEmpty, "no pre-seed")
+
+        let log = RequestLog()
+        let online = try makeOracleLibrary(directory: courseDirectory, log: log)
+        let selection = WatchCourseSelection(front: Self.oracleCourse, teeBox: "blue", firstHalf: "back")
+        let started = await online.startCourse(selection, config: Self.config)
+        let prepared = try XCTUnwrap(started)
+        let model = makeModel(directory: roundDirectory)
+        model.seedRound(prepared.holeStates, activeHole: 1, courseName: prepared.courseName,
+                        courseGlobalId: 55555, teeBox: "blue", loopKey: selection.loopKey)
+        XCTAssertEqual(roundTable(prepared.holeStates), try oracleTable("55555:back"))
+
+        await online.waitForWholeCourseTemplateInstalls()
+        XCTAssertEqual(log.packageRequests.map { Self.query($0, "loops") }, ["55555:back"],
+                       "the active start requests only its half")
+        XCTAssertTrue(log.templateRequests.contains { Self.query($0, "loops") == "55555:front,55555:back" })
+        XCTAssertNotNil(
+            WatchCourseStore(directoryURL: courseDirectory).course(loopKey: "55555:front+55555:back", teeBox: "blue"),
+            "the canonical whole-course template is durable"
+        )
+        let persisted = try XCTUnwrap(WatchRoundStore(directoryURL: roundDirectory).load())
+        XCTAssertEqual(persisted.loopKey, "55555:back", "the template never replaces the active round")
+        XCTAssertEqual(persisted.roundId, prepared.roundId)
+        XCTAssertEqual(persisted.holeStates.count, 9)
+
+        // Relaunch without a network.
+        let offline = try makeOracleLibrary(directory: courseDirectory, log: RequestLog(), offline: true)
+        let relaunched = makeModel(directory: roundDirectory)
+        relaunched.secondLoopLoader = { request in
+            await offline.secondLoop(request, config: Self.config)
+        }
+        XCTAssertEqual(relaunched.round?.roundId, prepared.roundId)
+        finishFirstNine(relaunched)
+        XCTAssertEqual(relaunched.screen, .turn)
+        return relaunched
+    }
+
+    func testFreshBackNineStartAcquiresTheWholeTemplateAndTurnsBackToFrontOffline() async throws {
+        let model = try await oracleRoundAtTheTurn("oracle-back-front")
+        let roundId = try XCTUnwrap(model.round?.roundId)
+        XCTAssertEqual(model.turnPlan?.second, .loop("55555:front"))
+        await model.confirmTurn()
+
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertEqual(model.round?.roundId, roundId)
+        XCTAssertEqual(model.round?.loopKey, "55555:back+55555:front")
+        XCTAssertEqual(roundTable(model.round?.holeStates ?? []), try oracleTable("55555:back+55555:front"))
+    }
+
+    func testFreshBackNineStartAcquiresTheWholeTemplateAndRepeatsTheBackNineOffline() async throws {
+        let model = try await oracleRoundAtTheTurn("oracle-back-back")
+        model.chooseTurnSecond(.loop("55555:back"))
+        await model.confirmTurn()
+
+        XCTAssertEqual(model.round?.loopKey, "55555:back+55555:back")
+        XCTAssertEqual(roundTable(model.round?.holeStates ?? []), try oracleTable("55555:back+55555:back"))
     }
 
     // MARK: - durable template validation (load boundary)

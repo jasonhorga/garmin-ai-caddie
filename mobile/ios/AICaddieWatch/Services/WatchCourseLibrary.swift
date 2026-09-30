@@ -50,6 +50,9 @@ public final class WatchCourseLibrary: ObservableObject {
     private var nearbyRequestToken: UUID?
     private var searchRequestToken: UUID?
     private var teeRequestToken: UUID?
+    /// Background whole-course template installs (B4b-2 §7), keyed by the canonical template's
+    /// cache key. An entry exists only while its install runs, so a failure can retry later.
+    private var wholeTemplateTasks: [String: Task<Void, Never>] = [:]
 
     public init(
         store: WatchCourseStore = WatchCourseStore(),
@@ -272,6 +275,9 @@ public final class WatchCourseLibrary: ObservableObject {
                 return nil
             }
             errorMessage = nil
+            if let config {
+                enqueueWholeCourseTemplate(for: selection, config: config)
+            }
             // The selected option is the current backend catalogue row. A cached
             // template may predate the canonical-name contract, so never let its
             // persisted display string override the current selection.
@@ -306,6 +312,7 @@ public final class WatchCourseLibrary: ObservableObject {
                 includePreparedGeometry: false
             )
             try persist(download)
+            enqueueWholeCourseTemplate(for: selection, config: config)
             return download.template.makeRound(roundId: roundId)
         } catch {
             errorMessage = "球场下载失败，请保持联网后重试"
@@ -569,6 +576,9 @@ public final class WatchCourseLibrary: ObservableObject {
         }
         guard let cached else { return nil }
         let selection = WatchCourseSelection(template: cached, ensureGeometry: true)
+        // The active round keeps upgrading its own ordered key; the whole-course template for an
+        // offline turn is acquired separately and never touches this round.
+        enqueueWholeCourseTemplate(for: selection, config: config)
         return await upgradeCourseWhenReady(
             selection,
             roundId: roundId,
@@ -592,6 +602,7 @@ public final class WatchCourseLibrary: ObservableObject {
             return nil
         }
         let cachedSelection = WatchCourseSelection(template: cached, ensureGeometry: true)
+        enqueueWholeCourseTemplate(for: cachedSelection, config: config)
         return await upgradeCourseWhenReady(
             cachedSelection,
             roundId: roundId,
@@ -599,6 +610,100 @@ public final class WatchCourseLibrary: ObservableObject {
             priorityHole: priorityHole,
             onProgress: onProgress
         )
+    }
+
+    // MARK: - whole-course template acquisition (B4b-2 §7)
+
+    /// After a round starts on one half of an 18-hole course (`G:back`), acquire that course's
+    /// canonical whole-course template (`G:front+G:back`, the iPhone's `enqueueWholeCourseTemplates`)
+    /// in the background so a later offline turn can project either half — the other one or the
+    /// same one again — from installed physical holes.
+    ///
+    /// Independent of the active round: its own request id (`watch-template-…`), its own cache key,
+    /// never `round.json` and never the round's `loopKey`. Skipped when a complete template for the
+    /// course and Tee is already installed; a failed install simply ends and may run again later.
+    public func enqueueWholeCourseTemplate(for selection: WatchCourseSelection, config: WatchRoundConfig) {
+        guard selection.firstHalf != nil else { return }
+        let whole = WatchCourseSelection(front: selection.front, teeBox: selection.teeBox)
+        guard whole.loopKey != selection.loopKey else { return }
+        let key = WatchCourseTemplate.cacheKey(loopKey: whole.loopKey, teeBox: whole.teeBox)
+        guard wholeTemplateTasks[key] == nil, !hasInstalledWholeTemplate(whole) else { return }
+        wholeTemplateTasks[key] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.installWholeCourseTemplate(whole, config: config)
+            self.wholeTemplateTasks[key] = nil
+        }
+    }
+
+    /// Await every running whole-course template install (tests, and callers that must know the
+    /// offline turn source is durable).
+    public func waitForWholeCourseTemplateInstalls() async {
+        while let task = wholeTemplateTasks.values.first {
+            await task.value
+        }
+    }
+
+    /// A complete whole-course template (every physical hole with course facts, no provisional
+    /// rows) for exactly this course and Tee.
+    private func hasInstalledWholeTemplate(_ whole: WatchCourseSelection) -> Bool {
+        store.loadCourses().contains { template in
+            template.loopKey == whole.loopKey
+                && WatchCourseSelection.normalizedTeeKey(template.teeBox) == whole.normalizedTeeKey
+                && !template.holeStates.contains {
+                    $0.geometryCoverage?.caseInsensitiveCompare("pending") == .orderedSame
+                }
+        }
+    }
+
+    private func installWholeCourseTemplate(
+        _ whole: WatchCourseSelection,
+        config: WatchRoundConfig
+    ) async {
+        // Diagnostics describe the active round; a background template must not overwrite them.
+        let diagnostics = diagnosticErrorMessage
+        defer { diagnosticErrorMessage = diagnostics }
+        let templateRoundId = "watch-template-\(whole.front.globalId)-\(makeRoundId())"
+        do {
+            // Durable first: the package facts alone are enough to project a turn offline.
+            let lightweight = try await fetchCourseDownload(
+                whole,
+                roundId: templateRoundId,
+                config: config,
+                backgroundGeometry: true,
+                includePreparedGeometry: false
+            )
+            try persistTemplate(lightweight)
+        } catch {
+            return
+        }
+        // Best effort: the prep / topo assets the builder needs for precise offline maps. A
+        // failure keeps the durable package template and a later install can complete it.
+        if let precise = try? await fetchCourseDownload(
+            whole,
+            roundId: templateRoundId,
+            config: config,
+            backgroundGeometry: false,
+            includePreparedGeometry: true
+        ) {
+            try? persistTemplate(precise)
+        }
+    }
+
+    /// Persist a template that is not the active round's: images and the template only. It can
+    /// earn the downloaded badge but never clears one another template earned.
+    private func persistTemplate(_ download: WatchCourseDownload) throws {
+        for image in download.images {
+            try imageStore.store(
+                data: image.data,
+                globalId: image.globalId,
+                hole: image.hole,
+                geometryRevision: image.geometryRevision
+            )
+        }
+        try store.save(download.template)
+        if Self.preciseTemplateReady(download.template, imageStore: imageStore) {
+            cachedCourseIds.insert(download.template.option.globalId)
+        }
     }
 
     // MARK: - the turn (B4b-2 §7)

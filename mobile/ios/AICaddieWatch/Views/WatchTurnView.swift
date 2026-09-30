@@ -52,6 +52,16 @@ public struct WatchTurnView: View {
 
     public var body: some View {
         ScrollView {
+            content
+        }
+        .ignoresSafeArea(edges: .top)
+        .scrollIndicators(.hidden)
+        .persistentSystemOverlays(.hidden)
+    }
+
+    /// The turn's content without its ScrollView (design snapshots render this; watchOS'
+    /// ImageRenderer does not materialize ScrollView contents).
+    var content: some View {
             VStack(alignment: .leading, spacing: 6) {
                 WatchInstrumentHeader(plan.turnTitle, backLabel: "返回第 9 洞", onBack: onBack)
 
@@ -127,10 +137,6 @@ public struct WatchTurnView: View {
             .padding(.horizontal, 8)
             .padding(.top, 8)
             .padding(.bottom, 6)
-        }
-        .ignoresSafeArea(edges: .top)
-        .scrollIndicators(.hidden)
-        .persistentSystemOverlays(.hidden)
     }
 
     private func second(for choiceId: String) -> NineLoopPlan.Second {

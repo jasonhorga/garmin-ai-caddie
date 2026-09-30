@@ -699,6 +699,9 @@ jobs:
           launch_and_capture score-next-tee-candidate watch-score-next-tee-candidate.png
           launch_and_capture score-fairway watch-score-fairway.png
           launch_and_capture club-prompt watch-club-prompt.png
+          # B4b-2 §7: an 18-hole row starts on 前九 / 后九, and the turn offers the second nine.
+          launch_and_capture course-setup-halves watch-course-setup-halves.png
+          launch_and_capture course-turn watch-course-turn.png
       - name: Scan Watch runtime screenshots for secret bytes
         id: scan_watch_real_screenshots
         if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}

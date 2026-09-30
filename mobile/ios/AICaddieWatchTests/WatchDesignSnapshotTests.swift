@@ -849,6 +849,43 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(nine.startSelection.loopKey, "301:all")
     }
 
+    /// Rendered start tiles for a normal 18-hole row (前九 selected). The production hole stage wraps
+    /// this content in a ScrollView, which ImageRenderer does not materialize on watchOS.
+    @MainActor
+    func testRenderWatchCourseSetupHalves() throws {
+        let option = WatchCourseOption(
+            globalId: 31795,
+            name: "Black Knight B/C",
+            holes: 18,
+            teeBox: "blue",
+            venueName: "Black Knight",
+            segmentLabel: nil,
+            segmentHoles: 18,
+            tees: ["blue", "white"]
+        )
+        let setup = WatchRoundSetupView(front: option, courses: [option])
+        XCTAssertEqual(setup.halfChoices.map(\.isSelected), [true, false])
+        let view = setup.holeSelectionContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color.black)
+            .watchSnapshotFrame(width: 198, height: 242)
+        try render(view, named: "watch-course-setup-halves")
+    }
+
+    /// Rendered turn after round hole 9 of a `G:back` round: 前九 preselected, 后九 allowed again,
+    /// 只打 9 洞 visible.
+    @MainActor
+    func testRenderWatchCourseTurn() throws {
+        let plan = try XCTUnwrap(WatchRoundModel.makeTurnPlan(loopKey: "31795:back"))
+        let turn = WatchTurnView(plan: plan)
+        XCTAssertEqual(WatchTurnView.choices(for: plan).map(\.isSelected), [true, false, false])
+        let view = turn.content
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color.black)
+            .watchSnapshotFrame(width: 198, height: 300)
+        try render(view, named: "watch-course-turn")
+    }
+
     /// The Watch turn offers 前九 / 后九 through the shared `NineLoopPlan`: the other half is
     /// preselected, the same half is allowed, and 只打 9 洞 ends the round.
     @MainActor

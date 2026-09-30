@@ -26,6 +26,11 @@ FIXTURE = (
     Path(__file__).resolve().parents[1]
     / "mobile/ios/AICaddieTests/Fixtures/b4b2_server_loop_tables.json"
 )
+# The Watch test bundle carries a byte-identical copy of the same oracle.
+FIXTURE_COPIES = (
+    Path(__file__).resolve().parents[1]
+    / "mobile/ios/AICaddieWatchTests/b4b2_server_loop_tables.json",
+)
 GLOBAL_ID = 55555
 PARS = [4, 5, 3, 4, 3, 4, 4, 5, 4, 4, 5, 3, 4, 3, 4, 4, 5, 4]
 ORDERS = [
@@ -113,13 +118,20 @@ class B4b2LoopTablesFixtureTests(unittest.TestCase):
     def test_fixture_matches_the_server_route(self) -> None:
         current = build_fixture()
         if os.environ.get("REGENERATE_B4B2_FIXTURE") == "1":
-            FIXTURE.write_text(json.dumps(current, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+            text = json.dumps(current, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
+            for path in (FIXTURE, *FIXTURE_COPIES):
+                path.write_text(text)
         stored = json.loads(FIXTURE.read_text())
         self.assertEqual(_stable(stored["tables"]), _stable(current["tables"]))
         for key in ("wholeCourseTemplate", "frontHalf", "backHalf"):
             self.assertEqual(stored[key]["roundLoops"], current[key]["roundLoops"], key)
             self.assertEqual(stored[key]["loopKey"], current[key]["loopKey"], key)
             self.assertEqual(stored[key]["holes"], current[key]["holes"], key)
+
+    def test_every_client_copy_is_identical(self) -> None:
+        expected = FIXTURE.read_bytes()
+        for path in FIXTURE_COPIES:
+            self.assertEqual(path.read_bytes(), expected, str(path))
 
     def test_every_package_keeps_a_complete_weather_snapshot(self) -> None:
         # A lone back half is shifted onto round holes 1–9; its snapshot must keep schema/state.

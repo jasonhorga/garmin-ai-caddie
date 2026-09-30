@@ -79,12 +79,14 @@ public struct WatchUITestRoot: View {
         case "course-setup-halves":
             // B4b-2 §7: a normal 18-hole row (segmentHoles 18, no loop label) starts on 前九 / 后九.
             WatchRoundSetupView(
-                front: Self.standaloneCourseOption,
-                courses: [Self.standaloneCourseOption],
+                front: Self.halvesSetupOption,
+                courses: [Self.halvesSetupOption],
                 hasCachedVersion: false
             )
         case "course-turn":
-            if let plan = WatchRoundModel.makeTurnPlan(loopKey: "\(Self.standaloneCourseOption.globalId):back") {
+            // The turn after round hole 9 of a `G:back` round: 前九 preselected, 后九 allowed again,
+            // 只打 9 洞 available.
+            if let plan = WatchRoundModel.makeTurnPlan(loopKey: "\(Self.halvesSetupOption.globalId):back") {
                 WatchTurnView(plan: plan)
             }
         case "course-remote-setup":
@@ -1749,6 +1751,19 @@ public struct WatchUITestRoot: View {
         latitude: 40.0491,
         longitude: 116.5461531,
         tees: ["Blue", "White"]
+    )
+
+    /// A normal `/mobile/courses/options` 18-hole row (the CI fixture's Black Knight shape):
+    /// `holes: 18, segmentHoles: 18, segmentLabel: nil`.
+    private static let halvesSetupOption = WatchCourseOption(
+        globalId: 31795,
+        name: "Black Knight B/C",
+        holes: 18,
+        teeBox: "blue",
+        venueName: "Black Knight",
+        segmentLabel: nil,
+        segmentHoles: 18,
+        tees: ["blue", "white"]
     )
 
     private static let setupFront = WatchCourseOption(
