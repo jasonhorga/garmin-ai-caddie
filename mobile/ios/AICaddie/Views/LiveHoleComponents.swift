@@ -1847,32 +1847,61 @@ struct LiveMapPreparingPill: View {
     }
 }
 
-/// A factual package may arrive before the precise topo bitmap is ready.
-/// Keep that handoff visually quiet: the player can already see the hole/caddie surface, while a
-/// coarse route sketch is deliberately withheld from the primary map because it reads like a
-/// finished course drawing and is hard to interpret on a phone.
+/// Live play's waiting surface for a hole with no drawable route yet (a hole that has one draws its
+/// factual route at once instead). It is the shared `HoleMapWaitingPage`.
 struct LiveMapPreparingSurface: View {
     let holeNumber: Int
+    var par: Int? = nil
+    var yards: Int? = nil
+
+    var body: some View {
+        HoleMapWaitingPage(holeNumber: holeNumber, par: par, yards: yards)
+            .accessibilityIdentifier("live-map-preparing-surface")
+    }
+}
+
+/// README 地图降级契约: the one full-screen waiting page for a hole with no drawable route yet —
+/// hole · Par, the yards and a spinner, never an empty hole and never download wording. Live play
+/// and 备战 show the same page; the map replaces it by itself when the facts arrive.
+struct HoleMapWaitingPage: View {
+    let holeNumber: Int
+    let par: Int?
+    let yards: Int?
 
     var body: some View {
         ZStack {
             LivePlayStyle.base
-            VStack(spacing: 10) {
-                Image(systemName: "map")
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(LivePlayStyle.accent)
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 30, weight: .heavy))
+                    .monospacedDigit()
+                    .foregroundStyle(LivePlayStyle.ink)
+                Text(subtitle)
+                    .font(.system(size: 15, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(LivePlayStyle.ink60)
                 ProgressView()
-                    .tint(LivePlayStyle.accent)
-                Text("正在载入精确球道图")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.62))
+                    .tint(LivePlayStyle.ink)
+                    .padding(.top, 14)
             }
+            .padding(.horizontal, 24)
+            .multilineTextAlignment(.center)
         }
         // The page header already exposes the hole number. Keep this loading surface as one
         // status element so its visual hole label is not reported as a second "第 N 洞" heading.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("第 \(holeNumber) 洞地图准备中")
-        .accessibilityIdentifier("live-map-preparing-surface")
+    }
+
+    var title: String {
+        var parts = ["第 \(holeNumber) 洞"]
+        if let par { parts.append("Par \(par)") }
+        return parts.joined(separator: " · ")
+    }
+
+    var subtitle: String {
+        guard let yards, yards > 0 else { return "图到了自动出来" }
+        return "\(yards) 码 · 图到了自动出来"
     }
 }
 
@@ -2090,4 +2119,26 @@ enum LiveMapDisplayState: Equatable {
         }
         return .precise
     }
+
+    /// 备战 applies the same contract to the installed course. Precise means precise facts AND the
+    /// revision-bound local topo; a hole whose installed revision the server has positively replaced
+    /// (`isStale`) is shown on its factual route until the new map lands. `downloadActive` only
+    /// distinguishes "the precise map is still coming" from "nothing better is coming".
+    static func resolvePrep(
+        prep: CoursePrepHole?,
+        hasLocalTopo: Bool,
+        isStale: Bool,
+        downloadActive: Bool
+    ) -> LiveMapDisplayState {
+        guard let prep, prep.resolvedMapOverlay != nil else { return .waiting }
+        if prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
+           hasLocalTopo,
+           !isStale {
+            return .precise
+        }
+        return downloadActive ? .factualPending : .factual
+    }
+
+    /// 洞条: a hole whose precise map is not ready is only faded; tapping it still opens it.
+    var fadesInHoleStrip: Bool { self != .precise }
 }

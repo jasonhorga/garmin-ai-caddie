@@ -1,4 +1,5 @@
 import SwiftUI
+import AICaddieDomain
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -11,8 +12,14 @@ func coursePrepParSourceLabel(_ source: String) -> String {
     }
 }
 
-/// Pre-round course review for a fully installed local package. Network preparation belongs to the
-/// app-owned download library; this screen only browses verified maps and club-based strategy.
+/// 备战 (README §8, `pre-round.html` 第三台): the full-screen hole map with the caddie route and
+/// landings; the plan, this hole's club order and the 18-hole strip at the bottom; the Tee top right.
+///
+/// 选了就进: a selected course opens here at once, while its app-owned download keeps running in the
+/// library. This screen only reads the local course template the download writes hole by hole and
+/// shows every hole by the map degradation contract — precise topo when installed, else the factual
+/// route and the geometry it already has, else the one full-screen waiting page. A background map
+/// that replaces a hole in place keeps the player's hole, plan, zoom, pan and rotation.
 public struct CourseReviewView: View {
     private let client: SyncClient
     private let globalId: Int
@@ -20,11 +27,14 @@ public struct CourseReviewView: View {
     private let teeBox: String
     private let offlineStore: OfflineStore?
     private let download: PrepCourseDownloadRecord?
-    @State private var holes: [CoursePrepHole] = []
-    @State private var packageHoles: [Hole] = []
-    @State private var isLoading = false
-    @State private var errorText: String?
-    @State private var selectedHoleNumber: Int?
+    private let courseTees: [String]
+    private let onLoadCourseTees: (Int) async -> [CourseTee]
+    private let onChangeTee: (String) -> Void
+    @State private var template: LiveRoundPackage?
+    @State private var loadedTeeBox: String?
+    @State private var rows: [PrepHoleRow] = []
+    @State private var session = PrepHoleMapSession()
+    @State private var fetchedTees: [CourseTee] = []
 
     public init(
         client: SyncClient,
@@ -32,7 +42,10 @@ public struct CourseReviewView: View {
         holeCount: Int = 9,
         teeBox: String? = nil,
         offlineStore: OfflineStore? = nil,
-        download: PrepCourseDownloadRecord? = nil
+        download: PrepCourseDownloadRecord? = nil,
+        courseTees: [String] = [],
+        onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
+        onChangeTee: @escaping (String) -> Void = { _ in }
     ) {
         self.client = client
         self.globalId = globalId
@@ -42,278 +55,417 @@ public struct CourseReviewView: View {
         self.teeBox = trimmedTeeBox.isEmpty ? "blue" : trimmedTeeBox
         self.offlineStore = offlineStore
         self.download = download
+        self.courseTees = courseTees
+        self.onLoadCourseTees = onLoadCourseTees
+        self.onChangeTee = onChangeTee
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                if let download, download.phase != .ready {
-                    downloadBanner(download)
-                }
-                // The prep contract is intentionally all-or-nothing: a download row may be
-                // observed from an older navigation state or a deep link, but it must never expose
-                // a partial CourseView outline as if it were the approved prep map.
-                if let download, download.phase != .ready {
-                    incompleteDownloadState(download)
-                } else {
-                    if isLoading {
-                        ProgressView("加载中…")
-                    }
-                    if let errorText {
-                        Text("加载失败：\(errorText)").foregroundColor(.red).font(.callout)
-                    }
-                    if !holes.isEmpty || isLoading {
-                        holeNavigator
-                        if let hole = selectedHole {
-                            CourseReviewHoleCard(
-                                client: client,
-                                globalId: sourceGlobalId(for: hole.hole),
-                                localHole: sourceLocalHole(for: hole.hole),
-                                initialHole: hole,
-                                offlineStore: offlineStore,
-                                managedDownload: download != nil,
-                                managedDownloadFailed: download?.phase == .failed,
-                                onSwipeHole: { delta in moveHole(by: delta) }
-                            )
-                            .id("\(globalId):\(hole.hole)")
-                        } else {
-                            pendingHoleCard(currentHoleNumber)
-                        }
-                    } else if errorText == nil {
-                        missingLocalPackageState
-                    }
-                }
-            }
-            .padding()
+        CoursePrepStrategyScreen(
+            rows: rows,
+            session: $session,
+            teeOptions: teeOptions,
+            selectedTee: teeBox,
+            onSelectTee: onChangeTee
+        )
+        // Every durable download change (a hole's facts, a topo file, ready, a re-queued stale
+        // revision, the Tee) re-reads the installed template. Reading is the only work here: this
+        // screen owns no network loader, so leaving it never interrupts the download.
+        .task(id: reloadKey) {
+            reload()
         }
-        .background(HubStyle.grouped)
+        .task(id: globalId) {
+            await loadTees()
+        }
+    }
+
+    private var reloadKey: String {
+        [
+            String(globalId),
+            teeBox.lowercased(),
+            download?.id ?? "",
+            download?.phase.rawValue ?? "",
+            String(download?.updatedAt.timeIntervalSinceReferenceDate ?? 0),
+            String(download?.requiredGeometryRevisions?.count ?? 0),
+        ].joined(separator: "|")
+    }
+
+    /// Tees from the course's `/tees` authority, else the catalogue row's CourseView tees, and always
+    /// the Tee on screen.
+    private var teeOptions: [String] {
+        let fetched = fetchedTees.map(\.teeBox)
+        let source = fetched.isEmpty ? courseTees : fetched
+        var seen = Set<String>()
+        var result: [String] = []
+        for tee in source + [teeBox] {
+            let trimmed = tee.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  trimmed.caseInsensitiveCompare("unknown") != .orderedSame,
+                  seen.insert(trimmed.lowercased()).inserted else { continue }
+            result.append(trimmed)
+        }
+        return result
+    }
+
+    private func loadTees() async {
+        let tees = await onLoadCourseTees(globalId)
+        if !tees.isEmpty {
+            fetchedTees = tees
+        }
+    }
+
+    private func reload() {
+        let loaded = try? offlineStore?.loadCourseTemplate(globalId: globalId, teeBox: teeBox)
+        if let loaded {
+            template = loaded
+            loadedTeeBox = teeBox.lowercased()
+        } else if loadedTeeBox != teeBox.lowercased() {
+            // A newly selected Tee has no template yet: its holes wait for their own facts rather
+            // than showing another Tee's yards. A transient read miss keeps the current template.
+            template = nil
+            loadedTeeBox = teeBox.lowercased()
+        }
+        let store = offlineStore
+        rows = PrepHoleRows.build(
+            template: template,
+            fallbackHoleCount: download?.totalHoles ?? holeCount,
+            downloadActive: download?.isActive ?? false,
+            requiredRevisions: download?.requiredGeometryRevisions,
+            topoURL: { hole, revision in
+                store?.loadCourseTopoImageURL(
+                    globalId: hole.sourceGlobalId,
+                    localHole: hole.sourceLocalHole,
+                    geometryRevision: revision
+                )
+            }
+        )
+        let current = session.holeNumber.flatMap { number in rows.first { $0.number == number } }
+        session.adopt(
+            holeNumbers: rows.map(\.number),
+            planCount: PrepPlanOption.options(for: current?.prep).count
+        )
+    }
+}
+
+/// The rendered 备战 screen for already-resolved rows. `CourseReviewView` owns loading and state;
+/// this view only draws, so design snapshots can render every degradation state directly.
+struct CoursePrepStrategyScreen: View {
+    let rows: [PrepHoleRow]
+    @Binding var session: PrepHoleMapSession
+    let teeOptions: [String]
+    let selectedTee: String
+    let onSelectTee: (String) -> Void
+
+    /// Room the bottom glass panel takes over the map, so the fitted hole is never under it.
+    private static let bottomPanelInset: CGFloat = 178
+    private static let topInset: CGFloat = 60
+
+    var body: some View {
+        let current = currentRow
+        ZStack(alignment: .top) {
+            LivePlayStyle.base.ignoresSafeArea()
+            mapLayer(current)
+            VStack(spacing: 0) {
+                if let current {
+                    HStack {
+                        holeBadge(current)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                }
+                Spacer(minLength: 0)
+                bottomPanel(current)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
+        }
         .navigationTitle("赛前球场攻略")
-        .task(id: download?.updatedAt) {
-            loadCachedFacts()
-            // Prep is an installed-package surface. It intentionally has no page-scoped network
-            // loader or partial CourseView fallback: returning to the picker is the only way to
-            // retry a queued/failed download, and a ready row reads facts/assets from OfflineStore.
-        }
-    }
-
-    private var selectedHole: CoursePrepHole? {
-        holes.first(where: { $0.hole == currentHoleNumber })
-    }
-
-    private func sourceGlobalId(for displayHole: Int) -> Int {
-        packageHoles.first(where: { $0.number == displayHole })?.sourceGlobalId ?? globalId
-    }
-
-    private func sourceLocalHole(for displayHole: Int) -> Int {
-        packageHoles.first(where: { $0.number == displayHole })?.sourceLocalHole ?? displayHole
-    }
-
-    private var navigationHoleNumbers: [Int] {
-        let installed = holes.map(\.hole).sorted()
-        return installed.isEmpty ? Array(1...holeCount) : installed
-    }
-
-    /// The installed template owns navigation after the all-or-nothing package gate. Provider
-    /// metadata remains only a fallback for the missing-package state.
-    private var currentHoleNumber: Int {
-        let available = navigationHoleNumbers
-        guard let requested = selectedHoleNumber, available.contains(requested) else {
-            return available.first ?? 1
-        }
-        return requested
-    }
-
-    /// One map at a time keeps preparation spatial. Hole navigation is a compact control, not an
-    /// 18-card vertical report that repeatedly shrinks the map and forces long scrolling.
-    private var holeNavigator: some View {
-        HStack(spacing: 12) {
-            Button {
-                moveHole(by: -1)
-            } label: {
-                Image(systemName: "chevron.left")
-                    .frame(width: 34, height: 34)
-            }
-            .buttonStyle(.bordered)
-            .disabled(currentHoleNumber == navigationHoleNumbers.first)
-            .accessibilityLabel("上一洞")
-            .accessibilityIdentifier("prep-previous-hole")
-
-            Menu {
-                ForEach(navigationHoleNumbers, id: \.self) { holeNumber in
-                    Button(holeMenuLabel(holeNumber)) {
-                        selectedHoleNumber = holeNumber
-                    }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(LivePlayStyle.base, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if teeOptions.count > 1 {
+                    teeSwitcher
                 }
-            } label: {
-                VStack(spacing: 1) {
-                    Text("第 \(currentHoleNumber) 洞")
-                        .font(.headline.weight(.bold))
-                    Text("共 \(navigationHoleNumbers.count) 洞 · 点此选洞")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .accessibilityIdentifier("prep-hole-menu")
-
-            Button {
-                moveHole(by: 1)
-            } label: {
-                Image(systemName: "chevron.right")
-                    .frame(width: 34, height: 34)
-            }
-            .buttonStyle(.bordered)
-            .disabled(currentHoleNumber == navigationHoleNumbers.last)
-            .accessibilityLabel("下一洞")
-            .accessibilityIdentifier("prep-next-hole")
         }
-        .tint(LiveHoleStyle.green)
-        .hubCard(padding: 10)
     }
 
-    private func moveHole(by delta: Int) {
-        let available = navigationHoleNumbers
-        guard let index = available.firstIndex(of: currentHoleNumber) else {
-            selectedHoleNumber = available.first
-            return
+    private var currentRow: PrepHoleRow? {
+        if let number = session.holeNumber, let row = rows.first(where: { $0.number == number }) {
+            return row
         }
-        selectedHoleNumber = available[min(max(index + delta, 0), available.count - 1)]
+        return rows.first
     }
 
-    private func holeMenuLabel(_ holeNumber: Int) -> String {
-        guard let hole = holes.first(where: { $0.hole == holeNumber }) else {
-            return "第 \(holeNumber) 洞 · 准备中"
+    // MARK: Map
+
+    @ViewBuilder
+    private func mapLayer(_ row: PrepHoleRow?) -> some View {
+        if let row, row.state != .waiting, let prep = row.prep {
+            // One view identity per hole for both the factual and the precise map: the precise topo
+            // replaces the factual route in place, and the caller-owned viewport keeps zoom, pan and
+            // rotation (README 地图降级契约).
+            HoleImageMapView(
+                hole: prep,
+                topoURL: row.state == .precise ? row.topoURL : nil,
+                showsCardChrome: false,
+                // A factual row draws the existing obstacle spans; the precise map labels its
+                // measured obstacles through the prep fact overlays instead.
+                showsHazards: true,
+                showsPrepFactOverlays: true,
+                allowsRotation: true,
+                // The club order in the panel is the readable summary; the map keeps the route
+                // and landings without a large club label over the fairway.
+                showsPrepClubLabel: false,
+                showsClubLabel: false,
+                showsPrepHoleInfo: false,
+                viewportState: $session.viewport
+            )
+            // Keep the topo loading/ready children in the accessibility tree while retaining this
+            // hole-specific container identifier for UI navigation.
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("prep-hole-map-\(row.number)")
+            .id(row.number)
+            .padding(.top, Self.topInset)
+            .padding(.bottom, Self.bottomPanelInset)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            HoleMapWaitingPage(
+                holeNumber: row?.displayNumber ?? 1,
+                par: row?.par,
+                yards: row?.yards
+            )
+            .ignoresSafeArea()
+            .accessibilityIdentifier("prep-map-waiting-\(row?.number ?? 1)")
         }
-        return "第 \(holeNumber) 洞 · Par \(hole.par)"
     }
 
-    private func mergeHoles(_ incoming: [CoursePrepHole]) {
-        var merged = Dictionary(uniqueKeysWithValues: holes.map { ($0.hole, $0) })
-        for hole in incoming {
-            if let existing = merged[hole.hole],
-               CourseReviewMapPolicy.hasPreciseFacts(existing),
-               !CourseReviewMapPolicy.hasPreciseFacts(hole) {
-                continue
+    // MARK: Chrome
+
+    private func holeBadge(_ row: PrepHoleRow) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("\(row.displayNumber)")
+                .font(.system(size: 20, weight: .bold))
+                .monospacedDigit()
+            if let subtitle = Self.holeSubtitle(par: row.par, yards: row.yards) {
+                Text(subtitle)
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .monospacedDigit()
             }
-            merged[hole.hole] = hole
         }
-        holes = merged.values.sorted { $0.hole < $1.hole }
+        .foregroundStyle(LivePlayStyle.ink)
+        .padding(.horizontal, 14)
+        .frame(height: 40)
+        .prepGlass(cornerRadius: 20)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("第 \(row.displayNumber) 洞")
+        .accessibilityValue(Self.mapStateDescription(row.state))
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityIdentifier("prep-hole-header-\(row.number)")
     }
 
-    private func pendingHoleCard(_ holeNumber: Int) -> some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-                .tint(LiveHoleStyle.green)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("第 \(holeNumber) 洞")
-                    .font(.headline.weight(.bold))
-                    .accessibilityIdentifier("prep-hole-header-\(holeNumber)")
-                Text("地图准备中，完成后自动显示")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
+    static func holeSubtitle(par: Int?, yards: Int?) -> String? {
+        var parts: [String] = []
+        if let par { parts.append("Par \(par)") }
+        if let yards, yards > 0 { parts.append("\(yards) 码") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// Accessibility only; the screen itself never writes download or map status.
+    static func mapStateDescription(_ state: LiveMapDisplayState) -> String {
+        switch state {
+        case .precise: return "精确地图"
+        case .factualPending: return "路线 · 精确地图准备中"
+        case .factual: return "路线"
+        case .waiting: return "等待地图"
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var teeSwitcher: some View {
+        HStack(spacing: 6) {
+            ForEach(teeOptions, id: \.self) { tee in
+                teeButton(tee)
+            }
+        }
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("prep-hole-map-\(holeNumber)")
+        .accessibilityIdentifier("prep-tee-selector")
     }
 
-    private var missingLocalPackageState: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: "externaldrive.badge.xmark")
-                .font(.title2)
-                .foregroundStyle(.orange)
-            Text("本地球场包不完整")
-                .font(.headline.weight(.semibold))
-            Text("请返回下载库，完成全部洞的地图与策略数据安装后再进入备战。")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+    private func teeButton(_ tee: String) -> some View {
+        let selected = tee.caseInsensitiveCompare(selectedTee) == .orderedSame
+        let color = TeeColor.forTee(tee)
+        return Button {
+            guard !selected else { return }
+            onSelectTee(tee)
+        } label: {
+            Circle()
+                .fill(Color(red: color.red, green: color.green, blue: color.blue))
+                .frame(width: 22, height: 22)
+                .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 2))
+                .padding(3)
+                .overlay(Circle().stroke(selected ? LivePlayStyle.ink : Color.clear, lineWidth: 2))
+                .frame(width: 34, height: 34)
+                .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .accessibilityIdentifier("prep-local-package-missing")
+        .buttonStyle(.plain)
+        .accessibilityLabel(StartRoundPresentation.teeShortLabel(tee) ?? tee)
+        .accessibilityValue(selected ? "已选择" : "未选择")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier("prep-tee-\(tee.lowercased())")
     }
 
     @ViewBuilder
-    private func downloadBanner(_ download: PrepCourseDownloadRecord) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text(downloadStatus(download))
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                if download.isActive { ProgressView().controlSize(.small) }
-            }
-            if download.phase == .preparing || download.phase == .downloading {
-                let value = download.phase == .preparing
-                    ? Double(download.preparedHoles) / Double(max(download.totalHoles, 1))
-                    : download.progressFraction
-                ProgressView(value: value)
-                    .tint(LiveHoleStyle.green)
-            }
-            Text("服务器会继续准备；iOS 若被系统挂起，回到前台会从已保存的洞继续。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .hubCard()
-    }
-
-    private func downloadStatus(_ download: PrepCourseDownloadRecord) -> String {
-        switch download.phase {
-        case .queued: return "等待下载"
-        case .preparing: return "准备地图 \(download.preparedHoles)/\(download.totalHoles) 洞"
-        case .downloading: return "保存到本机 \(download.downloadedHoles)/\(download.totalHoles) 洞"
-        case .ready: return ""
-        case .failed: return download.errorText ?? "下载中断，返回上一页可继续"
-        }
-    }
-
-    private func incompleteDownloadState(_ download: PrepCourseDownloadRecord) -> some View {
+    private func bottomPanel(_ row: PrepHoleRow?) -> some View {
+        let plans = PrepPlanOption.options(for: row?.prep)
         VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: download.phase == .failed ? "exclamationmark.triangle" : "arrow.down.circle")
-                .font(.title2)
-                .foregroundStyle(download.phase == .failed ? .orange : LiveHoleStyle.green)
-            Text(download.phase == .failed ? "球场包还没有完成" : "球场包正在准备")
-                .font(.headline.weight(.semibold))
-            Text("完整的 18 洞地形、障碍物和策略数据安装完成后，才能进入备战地图。请返回下载库查看进度。")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            // The waiting page is the whole hole: no plan or club order until its facts arrive.
+            if let row, row.state != .waiting, !plans.isEmpty {
+                planSwitcher(plans)
+                let index = min(session.selectedPlanIndex, plans.count - 1)
+                clubOrder(plans[index])
+            }
+            holeStrip(current: row?.number)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .accessibilityIdentifier("prep-download-incomplete")
+        .prepGlass(cornerRadius: 24)
     }
 
-    private func loadCachedFacts() {
-        // Re-check the package at the destination boundary.  The picker normally enforces this
-        // gate, but a restored NavigationStack, deep link, or files removed after a previous ready
-        // state must not expose a partial prep surface.
-        holes = []
-        packageHoles = []
-        isLoading = false
-        errorText = nil
-        guard let offlineStore,
-              let template = try? offlineStore.loadCourseTemplate(
-                  globalId: globalId,
-                  teeBox: teeBox
-              ), template.hasCompleteOfflineCoursePrep,
-              offlineStore.hasCourseTopoImages(for: template),
-              let prep = template.coursePrep else { return }
-        packageHoles = template.holes
-        mergeHoles(prep.holes)
+    private func planSwitcher(_ plans: [PrepPlanOption]) -> some View {
+        HStack(spacing: 6) {
+            ForEach(Array(plans.enumerated()), id: \.element.id) { index, plan in
+                let selected = index == min(session.selectedPlanIndex, plans.count - 1)
+                Button {
+                    session.selectPlan(index, planCount: plans.count)
+                } label: {
+                    Text(plan.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .padding(.horizontal, 12)
+                        .frame(height: 32)
+                        .foregroundStyle(selected ? Color.black : LivePlayStyle.ink)
+                        .background(
+                            Capsule().fill(selected ? LivePlayStyle.ink : LivePlayStyle.fill08)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue(selected ? "已选择" : "未选择")
+                .accessibilityAddTraits(selected ? .isSelected : [])
+                .accessibilityIdentifier("prep-plan-\(index)")
+            }
+        }
     }
 
+    private func clubOrder(_ plan: PrepPlanOption) -> some View {
+        HStack(spacing: 6) {
+            ForEach(Array(plan.steps.enumerated()), id: \.element.id) { index, step in
+                if index > 0 {
+                    Text("→")
+                        .font(.system(size: 12))
+                        .foregroundStyle(LivePlayStyle.ink45)
+                }
+                Text(step.label)
+                    .font(.system(size: 13, weight: .bold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .foregroundStyle(Color(red: 159 / 255, green: 224 / 255, blue: 180 / 255))
+                    .background(Capsule().fill(LivePlayStyle.accent.opacity(0.2)))
+            }
+        }
+        .minimumScaleFactor(0.8)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(plan.steps.map(\.label).joined(separator: " → "))
+        .accessibilityIdentifier("prep-club-order")
+    }
+
+    private func holeStrip(current: Int?) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(rows) { row in
+                        stripButton(row, isCurrent: row.number == current)
+                            .id(row.number)
+                    }
+                }
+            }
+            .onAppear {
+                if let current { proxy.scrollTo(current, anchor: .center) }
+            }
+            .onChange(of: current) { _, next in
+                guard let next else { return }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(next, anchor: .center)
+                }
+            }
+        }
+        .accessibilityIdentifier("prep-hole-strip")
+    }
+
+    /// 洞条: a hole whose precise map is not ready is only faded; tapping it still opens it and it
+    /// shows by the same degradation contract.
+    private func stripButton(_ row: PrepHoleRow, isCurrent: Bool) -> some View {
+        Button {
+            session.select(hole: row.number)
+        } label: {
+            VStack(spacing: 1) {
+                Text("\(row.displayNumber)")
+                    .font(.system(size: 14, weight: .bold))
+                    .monospacedDigit()
+                Text(row.par.map { "P\($0)" } ?? " ")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(isCurrent ? Color.black.opacity(0.6) : LivePlayStyle.ink45)
+            }
+            .foregroundStyle(isCurrent ? Color.black : LivePlayStyle.ink)
+            .frame(width: 38, height: 44)
+            .background(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(isCurrent ? LivePlayStyle.ink : LivePlayStyle.fill08)
+            )
+            .opacity(row.state.fadesInHoleStrip && !isCurrent ? 0.35 : 1)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("第 \(row.displayNumber) 洞")
+        .accessibilityValue(row.state.fadesInHoleStrip ? "未就绪" : "已就绪")
+        .accessibilityAddTraits(isCurrent ? .isSelected : [])
+        .accessibilityIdentifier("prep-hole-strip-\(row.number)")
+    }
+}
+
+private struct PrepGlassModifier: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return content
+            .background {
+                shape.fill(.ultraThinMaterial).environment(\.colorScheme, .dark)
+            }
+            .background {
+                shape.fill(Color(red: 16 / 255, green: 20 / 255, blue: 18 / 255).opacity(0.58))
+            }
+            .overlay {
+                shape.stroke(Color.white.opacity(0.14), lineWidth: 0.5)
+            }
+    }
+}
+
+private extension View {
+    func prepGlass(cornerRadius: CGFloat) -> some View {
+        modifier(PrepGlassModifier(cornerRadius: cornerRadius))
+    }
 }
 
 /// A lightweight CourseView route can resolve a perfectly drawable overlay, but it is still only a
-/// preparation state. Keeping this policy separate makes it impossible for another non-nil-overlay
-/// check to silently promote partial geometry to the accepted prep-map final state.
+/// factual state. Keeping this policy separate makes it impossible for another non-nil-overlay
+/// check to silently promote partial geometry to the precise prep map; 备战 itself resolves every
+/// hole through `LiveMapDisplayState.resolvePrep`.
 enum CourseReviewMapPolicy {
     static func hasPreciseFacts(_ hole: CoursePrepHole) -> Bool {
         hole.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
@@ -321,290 +473,8 @@ enum CourseReviewMapPolicy {
     }
 
     /// Compatibility predicate for callers/tests that classify a partial row. It is descriptive
-    /// only; CourseReviewView no longer starts a page-scoped upgrade task from this value.
+    /// only; the download owns every upgrade.
     static func requiresPreciseUpgrade(_ hole: CoursePrepHole) -> Bool {
         !hasPreciseFacts(hole)
-    }
-}
-
-/// Shows only a verified precise prep map. A partial CourseView row is never promoted to the prep
-/// surface; it remains a download/coverage state in the library until the complete bundle exists.
-private struct CourseReviewHoleCard: View {
-    let client: SyncClient
-    let globalId: Int
-    let localHole: Int
-    let initialHole: CoursePrepHole
-    let offlineStore: OfflineStore?
-    let managedDownload: Bool
-    let managedDownloadFailed: Bool
-    let onSwipeHole: (Int) -> Void
-
-    private var hole: CoursePrepHole { initialHole }
-
-    var body: some View {
-        HolePrepCard(
-            hole: hole,
-            topoURL: topoURL,
-            isLoadingMap: false,
-            mapUnavailable: managedDownloadFailed || topoURL == nil,
-            onRetryMap: nil,
-            onSwipeHole: onSwipeHole
-        )
-    }
-
-    private var topoURL: URL? {
-        if let local = offlineStore?.loadCourseTopoImageURL(
-            globalId: globalId,
-            localHole: localHole,
-            geometryRevision: hole.geometryRevision
-        ) {
-            return local
-        }
-        return nil
-    }
-}
-
-struct HolePrepCard: View {
-    let hole: CoursePrepHole
-    /// 本洞已安装的真实地形底图 URL。备战不再把 nil 当作可进入的简化地图状态。
-    var topoURL: URL? = nil
-    var isLoadingMap = false
-    var mapUnavailable = false
-    var onRetryMap: (() -> Void)? = nil
-    var onSwipeHole: ((Int) -> Void)? = nil
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // This card is reached only after the complete local package gate. A missing local PNG
-            // is therefore an installation error, never an invitation to show a partial outline.
-            if CourseReviewMapPolicy.hasPreciseFacts(hole), topoURL != nil {
-                HoleImageMapView(
-                    hole: hole,
-                    topoURL: topoURL,
-                    showsPrepFactOverlays: true,
-                    // The plan rows below are the readable club summary. Keep the map focused on
-                    // route/landing facts instead of painting a large "一号木" label over fairway.
-                    allowsRotation: true,
-                    showsPrepClubLabel: false,
-                    showsClubLabel: false
-                )
-                    // Keep the AsyncImage loading/ready children in the accessibility tree while
-                    // retaining this hole-specific container identifier for UI navigation.
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier("prep-hole-map-\(hole.hole)")
-                preciseMapStatus
-            } else if CourseReviewMapPolicy.hasPreciseFacts(hole) {
-                Label("本地地图文件缺失，请返回下载库重试", systemImage: "externaldrive.badge.xmark")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            } else if isLoadingMap {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("加载本洞地图…")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, minHeight: 72)
-            } else if mapUnavailable {
-                Label("地图暂不可用，距离与建议已保留", systemImage: "map")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if !CourseReviewMapPolicy.hasPreciseFacts(hole) { header }
-            if !CourseReviewMapPolicy.hasPreciseFacts(hole) { pendingPreciseFacts }
-            if !hole.steps.isEmpty { strategyDisclosure }
-            if !cautionSummaries.isEmpty { cautionDisclosure }
-        }
-        .hubCard()
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 72)
-                .onEnded { value in
-                    guard let onSwipeHole,
-                          abs(value.translation.height) > abs(value.translation.width) * 1.35 else { return }
-                    onSwipeHole(value.translation.height > 0 ? 1 : -1)
-                }
-        )
-    }
-
-    private var pendingPreciseFacts: some View {
-        Label("完整地图准备中，当前不会显示简化轮廓", systemImage: "map")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-    }
-
-    @ViewBuilder
-    private var preciseMapStatus: some View {
-        if !CourseReviewMapPolicy.hasPreciseFacts(hole) {
-            HStack(spacing: 7) {
-                if mapUnavailable, let onRetryMap {
-                    Button(action: onRetryMap) {
-                        Label("精确地图暂不可用 · 重试", systemImage: "arrow.clockwise")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("prep-hole-map-precise-retry")
-                } else {
-                    if isLoadingMap { ProgressView().controlSize(.small) }
-                    Text("精确地图准备中")
-                        .font(.caption.weight(.semibold))
-                        .accessibilityIdentifier("prep-hole-map-precise-loading")
-                }
-                Spacer()
-            }
-            .foregroundStyle(.secondary)
-        }
-    }
-
-    /// `blueYards` is always the Blue Tee; a prep requested for another Tee also carries `teeYards`.
-    private var teeYardageLabel: String {
-        if let teeYards = hole.teeYards {
-            return "所选T \(teeYards)y"
-        }
-        return "蓝T \(hole.blueYards)y"
-    }
-
-    // MARK: 头部:洞号 + Par + 蓝T + 实打(坡度)
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("\(hole.hole)").font(.system(size: 26, weight: .heavy)).monospacedDigit()
-            Text("洞").font(.caption).foregroundStyle(.secondary)
-            Text("Par \(hole.par)")
-                .font(.caption.weight(.bold))
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(parColor.opacity(0.14))
-                .foregroundStyle(parColor)
-                .clipShape(Capsule())
-            Text(teeYardageLabel).font(.caption).foregroundColor(.secondary)
-            Spacer()
-            if let tag = playsLikeTag {
-                Text(tag)
-                    .font(.caption.weight(.semibold).monospacedDigit())
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(LiveHoleStyle.green.opacity(0.14))
-                    .foregroundStyle(LiveHoleStyle.green)
-                    .clipShape(Capsule())
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("prep-hole-header-\(hole.hole)")
-    }
-
-    /// Geometry-free degradation only. When the hole is drawable these same facts live on the map,
-    /// so this row must never become a duplicate inspector underneath it.
-    @ViewBuilder private var fallbackFacts: some View {
-        if recommendedClub != nil || greenDistanceText != nil {
-            HStack(spacing: 8) {
-                if let club = recommendedClub {
-                    HStack(spacing: 5) {
-                        Image(systemName: "flag.fill").font(.caption2)
-                        Text(club).font(.subheadline.weight(.bold))
-                    }
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(LiveHoleStyle.green)
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
-                }
-                if let g = greenDistanceText {
-                    Text(g).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-        }
-    }
-
-    /// The map shows the recommended landing and club at a glance. A complete multi-shot chain is
-    /// useful only on demand, so keep it collapsed instead of turning every hole into a long list.
-    private var strategyDisclosure: some View {
-        DisclosureGroup {
-            VStack(alignment: .leading, spacing: 7) {
-                ForEach(Array(hole.steps.enumerated()), id: \.offset) { _, step in
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        if let club = step.clubName ?? step.club, !club.isEmpty {
-                            Text(zhClubName(club))
-                                .font(.caption.weight(.semibold))
-                                .padding(.horizontal, 7).padding(.vertical, 2)
-                                .background(HubStyle.iconTint)
-                                .foregroundStyle(LiveHoleStyle.green)
-                                .clipShape(Capsule())
-                        }
-                        Text(step.note).font(.subheadline)
-                        Spacer()
-                    }
-                }
-            }
-            .padding(.top, 6)
-        } label: {
-            Label("完整打法 · \(hole.steps.count) 步", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(LiveHoleStyle.green)
-        }
-        .accessibilityIdentifier("prep-strategy-disclosure-\(hole.hole)")
-    }
-
-    private var cautionDisclosure: some View {
-        DisclosureGroup {
-            VStack(alignment: .leading, spacing: 5) {
-                ForEach(Array(cautionSummaries.enumerated()), id: \.offset) { _, caution in
-                    Text(caution)
-                        .font(.caption)
-                        .foregroundStyle(HubStyle.warmBad)
-                }
-            }
-            .padding(.top, 5)
-        } label: {
-            Label("本洞提醒 · \(cautionSummaries.count)", systemImage: "exclamationmark.triangle.fill")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(HubStyle.warmBad)
-        }
-    }
-
-    /// 推荐(开球)球杆:优先 tee_club,其次首个 step 的球杆;转中文名。无则 nil。
-    private var recommendedClub: String? {
-        guard let raw = hole.teeClub ?? hole.steps.first?.clubName ?? hole.steps.first?.club,
-              !raw.isEmpty else { return nil }
-        return zhClubName(raw)
-    }
-
-    /// 坡度修正标签(仅当 /prep 提供可信 elevation delta 时)。
-    private var playsLikeTag: String? {
-        guard let pl = hole.playsLike, pl.available, let dy = pl.deltaYd, dy != 0 else { return nil }
-        return "坡度修正 \(dy > 0 ? "+" : "")\(dy) 码"
-    }
-
-    /// 果岭前/中/后距离(码),仅当 /prep 提供时。
-    private var greenDistanceText: String? {
-        guard let g = hole.greenDistances, g.available else { return nil }
-        let parts = [
-            g.frontM.map { "前 \(CoursePrepRoute.yards(fromMetres: $0))" },
-            g.middleM.map { "中 \(CoursePrepRoute.yards(fromMetres: $0))" },
-            g.backM.map { "后 \(CoursePrepRoute.yards(fromMetres: $0))" },
-        ].compactMap { $0 }
-        guard !parts.isEmpty else { return nil }
-        return parts.joined(separator: " · ") + " 码"
-    }
-
-    private var parColor: Color {
-        switch hole.par {
-        case 3: return .blue
-        case 5: return .orange
-        default: return LiveHoleStyle.green
-        }
-    }
-
-    /// Course prep may describe the same mapped risk more than once (for example when two source
-    /// polygons collapse to the same player-facing distance). Repeating identical warning copy adds
-    /// no information and made the pre-round card look broken. Preserve the first occurrence and its
-    /// source ordering; only exact player-facing duplicates are removed.
-    private var cautionSummaries: [String] {
-        stableUnique(hole.cautions)
-    }
-
-    private func stableUnique(_ values: [String]) -> [String] {
-        var seen = Set<String>()
-        return values.compactMap { value in
-            let display = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !display.isEmpty else { return nil }
-            let key = display.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-            return seen.insert(key).inserted ? display : nil
-        }
     }
 }

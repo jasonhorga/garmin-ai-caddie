@@ -802,6 +802,87 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", fixture)
         self.assertNotIn("Authorization", fixture)
 
+    def test_degraded_course_serves_precise_factual_and_routeless_holes(self) -> None:
+        # B4c (README §8 地图降级契约): one searchable course whose holes are precise, factual-route
+        # only, or without any drawable route, so the native prep journey can prove each state.
+        try:
+            import server_v2.ci_fixture as fixture
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        fixture._DEGRADED_CLOCK["started"] = None
+        self.addCleanup(fixture._DEGRADED_CLOCK.__setitem__, "started", None)
+        gid = fixture.DEGRADED_ID
+        self.assertIn(gid, {row["globalId"] for row in fixture.course_search("Fixture")["matches"]})
+        # Search-only: never a nearby or options row, so no other journey selects it.
+        self.assertNotIn(gid, {row["globalId"] for row in fixture.nearby(40.2, 116.8, radius_km=200)["matches"]})
+        self.assertNotIn(gid, {row["globalId"] for row in fixture.options()["courses"]})
+
+        rows = {row["hole"]: row for row in fixture.prep(gid, holes=[1, 2, 3, 12, 13, 18])["holes"]}
+        self.assertEqual(rows[1]["geometryCoverage"], "ready")
+        self.assertTrue(rows[1]["map"]["image"].startswith("data:image/png;base64,"))
+        for hole in (2, 3, 12):
+            # Factual route: the overlay, green outline and obstacle facts, but no raster.
+            self.assertEqual(rows[hole]["geometryCoverage"], "partial")
+            self.assertEqual(set(rows[hole]["map"]), {"overlay"})
+            self.assertGreaterEqual(len(rows[hole]["map"]["overlay"]["route"]), 2)
+            self.assertTrue(rows[hole]["greenOutline"]["available"])
+            self.assertTrue(rows[hole]["hazards"]["details"])
+        for hole in (13, 18):
+            # Nothing drawable: no overlay, no projection and no route.
+            self.assertEqual(rows[hole]["geometryCoverage"], "missing")
+            self.assertIsNone(rows[hole]["map"])
+            self.assertIsNone(rows[hole]["holeImageProjection"])
+            self.assertEqual(rows[hole]["route"], [])
+        for row in rows.values():
+            self.assertEqual([step["clubName"] for step in row["steps"]], ["1D", "8I"])
+
+        # The package, coverage probe, install journal and topo endpoint agree on each hole.
+        package = fixture.course_package(gid, loops=f"{gid}:front,{gid}:back", round_id=f"prep-library-{gid}")
+        states = [hole["geometryCoverage"] for hole in package["holes"]]
+        self.assertEqual(states, ["ready"] + ["partial"] * 11 + ["missing"] * 6)
+        self.assertEqual(package["geometryCoverage"]["readyHoles"], 1)
+        status = fixture.install_status(gid, loops=f"{gid}:front,{gid}:back")
+        self.assertEqual(status["phase"], "running")
+        self.assertEqual([row["topo"] == "ready" for row in status["holes"]], [True] + [False] * 17)
+        coverage = fixture.coverage(gid, holes=[1, 2, 14])["holes"]
+        self.assertEqual([row["coverage"] for row in coverage], ["ready", "partial", "missing"])
+        self.assertGreater(len(fixture.topo_png(gid, 1).body), 1024)
+        from fastapi import HTTPException
+        with self.assertRaises(HTTPException) as missing_topo:
+            fixture.topo_png(gid, 2)
+        self.assertEqual(missing_topo.exception.status_code, 404)
+        # Other courses keep every hole precise.
+        self.assertEqual(
+            {hole["geometryCoverage"] for hole in fixture.prep(31793, holes=[1, 2, 14])["holes"]},
+            {"ready"},
+        )
+
+    def test_degraded_course_hole_two_upgrades_in_place_after_the_install_clock(self) -> None:
+        try:
+            import server_v2.ci_fixture as fixture
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        fixture._DEGRADED_CLOCK["started"] = None
+        self.addCleanup(fixture._DEGRADED_CLOCK.__setitem__, "started", None)
+        # Before any prep request the clock has not started; the first request starts it.
+        self.assertEqual(fixture._degraded_hole_state(2), "partial")
+        fixture._start_degraded_clock(now=100.0)
+        self.assertEqual(fixture._degraded_hole_state(2, now=100.0 + fixture.DEGRADED_UPGRADE_SECONDS - 1), "partial")
+        self.assertEqual(fixture._degraded_hole_state(2, now=100.0 + fixture.DEGRADED_UPGRADE_SECONDS), "ready")
+        # Only hole 2 upgrades; the factual and routeless holes stay as they are.
+        later = 100.0 + fixture.DEGRADED_UPGRADE_SECONDS + 60
+        self.assertEqual(fixture._degraded_hole_state(3, now=later), "partial")
+        self.assertEqual(fixture._degraded_hole_state(14, now=later), "missing")
+        # A later prep request does not restart the clock; the same install's package refetch
+        # does not either, while a package fetch long afterwards begins a new install attempt.
+        fixture._start_degraded_clock(now=later)
+        self.assertEqual(fixture._DEGRADED_CLOCK["started"], 100.0)
+        fixture._restart_degraded_install(now=100.0 + 60)
+        self.assertEqual(fixture._DEGRADED_CLOCK["started"], 100.0)
+        fixture._restart_degraded_install(now=100.0 + fixture.DEGRADED_CLOCK_RESET_SECONDS)
+        self.assertIsNone(fixture._DEGRADED_CLOCK["started"])
+        self.assertEqual(fixture._degraded_hole_state(2), "partial")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// 备战入口：既可以按城市／球场名搜索，也可以直接查看当前位置附近球场。
-/// 选中结果只会加入 App 级下载库；完整球场包安装完成前不会进入赛前攻略。
+/// 选了就进（README §8）：选中的球场加入 App 级下载库并继续在后台下载，同时立即进入赛前攻略；
+/// 未就绪的洞按地图降级契约显示，进入前不再弹任何地图准备提示。
 public struct PrepCoursePickerView: View {
     public let courseOptions: [MobileCourseOption]
     public let downloadedCourseOptions: [MobileCourseOption]
@@ -12,14 +13,13 @@ public struct PrepCoursePickerView: View {
     public let onDownload: (MobileCourseOption) -> Void
     public let onRetryDownload: (String) -> Void
     public let onValidateReadyDownload: (PrepCourseDownloadRecord) async -> Bool
+    public let onLoadCourseTees: (Int) async -> [CourseTee]
 
     /// `MobileCourseSearchView` owns the shared catalogue-search UI; this screen owns only the
     /// short-lived location provider used to request an explicit nearby search.
     @StateObject private var locationProvider = LocationProvider()
     @ObservedObject private var downloadPresentation: PrepCourseDownloadPresentationState
     @State private var selectedCourse: MobileCourseOption?
-    @State private var validatingDownloadID: String?
-    @State private var validationMessage: String?
 
     public init(
         courseOptions: [MobileCourseOption],
@@ -32,7 +32,8 @@ public struct PrepCoursePickerView: View {
         offlineStore: OfflineStore? = nil,
         onDownload: @escaping (MobileCourseOption) -> Void = { _ in },
         onRetryDownload: @escaping (String) -> Void = { _ in },
-        onValidateReadyDownload: @escaping (PrepCourseDownloadRecord) async -> Bool = { _ in true }
+        onValidateReadyDownload: @escaping (PrepCourseDownloadRecord) async -> Bool = { _ in true },
+        onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] }
     ) {
         self.courseOptions = courseOptions
         self.downloadedCourseOptions = downloadedCourseOptions
@@ -47,6 +48,7 @@ public struct PrepCoursePickerView: View {
         self.onDownload = onDownload
         self.onRetryDownload = onRetryDownload
         self.onValidateReadyDownload = onValidateReadyDownload
+        self.onLoadCourseTees = onLoadCourseTees
     }
 
     public var body: some View {
@@ -59,7 +61,6 @@ public struct PrepCoursePickerView: View {
             installedCourseKeys: installedCourseKeys,
             knownCourseOptions: courseOptions + downloadedCourseOptions,
             retainedDownloads: visibleDownloads,
-            validatingDownloadID: validatingDownloadID,
             onSearch: searchCourses,
             onNearby: nearbyCourses,
             onSelect: selectSearchResult,
@@ -86,17 +87,14 @@ public struct PrepCoursePickerView: View {
                     teeBox: course.teeBox,
                     offlineStore: offlineStore,
                     // `onDownload` updates the app-owned queue on the next published render. The
-                    // destination must nevertheless enter managed-download mode on its FIRST frame;
-                    // otherwise it briefly starts the standalone network loader, that task is then
-                    // cancelled when the queue row arrives, and the player sees a false “加载失败”.
-                    download: selectedDownload(for: course)
+                    // destination must nevertheless observe that durable row from its FIRST frame,
+                    // so it resolves an equivalent queued snapshot until the row is published.
+                    download: selectedDownload(for: course),
+                    courseTees: course.tees ?? [],
+                    onLoadCourseTees: onLoadCourseTees,
+                    onChangeTee: changeTee
                 )
             }
-        }
-        .alert("地图正在更新", isPresented: validationAlertPresented) {
-            Button("知道了", role: .cancel) {}
-        } message: {
-            Text(validationMessage ?? "地图更新完成后即可进入备战。")
         }
     }
 
@@ -107,15 +105,6 @@ public struct PrepCoursePickerView: View {
                 if !isPresented {
                     selectedCourse = nil
                 }
-            }
-        )
-    }
-
-    private var validationAlertPresented: Binding<Bool> {
-        Binding(
-            get: { validationMessage != nil },
-            set: { isPresented in
-                if !isPresented { validationMessage = nil }
             }
         )
     }
@@ -150,48 +139,53 @@ public struct PrepCoursePickerView: View {
     ) {
         _ = matches
         guard let course = resolvedOption(for: selected) else { return }
-        let wasReady = installedCourseKeys.contains(downloadID(for: course))
-        // A catalogue hit is metadata only.  Starting a download must not push a destination that
-        // owns a second, page-scoped loader (and could therefore show a partial map or be cancelled
-        // when the user navigates back).  Already-installed courses are the sole exception.
+        // 选了就进 (README §8): the catalogue hit joins the app-owned library, whose download keeps
+        // running (and survives relaunch) there, and the prep map opens at once. The destination
+        // only reads what is installed; holes that are not ready follow the map degradation contract.
         onDownload(course)
-        if wasReady {
-            let record = visibleDownloads.first(where: { $0.id == downloadID(for: course) })
-                ?? readyDownloadIntent(for: course)
-            validateAndOpen(record)
-        }
+        open(course)
     }
 
     private func openRetainedDownload(_ download: PrepCourseDownloadRecord) {
-        if download.phase == .failed {
+        guard !download.isTerminalFailure else { return }
+        // A failed row, or a ready row whose files are no longer complete (an interrupted cleanup or
+        // a renderer-version change), resumes its download; the prep map opens either way.
+        if download.phase == .failed
+            || (download.phase == .ready && !installedCourseKeys.contains(download.id)) {
             onRetryDownload(download.id)
         }
-        // Keep queued/preparing/downloading rows in the library.  The only legal route into the
-        // prep map is a complete, locally verified course package.
-        if download.phase == .ready, installedCourseKeys.contains(download.id) {
-            validateAndOpen(download)
-        } else if download.phase == .ready {
-            // A stale row can survive an interrupted file cleanup or a renderer-version change.
-            // Re-queue it instead of exposing a map that is only complete on paper.
-            onRetryDownload(download.id)
-        }
+        open(download.course.replacingTeeBox(download.teeBox))
     }
 
-    private func validateAndOpen(_ download: PrepCourseDownloadRecord) {
-        guard validatingDownloadID == nil else { return }
-        validatingDownloadID = download.id
+    /// 右上换发球台: the other Tee is its own durable library row (its own download and template);
+    /// the open prep screen keeps its hole and follows the new Tee's facts as they install.
+    private func changeTee(_ tee: String) {
+        guard let course = selectedCourse else { return }
+        let trimmed = tee.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              downloadID(for: course) != downloadID(for: course.replacingTeeBox(trimmed)) else { return }
+        let next = course.replacingTeeBox(trimmed)
+        onDownload(next)
+        open(next)
+    }
+
+    private func open(_ course: MobileCourseOption) {
+        selectedCourse = course
+        revalidateIfInstalled(course)
+    }
+
+    /// A complete local package opens at once and is checked against the server's current Garmin
+    /// release in the background — never before navigation. A positive revision mismatch re-queues
+    /// the row with its required revisions: the open prep screen then shows those holes on their
+    /// factual route (the replaced topo is withheld) until the new precise maps install and replace
+    /// them in place. An unreachable server keeps the verified local package, as before.
+    private func revalidateIfInstalled(_ course: MobileCourseOption) {
+        let id = downloadID(for: course)
+        guard installedCourseKeys.contains(id) else { return }
+        let record = downloads.first(where: { $0.id == id }) ?? readyDownloadIntent(for: course)
+        guard record.phase == .ready else { return }
         Task { @MainActor in
-            let isCurrent = await onValidateReadyDownload(download)
-            guard validatingDownloadID == download.id else { return }
-            validatingDownloadID = nil
-            if isCurrent {
-                selectedCourse = download.course
-            } else if let failed = downloads.first(where: { $0.id == download.id })?.errorText,
-                      !failed.isEmpty {
-                validationMessage = failed
-            } else {
-                validationMessage = "地图尚未准备完成，下载完成后即可进入备战。"
-            }
+            _ = await onValidateReadyDownload(record)
         }
     }
 

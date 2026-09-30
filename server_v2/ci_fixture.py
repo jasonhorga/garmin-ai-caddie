@@ -11,6 +11,7 @@ import math
 from pathlib import Path
 import re
 import struct
+import time
 import zlib
 
 from fastapi import APIRouter, HTTPException, Query, Response
@@ -37,7 +38,20 @@ PALACE_HOLE_PARS = (
     4, 3, 5, 4, 4, 4, 3, 4, 5,
 )
 LOCAL_HOLE = 1
-COURSE_ALIASES = {PALACE_ID: PALACE_ID, 31795: GLOBAL_ID, 31797: 31797, 3881: 3881, 31670: 31670, 31871: 31871}
+# B4c map-degradation course (README §8 地图降级契约). Search-only (never nearby / options), so no
+# other journey picks it. Hole 1 is precise at once; hole 2 is a factual route that upgrades to the
+# precise map DEGRADED_UPGRADE_SECONDS after this install's first prep request; holes 3-12 stay a
+# factual route (coverage ``partial``: overlay, green outline and obstacle facts, no raster) and
+# holes 13-18 have no drawable route at all.
+DEGRADED_ID = 31798
+DEGRADED_NAME = "Fixture Degraded Course"
+DEGRADED_UPGRADE_HOLE = 2
+DEGRADED_UPGRADE_SECONDS = 25.0
+# A package fetch more than this long after the clock started begins a new install attempt (for
+# example a retried simulator run); one install's own later passes never restart the clock.
+DEGRADED_CLOCK_RESET_SECONDS = 300.0
+_DEGRADED_CLOCK: dict[str, float | None] = {"started": None}
+COURSE_ALIASES = {PALACE_ID: PALACE_ID, 31795: GLOBAL_ID, 31797: 31797, 3881: 3881, 31670: 31670, 31871: 31871, DEGRADED_ID: DEGRADED_ID}
 ROUND_ALIASES = {"900001": ROUND_REF, "live-31795": ROUND_REF, "live-round-1": ROUND_REF, "fixture-round-1": ROUND_REF}
 UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 PREP_LIBRARY_RE = r"prep-library-([0-9]+)"
@@ -77,6 +91,8 @@ def _course_request(value: int) -> int:
 
 
 def _course_name(value: int) -> str:
+    if int(value) == DEGRADED_ID:
+        return DEGRADED_NAME
     return PALACE_NAME if int(value) == PALACE_ID else ("Black Knight B/C" if int(value) == GLOBAL_ID else ("Fixture Open Course" if int(value) == 31797 else "Cypress Point Club"))
 
 
@@ -85,6 +101,41 @@ def _hole_par(global_id: int, local_hole: int) -> int:
     if int(global_id) == PALACE_ID and 1 <= local_hole <= len(PALACE_HOLE_PARS):
         return PALACE_HOLE_PARS[local_hole - 1]
     return 4
+
+
+def _degraded_elapsed(now: float | None = None) -> float:
+    started = _DEGRADED_CLOCK["started"]
+    if started is None:
+        return 0.0
+    return max(0.0, (time.monotonic() if now is None else now) - started)
+
+
+def _start_degraded_clock(now: float | None = None) -> None:
+    """Start the hole-2 upgrade clock on this install's first prep request."""
+    if _DEGRADED_CLOCK["started"] is None:
+        _DEGRADED_CLOCK["started"] = time.monotonic() if now is None else now
+
+
+def _restart_degraded_install(now: float | None = None) -> None:
+    """A package fetch long after the clock started is a new install attempt."""
+    if _DEGRADED_CLOCK["started"] is not None and _degraded_elapsed(now) >= DEGRADED_CLOCK_RESET_SECONDS:
+        _DEGRADED_CLOCK["started"] = None
+
+
+def _degraded_hole_state(local_hole: int, now: float | None = None) -> str:
+    """``ready`` / ``partial`` (factual route only) / ``missing`` (no drawable route)."""
+    if local_hole == 1:
+        return "ready"
+    if local_hole >= 13:
+        return "missing"
+    if local_hole == DEGRADED_UPGRADE_HOLE and _DEGRADED_CLOCK["started"] is not None \
+            and _degraded_elapsed(now) >= DEGRADED_UPGRADE_SECONDS:
+        return "ready"
+    return "partial"
+
+
+def _hole_map_state(global_id: int, local_hole: int) -> str:
+    return _degraded_hole_state(local_hole) if int(global_id) == DEGRADED_ID else "ready"
 
 
 def _tee_candidate_routes() -> list[dict[str, object]]:
@@ -182,6 +233,7 @@ COURSE_COORDINATES = {
     PALACE_ID: (40.0455, 116.5462),
     GLOBAL_ID: (39.9000, 116.4000),
     31797: (40.1200, 116.7000),
+    DEGRADED_ID: (40.2000, 116.8000),
     3881: (36.5800, -121.9700),
     # These supported back-course aliases share the Beijing fixture region.
     31670: (39.9000, 116.4000),
@@ -451,6 +503,8 @@ def _loop_holes(loops: list[tuple[int, str]]) -> list[tuple[int, int, int]]:
 def _package(round_id: str, global_id: int | None, loops: list[tuple[int, str]] | None, tee_box: str = "blue") -> dict:
     requested_tee = _fixture_tee(tee_box, default="blue") or "blue"
     _, requested_course, _ = _bound_round_context(round_id, global_id, None, "all", requested_tee)
+    if requested_course == DEGRADED_ID:
+        _restart_degraded_install()
     if loops is None:
         # A fixture round is the whole 18-hole course played front then back.
         loops = [(requested_course, "front"), (requested_course, "back")]
@@ -502,10 +556,13 @@ def _package(round_id: str, global_id: int | None, loops: list[tuple[int, str]] 
         tee_latitude, tee_longitude = COURSE_COORDINATES[source_course]
         hole["teeLatitude"] = tee_latitude
         hole["teeLongitude"] = tee_longitude
+        # The degraded-map course reports each hole's current geometry state (B4c).
+        hole["geometryCoverage"] = _hole_map_state(source_course, local_hole)
         payload["holes"].append(hole)
+    ready_holes = sum(1 for hole in payload["holes"] if hole["geometryCoverage"] == "ready")
     payload["geometryCoverage"]["totalHoles"] = len(segment_holes)
-    payload["geometryCoverage"]["readyHoles"] = len(segment_holes)
-    payload["geometryCoverage"]["state"] = "ready"
+    payload["geometryCoverage"]["readyHoles"] = ready_holes
+    payload["geometryCoverage"]["state"] = "ready" if ready_holes == len(segment_holes) else "partial"
     source_holes = [local for _, local, _ in resolved_holes]
     source_courses = [course for _, _, course in resolved_holes]
     source_refs = [f"{requested_round}:{hole}" for hole in segment_holes]
@@ -606,7 +663,7 @@ def _fixture_shot_rows(round_ref: str, display_hole: int) -> list[dict]:
 
 @ROUTE.get("/api/v2/courses/search")
 def course_search(name: str, latitude: float | None = None, longitude: float | None = None, city: str | None = None, holes: int | None = None) -> dict:
-    matches = [{"globalId": PALACE_ID, "name": PALACE_NAME, "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 1.0}, {"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 0.95}, {"globalId": 31797, "name": "Fixture Open Course", "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 0.92}, {"globalId": 3881, "name": "Cypress Point Club", "holes": holes or 18, "city": city or "Monterey", "province": "California", "ratio": 0.9}]
+    matches = [{"globalId": PALACE_ID, "name": PALACE_NAME, "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 1.0}, {"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 0.95}, {"globalId": 31797, "name": "Fixture Open Course", "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 0.92}, {"globalId": DEGRADED_ID, "name": DEGRADED_NAME, "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 0.91}, {"globalId": 3881, "name": "Cypress Point Club", "holes": holes or 18, "city": city or "Monterey", "province": "California", "ratio": 0.9}]
     return _with_markers({"schema": "ai-caddie-course-search-v1", "query": name, "matches": matches, "courses": matches})
 
 
@@ -656,6 +713,10 @@ def coverage(global_id: int, holes: list[int] | None = Query(default=None), nine
     requested = [LOCAL_HOLE] if holes is None or not isinstance(holes, list) else holes
     resolved = [_resolve_hole(nine, hole, requested_course, _course_request(back_global_id) if back_global_id is not None else None) for hole in requested]
     is_open_candidate = requested_course == 31797
+    if requested_course == DEGRADED_ID:
+        states = [(display, local, course, _hole_map_state(course, local)) for display, local, course in resolved]
+        ready = sum(1 for *_, state in states if state == "ready")
+        return _with_markers({"schema": "ai-caddie-course-geometry-coverage-v1", "globalId": requested_course, "coverage": "ready" if ready == len(states) else "partial", "readyHoles": ready, "partialHoles": len(states) - ready, "totalHoles": 18, "holes": [{"globalId": course, "localHole": local, "displayHole": display, "coverage": state} for display, local, course, state in states]})
     return _with_markers({"schema": "ai-caddie-course-geometry-coverage-v1", "globalId": requested_course, "coverage": "partial" if is_open_candidate else "ready", "readyHoles": 0 if is_open_candidate else len(resolved), "partialHoles": len(resolved) if is_open_candidate else 0, "totalHoles": 18, "holes": [{"globalId": course, "localHole": local, "displayHole": display, "coverage": "partial" if is_open_candidate else "ready"} for display, local, course in resolved]})
 
 
@@ -667,6 +728,36 @@ def geometry_hole(global_id: int, local_hole: int, source_ref: str | None = None
     return _with_markers({"schema": "ai-caddie-geometry-evidence-v1", "globalId": requested_course, "localHole": local_hole, "coverage": "ready", "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + local_hole, "route": [[0.0, 0.0, 0.0], [64.0, 64.0, 374.0 + local_hole]]}, "sourceRef": source_ref or f"geometry:{requested_course}:{local_hole}"})
 
 
+def _degrade_prep_hole(hole: dict, state: str) -> None:
+    """Shape one degraded-course prep row like production's partial / missing geometry rows.
+
+    Every state carries the same two-step caddie plan so the 备战 club order is visible.
+    ``partial`` keeps the factual overlay, green outline and obstacle facts but no raster;
+    ``missing`` has no drawable route at all (no overlay, no projection, no outline).
+    """
+    hole["steps"] = [
+        {"club": "1D", "clubName": "1D", "note": "开球打球道中间", "targetCarry_m": 210.0, "routeOffset_m": 210.0,
+         "landing_m": 210.0, "expectedRemaining_m": 165.0, "role": "tee", "planIndex": 0,
+         "planVersion": "ai-caddie-shot-plan-v1"},
+        {"club": "8I", "clubName": "8I", "note": "攻果岭中心", "targetCarry_m": 150.0, "routeOffset_m": 375.0,
+         "landing_m": 375.0, "expectedRemaining_m": 0.0, "role": "approach", "planIndex": 1,
+         "planVersion": "ai-caddie-shot-plan-v1"},
+    ]
+    if state == "ready":
+        return
+    hole["geometryCoverage"] = state
+    if state == "partial":
+        hole["map"] = {"overlay": hole["map"]["overlay"]}
+        return
+    hole["route"] = []
+    hole["map"] = None
+    hole["holeImageProjection"] = None
+    hole["greenOutline"] = None
+    hole["greenDistances"] = {"available": False}
+    hole["hazards"] = {"water_carry": [], "bunkers": [], "details": []}
+    hole["landing_m"] = None
+
+
 @ROUTE.get("/api/v2/courses/{global_id}/prep")
 def prep(global_id: int, holes: list[int] | None = Query(default=None), render: bool = False, nine: str = "all", back_global_id: int | None = None) -> dict:
     requested_course = _course_request(global_id)
@@ -674,6 +765,8 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
     segment_holes = _segment_holes(nine)
     requested = segment_holes if holes is None or not isinstance(holes, list) else holes
     resolved_requested = [_resolve_hole(nine, hole, requested_course, requested_back) for hole in requested]
+    if requested_course == DEGRADED_ID:
+        _start_degraded_clock()
     def prep_hole(number: int) -> dict:
         local_hole = number - 9 if requested_back is not None and number >= 10 else number
         source_course = requested_back if requested_back is not None and number >= 10 else requested_course
@@ -691,6 +784,8 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
         hole["sourceRefs"] = [f"{ROUND_REF}:{local_hole}"]
         hole["sourceGlobalId"] = source_course
         hole["sourceLocalHole"] = local_hole
+        if source_course == DEGRADED_ID:
+            _degrade_prep_hole(hole, _degraded_hole_state(local_hole))
         return hole
     return _with_markers({"schema": "ai-caddie-course-prep-v1", "globalId": requested_course, "holeCount": len(requested),
                           "clubs": [{"name": "1D", "token": "1D", "m": 210.0, "yd": 230, "distanceSource": "fixture", "sampleSize": 1, "confidence": "high"}], "holes": [prep_hole(display) for display, _, _ in resolved_requested]})
@@ -756,13 +851,22 @@ def install_status(global_id: int, loops: str = Query(...), tee_box: str = "blue
     round_loops = _fixture_loops(loops, requested_course)
     requested_tee = _fixture_tee(tee_box, default="blue") or "blue"
     resolved = _loop_holes(round_loops)
-    rows = [{"globalId": course, "localHole": local, "displayHole": display, "geometry": "ready", "geometryRevision": FIXTURE_REVISION, "topo": "ready", "topoRevision": FIXTURE_REVISION, "error": None} for display, local, course in resolved]
+    rows = []
+    for display, local, course in resolved:
+        ready = _hole_map_state(course, local) == "ready"
+        rows.append({"globalId": course, "localHole": local, "displayHole": display,
+                     "geometry": "ready" if ready else "running", "geometryRevision": FIXTURE_REVISION if ready else None,
+                     "topo": "ready" if ready else "pending", "topoRevision": FIXTURE_REVISION if ready else None, "error": None})
+    ready_count = sum(1 for row in rows if row["geometry"] == "ready")
+    complete = ready_count == len(rows)
     return _with_markers({"schema": "ai-caddie-course-install-v1", "jobId": "fixture-install", "globalId": requested_course,
-                          "teeBox": requested_tee, "loopKey": round_loop_key(round_loops), "phase": "ready", "stage": "complete",
-                          "progress": 100, "heartbeatAt": "2026-08-27T00:00:00Z", "cancelRequested": False,
-                          "cancelRequestedAt": None, "terminalReason": "provider_complete", "retryCount": 0,
-                          "generation": 1, "cancellable": False,
-                          "totalHoles": len(resolved), "geometryReady": len(resolved), "topoReady": len(resolved), "updatedAt": "2026-08-27T00:00:00Z",
+                          "teeBox": requested_tee, "loopKey": round_loop_key(round_loops),
+                          "phase": "ready" if complete else "running", "stage": "complete" if complete else "geometry",
+                          "progress": 100 if complete else round(100 * ready_count / max(1, len(rows))),
+                          "heartbeatAt": "2026-08-27T00:00:00Z", "cancelRequested": False,
+                          "cancelRequestedAt": None, "terminalReason": "provider_complete" if complete else None, "retryCount": 0,
+                          "generation": 1, "cancellable": not complete,
+                          "totalHoles": len(resolved), "geometryReady": ready_count, "topoReady": ready_count, "updatedAt": "2026-08-27T00:00:00Z",
                           "error": None, "holes": rows})
 
 
@@ -796,6 +900,9 @@ def _fixture_png(global_id: int, hole: int, width: int = 64, height: int = 64) -
 def topo_png(global_id: int, hole: int, v: str | None = None, r: str | None = None) -> Response:
     if v is not None and v != "topo-v11":
         raise HTTPException(status_code=409, detail="fixture topo renderer version unsupported")
+    if 1 <= hole <= 18 and _hole_map_state(_course_request(global_id), hole) != "ready":
+        # No precise geometry yet: like production, there is no topo to serve.
+        raise HTTPException(status_code=404, detail="fixture topo not ready")
     return _fixture_png(global_id, hole)
 
 

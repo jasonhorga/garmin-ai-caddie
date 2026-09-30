@@ -946,11 +946,18 @@ final class DesignSnapshotTests: XCTestCase {
             named: "hole-map-topo-fallback"
         )
 
-        // 备战逐洞卡:地图直接承载推荐路线/落点/球杆与 F/M/B；完整打法和提醒按需展开。
+        // B4c 备战 (README §8, pre-round.html 第三台): the full-screen map with the caddie route and
+        // landings, the plan and this hole's club order, the 18-hole strip and the Tee top right.
+        // Every hole follows the map degradation contract: holes 1-4 have their precise topo, holes
+        // 5-12 only the factual route (+ green outline + obstacle spans) while the precise map is on
+        // its way, and holes 13-18 nothing drawable yet (the one waiting page). Not-ready holes are
+        // faded in the strip.
         let prepCardJSON = """
         {"hole":7,"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":375,\
+        "geometryCoverage":"ready","geometryRevision":"snapshot-r1",\
         "route":[[120,330],[118,180],[120,55]],"tee_club":"D","landing_m":150,\
-        "steps":[{"club":"D","note":"开球打球道左中,避右侧沙坑"},{"club":"8I","note":"攻果岭中心,后方无碍"}],\
+        "steps":[{"club":"D","note":"开球打球道左中,避右侧沙坑","targetCarry_m":205,"routeOffset_m":205,"role":"tee"},\
+        {"club":"8I","note":"攻果岭中心,后方无碍","targetCarry_m":150,"routeOffset_m":375,"role":"approach"}],\
         "cautions":["果岭前缘有陡坡,落点宁长勿短"],\
         "hazards":{"water_carry":[[175,195]],"bunkers":[[210,18],[138,12]],"details":[\
         {"kind":"water","frontM":175,"backM":195,"frontRouteM":175,"backRouteM":195,"frontPx":[112,170],"backPx":[126,155],"sideM":null},\
@@ -961,10 +968,75 @@ final class DesignSnapshotTests: XCTestCase {
         "playsLike":{"available":true,"deltaM":7.3,"deltaYd":8}}
         """
         let prepCardHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(prepCardJSON.utf8))
-        try captureScreen(
-            ScrollView { HolePrepCard(hole: prepCardHole).padding(14) }.background(HubStyle.grouped),
-            named: "prep-hole"
-        )
+        let prepGreenOutline = (0..<24).map { index -> String in
+            let angle = Double(index) / 24 * 2 * Double.pi
+            return String(format: "[%.1f,%.1f]", 120 + 22 * cos(angle), 52 + 18 * sin(angle))
+        }.joined(separator: ",")
+        let factualPrepJSON = prepCardJSON
+            .replacingOccurrences(of: "\"geometryCoverage\":\"ready\"", with: "\"geometryCoverage\":\"partial\"")
+            .replacingOccurrences(
+                of: "\"map\":{\"image\":\"\(b64)\",",
+                with: "\"greenOutline\":{\"available\":true,\"source\":\"fixture\",\"pointsPx\":[\(prepGreenOutline)]},\"map\":{"
+            )
+        XCTAssertNotEqual(factualPrepJSON, prepCardJSON, "fixture: the factual row has no raster")
+        let factualPrepHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(factualPrepJSON.utf8))
+        XCTAssertEqual(factualPrepHole.geometryCoverage, "partial")
+        XCTAssertNil(factualPrepHole.map?.image)
+        // The installed topo is a local file, as the download writes it.
+        let prepTopoURL = FileManager.default.temporaryDirectory.appendingPathComponent("prep-snapshot-topo.png")
+        try XCTUnwrap(holeImage.pngData()).write(to: prepTopoURL, options: [.atomic])
+        let prepPars = [5, 4, 3, 4, 4, 5, 3, 4, 4, 4, 4, 3, 5, 4, 4, 3, 5, 4]
+        let prepYards = [543, 410, 178, 395, 402, 528, 165, 388, 420, 415, 398, 172, 535, 405, 390, 188, 520, 430]
+        let prepRows: [PrepHoleRow] = (1...18).map { number -> PrepHoleRow in
+            let state: LiveMapDisplayState = number <= 4 ? .precise : (number <= 12 ? .factualPending : .waiting)
+            let prep: CoursePrepHole? = state == .waiting
+                ? nil
+                : (state == .precise ? prepCardHole : factualPrepHole).renumbered(to: number)
+            return PrepHoleRow(
+                number: number,
+                displayNumber: number,
+                par: prepPars[number - 1],
+                yards: prepYards[number - 1],
+                prep: prep,
+                topoURL: state == .precise ? prepTopoURL : nil,
+                state: state
+            )
+        }
+        func prepSession(hole: Int, viewport: HoleMapViewportState = HoleMapViewportState()) -> PrepHoleMapSession {
+            var session = PrepHoleMapSession()
+            session.select(hole: hole)
+            session.viewport = viewport
+            return session
+        }
+        let prepStates: [(String, PrepHoleMapSession)] = [
+            ("prep-hole", prepSession(hole: 1)),
+            ("prep-hole-factual", prepSession(hole: 5)),
+            ("prep-hole-waiting", prepSession(hole: 14)),
+            // The same precise hole with the zoom and pan the player set on its factual route: the
+            // replacement keeps them (the reset control shows the view is not the fitted one).
+            ("prep-hole-zoomed", prepSession(
+                hole: 1,
+                viewport: HoleMapViewportState(zoomScale: 2, offset: CGSize(width: -30, height: 40))
+            )),
+        ]
+        var prepPNGs: [Data] = []
+        for (name, session) in prepStates {
+            prepPNGs.append(try captureScreen(
+                NavigationStack {
+                    CoursePrepStrategyScreen(
+                        rows: prepRows,
+                        session: .constant(session),
+                        teeOptions: ["blue", "white"],
+                        selectedTee: "blue",
+                        onSelectTee: { _ in }
+                    )
+                },
+                named: name,
+                dark: true,
+                settle: 2.0
+            ))
+        }
+        XCTAssertEqual(Set(prepPNGs).count, prepStates.count, "prep snapshot states rendered identically")
 
         // 单场复盘: a representative 18-hole Garmin-style scorecard before the compact metrics,
         // rendered from a round-detail fixture (mirrors /api/v2/history/rounds/{ref}).

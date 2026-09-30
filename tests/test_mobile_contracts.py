@@ -2423,8 +2423,9 @@ class MobileContractTests(unittest.TestCase):
             sync_client,
         )
         self.assertIn("HoleImageMapView(", course_review)
-        self.assertIn("hole: hole,", course_review)
-        self.assertIn("topoURL: topoURL,", course_review)
+        self.assertIn("hole: prep,", course_review)
+        # B4c: only an installed, current topo is the precise map; otherwise the factual route.
+        self.assertIn("topoURL: row.state == .precise ? row.topoURL : nil,", course_review)
         self.assertIn("showsPrepFactOverlays: true", course_review)
         self.assertIn("showsClubLabel: false", course_review)
         # B4b-2 v2 holes always carry their physical identity; nothing falls back to the course id.
@@ -2522,9 +2523,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('return "\\(club) \\(yards)"', live_chrome)
         self.assertIn("lineWidth: 3, lineCap: .round", live_chrome)
         self.assertIn("obstacles.append(flagRect(foot: pinLeg.destination, scale: flagScale))", live_chrome)
-        self.assertIn("LiveMapPreparingSurface(holeNumber: hole.courseHoleNumber)", current_hole)
+        # README 地图降级契约: live play and 备战 share the one full-screen waiting page (hole · Par · yards).
+        self.assertIn(
+            "LiveMapPreparingSurface(holeNumber: hole.courseHoleNumber, par: hole.par, yards: hole.yards)",
+            current_hole,
+        )
         self.assertIn("preciseMapTimedOut", current_hole)
         self.assertIn('accessibilityIdentifier("live-map-preparing-surface")', live_hole_components)
+        self.assertIn("struct HoleMapWaitingPage: View", live_hole_components)
+        self.assertIn("HoleMapWaitingPage(holeNumber: holeNumber, par: par, yards: yards)", live_hole_components)
+        self.assertIn("HoleMapWaitingPage(", course_review)
+        self.assertNotIn("下载", live_hole_components[live_hole_components.index("struct HoleMapWaitingPage"):live_hole_components.index("/// Apple-Maps-style dark-glass bottom panel")])
 
     def test_topo_style_version_invalidates_phone_watch_caches_and_transfers(self) -> None:
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
@@ -2861,7 +2870,8 @@ class MobileContractTests(unittest.TestCase):
         prep_picker = _read_required_source(self, IOS_DIR / "Views" / "PrepCoursePickerView.swift")
         course_search = _read_required_source(self, IOS_DIR / "Views" / "MobileCourseSearchView.swift")
 
-        # 备战支持明确的城市/名称搜索和附近球场；选择只加入下载库，完整后才进攻略。
+        # 备战支持明确的城市/名称搜索和附近球场；README §8 选了就进：选择加入下载库（后台继续下载），
+        # 同时立即进入攻略，未就绪的洞按地图降级契约显示。
         self.assertIn('title: "备战"', round_home)
         self.assertIn('subtitle: "搜索 · 球童试算"', round_home)
         self.assertIn("PrepCoursePickerView(", round_home)
@@ -2906,9 +2916,24 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("!prepCourseDownloads[index].isTerminalFailure", _read_required_source(self, IOS_DIR / "AICaddieApp.swift"))
         self.assertIn("courseIsInstalled(for: match)", course_search)
         self.assertIn("retainedDownloadKey?(match)", course_search)
-        self.assertIn("onDownload(course)", prep_picker)
-        self.assertIn("let wasReady = installedCourseKeys.contains(downloadID(for: course))", prep_picker)
-        self.assertIn("if wasReady", prep_picker)
+        self.assertIn("onDownload(course)\n        open(course)", prep_picker)
+        # B4c: no "地图尚未准备完成" gate before navigation; readiness revalidation runs after opening.
+        self.assertNotIn("wasReady", prep_picker)
+        self.assertNotIn("地图尚未准备完成", prep_picker)
+        self.assertNotIn("validationMessage", prep_picker)
+        self.assertNotIn(".alert(", prep_picker)
+        self.assertIn("selectedCourse = course\n        revalidateIfInstalled(course)", prep_picker)
+        self.assertIn("_ = await onValidateReadyDownload(record)", prep_picker)
+        self.assertIn("guard record.phase == .ready else { return false }", app_source)
+        self.assertNotIn("地图尚未准备完成", app_source)
+        self.assertNotIn("地图仍在准备中", app_source)
+        # A still-downloading retained row opens the prep map too; only a terminal failure is disabled.
+        self.assertIn(".disabled(isTerminalFailure)", course_search)
+        self.assertNotIn("正在下载，完成后可打开", course_search)
+        # 右上换发球台: the other Tee is its own durable library row.
+        self.assertIn("onChangeTee: changeTee", prep_picker)
+        self.assertIn("let next = course.replacingTeeBox(trimmed)\n        onDownload(next)", prep_picker)
+        self.assertIn("onLoadCourseTees: onLoadCourseTees", prep_picker)
         self.assertIn("onNearby: nearbyCourses", prep_picker)
         self.assertIn("requestAuthorization()", prep_picker)
         self.assertIn("startUpdatingLocation()", prep_picker)
@@ -2933,6 +2958,9 @@ class MobileContractTests(unittest.TestCase):
 
     def test_ios_course_review_product_copy_and_route_yardage_contract(self) -> None:
         course_review = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
+        prep_presentation = _read_required_source(self, IOS_DIR / "Models" / "CoursePrepPresentation.swift")
+        live_components = _read_required_source(self, IOS_DIR / "Views" / "LiveHoleComponents.swift")
+        hole_map_view_source = _read_required_source(self, IOS_DIR / "Views" / "HoleImageMapView.swift")
         course_prep = _read_required_source(self, IOS_DIR / "Models" / "CoursePrep.swift")
         caddie_plan = _read_required_source(self, IOS_DIR / "Views" / "CaddiePlanView.swift")
 
@@ -2942,34 +2970,53 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("yards(fromMetres:", course_prep)
 
         self.assertIn('.navigationTitle("赛前球场攻略")', course_review)
-        # ``blueYards`` is labelled Blue only; a selected-Tee prep shows its own ``teeYards``.
-        self.assertIn('return "蓝T \\(hole.blueYards)y"', course_review)
-        self.assertIn('return "所选T \\(teeYards)y"', course_review)
+        # The header yards are the facts' own Tee (``teeYards`` when resolved, else ``blueYards``);
+        # no Tee colour label is attached to a number it may not describe.
         self.assertIn("decodeIfPresent(Int.self, forKey: .teeYards)", course_prep)
-        # Prep is now an installed-package surface. Search selection stays in the durable download
-        # library, and this destination has no page-owned fetch/coverage/partial-map lifecycle.
+        self.assertIn("yards: prep?.playingYards ?? hole.yards", prep_presentation)
+        self.assertNotIn('"蓝T \\(', course_review)
+        # Prep has no page-scoped network loader: the app-owned download writes the local template
+        # hole by hole and this destination only reads it (README §8 选了就进).
         self.assertNotIn("stride(from: 1, through: holeCount, by: 3)", course_review)
         self.assertNotIn("fetchCoursePrep(", course_review)
         self.assertNotIn("fetchCoursePackage(", course_review)
         self.assertNotIn("fetchCourseGeometryCoverage", course_review)
-        self.assertIn("offlineStore.loadCourseTemplate(", course_review)
+        self.assertIn("offlineStore?.loadCourseTemplate(globalId: globalId, teeBox: teeBox)", course_review)
         # B4b-2: one canonical whole-course template per course + Tee; no `nine` selector.
         self.assertNotIn("nine: nine", course_review)
-        self.assertIn("template.hasCompleteOfflineCoursePrep", course_review)
-        self.assertIn("offlineStore.hasCourseTopoImages(for: template)", course_review)
-        self.assertIn("holes = merged.values.sorted { $0.hole < $1.hole }", course_review)
-        self.assertIn("if let hole = selectedHole", course_review)
-        self.assertIn("private var holeNavigator: some View", course_review)
-        self.assertIn('accessibilityIdentifier("prep-hole-menu")', course_review)
+        # B4c 地图降级契约: no all-or-nothing package gate and no download/status copy on the screen.
+        self.assertNotIn("hasCompleteOfflineCoursePrep", course_review)
+        self.assertNotIn("hasCourseTopoImages", course_review)
+        self.assertNotIn("prep-download-incomplete", course_review)
+        self.assertNotIn("prep-local-package-missing", course_review)
+        self.assertNotIn("球场包正在准备", course_review)
+        self.assertNotIn("完整地图准备中", course_review)
+        self.assertNotIn("地图尚未准备完成", course_review)
+        self.assertNotIn("private var holeNavigator", course_review)
+        self.assertIn("PrepHoleRows.build(", course_review)
+        self.assertIn("LiveMapDisplayState.resolvePrep(", prep_presentation)
+        self.assertIn("static func resolvePrep(", live_components)
+        self.assertIn("var fadesInHoleStrip: Bool { self != .precise }", live_components)
+        self.assertIn(".opacity(row.state.fadesInHoleStrip && !isCurrent ? 0.35 : 1)", course_review)
+        self.assertIn('accessibilityIdentifier("prep-hole-strip-\\(row.number)")', course_review)
+        self.assertIn('accessibilityIdentifier("prep-map-waiting-\\(row?.number ?? 1)")', course_review)
+        self.assertIn('accessibilityIdentifier("prep-hole-header-\\(row.number)")', course_review)
+        self.assertIn('accessibilityIdentifier("prep-hole-map-\\(row.number)")', course_review)
         self.assertIn("showsPrepFactOverlays: true", course_review)
-        self.assertIn("if let download, download.phase != .ready", course_review)
-        self.assertIn('accessibilityIdentifier("prep-download-incomplete")', course_review)
-        self.assertIn('accessibilityIdentifier("prep-local-package-missing")', course_review)
-        self.assertIn("CourseReviewMapPolicy.hasPreciseFacts", course_review)
-        self.assertNotIn("requiresPreciseMap", course_review)
+        # A precise map replacing the factual one keeps the caller-owned viewport (zoom/pan/rotation).
+        self.assertIn("viewportState: $session.viewport", course_review)
+        self.assertIn("struct PrepHoleMapSession: Equatable", prep_presentation)
+        self.assertIn("state: Binding<HoleMapViewportState>? = nil", hole_map_view_source)
+        self.assertIn("public struct HoleMapViewportState: Equatable", hole_map_view_source)
+        # B4b-2 identity: the player sees the course's own hole number.
+        self.assertIn("displayNumber: hole.courseHoleNumber", prep_presentation)
+        # 右上换发球台 with the shared Tee colour table.
+        self.assertIn("TeeColor.forTee(tee)", course_review)
+        self.assertIn("ToolbarItem(placement: .topBarTrailing)", course_review)
+        self.assertTrue((IOS_DIR.parent / "AICaddieTests" / "PrepMapDegradationTests.swift").exists())
+        self.assertTrue((IOS_DIR.parent / "AICaddieUITests" / "PrepDegradationUITests.swift").exists())
         self.assertNotIn("简化地图 · 精确地图准备中", course_review)
         self.assertNotIn("简化地图 · 精确地图暂不可用 · 重试", course_review)
-        self.assertIn("完整地图准备中，当前不会显示简化轮廓", course_review)
         # De-engineered: the "Par 来源：…" provenance label is hidden from the consumer course review.
         self.assertNotIn("Par 来源", course_review)
         # Course review uses the shared measured projection on the map. Hazard ranging itself is a

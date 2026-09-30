@@ -131,6 +131,12 @@ public struct HoleImageMapView: View {
     /// `teeDistanceArcPixels()`, so all labels share one collision layout. The bitmap then skips
     /// both so nothing is doubled.
     public let drawsPlannedRouteInMap: Bool
+    /// Prep's in-map hole badge (hole · Par · Tee yards). The full-screen 备战 draws the same facts
+    /// in its own header chrome and turns this off.
+    public let showsPrepHoleInfo: Bool
+    /// Caller-owned rotation / zoom / pan for `allowsRotation` (地图降级契约: a map replacement of the
+    /// same hole keeps it). Nil keeps the viewport local to this map.
+    public let viewportState: Binding<HoleMapViewportState>?
 
     public init(hole: CoursePrepHole, selectedClub: String? = nil, selectedClubMetres: Double? = nil,
                 pinOverlayPixel: CGPoint? = nil,
@@ -141,7 +147,9 @@ public struct HoleImageMapView: View {
                 showsPrepClubLabel: Bool = true, showsClubLabel: Bool = true,
                 teeDistanceArcYards: Int? = nil,
                 plannedShots: [MapPlannedShot] = [], selectedPlanIndex: Int? = nil,
-                drawsPlannedRouteInMap: Bool = true) {
+                drawsPlannedRouteInMap: Bool = true,
+                showsPrepHoleInfo: Bool = true,
+                viewportState: Binding<HoleMapViewportState>? = nil) {
         self.hole = hole
         self.selectedClub = selectedClub
         self.selectedClubMetres = selectedClubMetres
@@ -159,6 +167,8 @@ public struct HoleImageMapView: View {
         self.plannedShots = plannedShots
         self.selectedPlanIndex = selectedPlanIndex
         self.drawsPlannedRouteInMap = drawsPlannedRouteInMap
+        self.showsPrepHoleInfo = showsPrepHoleInfo
+        self.viewportState = viewportState
     }
 
     public var body: some View {
@@ -179,7 +189,8 @@ public struct HoleImageMapView: View {
             .aspectRatio(CGFloat(overlay.w) / CGFloat(overlay.h), contentMode: .fit)
             if allowsRotation {
                 RotatableMapViewport(
-                    aspectRatio: CGFloat(overlay.w) / CGFloat(overlay.h)
+                    aspectRatio: CGFloat(overlay.w) / CGFloat(overlay.h),
+                    state: viewportState
                 ) {
                     if showsCardChrome {
                         map.mapSurface()
@@ -604,16 +615,18 @@ public struct HoleImageMapView: View {
     private func prepFactOverlays(overlay: CoursePrepOverlay) -> some View {
         GeometryReader { proxy in
             ZStack {
-                PrepMapHoleInfoOverlay(
-                    hole: hole.hole,
-                    par: hole.par,
-                    teeLabel: hole.teeYards == nil ? "蓝T" : "所选T",
-                    yards: hole.playingYards,
-                    playsLikeDeltaYards: hole.playsLike?.available == true ? hole.playsLike?.deltaYd : nil
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(10)
-                .accessibilityIdentifier("prep-hole-header-\(hole.hole)")
+                if showsPrepHoleInfo {
+                    PrepMapHoleInfoOverlay(
+                        hole: hole.hole,
+                        par: hole.par,
+                        teeLabel: hole.teeYards == nil ? "蓝T" : "所选T",
+                        yards: hole.playingYards,
+                        playsLikeDeltaYards: hole.playsLike?.available == true ? hole.playsLike?.deltaYd : nil
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(10)
+                    .accessibilityIdentifier("prep-hole-header-\(hole.hole)")
+                }
 
                 if let anchor = prepGreenAnchor(in: proxy.size, overlay: overlay),
                    let distances = prepGreenYards {
@@ -1008,24 +1021,68 @@ public struct HoleImageMapView: View {
     }
 }
 
+/// 地图降级契约 (README §8): the viewport the player set on a prep map — rotation, zoom and pan.
+/// A caller that owns it (备战 keeps one per displayed hole) keeps it across a map replacement of the
+/// same hole: the factual route giving way to the precise topo, or a refreshed facts row, never resets
+/// it. Pan is in viewport points and is re-clamped against the new map frame when drawn.
+public struct HoleMapViewportState: Equatable {
+    public var rotationDegrees: Double
+    public var zoomScale: CGFloat
+    public var offset: CGSize
+
+    public init(rotationDegrees: Double = 0, zoomScale: CGFloat = 1, offset: CGSize = .zero) {
+        self.rotationDegrees = rotationDegrees
+        self.zoomScale = zoomScale
+        self.offset = offset
+    }
+
+    /// The fitted, unrotated view (no reset control).
+    public var isFitted: Bool {
+        let unrotated: Bool = abs(rotationDegrees) <= 0.5
+        let unzoomed: Bool = zoomScale <= 1.05
+        let centred: Bool = abs(offset.width) <= 0.5 && abs(offset.height) <= 0.5
+        return unrotated && unzoomed && centred
+    }
+}
+
 /// A local preparation viewport for aligning the factual green/topo image with a paper pin sheet.
 /// Rotation is deliberately a view transform: the geometry, distances and overlay remain in the
 /// same coordinate frame, while the transform is never persisted as course truth.
 struct RotatableMapViewport<Content: View>: View {
     let aspectRatio: CGFloat
     let content: Content
+    /// Caller-owned viewport (see `HoleMapViewportState`); nil keeps it local to this view.
+    private let externalState: Binding<HoleMapViewportState>?
 
-    @State private var committedRotation = Angle.zero
-    @State private var zoomScale: CGFloat = 1
-    @State private var offset: CGSize = .zero
+    @State private var localState = HoleMapViewportState()
     @GestureState private var gestureRotation = Angle.zero
     @GestureState private var pinchScale: CGFloat = 1
     @GestureState private var dragOffset: CGSize = .zero
 
-    init(aspectRatio: CGFloat, @ViewBuilder content: () -> Content) {
+    init(
+        aspectRatio: CGFloat,
+        state: Binding<HoleMapViewportState>? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
         self.aspectRatio = aspectRatio
+        self.externalState = state
         self.content = content()
     }
+
+    private var viewport: HoleMapViewportState {
+        get { externalState?.wrappedValue ?? localState }
+        nonmutating set {
+            if let externalState {
+                externalState.wrappedValue = newValue
+            } else {
+                localState = newValue
+            }
+        }
+    }
+
+    private var committedRotation: Angle { .degrees(viewport.rotationDegrees) }
+    private var zoomScale: CGFloat { viewport.zoomScale }
+    private var offset: CGSize { viewport.offset }
 
     var body: some View {
         GeometryReader { proxy in
@@ -1056,12 +1113,10 @@ struct RotatableMapViewport<Content: View>: View {
                         angle: rotation
                     ))
 
-                if abs(rotation.degrees) > 0.5 || zoomScale > 1.05 || abs(offset.width) > 0.5 || abs(offset.height) > 0.5 {
+                if !viewport.isFitted {
                     Button {
                         withAnimation(.easeOut(duration: 0.18)) {
-                            committedRotation = .zero
-                            zoomScale = 1
-                            offset = .zero
+                            viewport = HoleMapViewportState()
                         }
                     } label: {
                         Image(systemName: "arrow.counterclockwise")
@@ -1087,14 +1142,16 @@ struct RotatableMapViewport<Content: View>: View {
                         state = value
                     }
                     .onEnded { value in
-                        zoomScale = min(max(zoomScale * value, 1), 4)
-                        offset = Self.clampedOffset(
-                            offset,
+                        var next = viewport
+                        next.zoomScale = min(max(next.zoomScale * value, 1), 4)
+                        next.offset = Self.clampedOffset(
+                            next.offset,
                             width: width,
                             height: height,
-                            scale: fitScale * zoomScale,
+                            scale: fitScale * next.zoomScale,
                             angle: rotation
                         )
+                        viewport = next
                     }
             )
             .simultaneousGesture(
@@ -1104,15 +1161,17 @@ struct RotatableMapViewport<Content: View>: View {
                     }
                     .onEnded { value in
                         let finalRotation = committedRotation + value
-                        committedRotation = finalRotation
                         let finalFitScale = Self.fitScale(width: width, height: height, angle: finalRotation)
-                        offset = Self.clampedOffset(
-                            offset,
+                        var next = viewport
+                        next.rotationDegrees = finalRotation.degrees
+                        next.offset = Self.clampedOffset(
+                            next.offset,
                             width: width,
                             height: height,
-                            scale: finalFitScale * zoomScale,
+                            scale: finalFitScale * next.zoomScale,
                             angle: finalRotation
                         )
+                        viewport = next
                     }
             )
             .simultaneousGesture(
@@ -1126,13 +1185,15 @@ struct RotatableMapViewport<Content: View>: View {
                             width: offset.width + value.translation.width,
                             height: offset.height + value.translation.height
                         )
-                        offset = Self.clampedOffset(
+                        var next = viewport
+                        next.offset = Self.clampedOffset(
                             proposed,
                             width: width,
                             height: height,
                             scale: fitScale * zoomScale,
                             angle: rotation
                         )
+                        viewport = next
                     },
                 // Disable only this added drag while the map is at its fitted scale. The pinch and
                 // rotation gestures above remain enabled from the initial state.

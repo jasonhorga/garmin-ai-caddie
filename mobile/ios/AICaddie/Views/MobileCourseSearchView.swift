@@ -324,7 +324,9 @@ public struct MobileCourseSearchView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(download.isActive || isValidating || isTerminalFailure)
+            // 选了就进 (README §8): a row that is still downloading opens the prep map too; holes
+            // that are not ready follow the map degradation contract there.
+            .disabled(isTerminalFailure)
             // Keep the stable row id on the actual opening button. Applying it to the wrapping
             // HStack makes SwiftUI expose a synthetic button that can inherit the id but not the
             // opening action when a retry control is present beside it.
@@ -333,9 +335,7 @@ public struct MobileCourseSearchView: View {
             .accessibilityValue(status)
             .accessibilityHint(isTerminalFailure
                 ? "该球场暂不支持备战，请使用开始一场"
-                : (download.isActive
-                ? "正在下载，完成后可打开"
-                : (isValidating ? "正在确认本地地图是否为最新版本" : "打开赛前攻略")))
+                : "打开赛前攻略")
 
             if !isTerminalFailure && (download.phase == .failed || (download.phase == .ready && !verifiedReady)) {
                 Button {

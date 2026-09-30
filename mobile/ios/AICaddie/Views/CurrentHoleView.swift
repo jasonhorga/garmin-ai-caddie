@@ -1425,8 +1425,9 @@ public struct CurrentHoleView: View {
                     )
         } else {
             // A loading surface is warranted only when there is no route projection to draw yet.
-            // `isPreciseHoleMapPending` must never hide an already usable lightweight map.
-            LiveMapPreparingSurface(holeNumber: hole.courseHoleNumber)
+            // `isPreciseHoleMapPending` must never hide an already usable lightweight map. It is the
+            // same full-screen waiting page as 备战 (地图降级契约): hole · Par · yards.
+            LiveMapPreparingSurface(holeNumber: hole.courseHoleNumber, par: hole.par, yards: hole.yards)
         }
     }
 

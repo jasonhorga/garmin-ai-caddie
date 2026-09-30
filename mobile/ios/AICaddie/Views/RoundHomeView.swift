@@ -631,7 +631,8 @@ public struct RoundHomeView: View {
                         offlineStore: offlineStore,
                         onDownload: onDownloadPrepCourse,
                         onRetryDownload: onRetryPrepCourseDownload,
-                        onValidateReadyDownload: onValidateReadyPrepCourse
+                        onValidateReadyDownload: onValidateReadyPrepCourse,
+                        onLoadCourseTees: onLoadCourseTees
                     )
                 } label: {
                     HubTile(icon: "scope", title: "备战", subtitle: "搜索 · 球童试算")
