@@ -737,12 +737,21 @@ public final class WatchCourseLibrary: ObservableObject {
 
     /// Background-only: never reads, writes or restores the active round's user-facing
     /// `diagnosticErrorMessage` (its downloads run with `reportsDiagnostics: false`).
+    ///
+    /// Priority guarantee: immediately before every request this install issues — each package,
+    /// each prep batch (including the concurrent ones) and each topo raster — it waits until no
+    /// active upgrade's first pass (priority hole first) is running. An active pass that begins
+    /// while this install is mid-pipeline therefore gets every one of its first-pass requests out
+    /// before the install's next request. A request already in flight is not interrupted, and a
+    /// transport-level retry of that same request is not re-gated.
     private func installWholeCourseTemplate(
         _ whole: WatchCourseSelection,
         config: WatchRoundConfig
     ) async {
         let templateRoundId = "watch-template-\(whole.front.globalId)-\(makeRoundId())"
-        await waitForActiveFirstPasses()
+        let yieldToActiveRound: () async -> Void = { [weak self] in
+            await self?.waitForActiveFirstPasses()
+        }
         if wholeTemplateInstallState(whole) == .missing {
             do {
                 // Durable first: the package facts alone are enough to project a turn offline.
@@ -752,7 +761,8 @@ public final class WatchCourseLibrary: ObservableObject {
                     config: config,
                     backgroundGeometry: true,
                     includePreparedGeometry: false,
-                    reportsDiagnostics: false
+                    reportsDiagnostics: false,
+                    beforeEachRequest: yieldToActiveRound
                 )
                 try persistTemplate(lightweight)
             } catch {
@@ -762,14 +772,14 @@ public final class WatchCourseLibrary: ObservableObject {
         // The prep / topo assets the builder needs for precise offline maps. A failure keeps the
         // durable package template; the install state stays `packageInstalled`, so a later enqueue
         // or relaunch retries exactly this step.
-        await waitForActiveFirstPasses()
         if let precise = try? await fetchCourseDownload(
             whole,
             roundId: templateRoundId,
             config: config,
             backgroundGeometry: false,
             includePreparedGeometry: true,
-            reportsDiagnostics: false
+            reportsDiagnostics: false,
+            beforeEachRequest: yieldToActiveRound
         ) {
             try? persistTemplate(precise)
         }
@@ -976,9 +986,11 @@ public final class WatchCourseLibrary: ObservableObject {
         includePreparedGeometry: Bool,
         priorityHole: Int? = nil,
         reportsDiagnostics: Bool = true,
+        beforeEachRequest: (() async -> Void)? = nil,
         onProgress: ((WatchCourseDownload) -> Void)? = nil
     ) async throws -> WatchCourseDownload {
         let client = makeClient(config)
+        await beforeEachRequest?()
         let package = try await client.fetchCoursePackage(
             globalId: selection.front.globalId,
             roundId: roundId,
@@ -1106,6 +1118,7 @@ public final class WatchCourseLibrary: ObservableObject {
         // bounded retry loop rather than silently declaring an incomplete course ready.
         let prepTeeBox = selection.teeBox
         if let firstBatch = prepBatches.first {
+            await beforeEachRequest?()
             let response = try await client.fetchCoursePrep(
                 globalId: firstBatch.globalId,
                 localHoles: firstBatch.localHoles,
@@ -1123,6 +1136,7 @@ public final class WatchCourseLibrary: ObservableObject {
             ) { taskGroup in
                 for batch in group {
                     taskGroup.addTask {
+                        await beforeEachRequest?()
                         let response = try await client.fetchCoursePrep(
                             globalId: batch.globalId,
                             localHoles: batch.localHoles,
@@ -1185,6 +1199,7 @@ public final class WatchCourseLibrary: ObservableObject {
         }
 
         func fetchTopo(_ request: TopoRequest) async -> (TopoRequest, Data?) {
+            await beforeEachRequest?()
             do {
                 let data = try await client.fetchCourseTopo(
                     globalId: request.globalId,

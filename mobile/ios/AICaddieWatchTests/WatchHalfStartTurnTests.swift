@@ -526,8 +526,13 @@ final class WatchHalfStartTurnTests: XCTestCase {
             self.offline = offline
         }
 
+        /// Hold only the Nth template request (1-based) instead of every one.
+        var gateTemplateRequestNumber: Int?
+        private(set) var templateRequestsSeen = 0
+
         func passGate() async {
-            guard gateTemplates else { return }
+            templateRequestsSeen += 1
+            guard gateTemplates || templateRequestsSeen == gateTemplateRequestNumber else { return }
             await withCheckedContinuation { continuation in
                 waiting = continuation
             }
@@ -535,6 +540,7 @@ final class WatchHalfStartTurnTests: XCTestCase {
 
         func openGate() {
             gateTemplates = false
+            gateTemplateRequestNumber = nil
             waiting?.resume()
             waiting = nil
         }
@@ -915,6 +921,68 @@ final class WatchHalfStartTurnTests: XCTestCase {
         server.openPrepGate()
         _ = await upgrade.value
         await library.waitForWholeCourseTemplateInstalls()
+        XCTAssertNotNil(
+            WatchCourseStore(directoryURL: directory).course(loopKey: "55555:front+55555:back", teeBox: "blue")
+        )
+    }
+
+    /// The per-request gate: a template install whose precise package has already returned must
+    /// not send its first prep while a newly started active pass's priority prep is pending.
+    func testTemplatePipelineYieldsBeforeEveryRequestWhenAnActivePassBeginsMidPipeline() async throws {
+        let directory = makeDirectory("watch-template-per-request")
+        let log = RequestLog()
+        let server = OracleServer()
+        // Template request #1 is the lightweight package; hold #2, the precise package.
+        server.gateTemplateRequestNumber = 2
+        let library = try makeOracleLibrary(directory: directory, log: log, server: server)
+        let back = WatchCourseSelection(front: Self.oracleCourse, teeBox: "blue", firstHalf: "back")
+
+        library.enqueueWholeCourseTemplate(for: back, config: Self.config)
+        for _ in 0..<10_000 where server.waiting == nil {
+            await Task.yield()
+        }
+        XCTAssertNotNil(server.waiting, "the template passed its package phase and holds its precise package")
+        XCTAssertEqual(log.templateRequests.count, 2)
+        XCTAssertFalse(log.requests.contains { $0.url?.path.hasSuffix("/prep") == true })
+
+        // A new active round begins its first pass; hold its priority prep.
+        server.gatePrep = true
+        let prepared = try XCTUnwrap(library.startCourseImmediately(back))
+        let upgrade = Task { @MainActor in
+            await library.upgradeCachedCourseWhenReady(
+                globalId: 55555,
+                roundId: prepared.roundId,
+                config: Self.config,
+                loopKey: "55555:back",
+                teeBox: "blue",
+                priorityHole: 1
+            )
+        }
+        for _ in 0..<10_000 where server.prepWaiting == nil {
+            await Task.yield()
+        }
+        XCTAssertNotNil(server.prepWaiting, "the active priority prep is issued")
+
+        // Now the template's precise package returns: it is mid-pipeline, right before its first
+        // prep, and must wait for the active first pass.
+        server.openGate()
+        for _ in 0..<1_000 {
+            await Task.yield()
+        }
+        let preps = log.requests.filter { $0.url?.path.hasSuffix("/prep") == true }
+        XCTAssertEqual(preps.count, 1, "only the active priority prep has gone out")
+        XCTAssertTrue(preps.first.map { Self.prepHoles($0).contains(10) } ?? false)
+        XCTAssertFalse(log.requests.contains { $0.url?.path.hasSuffix("/topo.png") == true })
+
+        // The active prep completes and its first pass ends; the template install then completes.
+        server.openPrepGate()
+        _ = await upgrade.value
+        await library.waitForWholeCourseTemplateInstalls()
+        let allPreps = log.requests.filter { $0.url?.path.hasSuffix("/prep") == true }
+        let firstTemplatePrep = try XCTUnwrap(allPreps.firstIndex { request in
+            Self.prepHoles(request).contains(where: { hole in hole < 10 })
+        }, "the template's own (前九) prep runs after the active first pass")
+        XCTAssertGreaterThan(firstTemplatePrep, 0)
         XCTAssertNotNil(
             WatchCourseStore(directoryURL: directory).course(loopKey: "55555:front+55555:back", teeBox: "blue")
         )
