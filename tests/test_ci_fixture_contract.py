@@ -470,6 +470,82 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(len(prep(31795, nine="front")["holes"]), 9)
         self.assertEqual(len(prep(31795, nine="all")["holes"]), 18)
 
+    def test_fixture_prep_geo_projection_is_the_pixel_frame(self) -> None:
+        """The GPS projection, route, hazards, raster green, outline and F/M/B are one frame.
+
+        Solves the affine exactly as the clients do (WatchGeoMath.projectToTopoPx: three refs,
+        latitude/longitude to pixels) and forward-projects the tee, interior stations, the route's
+        end and the green's front / middle / back.
+        """
+        try:
+            from server_v2.ci_fixture import (
+                COURSE_COORDINATES, PREP_GREEN_RADIUS_PX, _ROUTE_EAST_M, _ROUTE_LENGTH_M,
+                _ROUTE_NORTH_M, _offset_coordinate, prep,
+            )
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+
+        def solve(refs: list[dict]) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+            # px = a*lat + b*lon + c (and likewise py), exactly through the three refs.
+            (la1, lo1), (la2, lo2), (la3, lo3) = ((r["lat"], r["lon"]) for r in refs)
+            det = la1 * (lo2 - lo3) - lo1 * (la2 - la3) + (la2 * lo3 - la3 * lo2)
+            self.assertNotAlmostEqual(det, 0.0, places=18)
+
+            def plane(values: tuple[float, float, float]) -> tuple[float, float, float]:
+                v1, v2, v3 = values
+                a = (v1 * (lo2 - lo3) - lo1 * (v2 - v3) + (v2 * lo3 - v3 * lo2)) / det
+                b = (la1 * (v2 - v3) - v1 * (la2 - la3) + (la2 * v3 - la3 * v2)) / det
+                c = (la1 * (lo2 * v3 - lo3 * v2) - lo1 * (la2 * v3 - la3 * v2) + v1 * (la2 * lo3 - la3 * lo2)) / det
+                return a, b, c
+
+            return plane(tuple(r["px"] for r in refs)), plane(tuple(r["py"] for r in refs))
+
+        def project(solution, lat: float, lon: float) -> tuple[float, float]:
+            (ax, bx, cx), (ay, by, cy) = solution
+            return ax * lat + bx * lon + cx, ay * lat + by * lon + cy
+
+        for global_id in (31793, 31795, 3881, 31797):
+            hole = prep(global_id, holes=[1])["holes"][0]
+            tee = COURSE_COORDINATES[global_id]
+            overlay = hole["map"]["overlay"]
+            ppm = overlay["ppm"]
+            (tee_x, tee_y, _), (end_x, end_y, end_m) = overlay["route"]
+            solution = solve(hole["holeImageProjection"]["refs"])
+
+            def along_route(station_m: float) -> tuple[float, float]:
+                t = station_m / end_m
+                return tee_x + t * (end_x - tee_x), tee_y + t * (end_y - tee_y)
+
+            direction_east = _ROUTE_EAST_M / _ROUTE_LENGTH_M
+            direction_north = _ROUTE_NORTH_M / _ROUTE_LENGTH_M
+            for station_m in (0.0, 105.0, 187.5, 245.0, end_m):
+                point = _offset_coordinate(tee, north_m=station_m * direction_north, east_m=station_m * direction_east)
+                projected = project(solution, *point)
+                expected = along_route(station_m)
+                self.assertAlmostEqual(projected[0], expected[0], delta=0.05, msg=f"{global_id} station {station_m}")
+                self.assertAlmostEqual(projected[1], expected[1], delta=0.05, msg=f"{global_id} station {station_m}")
+            # The green's front / middle / back project onto the raster green and its outline.
+            green = hole["greenDistances"]
+            self.assertAlmostEqual(green["middleM"], end_m, delta=0.5)
+            for key in ("front", "middle", "back"):
+                point = project(solution, green[f"{key}Lat"], green[f"{key}Lon"])
+                self.assertLessEqual(math.hypot(point[0] - end_x, point[1] - end_y), PREP_GREEN_RADIUS_PX - 0.5, key)
+            outline = hole["greenOutline"]["pointsPx"]
+            middle = project(solution, green["middleLat"], green["middleLon"])
+            self.assertLessEqual(
+                max(math.hypot(p[0] - middle[0], p[1] - middle[1]) for p in outline),
+                PREP_GREEN_RADIUS_PX,
+            )
+            # One uniform scale: 100 m east and 100 m north are each 100 * ppm pixels, at right angles.
+            origin = project(solution, *tee)
+            east = project(solution, *_offset_coordinate(tee, east_m=100.0))
+            north = project(solution, *_offset_coordinate(tee, north_m=100.0))
+            east_v = (east[0] - origin[0], east[1] - origin[1])
+            north_v = (north[0] - origin[0], north[1] - origin[1])
+            self.assertAlmostEqual(math.hypot(*east_v), 100.0 * ppm, delta=0.05)
+            self.assertAlmostEqual(math.hypot(*north_v), 100.0 * ppm, delta=0.05)
+            self.assertAlmostEqual(east_v[0] * north_v[0] + east_v[1] * north_v[1], 0.0, delta=0.05)
+
     def test_fixture_prep_hazards_are_measured_ordered_and_map_bound(self) -> None:
         try:
             from server_v2.ci_fixture import FIXTURE_REVISION, prep

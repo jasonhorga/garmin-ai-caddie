@@ -246,14 +246,18 @@ COURSE_COORDINATES = {
     31871: (39.9000, 116.4000),
 }
 
-# The fixture route is a 375 m tee-to-green line. Keep its WGS84 projection and
+# The fixture route is a 333 m tee-to-green line. Keep its WGS84 projection and
 # green pins tied to the selected course anchor so the DEBUG simulator move,
 # phone rangefinder, and caddie distance all describe the same hole.
 _EARTH_RADIUS_M = 6_371_000.0
-_ROUTE_NORTH_M = 225.0
-_ROUTE_EAST_M = 300.0
+# The route runs from the tee to the green's middle (the pin), 333 m to the north-east
+# (0.8 east, 0.6 north), so the caddie plans against the same distance the green reports.
+_ROUTE_NORTH_M = 199.8
+_ROUTE_EAST_M = 266.4
 _ROUTE_LENGTH_M = math.hypot(_ROUTE_NORTH_M, _ROUTE_EAST_M)
-_GREEN_DISTANCES_M = (325.0, 333.0, 341.0)
+# Front / middle / back of the green along the route: the middle is the route's end (the pin),
+# where the raster green and its outline are centred.
+_GREEN_DISTANCES_M = (_ROUTE_LENGTH_M - 8.0, _ROUTE_LENGTH_M, _ROUTE_LENGTH_M + 8.0)
 
 
 def _offset_coordinate(
@@ -277,25 +281,43 @@ def _offset_coordinate(
 PREP_MARGIN_PX = 12.0
 _PREP_SPAN_PX = 64.0 - 2 * PREP_MARGIN_PX
 PREP_ROUTE_PX = [[PREP_MARGIN_PX, PREP_MARGIN_PX, 0.0], [64.0 - PREP_MARGIN_PX, 64.0 - PREP_MARGIN_PX, _ROUTE_LENGTH_M]]
-# The frame's isotropic scale: the route's Euclidean pixel length over its metres, exactly as
-# production defines ppm (native distance and Touch Target code divide pixel distance by it).
-PREP_PPM = round(math.hypot(_PREP_SPAN_PX, _PREP_SPAN_PX) / _ROUTE_LENGTH_M, 6)
-_PREP_DIRECTION = (1 / math.sqrt(2), 1 / math.sqrt(2))
-# The left-hand normal when walking from the tee towards the green (image y grows downward).
-_PREP_LEFT = (-1 / math.sqrt(2), 1 / math.sqrt(2))
-# The raster's green: a disc on the route's end.
+# One local-metre-to-pixel transform for the whole prep frame, as production's hole frame: a
+# uniform scale (ppm) and a rotation (with the image's downward y), anchored at the tee. The
+# geographic route (east 300 m, north 225 m from the tee) maps onto the pixel route; the GPS
+# projection refs, route, hazards, raster green, outline and F/M/B all come from it.
+PREP_PPM = math.hypot(_PREP_SPAN_PX, _PREP_SPAN_PX) / _ROUTE_LENGTH_M
+# Unit vectors of the route (tee to green) and of its left side, in local metres (east, north).
+_GEO_ALONG = (_ROUTE_EAST_M / _ROUTE_LENGTH_M, _ROUTE_NORTH_M / _ROUTE_LENGTH_M)
+_GEO_LEFT = (-_GEO_ALONG[1], _GEO_ALONG[0])
+# The same two directions in the image (y grows downward, so "left" of travel is (dy, -dx)).
+_PX_ALONG = (1 / math.sqrt(2), 1 / math.sqrt(2))
+_PX_LEFT = (_PX_ALONG[1], -_PX_ALONG[0])
+# The raster's green: a disc on the route's end (the pin).
 PREP_GREEN_RADIUS_PX = 5.0
+
+
+def prep_local_px(east_m: float, north_m: float) -> list[float]:
+    """The prep frame's pixel for a local offset from the tee (metres east / north)."""
+    along = east_m * _GEO_ALONG[0] + north_m * _GEO_ALONG[1]
+    left = east_m * _GEO_LEFT[0] + north_m * _GEO_LEFT[1]
+    tee_x, tee_y, _ = PREP_ROUTE_PX[0]
+    return [
+        round(tee_x + PREP_PPM * (along * _PX_ALONG[0] + left * _PX_LEFT[0]), 4),
+        round(tee_y + PREP_PPM * (along * _PX_ALONG[1] + left * _PX_LEFT[1]), 4),
+    ]
+
+
+def prep_route_offset_m(station_m: float, side_m: float = 0.0) -> tuple[float, float]:
+    """The local (east, north) metres of ``station_m`` along the route, ``side_m`` to its left."""
+    return (
+        station_m * _GEO_ALONG[0] + side_m * _GEO_LEFT[0],
+        station_m * _GEO_ALONG[1] + side_m * _GEO_LEFT[1],
+    )
 
 
 def prep_route_px(station_m: float, side_m: float = 0.0) -> list[float]:
     """The prep frame's pixel at ``station_m`` along the route and ``side_m`` to its left."""
-    tee_x, tee_y, _ = PREP_ROUTE_PX[0]
-    along = station_m * PREP_PPM
-    across = side_m * PREP_PPM
-    return [
-        round(tee_x + along * _PREP_DIRECTION[0] + across * _PREP_LEFT[0], 3),
-        round(tee_y + along * _PREP_DIRECTION[1] + across * _PREP_LEFT[1], 3),
-    ]
+    return prep_local_px(*prep_route_offset_m(station_m, side_m))
 
 
 def _prep_green_outline() -> list[list[float]]:
@@ -308,28 +330,26 @@ def _prep_green_outline() -> list[list[float]]:
     ]
 
 
-def _prep_px(value: float) -> float:
-    """A coordinate of the old full-frame (0...64) fixture geometry, inset into the margin."""
-    return PREP_MARGIN_PX + value * _PREP_SPAN_PX / 64.0
-
-
 def _fixture_hole_projection(source_course: int) -> dict[str, object]:
     """Build the affine refs used by iOS/Watch for this course's fixture hole."""
     tee = COURSE_COORDINATES[source_course]
-    # The route starts at the tee pixel, which is the third affine ref. The
-    # other refs are one route component behind the tee and keep the image
-    # axes non-degenerate (the old full-frame geometry, inset into the margin).
-    frame_origin = _offset_coordinate(tee, north_m=-_ROUTE_NORTH_M)
-    east_ref = _offset_coordinate(frame_origin, east_m=_ROUTE_EAST_M)
+    # Three non-collinear refs of the same transform: the tee, the route's end (the pin) and a
+    # point 100 m left of mid-route. Clients solve one affine from them, so any GPS point maps
+    # exactly as prep_local_px maps its local metres.
+    refs = []
+    for east_m, north_m in (
+        (0.0, 0.0),
+        prep_route_offset_m(_ROUTE_LENGTH_M),
+        prep_route_offset_m(_ROUTE_LENGTH_M / 2, side_m=100.0),
+    ):
+        lat, lon = _offset_coordinate(tee, north_m=north_m, east_m=east_m)
+        px, py = prep_local_px(east_m, north_m)
+        refs.append({"lat": lat, "lon": lon, "px": px, "py": py})
     return {
         "available": True,
         "widthPx": 64,
         "heightPx": 64,
-        "refs": [
-            {"lat": frame_origin[0], "lon": frame_origin[1], "px": _prep_px(0.0), "py": _prep_px(64.0)},
-            {"lat": east_ref[0], "lon": east_ref[1], "px": _prep_px(64.0), "py": _prep_px(64.0)},
-            {"lat": tee[0], "lon": tee[1], "px": _prep_px(0.0), "py": _prep_px(0.0)},
-        ],
+        "refs": refs,
     }
 
 
@@ -852,8 +872,8 @@ def _degrade_prep_hole(hole: dict, state: str) -> None:
         {"club": "1D", "clubName": "1D", "note": "开球打球道中间", "targetCarry_m": 210.0, "routeOffset_m": 210.0,
          "landing_m": 210.0, "expectedRemaining_m": 165.0, "role": "tee", "planIndex": 0,
          "planVersion": "ai-caddie-shot-plan-v1"},
-        {"club": "8I", "clubName": "8I", "note": "攻果岭中心", "targetCarry_m": 150.0, "routeOffset_m": 375.0,
-         "landing_m": 375.0, "expectedRemaining_m": 0.0, "role": "approach", "planIndex": 1,
+        {"club": "8I", "clubName": "8I", "note": "攻果岭中心", "targetCarry_m": 150.0, "routeOffset_m": _ROUTE_LENGTH_M,
+         "landing_m": _ROUTE_LENGTH_M, "expectedRemaining_m": 0.0, "role": "approach", "planIndex": 1,
          "planVersion": "ai-caddie-shot-plan-v1"},
     ]
     if state == "ready":
@@ -885,7 +905,7 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
         source_course = requested_back if requested_back is not None and number >= 10 else requested_course
         green_distances = _fixture_green_distances(source_course)
         hole_projection = _fixture_hole_projection(source_course)
-        hole = {"hole": number, "par": _hole_par(source_course, local_hole), "par_source": "garmin", "blue_yards": 410, "route_len_m": 375.0,
+        hole = {"hole": number, "par": _hole_par(source_course, local_hole), "par_source": "garmin", "blue_yards": 410, "route_len_m": round(_ROUTE_LENGTH_M, 3),
             "route": [list(point) for point in PREP_ROUTE_PX], "geometryCoverage": "ready", "geometryRevision": FIXTURE_REVISION,
             "sourceRefs": ["900001:1"], "missingData": [], "candidateRoutes": [], "carryTargets": [],
             "steps": [], "cautions": [], "landing_m": 210.0, "tee_club": "1D",
