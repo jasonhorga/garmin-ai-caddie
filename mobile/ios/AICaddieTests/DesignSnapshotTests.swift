@@ -1217,15 +1217,31 @@ final class DesignSnapshotTests: XCTestCase {
         // including those whose map does not cover the screen (the ground around it is flat).
         // Pennant red; the green is the topo's green (precise) or the factual green fill, told
         // apart from the fairway, rough, ground and the small landing dots by hue and size.
+        // A route line (6 pt) drawn across a green splits its pixels in two; pieces that close are
+        // one feature. Proven first: one green crossed by a route line counts once, and two greens
+        // 100 pt apart (a duplicate map) count twice.
+        func isGreen(_ red: Int, _ green: Int, _ blue: Int) -> Bool {
+            green > 150 && green - red >= 65 && green - blue >= 65
+        }
+        func greenFeatures(_ png: Data) throws -> [CGRect] {
+            Self.mergedFeatures(try Self.colorRegions(in: png, minAreaPoints: 600, matches: isGreen), gap: 8)
+        }
+        let crossedGreen = try Self.syntheticGreens(centres: [CGPoint(x: 195, y: 400)], routeLine: true)
+        XCTAssertEqual(try Self.colorRegions(in: crossedGreen, minAreaPoints: 600, matches: isGreen).count, 2,
+                       "the synthetic route line splits the green's pixels")
+        XCTAssertEqual(try greenFeatures(crossedGreen).count, 1, "a green crossed by the route is one green")
+        let twoGreens = try Self.syntheticGreens(
+            centres: [CGPoint(x: 195, y: 300), CGPoint(x: 195, y: 520)],
+            routeLine: true
+        )
+        XCTAssertEqual(try greenFeatures(twoGreens).count, 2, "a duplicated green is still counted twice")
         let fittedMapStates: Set<String> = ["prep-hole", "prep-hole-plan-2", "prep-hole-factual", "prep-hole-square"]
         for (name, png) in zip(prepNames, prepPNGs) where fittedMapStates.contains(name) {
-            let flags = try Self.colorRegions(in: png, minAreaPoints: 12) { red, green, blue in
+            let flags = Self.mergedFeatures(try Self.colorRegions(in: png, minAreaPoints: 12) { red, green, blue in
                 red > 195 && green < 80 && blue < 80
-            }
+            }, gap: 8)
             XCTAssertEqual(flags.count, 1, "\(name): exactly one flag is drawn, got \(flags)")
-            let greens = try Self.colorRegions(in: png, minAreaPoints: 600) { red, green, blue in
-                green > 150 && green - red >= 65 && green - blue >= 65
-            }
+            let greens = try greenFeatures(png)
             XCTAssertEqual(greens.count, 1, "\(name): exactly one green is drawn, got \(greens)")
         }
         // Where a fitted map does not cover the screen, its terrain continues from its own edge
@@ -1740,6 +1756,55 @@ final class DesignSnapshotTests: XCTestCase {
         }
         let n = max(count, 1)
         return (sums.0 / n, sums.1 / n, sums.2 / n)
+    }
+
+    /// Regions whose boxes come within `gap` points of each other are one feature (union of boxes).
+    private static func mergedFeatures(_ regions: [CGRect], gap: CGFloat) -> [CGRect] {
+        var features = regions
+        var merged = true
+        while merged {
+            merged = false
+            outer: for i in features.indices {
+                for j in features.indices where j > i {
+                    if features[i].insetBy(dx: -gap / 2, dy: -gap / 2)
+                        .intersects(features[j].insetBy(dx: -gap / 2, dy: -gap / 2)) {
+                        features[i] = features[i].union(features[j])
+                        features.remove(at: j)
+                        merged = true
+                        break outer
+                    }
+                }
+            }
+        }
+        return features
+    }
+
+    /// A 390 x 844 pt image of rough ground with a 60 pt green at each centre and, optionally, a
+    /// route line (the renderer's 6 pt dark casing) crossing the first green corner to corner.
+    private static func syntheticGreens(centres: [CGPoint], routeLine: Bool) throws -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        format.preferredRange = .standard
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 390, height: 844), format: format).image { ctx in
+            UIColor(red: 96 / 255, green: 140 / 255, blue: 86 / 255, alpha: 1).setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 390, height: 844))
+            UIColor(red: 0.50, green: 0.80, blue: 0.43, alpha: 1).setFill()
+            for centre in centres {
+                ctx.cgContext.fillEllipse(in: CGRect(x: centre.x - 30, y: centre.y - 30, width: 60, height: 60))
+            }
+            if routeLine, let first = centres.first {
+                let line = UIBezierPath()
+                line.move(to: CGPoint(x: first.x - 50, y: first.y - 50))
+                line.addLine(to: CGPoint(x: first.x + 50, y: first.y + 50))
+                line.lineWidth = 6
+                UIColor.black.withAlphaComponent(0.58).setStroke()
+                line.stroke()
+                line.lineWidth = 3
+                UIColor.white.setStroke()
+                line.stroke()
+            }
+        }
+        return try XCTUnwrap(image.pngData())
     }
 
     /// Summed absolute RGB difference.
