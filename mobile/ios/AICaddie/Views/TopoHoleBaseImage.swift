@@ -147,7 +147,7 @@ struct TopoHoleBaseImage: View {
     let topoURL: URL?
     let fallback: UIImage?
     /// 备战 only: how far (fractions of this layer's own width / height) the surround reaches past
-    /// each edge: one calm fill of the bitmap's own mean edge colour (`TopoEdgeExtension`), so a
+    /// each edge: one calm fill of the bitmap's own dominant edge colour (`TopoEdgeExtension`), so a
     /// fitted map that does not cover the screen never reads as a rectangle on a foreign ground.
     /// Only that fill is added: the route, green, flag and tee are drawn above by the map's layer.
     var edgeExtension = EdgeInsets()
@@ -220,7 +220,7 @@ struct TopoHoleBaseImage: View {
     }
 
     /// The bitmap over its surround (when an extension is asked for): one calm fill of the
-    /// bitmap's own mean edge colour, sized past this layer's frame by `edgeExtension`, with the
+    /// bitmap's own dominant edge colour, sized past this layer's frame by `edgeExtension`, with the
     /// sharp bitmap fading into it over `edgeFeather`. A bitmap whose edge is mostly transparent
     /// (topo-v11's off-course canvas) gets no surround at all.
     @ViewBuilder
@@ -253,10 +253,13 @@ struct TopoHoleBaseImage: View {
     }
 }
 
-/// The surround of a fitted map that does not cover the screen: the bitmap's own mean edge colour
-/// (the outer ring of its pixels, alpha-weighted). One calm fill, never the edge pixels stretched
-/// outward, so a noisy, high-frequency or damaged edge can never become bands, rays or blocks;
-/// it only sets the colour the map fades into. Used from view bodies (main thread).
+/// The surround of a fitted map that does not cover the screen: the dominant colour of the bitmap's
+/// own opaque edge (a per-channel median of its outer ring). One calm fill, never the edge pixels
+/// stretched outward, so a noisy, high-frequency or damaged edge can never become bands, rays or
+/// blocks; it only sets the colour the map fades into. Production's flat render has a uniform
+/// ground there, which this matches exactly; a topo-v11 bitmap's edge is its transparent
+/// off-course canvas, which gets no surround (the hole floats on the screen's ground). Used from
+/// view bodies (main thread).
 enum TopoEdgeExtension {
     struct Surround {
         /// The bitmap this was measured from. Holding it keeps the cache key's object identity valid
@@ -276,7 +279,7 @@ enum TopoEdgeExtension {
     static let sampleSide: CGFloat = 48
     /// The edge ring's width, as a fraction of the measured copy's shorter side.
     static let ringFraction: CGFloat = 0.08
-    /// Below this mean edge opacity the bitmap has no surround (its canvas is transparent).
+    /// Below this share of opaque edge pixels the bitmap has no surround (its canvas is transparent).
     static let minimumEdgeOpacity = 0.5
     static let cacheLimit = 12
 
@@ -335,22 +338,27 @@ enum TopoEdgeExtension {
         }
         guard drawn else { return nil }
         let ring = max(Int((CGFloat(min(width, height)) * ringFraction).rounded()), 1)
-        var sums = (red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0)
-        var count = 0.0
+        var reds: [Int] = []
+        var greens: [Int] = []
+        var blues: [Int] = []
+        var ringPixels = 0
         for y in 0..<height {
             for x in 0..<width where x < ring || y < ring || x >= width - ring || y >= height - ring {
+                ringPixels += 1
                 let index = (y * width + x) * 4
-                sums.red += Double(bytes[index])
-                sums.green += Double(bytes[index + 1])
-                sums.blue += Double(bytes[index + 2])
-                sums.alpha += Double(bytes[index + 3])
-                count += 1
+                let alpha = Int(bytes[index + 3])
+                guard alpha >= 128 else { continue }
+                // Premultiplied: undo it for the pixel's own colour.
+                reds.append(min(Int(bytes[index]) * 255 / alpha, 255))
+                greens.append(min(Int(bytes[index + 1]) * 255 / alpha, 255))
+                blues.append(min(Int(bytes[index + 2]) * 255 / alpha, 255))
             }
         }
-        guard count > 0, sums.alpha / count >= 255 * minimumEdgeOpacity else { return nil }
-        // Premultiplied: dividing by the summed alpha gives the alpha-weighted mean colour.
-        func channel(_ sum: Double) -> Int { min(max(Int((sum / sums.alpha * 255).rounded()), 0), 255) }
-        return Surround(source: source, red: channel(sums.red), green: channel(sums.green), blue: channel(sums.blue))
+        guard ringPixels > 0, Double(reds.count) / Double(ringPixels) >= minimumEdgeOpacity else { return nil }
+        // The edge's dominant colour: a per-channel median, so a uniform ground (the flat render)
+        // is matched exactly and scattered texture or noise cannot pull it.
+        func median(_ values: [Int]) -> Int { values.sorted()[values.count / 2] }
+        return Surround(source: source, red: median(reds), green: median(greens), blue: median(blues))
     }
 }
 

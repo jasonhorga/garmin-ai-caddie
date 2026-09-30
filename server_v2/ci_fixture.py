@@ -437,6 +437,61 @@ def _png_data_uri(width: int = 64, height: int = 64, seed: int = 0) -> str:
     return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
 
 
+def _course_png(seed: int = 0, background: tuple[int, int, int] | None = None, size: int = 64) -> bytes:
+    """A production-shaped hole raster: a mottled rough / fairway corridor along the fixture route
+    (corner to corner) and a green near its end, on the off-course canvas production uses.
+
+    ``background=None`` is the topo-v11 shape (transparent off-course canvas);
+    a colour is the flat ``hole_render`` fallback (a uniform ground). Either way the only texture
+    is inside the course, as in production, never a full-frame noise field. The mottle keeps it a
+    real, non-trivial raster (well over 1 KiB compressed).
+    """
+    state = (seed * 7919 + 17) & 0xFFFFFFFF
+
+    def jitter(spread: int) -> int:
+        nonlocal state
+        state = (1_664_525 * state + 1_013_904_223) & 0xFFFFFFFF
+        return ((state >> 16) % (2 * spread + 1)) - spread
+
+    scale = size / 64
+    ax, ay, bx, by = 4 * scale, 4 * scale, 60 * scale, 60 * scale
+    gx, gy, green_r = 55 * scale, 55 * scale, 6 * scale
+    rows = []
+    for y in range(size):
+        row = bytearray(b"\x00")
+        for x in range(size):
+            px, py = x + 0.5, y + 0.5
+            t = max(0.0, min(1.0, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2)))
+            distance = math.hypot(px - (ax + t * (bx - ax)), py - (ay + t * (by - ay)))
+            if math.hypot(px - gx, py - gy) <= green_r:
+                colour = (128 + jitter(6), 204 + jitter(6), 110 + jitter(6), 255)
+            elif distance <= 5 * scale:
+                colour = (153 + jitter(10), 199 + jitter(10), 115 + jitter(10), 255)
+            elif distance <= 11 * scale:
+                colour = (96 + jitter(16), 140 + jitter(16), 86 + jitter(16), 255)
+            elif background is not None:
+                colour = background + (255,)
+            else:
+                colour = (0, 0, 0, 0)
+            row.extend(max(0, min(255, c)) for c in colour)
+        rows.append(bytes(row))
+    raw = b"".join(rows)
+
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload) & 0xffffffff)
+
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
+
+
+# hole_render's flat-fallback ground colour (PALETTE["bg"]).
+FLAT_RENDER_GROUND = (191, 222, 240)
+
+
+def _flat_course_data_uri(seed: int) -> str:
+    """The prep row's inline flat render: the course on hole_render's uniform ground."""
+    return "data:image/png;base64," + base64.b64encode(_course_png(seed, FLAT_RENDER_GROUND)).decode("ascii")
+
+
 def _fixture_prep_hazards() -> dict:
     """Measured obstacle spans in the same route/pixel frame as the fixture map."""
     return {
@@ -787,7 +842,7 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
             "sourceRefs": ["900001:1"], "missingData": [], "candidateRoutes": [], "carryTargets": [],
             "steps": [], "cautions": [], "landing_m": 210.0, "tee_club": "1D",
             "hazards": _fixture_prep_hazards(),
-            "map": {"image": _png_data_uri(seed=number), "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + number, "route": [[0.0, 0.0, 0.0], [64.0, 64.0, _ROUTE_LENGTH_M]]}},
+            "map": {"image": _flat_course_data_uri(number), "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + number, "route": [[0.0, 0.0, 0.0], [64.0, 64.0, _ROUTE_LENGTH_M]]}},
             "greenDistances": green_distances, "playsLike": {"available": True, "deltaM": 0.0},
             "holeImageProjection": hole_projection,
             "greenOutline": {"available": True, "source": "ci_fixture", "distanceUnit": "metres", "pointsPx": [[52.0, 52.0], [60.0, 52.0], [60.0, 60.0], [52.0, 60.0] ]}}
@@ -913,7 +968,11 @@ def topo_png(global_id: int, hole: int, v: str | None = None, r: str | None = No
     if 1 <= hole <= 18 and _hole_map_state(_course_request(global_id), hole) != "ready":
         # No precise geometry yet: like production, there is no topo to serve.
         raise HTTPException(status_code=404, detail="fixture topo not ready")
-    return _fixture_png(global_id, hole)
+    _course_id(global_id)
+    if hole < 1 or hole > 18:
+        raise HTTPException(status_code=404, detail="fixture image not found")
+    # topo-v11 shape: the course on a transparent off-course canvas.
+    return Response(content=_course_png(hole), media_type="image/png")
 
 
 @ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/green.png")

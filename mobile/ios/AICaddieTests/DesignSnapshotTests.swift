@@ -986,65 +986,45 @@ final class DesignSnapshotTests: XCTestCase {
         let prepTopoURL = FileManager.default.temporaryDirectory.appendingPathComponent("prep-snapshot-topo.png")
         try XCTUnwrap(holeImage.pngData()).write(to: prepTopoURL, options: [.atomic])
         // Hole 2 is the CI fixture's shape: a square topo whose route runs corner to corner, which
-        // cannot be fitted with its whole plan and still cover a portrait screen. Its bitmap has a
-        // darker rough border, so the terrain around the fitted map must continue that edge.
-        let squareRough = (red: 96, green: 140, blue: 86)
-        let squareImage = UIGraphicsImageRenderer(size: CGSize(width: 256, height: 256)).image { ctx in
-            UIColor(red: 96 / 255, green: 140 / 255, blue: 86 / 255, alpha: 1).setFill()
-            ctx.fill(CGRect(x: 0, y: 0, width: 256, height: 256))
-            UIColor(red: 0.46, green: 0.66, blue: 0.40, alpha: 1).setFill()
-            ctx.fill(CGRect(x: 24, y: 24, width: 208, height: 208))
-            UIColor(red: 0.60, green: 0.78, blue: 0.45, alpha: 1).setFill()
-            let band = UIBezierPath()
-            band.move(to: CGPoint(x: 24, y: 44))
-            band.addLine(to: CGPoint(x: 44, y: 24))
-            band.addLine(to: CGPoint(x: 212, y: 192))
-            band.addLine(to: CGPoint(x: 192, y: 212))
-            band.close()
-            band.fill()
-            UIColor(red: 0.50, green: 0.80, blue: 0.43, alpha: 1).setFill()
-            ctx.cgContext.fillEllipse(in: CGRect(x: 196, y: 196, width: 36, height: 36))
-        }
+        // cannot be fitted with its whole plan and still cover a portrait screen. Like production's
+        // topo-v11 its off-course canvas is transparent, so the hole floats on the screen's ground.
+        let squareImage = Self.courseImage(ground: nil, noisyRough: false)
         let squarePNG = try XCTUnwrap(squareImage.pngData())
         let squareTopoURL = FileManager.default.temporaryDirectory.appendingPathComponent("prep-snapshot-square-topo.png")
         try squarePNG.write(to: squareTopoURL, options: [.atomic])
         // Like the other prep fixtures, the package also carries the bitmap inline, so it is drawn
         // from the first frame while the installed topo file loads (lossless, so colours are exact).
-        let squareB64 = "data:image/png;base64," + squarePNG.base64EncodedString()
-        let squarePrepHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data("""
-        {"hole":2,"par":4,"par_source":"garmin","blue_yards":410,"route_len_m":375,\
-        "route":[[4,4],[57,57]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
-        "geometryCoverage":"ready","geometryRevision":"snapshot-square-r1",\
-        "map":{"image":"\(squareB64)","overlay":{"w":64,"h":64,"ppm":0.2,"ln":375,"route":[[4,4,0],[57,57,375]]}}}
-        """.utf8))
-        // Hole 3 has a noisy, high-frequency border (like the CI fixture's real topo): the surround
-        // must stay one calm colour, never magnify those pixels into bands.
-        var noiseSeed: UInt32 = 20_260_930
-        func noiseByte() -> CGFloat {
-            noiseSeed = noiseSeed &* 1_664_525 &+ 1_013_904_223
-            return CGFloat(noiseSeed >> 24) / 255
+        func diagonalHole(_ number: Int, par: Int, png: Data, revision: String) throws -> CoursePrepHole {
+            try JSONDecoder().decode(CoursePrepHole.self, from: Data("""
+            {"hole":\(number),"par":\(par),"par_source":"garmin","blue_yards":410,"route_len_m":375,\
+            "route":[[4,4],[57,57]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
+            "geometryCoverage":"ready","geometryRevision":"\(revision)",\
+            "map":{"image":"data:image/png;base64,\(png.base64EncodedString())","overlay":{"w":64,"h":64,"ppm":0.2,"ln":375,"route":[[4,4,0],[57,57,375]]}}}
+            """.utf8))
         }
-        let noisyImage = UIGraphicsImageRenderer(size: CGSize(width: 256, height: 256)).image { ctx in
-            UIColor(red: 0.46, green: 0.66, blue: 0.40, alpha: 1).setFill()
-            ctx.fill(CGRect(x: 0, y: 0, width: 256, height: 256))
-            for row in 0..<64 {
-                for column in 0..<64 where row < 6 || column < 6 || row >= 58 || column >= 58 {
-                    UIColor(red: noiseByte(), green: noiseByte(), blue: noiseByte(), alpha: 1).setFill()
-                    ctx.fill(CGRect(x: column * 4, y: row * 4, width: 4, height: 4))
-                }
-            }
-            UIColor(red: 0.50, green: 0.80, blue: 0.43, alpha: 1).setFill()
-            ctx.cgContext.fillEllipse(in: CGRect(x: 180, y: 180, width: 36, height: 36))
-        }
-        let noisyPNG = try XCTUnwrap(noisyImage.pngData())
+        let squarePrepHole = try diagonalHole(2, par: 4, png: squarePNG, revision: "snapshot-square-r1")
+        // Hole 3 is production's flat render (a uniform ground) whose course edge is noisy,
+        // high-frequency texture reaching the bitmap's corners: the surround must be that ground,
+        // never those pixels magnified into bands.
+        let noisyPNG = try XCTUnwrap(Self.courseImage(
+            ground: UIColor(red: 191 / 255, green: 222 / 255, blue: 240 / 255, alpha: 1),
+            noisyRough: true
+        ).pngData())
         let noisyTopoURL = FileManager.default.temporaryDirectory.appendingPathComponent("prep-snapshot-noisy-topo.png")
         try noisyPNG.write(to: noisyTopoURL, options: [.atomic])
-        let noisyPrepHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data("""
-        {"hole":3,"par":3,"par_source":"garmin","blue_yards":178,"route_len_m":375,\
-        "route":[[8,8],[49,49]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
-        "geometryCoverage":"ready","geometryRevision":"snapshot-noisy-r1",\
-        "map":{"image":"data:image/png;base64,\(noisyPNG.base64EncodedString())","overlay":{"w":64,"h":64,"ppm":0.15,"ln":375,"route":[[8,8,0],[49,49,375]]}}}
-        """.utf8))
+        let noisyPrepHole = try diagonalHole(3, par: 3, png: noisyPNG, revision: "snapshot-noisy-r1")
+        // The detectors' positive control: a fully opaque bitmap framed by a rough border, which on a
+        // flat ground reads as a rectangle.
+        let squareRough = (red: 96, green: 140, blue: 86)
+        let framedImage = UIGraphicsImageRenderer(size: CGSize(width: 256, height: 256)).image { ctx in
+            UIColor(red: 96 / 255, green: 140 / 255, blue: 86 / 255, alpha: 1).setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 256, height: 256))
+            UIColor(red: 0.46, green: 0.66, blue: 0.40, alpha: 1).setFill()
+            ctx.fill(CGRect(x: 24, y: 24, width: 208, height: 208))
+        }
+        let framedPrepHole = try diagonalHole(
+            19, par: 4, png: try XCTUnwrap(framedImage.pngData()), revision: "snapshot-framed-r1"
+        )
         let prepPars = [5, 4, 3, 4, 4, 5, 3, 4, 4, 4, 4, 3, 5, 4, 4, 3, 5, 4]
         let prepYards = [543, 410, 178, 395, 402, 528, 165, 388, 420, 415, 398, 172, 535, 405, 390, 188, 520, 430]
         let prepRows: [PrepHoleRow] = (1...18).map { number -> PrepHoleRow in
@@ -1278,28 +1258,26 @@ final class DesignSnapshotTests: XCTestCase {
             let greens = try greenFeatures(png)
             XCTAssertEqual(greens.count, 1, "\(name): exactly one green is drawn, got \(greens)")
         }
-        // Where a fitted map does not cover the screen, it fades into one calm fill of its own mean
-        // edge colour: no seam, and no rectangle. The square hole's bitmap, rendered on its own at a
-        // known frame (x 75...315, y 302...542), proves both detectors on the old composition (the
-        // bitmap on a flat ground).
-        func edgeRender(extended: Bool, named name: String) throws -> Data {
-            let frame = CGRect(x: 75, y: 302, width: 240, height: 240)
-            return try captureScreen(
+        // Where a fitted map does not cover the screen it must not read as a rectangle: it floats on
+        // the ground (a transparent-edged topo) or fades into a fill of its own dominant edge colour.
+        // A bitmap rendered on its own at a known frame (x 75...315, y 302...542).
+        let edgeFrame = CGRect(x: 75, y: 302, width: 240, height: 240)
+        func edgeRender(_ hole: CoursePrepHole, surround: Bool, named name: String) throws -> Data {
+            try captureScreen(
                 ZStack {
                     TopoHoleBaseImage.groundColor
                     HoleImageMapView(
-                        hole: squarePrepHole,
-                        topoURL: squareTopoURL,
+                        hole: hole,
                         showsCardChrome: false,
                         showsFactualRoute: false,
                         showsRecommendedRoute: false,
-                        baseEdgeExtension: extended
-                            ? PrepHoleMapHero.terrainExtension(rest: frame, viewport: CGSize(width: 390, height: 844))
+                        baseEdgeExtension: surround
+                            ? PrepHoleMapHero.terrainExtension(rest: edgeFrame, viewport: CGSize(width: 390, height: 844))
                             : EdgeInsets(),
-                        baseEdgeFeather: extended ? PrepHoleMapHero.groundFeather : 0
+                        baseEdgeFeather: surround ? PrepHoleMapHero.groundFeather : 0
                     )
-                    .frame(width: frame.width, height: frame.height)
-                    .position(x: frame.midX, y: frame.midY)
+                    .frame(width: edgeFrame.width, height: edgeFrame.height)
+                    .position(x: edgeFrame.midX, y: edgeFrame.midY)
                 }
                 .frame(width: 390, height: 844)
                 .ignoresSafeArea(),
@@ -1307,6 +1285,43 @@ final class DesignSnapshotTests: XCTestCase {
                 dark: true,
                 settle: 2.0
             )
+        }
+        // Rectangle salience around a map frame: per side, the median over positions along that side
+        // (every 12 pt, clear of `blocked` and the screen edge) of the colour difference between a
+        // patch 9 pt inside and a patch 9 pt outside the edge. A visible frame edge differs all along
+        // its side, so its median is high; a map that floats on or fades into its surround does not.
+        func sideSalience(_ png: Data, frame: CGRect, blocked: [CGRect], viewport: CGSize) throws -> [String: Int] {
+            let screen = CGRect(origin: .zero, size: viewport).insetBy(dx: 6, dy: 6)
+            var result: [String: Int] = [:]
+            let sides: [(String, [(CGPoint, CGPoint)])] = [
+                ("left", stride(from: frame.minY + 16, to: frame.maxY - 16, by: 12).map {
+                    (CGPoint(x: frame.minX + 9, y: $0), CGPoint(x: frame.minX - 9, y: $0))
+                }),
+                ("right", stride(from: frame.minY + 16, to: frame.maxY - 16, by: 12).map {
+                    (CGPoint(x: frame.maxX - 9, y: $0), CGPoint(x: frame.maxX + 9, y: $0))
+                }),
+                ("top", stride(from: frame.minX + 16, to: frame.maxX - 16, by: 12).map {
+                    (CGPoint(x: $0, y: frame.minY + 9), CGPoint(x: $0, y: frame.minY - 9))
+                }),
+                ("bottom", stride(from: frame.minX + 16, to: frame.maxX - 16, by: 12).map {
+                    (CGPoint(x: $0, y: frame.maxY - 9), CGPoint(x: $0, y: frame.maxY + 9))
+                }),
+            ]
+            for (side, pairs) in sides {
+                var differences: [Int] = []
+                for (inside, outside) in pairs {
+                    guard screen.contains(inside), screen.contains(outside),
+                          !blocked.contains(where: { $0.contains(inside) || $0.contains(outside) }) else { continue }
+                    differences.append(Self.colorDistance(
+                        try Self.patchMean(in: png, at: inside, radius: 3),
+                        try Self.patchMean(in: png, at: outside, radius: 3)
+                    ))
+                }
+                if differences.count >= 3 {
+                    result[side] = differences.sorted()[differences.count / 2]
+                }
+            }
+            return result
         }
         // Largest 1 pt colour step across the left and top edges (within the rough border), and
         // how far the surround 12 pt outside each side is from the bitmap's rough edge colour.
@@ -1320,57 +1335,61 @@ final class DesignSnapshotTests: XCTestCase {
             }
             return (max(left.max() ?? 0, top.max() ?? 0), surround)
         }
-        let flatGround = try edgeMeasures(try edgeRender(extended: false, named: "prep-map-edge-flat-ground"))
+        let isolated = CGSize(width: 390, height: 844)
+        // Positive control: the opaque framed bitmap on a flat ground is a rectangle on every side.
+        let flatGroundPNG = try edgeRender(framedPrepHole, surround: false, named: "prep-map-edge-flat-ground")
+        let flatGround = try edgeMeasures(flatGroundPNG)
         XCTAssertGreaterThanOrEqual(flatGround.step, 60, "the seam detector sees a bitmap on a flat ground")
         XCTAssertGreaterThanOrEqual(flatGround.surround, 120, "the surround detector sees a rectangle on a flat ground")
-        let continued = try edgeMeasures(try edgeRender(extended: true, named: "prep-map-edge-continued"))
+        let flatSalience = try sideSalience(flatGroundPNG, frame: edgeFrame, blocked: [], viewport: isolated)
+        XCTAssertEqual(flatSalience.count, 4)
+        XCTAssertTrue(flatSalience.values.allSatisfy { $0 >= 120 }, "the rectangle detector fires on every side: \(flatSalience)")
+        // The same bitmap fading into its dominant edge colour: no seam and no rectangle.
+        let continuedPNG = try edgeRender(framedPrepHole, surround: true, named: "prep-map-edge-continued")
+        let continued = try edgeMeasures(continuedPNG)
         XCTAssertLessThan(continued.step, 60, "the fitted map's edges have no seam")
-        XCTAssertLessThan(continued.surround, 40, "the terrain around the fitted map continues its edge")
-        // The actual composed 备战 state for that hole: on every side the map leaves exposed, the
-        // surround (12 pt outside, clear of the chrome, labels and landings) matches the bitmap's
-        // edge colour, so the map does not read as a rectangle.
-        let squareAudit = try XCTUnwrap(prepAudits["prep-hole-square"])
-        let squareCapture = try XCTUnwrap(zip(prepNames, prepPNGs).first { $0.0 == "prep-hole-square" }?.1)
-        let squareFrame = squareAudit.mapFrame
-        XCTAssertFalse(
-            PrepMapLayout.covers(squareFrame, viewport: squareAudit.viewport),
-            "the square diagonal plan is fitted inside the screen"
-        )
-        // Points 12 pt outside every side a fitted map leaves exposed, clear of the chrome, labels
-        // and landings.
-        func surroundPoints(_ audit: PrepRouteLabelAudit.Entry) -> [CGPoint] {
-            let frame = audit.mapFrame
-            let blocked: [CGRect] = audit.chrome.map { $0.insetBy(dx: -10, dy: -10) }
+        XCTAssertLessThan(continued.surround, 40, "the surround is the bitmap's edge colour")
+        let continuedSalience = try sideSalience(continuedPNG, frame: edgeFrame, blocked: [], viewport: isolated)
+        XCTAssertEqual(continuedSalience.count, 4)
+        XCTAssertTrue(continuedSalience.values.allSatisfy { $0 < 20 }, "no side of the faded map reads as an edge: \(continuedSalience)")
+        // The actual composed 备战 states: around the whole fitted frame (every exposed side, clear
+        // of the chrome, labels and landings) no side reads as a rectangle edge.
+        func blockedRects(_ audit: PrepRouteLabelAudit.Entry) -> [CGRect] {
+            audit.chrome.map { $0.insetBy(dx: -10, dy: -10) }
                 + audit.labels.compactMap { $0?.insetBy(dx: -10, dy: -10) }
                 + audit.landings.map { CGRect(x: $0.x - 30, y: $0.y - 30, width: 60, height: 60) }
+        }
+        for name in ["prep-hole", "prep-hole-plan-2", "prep-hole-factual", "prep-hole-square", "prep-hole-noisy"] {
+            let audit = try XCTUnwrap(prepAudits[name])
+            let png = try XCTUnwrap(zip(prepNames, prepPNGs).first { $0.0 == name }?.1)
+            let salience = try sideSalience(png, frame: audit.mapFrame, blocked: blockedRects(audit), viewport: audit.viewport)
+            XCTAssertTrue(salience.values.allSatisfy { $0 < 20 }, "\(name): a side of the fitted map reads as an edge: \(salience)")
+            if name == "prep-hole-square" || name == "prep-hole-noisy" {
+                XCTAssertFalse(PrepMapLayout.covers(audit.mapFrame, viewport: audit.viewport), "\(name) is fitted inside the screen")
+                XCTAssertGreaterThanOrEqual(salience.count, 2, "\(name): the exposed sides are measured: \(salience)")
+            }
+        }
+        // Directional striping / magnified edge texture: the spread of the surround's colour across
+        // points 12 pt outside every exposed side. Proven on a synthetic surround of 4 pt
+        // random-colour stripes (what stretching a noisy edge outward produces), then required to
+        // stay calm around the noisy hole.
+        func surroundPoints(_ audit: PrepRouteLabelAudit.Entry) -> [CGPoint] {
+            let frame = audit.mapFrame
+            let blocked = blockedRects(audit)
             let screen = CGRect(origin: .zero, size: audit.viewport).insetBy(dx: 4, dy: 4)
             var points: [CGPoint] = []
-            var y = frame.minY + 10
-            while y < frame.maxY - 10 {
+            for y in stride(from: frame.minY + 10, to: frame.maxY - 10, by: 16) {
                 points.append(CGPoint(x: frame.minX - 12, y: y))
                 points.append(CGPoint(x: frame.maxX + 12, y: y))
-                y += 16
             }
-            var x = frame.minX + 10
-            while x < frame.maxX - 10 {
+            for x in stride(from: frame.minX + 10, to: frame.maxX - 10, by: 16) {
                 points.append(CGPoint(x: x, y: frame.minY - 12))
                 points.append(CGPoint(x: x, y: frame.maxY + 12))
-                x += 16
             }
             return points.filter { point in
                 screen.contains(point) && !blocked.contains { $0.contains(point) }
             }
         }
-        var distances: [Int] = []
-        for point in surroundPoints(squareAudit) {
-            distances.append(Self.colorDistance(try Self.patchMean(in: squareCapture, at: point, radius: 2), squareRough))
-        }
-        XCTAssertGreaterThanOrEqual(distances.count, 6, "the square hole exposes terrain around its map")
-        let median = distances.sorted()[distances.count / 2]
-        XCTAssertLessThan(median, 40, "the composed square hole's surround continues its edge (distances \(distances))")
-        // Directional striping / magnified edge texture: the spread of the surround's colour across
-        // the samples. Proven on a synthetic surround of 4 pt random-colour stripes (what stretching
-        // a noisy edge outward produces), then required to stay calm around the noisy hole.
         func surroundSpread(_ png: Data, at points: [CGPoint]) throws -> Int {
             let values = try points.map { point -> Int in
                 let mean = try Self.patchMean(in: png, at: point, radius: 2)
@@ -1385,7 +1404,6 @@ final class DesignSnapshotTests: XCTestCase {
         )
         let noisyAudit = try XCTUnwrap(prepAudits["prep-hole-noisy"])
         let noisyCapture = try XCTUnwrap(zip(prepNames, prepPNGs).first { $0.0 == "prep-hole-noisy" }?.1)
-        XCTAssertFalse(PrepMapLayout.covers(noisyAudit.mapFrame, viewport: noisyAudit.viewport))
         let noisyPoints = surroundPoints(noisyAudit)
         XCTAssertGreaterThanOrEqual(noisyPoints.count, 6, "the noisy hole exposes a surround")
         XCTAssertLessThan(
@@ -1871,6 +1889,58 @@ final class DesignSnapshotTests: XCTestCase {
             }
         }
         return try XCTUnwrap(image.pngData())
+    }
+
+    /// A production-shaped 256 x 256 hole raster: a rough / fairway corridor from corner to corner
+    /// with a green near its end, on `ground` (the flat render) or a transparent off-course canvas
+    /// (topo-v11) when nil. `noisyRough` makes the rough high-frequency, vivid 4 px noise.
+    static func courseImage(ground: UIColor?, noisyRough: Bool) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        format.preferredRange = .standard
+        var seed: UInt32 = 20_260_930
+        func noise() -> CGFloat {
+            seed = seed &* 1_664_525 &+ 1_013_904_223
+            return CGFloat(seed >> 24) / 255
+        }
+        return UIGraphicsImageRenderer(size: CGSize(width: 256, height: 256), format: format).image { ctx in
+            if let ground {
+                ground.setFill()
+                ctx.fill(CGRect(x: 0, y: 0, width: 256, height: 256))
+            }
+            let start = CGPoint(x: 16, y: 16)
+            let end = CGPoint(x: 240, y: 240)
+            if noisyRough {
+                for row in 0..<64 {
+                    for column in 0..<64 {
+                        let centre = CGPoint(x: CGFloat(column) * 4 + 2, y: CGFloat(row) * 4 + 2)
+                        let t = max(0, min(1, ((centre.x - start.x) + (centre.y - start.y)) / (2 * (end.x - start.x))))
+                        let nearest = CGPoint(x: start.x + t * (end.x - start.x), y: start.y + t * (end.y - start.y))
+                        guard hypot(centre.x - nearest.x, centre.y - nearest.y) <= 44 else { continue }
+                        UIColor(red: noise(), green: noise(), blue: noise(), alpha: 1).setFill()
+                        ctx.fill(CGRect(x: column * 4, y: row * 4, width: 4, height: 4))
+                    }
+                }
+            } else {
+                let rough = UIBezierPath()
+                rough.move(to: start)
+                rough.addLine(to: end)
+                rough.lineWidth = 88
+                rough.lineCapStyle = .round
+                UIColor(red: 96 / 255, green: 140 / 255, blue: 86 / 255, alpha: 1).setStroke()
+                rough.stroke()
+            }
+            let fairway = UIBezierPath()
+            fairway.move(to: CGPoint(x: 28, y: 28))
+            fairway.addLine(to: CGPoint(x: 200, y: 200))
+            fairway.lineWidth = 40
+            fairway.lineCapStyle = .round
+            UIColor(red: 0.60, green: 0.78, blue: 0.45, alpha: 1).setStroke()
+            fairway.stroke()
+            UIColor(red: 0.50, green: 0.80, blue: 0.43, alpha: 1).setFill()
+            ctx.cgContext.fillEllipse(in: CGRect(x: 202, y: 202, width: 36, height: 36))
+        }
     }
 
     /// A 390 x 844 pt image of 4 pt vertical stripes in pseudo-random colours.

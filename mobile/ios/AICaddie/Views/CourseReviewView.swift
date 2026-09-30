@@ -463,7 +463,7 @@ struct CoursePrepStrategyScreen: View {
 
 /// The full-screen 备战 hole map: fitted, the whole plan sits between the chrome and the bitmap
 /// covers the screen when the hole's shape allows (`PrepMapLayout`), otherwise it fades into a calm
-/// fill of its own mean edge colour; then the live hero's pan / zoom. The bitmap draws the factual route
+/// fill of its own dominant edge colour; then the live hero's pan / zoom. The bitmap draws the factual route
 /// and green; the selected plan's legs, landings and their "球杆 码数" labels are drawn in the
 /// viewport plane by the live `LivePlannedRouteRenderer`, so they keep screen size at every zoom.
 /// Obstacles follow the default-none rule: none are drawn on this screen.
@@ -532,7 +532,7 @@ struct PrepHoleMapHero: View {
             let exclusions = chrome(!viewport.isFitted)
             let covering = PrepMapLayout.covers(rest, viewport: size)
             // One map, drawn once. When the fitted plan leaves part of the screen outside it, the
-            // screen around the map is one calm fill of the bitmap's own mean edge colour (no flag,
+            // screen around the map is one calm fill of the bitmap's own dominant edge colour (no flag,
             // green, tee, route or hazard, and never stretched edge pixels), and the sharp bitmap
             // fades into it, so the map never reads as a rectangle. The flat ground only shows
             // while a bitmap is still loading, or around a transparent-edged topo.

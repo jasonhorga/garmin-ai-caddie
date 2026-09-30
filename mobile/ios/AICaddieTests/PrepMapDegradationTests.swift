@@ -716,9 +716,9 @@ final class PrepMapDegradationTests: XCTestCase {
         return [Int(bytes[0]), Int(bytes[1]), Int(bytes[2])]
     }
 
-    /// The surround is the bitmap's own mean edge colour: a uniform edge gives exactly that colour,
-    /// a noisy edge gives its mean (never its pixels), and a transparent edge gives no surround.
-    func testTerrainSurroundIsTheBitmapsMeanEdgeColour() throws {
+    /// The surround is the bitmap's own dominant edge colour: a uniform edge gives exactly that colour,
+    /// scattered noise cannot pull it, and a transparent edge gives no surround.
+    func testTerrainSurroundIsTheBitmapsDominantEdgeColour() throws {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.preferredRange = .standard
@@ -732,20 +732,24 @@ final class PrepMapDegradationTests: XCTestCase {
         let green = try XCTUnwrap(TopoEdgeExtension.surround(for: bordered))
         XCTAssertTrue(green.source === bordered)
         XCTAssertLessThanOrEqual(abs(green.red - 96) + abs(green.green - 140) + abs(green.blue - 86), 6)
-        // An edge of alternating pure red and pure green blocks: the surround is their mean, a
-        // single mid colour, not either block colour.
-        let checker = UIGraphicsImageRenderer(size: CGSize(width: 96, height: 96), format: format).image { ctx in
-            for row in 0..<24 {
-                for column in 0..<24 {
-                    ((row + column) % 2 == 0 ? UIColor.red : UIColor.green).setFill()
-                    ctx.fill(CGRect(x: column * 4, y: row * 4, width: 4, height: 4))
-                }
+        // A flat render's uniform ground with scattered noise in part of its edge: the surround is
+        // exactly that ground, never pulled toward the noise.
+        var seed: UInt32 = 99
+        func noise() -> CGFloat {
+            seed = seed &* 1_664_525 &+ 1_013_904_223
+            return CGFloat(seed >> 24) / 255
+        }
+        let speckled = UIGraphicsImageRenderer(size: CGSize(width: 96, height: 96), format: format).image { ctx in
+            UIColor(red: 191 / 255, green: 222 / 255, blue: 240 / 255, alpha: 1).setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 96, height: 96))
+            for block in 0..<24 where block % 3 == 0 {
+                UIColor(red: noise(), green: noise(), blue: noise(), alpha: 1).setFill()
+                ctx.fill(CGRect(x: block * 4, y: 0, width: 4, height: 8))
+                ctx.fill(CGRect(x: 0, y: block * 4, width: 8, height: 4))
             }
         }
-        let mean = try XCTUnwrap(TopoEdgeExtension.surround(for: checker))
-        XCTAssertEqual(Double(mean.red), 127.5, accuracy: 20)
-        XCTAssertEqual(Double(mean.green), 127.5, accuracy: 20)
-        XCTAssertLessThanOrEqual(mean.blue, 10)
+        let ground = try XCTUnwrap(TopoEdgeExtension.surround(for: speckled))
+        XCTAssertLessThanOrEqual(abs(ground.red - 191) + abs(ground.green - 222) + abs(ground.blue - 240), 6)
         // A transparent off-course canvas (topo-v11) has no surround.
         let transparentFormat = UIGraphicsImageRendererFormat()
         transparentFormat.scale = 1

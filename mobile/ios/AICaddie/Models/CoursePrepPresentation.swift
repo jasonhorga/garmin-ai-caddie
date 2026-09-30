@@ -305,7 +305,7 @@ struct PrepHoleMapSession: Equatable {
 /// row on top, the glass panel at the bottom). Among such frames it prefers one whose bitmap covers
 /// the viewport; when the hole's shape makes that impossible (a diagonal hole on a square topo in
 /// a portrait screen), the plan wins: the map is drawn once and fades into one calm fill of its own
-/// mean edge colour reaching the screen edges (`TopoEdgeExtension`), so there is no rectangle, seam,
+/// dominant edge colour reaching the screen edges (`TopoEdgeExtension`), so there is no rectangle, seam,
 /// black band or stretched edge texture.
 enum PrepMapLayout {
     /// An overlay point the fitted map keeps inside the content rect with `clearance` points of
