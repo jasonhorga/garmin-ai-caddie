@@ -141,18 +141,25 @@ final class TopoHoleImageStore: ObservableObject {
 /// projection frame (`hole_render._frame`), so a route/shot overlay drawn on top in overlay-pixel
 /// space aligns with either bitmap pixel-perfect — the caller draws that overlay as a sibling layer.
 struct TopoHoleBaseImage: View {
-    /// The flat ground of a hole without a raster (and 备战's screen ground around a fitted map).
+    /// The flat ground of a hole without a raster (and 备战's screen ground while a raster loads).
     static let groundColor = Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255)
 
     let topoURL: URL?
     let fallback: UIImage?
+    /// 备战 only: how far (fractions of this layer's own width / height) the terrain continues past
+    /// each edge, extended from the bitmap's own edge pixels (`TopoEdgeExtension`), so a fitted map
+    /// that does not cover the screen never reads as a rectangle on a foreign ground. Only the
+    /// terrain continues: the route, green, flag and tee are drawn above by the map's own layer.
+    var edgeExtension = EdgeInsets()
+    /// With an extension, the sharp bitmap's edges fade over this many points into its continuation.
+    var edgeFeather: CGFloat = 0
     @StateObject private var imageStore = TopoHoleImageStore()
 
     var body: some View {
         Group {
             if let topoURL {
                 if let image = imageStore.image {
-                    readyImage(Image(uiImage: image))
+                    extended(image) { readyImage(Image(uiImage: image)) }
                 } else if imageStore.failedURL == topoURL {
                     fallbackImage
                 } else {
@@ -168,7 +175,8 @@ struct TopoHoleBaseImage: View {
     }
 
     /// topo-v11 has a transparent off-course canvas. Preserve it in every context so review/prep do
-    /// not manufacture a second rectangular terrain layer around the real hole.
+    /// not manufacture a second rectangular terrain layer around the real hole. (Its edge extension
+    /// is transparent too.)
     private func readyImage(_ image: Image) -> some View {
         image.resizable().scaledToFit()
             .accessibilityElement(children: .ignore)
@@ -193,12 +201,199 @@ struct TopoHoleBaseImage: View {
 
     @ViewBuilder private var fallbackImage: some View {
         if let fallback {
-            Image(uiImage: fallback).resizable().scaledToFit()
-                .accessibilityIdentifier("topo-hole-base-fallback")
+            extended(fallback) {
+                Image(uiImage: fallback).resizable().scaledToFit()
+                    .accessibilityIdentifier("topo-hole-base-fallback")
+            }
         } else {
             Self.groundColor
                 .accessibilityIdentifier("topo-hole-base-fallback")
         }
+    }
+
+    /// The bitmap over its own edge-extended continuation (when an extension is asked for): the
+    /// continuation is drawn behind, sized past this layer's frame by `edgeExtension`, and the sharp
+    /// bitmap fades into it over `edgeFeather`.
+    @ViewBuilder
+    private func extended<Content: View>(_ source: UIImage, @ViewBuilder _ content: () -> Content) -> some View {
+        if TopoEdgeExtension.isEmpty(edgeExtension) {
+            content()
+        } else if let backdrop = TopoEdgeExtension.backdrop(for: source, extending: edgeExtension) {
+            content()
+                .mask { FeatheredEdgesMask(width: edgeFeather) }
+                .background {
+                    GeometryReader { proxy in
+                        let width = proxy.size.width
+                        let height = proxy.size.height
+                        let insets = backdrop.insets
+                        Image(uiImage: backdrop.image)
+                            .resizable()
+                            .interpolation(.high)
+                            .frame(
+                                width: width * (1 + insets.leading + insets.trailing),
+                                height: height * (1 + insets.top + insets.bottom)
+                            )
+                            .offset(
+                                x: width * (insets.trailing - insets.leading) / 2,
+                                y: height * (insets.bottom - insets.top) / 2
+                            )
+                            .frame(width: width, height: height)
+                    }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+        } else {
+            content()
+        }
+    }
+}
+
+/// A bitmap's terrain continued past its edges: a small copy of it with its outermost rows and
+/// columns stretched outward (clamp to edge), which the view scales up smoothly. Every point of
+/// the continuation takes the colour of the nearest edge pixel, so the surround locally matches the
+/// map's own edge on every side instead of a fixed colour. Used from view bodies (main thread).
+enum TopoEdgeExtension {
+    struct Backdrop {
+        let image: UIImage
+        /// The extension actually built, as fractions of the bitmap's width / height.
+        let insets: EdgeInsets
+    }
+
+    /// The small copy's longest side, in pixels.
+    static let sampleSide: CGFloat = 48
+
+    private struct Key: Hashable {
+        let image: ObjectIdentifier
+        let top: Int, leading: Int, bottom: Int, trailing: Int
+    }
+
+    private static var cache: [Key: Backdrop] = [:]
+    private static var order: [Key] = []
+
+    static func isEmpty(_ insets: EdgeInsets) -> Bool {
+        insets.top <= 0 && insets.leading <= 0 && insets.bottom <= 0 && insets.trailing <= 0
+    }
+
+    static func backdrop(for source: UIImage, extending insets: EdgeInsets) -> Backdrop? {
+        // Quarter steps, rounded up, keep the key stable while the viewport moves a little.
+        func quarters(_ value: CGFloat) -> Int {
+            guard value.isFinite, value > 0 else { return 0 }
+            return min(Int((value * 4).rounded(.up)), 40)
+        }
+        let key = Key(
+            image: ObjectIdentifier(source),
+            top: quarters(insets.top),
+            leading: quarters(insets.leading),
+            bottom: quarters(insets.bottom),
+            trailing: quarters(insets.trailing)
+        )
+        if let cached = cache[key] { return cached }
+        guard let built = build(
+            source,
+            top: CGFloat(key.top) / 4,
+            leading: CGFloat(key.leading) / 4,
+            bottom: CGFloat(key.bottom) / 4,
+            trailing: CGFloat(key.trailing) / 4
+        ) else { return nil }
+        cache[key] = built
+        order.append(key)
+        if order.count > 12 {
+            cache[order.removeFirst()] = nil
+        }
+        return built
+    }
+
+    private static func build(
+        _ source: UIImage,
+        top: CGFloat,
+        leading: CGFloat,
+        bottom: CGFloat,
+        trailing: CGFloat
+    ) -> Backdrop? {
+        let size = source.size
+        guard size.width > 0, size.height > 0 else { return nil }
+        let scale = min(1, sampleSide / max(size.width, size.height))
+        let smallWidth = max(Int((size.width * scale).rounded()), 2)
+        let smallHeight = max(Int((size.height * scale).rounded()), 2)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let small = UIGraphicsImageRenderer(
+            size: CGSize(width: smallWidth, height: smallHeight),
+            format: format
+        ).image { _ in
+            source.draw(in: CGRect(x: 0, y: 0, width: smallWidth, height: smallHeight))
+        }
+        guard let pixels = small.cgImage else { return nil }
+        let padLeft = Int((leading * CGFloat(smallWidth)).rounded(.up))
+        let padRight = Int((trailing * CGFloat(smallWidth)).rounded(.up))
+        let padTop = Int((top * CGFloat(smallHeight)).rounded(.up))
+        let padBottom = Int((bottom * CGFloat(smallHeight)).rounded(.up))
+        let width = smallWidth + padLeft + padRight
+        let height = smallHeight + padTop + padBottom
+        let w = CGFloat(smallWidth)
+        let h = CGFloat(smallHeight)
+        let left = CGFloat(padLeft)
+        let topPad = CGFloat(padTop)
+        // Source strip (in the small copy's pixels) → destination rect in the extended image.
+        let pieces: [(CGRect, CGRect)] = [
+            (CGRect(x: 0, y: 0, width: w, height: h), CGRect(x: left, y: topPad, width: w, height: h)),
+            (CGRect(x: 0, y: 0, width: 1, height: h), CGRect(x: 0, y: topPad, width: left, height: h)),
+            (CGRect(x: w - 1, y: 0, width: 1, height: h), CGRect(x: left + w, y: topPad, width: CGFloat(padRight), height: h)),
+            (CGRect(x: 0, y: 0, width: w, height: 1), CGRect(x: left, y: 0, width: w, height: topPad)),
+            (CGRect(x: 0, y: h - 1, width: w, height: 1), CGRect(x: left, y: topPad + h, width: w, height: CGFloat(padBottom))),
+            (CGRect(x: 0, y: 0, width: 1, height: 1), CGRect(x: 0, y: 0, width: left, height: topPad)),
+            (CGRect(x: w - 1, y: 0, width: 1, height: 1), CGRect(x: left + w, y: 0, width: CGFloat(padRight), height: topPad)),
+            (CGRect(x: 0, y: h - 1, width: 1, height: 1), CGRect(x: 0, y: topPad + h, width: left, height: CGFloat(padBottom))),
+            (CGRect(x: w - 1, y: h - 1, width: 1, height: 1), CGRect(x: left + w, y: topPad + h, width: CGFloat(padRight), height: CGFloat(padBottom))),
+        ]
+        let image = UIGraphicsImageRenderer(
+            size: CGSize(width: width, height: height),
+            format: format
+        ).image { _ in
+            for (from, to) in pieces where to.width > 0 && to.height > 0 {
+                guard let strip = pixels.cropping(to: from) else { continue }
+                UIImage(cgImage: strip).draw(in: to)
+            }
+        }
+        return Backdrop(
+            image: image,
+            insets: EdgeInsets(
+                top: CGFloat(padTop) / h,
+                leading: CGFloat(padLeft) / w,
+                bottom: CGFloat(padBottom) / h,
+                trailing: CGFloat(padRight) / w
+            )
+        )
+    }
+}
+
+/// Opaque inside, fading linearly to clear over `width` points at every edge (no fade for 0).
+/// Built from two gradients rather than a blur, so every renderer (including layer snapshots)
+/// draws the same soft edge.
+struct FeatheredEdgesMask: View {
+    let width: CGFloat
+
+    var body: some View {
+        if width > 0.5 {
+            GeometryReader { proxy in
+                let fx = min(width / max(proxy.size.width, 1), 0.5)
+                let fy = min(width / max(proxy.size.height, 1), 0.5)
+                LinearGradient(stops: Self.ramp(fx), startPoint: .leading, endPoint: .trailing)
+                    .mask(LinearGradient(stops: Self.ramp(fy), startPoint: .top, endPoint: .bottom))
+            }
+        } else {
+            Rectangle().fill(Color.white)
+        }
+    }
+
+    private static func ramp(_ fraction: CGFloat) -> [Gradient.Stop] {
+        [
+            .init(color: .clear, location: 0),
+            .init(color: .white, location: fraction),
+            .init(color: .white, location: 1 - fraction),
+            .init(color: .clear, location: 1),
+        ]
     }
 }
 #endif

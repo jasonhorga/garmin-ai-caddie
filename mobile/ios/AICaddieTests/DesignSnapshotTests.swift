@@ -985,13 +985,42 @@ final class DesignSnapshotTests: XCTestCase {
         // The installed topo is a local file, as the download writes it.
         let prepTopoURL = FileManager.default.temporaryDirectory.appendingPathComponent("prep-snapshot-topo.png")
         try XCTUnwrap(holeImage.pngData()).write(to: prepTopoURL, options: [.atomic])
+        // Hole 2 is the CI fixture's shape: a square topo whose route runs corner to corner, which
+        // cannot be fitted with its whole plan and still cover a portrait screen. Its bitmap has a
+        // darker rough border, so the terrain around the fitted map must continue that edge.
+        let squareRough = (red: 96, green: 140, blue: 86)
+        let squareImage = UIGraphicsImageRenderer(size: CGSize(width: 256, height: 256)).image { ctx in
+            UIColor(red: 96 / 255, green: 140 / 255, blue: 86 / 255, alpha: 1).setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 256, height: 256))
+            UIColor(red: 0.46, green: 0.66, blue: 0.40, alpha: 1).setFill()
+            ctx.fill(CGRect(x: 24, y: 24, width: 208, height: 208))
+            UIColor(red: 0.60, green: 0.78, blue: 0.45, alpha: 1).setFill()
+            let band = UIBezierPath()
+            band.move(to: CGPoint(x: 24, y: 44))
+            band.addLine(to: CGPoint(x: 44, y: 24))
+            band.addLine(to: CGPoint(x: 212, y: 192))
+            band.addLine(to: CGPoint(x: 192, y: 212))
+            band.close()
+            band.fill()
+            UIColor(red: 0.50, green: 0.80, blue: 0.43, alpha: 1).setFill()
+            ctx.cgContext.fillEllipse(in: CGRect(x: 196, y: 196, width: 36, height: 36))
+        }
+        let squareTopoURL = FileManager.default.temporaryDirectory.appendingPathComponent("prep-snapshot-square-topo.png")
+        try XCTUnwrap(squareImage.pngData()).write(to: squareTopoURL, options: [.atomic])
+        let squarePrepHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data("""
+        {"hole":2,"par":4,"par_source":"garmin","blue_yards":410,"route_len_m":375,\
+        "route":[[4,4],[57,57]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
+        "geometryCoverage":"ready","geometryRevision":"snapshot-square-r1",\
+        "map":{"overlay":{"w":64,"h":64,"ppm":0.2,"ln":375,"route":[[4,4,0],[57,57,375]]}}}
+        """.utf8))
         let prepPars = [5, 4, 3, 4, 4, 5, 3, 4, 4, 4, 4, 3, 5, 4, 4, 3, 5, 4]
         let prepYards = [543, 410, 178, 395, 402, 528, 165, 388, 420, 415, 398, 172, 535, 405, 390, 188, 520, 430]
         let prepRows: [PrepHoleRow] = (1...18).map { number -> PrepHoleRow in
             let state: LiveMapDisplayState = number <= 4 ? .precise : (number <= 12 ? .factualPending : .waiting)
             let prep: CoursePrepHole? = state == .waiting
                 ? nil
-                : (state == .precise ? prepCardHole : factualPrepHole).renumbered(to: number)
+                : (number == 2 ? squarePrepHole : (state == .precise ? prepCardHole : factualPrepHole))
+                    .renumbered(to: number)
             // The three real strategy routes (推荐 / 稳妥 / 进攻), each with its own carries and
             // landings, through the production route -> plan mapping.
             let plans: [PrepPlanOption] = state == .waiting
@@ -1007,7 +1036,7 @@ final class DesignSnapshotTests: XCTestCase {
                 par: prepPars[number - 1],
                 yards: prepYards[number - 1],
                 prep: prep,
-                topoURL: state == .precise ? prepTopoURL : nil,
+                topoURL: state == .precise ? (number == 2 ? squareTopoURL : prepTopoURL) : nil,
                 state: state,
                 plans: plans
             )
@@ -1071,6 +1100,8 @@ final class DesignSnapshotTests: XCTestCase {
             // 方案 2: its own route, landings ("球杆 码数") and club order.
             ("prep-hole-plan-2", prepSession(hole: 1, plan: 1)),
             ("prep-hole-factual", prepSession(hole: 5)),
+            // The fixture's square diagonal hole: the whole plan fitted, the terrain continued.
+            ("prep-hole-square", prepSession(hole: 2)),
             ("prep-hole-waiting", prepSession(hole: 14)),
             // The same precise hole with the zoom and pan the player set on its factual route: the
             // replacement keeps them (the reset control shows the view is not the fitted one).
@@ -1080,8 +1111,7 @@ final class DesignSnapshotTests: XCTestCase {
             )),
         ]
         var prepPNGs: [Data] = []
-        var prepMapFrames: [String: CGRect] = [:]
-        var prepLabelRects: [String: [CGRect]] = [:]
+        var prepAudits: [String: PrepRouteLabelAudit.Entry] = [:]
         for (name, session) in prepStates {
             PrepRouteLabelAudit.latest = nil
             prepPNGs.append(try captureScreen(
@@ -1103,8 +1133,7 @@ final class DesignSnapshotTests: XCTestCase {
             guard name != "prep-hole-waiting" else { continue }
             let audit = try XCTUnwrap(PrepRouteLabelAudit.latest, "\(name): the route layer was drawn")
             XCTAssertEqual(audit.hole, session.holeNumber)
-            prepMapFrames[name] = audit.mapFrame
-            prepLabelRects[name] = audit.labels.compactMap { $0 }
+            prepAudits[name] = audit
             XCTAssertGreaterThanOrEqual(audit.chrome.count, 3, "\(name): header, badge and panel, before any measuring")
             let row = try XCTUnwrap(prepRows.first { $0.number == audit.hole })
             let plan = try XCTUnwrap(session.plan(in: row.plans))
@@ -1184,7 +1213,7 @@ final class DesignSnapshotTests: XCTestCase {
         // including those whose map does not cover the screen (the ground around it is flat).
         // Pennant red; the green is the topo's green (precise) or the factual green fill, told
         // apart from the fairway, rough, ground and the small landing dots by hue and size.
-        let fittedMapStates: Set<String> = ["prep-hole", "prep-hole-plan-2", "prep-hole-factual"]
+        let fittedMapStates: Set<String> = ["prep-hole", "prep-hole-plan-2", "prep-hole-factual", "prep-hole-square"]
         for (name, png) in zip(prepNames, prepPNGs) where fittedMapStates.contains(name) {
             let flags = try Self.colorRegions(in: png, minAreaPoints: 12) { red, green, blue in
                 red > 195 && green < 80 && blue < 80
@@ -1195,21 +1224,28 @@ final class DesignSnapshotTests: XCTestCase {
             }
             XCTAssertEqual(greens.count, 1, "\(name): exactly one green is drawn, got \(greens)")
         }
-        // Where a fitted map leaves ground beside it (`PrepHoleMapHero` passes `groundFeather`),
-        // its base image fades into the flat ground with no hard seam. Rendered on its own so the
-        // edges are known exactly; the same map without the fade proves the seam detector.
-        func edgeRender(feather: CGFloat, named name: String) throws -> Data {
-            try captureScreen(
+        // Where a fitted map does not cover the screen, its terrain continues from its own edge
+        // pixels and the sharp bitmap fades into that continuation: no seam, and no rectangle. The
+        // square hole's bitmap, rendered on its own at a known frame (x 75...315, y 302...542),
+        // proves both detectors on the old composition (the bitmap on a flat ground).
+        func edgeRender(extended: Bool, named name: String) throws -> Data {
+            let frame = CGRect(x: 75, y: 302, width: 240, height: 240)
+            return try captureScreen(
                 ZStack {
                     TopoHoleBaseImage.groundColor
                     HoleImageMapView(
-                        hole: prepCardHole,
-                        topoURL: prepTopoURL,
+                        hole: squarePrepHole,
+                        topoURL: squareTopoURL,
                         showsCardChrome: false,
+                        showsFactualRoute: false,
                         showsRecommendedRoute: false,
-                        baseEdgeFeather: feather
+                        baseEdgeExtension: extended
+                            ? PrepHoleMapHero.terrainExtension(rest: frame, viewport: CGSize(width: 390, height: 844))
+                            : EdgeInsets(),
+                        baseEdgeFeather: extended ? PrepHoleMapHero.groundFeather : 0
                     )
-                    .frame(width: 240, height: 360)
+                    .frame(width: frame.width, height: frame.height)
+                    .position(x: frame.midX, y: frame.midY)
                 }
                 .frame(width: 390, height: 844)
                 .ignoresSafeArea(),
@@ -1218,19 +1254,58 @@ final class DesignSnapshotTests: XCTestCase {
                 settle: 2.0
             )
         }
-        // The map rests at x 75...315, y 242...602. Scan across its left edge (clear of the route
-        // and green) and its top edge.
-        func seamSteps(_ png: Data) throws -> (left: Int, top: Int) {
-            let left = try Self.lineSteps(in: png, from: CGPoint(x: 20, y: 540), to: CGPoint(x: 120, y: 540))
-            let top = try Self.lineSteps(in: png, from: CGPoint(x: 290, y: 200), to: CGPoint(x: 290, y: 300))
-            return (left.max() ?? 0, top.max() ?? 0)
+        // Largest 1 pt colour step across the left and top edges (within the rough border), and
+        // how far the surround 12 pt outside each side is from the bitmap's rough edge colour.
+        func edgeMeasures(_ png: Data) throws -> (step: Int, surround: Int) {
+            let left = try Self.lineSteps(in: png, from: CGPoint(x: 20, y: 420), to: CGPoint(x: 90, y: 420))
+            let top = try Self.lineSteps(in: png, from: CGPoint(x: 290, y: 250), to: CGPoint(x: 290, y: 318))
+            var surround = 0
+            for point in [CGPoint(x: 63, y: 420), CGPoint(x: 327, y: 420), CGPoint(x: 195, y: 290), CGPoint(x: 195, y: 554)] {
+                let mean = try Self.patchMean(in: png, at: point, radius: 2)
+                surround = max(surround, Self.colorDistance(mean, squareRough))
+            }
+            return (max(left.max() ?? 0, top.max() ?? 0), surround)
         }
-        let hardEdge = try seamSteps(try edgeRender(feather: 0, named: "prep-map-edge-unfaded"))
-        XCTAssertGreaterThanOrEqual(hardEdge.left, 60, "the detector sees an unfaded left edge")
-        XCTAssertGreaterThanOrEqual(hardEdge.top, 60, "the detector sees an unfaded top edge")
-        let fadedEdge = try seamSteps(try edgeRender(feather: PrepHoleMapHero.groundFeather, named: "prep-map-edge-faded"))
-        XCTAssertLessThan(fadedEdge.left, 60, "the fitted map's left edge fades into the ground")
-        XCTAssertLessThan(fadedEdge.top, 60, "the fitted map's top edge fades into the ground")
+        let flatGround = try edgeMeasures(try edgeRender(extended: false, named: "prep-map-edge-flat-ground"))
+        XCTAssertGreaterThanOrEqual(flatGround.step, 60, "the seam detector sees a bitmap on a flat ground")
+        XCTAssertGreaterThanOrEqual(flatGround.surround, 120, "the surround detector sees a rectangle on a flat ground")
+        let continued = try edgeMeasures(try edgeRender(extended: true, named: "prep-map-edge-continued"))
+        XCTAssertLessThan(continued.step, 60, "the fitted map's edges have no seam")
+        XCTAssertLessThan(continued.surround, 40, "the terrain around the fitted map continues its edge")
+        // The actual composed 备战 state for that hole: on every side the map leaves exposed, the
+        // surround (12 pt outside, clear of the chrome, labels and landings) matches the bitmap's
+        // edge colour, so the map does not read as a rectangle.
+        let squareAudit = try XCTUnwrap(prepAudits["prep-hole-square"])
+        let squarePNG = try XCTUnwrap(zip(prepNames, prepPNGs).first { $0.0 == "prep-hole-square" }?.1)
+        let squareFrame = squareAudit.mapFrame
+        XCTAssertFalse(
+            PrepMapLayout.covers(squareFrame, viewport: squareAudit.viewport),
+            "the square diagonal plan is fitted inside the screen"
+        )
+        let blocked: [CGRect] = squareAudit.chrome.map { $0.insetBy(dx: -10, dy: -10) }
+            + squareAudit.labels.compactMap { $0?.insetBy(dx: -10, dy: -10) }
+            + squareAudit.landings.map { CGRect(x: $0.x - 30, y: $0.y - 30, width: 60, height: 60) }
+        let screen = CGRect(origin: .zero, size: squareAudit.viewport).insetBy(dx: 4, dy: 4)
+        var samples: [CGPoint] = []
+        var y = squareFrame.minY + 10
+        while y < squareFrame.maxY - 10 {
+            samples.append(CGPoint(x: squareFrame.minX - 12, y: y))
+            samples.append(CGPoint(x: squareFrame.maxX + 12, y: y))
+            y += 16
+        }
+        var x = squareFrame.minX + 10
+        while x < squareFrame.maxX - 10 {
+            samples.append(CGPoint(x: x, y: squareFrame.minY - 12))
+            samples.append(CGPoint(x: x, y: squareFrame.maxY + 12))
+            x += 16
+        }
+        var distances: [Int] = []
+        for point in samples where screen.contains(point) && !blocked.contains(where: { $0.contains(point) }) {
+            distances.append(Self.colorDistance(try Self.patchMean(in: squarePNG, at: point, radius: 2), squareRough))
+        }
+        XCTAssertGreaterThanOrEqual(distances.count, 6, "the square hole exposes terrain around its map")
+        let median = distances.sorted()[distances.count / 2]
+        XCTAssertLessThan(median, 40, "the composed square hole's surround continues its edge (distances \(distances))")
 
         // 单场复盘: a representative 18-hole Garmin-style scorecard before the compact metrics,
         // rendered from a round-detail fixture (mirrors /api/v2/history/rounds/{ref}).
@@ -1636,6 +1711,39 @@ final class DesignSnapshotTests: XCTestCase {
             }
         }
         return regions
+    }
+
+    /// Mean RGB of the square patch of `radius` points around `point` (points, 390 pt wide image).
+    private static func patchMean(in png: Data, at point: CGPoint, radius: CGFloat) throws -> (red: Int, green: Int, blue: Int) {
+        let (bytes, width, height) = try rgba(png)
+        let pixelsPerPoint = CGFloat(width) / 390
+        let minX = max(0, Int((point.x - radius) * pixelsPerPoint))
+        let maxX = min(width - 1, Int((point.x + radius) * pixelsPerPoint))
+        let minY = max(0, Int((point.y - radius) * pixelsPerPoint))
+        let maxY = min(height - 1, Int((point.y + radius) * pixelsPerPoint))
+        var sums = (0, 0, 0)
+        var count = 0
+        if minX <= maxX, minY <= maxY {
+            for row in minY...maxY {
+                for column in minX...maxX {
+                    let index = (row * width + column) * 4
+                    sums.0 += Int(bytes[index])
+                    sums.1 += Int(bytes[index + 1])
+                    sums.2 += Int(bytes[index + 2])
+                    count += 1
+                }
+            }
+        }
+        let n = max(count, 1)
+        return (sums.0 / n, sums.1 / n, sums.2 / n)
+    }
+
+    /// Summed absolute RGB difference.
+    private static func colorDistance(
+        _ lhs: (red: Int, green: Int, blue: Int),
+        _ rhs: (red: Int, green: Int, blue: Int)
+    ) -> Int {
+        abs(lhs.red - rhs.red) + abs(lhs.green - rhs.green) + abs(lhs.blue - rhs.blue)
     }
 
     /// Colour change (summed RGB) between neighbouring samples 1 pt apart along a segment (points).

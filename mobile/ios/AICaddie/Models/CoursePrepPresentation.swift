@@ -304,9 +304,9 @@ struct PrepHoleMapSession: Equatable {
 /// "球杆 码数" label, and the green all sit inside the content rect between the chrome (the badge
 /// row on top, the glass panel at the bottom). Among such frames it prefers one whose bitmap covers
 /// the viewport; when the hole's shape makes that impossible (a diagonal hole on a square topo in
-/// a portrait screen), the plan wins: the screen around the map is the flat, non-semantic ground
-/// (`TopoHoleBaseImage.groundColor`) and the map's base image fades into it, so there is one map,
-/// drawn once, with no seam and no black bands.
+/// a portrait screen), the plan wins: the map is drawn once, its terrain continues to the screen
+/// edges from its own edge pixels (`TopoEdgeExtension`) and the sharp bitmap fades into that, so
+/// there is no rectangle, seam or black band.
 enum PrepMapLayout {
     /// An overlay point the fitted map keeps inside the content rect with `clearance` points of
     /// room on each side (a landing's label, or a small margin for the tee and the route).

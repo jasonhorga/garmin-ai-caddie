@@ -462,8 +462,8 @@ struct CoursePrepStrategyScreen: View {
 }
 
 /// The full-screen 备战 hole map: fitted, the whole plan sits between the chrome and the bitmap
-/// covers the screen when the hole's shape allows (`PrepMapLayout`), otherwise it fades into the
-/// flat screen ground; then the live hero's pan / zoom. The bitmap draws the factual route
+/// covers the screen when the hole's shape allows (`PrepMapLayout`), otherwise its terrain continues
+/// from its own edges to the screen's; then the live hero's pan / zoom. The bitmap draws the factual route
 /// and green; the selected plan's legs, landings and their "球杆 码数" labels are drawn in the
 /// viewport plane by the live `LivePlannedRouteRenderer`, so they keep screen size at every zoom.
 /// Obstacles follow the default-none rule: none are drawn on this screen.
@@ -509,7 +509,7 @@ struct PrepHoleMapHero: View {
             let size = geo.size
             let heroFrame = geo.frame(in: .global)
             let insets = PrepChromeLayout.mapInsets(contentFrame: contentFrame, in: heroFrame)
-            let legs = mapView(feather: 0).plannedLegs()
+            let legs = mapView(extension: EdgeInsets(), feather: 0).plannedLegs()
             let scale = displayedScale
             let badgeSubtitle = CoursePrepStrategyScreen.holeSubtitle(par: row.par, yards: row.yards)
             let chrome: (Bool) -> [CGRect] = { showsReset in
@@ -532,9 +532,14 @@ struct PrepHoleMapHero: View {
             let exclusions = chrome(!viewport.isFitted)
             let covering = PrepMapLayout.covers(rest, viewport: size)
             // One map, drawn once. When the fitted plan leaves part of the screen outside it, the
-            // screen is a flat, non-semantic ground (no flag, green, tee, route or hazard) and the
-            // map's base image fades into it at its edges, so there is no rectangular seam.
-            let map = mapView(feather: covering ? 0 : Self.groundFeather)
+            // map's own terrain continues to the screen edges, extended from its edge pixels
+            // (no flag, green, tee, route or hazard), and the sharp bitmap fades into that
+            // continuation, so the map never reads as a rectangle. The flat ground only shows
+            // while a bitmap is still loading.
+            let map = mapView(
+                extension: covering ? EdgeInsets() : Self.terrainExtension(rest: rest, viewport: size),
+                feather: covering ? 0 : Self.groundFeather
+            )
             ZStack(alignment: .topTrailing) {
                 if !chromeAudit, !covering {
                     TopoHoleBaseImage.groundColor
@@ -702,10 +707,24 @@ struct PrepHoleMapHero: View {
 
     /// One configured map for the bitmap layer and the viewport-plane route layer, so the labelled
     /// legs are exactly the ones the bitmap is aligned with.
-    /// How far the base image fades into the screen ground when the fitted map does not cover it.
-    static let groundFeather: CGFloat = 28
+    /// How far the sharp bitmap fades into its terrain continuation when the fitted map does not
+    /// cover the screen.
+    static let groundFeather: CGFloat = 20
 
-    private func mapView(feather: CGFloat) -> HoleImageMapView {
+    /// The terrain continuation that reaches every screen edge from the fitted frame, as fractions
+    /// of the frame's size, with room for a pan while zoomed.
+    static func terrainExtension(rest: CGRect, viewport: CGSize) -> EdgeInsets {
+        guard rest.width > 1, rest.height > 1 else { return EdgeInsets() }
+        let margin: CGFloat = 0.25
+        return EdgeInsets(
+            top: max(rest.minY, 0) / rest.height + margin,
+            leading: max(rest.minX, 0) / rest.width + margin,
+            bottom: max(viewport.height - rest.maxY, 0) / rest.height + margin,
+            trailing: max(viewport.width - rest.maxX, 0) / rest.width + margin
+        )
+    }
+
+    private func mapView(extension terrain: EdgeInsets, feather: CGFloat) -> HoleImageMapView {
         HoleImageMapView(
             hole: prep,
             topoURL: row.state == .precise ? row.topoURL : nil,
@@ -718,6 +737,7 @@ struct PrepHoleMapHero: View {
             showsClubLabel: false,
             plannedShots: plan?.shots ?? [],
             drawsPlannedRouteInMap: false,
+            baseEdgeExtension: terrain,
             baseEdgeFeather: feather
         )
     }

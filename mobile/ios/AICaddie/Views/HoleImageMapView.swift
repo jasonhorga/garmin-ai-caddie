@@ -131,9 +131,11 @@ public struct HoleImageMapView: View {
     /// `teeDistanceArcPixels()`, so all labels share one collision layout. The bitmap then skips
     /// both so nothing is doubled.
     public let drawsPlannedRouteInMap: Bool
-    /// 备战 only: when the fitted map does not cover the screen, the base image's edges fade over
-    /// this many points into `TopoHoleBaseImage.groundColor` (the screen's flat ground), so there is
-    /// no rectangular seam. Only the ground image fades; the route, green and flag stay crisp.
+    /// 备战 only: when the fitted map does not cover the screen, the base bitmap's terrain continues
+    /// past its frame by these fractions of its width / height, extended from its own edge pixels,
+    /// and the sharp bitmap fades into that continuation over `baseEdgeFeather` points. Only the
+    /// terrain continues; the route, green and flag are drawn once, crisp, by this view's canvas.
+    public let baseEdgeExtension: EdgeInsets
     public let baseEdgeFeather: CGFloat
 
     public init(hole: CoursePrepHole, selectedClub: String? = nil, selectedClubMetres: Double? = nil,
@@ -145,7 +147,7 @@ public struct HoleImageMapView: View {
                 showsPrepClubLabel: Bool = true, showsClubLabel: Bool = true,
                 teeDistanceArcYards: Int? = nil,
                 plannedShots: [MapPlannedShot] = [], selectedPlanIndex: Int? = nil,
-                drawsPlannedRouteInMap: Bool = true, baseEdgeFeather: CGFloat = 0) {
+                drawsPlannedRouteInMap: Bool = true, baseEdgeExtension: EdgeInsets = EdgeInsets(), baseEdgeFeather: CGFloat = 0) {
         self.hole = hole
         self.selectedClub = selectedClub
         self.selectedClubMetres = selectedClubMetres
@@ -163,6 +165,7 @@ public struct HoleImageMapView: View {
         self.plannedShots = plannedShots
         self.selectedPlanIndex = selectedPlanIndex
         self.drawsPlannedRouteInMap = drawsPlannedRouteInMap
+        self.baseEdgeExtension = baseEdgeExtension
         self.baseEdgeFeather = baseEdgeFeather
     }
 
@@ -173,8 +176,12 @@ public struct HoleImageMapView: View {
                 // A partial CourseView package already has factual vectors but no prodgeometry
                 // bitmap. Do not issue a guaranteed 404 and pin AsyncImage in its failure state;
                 // the URL appears only when the same hole later upgrades to precise geometry.
-                TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)
-                    .mask { FeatheredEdgesMask(width: baseEdgeFeather) }
+                TopoHoleBaseImage(
+                    topoURL: preciseTopoURL,
+                    fallback: decodedImage,
+                    edgeExtension: baseEdgeExtension,
+                    edgeFeather: baseEdgeFeather
+                )
                 Canvas { context, size in
                     draw(&context, size: size, overlay: overlay)
                 }
@@ -1193,35 +1200,6 @@ struct RotatableMapViewport<Content: View>: View {
             width: min(max(value.width, -maxX), maxX),
             height: min(max(value.height, -maxY), maxY)
         )
-    }
-}
-
-/// Opaque inside, fading linearly to clear over `width` points at every edge (no fade for 0).
-/// Built from two gradients rather than a blur, so every renderer (including layer snapshots)
-/// draws the same soft edge.
-private struct FeatheredEdgesMask: View {
-    let width: CGFloat
-
-    var body: some View {
-        if width > 0.5 {
-            GeometryReader { proxy in
-                let fx = min(width / max(proxy.size.width, 1), 0.5)
-                let fy = min(width / max(proxy.size.height, 1), 0.5)
-                LinearGradient(stops: Self.ramp(fx), startPoint: .leading, endPoint: .trailing)
-                    .mask(LinearGradient(stops: Self.ramp(fy), startPoint: .top, endPoint: .bottom))
-            }
-        } else {
-            Rectangle().fill(Color.white)
-        }
-    }
-
-    private static func ramp(_ fraction: CGFloat) -> [Gradient.Stop] {
-        [
-            .init(color: .clear, location: 0),
-            .init(color: .white, location: fraction),
-            .init(color: .white, location: 1 - fraction),
-            .init(color: .clear, location: 1),
-        ]
     }
 }
 
