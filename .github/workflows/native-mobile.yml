@@ -513,6 +513,19 @@ jobs:
           kill -INT "$REC_PID" 2>/dev/null || true
           sleep 4
           ls -la real-videos || true
+          # Surface each UI-test assertion as a job annotation: the inline xcodebuild failure line
+          # scrolls out of the retained log tail on a full run.
+          if [ "$TEST_STATUS" -ne 0 ]; then
+            RESULT=$(ls -td "$HOME"/Library/Developer/Xcode/DerivedData/*/Logs/Test/Test-AICaddieUITests-*.xcresult 2>/dev/null | head -1)
+            if [ -n "$RESULT" ]; then
+              xcrun xcresulttool get test-results summary --path "$RESULT" --compact 2>/dev/null \
+                | python3 -c 'import json, sys
+          for f in json.load(sys.stdin).get("testFailures", []):
+              name = f.get("testIdentifierString") or f.get("testName") or "UI test"
+              text = " ".join(str(f.get("failureText", "")).split())[:900]
+              print(f"::error title=UI test failure::{name} :: {text}")' || true
+            fi
+          fi
           exit "$TEST_STATUS"
       - name: Collect real screenshots
         if: ${{ always() && github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment_app.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
