@@ -509,22 +509,41 @@ struct PrepHoleMapHero: View {
             let heroFrame = geo.frame(in: .global)
             let insets = PrepChromeLayout.mapInsets(contentFrame: contentFrame, in: heroFrame)
             let map = mapView
+            let legs = map.plannedLegs()
             let scale = displayedScale
-            let offset = displayedOffset(in: size, insets: insets)
-            // The bitmap (or the factual route's ground) covers the whole viewport; the chrome only
-            // moves where the hole rests inside it.
-            let rest = restFrame(in: size, insets: insets) ?? CGRect(origin: .zero, size: size)
-            let exclusions = PrepChromeLayout.exclusions(
-                viewport: size,
-                insets: insets,
-                contentFrame: contentFrame,
-                heroFrame: heroFrame,
-                badgeNumber: row.displayNumber,
-                badgeSubtitle: CoursePrepStrategyScreen.holeSubtitle(par: row.par, yards: row.yards),
-                measured: measuredChrome,
-                showsResetControl: !viewport.isFitted
-            )
+            let badgeSubtitle = CoursePrepStrategyScreen.holeSubtitle(par: row.par, yards: row.yards)
+            let chrome: (Bool) -> [CGRect] = { showsReset in
+                PrepChromeLayout.exclusions(
+                    viewport: size,
+                    insets: insets,
+                    contentFrame: contentFrame,
+                    heroFrame: heroFrame,
+                    badgeNumber: row.displayNumber,
+                    badgeSubtitle: badgeSubtitle,
+                    measured: measuredChrome,
+                    showsResetControl: showsReset
+                )
+            }
+            // Fitted, the whole plan is on screen: the tee, every landing with its label wholly
+            // clear of the chrome, and the green (`PrepMapLayout.fittedRestFrame`).
+            let rest = restFrame(in: size, insets: insets, legs: legs, chrome: chrome(false))
+                ?? CGRect(origin: .zero, size: size)
+            let offset = displayedOffset(rest: rest, size: size)
+            let exclusions = chrome(!viewport.isFitted)
             ZStack(alignment: .topTrailing) {
+                if !chromeAudit, !PrepMapLayout.covers(rest, viewport: size), let cover = coverFrame(in: size, insets: insets) {
+                    // The fitted plan leaves part of the screen outside the bitmap: the same map,
+                    // filling the screen, blurred and dimmed behind it completes the surface.
+                    map
+                        .frame(width: cover.width, height: cover.height)
+                        .position(x: cover.midX, y: cover.midY)
+                        .frame(width: size.width, height: size.height)
+                        .blur(radius: 18, opaque: true)
+                        .overlay(Color.black.opacity(0.28))
+                        .clipped()
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
                 map
                     .frame(width: rest.width, height: rest.height)
                     .position(x: rest.midX, y: rest.midY)
@@ -538,7 +557,6 @@ struct PrepHoleMapHero: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("prep-hole-map-\(row.number)")
                 if let overlay = prep.resolvedMapOverlay {
-                    let legs = map.plannedLegs()
                     Canvas { context, canvasSize in
                         // Every "球杆 码数" label stays wholly clear of the chrome, or is omitted —
                         // from the very first frame, since the exclusions never wait for measuring.
@@ -560,7 +578,17 @@ struct PrepHoleMapHero: View {
                             hole: row.number,
                             labels: placed,
                             chrome: exclusions,
-                            viewport: canvasSize
+                            viewport: canvasSize,
+                            landings: Self.screenLandings(
+                                legs: legs,
+                                overlay: overlay,
+                                size: canvasSize,
+                                scale: scale,
+                                offset: offset,
+                                topInset: insets.top,
+                                rest: rest
+                            ),
+                            mapFrame: rest
                         )
                         #else
                         _ = placed
@@ -579,6 +607,49 @@ struct PrepHoleMapHero: View {
                             Self.landingLabels(legs: legs, overlay: overlay).joined(separator: " → ")
                         )
                         .accessibilityIdentifier("prep-map-route")
+                    // Each placed label and its landing as its own element at its drawn frame, so a
+                    // UI test can prove on the real screen that every stroke is visible.
+                    let placedLabels = LivePlannedRouteRenderer.placedRouteLabels(
+                        size: size,
+                        legs: legs,
+                        overlay: overlay,
+                        scale: scale,
+                        offset: offset,
+                        topInset: insets.top,
+                        fittedFrame: rest,
+                        exclusions: exclusions
+                    )
+                    ForEach(Array(placedLabels.enumerated()), id: \.offset) { index, label in
+                        if let rect = label.rect {
+                            Color.clear
+                                .frame(width: rect.width, height: rect.height)
+                                .position(x: rect.midX, y: rect.midY)
+                                .allowsHitTesting(false)
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel(label.text)
+                                .accessibilityIdentifier("prep-map-label-\(index)")
+                        }
+                    }
+                    let landings = Self.screenLandings(
+                        legs: legs,
+                        overlay: overlay,
+                        size: size,
+                        scale: scale,
+                        offset: offset,
+                        topInset: insets.top,
+                        rest: rest
+                    )
+                    ForEach(Array(landings.enumerated()), id: \.offset) { index, point in
+                        if CGRect(origin: .zero, size: size).contains(point) {
+                            Color.clear
+                                .frame(width: 4, height: 4)
+                                .position(point)
+                                .allowsHitTesting(false)
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel("落点 \(index + 1)")
+                                .accessibilityIdentifier("prep-map-landing-\(index)")
+                        }
+                    }
                 }
                 if !viewport.isFitted {
                     Button {
@@ -601,11 +672,34 @@ struct PrepHoleMapHero: View {
             .frame(width: size.width, height: size.height)
             .contentShape(Rectangle())
             .gesture(
-                pinchGesture(in: size, insets: insets)
-                    .simultaneously(with: panGesture(in: size, insets: insets))
+                pinchGesture(rest: rest, size: size)
+                    .simultaneously(with: panGesture(rest: rest, size: size))
             )
         }
         .ignoresSafeArea()
+    }
+
+    /// Every leg's landing (the green for the last) in the viewport, as the route layer draws it.
+    static func screenLandings(
+        legs: [MapPlannedLeg],
+        overlay: CoursePrepOverlay,
+        size: CGSize,
+        scale: CGFloat,
+        offset: CGSize,
+        topInset: CGFloat,
+        rest: CGRect
+    ) -> [CGPoint] {
+        legs.compactMap {
+            LivePlannedRouteRenderer.transformedPoint(
+                $0.destination,
+                size: size,
+                overlay: overlay,
+                scale: scale,
+                offset: offset,
+                topInset: topInset,
+                fittedFrame: rest
+            )
+        }
     }
 
     /// One configured map for the bitmap layer and the viewport-plane route layer, so the labelled
@@ -635,10 +729,27 @@ struct PrepHoleMapHero: View {
         min(max(viewport.zoomScale * pinchScale, 1), 4)
     }
 
-    /// The bitmap's rest frame: an aspect fill of the whole viewport (`PrepMapLayout`).
-    private func restFrame(in size: CGSize, insets: PrepChromeLayout.Insets) -> CGRect? {
+    /// The fitted frame of the bitmap (`PrepMapLayout.fittedRestFrame`).
+    private func restFrame(
+        in size: CGSize,
+        insets: PrepChromeLayout.Insets,
+        legs: [MapPlannedLeg],
+        chrome: [CGRect]
+    ) -> CGRect? {
         guard let overlay = prep.resolvedMapOverlay else { return nil }
-        return PrepMapLayout.restFrame(
+        return PrepMapLayout.fittedRestFrame(
+            overlay: overlay,
+            legs: legs,
+            viewport: size,
+            insets: insets,
+            chrome: chrome
+        )
+    }
+
+    /// The whole-screen backdrop frame (`PrepMapLayout.coverFrame`).
+    private func coverFrame(in size: CGSize, insets: PrepChromeLayout.Insets) -> CGRect? {
+        guard let overlay = prep.resolvedMapOverlay else { return nil }
+        return PrepMapLayout.coverFrame(
             overlayWidth: overlay.w,
             overlayHeight: overlay.h,
             route: overlay.route,
@@ -648,31 +759,25 @@ struct PrepHoleMapHero: View {
         )
     }
 
-    private func clamped(
-        _ proposed: CGSize,
-        scale: CGFloat,
-        in size: CGSize,
-        insets: PrepChromeLayout.Insets
-    ) -> CGSize {
-        // Pan keeps the zoomed bitmap covering the viewport.
-        guard let frame = restFrame(in: size, insets: insets) else { return proposed }
-        return LivePlayMapOverlayLayout.clampedOffset(
+    private func clamped(_ proposed: CGSize, scale: CGFloat, rest: CGRect, size: CGSize) -> CGSize {
+        // Pan keeps the zoomed bitmap covering the viewport wherever it is large enough to.
+        LivePlayMapOverlayLayout.clampedOffset(
             proposed,
-            mapFrame: frame,
+            mapFrame: rest,
             viewportSize: size,
             scale: scale
         )
     }
 
-    private func displayedOffset(in size: CGSize, insets: PrepChromeLayout.Insets) -> CGSize {
+    private func displayedOffset(rest: CGRect, size: CGSize) -> CGSize {
         let proposed = CGSize(
             width: viewport.offset.width + dragTranslation.width,
             height: viewport.offset.height + dragTranslation.height
         )
-        return clamped(proposed, scale: displayedScale, in: size, insets: insets)
+        return clamped(proposed, scale: displayedScale, rest: rest, size: size)
     }
 
-    private func pinchGesture(in size: CGSize, insets: PrepChromeLayout.Insets) -> some Gesture {
+    private func pinchGesture(rest: CGRect, size: CGSize) -> some Gesture {
         MagnificationGesture()
             .updating($pinchScale) { value, state, _ in
                 state = value
@@ -681,13 +786,13 @@ struct PrepHoleMapHero: View {
                 var next = viewport
                 next.zoomScale = min(max(next.zoomScale * value, 1), 4)
                 next.offset = next.zoomScale > 1.01
-                    ? clamped(next.offset, scale: next.zoomScale, in: size, insets: insets)
+                    ? clamped(next.offset, scale: next.zoomScale, rest: rest, size: size)
                     : .zero
                 viewport = next
             }
     }
 
-    private func panGesture(in size: CGSize, insets: PrepChromeLayout.Insets) -> some Gesture {
+    private func panGesture(rest: CGRect, size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: viewport.zoomScale > 1.01 ? 4 : 10_000)
             .onChanged { value in
                 guard viewport.zoomScale > 1.01 else { return }
@@ -703,11 +808,69 @@ struct PrepHoleMapHero: View {
                         height: next.offset.height + value.translation.height
                     ),
                     scale: next.zoomScale,
-                    in: size,
-                    insets: insets
+                    rest: rest,
+                    size: size
                 )
                 viewport = next
             }
+    }
+}
+
+extension PrepMapLayout {
+    /// Room a landing needs for its "球杆 码数" pill centred above or below it (or beside it,
+    /// for the pin's flag).
+    static func labelClearance(for text: String) -> CGSize {
+        let pill = LivePlannedRouteRenderer.routeLabelSize(for: text, isTeeLabel: false)
+        return CGSize(width: pill.width / 2 + 8, height: pill.height + 14)
+    }
+
+    /// 备战's fitted frame for a plan: the largest frame (`restFrame`) at which the tee, every
+    /// landing with room for its label, and the green sit between the chrome, verified against
+    /// the renderer's own label layout — if any stroke's label still finds no position wholly
+    /// clear of `chrome`, the map steps down until every one does.
+    static func fittedRestFrame(
+        overlay: CoursePrepOverlay,
+        legs: [MapPlannedLeg],
+        viewport: CGSize,
+        insets: PrepChromeLayout.Insets,
+        chrome: [CGRect]
+    ) -> CGRect? {
+        var anchors: [Anchor] = []
+        if let tee = legs.first?.origin {
+            anchors.append(Anchor(point: tee, clearance: CGSize(width: routeMargin, height: routeMargin)))
+        }
+        for leg in legs {
+            let text = LivePlannedRouteRenderer.labelText(for: leg, pixelsPerMetre: overlay.ppm)
+            anchors.append(Anchor(point: leg.destination, clearance: labelClearance(for: text)))
+        }
+        var frame: CGRect?
+        var shrink: CGFloat = 1
+        for _ in 0..<8 {
+            guard let candidate = restFrame(
+                overlayWidth: overlay.w,
+                overlayHeight: overlay.h,
+                route: overlay.route,
+                anchors: anchors,
+                viewport: viewport,
+                topInset: insets.top,
+                bottomInset: insets.bottom,
+                shrink: shrink
+            ) else { return frame }
+            frame = candidate
+            let labels = LivePlannedRouteRenderer.placedRouteLabels(
+                size: viewport,
+                legs: legs,
+                overlay: overlay,
+                scale: 1,
+                offset: .zero,
+                topInset: insets.top,
+                fittedFrame: candidate,
+                exclusions: chrome
+            )
+            if labels.allSatisfy({ $0.rect != nil }) { return candidate }
+            shrink *= 0.88
+        }
+        return frame
     }
 }
 
@@ -870,6 +1033,10 @@ enum PrepRouteLabelAudit {
         let labels: [CGRect?]
         let chrome: [CGRect]
         let viewport: CGSize
+        /// Every leg's landing in the viewport, as drawn.
+        let landings: [CGPoint]
+        /// The bitmap's fitted frame.
+        let mapFrame: CGRect
     }
 
     static var latest: Entry?

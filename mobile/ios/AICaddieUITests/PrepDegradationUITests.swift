@@ -98,6 +98,11 @@ final class PrepDegradationUITests: XCTestCase {
             NSPredicate(format: "identifier IN %@", ["prep-hole-map-1", "prep-map-waiting-1"])
         ).firstMatch
         XCTAssertTrue(firstHoleVisible.waitForExistence(timeout: 5), "hole 1 shows a map or the waiting page")
+        // Fitted, every planned stroke is on the real screen: each landing and its 球杆 + 码数 label,
+        // clear of the badge, the navigation header and the bottom panel.
+        if element("prep-hole-map-1").exists {
+            assertEveryStrokeVisible("hole 1 plan 1")
+        }
         save("b4c-01-prep-opened")
 
         // Hole 2: the factual route draws as soon as its facts are installed, without its topo.
@@ -117,6 +122,7 @@ final class PrepDegradationUITests: XCTestCase {
         )
         // Every landing on the map carries its 球杆 + 码数 label, the same strokes as the panel.
         XCTAssertEqual(element("prep-map-route").label, "一号木 230 → 八号铁 164")
+        assertEveryStrokeVisible("hole 2 plan 1")
         // Obstacles are off by default on 备战 (the default-none rule).
         XCTAssertFalse(element("prep-map-hazard-1").exists, "no obstacle is drawn without a selection")
         // 方案: the decision authority offers another complete route; choosing it redraws the
@@ -128,6 +134,7 @@ final class PrepDegradationUITests: XCTestCase {
         let secondOrder = element("prep-club-order").label
         XCTAssertNotEqual(secondOrder, "一号木 230 → 八号铁 164", "the second plan is a different club order")
         XCTAssertEqual(element("prep-map-route").label, secondOrder, "the map follows the selected plan")
+        assertEveryStrokeVisible("hole 2 plan 2")
         save("b4c-02a-second-plan")
         app.buttons["prep-plan-0"].tap()
         XCTAssertTrue(waitForValue(beginningWith: "已选择", on: app.buttons["prep-plan-0"], timeout: 5))
@@ -203,6 +210,50 @@ final class PrepDegradationUITests: XCTestCase {
         if app.state != .notRunning { app.terminate() }
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "app did not foreground")
+    }
+
+    /// The fitted map shows every stroke of the panel's club order: for each one, its label (the
+    /// exact "球杆 码数" text) and its landing are drawn inside the window, below the navigation
+    /// header, clear of the hole badge and above the bottom panel.
+    private func assertEveryStrokeVisible(_ context: String, file: StaticString = #filePath, line: UInt = #line) {
+        let order = element("prep-club-order")
+        XCTAssertTrue(order.waitForExistence(timeout: 20), "\(context): the plan's club order", file: file, line: line)
+        XCTAssertFalse(app.buttons["prep-map-reset-rotation"].exists, "\(context): the map is fitted", file: file, line: line)
+        let strokes = order.label.components(separatedBy: " → ")
+        XCTAssertFalse(strokes.isEmpty, file: file, line: line)
+        let window = app.windows.firstMatch.frame
+        let headerBottom = app.navigationBars["赛前球场攻略"].frame.maxY
+        let badge = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "prep-hole-header-")).firstMatch.frame
+        let firstPlan = app.buttons["prep-plan-0"]
+        let panelTop = firstPlan.exists ? min(order.frame.minY, firstPlan.frame.minY) : order.frame.minY
+        for (index, stroke) in strokes.enumerated() {
+            let label = element("prep-map-label-\(index)")
+            XCTAssertTrue(
+                label.waitForExistence(timeout: 5),
+                "\(context): stroke \(index + 1) (\(stroke)) has its label on the map",
+                file: file, line: line
+            )
+            XCTAssertEqual(label.label, stroke, "\(context): label \(index + 1)", file: file, line: line)
+            let rect = label.frame
+            XCTAssertTrue(window.contains(rect), "\(context): \(stroke) at \(rect) is on screen", file: file, line: line)
+            XCTAssertGreaterThanOrEqual(rect.minY, headerBottom, "\(context): \(stroke) below the header", file: file, line: line)
+            XCTAssertFalse(rect.intersects(badge), "\(context): \(stroke) clear of the badge \(badge)", file: file, line: line)
+            XCTAssertLessThanOrEqual(rect.maxY, panelTop, "\(context): \(stroke) above the panel", file: file, line: line)
+            let landing = element("prep-map-landing-\(index)")
+            XCTAssertTrue(landing.exists, "\(context): landing \(index + 1) is on screen", file: file, line: line)
+            let point = CGPoint(x: landing.frame.midX, y: landing.frame.midY)
+            XCTAssertTrue(
+                window.contains(point) && point.y >= headerBottom && point.y <= panelTop,
+                "\(context): landing \(index + 1) at \(point) lies between the chrome",
+                file: file, line: line
+            )
+        }
+        XCTAssertFalse(
+            element("prep-map-label-\(strokes.count)").exists,
+            "\(context): no label beyond the plan's strokes",
+            file: file, line: line
+        )
     }
 
     private func element(_ identifier: String) -> XCUIElement {

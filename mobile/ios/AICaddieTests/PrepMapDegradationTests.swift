@@ -504,47 +504,188 @@ final class PrepMapDegradationTests: XCTestCase {
 
     // MARK: - Full-screen map surface
 
-    func testPrepBitmapCoversTheWholeViewportAndChromeOnlyMovesTheHole() throws {
-        let viewport = CGSize(width: 390, height: 844)
-        let top: CGFloat = 150
-        let bottom: CGFloat = 210
-        // A tall topo (like the fixture), a wide one and a square one.
-        let cases: [(w: Int, h: Int, route: [[Double]])] = [
-            (240, 360, [[120, 330, 0], [118, 180, 150], [120, 55, 375]]),
-            (900, 500, [[150, 250, 0], [450, 240, 300], [750, 260, 600]]),
-            (600, 600, [[300, 560, 0], [300, 40, 520]]),
-        ]
-        for testCase in cases {
-            let frame = try XCTUnwrap(PrepMapLayout.restFrame(
-                overlayWidth: testCase.w,
-                overlayHeight: testCase.h,
-                route: testCase.route,
-                viewport: viewport,
-                topInset: top,
-                bottomInset: bottom
-            ))
-            // Never a framed rectangle: every edge of the screen shows the map surface.
-            XCTAssertTrue(PrepMapLayout.covers(frame, viewport: viewport), "\(testCase.w)x\(testCase.h): \(frame)")
-            XCTAssertEqual(frame.width / CGFloat(testCase.w), frame.height / CGFloat(testCase.h), accuracy: 0.0001)
+    /// The CI fixture's real prep hole (`server_v2/ci_fixture.py`): a 64 x 64 px square topo with
+    /// the route running corner to corner, the shape Codex saw cropped in the real screenshots.
+    private func squareDiagonalPrep(par: Int) throws -> CoursePrepHole {
+        let json = """
+        {"hole":1,"par":\(par),"par_source":"garmin","blue_yards":410,"route_len_m":375,\
+        "route":[[0,0,0],[64,64,375]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
+        "geometryCoverage":"ready","geometryRevision":"fixture-r1",\
+        "map":{"overlay":{"w":64,"h":64,"ppm":0.17,"ln":375,"route":[[0,0,0],[64,64,375]]}}}
+        """
+        return try JSONDecoder().decode(CoursePrepHole.self, from: Data(json.utf8))
+    }
+
+    /// An iPhone 16-sized 备战 layout: the viewport, its chrome insets and the chrome rects.
+    private func iPhoneChrome() -> (viewport: CGSize, insets: PrepChromeLayout.Insets, chrome: [CGRect], contentFrame: CGRect) {
+        let viewport = CGSize(width: 393, height: 852)
+        let heroFrame = CGRect(origin: .zero, size: viewport)
+        let contentFrame = CGRect(x: 0, y: 103, width: 393, height: 852 - 103 - 34)
+        let insets = PrepChromeLayout.mapInsets(contentFrame: contentFrame, in: heroFrame)
+        let chrome = PrepChromeLayout.exclusions(
+            viewport: viewport,
+            insets: insets,
+            contentFrame: contentFrame,
+            heroFrame: heroFrame,
+            badgeNumber: 1,
+            badgeSubtitle: "Par 4 · 410 码",
+            measured: [],
+            showsResetControl: false
+        )
+        return (viewport, insets, chrome, contentFrame)
+    }
+
+    private func legs(_ hole: CoursePrepHole, _ plan: PrepPlanOption) -> [MapPlannedLeg] {
+        HoleImageMapView(
+            hole: hole,
+            showsCardChrome: false,
+            plannedShots: plan.shots,
+            drawsPlannedRouteInMap: false
+        ).plannedLegs()
+    }
+
+    /// Fitted, every planned landing and its "球杆 码数" label are on screen and clear of the chrome
+    /// — for the square diagonal fixture (two- and three-shot plans), a tall topo and a wide one.
+    /// The previous whole-screen cover frame demonstrably cropped the square diagonal plan.
+    func testFittedPrepMapShowsEveryLandingAndLabelForSquareTallAndWideTopos() throws {
+        let layout = iPhoneChrome()
+        let screen = CGRect(origin: .zero, size: layout.viewport)
+        let content = CGRect(
+            x: 0, y: layout.insets.top,
+            width: layout.viewport.width,
+            height: layout.viewport.height - layout.insets.top - layout.insets.bottom
+        )
+        var cases: [(name: String, hole: CoursePrepHole, plan: PrepPlanOption)] = []
+        for par in [4, 5] {
+            let hole = try squareDiagonalPrep(par: par)
+            let plans = PrepRouteFixtures.routes(par: par, routeLengthM: 375).enumerated().compactMap { index, route in
+                PrepPlanOption.option(route: route, index: index, par: par)
+            }
+            XCTAssertGreaterThanOrEqual(plans.count, 2)
+            for plan in plans { cases.append(("square Par \(par) \(plan.title)", hole, plan)) }
         }
-        // With room to move (a wide topo), the route's centre rests mid-screen between the chrome.
-        let wide = try XCTUnwrap(PrepMapLayout.restFrame(
-            overlayWidth: 900, overlayHeight: 500,
-            route: [[150, 250, 0], [750, 250, 600]],
-            viewport: viewport, topInset: top, bottomInset: bottom
+        let tall = try snapshotPrep(coverage: "ready")
+        let wide = try JSONDecoder().decode(CoursePrepHole.self, from: Data("""
+        {"hole":1,"par":5,"par_source":"courseview","blue_yards":543,"route_len_m":480,\
+        "route":[[40,260],[520,240]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
+        "geometryCoverage":"ready","geometryRevision":"wide-r1",\
+        "map":{"overlay":{"w":560,"h":300,"ppm":1.0,"ln":480,"route":[[40,260,0],[280,90,300],[520,240,480]]}}}
+        """.utf8))
+        for (name, hole) in [("tall", tall), ("wide diagonal", wide)] {
+            let length: Double = name == "tall" ? 375 : 480
+            let plans = PrepRouteFixtures.routes(par: 5, routeLengthM: length).enumerated().compactMap { index, route in
+                PrepPlanOption.option(route: route, index: index, par: 5)
+            }
+            for plan in plans { cases.append(("\(name) \(plan.title)", hole, plan)) }
+        }
+        var sawThreeShots = false
+        for testCase in cases {
+            let overlay = try XCTUnwrap(testCase.hole.resolvedMapOverlay)
+            let planLegs = legs(testCase.hole, testCase.plan)
+            XCTAssertEqual(planLegs.count, testCase.plan.steps.count, "\(testCase.name): one leg per stroke")
+            sawThreeShots = sawThreeShots || planLegs.count == 3
+            let rest = try XCTUnwrap(PrepMapLayout.fittedRestFrame(
+                overlay: overlay,
+                legs: planLegs,
+                viewport: layout.viewport,
+                insets: layout.insets,
+                chrome: layout.chrome
+            ))
+            XCTAssertEqual(rest.width / CGFloat(overlay.w), rest.height / CGFloat(overlay.h), accuracy: 0.0001)
+            let landings = PrepHoleMapHero.screenLandings(
+                legs: planLegs, overlay: overlay, size: layout.viewport,
+                scale: 1, offset: .zero, topInset: layout.insets.top, rest: rest
+            )
+            XCTAssertEqual(landings.count, planLegs.count)
+            for (index, point) in landings.enumerated() {
+                XCTAssertTrue(content.contains(point), "\(testCase.name): landing \(index + 1) at \(point) is between the chrome")
+            }
+            if let tee = planLegs.first.flatMap({
+                LivePlannedRouteRenderer.transformedPoint(
+                    $0.origin, size: layout.viewport, overlay: overlay, scale: 1, offset: .zero,
+                    topInset: layout.insets.top, fittedFrame: rest
+                )
+            }) {
+                XCTAssertTrue(content.contains(tee), "\(testCase.name): the tee at \(tee) is between the chrome")
+            }
+            let labels = LivePlannedRouteRenderer.placedRouteLabels(
+                size: layout.viewport,
+                legs: planLegs,
+                overlay: overlay,
+                scale: 1,
+                offset: .zero,
+                topInset: layout.insets.top,
+                fittedFrame: rest,
+                exclusions: layout.chrome
+            )
+            XCTAssertEqual(labels.map(\.text), PrepHoleMapHero.landingLabels(legs: planLegs, overlay: overlay))
+            for label in labels {
+                let rect = try XCTUnwrap(label.rect, "\(testCase.name): \(label.text) is placed at rest")
+                XCTAssertTrue(screen.contains(rect), "\(testCase.name): \(label.text) at \(rect) is on screen")
+                for excluded in layout.chrome {
+                    XCTAssertFalse(rect.intersects(excluded), "\(testCase.name): \(label.text) under chrome \(excluded)")
+                }
+            }
+            // Whatever the fitted map leaves uncovered, the cover backdrop fills the whole screen.
+            let cover = try XCTUnwrap(PrepMapLayout.coverFrame(
+                overlayWidth: overlay.w, overlayHeight: overlay.h, route: overlay.route,
+                viewport: layout.viewport, topInset: layout.insets.top, bottomInset: layout.insets.bottom
+            ))
+            XCTAssertTrue(PrepMapLayout.covers(cover, viewport: layout.viewport), "\(testCase.name): \(cover)")
+        }
+        XCTAssertTrue(sawThreeShots, "a three-shot plan is covered")
+
+        // The old fitted frame (the whole-screen cover) cropped the square diagonal plan: at least
+        // one landing fell outside the space between the chrome.
+        let square = try squareDiagonalPrep(par: 4)
+        let squareOverlay = try XCTUnwrap(square.resolvedMapOverlay)
+        let squarePlan = try XCTUnwrap(PrepRouteFixtures.routes(par: 4, routeLengthM: 375).enumerated().compactMap { index, route in
+            PrepPlanOption.option(route: route, index: index, par: 4)
+        }.first)
+        let oldFrame = try XCTUnwrap(PrepMapLayout.coverFrame(
+            overlayWidth: 64, overlayHeight: 64, route: squareOverlay.route,
+            viewport: layout.viewport, topInset: layout.insets.top, bottomInset: layout.insets.bottom
         ))
-        let scale = wide.width / 900
-        XCTAssertEqual(wide.minX + 450 * scale, viewport.width / 2, accuracy: 0.5)
-        // Chrome insets move the rest position; they never shrink the surface.
-        let noChrome = try XCTUnwrap(PrepMapLayout.restFrame(
-            overlayWidth: 240, overlayHeight: 360, route: [[120, 330, 0], [120, 55, 375]],
-            viewport: viewport, topInset: 0, bottomInset: 0
+        let oldLandings = PrepHoleMapHero.screenLandings(
+            legs: legs(square, squarePlan), overlay: squareOverlay, size: layout.viewport,
+            scale: 1, offset: .zero, topInset: layout.insets.top, rest: oldFrame
+        )
+        XCTAssertTrue(oldLandings.contains { !content.contains($0) }, "the cover frame crops the diagonal plan: \(oldLandings)")
+    }
+
+    func testFittedPrepMapCoversTheScreenItselfWhenThePlanAllowsIt() throws {
+        let viewport = CGSize(width: 390, height: 844)
+        // A tall topo with a short straight route: the aspect fill already shows it all.
+        let frame = try XCTUnwrap(PrepMapLayout.restFrame(
+            overlayWidth: 240,
+            overlayHeight: 360,
+            route: [[120, 250, 0], [120, 160, 90]],
+            viewport: viewport,
+            topInset: 150,
+            bottomInset: 210
         ))
-        let withChrome = try XCTUnwrap(PrepMapLayout.restFrame(
-            overlayWidth: 240, overlayHeight: 360, route: [[120, 330, 0], [120, 55, 375]],
-            viewport: viewport, topInset: top, bottomInset: bottom
+        XCTAssertTrue(PrepMapLayout.covers(frame, viewport: viewport), "\(frame)")
+        XCTAssertEqual(frame.width / 240, max(390 / 240, 844 / 360), accuracy: 0.0001)
+        // Its route sits between the chrome.
+        let scale = frame.width / 240
+        for y in [250.0, 160.0] {
+            let screenY = frame.minY + CGFloat(y) * scale
+            XCTAssertGreaterThanOrEqual(screenY, 150 + PrepMapLayout.routeMargin - 0.5)
+            XCTAssertLessThanOrEqual(screenY, 844 - 210 - PrepMapLayout.routeMargin + 0.5)
+        }
+        // The same topo with a route longer than the space between the chrome shrinks to show it all.
+        let long = try XCTUnwrap(PrepMapLayout.restFrame(
+            overlayWidth: 240,
+            overlayHeight: 360,
+            route: [[120, 350, 0], [120, 10, 340]],
+            viewport: viewport,
+            topInset: 150,
+            bottomInset: 210
         ))
-        XCTAssertEqual(noChrome.size, withChrome.size)
+        let longScale = long.width / 240
+        XCTAssertLessThan(longScale, max(390 / 240, 844 / 360))
+        XCTAssertGreaterThanOrEqual(long.minY + 10 * longScale, 150 + PrepMapLayout.routeMargin - 0.5)
+        XCTAssertLessThanOrEqual(long.minY + 350 * longScale, 844 - 210 - PrepMapLayout.routeMargin + 0.5)
     }
 
     // MARK: - Route labels vs the chrome
@@ -614,14 +755,6 @@ final class PrepMapDegradationTests: XCTestCase {
         }
         XCTAssertEqual(plans.map(\.title), ["推荐", "稳妥", "进攻"])
         let overlay = try XCTUnwrap(precise.resolvedMapOverlay)
-        let rest = try XCTUnwrap(PrepMapLayout.restFrame(
-            overlayWidth: overlay.w,
-            overlayHeight: overlay.h,
-            route: overlay.route,
-            viewport: viewport,
-            topInset: insets.top,
-            bottomInset: insets.bottom
-        ))
 
         let cases: [(name: String, hole: CoursePrepHole, plan: PrepPlanOption, scale: CGFloat, offset: CGSize)] = [
             ("plan 1", precise, plans[0], 1, .zero),
@@ -633,6 +766,15 @@ final class PrepMapDegradationTests: XCTestCase {
         let screen = CGRect(origin: .zero, size: viewport)
         for testCase in cases {
             let fitted = testCase.scale <= 1.01
+            let planLegs = legs(testCase.hole, testCase.plan)
+            // The fitted frame is laid out against the chrome at rest (no reset control).
+            let rest = try XCTUnwrap(PrepMapLayout.fittedRestFrame(
+                overlay: overlay,
+                legs: planLegs,
+                viewport: viewport,
+                insets: insets,
+                chrome: chrome
+            ))
             let offset = LivePlayMapOverlayLayout.clampedOffset(
                 testCase.offset,
                 mapFrame: rest,
@@ -653,15 +795,9 @@ final class PrepMapDegradationTests: XCTestCase {
                     showsResetControl: true
                 ))
             }
-            let legs = HoleImageMapView(
-                hole: testCase.hole,
-                showsCardChrome: false,
-                plannedShots: testCase.plan.shots,
-                drawsPlannedRouteInMap: false
-            ).plannedLegs()
             let labels = LivePlannedRouteRenderer.placedRouteLabels(
                 size: viewport,
-                legs: legs,
+                legs: planLegs,
                 overlay: overlay,
                 scale: testCase.scale,
                 offset: offset,

@@ -298,13 +298,122 @@ struct PrepHoleMapSession: Equatable {
     }
 }
 
-/// 备战's full-screen map geometry. The bitmap's rest frame is an aspect *fill* of the whole
-/// viewport, so the topo (or the factual route's ground) is never a framed rectangle with bands.
-/// The chrome (the badge row on top, the glass panel at the bottom) never cuts the map away; it
-/// only moves where the hole rests: the route's centre sits in the middle of the content rect
-/// between them, as far as keeping the viewport covered allows.
+/// 备战's full-screen map geometry.
+///
+/// The fitted (rest) frame shows the whole plan: the tee, every landing with room for its
+/// "球杆 码数" label, and the green all sit inside the content rect between the chrome (the badge
+/// row on top, the glass panel at the bottom). Among such frames it prefers one whose bitmap covers
+/// the viewport; when the hole's shape makes that impossible (a diagonal hole on a square topo in a
+/// portrait screen), the plan wins and the screen's surface is completed by the cover backdrop
+/// (`coverFrame`) behind the map, so it is never a framed rectangle on the black base.
 enum PrepMapLayout {
+    /// An overlay point the fitted map keeps inside the content rect with `clearance` points of
+    /// room on each side (a landing's label, or a small margin for the tee and the route).
+    struct Anchor: Equatable {
+        let point: CGPoint
+        let clearance: CGSize
+    }
+
+    /// Room around the factual route's points (the tee, the green) when they carry no label.
+    static let routeMargin: CGFloat = 14
+
     static func restFrame(
+        overlayWidth: Int,
+        overlayHeight: Int,
+        route: [[Double]],
+        anchors: [Anchor] = [],
+        viewport: CGSize,
+        topInset: CGFloat,
+        bottomInset: CGFloat,
+        shrink: CGFloat = 1
+    ) -> CGRect? {
+        guard overlayWidth > 0, overlayHeight > 0,
+              viewport.width.isFinite, viewport.height.isFinite,
+              viewport.width > 0, viewport.height > 0 else { return nil }
+        let mapWidth = CGFloat(overlayWidth)
+        let mapHeight = CGFloat(overlayHeight)
+        let coverScale = max(viewport.width / mapWidth, viewport.height / mapHeight)
+        guard coverScale.isFinite, coverScale > 0 else { return nil }
+        let top = min(max(topInset.isFinite ? topInset : 0, 0), viewport.height)
+        let bottom = max(top, viewport.height - max(bottomInset.isFinite ? bottomInset : 0, 0))
+        let routeAnchors: [Anchor] = route.compactMap { row -> Anchor? in
+            guard row.count >= 2, row[0].isFinite, row[1].isFinite else { return nil }
+            return Anchor(point: CGPoint(x: row[0], y: row[1]), clearance: CGSize(width: routeMargin, height: routeMargin))
+        }
+        let all = (routeAnchors + anchors).filter {
+            $0.point.x.isFinite && $0.point.y.isFinite
+                && $0.clearance.width.isFinite && $0.clearance.height.isFinite
+        }
+        guard !all.isEmpty else {
+            return coverFrame(overlayWidth: overlayWidth, overlayHeight: overlayHeight, route: route, viewport: viewport,
+                              topInset: topInset, bottomInset: bottomInset)
+        }
+        let xs = all.map { Axis(point: $0.point.x, clearance: max($0.clearance.width, 0)) }
+        let ys = all.map { Axis(point: $0.point.y, clearance: max($0.clearance.height, 0)) }
+        func feasible(_ scale: CGFloat) -> Bool {
+            placement(xs, scale: scale, low: 0, high: viewport.width) != nil
+                && placement(ys, scale: scale, low: top, high: bottom) != nil
+        }
+        // The largest scale (up to the cover scale) at which every anchor fits between the chrome.
+        var fitScale: CGFloat
+        if feasible(coverScale) {
+            fitScale = coverScale
+        } else {
+            var low: CGFloat = 0
+            var high: CGFloat = coverScale
+            for _ in 0..<40 {
+                let mid = (low + high) / 2
+                if feasible(mid) { low = mid } else { high = mid }
+            }
+            fitScale = low
+        }
+        guard fitScale > 0 else {
+            return coverFrame(overlayWidth: overlayWidth, overlayHeight: overlayHeight, route: route, viewport: viewport,
+                              topInset: topInset, bottomInset: bottomInset)
+        }
+        let scale = fitScale * min(max(shrink.isFinite ? shrink : 1, 0.05), 1)
+        func origin(_ axis: [Axis], length: CGFloat, low: CGFloat, high: CGFloat, viewportLength: CGFloat) -> CGFloat {
+            guard let fit = placement(axis, scale: scale, low: low, high: high) else { return 0 }
+            let points = axis.map(\.point)
+            let middle = ((points.min() ?? 0) + (points.max() ?? 0)) / 2
+            let centred = (low + high) / 2 - middle * scale
+            // Prefer a position that also keeps this edge of the viewport covered.
+            let coverLow = viewportLength - length * scale
+            let lower = max(fit.lower, coverLow)
+            let upper = min(fit.upper, 0)
+            if lower <= upper { return min(max(centred, lower), upper) }
+            return min(max(centred, fit.lower), fit.upper)
+        }
+        let x = origin(xs, length: mapWidth, low: 0, high: viewport.width, viewportLength: viewport.width)
+        let y = origin(ys, length: mapHeight, low: top, high: bottom, viewportLength: viewport.height)
+        return CGRect(x: x, y: y, width: mapWidth * scale, height: mapHeight * scale)
+    }
+
+    private struct Axis {
+        let point: CGFloat
+        let clearance: CGFloat
+    }
+
+    /// The origins along one axis that keep every anchor (with its clearance) inside [low, high].
+    private static func placement(
+        _ axis: [Axis],
+        scale: CGFloat,
+        low: CGFloat,
+        high: CGFloat
+    ) -> (lower: CGFloat, upper: CGFloat)? {
+        var lower = -CGFloat.greatestFiniteMagnitude
+        var upper = CGFloat.greatestFiniteMagnitude
+        for item in axis {
+            lower = max(lower, low + item.clearance - item.point * scale)
+            upper = min(upper, high - item.clearance - item.point * scale)
+        }
+        return lower <= upper ? (lower, upper) : nil
+    }
+
+    /// The bitmap's aspect fill of the whole viewport, the route's centre as near the middle of the
+    /// content rect as keeping every edge covered allows. It completes the screen behind a fitted
+    /// map that cannot cover it itself.
+    static func coverFrame(
         overlayWidth: Int,
         overlayHeight: Int,
         route: [[Double]],

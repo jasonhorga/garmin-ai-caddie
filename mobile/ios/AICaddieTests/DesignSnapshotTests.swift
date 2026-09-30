@@ -1106,6 +1106,17 @@ final class DesignSnapshotTests: XCTestCase {
             let plan = try XCTUnwrap(session.plan(in: row.plans))
             XCTAssertEqual(audit.labels.count, plan.steps.count, "\(name): one label per stroke")
             let screen = CGRect(origin: .zero, size: audit.viewport)
+            // Fitted, the whole plan is on screen: every landing (the green last) lies clear of
+            // the chrome, not only its label.
+            XCTAssertEqual(audit.landings.count, plan.steps.count, "\(name): one landing per stroke")
+            if session.viewport.isFitted {
+                for landing in audit.landings {
+                    XCTAssertTrue(screen.contains(landing), "\(name): landing \(landing) is on screen")
+                    for chrome in audit.chrome {
+                        XCTAssertFalse(chrome.contains(landing), "\(name): landing \(landing) under chrome \(chrome)")
+                    }
+                }
+            }
             for label in audit.labels {
                 guard let label else {
                     XCTAssertFalse(session.viewport.isFitted, "\(name): a fitted map labels every stroke")
