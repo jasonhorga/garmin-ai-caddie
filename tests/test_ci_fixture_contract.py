@@ -439,13 +439,23 @@ class CIFixtureContractTests(unittest.TestCase):
             self.assertIn(key, hole)
         self.assertEqual(hole["map"]["overlay"]["w"], 64)
         self.assertEqual(hole["map"]["overlay"]["h"], 64)
-        # The prep frame is production-shaped: the hole sits inside a transparent margin, so the
-        # full-frame fixture's 0.17 px/m scales with the inset route, and the raster's course
-        # footprint never touches an edge.
-        from server_v2.ci_fixture import PREP_MARGIN_PX, PREP_PPM, PREP_ROUTE_PX, _course_png
-        self.assertEqual(hole["map"]["overlay"]["ppm"], PREP_PPM)
-        self.assertAlmostEqual(PREP_PPM, 0.17 * (64 - 2 * PREP_MARGIN_PX) / 64, places=5)
+        # The prep frame is production-shaped: the hole sits inside a transparent margin and the
+        # raster's course footprint never touches an edge. It is one spatial contract: ppm is
+        # the route's pixel length over its metres, so every pixel distance measures true.
+        from server_v2.ci_fixture import PREP_GREEN_RADIUS_PX, PREP_ROUTE_PX, _course_png
+        overlay = hole["map"]["overlay"]
         self.assertEqual(hole["route"], PREP_ROUTE_PX)
+        self.assertEqual(overlay["route"], PREP_ROUTE_PX)
+        (tee_x, tee_y, tee_m), (end_x, end_y, end_m) = overlay["route"]
+        self.assertTrue(all(8.0 <= value <= 56.0 for value in (tee_x, tee_y, end_x, end_y)))
+        self.assertAlmostEqual(math.hypot(end_x - tee_x, end_y - tee_y) / overlay["ppm"], end_m - tee_m, delta=0.5)
+        self.assertAlmostEqual(end_m, hole["route_len_m"], delta=0.5)
+        # The green outline surrounds the pin (the route's end) inside the raster's green disc.
+        outline = hole["greenOutline"]["pointsPx"]
+        centre = (sum(p[0] for p in outline) / len(outline), sum(p[1] for p in outline) / len(outline))
+        self.assertLess(math.hypot(centre[0] - end_x, centre[1] - end_y), 0.5)
+        for point in outline:
+            self.assertLessEqual(math.hypot(point[0] - end_x, point[1] - end_y), PREP_GREEN_RADIUS_PX)
         self.assertTrue(hole["map"]["image"].startswith("data:image/png;base64,"))
         png = zlib.decompress(b"".join(
             _png_chunks(_course_png(1))[b"IDAT"]
@@ -509,6 +519,20 @@ class CIFixtureContractTests(unittest.TestCase):
                     self.assertEqual(len(pixels), 2)
                     self.assertTrue(all(math.isfinite(value) for value in pixels))
                     self.assertTrue(all(0.0 <= value <= 64.0 for value in pixels))
+                # The pixels reproduce the declared route stations and side offset in the map's
+                # own frame (ppm), so a drawn span measures what its facts say.
+                overlay = hole["map"]["overlay"]
+                (tee_x, tee_y, _), (end_x, end_y, _) = overlay["route"]
+                length = math.hypot(end_x - tee_x, end_y - tee_y)
+                ux, uy = (end_x - tee_x) / length, (end_y - tee_y) / length
+                for key, station_key in (("frontPx", "frontRouteM"), ("backPx", "backRouteM")):
+                    dx, dy = detail[key][0] - tee_x, detail[key][1] - tee_y
+                    along_m = (dx * ux + dy * uy) / overlay["ppm"]
+                    across_m = abs(dx * uy - dy * ux) / overlay["ppm"]
+                    self.assertAlmostEqual(along_m, detail[station_key], delta=1.0)
+                    self.assertAlmostEqual(across_m, detail["sideM"] or 0.0, delta=1.0)
+                    straight_m = math.hypot(dx, dy) / overlay["ppm"]
+                    self.assertAlmostEqual(straight_m, detail[key.replace("Px", "M")], delta=1.0)
             self.assertEqual(hole["geometryRevision"], FIXTURE_REVISION)
             self.assertTrue(hole["sourceRefs"])
 

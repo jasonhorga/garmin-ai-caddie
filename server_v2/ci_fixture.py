@@ -277,8 +277,35 @@ def _offset_coordinate(
 PREP_MARGIN_PX = 12.0
 _PREP_SPAN_PX = 64.0 - 2 * PREP_MARGIN_PX
 PREP_ROUTE_PX = [[PREP_MARGIN_PX, PREP_MARGIN_PX, 0.0], [64.0 - PREP_MARGIN_PX, 64.0 - PREP_MARGIN_PX, _ROUTE_LENGTH_M]]
-# The full-frame fixture's 0.17 px/m, scaled with the inset geometry.
-PREP_PPM = round(0.17 * _PREP_SPAN_PX / 64.0, 5)
+# The frame's isotropic scale: the route's Euclidean pixel length over its metres, exactly as
+# production defines ppm (native distance and Touch Target code divide pixel distance by it).
+PREP_PPM = round(math.hypot(_PREP_SPAN_PX, _PREP_SPAN_PX) / _ROUTE_LENGTH_M, 6)
+_PREP_DIRECTION = (1 / math.sqrt(2), 1 / math.sqrt(2))
+# The left-hand normal when walking from the tee towards the green (image y grows downward).
+_PREP_LEFT = (-1 / math.sqrt(2), 1 / math.sqrt(2))
+# The raster's green: a disc on the route's end.
+PREP_GREEN_RADIUS_PX = 5.0
+
+
+def prep_route_px(station_m: float, side_m: float = 0.0) -> list[float]:
+    """The prep frame's pixel at ``station_m`` along the route and ``side_m`` to its left."""
+    tee_x, tee_y, _ = PREP_ROUTE_PX[0]
+    along = station_m * PREP_PPM
+    across = side_m * PREP_PPM
+    return [
+        round(tee_x + along * _PREP_DIRECTION[0] + across * _PREP_LEFT[0], 3),
+        round(tee_y + along * _PREP_DIRECTION[1] + across * _PREP_LEFT[1], 3),
+    ]
+
+
+def _prep_green_outline() -> list[list[float]]:
+    """An octagon inside the raster's green disc, centred on the route's end (the pin)."""
+    end_x, end_y, _ = PREP_ROUTE_PX[1]
+    radius = PREP_GREEN_RADIUS_PX - 0.5
+    return [
+        [round(end_x + radius * math.cos(math.pi * k / 4), 3), round(end_y + radius * math.sin(math.pi * k / 4), 3)]
+        for k in range(8)
+    ]
 
 
 def _prep_px(value: float) -> float:
@@ -471,7 +498,7 @@ def _course_png(seed: int = 0, background: tuple[int, int, int] | None = None, s
     scale = size / 64
     (ax, ay, _), (bx, by, _) = PREP_ROUTE_PX
     ax, ay, bx, by = ax * scale, ay * scale, bx * scale, by * scale
-    green_r = 5 * scale
+    green_r = PREP_GREEN_RADIUS_PX * scale
     phase = (seed % 7) * 0.9
     rows = []
     for y in range(size):
@@ -513,7 +540,8 @@ def _flat_course_data_uri(seed: int) -> str:
 
 
 def _fixture_prep_hazards() -> dict:
-    """Measured obstacle spans in the same route/pixel frame as the fixture map."""
+    """Measured obstacle spans in the same route/pixel frame as the fixture map (their pixels are
+    derived from their route stations and side offsets, so the two always agree)."""
     return {
         "water_carry": [[105.0, 135.0]],
         "bunkers": [[215.0, 12.0]],
@@ -524,8 +552,8 @@ def _fixture_prep_hazards() -> dict:
                 "backM": 135.0,
                 "frontRouteM": 105.0,
                 "backRouteM": 135.0,
-                "frontPx": [17.9, 17.9],
-                "backPx": [23.0, 23.0],
+                "frontPx": prep_route_px(105.0),
+                "backPx": prep_route_px(135.0),
                 "sideM": None,
             },
             {
@@ -534,8 +562,8 @@ def _fixture_prep_hazards() -> dict:
                 "backM": 245.3,
                 "frontRouteM": 215.0,
                 "backRouteM": 245.0,
-                "frontPx": [35.0, 38.4],
-                "backPx": [40.0, 43.9],
+                "frontPx": prep_route_px(215.0, side_m=12.0),
+                "backPx": prep_route_px(245.0, side_m=12.0),
                 "sideM": 12.0,
             },
         ],
@@ -865,7 +893,7 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
             "map": {"image": _flat_course_data_uri(number), "overlay": {"w": 64, "h": 64, "ppm": PREP_PPM, "ln": 374.0 + number, "route": [list(point) for point in PREP_ROUTE_PX]}},
             "greenDistances": green_distances, "playsLike": {"available": True, "deltaM": 0.0},
             "holeImageProjection": hole_projection,
-            "greenOutline": {"available": True, "source": "ci_fixture", "distanceUnit": "metres", "pointsPx": [[_prep_px(x), _prep_px(y)] for x, y in ((52.0, 52.0), (60.0, 52.0), (60.0, 60.0), (52.0, 60.0))]}}
+            "greenOutline": {"available": True, "source": "ci_fixture", "distanceUnit": "metres", "pointsPx": _prep_green_outline()}}
         hole["sourceRefs"] = [f"{ROUND_REF}:{local_hole}"]
         hole["sourceGlobalId"] = source_course
         hole["sourceLocalHole"] = local_hole
