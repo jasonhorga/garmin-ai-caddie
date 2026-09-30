@@ -1,4 +1,6 @@
 import CoreGraphics
+import SwiftUI
+import UIKit
 import XCTest
 @testable import AICaddie
 
@@ -680,6 +682,98 @@ final class PrepMapDegradationTests: XCTestCase {
         XCTAssertLessThan(longScale, max(390 / 240, 844 / 360))
         XCTAssertGreaterThanOrEqual(long.minY + 10 * longScale, 150 + PrepMapLayout.routeMargin - 0.5)
         XCTAssertLessThanOrEqual(long.minY + 350 * longScale, 844 - 210 - PrepMapLayout.routeMargin + 0.5)
+    }
+
+    // MARK: - Terrain continuation
+
+    /// A solid-colour bitmap and the colour at a pixel of an image (0-255).
+    private func solidImage(_ color: UIColor, size: CGSize = CGSize(width: 16, height: 12)) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.preferredRange = .standard
+        return UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+            color.setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+        }
+    }
+
+    private func rgb(of image: UIImage, x: Int, y: Int) throws -> [Int] {
+        let cgImage = try XCTUnwrap(image.cgImage)
+        var bytes = [UInt8](repeating: 0, count: 4)
+        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.draw(cgImage, in: CGRect(
+                x: -CGFloat(x), y: -CGFloat(cgImage.height - 1 - y),
+                width: CGFloat(cgImage.width), height: CGFloat(cgImage.height)
+            ))
+            return true
+        }
+        XCTAssertTrue(drawn)
+        return [Int(bytes[0]), Int(bytes[1]), Int(bytes[2])]
+    }
+
+    /// The continuation is the bitmap's own edge, clamped outward: its corners and its far sides
+    /// take the edge pixels' colours.
+    func testTerrainContinuationExtendsTheBitmapsOwnEdges() throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.preferredRange = .standard
+        // Left half red, right half blue.
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 16, height: 16), format: format).image { ctx in
+            UIColor.red.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 8, height: 16))
+            UIColor.blue.setFill()
+            ctx.fill(CGRect(x: 8, y: 0, width: 8, height: 16))
+        }
+        let backdrop = try XCTUnwrap(TopoEdgeExtension.backdrop(
+            for: source,
+            extending: EdgeInsets(top: 1, leading: 1, bottom: 1, trailing: 1)
+        ))
+        XCTAssertTrue(backdrop.source === source)
+        XCTAssertEqual(backdrop.insets.leading, 1, accuracy: 0.01)
+        let image = try XCTUnwrap(backdrop.image.cgImage)
+        XCTAssertEqual(image.width, 48)
+        XCTAssertEqual(image.height, 48)
+        // Far left (the continuation of the red edge) and far right (of the blue edge).
+        func assertColor(_ x: Int, _ y: Int, _ expected: [Int]) throws {
+            let got = try rgb(of: backdrop.image, x: x, y: y)
+            XCTAssertLessThanOrEqual(zip(got, expected).map { abs($0 - $1) }.reduce(0, +), 6, "(\(x), \(y)): \(got)")
+        }
+        try assertColor(1, 24, [255, 0, 0])
+        try assertColor(46, 24, [0, 0, 255])
+        try assertColor(1, 1, [255, 0, 0])
+        try assertColor(46, 46, [0, 0, 255])
+        XCTAssertTrue(TopoEdgeExtension.isEmpty(EdgeInsets()))
+    }
+
+    /// Cache isolation: a backdrop is only ever returned for the very bitmap it was built from,
+    /// even when bitmaps are released and new ones are created with the same size and extension
+    /// (a freed object's identity can be reused).
+    func testTerrainContinuationCacheNeverReturnsAnotherBitmapsTerrain() throws {
+        let insets = EdgeInsets(top: 0.5, leading: 0.5, bottom: 0.5, trailing: 0.5)
+        for index in 0..<(TopoEdgeExtension.cacheLimit * 4) {
+            let level = CGFloat(index % 16) / 15
+            try autoreleasepool {
+                let source = solidImage(UIColor(red: level, green: 1 - level, blue: 0.5, alpha: 1))
+                let expected = try rgb(of: source, x: 0, y: 0)
+                let backdrop = try XCTUnwrap(TopoEdgeExtension.backdrop(for: source, extending: insets))
+                XCTAssertTrue(backdrop.source === source, "entry \(index) belongs to its own bitmap")
+                let got = try rgb(of: backdrop.image, x: 0, y: 0)
+                XCTAssertLessThanOrEqual(
+                    zip(got, expected).map { abs($0 - $1) }.reduce(0, +), 6,
+                    "entry \(index): \(got) vs its own bitmap \(expected)"
+                )
+            }
+        }
+        // The same bitmap hits its cached entry.
+        let kept = solidImage(.green)
+        let first = try XCTUnwrap(TopoEdgeExtension.backdrop(for: kept, extending: insets))
+        let second = try XCTUnwrap(TopoEdgeExtension.backdrop(for: kept, extending: insets))
+        XCTAssertTrue(first.image === second.image)
     }
 
     // MARK: - Route labels vs the chrome

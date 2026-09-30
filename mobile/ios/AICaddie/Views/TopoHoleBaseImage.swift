@@ -262,6 +262,10 @@ struct TopoHoleBaseImage: View {
 /// map's own edge on every side instead of a fixed colour. Used from view bodies (main thread).
 enum TopoEdgeExtension {
     struct Backdrop {
+        /// The bitmap this was built from. Holding it keeps the cache key's object identity valid
+        /// for the entry's lifetime (an identity is only unique while its object is alive), and each
+        /// lookup still checks it, so another image can never receive this terrain.
+        let source: UIImage
         let image: UIImage
         /// The extension actually built, as fractions of the bitmap's width / height.
         let insets: EdgeInsets
@@ -276,6 +280,7 @@ enum TopoEdgeExtension {
     }
 
     private static var cache: [Key: Backdrop] = [:]
+    static let cacheLimit = 12
     private static var order: [Key] = []
 
     static func isEmpty(_ insets: EdgeInsets) -> Bool {
@@ -295,7 +300,7 @@ enum TopoEdgeExtension {
             bottom: quarters(insets.bottom),
             trailing: quarters(insets.trailing)
         )
-        if let cached = cache[key] { return cached }
+        if let cached = cache[key], cached.source === source { return cached }
         guard let built = build(
             source,
             top: CGFloat(key.top) / 4,
@@ -303,9 +308,10 @@ enum TopoEdgeExtension {
             bottom: CGFloat(key.bottom) / 4,
             trailing: CGFloat(key.trailing) / 4
         ) else { return nil }
-        cache[key] = built
-        order.append(key)
-        if order.count > 12 {
+        if cache.updateValue(built, forKey: key) == nil {
+            order.append(key)
+        }
+        if order.count > cacheLimit {
             cache[order.removeFirst()] = nil
         }
         return built
@@ -326,6 +332,7 @@ enum TopoEdgeExtension {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = false
+        format.preferredRange = .standard
         let small = UIGraphicsImageRenderer(
             size: CGSize(width: smallWidth, height: smallHeight),
             format: format
@@ -365,6 +372,7 @@ enum TopoEdgeExtension {
             }
         }
         return Backdrop(
+            source: source,
             image: image,
             insets: EdgeInsets(
                 top: CGFloat(padTop) / h,
