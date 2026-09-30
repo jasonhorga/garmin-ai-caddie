@@ -952,36 +952,32 @@ final class DesignSnapshotTests: XCTestCase {
         // 5-12 only the factual route (+ green outline + obstacle spans) while the precise map is on
         // its way, and holes 13-18 nothing drawable yet (the one waiting page). Not-ready holes are
         // faded in the strip.
-        let prepCardJSON = """
-        {"hole":7,"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":375,\
-        "geometryCoverage":"ready","geometryRevision":"snapshot-r1",\
-        "route":[[120,330],[118,180],[120,55]],"tee_club":"D","landing_m":150,\
-        "steps":[{"club":"D","note":"开球打球道左中,避右侧沙坑","targetCarry_m":205,"routeOffset_m":205,"role":"tee"},\
-        {"club":"8I","note":"攻果岭中心,后方无碍","targetCarry_m":150,"routeOffset_m":375,"role":"approach"}],\
-        "cautions":["果岭前缘有陡坡,落点宁长勿短"],\
-        "hazards":{"water_carry":[[175,195]],"bunkers":[[210,18],[138,12]],"details":[\
-        {"kind":"water","frontM":175,"backM":195,"frontRouteM":175,"backRouteM":195,"frontPx":[112,170],"backPx":[126,155],"sideM":null},\
-        {"kind":"bunker","frontM":210,"backM":225,"frontRouteM":210,"backRouteM":225,"frontPx":[145,130],"backPx":[152,116],"sideM":18}]},\
-        "map":{"image":"\(b64)","overlay":{"w":\(mapW),"h":\(mapH),"ppm":1.0,"ln":375,\
-        "route":[[120,330,0],[118,180,150],[120,55,375]]}},\
-        "greenDistances":{"available":true,"frontM":128,"middleM":135,"backM":142},\
-        "playsLike":{"available":true,"deltaM":7.3,"deltaYd":8}}
-        """
-        let prepCardHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(prepCardJSON.utf8))
-        let prepGreenOutline = (0..<24).map { index -> String in
-            let angle = Double(index) / 24 * 2 * Double.pi
-            return String(format: "[%.1f,%.1f]", 120 + 22 * cos(angle), 52 + 18 * sin(angle))
-        }.joined(separator: ",")
-        let factualPrepJSON = prepCardJSON
-            .replacingOccurrences(of: "\"geometryCoverage\":\"ready\"", with: "\"geometryCoverage\":\"partial\"")
-            .replacingOccurrences(
-                of: "\"map\":{\"image\":\"\(b64)\",",
-                with: "\"greenOutline\":{\"available\":true,\"source\":\"fixture\",\"pointsPx\":[\(prepGreenOutline)]},\"map\":{"
+        // Every displayed hole is one physical fixture (`PrepRouteFixtures.hole`): its Tee yardage,
+        // route metres, overlay stations, pixel geometry through one `ppm`, green distances,
+        // obstacle spans and plans all describe the same hole.
+        let prepPars = [5, 4, 3, 4, 4, 5, 3, 4, 4, 4, 4, 3, 5, 4, 4, 3, 5, 4]
+        let prepYards = [543, 410, 178, 395, 402, 528, 165, 388, 420, 415, 398, 172, 535, 405, 390, 188, 520, 430]
+        let cardPixels = [CGPoint(x: 120, y: 330), CGPoint(x: 118, y: 180), CGPoint(x: 120, y: 55)]
+        func cardHole(_ number: Int, coverage: String) throws -> CoursePrepHole {
+            try PrepRouteFixtures.hole(
+                number: number, par: prepPars[number - 1], yards: prepYards[number - 1],
+                pixels: cardPixels, width: mapW, height: mapH,
+                imageDataURI: coverage == "ready" ? b64 : nil,
+                coverage: coverage, revision: "snapshot-r1",
+                // The factual row carries the green outline instead of a raster.
+                greenOutlineRadius: coverage == "ready" ? nil : CGSize(width: 22, height: 18),
+                hazards: [
+                    .init(kind: "water", front: 0.467, back: 0.52, side: nil),
+                    .init(kind: "bunker", front: 0.56, back: 0.6, side: 18),
+                ],
+                cautions: ["果岭前缘有陡坡,落点宁长勿短"],
+                playsLike: ["available": true, "deltaM": 7.3, "deltaYd": 8]
             )
-        XCTAssertNotEqual(factualPrepJSON, prepCardJSON, "fixture: the factual row has no raster")
-        let factualPrepHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(factualPrepJSON.utf8))
-        XCTAssertEqual(factualPrepHole.geometryCoverage, "partial")
-        XCTAssertNil(factualPrepHole.map?.image)
+        }
+        let factualSample = try cardHole(5, coverage: "partial")
+        XCTAssertEqual(factualSample.geometryCoverage, "partial")
+        XCTAssertNil(factualSample.map?.image, "fixture: the factual row has no raster")
+        XCTAssertEqual(factualSample.greenOutline?.available, true)
         // The installed topo is a local file, as the download writes it.
         let prepTopoURL = FileManager.default.temporaryDirectory.appendingPathComponent("prep-snapshot-topo.png")
         try XCTUnwrap(holeImage.pngData()).write(to: prepTopoURL, options: [.atomic])
@@ -995,15 +991,15 @@ final class DesignSnapshotTests: XCTestCase {
         try squarePNG.write(to: squareTopoURL, options: [.atomic])
         // Like the other prep fixtures, the package also carries the bitmap inline, so it is drawn
         // from the first frame while the installed topo file loads (lossless, so colours are exact).
-        func diagonalHole(_ number: Int, par: Int, png: Data, revision: String) throws -> CoursePrepHole {
-            try JSONDecoder().decode(CoursePrepHole.self, from: Data("""
-            {"hole":\(number),"par":\(par),"par_source":"garmin","blue_yards":410,"route_len_m":375,\
-            "route":[[12,12],[52,52]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
-            "geometryCoverage":"ready","geometryRevision":"\(revision)",\
-            "map":{"image":"data:image/png;base64,\(png.base64EncodedString())","overlay":{"w":64,"h":64,"ppm":0.15,"ln":375,"route":[[12,12,0],[52,52,375]]}}}
-            """.utf8))
+        func diagonalHole(_ number: Int, par: Int, yards: Int, png: Data, revision: String) throws -> CoursePrepHole {
+            try PrepRouteFixtures.hole(
+                number: number, par: par, yards: yards,
+                pixels: [CGPoint(x: 12, y: 12), CGPoint(x: 52, y: 52)], width: 64, height: 64,
+                imageDataURI: "data:image/png;base64,\(png.base64EncodedString())",
+                coverage: "ready", revision: revision
+            )
         }
-        let squarePrepHole = try diagonalHole(2, par: 4, png: squarePNG, revision: "snapshot-square-r1")
+        let squarePrepHole = try diagonalHole(2, par: prepPars[1], yards: prepYards[1], png: squarePNG, revision: "snapshot-square-r1")
         // Hole 3 is production's flat render (a uniform ground) whose rough is noisy, high-frequency
         // texture: the surround must be that ground, never those pixels magnified into bands.
         let noisyPNG = try XCTUnwrap(Self.courseImage(
@@ -1012,7 +1008,7 @@ final class DesignSnapshotTests: XCTestCase {
         ).pngData())
         let noisyTopoURL = FileManager.default.temporaryDirectory.appendingPathComponent("prep-snapshot-noisy-topo.png")
         try noisyPNG.write(to: noisyTopoURL, options: [.atomic])
-        let noisyPrepHole = try diagonalHole(3, par: 3, png: noisyPNG, revision: "snapshot-noisy-r1")
+        let noisyPrepHole = try diagonalHole(3, par: prepPars[2], yards: prepYards[2], png: noisyPNG, revision: "snapshot-noisy-r1")
         // The detectors' positive control: a fully opaque bitmap framed by a rough border, which on a
         // flat ground reads as a rectangle.
         let squareRough = (red: 96, green: 140, blue: 86)
@@ -1023,39 +1019,51 @@ final class DesignSnapshotTests: XCTestCase {
             ctx.fill(CGRect(x: 24, y: 24, width: 208, height: 208))
         }
         let framedPrepHole = try diagonalHole(
-            19, par: 4, png: try XCTUnwrap(framedImage.pngData()), revision: "snapshot-framed-r1"
+            19, par: 4, yards: 410, png: try XCTUnwrap(framedImage.pngData()), revision: "snapshot-framed-r1"
         )
-        let prepPars = [5, 4, 3, 4, 4, 5, 3, 4, 4, 4, 4, 3, 5, 4, 4, 3, 5, 4]
-        let prepYards = [543, 410, 178, 395, 402, 528, 165, 388, 420, 415, 398, 172, 535, 405, 390, 188, 520, 430]
-        let prepRows: [PrepHoleRow] = (1...18).map { number -> PrepHoleRow in
+        let prepRows: [PrepHoleRow] = try (1...18).map { number -> PrepHoleRow in
             let state: LiveMapDisplayState = number <= 4 ? .precise : (number <= 12 ? .factualPending : .waiting)
-            let prep: CoursePrepHole? = state == .waiting
-                ? nil
-                : (number == 2 ? squarePrepHole
-                    : number == 3 ? noisyPrepHole
-                    : (state == .precise ? prepCardHole : factualPrepHole))
-                    .renumbered(to: number)
-            // The three real strategy routes (推荐 / 稳妥 / 进攻), each with its own carries and
-            // landings, through the production route -> plan mapping.
-            let plans: [PrepPlanOption] = state == .waiting
-                ? []
-                : PrepRouteFixtures.routes(par: prepPars[number - 1], routeLengthM: 375)
-                    .enumerated()
-                    .compactMap { index, route in
-                        PrepPlanOption.option(route: route, index: index, par: prepPars[number - 1])
-                    }
-            return PrepHoleRow(
+            guard state != .waiting else {
+                // Nothing drawable yet: the waiting page shows the template's hole · Par · yards.
+                return PrepHoleRow(
+                    number: number, displayNumber: number, par: prepPars[number - 1],
+                    yards: prepYards[number - 1], prep: nil, topoURL: nil, state: .waiting
+                )
+            }
+            let prep = try number == 2 ? squarePrepHole
+                : number == 3 ? noisyPrepHole
+                : cardHole(number, coverage: state == .precise ? "ready" : "partial")
+            // As `PrepHoleRows.build`: the yardage is the prep's own, and the three real strategy
+            // routes (推荐 / 稳妥 / 进攻) are built on the prep's own route length.
+            return PrepRouteFixtures.row(
                 number: number,
-                displayNumber: number,
-                par: prepPars[number - 1],
-                yards: prepYards[number - 1],
                 prep: prep,
                 topoURL: state == .precise
                     ? (number == 2 ? squareTopoURL : number == 3 ? noisyTopoURL : prepTopoURL)
                     : nil,
-                state: state,
-                plans: plans
+                state: state
             )
+        }
+        // One physical hole per row: the displayed plan closes on the displayed yardage and the
+        // route end, and the overlay's pixel distances reproduce its station deltas through `ppm`.
+        for row in prepRows where row.state != .waiting {
+            try Self.assertPhysicallyCoherent(row, context: "prep hole \(row.number)")
+        }
+        // The check fails the previous composition: rows whose header yardage was set apart from
+        // a shared 375 m route (543 码 over a 409 码 plan; 178 码 over a single 410 码 stroke).
+        for (index, yards) in [(0, 543), (2, 178)] {
+            let coherent = prepRows[index]
+            let detached = PrepHoleRow(
+                number: coherent.number, displayNumber: coherent.number, par: coherent.par,
+                yards: yards, prep: try diagonalHole(
+                    coherent.number, par: prepPars[index], yards: 410, png: squarePNG, revision: "detached-r1"
+                ),
+                topoURL: nil, state: .precise,
+                plans: PrepRouteFixtures.routes(par: prepPars[index], routeLengthM: 375).enumerated().compactMap {
+                    PrepPlanOption.option(route: $1, index: $0, par: prepPars[index])
+                }
+            )
+            XCTAssertFalse(Self.physicalViolations(detached).isEmpty, "the coherence check fails a detached \(yards) 码 header")
         }
         XCTAssertEqual(prepRows[0].plans.map(\.title), ["推荐", "稳妥", "进攻"])
         // Every stroke of the Par 5 plan is in the club order: tee shot, second shot, approach.
@@ -1400,7 +1408,7 @@ final class DesignSnapshotTests: XCTestCase {
             return largest
         }
         let edgeCourse = try diagonalHole(
-            20, par: 4,
+            20, par: 4, yards: 410,
             png: try XCTUnwrap(Self.courseImage(ground: nil, noisyRough: false, reachesEdge: true).pngData()),
             revision: "snapshot-edge-course-r1"
         )
@@ -1770,6 +1778,55 @@ final class DesignSnapshotTests: XCTestCase {
     /// Two physically different complete routes for the live-map snapshots: Par - 2 legs each
     /// (at least one), the last a scoring leg to the flag, carries summing to the route length.
     /// One RGB pixel (0-255) of a PNG at a fractional position (0...1, from the top-left).
+    /// Every way a 备战 row can depict a physically different hole from its text (Codex 5921831209):
+    /// the displayed yardage against the prep's route metres, the overlay's `ln` and route end, each
+    /// pixel segment against its station delta through the one `ppm`, the green middle, and every
+    /// plan's route end and yardage sum (per-leg rounding: at most one 码 per stroke).
+    static func physicalViolations(_ row: PrepHoleRow) -> [String] {
+        guard let prep = row.prep else { return ["no prep"] }
+        guard let overlay = prep.resolvedMapOverlay else { return ["no overlay"] }
+        var violations: [String] = []
+        let length = prep.routeLenM
+        if row.yards != CoursePrepRoute.yards(fromMetres: length) {
+            violations.append("displayed \(row.yards.map { "\($0)" } ?? "-") 码 vs route \(length) m")
+        }
+        if abs(overlay.ln - length) > 0.5 { violations.append("overlay ln \(overlay.ln) vs route \(length) m") }
+        if let end = overlay.route.last, end.count >= 3, abs(end[2] - overlay.ln) > 0.5 {
+            violations.append("overlay route ends at \(end[2]) m, ln \(overlay.ln) m")
+        }
+        for (a, b) in zip(overlay.route, overlay.route.dropFirst()) where a.count >= 3 && b.count >= 3 {
+            let metres = hypot(b[0] - a[0], b[1] - a[1]) / overlay.ppm
+            if abs(metres - (b[2] - a[2])) > 0.5 {
+                violations.append("segment \(a) → \(b) is \(metres) m through ppm, stations say \(b[2] - a[2]) m")
+            }
+        }
+        if let middle = prep.greenDistances?.middleM, abs(middle - overlay.ln) > 0.5 {
+            violations.append("green middle \(middle) m vs route end \(overlay.ln) m")
+        }
+        for plan in row.plans {
+            if let end = plan.shots.last?.routeOffsetM, abs(end - overlay.ln) > 1 {
+                violations.append("\(plan.title) ends at \(end) m, route \(overlay.ln) m")
+            }
+            let strokeYards = plan.steps.compactMap(\.yards)
+            if strokeYards.count != plan.steps.count {
+                violations.append("\(plan.title) has a stroke without yardage")
+            } else if let yards = row.yards, abs(strokeYards.reduce(0, +) - yards) > plan.steps.count {
+                violations.append("\(plan.title) sums to \(strokeYards.reduce(0, +)) 码, hole \(yards) 码")
+            }
+        }
+        return violations
+    }
+
+    static func assertPhysicallyCoherent(
+        _ row: PrepHoleRow,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let violations = physicalViolations(row)
+        XCTAssertTrue(violations.isEmpty, "\(context): \(violations)", file: file, line: line)
+    }
+
     private static func pixel(in png: Data, at point: CGPoint) throws -> (red: Int, green: Int, blue: Int) {
         let image = try XCTUnwrap(UIImage(data: png)?.cgImage)
         let x = min(image.width - 1, max(0, Int(point.x * CGFloat(image.width))))

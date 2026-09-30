@@ -509,13 +509,20 @@ final class PrepMapDegradationTests: XCTestCase {
     /// The CI fixture's real prep hole (`server_v2/ci_fixture.py`): a 64 x 64 px square topo with
     /// the route running corner to corner, the shape Codex saw cropped in the real screenshots.
     private func squareDiagonalPrep(par: Int) throws -> CoursePrepHole {
-        let json = """
-        {"hole":1,"par":\(par),"par_source":"garmin","blue_yards":410,"route_len_m":375,\
-        "route":[[0,0,0],[64,64,375]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
-        "geometryCoverage":"ready","geometryRevision":"fixture-r1",\
-        "map":{"overlay":{"w":64,"h":64,"ppm":0.17,"ln":375,"route":[[0,0,0],[64,64,375]]}}}
-        """
-        return try JSONDecoder().decode(CoursePrepHole.self, from: Data(json.utf8))
+        // One physical hole (`PrepRouteFixtures.hole`): 410 码 whose corner-to-corner route is
+        // its pixel length over one ppm.
+        try PrepRouteFixtures.hole(
+            number: 1, par: par, yards: 410,
+            pixels: [CGPoint(x: 0, y: 0), CGPoint(x: 64, y: 64)], width: 64, height: 64,
+            imageDataURI: nil, coverage: "ready", revision: "fixture-r1"
+        )
+    }
+
+    /// The prep's own plans, on its own route length (as `PrepHoleRows.build`).
+    private func holePlans(_ hole: CoursePrepHole) -> [PrepPlanOption] {
+        PrepRouteFixtures.routes(par: hole.par, routeLengthM: hole.routeLenM).enumerated().compactMap { index, route in
+            PrepPlanOption.option(route: route, index: index, par: hole.par)
+        }
     }
 
     /// An iPhone 16-sized 备战 layout: the viewport, its chrome insets and the chrome rects.
@@ -560,24 +567,18 @@ final class PrepMapDegradationTests: XCTestCase {
         var cases: [(name: String, hole: CoursePrepHole, plan: PrepPlanOption)] = []
         for par in [4, 5] {
             let hole = try squareDiagonalPrep(par: par)
-            let plans = PrepRouteFixtures.routes(par: par, routeLengthM: 375).enumerated().compactMap { index, route in
-                PrepPlanOption.option(route: route, index: index, par: par)
-            }
+            let plans = holePlans(hole)
             XCTAssertGreaterThanOrEqual(plans.count, 2)
             for plan in plans { cases.append(("square Par \(par) \(plan.title)", hole, plan)) }
         }
         let tall = try snapshotPrep(coverage: "ready")
-        let wide = try JSONDecoder().decode(CoursePrepHole.self, from: Data("""
-        {"hole":1,"par":5,"par_source":"courseview","blue_yards":543,"route_len_m":480,\
-        "route":[[40,260],[520,240]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
-        "geometryCoverage":"ready","geometryRevision":"wide-r1",\
-        "map":{"overlay":{"w":560,"h":300,"ppm":1.0,"ln":480,"route":[[40,260,0],[280,90,300],[520,240,480]]}}}
-        """.utf8))
+        let wide = try PrepRouteFixtures.hole(
+            number: 1, par: 5, yards: 543,
+            pixels: [CGPoint(x: 40, y: 260), CGPoint(x: 280, y: 90), CGPoint(x: 520, y: 240)],
+            width: 560, height: 300, imageDataURI: nil, coverage: "ready", revision: "wide-r1"
+        )
         for (name, hole) in [("tall", tall), ("wide diagonal", wide)] {
-            let length: Double = name == "tall" ? 375 : 480
-            let plans = PrepRouteFixtures.routes(par: 5, routeLengthM: length).enumerated().compactMap { index, route in
-                PrepPlanOption.option(route: route, index: index, par: 5)
-            }
+            let plans = holePlans(hole)
             for plan in plans { cases.append(("\(name) \(plan.title)", hole, plan)) }
         }
         var sawThreeShots = false
@@ -635,9 +636,7 @@ final class PrepMapDegradationTests: XCTestCase {
         // one landing fell outside the space between the chrome.
         let square = try squareDiagonalPrep(par: 4)
         let squareOverlay = try XCTUnwrap(square.resolvedMapOverlay)
-        let squarePlan = try XCTUnwrap(PrepRouteFixtures.routes(par: 4, routeLengthM: 375).enumerated().compactMap { index, route in
-            PrepPlanOption.option(route: route, index: index, par: 4)
-        }.first)
+        let squarePlan = try XCTUnwrap(holePlans(square).first)
         let oldFrame = try XCTUnwrap(PrepMapLayout.coverFrame(
             overlayWidth: 64, overlayHeight: 64, route: squareOverlay.route,
             viewport: layout.viewport, topInset: layout.insets.top, bottomInset: layout.insets.bottom
@@ -792,13 +791,12 @@ final class PrepMapDegradationTests: XCTestCase {
 
     /// The design-snapshot hole: a 240 x 360 px Par 5 map, 1 px = 1 m, 375 m from tee to green.
     private func snapshotPrep(coverage: String) throws -> CoursePrepHole {
-        let json = """
-        {"hole":1,"par":5,"par_source":"courseview","blue_yards":543,"route_len_m":375,\
-        "route":[[120,330],[118,180],[120,55]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},\
-        "geometryCoverage":"\(coverage)","geometryRevision":"snapshot-r1",\
-        "map":{"overlay":{"w":240,"h":360,"ppm":1.0,"ln":375,"route":[[120,330,0],[118,180,150],[120,55,375]]}}}
-        """
-        return try JSONDecoder().decode(CoursePrepHole.self, from: Data(json.utf8))
+        // The design snapshots' Par 5 · 543 码 hole, one physical fixture.
+        try PrepRouteFixtures.hole(
+            number: 1, par: 5, yards: 543,
+            pixels: [CGPoint(x: 120, y: 330), CGPoint(x: 118, y: 180), CGPoint(x: 120, y: 55)],
+            width: 240, height: 360, imageDataURI: nil, coverage: coverage, revision: "snapshot-r1"
+        )
     }
 
     func testRouteLabelsStayWhollyClearOfThePrepChromeFittedAndZoomed() throws {
@@ -850,9 +848,7 @@ final class PrepMapDegradationTests: XCTestCase {
 
         let precise = try snapshotPrep(coverage: "ready")
         let factual = try snapshotPrep(coverage: "partial")
-        let plans = PrepRouteFixtures.routes(par: 5, routeLengthM: 375).enumerated().compactMap { index, route in
-            PrepPlanOption.option(route: route, index: index, par: 5)
-        }
+        let plans = holePlans(precise)
         XCTAssertEqual(plans.map(\.title), ["推荐", "稳妥", "进攻"])
         let overlay = try XCTUnwrap(precise.resolvedMapOverlay)
 
