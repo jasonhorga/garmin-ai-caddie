@@ -992,10 +992,11 @@ final class DesignSnapshotTests: XCTestCase {
             let prep: CoursePrepHole? = state == .waiting
                 ? nil
                 : (state == .precise ? prepCardHole : factualPrepHole).renumbered(to: number)
-            // Two complete caddie routes per hole, through the production route -> plan mapping.
+            // The three real strategy routes (推荐 / 稳妥 / 进攻), each with its own carries and
+            // landings, through the production route -> plan mapping.
             let plans: [PrepPlanOption] = state == .waiting
                 ? []
-                : Self.snapshotCaddieRoutes(par: prepPars[number - 1], routeLengthM: 375)
+                : Self.snapshotPrepRoutes(par: prepPars[number - 1], routeLengthM: 375)
                     .enumerated()
                     .compactMap { index, route in
                         PrepPlanOption.option(route: route, index: index, par: prepPars[number - 1])
@@ -1011,13 +1012,32 @@ final class DesignSnapshotTests: XCTestCase {
                 plans: plans
             )
         }
-        XCTAssertEqual(prepRows[0].plans.count, 2)
+        XCTAssertEqual(prepRows[0].plans.map(\.title), ["推荐", "稳妥", "进攻"])
         // Every stroke of the Par 5 plan is in the club order: tee shot, second shot, approach.
         XCTAssertEqual(prepRows[0].plans[0].steps.count, 3)
         XCTAssertNotEqual(
             prepRows[0].plans[0].steps.map(\.label),
             prepRows[0].plans[1].steps.map(\.label)
         )
+        // 方案 2 is a visibly different path: its landings are elsewhere on the hole.
+        if let firstPrep = prepRows[0].prep {
+            let paths = prepRows[0].plans.prefix(2).map { plan in
+                HoleImageMapView(
+                    hole: firstPrep,
+                    showsCardChrome: false,
+                    plannedShots: plan.shots,
+                    drawsPlannedRouteInMap: false
+                ).plannedLegs().map(\.destination)
+            }
+            XCTAssertEqual(paths.count, 2)
+            for (lhs, rhs) in zip(paths[0].dropLast(), paths[1].dropLast()) {
+                XCTAssertGreaterThan(
+                    hypot(lhs.x - rhs.x, lhs.y - rhs.y),
+                    30,
+                    "each landing of plan 2 is at least 30 topo px from plan 1's"
+                )
+            }
+        }
         // Default-none obstacles: the prep map requests neither obstacle spans nor measured labels,
         // and each landing reads 球杆 + 码数.
         if let firstPrep = prepRows[0].prep, let overlay = firstPrep.resolvedMapOverlay {
@@ -1042,7 +1062,7 @@ final class DesignSnapshotTests: XCTestCase {
         ) -> PrepHoleMapSession {
             var session = PrepHoleMapSession()
             session.select(hole: hole)
-            session.selectPlan(plan, planCount: 2)
+            session.selectPlan(plan, planCount: 3)
             session.viewport = viewport
             return session
         }
@@ -1077,6 +1097,20 @@ final class DesignSnapshotTests: XCTestCase {
             ))
         }
         XCTAssertEqual(Set(prepPNGs).count, prepStates.count, "prep snapshot states rendered identically")
+        // Full screen, not a framed rectangle: near every edge of the viewport (below the navigation
+        // bar and above the bottom panel) the map surface is drawn, never the black screen base.
+        let prepNames: [String] = prepStates.map { $0.0 }
+        for (name, png) in zip(prepNames, prepPNGs) where name != "prep-hole-waiting" {
+            let samples: [CGPoint] = [
+                CGPoint(x: 0.03, y: 0.2), CGPoint(x: 0.97, y: 0.2), CGPoint(x: 0.5, y: 0.2),
+                CGPoint(x: 0.03, y: 0.72), CGPoint(x: 0.97, y: 0.72),
+            ]
+            for point in samples {
+                let pixel = try Self.pixel(in: png, at: point)
+                let fromBase = abs(pixel.red - 5) + abs(pixel.green - 7) + abs(pixel.blue - 12)
+                XCTAssertGreaterThan(fromBase, 24, "\(name): the map covers (\(point.x), \(point.y)), got \(pixel)")
+            }
+        }
 
         // 单场复盘: a representative 18-hole Garmin-style scorecard before the compact metrics,
         // rendered from a round-detail fixture (mirrors /api/v2/history/rounds/{ref}).
@@ -1383,6 +1417,93 @@ final class DesignSnapshotTests: XCTestCase {
     @MainActor
     /// Two physically different complete routes for the live-map snapshots: Par - 2 legs each
     /// (at least one), the last a scoring leg to the flag, carries summing to the route length.
+    /// One RGB pixel (0-255) of a PNG at a fractional position (0...1, from the top-left).
+    private static func pixel(in png: Data, at point: CGPoint) throws -> (red: Int, green: Int, blue: Int) {
+        let image = try XCTUnwrap(UIImage(data: png)?.cgImage)
+        let x = min(image.width - 1, max(0, Int(point.x * CGFloat(image.width))))
+        let y = min(image.height - 1, max(0, Int(point.y * CGFloat(image.height))))
+        var bytes = [UInt8](repeating: 0, count: 4)
+        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 8,
+                bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            // CoreGraphics draws from the bottom-left: shift the wanted pixel onto (0, 0).
+            context.draw(image, in: CGRect(
+                x: -CGFloat(x),
+                y: -CGFloat(image.height - 1 - y),
+                width: CGFloat(image.width),
+                height: CGFloat(image.height)
+            ))
+            return true
+        }
+        XCTAssertTrue(drawn, "pixel sampling context")
+        return (Int(bytes[0]), Int(bytes[1]), Int(bytes[2]))
+    }
+
+    /// 备战 fixture plans with the real strategy identities (the installed chain → 推荐, safe → 稳妥,
+    /// attack → 进攻) and genuinely different carries and landing stations. Stations are cumulative
+    /// fractions of the route; the last leg of each plan is its green-bound scoring leg.
+    private static func snapshotPrepRoutes(par: Int, routeLengthM: Double) -> [CaddiePlanSequence] {
+        let plans: [(id: String, clubs: [String], stations: [Double])]
+        switch par {
+        case 3:
+            plans = [
+                (LiveCaddieRouteAuthority.installedRouteId, ["8I"], [1]),
+                ("safe", ["7I"], [0.9]),
+                ("attack", ["9I"], [1]),
+            ]
+        case 4:
+            plans = [
+                (LiveCaddieRouteAuthority.installedRouteId, ["1W", "8I"], [0.55, 1]),
+                ("safe", ["3H", "7I"], [0.4, 1]),
+                ("attack", ["1W", "PW"], [0.68, 1]),
+            ]
+        default:
+            plans = [
+                (LiveCaddieRouteAuthority.installedRouteId, ["1W", "3W", "SW"], [0.41, 0.79, 1]),
+                ("safe", ["3W", "5I", "9I"], [0.3, 0.62, 1]),
+                ("attack", ["1W", "3W"], [0.52, 1]),
+            ]
+        }
+        return plans.map { plan -> CaddiePlanSequence in
+            var previous = 0.0
+            let steps = plan.stations.enumerated().map { index, station -> CaddiePlanSequenceStep in
+                let offset = (routeLengthM * station).rounded()
+                let carry = offset - previous
+                previous = offset
+                let isLast = index == plan.stations.count - 1
+                return CaddiePlanSequenceStep(
+                    id: "\(plan.id)-\(index)",
+                    role: isLast ? "scoring" : (index == 0 ? "tee" : "position"),
+                    clubName: plan.clubs[min(index, plan.clubs.count - 1)],
+                    targetCarryM: carry,
+                    expectedRemainingM: isLast ? 0 : routeLengthM - offset,
+                    sampleSize: 12,
+                    confidence: "medium",
+                    sourceRefs: [],
+                    routeOffsetM: offset,
+                    planIndex: index
+                )
+            }
+            return CaddiePlanSequence(
+                id: plan.id,
+                label: plan.clubs.joined(separator: "-"),
+                expectedRemainingM: 0,
+                riskScore: nil,
+                confidence: "medium",
+                coverageText: nil,
+                sourceRefs: [],
+                steps: steps
+            )
+        }
+    }
+
     private static func snapshotCaddieRoutes(par: Int, routeLengthM: Double) -> [CaddiePlanSequence] {
         let legCount = max(1, par - 2)
         let plans: [(id: String, label: String, clubs: [String], weights: [Double])] = [

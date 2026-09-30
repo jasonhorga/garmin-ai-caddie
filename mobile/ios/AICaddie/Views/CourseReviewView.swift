@@ -432,8 +432,8 @@ struct CoursePrepStrategyScreen: View {
     }
 }
 
-/// The full-screen 备战 hole map: the live hero's transform (aspect-fit into the space the chrome
-/// leaves, then the player's pan / zoom) over the whole screen. The bitmap draws the factual route
+/// The full-screen 备战 hole map: the bitmap covers the whole screen (aspect fill; the chrome only
+/// moves where the hole rests), then the live hero's pan / zoom. The bitmap draws the factual route
 /// and green; the selected plan's legs, landings and their "球杆 码数" labels are drawn in the
 /// viewport plane by the live `LivePlannedRouteRenderer`, so they keep screen size at every zoom.
 /// Obstacles follow the default-none rule: none are drawn on this screen.
@@ -470,10 +470,13 @@ struct PrepHoleMapHero: View {
             let map = mapView
             let scale = displayedScale
             let offset = displayedOffset(in: size)
+            // The bitmap (or the factual route's ground) covers the whole viewport; the chrome only
+            // moves where the hole rests inside it.
+            let rest = restFrame(in: size) ?? CGRect(origin: .zero, size: size)
             ZStack(alignment: .topTrailing) {
                 map
-                    .padding(.top, topInset)
-                    .padding(.bottom, bottomInset)
+                    .frame(width: rest.width, height: rest.height)
+                    .position(x: rest.midX, y: rest.midY)
                     .frame(width: size.width, height: size.height)
                     .scaleEffect(scale)
                     .offset(offset)
@@ -495,7 +498,7 @@ struct PrepHoleMapHero: View {
                             scale: scale,
                             offset: offset,
                             topInset: topInset,
-                            bottomInset: bottomInset
+                            fittedFrame: rest
                         )
                     }
                     .frame(width: size.width, height: size.height)
@@ -564,19 +567,22 @@ struct PrepHoleMapHero: View {
         min(max(viewport.zoomScale * pinchScale, 1), 4)
     }
 
-    private func mapFrame(in size: CGSize) -> CGRect? {
+    /// The bitmap's rest frame: an aspect fill of the whole viewport (`PrepMapLayout`).
+    private func restFrame(in size: CGSize) -> CGRect? {
         guard let overlay = prep.resolvedMapOverlay else { return nil }
-        return LivePlayMapOverlayLayout.mapFrame(
+        return PrepMapLayout.restFrame(
             overlayWidth: overlay.w,
             overlayHeight: overlay.h,
-            in: size,
+            route: overlay.route,
+            viewport: size,
             topInset: topInset,
             bottomInset: bottomInset
         )
     }
 
     private func clamped(_ proposed: CGSize, scale: CGFloat, in size: CGSize) -> CGSize {
-        guard let frame = mapFrame(in: size) else { return proposed }
+        // Pan keeps the zoomed bitmap covering the viewport.
+        guard let frame = restFrame(in: size) else { return proposed }
         return LivePlayMapOverlayLayout.clampedOffset(
             proposed,
             mapFrame: frame,

@@ -3022,7 +3022,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct PrepHoleMapHero: View", course_review)
         self.assertIn(".frame(width: size.width, height: size.height)", course_review)
         self.assertIn("bottomInset: bottomInset", course_review)
-        self.assertIn("bottomInset: CGFloat = 0", live_components)
+        # The bitmap covers the whole viewport (aspect fill); insets only move its rest position.
+        self.assertIn("enum PrepMapLayout", prep_presentation)
+        self.assertIn("let scale = max(viewport.width / CGFloat(overlayWidth), viewport.height / CGFloat(overlayHeight))", prep_presentation)
+        self.assertIn("fittedFrame: rest", course_review)
+        self.assertIn(".position(x: rest.midX, y: rest.midY)", course_review)
+        self.assertNotIn(".padding(.top, topInset)\n                    .padding(.bottom, bottomInset)", course_review)
+        self.assertIn("fittedFrame: CGRect? = nil", _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift"))
+        self.assertNotIn("bottomInset", live_components)
         self.assertNotIn(".padding(.horizontal, 8)", course_review)
         self.assertNotIn("allowsRotation: true", course_review)
         # P1-1 / P1-2: plans come from the live decision authority and drive the map legs, whose

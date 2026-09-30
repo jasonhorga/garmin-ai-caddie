@@ -297,3 +297,53 @@ struct PrepHoleMapSession: Equatable {
         return plans[min(max(selectedPlanIndex, 0), plans.count - 1)]
     }
 }
+
+/// 备战's full-screen map geometry. The bitmap's rest frame is an aspect *fill* of the whole
+/// viewport, so the topo (or the factual route's ground) is never a framed rectangle with bands.
+/// The chrome (the badge row on top, the glass panel at the bottom) never cuts the map away; it
+/// only moves where the hole rests: the route's centre sits in the middle of the content rect
+/// between them, as far as keeping the viewport covered allows.
+enum PrepMapLayout {
+    static func restFrame(
+        overlayWidth: Int,
+        overlayHeight: Int,
+        route: [[Double]],
+        viewport: CGSize,
+        topInset: CGFloat,
+        bottomInset: CGFloat
+    ) -> CGRect? {
+        guard overlayWidth > 0, overlayHeight > 0,
+              viewport.width.isFinite, viewport.height.isFinite,
+              viewport.width > 0, viewport.height > 0 else { return nil }
+        let scale = max(viewport.width / CGFloat(overlayWidth), viewport.height / CGFloat(overlayHeight))
+        guard scale.isFinite, scale > 0 else { return nil }
+        let width = CGFloat(overlayWidth) * scale
+        let height = CGFloat(overlayHeight) * scale
+        let points: [CGPoint] = route.compactMap { row -> CGPoint? in
+            guard row.count >= 2, row[0].isFinite, row[1].isFinite else { return nil }
+            return CGPoint(x: row[0], y: row[1])
+        }
+        let xs = points.map(\.x)
+        let ys = points.map(\.y)
+        let focus: CGPoint
+        if let minX = xs.min(), let maxX = xs.max(), let minY = ys.min(), let maxY = ys.max() {
+            focus = CGPoint(x: (minX + maxX) / 2, y: (minY + maxY) / 2)
+        } else {
+            focus = CGPoint(x: CGFloat(overlayWidth) / 2, y: CGFloat(overlayHeight) / 2)
+        }
+        let top = min(max(topInset.isFinite ? topInset : 0, 0), viewport.height)
+        let bottom = max(top, viewport.height - max(bottomInset.isFinite ? bottomInset : 0, 0))
+        let targetX: CGFloat = viewport.width / 2
+        let targetY: CGFloat = (top + bottom) / 2
+        // Keep every edge of the viewport covered by the bitmap.
+        let x = min(max(targetX - focus.x * scale, viewport.width - width), 0)
+        let y = min(max(targetY - focus.y * scale, viewport.height - height), 0)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    /// True when `frame` leaves no part of the viewport uncovered.
+    static func covers(_ frame: CGRect, viewport: CGSize) -> Bool {
+        frame.minX <= 0.5 && frame.minY <= 0.5
+            && frame.maxX >= viewport.width - 0.5 && frame.maxY >= viewport.height - 0.5
+    }
+}

@@ -502,6 +502,51 @@ final class PrepMapDegradationTests: XCTestCase {
         XCTAssertNil(session.plan(in: []))
     }
 
+    // MARK: - Full-screen map surface
+
+    func testPrepBitmapCoversTheWholeViewportAndChromeOnlyMovesTheHole() throws {
+        let viewport = CGSize(width: 390, height: 844)
+        let top: CGFloat = 150
+        let bottom: CGFloat = 210
+        // A tall topo (like the fixture), a wide one and a square one.
+        let cases: [(w: Int, h: Int, route: [[Double]])] = [
+            (240, 360, [[120, 330, 0], [118, 180, 150], [120, 55, 375]]),
+            (900, 500, [[150, 250, 0], [450, 240, 300], [750, 260, 600]]),
+            (600, 600, [[300, 560, 0], [300, 40, 520]]),
+        ]
+        for testCase in cases {
+            let frame = try XCTUnwrap(PrepMapLayout.restFrame(
+                overlayWidth: testCase.w,
+                overlayHeight: testCase.h,
+                route: testCase.route,
+                viewport: viewport,
+                topInset: top,
+                bottomInset: bottom
+            ))
+            // Never a framed rectangle: every edge of the screen shows the map surface.
+            XCTAssertTrue(PrepMapLayout.covers(frame, viewport: viewport), "\(testCase.w)x\(testCase.h): \(frame)")
+            XCTAssertEqual(frame.width / CGFloat(testCase.w), frame.height / CGFloat(testCase.h), accuracy: 0.0001)
+        }
+        // With room to move (a wide topo), the route's centre rests mid-screen between the chrome.
+        let wide = try XCTUnwrap(PrepMapLayout.restFrame(
+            overlayWidth: 900, overlayHeight: 500,
+            route: [[150, 250, 0], [750, 250, 600]],
+            viewport: viewport, topInset: top, bottomInset: bottom
+        ))
+        let scale = wide.width / 900
+        XCTAssertEqual(wide.minX + 450 * scale, viewport.width / 2, accuracy: 0.5)
+        // Chrome insets move the rest position; they never shrink the surface.
+        let noChrome = try XCTUnwrap(PrepMapLayout.restFrame(
+            overlayWidth: 240, overlayHeight: 360, route: [[120, 330, 0], [120, 55, 375]],
+            viewport: viewport, topInset: 0, bottomInset: 0
+        ))
+        let withChrome = try XCTUnwrap(PrepMapLayout.restFrame(
+            overlayWidth: 240, overlayHeight: 360, route: [[120, 330, 0], [120, 55, 375]],
+            viewport: viewport, topInset: top, bottomInset: bottom
+        ))
+        XCTAssertEqual(noChrome.size, withChrome.size)
+    }
+
     func testHeaderSubtitleAndStateDescriptionNeverNameTheDownload() {
         XCTAssertEqual(CoursePrepStrategyScreen.holeSubtitle(par: 5, yards: 543), "Par 5 · 543 码")
         XCTAssertEqual(CoursePrepStrategyScreen.holeSubtitle(par: 4, yards: nil), "Par 4")

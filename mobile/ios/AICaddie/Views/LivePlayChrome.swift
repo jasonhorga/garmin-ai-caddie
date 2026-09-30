@@ -377,7 +377,7 @@ enum LivePlannedRouteRenderer {
         scale: CGFloat,
         offset: CGSize,
         topInset: CGFloat,
-        bottomInset: CGFloat = 0
+        fittedFrame: CGRect? = nil
     ) -> ScreenGeometry {
         func screen(_ point: CGPoint) -> CGPoint? {
             transformedPoint(
@@ -387,7 +387,7 @@ enum LivePlannedRouteRenderer {
                 scale: scale,
                 offset: offset,
                 topInset: topInset,
-                bottomInset: bottomInset
+                fittedFrame: fittedFrame
             )
         }
         let screenLegs = legs.compactMap { leg -> (leg: MapPlannedLeg, origin: CGPoint, destination: CGPoint)? in
@@ -410,7 +410,8 @@ enum LivePlannedRouteRenderer {
         )
     }
 
-    /// A topo pixel in the viewport: the aspect-fit projection, then the hero's pan/zoom.
+    /// A topo pixel in the viewport: the aspect-fit projection (or the caller's explicit rest frame
+    /// of the bitmap, e.g. 备战's full-screen cover), then the hero's pan/zoom.
     static func transformedPoint(
         _ point: CGPoint,
         size: CGSize,
@@ -418,16 +419,25 @@ enum LivePlannedRouteRenderer {
         scale: CGFloat,
         offset: CGSize,
         topInset: CGFloat,
-        bottomInset: CGFloat = 0
+        fittedFrame: CGRect? = nil
     ) -> CGPoint? {
-        guard let base = LivePlayMapOverlayLayout.project(
-            overlayPoint: [Double(point.x), Double(point.y)],
-            overlayWidth: overlay.w,
-            overlayHeight: overlay.h,
-            into: size,
-            topInset: topInset,
-            bottomInset: bottomInset
-        ) else { return nil }
+        let projected: CGPoint?
+        if let fittedFrame {
+            guard point.x.isFinite, point.y.isFinite, overlay.w > 0, overlay.h > 0 else { return nil }
+            projected = CGPoint(
+                x: fittedFrame.minX + point.x / CGFloat(overlay.w) * fittedFrame.width,
+                y: fittedFrame.minY + point.y / CGFloat(overlay.h) * fittedFrame.height
+            )
+        } else {
+            projected = LivePlayMapOverlayLayout.project(
+                overlayPoint: [Double(point.x), Double(point.y)],
+                overlayWidth: overlay.w,
+                overlayHeight: overlay.h,
+                into: size,
+                topInset: topInset
+            )
+        }
+        guard let base = projected else { return nil }
         let x: CGFloat = size.width / 2 + (base.x - size.width / 2) * scale + offset.width
         let y: CGFloat = size.height / 2 + (base.y - size.height / 2) * scale + offset.height
         return CGPoint(x: x, y: y)
@@ -583,7 +593,7 @@ enum LivePlannedRouteRenderer {
         scale: CGFloat,
         offset: CGSize,
         topInset: CGFloat,
-        bottomInset: CGFloat = 0,
+        fittedFrame: CGRect? = nil,
         hazard selectedHazard: (hole: CoursePrepHole, row: LiveHazardDisplayItem)? = nil,
         target: LiveTargetGeometry? = nil
     ) {
@@ -596,7 +606,7 @@ enum LivePlannedRouteRenderer {
             scale: scale,
             offset: offset,
             topInset: topInset,
-            bottomInset: bottomInset
+            fittedFrame: fittedFrame
         )
         let hazardGeometry = selectedHazard.flatMap {
             LiveHazardOverlayRenderer.screenGeometry(
