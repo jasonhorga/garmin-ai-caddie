@@ -30,11 +30,14 @@ public struct WatchTurnView: View {
 
     /// One row per half in course order, then 只打 9 洞. `id` is the accessibility identifier.
     static func choices(for plan: NineLoopPlan) -> [WatchRoundSetupChoicePresentation] {
-        let halves = plan.course.loops.map { loop in
-            WatchRoundSetupChoicePresentation(
-                id: "watch-turn-half-\(loop.id.split(separator: ":").last.map(String.init) ?? loop.id)",
+        let halves = plan.course.loops.map { loop -> WatchRoundSetupChoicePresentation in
+            let half = loop.id.split(separator: ":").last.map(String.init) ?? loop.id
+            // The printed (physical) holes of the half, never the round positions 10–18.
+            let printed = half == "back" ? "第 10–18 洞" : "第 1–9 洞"
+            return WatchRoundSetupChoicePresentation(
+                id: "watch-turn-half-\(half)",
                 title: loop.displayName,
-                detail: loop.id == plan.first ? "再打一次" : "第 10–18 洞",
+                detail: loop.id == plan.first ? "再打一次 · \(printed)" : printed,
                 isSelected: plan.second == .loop(loop.id)
             )
         }

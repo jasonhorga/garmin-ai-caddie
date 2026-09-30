@@ -982,6 +982,8 @@ public struct WatchTemplateHoleRow: Equatable {
     public let number: Int
     public let globalId: Int
     public let sourceLocalHole: Int
+    /// The printed hole: the physical hole for a half, the round number for a nine-hole loop.
+    public let courseHoleNumber: Int
 }
 
 /// The durable-template side of the round-identity invariant (B4b-2 §6). A template read from disk is
@@ -1022,7 +1024,8 @@ extension WatchCourseTemplate {
                 rows.append(WatchTemplateHoleRow(
                     number: number,
                     globalId: loop.globalId,
-                    sourceLocalHole: sourceStart + offset
+                    sourceLocalHole: sourceStart + offset,
+                    courseHoleNumber: loop.half == "all" ? number : sourceStart + offset
                 ))
                 number += 1
             }
@@ -1042,6 +1045,9 @@ extension WatchCourseTemplate {
             guard seen.insert(state.hole).inserted,
                   let row = byNumber[state.hole],
                   state.globalId == row.globalId else {
+                throw WatchRoundIdentityError.holeDoesNotMatchItsLoop(state.hole)
+            }
+            if let printed = state.courseHoleNumber, printed != row.courseHoleNumber {
                 throw WatchRoundIdentityError.holeDoesNotMatchItsLoop(state.hole)
             }
             if let local = state.sourceLocalHole {
@@ -1114,4 +1120,39 @@ public struct WatchSecondLoopRequest: Equatable {
 public enum WatchSecondLoopResult: Equatable {
     case ready(loopKey: String, holeStates: [WatchRoundState])
     case unavailable(String)
+}
+
+extension WatchRoundStart {
+    /// The reverse Watch → iPhone start relay for a round the Watch just created. Every hole carries
+    /// its complete physical identity — round `hole` → (`globalId`, `localHole`, `courseHoleNumber`) —
+    /// so the phone never has to re-derive which physical half the Watch started on.
+    public static func watchStarted(
+        _ prepared: WatchPreparedCourse,
+        selection: WatchCourseSelection
+    ) -> WatchRoundStart {
+        let states = WatchRoundState.resolvingCourseHoleNumbers(
+            prepared.holeStates.sorted { $0.hole < $1.hole },
+            loopKey: selection.loopKey
+        )
+        return WatchRoundStart(
+            roundId: prepared.roundId,
+            courseName: prepared.courseName,
+            teeBox: selection.teeBox,
+            loopKey: selection.loopKey,
+            globalId: selection.front.globalId,
+            activeHole: states.first?.hole ?? 1,
+            holes: states.map { state in
+                WatchRoundSeedHole(
+                    hole: state.hole,
+                    par: state.par,
+                    distanceM: state.distanceM,
+                    teeLatitude: state.teeLatitude,
+                    teeLongitude: state.teeLongitude,
+                    globalId: state.globalId,
+                    localHole: state.sourceLocalHole,
+                    courseHoleNumber: state.courseHoleNumber
+                )
+            }
+        )
+    }
 }

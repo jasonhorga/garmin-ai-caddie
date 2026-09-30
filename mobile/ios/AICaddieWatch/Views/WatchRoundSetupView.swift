@@ -81,6 +81,13 @@ public struct WatchRoundSetupView: View {
         .task(id: selectedPrimary.globalId) {
             await loadTeesIfNeeded()
         }
+        .onChange(of: errorMessage) { _, newValue in
+            // A start that failed closed (malformed selection, unpersistable template) stays on
+            // this screen with its message; the start button becomes retryable.
+            if newValue != nil {
+                didSubmitStart = false
+            }
+        }
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
                 .onEnded { value in

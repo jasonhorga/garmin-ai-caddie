@@ -319,9 +319,12 @@ public final class WatchCourseLibrary: ObservableObject {
     /// still starts and the range screen can honestly show 999 until package facts arrive. The
     /// provisional template is persisted so the existing active-round upgrade task can resume after
     /// a process kill; it is replaced by the real package using the same round id.
+    ///
+    /// Fails closed (nil + `errorMessage`) when the selection's validated hole table cannot be built
+    /// or the provisional template cannot be persisted: no round starts on invented hole identity.
     public func startCourseImmediately(
         _ selection: WatchCourseSelection
-    ) -> WatchPreparedCourse {
+    ) -> WatchPreparedCourse? {
         var incompleteCachedHoles: [Int] = []
         if let cached = store.course(selection: selection) {
             if Self.preciseTemplateReady(cached, imageStore: imageStore) {
@@ -363,12 +366,17 @@ public final class WatchCourseLibrary: ObservableObject {
         let backOption = selection.back?.withTees([], selectedTee: selection.teeBox)
         // The provisional table already has the round's physical identity (后九 round hole 1 is
         // physical hole 10), so the persisted bootstrap passes the same load-boundary validation.
-        let rows = (try? WatchCourseTemplate.expectedRows(
-            option: frontOption,
-            backOption: backOption,
-            loopKey: selection.loopKey
-        )) ?? (1...max(1, selection.holeCount)).map {
-            WatchTemplateHoleRow(number: $0, globalId: frontOption.globalId, sourceLocalHole: $0)
+        let rows: [WatchTemplateHoleRow]
+        do {
+            rows = try WatchCourseTemplate.expectedRows(
+                option: frontOption,
+                backOption: backOption,
+                loopKey: selection.loopKey
+            )
+        } catch {
+            errorMessage = Self.malformedSelectionMessage
+            diagnosticErrorMessage = "\(errorMessage!): \(selection.loopKey) · \(error)"
+            return nil
         }
         let states = rows.map { row in
             WatchRoundState(
@@ -383,6 +391,7 @@ public final class WatchCourseLibrary: ObservableObject {
                 missingDataSummary: "球场数据正在补齐",
                 globalId: row.globalId,
                 sourceLocalHole: row.sourceLocalHole,
+                courseHoleNumber: row.courseHoleNumber,
                 geometryCoverage: "pending",
                 score: 0,
                 putts: 0,
@@ -404,7 +413,15 @@ public final class WatchCourseLibrary: ObservableObject {
             cachedAt: now()
         )
         // A fresh setup (or no cache) persists the provisional identity for process-kill recovery.
-        try? store.save(template)
+        // Without it the background upgrade and a relaunch could not find this round's table, so
+        // an unpersisted template never starts a round.
+        do {
+            try store.save(template)
+        } catch {
+            errorMessage = Self.provisionalSaveFailedMessage
+            diagnosticErrorMessage = "\(errorMessage!): \(error.localizedDescription)"
+            return nil
+        }
         courses = Self.uniqueOptions(from: [frontOption, backOption].compactMap { $0 } + courses)
         errorMessage = nil
         diagnosticErrorMessage = incompleteCachedHoles.isEmpty
@@ -412,6 +429,9 @@ public final class WatchCourseLibrary: ObservableObject {
             : "球场数据后台补齐中：第 \(Self.holeList(incompleteCachedHoles)) 洞"
         return template.makeRound(roundId: roundId)
     }
+
+    static let malformedSelectionMessage = "这个洞组的球洞信息不完整，无法开局；请返回重新选择"
+    static let provisionalSaveFailedMessage = "本机无法保存球场数据，暂未开局，请重试"
 
     /// Resolve the provisional name used before the backend package arrives.
     /// `WatchCourseOption.name` is already the backend canonical display value;
@@ -714,10 +734,12 @@ public final class WatchCourseLibrary: ObservableObject {
             for offset in 0..<9 {
                 guard let source = physical[start + offset] else { return nil }
                 let number = 1 + index * 9 + offset
+                // A half is printed as its physical hole (courseHoleNumber = sourceLocalHole).
                 states.append(source.state.replacingRoundId(
                     "template",
                     hole: number,
-                    sourceLocalHole: start + offset
+                    sourceLocalHole: start + offset,
+                    courseHoleNumber: start + offset
                 ))
                 // Rasters are stored by (course, round hole, revision). Give the renumbered hole its
                 // own copy; without a revision the key could collide with another physical hole's

@@ -256,7 +256,7 @@ final class WatchHalfStartTurnTests: XCTestCase {
         let library = makeLibrary(directory: directory, log: RequestLog())
         let selection = WatchCourseSelection(front: Self.blackKnight, teeBox: "blue", firstHalf: "back")
 
-        let prepared = library.startCourseImmediately(selection)
+        let prepared = try XCTUnwrap(library.startCourseImmediately(selection))
 
         XCTAssertEqual(prepared.holeStates.map(\.hole), Array(1...9))
         XCTAssertEqual(prepared.holeStates.map(\.sourceLocalHole), Array(10...18).map { Optional($0) })
@@ -306,6 +306,11 @@ final class WatchHalfStartTurnTests: XCTestCase {
         XCTAssertEqual(model.screen, .home)
         XCTAssertNil(model.turnPlan)
         XCTAssertEqual(model.activeHole, 10)
+        // The round coordinate is 10–18; the Watch shows the physical 前九 numbers 1–9.
+        XCTAssertEqual(model.activeDisplayHoleNumber, 1)
+        XCTAssertEqual(model.displayHoleNumber(10), 1)
+        XCTAssertEqual(model.displayHoleNumber(18), 9)
+        XCTAssertEqual(model.displayHoleNumber(1), 10)
         let round = try XCTUnwrap(model.round)
         XCTAssertEqual(round.roundId, roundId)
         XCTAssertEqual(round.loopKey, "31795:back+31795:front")
@@ -375,7 +380,7 @@ final class WatchHalfStartTurnTests: XCTestCase {
 
         // Offline start on 后九 composes the half from the whole-course template.
         let selection = WatchCourseSelection(front: Self.blackKnight, teeBox: "blue", firstHalf: "back")
-        let prepared = library.startCourseImmediately(selection)
+        let prepared = try XCTUnwrap(library.startCourseImmediately(selection))
         XCTAssertEqual(table(prepared.holeStates), try serverTable("31795:back"))
 
         let roundDirectory = makeDirectory("watch-turn-offline-round")
@@ -389,6 +394,11 @@ final class WatchHalfStartTurnTests: XCTestCase {
 
         XCTAssertEqual(model.round?.loopKey, "31795:back+31795:front")
         XCTAssertEqual(model.activeHole, 10)
+        // The round coordinate is 10–18; the Watch shows the physical 前九 numbers 1–9.
+        XCTAssertEqual(model.activeDisplayHoleNumber, 1)
+        XCTAssertEqual(model.displayHoleNumber(10), 1)
+        XCTAssertEqual(model.displayHoleNumber(18), 9)
+        XCTAssertEqual(model.displayHoleNumber(1), 10)
         XCTAssertEqual(table(model.round?.holeStates ?? []), try serverTable("31795:back,31795:front"),
                        "the offline turn equals the server's ordered table")
         XCTAssertNotNil(
@@ -511,5 +521,129 @@ final class WatchHalfStartTurnTests: XCTestCase {
             cachedAt: "2026-09-28T00:00:00Z"
         )
         XCTAssertThrowsError(try store.save(invalid))
+    }
+
+    // MARK: - printed hole numbers (courseHoleNumber)
+
+    func testBackNineStartShowsPhysicalHoleTenAndSurvivesRelaunch() throws {
+        let directory = makeDirectory("watch-back-display")
+        let library = makeLibrary(directory: directory, log: RequestLog())
+        let selection = WatchCourseSelection(front: Self.blackKnight, teeBox: "blue", firstHalf: "back")
+        let prepared = try XCTUnwrap(library.startCourseImmediately(selection))
+        XCTAssertEqual(prepared.holeStates.map(\.courseHoleNumber), Array(10...18).map { Optional($0) })
+
+        let roundDirectory = makeDirectory("watch-back-display-round")
+        let model = makeModel(directory: roundDirectory)
+        model.seedRound(prepared.holeStates, activeHole: 1, courseGlobalId: Self.courseId,
+                        teeBox: "blue", loopKey: selection.loopKey)
+        XCTAssertEqual(model.activeHole, 1, "events and navigation keep the round coordinate")
+        XCTAssertEqual(model.activeDisplayHoleNumber, 10)
+
+        let relaunched = makeModel(directory: roundDirectory)
+        XCTAssertEqual(relaunched.activeHole, 1)
+        XCTAssertEqual(relaunched.activeHoleState?.displayHoleNumber, 10, "first UI identity after relaunch")
+        XCTAssertEqual(relaunched.allHoleStates.map(\.displayHoleNumber), Array(10...18))
+    }
+
+    func testRoundPersistedWithoutCourseHoleNumbersResolvesThemFromItsLoopKey() throws {
+        let directory = makeDirectory("watch-legacy-display")
+        let states = (1...18).map { hole in
+            WatchRoundState(
+                roundId: "legacy", hole: hole, par: 4, distanceM: nil, selectedClub: nil,
+                globalId: Self.courseId,
+                sourceLocalHole: hole <= 9 ? hole + 9 : hole - 9,
+                score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+            )
+        }
+        try WatchRoundStore(directoryURL: directory).save(WatchRoundStore.PersistedRound(
+            roundId: "legacy",
+            activeHole: 10,
+            holeStates: states,
+            courseGlobalId: Self.courseId,
+            teeBox: "blue",
+            loopKey: "31795:back+31795:front"
+        ))
+        let model = makeModel(directory: directory)
+        XCTAssertEqual(model.allHoleStates.map(\.displayHoleNumber), Array(10...18) + Array(1...9))
+
+        // Without a loop key only provable numbers are derived; the rest shows the round number.
+        let decoded = try JSONDecoder().decode(
+            WatchRoundState.self,
+            from: JSONEncoder().encode(states[9])
+        )
+        XCTAssertNil(decoded.courseHoleNumber, "decoding never invents the field")
+        XCTAssertEqual(decoded.displayHoleNumber, 10, "round 10 / local 1 is 前九 1 or B:all 10 — not provable")
+        let back = try JSONDecoder().decode(WatchRoundState.self, from: JSONEncoder().encode(states[0]))
+        XCTAssertEqual(back.displayHoleNumber, 10, "a physical 10–18 hole is always printed as itself")
+    }
+
+    func testReverseStartPayloadCarriesTheCompletePhysicalTable() async throws {
+        let directory = makeDirectory("watch-reverse-start")
+        let library = makeLibrary(directory: directory, log: RequestLog())
+        let selection = WatchCourseSelection(front: Self.blackKnight, teeBox: "blue", firstHalf: "back")
+        let started = await library.startCourse(selection, config: Self.config)
+        let prepared = try XCTUnwrap(started)
+
+        let payload = WatchRoundStart.watchStarted(prepared, selection: selection)
+        let relayed = try JSONDecoder().decode(WatchRoundStart.self, from: JSONEncoder().encode(payload))
+
+        XCTAssertEqual(relayed.loopKey, "31795:back")
+        XCTAssertEqual(relayed.activeHole, 1)
+        let package = try WatchBackendClient(baseURL: Self.config.baseURL)
+            .decodeCoursePackage(Self.packageData(loops: "31795:back", roundId: "server"))
+        XCTAssertEqual(
+            relayed.holes.map { [$0.hole, $0.globalId ?? -1, $0.localHole ?? -1, $0.courseHoleNumber ?? -1] },
+            package.holes.sorted { $0.number < $1.number }.map {
+                [$0.number, $0.sourceGlobalId, $0.sourceLocalHole, $0.courseHoleNumber]
+            }
+        )
+
+        // The provisional (offline) start relays the same table.
+        let offline = try XCTUnwrap(
+            makeLibrary(directory: makeDirectory("watch-reverse-offline"), log: RequestLog())
+                .startCourseImmediately(selection)
+        )
+        XCTAssertEqual(
+            WatchRoundStart.watchStarted(offline, selection: selection).holes.map {
+                [$0.hole, $0.globalId ?? -1, $0.localHole ?? -1, $0.courseHoleNumber ?? -1]
+            },
+            relayed.holes.map { [$0.hole, $0.globalId ?? -1, $0.localHole ?? -1, $0.courseHoleNumber ?? -1] }
+        )
+    }
+
+    // MARK: - fail closed
+
+    func testMalformedSelectionDoesNotStartOrPersistAProvisionalRound() throws {
+        let directory = makeDirectory("watch-malformed-start")
+        let library = makeLibrary(directory: directory, log: RequestLog())
+        let strayBack = WatchCourseOption(globalId: 7002, name: "组合 ~ B", holes: 9, teeBox: "Blue", segmentHoles: 9)
+        // An 18-hole course has no back loop; its rows cannot be built.
+        let malformed = WatchCourseSelection(front: Self.blackKnight, back: strayBack, teeBox: "blue")
+        XCTAssertNil(library.startCourseImmediately(malformed))
+        XCTAssertEqual(library.errorMessage, WatchCourseLibrary.malformedSelectionMessage)
+
+        // A course without playable holes has no hole table either.
+        let empty = WatchCourseOption(globalId: 7009, name: "无球洞", holes: 0, teeBox: "Blue")
+        XCTAssertNil(library.startCourseImmediately(WatchCourseSelection(front: empty, teeBox: "Blue")))
+        XCTAssertEqual(library.errorMessage, WatchCourseLibrary.malformedSelectionMessage)
+
+        XCTAssertTrue(WatchCourseStore(directoryURL: directory).loadCourses().isEmpty,
+                      "no pending template is persisted for a round that did not start")
+    }
+
+    func testTemplateWithAMisprintedHoleNumberIsRejected() throws {
+        let rows = (1...9).map { hole in
+            WatchRoundState(
+                roundId: "t", hole: hole, par: 4, distanceM: nil, selectedClub: nil,
+                globalId: Self.courseId, sourceLocalHole: hole + 9,
+                courseHoleNumber: hole == 1 ? 1 : hole + 9,
+                score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+            )
+        }
+        let template = WatchCourseTemplate(
+            option: Self.blackKnight, loopKey: "31795:back", courseName: "Black Knight",
+            teeBox: "blue", holeStates: rows, cachedAt: "2026-09-30T00:00:00Z"
+        )
+        XCTAssertThrowsError(try template.validateIdentity())
     }
 }

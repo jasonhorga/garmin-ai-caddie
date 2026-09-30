@@ -5,6 +5,8 @@ import SwiftUI
 public struct WatchHoleSelectView: View {
     public let holes: [Int]
     public let activeHole: Int
+    /// Round hole → printed hole number (courseHoleNumber). Selection still uses the round hole.
+    public let displayHoles: [Int: Int]
     public let perRow: Int
     public let onSelect: (Int) -> Void
     public let onBack: () -> Void
@@ -12,12 +14,14 @@ public struct WatchHoleSelectView: View {
     public init(
         holes: [Int],
         activeHole: Int,
+        displayHoles: [Int: Int] = [:],
         perRow: Int = 5,
         onSelect: @escaping (Int) -> Void = { _ in },
         onBack: @escaping () -> Void = {}
     ) {
         self.holes = holes
         self.activeHole = activeHole
+        self.displayHoles = displayHoles
         self.perRow = perRow
         self.onSelect = onSelect
         self.onBack = onBack
@@ -36,7 +40,7 @@ public struct WatchHoleSelectView: View {
                 HStack(spacing: 6) {
                     ForEach(row, id: \.self) { hole in
                         Button { onSelect(hole) } label: {
-                            Text("\(hole)")
+                            Text("\(displayHoles[hole] ?? hole)")
                                 .font(.system(size: 19, weight: .black, design: .rounded).monospacedDigit())
                                 .frame(maxWidth: .infinity, minHeight: 48)
                                 .background(hole == activeHole ? AICaddieDesignTokens.par : AICaddieDesignTokens.par.opacity(0.16))

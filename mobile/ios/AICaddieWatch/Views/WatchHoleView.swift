@@ -61,7 +61,7 @@ public struct WatchHoleView: View {
                     Color.black
                     VStack(spacing: WatchHoleInstrumentLayout.sectionSpacing) {
                         HStack(spacing: 6) {
-                            Text("H\(state.hole) · P\(state.par)")
+                            Text("H\(state.displayHoleNumber) · P\(state.par)")
                                 .font(.system(size: WatchDisplayGeometry.instrumentHeaderFontSize, weight: .black))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.72)
@@ -85,7 +85,7 @@ public struct WatchHoleView: View {
                             if !state.caddieOptions.isEmpty {
                                 NavigationLink {
                                     WatchCaddieOptionsView(
-                                        hole: state.hole,
+                                        hole: state.displayHoleNumber,
                                         par: state.par,
                                         options: state.caddieOptions,
                                         recommendedId: state.offlineOptionId,

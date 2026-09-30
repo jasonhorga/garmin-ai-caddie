@@ -276,7 +276,7 @@ public final class WatchRoundModel: ObservableObject {
         self.now = now
         self.uploaderOverride = uploader
         self.finisherOverride = finisher
-        let persisted = store.load()
+        let persisted = store.load().map(WatchRoundModel.resolvingCourseHoleNumbers)
         self.round = persisted
         if persisted == nil {
             restoreInteractionState(from: nil)
@@ -711,6 +711,25 @@ public final class WatchRoundModel: ObservableObject {
 
     public var courseName: String { round?.courseName ?? "" }
 
+    /// The printed number of round hole `hole` (B4b-2 §2); the round number when unknown.
+    public func displayHoleNumber(_ hole: Int) -> Int {
+        round?.holeStates.first { $0.hole == hole }?.displayHoleNumber ?? hole
+    }
+
+    public var activeDisplayHoleNumber: Int { displayHoleNumber(activeHole) }
+
+    /// Restore of a round persisted before `courseHoleNumber`: fill it from the round's loop key.
+    private static func resolvingCourseHoleNumbers(
+        _ persisted: WatchRoundStore.PersistedRound
+    ) -> WatchRoundStore.PersistedRound {
+        var resolved = persisted
+        resolved.holeStates = WatchRoundState.resolvingCourseHoleNumbers(
+            persisted.holeStates,
+            loopKey: persisted.loopKey
+        )
+        return resolved
+    }
+
     // MARK: - seeding (from a phone-synced round or a fetched package)
 
     /// Start (or refresh) the real phone-selected round. Existing snapshots and unsynced Watch edits
@@ -766,6 +785,8 @@ public final class WatchRoundModel: ObservableObject {
                     teeLongitude: hole.teeLongitude,
                     selectedClub: nil,
                     globalId: hole.globalId,
+                    sourceLocalHole: hole.localHole,
+                    courseHoleNumber: hole.courseHoleNumber,
                     score: 0,
                     putts: 0,
                     penaltyCount: 0,
@@ -789,6 +810,7 @@ public final class WatchRoundModel: ObservableObject {
             states.sort { $0.hole < $1.hole }
             loopKey = existingKey
         }
+        states = WatchRoundState.resolvingCourseHoleNumbers(states, loopKey: loopKey)
         let holeNumbers = Set(states.map(\.hole))
         let retainedActiveHole = existing?.activeHole
         let activeHole = retainedActiveHole.flatMap { holeNumbers.contains($0) ? $0 : nil }
@@ -852,9 +874,20 @@ public final class WatchRoundModel: ObservableObject {
               !store.isClosed(roundId: state.roundId) else {
             return
         }
-        let merged = current.pendingEvents.reduce(state) { partial, event in
+        var merged = current.pendingEvents.reduce(state) { partial, event in
             partial.applying(event)
         }
+        // A phone snapshot may predate physical identity; keep the round's printed hole number.
+        if merged.courseHoleNumber == nil || merged.sourceLocalHole == nil,
+           let previous = current.holeStates.first(where: { $0.hole == merged.hole }) {
+            merged = merged.replacingRoundId(
+                merged.roundId,
+                hole: merged.hole,
+                sourceLocalHole: merged.sourceLocalHole ?? previous.sourceLocalHole,
+                courseHoleNumber: merged.courseHoleNumber ?? previous.courseHoleNumber
+            )
+        }
+        merged = WatchRoundState.resolvingCourseHoleNumbers([merged], loopKey: current.loopKey).first ?? merged
         guard let persisted = try? store.upsertHoleState(merged, makeActive: false) else {
             return
         }
@@ -872,7 +905,10 @@ public final class WatchRoundModel: ObservableObject {
     ) {
         guard let first = states.first else { return }
         var persisted = WatchRoundStore.PersistedRound(roundId: first.roundId)
-        persisted.holeStates = states.sorted { $0.hole < $1.hole }
+        persisted.holeStates = WatchRoundState.resolvingCourseHoleNumbers(
+            states.sorted { $0.hole < $1.hole },
+            loopKey: loopKey
+        )
         persisted.activeHole = activeHole ?? persisted.holeStates.first?.hole ?? 0
         persisted.courseName = courseName
         persisted.courseGlobalId = courseGlobalId
@@ -901,7 +937,7 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     public func refreshFromStore() {
-        let persisted = store.load()
+        let persisted = store.load().map(WatchRoundModel.resolvingCourseHoleNumbers)
         round = persisted
         if persisted == nil {
             restoreInteractionState(from: nil)
@@ -1519,7 +1555,10 @@ public final class WatchRoundModel: ObservableObject {
                 return false
             }
         }
-        current.holeStates += second.map { $0.replacingRoundId(current.roundId) }
+        current.holeStates += WatchRoundState.resolvingCourseHoleNumbers(
+            second.map { $0.replacingRoundId(current.roundId) },
+            loopKey: loopKey
+        )
         current.loopKey = loopKey
         current.activeHole = 10
         do {

@@ -328,7 +328,7 @@ public struct WatchRoundContainerView: View {
     public var body: some View {
         if isLuminanceReduced, let state = model.activeHoleState {
             WatchAlwaysOnDistanceView(
-                hole: state.hole,
+                hole: state.displayHoleNumber,
                 par: state.par,
                 centerYd: centerYd(state)
             )
@@ -343,7 +343,7 @@ public struct WatchRoundContainerView: View {
         case .resume:
             WatchResumeRoundView(
                 courseName: model.courseName,
-                activeHole: model.activeHole,
+                activeHole: model.activeDisplayHoleNumber,
                 scoredHoles: model.scoredHoles,
                 holeCount: model.holeCount,
                 pendingUploads: model.pendingUploads,
@@ -490,7 +490,7 @@ public struct WatchRoundContainerView: View {
         case .scorecard:
             ScrollView {
                 WatchScorecardView(
-                    holes: model.allHoleStates.map { WatchScorecardRow(hole: $0.hole, par: $0.par, score: $0.score) },
+                    holes: model.allHoleStates.map { WatchScorecardRow(hole: $0.hole, par: $0.par, score: $0.score, displayHole: $0.displayHoleNumber) },
                     totalToPar: model.toPar,
                     onSelectHole: { model.startEditingHole($0) },
                     onBack: { model.closeScorecard() }
@@ -501,6 +501,10 @@ public struct WatchRoundContainerView: View {
                 WatchHoleSelectView(
                     holes: model.allHoleStates.map(\.hole),
                     activeHole: model.activeHole,
+                    displayHoles: Dictionary(
+                        model.allHoleStates.map { ($0.hole, $0.displayHoleNumber) },
+                        uniquingKeysWith: { first, _ in first }
+                    ),
                     onSelect: { model.selectHole($0) },
                     onBack: { model.openMenu() }
                 )
@@ -508,7 +512,7 @@ public struct WatchRoundContainerView: View {
         case .clubPrompt:
             if let pending = model.pendingManualShot {
                 WatchClubPromptView(
-                    hole: pending.hole,
+                    hole: model.displayHoleNumber(pending.hole),
                     shotNumber: pending.shotNumber,
                     distanceToPinYards: model.activeHoleState.flatMap { centerYd($0) } ?? 999,
                     recommendedClub: model.allHoleStates.first(where: { $0.hole == pending.hole })?.suggestedClub,
@@ -521,7 +525,7 @@ public struct WatchRoundContainerView: View {
             }
         case .scoring:
             WatchScoreHoleView(
-                hole: model.scoringHole ?? model.activeHole,
+                hole: model.displayHoleNumber(model.scoringHole ?? model.activeHole),
                 par: model.scoringHoleState?.par ?? 0,
                 score: model.draftScore,
                 putts: model.draftPutts,
@@ -530,7 +534,7 @@ public struct WatchRoundContainerView: View {
                 step: model.scoreFlowStep,
                 fairway: model.draftFairway,
                 candidateNextHole: model.pendingManualShot?.candidateFromHole == model.scoringHole
-                    ? model.pendingManualShot?.hole
+                    ? model.pendingManualShot.map { model.displayHoleNumber($0.hole) }
                     : nil,
                 onScoreDelta: { model.adjustDraftScore($0) },
                 onPuttsDelta: { model.adjustDraftPutts($0) },
@@ -720,7 +724,7 @@ public struct WatchRoundContainerView: View {
         let preparedRootCaddieLayerAvailable = preparedGeometry != nil
         let renderedGeometry = preparedGeometry ?? geometry
         WatchHoleMapView(
-            holeNumber: s.hole,
+            holeNumber: s.displayHoleNumber,
             par: s.par,
             frontGreen: frontYd(s),
             centerGreen: centerYd(s),
@@ -766,7 +770,7 @@ public struct WatchRoundContainerView: View {
     ) -> some View {
         let selectedPin = selectedGreenPin(for: s, geometry: geometry)
         return WatchHoleMapView(
-            holeNumber: s.hole,
+            holeNumber: s.displayHoleNumber,
             par: s.par,
             frontGreen: frontYd(s),
             centerGreen: centerYd(s),
@@ -945,7 +949,7 @@ public struct WatchRoundContainerView: View {
             currentHoleInstrument {
                 WatchMapPreparingView(
                     courseName: model.courseName,
-                    hole: s.hole,
+                    hole: s.displayHoleNumber,
                     par: s.par
                 )
             }
@@ -1038,7 +1042,7 @@ public struct WatchRoundContainerView: View {
     private func scoreOnlyRoot(_ s: WatchRoundState) -> some View {
         WatchRoundHomeView(
             courseName: model.courseName,
-            hole: s.hole,
+            hole: s.displayHoleNumber,
             par: s.par,
             holeCount: model.holeCount,
             scoredHoles: model.scoredHoles,

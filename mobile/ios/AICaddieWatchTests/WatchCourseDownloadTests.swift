@@ -73,9 +73,9 @@ final class WatchCourseDownloadTests: XCTestCase {
             now: { "2026-08-22T00:00:00Z" }
         )
 
-        let prepared = library.startCourseImmediately(
+        let prepared = try XCTUnwrap(library.startCourseImmediately(
             WatchCourseSelection(front: option, teeBox: "Blue")
-        )
+        ))
 
         XCTAssertEqual(prepared.roundId, "watch-pending-1")
         XCTAssertEqual(prepared.holeStates.count, 18)
@@ -1162,9 +1162,9 @@ final class WatchCourseDownloadTests: XCTestCase {
             imageStore: imageStore,
             makeRoundId: { "immediate-pending" }
         )
-        let prepared = library.startCourseImmediately(
+        let prepared = try XCTUnwrap(library.startCourseImmediately(
             WatchCourseSelection(front: option, teeBox: "championship")
-        )
+        ))
 
         XCTAssertEqual(prepared.roundId, "immediate-pending")
         let first = try XCTUnwrap(prepared.holeStates.first { $0.hole == 1 })

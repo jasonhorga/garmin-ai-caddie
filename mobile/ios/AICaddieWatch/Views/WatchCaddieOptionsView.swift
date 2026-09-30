@@ -416,7 +416,7 @@ public struct WatchCaddieScreen: View {
     public var body: some View {
         if showsPlanOptionsFirst {
             WatchCaddieOptionsView(
-                hole: state.hole,
+                hole: state.displayHoleNumber,
                 par: state.par,
                 options: state.caddieOptions,
                 recommendedId: state.offlineOptionId ?? state.strategyMode,

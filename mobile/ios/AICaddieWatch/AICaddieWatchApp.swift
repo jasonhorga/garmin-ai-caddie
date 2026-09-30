@@ -208,7 +208,11 @@ public struct AICaddieWatchApp: App {
                         // A round is created locally before any package request. This mirrors the
                         // S70 cold-start behavior: no GPS or network spinner can erase the start
                         // fact. `activeCourseUpgradeKey` then upgrades this same round in place.
-                        let prepared = courseLibrary.startCourseImmediately(selection)
+                        // Fails closed: a malformed selection or an unpersistable provisional
+                        // template leaves the setup on screen with the library's error message.
+                        guard let prepared = courseLibrary.startCourseImmediately(selection) else {
+                            return
+                        }
                         roundModel.seedRound(
                             prepared.holeStates,
                             activeHole: prepared.holeStates.first?.hole,
@@ -218,24 +222,7 @@ public struct AICaddieWatchApp: App {
                             loopKey: selection.loopKey
                         )
                         syncClient.sendRoundStart(
-                            WatchRoundStart(
-                                roundId: prepared.roundId,
-                                courseName: prepared.courseName,
-                                teeBox: selection.teeBox,
-                                loopKey: selection.loopKey,
-                                globalId: selection.front.globalId,
-                                activeHole: prepared.holeStates.first?.hole ?? 1,
-                                holes: prepared.holeStates.map { state in
-                                    WatchRoundSeedHole(
-                                        hole: state.hole,
-                                        par: state.par,
-                                        distanceM: state.distanceM,
-                                        teeLatitude: state.teeLatitude,
-                                        teeLongitude: state.teeLongitude,
-                                        globalId: state.globalId
-                                    )
-                                }
-                            )
+                            WatchRoundStart.watchStarted(prepared, selection: selection)
                         )
                     }
                 )
