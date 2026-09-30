@@ -276,7 +276,7 @@ public final class WatchRoundModel: ObservableObject {
         self.now = now
         self.uploaderOverride = uploader
         self.finisherOverride = finisher
-        let persisted = store.load().map(WatchRoundModel.resolvingCourseHoleNumbers)
+        let persisted = store.load()
         self.round = persisted
         if persisted == nil {
             restoreInteractionState(from: nil)
@@ -718,16 +718,30 @@ public final class WatchRoundModel: ObservableObject {
 
     public var activeDisplayHoleNumber: Int { displayHoleNumber(activeHole) }
 
-    /// Restore of a round persisted before `courseHoleNumber`: fill it from the round's loop key.
-    private static func resolvingCourseHoleNumbers(
-        _ persisted: WatchRoundStore.PersistedRound
-    ) -> WatchRoundStore.PersistedRound {
-        var resolved = persisted
-        resolved.holeStates = WatchRoundState.resolvingCourseHoleNumbers(
-            persisted.holeStates,
-            loopKey: persisted.loopKey
-        )
-        return resolved
+    /// The seed's own table (round hole → globalId / localHole / courseHoleNumber) under its loop key.
+    static func seedHasValidIdentity(_ seed: WatchRoundSeed) -> Bool {
+        let states = seed.holes.map { hole in
+            WatchRoundState(
+                roundId: seed.roundId,
+                hole: hole.hole,
+                par: hole.par,
+                distanceM: hole.distanceM,
+                selectedClub: nil,
+                globalId: hole.globalId,
+                sourceLocalHole: hole.localHole,
+                courseHoleNumber: hole.courseHoleNumber,
+                score: 0,
+                putts: 0,
+                penaltyCount: 0,
+                caddieConfidence: "offline"
+            )
+        }
+        return WatchRoundStore.PersistedRound(
+            roundId: seed.roundId,
+            holeStates: states,
+            courseGlobalId: seed.globalId,
+            loopKey: seed.loopKey
+        ).hasValidIdentity
     }
 
     // MARK: - seeding (from a phone-synced round or a fetched package)
@@ -736,6 +750,9 @@ public final class WatchRoundModel: ObservableObject {
     /// for the same round are retained; newly added holes receive a truthful blank state from the seed.
     public func applyRoundSeed(_ seed: WatchRoundSeed) {
         guard !seed.holes.isEmpty, !store.isClosed(roundId: seed.roundId) else { return }
+        // A seed must carry the complete physical identity of every hole for its loop key; a
+        // legacy/contradictory seed never replaces or refreshes the round.
+        guard Self.seedHasValidIdentity(seed) else { return }
         if pendingPhoneRoundSeed?.roundId == seed.roundId {
             pendingPhoneRoundSeed = nil
             pendingPhoneRoundCourseName = nil
@@ -810,7 +827,6 @@ public final class WatchRoundModel: ObservableObject {
             states.sort { $0.hole < $1.hole }
             loopKey = existingKey
         }
-        states = WatchRoundState.resolvingCourseHoleNumbers(states, loopKey: loopKey)
         let holeNumbers = Set(states.map(\.hole))
         let retainedActiveHole = existing?.activeHole
         let activeHole = retainedActiveHole.flatMap { holeNumbers.contains($0) ? $0 : nil }
@@ -842,6 +858,7 @@ public final class WatchRoundModel: ObservableObject {
             scoreDraft: retainedScoreDraft,
             greenPlacements: retainedGreenPlacements
         )
+        guard persisted.hasValidIdentity else { return }
         try? store.save(persisted)
         round = persisted
         let removedCurrentInteraction =
@@ -887,7 +904,6 @@ public final class WatchRoundModel: ObservableObject {
                 courseHoleNumber: merged.courseHoleNumber ?? previous.courseHoleNumber
             )
         }
-        merged = WatchRoundState.resolvingCourseHoleNumbers([merged], loopKey: current.loopKey).first ?? merged
         guard let persisted = try? store.upsertHoleState(merged, makeActive: false) else {
             return
         }
@@ -905,15 +921,18 @@ public final class WatchRoundModel: ObservableObject {
     ) {
         guard let first = states.first else { return }
         var persisted = WatchRoundStore.PersistedRound(roundId: first.roundId)
-        persisted.holeStates = WatchRoundState.resolvingCourseHoleNumbers(
-            states.sorted { $0.hole < $1.hole },
-            loopKey: loopKey
-        )
+        persisted.holeStates = states.sorted { $0.hole < $1.hole }
         persisted.activeHole = activeHole ?? persisted.holeStates.first?.hole ?? 0
         persisted.courseName = courseName
         persisted.courseGlobalId = courseGlobalId
         persisted.teeBox = teeBox
         persisted.loopKey = loopKey
+        // The same identity gate as the round store: a course round must carry its canonical loop
+        // key and every hole's physical identity; nothing is derived from `hole`.
+        guard persisted.hasValidIdentity else {
+            uploadError = "球局数据不完整，无法开局"
+            return
+        }
         try? store.save(persisted)
         round = persisted
         restoreInteractionState(from: persisted)
@@ -937,7 +956,7 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     public func refreshFromStore() {
-        let persisted = store.load().map(WatchRoundModel.resolvingCourseHoleNumbers)
+        let persisted = store.load()
         round = persisted
         if persisted == nil {
             restoreInteractionState(from: nil)
@@ -1555,10 +1574,7 @@ public final class WatchRoundModel: ObservableObject {
                 return false
             }
         }
-        current.holeStates += WatchRoundState.resolvingCourseHoleNumbers(
-            second.map { $0.replacingRoundId(current.roundId) },
-            loopKey: loopKey
-        )
+        current.holeStates += second.map { $0.replacingRoundId(current.roundId) }
         current.loopKey = loopKey
         current.activeHole = 10
         do {

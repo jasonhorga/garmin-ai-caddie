@@ -868,7 +868,10 @@ public struct WatchUITestRoot: View {
         model.seedRound(
             prepared.holeStates,
             activeHole: prepared.holeStates.first?.hole,
-            courseName: prepared.courseName
+            courseName: prepared.courseName,
+            courseGlobalId: selection.front.globalId,
+            teeBox: selection.teeBox,
+            loopKey: selection.loopKey
         )
         writeRealCourseMarker(
             "real-course-download-ready",
@@ -913,7 +916,10 @@ public struct WatchUITestRoot: View {
         model.seedRound(
             prepared.holeStates,
             activeHole: activeHole,
-            courseName: prepared.courseName
+            courseName: prepared.courseName,
+            courseGlobalId: selection.front.globalId,
+            teeBox: selection.teeBox,
+            loopKey: selection.loopKey
         )
         if screen == "real-course-download-caddie" {
             model.openCaddie()
@@ -1495,7 +1501,10 @@ public struct WatchUITestRoot: View {
         model.seedRound(
             prepared.holeStates,
             activeHole: prepared.holeStates.first?.hole,
-            courseName: prepared.courseName
+            courseName: prepared.courseName,
+            courseGlobalId: Self.standaloneCourseOption.globalId,
+            teeBox: Self.standaloneCourseTemplate.teeBox,
+            loopKey: Self.standaloneCourseTemplate.loopKey
         )
     }
 
@@ -1686,8 +1695,12 @@ public struct WatchUITestRoot: View {
     /// reuses one simulator install, so the production phone-seed guard must not turn a later fixture
     /// into a silent no-op merely because an earlier fixture left a different round on disk.
     private func replaceFixtureRound(with seed: WatchRoundSeed) {
-        let states = seed.holes.map { hole in
-            WatchRoundState(
+        // DEBUG fixtures state their loop key; each hole takes its physical identity from that
+        // key's canonical table so the round passes the production identity gate.
+        let rows = WatchCourseSelection.roundRows(loopKey: seed.loopKey) ?? []
+        let states = seed.holes.map { hole -> WatchRoundState in
+            let row = rows.first { $0.number == hole.hole }
+            return WatchRoundState(
                 roundId: seed.roundId,
                 hole: hole.hole,
                 par: hole.par,
@@ -1695,14 +1708,23 @@ public struct WatchUITestRoot: View {
                 teeLatitude: hole.teeLatitude,
                 teeLongitude: hole.teeLongitude,
                 selectedClub: nil,
-                globalId: hole.globalId,
+                globalId: hole.globalId ?? row?.globalId,
+                sourceLocalHole: hole.localHole ?? row?.sourceLocalHole,
+                courseHoleNumber: hole.courseHoleNumber ?? row?.courseHoleNumber,
                 score: 0,
                 putts: 0,
                 penaltyCount: 0,
                 caddieConfidence: "offline"
             )
         }
-        model.seedRound(states, activeHole: seed.activeHole, courseName: seed.courseName)
+        model.seedRound(
+            states,
+            activeHole: seed.activeHole,
+            courseName: seed.courseName,
+            courseGlobalId: seed.globalId ?? rows.first?.globalId,
+            teeBox: seed.teeBox,
+            loopKey: seed.loopKey
+        )
     }
 
     private static let milestoneSeed = WatchRoundSeed(
@@ -1893,6 +1915,8 @@ public struct WatchUITestRoot: View {
         centerGreenM: 518.8,
         backGreenM: 531,
         globalId: 31669,
+        sourceLocalHole: 4,
+        courseHoleNumber: 4,
         holeMap: WatchHoleMap(
             w: Int(WatchHoleMapSample.imageSize.width),
             h: Int(WatchHoleMapSample.imageSize.height),
@@ -1934,6 +1958,8 @@ public struct WatchUITestRoot: View {
             distanceM: par == 3 ? 145 : (par == 4 ? 360 : 480),
             selectedClub: nil,
             globalId: 31669,
+            sourceLocalHole: hole,
+            courseHoleNumber: hole,
             score: score,
             putts: score > 0 ? 2 : 0,
             penaltyCount: 0,

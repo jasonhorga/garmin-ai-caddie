@@ -695,63 +695,14 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         )
     }
 
-    /// The number shown to the player for this hole (header, scorecard, preparing, finish).
+    /// The number shown to the player for this hole (header, scorecard, preparing, finish): the
+    /// course's printed hole. Every course hole carries it — the active-round and template
+    /// validators reject a course hole without it (or with a contradictory one) at load and on
+    /// every write, so it is never derived from `hole`. Only a score-only practice round, which has
+    /// no course identity at all, is numbered by play order.
     public var displayHoleNumber: Int {
-        courseHoleNumber
-            ?? Self.provableCourseHoleNumber(hole: hole, sourceLocalHole: sourceLocalHole)
-            ?? hole
-    }
-
-    /// Only facts that do not depend on the loop half: a physical hole 10–18 is always a back-half
-    /// hole printed as itself; a first-loop hole whose local number equals its round number is
-    /// printed as that number for a front half and a nine-hole loop alike.
-    static func provableCourseHoleNumber(hole: Int, sourceLocalHole: Int?) -> Int? {
-        guard let local = sourceLocalHole else { return nil }
-        if (10...18).contains(local) { return local }
-        if local == hole, (1...9).contains(hole) { return hole }
-        return nil
-    }
-
-    /// The printed number of round hole `hole` under an ordered loop key: a half is the physical
-    /// hole (`sourceLocalHole`, else the half's start + offset), a nine-hole loop is the round
-    /// number. Nil when the key does not name the hole's loop.
-    public static func printedHoleNumber(
-        hole: Int,
-        sourceLocalHole: Int?,
-        loopKey: String?
-    ) -> Int? {
-        guard let loopKey, hole >= 1 else { return nil }
-        if let loop = WatchCourseSelection.halfLoop(loopKey: loopKey) {
-            let index = (hole - 1) / 9
-            guard index < loop.halves.count else { return nil }
-            return sourceLocalHole
-                ?? WatchCourseSelection.physicalStartHole(loop.halves[index]) + (hole - 1) % 9
-        }
-        let entries = loopKey.split(separator: "+")
-        guard !entries.isEmpty, entries.allSatisfy({ $0.hasSuffix(":all") }) else { return nil }
+        if let courseHoleNumber { return courseHoleNumber }
         return hole
-    }
-
-    /// Fill a missing `courseHoleNumber` from the round's ordered loop key (restore of rounds
-    /// persisted before the field existed). Present values are kept.
-    public static func resolvingCourseHoleNumbers(
-        _ states: [WatchRoundState],
-        loopKey: String?
-    ) -> [WatchRoundState] {
-        states.map { state in
-            guard state.courseHoleNumber == nil,
-                  let number = printedHoleNumber(
-                      hole: state.hole,
-                      sourceLocalHole: state.sourceLocalHole,
-                      loopKey: loopKey
-                  ) else { return state }
-            return state.replacingRoundId(
-                state.roundId,
-                hole: state.hole,
-                sourceLocalHole: state.sourceLocalHole,
-                courseHoleNumber: number
-            )
-        }
     }
 
     /// The same physical hole's facts placed on another round hole (B4b-2 ordered halves: physical

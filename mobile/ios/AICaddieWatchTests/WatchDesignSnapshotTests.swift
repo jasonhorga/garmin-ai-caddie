@@ -957,21 +957,24 @@ final class WatchDesignSnapshotTests: XCTestCase {
             roundId: "r1", hole: 4, par: 5, distanceM: 262,
             suggestedClub: "3号木", selectedClub: nil,
             frontGreenM: 227, centerGreenM: 240, backGreenM: 251,
-            globalId: 31669, holeMap: hm,
+            globalId: 31669, sourceLocalHole: 4, courseHoleNumber: 4, holeMap: hm,
             elevationDeltaM: 7,   // real mesh slope ⇒ 实打 shown
             score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
         )
         // A few scored holes so the KEPT scoring ring has real pips (owner 2026-07-08).
         let holes = [
             WatchRoundState(roundId: "r1", hole: 1, par: 4, distanceM: 0, selectedClub: nil,
+                            globalId: 31669, sourceLocalHole: 1, courseHoleNumber: 1,
                             score: 4, putts: 2, penaltyCount: 0, caddieConfidence: "offline"),
             WatchRoundState(roundId: "r1", hole: 2, par: 3, distanceM: 0, selectedClub: nil,
+                            globalId: 31669, sourceLocalHole: 2, courseHoleNumber: 2,
                             score: 2, putts: 1, penaltyCount: 0, caddieConfidence: "offline"),
             WatchRoundState(roundId: "r1", hole: 3, par: 5, distanceM: 0, selectedClub: nil,
+                            globalId: 31669, sourceLocalHole: 3, courseHoleNumber: 3,
                             score: 6, putts: 2, penaltyCount: 0, caddieConfidence: "offline"),
             state,
         ]
-        model.seedRound(holes, activeHole: 4, courseName: "测试球场")
+        model.seedRound(holes, activeHole: 4, courseName: "测试球场", courseGlobalId: 31669, loopKey: "31669:front")
         model.openHoleMap()
         let geometry = try XCTUnwrap(WatchHoleMapGeometry.from(holeMap: hm, image: WatchHoleMapSample.image))
         let view = WatchRoundContainerView(

@@ -433,6 +433,43 @@ public struct WatchCourseSelection: Equatable {
         return (globalId, halves)
     }
 
+    /// The canonical round table a loop key names on its own (B4b-2 §6, the same row rule as the
+    /// package and template validators): one or two nine-hole loops in play order — halves of one
+    /// 18-hole course (`G:back` → round 1–9 = physical 10–18, printed 10–18) or nine-hole loops
+    /// (`A:all+B:all` → local 1–9, printed = round number). Nil for anything non-canonical.
+    public static func roundRows(loopKey: String) -> [WatchTemplateHoleRow]? {
+        let parts = loopKey.split(separator: "+", omittingEmptySubsequences: false)
+        guard (1...2).contains(parts.count) else { return nil }
+        var entries: [(globalId: Int, half: String)] = []
+        for part in parts {
+            let fields = part.split(separator: ":", omittingEmptySubsequences: false)
+            guard fields.count == 2,
+                  let globalId = Int(fields[0]), globalId > 0,
+                  ["all", "front", "back"].contains(String(fields[1])) else { return nil }
+            entries.append((globalId: globalId, half: String(fields[1])))
+        }
+        let halfEntries = entries.filter { $0.half != "all" }
+        if !halfEntries.isEmpty {
+            // Halves never mix with nine-hole loops and always name one course.
+            guard halfEntries.count == entries.count,
+                  Set(entries.map { $0.globalId }).count == 1 else { return nil }
+        }
+        var rows: [WatchTemplateHoleRow] = []
+        for (index, entry) in entries.enumerated() {
+            let sourceStart = physicalStartHole(entry.half)
+            for offset in 0..<9 {
+                let number = 1 + index * 9 + offset
+                rows.append(WatchTemplateHoleRow(
+                    number: number,
+                    globalId: entry.globalId,
+                    sourceLocalHole: sourceStart + offset,
+                    courseHoleNumber: entry.half == "all" ? number : sourceStart + offset
+                ))
+            }
+        }
+        return rows
+    }
+
     /// The physical hole a half starts on: 前九 1, 后九 10 (`sourceLocalHole` = `courseHoleNumber`).
     public static func physicalStartHole(_ half: String) -> Int {
         normalizedHalf(half) == "back" ? 10 : 1
@@ -1130,10 +1167,7 @@ extension WatchRoundStart {
         _ prepared: WatchPreparedCourse,
         selection: WatchCourseSelection
     ) -> WatchRoundStart {
-        let states = WatchRoundState.resolvingCourseHoleNumbers(
-            prepared.holeStates.sorted { $0.hole < $1.hole },
-            loopKey: selection.loopKey
-        )
+        let states = prepared.holeStates.sorted { $0.hole < $1.hole }
         return WatchRoundStart(
             roundId: prepared.roundId,
             courseName: prepared.courseName,

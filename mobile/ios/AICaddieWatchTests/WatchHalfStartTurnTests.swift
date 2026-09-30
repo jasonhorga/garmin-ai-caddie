@@ -330,7 +330,12 @@ final class WatchHalfStartTurnTests: XCTestCase {
             roundId: roundId,
             courseName: "Black Knight",
             activeHole: 1,
-            holes: (1...9).map { WatchRoundSeedHole(hole: $0, par: Self.physicalPar(9 + $0), distanceM: nil, globalId: Self.courseId) },
+            holes: (1...9).map {
+                WatchRoundSeedHole(
+                    hole: $0, par: Self.physicalPar(9 + $0), distanceM: nil,
+                    globalId: Self.courseId, localHole: 9 + $0, courseHoleNumber: 9 + $0
+                )
+            },
             globalId: Self.courseId,
             teeBox: "blue",
             loopKey: "31795:back"
@@ -545,36 +550,127 @@ final class WatchHalfStartTurnTests: XCTestCase {
         XCTAssertEqual(relaunched.allHoleStates.map(\.displayHoleNumber), Array(10...18))
     }
 
-    func testRoundPersistedWithoutCourseHoleNumbersResolvesThemFromItsLoopKey() throws {
-        let directory = makeDirectory("watch-legacy-display")
-        let states = (1...18).map { hole in
-            WatchRoundState(
-                roundId: "legacy", hole: hole, par: 4, distanceM: nil, selectedClub: nil,
-                globalId: Self.courseId,
-                sourceLocalHole: hole <= 9 ? hole + 9 : hole - 9,
-                score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
-            )
-        }
-        try WatchRoundStore(directoryURL: directory).save(WatchRoundStore.PersistedRound(
-            roundId: "legacy",
-            activeHole: 10,
-            holeStates: states,
+    /// A valid persisted `G:back` round: round 1–9 = physical 10–18, printed 10–18.
+    private func backNineRound() -> WatchRoundStore.PersistedRound {
+        WatchRoundStore.PersistedRound(
+            roundId: "persisted-back",
+            activeHole: 1,
+            holeStates: (1...9).map { hole in
+                WatchRoundState(
+                    roundId: "persisted-back", hole: hole, par: Self.physicalPar(hole + 9),
+                    distanceM: nil, selectedClub: nil,
+                    globalId: Self.courseId, sourceLocalHole: hole + 9, courseHoleNumber: hole + 9,
+                    score: hole == 1 ? 4 : 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+                )
+            },
             courseGlobalId: Self.courseId,
             teeBox: "blue",
-            loopKey: "31795:back+31795:front"
-        ))
-        let model = makeModel(directory: directory)
-        XCTAssertEqual(model.allHoleStates.map(\.displayHoleNumber), Array(10...18) + Array(1...9))
-
-        // Without a loop key only provable numbers are derived; the rest shows the round number.
-        let decoded = try JSONDecoder().decode(
-            WatchRoundState.self,
-            from: JSONEncoder().encode(states[9])
+            loopKey: "31795:back"
         )
-        XCTAssertNil(decoded.courseHoleNumber, "decoding never invents the field")
-        XCTAssertEqual(decoded.displayHoleNumber, 10, "round 10 / local 1 is 前九 1 or B:all 10 — not provable")
-        let back = try JSONDecoder().decode(WatchRoundState.self, from: JSONEncoder().encode(states[0]))
-        XCTAssertEqual(back.displayHoleNumber, 10, "a physical 10–18 hole is always printed as itself")
+    }
+
+    func testValidPersistedBackNineRoundRestoresWithItsPhysicalNumbers() throws {
+        let directory = makeDirectory("watch-round-valid")
+        try WatchRoundStore(directoryURL: directory).save(backNineRound())
+        let model = makeModel(directory: directory)
+        XCTAssertEqual(model.round?.loopKey, "31795:back")
+        XCTAssertEqual(model.activeDisplayHoleNumber, 10)
+        XCTAssertEqual(model.allHoleStates.map(\.displayHoleNumber), Array(10...18))
+    }
+
+    /// Contradictory or legacy active-round bytes are rejected at the load boundary: not restored,
+    /// removed from disk, and never rendered as round-number holes (e.g. H1 for physical 10).
+    func testContradictoryPersistedActiveRoundsAreRejectedAndRemoved() throws {
+        let mutations: [(String, (inout [String: Any]) -> Void)] = [
+            ("contradictory loopKey", { $0["loopKey"] = "31795:front" }),
+            ("missing loopKey", { $0.removeValue(forKey: "loopKey") }),
+            ("non-canonical loopKey", { $0["loopKey"] = "31795:back+7002:all" }),
+            ("round number off the table", { round in
+                Self.mutateHole(&round, 0) { $0["hole"] = 10 }
+            }),
+            ("duplicate round number", { round in
+                Self.mutateHole(&round, 1) { $0["hole"] = 1 }
+            }),
+            ("source course", { round in
+                Self.mutateHole(&round, 0) { $0["globalId"] = 99_999 }
+            }),
+            ("sourceLocalHole = round hole", { round in
+                Self.mutateHole(&round, 0) { $0["sourceLocalHole"] = 1 }
+            }),
+            ("missing sourceLocalHole", { round in
+                Self.mutateHole(&round, 0) { $0.removeValue(forKey: "sourceLocalHole") }
+            }),
+            ("missing courseHoleNumber", { round in
+                Self.mutateHole(&round, 0) { $0.removeValue(forKey: "courseHoleNumber") }
+            }),
+            ("contradictory courseHoleNumber", { round in
+                Self.mutateHole(&round, 0) { $0["courseHoleNumber"] = 1 }
+            }),
+        ]
+        for (label, mutate) in mutations {
+            let directory = makeDirectory("watch-round-invalid")
+            try WatchRoundStore(directoryURL: directory).save(backNineRound())
+            let fileURL = directory.appendingPathComponent("round.json")
+            var object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(contentsOf: fileURL)) as? [String: Any]
+            )
+            mutate(&object)
+            try JSONSerialization.data(withJSONObject: object).write(to: fileURL)
+
+            let model = makeModel(directory: directory)
+            XCTAssertNil(model.round, "\(label): must not be restored")
+            XCTAssertNotEqual(model.screen, .resume, label)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "\(label): removed from disk")
+            XCTAssertNil(WatchRoundStore(directoryURL: directory).load(), label)
+        }
+    }
+
+    private static func mutateHole(
+        _ round: inout [String: Any],
+        _ index: Int,
+        _ change: (inout [String: Any]) -> Void
+    ) {
+        var holes = round["holeStates"] as? [[String: Any]] ?? []
+        guard index < holes.count else { return }
+        change(&holes[index])
+        round["holeStates"] = holes
+    }
+
+    func testActiveRoundWritesRefuseContradictoryIdentity() throws {
+        let directory = makeDirectory("watch-round-write-guard")
+        let store = WatchRoundStore(directoryURL: directory)
+        var invalid = backNineRound()
+        invalid.holeStates[0] = invalid.holeStates[0].replacingRoundId(
+            "persisted-back", hole: 1, sourceLocalHole: 10, courseHoleNumber: 1
+        )
+        XCTAssertThrowsError(try store.save(invalid))
+        XCTAssertNil(store.load())
+
+        try store.save(backNineRound())
+        let contradictory = backNineRound().holeStates[1].replacingRoundId(
+            "persisted-back", hole: 2, sourceLocalHole: 2, courseHoleNumber: 2
+        )
+        XCTAssertThrowsError(try store.upsertHoleState(contradictory))
+        XCTAssertEqual(store.load()?.holeStates[1].courseHoleNumber, 11, "the valid round is untouched")
+
+        // The model's seed paths use the same gate.
+        let model = makeModel(directory: makeDirectory("watch-round-write-guard-model"))
+        model.seedRound(invalid.holeStates, activeHole: 1, courseGlobalId: Self.courseId,
+                        teeBox: "blue", loopKey: "31795:back")
+        XCTAssertNil(model.round)
+        model.applyRoundSeed(WatchRoundSeed(
+            roundId: "legacy-seed",
+            courseName: "Black Knight",
+            activeHole: 1,
+            holes: [WatchRoundSeedHole(hole: 1, par: 4, distanceM: nil, globalId: Self.courseId)],
+            loopKey: "31795:back"
+        ))
+        XCTAssertNil(model.round, "a seed without physical identity is not adopted")
+
+        // A score-only practice round has no course identity and stays valid.
+        model.startPracticeRound(holeCount: 9)
+        XCTAssertEqual(model.holeCount, 9)
+        XCTAssertNil(model.round?.loopKey)
     }
 
     func testReverseStartPayloadCarriesTheCompletePhysicalTable() async throws {
