@@ -2480,7 +2480,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn(".continuingTerrain(baseEdgeExtension, feather: baseEdgeFeather)", hole_map_view)
         self.assertIn("baseEdgeExtension: EdgeInsets = EdgeInsets(), baseEdgeFeather: CGFloat = 0", hole_map_view)
         self.assertIn("enum TopoEdgeExtension", topo_base)
-        self.assertIn("pixels.cropping(to: from)", topo_base)  # clamp-to-edge strips of the bitmap
+        self.assertIn("static func surround(for source: UIImage) -> Surround?", topo_base)
+        # One calm fill of the mean edge colour, never edge pixels stretched outward into bands.
+        self.assertNotIn("cropping(to:", topo_base)
         self.assertIn(".mask { FeatheredEdgesMask(width: edgeFeather) }", topo_base)
         prep_screen = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
         self.assertIn(

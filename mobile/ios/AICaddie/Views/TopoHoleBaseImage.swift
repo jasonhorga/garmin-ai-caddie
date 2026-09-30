@@ -146,12 +146,12 @@ struct TopoHoleBaseImage: View {
 
     let topoURL: URL?
     let fallback: UIImage?
-    /// 备战 only: how far (fractions of this layer's own width / height) the terrain continues past
-    /// each edge, extended from the bitmap's own edge pixels (`TopoEdgeExtension`), so a fitted map
-    /// that does not cover the screen never reads as a rectangle on a foreign ground. Only the
-    /// terrain continues: the route, green, flag and tee are drawn above by the map's own layer.
+    /// 备战 only: how far (fractions of this layer's own width / height) the surround reaches past
+    /// each edge: one calm fill of the bitmap's own mean edge colour (`TopoEdgeExtension`), so a
+    /// fitted map that does not cover the screen never reads as a rectangle on a foreign ground.
+    /// Only that fill is added: the route, green, flag and tee are drawn above by the map's layer.
     var edgeExtension = EdgeInsets()
-    /// With an extension, the sharp bitmap's edges fade over this many points into its continuation.
+    /// With an extension, the sharp bitmap's edges fade over this many points into its surround.
     var edgeFeather: CGFloat = 0
     @StateObject private var imageStore = TopoHoleImageStore()
 
@@ -184,7 +184,7 @@ struct TopoHoleBaseImage: View {
 
     /// topo-v11 has a transparent off-course canvas. Preserve it in every context so review/prep do
     /// not manufacture a second rectangular terrain layer around the real hole. (Its edge extension
-    /// is transparent too.)
+    /// gets no surround.)
     private func readyImage(_ image: Image) -> some View {
         image.resizable().scaledToFit()
             .accessibilityElement(children: .ignore)
@@ -219,24 +219,21 @@ struct TopoHoleBaseImage: View {
         }
     }
 
-    /// The bitmap over its own edge-extended continuation (when an extension is asked for): the
-    /// continuation is drawn behind, sized past this layer's frame by `edgeExtension`, and the sharp
-    /// bitmap fades into it over `edgeFeather`.
+    /// The bitmap over its surround (when an extension is asked for): one calm fill of the
+    /// bitmap's own mean edge colour, sized past this layer's frame by `edgeExtension`, with the
+    /// sharp bitmap fading into it over `edgeFeather`. A bitmap whose edge is mostly transparent
+    /// (topo-v11's off-course canvas) gets no surround at all.
     @ViewBuilder
     private func extended<Content: View>(_ source: UIImage, @ViewBuilder _ content: () -> Content) -> some View {
-        if TopoEdgeExtension.isEmpty(edgeExtension) {
-            content()
-        } else if let backdrop = TopoEdgeExtension.backdrop(for: source, extending: edgeExtension) {
+        if !TopoEdgeExtension.isEmpty(edgeExtension), let surround = TopoEdgeExtension.surround(for: source) {
             content()
                 .mask { FeatheredEdgesMask(width: edgeFeather) }
                 .background {
                     GeometryReader { proxy in
                         let width = proxy.size.width
                         let height = proxy.size.height
-                        let insets = backdrop.insets
-                        Image(uiImage: backdrop.image)
-                            .resizable()
-                            .interpolation(.high)
+                        let insets = edgeExtension
+                        surround.color
                             .frame(
                                 width: width * (1 + insets.leading + insets.trailing),
                                 height: height * (1 + insets.top + insets.bottom)
@@ -256,131 +253,104 @@ struct TopoHoleBaseImage: View {
     }
 }
 
-/// A bitmap's terrain continued past its edges: a small copy of it with its outermost rows and
-/// columns stretched outward (clamp to edge), which the view scales up smoothly. Every point of
-/// the continuation takes the colour of the nearest edge pixel, so the surround locally matches the
-/// map's own edge on every side instead of a fixed colour. Used from view bodies (main thread).
+/// The surround of a fitted map that does not cover the screen: the bitmap's own mean edge colour
+/// (the outer ring of its pixels, alpha-weighted). One calm fill, never the edge pixels stretched
+/// outward, so a noisy, high-frequency or damaged edge can never become bands, rays or blocks;
+/// it only sets the colour the map fades into. Used from view bodies (main thread).
 enum TopoEdgeExtension {
-    struct Backdrop {
-        /// The bitmap this was built from. Holding it keeps the cache key's object identity valid
+    struct Surround {
+        /// The bitmap this was measured from. Holding it keeps the cache key's object identity valid
         /// for the entry's lifetime (an identity is only unique while its object is alive), and each
-        /// lookup still checks it, so another image can never receive this terrain.
+        /// lookup still checks it, so another image can never receive this surround.
         let source: UIImage
-        let image: UIImage
-        /// The extension actually built, as fractions of the bitmap's width / height.
-        let insets: EdgeInsets
+        let red: Int
+        let green: Int
+        let blue: Int
+
+        var color: Color {
+            Color(red: Double(red) / 255, green: Double(green) / 255, blue: Double(blue) / 255)
+        }
     }
 
-    /// The small copy's longest side, in pixels.
+    /// The measured copy's longest side, in pixels.
     static let sampleSide: CGFloat = 48
-
-    private struct Key: Hashable {
-        let image: ObjectIdentifier
-        let top: Int, leading: Int, bottom: Int, trailing: Int
-    }
-
-    private static var cache: [Key: Backdrop] = [:]
+    /// The edge ring's width, as a fraction of the measured copy's shorter side.
+    static let ringFraction: CGFloat = 0.08
+    /// Below this mean edge opacity the bitmap has no surround (its canvas is transparent).
+    static let minimumEdgeOpacity = 0.5
     static let cacheLimit = 12
-    private static var order: [Key] = []
+
+    private static var cache: [ObjectIdentifier: Surround] = [:]
+    private static var order: [ObjectIdentifier] = []
+    /// Bitmaps measured as having no surround (transparent edge), held for the same reason.
+    private static var transparent: [ObjectIdentifier: UIImage] = [:]
 
     static func isEmpty(_ insets: EdgeInsets) -> Bool {
         insets.top <= 0 && insets.leading <= 0 && insets.bottom <= 0 && insets.trailing <= 0
     }
 
-    static func backdrop(for source: UIImage, extending insets: EdgeInsets) -> Backdrop? {
-        // Quarter steps, rounded up, keep the key stable while the viewport moves a little.
-        func quarters(_ value: CGFloat) -> Int {
-            guard value.isFinite, value > 0 else { return 0 }
-            return min(Int((value * 4).rounded(.up)), 40)
-        }
-        let key = Key(
-            image: ObjectIdentifier(source),
-            top: quarters(insets.top),
-            leading: quarters(insets.leading),
-            bottom: quarters(insets.bottom),
-            trailing: quarters(insets.trailing)
-        )
+    static func surround(for source: UIImage) -> Surround? {
+        let key = ObjectIdentifier(source)
         if let cached = cache[key], cached.source === source { return cached }
-        guard let built = build(
-            source,
-            top: CGFloat(key.top) / 4,
-            leading: CGFloat(key.leading) / 4,
-            bottom: CGFloat(key.bottom) / 4,
-            trailing: CGFloat(key.trailing) / 4
-        ) else { return nil }
-        if cache.updateValue(built, forKey: key) == nil {
-            order.append(key)
+        if let known = transparent[key], known === source { return nil }
+        let measured = measure(source)
+        if cache[key] == nil, transparent[key] == nil { order.append(key) }
+        if let measured {
+            cache[key] = measured
+            transparent[key] = nil
+        } else {
+            transparent[key] = source
+            cache[key] = nil
         }
         if order.count > cacheLimit {
-            cache[order.removeFirst()] = nil
+            let evicted = order.removeFirst()
+            cache[evicted] = nil
+            transparent[evicted] = nil
         }
-        return built
+        return measured
     }
 
-    private static func build(
-        _ source: UIImage,
-        top: CGFloat,
-        leading: CGFloat,
-        bottom: CGFloat,
-        trailing: CGFloat
-    ) -> Backdrop? {
+    private static func measure(_ source: UIImage) -> Surround? {
         let size = source.size
         guard size.width > 0, size.height > 0 else { return nil }
         let scale = min(1, sampleSide / max(size.width, size.height))
-        let smallWidth = max(Int((size.width * scale).rounded()), 2)
-        let smallHeight = max(Int((size.height * scale).rounded()), 2)
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = false
-        format.preferredRange = .standard
-        let small = UIGraphicsImageRenderer(
-            size: CGSize(width: smallWidth, height: smallHeight),
-            format: format
-        ).image { _ in
-            source.draw(in: CGRect(x: 0, y: 0, width: smallWidth, height: smallHeight))
+        let width = max(Int((size.width * scale).rounded()), 2)
+        let height = max(Int((size.height * scale).rounded()), 2)
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let cgImage = source.cgImage,
+                  let space = CGColorSpace(name: CGColorSpace.sRGB),
+                  let context = CGContext(
+                      data: buffer.baseAddress,
+                      width: width,
+                      height: height,
+                      bitsPerComponent: 8,
+                      bytesPerRow: width * 4,
+                      space: space,
+                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                  ) else { return false }
+            context.interpolationQuality = .medium
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
         }
-        guard let pixels = small.cgImage else { return nil }
-        let padLeft = Int((leading * CGFloat(smallWidth)).rounded(.up))
-        let padRight = Int((trailing * CGFloat(smallWidth)).rounded(.up))
-        let padTop = Int((top * CGFloat(smallHeight)).rounded(.up))
-        let padBottom = Int((bottom * CGFloat(smallHeight)).rounded(.up))
-        let width = smallWidth + padLeft + padRight
-        let height = smallHeight + padTop + padBottom
-        let w = CGFloat(smallWidth)
-        let h = CGFloat(smallHeight)
-        let left = CGFloat(padLeft)
-        let topPad = CGFloat(padTop)
-        // Source strip (in the small copy's pixels) → destination rect in the extended image.
-        let pieces: [(CGRect, CGRect)] = [
-            (CGRect(x: 0, y: 0, width: w, height: h), CGRect(x: left, y: topPad, width: w, height: h)),
-            (CGRect(x: 0, y: 0, width: 1, height: h), CGRect(x: 0, y: topPad, width: left, height: h)),
-            (CGRect(x: w - 1, y: 0, width: 1, height: h), CGRect(x: left + w, y: topPad, width: CGFloat(padRight), height: h)),
-            (CGRect(x: 0, y: 0, width: w, height: 1), CGRect(x: left, y: 0, width: w, height: topPad)),
-            (CGRect(x: 0, y: h - 1, width: w, height: 1), CGRect(x: left, y: topPad + h, width: w, height: CGFloat(padBottom))),
-            (CGRect(x: 0, y: 0, width: 1, height: 1), CGRect(x: 0, y: 0, width: left, height: topPad)),
-            (CGRect(x: w - 1, y: 0, width: 1, height: 1), CGRect(x: left + w, y: 0, width: CGFloat(padRight), height: topPad)),
-            (CGRect(x: 0, y: h - 1, width: 1, height: 1), CGRect(x: 0, y: topPad + h, width: left, height: CGFloat(padBottom))),
-            (CGRect(x: w - 1, y: h - 1, width: 1, height: 1), CGRect(x: left + w, y: topPad + h, width: CGFloat(padRight), height: CGFloat(padBottom))),
-        ]
-        let image = UIGraphicsImageRenderer(
-            size: CGSize(width: width, height: height),
-            format: format
-        ).image { _ in
-            for (from, to) in pieces where to.width > 0 && to.height > 0 {
-                guard let strip = pixels.cropping(to: from) else { continue }
-                UIImage(cgImage: strip).draw(in: to)
+        guard drawn else { return nil }
+        let ring = max(Int((CGFloat(min(width, height)) * ringFraction).rounded()), 1)
+        var sums = (red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0)
+        var count = 0.0
+        for y in 0..<height {
+            for x in 0..<width where x < ring || y < ring || x >= width - ring || y >= height - ring {
+                let index = (y * width + x) * 4
+                sums.red += Double(bytes[index])
+                sums.green += Double(bytes[index + 1])
+                sums.blue += Double(bytes[index + 2])
+                sums.alpha += Double(bytes[index + 3])
+                count += 1
             }
         }
-        return Backdrop(
-            source: source,
-            image: image,
-            insets: EdgeInsets(
-                top: CGFloat(padTop) / h,
-                leading: CGFloat(padLeft) / w,
-                bottom: CGFloat(padBottom) / h,
-                trailing: CGFloat(padRight) / w
-            )
-        )
+        guard count > 0, sums.alpha / count >= 255 * minimumEdgeOpacity else { return nil }
+        // Premultiplied: dividing by the summed alpha gives the alpha-weighted mean colour.
+        func channel(_ sum: Double) -> Int { min(max(Int((sum / sums.alpha * 255).rounded()), 0), 255) }
+        return Surround(source: source, red: channel(sums.red), green: channel(sums.green), blue: channel(sums.blue))
     }
 }
 

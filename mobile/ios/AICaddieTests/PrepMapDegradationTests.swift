@@ -716,53 +716,60 @@ final class PrepMapDegradationTests: XCTestCase {
         return [Int(bytes[0]), Int(bytes[1]), Int(bytes[2])]
     }
 
-    /// The continuation is the bitmap's own edge, clamped outward: its corners and its far sides
-    /// take the edge pixels' colours.
-    func testTerrainContinuationExtendsTheBitmapsOwnEdges() throws {
+    /// The surround is the bitmap's own mean edge colour: a uniform edge gives exactly that colour,
+    /// a noisy edge gives its mean (never its pixels), and a transparent edge gives no surround.
+    func testTerrainSurroundIsTheBitmapsMeanEdgeColour() throws {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.preferredRange = .standard
-        // Left half red, right half blue.
-        let source = UIGraphicsImageRenderer(size: CGSize(width: 16, height: 16), format: format).image { ctx in
-            UIColor.red.setFill()
-            ctx.fill(CGRect(x: 0, y: 0, width: 8, height: 16))
+        // A green border around a blue interior: the surround is the border's green.
+        let bordered = UIGraphicsImageRenderer(size: CGSize(width: 96, height: 96), format: format).image { ctx in
+            UIColor(red: 96 / 255, green: 140 / 255, blue: 86 / 255, alpha: 1).setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 96, height: 96))
             UIColor.blue.setFill()
-            ctx.fill(CGRect(x: 8, y: 0, width: 8, height: 16))
+            ctx.fill(CGRect(x: 16, y: 16, width: 64, height: 64))
         }
-        let backdrop = try XCTUnwrap(TopoEdgeExtension.backdrop(
-            for: source,
-            extending: EdgeInsets(top: 1, leading: 1, bottom: 1, trailing: 1)
-        ))
-        XCTAssertTrue(backdrop.source === source)
-        XCTAssertEqual(backdrop.insets.leading, 1, accuracy: 0.01)
-        let image = try XCTUnwrap(backdrop.image.cgImage)
-        XCTAssertEqual(image.width, 48)
-        XCTAssertEqual(image.height, 48)
-        // Far left (the continuation of the red edge) and far right (of the blue edge).
-        func assertColor(_ x: Int, _ y: Int, _ expected: [Int]) throws {
-            let got = try rgb(of: backdrop.image, x: x, y: y)
-            XCTAssertLessThanOrEqual(zip(got, expected).map { abs($0 - $1) }.reduce(0, +), 6, "(\(x), \(y)): \(got)")
+        let green = try XCTUnwrap(TopoEdgeExtension.surround(for: bordered))
+        XCTAssertTrue(green.source === bordered)
+        XCTAssertLessThanOrEqual(abs(green.red - 96) + abs(green.green - 140) + abs(green.blue - 86), 6)
+        // An edge of alternating pure red and pure green blocks: the surround is their mean, a
+        // single mid colour, not either block colour.
+        let checker = UIGraphicsImageRenderer(size: CGSize(width: 96, height: 96), format: format).image { ctx in
+            for row in 0..<24 {
+                for column in 0..<24 {
+                    ((row + column) % 2 == 0 ? UIColor.red : UIColor.green).setFill()
+                    ctx.fill(CGRect(x: column * 4, y: row * 4, width: 4, height: 4))
+                }
+            }
         }
-        try assertColor(1, 24, [255, 0, 0])
-        try assertColor(46, 24, [0, 0, 255])
-        try assertColor(1, 1, [255, 0, 0])
-        try assertColor(46, 46, [0, 0, 255])
+        let mean = try XCTUnwrap(TopoEdgeExtension.surround(for: checker))
+        XCTAssertEqual(Double(mean.red), 127.5, accuracy: 20)
+        XCTAssertEqual(Double(mean.green), 127.5, accuracy: 20)
+        XCTAssertLessThanOrEqual(mean.blue, 10)
+        // A transparent off-course canvas (topo-v11) has no surround.
+        let transparentFormat = UIGraphicsImageRendererFormat()
+        transparentFormat.scale = 1
+        transparentFormat.opaque = false
+        let floating = UIGraphicsImageRenderer(size: CGSize(width: 96, height: 96), format: transparentFormat).image { ctx in
+            UIColor.green.setFill()
+            ctx.fill(CGRect(x: 24, y: 24, width: 48, height: 48))
+        }
+        XCTAssertNil(TopoEdgeExtension.surround(for: floating))
         XCTAssertTrue(TopoEdgeExtension.isEmpty(EdgeInsets()))
     }
 
-    /// Cache isolation: a backdrop is only ever returned for the very bitmap it was built from,
-    /// even when bitmaps are released and new ones are created with the same size and extension
-    /// (a freed object's identity can be reused).
-    func testTerrainContinuationCacheNeverReturnsAnotherBitmapsTerrain() throws {
-        let insets = EdgeInsets(top: 0.5, leading: 0.5, bottom: 0.5, trailing: 0.5)
+    /// Cache isolation: a surround is only ever returned for the very bitmap it was measured from,
+    /// even when bitmaps are released and new ones are created with the same size (a freed
+    /// object's identity can be reused).
+    func testTerrainSurroundCacheNeverReturnsAnotherBitmapsColour() throws {
         for index in 0..<(TopoEdgeExtension.cacheLimit * 4) {
             let level = CGFloat(index % 16) / 15
             try autoreleasepool {
                 let source = solidImage(UIColor(red: level, green: 1 - level, blue: 0.5, alpha: 1))
                 let expected = try rgb(of: source, x: 0, y: 0)
-                let backdrop = try XCTUnwrap(TopoEdgeExtension.backdrop(for: source, extending: insets))
-                XCTAssertTrue(backdrop.source === source, "entry \(index) belongs to its own bitmap")
-                let got = try rgb(of: backdrop.image, x: 0, y: 0)
+                let surround = try XCTUnwrap(TopoEdgeExtension.surround(for: source))
+                XCTAssertTrue(surround.source === source, "entry \(index) belongs to its own bitmap")
+                let got = [surround.red, surround.green, surround.blue]
                 XCTAssertLessThanOrEqual(
                     zip(got, expected).map { abs($0 - $1) }.reduce(0, +), 6,
                     "entry \(index): \(got) vs its own bitmap \(expected)"
@@ -771,9 +778,10 @@ final class PrepMapDegradationTests: XCTestCase {
         }
         // The same bitmap hits its cached entry.
         let kept = solidImage(.green)
-        let first = try XCTUnwrap(TopoEdgeExtension.backdrop(for: kept, extending: insets))
-        let second = try XCTUnwrap(TopoEdgeExtension.backdrop(for: kept, extending: insets))
-        XCTAssertTrue(first.image === second.image)
+        let first = try XCTUnwrap(TopoEdgeExtension.surround(for: kept))
+        let second = try XCTUnwrap(TopoEdgeExtension.surround(for: kept))
+        XCTAssertTrue(first.source === second.source)
+        XCTAssertEqual([first.red, first.green, first.blue], [second.red, second.green, second.blue])
     }
 
     // MARK: - Route labels vs the chrome

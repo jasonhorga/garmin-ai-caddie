@@ -462,8 +462,8 @@ struct CoursePrepStrategyScreen: View {
 }
 
 /// The full-screen 备战 hole map: fitted, the whole plan sits between the chrome and the bitmap
-/// covers the screen when the hole's shape allows (`PrepMapLayout`), otherwise its terrain continues
-/// from its own edges to the screen's; then the live hero's pan / zoom. The bitmap draws the factual route
+/// covers the screen when the hole's shape allows (`PrepMapLayout`), otherwise it fades into a calm
+/// fill of its own mean edge colour; then the live hero's pan / zoom. The bitmap draws the factual route
 /// and green; the selected plan's legs, landings and their "球杆 码数" labels are drawn in the
 /// viewport plane by the live `LivePlannedRouteRenderer`, so they keep screen size at every zoom.
 /// Obstacles follow the default-none rule: none are drawn on this screen.
@@ -532,10 +532,10 @@ struct PrepHoleMapHero: View {
             let exclusions = chrome(!viewport.isFitted)
             let covering = PrepMapLayout.covers(rest, viewport: size)
             // One map, drawn once. When the fitted plan leaves part of the screen outside it, the
-            // map's own terrain continues to the screen edges, extended from its edge pixels
-            // (no flag, green, tee, route or hazard), and the sharp bitmap fades into that
-            // continuation, so the map never reads as a rectangle. The flat ground only shows
-            // while a bitmap is still loading.
+            // screen around the map is one calm fill of the bitmap's own mean edge colour (no flag,
+            // green, tee, route or hazard, and never stretched edge pixels), and the sharp bitmap
+            // fades into it, so the map never reads as a rectangle. The flat ground only shows
+            // while a bitmap is still loading, or around a transparent-edged topo.
             let map = mapView(
                 extension: covering ? EdgeInsets() : Self.terrainExtension(rest: rest, viewport: size),
                 feather: covering ? 0 : Self.groundFeather
@@ -707,12 +707,12 @@ struct PrepHoleMapHero: View {
 
     /// One configured map for the bitmap layer and the viewport-plane route layer, so the labelled
     /// legs are exactly the ones the bitmap is aligned with.
-    /// How far the sharp bitmap fades into its terrain continuation when the fitted map does not
+    /// How far the sharp bitmap fades into its edge-colour surround when the fitted map does not
     /// cover the screen.
-    static let groundFeather: CGFloat = 20
+    static let groundFeather: CGFloat = 32
 
-    /// The terrain continuation that reaches every screen edge from the fitted frame, as fractions
-    /// of the frame's size, with room for a pan while zoomed.
+    /// The surround that reaches every screen edge from the fitted frame, as fractions of the
+    /// frame's size, with room for a pan while zoomed.
     static func terrainExtension(rest: CGRect, viewport: CGSize) -> EdgeInsets {
         guard rest.width > 1, rest.height > 1 else { return EdgeInsets() }
         let margin: CGFloat = 0.25

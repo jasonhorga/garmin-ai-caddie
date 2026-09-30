@@ -131,10 +131,10 @@ public struct HoleImageMapView: View {
     /// `teeDistanceArcPixels()`, so all labels share one collision layout. The bitmap then skips
     /// both so nothing is doubled.
     public let drawsPlannedRouteInMap: Bool
-    /// 备战 only: when the fitted map does not cover the screen, the base bitmap's terrain continues
-    /// past its frame by these fractions of its width / height, extended from its own edge pixels,
-    /// and the sharp bitmap fades into that continuation over `baseEdgeFeather` points. Only the
-    /// terrain continues; the route, green and flag are drawn once, crisp, by this view's canvas.
+    /// 备战 only: when the fitted map does not cover the screen, the base bitmap sits on one calm fill
+    /// of its own mean edge colour reaching past its frame by these fractions of its width / height,
+    /// and fades into it over `baseEdgeFeather` points. Only that fill is added; the route, green and
+    /// flag are drawn once, crisp, by this view's canvas.
     public let baseEdgeExtension: EdgeInsets
     public let baseEdgeFeather: CGFloat
 
