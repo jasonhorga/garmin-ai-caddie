@@ -514,11 +514,39 @@ final class WatchHalfStartTurnTests: XCTestCase {
 
     /// The production library behind a transport that answers exactly the oracle's `loops=`
     /// packages — or, `offline`, fails every request as the Watch does without a network.
+    /// A controllable stand-in for the server: offline, prep served or not, and a gate that holds
+    /// whole-course template requests until the test opens it.
+    private final class OracleServer {
+        var offline = false
+        var servePrep = true
+        var gateTemplates = false
+        private(set) var waiting: CheckedContinuation<Void, Never>?
+
+        init(offline: Bool = false) {
+            self.offline = offline
+        }
+
+        func passGate() async {
+            guard gateTemplates else { return }
+            await withCheckedContinuation { continuation in
+                waiting = continuation
+            }
+        }
+
+        func openGate() {
+            gateTemplates = false
+            waiting?.resume()
+            waiting = nil
+        }
+    }
+
     private func makeOracleLibrary(
         directory: URL,
         log: RequestLog,
-        offline: Bool = false
+        offline: Bool = false,
+        server: OracleServer? = nil
     ) throws -> WatchCourseLibrary {
+        let server = server ?? OracleServer(offline: offline)
         let oracle = try Self.oracle()
         let packages: [String: Data] = try [
             "55555:front,55555:back": "wholeCourseTemplate",
@@ -538,8 +566,20 @@ final class WatchHalfStartTurnTests: XCTestCase {
                     sessionToken: config.sessionToken,
                     dataLoader: { request in
                         log.requests.append(request)
-                        if offline { throw URLError(.notConnectedToInternet) }
+                        if server.offline { throw URLError(.notConnectedToInternet) }
+                        if Self.isTemplateRequest(request) {
+                            await server.passGate()
+                        }
                         let url = try XCTUnwrap(request.url)
+                        if url.path.hasSuffix("/prep"), server.servePrep {
+                            // The server's prep for a course without rendered geometry.
+                            return (Data(#"{"globalId":55555,"clubs":[],"holes":[]}"#.utf8), HTTPURLResponse(
+                                url: url,
+                                statusCode: 200,
+                                httpVersion: nil,
+                                headerFields: ["Content-Type": "application/json"]
+                            )!)
+                        }
                         guard url.path.hasSuffix("/package"),
                               let loops = Self.query(request, "loops"),
                               let body = packages[loops] else {
@@ -556,7 +596,8 @@ final class WatchHalfStartTurnTests: XCTestCase {
                     },
                     retrySleep: { _ in }
                 )
-            }
+            },
+            retrySleep: { _ in }
         )
     }
 
@@ -621,6 +662,275 @@ final class WatchHalfStartTurnTests: XCTestCase {
 
         XCTAssertEqual(model.round?.loopKey, "55555:back+55555:back")
         XCTAssertEqual(roundTable(model.round?.holeStates ?? []), try oracleTable("55555:back+55555:back"))
+    }
+
+    // MARK: - the production start sequence (AICaddieWatchApp onStartCourse + activeCourseUpgradeKey)
+
+    private func identityTable(_ rows: [[Int]]) -> [[Int]] {
+        rows.map { Array($0.prefix(4)) }
+    }
+
+    private nonisolated static func prepHoles(_ request: URLRequest) -> [Int] {
+        guard let url = request.url else { return [] }
+        return (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+            .filter { $0.name == "holes" }
+            .compactMap { $0.value.flatMap(Int.init) }
+    }
+
+    /// Exactly the app: `startCourseImmediately`, `seedRound`, then the `activeCourseUpgradeKey`
+    /// task's `upgradeCachedCourseWhenReady(globalId:roundId:config:loopKey:teeBox:…)`. No pre-seed.
+    /// Waits for the background whole-course install, then relaunches offline at the turn.
+    private func productionRoundAtTheTurn(_ label: String) async throws -> WatchRoundModel {
+        let courseDirectory = makeDirectory("\(label)-courses")
+        let roundDirectory = makeDirectory("\(label)-round")
+        XCTAssertTrue(WatchCourseStore(directoryURL: courseDirectory).loadCourses().isEmpty, "no pre-seed")
+        let log = RequestLog()
+        let library = try makeOracleLibrary(directory: courseDirectory, log: log)
+        let selection = WatchCourseSelection(front: Self.oracleCourse, teeBox: "blue", firstHalf: "back")
+
+        let prepared = try XCTUnwrap(library.startCourseImmediately(selection))
+        let model = makeModel(directory: roundDirectory)
+        model.seedRound(
+            prepared.holeStates,
+            activeHole: prepared.holeStates.first?.hole,
+            courseName: prepared.courseName,
+            courseGlobalId: selection.front.globalId,
+            teeBox: selection.teeBox,
+            loopKey: selection.loopKey
+        )
+        let round = try XCTUnwrap(model.round)
+        _ = await library.upgradeCachedCourseWhenReady(
+            globalId: try XCTUnwrap(round.courseGlobalId),
+            roundId: round.roundId,
+            config: Self.config,
+            loopKey: round.loopKey,
+            teeBox: round.teeBox,
+            priorityHole: model.activeHole,
+            onProgress: { states in
+                guard model.round?.roundId == round.roundId else { return }
+                model.applyCourseMapUpgrade(states)
+            }
+        )
+        await library.waitForWholeCourseTemplateInstalls()
+
+        // The active half's own priority work runs first; the whole-course template only after.
+        let requests = log.requests
+        let firstTemplate = try XCTUnwrap(requests.firstIndex(where: Self.isTemplateRequest))
+        let firstActivePackage = try XCTUnwrap(requests.firstIndex {
+            $0.url?.path.hasSuffix("/package") == true && !Self.isTemplateRequest($0)
+        })
+        let priorityPrep = try XCTUnwrap(requests.firstIndex {
+            $0.url?.path.hasSuffix("/prep") == true && Self.prepHoles($0).contains(10)
+        }, "the active 后九 priority hole (round 1 = physical 10) is prepared")
+        XCTAssertLessThan(firstActivePackage, firstTemplate)
+        XCTAssertLessThan(priorityPrep, firstTemplate, "whole-course work never precedes the active hole")
+        XCTAssertFalse(requests.prefix(firstTemplate).contains { request in
+            request.url?.path.hasSuffix("/prep") == true
+                && Self.prepHoles(request).contains(where: { hole in hole < 10 })
+        }, "no 前九 (template-only) prep before the template install starts")
+        XCTAssertTrue(log.templateRequests.allSatisfy { Self.query($0, "loops") == "55555:front,55555:back" })
+
+        XCTAssertNotNil(
+            WatchCourseStore(directoryURL: courseDirectory).course(loopKey: "55555:front+55555:back", teeBox: "blue"),
+            "the whole-course template is durable"
+        )
+        let persisted = try XCTUnwrap(WatchRoundStore(directoryURL: roundDirectory).load())
+        XCTAssertEqual(persisted.loopKey, "55555:back")
+        XCTAssertEqual(persisted.roundId, prepared.roundId)
+
+        // Offline relaunch.
+        let offline = try makeOracleLibrary(directory: courseDirectory, log: RequestLog(), offline: true)
+        let relaunched = makeModel(directory: roundDirectory)
+        relaunched.secondLoopLoader = { request in
+            await offline.secondLoop(request, config: Self.config)
+        }
+        XCTAssertEqual(relaunched.round?.roundId, prepared.roundId)
+        finishFirstNine(relaunched)
+        XCTAssertEqual(relaunched.screen, .turn)
+        return relaunched
+    }
+
+    func testProductionStartSequenceTurnsBackToFrontOfflineFromTheAcquiredTemplate() async throws {
+        let model = try await productionRoundAtTheTurn("production-back-front")
+        let roundId = try XCTUnwrap(model.round?.roundId)
+        await model.confirmTurn()
+
+        XCTAssertEqual(model.round?.roundId, roundId)
+        XCTAssertEqual(model.round?.loopKey, "55555:back+55555:front")
+        let oracle = try oracleTable("55555:back+55555:front")
+        let table = roundTable(model.round?.holeStates ?? [])
+        // Round holes 1–9 keep the provisional Par until precise maps arrive (unchanged behaviour);
+        // the physical table is the oracle's, and the projected second nine carries its real Par.
+        XCTAssertEqual(identityTable(table), identityTable(oracle))
+        XCTAssertEqual(Array(table.suffix(9)), Array(oracle.suffix(9)))
+    }
+
+    func testProductionStartSequenceRepeatsTheBackNineOfflineFromTheAcquiredTemplate() async throws {
+        let model = try await productionRoundAtTheTurn("production-back-back")
+        model.chooseTurnSecond(.loop("55555:back"))
+        await model.confirmTurn()
+
+        XCTAssertEqual(model.round?.loopKey, "55555:back+55555:back")
+        let oracle = try oracleTable("55555:back+55555:back")
+        let table = roundTable(model.round?.holeStates ?? [])
+        XCTAssertEqual(identityTable(table), identityTable(oracle))
+        XCTAssertEqual(Array(table.suffix(9)), Array(oracle.suffix(9)))
+    }
+
+    // MARK: - background template diagnostics (never the active round's)
+
+    func testWholeTemplateInstallNeverOverwritesTheActiveRoundDiagnostic() async throws {
+        let directory = makeDirectory("watch-template-diagnostics")
+        let server = OracleServer()
+        server.gateTemplates = true
+        let library = try makeOracleLibrary(directory: directory, log: RequestLog(), server: server)
+        let selection = WatchCourseSelection(front: Self.oracleCourse, teeBox: "blue", firstHalf: "back")
+        XCTAssertNil(library.diagnosticErrorMessage)
+
+        library.enqueueWholeCourseTemplate(for: selection, config: Self.config)
+        for _ in 0..<10_000 where server.waiting == nil {
+            await Task.yield()
+        }
+        XCTAssertNotNil(server.waiting, "the template install is suspended in its request")
+
+        // While it is suspended, the active path writes its own diagnostic.
+        _ = library.startCourseImmediately(selection)
+        let active = library.diagnosticErrorMessage
+        XCTAssertNotNil(active)
+
+        server.openGate()
+        await library.waitForWholeCourseTemplateInstalls()
+        XCTAssertNotNil(
+            WatchCourseStore(directoryURL: directory).course(loopKey: "55555:front+55555:back", teeBox: "blue")
+        )
+        XCTAssertEqual(library.diagnosticErrorMessage, active, "the active path's latest diagnostic stands")
+    }
+
+    // MARK: - precise assets retry after a package-only install
+
+    /// A synthetic 18-hole course whose holes have ready geometry: prep carries a projected route
+    /// and every topo raster is valid, so a complete install is `preciseTemplateReady`.
+    private final class AssetServer {
+        var assetsAvailable = false
+    }
+
+    private nonisolated static func readyPackageData(loops raw: String, roundId: String) -> Data {
+        let loops = raw.split(separator: ",").compactMap { entry -> WatchPackageFixture.Loop? in
+            let parts = entry.split(separator: ":")
+            guard parts.count == 2, let id = Int(parts[0]) else { return nil }
+            return WatchPackageFixture.Loop(id, String(parts[1]))
+        }
+        var overrides: [Int: String] = [:]
+        for (index, loop) in loops.enumerated() {
+            for offset in 0..<9 {
+                let number = 1 + index * 9 + offset
+                let local = loop.sourceStartHole + offset
+                let courseHole = loop.half == "all" ? number : local
+                overrides[number] = "{\"number\":\(number),\"par\":\(physicalPar(local)),"
+                    + "\"yards\":\(300 + local),\"geometryCoverage\":\"ready\","
+                    + "\"geometryRevision\":\"rev-\(local)\",\"sourceGlobalId\":\(loop.globalId),"
+                    + "\"sourceLocalHole\":\(local),\"courseHoleNumber\":\(courseHole)}"
+            }
+        }
+        return WatchPackageFixture.packageData(
+            roundId: roundId,
+            course: #"{"globalId":31795,"name":"Black Knight","teeBox":"blue"}"#,
+            loops: loops,
+            overrides: overrides
+        )
+    }
+
+    private nonisolated static func readyPrepData(localHoles: [Int]) -> Data {
+        let holes = localHoles.map { local in
+            "{\"hole\":\(local),\"par\":\(physicalPar(local)),\"geometryCoverage\":\"ready\","
+                + "\"geometryRevision\":\"rev-\(local)\",\"route\":[[0.0,0.0,0.0],[0.0,120.0,120.0]],"
+                + "\"holeImageProjection\":{\"available\":true,\"widthPx\":500,\"heightPx\":700,"
+                + "\"refs\":[{\"lat\":40.0,\"lon\":116.0,\"px\":100.0,\"py\":600.0},"
+                + "{\"lat\":40.0,\"lon\":116.001,\"px\":220.0,\"py\":600.0},"
+                + "{\"lat\":40.001,\"lon\":116.0,\"px\":100.0,\"py\":480.0}]}}"
+        }
+        return Data(("{\"globalId\":31795,\"clubs\":[],\"holes\":[" + holes.joined(separator: ",") + "]}").utf8)
+    }
+
+    private func makeAssetLibrary(directory: URL, log: RequestLog, server: AssetServer) -> WatchCourseLibrary {
+        WatchCourseLibrary(
+            store: WatchCourseStore(directoryURL: directory),
+            imageStore: WatchHoleImageStore(directoryURL: directory),
+            makeRoundId: { "watch-asset-round" },
+            now: { "2026-09-30T00:00:00Z" },
+            clientFactory: { config in
+                WatchBackendClient(
+                    baseURL: config.baseURL,
+                    sessionToken: config.sessionToken,
+                    dataLoader: { request in
+                        log.requests.append(request)
+                        let url = try XCTUnwrap(request.url)
+                        func ok(_ body: Data) -> (Data, URLResponse) {
+                            (body, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                        }
+                        if url.path.hasSuffix("/package"),
+                           let loops = Self.query(request, "loops"),
+                           let round = Self.query(request, "round_id") {
+                            return ok(Self.readyPackageData(loops: loops, roundId: round))
+                        }
+                        if server.assetsAvailable, url.path.hasSuffix("/prep") {
+                            return ok(Self.readyPrepData(localHoles: Self.prepHoles(request)))
+                        }
+                        if server.assetsAvailable, url.path.hasSuffix("/topo.png"),
+                           let topo = Data(base64Encoded: WatchHoleMapSample.jpegBase64) {
+                            return ok(topo)
+                        }
+                        return (Data(), HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)!)
+                    },
+                    retrySleep: { _ in }
+                )
+            },
+            retrySleep: { _ in }
+        )
+    }
+
+    func testPackageOnlyWholeTemplateRetriesItsPreciseAssetsAfterARelaunch() async throws {
+        let directory = makeDirectory("watch-template-assets")
+        let selection = WatchCourseSelection(front: Self.blackKnight, teeBox: "blue", firstHalf: "back")
+        let whole = WatchCourseSelection(front: Self.blackKnight, teeBox: "blue")
+
+        // 1. The package installs, but every prep / topo request fails.
+        let server = AssetServer()
+        let first = makeAssetLibrary(directory: directory, log: RequestLog(), server: server)
+        first.enqueueWholeCourseTemplate(for: selection, config: Self.config)
+        await first.waitForWholeCourseTemplateInstalls()
+        XCTAssertEqual(first.wholeTemplateInstallState(whole), .packageInstalled)
+        let packageOnly = try XCTUnwrap(
+            WatchCourseStore(directoryURL: directory).course(loopKey: "31795:front+31795:back", teeBox: "blue")
+        )
+        XCTAssertFalse(packageOnly.holeStates.contains { $0.geometryCoverage == "pending" })
+        XCTAssertTrue(packageOnly.holeStates.allSatisfy { $0.geometryCoverage == "partial" },
+                      "server-ready holes without rasters are partial, not installed")
+
+        // 2. Relaunch with assets available: the package-only template is not "installed", so the
+        //    install runs again and completes the precise assets.
+        server.assetsAvailable = true
+        let log = RequestLog()
+        let relaunched = makeAssetLibrary(directory: directory, log: log, server: server)
+        relaunched.enqueueWholeCourseTemplate(for: selection, config: Self.config)
+        await relaunched.waitForWholeCourseTemplateInstalls()
+        XCTAssertFalse(log.templateRequests.isEmpty, "the precise install was retried")
+        XCTAssertEqual(relaunched.wholeTemplateInstallState(whole), .assetsInstalled)
+        let precise = try XCTUnwrap(
+            WatchCourseStore(directoryURL: directory).course(loopKey: "31795:front+31795:back", teeBox: "blue")
+        )
+        XCTAssertTrue(precise.holeStates.allSatisfy { $0.geometryCoverage == "ready" && $0.holeMap != nil })
+        let images = WatchHoleImageStore(directoryURL: directory)
+        XCTAssertTrue(precise.holeStates.allSatisfy {
+            images.hasImage(globalId: 31795, hole: $0.hole, geometryRevision: $0.geometryRevision)
+        })
+
+        // 3. A complete install is skipped.
+        let skipLog = RequestLog()
+        let third = makeAssetLibrary(directory: directory, log: skipLog, server: server)
+        third.enqueueWholeCourseTemplate(for: selection, config: Self.config)
+        await third.waitForWholeCourseTemplateInstalls()
+        XCTAssertTrue(skipLog.requests.isEmpty)
     }
 
     // MARK: - durable template validation (load boundary)
