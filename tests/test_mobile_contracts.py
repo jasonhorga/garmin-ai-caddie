@@ -2474,7 +2474,20 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('public static let topoStyleVersion = "topo-v11"', sync_client)
         self.assertIn('URLQueryItem(name: "v", value: topoStyleVersion)', sync_client)
         self.assertIn("TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)", hole_map_view)
-        self.assertIn("TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)", hole_map_view)
+        # 备战 fitted maps continue the base bitmap's terrain from its own edge pixels (never a
+        # flat ground or a second copy of the map): the base layer is wired to the continuation,
+        # which only the prep hero turns on, and only while its fitted map does not cover the screen.
+        self.assertIn(".continuingTerrain(baseEdgeExtension, feather: baseEdgeFeather)", hole_map_view)
+        self.assertIn("baseEdgeExtension: EdgeInsets = EdgeInsets(), baseEdgeFeather: CGFloat = 0", hole_map_view)
+        self.assertIn("enum TopoEdgeExtension", topo_base)
+        self.assertIn("pixels.cropping(to: from)", topo_base)  # clamp-to-edge strips of the bitmap
+        self.assertIn(".mask { FeatheredEdgesMask(width: edgeFeather) }", topo_base)
+        prep_screen = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
+        self.assertIn(
+            "extension: covering ? EdgeInsets() : Self.terrainExtension(rest: rest, viewport: size),",
+            prep_screen,
+        )
+        self.assertIn("baseEdgeExtension: terrain,", prep_screen)
         self.assertIn("enum MapSurfaceStyle", hub_style)
         self.assertIn("func mapSurface() -> some View", hub_style)
         self.assertIn("map.mapSurface()", hole_map_view)
