@@ -1081,6 +1081,7 @@ final class DesignSnapshotTests: XCTestCase {
         ]
         var prepPNGs: [Data] = []
         var prepMapFrames: [String: CGRect] = [:]
+        var prepLabelRects: [String: [CGRect]] = [:]
         for (name, session) in prepStates {
             PrepRouteLabelAudit.latest = nil
             prepPNGs.append(try captureScreen(
@@ -1103,6 +1104,7 @@ final class DesignSnapshotTests: XCTestCase {
             let audit = try XCTUnwrap(PrepRouteLabelAudit.latest, "\(name): the route layer was drawn")
             XCTAssertEqual(audit.hole, session.holeNumber)
             prepMapFrames[name] = audit.mapFrame
+            prepLabelRects[name] = audit.labels.compactMap { $0 }
             XCTAssertGreaterThanOrEqual(audit.chrome.count, 3, "\(name): header, badge and panel, before any measuring")
             let row = try XCTUnwrap(prepRows.first { $0.number == audit.hole })
             let plan = try XCTUnwrap(session.plan(in: row.plans))
@@ -1182,7 +1184,6 @@ final class DesignSnapshotTests: XCTestCase {
         // including those whose map does not cover the screen (the ground around it is flat).
         // Pennant red; the green is the topo's green (precise) or the factual green fill, told
         // apart from the fairway, rough, ground and the small landing dots by hue and size.
-        var seamChecked = 0
         let fittedMapStates: Set<String> = ["prep-hole", "prep-hole-plan-2", "prep-hole-factual"]
         for (name, png) in zip(prepNames, prepPNGs) where fittedMapStates.contains(name) {
             let flags = try Self.colorRegions(in: png, minAreaPoints: 12) { red, green, blue in
@@ -1193,19 +1194,43 @@ final class DesignSnapshotTests: XCTestCase {
                 green > 150 && green - red >= 65 && green - blue >= 65
             }
             XCTAssertEqual(greens.count, 1, "\(name): exactly one green is drawn, got \(greens)")
-            // Where the fitted map leaves ground beside it, its edge fades in with no hard seam.
-            if let frame = prepMapFrames[name], frame.minX > 12, frame.maxX < 390 - 12 {
-                seamChecked += 1
-                let steps = try Self.rowSteps(
-                    in: png,
-                    y: frame.midY,
-                    fromX: 2,
-                    toX: min(frame.minX + PrepHoleMapHero.groundFeather + 6, frame.midX)
-                )
-                XCTAssertLessThan(steps.max() ?? 0, 60, "\(name): the map edge at x \(frame.minX) is a hard seam")
-            }
         }
-        XCTAssertGreaterThan(seamChecked, 0, "a fitted map that does not cover the screen is rendered")
+        // Where a fitted map leaves ground beside it (`PrepHoleMapHero` passes `groundFeather`),
+        // its base image fades into the flat ground with no hard seam. Rendered on its own so the
+        // edges are known exactly; the same map without the fade proves the seam detector.
+        func edgeRender(feather: CGFloat, named name: String) throws -> Data {
+            try captureScreen(
+                ZStack {
+                    TopoHoleBaseImage.groundColor
+                    HoleImageMapView(
+                        hole: prepCardHole,
+                        topoURL: prepTopoURL,
+                        showsCardChrome: false,
+                        showsRecommendedRoute: false,
+                        baseEdgeFeather: feather
+                    )
+                    .frame(width: 240, height: 360)
+                }
+                .frame(width: 390, height: 844)
+                .ignoresSafeArea(),
+                named: name,
+                dark: true,
+                settle: 2.0
+            )
+        }
+        // The map rests at x 75...315, y 242...602. Scan across its left edge (clear of the route
+        // and green) and its top edge.
+        func seamSteps(_ png: Data) throws -> (left: Int, top: Int) {
+            let left = try Self.lineSteps(in: png, from: CGPoint(x: 20, y: 540), to: CGPoint(x: 120, y: 540))
+            let top = try Self.lineSteps(in: png, from: CGPoint(x: 290, y: 200), to: CGPoint(x: 290, y: 300))
+            return (left.max() ?? 0, top.max() ?? 0)
+        }
+        let hardEdge = try seamSteps(try edgeRender(feather: 0, named: "prep-map-edge-unfaded"))
+        XCTAssertGreaterThanOrEqual(hardEdge.left, 60, "the detector sees an unfaded left edge")
+        XCTAssertGreaterThanOrEqual(hardEdge.top, 60, "the detector sees an unfaded top edge")
+        let fadedEdge = try seamSteps(try edgeRender(feather: PrepHoleMapHero.groundFeather, named: "prep-map-edge-faded"))
+        XCTAssertLessThan(fadedEdge.left, 60, "the fitted map's left edge fades into the ground")
+        XCTAssertLessThan(fadedEdge.top, 60, "the fitted map's top edge fades into the ground")
 
         // 单场复盘: a representative 18-hole Garmin-style scorecard before the compact metrics,
         // rendered from a round-detail fixture (mirrors /api/v2/history/rounds/{ref}).
@@ -1613,23 +1638,24 @@ final class DesignSnapshotTests: XCTestCase {
         return regions
     }
 
-    /// Colour change (summed RGB) between neighbouring 1 pt samples along a row, in points.
-    private static func rowSteps(in png: Data, y: CGFloat, fromX: CGFloat, toX: CGFloat) throws -> [Int] {
+    /// Colour change (summed RGB) between neighbouring samples 1 pt apart along a segment (points).
+    private static func lineSteps(in png: Data, from start: CGPoint, to end: CGPoint) throws -> [Int] {
         let (bytes, width, height) = try rgba(png)
         let pixelsPerPoint = CGFloat(width) / 390
-        let row = min(height - 1, max(0, Int(y * pixelsPerPoint)))
+        let length = hypot(end.x - start.x, end.y - start.y)
+        let count = max(Int(length.rounded(.down)), 1)
         var previous: (Int, Int, Int)?
         var steps: [Int] = []
-        var x = fromX
-        while x <= toX {
-            let column = min(width - 1, max(0, Int(x * pixelsPerPoint)))
+        for step in 0...count {
+            let t = CGFloat(step) / CGFloat(count)
+            let column = min(width - 1, max(0, Int((start.x + (end.x - start.x) * t) * pixelsPerPoint)))
+            let row = min(height - 1, max(0, Int((start.y + (end.y - start.y) * t) * pixelsPerPoint)))
             let index = (row * width + column) * 4
             let pixel = (Int(bytes[index]), Int(bytes[index + 1]), Int(bytes[index + 2]))
             if let previous {
                 steps.append(abs(pixel.0 - previous.0) + abs(pixel.1 - previous.1) + abs(pixel.2 - previous.2))
             }
             previous = pixel
-            x += 1
         }
         return steps
     }

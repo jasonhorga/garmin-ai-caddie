@@ -1196,19 +1196,32 @@ struct RotatableMapViewport<Content: View>: View {
     }
 }
 
-/// Opaque inside, fading to clear over `width` points at every edge (no fade for 0).
+/// Opaque inside, fading linearly to clear over `width` points at every edge (no fade for 0).
+/// Built from two gradients rather than a blur, so every renderer (including layer snapshots)
+/// draws the same soft edge.
 private struct FeatheredEdgesMask: View {
     let width: CGFloat
 
     var body: some View {
         if width > 0.5 {
-            Rectangle()
-                .fill(Color.white)
-                .padding(width / 2)
-                .blur(radius: width / 2)
+            GeometryReader { proxy in
+                let fx = min(width / max(proxy.size.width, 1), 0.5)
+                let fy = min(width / max(proxy.size.height, 1), 0.5)
+                LinearGradient(stops: Self.ramp(fx), startPoint: .leading, endPoint: .trailing)
+                    .mask(LinearGradient(stops: Self.ramp(fy), startPoint: .top, endPoint: .bottom))
+            }
         } else {
             Rectangle().fill(Color.white)
         }
+    }
+
+    private static func ramp(_ fraction: CGFloat) -> [Gradient.Stop] {
+        [
+            .init(color: .clear, location: 0),
+            .init(color: .white, location: fraction),
+            .init(color: .white, location: 1 - fraction),
+            .init(color: .clear, location: 1),
+        ]
     }
 }
 
