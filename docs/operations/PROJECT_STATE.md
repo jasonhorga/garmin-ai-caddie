@@ -103,7 +103,7 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-10-01 13:17 UTC):** `B1-B7` review queue remains
+**Current slice (2026-10-01 13:59 UTC):** `B1-B7` review queue remains
 `in-progress`; Codex is the review owner for PRs opened from
 `claude/code-audit-performance-17wqcv`. Each PR is checked at its exact head
 against `docs/design/2026-09-25-ui-redesign/README.md` and
@@ -155,12 +155,26 @@ must remain a blocker until a new exact head has green iOS and Watch gates.
 Claude pushed current exact head
 `654e3481b4a11d8774335d967b892299baea1794`, which rounds the per-round value
 to one decimal before formatting and adds the explicit `2.25 -> 2.3`
-regression. Source CI `36866703340` is green; Native Mobile CI
-`36866703324` is in progress. No PR #365 screenshot artifact has been accepted
-as final evidence yet; after the exact-head Native gate passes, download and
-inspect the matching design/Watch artifacts, run the homeserver focused tests,
-and only then comment/merge if no P1/P2 remains. No review snapshot, container,
-port, dependency install or background service has been created for #365 yet.
+regression. Source CI `36866703340` and Native Mobile CI `36866703324` are
+green; the Native evidence artifact is `11164936262`, with design artifact
+`11164558904` and Watch artifact `11165236071`. The exact-head homeserver
+focused suites `tests.test_mobile_contracts tests.test_stats_breakdowns` passed
+`128/128` in 7.318s; log SHA-256 is
+`378313ad0b336d9a8e2adb3e3a52bb4ea4c5f5d830da9ae858cac0cd472524ae` at
+`/home/jason/codex-runs/aicaddie-pr365-654e3481-artifacts-20261001T1326Z/focused-tests.log`.
+The 40 Watch PNGs are byte-identical to the accepted B5a Watch set. Visual
+review found two P2 evidence blockers in comment `5932990348`: `course-detail.png`
+does not exercise the required topo-backed course/hardest-hole maps because
+the snapshot supplies no API/topo fixture, and `results-time.png` ends before
+the required `打球日历` and its summary are visible. The exact-head review
+manifest is
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261001T1326Z-pr365-654e3481-review.md`.
+No merge or full-fixture dispatch is authorized until Claude provides a new
+exact head with deterministic topo-backed course evidence, a calendar capture,
+and fresh Source/Native artifacts. The read-only snapshot, artifact root and
+temporary test container remain allow-listed until the review closes; no
+production resource, dependency installation, port or background service was
+created.
 
 PR #357 (B1d map-degradation carry-over and screenshot cases) completed review
 and was squash-merged as `8a1180d2fbffaccf84dbb3275a34554abf03b4d9` from exact
