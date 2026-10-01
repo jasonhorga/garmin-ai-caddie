@@ -3619,17 +3619,20 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('decisionId: decisionId', evaluator)
         self.assertIn('sourceRef: seed.sourceRef', evaluator)
         self.assertIn('evidenceRefs: evidenceRefs', evaluator)
-        self.assertIn("selectedOptionId: selected.optionId", evaluator)
+        self.assertIn("selectedOptionId: selected?.optionId", evaluator)
+        # No surviving route means no recommendation at all: no offered or selected option.
+        self.assertIn("let noRoute = planning.filtered && viable.isEmpty", evaluator)
+        self.assertIn("guard !noRoute else { return nil }", evaluator)
         self.assertIn("selectedOption: selectedRow", evaluator)
         # Offline evaluation publishes the same multi-route contract as the online decision;
         # stock is selected separately rather than collapsing every option into one legacy row.
         # After whole-hole filtering only the options that still have a route are offered, and
         # the selected option is realigned to a surviving route (server _align_selected_sequence).
-        self.assertIn("let offeredOptions = planning.filtered && !viable.isEmpty ? viable : seed.offlineOptions", evaluator)
+        self.assertIn("let offeredOptions = planning.filtered ? viable : seed.offlineOptions", evaluator)
         self.assertIn("let sequenceRows = offeredOptions.compactMap", evaluator)
         self.assertIn("let optionRows = offeredOptions.map", evaluator)
         self.assertIn("sequences: sequenceRows", evaluator)
-        self.assertIn("let selectedSequence: [String: JSONValue]?", evaluator)
+        self.assertIn("let selectedSequence = selected.flatMap(sequencePayload)", evaluator)
         self.assertIn("selectedSequence: selectedSequence", evaluator)
         self.assertIn("canonicalPlanSteps(from: request.context)", evaluator)
         self.assertIn('"offline_caddie"', evaluator)

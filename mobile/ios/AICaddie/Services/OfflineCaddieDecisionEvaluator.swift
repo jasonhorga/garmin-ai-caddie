@@ -67,9 +67,14 @@ public final class OfflineCaddieDecisionEvaluator {
         // `_align_selected_sequence`): a removed Driver can never stay the selected club of a
         // surviving 3H route on the phone or the Watch.
         let viable = seed.offlineOptions.filter { !(plans[$0.optionId] ?? []).isEmpty }
-        let offeredOptions = planning.filtered && !viable.isEmpty ? viable : seed.offlineOptions
-        let selected: OfflineCaddieOption = {
-            guard planning.filtered, !viable.isEmpty,
+        // When filtering leaves no route there is no recommendation at all: no offered option and
+        // no selected option, id or club, so neither the phone nor the Watch can present a club
+        // whose route was rejected.
+        let noRoute = planning.filtered && viable.isEmpty
+        let offeredOptions = planning.filtered ? viable : seed.offlineOptions
+        let selected: OfflineCaddieOption? = {
+            guard !noRoute else { return nil }
+            guard planning.filtered,
                   !viable.contains(where: { $0.optionId == seedSelected.optionId }) else { return seedSelected }
             let preferred = [requestedOptionId, preferredOptionId(for: strategyMode), seed.selectedOfflineOptionId, "stock"]
                 .compactMap { $0 }
@@ -81,33 +86,30 @@ public final class OfflineCaddieDecisionEvaluator {
                 canonicalFirstStep: plans[option.optionId]?.first
             )
         }
-        let sequenceRows = offeredOptions.compactMap { option -> [String: JSONValue]? in
+        func sequencePayload(_ option: OfflineCaddieOption) -> [String: JSONValue]? {
             guard let steps = plans[option.optionId], !steps.isEmpty else { return nil }
             if option.optionId == "stock", planning.stockIsCanonical {
                 return canonicalSequencePayload(steps: steps, selected: true)
             }
             return routeSequencePayload(steps: steps, option: option)
         }
-        let selectedRow = optionPayload(
-            selected,
-            canonicalFirstStep: plans[selected.optionId]?.first
-        )
-        let selectedSequence: [String: JSONValue]? = {
-            guard let steps = plans[selected.optionId], !steps.isEmpty else { return nil }
-            if selected.optionId == "stock", planning.stockIsCanonical {
-                return canonicalSequencePayload(steps: steps, selected: true)
-            }
-            return routeSequencePayload(steps: steps, option: selected)
-        }()
-        let evidenceRefs = uniqueRefs([seed.sourceRef] + selected.sourceRefs + (selected.sampleRefs ?? []))
-        var missingData = seed.missingData + (selected.missingData ?? [])
+        let sequenceRows = offeredOptions.compactMap(sequencePayload)
+        let selectedRow = selected.map { optionPayload($0, canonicalFirstStep: plans[$0.optionId]?.first) }
+        let selectedSequence = selected.flatMap(sequencePayload)
+        let evidenceRefs = uniqueRefs([seed.sourceRef] + (selected?.sourceRefs ?? []) + (selected?.sampleRefs ?? []))
+        var missingData = seed.missingData + (selected?.missingData ?? [])
         if planning.withheldForHazards {
             missingData.append([
                 "label": .string("offline_route_hazards"),
                 "reason": .string("two-sided OB / corridor limits need the server planner; no local route is claimed safe"),
             ])
+        } else if noRoute {
+            missingData.append([
+                "label": .string("offline_route_unavailable"),
+                "reason": .string("no local route is safe and complete for this hole; no club is recommended offline"),
+            ])
         }
-        let decisionId = offlineDecisionId(seed: seed, request: request, selected: selected)
+        let decisionId = offlineDecisionId(seed: seed, request: request, selectedId: selected?.optionId ?? "none")
 
         return CaddieDecisionResponse(
             schema: "ai-caddie-decision-v2",
@@ -119,7 +121,7 @@ public final class OfflineCaddieDecisionEvaluator {
             context: request.context,
             options: optionRows,
             selected: selectedRow,
-            selectedOptionId: selected.optionId,
+            selectedOptionId: selected?.optionId,
             selectedOption: selectedRow,
             sequences: sequenceRows,
             selectedSequence: selectedSequence,
@@ -132,7 +134,7 @@ public final class OfflineCaddieDecisionEvaluator {
             evidence: offlineEvidence(seed: seed, selected: selected),
             confidence: confidencePayload(selected),
             missingData: missingData,
-            auditCriteria: auditCriteria(seed: seed, selected: selected)
+            auditCriteria: selected.map { auditCriteria(seed: seed, selected: $0) } ?? []
         )
     }
 
@@ -295,9 +297,8 @@ public final class OfflineCaddieDecisionEvaluator {
         // Two-sided OB / corridor limits need the server planner's typed zones from every lie.
         // The local fallback refuses to claim a complete safe route rather than ignore them.
         guard !hazards.unmodelled else {
-            return RoutePlanning(
-                plans: trimmed(plans), filtered: true, withheldForHazards: true, stockIsCanonical: stockIsCanonical
-            )
+            // Including an installed chain: nothing local proves it safe against these limits.
+            return RoutePlanning(plans: [:], filtered: true, withheldForHazards: true)
         }
 
         for option in seed.offlineOptions {
@@ -988,29 +989,30 @@ public final class OfflineCaddieDecisionEvaluator {
         return Int(raw.rounded())
     }
 
-    private func offlineEvidence(seed: CaddieContextSeed, selected: OfflineCaddieOption) -> [[String: JSONValue]] {
-        seed.evidence + [
-            [
-                "label": .string("offline_caddie"),
-                "value": .string("cached_decision"),
-                "sourceRef": .string(seed.sourceRef),
-            ],
-            [
+    private func offlineEvidence(seed: CaddieContextSeed, selected: OfflineCaddieOption?) -> [[String: JSONValue]] {
+        var rows = seed.evidence + [[
+            "label": .string("offline_caddie"),
+            "value": .string("cached_decision"),
+            "sourceRef": .string(seed.sourceRef),
+        ]]
+        if let selected {
+            rows.append([
                 "label": .string("offline_option"),
                 "value": .string(selected.optionId),
                 "clubName": .string(selected.clubName),
                 "confidence": .string(selected.confidence ?? "low"),
-            ],
-        ]
+            ])
+        }
+        return rows
     }
 
-    private func confidencePayload(_ option: OfflineCaddieOption) -> [String: JSONValue] {
+    private func confidencePayload(_ option: OfflineCaddieOption?) -> [String: JSONValue] {
         var payload: [String: JSONValue] = [
-            "level": .string(option.confidence ?? "low"),
+            "level": .string(option?.confidence ?? "low"),
             "source": .string("offline_package_seed"),
-            "sampleSize": .number(Double(option.sampleSize ?? 0)),
+            "sampleSize": .number(Double(option?.sampleSize ?? 0)),
         ]
-        if let coverage = option.coverage {
+        if let coverage = option?.coverage {
             payload["coverage"] = coveragePayload(coverage)
         }
         return payload
@@ -1075,9 +1077,9 @@ public final class OfflineCaddieDecisionEvaluator {
     private func offlineDecisionId(
         seed: CaddieContextSeed,
         request: CaddieDecisionRequest,
-        selected: OfflineCaddieOption
+        selectedId: String
     ) -> String {
-        let raw = "offline-\(seed.sourceRef)-\(request.shotType)-\(selected.optionId)"
+        let raw = "offline-\(seed.sourceRef)-\(request.shotType)-\(selectedId)"
         return raw
             .replacingOccurrences(of: ":", with: "-")
             .replacingOccurrences(of: " ", with: "-")

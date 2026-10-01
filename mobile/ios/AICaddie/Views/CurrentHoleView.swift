@@ -3468,11 +3468,13 @@ public struct CurrentHoleView: View {
         guard let seed = caddieContextSeed else {
             return nil
         }
-        if let decision = caddieDecision,
-           decision.isOfflineFallback,
-           let selectedID = decision.selectedOptionId,
-           let selected = seed.offlineOptions.first(where: { $0.optionId == selectedID }) {
-            return selected
+        if let decision = caddieDecision, decision.isOfflineFallback {
+            // An offline decision with no selected option found no safe, complete route: there is
+            // no club to recommend, so the seed's own pick must not resurface on the Watch.
+            guard let selectedID = decision.selectedOptionId else { return nil }
+            if let selected = seed.offlineOptions.first(where: { $0.optionId == selectedID }) {
+                return selected
+            }
         }
         return offlineDecisionEvaluator.selectedOption(
             in: seed,

@@ -585,20 +585,79 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         try assertAligned(decision, id: "safe", firstClub: "6I")
     }
 
+    /// No safe, complete local route: nothing is offered or selected, and the Watch publishes no
+    /// club, option or route.
+    private func assertNoRecommendation(
+        _ decision: CaddieDecisionResponse,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        XCTAssertTrue(decision.options.isEmpty, "no offered option", file: file, line: line)
+        XCTAssertNil(decision.selected, file: file, line: line)
+        XCTAssertNil(decision.selectedOption, file: file, line: line)
+        XCTAssertNil(decision.selectedOptionId, file: file, line: line)
+        XCTAssertTrue((decision.sequences ?? []).isEmpty, file: file, line: line)
+        XCTAssertNil(decision.selectedSequence, file: file, line: line)
+        XCTAssertNil(CaddiePlanSequence.selectedSequence(from: decision), file: file, line: line)
+        XCTAssertTrue(decision.isOfflineFallback, file: file, line: line)
+        let bridge = WatchEventBridge()
+        // The Watch option strip is only the "暂无球童方案" placeholder: no club and no route.
+        for option in bridge.makeWatchCaddieOptions(from: decision) {
+            XCTAssertNil(option.clubName, "\(option.optionId) names no club", file: file, line: line)
+            XCTAssertTrue((option.plan ?? []).isEmpty, "\(option.optionId) has no route", file: file, line: line)
+        }
+        let package = try fixturePackage()
+        let hole = try XCTUnwrap(package.holes.first, file: file, line: line)
+        let watch = bridge.makeWatchRoundStatePayload(
+            package: package, hole: hole, score: 0, putts: 0, penaltyCount: 0,
+            selectedClub: nil, decision: decision
+        )
+        XCTAssertNil(watch.suggestedClub, file: file, line: line)
+        XCTAssertNil(watch.offlineOptionId, file: file, line: line)
+        XCTAssertNil(watch.holePlanSummary, file: file, line: line)
+    }
+
+    private let outOfBounds: [[String: JSONValue]] = [[
+        "kind": .string("out_of_bounds"), "carryToFront_m": .number(180),
+        "carryToClear_m": .number(260), "side": .string("both"), "corridorWidth_m": .number(30),
+    ]]
+
     func testTwoSidedOutOfBoundsWithholdsLocalRoutes() throws {
-        // The local fallback cannot evaluate a two-sided OB corridor: it claims no complete route.
+        // The local fallback cannot evaluate a two-sided OB corridor: it recommends nothing.
         let decision = try wholeHoleDecision(
             par: 4, distanceM: 375,
             bag: [("1D", 210, 10), ("7I", 156, 10), ("8I", 144, 10), ("9I", 132, 10)],
             options: [("stock", "1D"), ("safe", "9I")],
-            planningHazards: [[
-                "kind": .string("out_of_bounds"), "carryToFront_m": .number(180),
-                "carryToClear_m": .number(260), "side": .string("both"), "corridorWidth_m": .number(30),
-            ]]
+            planningHazards: outOfBounds
         )
-        XCTAssertTrue((decision.sequences ?? []).isEmpty)
-        XCTAssertNil(decision.selectedSequence)
+        try assertNoRecommendation(decision)
         XCTAssertTrue(decision.missingData.contains { $0["label"] == .string("offline_route_hazards") })
+    }
+
+    func testTwoSidedOutOfBoundsAlsoWithholdsTheInstalledChain() throws {
+        // Production shape: the request carries the installed 1D -> 7I chain. Nothing local proves
+        // it safe against the OB corridor, so it is withheld too.
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 375,
+            bag: [("1D", 210, 10), ("7I", 156, 10), ("8I", 144, 10), ("9I", 132, 10)],
+            options: [("stock", "1D"), ("safe", "9I")],
+            canonical: [("1D", 210), ("7I", 165)],
+            planningHazards: outOfBounds
+        )
+        try assertNoRecommendation(decision)
+        XCTAssertTrue(decision.missingData.contains { $0["label"] == .string("offline_route_hazards") })
+    }
+
+    func testNoSafeRouteRecommendsNothing() throws {
+        // Water at 150-260 m that no club's window can lay up short of or carry: no route at all.
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 380,
+            bag: [("1D", 210, 20), ("3W", 195, 14), ("5I", 160, 10)],
+            options: [("stock", "1D"), ("safe", "5I")],
+            water: [[150, 260]]
+        )
+        try assertNoRecommendation(decision)
+        XCTAssertTrue(decision.missingData.contains { $0["label"] == .string("offline_route_unavailable") })
     }
 
     func testPar4LegThatFliesTheBackEdgeIsNotGIR() throws {
