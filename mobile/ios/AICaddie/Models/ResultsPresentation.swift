@@ -338,6 +338,20 @@ struct AnalysisLoadState: Equatable {
     static func comparisonLabel(_ window: String) -> String? {
         windows.first { $0.id == window }?.comparison
     }
+
+    /// The line under the phases: what ↑ / ↓ compare against, or why there is no comparison. A
+    /// short previous count sample is named as such, never labelled as the full 前 10 / 20 场.
+    static func comparisonNote(window: String, previous: MobileStatsPrevious?) -> String? {
+        guard let label = comparisonLabel(window) else { return nil }
+        guard let previous, let count = previous.roundCount, count > 0 else { return "前一段没有球局，暂不比较" }
+        if previous.scoring == nil {
+            if let required = previous.requiredRounds, count < required {
+                return "前 \(required) 场只有 \(count) 场，暂不比较"
+            }
+            return "前一段没有球局，暂不比较"
+        }
+        return "↑ ↓ \(label)"
+    }
 }
 
 extension ResultsPresentation {
@@ -396,5 +410,81 @@ extension ResultsPresentation {
             detail: parts.joined(separator: " · "),
             fraction: row.averageToPar.map { max(0, $0) / max(maxOver * 1.25, 0.01) }
         )
+    }
+}
+
+// MARK: - 成绩 landing loading
+
+/// The 成绩 page's two sections — stats and the round archive — loaded together but published
+/// independently (Codex review of #364). Each `begin()` starts a new generation; only that
+/// generation's answers commit, so an older request can neither overwrite a newer one nor clear
+/// its loading state. Cached values stay on screen while a refresh is in flight, which is the
+/// real `refreshing` state.
+struct ResultsLandingLoad: Equatable {
+    enum Section: String, Equatable {
+        case stats = "生涯与趋势"
+        case archive = "球局档案"
+    }
+
+    private(set) var stats: MobileStats?
+    private(set) var archive: HistoryRoundsArchive?
+    private(set) var generation = 0
+    private(set) var statsPending = false
+    private(set) var archivePending = false
+    private(set) var failed: [Section] = []
+
+    init(stats: MobileStats? = nil, archive: HistoryRoundsArchive? = nil) {
+        self.stats = stats
+        self.archive = archive
+    }
+
+    var isLoading: Bool { statsPending || archivePending }
+
+    var errorText: String? {
+        let names = [Section.stats, .archive].filter { failed.contains($0) }.map(\.rawValue)
+        return names.isEmpty ? nil : "\(names.joined(separator: "、"))暂时取不到"
+    }
+
+    var phase: ResultsPresentation.LandingPhase {
+        ResultsPresentation.landingPhase(stats: stats, archive: archive, isLoading: isLoading, errorText: errorText)
+    }
+
+    /// Show cached sections before the first answer (never replacing anything already loaded).
+    mutating func seed(stats cachedStats: MobileStats?, archive cachedArchive: HistoryRoundsArchive?) {
+        if stats == nil { stats = cachedStats }
+        if archive == nil { archive = cachedArchive }
+    }
+
+    /// Start loading both sections; returns the generation their answers must carry.
+    mutating func begin() -> Int {
+        generation += 1
+        statsPending = true
+        archivePending = true
+        failed = []
+        return generation
+    }
+
+    /// `value == nil` is a failure; a failure keeps the cached section and names it.
+    @discardableResult
+    mutating func completeStats(_ requestGeneration: Int, _ value: MobileStats?) -> Bool {
+        guard requestGeneration == generation, statsPending else { return false }
+        statsPending = false
+        if let value { stats = value } else { failed.append(.stats) }
+        return true
+    }
+
+    @discardableResult
+    mutating func completeArchive(_ requestGeneration: Int, _ value: HistoryRoundsArchive?) -> Bool {
+        guard requestGeneration == generation, archivePending else { return false }
+        archivePending = false
+        if let value { archive = value } else { failed.append(.archive) }
+        return true
+    }
+
+    /// The page went away mid-request: stop showing it as loading (nothing is committed).
+    mutating func cancel(_ requestGeneration: Int) {
+        guard requestGeneration == generation else { return }
+        statsPending = false
+        archivePending = false
     }
 }

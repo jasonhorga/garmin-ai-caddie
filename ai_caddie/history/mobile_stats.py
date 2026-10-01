@@ -99,15 +99,28 @@ PREVIOUS_WINDOW = {"last10": "prev10", "last20": "prev20", "12m": "prev12m"}
 _PREVIOUS_SCORING_KEYS = ("teeDirection", "approachMiss", "scrambling", "putting", "phaseStats")
 
 
+# A count window compares only with a COMPLETE previous sample: "和前 10 场比" against 5 rounds would
+# be a different comparison under the same label. ``prev12m`` is a date range, so any rounds count.
+PREVIOUS_REQUIRED_ROUNDS = {"prev10": 10, "prev20": 20}
+
+
 def build_mobile_previous(stats: dict[str, Any], window: str) -> dict[str, Any] | None:
     """The compact comparison block for ``window``'s previous period, or None when it has no
-    rounds (a delta against nothing would be invented)."""
+    rounds (a delta against nothing would be invented). A count window whose previous period is
+    short of its full sample carries ``requiredRounds`` and no ``scoring``, so the phone says how
+    many rounds there are instead of comparing."""
     summary = stats.get("summary") if isinstance(stats.get("summary"), dict) else {}
     rounds = summary.get("totalRounds")
     if not rounds:
         return None
+    block: dict[str, Any] = {"window": window, "roundCount": rounds}
+    required = PREVIOUS_REQUIRED_ROUNDS.get(window)
+    if required is not None:
+        block["requiredRounds"] = required
+        if rounds < required:
+            return block
     scoring = stats.get("scoring") if isinstance(stats.get("scoring"), dict) else {}
-    return _strip_refs({"window": window, "roundCount": rounds, "scoring": _pick(scoring, _PREVIOUS_SCORING_KEYS)})
+    return _strip_refs({**block, "scoring": _pick(scoring, _PREVIOUS_SCORING_KEYS)})
 
 
 def _cap_round_sequences(scoring: dict[str, Any]) -> dict[str, Any]:

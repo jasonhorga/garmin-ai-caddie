@@ -10,10 +10,8 @@ public struct ResultsView: View {
     public let adminToken: String?
     public let offlineStore: OfflineStore?
 
-    @State private var stats: MobileStats?
-    @State private var archive: HistoryRoundsArchive?
-    @State private var isLoading = true
-    @State private var errorText: String?
+    /// Both sections with their per-generation loading (`ResultsLandingLoad`).
+    @State private var load = ResultsLandingLoad()
 
     public init(
         apiBaseURL: URL? = nil,
@@ -28,68 +26,58 @@ public struct ResultsView: View {
     public var body: some View {
         ScrollView {
             ResultsLandingContent(
-                stats: stats,
-                archive: archive,
-                errorText: errorText,
+                stats: load.stats,
+                archive: load.archive,
+                errorText: load.errorText,
                 apiBaseURL: apiBaseURL,
                 adminToken: adminToken,
-                isLoading: isLoading
+                isLoading: load.isLoading
             )
         }
         .background(HubStyle.grouped)
         .navigationTitle("成绩")
-        .task { await load() }
-        .refreshable { await load() }
+        .task { await reload() }
+        .refreshable { await reload() }
         .onReceive(NotificationCenter.default.publisher(for: .garminDataDidRefresh)) { _ in
-            Task { await load() }
+            Task { await reload() }
         }
     }
 
+    /// One load generation: cached sections first, then both requests, each published as soon as
+    /// it answers. A newer `reload` (pull-to-refresh, Garmin refresh) supersedes this one.
     @MainActor
-    private func load() async {
-        loadCachedResults()
+    private func reload() async {
+        if let offlineStore {
+            load.seed(stats: try? offlineStore.loadMobileStats(), archive: try? offlineStore.loadHistoryRoundsArchive())
+        }
+        let generation = load.begin()
         guard let apiBaseURL else {
-            isLoading = false
-            errorText = "未配置后端地址"
+            load.completeStats(generation, nil)
+            load.completeArchive(generation, nil)
             return
         }
-        // Keep cached content on screen during a refresh. The full-screen loader is reserved for
-        // the first visit when neither endpoint has produced a local result yet.
-        isLoading = stats == nil && archive == nil
-        errorText = nil
         let client = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
-        async let statsRequest = client.fetchMobileStats()
-        async let archiveRequest = client.fetchHistoryRounds()
-        var failedSections: [String] = []
-        do {
-            let freshStats = try await statsRequest
-            stats = freshStats
-            try? offlineStore?.saveMobileStats(freshStats)
-        } catch {
-            failedSections.append("生涯与趋势")
-        }
-        do {
-            let freshArchive = try await archiveRequest
-            archive = freshArchive
-            try? offlineStore?.saveHistoryRoundsArchive(freshArchive)
-        } catch {
-            failedSections.append("球局档案")
-        }
-        guard !Task.isCancelled else { return }
-        if !failedSections.isEmpty {
-            errorText = "\(failedSections.joined(separator: "、"))暂时取不到"
-        }
-        isLoading = false
+        async let statsDone: Void = loadStats(client, generation)
+        async let archiveDone: Void = loadArchive(client, generation)
+        _ = await (statsDone, archiveDone)
+        if Task.isCancelled { load.cancel(generation) }
     }
 
     @MainActor
-    private func loadCachedResults() {
-        guard let offlineStore else { return }
-        if stats == nil {
-            stats = try? offlineStore.loadMobileStats()
+    private func loadStats(_ client: SyncClient, _ generation: Int) async {
+        let fresh = try? await client.fetchMobileStats()
+        guard !Task.isCancelled else { return }
+        if load.completeStats(generation, fresh), let fresh {
+            try? offlineStore?.saveMobileStats(fresh)
         }
-        if archive == nil {
-            archive = try? offlineStore.loadHistoryRoundsArchive()
+    }
+
+    @MainActor
+    private func loadArchive(_ client: SyncClient, _ generation: Int) async {
+        let fresh = try? await client.fetchHistoryRounds()
+        guard !Task.isCancelled else { return }
+        if load.completeArchive(generation, fresh), let fresh {
+            try? offlineStore?.saveHistoryRoundsArchive(fresh)
         }
     }
 }

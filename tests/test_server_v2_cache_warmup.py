@@ -64,18 +64,25 @@ class CacheWarmupTests(unittest.TestCase):
             warm_stats_cache()
             warmed_calls = build_spy.call_count
             self.assertEqual(
-                warmed_calls, 4, "warm should cold-build all + last10 + last20 + 12m"
+                warmed_calls, 7,
+                "warm should cold-build all + last10 + last20 + 12m + prev10 + prev20 + prev12m",
             )
 
-            # The real user path after a warm must NOT recompute any supported window.
+            # The real user path after a warm must NOT recompute any supported window, including
+            # the mobile 表现分析 requests that carry their previous comparable period.
             load_history_stats_response()
             load_history_stats_response(window="last10")
             load_history_stats_response(window="last20")
             load_history_stats_response(window="12m")
+            from server_v2.main import app
+
+            client = TestClient(app)
+            for window in ("all", "last10", "last20", "12m"):
+                self.assertEqual(client.get(f"/api/v2/history/stats/mobile?window={window}").status_code, 200)
             self.assertEqual(
                 build_spy.call_count,
                 warmed_calls,
-                "all/last10/last20/12m requests after warm should be cache hits (no extra build)",
+                "stats and mobile-analysis requests after warm should be cache hits (no extra build)",
             )
 
     def test_warm_populates_load_history_data_cache(self) -> None:

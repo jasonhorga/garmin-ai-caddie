@@ -107,7 +107,8 @@ def warm_stats_cache(player_id: str = OWNER_ID) -> None:
 
     Calls the same cached accessors the request path uses: ``cached_load_history_data``
     (the ~2s read) and ``load_history_stats_response`` (the ~10s build, via
-    ``cached_build_history_stats``). Exactly FOUR windows are pre-warmed:
+    ``cached_build_history_stats``). Four windows are pre-warmed, plus the three previous-period
+    windows (prev10 / prev20 / prev12m) the mobile 表现分析 response compares against:
 
     * ``all``   — default for /history/stats, /caddie/context, and the mobile packages
     * ``last10`` — 趋势总览's default range; windowed build sees only 10 rounds (~0.1s extra)
@@ -127,6 +128,10 @@ def warm_stats_cache(player_id: str = OWNER_ID) -> None:
         load_history_stats_response(window="last10", player_id=player_id)
         load_history_stats_response(window="last20", player_id=player_id)
         load_history_stats_response(window="12m", player_id=player_id)
+        # B5 表现分析: each narrow window's mobile response also carries its previous comparable
+        # period (prev10 / prev20 / prev12m); build those too so the first analysis is a hit.
+        for window in PREVIOUS_WINDOW:
+            load_mobile_stats_response(window=window, player_id=player_id)
     except Exception:  # noqa: BLE001 - warming is best-effort and must not propagate
         logger.exception("stats cache warm failed")
 

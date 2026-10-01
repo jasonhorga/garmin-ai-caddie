@@ -600,21 +600,15 @@ HANDICAP_CHANGE_ROUNDS = 20
 
 def _handicap_change_recent(rounds: list[dict[str, Any]], count: int = HANDICAP_CHANGE_ROUNDS) -> float | None:
     """B5 成绩 (README §9 "差点估算 … 近 20 场"): the estimate now minus the estimate as it stood
-    ``count`` differential-bearing rounds ago — i.e. over the same rounds without the newest
-    ``count``. Same estimator as ``_handicap_estimate``; None when the earlier side lacks its 5
-    rounds. Negative = improving.
+    before the newest ``count`` rounds. The cut is over the actual (merged) rounds by date — an
+    unpriceable recent round still counts as one of the 20 — and the estimator then ignores
+    unusable rounds on each side. None when the earlier side lacks its 5 rounds. Negative =
+    improving.
     """
-    rated = sorted(
-        (
-            (str(row.get("date") or ""), index, row)
-            for index, row in enumerate(rounds)
-            if _round_differential_or_par(row) is not None
-        ),
-        key=lambda item: (item[0], item[1]),
-        reverse=True,
-    )
-    current = _handicap_estimate([row for _day, _index, row in rated])
-    earlier = _handicap_estimate([row for _day, _index, row in rated[count:]])
+    by_date = sorted(range(len(rounds)), key=lambda i: (str(rounds[i].get("date") or ""), i), reverse=True)
+    earlier_rows = [rounds[i] for i in by_date[count:]]
+    current = _handicap_estimate(rounds)
+    earlier = _handicap_estimate(earlier_rows)
     if current is None or earlier is None:
         return None
     return round(current - earlier, 1)

@@ -216,4 +216,91 @@ final class ResultsPresentationTests: XCTestCase {
         XCTAssertNil(five.fraction)
         XCTAssertEqual(five.detail, "4 洞")
     }
+
+    // MARK: 成绩 landing load coordinator (Codex review of #364, round 2)
+
+    private func archive(_ total: Int) throws -> HistoryRoundsArchive {
+        try JSONDecoder().decode(HistoryRoundsArchive.self, from: Data(#"{"total":\#(total),"groups":[]}"#.utf8))
+    }
+
+    func testACachedPageIsGenuinelyRefreshingWhileItsRequestsRun() throws {
+        let cached = try stats(#"{"summary":{"totalRounds":3}}"#)
+        var load = ResultsLandingLoad()
+        load.seed(stats: cached, archive: try archive(3))
+        let generation = load.begin()
+        XCTAssertTrue(load.isLoading)
+        XCTAssertEqual(load.phase, .content(notice: nil, refreshing: true), "cache on screen, request running")
+        // The archive answers first and is published at once; the page is still refreshing stats.
+        XCTAssertTrue(load.completeArchive(generation, try archive(4)))
+        XCTAssertEqual(load.archive?.total, 4)
+        XCTAssertTrue(load.isLoading)
+        XCTAssertTrue(load.completeStats(generation, try stats(#"{"summary":{"totalRounds":4}}"#)))
+        XCTAssertFalse(load.isLoading)
+        XCTAssertEqual(load.phase, .content(notice: nil, refreshing: false))
+    }
+
+    func testAnOlderLoadNeitherOverwritesANewerOneNorEndsItsLoading() throws {
+        var load = ResultsLandingLoad()
+        let first = load.begin()
+        let second = load.begin() // pull-to-refresh while the first load runs
+        XCTAssertFalse(load.completeStats(first, try stats(#"{"summary":{"totalRounds":1}}"#)))
+        XCTAssertFalse(load.completeArchive(first, nil), "a stale failure is not reported either")
+        XCTAssertNil(load.stats)
+        XCTAssertNil(load.errorText)
+        XCTAssertTrue(load.isLoading, "the older answer cannot clear the newer load")
+        XCTAssertEqual(load.phase, .loading)
+        XCTAssertTrue(load.completeStats(second, try stats(#"{"summary":{"totalRounds":2}}"#)))
+        XCTAssertTrue(load.completeArchive(second, nil))
+        XCTAssertEqual(load.stats?.summary?.totalRounds, 2)
+        XCTAssertEqual(load.errorText, "球局档案暂时取不到")
+        XCTAssertEqual(load.phase, .content(notice: "球局档案暂时取不到", refreshing: false))
+    }
+
+    func testAFailedRefreshKeepsTheCachedSectionAndNamesIt() throws {
+        var load = ResultsLandingLoad(stats: try stats(#"{"summary":{"totalRounds":3}}"#), archive: try archive(3))
+        let generation = load.begin()
+        load.completeStats(generation, nil)
+        load.completeArchive(generation, nil)
+        XCTAssertEqual(load.stats?.summary?.totalRounds, 3)
+        XCTAssertEqual(load.errorText, "生涯与趋势、球局档案暂时取不到")
+        // A later successful refresh clears the notice.
+        let next = load.begin()
+        XCTAssertNil(load.errorText)
+        load.completeStats(next, try stats(#"{"summary":{"totalRounds":3}}"#))
+        load.completeArchive(next, try archive(3))
+        XCTAssertEqual(load.phase, .content(notice: nil, refreshing: false))
+    }
+
+    func testACancelledLoadStopsLoadingWithoutCommittingAndFirstLoadIsNeverEmpty() throws {
+        var load = ResultsLandingLoad()
+        let generation = load.begin()
+        XCTAssertEqual(load.phase, .loading, "first load with nothing cached is loading, never 暂无成绩")
+        load.cancel(generation)
+        XCTAssertFalse(load.isLoading)
+        XCTAssertNil(load.stats)
+        XCTAssertFalse(load.completeStats(generation, try stats("{}")), "a cancelled generation commits nothing")
+        // A stale cancel cannot stop a newer load.
+        let next = load.begin()
+        load.cancel(generation)
+        XCTAssertTrue(load.isLoading)
+        XCTAssertTrue(load.completeStats(next, try stats(#"{"summary":{"totalRounds":0}}"#)))
+        XCTAssertTrue(load.completeArchive(next, try archive(0)))
+        XCTAssertEqual(load.phase, .empty)
+    }
+
+    // MARK: 和之前比 with a short previous sample (Codex review of #364, round 2)
+
+    func testAShortPreviousCountSampleIsNamedNotLabelledAsTheFullWindow() throws {
+        let short = try JSONDecoder().decode(MobileStatsPrevious.self, from: Data(#"{"window":"prev10","roundCount":5,"requiredRounds":10}"#.utf8))
+        let full = try JSONDecoder().decode(MobileStatsPrevious.self, from: Data(#"{"window":"prev10","roundCount":10,"requiredRounds":10,"scoring":{}}"#.utf8))
+        let year = try JSONDecoder().decode(MobileStatsPrevious.self, from: Data(#"{"window":"prev12m","roundCount":3,"scoring":{}}"#.utf8))
+        XCTAssertEqual(AnalysisLoadState.comparisonNote(window: "last10", previous: short), "前 10 场只有 5 场，暂不比较")
+        XCTAssertEqual(AnalysisLoadState.comparisonNote(window: "last10", previous: full), "↑ ↓ 和前 10 场比")
+        XCTAssertEqual(AnalysisLoadState.comparisonNote(window: "12m", previous: year), "↑ ↓ 和前一年比")
+        XCTAssertEqual(AnalysisLoadState.comparisonNote(window: "last20", previous: nil), "前一段没有球局，暂不比较")
+        XCTAssertNil(AnalysisLoadState.comparisonNote(window: "all", previous: full))
+        // No scoring, no baseline: the short sample never feeds a delta.
+        let current = try stats(#"{"previous":{"window":"prev10","roundCount":5,"requiredRounds":10}}"#)
+        XCTAssertNil(ResultsPresentation.baseline(current))
+    }
 }

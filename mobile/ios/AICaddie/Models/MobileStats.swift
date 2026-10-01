@@ -47,6 +47,9 @@ public struct MobileStats: Codable, Equatable {
 public struct MobileStatsPrevious: Codable, Equatable {
     public let window: String?
     public let roundCount: Int?
+    /// A count window's full previous sample (10 / 20). When `roundCount` is short of it the server
+    /// sends no `scoring`: the page reports the shortfall instead of comparing.
+    public var requiredRounds: Int? = nil
     public let scoring: StatsScoring?
 }
 

@@ -80,7 +80,7 @@ struct AnalysisPageContent: View {
                 StatsContent(
                     stats: stats,
                     baseline: ResultsPresentation.baseline(stats),
-                    comparison: AnalysisLoadState.comparisonLabel(state.window)
+                    comparisonNote: AnalysisLoadState.comparisonNote(window: state.window, previous: stats.previous)
                 )
             }
         }
@@ -91,8 +91,8 @@ struct AnalysisPageContent: View {
 struct StatsContent: View {
     let stats: MobileStats
     var baseline: MobileStats? = nil
-    /// What ↑ / ↓ compare against ("和前 10 场比"); nil for 全部.
-    var comparison: String? = nil
+    /// What ↑ / ↓ compare against, or why there is no comparison; nil for 全部.
+    var comparisonNote: String? = nil
 
     private static let good = LiveHoleStyle.green
     private static let warn = HubStyle.bogey
@@ -109,8 +109,8 @@ struct StatsContent: View {
                     .font(.subheadline).foregroundStyle(.secondary)
                     .padding(.vertical, 30)
             }
-            if let comparison {
-                Text(baseline == nil ? "前一段没有球局，暂不比较" : "↑ ↓ \(comparison)")
+            if let comparisonNote {
+                Text(comparisonNote)
                     .font(.caption2).foregroundStyle(.tertiary)
                     .padding(.top, 14)
                     .accessibilityIdentifier("analysis-comparison")

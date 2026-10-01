@@ -379,6 +379,25 @@ class HandicapEstimateTests(unittest.TestCase):
         thin = build_history_stats(_history(older[:4] + newer), data_mode="fixture")
         self.assertIsNone(thin["summary"]["handicapChangeRecent20"])
 
+    def test_recent_twenty_change_cuts_at_twenty_actual_rounds_not_twenty_priceable_ones(self) -> None:
+        # The newest 20 actual rounds include one that cannot be priced (no rating, slope or par).
+        # The cut is still the 20 newest rounds: the earlier side is o1..o20, never reaching back
+        # an extra round because one recent round had no differential.
+        older = [_rated_round(f"o{i}", f"2025-01-{i:02d}", 92 + (i % 3)) for i in range(1, 21)]  # diff 20..22
+        oldest_low = [_rated_round("low", "2024-12-01", 72)]  # diff 0, only reachable if the cut slips
+        newer = [_rated_round(f"n{i}", f"2025-03-{i:02d}", 82) for i in range(1, 20)]  # diff 10
+        unpriceable = _unrated_round("u", "2025-03-25", 95)
+        del unpriceable["par"]
+        rounds = oldest_low + older + newer + [unpriceable]
+        stats = build_history_stats(_history(rounds), data_mode="fixture")
+        # now: newest 20 priced -> 19 at diff 10 + o20 (diff 22): lowest 8 are diff 10 -> 9.6.
+        # 20 rounds ago (all but n1..n19 and u): o1..o20 + low -> the 20 most recent are o1..o20
+        # (six at diff 20, seven at 21, seven at 22; lowest 8 = six 20s + two 21s -> 20.25) ->
+        # 19.4; low is the 21st and unused. Cutting at 20 PRICEABLE rounds instead would drop o20
+        # too and reach low (diff 0), giving a far lower earlier estimate.
+        self.assertEqual(stats["summary"]["handicapEstimate"], 9.6)
+        self.assertEqual(stats["summary"]["handicapChangeRecent20"], -9.8)
+
     def test_estimate_falls_back_to_score_minus_par_when_unrated(self) -> None:
         # No round carries rating/slope (real Garmin exports often don't), but all
         # have strokes + par -> the score-par fallback keeps 差点(估算) alive
