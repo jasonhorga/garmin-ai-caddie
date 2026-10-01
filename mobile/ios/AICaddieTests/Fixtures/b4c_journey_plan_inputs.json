@@ -2057,7 +2057,7 @@
    "source": "non_production",
    "sourceCoverage": {
     "availableRoundCount": 3,
-    "clubProfileCount": 1,
+    "clubProfileCount": 5,
     "dataMode": "ci_fixture",
     "geometryReadyHoles": 9,
     "geometryTotalHoles": 9,
@@ -4368,7 +4368,7 @@
    "source": "non_production",
    "sourceCoverage": {
     "availableRoundCount": 3,
-    "clubProfileCount": 1,
+    "clubProfileCount": 5,
     "dataMode": "ci_fixture",
     "geometryReadyHoles": 9,
     "geometryTotalHoles": 9,
@@ -6699,7 +6699,7 @@
    "source": "non_production",
    "sourceCoverage": {
     "availableRoundCount": 3,
-    "clubProfileCount": 1,
+    "clubProfileCount": 5,
     "dataMode": "ci_fixture",
     "geometryReadyHoles": 9,
     "geometryTotalHoles": 9,

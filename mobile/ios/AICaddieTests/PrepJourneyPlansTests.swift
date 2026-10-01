@@ -48,6 +48,8 @@ final class PrepJourneyPlansTests: XCTestCase {
     private func assertJourneyPlans(_ name: String, _ course: CourseInputs, coverage: String) throws {
         let prep = try XCTUnwrap(course.prep.holes.first { $0.hole == course.hole }, name)
         XCTAssertEqual(prep.geometryCoverage, coverage, name)
+        // Coverage describes the bag truthfully (the prep panel's 球杆 count; the offline start).
+        XCTAssertEqual(course.package.sourceCoverage.clubProfileCount, course.package.clubProfiles.count, name)
         let hole = try XCTUnwrap(course.package.holes.first { $0.number == course.hole }, name)
         let template = course.package.replacingCoursePrep(CoursePrepPackage(
             schema: "ai-caddie-course-prep-v1",

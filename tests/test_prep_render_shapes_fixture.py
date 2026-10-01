@@ -110,6 +110,9 @@ class JourneyPlanInputsFixtureTests(unittest.TestCase):
                 package = inputs["package"]
                 bag = {row["clubName"]: row for row in package["clubProfiles"]}
                 self.assertEqual(bag, {row["clubName"]: row for row in fixture.FIXTURE_BAG})
+                # Coverage describes the bag truthfully (MobilePackagePrepPanel's 球杆 count and the
+                # offline-start package carry it).
+                self.assertEqual(package["sourceCoverage"]["clubProfileCount"], len(package["clubProfiles"]))
                 hole = inputs["prep"]["holes"][0]
                 self.assertEqual(hole["geometryCoverage"], expected_coverage[key])
                 self.assertEqual([step["clubName"] for step in hole["steps"]], ["1D", "8I"])

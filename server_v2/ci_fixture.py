@@ -717,7 +717,7 @@ def _package(round_id: str, global_id: int | None, loops: list[tuple[int, str]] 
     source_holes = [local for _, local, _ in resolved_holes]
     source_courses = [course for _, _, course in resolved_holes]
     source_refs = [f"{requested_round}:{hole}" for hole in segment_holes]
-    payload["sourceCoverage"].update({"requestedRoundId": requested_round, "selectedRoundId": requested_round, "roundFound": True, "holeCount": len(segment_holes), "geometryReadyHoles": len(segment_holes), "geometryTotalHoles": len(segment_holes), "clubProfileCount": 1, "sourceGlobalIds": source_courses, "sourceLocalHoles": source_holes})
+    payload["sourceCoverage"].update({"requestedRoundId": requested_round, "selectedRoundId": requested_round, "roundFound": True, "holeCount": len(segment_holes), "geometryReadyHoles": len(segment_holes), "geometryTotalHoles": len(segment_holes), "clubProfileCount": len(FIXTURE_BAG), "sourceGlobalIds": source_courses, "sourceLocalHoles": source_holes})
     payload["readinessChecks"] = [{"label": "source", "state": "ready", "ready": len(segment_holes), "total": len(segment_holes), "reason": "fixture round source is available", "sourceRefs": source_refs}, {"label": "geometry", "state": "ready", "ready": len(segment_holes), "total": len(segment_holes), "reason": "fixture geometry is available", "sourceRefs": [f"geometry:{course}:{local}" for course, local in zip(source_courses, source_holes)]}, {"label": "caddie_seeds", "state": "ready", "ready": len(segment_holes), "total": len(segment_holes), "reason": "fixture caddie seeds are available", "sourceRefs": source_refs}]
     seeds = []
     template_seed = payload.get("caddieContextSeeds", [{}])[0]
