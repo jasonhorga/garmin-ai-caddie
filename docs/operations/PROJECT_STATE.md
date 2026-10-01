@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-09-30 15:39 UTC
+**Updated:** 2026-10-01 05:34 UTC
 **Branch:** `main`; product canonical source revision is
 `d7e0346df1cfbb520131d5206f52b15a7c543b38` (PR #362 B4b-2, PR #361 B4b,
 PR #360 B4a and PR #359 B3 are
@@ -790,58 +790,549 @@ has SHA-256 `6bdcdcd2993986299038d7f686b7e2975f11a0db5009a24457652c8ea9fd8f8b`;
 production remains `ok@d7f69971`.
 
 PR #363 is the current B4c draft at exact head
-`e96565b0257313796c96270cea1e4c29109aa2ac`. The original review comment
-`5909490029`, default-route follow-up `5910067718`, visual follow-up
-`5910230597`, chrome-collision comment `5911052972`, and first-frame follow-up
-`5911943664` covered the plan authority, complete labels,
-default-no-obstacle, full-screen map, picker-state, and label-safe-region
-blockers on the preceding heads. The current head fixes the first-frame badge
-collision: new `prep-hole.png` SHA-256
-`1cfcabe3b391e5f775330f00f92c750f4b87fcf6d94d269008f1f17aa8516ffd`
-shows the complete `S 杆 86` pill clear of the badge, the
-plan-2/factual/zoomed states are clean, and all four independent magenta
-chrome-audit captures show no label/chrome overlap.
+`387db8f254e3e6504204a34a56b5c88c61c6ec48`. The original review comment
+`5909490029` and follow-ups through `5917444030` covered plan authority,
+complete labels, default-no-obstacle behavior, full-screen map composition,
+picker state, chrome collisions, fitted-route cropping, duplicate semantic
+maps, the first terrain-continuation acceptance failures, and the unsafe
+`ObjectIdentifier` cache lifetime on preceding heads. The current head retains
+the source `UIImage` in each cached backdrop, identity-checks every lookup, and
+adds isolation coverage; that cache P2 is closed.
 
-Source CI `36721210112`, Native Mobile CI `36721210109`, and full fixture run
-`36723649986` passed. The homeserver exact-head command
+At prior head `be480b44`, Source CI `36762719247` and Native Mobile CI
+`36762719484` passed (iOS `529/529`, Watch `375/375`). The homeserver
+exact-head command
 `/app/.venv/bin/python -m unittest tests.test_mobile_contracts -v` passed
-`102/102` in 12.398 s with log SHA-256
-`c7ac0a4fb3e9ffc797d26c636e3ff531449d3a69f3bc857fc7a953a3568e1ea7`.
-Native artifacts are iOS design `11101995847`, Watch design `11102056597`, and
-evidence `11101326620`; full-fixture artifacts are iOS design `11101714021`,
-real iOS `11105690260`, Watch design `11104203087`, Watch runtime
-`11104484083`, and provenance `11105049529`. The provenance names exact head
-`e96565b0`. GitHub's synthetic merge `d124f5ed` has parents current main
-`6338e700` and exact PR head `e96565b0`; its tree differs from the PR head only
-in this state file. All 40 Watch PNGs remain byte-identical.
+`102/102` in 14.079 s with log SHA-256
+`25656e417b95e8c377f82909da9b797d038ae6f6870c4487b4c78b470934751e`.
+Native artifacts are iOS design `11119604191`, Watch design `11119911734`, and
+evidence `11119856856`. All 70 iOS design PNGs are byte-identical to the
+reviewed `23c6dac3` artifact, and all 40 Watch PNGs are byte-identical to the
+preceding reviewed artifact.
 
-A new P1 remains in fitted real-map geometry. In exact-head real screenshots
-`b4c-01-prep-opened.png` and `b4c-02a-second-plan.png`, the bottom panels list
-respectively two and three planned strokes, but only the first landing and
-label are visible; the rest of each diagonal route is cropped outside the
-viewport. `PrepMapLayout.restFrame` aspect-fills the complete overlay; for the
-square fixture on the 393 x 852 portrait viewport it produces approximately
-`x=-229.7, width=852.3`, so translation cannot keep both route ends visible.
-The current unit test checks full-screen bitmap coverage and aspect ratio, and
-the UI test checks only the combined `prep-map-route` accessibility label;
-neither proves visible fitted landings. Comment `5914558064` requires every
-planned landing and `球杆 + 码数` label to remain visible and chrome-clear for
-portrait, square, and wide/diagonal overlays while preserving a full-screen
-map surface, with deterministic geometry assertions and fresh exact-head real
-screenshots. Merge remains blocked; next action is to review Claude's corrected
-head, rerun the exact-head contracts and Source/Native gates, and inspect the
-matching iOS/Watch artifacts.
+That prior head's full fixture run `36764749030` completed successfully in
+1h3m42s and uploaded design artifact `11120568101`, real iOS artifact
+`11122809755`, Watch design `11123781440`, Watch runtime `11124585783`, and
+provenance `11124227074`. The real-iOS artifact digest is
+`b3d5d016e638babfd9b1b87775bd83ba00ed3ee1c487a4cac404a80dcf4d2bbe`.
+Those real frames expose a new production P1 that the uniform-border synthetic
+fixture misses. `b4c-01-prep-opened.png` shows high-chroma/noisy edge pixels
+stretched into unmistakable vertical and horizontal rainbow bands around the
+center bitmap; `b4c-03-precise-replaced-zoom-kept.png` fills almost the entire
+screen with stretched colour blocks/noise, making the hole unreadable.
+`TopoEdgeExtension.build` directly causes this by stretching each outermost
+one-pixel row, column, and corner across the requested extension. Existing seam
+and local colour-distance assertions can pass on a uniform green edge while
+failing to detect directional striping or magnified high-frequency,
+transparent, or damaged real edges.
+
+Comment `5918932618` records the P1 and requires a visually coherent
+production composition, a deterministic non-uniform/high-frequency edge case
+that fails the current implementation, and fresh exact-head Source/Native,
+design/Watch, and full-fixture real evidence. Claude replied in `5919008359`
+and pushed then-current head `e43d5ab6`: it replaces stretched edge pixels with one
+alpha-weighted mean outer-ring colour, keeps the lifetime-safe cache, omits the
+surround for mostly transparent edges, and adds a composed noisy-border state
+plus a synthetic striping positive control. Source CI `36772040107` and Native
+Mobile CI `36772040280` pass (iOS `529/529`, Watch `375/375`); the homeserver
+exact-head command `/app/.venv/bin/python -m unittest
+tests.test_mobile_contracts -v` passes `102/102` in 6.298 s with log SHA-256
+`dd2a61ecd423fbc34d24c98d8f5f42bbc87e322ad045c2f067ea610e0a265cca`.
+Matching artifacts are iOS design `11124453394`, Watch design `11124364106`,
+and native evidence `11124334347`. All 40 Watch PNGs are byte-identical to the
+prior head. Evidence commit `c8398d58` is GitHub's synthetic merge of current
+main `a0ded50f` and exact PR head `e43d5ab6`; its tree differs from the PR head
+only in this state file.
+
+Visual inspection still blocks merge. Of the 72 iOS PNGs, 69 are unchanged,
+two are the new noisy-edge state, and only `prep-map-edge-continued.png`
+otherwise changed. `prep-hole-square.png` remains byte-identical to the prior
+head and exposes a clearly traceable central square; the continued render does
+the same. `prep-hole-noisy.png` removes the rainbow rays but replaces them with
+a large flat grey surround and a strong horizontal transition. Comment
+`5919288999` keeps this P1 open: an anti-striping metric is not proof of the
+required non-rectangular composition. Merge and branch deletion remain
+blocked; next action is Claude's corrected head with an actual-composition
+anti-rectangle regression, matching design artifacts, and then a fresh full
+fixture run for real `b4c-01` and `b4c-03` frames.
+
+Claude then pushed exact head `e6134b2d`, describing its new CI/design rasters
+as production-shaped. Source CI `36774447286`, PR Native CI `36774447144`, and
+full fixture run `36776145236` pass. The homeserver exact-head mobile-contract
+run passes `102/102` in 5.437 s. Full-run artifacts are iOS design
+`11125699720`, real iOS `11127707139`, real video `11127826893`, Watch design
+`11127817697`, Watch runtime `11128473125`, and native evidence `11128762784`.
+All 40 Watch design PNGs are byte-identical to the preceding artifact; the 13
+Watch runtime changes are confined to the simulator status region, with no app
+content regression.
+
+Comment `5920699615` keeps the fitted-boundary P1 open. The purported
+production-shaped fixtures still paint opaque terrain into the raster edge:
+`server_v2/ci_fixture.py:456-475` draws `(4,4)` to `(60,60)` with an 11 px
+rough radius on 64x64, while `DesignSnapshotTests.swift:1912-1932` draws
+`(16,16)` to `(240,240)` with an 88 pt stroke on 256x256. The detector samples
+the outer canvas frame, so it misses the visible hard-clipped diagonal terrain
+ends inside that frame. `b4c-01-prep-opened.png` is a waiting state rather than
+a fitted precise-map proof; `b4c-03-precise-replaced-zoom-kept.png` is already
+at 2x; fitted `07-prep-card.png`, `08b-prep-next-hole.png`, and design
+`prep-hole-square.png` retain the hard-cut terrain strip. A read-only audit of
+196 retained production `topo-v11` whole-hole rasters found zero opaque pixels
+touching an image edge, a minimum opaque margin of 28 px, and at most 4.222%
+opacity in a 48 px / 8% outer ring. The fixture-equivalence claim is therefore
+false. Merge remains blocked pending a genuinely transparent-margin natural
+fixture, an independent 1x fitted precise real-simulator frame, and regression
+coverage for visible internal hard-clipped terrain rather than only the outer
+canvas frame.
+
+Claude acknowledged that evidence in comment `5920770253` and pushed exact
+head `85ccedcfff516d86b17bd934dde7c40db1d45ff3`. It moves the fixture route to
+an inset `(12,12) -> (52,52)` frame, creates an irregular transparent-margin
+raster, adds a max-difference clipping detector, and adds the planned
+`b4c-03b-precise-fitted` 1x real capture. Source CI `36785310257` passes;
+Native CI `36785310243` is still running, so no exact-head artifact has yet
+been accepted.
+
+Static review found the inset conversion is not a coherent spatial contract.
+The 56.5685 px diagonal route is paired with `ppm=0.10625`, which makes its
+375 m endpoint measure about 532.4 m instead of using the approximately
+0.15085 px/m isotropic scale. Hazard `frontPx` / `backPx` values remain in the
+old frame (the declared 105 m water front now projects to about 55 m), and the
+transformed green outline is centered near `(47,47)` while the raster green
+and route endpoint are `(52,52)`. Existing contracts assert only the chosen
+formula and finite/in-bounds pixels. Comment `5920839938` marks this P2 and
+requires `ppm`, hazards and green outline to derive from the shared inset
+frame, with semantic metre/station/lateral/endpoint assertions. The original
+visual P1 remains pending exact-head screenshots; merge remains blocked and a
+full fixture run should wait for both corrections.
+
+Claude replied in `5920869978` and pushed exact head
+`d469307a0cb60982198e30590d7fc6c2e3b8d660`. The pixel sub-frame now derives
+`ppm`, hazard points and the green outline from `PREP_ROUTE_PX`; Source CI
+`36786140523` passes and Native CI `36786140611` is pending. Static review found
+that `holeImageProjection.refs` still describes a different geographic frame:
+its refs map the declared geographic route endpoint (tee + 300 m east + 225 m
+north) to `(52,-28)`, while the route/raster/outline endpoint is `(52,52)`.
+The declared 333 m green middle projects to approximately `(47.52,-23.52)`
+instead of route interpolation `(47.52,47.52)`, and it is 6.336 px from the
+raster green centre despite a 5 px green radius. The refs are also anisotropic
+(300 east metres and 225 north metres each span 40 px), unlike production's
+single-scale rotated frame. Existing tests inverse-project only the tee, so
+they do not catch this. Comment `5920962400` keeps P2 open and requires one
+local-metre-to-pixel affine for refs/route/ppm/green, plus forward-projection
+tests for tee, interior stations, endpoint and F/M/B. Do not dispatch another
+full fixture run until this cross-frame contract is fixed.
+
+Claude acknowledged the projection finding in `5921003344` and pushed exact
+head `b18081d6fcc1836156582b3d84789186db8676c6`. Its single rotated,
+uniform-scale `prep_local_px` transform now derives the GPS refs, route,
+hazards, raster green and outline; it changes the route/green middle to 333 m
+and adds forward-projection coverage for the tee, interior stations, endpoint,
+F/M/B and orthogonal equal-scale bases. Source CI `36787258920` passes;
+Native Mobile CI `36787258811` is still running. The affine defect from
+`5920962400` is closed statically, but exact-head artifacts have not been
+accepted.
+
+Review comment `5921174040` keeps merge and a full fixture dispatch blocked on
+one P1 evidence gap and two P2 issues. The CI fixture ignores `render=false`
+and always embeds `map.overlay`, so iOS never exercises production's
+lightweight `CoursePrepHole.resolvedMapOverlay` path. Production supplies a
+local-metre route and ordered refs for local `(0,0)/(120,0)/(0,120)`; the
+fixture supplies pixel route rows and tee/pin/left-mid refs. If its embedded
+map is removed, the actual iOS fallback reconstructs the intended
+`(12,12)->(52,52)` route at approximately
+`(19.20,16.80)->(43.21,32.79)`. The fixture must expose a production-shaped
+`render=false` response and native equivalence coverage against `render=true`.
+Separately, `map.overlay.ln` and `geometry_hole` still describe about 375 m
+while the route/green are 333 m; `blue_yards=410` displays a 410 yd Blue hole
+for an approximately 364 yd green middle; and the installed plan says a 210 m
+drive leaves 165 m then labels a 123 m drawn leg as an 8I/150 m shot. Those
+distance facts and the tests pinning `1W 230 -> 8I 164` must become one
+physical closure. Finally, the full-frame `prep-map-frame` accessibility
+element is test-only instrumentation exposed unconditionally to release
+VoiceOver and must be gated out of the production accessibility tree.
+
+Claude replied in `5921269356` and pushed `bbe65ecd`, followed by current exact
+head `e747168f8a76c3d97d53219c3bc04fb8d82136fe`. Static review closes the three
+findings from `5921174040`: fixture `render=false` now omits `map`, carries the
+route in local metres and uses the production-ordered `(0,0)/(120,0)/(0,120)`
+projection refs; a native decode test compares its resolved overlay against
+`render=true`; route/overlay/green-middle/Blue yardage and the 210 m + 123 m
+shot chain now form one 333 m closure; and `prep-map-frame` is emitted only in
+DEBUG with `UITEST_MODE=1`. Source CI `36789610843` passes. The exact-head
+homeserver command `/app/.venv/bin/python -m unittest
+tests.test_mobile_contracts -v` passes `102/102` in 10.684 s from a read-only
+snapshot, with log SHA-256
+`02c321a1b3dfee61440c4997fa824d7a903b43287a82d33a5e1446e913a1bbc4`.
+
+Native run `36787258811` on superseded head `b18081d6` failed only because
+`DesignSnapshotTests.testCaptureLiveScreens` required two measurable fitted
+map sides for both `prep-hole-square` and `prep-hole-noisy`, while the actual
+tall-screen composition exposes only the top side (each measured salience 0).
+Current head `e747168f` requires that top side explicitly while retaining the
+anti-edge threshold. Exact-head Native run `36789610887` completed green.
+Matching artifacts are design `11131304664`, Watch `11132017753`, and native
+evidence `11131768892`; all 40 Watch PNGs are byte-identical to the previously
+reviewed `e6134b2` artifact (combined tree hash
+`794a4ff43c4ced7c1aaa9fc3870db0cd2288068c5653ebb15c21a04fb9b81ea9`).
+The superseded read-only snapshot
+`/dev/shm/aicaddie-pr363-e43d5ab6-review-20260930` was removed after zero-handle
+verification; the only active Garmin review snapshot is
+`/dev/shm/aicaddie-pr363-e747168f-review-20260930`. Resource manifest:
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260930T231700Z-pr363-e747168f-review.md`.
+
+The exact-head `design-snapshots` artifact `11131304664` from run
+`36789610887` is retained under
+`/home/jason/codex-runs/aicaddie-pr363-e747168f-artifacts-20260930T2327Z`.
+Visual inspection found no chrome collision in `prep-hole`, plan 2, factual,
+zoomed, square, noisy, or the two edge controls. It did confirm a new P2
+evidence blocker in comment `5921831209`: the design test manually combines
+per-hole headers `543 / 410 / 178 / ...` with one fixed 375 m route and plan.
+Thus `prep-hole` says 543 yd while its three displayed legs sum to 409 yd, and
+`prep-hole-noisy` says Par 3 / 178 yd while displaying one 8I / 410 yd leg.
+The underlying design overlay also declares `ppm=1.0` while its two pixel
+segments represent incompatible station scales. Production
+`PrepHoleRows.build` uses `prep.playingYards`; this mismatch is in the merge
+evidence fixture, but that evidence cannot prove complete physical routes.
+Require one coherent displayed-yardage / route / overlay / ppm / plan closure,
+native assertions that catch both mismatches, and fresh exact-head design
+artifacts. Hold the full fixture workflow until the follow-up PR Native CI is
+green; then run and inspect `b4c-01`, both 2x carry-over `b4c-03` frames, and
+independent 1x `b4c-03b-precise-fitted`. The disposable local selected-PNG
+copies were removed after review; the canonical homeserver artifact remains.
+
+Claude addressed `5921831209` first in `0dfe73de`, then added the required
+main-actor isolation in `6dc52a2b`. The new `PrepRouteFixtures.hole` derives
+displayed yardage, route length, overlay stations, isotropic `ppm`, green
+distances, hazards and plans from one physical fixture; displayed rows now use
+the prep's own `playingYards` and route length, and native checks cover the old
+543-vs-409 and 178-vs-410 mismatches. Static review found its Par 3 safe plan
+still ended at 90% of the route, so the new closure assertion necessarily
+failed: comment `5921979940` marked that P1. Claude acknowledged it in
+`5921985947` and pushed current head `32f6b920`, changing the distinct safe 7I
+plan to end at `1.0` without weakening the assertion. Source CI
+`36794660189` and Native CI `36794660115` are green. Native provenance artifact
+`11133024609` names GitHub merge commit `bbb9650f`, whose second parent is exact
+head `32f6b920`; iOS and Watch both report passed. The homeserver exact-head
+`tests.test_mobile_contracts` run passed `102/102` in 9.440 s (14.19 s container
+wall time), with log SHA-256
+`d34674e9e78d58dfd5eb190e14917a4b888b7ccc2e7fa76c9c82caa558dd525f`.
+All 40 PNGs in Watch artifact `11132869754` are byte-identical to the reviewed
+`e747168f` set (manifest hash
+`794a4ff43c4ced7c1aaa9fc3870db0cd2288068c5653ebb15c21a04fb9b81ea9`).
+
+The 12 changed `prep-hole*` files in design artifact `11134120578` close their
+header and route arithmetic and have no new chrome collision, but comment
+`5922420253` records a new P2 evidence blocker. `prep-hole-plan-2.png` depicts
+the 543-yard Par 5 as `3W 152 -> 5I 174 -> 9I 218`: the shortest club receives
+the longest carry. `PrepRouteFixtures.routes` pairs fixed club names with
+arbitrary cumulative fractions and derives each carry from those fractions, so
+the uncaptured plans also produce Par 4 `3H 164 -> 7I 246`, and the same 1W is
+223 yards in the recommended Par 5 route but 282 yards in attack. Par 3 assigns
+7I, 8I and 9I the same 178-yard physical path. The fixture is test-only, so
+this is P2 rather than a proven production evaluator P1, but it cannot evidence
+realistic distinct caddie plans. Merge and the full fixture workflow remain on
+hold pending one plausible player-bag model, same-club carry consistency,
+deduplication of physically identical options, negative controls for these
+cases, green Native CI and fresh design screenshots. After that, still run and
+inspect real `b4c-01`, both 2x `b4c-03` frames, and independent 1x
+`b4c-03b-precise-fitted`.
+
+Claude replied in `5922450934` and pushed current head `ece2e116`. The design
+fixture now uses one fixed bag and closes each route with the nearest remaining
+club, but static review found that this only fixes arithmetic, not strategy.
+Its 543-yard Par 5 safe route is `7I 139 m -> 5I 161 m -> 5W 196 m`, moving the
+longest and hardest shot to the final green-bound leg; its no-hazard 410-yard
+Par 4 safe route is `5I -> 7I -> SW`, giving up GIR with no factual reason.
+More importantly, the production `OfflineCaddieDecisionEvaluator.fallbackSteps`
+has the same failure mode: it fixes only the seed option's first club and then
+greedily chooses the non-driver nearest the remaining distance, without
+whole-route expected strokes, GIR, dispersion, hazard exposure, or final-shot
+difficulty. With the PR's own parity fixture, the 410-yard no-hazard Par 4 safe
+option becomes `9I 132 -> 7I 156 -> 8I 144`, and the new test requires this
+alternative while checking only signature inequality. Comment `5922608092`
+therefore raises a product P1 on exact head `ece2e116`: fix the shared complete
+route authority, require an auditable hazard/stability reason before a Par 4
+lay-up gives up GIR, suppress non-material alternatives, and make design
+fixtures exercise that same authority. Source CI `36797997539` and Native CI
+`36797997560` are green; matching artifacts are iOS design `11134783035`,
+Watch design `11134433449`, and native evidence `11134383452`, but green CI
+cannot close this deterministic blocker. The superseded `32f6b920` read-only snapshot was removed
+after exact-path zero-handle verification; its retained artifact root and test
+log remain evidence until PR review closes.
+
+Claude responded in `5922724253` and pushed `a2d1ab62`, replacing the greedy
+Swift remainder with whole-chain enumeration and using that same evaluator for
+the design fixture. Native CI `36800107928` exposed two deterministic iOS
+failures, including the square/tall/wide fitted-map test expecting two plans
+when only one material route survived. Current head `00c774a7` computes chain
+leave from measured carries and suppresses same-stroke plans whose landings all
+differ by less than 15 m. Source CI `36801625331` and Native Mobile CI
+`36801625308` pass; exact-head artifacts are design `11135812870`, Watch
+`11136244125`, and native evidence `11136418428`.
+Claude dispatched full-fixture run `36802991112` on this head immediately
+before the follow-up P1 comment; it is in progress. Do not dispatch a duplicate,
+and do not treat its visual evidence as closing the semantic response/safety
+blockers.
+
+Comment `5923126452` records two remaining product P1s on `00c774a7`. First,
+`OfflineCaddieDecisionEvaluator.makeDecision` selects an option before route
+feasibility/material filtering and never realigns it. The new water regression
+already removes the stock Driver sequence and retains the safe 3H lay-up, but
+the response still reports stock/Driver, has no matching `selectedSequence`,
+and leaves consumers to pair that stale recommendation with the first 3H
+sequence; the server already solves this through `_align_selected_sequence`.
+Second, the Swift planner is not hazard-equivalent to the server: it retains an
+installed canonical stock route without checking water, tests only cumulative
+median landings instead of the p10-p90 window, drops typed planning hazards and
+two-sided OB/corridor evidence, and always applies the first-club +15 m tail cap
+that the server removes after a distribution-safe lay-up before water. Required
+regressions cover atomic option/sequence alignment on phone and Watch, unsafe
+canonical stock, median-clear/p10-water overlap, safe-before then longer safe
+crossing, and typed OB/corridor evidence. Visual artifact acceptance, the
+homeserver exact-head contract run, and the full fixture workflow remain on
+hold until a corrected head removes these deterministic blockers.
+
+Claude replied in `5923192947` and pushed `7123429f`, followed by current
+exact head `0f52b9b86c6be290fd4975c562ab57d48a499a22` for the mobile-contract
+update. The superseded full-fixture run `36802991112` was cancelled. Source CI
+`36803598979` is green; Native Mobile CI `36803598974` is still running. The
+new implementation now realigns a non-empty surviving route set, validates
+canonical and generated legs with p10-p90 water windows, permits a longer club
+after a distribution-safe lay-up, and refuses locally evaluated typed
+OB/corridor constraints. Static review found two remaining no-route P1s and
+recorded them in comment `5923238756`. When filtering leaves zero viable
+routes, `offeredOptions` restores every seed option and `selected` restores the
+stale seed recommendation, so phone/Watch still publish a club and option ID
+while sequences are empty. Separately, the unmodelled-hazard early return keeps
+any installed canonical stock plan already in `plans`, so a production-shaped
+canonical route can bypass the promised OB/corridor refusal. Required
+regressions must prove that no surviving route means no options, selected
+option/ID/club, Watch option, or Watch plan summary, and that the same typed-OB
+case with a canonical plan withholds every locally claimed complete route.
+Homeserver acceptance, visual artifact acceptance, and a fresh full-fixture
+run remain deferred until those deterministic blockers are removed.
+
+Claude addressed `5923238756` in current exact head
+`c15a9d9ddfd2ff259d4b34787856b0961660fe58`. The evaluator now emits an
+empty option/selection/sequence tuple when no route survives, typed OB clears
+the canonical plan as well, and `CurrentHoleView.selectedOfflineOption` no
+longer falls back to the seed club for such an offline response. Source CI
+`36804206712` is green and Native Mobile CI `36804206729` is running. Static
+end-to-end review found that these fixes do not yet control the route actually
+shown by either product surface; comment `5923321831` records the remaining
+P1. `PrepPlanOption.decisionRoutes` and `CurrentHoleView.resolvedCaddieRoutes`
+both independently pass the CoursePrep installed route to
+`LiveCaddieRouteAuthority.resolve`, which always prepends it without consulting
+the explicit no-route decision. Prep also restores `installedOption` whenever
+decision routes are empty. Live play then derives its recommended club, map
+legs and accessibility route from that rejected installed chain and retains it
+in the per-hole cache; the direct Watch-bridge regression bypasses all of these
+paths. Required follow-up must make an explicit offline no-route result veto
+the unvalidated installed route across prep/live and clear an automatically
+retained copy, while still allowing a complete server-validated online route;
+it must also show an unavailable message rather than claiming a saved plan is
+in use. Merge and all downstream evidence gates remain blocked.
+
+Native Mobile CI `36804206729` then failed before running any iOS test. Swift
+does not compile `OfflineCaddieDecisionEvaluator.swift:705`: the nested
+`maximumCarryM.map { cap in ... }` closure refers to outer `$0`, producing both
+“anonymous closure arguments cannot be used inside a closure that has explicit
+arguments” and “Double has no member carryM”. Watch passed independently, but
+the run exposes no passing iOS evidence; comment `5923363777` records this
+additional P1 and the bounded named-outer-profile correction required on the
+next exact head.
+
+Claude fixed that compile expression in current exact head
+`0009673f32f9442cc3c0b2accb873ec5bdcbfaef`, which also carries the
+installed-route veto from `16db5b4b`. Source CI `36804907879` passes; Native
+Mobile CI `36804907849` is running. Exact-head static review found two remaining
+production P1s and records them in comment `5923557407`. First,
+`OfflineCaddieDecisionEvaluator.routePlans` returns a canonical stock route for
+empty/missing `clubProfiles` before checking `hazards.unmodelled`; a sparse
+package with typed two-sided OB/corridor therefore bypasses the veto and never
+sets `isLocalNoRoute`. Every new OB regression injects a non-empty bag. Second,
+the live no-route transition clears route dictionaries but
+`syncSelectedClubToRecommendation` leaves the previous caddie-owned club when
+the new recommendation is nil. That stale club remains highlighted, supplies
+the map's single-club landing distance, and is sent to Watch as
+`selectedClub`. Required regressions must cover missing/empty profiles with a
+canonical route and typed OB, plus an actual live state transition from an
+auto-selected Driver to no route while preserving a genuinely manual club
+choice. Full-fixture dispatch, homeserver acceptance, and visual artifacts
+remain deferred until these deterministic blockers are removed.
+
+Claude replied in `5923572672` and pushed current exact head
+`71315649d95539c5eedf67b4a3652b92f429f911`. The unmodelled-hard-hazard
+refusal now precedes the empty/missing-profile return, and the new
+`LiveClubStripPolicy.caddieOwnedSelection` correctly clears an in-memory
+caddie-owned club on no-route while retaining an explicitly manual choice.
+Source CI `36806447448` and Native Mobile CI `36806447515` pass.
+
+Exact-head static review found that the production event round-trip still
+corrupts that ownership and records the remaining P1 in comment `5923705881`.
+After a recommendation automatically selects a club, committing either a
+Touch Target or flag writes that club into an ordinary `.club` event without
+provenance. `AICaddieApp.handleEvent` immediately folds the event back into
+`liveRoundState`, and both `CurrentHoleView` restore paths classify every
+non-empty restored club as user-selected. A later no-route transition therefore
+calls the new policy with `userSelected: true` and retains the stale automatic
+club on phone/map/Watch; relaunch has the same failure. The new pure-policy
+test manually supplies `userSelected: false` and cannot detect this. Required
+follow-up must preserve club-selection ownership through event replay and both
+view restore paths (or otherwise prevent target-only state from promoting an
+automatic club), with an `OfflineStore.restoreLiveRoundState` round-trip
+regression proving that no-route clears an automatic club and keeps a truly
+manual one. Full fixture, homeserver contracts, and visual artifact acceptance
+remain held until the P1 is fixed on a green exact head.
+After no implementation response or head change for approximately 30 minutes,
+comment `5924011208` sent a concise implementation-handoff reminder pointing
+back to `5923705881`; it requires no owner decision and does not alter the
+blocker or verification order.
+
+Claude addressed that ownership marker in `c537f897`: target/flag `.club`
+events now write `source: "ios_caddie_auto"` for a caddie-owned non-empty
+club, `OfflineStore` restores `selectedClubIsManual`, and both view restore
+paths consume it. Source CI `36809881087` and Native Mobile CI `36809881106`
+are green; matching artifacts are iOS design `11139691844`, Watch design
+`11139533106`, and native evidence `11139543018`. Static review confirms the
+wire schema and backend model accept the existing free-form source field and
+the non-empty automatic/manual/Watch paths are wired correctly.
+
+Comment `5924201260` records the remaining ordered-replay P1. When
+`selectedClub` is empty, `persistMapTarget` writes the explicit compatibility
+sentinel `clubName: "unknown"` with the caddie-owned source. Both the iOS
+reducer (`OfflineStore.swift:1752-1760`) and server live-state reducer
+(`mobile_live.py:5066-5070`) ignore that club value entirely, so any older
+valid club and its ownership survive. In the production sequence manual club
+-> strategy returns control to the caddie -> no-route clears the on-screen
+club -> target/flag edit, replay resurrects the older club as manual and the
+no-route policy can no longer clear it. The new test starts with a single
+non-unknown event and misses this sequence. Required follow-up must treat the
+new caddie-owned `unknown` sentinel as an explicit empty selection in both
+reducers, preserve the intended legacy/no-source behavior, and add ordered
+manual/automatic/Watch regressions. The prematurely dispatched full-fixture
+run `36811059492` was cancelled; homeserver acceptance, visual acceptance and
+a fresh full fixture remain held for a corrected green head.
+
+Claude addressed the ordered empty-selection replay in `ff0500f1`: the iOS
+and server reducers now fold a caddie-owned empty/`unknown` club as an explicit
+clear while preserving the legacy no-source `unknown` no-op. Ordered Swift and
+backend regressions cover manual, automatic, Watch and later-manual event
+orders. Source CI exposed an unrelated process-wide mock collision with a
+previously queued course-install worker; exact head `ced82ed7` adds an idle
+barrier and scopes the assertion to course `31795`. Source CI `36811539865` is
+green; Native Mobile CI `36811539984` is still running.
+
+Exact-head review comment `5924344422` records the next deterministic P1.
+`CurrentHoleView.loadCurrentHole` still defines `alreadyRecorded` as any
+non-empty restored club instead of a manually owned club. After relaunch, an
+automatic restored `1W` therefore correctly sets `hasUserSelectedClub` false
+but incorrectly forces `syncClub` false; a valid fresh route recommending
+`3W` cannot update the phone/map/Watch club, and the precise-map follow-up is
+also prevented from repairing it. The no-route reconciliation path happens to
+clear the value, so the ordered no-route test does not cover this valid-route
+transition. Merge, homeserver acceptance, visual acceptance and full fixture
+remain held pending an ownership-aware initial-load gate, automatic-versus-
+manual relaunch coverage, and a green exact head.
+
+Claude addressed comment `5924344422` in current head `2cde1079`.
+`loadCurrentHole` now derives `alreadyRecorded` from
+`LiveHoleStateSnapshot.hasManualClubSelection` through the shared
+`LiveClubStripPolicy.restoredManualClub` helper, and uses that same value for
+the first decision and precise-map follow-up. The new regression restores an
+automatic `1W` and a manual `7I` through `OfflineStore`, applies a current
+`3W` recommendation, and checks the resulting phone/Watch selection. Static
+review found no remaining gap in this transition. Exact-head Source CI
+`36812300817` passed backend, frontend and Docker. Native CI `36812300802`
+passed iOS `547/547` and Watch `375/375`; matching artifacts are design
+snapshots `11140692643`, Watch snapshots `11140528358`, and native evidence
+`11140593183`. The homeserver exact-head mobile-contract command passed
+`102/102` in 5.612 s; retained log SHA-256 is
+`c7faf8fc23cbee271a742bb912a36d258fb3e1c980637be145d6b6ce961a08b4`.
+
+The exact-head B4c design states `prep-hole`, `prep-hole-plan-2`,
+`prep-hole-zoomed`, `prep-hole-factual`, `prep-hole-waiting`,
+`prep-hole-square`, `full-prep-picker`, and `full-prep-course-search` were
+visually inspected against the README, prototype and implementation plan. The
+two plans have distinct complete club/landing routes; the fitted, factual,
+waiting and zoomed states do not reproduce the earlier crop, duplicate-map or
+chrome-overlap blockers. All 40 Watch PNGs are byte-identical to the preceding
+reviewed Watch artifact. No static visual P1/P2 remains.
+
+Claude and Codex dispatched full-fixture runs `36815221335` and `36815260389`
+within 32 seconds. Workflow concurrency cancelled the first, and Codex
+cancelled its duplicate before the first cancellation surfaced. Comment
+`5924762250` records that coordination race; neither cancellation is a product
+failure. Replacement exact-head full-fixture run `36815389671` used
+`capture_scope=full`, `fixture_mode=true`, and
+`require_live_preflight=false`. Its iOS unit/design stages and Watch unit stage
+passed, but the real iOS step failed deterministically in the B4c journey.
+Artifact `11142267271` contains the correct `b4c-01-prep-opened.png` and no
+later B4c frames. Its accessibility log shows hole 2 with the factual route
+and club order `1W 230 -> 8I 135`, then repeated queries for an absent
+`prep-plan-1`. `PrepDegradationUITests.swift:127-128` still requires a second
+plan even though the corrected authority intentionally suppresses non-material
+alternatives; the degraded fixture's four-club bag and water span legitimately
+leave only `推荐`. Review comment `5925193109` records this P2. The correction
+must retain real plan-switching coverage by constructing or selecting a
+fixture hole with a physically meaningful second complete route; it must not
+force a duplicate or require alternatives on every hole. Merge remains held
+for a green exact-head full fixture and visual inspection of real `b4c-01`
+through `b4c-04`, including both 2x carry-over frames and the independent 1x
+`b4c-03b-precise-fitted` frame.
+
+Claude addressed that degraded-course fixture/test mismatch in current exact
+head `387db8f2`. The production route authority is unchanged. Fixture course
+`31798` now has a measured 3W and tightened approach profiles, so the same
+authority emits genuinely distinct complete `推荐` (`1D -> 8I`) and `稳妥`
+(`3W -> 9I`) routes; the UI test requires exactly those two routes and checks
+that their full club orders and landings differ. Source CI `36819360162` is
+green. Native Mobile CI `36819360167` also passed with iOS `548/548` and Watch
+`375/375`; matching artifacts are iOS design `11143370202`, Watch design
+`11143625256`, and native evidence `11143435413`. All 40 Watch PNGs are
+byte-identical to the prior reviewed head. Every B4c/prep iOS PNG is also
+byte-identical; the only seven changed iOS files are home/dark states whose
+runtime greeting changed from `晚上好` to `早上好` (about 0.15% of pixels),
+with no product-layout change.
+
+That correction closes only the first of the three failures from full-fixture
+run `36815389671`. Review comment `5925370774` records the remaining shared P2
+in ordinary fixture course `31795`: every prep row still has `steps: []`, and
+its package/seed data has no realistic complete bag/route. Consequently
+`RealFlowUITests.swift:613` cannot find `prep-club-order`, while
+`TeeSelectionUITests.swift:590` cannot find a complete offline-live route. The
+retained accessibility artifact proves the purported online route is only
+`8I -> 8I` with 53 m still left, so this is fixture-contract failure rather
+than publication delay. Required follow-up must give `31795` one physically
+valid canonical route, make prep and downloaded/offline live play consume that
+same complete production route, add fixture-output coverage, and retain both
+journey assertions. Merge remains held for a corrected green exact head and a
+single successful full-fixture run producing `07/08`,
+`offline-start-01-new-first-hole`, and complete `b4c-01` through `b4c-04`
+evidence.
 
 Superseded review resources were removed from the three exact allow-listed
 paths; cleanup manifest
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260930T113127Z-pr363-superseded-review-cleanup.md`
 has SHA-256 `78af5d1ffcedbf8c01c557e32bf0aa5332a63c91c1e9e79db5f53c4fb76c1177`.
-Current review resources are the read-only snapshot
-`/dev/shm/aicaddie-pr363-e96565b0-review-20260930`, artifact root
-`/home/jason/codex-runs/aicaddie-pr363-e96565b0-artifacts-20260930T1329Z`, and
-the retained exact-head test log under `garmin-ai-caddie-data/tmp`; the
-one-shot container is absent. Their manifest is
-`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260930T1329Z-pr363-e96565b0-review.md`.
+Current exact-head review evidence is retained at
+`/home/jason/codex-runs/aicaddie-pr363-2cde1079-artifacts-20261001T0410Z`
+with source snapshot
+`/dev/shm/aicaddie-pr363-2cde1079-review-20261001T0410Z`; its resource
+manifest is
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261001T0410Z-pr363-2cde1079-review.md`.
+The one-shot contract container is absent. Prior evidence cited by open review
+history remains retained at
+`/home/jason/codex-runs/aicaddie-pr363-e6134b2-artifacts-20260930T2054Z`.
+The local bounded visual staging and three superseded review contact sheets
+were removed during owner-requested capacity cleanup, reclaiming 10,182,656
+bytes; manifest
+`/home/ubuntu/garmin-ai-caddie-data/cleanup-manifests/20260930T221347Z-local-review-cache-cleanup.md`
+records the exact allow-list. The current review-resource manifest is
+`/home/ubuntu/garmin-ai-caddie-data/cleanup-manifests/20260930T205140Z-pr363-e6134b2-review.md`.
+The superseded `be480b44` source snapshot was removed; its artifact root is
+retained temporarily because it contains the exact real frames cited by the
+active P1.
 Do not treat the archived B0 queue below as the active slice.
 
 At 20:14 UTC the owned monitor was hardened after transient scan failures at
@@ -3499,7 +3990,7 @@ project-level task list; historical plans are reference material.
 | `CODEX-CHECKOUT-STAGED-17` | `done` | Owner decision 2026-09-28: keep the 17 staged spec files in `/home/codex/garmin-ai-caddie`, but record which are stale; migrate that checkout's local branch to `main` without resetting or unstaging. | Checkout HEAD stays `d847cf28` (behind `origin/main` by 595; no pull/merge/reset). Staged patch SHA-256 unchanged before/after: `fc152731cb5c78c83ef21b3499153280bc4f1856d1b50aab0cd4fe59ba10727d`. 15 of 17 staged blobs are byte-identical to `main@9785a0cd`; `docs/superpowers/specs/ai-caddie-spec.md` and `docs/superpowers/specs/work-board.md` are **stale** (their authority/archive paragraphs are already on `main`, while the staged copies still say `integration/v2` and would revert the 2026-09-27 `main`/TestFlight status; no remaining novel content). Full per-file classification: `/home/codex/garmin-ai-caddie/STAGED-CHANGES-README.md`. Local branch renamed `integration/v2` → `main`, upstream `origin/main`, `origin/HEAD` → `origin/main`; `stash@{0}: predeploy-wip` untouched. A prior root-run had left the `origin/main` ref and its reflog root-owned; ownership of exactly those two files was changed back to `codex` (no recursive change). Evidence: `/home/jason/garmin-ai-caddie-data/operations/pr335-review-20260928/`. |
 | `PR176-HISTORY` | `done` | Preserve the owner-approved multi-user design documents as explicitly historical material, then close the superseded PR without treating it as the current product specification. | The four documents landed unchanged apart from historical headers through PR #335 at `0256f48f`. PR #176 was closed with `landed as history in #335`; tag `archive/superpowers/multi-user-redesign-spec` points to exact former head `b5aa51ef`, and the matching remote branch was compare-and-deleted. |
 | `B0` | `done` | Implement the B0 data foundation from `docs/design/2026-09-25-ui-redesign/IMPLEMENTATION_PLAN.md`: fairway outline contract, tee-result classifier, score source, correction log, and new statistics fields. Keep Python/Swift contracts aligned; no UI batch should invent missing backend fields. | B0a merged through PR #335 at `0256f48f`; B0b merged through PR #336 at `6a8e295d` with Source CI `36369961305` and Native CI `36369961338` (iOS `365/365`, Watch `337/337`). B0c merged through PR #337 at `be3867f2`, with the test-isolation closeout in PR #339 at `556dea43` and Source CI `36375145151`. B0d-1 merged through PR #338 at `390e72ed` from exact head `24614bd2`; focused homeserver suites `36/36`, real 471-round reversal/ref checks, source CI `36377589609`, and post-merge main CI `36378361410` are green. B0d-2 merged through PR #340 at `895ea5de` from exact head `946b082b`; homeserver focused suites `101/101`, source CI `36385272588`, and post-merge main CI `36386586960` are green. Review snapshot cleanup is recorded under `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T0620Z-pr340-review-snapshot/`; the all-PR monitor is recorded under `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T0612Z-pr-feedback-monitor/`. |
-| `B1-B7-REVIEW` | `in-progress` | Review each UI-redesign PR from `claude/code-audit-performance-17wqcv` at its exact head, including relevant homeserver tests, Native Mobile CI, and matching iOS/Watch screenshots; comment findings and merge only with no P1/P2 blockers. | B1-B4b-2 are merged through PR #362 at `d7e0346d`; its exact-head and cleanup evidence are recorded above. PR #363 B4c remains open at `e96565b0`. Source CI `36721210112`, Native CI `36721210109`, full fixture `36723649986`, and homeserver contracts `102/102` pass. The prior first-frame badge collision is fixed, but real fitted screenshots crop all but the first landing from two- and three-shot diagonal routes. Comment `5914558064` keeps merge blocked pending geometry/tests that visibly retain every landing and label across portrait, square, and wide overlays plus fresh exact-head screenshots. |
+| `B1-B7-REVIEW` | `in-progress` | Review each UI-redesign PR from `claude/code-audit-performance-17wqcv` at its exact head, including relevant homeserver tests, Native Mobile CI, and matching iOS/Watch screenshots; comment findings and merge only with no P1/P2 blockers. | B1-B4b-2 are merged through PR #362 at `d7e0346d`; its exact-head and cleanup evidence are recorded above. PR #363 B4c is open at `387db8f2`. Source CI `36819360162` and Native CI `36819360167` are green (iOS `548/548`, Watch `375/375`); matching design artifacts show no B4c/Watch visual regression. The degraded-course fake-plan failure from full-fixture run `36815389671` is corrected with genuinely distinct complete `推荐` / `稳妥` fixture routes, but comment `5925370774` records the remaining P2: ordinary course `31795` still has no physically complete canonical route, causing both the missing prep club order and missing offline-live complete-route failures. Merge remains held for the ordinary-fixture correction, exact-head gates, and one successful full-fixture run with complete `07/08`, offline-start, and B4c evidence. |
 | `SYNC-RECOVERY-20260925` | `done` | Restore the Garmin cron after the API deployment, then make API-to-sync image binding and missing-image alerting part of the deployment/runtime contract. | Same-revision image built and one-shot incremental sync completed; production history overview shows round `17711803`. Remote deployment-manifest tests `17/17` pass. Installed wrapper check-only probe passes against production; prior wrapper is checksum-preserved. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
