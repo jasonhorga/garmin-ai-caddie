@@ -519,6 +519,8 @@ public final class OfflineCaddieDecisionEvaluator {
     private static let materialApproachGainM = 10.0
     /// A Par 3 alternative is a club that actually plays to the green.
     private static let par3CarryWindowM = 15.0
+    /// Two plans with the same strokes are one physical route unless some landing differs by this.
+    private static let distinctLandingM = 15.0
 
     private struct PlannedChain {
         let clubs: [LocalClubProfile]
@@ -629,45 +631,50 @@ public final class OfflineCaddieDecisionEvaluator {
     }
 
     /// One plan's whole-hole facts: strokes, whether it reaches the scoring window, the green-bound
-    /// stroke's length and the chain's modelled risk from the player's own club distributions.
+    /// stroke's length, its landings and the chain's modelled risk from the player's own club
+    /// distributions. The leave is measured from the carries themselves, never from a display
+    /// field a green-window trim has zeroed.
     private func chainSummary(
         _ steps: [[String: JSONValue]],
         profiles: [LocalClubProfile],
         targetM: Double
-    ) -> (strokes: Int, complete: Bool, approachM: Double, risk: Double) {
+    ) -> (strokes: Int, complete: Bool, approachM: Double, risk: Double, landings: [Double]) {
         var clubs: [LocalClubProfile] = []
-        var offsets: [Double] = []
+        var landings: [Double] = []
         var travelled = 0.0
         for row in steps {
             let carry = number(row["targetCarry_m"] ?? row["targetCarryM"]) ?? 0
             travelled += carry
-            offsets.append(number(row["routeOffset_m"] ?? row["routeOffsetM"] ?? row["landing_m"] ?? row["landingM"]) ?? travelled)
+            landings.append(
+                number(row["routeOffset_m"] ?? row["routeOffsetM"] ?? row["landing_m"] ?? row["landingM"])
+                    ?? min(targetM, travelled)
+            )
             let name = string(row["clubName"] ?? row["club"]) ?? "-"
             let key = LocalClubProfile.clubKey(name)
             clubs.append(profiles.first { $0.key == key }
                 ?? LocalClubProfile(name: name, carryM: carry, p10M: nil, p90M: nil, sampleSize: 0))
         }
-        let last = steps.last
-        let leave = last.flatMap { number($0["expectedRemaining_m"] ?? $0["expectedRemainingM"]) }
-            ?? max(0, targetM - travelled)
+        let leave = targetM - travelled
         let gir: Bool = {
-            if case .bool(true)? = last?["greenInRegulation"] { return true }
+            if case .bool(true)? = steps.last?["greenInRegulation"] { return true }
             return false
         }()
-        let previous = offsets.count >= 2 ? offsets[offsets.count - 2] : 0
+        let previous = landings.count >= 2 ? landings[landings.count - 2] : 0
         return (
             steps.count,
             gir || leave <= Self.scoringWindowM,
             max(0, targetM - previous),
-            chainRisk(clubs, leaveM: leave)
+            chainRisk(clubs, leaveM: leave),
+            landings
         )
     }
 
     /// Keep only alternatives that are whole-hole strategies: complete; on a Par 4/5 reaching the
     /// green in regulation whenever any plan can (a lay-up is offered only when no plan can, with
     /// an auditable reason); 稳妥 lowering the whole chain's modelled risk without adding strokes;
-    /// 进攻 shortening the green-bound stroke without adding strokes; a Par 3 alternative playing
-    /// to the green.
+    /// 进攻 shortening the green-bound stroke without adding strokes; never the same physical route
+    /// as a kept plan (same strokes, every landing within `distinctLandingM`); a Par 3 alternative
+    /// playing to the green.
     private func materialAlternatives(
         _ plans: [String: [[String: JSONValue]]],
         profiles: [LocalClubProfile],
@@ -678,10 +685,9 @@ public final class OfflineCaddieDecisionEvaluator {
         var result = plans
         if par == 3 {
             for (id, steps) in plans where id != "stock" {
-                guard let carry = steps.first.flatMap({ number($0["targetCarry_m"] ?? $0["targetCarryM"]) }),
-                      abs(carry - targetM) <= Self.par3CarryWindowM else {
+                let carry = steps.first.flatMap { number($0["targetCarry_m"] ?? $0["targetCarryM"]) }
+                if carry.map({ abs($0 - targetM) > Self.par3CarryWindowM }) ?? true {
                     result[id] = nil
-                    continue
                 }
             }
             return result
@@ -696,35 +702,42 @@ public final class OfflineCaddieDecisionEvaluator {
             return "beyond_reach"
         }()
         let stock = summaries["stock"]
-        for (id, steps) in plans {
-            guard let summary = summaries[id] else { continue }
-            if summary.strokes > girLimit {
-                if girReachable, id != "stock" {
-                    result[id] = nil
-                    continue
-                }
-                if !girReachable {
-                    result[id] = steps.map { row in
-                        var row = row
-                        row["layupReason"] = .string(layupReason)
-                        return row
+        let order = ["stock", "safe", "attack"] + plans.keys.filter { !["stock", "safe", "attack"].contains($0) }.sorted()
+        var kept: [String] = []
+        for id in order {
+            guard let steps = plans[id], let summary = summaries[id] else { continue }
+            let keep: Bool = {
+                if id == "stock" { return true }
+                if summary.strokes > girLimit, girReachable { return false }
+                guard summary.complete else { return false }
+                if let stock, stock.complete {
+                    let addsStrokes = summary.strokes > stock.strokes
+                    switch id {
+                    case "safe":
+                        if addsStrokes || summary.risk > stock.risk - Self.materialRiskMarginM { return false }
+                    case "attack":
+                        if addsStrokes || summary.approachM > stock.approachM - Self.materialApproachGainM { return false }
+                    default:
+                        if addsStrokes { return false }
                     }
                 }
-            }
-            guard id != "stock" else { continue }
-            guard summary.complete else {
+                return !kept.contains { other in
+                    guard let otherSummary = summaries[other], otherSummary.strokes == summary.strokes else { return false }
+                    return zip(otherSummary.landings, summary.landings)
+                        .allSatisfy { abs($0 - $1) < Self.distinctLandingM }
+                }
+            }()
+            guard keep else {
                 result[id] = nil
                 continue
             }
-            guard let stock, stock.complete else { continue }
-            let addsStrokes = summary.strokes > stock.strokes
-            switch id {
-            case "safe":
-                if addsStrokes || summary.risk > stock.risk - Self.materialRiskMarginM { result[id] = nil }
-            case "attack":
-                if addsStrokes || summary.approachM > stock.approachM - Self.materialApproachGainM { result[id] = nil }
-            default:
-                if addsStrokes { result[id] = nil }
+            kept.append(id)
+            if summary.strokes > girLimit, !girReachable {
+                result[id] = steps.map { row in
+                    var row = row
+                    row["layupReason"] = .string(layupReason)
+                    return row
+                }
             }
         }
         return result

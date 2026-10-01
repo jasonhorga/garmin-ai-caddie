@@ -284,7 +284,7 @@ final class PrepMapDegradationTests: XCTestCase {
         var root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
         // (club, median m, half the p10-p90 spread m): a wild driver, a steadier 3W and hybrid.
         let bag: [(String, Double, Double)] = [
-            ("1D", 210, 40), ("3W", 195, 10), ("4H", 180, 8), ("7I", 156, 10), ("8I", 144, 10), ("9I", 132, 10),
+            ("1D", 210, 40), ("3W", 190, 10), ("4H", 185, 8), ("7I", 156, 10), ("8I", 144, 10), ("9I", 132, 10),
         ]
         root["clubProfiles"] = bag.map { name, carry, half -> [String: Any] in
             ["clubName": name, "sampleSize": 20, "median_m": carry, "p10_m": carry - half, "p90_m": carry + half]
@@ -582,7 +582,9 @@ final class PrepMapDegradationTests: XCTestCase {
         for par in [4, 5] {
             let hole = try squareDiagonalPrep(par: par)
             let plans = try holePlans(hole)
-            XCTAssertGreaterThanOrEqual(plans.count, 2)
+            // On the clear Par 4 the steadier 3W tee lands within metres of the driver's route, so
+            // the authority offers one plan; the Par 5 also has a distinct 稳妥.
+            XCTAssertGreaterThanOrEqual(plans.count, par == 5 ? 2 : 1)
             for plan in plans { cases.append(("square Par \(par) \(plan.title)", hole, plan)) }
         }
         let tall = try snapshotPrep(coverage: "ready")
