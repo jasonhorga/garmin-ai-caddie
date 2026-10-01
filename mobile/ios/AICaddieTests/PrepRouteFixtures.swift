@@ -6,14 +6,16 @@ import Foundation
 enum PrepRouteFixtures {
     /// 备战 fixture plans with the real strategy identities (the installed chain → 推荐, safe → 稳妥,
     /// attack → 进攻) and genuinely different carries and landing stations. Stations are cumulative
-    /// fractions of the route; the last leg of each plan is its green-bound scoring leg.
+    /// fractions of the route; the last leg of each plan is its green-bound scoring leg and ends at
+    /// the route's end (1.0), so every plan is a physically complete hole. On a Par 3 the plans are
+    /// the same one-stroke route with a different club (推荐 8I, 稳妥 a smoother 7I, 进攻 9I).
     static func routes(par: Int, routeLengthM: Double) -> [CaddiePlanSequence] {
         let plans: [(id: String, clubs: [String], stations: [Double])]
         switch par {
         case 3:
             plans = [
                 (LiveCaddieRouteAuthority.installedRouteId, ["8I"], [1]),
-                ("safe", ["7I"], [0.9]),
+                ("safe", ["7I"], [1]),
                 ("attack", ["9I"], [1]),
             ]
         case 4:
