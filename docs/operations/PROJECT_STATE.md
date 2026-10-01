@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-10-01 12:51 UTC
+**Updated:** 2026-10-01 13:17 UTC
 **Branch:** `main`; product canonical source revision is
 `5fb5a4788a4e90ea1e1bb5168558cd80ffafe4c3` (PR #363 B4c, PR #362 B4b-2, PR #361 B4b,
 PR #360 B4a and PR #359 B3 are
@@ -103,7 +103,7 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-10-01 12:51 UTC):** `B1-B7` review queue remains
+**Current slice (2026-10-01 13:17 UTC):** `B1-B7` review queue remains
 `in-progress`; Codex is the review owner for PRs opened from
 `claude/code-audit-performance-17wqcv`. Each PR is checked at its exact head
 against `docs/design/2026-09-25-ui-redesign/README.md` and
@@ -136,8 +136,31 @@ The remote focused-test log and local downloaded artifacts under
 `/home/ubuntu/claude-web-data/data/garmin-ai-caddie/reviews/pr364-808c1c82-{design,watch,native}`
 are retained as evidence. No production container, volume, port, tunnel,
 dependency installation or background service was created or changed by this
-review. There are currently no open PRs in the B1-B7 queue; continue monitoring
-the Claude branch and PR events for the next batch.
+review. PR #365 (B5b) is the current open review; its first Native gate failed
+on an iOS rounding assertion and Claude has pushed the bounded fix described
+below. Continue monitoring the Claude branch and PR events for the next exact
+head.
+
+PR #365 (B5b time/frequency restyle and course detail) opened at exact head
+`863705dbeb6e3d5812e1419c9e3ce1d96791abf9`. Source CI `36864790317` passed,
+but Native Mobile CI `36864790643` failed its iOS target: `573` tests ran with
+one failure in
+`ResultsTimePresentationTests.testCardsListQuartersOrYearsWithPerRoundBirdiesAndDoubles`.
+The assertion was `['82', '93', '0.8', '2.2']` versus `['82', '93', '0.8',
+'2.3']`; Swift's `String(format: "%.1f", ...)` rounded the exact `2.25`
+half to even. Watch passed, but that cannot satisfy the iOS gate. The failure
+was recorded from the Native log at `/tmp/pr365-native-36864790643.log` and
+must remain a blocker until a new exact head has green iOS and Watch gates.
+
+Claude pushed current exact head
+`654e3481b4a11d8774335d967b892299baea1794`, which rounds the per-round value
+to one decimal before formatting and adds the explicit `2.25 -> 2.3`
+regression. Source CI `36866703340` is green; Native Mobile CI
+`36866703324` is in progress. No PR #365 screenshot artifact has been accepted
+as final evidence yet; after the exact-head Native gate passes, download and
+inspect the matching design/Watch artifacts, run the homeserver focused tests,
+and only then comment/merge if no P1/P2 remains. No review snapshot, container,
+port, dependency install or background service has been created for #365 yet.
 
 PR #357 (B1d map-degradation carry-over and screenshot cases) completed review
 and was squash-merged as `8a1180d2fbffaccf84dbb3275a34554abf03b4d9` from exact
