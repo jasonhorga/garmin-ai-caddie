@@ -1642,27 +1642,36 @@ public struct CurrentHoleView: View {
     @MainActor
     private func reconcileCaddieRoutes() {
         let incoming = resolvedCaddieRoutes()
-        guard !incoming.isEmpty else { return }
+        // The local evaluator rejected the installed chain (water / OB): it is vetoed from the
+        // published, retained and selected routes; a server-validated online route still shows.
+        let vetoInstalled = makeOfflineCaddieDecision()?.isLocalNoRoute == true
+        guard !incoming.isEmpty || vetoInstalled else { return }
         let existing = (caddieRoutesByHole[hole.number] ?? []).filter {
             LiveCaddieRouteAuthority.isDisplayable($0, par: hole.par, shotType: selectedShotType)
         }
-        let installed = installedCaddieRoute
-        let retained = retainedCaddieRouteByHole[hole.number]
 
         // Choose the visible first route once (shared pure rule, `LiveCaddieRouteAuthority`).
-        let first = LiveCaddieRouteAuthority.leadingRoute(
+        guard let reconciled = LiveCaddieRouteAuthority.reconciled(
             incoming: incoming,
             existing: existing,
-            installed: installed,
-            retained: retained,
+            installed: installedCaddieRoute,
+            retained: retainedCaddieRouteByHole[hole.number],
             explicitSelectionKey: explicitlySelectedCaddieRouteHoles.contains(hole.number)
                 ? selectedCaddieRouteByHole[hole.number]
-                : nil
-        )
+                : nil,
+            vetoInstalled: vetoInstalled
+        ) else {
+            // No safe route remains: drop the retained club, map legs, summary and selection.
+            caddieRoutesByHole[hole.number] = nil
+            retainedCaddieRouteByHole[hole.number] = nil
+            selectedCaddieRouteByHole[hole.number] = nil
+            explicitlySelectedCaddieRouteHoles.remove(hole.number)
+            return
+        }
+        let (first, merged) = reconciled
         retainedCaddieRouteByHole[hole.number] = first
 
         // Keep the retained route at index zero and append only physically distinct alternatives.
-        let merged = LiveCaddieRouteAuthority.mergedRoutes(first: first, existing: existing, incoming: incoming)
         caddieRoutesByHole[hole.number] = merged
 
         let currentToken = selectedCaddieRouteByHole[hole.number]
@@ -3390,7 +3399,9 @@ public struct CurrentHoleView: View {
             syncStrategyModeToDecision(caddieDecision)
             caddieErrorMessage = caddieDecision == nil
                 ? "这一洞暂时无法给建议。"
-                : "离线模式 · 使用已保存的方案。"
+                : (caddieDecision?.isLocalNoRoute == true
+                    ? Self.localNoRouteMessage
+                    : "离线模式 · 使用已保存的方案。")
             if syncClub { syncSelectedClubToRecommendation() }
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
             return
@@ -3420,7 +3431,7 @@ public struct CurrentHoleView: View {
                 caddieDecision = offlineDecision
                 // A complete local route is a usable recommendation. Transport provenance is an
                 // implementation detail and should not displace live playing information.
-                caddieErrorMessage = nil
+                caddieErrorMessage = offlineDecision.isLocalNoRoute ? Self.localNoRouteMessage : nil
             } else {
                 caddieDecision = nil
                 caddieErrorMessage = "球场资料准备中，请稍后刷新。"
@@ -3437,7 +3448,9 @@ public struct CurrentHoleView: View {
             if let offlineDecision = makeOfflineCaddieDecision() {
                 caddieDecision = offlineDecision
                 syncStrategyModeToDecision(offlineDecision)
-                caddieErrorMessage = "联网球童暂不可用 · 已切换到离线缓存建议。"
+                caddieErrorMessage = offlineDecision.isLocalNoRoute
+                    ? Self.localNoRouteMessage
+                    : "联网球童暂不可用 · 已切换到离线缓存建议。"
             } else {
                 caddieErrorMessage = "球童建议暂取不到 · 仍显示已缓存的方案。"
             }
@@ -3450,6 +3463,9 @@ public struct CurrentHoleView: View {
         guard case .number(let raw) = value, raw.isFinite else { return nil }
         return Int(raw.rounded())
     }
+
+    /// An offline decision that recommends nothing must not claim a saved plan.
+    static let localNoRouteMessage = "离线没有安全完整的路线 · 联网后再给建议。"
 
     private func makeOfflineCaddieDecision() -> CaddieDecisionResponse? {
         guard let caddieContextSeed,

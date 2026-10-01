@@ -276,7 +276,7 @@ final class PrepMapDegradationTests: XCTestCase {
 
     /// The fixture package with a real bag on its caddie seeds and package profiles, as a course
     /// template installed for a player with club history.
-    private func bagPackage() throws -> LiveRoundPackage {
+    private func bagPackage(planningHazards: [[String: Any]] = []) throws -> LiveRoundPackage {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -309,6 +309,11 @@ final class PrepMapDegradationTests: XCTestCase {
             seeds[index]["context"] = context
             seeds[index]["offlineOptions"] = options
             seeds[index]["selectedOfflineOptionId"] = "stock"
+            if !planningHazards.isEmpty {
+                // The server seed's typed route hazards, as `mobile_live` packages them.
+                context["candidateRoutes"] = [["id": "stock", "club": "1D", "planningHazards": planningHazards]] as [[String: Any]]
+                seeds[index]["context"] = context
+            }
         }
         root["caddieContextSeeds"] = seeds
         return try JSONDecoder().decode(LiveRoundPackage.self, from: JSONSerialization.data(withJSONObject: root))
@@ -446,6 +451,28 @@ final class PrepMapDegradationTests: XCTestCase {
                 )
             }
         }
+    }
+
+    func testATwoSidedOBHoleShowsNoPlanRatherThanTheRejectedInstalledChain() throws {
+        // Production shape (Codex 5923321831): the installed 1D -> 8I chain plus a server seed whose
+        // route carries a two-sided OB corridor the on-device evaluator cannot check. 备战 shows no
+        // plan at all — neither the decision's routes nor the rejected installed chain alone.
+        let package = try bagPackage(planningHazards: [[
+            "kind": "out_of_bounds", "carryToFront_m": 180, "carryToClear_m": 260,
+            "side": "both", "corridorWidth_m": 30,
+        ]])
+        let first = try XCTUnwrap(package.holes.min { $0.number < $1.number })
+        let hole = try prep(hole: first.number, coverage: "ready", withMap: true, steps: planSteps)
+        let template = package.replacingCoursePrep(CoursePrepPackage(
+            schema: "ai-caddie-course-prep-v1",
+            globalId: package.course.globalId,
+            holes: [hole],
+            missingData: nil
+        ))
+        XCTAssertNotNil(PrepPlanOption.installedOption(prep: hole, par: first.par), "fixture: an installed chain exists")
+        XCTAssertEqual(PrepPlanOption.offlineDecision(template: template, hole: first, prep: hole)?.isLocalNoRoute, true)
+        XCTAssertTrue(PrepPlanOption.decisionRoutes(template: template, hole: first, prep: hole).isEmpty)
+        XCTAssertTrue(PrepPlanOption.options(template: template, hole: first, prep: hole).isEmpty)
     }
 
     func testPlansComeFromTheLiveDecisionAuthorityAsDifferentCompleteRoutes() throws {

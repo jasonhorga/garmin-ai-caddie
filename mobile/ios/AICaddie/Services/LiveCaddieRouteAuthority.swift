@@ -21,6 +21,8 @@ enum LiveCaddieRouteAuthority {
         // is filtered below; a measured multi-leg prefix remains useful while its next lie is
         // being re-planned.
         let installedRoute: CaddiePlanSequence? = {
+            // The local evaluator rejected the installed chain (water / OB): never restore it.
+            guard offline?.isLocalNoRoute != true else { return nil }
             guard let installed, !installed.steps.isEmpty else { return nil }
             // Keep a useful CoursePrep prefix, but never expose a bare Par 4/5 tee club as a
             // complete route.  A single-club route is retained only when its final step carries
@@ -221,6 +223,33 @@ enum LiveCaddieRouteAuthority {
     /// sparse retained route is upgraded once to the installed CoursePrep chain, and a fresh hole
     /// (nothing retained, nothing chosen) leads with the first resolved route. `incoming` must not
     /// be empty.
+    /// One hole's published routes after a new result. With `vetoInstalled` (the local evaluator
+    /// found no safe route) the installed chain is dropped from the incoming, published and
+    /// retained routes alike; if nothing else remains the hole publishes no route at all.
+    static func reconciled(
+        incoming: [CaddiePlanSequence],
+        existing: [CaddiePlanSequence],
+        installed: CaddiePlanSequence?,
+        retained: CaddiePlanSequence?,
+        explicitSelectionKey: String?,
+        vetoInstalled: Bool
+    ) -> (first: CaddiePlanSequence, merged: [CaddiePlanSequence])? {
+        func allowed(_ route: CaddiePlanSequence) -> Bool {
+            !vetoInstalled || route.id != installedRouteId
+        }
+        let incoming = incoming.filter(allowed)
+        guard !incoming.isEmpty else { return nil }
+        let existing = existing.filter(allowed)
+        let first = leadingRoute(
+            incoming: incoming,
+            existing: existing,
+            installed: vetoInstalled ? nil : installed,
+            retained: retained.flatMap { allowed($0) ? $0 : nil },
+            explicitSelectionKey: explicitSelectionKey
+        )
+        return (first, mergedRoutes(first: first, existing: existing, incoming: incoming))
+    }
+
     static func leadingRoute(
         incoming: [CaddiePlanSequence],
         existing: [CaddiePlanSequence],

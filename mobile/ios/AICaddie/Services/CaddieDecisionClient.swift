@@ -47,6 +47,16 @@ public struct CaddieDecisionResponse: Codable, Equatable {
             || decisionId?.hasPrefix("offline-") == true
     }
 
+    /// The on-device evaluator found no safe, complete route and recommends nothing. This vetoes
+    /// the unvalidated installed CoursePrep chain on every surface (a server-validated online
+    /// route is unaffected).
+    public var isLocalNoRoute: Bool {
+        isOfflineFallback && missingData.contains { row in
+            guard case .string(let label)? = row["label"] else { return false }
+            return label == "offline_route_hazards" || label == "offline_route_unavailable"
+        }
+    }
+
     /// Minimal facts consumed by `audit_decision`. This is intentionally not a second copy of the
     /// display decision: route meshes, history samples, evidence prose, and full source-ref lists
     /// belong in the decision ledger/package, not in every live-round event.

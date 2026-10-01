@@ -660,6 +660,113 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         XCTAssertTrue(decision.missingData.contains { $0["label"] == .string("offline_route_unavailable") })
     }
 
+    // MARK: The local no-route veto on every surface (Codex 5923321831)
+
+    private func installedDriverRoute() -> CaddiePlanSequence {
+        CaddiePlanSequence(
+            id: LiveCaddieRouteAuthority.installedRouteId,
+            label: "1D-7I",
+            expectedRemainingM: 0,
+            riskScore: nil,
+            confidence: nil,
+            coverageText: nil,
+            sourceRefs: [],
+            steps: [
+                CaddiePlanSequenceStep(
+                    id: "installed-0", role: "tee", clubName: "1D", targetCarryM: 210,
+                    expectedRemainingM: 165, sampleSize: nil, confidence: nil, sourceRefs: [],
+                    routeOffsetM: 210, planIndex: 0
+                ),
+                CaddiePlanSequenceStep(
+                    id: "installed-1", role: "scoring", clubName: "7I", targetCarryM: 165,
+                    expectedRemainingM: 0, sampleSize: nil, confidence: nil, sourceRefs: [],
+                    routeOffsetM: 375, planIndex: 1
+                ),
+            ]
+        )
+    }
+
+    private func onlineValidatedRoute() -> CaddieDecisionResponse {
+        let sequence: [String: JSONValue] = [
+            "id": .string("stock"),
+            "clubs": .array([
+                .object(["clubName": .string("3W"), "role": .string("tee"), "targetCarry_m": .number(195), "routeOffset_m": .number(195)]),
+                .object([
+                    "clubName": .string("6I"), "role": .string("scoring"), "targetCarry_m": .number(180),
+                    "routeOffset_m": .number(375), "expectedRemaining_m": .number(0),
+                ]),
+            ]),
+            "completion": .string("scoring_window"),
+        ]
+        return CaddieDecisionResponse(
+            schema: "ai-caddie-decision-v2", decisionId: "server-ob-checked", sourceRef: nil,
+            evidenceRefs: nil, shotType: "tee", phase: "Tee", context: [:],
+            options: [["id": .string("stock"), "clubName": .string("3W")]], selected: nil,
+            selectedOptionId: "stock", selectedOption: nil,
+            sequences: [sequence], selectedSequence: sequence,
+            avoidZones: [], forbiddenZones: [], acceptableMiss: [:],
+            evidence: [["kind": .string("geometry"), "text": .string("prodgeometry ready")]],
+            confidence: [:], missingData: [], auditCriteria: []
+        )
+    }
+
+    private func obNoRouteDecision() throws -> CaddieDecisionResponse {
+        try wholeHoleDecision(
+            par: 4, distanceM: 375,
+            bag: [("1D", 210, 10), ("7I", 156, 10), ("8I", 144, 10), ("9I", 132, 10)],
+            options: [("stock", "1D"), ("safe", "9I")],
+            canonical: [("1D", 210), ("7I", 165)],
+            planningHazards: outOfBounds
+        )
+    }
+
+    func testLocalNoRouteVetoesTheInstalledRouteWithoutAnOnlineRoute() throws {
+        let offline = try obNoRouteDecision()
+        XCTAssertTrue(offline.isLocalNoRoute)
+        // Without an evaluator decision the installed chain is still the first-frame route ...
+        XCTAssertEqual(
+            LiveCaddieRouteAuthority.resolve(
+                installed: installedDriverRoute(), online: nil, offline: nil, par: 4, shotType: "tee"
+            ).map(\.id),
+            [LiveCaddieRouteAuthority.installedRouteId]
+        )
+        // ... but after the evaluator rejected it nothing is shown or recommended.
+        XCTAssertTrue(LiveCaddieRouteAuthority.resolve(
+            installed: installedDriverRoute(), online: nil, offline: offline, par: 4, shotType: "tee"
+        ).isEmpty)
+        // A route already published and retained for the hole is cleared, not kept.
+        XCTAssertNil(LiveCaddieRouteAuthority.reconciled(
+            incoming: [],
+            existing: [installedDriverRoute()],
+            installed: installedDriverRoute(),
+            retained: installedDriverRoute(),
+            explicitSelectionKey: LiveCaddieRouteAuthority.routeSignature(installedDriverRoute()),
+            vetoInstalled: true
+        ))
+    }
+
+    func testLocalNoRouteKeepsOnlyAServerValidatedOnlineRoute() throws {
+        let offline = try obNoRouteDecision()
+        let routes = LiveCaddieRouteAuthority.resolve(
+            installed: installedDriverRoute(), online: onlineValidatedRoute(), offline: offline,
+            par: 4, shotType: "tee"
+        )
+        XCTAssertFalse(routes.isEmpty, "the online, server-validated route still shows")
+        XCTAssertFalse(routes.contains { $0.id == LiveCaddieRouteAuthority.installedRouteId })
+        XCTAssertEqual(routes.first?.steps.first?.clubName, "3W")
+        // The retained installed route is replaced by the online one, not kept first.
+        let reconciled = try XCTUnwrap(LiveCaddieRouteAuthority.reconciled(
+            incoming: routes,
+            existing: [installedDriverRoute()],
+            installed: installedDriverRoute(),
+            retained: installedDriverRoute(),
+            explicitSelectionKey: nil,
+            vetoInstalled: true
+        ))
+        XCTAssertEqual(reconciled.first.steps.first?.clubName, "3W")
+        XCTAssertFalse(reconciled.merged.contains { $0.id == LiveCaddieRouteAuthority.installedRouteId })
+    }
+
     func testPar4LegThatFliesTheBackEdgeIsNotGIR() throws {
         // The fallback planner clamps the second landing to the 396 m route end, but the 3W
         // median lands at 412.2 m: past back (400 m) + the 8 m tolerance, so it is not a GIR.

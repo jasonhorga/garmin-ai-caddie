@@ -328,6 +328,17 @@ public enum LiveCaddieSeedFactory {
         for (key, value) in installed.context where !authoritativeKeys.contains(key) {
             context[key] = value
         }
+        // The server seed's typed route hazards (water / OB) survive the factual repair even
+        // though its `candidateRoutes` are replaced: the offline evaluator's veto reads them.
+        if case .array(let installedRoutes)? = installed.context["candidateRoutes"] {
+            let zones = installedRoutes.flatMap { route -> [JSONValue] in
+                guard case .object(let row) = route, case .array(let zones)? = row["planningHazards"] else { return [] }
+                return zones
+            }
+            if !zones.isEmpty {
+                context["routePlanningHazards"] = .array(zones)
+            }
+        }
         // The synthesized context only carries coverage/revision. Preserve richer cached hazard
         // evidence while refreshing those two authority markers from the current hole package.
         if case .object(let installedGeometry)? = installed.context["geometry"],

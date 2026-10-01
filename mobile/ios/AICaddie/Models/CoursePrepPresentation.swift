@@ -118,6 +118,9 @@ struct PrepPlanOption: Equatable, Identifiable {
             option(route: route, index: index, par: hole.par)
         }
         if !options.isEmpty { return uniquelyTitled(options) }
+        // The installed chain alone only when no evaluator rejected it: after a local no-route
+        // decision (water / OB) 备战 shows no plan rather than the rejected route.
+        if offlineDecision(template: template, hole: hole, prep: prep)?.isLocalNoRoute == true { return [] }
         return installedOption(prep: prep, par: hole.par).map { [$0] } ?? []
     }
 
@@ -126,18 +129,10 @@ struct PrepPlanOption: Equatable, Identifiable {
         hole: Hole,
         prep: CoursePrepHole
     ) -> [CaddiePlanSequence] {
-        guard let seed = LiveCaddieSeedFactory.resolve(package: template, hole: hole, prep: prep) else {
+        guard let decision = offlineDecision(template: template, hole: hole, prep: prep) else {
             return []
         }
-        // The live hole's first-frame tee request before any GPS fix or player choice.
         let input = LiveCaddieInput.firstFrameTee(greenDistances: prep.greenDistances, holeYards: hole.yards)
-        let base = CaddieDecisionRequestBuilder().makeDecisionRequest(seed: seed, input: input)
-        let request = CaddieDecisionRequestBuilder.addingCanonicalPlan(to: base, prep: prep)
-        let decision = OfflineCaddieDecisionEvaluator().makeDecision(
-            seed: seed,
-            request: request,
-            strategyMode: nil
-        )
         // Exactly as live play: the installed CoursePrep chain leads.
         let installed = LiveCaddieRouteAuthority.installedRoute(
             prep: prep,
@@ -152,6 +147,15 @@ struct PrepPlanOption: Equatable, Identifiable {
             par: hole.par,
             shotType: "tee"
         )
+    }
+
+    /// The live hole's first-frame tee decision before any GPS fix or player choice.
+    static func offlineDecision(template: LiveRoundPackage, hole: Hole, prep: CoursePrepHole) -> CaddieDecisionResponse? {
+        guard let seed = LiveCaddieSeedFactory.resolve(package: template, hole: hole, prep: prep) else { return nil }
+        let input = LiveCaddieInput.firstFrameTee(greenDistances: prep.greenDistances, holeYards: hole.yards)
+        let base = CaddieDecisionRequestBuilder().makeDecisionRequest(seed: seed, input: input)
+        let request = CaddieDecisionRequestBuilder.addingCanonicalPlan(to: base, prep: prep)
+        return OfflineCaddieDecisionEvaluator().makeDecision(seed: seed, request: request, strategyMode: nil)
     }
 
     static func option(route: CaddiePlanSequence, index: Int, par: Int) -> PrepPlanOption? {

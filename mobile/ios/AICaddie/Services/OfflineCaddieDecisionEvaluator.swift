@@ -328,24 +328,29 @@ public final class OfflineCaddieDecisionEvaluator {
     ) -> (water: [(front: Double, back: Double)], unmodelled: Bool) {
         var water = waterIntervals(from: request.context)
         var unmodelled = false
-        let routes: [JSONValue] = {
-            if case .array(let rows)? = request.context["candidateRoutes"] ?? seed.context["candidateRoutes"] { return rows }
-            return []
-        }()
-        for route in routes {
-            guard case .object(let row) = route, case .array(let zones)? = row["planningHazards"] else { continue }
-            for zoneValue in zones {
-                guard case .object(let zone) = zoneValue else { continue }
-                let kind = (string(zone["kind"]) ?? "").lowercased()
-                if ["ob", "out_of_bounds"].contains(kind) || zone["corridorWidth_m"] != nil {
-                    unmodelled = true
-                    continue
+        var zoneValues: [JSONValue] = []
+        if case .array(let rows)? = request.context["candidateRoutes"] ?? seed.context["candidateRoutes"] {
+            for route in rows {
+                if case .object(let row) = route, case .array(let zones)? = row["planningHazards"] {
+                    zoneValues += zones
                 }
-                guard ["water", "water_edge", "water_hazard"].contains(kind),
-                      let clear = number(zone["carryToClear_m"]) else { continue }
-                let front = number(zone["carryToFront_m"]) ?? clear - (kind == "water" ? 20 : 18)
-                water.append((max(0, min(front, clear)), max(0, max(front, clear))))
             }
+        }
+        // Typed hazards a repaired installed seed carried over (`mergeInstalledSeed`).
+        if case .array(let zones)? = request.context["routePlanningHazards"] ?? seed.context["routePlanningHazards"] {
+            zoneValues += zones
+        }
+        for zoneValue in zoneValues {
+            guard case .object(let zone) = zoneValue else { continue }
+            let kind = (string(zone["kind"]) ?? "").lowercased()
+            if ["ob", "out_of_bounds"].contains(kind) || zone["corridorWidth_m"] != nil {
+                unmodelled = true
+                continue
+            }
+            guard ["water", "water_edge", "water_hazard"].contains(kind),
+                  let clear = number(zone["carryToClear_m"]) else { continue }
+            let front = number(zone["carryToFront_m"]) ?? clear - (kind == "water" ? 20 : 18)
+            water.append((max(0, min(front, clear)), max(0, max(front, clear))))
         }
         return (water, unmodelled)
     }
