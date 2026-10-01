@@ -3623,7 +3623,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("selectedOption: selectedRow", evaluator)
         # Offline evaluation publishes the same multi-route contract as the online decision;
         # stock is selected separately rather than collapsing every option into one legacy row.
-        self.assertIn("let sequenceRows = seed.offlineOptions.compactMap", evaluator)
+        # After whole-hole filtering only the options that still have a route are offered, and
+        # the selected option is realigned to a surviving route (server _align_selected_sequence).
+        self.assertIn("let offeredOptions = planning.filtered && !viable.isEmpty ? viable : seed.offlineOptions", evaluator)
+        self.assertIn("let sequenceRows = offeredOptions.compactMap", evaluator)
+        self.assertIn("let optionRows = offeredOptions.map", evaluator)
         self.assertIn("sequences: sequenceRows", evaluator)
         self.assertIn("let selectedSequence: [String: JSONValue]?", evaluator)
         self.assertIn("selectedSequence: selectedSequence", evaluator)
