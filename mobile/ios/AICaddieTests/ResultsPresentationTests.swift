@@ -104,4 +104,116 @@ final class ResultsPresentationTests: XCTestCase {
         XCTAssertEqual(analysis.focus?.title, "攻果岭偏长")
         XCTAssertEqual(ResultsPresentation.analysis(try stats("{}")), ResultsPresentation.Analysis(focus: nil, rows: []))
     }
+
+    // MARK: 表现分析 load state (Codex review of #364, P1)
+
+    func testASwitchedWindowNeverShowsTheOldWindowsDataAndOnlyItsOwnRequestWritesBack() throws {
+        let twenty = try stats(#"{"summary":{"totalRounds":20}}"#)
+        let ten = try stats(#"{"summary":{"totalRounds":10}}"#)
+        let year = try stats(#"{"summary":{"totalRounds":31}}"#)
+        var state = AnalysisLoadState()
+        let first = state.currentRequest
+        XCTAssertEqual(first, AnalysisLoadState.Request(window: "last20", generation: 0))
+        XCTAssertTrue(state.complete(first, stats: twenty))
+        XCTAssertEqual(state.phase, .loaded(twenty))
+
+        // Switching shows loading at once: the 20-round numbers are gone under the "10 场" label.
+        let toTen = state.select("last10")
+        XCTAssertEqual(state.window, "last10")
+        XCTAssertEqual(state.phase, .loading)
+        // A fast second switch: the 10-round answer arrives late and is ignored.
+        let toYear = state.select("12m")
+        XCTAssertFalse(state.complete(toTen, stats: ten))
+        XCTAssertEqual(state.phase, .loading)
+        XCTAssertTrue(state.complete(toYear, stats: year))
+        XCTAssertEqual(state.phase, .loaded(year))
+        // An out-of-order stale answer after the current one cannot overwrite it either.
+        XCTAssertFalse(state.complete(toTen, stats: ten))
+        XCTAssertEqual(state.phase, .loaded(year))
+    }
+
+    func testAFailedWindowIsAFailureNotTheOldWindowsNumbers() throws {
+        var state = AnalysisLoadState()
+        XCTAssertTrue(state.complete(state.currentRequest, stats: try stats(#"{"summary":{"totalRounds":20}}"#)))
+        let toTen = state.select("last10")
+        XCTAssertTrue(state.complete(toTen, stats: nil))
+        XCTAssertEqual(state.window, "last10")
+        guard case .failed = state.phase else { return XCTFail("a failed 10-round request is a failure") }
+    }
+
+    func testARefreshInvalidatesTheCurrentWindowAndItsComparisonTogether() throws {
+        let before = try stats(#"{"summary":{"totalRounds":10},"previous":{"window":"prev10","roundCount":10,"scoring":{}}}"#)
+        let after = try stats(#"{"summary":{"totalRounds":10}}"#)
+        var state = AnalysisLoadState(window: "last10")
+        let first = state.currentRequest
+        XCTAssertTrue(state.complete(first, stats: before))
+        let refresh = state.refresh()
+        XCTAssertEqual(refresh, AnalysisLoadState.Request(window: "last10", generation: 1))
+        XCTAssertEqual(state.phase, .loading, "the stale window and its baseline are both gone")
+        // The pre-refresh request answering late is ignored; the refreshed one wins.
+        XCTAssertFalse(state.complete(first, stats: before))
+        XCTAssertTrue(state.complete(refresh, stats: after))
+        guard case .loaded(let loaded) = state.phase else { return XCTFail("refreshed stats load") }
+        XCTAssertNil(ResultsPresentation.baseline(loaded), "the refreshed response has no previous period")
+        XCTAssertNotNil(ResultsPresentation.baseline(before))
+    }
+
+    func testEachWindowComparesWithItsOwnPreviousPeriod() {
+        XCTAssertEqual(AnalysisLoadState.windows.map(\.id), ["last10", "last20", "12m", "all"])
+        XCTAssertEqual(AnalysisLoadState.comparisonLabel("last10"), "和前 10 场比")
+        XCTAssertEqual(AnalysisLoadState.comparisonLabel("last20"), "和前 20 场比")
+        XCTAssertEqual(AnalysisLoadState.comparisonLabel("12m"), "和前一年比")
+        XCTAssertNil(AnalysisLoadState.comparisonLabel("all"))
+    }
+
+    func testAnalysisDeltasAreAgainstThePreviousPeriodTheResponseCarries() throws {
+        // Prototype 近 10 场: tee hit 51 vs the 10 before at 52 -> ↓ 1%.
+        let current = try stats(#"""
+        {"scoring":{"teeDirection":{"recorded":100,"hit":51,"left":22,"right":27}},
+         "previous":{"window":"prev10","roundCount":10,"scoring":{"teeDirection":{"recorded":100,"hit":52,"left":24,"right":24}}}}
+        """#)
+        let analysis = ResultsPresentation.analysis(current, baseline: ResultsPresentation.baseline(current))
+        XCTAssertEqual(analysis.rows.first?.delta, ResultsPresentation.Delta(text: "↓ 1%", isBetter: false))
+    }
+
+    // MARK: 成绩 landing states (Codex review of #364)
+
+    func testTheLandingNeverCallsAnUnansweredFirstLoadEmpty() throws {
+        let loaded = try stats(#"{"summary":{"totalRounds":3}}"#)
+        let archive = try JSONDecoder().decode(HistoryRoundsArchive.self, from: Data(#"{"total":3,"groups":[]}"#.utf8))
+        let noRounds = try stats(#"{"summary":{"totalRounds":0}}"#)
+        let noArchive = try JSONDecoder().decode(HistoryRoundsArchive.self, from: Data(#"{"total":0,"groups":[]}"#.utf8))
+        typealias P = ResultsPresentation
+        XCTAssertEqual(P.landingPhase(stats: nil, archive: nil, isLoading: true, errorText: nil), .loading)
+        XCTAssertEqual(P.landingPhase(stats: nil, archive: nil, isLoading: false, errorText: "生涯与趋势、球局档案暂时取不到"),
+                       .failed("生涯与趋势、球局档案暂时取不到"))
+        XCTAssertEqual(P.landingPhase(stats: loaded, archive: archive, isLoading: true, errorText: nil),
+                       .content(notice: nil, refreshing: true), "cached content stays while it refreshes")
+        XCTAssertEqual(P.landingPhase(stats: loaded, archive: nil, isLoading: false, errorText: "球局档案暂时取不到"),
+                       .content(notice: "球局档案暂时取不到", refreshing: false))
+        XCTAssertEqual(P.landingPhase(stats: noRounds, archive: noArchive, isLoading: false, errorText: nil), .empty)
+        // Zero rounds while one side is still loading is not yet "empty".
+        XCTAssertEqual(P.landingPhase(stats: noRounds, archive: nil, isLoading: true, errorText: nil),
+                       .content(notice: nil, refreshing: true))
+    }
+
+    // MARK: 成绩分布 · 按 Par (Codex review of #364)
+
+    func testAParRowShowsMissingFieldsAsMissingNotZero() throws {
+        let rows = try JSONDecoder().decode([StatsByPar].self, from: Data(#"""
+        [{"par":3,"holeCount":4,"averageToPar":0.62,"parOrBetterPct":38},
+         {"par":4,"averageToPar":0.44},
+         {"par":5,"holeCount":4}]
+        """#.utf8))
+        let three = ResultsPresentation.parRow(rows[0], maxOver: 0.62)
+        XCTAssertEqual(three.title, "Par 3")
+        XCTAssertEqual(three.overPar, "+0.62")
+        XCTAssertEqual(three.detail, "4 洞 · 保帕率 38%")
+        XCTAssertEqual(try XCTUnwrap(three.fraction), 0.8, accuracy: 1e-9)
+        XCTAssertEqual(ResultsPresentation.parRow(rows[1], maxOver: 0.62).detail, "", "no 0 洞, no 保帕率 0%")
+        let five = ResultsPresentation.parRow(rows[2], maxOver: 0.62)
+        XCTAssertEqual(five.overPar, "—")
+        XCTAssertNil(five.fraction)
+        XCTAssertEqual(five.detail, "4 洞")
+    }
 }

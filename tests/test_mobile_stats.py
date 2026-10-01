@@ -147,6 +147,17 @@ class BuildMobileStatsTests(unittest.TestCase):
         short = build_mobile_stats({"scoring": {"roundSequences": rows[:3]}})
         self.assertEqual(short["scoring"]["roundSequences"], rows[:3])
 
+    def test_previous_block_is_the_compact_phase_scoring_or_none(self) -> None:
+        from ai_caddie.history.mobile_stats import build_mobile_previous
+
+        prev = build_mobile_previous({"summary": {"totalRounds": 10}, "scoring": {
+            "teeDirection": {"hit": 5, "holeRefs": ["x"]}, "putting": {"averagePutts": 1.9},
+            "roundSequences": [{"roundId": "r"}]}}, "prev10")
+        self.assertEqual(prev, {"window": "prev10", "roundCount": 10, "scoring": {
+            "teeDirection": {"hit": 5}, "putting": {"averagePutts": 1.9}}})
+        self.assertIsNone(build_mobile_previous({"summary": {"totalRounds": 0}}, "prev10"))
+        self.assertIsNone(build_mobile_previous({}, "prev12m"))
+
     def test_tolerates_missing_sections(self) -> None:
         out = build_mobile_stats({"schema": "x"})
         self.assertEqual(out["summary"], {})
@@ -174,6 +185,17 @@ class MobileStatsEndpointTests(unittest.TestCase):
                 response = client.get(f"/api/v2/history/stats/mobile?window={window}")
                 self.assertEqual(response.status_code, 200, window)
                 self.assertEqual(response.json()["schema"], "ai-caddie-mobile-stats-v1")
+            # B5 表现分析 "和之前比": a narrow window carries its previous comparable period in the
+            # same response (or null when that period has no rounds); ``all`` has none.
+            self.assertIsNone(client.get("/api/v2/history/stats/mobile?window=all").json().get("previous"))
+            for window, previous in (("last10", "prev10"), ("last20", "prev20"), ("12m", "prev12m")):
+                body = client.get(f"/api/v2/history/stats/mobile?window={window}").json()
+                self.assertIn("previous", body)
+                if body["previous"] is not None:
+                    self.assertEqual(body["previous"]["window"], previous)
+                    self.assertGreater(body["previous"]["roundCount"], 0)
+                    self.assertTrue(set(body["previous"]["scoring"]) <= {
+                        "teeDirection", "approachMiss", "scrambling", "putting", "phaseStats"})
             # invalid windows are rejected by the same regex the full endpoint uses
             self.assertEqual(client.get("/api/v2/history/stats/mobile?window=bogus").status_code, 422)
 

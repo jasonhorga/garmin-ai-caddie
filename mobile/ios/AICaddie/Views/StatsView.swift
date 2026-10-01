@@ -3,18 +3,15 @@ import Foundation
 import SwiftUI
 
 /// 表现分析 (README §9, `stats.html` 2): no charts and no cards. One "最该练" line, then the four
-/// phases written the same way — a big number, how it compares with the player's whole history,
+/// phases written the same way — a big number, how it compares with the previous comparable period,
 /// and one split bar (good segment green, most common miss yellow, the rest grey).
 public struct StatsView: View {
     public let apiBaseURL: URL?
     public let adminToken: String?
 
-    @State private var stats: MobileStats?
-    /// The whole history, the comparison for every narrower window.
-    @State private var baseline: MobileStats?
-    @State private var isLoading = true
-    @State private var errorText: String?
-    @State private var window = "last20"
+    /// Window, its stats (with their previous period) and loading / failure, committed together.
+    @State private var load = AnalysisLoadState()
+    @State private var inFlight: Task<Void, Never>?
 
     public init(apiBaseURL: URL? = nil, adminToken: String? = nil) {
         self.apiBaseURL = apiBaseURL
@@ -23,94 +20,101 @@ public struct StatsView: View {
 
     public var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                Picker("统计范围", selection: $window) {
-                    ForEach(StatsContent.windows) { option in
-                        Text(option.title).tag(option.key)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("analysis-window")
-                .padding(.bottom, 16)
-                StatsContent(stats: stats, baseline: window == "all" ? nil : baseline,
-                             isLoading: isLoading, errorText: errorText)
-            }
-            .padding(16)
+            AnalysisPageContent(
+                window: Binding(get: { load.window }, set: { start(load.select($0)) }),
+                state: load
+            )
         }
         .background(Color.white)
         .navigationTitle("表现分析")
-        .task(id: window) { await load() }
+        .task { start(load.currentRequest) }
+        .onDisappear { inFlight?.cancel() }
         .onReceive(NotificationCenter.default.publisher(for: .garminDataDidRefresh)) { _ in
-            Task { await load() }
+            start(load.refresh())
         }
     }
 
-    @MainActor
-    private func load() async {
-        guard let apiBaseURL else { isLoading = false; errorText = "未配置后端地址"; return }
-        isLoading = true
-        errorText = nil
-        let client = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
-        do {
-            stats = try await client.fetchMobileStats(window: window)
-            if window == "all" {
-                baseline = stats
-            } else if baseline == nil {
-                baseline = try? await client.fetchMobileStats(window: "all")
-            }
-        } catch {
-            errorText = "统计暂时取不到(网络或数据)"
+    /// One request per window selection / refresh; only the current generation may write back.
+    private func start(_ request: AnalysisLoadState.Request) {
+        inFlight?.cancel()
+        guard let apiBaseURL else {
+            load.complete(request, stats: nil)
+            return
         }
-        isLoading = false
+        let client = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
+        inFlight = Task { @MainActor in
+            let stats = try? await client.fetchMobileStats(window: request.window)
+            guard !Task.isCancelled else { return }
+            load.complete(request, stats: stats)
+        }
+    }
+}
+
+/// The 表现分析 page for one load state: the window picker and that window's content. Pure, so
+/// the design snapshots render the real page including its picker.
+struct AnalysisPageContent: View {
+    @Binding var window: String
+    let state: AnalysisLoadState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Picker("统计范围", selection: $window) {
+                ForEach(AnalysisLoadState.windows) { option in
+                    Text(option.title).tag(option.id)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("analysis-window")
+            .padding(.bottom, 16)
+            switch state.phase {
+            case .loading:
+                ProgressView("载入统计…").frame(maxWidth: .infinity).padding(.top, 40)
+            case .failed(let message):
+                VStack(spacing: 8) {
+                    Image(systemName: "chart.bar.xaxis").font(.title).foregroundStyle(.secondary)
+                    Text(message).font(.subheadline).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 40)
+                .accessibilityIdentifier("analysis-failed")
+            case .loaded(let stats):
+                StatsContent(
+                    stats: stats,
+                    baseline: ResultsPresentation.baseline(stats),
+                    comparison: AnalysisLoadState.comparisonLabel(state.window)
+                )
+            }
+        }
+        .padding(16)
     }
 }
 
 struct StatsContent: View {
-    let stats: MobileStats?
+    let stats: MobileStats
     var baseline: MobileStats? = nil
-    let isLoading: Bool
-    let errorText: String?
-
-    struct Window: Identifiable {
-        var id: String { key }
-        let key: String
-        let title: String
-    }
-
-    static let windows = [
-        Window(key: "last10", title: "10 场"), Window(key: "last20", title: "20 场"),
-        Window(key: "12m", title: "近一年"), Window(key: "all", title: "全部"),
-    ]
+    /// What ↑ / ↓ compare against ("和前 10 场比"); nil for 全部.
+    var comparison: String? = nil
 
     private static let good = LiveHoleStyle.green
     private static let warn = HubStyle.bogey
 
     var body: some View {
-        if let stats {
-            let analysis = ResultsPresentation.analysis(stats, baseline: baseline)
-            VStack(alignment: .leading, spacing: 0) {
-                focus(analysis.focus)
-                ForEach(analysis.rows) { row in
-                    phaseRow(row)
-                }
-                if analysis.rows.isEmpty {
-                    Text("这段时间还没有记录开球、攻果岭、救球或推杆")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                        .padding(.vertical, 30)
-                }
-                if baseline != nil {
-                    Text("↑ ↓ 和全部球局比")
-                        .font(.caption2).foregroundStyle(.tertiary)
-                        .padding(.top, 14)
-                }
+        let analysis = ResultsPresentation.analysis(stats, baseline: baseline)
+        VStack(alignment: .leading, spacing: 0) {
+            focus(analysis.focus)
+            ForEach(analysis.rows) { row in
+                phaseRow(row)
             }
-        } else if isLoading {
-            ProgressView("载入统计…").frame(maxWidth: .infinity).padding(.top, 40)
-        } else {
-            VStack(spacing: 8) {
-                Image(systemName: "chart.bar.xaxis").font(.title).foregroundStyle(.secondary)
-                Text(errorText ?? "暂无统计").font(.subheadline).foregroundStyle(.secondary)
-            }.frame(maxWidth: .infinity).padding(.vertical, 40)
+            if analysis.rows.isEmpty {
+                Text("这段时间还没有记录开球、攻果岭、救球或推杆")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .padding(.vertical, 30)
+            }
+            if let comparison {
+                Text(baseline == nil ? "前一段没有球局，暂不比较" : "↑ ↓ \(comparison)")
+                    .font(.caption2).foregroundStyle(.tertiary)
+                    .padding(.top, 14)
+                    .accessibilityIdentifier("analysis-comparison")
+            }
         }
     }
 

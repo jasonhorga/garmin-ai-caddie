@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 
 from ai_caddie.history.history import OWNER_ID
-from ai_caddie.history.mobile_stats import build_mobile_stats
+from ai_caddie.history.mobile_stats import PREVIOUS_WINDOW, build_mobile_previous, build_mobile_stats
 from ai_caddie.history.stats_cache import cached_build_history_stats, cached_load_history_data
 
 from .data_source import load_history_data_for_mode
@@ -81,17 +81,25 @@ def load_mobile_stats_response(window: str = "all", *, player_id: str = OWNER_ID
     returns the raw dict so ``build_mobile_stats`` slices it with no second Pydantic pass.
     """
     data, mode = load_history_data_for_mode(player_id=player_id)
-    stats = cached_build_history_stats(
-        data,
-        data_mode=mode,
-        player_id=player_id,
-        annotations_root=ANNOTATION_ROOT,
-        weather_root=WEATHER_ROOT,
-        reports_root=REPORTS_ROOT,
-        decision_audit_root=DECISION_AUDIT_ROOT,
-        window=window,
-    )
-    return MobileStatsResponse(**build_mobile_stats(stats))
+
+    def build(selected: str) -> dict:
+        return cached_build_history_stats(
+            data,
+            data_mode=mode,
+            player_id=player_id,
+            annotations_root=ANNOTATION_ROOT,
+            weather_root=WEATHER_ROOT,
+            reports_root=REPORTS_ROOT,
+            decision_audit_root=DECISION_AUDIT_ROOT,
+            window=selected,
+        )
+
+    payload = build_mobile_stats(build(window))
+    # 表现分析 "和之前比": the previous comparable period rides in the same response (one RTT).
+    previous_window = PREVIOUS_WINDOW.get(window)
+    if previous_window is not None:
+        payload["previous"] = build_mobile_previous(build(previous_window), previous_window)
+    return MobileStatsResponse(**payload)
 
 
 def warm_stats_cache(player_id: str = OWNER_ID) -> None:

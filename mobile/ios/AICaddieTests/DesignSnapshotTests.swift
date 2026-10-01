@@ -1548,7 +1548,7 @@ final class DesignSnapshotTests: XCTestCase {
         // fixture: 21 scored 18-hole rounds (the landing shows the newest 20 with the 10-round
         // average), the B0 putting buckets and scrambling, and a whole-history analysis baseline.
         let statsJSON = """
-        {"summary":{"totalRounds":423,"courseCount":11,"average18":92.4,"median18":92,"recent10Average":88.4,"bestScore":82,"worstScore":106,"handicapEstimate":18.2,"handicapTrend":-1.4},\
+        {"summary":{"totalRounds":423,"courseCount":11,"average18":92.4,"median18":92,"recent10Average":88.4,"bestScore":82,"worstScore":106,"handicapEstimate":18.2,"handicapTrend":-0.8,"handicapChangeRecent20":-1.4},\
         "trend":{"points":[\
         {"date":"2026-04-01","score":95,"toPar":23,"roundId":"t-00"},\
         {"date":"2026-04-06","score":91,"toPar":19,"roundId":"t-01"},\
@@ -1574,7 +1574,7 @@ final class DesignSnapshotTests: XCTestCase {
         "scoring":{"outcomes":{"eagleOrBetter":1,"birdie":40,"par":300,"bogey":250,"doubleOrWorse":120},\
         "outcomeDistribution":[{"key":"eagleOrBetter","label":"Eagle+","count":1,"pct":0.5},{"key":"birdie","label":"Birdie","count":40,"pct":6.5},{"key":"par","label":"Par","count":300,"pct":43.5},{"key":"bogey","label":"Bogey","count":250,"pct":35.2},{"key":"double","label":"Double","count":70,"pct":10.2},{"key":"triple","label":"Triple","count":20,"pct":2.8},{"key":"quadPlus","label":"+4 or worse","count":10,"pct":1.4}],\
         "scoreBands":[{"label":"80s","count":42},{"label":"90s","count":171},{"label":"100+","count":93}],\
-        "byPar":[{"par":3,"averageToPar":0.62,"parOrBetterPct":38},{"par":4,"averageToPar":0.44,"parOrBetterPct":42},{"par":5,"averageToPar":0.21,"parOrBetterPct":55},{"par":6,"averageToPar":1.1,"parOrBetterPct":10}],\
+        "byPar":[{"par":3,"holeCount":4,"averageToPar":0.62,"parOrBetterPct":38},{"par":4,"holeCount":10,"averageToPar":0.44,"parOrBetterPct":42},{"par":5,"holeCount":4,"averageToPar":0.21,"parOrBetterPct":55},{"par":6,"averageToPar":1.1,"parOrBetterPct":10}],\
         "phaseStats":[{"phase":"Tee","fairwaysRecorded":180,"fairwaysHit":102,"fairwayMissLeft":46,"fairwayMissRight":32,"coverage":{"ready":180,"total":240,"pct":75}},\
         {"phase":"Approach","girRecorded":300,"gir":99,"missedGir":201,"girPct":33,"coverage":{"ready":300,"total":360,"pct":83.3}},\
         {"phase":"Short Game","roughOrBunkerShots":74,"coverage":{"ready":74,"total":520,"pct":14.2}},\
@@ -1623,27 +1623,63 @@ final class DesignSnapshotTests: XCTestCase {
             },
             named: "results-distribution"
         )
-        try captureScreen(
-            NavigationStack {
-                ScrollView {
-                    ResultsLandingContent(stats: mobileStats, archive: historyArchive, errorText: nil)
-                }
-                .background(HubStyle.grouped)
-                .navigationTitle("成绩")
-            },
-            named: "results-landing"
+        // 成绩 in its four load states (Codex review of #364): loaded, first load with nothing
+        // cached (no "暂无成绩", no invented 0), a cached page refreshing, a failed archive
+        // beside loaded stats, and a genuinely empty history.
+        let emptyStats = try JSONDecoder().decode(MobileStats.self, from: Data(#"{"summary":{"totalRounds":0}}"#.utf8))
+        let emptyArchive = try JSONDecoder().decode(HistoryRoundsArchive.self, from: Data(#"{"total":0,"groups":[]}"#.utf8))
+        let landingStates: [(String, MobileStats?, HistoryRoundsArchive?, String?, Bool)] = [
+            ("results-landing", mobileStats, historyArchive, nil, false),
+            ("results-landing-loading", nil, nil, nil, true),
+            ("results-landing-refreshing", mobileStats, historyArchive, nil, true),
+            ("results-landing-partial-error", mobileStats, nil, "球局档案暂时取不到", false),
+            ("results-landing-empty", emptyStats, emptyArchive, nil, false),
+        ]
+        for (name, stats, archive, error, loading) in landingStates {
+            try captureScreen(
+                NavigationStack {
+                    ScrollView {
+                        ResultsLandingContent(stats: stats, archive: archive, errorText: error, isLoading: loading)
+                    }
+                    .background(HubStyle.grouped)
+                    .navigationTitle("成绩")
+                },
+                named: name
+            )
+        }
+        // 表现分析: the real page with its window picker. Default 20 场 (↑ ↓ against the 20 before),
+        // then switched to 10 场 with that window's own numbers and comparison.
+        let analysisStats = MobileStats(
+            summary: mobileStats.summary, scoring: mobileStats.scoring,
+            previous: MobileStatsPrevious(window: "prev20", roundCount: 20, scoring: baselineStats.scoring)
         )
-        try captureScreen(
-            NavigationStack {
-                ScrollView {
-                    StatsContent(stats: mobileStats, baseline: baselineStats, isLoading: false, errorText: nil)
-                        .padding(16)
-                }
-                .background(Color.white)
-                .navigationTitle("表现分析")
-            },
-            named: "results-analysis"
-        )
+        var analysisState = AnalysisLoadState()
+        analysisState.complete(analysisState.currentRequest, stats: analysisStats)
+        XCTAssertEqual(analysisState.window, "last20")
+        let tenJSON = """
+        {"summary":{"totalRounds":10},"scoring":{"teeDirection":{"recorded":140,"hit":71,"left":40,"right":29},\
+        "approachMiss":{"recorded":180,"gir":50,"short":64,"long":20,"left":24,"right":22},\
+        "scrambling":{"chances":130,"saves":34,"pct":26.2},\
+        "putting":{"averagePutts":1.95,"holesWithPutts":180,"onePuttPct":18,"twoPuttPct":64,"threePlusPuttPct":18}},\
+        "previous":{"window":"prev10","roundCount":10,"scoring":{"teeDirection":{"recorded":140,"hit":66},\
+        "approachMiss":{"recorded":180,"gir":54},"scrambling":{"chances":130,"saves":31,"pct":23.8},\
+        "putting":{"averagePutts":1.9,"holesWithPutts":180}}}}
+        """
+        var tenState = analysisState
+        let tenRequest = tenState.select("last10")
+        tenState.complete(tenRequest, stats: try JSONDecoder().decode(MobileStats.self, from: Data(tenJSON.utf8)))
+        for (name, state) in [("results-analysis", analysisState), ("results-analysis-10", tenState)] {
+            try captureScreen(
+                NavigationStack {
+                    ScrollView {
+                        AnalysisPageContent(window: .constant(state.window), state: state)
+                    }
+                    .background(Color.white)
+                    .navigationTitle("表现分析")
+                },
+                named: name
+            )
+        }
         // 球场钻取(round-10):各九洞组合 + 所有比赛(时间·成绩,点单场看复盘)。
         if let course = mobileStats.courses.first {
             try captureScreen(NavigationStack { CourseStatsDetailView(course: course) }, named: "course-detail")

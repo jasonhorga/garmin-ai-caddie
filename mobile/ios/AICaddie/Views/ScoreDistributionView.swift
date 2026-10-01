@@ -130,25 +130,30 @@ struct ScoreDistributionContent: View {
 
     // MARK: 按 Par
 
+    /// A missing field shows as missing (`—` / left out), never as 0 (`ResultsPresentation.parRow`).
     private func parRow(_ row: StatsByPar, maxOver: Double) -> some View {
-        let over = row.averageToPar ?? 0
+        let text = ResultsPresentation.parRow(row, maxOver: maxOver)
         return HStack(spacing: 12) {
-            Text("Par \(row.par ?? 0)").font(.subheadline.weight(.bold)).frame(width: 52, alignment: .leading)
+            Text(text.title).font(.subheadline.weight(.bold)).frame(width: 52, alignment: .leading)
             VStack(alignment: .leading, spacing: 4) {
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.primary.opacity(0.08))
-                        Capsule().fill(HubStyle.bogey)
-                            .frame(width: proxy.size.width * CGFloat(max(0, over) / max(maxOver * 1.25, 0.01)))
+                        if let fraction = text.fraction {
+                            Capsule().fill(HubStyle.bogey)
+                                .frame(width: proxy.size.width * CGFloat(min(1, fraction)))
+                        }
                     }
                 }
                 .frame(height: 8)
-                Text("\(row.holeCount ?? 0) 洞 · 保帕率 \(row.parOrBetterPct.map(percentText) ?? "—")")
-                    .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                if !text.detail.isEmpty {
+                    Text(text.detail).font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                }
             }
-            Text(String(format: "%+.2f", over)).font(.headline).monospacedDigit()
+            Text(text.overPar).font(.headline).monospacedDigit()
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("distribution-par-\(row.par.map(String.init) ?? "unknown")")
         .hubCard(padding: 12)
     }
 

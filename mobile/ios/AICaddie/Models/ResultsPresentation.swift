@@ -265,3 +265,136 @@ enum ResultsPresentation {
         return Delta(text: "\(change > 0 ? "↑" : "↓") \(Int(abs(change)))%", isBetter: change > 0)
     }
 }
+
+// MARK: - 表现分析 loading
+
+/// The 表现分析 page's state, committed atomically (Codex review of #364): the selected window,
+/// that window's stats (which carry their own previous period) and loading / failure always
+/// describe the same window. A response is applied only to the request generation that is still
+/// current, so a slow earlier request can never overwrite a newer selection or a refresh, and a
+/// failed request never leaves the previous window's numbers under the new window's label.
+struct AnalysisLoadState: Equatable {
+    enum Phase: Equatable {
+        case loading
+        case loaded(MobileStats)
+        case failed(String)
+    }
+
+    struct Request: Equatable {
+        let window: String
+        let generation: Int
+    }
+
+    private(set) var window: String
+    private(set) var phase: Phase = .loading
+    private(set) var generation = 0
+
+    init(window: String = "last20") {
+        self.window = window
+    }
+
+    /// The request that loads the current window (the first appearance).
+    var currentRequest: Request { Request(window: window, generation: generation) }
+
+    /// Choose a window: its data is unknown until its own request answers.
+    mutating func select(_ newWindow: String) -> Request {
+        window = newWindow
+        return restart()
+    }
+
+    /// New data arrived (Garmin refresh): the current window and its comparison are both stale.
+    mutating func refresh() -> Request { restart() }
+
+    /// Apply a response; `stats == nil` is a failure. Returns false when the request is no longer
+    /// the current one (it is ignored).
+    @discardableResult
+    mutating func complete(_ request: Request, stats: MobileStats?) -> Bool {
+        guard request.generation == generation, request.window == window else { return false }
+        phase = stats.map(Phase.loaded) ?? .failed("统计暂时取不到(网络或数据)")
+        return true
+    }
+
+    private mutating func restart() -> Request {
+        generation += 1
+        phase = .loading
+        return currentRequest
+    }
+
+    struct WindowOption: Identifiable, Equatable {
+        /// The `/stats/mobile` window key.
+        let id: String
+        let title: String
+        /// What ↑ / ↓ compare against (nil for 全部).
+        let comparison: String?
+    }
+
+    static let windows = [
+        WindowOption(id: "last10", title: "10 场", comparison: "和前 10 场比"),
+        WindowOption(id: "last20", title: "20 场", comparison: "和前 20 场比"),
+        WindowOption(id: "12m", title: "近一年", comparison: "和前一年比"),
+        WindowOption(id: "all", title: "全部", comparison: nil),
+    ]
+
+    static func comparisonLabel(_ window: String) -> String? {
+        windows.first { $0.id == window }?.comparison
+    }
+}
+
+extension ResultsPresentation {
+    /// The previous comparable period as a baseline for `analysis` (nil when the response has none).
+    static func baseline(_ stats: MobileStats) -> MobileStats? {
+        stats.previous?.scoring.map { MobileStats(scoring: $0) }
+    }
+
+    // MARK: 成绩 landing state
+
+    enum LandingPhase: Equatable {
+        /// Nothing cached and the first requests have not answered: never "暂无成绩".
+        case loading
+        /// Both requests answered and there is not one round.
+        case empty
+        /// Nothing could be loaded.
+        case failed(String)
+        /// Something to show; `notice` names a section that failed, `refreshing` a cached page
+        /// being refreshed.
+        case content(notice: String?, refreshing: Bool)
+    }
+
+    static func landingPhase(stats: MobileStats?, archive: HistoryRoundsArchive?, isLoading: Bool,
+                             errorText: String?) -> LandingPhase {
+        guard stats != nil || archive != nil else {
+            if isLoading { return .loading }
+            return errorText.map(LandingPhase.failed) ?? .empty
+        }
+        let rounds = max(stats?.summary?.totalRounds ?? 0, archive?.total ?? 0,
+                         archive?.groups.reduce(0) { $0 + $1.rounds.count } ?? 0)
+        if rounds == 0, !isLoading, errorText == nil, stats != nil, archive != nil { return .empty }
+        return .content(notice: errorText, refreshing: isLoading)
+    }
+
+    // MARK: 成绩分布 · 按 Par
+
+    struct ParRowText: Equatable {
+        let title: String
+        /// "+0.62"; "—" when the average is missing.
+        let overPar: String
+        /// "288 洞 · 保帕率 48%", with each missing part left out.
+        let detail: String
+        /// 0…1 of the bar; nil draws no bar.
+        let fraction: Double?
+    }
+
+    /// One Par row; a missing field is shown as missing, never as 0 (IMPLEMENTATION_PLAN B5).
+    static func parRow(_ row: StatsByPar, maxOver: Double) -> ParRowText {
+        let parts = [
+            row.holeCount.map { "\($0) 洞" },
+            row.parOrBetterPct.map { "保帕率 \(Int($0.rounded()))%" },
+        ].compactMap { $0 }
+        return ParRowText(
+            title: "Par \(row.par.map(String.init) ?? "—")",
+            overPar: row.averageToPar.map { String(format: "%+.2f", $0) } ?? "—",
+            detail: parts.joined(separator: " · "),
+            fraction: row.averageToPar.map { max(0, $0) / max(maxOver * 1.25, 0.01) }
+        )
+    }
+}

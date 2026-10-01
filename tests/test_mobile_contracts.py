@@ -4000,9 +4000,12 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn("/api/v2/history/stats/mobile", sync_client)
         self.assertIn("struct StatsView: View", stats_view)
-        # B5 表现分析 (README §9): the selected window, compared with the whole history.
-        self.assertIn("try await client.fetchMobileStats(window: window)", stats_view)
-        self.assertIn('baseline = try? await client.fetchMobileStats(window: "all")', stats_view)
+        # B5 表现分析 (README §9): one request per window, carrying its previous comparable period
+        # (no serial whole-history request); only the current request generation writes back.
+        self.assertIn("try? await client.fetchMobileStats(window: request.window)", stats_view)
+        self.assertIn("load.complete(request, stats: stats)", stats_view)
+        self.assertNotIn('fetchMobileStats(window: "all")', stats_view)
+        self.assertIn("baseline: ResultsPresentation.baseline(stats)", stats_view)
         self.assertIn("ResultsPresentation.analysis(stats, baseline: baseline)", stats_view)
         self.assertNotIn("Picker(\"击球阶段\"", stats_view)
         # B5 成绩: handicap hero, 20-round dots + 10-round average, four entries.

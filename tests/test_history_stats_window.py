@@ -169,6 +169,36 @@ class WindowedHistoryDataTests(unittest.TestCase):
             {"101", "102", *(f"f{i}" for i in range(1, 10))},
         )
 
+    def test_previous_count_windows_are_the_rounds_right_before_the_recent_ones(self) -> None:
+        # B5 表现分析 "和之前比": prev10 = rounds 11-20 by date, prev20 = rounds 21-40.
+        rounds = [_round(f"r{i}", f"2026-{1 + (i - 1) // 28:02d}-{1 + (i - 1) % 28:02d}") for i in range(1, 46)]
+        data = HistoryData(raw_rounds=[dict(row) for row in rounds], rounds=rounds,
+                           shots=[_shot("r30"), _shot("r40")])
+        last10 = {row["id"] for row in windowed_history_data(data, "last10").rounds}
+        prev10 = {row["id"] for row in windowed_history_data(data, "prev10").rounds}
+        prev20 = {row["id"] for row in windowed_history_data(data, "prev20").rounds}
+        self.assertEqual(last10, {f"r{i}" for i in range(36, 46)})
+        self.assertEqual(prev10, {f"r{i}" for i in range(26, 36)})
+        self.assertEqual(prev20, {f"r{i}" for i in range(6, 26)})
+        self.assertEqual([s["scorecardId"] for s in windowed_history_data(data, "prev10").shots], ["r30"])
+        # Fewer rounds than the window: the previous period is empty, never the recent rounds again.
+        few = _history([_round(f"f{i}", f"2026-01-{i:02d}") for i in range(1, 8)])
+        self.assertEqual(windowed_history_data(few, "prev10").rounds, [])
+
+    def test_prev12m_is_the_year_before_the_last_year(self) -> None:
+        anchor = date(2026, 6, 1)
+        rounds = [
+            _round("new", anchor.isoformat()),
+            _round("edge-recent", (anchor - timedelta(days=365)).isoformat()),
+            _round("last-year", (anchor - timedelta(days=400)).isoformat()),
+            _round("edge-old", (anchor - timedelta(days=730)).isoformat()),
+            _round("ancient", (anchor - timedelta(days=800)).isoformat()),
+        ]
+        data = _history(rounds)
+        self.assertEqual({row["id"] for row in windowed_history_data(data, "12m").rounds}, {"new", "edge-recent"})
+        self.assertEqual({row["id"] for row in windowed_history_data(data, "prev12m").rounds},
+                         {"last-year", "edge-old"}, "no round is in both years")
+
     def test_12m_anchors_on_newest_round(self) -> None:
         anchor = date(2026, 6, 1)
         rounds = [
@@ -336,6 +366,18 @@ class HandicapEstimateTests(unittest.TestCase):
         stats_thin = build_history_stats(_history(older[1:] + recent), data_mode="fixture")
         self.assertEqual(stats_thin["summary"]["handicapEstimate"], 11.0)
         self.assertIsNone(stats_thin["summary"]["handicapTrend"])
+
+    def test_recent_twenty_change_is_now_minus_the_estimate_twenty_rounds_ago(self) -> None:
+        # B5 成绩 "差点估算 … 近 20 场": 20 newer rounds at diff 10 after 20 older rounds at diff 20.
+        older = [_rated_round(f"o{i}", f"2025-01-{i:02d}", 92) for i in range(1, 21)]
+        newer = [_rated_round(f"n{i}", f"2025-03-{i:02d}", 82) for i in range(1, 21)]
+        stats = build_history_stats(_history(older + newer), data_mode="fixture")
+        # now: the newest 20 -> diff 10 -> 9.6; 20 rounds ago: diff 20 -> 19.2.
+        self.assertEqual(stats["summary"]["handicapEstimate"], 9.6)
+        self.assertEqual(stats["summary"]["handicapChangeRecent20"], -9.6)
+        # Fewer than 5 rounds before the newest 20: no earlier estimate, no change.
+        thin = build_history_stats(_history(older[:4] + newer), data_mode="fixture")
+        self.assertIsNone(thin["summary"]["handicapChangeRecent20"])
 
     def test_estimate_falls_back_to_score_minus_par_when_unrated(self) -> None:
         # No round carries rating/slope (real Garmin exports often don't), but all

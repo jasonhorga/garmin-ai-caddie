@@ -12,9 +12,13 @@ public struct MobileStats: Codable, Equatable {
     public let courses: [StatsCourse]
     public let clubs: [StatsClub]
     public let diagnosis: StatsDiagnosis?
+    /// B5 表现分析 "和之前比": the previous comparable period's phase stats (10 vs the 10 before,
+    /// 20 vs the 20 before, the last year vs the year before); nil for 全部 or an empty period.
+    public let previous: MobileStatsPrevious?
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        previous = try? c.decodeIfPresent(MobileStatsPrevious.self, forKey: .previous)
         summary = try? c.decodeIfPresent(StatsSummary.self, forKey: .summary)
         scoring = try? c.decodeIfPresent(StatsScoring.self, forKey: .scoring)
         time = try? c.decodeIfPresent(StatsTime.self, forKey: .time)
@@ -26,7 +30,7 @@ public struct MobileStats: Codable, Equatable {
 
     public init(summary: StatsSummary? = nil, scoring: StatsScoring? = nil, time: StatsTime? = nil,
                 trend: StatsTrend? = nil, courses: [StatsCourse] = [], clubs: [StatsClub] = [],
-                diagnosis: StatsDiagnosis? = nil) {
+                diagnosis: StatsDiagnosis? = nil, previous: MobileStatsPrevious? = nil) {
         self.summary = summary
         self.scoring = scoring
         self.time = time
@@ -34,9 +38,16 @@ public struct MobileStats: Codable, Equatable {
         self.courses = courses
         self.clubs = clubs
         self.diagnosis = diagnosis
+        self.previous = previous
     }
 
-    private enum CodingKeys: String, CodingKey { case summary, scoring, time, trend, courses, clubs, diagnosis }
+    private enum CodingKeys: String, CodingKey { case summary, scoring, time, trend, courses, clubs, diagnosis, previous }
+}
+
+public struct MobileStatsPrevious: Codable, Equatable {
+    public let window: String?
+    public let roundCount: Int?
+    public let scoring: StatsScoring?
 }
 
 /// Per-round trend series (近 N 场 18 洞) for the line chart — oldest→newest.
@@ -84,6 +95,8 @@ public struct StatsSummary: Codable, Equatable {
     /// Numeric recent-vs-baseline delta from the production stats contract.
     /// Negative means the estimated handicap is improving.
     public let handicapTrend: Double?
+    /// The estimate now minus the estimate 20 rounds ago (README §9 "近 20 场"); negative = improving.
+    public let handicapChangeRecent20: Double?
 }
 
 public struct StatsScoring: Codable, Equatable {

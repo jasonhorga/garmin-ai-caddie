@@ -32,7 +32,8 @@ public struct ResultsView: View {
                 archive: archive,
                 errorText: errorText,
                 apiBaseURL: apiBaseURL,
-                adminToken: adminToken
+                adminToken: adminToken,
+                isLoading: isLoading
             )
         }
         .background(HubStyle.grouped)
@@ -102,28 +103,44 @@ struct ResultsLandingContent: View {
     let errorText: String?
     var apiBaseURL: URL? = nil
     var adminToken: String? = nil
+    /// A request is still running (first load, or a refresh behind cached content).
+    var isLoading: Bool = false
 
     /// The chart's selected x (a round index); the nearest round is shown.
     @State private var selectedTrendX: Double?
 
     var body: some View {
+        let phase = ResultsPresentation.landingPhase(stats: stats, archive: archive, isLoading: isLoading,
+                                                     errorText: errorText)
         VStack(alignment: .leading, spacing: 20) {
-            handicapHero(stats?.summary)
+            if case .content(_, true) = phase {
+                Label("正在更新…", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("results-refreshing")
+            }
+            handicapHero(stats?.summary, loading: phase == .loading)
             trendChart(ResultsPresentation.trendRows(stats?.trend?.points ?? []))
             kpiRow(stats?.summary)
             recentRounds
             entries
-            if let errorText, stats != nil || archive != nil {
-                Label(errorText, systemImage: "exclamationmark.circle")
+            switch phase {
+            case .content(let notice?, _):
+                Label(notice, systemImage: "exclamationmark.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .hubCard()
-            }
-            if stats == nil && archive == nil {
-                Text(errorText ?? "暂无成绩")
+            case .failed(let message):
+                Text(message)
                     .font(.subheadline).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity).padding(.vertical, 40).hubCard()
+            case .empty:
+                Text("暂无成绩")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity).padding(.vertical, 40).hubCard()
+                    .accessibilityIdentifier("results-empty")
+            case .loading, .content(nil, _):
+                EmptyView()
             }
         }
         .padding(16)
@@ -131,7 +148,7 @@ struct ResultsLandingContent: View {
 
     // MARK: 差点估算
 
-    private func handicapHero(_ summary: StatsSummary?) -> some View {
+    private func handicapHero(_ summary: StatsSummary?, loading: Bool) -> some View {
         HStack(alignment: .lastTextBaseline, spacing: 14) {
             VStack(alignment: .leading, spacing: 0) {
                 Text("差点估算").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
@@ -139,9 +156,9 @@ struct ResultsLandingContent: View {
                     .font(.system(size: 64, weight: .bold))
                     .monospacedDigit()
             }
-            if let change = summary?.handicapTrend {
+            if let change = summary?.handicapChangeRecent20 {
                 handicapChange(change)
-            } else if summary == nil {
+            } else if loading {
                 ProgressView().padding(.bottom, 12)
             }
             Spacer(minLength: 0)
@@ -150,14 +167,14 @@ struct ResultsLandingContent: View {
         .accessibilityIdentifier("results-handicap")
     }
 
-    /// `handicapTrend` is now minus the estimate from rounds at least 90 days older (negative =
-    /// improving).
+    /// `handicapChangeRecent20`: the estimate now minus the estimate 20 rounds ago (README §9
+    /// "近 20 场"; negative = improving).
     private func handicapChange(_ change: Double) -> some View {
         let improving = change < 0
         return HStack(spacing: 4) {
             Text(change == 0 ? "持平" : "\(improving ? "↓" : "↑") \(oneDecimal(abs(change)))")
                 .foregroundStyle(change == 0 ? Color.secondary : (improving ? LiveHoleStyle.green : HubStyle.bogey))
-            Text("比 3 个月前").foregroundStyle(.secondary).fontWeight(.medium)
+            Text("近 20 场").foregroundStyle(.secondary).fontWeight(.medium)
         }
         .font(.subheadline.weight(.bold))
         .monospacedDigit()
@@ -247,7 +264,9 @@ struct ResultsLandingContent: View {
         HStack(alignment: .top, spacing: 0) {
             kpi(summary?.recent10Average.map(oneDecimal) ?? "—", "近 10 场均杆")
             kpi(summary?.bestScore.map(String.init) ?? "—", "最佳")
-            kpi("\(summary?.totalRounds ?? archive?.total ?? 0)", "场 · \(summary?.courseCount ?? 0) 个球场")
+            // Unknown is "—", never 0: the counts appear once a request has answered.
+            kpi((summary?.totalRounds ?? archive?.total).map(String.init) ?? "—",
+                summary?.courseCount.map { "场 · \($0) 个球场" } ?? "场")
         }
     }
 

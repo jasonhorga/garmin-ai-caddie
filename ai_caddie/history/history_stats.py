@@ -595,6 +595,31 @@ def _handicap_estimate(rounds: list[dict[str, Any]]) -> float | None:
     return round(sum(lowest) / len(lowest) * 0.96, 1)
 
 
+HANDICAP_CHANGE_ROUNDS = 20
+
+
+def _handicap_change_recent(rounds: list[dict[str, Any]], count: int = HANDICAP_CHANGE_ROUNDS) -> float | None:
+    """B5 成绩 (README §9 "差点估算 … 近 20 场"): the estimate now minus the estimate as it stood
+    ``count`` differential-bearing rounds ago — i.e. over the same rounds without the newest
+    ``count``. Same estimator as ``_handicap_estimate``; None when the earlier side lacks its 5
+    rounds. Negative = improving.
+    """
+    rated = sorted(
+        (
+            (str(row.get("date") or ""), index, row)
+            for index, row in enumerate(rounds)
+            if _round_differential_or_par(row) is not None
+        ),
+        key=lambda item: (item[0], item[1]),
+        reverse=True,
+    )
+    current = _handicap_estimate([row for _day, _index, row in rated])
+    earlier = _handicap_estimate([row for _day, _index, row in rated[count:]])
+    if current is None or earlier is None:
+        return None
+    return round(current - earlier, 1)
+
+
 def _handicap_trend(rounds: list[dict[str, Any]]) -> float | None:
     """Estimate now minus the estimate from rounds dated <= anchor - 90 days.
 
@@ -644,6 +669,7 @@ def _summary(data: HistoryData) -> dict[str, Any]:
             "worstScore": max(scores18) if scores18 else None,
             "handicapEstimate": _handicap_estimate(data.rounds),
             "handicapTrend": _handicap_trend(data.rounds),
+            "handicapChangeRecent20": _handicap_change_recent(data.rounds),
             "averageDifferential": difficulty["averageDifferential"],
             "bestDifferential": difficulty["bestDifferential"],
             "recent10AverageDifferential": difficulty["recent10AverageDifferential"],
@@ -4006,6 +4032,8 @@ def windowed_history_data(data: HistoryData, window: str) -> HistoryData:
     - ``12m``: rounds dated within 365 days of the NEWEST round in the data. Anchoring
       on the data instead of the wall clock keeps the result deterministic for a given
       dataset (and cacheable by fingerprint).
+    - ``prev10`` / ``prev20`` / ``prev12m``: the comparable period right before ``last10`` /
+      ``last20`` / ``12m`` (rounds 11-20 / 21-40 by date; the year before the last year).
 
     ``shots`` and ``raw_rounds`` are filtered to the surviving rounds. Merged rounds
     (``id="merged_<a>_<b>"``) list their member ids in ``ids``. Current loaded shots
@@ -4015,19 +4043,26 @@ def windowed_history_data(data: HistoryData, window: str) -> HistoryData:
     """
     if window == "all":
         return data
-    if window in {"last10", "last20"}:
-        limit = 10 if window == "last10" else 20
+    if window in {"last10", "last20", "prev10", "prev20"}:
+        limit = 10 if window.endswith("10") else 20
+        # B5 表现分析 "和之前比": prev10 / prev20 are the 10 / 20 rounds right before last10 / last20.
+        skip = limit if window.startswith("prev") else 0
         order = sorted(range(len(data.rounds)), key=lambda i: str(data.rounds[i].get("date") or ""), reverse=True)
-        keep_indexes = set(order[:limit])
+        keep_indexes = set(order[skip:skip + limit])
         rounds = [row for index, row in enumerate(data.rounds) if index in keep_indexes]
-    elif window == "12m":
+    elif window in {"12m", "prev12m"}:
         dated = [(row, _round_window_date(row)) for row in data.rounds]
         anchor = max((day for _, day in dated if day is not None), default=None)
         if anchor is None:
-            rounds = list(data.rounds)
-        else:
+            rounds = list(data.rounds) if window == "12m" else []
+        elif window == "12m":
             cutoff = anchor - timedelta(days=365)
             rounds = [row for row, day in dated if day is not None and day >= cutoff]
+        else:
+            # The year before ``12m``: dated within (anchor - 730, anchor - 365) days.
+            newer = anchor - timedelta(days=365)
+            older = anchor - timedelta(days=730)
+            rounds = [row for row, day in dated if day is not None and older <= day < newer]
     else:
         raise ValueError(f"invalid stats window: {window}")
     keep_ids: set[str] = set()

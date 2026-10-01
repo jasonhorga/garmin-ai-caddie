@@ -93,6 +93,23 @@ def _pick(row: Any, keys: tuple[str, ...]) -> dict[str, Any]:
     return {key: row[key] for key in keys if key in row}
 
 
+# B5 表现分析 "和之前比": each narrow window compares with the comparable period right before it
+# (10 vs the 10 before, 20 vs the 20 before, the last year vs the year before); ``all`` has none.
+PREVIOUS_WINDOW = {"last10": "prev10", "last20": "prev20", "12m": "prev12m"}
+_PREVIOUS_SCORING_KEYS = ("teeDirection", "approachMiss", "scrambling", "putting", "phaseStats")
+
+
+def build_mobile_previous(stats: dict[str, Any], window: str) -> dict[str, Any] | None:
+    """The compact comparison block for ``window``'s previous period, or None when it has no
+    rounds (a delta against nothing would be invented)."""
+    summary = stats.get("summary") if isinstance(stats.get("summary"), dict) else {}
+    rounds = summary.get("totalRounds")
+    if not rounds:
+        return None
+    scoring = stats.get("scoring") if isinstance(stats.get("scoring"), dict) else {}
+    return _strip_refs({"window": window, "roundCount": rounds, "scoring": _pick(scoring, _PREVIOUS_SCORING_KEYS)})
+
+
 def _cap_round_sequences(scoring: dict[str, Any]) -> dict[str, Any]:
     """Keep the newest ``MOBILE_ROUND_SEQUENCE_LIMIT`` rows (the server lists them newest first)."""
     sequences = scoring.get("roundSequences")
