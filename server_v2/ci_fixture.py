@@ -51,12 +51,21 @@ DEGRADED_UPGRADE_SECONDS = 25.0
 # example a retried simulator run); one install's own later passes never restart the clock.
 DEGRADED_CLOCK_RESET_SECONDS = 300.0
 _DEGRADED_CLOCK: dict[str, float | None] = {"started": None}
+# The degraded course's player: a steady 3W (183-203 m) and 9I (125-139 m), and an 8I with only six
+# measured shots. Against the factual water at 105-135 m the installed Driver -> 8I chain is the
+# stock plan, and the 3W -> 9I chain is a genuinely 稳妥 whole-hole alternative from the same
+# decision authority: both clear the water across their whole p10-p90 windows in two strokes, and
+# the 3W chain's modelled risk (7 m leave + steadier clubs) is lower than the Driver chain's (its
+# thinly-sampled 8I approach), with its tee landing 16 m short of the Driver's.
 DEGRADED_BAG = (
     {"clubName": "1D", "sampleSize": 24, "median_m": 210.0, "p10_m": 195.0, "p90_m": 225.0},
+    {"clubName": "3W", "sampleSize": 24, "median_m": 194.0, "p10_m": 184.0, "p90_m": 204.0},
     {"clubName": "7I", "sampleSize": 24, "median_m": 156.0, "p10_m": 142.0, "p90_m": 168.0},
-    {"clubName": "8I", "sampleSize": 24, "median_m": 144.0, "p10_m": 132.0, "p90_m": 153.0},
-    {"clubName": "9I", "sampleSize": 24, "median_m": 132.0, "p10_m": 120.0, "p90_m": 140.0},
+    {"clubName": "8I", "sampleSize": 6, "median_m": 144.0, "p10_m": 132.0, "p90_m": 153.0},
+    {"clubName": "9I", "sampleSize": 24, "median_m": 132.0, "p10_m": 125.0, "p90_m": 139.0},
 )
+# The degraded course's per-hole seed tee options, from that bag: the Driver (stock) and the 3W.
+DEGRADED_TEE_OPTIONS = (("stock", "Stock", "1D", 3.0), ("safe", "Safe", "3W", 1.0))
 COURSE_ALIASES = {PALACE_ID: PALACE_ID, 31795: GLOBAL_ID, 31797: 31797, 3881: 3881, 31670: 31670, 31871: 31871, DEGRADED_ID: DEGRADED_ID}
 ROUND_ALIASES = {"900001": ROUND_REF, "live-31795": ROUND_REF, "live-round-1": ROUND_REF, "fixture-round-1": ROUND_REF}
 UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
@@ -209,6 +218,18 @@ def _annotate_decision_metadata(
         if isinstance(value, dict):
             annotate(value)
     return decision
+
+
+def _degraded_tee_options(seed_ref: str) -> list[dict[str, object]]:
+    bag = {row["clubName"]: row for row in DEGRADED_BAG}
+    return [
+        {"id": option_id, "label": label, "clubName": club, "carryM": bag[club]["median_m"],
+         "p10M": bag[club]["p10_m"], "p90M": bag[club]["p90_m"], "sampleSize": bag[club]["sampleSize"],
+         "confidence": "high", "coverage": {"ready": bag[club]["sampleSize"], "total": bag[club]["sampleSize"], "pct": 100.0},
+         "riskScore": risk, "source": "offline_package_seed", "sourceRefs": [seed_ref],
+         "sampleRefs": [f"{seed_ref}:{index + 1}"], "missingData": []}
+        for index, (option_id, label, club, risk) in enumerate(DEGRADED_TEE_OPTIONS)
+    ]
 
 
 def _seed_club_profiles(seed: dict[str, object]) -> dict[str, dict[str, object]]:
@@ -717,6 +738,9 @@ def _package(round_id: str, global_id: int | None, loops: list[tuple[int, str]] 
         seed["sourceRef"] = seed_ref
         seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": hole, "displayHole": hole, "globalId": source_course, "localHole": local_hole, "teeBox": requested_tee, "par": _hole_par(source_course, local_hole)})
         seed["context"].setdefault("geometry", {}).update({"coverage": "ready", "sourceGlobalId": source_course, "sourceLocalHole": local_hole})
+        if source_course == DEGRADED_ID:
+            seed["offlineOptions"] = _degraded_tee_options(seed_ref)
+            seed["selectedOfflineOptionId"] = "stock"
         club_profiles = _seed_club_profiles(seed)
         existing_profiles = seed["context"].get("clubProfiles")
         # The fixture template may carry an empty/list-shaped profile payload from an older

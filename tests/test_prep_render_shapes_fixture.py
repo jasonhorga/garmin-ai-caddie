@@ -23,6 +23,10 @@ FIXTURE = (
     / "mobile/ios/AICaddieTests/Fixtures/b4c_prep_render_shapes.json"
 )
 GLOBAL_ID = 31795
+# B4c 方案 (Codex 5925193109): the degraded course's package and its factual hole-2 prep row, which
+# `PrepDegradedPlansTests.swift` feeds to the production plan authority.
+PLAN_INPUTS = FIXTURE.with_name("b4c_degraded_plan_inputs.json")
+PLAN_ROUND_ID = "home-31798"
 
 
 def _current() -> dict:
@@ -63,6 +67,57 @@ def _resolved_map_overlay(hole: dict) -> dict | None:
         previous = local
     length = hole["route_len_m"] if hole.get("route_len_m", 0) > 0 else route[-1][2]
     return {"w": projection["widthPx"], "h": projection["heightPx"], "ppm": ppm, "ln": length, "route": route}
+
+
+def _plan_inputs() -> dict:
+    import server_v2.ci_fixture as fixture
+
+    fixture._DEGRADED_CLOCK["started"] = None
+    try:
+        package = fixture.course_package(
+            fixture.DEGRADED_ID, loops=f"{fixture.DEGRADED_ID}:front", round_id=PLAN_ROUND_ID, tee_box="blue"
+        )
+        # Within the first DEGRADED_UPGRADE_SECONDS hole 2 is the factual (partial) route.
+        prep = fixture.prep(fixture.DEGRADED_ID, holes=[2], render=False)
+    finally:
+        fixture._DEGRADED_CLOCK["started"] = None
+    return {"package": package, "prep": prep}
+
+
+class DegradedPlanInputsFixtureTests(unittest.TestCase):
+    def setUp(self) -> None:
+        try:
+            self.current = json.loads(json.dumps(_plan_inputs()))
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+
+    def test_swift_plan_inputs_are_the_fixture_servers_output(self) -> None:
+        if os.environ.get("REGENERATE_B4C_PREP_SHAPES") == "1":
+            PLAN_INPUTS.write_text(json.dumps(self.current, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        self.assertEqual(json.loads(PLAN_INPUTS.read_text()), self.current)
+
+    def test_degraded_seeds_offer_the_bags_driver_and_3w(self) -> None:
+        import server_v2.ci_fixture as fixture
+
+        bag = {row["clubName"]: row for row in self.current["package"]["clubProfiles"]}
+        self.assertEqual(bag, {row["clubName"]: row for row in fixture.DEGRADED_BAG})
+        hole = self.current["prep"]["holes"][0]
+        self.assertEqual(hole["geometryCoverage"], "partial")
+        self.assertEqual([step["clubName"] for step in hole["steps"]], ["1D", "8I"])
+        self.assertEqual(hole["hazards"]["water_carry"], [[105.0, 135.0]])
+        for seed in self.current["package"]["caddieContextSeeds"]:
+            options = {option["id"]: option for option in seed["offlineOptions"]}
+            self.assertEqual(sorted(options), ["safe", "stock"])
+            self.assertEqual(seed["selectedOfflineOptionId"], "stock")
+            for option in options.values():
+                profile = bag[option["clubName"]]
+                self.assertEqual(
+                    (option["carryM"], option["p10M"], option["p90M"], option["sampleSize"]),
+                    (profile["median_m"], profile["p10_m"], profile["p90_m"], profile["sampleSize"]),
+                )
+            # Both tee clubs carry the factual water across their whole p10-p90 window.
+            for option in options.values():
+                self.assertGreaterEqual(option["p10M"], 135.0 + 8.0)
 
 
 class PrepRenderShapesFixtureTests(unittest.TestCase):

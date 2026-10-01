@@ -122,14 +122,23 @@ final class PrepDegradationUITests: XCTestCase {
         assertEveryStrokeVisible("hole 2 plan 1")
         // Obstacles are off by default on 备战 (the default-none rule).
         XCTAssertFalse(element("prep-map-hazard-1").exists, "no obstacle is drawn without a selection")
-        // 方案: the decision authority offers another complete route; choosing it redraws the
-        // route, the landings and the whole club order.
+        // 方案: on this hole the fixture player's steady 3W -> 9I chain is a genuinely 稳妥
+        // whole-hole alternative (`server_v2/ci_fixture.py` DEGRADED_BAG; the production authority
+        // itself is pinned by PrepDegradedPlansTests on the fixture's own output). Choosing it
+        // redraws the route, the landings and the whole club order.
+        XCTAssertEqual(app.buttons["prep-plan-0"].label, "推荐")
         let secondPlan = app.buttons["prep-plan-1"]
-        XCTAssertTrue(secondPlan.waitForExistence(timeout: 5), "prep offers at least two caddie plans")
+        XCTAssertTrue(secondPlan.waitForExistence(timeout: 5), "hole 2 offers its 稳妥 plan")
+        XCTAssertEqual(secondPlan.label, "稳妥")
+        XCTAssertFalse(app.buttons["prep-plan-2"].exists, "no cosmetic third plan")
         secondPlan.tap()
         XCTAssertTrue(waitForValue(beginningWith: "已选择", on: secondPlan, timeout: 5))
         let secondOrder = element("prep-club-order").label
         XCTAssertNotEqual(secondOrder, firstOrder, "the second plan is a different club order")
+        let secondStrokes = secondOrder.components(separatedBy: " → ")
+        XCTAssertEqual(secondStrokes.count, 2, "the 稳妥 plan is also two strokes (got \(secondOrder))")
+        XCTAssertTrue(secondStrokes.first?.hasPrefix("三号木 ") == true, "稳妥 tees off with the 3W (got \(secondOrder))")
+        XCTAssertTrue(secondStrokes.last?.hasPrefix("九号铁 ") == true, "稳妥 approaches with the 9I (got \(secondOrder))")
         XCTAssertEqual(element("prep-map-route").label, secondOrder, "the map follows the selected plan")
         assertEveryStrokeVisible("hole 2 plan 2")
         save("b4c-02a-second-plan")
