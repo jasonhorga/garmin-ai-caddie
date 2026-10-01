@@ -1712,9 +1712,30 @@ final class DesignSnapshotTests: XCTestCase {
         let courseScoring = try JSONDecoder().decode(StatsScoring.self, from: Data(courseScoringJSON.utf8))
         XCTAssertEqual(ResultsCoursePresentation.hardestHoles(course, loops: courseScoring.loops).map(\.overPar), ["+1.12", "+0.95", "+0.88"])
         XCTAssertEqual(ResultsCoursePresentation.combos(course, combos: courseScoring.nineCombos).count, 4)
+        // The topo backdrop (hole 1 of loop gid:7) and each hard hole's map come from local topo
+        // files, as the server renders them; a distinct ground per hole tells the cards apart.
+        let topoDir = FileManager.default.temporaryDirectory.appendingPathComponent("course-detail-topo", isDirectory: true)
+        try FileManager.default.createDirectory(at: topoDir, withIntermediateDirectories: true)
+        let grounds: [UIColor?] = [nil, UIColor(red: 0.80, green: 0.88, blue: 0.74, alpha: 1),
+                                   UIColor(red: 0.74, green: 0.84, blue: 0.70, alpha: 1)]
+        var topoFiles: [String: URL] = [:]
+        for (index, ref) in [(7, 1), (7, 13), (8, 6), (7, 4)].enumerated() {
+            let file = topoDir.appendingPathComponent("\(ref.0)-\(ref.1).png")
+            let image = Self.courseImage(ground: grounds[index % grounds.count], noisyRough: false)
+            try XCTUnwrap(image.pngData()).write(to: file, options: [.atomic])
+            topoFiles["\(ref.0)-\(ref.1)"] = file
+        }
+        XCTAssertEqual(ResultsCoursePresentation.backdrop(course), ResultsCoursePresentation.HoleRef(globalId: 7, localHole: 1))
+        let courseView = CourseStatsDetailView(
+            course: course,
+            scoring: courseScoring,
+            topoURL: { ref in topoFiles["\(ref.globalId)-\(ref.localHole)"] }
+        )
+        try captureScreen(NavigationStack { courseView }, named: "course-detail", settle: 2.0)
+        // Degradation: a course without any topo keeps the ground-coloured cards and no backdrop.
         try captureScreen(
             NavigationStack { CourseStatsDetailView(course: course, scoring: courseScoring) },
-            named: "course-detail"
+            named: "course-detail-no-topo"
         )
 
         // B5b 时间与频率 (stats.html 4): the grain picker on 季, the chart, quarter cards, then the
@@ -1746,6 +1767,18 @@ final class DesignSnapshotTests: XCTestCase {
                 .navigationTitle("时间与频率")
             },
             named: "results-time"
+        )
+        // The same page scrolled to its end: the play calendar with 场数 · 月均 · 最活跃月.
+        try captureScreen(
+            NavigationStack {
+                ScrollView {
+                    ResultsTimeContent(stats: timeStats, grain: .constant(.quarter))
+                }
+                .defaultScrollAnchor(.bottom)
+                .background(HubStyle.grouped)
+                .navigationTitle("时间与频率")
+            },
+            named: "results-time-calendar"
         )
 
         // 球杆设置: defaults to the player's REAL Garmin bag (real names, incl 自定义 50/54/58 挖起杆)

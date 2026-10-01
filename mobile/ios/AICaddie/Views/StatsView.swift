@@ -204,9 +204,19 @@ struct CourseStatsDetailView: View {
     var scoring: StatsScoring? = nil
     var apiBaseURL: URL? = nil
     var adminToken: String? = nil
+    /// Where a hole's topo comes from; nil uses the backend's topo URL. The design snapshots point
+    /// it at local files so the topo-backed page is captured deterministically.
+    var topoURL: ((ResultsCoursePresentation.HoleRef) -> URL?)? = nil
     @State private var showsAllCombos = false
 
     private typealias P = ResultsCoursePresentation
+
+    private func topo(_ ref: P.HoleRef?) -> URL? {
+        guard let ref else { return nil }
+        if let topoURL { return topoURL(ref) }
+        guard let apiBaseURL else { return nil }
+        return SyncClient.topoImageURL(baseURL: apiBaseURL, globalId: ref.globalId, localHole: ref.localHole)
+    }
 
     var body: some View {
         ScrollView {
@@ -229,8 +239,7 @@ struct CourseStatsDetailView: View {
     // MARK: topo 打底 (stats.html 6)
 
     @ViewBuilder private var backdrop: some View {
-        if let apiBaseURL, let ref = P.backdrop(course),
-           let url = SyncClient.topoImageURL(baseURL: apiBaseURL, globalId: ref.globalId, localHole: ref.localHole) {
+        if let url = topo(P.backdrop(course)) {
             TopoHoleBaseImage(topoURL: url, fallback: nil)
                 .frame(height: 340)
                 .frame(maxWidth: .infinity)
@@ -311,8 +320,7 @@ struct CourseStatsDetailView: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack {
                 TopoHoleBaseImage.groundColor
-                if let apiBaseURL, let ref = hole.topo,
-                   let url = SyncClient.topoImageURL(baseURL: apiBaseURL, globalId: ref.globalId, localHole: ref.localHole) {
+                if let url = topo(hole.topo) {
                     TopoHoleBaseImage(topoURL: url, fallback: nil)
                 }
             }

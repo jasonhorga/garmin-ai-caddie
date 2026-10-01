@@ -4024,6 +4024,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("P.hardestHoles(course, loops: scoring?.loops ?? [])", stats_view)
         self.assertIn("P.combos(course, combos: scoring?.nineCombos ?? [])", stats_view)
         self.assertIn("SyncClient.topoImageURL(baseURL: apiBaseURL, globalId: ref.globalId", stats_view)
+        self.assertIn("if let url = topo(P.backdrop(course))", stats_view)
+        self.assertIn("if let url = topo(hole.topo)", stats_view)
         self.assertIn("CourseStatsDetailView(course: course, scoring: scoring", results_view)
         self.assertIn("ResultsCoursesView(courses: stats?.courses ?? [], scoring: stats?.scoring", results_view)
         self.assertIn("loopKeys", mobile_stats_model)
