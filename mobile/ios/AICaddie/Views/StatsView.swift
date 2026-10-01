@@ -200,50 +200,183 @@ struct StatsContent: View {
 
 struct CourseStatsDetailView: View {
     let course: StatsCourse
+    /// The history-wide `scoring` (loops / nine combos), matched to this course by its `loopKeys`.
+    var scoring: StatsScoring? = nil
     var apiBaseURL: URL? = nil
     var adminToken: String? = nil
+    @State private var showsAllCombos = false
+
+    private typealias P = ResultsCoursePresentation
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("总览").font(.caption).foregroundStyle(.secondary)
-                    HStack(spacing: 8) {
-                        kpi("打过", "\(course.roundCount ?? 0) 次")
-                        kpi("均杆", course.average18.map { String(format: "%.1f", $0) } ?? "—")
-                        kpi("最佳", course.bestScore.map(String.init) ?? "—")
-                    }
-                }
-                .hubCard()
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                headline
+                dotsStrip
+                hardHolesSection
+                combosSection
                 roundsSection
-                if let breakdown = course.nineBreakdown, !breakdown.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("各九洞组合").font(.caption).foregroundStyle(.secondary)
-                        ForEach(breakdown) { n in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(n.label).font(.subheadline.weight(.semibold)).lineLimit(1)
-                                    Text("\(n.roundCount ?? 0) 次").font(.caption2).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if let best = n.bestScore { Text("最佳 \(best)").font(.caption2).foregroundStyle(.secondary) }
-                                Text(n.average.map { String(format: "%.1f", $0) } ?? "—")
-                                    .font(.subheadline.monospacedDigit().weight(.bold)).frame(width: 56, alignment: .trailing)
-                            }
-                            .padding(.vertical, 6)
-                            .overlay(alignment: .bottom) { Divider() }
-                        }
-                    }
-                    .hubCard()
-                } else {
-                    Text("暂无各九洞明细").font(.subheadline).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity).padding(.vertical, 30).hubCard()
-                }
             }
             .padding(14)
         }
+        .background(alignment: .top) { backdrop }
         .background(HubStyle.grouped)
         .navigationTitle(course.localizedCourseDisplayName)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: topo 打底 (stats.html 6)
+
+    @ViewBuilder private var backdrop: some View {
+        if let apiBaseURL, let ref = P.backdrop(course),
+           let url = SyncClient.topoImageURL(baseURL: apiBaseURL, globalId: ref.globalId, localHole: ref.localHole) {
+            TopoHoleBaseImage(topoURL: url, fallback: nil)
+                .frame(height: 340)
+                .frame(maxWidth: .infinity)
+                .clipped()
+                .opacity(0.28)
+                .overlay {
+                    LinearGradient(colors: [HubStyle.grouped.opacity(0.35), HubStyle.grouped],
+                                   startPoint: .top, endPoint: .bottom)
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(course.localizedCourseDisplayName)
+                .font(.system(size: 28, weight: .bold))
+                .lineLimit(2)
+            Text(P.subtitle(course)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+        }
+        .padding(.top, 24)
+        .accessibilityIdentifier("course-header")
+    }
+
+    private var headline: some View {
+        HStack(alignment: .lastTextBaseline, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(course.average18.map { String(format: "%.1f", $0) } ?? "—")
+                    .font(.system(size: 56, weight: .bold)).monospacedDigit()
+                Text("均杆").font(.footnote).foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(course.bestScore.map(String.init) ?? "—")
+                    .font(.system(size: 22, weight: .bold)).monospacedDigit()
+                    .foregroundStyle(course.bestScore == nil ? Color.secondary : LiveHoleStyle.green)
+                Text("最佳").font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("course-average")
+    }
+
+    // MARK: 每场一个点 (oldest -> newest, the best green)
+
+    @ViewBuilder private var dotsStrip: some View {
+        let dots = P.dots(course)
+        if !dots.isEmpty {
+            CourseDotsStrip(dots: dots)
+                .frame(height: 56)
+                .accessibilityIdentifier("course-dots")
+        }
+    }
+
+    // MARK: 最难的三个洞
+
+    @ViewBuilder private var hardHolesSection: some View {
+        let holes = P.hardestHoles(course, loops: scoring?.loops ?? [])
+        if !holes.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HubSectionLabel("最难的三个洞")
+                HStack(alignment: .top, spacing: 8) {
+                    ForEach(holes) { hole in
+                        NavigationLink {
+                            CourseHoleHistoryView(course: course, hole: hole, apiBaseURL: apiBaseURL, adminToken: adminToken)
+                        } label: { hardHoleCard(hole) }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.primary)
+                    }
+                    ForEach(holes.count..<3, id: \.self) { _ in Color.clear.frame(maxWidth: .infinity) }
+                }
+            }
+            .accessibilityIdentifier("course-hard-holes")
+        }
+    }
+
+    private func hardHoleCard(_ hole: P.HardHole) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack {
+                TopoHoleBaseImage.groundColor
+                if let apiBaseURL, let ref = hole.topo,
+                   let url = SyncClient.topoImageURL(baseURL: apiBaseURL, globalId: ref.globalId, localHole: ref.localHole) {
+                    TopoHoleBaseImage(topoURL: url, fallback: nil)
+                }
+            }
+            .frame(height: 96)
+            .frame(maxWidth: .infinity)
+            .clipped()
+            VStack(alignment: .leading, spacing: 2) {
+                Text(hole.overPar).font(.headline.monospacedDigit()).foregroundStyle(HubStyle.bogey)
+                Text(hardHoleCaption(hole)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .padding(8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: Color.black.opacity(0.05), radius: 3, x: 0, y: 1)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("course-hard-\(hole.loopKey)-\(hole.hole)")
+    }
+
+    private func hardHoleCaption(_ hole: P.HardHole) -> String {
+        var parts = ["\(hole.loopLabel) \(hole.hole) 洞"]
+        if let par = hole.par { parts.append("Par \(par)") }
+        return parts.joined(separator: " · ")
+    }
+
+    // MARK: 常打的组合 (top 3, the rest folded)
+
+    @ViewBuilder private var combosSection: some View {
+        let combos = P.combos(course, combos: scoring?.nineCombos ?? [])
+        if !combos.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HubSectionLabel("常打的组合")
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(showsAllCombos ? combos : Array(combos.prefix(3))) { combo in
+                        Text(combo.text)
+                            .font(.subheadline.monospacedDigit())
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 8)
+                            .overlay(alignment: .bottom) { Divider() }
+                    }
+                    if combos.count > 3 || (course.nineOnlyRounds ?? 0) > 0 {
+                        Button {
+                            showsAllCombos.toggle()
+                        } label: {
+                            HStack {
+                                Text(showsAllCombos ? "收起" : P.allCombosLabel(course, count: combos.count))
+                                Spacer()
+                                Image(systemName: showsAllCombos ? "chevron.up" : "chevron.down").font(.caption2)
+                            }
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(combos.count <= 3 && !showsAllCombos)
+                        .accessibilityIdentifier("course-all-combos")
+                    }
+                }
+                .hubCard(padding: 12)
+            }
+            .accessibilityIdentifier("course-combos")
+        }
     }
 
     // MARK: 所有比赛(用户:直接列出每一场 时间·成绩,点单场看复盘)
@@ -303,13 +436,82 @@ struct CourseStatsDetailView: View {
         if raw.isEmpty { return "—" }
         return String(raw.prefix(10))
     }
+}
 
-    private func kpi(_ title: String, _ value: String) -> some View {
-        VStack(spacing: 2) {
-            Text(value).font(.title3.weight(.heavy)).monospacedDigit()
-            Text(title).font(.caption2).foregroundStyle(.secondary)
+/// 球场详情's thin line with one dot per 18-hole round, oldest left; lower scores sit higher and the
+/// best round is the green dot (`stats.html` 6).
+struct CourseDotsStrip: View {
+    let dots: [ResultsCoursePresentation.Dot]
+
+    var body: some View {
+        GeometryReader { geo in
+            let scores = dots.map(\.score)
+            let low = Double(scores.min() ?? 0)
+            let high = Double(scores.max() ?? 0)
+            let inset: CGFloat = 6
+            let width = max(geo.size.width - inset * 2, 1)
+            let height = max(geo.size.height - inset * 2, 1)
+            let step = dots.count > 1 ? width / CGFloat(dots.count - 1) : 0
+            ZStack(alignment: .topLeading) {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.15))
+                    .frame(width: width, height: 1)
+                    .offset(x: inset, y: geo.size.height / 2)
+                ForEach(dots) { dot in
+                    let fraction = high > low ? (Double(dot.score) - low) / (high - low) : 0.5
+                    let x = dots.count > 1 ? inset + step * CGFloat(dot.index) : geo.size.width / 2
+                    let y = inset + height * CGFloat(fraction)
+                    Circle()
+                        .fill(dot.isBest ? LiveHoleStyle.green : Color.primary.opacity(0.35))
+                        .frame(width: dot.isBest ? 9 : 6, height: dot.isBest ? 9 : 6)
+                        .position(x: x, y: y)
+                }
+            }
         }
-        .frame(maxWidth: .infinity).padding(.vertical, 10)
-        .background(HubStyle.iconTint).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityElement()
+        .accessibilityLabel("这个球场每一场的杆数，从旧到新")
+    }
+}
+
+/// A hardest-hole card's drill-in: every round here that played the hole, each opening that
+/// round's shot map on it (每次打这洞的落点).
+struct CourseHoleHistoryView: View {
+    let course: StatsCourse
+    let hole: ResultsCoursePresentation.HardHole
+    var apiBaseURL: URL? = nil
+    var adminToken: String? = nil
+
+    var body: some View {
+        let visits = ResultsCoursePresentation.visits(course, hole: hole)
+        List {
+            Section {
+                ForEach(visits) { visit in
+                    NavigationLink {
+                        RoundHoleShotMapScreen(
+                            roundRef: visit.round.roundId ?? "", hole: visit.displayHole,
+                            apiBaseURL: apiBaseURL, adminToken: adminToken,
+                            globalId: visit.round.globalId ?? course.globalId,
+                            backGlobalId: visit.round.backGlobalId ?? course.backGlobalId,
+                            nine: visit.round.nine, teeBox: visit.round.teeBox ?? course.teeBox
+                        )
+                    } label: {
+                        HStack {
+                            Text(String(visit.round.date.prefix(10))).monospacedDigit()
+                            Spacer()
+                            Text("第 \(visit.displayHole) 洞").font(.caption).foregroundStyle(.secondary)
+                            Text(visit.round.score.map(String.init) ?? "—")
+                                .font(.subheadline.monospacedDigit().weight(.bold))
+                                .frame(width: 40, alignment: .trailing)
+                        }
+                    }
+                }
+            } header: {
+                Text("平均 \(hole.overPar) · \(hole.samples) 次")
+            } footer: {
+                if visits.isEmpty { Text("没有能打开的球局") }
+            }
+        }
+        .navigationTitle("\(hole.loopLabel) \(hole.hole) 洞")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

@@ -391,6 +391,10 @@ public struct StatsCourse: Codable, Equatable, Identifiable {
     public let nineBreakdown: [StatsNineBreakdown]?
     /// Every round at this course (newest→oldest) for the drill-in list: 时间·成绩, tap → 单场复盘.
     public let rounds: [StatsCourseRound]?
+    /// B5b: the physical nine loops played here (`scoring.loops` / `nineCombos` keys).
+    public var loopKeys: [String]? = nil
+    /// B5b: this course's 9-hole rounds (只打 9 洞 M 次).
+    public var nineOnlyRounds: Int? = nil
     public let globalId: Int?
     public let backGlobalId: Int?
     public let teeBox: String?
@@ -405,6 +409,9 @@ public struct StatsCourseRound: Codable, Equatable, Identifiable {
     public let holesCompleted: Int?
     public let toPar: Int?
     public let nine: String?
+    /// B5b: the loop each side of this round played (`scoring.loops` keys).
+    public var frontLoopKey: String? = nil
+    public var backLoopKey: String? = nil
     public let globalId: Int?
     public let backGlobalId: Int?
     public let teeBox: String?

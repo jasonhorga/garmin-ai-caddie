@@ -118,6 +118,31 @@ class StatsBreakdownsTest(unittest.TestCase):
         self.assertTrue(all(row["samples"] >= 2 for row in hardest))
         self.assertLessEqual(len(hardest), 5)
 
+    def test_course_rows_name_their_loops_and_nine_hole_rounds(self) -> None:
+        # B5b 球场: a course row lists the physical loops played there (the scoring.loops keys)
+        # and its own 9-hole round count, and the mobile payload keeps both.
+        course = next(row for row in history_stats._courses(_history()) if row["courseKey"] == "black_knight")
+        self.assertEqual(course["loopKeys"], ["gid:1000:1-9", "gid:1001:1-9", "gid:1002:1-9"])
+        self.assertEqual(set(course["loopKeys"]), {row["loopKey"] for row in self.scoring["loops"]})
+        self.assertEqual(course["nineOnlyRounds"], 1)
+        compact = mobile_stats.build_mobile_stats({"courses": [course]})["courses"][0]
+        self.assertEqual((compact["loopKeys"], compact["nineOnlyRounds"]), (course["loopKeys"], 1))
+        # Each round names the loop each side played (a 9-hole round only its front).
+        sides = [(r.get("frontLoopKey"), r.get("backLoopKey")) for r in course["rounds"]]
+        self.assertTrue(all(front in course["loopKeys"] for front, _back in sides))
+        self.assertTrue(all(back is None or back in course["loopKeys"] for _front, back in sides))
+        self.assertIn(None, [back for _front, back in sides])
+        self.assertEqual(compact["rounds"][0].get("frontLoopKey"), course["rounds"][0]["frontLoopKey"])
+
+    def test_round_side_loop_keys_follow_the_hole_sides(self) -> None:
+        plain = {"courseGlobalId": 7, "holesCompleted": 18, "holes": _holes({})}
+        self.assertEqual(history_stats._round_side_loop_keys(plain),
+                         {"frontLoopKey": "gid:7:1-9", "backLoopKey": "gid:7:10-18"})
+        composite = {"frontNineGlobalCourseId": 3, "backNineGlobalCourseId": 1, "holesCompleted": 18, "holes": _holes({})}
+        self.assertEqual(history_stats._round_side_loop_keys(composite),
+                         {"frontLoopKey": "gid:3:1-9", "backLoopKey": "gid:1:1-9"})
+        self.assertEqual(history_stats._round_side_loop_keys({"holes": []}), {})
+
     def test_mobile_payload_keeps_the_new_fields(self) -> None:
         compact = mobile_stats.build_mobile_stats({"scoring": self.scoring})
         for key in ("penalties", "scrambling", "roundSequences", "loops", "nineCombos", "nineOnlyRounds", "hardestHoles"):
