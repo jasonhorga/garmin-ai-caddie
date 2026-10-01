@@ -293,6 +293,12 @@ B1 与 B4 只依赖已有数据，可和 B0 并行起步；B2 的 GPS 开球预�
 - 球包：距离阶梯（p10–p90 条 + 中位线 + 相邻差距 < 8 / > 20 标黄）；点杆改距离或拿掉；合并“成绩 → 球杆”和“球杆设置”。
 - 验收：各屏在缺字段时降级；数值与 B0 夹具一致。
 
+### B5a 已定口径（PR #364）
+
+- 移动端载荷预算：`/stats/mobile` 的 `scoring.roundSequences` 只保留最近 20 场（`MOBILE_ROUND_SEQUENCE_LIMIT`），完整序列仍在 `/api/v2/history/stats`。
+- 表现分析“和之前比”：和前一个可比周期比，不和全部历史比。近 10 场对前 10 场（第 11–20 场），近 20 场对前 20 场（第 21–40 场），近一年对前一年；“全部”不比较。前一周期随同一个 `/stats/mobile` 响应的 `previous` 返回，不多一次请求；按场数的窗口要求前一周期场数凑满，不满时写“前 10 场只有 N 场，暂不比较”。三个前一周期窗口随缓存预热一起构建。
+- 差点变化“近 20 场”：现在的估算减去最近 20 场实际球局之前的估算（`handicapChangeRecent20`）；不可定价的球局也算在这 20 场里，估算两侧各自忽略不可用记录。原来的 90 天 `handicapTrend` 保留，首页不再显示。
+
 ## B6 手表界面（依赖 B2 的记分模型）
 
 - 文件：`WatchRoundContainerView.swift`、`WatchHoleMapView.swift`、`WatchHazardMapView.swift`、`WatchGreenPreviewView.swift`、
