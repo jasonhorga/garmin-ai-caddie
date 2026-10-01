@@ -72,6 +72,12 @@ _QUALITY_KEYS = ("label", "state", "ready", "total")
 # still open its round.
 _DROP_KEYS = {"roundOverRoundDeltas", "outcomeRows", "scoreHistogram", "decisionAuditTrends"}
 
+# B5 payload budget (IMPLEMENTATION_PLAN "B0 新统计字段", 体积): ``scoring.roundSequences`` is one
+# per-hole row per round (~298 KB raw on real history). The mobile screens only show recent rounds'
+# hole strips, so the compact payload keeps the newest rounds; the full series stays on
+# ``/api/v2/history/stats``.
+MOBILE_ROUND_SEQUENCE_LIMIT = 20
+
 
 def _strip_refs(value: Any) -> Any:
     if isinstance(value, dict):
@@ -85,6 +91,14 @@ def _pick(row: Any, keys: tuple[str, ...]) -> dict[str, Any]:
     if not isinstance(row, dict):
         return {}
     return {key: row[key] for key in keys if key in row}
+
+
+def _cap_round_sequences(scoring: dict[str, Any]) -> dict[str, Any]:
+    """Keep the newest ``MOBILE_ROUND_SEQUENCE_LIMIT`` rows (the server lists them newest first)."""
+    sequences = scoring.get("roundSequences")
+    if isinstance(sequences, list) and len(sequences) > MOBILE_ROUND_SEQUENCE_LIMIT:
+        return {**scoring, "roundSequences": sequences[:MOBILE_ROUND_SEQUENCE_LIMIT]}
+    return scoring
 
 
 def build_mobile_stats(stats: dict[str, Any]) -> dict[str, Any]:
@@ -102,7 +116,7 @@ def build_mobile_stats(stats: dict[str, Any]) -> dict[str, Any]:
         "summary": stats.get("summary") if isinstance(stats.get("summary"), dict) else {},
         "time": _pick(time, _TIME_KEYS),
         "trend": stats.get("trend") if isinstance(stats.get("trend"), dict) else {},
-        "scoring": _pick(scoring, _SCORING_KEYS),
+        "scoring": _cap_round_sequences(_pick(scoring, _SCORING_KEYS)),
         "records": stats.get("records") if isinstance(stats.get("records"), dict) else {},
         "courses": [_pick(course, _COURSE_KEYS) for course in courses],
         "clubs": [_pick(club, _CLUB_KEYS) for club in clubs],

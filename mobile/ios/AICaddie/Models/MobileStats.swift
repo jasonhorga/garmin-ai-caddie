@@ -97,9 +97,25 @@ public struct StatsScoring: Codable, Equatable {
     public let phaseStats: [StatsPhase]
     public let teeDirection: StatsTeeDirection?
     public let approachMiss: StatsApproachMiss?
+    // B0d-1 (IMPLEMENTATION_PLAN "B0 新统计字段"): penalties, standard scrambling, per-round hole
+    // sequences, physical nine-loop averages, nine combinations and the hardest loop holes.
+    public let penalties: StatsPenalties?
+    public let scrambling: StatsScrambling?
+    public let roundSequences: [StatsRoundSequence]
+    public let loops: [StatsLoop]
+    public let nineCombos: [StatsNineCombo]
+    public let nineOnlyRounds: Int?
+    public let hardestHoles: [StatsHardestHole]
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        penalties = try? c.decodeIfPresent(StatsPenalties.self, forKey: .penalties)
+        scrambling = try? c.decodeIfPresent(StatsScrambling.self, forKey: .scrambling)
+        roundSequences = (try? c.decodeIfPresent([StatsRoundSequence].self, forKey: .roundSequences)) ?? []
+        loops = (try? c.decodeIfPresent([StatsLoop].self, forKey: .loops)) ?? []
+        nineCombos = (try? c.decodeIfPresent([StatsNineCombo].self, forKey: .nineCombos)) ?? []
+        nineOnlyRounds = try? c.decodeIfPresent(Int.self, forKey: .nineOnlyRounds)
+        hardestHoles = (try? c.decodeIfPresent([StatsHardestHole].self, forKey: .hardestHoles)) ?? []
         outcomes = try? c.decodeIfPresent(StatsOutcomes.self, forKey: .outcomes)
         outcomeDistribution = (try? c.decodeIfPresent([StatsOutcomeBucket].self, forKey: .outcomeDistribution)) ?? []
         scoreBands = (try? c.decodeIfPresent([StatsScoreBand].self, forKey: .scoreBands)) ?? []
@@ -112,7 +128,76 @@ public struct StatsScoring: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case outcomes, outcomeDistribution, scoreBands, byPar, putting, phaseStats, teeDirection, approachMiss
+        case penalties, scrambling, roundSequences, loops, nineCombos, nineOnlyRounds, hardestHoles
     }
+}
+
+/// Penalty strokes over holes that actually recorded them (a Garmin scorecard without the field is
+/// not a zero).
+public struct StatsPenalties: Codable, Equatable {
+    public let total: Int?
+    public let holesRecorded: Int?
+    public let roundsRecorded: Int?
+    public let averagePerRound: Double?
+}
+
+/// Standard scrambling: of the holes that missed the green in regulation, the share finished in par
+/// or better.
+public struct StatsScrambling: Codable, Equatable {
+    public let chances: Int?
+    public let saves: Int?
+    public let pct: Double?
+}
+
+/// One round's per-hole putts / GIR / fairway, newest round first (the mobile payload keeps only
+/// the most recent rounds). `holes` are display hole numbers; the other arrays align with it.
+public struct StatsRoundSequence: Codable, Equatable, Identifiable {
+    public var id: String { roundId ?? date ?? "" }
+    public let roundId: String?
+    public let date: String?
+    public let course: String?
+    public let holes: [Int]
+    public let putts: [Int?]
+    public let gir: [Bool?]
+    public let fairway: [String?]
+}
+
+/// A physical nine-hole loop (`gid:1001:1-9`) with each hole's average score to par.
+public struct StatsLoop: Codable, Equatable, Identifiable {
+    public var id: String { loopKey }
+    public let loopKey: String
+    public let label: String?
+    public let roundCount: Int?
+    public let holes: [StatsLoopHole]
+}
+
+public struct StatsLoopHole: Codable, Equatable, Identifiable {
+    public var id: Int { hole }
+    public let hole: Int
+    public let par: Int?
+    public let averageToPar: Double?
+    public let samples: Int?
+}
+
+/// An ordered front -> back nine combination over complete 18-hole rounds.
+public struct StatsNineCombo: Codable, Equatable, Identifiable {
+    public var id: String { "\(frontKey ?? "")>\(backKey ?? "")" }
+    public let frontKey: String?
+    public let backKey: String?
+    public let front: String?
+    public let back: String?
+    public let rounds: Int?
+    public let average: Double?
+}
+
+public struct StatsHardestHole: Codable, Equatable, Identifiable {
+    public var id: String { "\(loopKey):\(hole)" }
+    public let loopKey: String
+    public let label: String?
+    public let hole: Int
+    public let par: Int?
+    public let averageToPar: Double?
+    public let samples: Int?
 }
 
 public struct StatsOutcomes: Codable, Equatable {
@@ -216,6 +301,16 @@ public struct StatsPutting: Codable, Equatable {
     public let averagePuttsPerRound: Double?
     public let roundsWithPutts: Int?
     public let threePutts: Int?
+    /// B0: eligible holes with a putt count, split 0 / 1 / 2 / 3+ (chip-ins are their own bucket).
+    public let holesWithPutts: Int?
+    public let zeroPutts: Int?
+    public let onePutts: Int?
+    public let twoPutts: Int?
+    public let threePlusPutts: Int?
+    public let zeroPuttPct: Double?
+    public let onePuttPct: Double?
+    public let twoPuttPct: Double?
+    public let threePlusPuttPct: Double?
 }
 
 public struct StatsTime: Codable, Equatable {

@@ -132,6 +132,21 @@ class BuildMobileStatsTests(unittest.TestCase):
         compact_size = len(json.dumps(self.out))
         self.assertLess(compact_size, full_size // 5)
 
+    def test_caps_round_sequences_to_the_newest_rounds(self) -> None:
+        from ai_caddie.history.mobile_stats import MOBILE_ROUND_SEQUENCE_LIMIT
+
+        rows = [{"roundId": f"r{index}", "holes": [1], "putts": [2], "gir": [True], "fairway": ["hit"]}
+                for index in range(MOBILE_ROUND_SEQUENCE_LIMIT + 7)]
+        full = _full_stats()
+        full["scoring"] = {**full.get("scoring", {}), "roundSequences": rows, "loops": [{"loopKey": "k"}]}
+        out = build_mobile_stats(full)
+        kept = out["scoring"]["roundSequences"]
+        # Newest first in, newest first out: the first LIMIT rows, unchanged.
+        self.assertEqual(kept, rows[:MOBILE_ROUND_SEQUENCE_LIMIT])
+        self.assertEqual(out["scoring"]["loops"], [{"loopKey": "k"}])
+        short = build_mobile_stats({"scoring": {"roundSequences": rows[:3]}})
+        self.assertEqual(short["scoring"]["roundSequences"], rows[:3])
+
     def test_tolerates_missing_sections(self) -> None:
         out = build_mobile_stats({"schema": "x"})
         self.assertEqual(out["summary"], {})

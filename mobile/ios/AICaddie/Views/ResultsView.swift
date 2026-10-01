@@ -93,6 +93,9 @@ public struct ResultsView: View {
     }
 }
 
+/// 成绩 (README §9, `stats.html` 1): the handicap estimate largest, the last 20 rounds as dots with
+/// the 10-round average line, three plain numbers, the three most recent rounds with their score
+/// strips, and four entries — 表现分析 / 时间与频率 / 成绩分布 / 球场.
 struct ResultsLandingContent: View {
     let stats: MobileStats?
     let archive: HistoryRoundsArchive?
@@ -100,16 +103,16 @@ struct ResultsLandingContent: View {
     var apiBaseURL: URL? = nil
     var adminToken: String? = nil
 
+    /// The chart's selected x (a round index); the nearest round is shown.
+    @State private var selectedTrendX: Double?
+
     var body: some View {
-        VStack(spacing: 12) {
-            recentRoundsCard
-            if let summary = stats?.summary { recentCard(summary, points: stats?.trend?.points ?? []) }
-            quickDestinations
-            // Keep the career surface present while the first stats request or a large local cache
-            // is decoding. The page can then show its stable structure immediately instead of
-            // leaving the user on a full-screen spinner until every section is ready.
-            careerCard(stats?.summary)
-            libraryDestinations
+        VStack(alignment: .leading, spacing: 20) {
+            handicapHero(stats?.summary)
+            trendChart(ResultsPresentation.trendRows(stats?.trend?.points ?? []))
+            kpiRow(stats?.summary)
+            recentRounds
+            entries
             if let errorText, stats != nil || archive != nil {
                 Label(errorText, systemImage: "exclamationmark.circle")
                     .font(.caption)
@@ -123,182 +126,207 @@ struct ResultsLandingContent: View {
                     .frame(maxWidth: .infinity).padding(.vertical, 40).hubCard()
             }
         }
-        .padding(14)
+        .padding(16)
     }
+
+    // MARK: 差点估算
+
+    private func handicapHero(_ summary: StatsSummary?) -> some View {
+        HStack(alignment: .lastTextBaseline, spacing: 14) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("差点估算").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+                Text(summary?.handicapEstimate.map(oneDecimal) ?? "—")
+                    .font(.system(size: 64, weight: .bold))
+                    .monospacedDigit()
+            }
+            if let change = summary?.handicapTrend {
+                handicapChange(change)
+            } else if summary == nil {
+                ProgressView().padding(.bottom, 12)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("results-handicap")
+    }
+
+    /// `handicapTrend` is now minus the estimate from rounds at least 90 days older (negative =
+    /// improving).
+    private func handicapChange(_ change: Double) -> some View {
+        let improving = change < 0
+        return HStack(spacing: 4) {
+            Text(change == 0 ? "持平" : "\(improving ? "↓" : "↑") \(oneDecimal(abs(change)))")
+                .foregroundStyle(change == 0 ? Color.secondary : (improving ? LiveHoleStyle.green : HubStyle.bogey))
+            Text("比 3 个月前").foregroundStyle(.secondary).fontWeight(.medium)
+        }
+        .font(.subheadline.weight(.bold))
+        .monospacedDigit()
+        .padding(.bottom, 10)
+    }
+
+    // MARK: 近 20 场走势
 
     @ViewBuilder
-    private func careerCard(_ summary: StatsSummary?) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("我的高尔夫生涯").font(.caption).foregroundStyle(.secondary)
-            if let summary {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("\(summary.totalRounds ?? archive?.total ?? 0)")
-                        .font(.system(size: 38, weight: .heavy)).monospacedDigit()
-                    Text("场球 · \(summary.courseCount ?? 0) 个球场")
-                        .font(.subheadline).foregroundStyle(.secondary)
+    private func trendChart(_ rows: [ResultsPresentation.TrendRow]) -> some View {
+        if !rows.isEmpty {
+            let selected = selectedTrendX.flatMap { x in rows.first { $0.index == Int(x.rounded()) } }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 14) {
+                    Text("近 \(rows.count) 场 18 洞").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     Spacer()
-                    Text("\(summary.eighteenHoleRounds ?? 0) 场完整 18 洞")
-                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    legend(line: true, "近 10 场平均")
+                    legend(line: false, "每场杆数")
                 }
-                HStack(spacing: 8) {
-                    resultKPI("18 洞均杆", summary.average18.map(oneDecimal) ?? "—")
-                    resultKPI("历史最佳", summary.bestScore.map(String.init) ?? "—")
-                    resultKPI("差点估算", summary.handicapEstimate.map(oneDecimal) ?? "—")
+                Chart {
+                    ForEach(rows) { row in
+                        LineMark(x: .value("场", Double(row.index)), y: .value("近 10 场平均", row.rollingAverage),
+                                 series: .value("线", "average"))
+                            .foregroundStyle(LiveHoleStyle.green)
+                            .lineStyle(StrokeStyle(lineWidth: 2, lineJoin: .round))
+                    }
+                    ForEach(rows) { row in
+                        PointMark(x: .value("场", Double(row.index)), y: .value("杆数", Double(row.score)))
+                            .foregroundStyle(Color.primary.opacity(0.8))
+                            .symbolSize(row.index == rows.count - 1 ? 70 : 34)
+                    }
+                    if let selected {
+                        RuleMark(x: .value("场", Double(selected.index)))
+                            .foregroundStyle(Color.secondary.opacity(0.4))
+                            .annotation(position: .top, alignment: .center, spacing: 2) {
+                                VStack(spacing: 1) {
+                                    Text("\(shortDate(selected.date) ?? selected.date) · \(selected.score) 杆")
+                                        .font(.caption2.weight(.bold))
+                                    Text("近 10 场平均 \(oneDecimal(selected.rollingAverage))")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
+                                .monospacedDigit()
+                                .padding(.horizontal, 6).padding(.vertical, 3)
+                                .background(Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                            }
+                    }
                 }
+                .chartXScale(domain: -0.5...(Double(max(rows.count, 2)) - 0.5))
+                .chartXAxis(.hidden)
+                .chartYScale(domain: resultsScoreDomain(rows.flatMap { [Double($0.score), $0.rollingAverage] }))
+                .chartYAxis {
+                    AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) {
+                        AxisGridLine()
+                        AxisValueLabel()
+                    }
+                }
+                .chartXSelection(value: $selectedTrendX)
+                .frame(height: 130)
+                .accessibilityIdentifier("results-trend")
+                .accessibilityLabel("近 \(rows.count) 场 18 洞杆数")
+                HStack {
+                    Text(shortDate(rows.first?.date) ?? "")
+                    Spacer()
+                    Text(shortDate(rows.last?.date) ?? "")
+                }
+                .font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func legend(line: Bool, _ text: String) -> some View {
+        HStack(spacing: 4) {
+            if line {
+                Capsule().fill(LiveHoleStyle.green).frame(width: 14, height: 2)
             } else {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("正在载入生涯数据…")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
+                Circle().fill(Color.primary.opacity(0.8)).frame(width: 6, height: 6)
             }
+            Text(text)
         }
-        .hubCard()
+        .font(.caption2).foregroundStyle(.secondary)
     }
 
-    private func recentCard(_ summary: StatsSummary, points: [StatsTrendPoint]) -> some View {
-        NavigationLink {
-            ResultsTrendView(apiBaseURL: apiBaseURL, adminToken: adminToken)
-        } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("最近状态").font(.headline)
-                        Text("近 10 场 \(summary.recent10Average.map(oneDecimal) ?? "—") · 近 20 场 \(summary.recent20Average.map(oneDecimal) ?? "—")")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Text("看趋势 ›").font(.caption.weight(.bold)).foregroundStyle(LiveHoleStyle.green)
-                }
-                if !points.isEmpty {
-                    Chart(Array(points.suffix(20))) { point in
-                        if let score = point.score {
-                            LineMark(x: .value("日期", point.date), y: .value("成绩", score))
-                                .foregroundStyle(LiveHoleStyle.green)
-                                .interpolationMethod(.catmullRom)
-                        }
-                    }
-                    .frame(height: 82)
-                    .chartYScale(domain: resultsScoreDomain(points.compactMap { $0.score.map(Double.init) }))
-                    .chartXAxis(.hidden).chartYAxis(.hidden)
-                }
-            }
+    // MARK: 三个数字
+
+    private func kpiRow(_ summary: StatsSummary?) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            kpi(summary?.recent10Average.map(oneDecimal) ?? "—", "近 10 场均杆")
+            kpi(summary?.bestScore.map(String.init) ?? "—", "最佳")
+            kpi("\(summary?.totalRounds ?? archive?.total ?? 0)", "场 · \(summary?.courseCount ?? 0) 个球场")
         }
-        .buttonStyle(.plain).foregroundStyle(.primary).hubCard()
     }
 
-    @ViewBuilder private var recentRoundsCard: some View {
+    private func kpi(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value).font(.title2.weight(.bold)).monospacedDigit()
+            Text(label).font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: 最近球局
+
+    @ViewBuilder private var recentRounds: some View {
         let rounds = archive?.groups.flatMap(\.rounds) ?? []
-        if !rounds.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("球局活动").font(.title3.weight(.bold))
-                    Spacer()
-                    NavigationLink("全部 \(archive?.total ?? rounds.count) 场 ›") {
-                        ResultsArchiveView(apiBaseURL: apiBaseURL, adminToken: adminToken, initialArchive: archive)
-                    }
-                    .font(.caption.weight(.bold)).foregroundStyle(LiveHoleStyle.green)
+        // The archive link is always there (the full archive loads on its own page); the count
+        // appears once this page's archive request has answered.
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("最近球局").font(.footnote.weight(.bold)).foregroundStyle(.secondary)
+                Spacer()
+                NavigationLink(archive.map { "全部 \($0.total) 场 ›" } ?? "全部球局 ›") {
+                    ResultsArchiveView(apiBaseURL: apiBaseURL, adminToken: adminToken, initialArchive: archive)
                 }
-                ForEach(rounds.prefix(3)) { round in
-                    NavigationLink {
+                .font(.footnote.weight(.semibold)).foregroundStyle(LiveHoleStyle.green)
+                .accessibilityIdentifier("results-all-rounds")
+            }
+            ForEach(rounds.prefix(3)) { round in
+                NavigationLink {
                     RoundReviewView(roundRef: round.id, fallbackCourseName: round.courseName,
                                     apiBaseURL: apiBaseURL, adminToken: adminToken,
                                     globalId: round.globalId, backGlobalId: round.backGlobalId,
                                     nine: round.nine, teeBox: round.teeBox)
-                    } label: { ResultsRoundRow(round: round, showsScoreStrip: true) }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.primary)
-                    .hubCard(padding: 14)
-                }
+                } label: { ResultsRoundRow(round: round, showsScoreStrip: true) }
+                .buttonStyle(.plain)
+                .foregroundStyle(.primary)
+                .hubCard(padding: 14)
             }
         }
     }
 
-    private var quickDestinations: some View {
-        HStack(spacing: 10) {
-            resultFeatureDestination("表现分析", "四阶段空间分析", "scope") {
-                StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken, mode: .analysis)
-            }
-            resultFeatureDestination("全部球局", "搜索 · 年份 · 球场", "clock.arrow.circlepath") {
-                ResultsArchiveView(apiBaseURL: apiBaseURL, adminToken: adminToken, initialArchive: archive)
-            }
-        }
-    }
+    // MARK: 四个入口
 
-    private var libraryDestinations: some View {
-        VStack(spacing: 0) {
-            resultDestination("时间趋势", "近 10 / 20 场 · 年 · 季 · 月 · 频率", "chart.xyaxis.line") {
+    private var entries: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+            entry("表现分析", "丢杆在哪", id: "analysis") {
+                StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken)
+            }
+            entry("时间与频率", "月 · 季 · 年 · 日历", id: "time") {
                 ResultsTrendView(apiBaseURL: apiBaseURL, adminToken: adminToken)
             }
-            Divider()
-            resultDestination("球场", "\(stats?.courses.count ?? 0) 个球场 · 九洞组合", "map") {
+            entry("成绩分布", "分数段 · 按 Par", id: "distribution") {
+                ScoreDistributionView(stats: stats, apiBaseURL: apiBaseURL, adminToken: adminToken,
+                                      initialArchive: archive)
+            }
+            entry("球场", "每个球场的成绩", id: "courses") {
                 ResultsCoursesView(courses: stats?.courses ?? [], apiBaseURL: apiBaseURL, adminToken: adminToken)
             }
-            Divider()
-            resultDestination("球杆", "中位距离 · p10–p90 · 样本数", "figure.golf") {
-                ResultsClubsView(clubs: stats?.clubs ?? [])
-            }
         }
-        .hubCard(padding: 0)
     }
 
-    private func resultDestination<Destination: View>(
-        _ title: String, _ detail: String, _ icon: String, @ViewBuilder destination: () -> Destination
+    private func entry<Destination: View>(
+        _ title: String, _ detail: String, id: String, @ViewBuilder destination: () -> Destination
     ) -> some View {
         NavigationLink(destination: destination()) {
-            HStack(spacing: 12) {
-                HubIconSquare(system: icon)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.subheadline.weight(.bold))
-                    Text(detail).font(.caption2).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.headline)
+                Text("\(detail) →").font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
-            .padding(.horizontal, 14).padding(.vertical, 11)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain).foregroundStyle(.primary)
-    }
-
-    private func resultFeatureDestination<Destination: View>(
-        _ title: String, _ detail: String, _ icon: String, @ViewBuilder destination: () -> Destination
-    ) -> some View {
-        NavigationLink(destination: destination()) {
-            VStack(alignment: .leading, spacing: 9) {
-                HStack {
-                    Image(systemName: icon)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(LiveHoleStyle.green)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.tertiary)
-                }
-                Text(title).font(.subheadline.weight(.bold))
-                Text(detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-            }
-            // The two-column card contains deliberate whitespace between its title and chevron.
-            // Without an explicit shape SwiftUI exposes one accessibility "Button" whose visual
-            // bounds include that gap, but a tap in the gap can miss the NavigationLink entirely.
-            // Make the whole visible card content plane the link target.
-            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            // The whole visible card is the link target (a tap between the title and the edge must
+            // not miss the NavigationLink).
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(.primary)
-        .hubCard(padding: 13)
-    }
-
-    private func resultKPI(_ label: String, _ value: String) -> some View {
-        VStack(spacing: 2) {
-            Text(value).font(.title3.weight(.heavy)).monospacedDigit()
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity).padding(.vertical, 9)
-        .background(HubStyle.iconTint).clipShape(RoundedRectangle(cornerRadius: 12))
+        .hubCard(padding: 14)
+        .accessibilityIdentifier("results-entry-\(id)")
     }
 }
 
@@ -314,10 +342,14 @@ public struct ResultsArchiveView: View {
     @State private var period: String?
     @State private var scoreBand: String?
     @State private var isLoading = false
+    /// 成绩分布 opens one 5-stroke bin's rounds: only these round ids are listed.
+    private let roundIdFilter: Set<String>?
+    private let title: String
 
     public init(
         apiBaseURL: URL?, adminToken: String?, initialArchive: HistoryRoundsArchive? = nil,
-        initialPeriod: String? = nil, initialScoreBand: String? = nil
+        initialPeriod: String? = nil, initialScoreBand: String? = nil,
+        roundIds: [String]? = nil, title: String = "全部球局"
     ) {
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
@@ -325,6 +357,8 @@ public struct ResultsArchiveView: View {
         _archive = State(initialValue: initialArchive)
         _period = State(initialValue: initialPeriod)
         _scoreBand = State(initialValue: initialScoreBand)
+        roundIdFilter = roundIds.map { Set($0) }
+        self.title = title
     }
 
     public var body: some View {
@@ -361,7 +395,7 @@ public struct ResultsArchiveView: View {
             }.padding(14)
         }
         .background(HubStyle.grouped)
-        .navigationTitle("全部球局")
+        .navigationTitle(title)
         .task(id: "\(year)|\(course)|\(hasShotsOnly)|\(period ?? "")|\(scoreBand ?? "")|\(search)") {
             do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
             await load()
@@ -448,10 +482,11 @@ public struct ResultsArchiveView: View {
 
     private var filteredGroups: [HistoryMonthGroup] {
         let needle = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else { return archive?.groups ?? [] }
+        guard !needle.isEmpty || roundIdFilter != nil else { return archive?.groups ?? [] }
         return (archive?.groups ?? []).compactMap { group in
             let rounds = group.rounds.filter {
-                $0.courseName.lowercased().contains(needle) || ($0.date ?? "").contains(needle)
+                (roundIdFilter?.contains($0.id) ?? true)
+                    && (needle.isEmpty || $0.courseName.lowercased().contains(needle) || ($0.date ?? "").contains(needle))
             }
             return rounds.isEmpty ? nil : HistoryMonthGroup(
                 key: group.key, label: group.label, count: rounds.count,
@@ -574,7 +609,7 @@ public struct ResultsTrendView: View {
                 else if isLoading { ProgressView("载入趋势…").padding(.top, 40) }
             }.padding(14)
         }
-        .background(HubStyle.grouped).navigationTitle("时间趋势")
+        .background(HubStyle.grouped).navigationTitle("时间与频率")
         .navigationDestination(item: $destination) { destination in destinationView(destination) }
         .task(id: window) { await load() }
         .onChange(of: window) { _, value in grain = defaultGrain(for: value) }

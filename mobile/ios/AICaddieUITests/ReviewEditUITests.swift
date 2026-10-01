@@ -62,7 +62,7 @@ final class ReviewEditUITests: XCTestCase {
             return
         }
         historyTile.tap()
-        guard scrollAndTapContaining(["全部球局", "搜索 · 年份"]) else {
+        guard scrollAndTapContaining(["场 ›", "全部球局 ›"]) else {
             save("noarchive"); dump("noarchive")
             XCTFail("review-edit evidence must expose the complete archive")
             return

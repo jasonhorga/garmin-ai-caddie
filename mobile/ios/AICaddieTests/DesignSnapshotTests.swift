@@ -1544,15 +1544,33 @@ final class DesignSnapshotTests: XCTestCase {
             dark: true
         )
 
-        // 数据统计: overview KPIs + 近场折线图 + 成绩分布 + by-par(3/4/5) + putting + trends + quarter +
-        // courses(按球场聚合,可钻取各九洞) + clubs (距离按码), from a compact mobile-stats fixture.
+        // B5 成绩 / 表现分析 / 成绩分布 (README §9) + course drill-in, from a compact mobile-stats
+        // fixture: 21 scored 18-hole rounds (the landing shows the newest 20 with the 10-round
+        // average), the B0 putting buckets and scrambling, and a whole-history analysis baseline.
         let statsJSON = """
-        {"summary":{"totalRounds":423,"average18":92.4,"median18":92,"recent10Average":94.6,"bestScore":82,"worstScore":106,"handicapEstimate":18.2},\
+        {"summary":{"totalRounds":423,"courseCount":11,"average18":92.4,"median18":92,"recent10Average":88.4,"bestScore":82,"worstScore":106,"handicapEstimate":18.2,"handicapTrend":-1.4},\
         "trend":{"points":[\
-        {"date":"2026-05-01","score":95,"toPar":23,"birdies":1,"pars":6,"bogeys":7,"doublesPlus":4},\
-        {"date":"2026-05-10","score":91,"toPar":19,"birdies":2,"pars":7,"bogeys":7,"doublesPlus":2},\
-        {"date":"2026-05-20","score":89,"toPar":17,"birdies":1,"pars":9,"bogeys":6,"doublesPlus":2},\
-        {"date":"2026-06-01","score":86,"toPar":14,"birdies":3,"pars":9,"bogeys":5,"doublesPlus":1}]},\
+        {"date":"2026-04-01","score":95,"toPar":23,"roundId":"t-00"},\
+        {"date":"2026-04-06","score":91,"toPar":19,"roundId":"t-01"},\
+        {"date":"2026-04-11","score":97,"toPar":25,"roundId":"t-02"},\
+        {"date":"2026-04-16","score":89,"toPar":17,"roundId":"t-03"},\
+        {"date":"2026-04-21","score":93,"toPar":21,"roundId":"t-04"},\
+        {"date":"2026-04-26","score":90,"toPar":18,"roundId":"t-05"},\
+        {"date":"2026-05-01","score":94,"toPar":22,"roundId":"t-06"},\
+        {"date":"2026-05-06","score":88,"toPar":16,"roundId":"t-07"},\
+        {"date":"2026-05-11","score":92,"toPar":20,"roundId":"t-08"},\
+        {"date":"2026-05-16","score":96,"toPar":24,"roundId":"t-09"},\
+        {"date":"2026-05-21","score":86,"toPar":14,"roundId":"t-10"},\
+        {"date":"2026-05-26","score":90,"toPar":18,"roundId":"t-11"},\
+        {"date":"2026-06-01","score":87,"toPar":15,"roundId":"t-12"},\
+        {"date":"2026-06-06","score":91,"toPar":19,"roundId":"t-13"},\
+        {"date":"2026-06-11","score":85,"toPar":13,"roundId":"t-14"},\
+        {"date":"2026-06-16","score":88,"toPar":16,"roundId":"t-15"},\
+        {"date":"2026-06-21","score":84,"toPar":12,"roundId":"t-16"},\
+        {"date":"2026-06-26","score":89,"toPar":17,"roundId":"t-17"},\
+        {"date":"2026-07-01","score":86,"toPar":14,"roundId":"t-18"},\
+        {"date":"2026-07-06","score":83,"toPar":11,"roundId":"t-19"},\
+        {"date":"2026-07-11","score":82,"toPar":10,"roundId":"t-20"}]},\
         "scoring":{"outcomes":{"eagleOrBetter":1,"birdie":40,"par":300,"bogey":250,"doubleOrWorse":120},\
         "outcomeDistribution":[{"key":"eagleOrBetter","label":"Eagle+","count":1,"pct":0.5},{"key":"birdie","label":"Birdie","count":40,"pct":6.5},{"key":"par","label":"Par","count":300,"pct":43.5},{"key":"bogey","label":"Bogey","count":250,"pct":35.2},{"key":"double","label":"Double","count":70,"pct":10.2},{"key":"triple","label":"Triple","count":20,"pct":2.8},{"key":"quadPlus","label":"+4 or worse","count":10,"pct":1.4}],\
         "scoreBands":[{"label":"80s","count":42},{"label":"90s","count":171},{"label":"100+","count":93}],\
@@ -1563,7 +1581,8 @@ final class DesignSnapshotTests: XCTestCase {
         {"phase":"Putting","totalPutts":3900,"holesWithPutts":2160,"averagePutts":1.9,"threePutts":240,"coverage":{"ready":2160,"total":2400,"pct":90}}],\
         "teeDirection":{"recorded":180,"hit":102,"left":46,"right":32,"hitPct":57,"dominantMiss":"left"},\
         "approachMiss":{"recorded":300,"gir":99,"missed":201,"short":82,"long":31,"left":51,"right":37,"girPct":33,"dominantMiss":"short"},\
-        "putting":{"averagePutts":1.9,"averagePuttsPerRound":32.5,"roundsWithPutts":120,"threePutts":240}},\
+        "putting":{"averagePutts":1.92,"averagePuttsPerRound":32.5,"roundsWithPutts":120,"threePutts":240,"holesWithPutts":2160,"zeroPutts":43,"onePutts":410,"twoPutts":1426,"threePlusPutts":281,"zeroPuttPct":2.0,"onePuttPct":19.0,"twoPuttPct":66.0,"threePlusPuttPct":13.0},\
+        "scrambling":{"chances":1340,"saves":322,"pct":24.0},"penalties":{"total":96,"holesRecorded":1800,"roundsRecorded":100,"averagePerRound":0.96}},\
         "time":{"byQuarter":[{"key":"2026-Q2","roundCount":12,"average18":92.4,"bestScore":84,"outcomes":{"birdie":14,"doubleOrWorse":31}}]},\
         "courses":[{"courseKey":"bk","courseName":"北京天竺黑骑士","roundCount":128,"average18":91.0,"bestScore":82,"worstScore":99,\
         "rounds":[{"roundId":"r-901","date":"2026-06-11","score":89,"toPar":17,"holesCompleted":18,"nine":"北京天竺黑骑士 ~ C/A"},\
@@ -1586,15 +1605,23 @@ final class DesignSnapshotTests: XCTestCase {
         "availableYears":["2026"],"availableCourses":[]}
         """
         let historyArchive = try JSONDecoder().decode(HistoryRoundsArchive.self, from: Data(archiveJSON.utf8))
+        // 表现分析 compares a window with the whole history (↑ 绿 better, ↓ 黄 worse).
+        let baselineJSON = """
+        {"scoring":{"teeDirection":{"recorded":400,"hit":196,"left":104,"right":100},\
+        "approachMiss":{"recorded":600,"gir":234,"missed":366,"short":160,"long":60,"left":70,"right":76},\
+        "scrambling":{"chances":2600,"saves":572,"pct":22.0},\
+        "putting":{"averagePutts":1.86,"holesWithPutts":4000,"onePuttPct":24,"twoPuttPct":66,"threePlusPuttPct":10}}}
+        """
+        let baselineStats = try JSONDecoder().decode(MobileStats.self, from: Data(baselineJSON.utf8))
         try captureScreen(
             NavigationStack {
                 ScrollView {
-                    StatsContent(stats: mobileStats, isLoading: false, errorText: nil)
+                    ScoreDistributionContent(stats: mobileStats)
                 }
                 .background(HubStyle.grouped)
-                .navigationTitle("成绩统计")
+                .navigationTitle("成绩分布")
             },
-            named: "stats"
+            named: "results-distribution"
         )
         try captureScreen(
             NavigationStack {
@@ -1609,7 +1636,8 @@ final class DesignSnapshotTests: XCTestCase {
         try captureScreen(
             NavigationStack {
                 ScrollView {
-                    StatsContent(stats: mobileStats, isLoading: false, errorText: nil, mode: .analysis)
+                    StatsContent(stats: mobileStats, baseline: baselineStats, isLoading: false, errorText: nil)
+                        .padding(16)
                 }
                 .background(Color.white)
                 .navigationTitle("表现分析")

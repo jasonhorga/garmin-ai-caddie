@@ -1,58 +1,44 @@
-import Charts
 import Combine
 import Foundation
 import SwiftUI
 
-public enum StatsViewMode { case all, analysis }
-
-/// Aggregate performance detail inside the unified 成绩 destination. `.analysis` omits the career
-/// and archive navigation already owned by ResultsView and keeps the evidence-backed metrics.
+/// 表现分析 (README §9, `stats.html` 2): no charts and no cards. One "最该练" line, then the four
+/// phases written the same way — a big number, how it compares with the player's whole history,
+/// and one split bar (good segment green, most common miss yellow, the rest grey).
 public struct StatsView: View {
     public let apiBaseURL: URL?
     public let adminToken: String?
-    public let mode: StatsViewMode
 
     @State private var stats: MobileStats?
+    /// The whole history, the comparison for every narrower window.
+    @State private var baseline: MobileStats?
     @State private var isLoading = true
     @State private var errorText: String?
-    @State private var window = "last10"
+    @State private var window = "last20"
 
-    public init(apiBaseURL: URL? = nil, adminToken: String? = nil, mode: StatsViewMode = .all) {
+    public init(apiBaseURL: URL? = nil, adminToken: String? = nil) {
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
-        self.mode = mode
     }
 
     public var body: some View {
-        Group {
-            if isLoading && stats == nil {
-                AICaddieLoadingView(text: "载入统计…")
-            } else {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        if mode == .analysis {
-                            VStack(alignment: .leading, spacing: 7) {
-                                Text("统计范围").font(.caption).foregroundStyle(.secondary)
-                                Picker("统计范围", selection: $window) {
-                                    Text("近 10 场").tag("last10")
-                                    Text("近 20 场").tag("last20")
-                                    Text("近 12 月").tag("12m")
-                                    Text("全部").tag("all")
-                                }.pickerStyle(.segmented)
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.top, 12)
-                            .padding(.bottom, 10)
-                            Divider()
-                        }
-                        StatsContent(stats: stats, isLoading: isLoading, errorText: errorText,
-                                     apiBaseURL: apiBaseURL, adminToken: adminToken, mode: mode)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                Picker("统计范围", selection: $window) {
+                    ForEach(StatsContent.windows) { option in
+                        Text(option.title).tag(option.key)
                     }
                 }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("analysis-window")
+                .padding(.bottom, 16)
+                StatsContent(stats: stats, baseline: window == "all" ? nil : baseline,
+                             isLoading: isLoading, errorText: errorText)
             }
+            .padding(16)
         }
-        .background(mode == .analysis ? Color.white : HubStyle.grouped)
-        .navigationTitle(mode == .analysis ? "表现分析" : "成绩统计")
+        .background(Color.white)
+        .navigationTitle("表现分析")
         .task(id: window) { await load() }
         .onReceive(NotificationCenter.default.publisher(for: .garminDataDidRefresh)) { _ in
             Task { await load() }
@@ -64,9 +50,14 @@ public struct StatsView: View {
         guard let apiBaseURL else { isLoading = false; errorText = "未配置后端地址"; return }
         isLoading = true
         errorText = nil
+        let client = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
         do {
-            stats = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
-                .fetchMobileStats(window: mode == .analysis ? window : "all")
+            stats = try await client.fetchMobileStats(window: window)
+            if window == "all" {
+                baseline = stats
+            } else if baseline == nil {
+                baseline = try? await client.fetchMobileStats(window: "all")
+            }
         } catch {
             errorText = "统计暂时取不到(网络或数据)"
         }
@@ -76,595 +67,133 @@ public struct StatsView: View {
 
 struct StatsContent: View {
     let stats: MobileStats?
+    var baseline: MobileStats? = nil
     let isLoading: Bool
     let errorText: String?
-    var apiBaseURL: URL? = nil
-    var adminToken: String? = nil
-    var mode: StatsViewMode = .all
-    @State private var selectedPhase: PerformancePhase = .drive
 
-    private enum PerformancePhase: String, CaseIterable, Identifiable {
-        case drive, approach, shortGame, putting
-        var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .drive: return "开球"
-            case .approach: return "攻果岭"
-            case .shortGame: return "短杆"
-            case .putting: return "推杆"
-            }
-        }
+    struct Window: Identifiable {
+        var id: String { key }
+        let key: String
+        let title: String
     }
+
+    static let windows = [
+        Window(key: "last10", title: "10 场"), Window(key: "last20", title: "20 场"),
+        Window(key: "12m", title: "近一年"), Window(key: "all", title: "全部"),
+    ]
+
+    private static let good = LiveHoleStyle.green
+    private static let warn = HubStyle.bogey
 
     var body: some View {
-        VStack(spacing: 12) {
-            if let stats {
-                if mode == .all, let s = stats.summary { overviewCard(s) }
-                if mode == .all, let trend = stats.trend, !trend.points.isEmpty { trendCard(trend) }
-                if mode == .analysis { performanceOverview(stats) }
-                if mode == .all, let spread = stats.scoring?.outcomeDistribution, !spread.isEmpty { spreadCard(spread) }
-                if mode == .all, let bands = stats.scoring?.scoreBands, !bands.isEmpty {
-                    distributionCard(bands, apiBaseURL: apiBaseURL, adminToken: adminToken)
+        if let stats {
+            let analysis = ResultsPresentation.analysis(stats, baseline: baseline)
+            VStack(alignment: .leading, spacing: 0) {
+                focus(analysis.focus)
+                ForEach(analysis.rows) { row in
+                    phaseRow(row)
                 }
-                let byPar = (stats.scoring?.byPar ?? []).filter { (3...5).contains($0.par ?? 0) }
-                if mode == .all, !byPar.isEmpty { byParCard(byPar) }
-                if mode == .all, let phases = stats.scoring?.phaseStats, !phases.isEmpty { phaseCard(phases) }
-                if mode == .all, let putting = stats.scoring?.putting { puttingCard(putting) }
-                // The issue engine is not a benchmarked strokes-gained model. Keep estimated
-                // strokes-lost claims out of the consumer analysis surface.
-                if mode == .all, let q = stats.time?.byQuarter, !q.isEmpty { periodCard(q) }
-                if mode == .all, !stats.courses.isEmpty { coursesCard(stats.courses) }
-                if mode == .all, !stats.clubs.isEmpty { clubsCard(stats.clubs) }
-            } else if isLoading {
-                ProgressView("载入统计…").padding(.top, 40)
-            } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "chart.bar.xaxis").font(.title).foregroundStyle(.secondary)
-                    Text(errorText ?? "暂无统计").font(.subheadline).foregroundStyle(.secondary)
-                }.frame(maxWidth: .infinity).padding(.vertical, 40).hubCard()
-            }
-        }
-        .padding(mode == .analysis ? 0 : 14)
-    }
-
-    // MARK: Garmin-style shot overview
-
-    /// Garmin Golf makes the shot phase the navigation, then lets the graphic answer one question
-    /// at a time.  Keep scoring distribution available below, but do not lead analysis with a long
-    /// stack of unrelated report cards.
-    private func performanceOverview(_ stats: MobileStats) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Picker("击球阶段", selection: $selectedPhase) {
-                ForEach(PerformancePhase.allCases) { phase in
-                    Text(phase.title).tag(phase)
+                if analysis.rows.isEmpty {
+                    Text("这段时间还没有记录开球、攻果岭、救球或推杆")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .padding(.vertical, 30)
+                }
+                if baseline != nil {
+                    Text("↑ ↓ 和全部球局比")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                        .padding(.top, 14)
                 }
             }
-            .pickerStyle(.segmented)
-            performancePhaseContent(stats, phase: selectedPhase)
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 18)
-        .background(Color.white)
-    }
-
-    @ViewBuilder
-    private func performancePhaseContent(_ stats: MobileStats, phase: PerformancePhase) -> some View {
-        switch phase {
-        case .drive:
-            drivePhase(stats)
-        case .approach:
-            approachPhase(stats)
-        case .shortGame:
-            shortGamePhase(stats)
-        case .putting:
-            puttingPhase(stats)
-        }
-    }
-
-    private func drivePhase(_ stats: MobileStats) -> some View {
-        let tee = phase(named: "Tee", in: stats)
-        let left = stats.scoring?.teeDirection?.left ?? tee?.fairwayMissLeft
-        let hit = stats.scoring?.teeDirection?.hit ?? tee?.fairwaysHit
-        let right = stats.scoring?.teeDirection?.right ?? tee?.fairwayMissRight
-        let recorded = stats.scoring?.teeDirection?.recorded ?? tee?.fairwaysRecorded
-        return VStack(alignment: .leading, spacing: 12) {
-            phaseHeading("开球方向", detail: coverageText(ready: recorded, total: tee?.coverage?.total))
-            phaseMetricRow([
-                ("↶ 偏左", percentText(left, recorded)),
-                ("↑ 球道", percentText(hit, recorded)),
-                ("↷ 偏右", percentText(right, recorded)),
-            ])
-            DirectionRangeGraphic(left: left, center: hit, right: right)
-            phaseEvidenceFooter(ready: recorded, total: tee?.coverage?.total,
-                                note: "按记分卡方向分区汇总，不生成模拟落点")
-        }
-    }
-
-    private func approachPhase(_ stats: MobileStats) -> some View {
-        let approach = phase(named: "Approach", in: stats)
-        let miss = stats.scoring?.approachMiss
-        let hit = miss?.gir ?? approach?.gir
-        let recorded = miss?.recorded ?? approach?.girRecorded
-        return VStack(alignment: .leading, spacing: 12) {
-            phaseHeading("攻果岭落点", detail: coverageText(ready: recorded, total: approach?.coverage?.total))
-            phaseMetricRow([
-                ("GIR", percentText(hit, recorded)),
-                ("主要失误", approachMissLabel(miss?.dominantMiss)),
-            ])
-            ApproachTargetGraphic(
-                short: miss?.short, long: miss?.long, left: miss?.left, right: miss?.right,
-                green: hit
-            )
-            phaseEvidenceFooter(ready: recorded, total: approach?.coverage?.total,
-                                note: "按果岭命中与失误方向分区汇总")
-        }
-    }
-
-    private func shortGamePhase(_ stats: MobileStats) -> some View {
-        let shortGame = phase(named: "Short Game", in: stats)
-        let shots = shortGame?.roughOrBunkerShots
-        return VStack(alignment: .leading, spacing: 12) {
-            phaseHeading("果岭周边", detail: sampleText(shots).map { "\($0) 次已记录" })
-            phaseMetricRow([
-                ("长草 / 沙坑起杆", shots.map(String.init) ?? "—"),
-                ("全部逐杆样本", shortGame?.coverage?.total.map(String.init) ?? "—"),
-            ])
-            ShortGameGraphic(shotCount: shots)
-            phaseEvidenceFooter(ready: shots, total: nil, note: "只统计有球位记录的长草与沙坑击球")
-        }
-    }
-
-    private func puttingPhase(_ stats: MobileStats) -> some View {
-        let putting = stats.scoring?.putting
-        let phase = phase(named: "Putting", in: stats)
-        let rounds = putting?.roundsWithPutts
-        let threePuttsPerRound: String = {
-            guard let total = putting?.threePutts, let rounds, rounds > 0 else { return "—" }
-            return String(format: "%.1f", Double(total) / Double(rounds))
-        }()
-        return VStack(alignment: .leading, spacing: 12) {
-            phaseHeading("推杆", detail: coverageText(ready: phase?.coverage?.ready,
-                                                    total: phase?.coverage?.total))
-            phaseMetricRow([
-                ("场均推杆", putting?.averagePuttsPerRound.map { String(format: "%.1f", $0) } ?? "—"),
-                ("场均三推", threePuttsPerRound),
-            ])
-            PuttingGreenGraphic(average: putting?.averagePutts ?? phase?.averagePutts)
-            phaseEvidenceFooter(ready: phase?.coverage?.ready, total: phase?.coverage?.total,
-                                note: "推杆位置不完整时只显示记分卡推杆统计")
-        }
-    }
-
-    private func phase(named name: String, in stats: MobileStats) -> StatsPhase? {
-        stats.scoring?.phaseStats.first { $0.phase.caseInsensitiveCompare(name) == .orderedSame }
-    }
-
-    private func phaseHeading(_ title: String, detail: String?) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title).font(.headline)
-            Spacer()
-            if let detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
-        }
-    }
-
-    private func phaseMetricRow(_ values: [(String, String)]) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            ForEach(Array(values.enumerated()), id: \.offset) { _, item in
-                VStack(spacing: 3) {
-                    Text(item.1)
-                        .font(.title2.monospacedDigit().weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                    Text(item.0)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func phaseEvidenceFooter(ready: Int?, total: Int?, note: String) -> some View {
-        if let ready, let total, total > 0 {
-            Text("\(note) · \(ready)/\(total)")
-                .font(.caption2).foregroundStyle(.secondary)
-        } else if let ready {
-            Text("\(note) · \(ready) 条")
-                .font(.caption2).foregroundStyle(.secondary)
+        } else if isLoading {
+            ProgressView("载入统计…").frame(maxWidth: .infinity).padding(.top, 40)
         } else {
-            Text("\(note) · 这段时间没有足够数据")
-                .font(.caption2).foregroundStyle(.secondary)
+            VStack(spacing: 8) {
+                Image(systemName: "chart.bar.xaxis").font(.title).foregroundStyle(.secondary)
+                Text(errorText ?? "暂无统计").font(.subheadline).foregroundStyle(.secondary)
+            }.frame(maxWidth: .infinity).padding(.vertical, 40)
         }
     }
 
-    private func coverageText(ready: Int?, total: Int?) -> String? {
-        guard let ready else { return nil }
-        guard let total, total > 0 else { return "\(ready) 条记录" }
-        return "覆盖 \(ready)/\(total)"
-    }
-
-    private func sampleText(_ count: Int?) -> String? { count.map(String.init) }
-
-    private func percentText(_ value: Int?, _ total: Int?) -> String {
-        guard let value, let total, total > 0 else { return "—" }
-        return String(format: "%.0f%%", Double(value) / Double(total) * 100)
-    }
-
-    private func approachMissLabel(_ raw: String?) -> String {
-        switch raw?.lowercased() {
-        case "short": return "偏短"
-        case "long": return "偏长"
-        case "left": return "偏左"
-        case "right": return "偏右"
-        default: return "—"
-        }
-    }
-
-    // MARK: 概览
-
-    private func overviewCard(_ s: StatsSummary) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("概览 · \(s.totalRounds ?? 0) 场").font(.caption).foregroundStyle(.secondary)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-                kpi("均杆", s.average18.map { String(format: "%.1f", $0) } ?? "—")
-                kpi("近10场", s.recent10Average.map { String(format: "%.1f", $0) } ?? "—")
-                kpi("最佳", s.bestScore.map(String.init) ?? "—")
-                kpi("差点", s.handicapEstimate.map { String(format: "%.1f", $0) } ?? "—")
-                kpi("最差", s.worstScore.map(String.init) ?? "—")
-                kpi("中位", s.median18.map { String(format: "%.0f", $0) } ?? "—")
+    @ViewBuilder
+    private func focus(_ focus: ResultsPresentation.Focus?) -> some View {
+        if let focus {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("最该练").font(.footnote.weight(.semibold)).foregroundStyle(Self.warn)
+                Text(focus.title).font(.system(size: 26, weight: .bold))
+                Text(focus.detail).font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 18)
+            .overlay(alignment: .bottom) { Divider() }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("analysis-focus")
         }
-        .hubCard()
     }
 
-    // MARK: 近场走势(折线图 + 窗口内抓鸟/柏忌)
-
-    private func trendCard(_ trend: StatsTrend) -> some View {
-        let points = trend.points
-        let scores = points.compactMap(\.score)
-        let birdies = points.compactMap(\.birdies).reduce(0, +)
-        let bogeys = points.compactMap(\.bogeys).reduce(0, +)
-        let doubles = points.compactMap(\.doublesPlus).reduce(0, +)
-        return VStack(alignment: .leading, spacing: 10) {
-            Text("近 \(points.count) 场走势 · 18 洞").font(.caption).foregroundStyle(.secondary)
-            Chart {
-                ForEach(Array(points.enumerated()), id: \.offset) { index, point in
-                    if let score = point.score {
-                        LineMark(x: .value("场次", index), y: .value("成绩", score))
-                            .foregroundStyle(LiveHoleStyle.green)
-                            .interpolationMethod(.catmullRom)
-                        PointMark(x: .value("场次", index), y: .value("成绩", score))
-                            .foregroundStyle(LiveHoleStyle.green).symbolSize(36)
-                    }
-                }
-            }
-            .frame(height: 150)
-            .chartXAxis(.hidden)
-            .chartYScale(domain: scoreDomain(scores))
-            .chartYAxis { AxisMarks(position: .leading) }
-            HStack(spacing: 8) {
-                outcomeChip("抓鸟", birdies, color: Color(red: 56 / 255, green: 152 / 255, blue: 236 / 255))
-                outcomeChip("柏忌", bogeys, color: Color(red: 202 / 255, green: 138 / 255, blue: 4 / 255))
-                outcomeChip("双柏+", doubles, color: Color(red: 185 / 255, green: 50 / 255, blue: 40 / 255))
-            }
-        }
-        .hubCard()
-    }
-
-    private func scoreDomain(_ scores: [Int]) -> ClosedRange<Int> {
-        guard let lo = scores.min(), let hi = scores.max(), lo < hi else { return 70...100 }
-        return (lo - 2)...(hi + 2)
-    }
-
-    // MARK: 成绩构成(GolfLive 7 维,按洞)
-
-    private func spreadCard(_ buckets: [StatsOutcomeBucket]) -> some View {
-        let zh: [String: String] = [
-            "eagleOrBetter": "老鹰", "birdie": "小鸟", "par": "标准杆",
-            "bogey": "柏忌", "double": "双柏忌", "triple": "+3", "quadPlus": "+4",
-        ]
-        let maxPct = buckets.compactMap(\.pct).max() ?? 1
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("成绩构成 · 按洞").font(.caption).foregroundStyle(.secondary)
-            ForEach(buckets) { b in
-                HStack {
-                    Text(zh[b.key] ?? b.label ?? b.key).font(.subheadline).frame(width: 56, alignment: .leading)
-                    bandBar(count: Int(((b.pct ?? 0) * 10).rounded()), maxCount: Int((maxPct * 10).rounded()))
-                    Text(b.pct.map { String(format: "%.1f%%", $0) } ?? "—")
-                        .font(.subheadline.monospacedDigit().weight(.semibold)).frame(width: 56, alignment: .trailing)
-                }
-            }
-        }
-        .hubCard()
-    }
-
-    // MARK: 成绩分布
-
-    private func distributionCard(
-        _ bands: [StatsScoreBand],
-        apiBaseURL: URL?,
-        adminToken: String?
-    ) -> some View {
+    private func phaseRow(_ row: ResultsPresentation.PhaseRow) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("成绩分布 · 点击查看球局").font(.caption).foregroundStyle(.secondary)
-            ForEach(bands) { band in
-                NavigationLink {
-                    ResultsArchiveView(
-                        apiBaseURL: apiBaseURL,
-                        adminToken: adminToken,
-                        initialScoreBand: band.label
-                    )
-                } label: {
-                    HStack {
-                        Text(scoreBandLabel(band.label))
-                            .font(.subheadline)
-                            .frame(width: 86, alignment: .leading)
-                        bandBar(
-                            count: band.count ?? 0,
-                            maxCount: bands.map { $0.count ?? 0 }.max() ?? 1
-                        )
-                        Text("\(band.count ?? 0) 场 ›")
-                            .font(.subheadline.monospacedDigit().weight(.semibold))
-                            .frame(width: 64, alignment: .trailing)
-                    }
+            Text(row.title).font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+            HStack(alignment: .lastTextBaseline) {
+                HStack(alignment: .lastTextBaseline, spacing: 4) {
+                    Text(row.value + row.unit).font(.system(size: 34, weight: .bold)).monospacedDigit()
+                    Text(row.caption).font(.subheadline).foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.primary)
-            }
-        }
-        .hubCard()
-    }
-
-    // MARK: 各杆型(三/四/五杆洞)
-
-    private func byParCard(_ rows: [StatsByPar]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("各杆型表现").font(.caption).foregroundStyle(.secondary)
-            HStack {
-                Text("杆型").frame(width: 64, alignment: .leading)
-                Text("平均±标准").frame(maxWidth: .infinity, alignment: .trailing)
-                Text("保帕率").frame(width: 64, alignment: .trailing)
-            }.font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-            Divider()
-            ForEach(rows) { row in
-                HStack {
-                    Text(parLabel(row)).font(.subheadline.weight(.semibold)).frame(width: 64, alignment: .leading)
-                    Text(row.averageToPar.map { String(format: "%+.2f", $0) } ?? "—").font(.subheadline.monospacedDigit()).frame(maxWidth: .infinity, alignment: .trailing)
-                    Text(row.parOrBetterPct.map { String(format: "%.0f%%", $0) } ?? "—").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
+                Spacer()
+                if let delta = row.delta {
+                    Text(delta.text)
+                        .font(.subheadline.weight(.semibold)).monospacedDigit()
+                        .foregroundStyle(delta.isBetter.map { $0 ? Self.good : Self.warn } ?? Color.secondary)
                 }
-                .padding(.vertical, 5)
-                .overlay(alignment: .bottom) { Divider() }
+            }
+            splitBar(row.segments)
+            if let note = row.note {
+                Text(note).font(.caption).foregroundStyle(.secondary).monospacedDigit()
             }
         }
-        .hubCard()
-    }
-
-    // MARK: 表现统计(开球 / 攻果岭)
-
-    private func phaseCard(_ phases: [StatsPhase]) -> some View {
-        let byPhase = Dictionary(phases.map { ($0.phase, $0) }, uniquingKeysWith: { a, _ in a })
-        let tee = byPhase["Tee"]
-        let approach = byPhase["Approach"]
-        let fairwayText: String = {
-            guard let rec = tee?.fairwaysRecorded, rec > 0, let hit = tee?.fairwaysHit else { return "—" }
-            return String(format: "%.0f%%", Double(hit) / Double(rec) * 100)
-        }()
-        return VStack(alignment: .leading, spacing: 10) {
-            Text("表现统计").font(.caption).foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                kpi("球道命中", fairwayText)
-                kpi("攻果岭 GIR", approach?.girPct.map { String(format: "%.0f%%", $0) } ?? "—")
-            }
-            if let l = tee?.fairwayMissLeft, let r = tee?.fairwayMissRight, (l + r) > 0 {
-                Text("开球偏向:偏左 \(l) · 偏右 \(r)").font(.caption2).foregroundStyle(.secondary)
-            }
-        }
-        .hubCard()
-    }
-
-    // MARK: 推杆
-
-    private func puttingCard(_ p: StatsPutting) -> some View {
-        // 场均推杆 = per-ROUND total (~33), not the per-hole average (~1.9). 场均三推 = three-putts/round.
-        let perRoundThreePutts: String = {
-            guard let tp = p.threePutts, let rounds = p.roundsWithPutts, rounds > 0 else { return "—" }
-            return String(format: "%.1f", Double(tp) / Double(rounds))
-        }()
-        return VStack(alignment: .leading, spacing: 10) {
-            Text("推杆").font(.caption).foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                kpi("场均推杆", p.averagePuttsPerRound.map { String(format: "%.1f", $0) } ?? "—")
-                kpi("场均三推", perRoundThreePutts)
-            }
-            if let total = p.threePutts {
-                Text("累计三推 \(total) 次").font(.caption2).foregroundStyle(.secondary)
-            }
-        }
-        .hubCard()
-    }
-
-    // MARK: 在恶化/改善的环节
-
-    private func trendsCard(_ trends: [StatsIssueTrend]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("近期趋势(对比基线)").font(.caption).foregroundStyle(.secondary)
-            ForEach(trends.prefix(6)) { t in
-                HStack {
-                    Image(systemName: directionIcon(t.direction)).foregroundStyle(directionColor(t.direction)).font(.caption)
-                    Text(zhIssueLabel(t.issue)).font(.subheadline)
-                    Spacer()
-                    if let lost = t.estimatedStrokesLost, abs(lost) >= 0.1 {
-                        Text(String(format: "%+.1f 杆", lost)).font(.caption.monospacedDigit()).foregroundStyle(directionColor(t.direction))
-                    }
-                }
-                .padding(.vertical, 4)
-                .overlay(alignment: .bottom) { Divider() }
-            }
-        }
-        .hubCard()
-    }
-
-    // MARK: 季度走势
-
-    private func periodCard(_ periods: [StatsPeriod]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("季度走势 · 每场平均").font(.caption).foregroundStyle(.secondary)
-            ForEach(periods.prefix(8)) { p in
-                let rc = p.roundCount ?? 0
-                HStack {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(p.key).font(.subheadline.weight(.semibold))
-                        Text("\(rc) 场").font(.caption2).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if let birdie = p.outcomes?.birdie { Text("鸟 \(perRound(birdie, rc))").font(.caption2).foregroundStyle(.secondary) }
-                    if let dbl = p.outcomes?.doubleOrWorse { Text("双柏+ \(perRound(dbl, rc))").font(.caption2).foregroundStyle(.secondary) }
-                    Text(p.average18.map { String(format: "%.1f", $0) } ?? "—").font(.subheadline.monospacedDigit().weight(.bold)).frame(width: 56, alignment: .trailing)
-                }
-                .padding(.vertical, 5)
-                .overlay(alignment: .bottom) { Divider() }
-            }
-        }
-        .hubCard()
-    }
-
-    /// Per-round average of a quarter total (用户:季度想看"平均每场"而不是累计次数).
-    private func perRound(_ total: Int, _ rounds: Int) -> String {
-        guard rounds > 0 else { return "—" }
-        return String(format: "%.1f", Double(total) / Double(rounds))
-    }
-
-    // MARK: 各球场专项
-
-    private func coursesCard(_ courses: [StatsCourse]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("各球场 · \(courses.count) 个").font(.caption).foregroundStyle(.secondary)
-            Text("点进去看各九洞组合,并列出每一场(点单场看复盘)→").font(.caption2).foregroundStyle(LiveHoleStyle.green)
-            ForEach(courses) { c in
-                NavigationLink {
-                    CourseStatsDetailView(course: c, apiBaseURL: apiBaseURL, adminToken: adminToken)
-                } label: {
-                    courseRow(c)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.primary)
-            }
-        }
-        .hubCard()
-    }
-
-    private func courseRow(_ c: StatsCourse) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(c.localizedCourseDisplayName).font(.subheadline.weight(.semibold)).lineLimit(1)
-                Text("\(c.roundCount ?? 0) 次 · 最佳 \(c.bestScore.map(String.init) ?? "—")").font(.caption2).foregroundStyle(.secondary)
-            }
-            Spacer()
-            Text(c.average18.map { String(format: "%.1f", $0) } ?? "—").font(.subheadline.monospacedDigit().weight(.bold)).frame(width: 56, alignment: .trailing)
-            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
-        }
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
+        .padding(.vertical, 16)
         .overlay(alignment: .bottom) { Divider() }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("analysis-phase-\(row.title)")
     }
 
-    // MARK: 各球杆(距离按码)
-
-    private func clubsCard(_ clubs: [StatsClub]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("各球杆 · 距离按码").font(.caption).foregroundStyle(.secondary)
-            HStack {
-                Text("球杆").frame(width: 72, alignment: .leading)
-                Text("常用").frame(maxWidth: .infinity, alignment: .trailing)
-                Text("区间(码)").frame(width: 96, alignment: .trailing)
-            }.font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-            Divider()
-            ForEach(clubs) { club in
-                HStack {
-                    Text(zhClubName(club.club)).font(.subheadline).frame(width: 72, alignment: .leading)
-                    Text(club.median.map { "\(CoursePrepRoute.yards(fromMetres: $0))" } ?? "—").font(.subheadline.monospacedDigit().weight(.semibold)).frame(maxWidth: .infinity, alignment: .trailing)
-                    Text(rangeText(club)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 96, alignment: .trailing)
+    private func splitBar(_ segments: [ResultsPresentation.Segment]) -> some View {
+        let shown = segments.filter { $0.pct > 0 }
+        let total = max(shown.reduce(0) { $0 + $1.pct }, 0.0001)
+        return VStack(spacing: 4) {
+            GeometryReader { proxy in
+                HStack(spacing: 2) {
+                    ForEach(shown) { segment in
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(color(segment.tone))
+                            .frame(width: max(2, (proxy.size.width - CGFloat(shown.count - 1) * 2) * segment.pct / total))
+                    }
                 }
-                .padding(.vertical, 5)
-                .overlay(alignment: .bottom) { Divider() }
             }
-        }
-        .hubCard()
-    }
-
-    // MARK: helpers
-
-    private func kpi(_ title: String, _ value: String) -> some View {
-        VStack(spacing: 2) {
-            Text(value).font(.title3.weight(.heavy)).monospacedDigit()
-            Text(title).font(.caption2).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity).padding(.vertical, 10)
-        .background(HubStyle.iconTint).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private func outcomeChip(_ title: String, _ count: Int, color: Color) -> some View {
-        VStack(spacing: 2) {
-            Text("\(count)").font(.title3.monospacedDigit().weight(.heavy)).foregroundStyle(color)
-            Text(title).font(.caption2).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity).padding(.vertical, 8)
-        .background(color.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private func bandBar(count: Int, maxCount: Int) -> some View {
-        GeometryReader { geo in
-            let frac = maxCount > 0 ? CGFloat(count) / CGFloat(maxCount) : 0
-            RoundedRectangle(cornerRadius: 4).fill(LiveHoleStyle.green.opacity(0.5))
-                .frame(width: max(4, geo.size.width * frac), height: 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(height: 12)
-    }
-
-    private func rangeText(_ club: StatsClub) -> String {
-        guard let p10 = club.p10, let p90 = club.p90 else { return "—" }
-        return "\(CoursePrepRoute.yards(fromMetres: p10))–\(CoursePrepRoute.yards(fromMetres: p90))"
-    }
-
-    private func parLabel(_ row: StatsByPar) -> String {
-        if let par = row.par { return "\(par) 杆洞" }
-        return row.label ?? row.key ?? "—"
-    }
-
-    private func scoreBandLabel(_ value: String) -> String {
-        switch value {
-        case "70s": return "70–79"
-        case "80s": return "80–89"
-        case "90s": return "90–99"
-        case "100+": return "100 杆以上"
-        default: return value
+            .frame(height: 10)
+            GeometryReader { proxy in
+                HStack(spacing: 2) {
+                    ForEach(shown) { segment in
+                        Text(segment.pct >= 8 ? "\(segment.label) \(ResultsPresentation.whole(segment.pct))%" : "")
+                            .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                            .frame(width: max(2, (proxy.size.width - CGFloat(shown.count - 1) * 2) * segment.pct / total),
+                                   alignment: .leading)
+                    }
+                }
+            }
+            .frame(height: 14)
         }
     }
 
-    private func directionIcon(_ direction: String?) -> String {
-        switch (direction ?? "").lowercased() {
-        case "worsening", "up", "worse": return "arrow.up.right"
-        case "improving", "down", "better": return "arrow.down.right"
-        default: return "minus"
+    private func color(_ tone: ResultsPresentation.SegmentTone) -> Color {
+        switch tone {
+        case .good: return Self.good
+        case .warn: return Self.warn
+        case .neutral: return Color.primary.opacity(0.22)
         }
     }
-
-    private func directionColor(_ direction: String?) -> Color {
-        switch (direction ?? "").lowercased() {
-        case "worsening", "up", "worse": return Color(red: 185 / 255, green: 50 / 255, blue: 40 / 255)
-        case "improving", "down", "better": return LiveHoleStyle.green
-        default: return .secondary
-        }
-    }
-
 }
 
-/// Drill-in for one course (D1): overall play count + per nine-combo breakdown (A / C/A / B/C …),
-/// so the 各球场 list aggregates by BASE course and the detail shows how many times each nine.
 struct CourseStatsDetailView: View {
     let course: StatsCourse
     var apiBaseURL: URL? = nil
