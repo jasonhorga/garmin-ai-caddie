@@ -661,7 +661,12 @@ class CIWorkflowTests(unittest.TestCase):
         real_flow = Path("mobile/ios/AICaddieUITests/RealFlowUITests.swift").read_text(
             encoding="utf-8"
         )
-        for ui_test in ("RealFlowUITests.swift", "ReviewEditUITests.swift", "TeeSelectionUITests.swift"):
+        for ui_test in (
+            "RealFlowUITests.swift",
+            "ReviewEditUITests.swift",
+            "TeeSelectionUITests.swift",
+            "PrepDegradationUITests.swift",
+        ):
             harness = Path("mobile/ios/AICaddieUITests") / ui_test
             source = harness.read_text(encoding="utf-8")
             self.assertIn('app.launchEnvironment["AI_CADDIE_API_BASE_URL"]', source)

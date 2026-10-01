@@ -406,6 +406,31 @@ public extension MobileCourseOption {
     var resolvedHoles: Int {
         segmentHoles ?? holes
     }
+
+    /// The same course on another Tee (备战 右上换发球台); every other fact is unchanged.
+    func replacingTeeBox(_ teeBox: String) -> MobileCourseOption {
+        MobileCourseOption(
+            globalId: globalId,
+            courseKey: courseKey,
+            name: name,
+            roundCount: roundCount,
+            latestRoundId: latestRoundId,
+            latestRoundDate: latestRoundDate,
+            templateRoundId: templateRoundId,
+            suggestedLiveRoundId: suggestedLiveRoundId,
+            holes: holes,
+            teeBox: teeBox,
+            geometryCoverage: geometryCoverage,
+            sourceRefs: sourceRefs,
+            venueName: venueName,
+            venueNameSource: venueNameSource,
+            segmentLabel: segmentLabel,
+            segmentHoles: segmentHoles,
+            latitude: latitude,
+            longitude: longitude,
+            tees: tees
+        )
+    }
 }
 
 public extension RecentRoundSummary {

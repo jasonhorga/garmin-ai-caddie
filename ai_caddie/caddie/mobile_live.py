@@ -72,6 +72,9 @@ OFFLINE_OPTION_STRONG_SAMPLE = 10
 OFFLINE_OPTION_SAMPLE_REF_LIMIT = 6
 DECISION_CLUB_REF_LIMIT = 6
 DECISION_CLUB_SURFACE_LIMIT = 8
+# ``source`` of a phone ``.club`` event whose club the caddie chose (iOS
+# ``LiveClubStripPolicy.caddieOwnedClubSource``).
+CADDIE_OWNED_CLUB_SOURCE = "ios_caddie_auto"
 MOBILE_CADDIE_RISK_KINDS = {"bunker", "water", "water_edge", "tree_area", "out_of_bounds", "ob"}
 CADDIE_ALTERNATIVE_CARRY_GAP_M = 45.0
 
@@ -5067,6 +5070,12 @@ def build_round_state(round_id: str, *, root: Path | str | None = None, player_i
             club_name = str(payload.get("clubName") or "")
             if club_name and club_name.strip().lower() != "unknown":
                 state["selectedClub"] = club_name
+                mark(hole_no, "club", client_id)
+            elif str(payload.get("source") or "") == CADDIE_OWNED_CLUB_SOURCE:
+                # The phone's caddie-owned target edit with no club (the ``unknown`` placeholder)
+                # is an explicit empty selection, mirroring iOS ``restoreLiveRoundState``; a legacy
+                # ``unknown`` without the marker keeps its old no-op meaning.
+                state["selectedClub"] = ""
                 mark(hole_no, "club", client_id)
             if "shotType" in payload:
                 state["selectedShotType"] = str(payload.get("shotType") or "")

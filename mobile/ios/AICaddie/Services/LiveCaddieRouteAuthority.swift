@@ -21,6 +21,8 @@ enum LiveCaddieRouteAuthority {
         // is filtered below; a measured multi-leg prefix remains useful while its next lie is
         // being re-planned.
         let installedRoute: CaddiePlanSequence? = {
+            // The local evaluator rejected the installed chain (water / OB): never restore it.
+            guard offline?.isLocalNoRoute != true else { return nil }
             guard let installed, !installed.steps.isEmpty else { return nil }
             // Keep a useful CoursePrep prefix, but never expose a bare Par 4/5 tee club as a
             // complete route.  A single-club route is retained only when its final step carries
@@ -59,6 +61,240 @@ enum LiveCaddieRouteAuthority {
         // offline evaluator has a complete route, it is preferable to a single bare option and is
         // already deterministic from the installed bag and hole facts.
         return deduplicated(result)
+    }
+
+    /// Identity of the installed CoursePrep chain when it is presented as a route.
+    static let installedRouteId = "installed-course-plan"
+
+    /// The installed CoursePrep chain as the first-frame route, shared by live play and 备战.
+    /// Only a tee shot has an installed chain. The chain stops at the first landing inside the
+    /// factual green window within the Par - 2 budget (GIR), a final green-bound leg is a scoring
+    /// leg, and a true pin endpoint lands on the route end. `fallbackRouteEndM` is used only when
+    /// the prep row has no route length (live: the current distance to the pin).
+    static func installedRoute(
+        prep: CoursePrepHole?,
+        par: Int,
+        shotType: String,
+        fallbackRouteEndM: Double?
+    ) -> CaddiePlanSequence? {
+        guard shotType.caseInsensitiveCompare("tee") == .orderedSame else { return nil }
+        let prepSteps: [CoursePrepStep] = {
+            let source = prep?.steps ?? []
+            guard par >= 3,
+                  let green = prep?.greenDistances,
+                  green.available,
+                  let front = green.frontM,
+                  let back = green.backM,
+                  front.isFinite,
+                  back.isFinite else { return source }
+            let lower = min(front, back)
+            let upper = max(front, back) + 8.0
+            let shotLimit = max(1, par - 2)
+            var cumulative = 0.0
+            var trimmed: [CoursePrepStep] = []
+            for (index, step) in source.enumerated() {
+                let carry = step.targetCarryM ?? 0
+                cumulative += carry
+                let offset = step.routeOffsetM ?? step.landingM ?? cumulative
+                trimmed.append(step)
+                if index + 1 <= shotLimit, offset >= lower, offset <= upper { break }
+            }
+            return trimmed
+        }()
+        let routeEnd: Double = prep?.resolvedMapOverlay?.ln ?? prep?.routeLenM ?? fallbackRouteEndM ?? 0
+        let steps = prepSteps.enumerated().compactMap { index, step -> CaddiePlanSequenceStep? in
+            let club = (step.clubName ?? step.club ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !club.isEmpty, club != "-" else { return nil }
+            let isDirectPar3 = par == 3
+            let isLast = index == max(0, prepSteps.count - 1)
+            let remaining = step.expectedRemainingM
+            let actualOffset = step.routeOffsetM ?? step.landingM
+            let reachesPin = remaining.map { $0 <= 20 } == true
+                || (routeEnd > 0 && (actualOffset ?? 0) >= routeEnd - 20)
+            let suppliedRole = step.role?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let inferredRole: String = {
+                if isDirectPar3 { return "scoring" }
+                // CoursePrep producers before the shot-plan contract sometimes labelled the
+                // final approach as `advance`/`position`.  A last step whose factual leave is in
+                // the scoring window is the green-bound leg regardless of that stale label; keep
+                // the endpoint and map arc attached to the flag.
+                if isLast && reachesPin { return "scoring" }
+                if let suppliedRole, !suppliedRole.isEmpty { return suppliedRole }
+                return index == 0 ? shotType : "position"
+            }()
+            let isScoring = inferredRole.caseInsensitiveCompare("scoring") == .orderedSame
+                || inferredRole.caseInsensitiveCompare("approach") == .orderedSame
+            let girLanding = isGreenWindowLanding(
+                offsetM: actualOffset,
+                shotIndex: index,
+                par: par,
+                greenDistances: prep?.greenDistances
+            )
+            let pinEndpoint = isDirectPar3 || (
+                isScoring
+                    && isLast
+                    && shouldTargetPin(
+                        offsetM: actualOffset,
+                        role: inferredRole,
+                        shotIndex: index,
+                        routeEndM: routeEnd,
+                        par: par,
+                        greenDistances: prep?.greenDistances
+                    )
+            )
+            return CaddiePlanSequenceStep(
+                id: "prep-\(step.planIndex ?? index)-\(club)",
+                role: inferredRole,
+                clubName: club,
+                targetCarryM: step.targetCarryM,
+                expectedRemainingM: pinEndpoint || girLanding ? 0 : step.expectedRemainingM,
+                sampleSize: nil,
+                confidence: nil,
+                sourceRefs: [],
+                routeOffsetM: pinEndpoint ? routeEnd : actualOffset,
+                landingM: pinEndpoint ? routeEnd : actualOffset,
+                planIndex: step.planIndex ?? index,
+                greenInRegulation: girLanding,
+                shotsToGreen: girLanding ? index + 1 : nil
+            )
+        }
+        guard !steps.isEmpty else { return nil }
+        return CaddiePlanSequence(
+            id: installedRouteId,
+            label: "本洞路线",
+            expectedRemainingM: steps.last?.expectedRemainingM,
+            riskScore: nil,
+            confidence: nil,
+            coverageText: nil,
+            sourceRefs: [],
+            steps: steps
+        )
+    }
+
+    /// A factual front/back green window is a valid GIR destination. The map must not turn that
+    /// landing into a flag-targeted arc merely because the route's last semantic role is scoring.
+    static func isGreenWindowLanding(
+        offsetM: Double?,
+        shotIndex: Int,
+        par: Int,
+        greenDistances: CoursePrepGreenDistances?
+    ) -> Bool {
+        guard par >= 3,
+              shotIndex + 1 <= max(1, par - 2),
+              let offsetM,
+              offsetM.isFinite,
+              let green = greenDistances,
+              green.available,
+              let front = green.frontM,
+              let back = green.backM,
+              front.isFinite,
+              back.isFinite else {
+            return false
+        }
+        let lower = min(front, back)
+        let upper = max(front, back) + 8.0
+        return offsetM >= lower && offsetM <= upper
+    }
+
+    static func shouldTargetPin(
+        offsetM: Double?,
+        role: String,
+        shotIndex: Int,
+        routeEndM: Double,
+        par: Int,
+        greenDistances: CoursePrepGreenDistances?
+    ) -> Bool {
+        let normalizedRole = role.lowercased()
+        guard normalizedRole == "scoring" || normalizedRole == "approach" else { return false }
+        if isGreenWindowLanding(offsetM: offsetM, shotIndex: shotIndex, par: par, greenDistances: greenDistances) {
+            return false
+        }
+        guard let offsetM, offsetM.isFinite, routeEndM > 0 else {
+            // Legacy payloads without a cumulative station have no way to distinguish a pin
+            // endpoint, so retain the historical scoring fallback for those payloads only.
+            return true
+        }
+        return offsetM >= routeEndM - 20.0
+    }
+
+    /// The visible first route of a hole (`CurrentHoleView.reconcileCaddieRoutes`). An explicit
+    /// player selection wins; otherwise the retained route is kept stable across refreshes, a
+    /// sparse retained route is upgraded once to the installed CoursePrep chain, and a fresh hole
+    /// (nothing retained, nothing chosen) leads with the first resolved route. `incoming` must not
+    /// be empty.
+    /// One hole's published routes after a new result. With `vetoInstalled` (the local evaluator
+    /// found no safe route) the installed chain is dropped from the incoming, published and
+    /// retained routes alike; if nothing else remains the hole publishes no route at all.
+    static func reconciled(
+        incoming: [CaddiePlanSequence],
+        existing: [CaddiePlanSequence],
+        installed: CaddiePlanSequence?,
+        retained: CaddiePlanSequence?,
+        explicitSelectionKey: String?,
+        vetoInstalled: Bool
+    ) -> (first: CaddiePlanSequence, merged: [CaddiePlanSequence])? {
+        func allowed(_ route: CaddiePlanSequence) -> Bool {
+            !vetoInstalled || route.id != installedRouteId
+        }
+        let incoming = incoming.filter(allowed)
+        guard !incoming.isEmpty else { return nil }
+        let existing = existing.filter(allowed)
+        let first = leadingRoute(
+            incoming: incoming,
+            existing: existing,
+            installed: vetoInstalled ? nil : installed,
+            retained: retained.flatMap { allowed($0) ? $0 : nil },
+            explicitSelectionKey: explicitSelectionKey
+        )
+        return (first, mergedRoutes(first: first, existing: existing, incoming: incoming))
+    }
+
+    static func leadingRoute(
+        incoming: [CaddiePlanSequence],
+        existing: [CaddiePlanSequence],
+        installed: CaddiePlanSequence?,
+        retained: CaddiePlanSequence?,
+        explicitSelectionKey: String?
+    ) -> CaddiePlanSequence {
+        func matching(_ route: CaddiePlanSequence, in routes: [CaddiePlanSequence]) -> CaddiePlanSequence? {
+            routes.first(where: { routeSignature($0) == routeSignature(route) })
+                ?? routes.first(where: { samePhysicalRoute($0, route) })
+        }
+        if let explicitSelectionKey,
+           let route = incoming.first(where: { routeSignature($0) == explicitSelectionKey })
+                ?? existing.first(where: { routeSignature($0) == explicitSelectionKey }) {
+            return route
+        }
+        if let retained,
+           let refreshed = matching(retained, in: incoming) {
+            return refreshed
+        }
+        if let retained,
+           let installed,
+           !samePhysicalRoute(retained, installed),
+           !installed.steps.isEmpty {
+            // One-time sparse -> installed upgrade. Once retained is installed, the branch
+            // above keeps it stable across every later response.
+            return installed
+        }
+        if let retained { return retained }
+        return incoming[0]
+    }
+
+    /// The leading route at index zero, then only physically distinct alternatives in the order
+    /// the server/offline planner first revealed them, so a refresh cannot reshuffle plan tabs.
+    static func mergedRoutes(
+        first: CaddiePlanSequence,
+        existing: [CaddiePlanSequence],
+        incoming: [CaddiePlanSequence]
+    ) -> [CaddiePlanSequence] {
+        var merged: [CaddiePlanSequence] = [first]
+        for route in existing + incoming {
+            guard !merged.contains(where: { sameVisibleRoute($0, route) }) else { continue }
+            merged.append(route)
+        }
+        return merged
     }
 
     static func selected(

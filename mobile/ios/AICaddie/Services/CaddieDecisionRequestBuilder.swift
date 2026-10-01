@@ -66,6 +66,28 @@ public struct LiveCaddieInput {
     }
 }
 
+public extension LiveCaddieInput {
+    /// The live hole's first-frame tee input before any GPS fix, manual distance, map target or
+    /// player choice (the no-GPS default 备战 shows): the distance `CurrentHoleView` resolves
+    /// through `LiveCaddieDistance` with only the static green middle, and the view's initial lie.
+    static func firstFrameTee(
+        greenDistances: CoursePrepGreenDistances?,
+        holeYards: Int?
+    ) -> LiveCaddieInput {
+        let staticMiddleM = greenDistances?.available == true ? greenDistances?.middleM : nil
+        return LiveCaddieInput(
+            shotType: "tee",
+            distanceToPinM: LiveCaddieDistance.resolve(
+                manualM: nil,
+                liveMiddleM: nil,
+                staticMiddleM: staticMiddleM,
+                holeYards: holeYards
+            ),
+            lie: "fairway"
+        )
+    }
+}
+
 public final class CaddieDecisionRequestBuilder {
     public init() {}
 
@@ -134,6 +156,81 @@ public final class CaddieDecisionRequestBuilder {
         }
 
         return CaddieDecisionRequest(shotType: input.shotType, context: context)
+    }
+
+    /// A request whose seed predates the installed CoursePrep chain gets that chain from the prep
+    /// row as its `canonicalShotPlan` (live play and 备战 use the same request), and the prep's
+    /// factual water carries (`hazardWaterCarry_m`, route metres) so the whole-hole planner never
+    /// lands a stroke in water and can justify a lay-up.
+    public static func addingCanonicalPlan(
+        to request: CaddieDecisionRequest,
+        prep: CoursePrepHole?
+    ) -> CaddieDecisionRequest {
+        var context = request.context
+        var changed = false
+        if context["hazardWaterCarry_m"] == nil {
+            let water = (prep?.hazards.waterCarry ?? []).compactMap { pair -> JSONValue? in
+                guard pair.count >= 2, pair[0].isFinite, pair[1].isFinite, pair[0] >= 0, pair[1] >= 0 else { return nil }
+                return .array([.number(min(pair[0], pair[1])), .number(max(pair[0], pair[1]))])
+            }
+            if !water.isEmpty {
+                context["hazardWaterCarry_m"] = .array(water)
+                changed = true
+            }
+        }
+        if context["canonicalShotPlan"] == nil,
+           let steps = canonicalShotPlanRows(from: prep?.steps),
+           !steps.isEmpty {
+            context["canonicalShotPlan"] = .array(steps.map { .object($0) })
+            context["canonicalPlanSource"] = .string("course_prep")
+            context["canonicalPlanVersion"] = .string("ai-caddie-shot-plan-v1")
+            if let routeLength = prep?.routeLenM, routeLength.isFinite, routeLength > 0 {
+                context["canonicalPlanRouteLength_m"] = .number(routeLength)
+            }
+            changed = true
+        }
+        guard changed else { return request }
+        return CaddieDecisionRequest(
+            shotType: request.shotType,
+            context: context,
+            includeExplanation: request.includeExplanation
+        )
+    }
+
+    /// The installed CoursePrep steps as decision-contract `canonicalShotPlan` rows.
+    public static func canonicalShotPlanRows(
+        from steps: [CoursePrepStep]?
+    ) -> [[String: JSONValue]]? {
+        guard let steps else { return nil }
+        let rows = steps.enumerated().compactMap { index, step -> [String: JSONValue]? in
+            let name = (step.clubName ?? step.club ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, name != "-" else { return nil }
+            var row: [String: JSONValue] = [
+                "clubName": .string(name),
+                "planIndex": .number(Double(step.planIndex ?? index)),
+            ]
+            if let value = step.targetCarryM, value.isFinite, value > 0 {
+                row["targetCarryM"] = .number(value)
+            }
+            if let value = step.routeOffsetM, value.isFinite, value >= 0 {
+                row["routeOffsetM"] = .number(value)
+            }
+            if let value = step.landingM, value.isFinite, value >= 0 {
+                row["landingM"] = .number(value)
+            }
+            if let value = step.expectedRemainingM, value.isFinite {
+                row["expectedRemainingM"] = .number(value)
+            }
+            if let role = step.role?.trimmingCharacters(in: .whitespacesAndNewlines), !role.isEmpty {
+                row["role"] = .string(role)
+            }
+            if let version = step.planVersion?.trimmingCharacters(in: .whitespacesAndNewlines), !version.isEmpty {
+                row["planVersion"] = .string(version)
+            }
+            return row
+        }
+        return rows.isEmpty ? nil : rows
     }
 
     private func normalizedClubProfiles(_ value: JSONValue) -> JSONValue? {
@@ -230,6 +327,17 @@ public enum LiveCaddieSeedFactory {
         var context = factual.context
         for (key, value) in installed.context where !authoritativeKeys.contains(key) {
             context[key] = value
+        }
+        // The server seed's typed route hazards (water / OB) survive the factual repair even
+        // though its `candidateRoutes` are replaced: the offline evaluator's veto reads them.
+        if case .array(let installedRoutes)? = installed.context["candidateRoutes"] {
+            let zones = installedRoutes.flatMap { route -> [JSONValue] in
+                guard case .object(let row) = route, case .array(let zones)? = row["planningHazards"] else { return [] }
+                return zones
+            }
+            if !zones.isEmpty {
+                context["routePlanningHazards"] = .array(zones)
+            }
         }
         // The synthesized context only carries coverage/revision. Preserve richer cached hazard
         // evidence while refreshing those two authority markers from the current hole package.

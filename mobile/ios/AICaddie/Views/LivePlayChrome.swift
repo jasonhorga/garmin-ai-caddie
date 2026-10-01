@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Controls that float on the full-screen live hole map (IMPLEMENTATION_PLAN B1, `live-play.html`).
 ///
@@ -376,10 +379,19 @@ enum LivePlannedRouteRenderer {
         overlay: CoursePrepOverlay,
         scale: CGFloat,
         offset: CGSize,
-        topInset: CGFloat
+        topInset: CGFloat,
+        fittedFrame: CGRect? = nil
     ) -> ScreenGeometry {
         func screen(_ point: CGPoint) -> CGPoint? {
-            transformedPoint(point, size: size, overlay: overlay, scale: scale, offset: offset, topInset: topInset)
+            transformedPoint(
+                point,
+                size: size,
+                overlay: overlay,
+                scale: scale,
+                offset: offset,
+                topInset: topInset,
+                fittedFrame: fittedFrame
+            )
         }
         let screenLegs = legs.compactMap { leg -> (leg: MapPlannedLeg, origin: CGPoint, destination: CGPoint)? in
             guard let origin = screen(leg.origin), let destination = screen(leg.destination) else { return nil }
@@ -401,22 +413,34 @@ enum LivePlannedRouteRenderer {
         )
     }
 
-    /// A topo pixel in the viewport: the aspect-fit projection, then the hero's pan/zoom.
+    /// A topo pixel in the viewport: the aspect-fit projection (or the caller's explicit rest frame
+    /// of the bitmap, e.g. 备战's full-screen cover), then the hero's pan/zoom.
     static func transformedPoint(
         _ point: CGPoint,
         size: CGSize,
         overlay: CoursePrepOverlay,
         scale: CGFloat,
         offset: CGSize,
-        topInset: CGFloat
+        topInset: CGFloat,
+        fittedFrame: CGRect? = nil
     ) -> CGPoint? {
-        guard let base = LivePlayMapOverlayLayout.project(
-            overlayPoint: [Double(point.x), Double(point.y)],
-            overlayWidth: overlay.w,
-            overlayHeight: overlay.h,
-            into: size,
-            topInset: topInset
-        ) else { return nil }
+        let projected: CGPoint?
+        if let fittedFrame {
+            guard point.x.isFinite, point.y.isFinite, overlay.w > 0, overlay.h > 0 else { return nil }
+            projected = CGPoint(
+                x: fittedFrame.minX + point.x / CGFloat(overlay.w) * fittedFrame.width,
+                y: fittedFrame.minY + point.y / CGFloat(overlay.h) * fittedFrame.height
+            )
+        } else {
+            projected = LivePlayMapOverlayLayout.project(
+                overlayPoint: [Double(point.x), Double(point.y)],
+                overlayWidth: overlay.w,
+                overlayHeight: overlay.h,
+                into: size,
+                topInset: topInset
+            )
+        }
+        guard let base = projected else { return nil }
         let x: CGFloat = size.width / 2 + (base.x - size.width / 2) * scale + offset.width
         let y: CGFloat = size.height / 2 + (base.y - size.height / 2) * scale + offset.height
         return CGPoint(x: x, y: y)
@@ -452,7 +476,8 @@ enum LivePlannedRouteRenderer {
         viewportSize: CGSize,
         hazard: LiveHazardOverlayRenderer.ScreenGeometry? = nil,
         hazardLabelSizes: [CGSize] = [],
-        target: LiveTargetRenderer.ScreenTarget? = nil
+        target: LiveTargetRenderer.ScreenTarget? = nil,
+        exclusions: [CGRect] = []
     ) -> (route: [CGRect?], hazard: [CGRect?]) {
         var lineSamples: [CGPoint] = geometry.arcs.flatMap { Self.samples(along: $0) }
         if let teeArc = geometry.teeArc { lineSamples += Self.samples(along: teeArc) }
@@ -524,12 +549,13 @@ enum LivePlannedRouteRenderer {
             }
         }
         let viewport = screenBounds.insetBy(dx: 4, dy: 4)
-        let placed = layoutLabels(
+        let placed = layoutLabelsAvoiding(
             requests,
             viewport: viewport,
             obstacles: obstacles,
             samples: lineSamples,
-            reserved: reserved
+            reserved: reserved,
+            exclusions: exclusions
         )
         var route = [CGRect?](repeating: nil, count: labelSizes.count)
         var hazardRects = [CGRect?](repeating: nil, count: hazard?.edges.count ?? 0)
@@ -562,6 +588,10 @@ enum LivePlannedRouteRenderer {
         return points
     }
 
+    /// Draws the route layer and returns the placed route-label rects (in `labelTexts` order; nil
+    /// for an omitted label). `exclusions` are chrome rects floating over the map (备战's header,
+    /// hole badge and panel): no label is ever placed on them. Live play passes none.
+    @discardableResult
     static func draw(
         _ context: inout GraphicsContext,
         size: CGSize,
@@ -572,9 +602,11 @@ enum LivePlannedRouteRenderer {
         scale: CGFloat,
         offset: CGSize,
         topInset: CGFloat,
+        fittedFrame: CGRect? = nil,
+        exclusions: [CGRect] = [],
         hazard selectedHazard: (hole: CoursePrepHole, row: LiveHazardDisplayItem)? = nil,
         target: LiveTargetGeometry? = nil
-    ) {
+    ) -> [CGRect?] {
         let geometry = screenGeometry(
             size: size,
             legs: legs,
@@ -583,7 +615,8 @@ enum LivePlannedRouteRenderer {
             overlay: overlay,
             scale: scale,
             offset: offset,
-            topInset: topInset
+            topInset: topInset,
+            fittedFrame: fittedFrame
         )
         let hazardGeometry = selectedHazard.flatMap {
             LiveHazardOverlayRenderer.screenGeometry(
@@ -626,12 +659,8 @@ enum LivePlannedRouteRenderer {
             let text = Text(string)
                 .font(.system(size: isTeeLabel ? 11 : labelFontSize, weight: .heavy, design: .rounded))
                 .foregroundColor(.white)
-            let resolved = context.resolve(text)
-            let raw = resolved.measure(in: CGSize(width: 240, height: 60))
-            let width: CGFloat = ceil(raw.width) + labelPadding.width * 2
-            let height: CGFloat = ceil(raw.height) + labelPadding.height * 2
-            resolvedTexts.append(resolved)
-            sizes.append(CGSize(width: width, height: height))
+            resolvedTexts.append(context.resolve(text))
+            sizes.append(routeLabelSize(for: string, isTeeLabel: isTeeLabel))
         }
         let hazardSizes: [CGSize] = hazardGeometry?.edges.map {
             LiveHazardOverlayRenderer.labelSize(for: $0.text, in: context)
@@ -661,7 +690,8 @@ enum LivePlannedRouteRenderer {
             viewportSize: size,
             hazard: hazardGeometry,
             hazardLabelSizes: hazardSizes,
-            target: screenTarget
+            target: screenTarget,
+            exclusions: exclusions
         )
         for (index, rect) in placed.route.enumerated() where index < resolvedTexts.count {
             guard let rect else { continue }
@@ -686,6 +716,63 @@ enum LivePlannedRouteRenderer {
                 labelRects: placed.hazard
             )
         }
+        return placed.route
+    }
+
+    /// The pill size of one route label ("一号木 224", or the tee arc's "N码"): the label font's
+    /// text bounds plus `labelPadding`. The renderer draws with these sizes and layout tests use
+    /// the same measurement.
+    static func routeLabelSize(for text: String, isTeeLabel: Bool) -> CGSize {
+        let pointSize: CGFloat = isTeeLabel ? 11 : labelFontSize
+        let base = UIFont.systemFont(ofSize: pointSize, weight: .heavy)
+        let font = base.fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: pointSize) } ?? base
+        let bounds = (text as NSString).boundingRect(
+            with: CGSize(width: 240, height: 60),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font],
+            context: nil
+        )
+        return CGSize(
+            width: ceil(bounds.width) + labelPadding.width * 2,
+            height: ceil(bounds.height) + labelPadding.height * 2
+        )
+    }
+
+    /// The route labels exactly as `draw` places them (no obstacle or Touch Target on the map):
+    /// the label texts and their rects, nil when omitted. Used by 备战's layout tests and audit.
+    static func placedRouteLabels(
+        size: CGSize,
+        legs: [MapPlannedLeg],
+        overlay: CoursePrepOverlay,
+        scale: CGFloat,
+        offset: CGSize,
+        topInset: CGFloat,
+        fittedFrame: CGRect? = nil,
+        exclusions: [CGRect] = []
+    ) -> [(text: String, rect: CGRect?)] {
+        let geometry = screenGeometry(
+            size: size,
+            legs: legs,
+            teeArc: nil,
+            teeArcYards: nil,
+            overlay: overlay,
+            scale: scale,
+            offset: offset,
+            topInset: topInset,
+            fittedFrame: fittedFrame
+        )
+        let strings = labelTexts(geometry, pixelsPerMetre: overlay.ppm)
+        let sizes = strings.map { routeLabelSize(for: $0, isTeeLabel: false) }
+        let placed = layout(
+            geometry,
+            labelSizes: sizes,
+            flagScale: scale,
+            viewportSize: size,
+            exclusions: exclusions
+        ).route
+        return strings.enumerated().map { index, text in
+            (text, index < placed.count ? placed[index] : nil)
+        }
     }
 
     /// A label to place: its size and candidate centres in preference order.
@@ -704,16 +791,47 @@ enum LivePlannedRouteRenderer {
         samples: [CGPoint],
         reserved: [CGRect] = []
     ) -> [CGRect] {
+        // Without exclusions every request is placed.
+        layoutLabelsAvoiding(
+            requests,
+            viewport: viewport,
+            obstacles: obstacles,
+            samples: samples,
+            reserved: reserved
+        ).map { $0 ?? .zero }
+    }
+
+    /// `layoutLabels` with hard exclusions: a candidate that touches any exclusion rect (chrome
+    /// floating over the map) or leaves the viewport is never used, and a label with no remaining
+    /// candidate is omitted (nil) rather than partly covered.
+    static func layoutLabelsAvoiding(
+        _ requests: [LabelRequest],
+        viewport: CGRect,
+        obstacles: [CGRect],
+        samples: [CGPoint],
+        reserved: [CGRect] = [],
+        exclusions: [CGRect] = []
+    ) -> [CGRect?] {
         // `reserved` are labels that are already fixed (the Touch Target readout); they count as
         // placed labels but are not returned.
         var placed: [CGRect] = reserved
+        var result: [CGRect?] = []
         for request in requests {
             let halfW: CGFloat = request.size.width / 2
             let halfH: CGFloat = request.size.height / 2
             let raw: [CGRect] = request.candidates.map {
                 CGRect(x: $0.x - halfW, y: $0.y - halfH, width: request.size.width, height: request.size.height)
             }
-            let options: [CGRect] = raw + raw.map { clampedRect($0, into: viewport) }
+            // With chrome over the map a label must be wholly readable: fully on screen and clear
+            // of every exclusion. Live play (no exclusions) keeps its soft viewport preference.
+            let options: [CGRect] = (raw + raw.map { clampedRect($0, into: viewport) }).filter { rect in
+                exclusions.isEmpty
+                    || (viewport.contains(rect) && !exclusions.contains { $0.intersects(rect) })
+            }
+            guard let first = options.first else {
+                result.append(nil)
+                continue
+            }
             func score(_ rect: CGRect) -> Int {
                 let padded = rect.insetBy(dx: -2, dy: -2)
                 let labelHits: Int = placed.filter { $0.intersects(padded) }.count
@@ -722,7 +840,7 @@ enum LivePlannedRouteRenderer {
                 let lineHits: Int = samples.filter { padded.contains($0) }.count
                 return labelHits * 100_000 + outside * 10_000 + obstacleHits * 100 + lineHits
             }
-            var best = options[0]
+            var best = first
             var bestScore = score(best)
             for option in options.dropFirst() where bestScore > 0 {
                 let value = score(option)
@@ -732,8 +850,9 @@ enum LivePlannedRouteRenderer {
                 }
             }
             placed.append(best)
+            result.append(best)
         }
-        return Array(placed.dropFirst(reserved.count))
+        return result
     }
 
     /// Beside the landing across the flight direction (either side), then above/below, then the

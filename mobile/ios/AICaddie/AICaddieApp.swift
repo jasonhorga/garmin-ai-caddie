@@ -352,7 +352,8 @@ private struct NoPackageHubView: View {
             offlineStore: model.offlineStore,
             onDownload: { model.downloadPrepCourse($0) },
             onRetryDownload: { model.retryPrepCourseDownload(id: $0) },
-            onValidateReadyDownload: { await model.validateReadyPrepCourse($0) }
+            onValidateReadyDownload: { await model.validateReadyPrepCourse($0) },
+            onLoadCourseTees: { await model.loadCourseTees(globalId: $0) }
         )
     }
 }
@@ -3824,20 +3825,15 @@ public final class LiveRoundAppModel: ObservableObject {
         startPrepCourseDownloadQueueIfNeeded()
     }
 
-    /// Verify a locally complete prep package against the server's release-bound install journal
-    /// before opening the map. A missing/temporarily unreachable status endpoint is deliberately
-    /// non-blocking: the local package is internally consistent and remains usable offline. A
-    /// positive revision mismatch, however, invalidates the row and queues a fresh install so an
-    /// old Garmin bitmap is never presented as current.
+    /// Verify a locally complete prep package against the server's release-bound install journal.
+    /// 备战 opens at once (README §8 选了就进) and runs this in the background. A missing/temporarily
+    /// unreachable status endpoint is deliberately non-blocking: the local package is internally
+    /// consistent and remains usable offline. A positive revision mismatch, however, re-queues the
+    /// row with its required revisions so an old Garmin bitmap is never presented as current: the
+    /// open prep screen withholds those holes' topo (factual route) until the replacement installs.
+    /// A row that is not ready has nothing to verify and is never given a blocking message.
     public func validateReadyPrepCourse(_ record: PrepCourseDownloadRecord) async -> Bool {
-        guard record.phase == .ready else {
-            updatePrepCourseDownload(id: record.id) { state in
-                state.errorText = state.isActive
-                    ? "地图仍在准备中，完成后即可进入备战。"
-                    : "地图尚未准备完成，请继续下载。"
-            }
-            return false
-        }
+        guard record.phase == .ready else { return false }
         guard let template = readyPrepTemplate(for: record) else {
             updatePrepCourseDownload(id: record.id) { state in
                 state.phase = .queued

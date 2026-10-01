@@ -373,6 +373,586 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         XCTAssertTrue(LiveCaddieDecisionUsability.hasCompleteRoute(decision, par: 3, shotType: "tee"))
     }
 
+    // MARK: Whole-hole strategies (Codex 5922608092)
+
+    /// A tee decision from a bag of `(club, median m, half p10-p90 spread m)` and seed options of
+    /// `(id, club)`, with optional factual water carries in route metres.
+    private func wholeHoleDecision(
+        par: Int,
+        distanceM: Double,
+        bag: [(String, Double, Double)],
+        options: [(String, String)],
+        water: [[Double]] = [],
+        canonical: [(String, Double)] = [],
+        planningHazards: [[String: JSONValue]] = [],
+        omitProfiles: Bool = false
+    ) throws -> CaddieDecisionResponse {
+        let profiles: JSONValue = .array(bag.map { name, carry, half in
+            .object([
+                "clubName": .string(name), "sampleSize": .number(24),
+                "median_m": .number(carry), "p10_m": .number(carry - half), "p90_m": .number(carry + half),
+            ])
+        })
+        let seed = CaddieContextSeed(
+            hole: 1,
+            sourceRef: "round:1",
+            shotTypes: ["tee"],
+            requiredLiveInputs: [],
+            context: [
+                "par": .number(Double(par)),
+                "clubProfiles": omitProfiles ? .null : profiles,
+                "candidateRoutes": .array(planningHazards.isEmpty ? [] : [
+                    .object(["id": .string("stock"), "planningHazards": .array(planningHazards.map(JSONValue.object))]),
+                ]),
+            ],
+            selectedOfflineOptionId: "stock",
+            offlineOptions: options.map { id, club in
+                OfflineCaddieOption(
+                    optionId: id, label: id, clubName: club,
+                    carryM: bag.first { $0.0 == club }?.1 ?? 0,
+                    sampleSize: 24, confidence: "high", riskScore: 0,
+                    source: "test", sourceRefs: ["round:1"]
+                )
+            },
+            evidence: [],
+            missingData: []
+        )
+        var request = CaddieDecisionRequestBuilder().makeDecisionRequest(
+            seed: seed,
+            input: LiveCaddieInput(shotType: "tee", distanceToPinM: distanceM)
+        )
+        if !water.isEmpty || !canonical.isEmpty {
+            var context = request.context
+            if !water.isEmpty {
+                context["hazardWaterCarry_m"] = .array(water.map { .array($0.map(JSONValue.number)) })
+            }
+            if !canonical.isEmpty {
+                var offset = 0.0
+                context["canonicalShotPlan"] = .array(canonical.enumerated().map { index, leg in
+                    offset += leg.1
+                    return .object([
+                        "clubName": .string(leg.0), "targetCarryM": .number(leg.1),
+                        "routeOffsetM": .number(min(distanceM, offset)), "planIndex": .number(Double(index)),
+                        "expectedRemainingM": .number(max(0, distanceM - offset)),
+                        "role": .string(index == canonical.count - 1 ? "scoring" : "tee"),
+                    ])
+                })
+            }
+            request = CaddieDecisionRequest(shotType: request.shotType, context: context, includeExplanation: false)
+        }
+        return try XCTUnwrap(OfflineCaddieDecisionEvaluator().makeDecision(seed: seed, request: request, strategyMode: nil))
+    }
+
+    func testNoHazardPar4NeverOffersTheShortFirstThreeShotRoute() throws {
+        // Codex's case: a clear 410-yard Par 4 whose seed offers 9I as the safe tee club. The old
+        // greedy remainder produced 9I 132 -> 7I 156 -> 8I 144: three strokes on a hole the driver
+        // reaches in two.
+        let bag = [("1D", 210.0, 10.0), ("7I", 156.0, 10.0), ("8I", 144.0, 10.0), ("9I", 132.0, 10.0)]
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 375, bag: bag,
+            options: [("stock", "1D"), ("safe", "9I"), ("attack", "7I")]
+        )
+        let routes = CaddiePlanSequence.sequences(from: decision)
+        XCTAssertFalse(routes.contains { $0.steps.map(\.clubName) == ["9I", "7I", "8I"] })
+        XCTAssertEqual(routes.first { $0.id == "stock" }?.steps.map(\.clubName), ["1D", "7I"])
+        for route in routes {
+            XCTAssertLessThanOrEqual(route.steps.count, 2, "\(route.id) goes for the green in regulation")
+        }
+    }
+
+    func testSafePar5NeverMovesItsLongestClubToTheGreenBoundStroke() throws {
+        // Codex's case: 7I -> 5I -> 5W as "safe" — the shortest opening and the hardest shot last.
+        let bag = [
+            ("1D", 220.0, 22.0), ("3W", 210.0, 16.0), ("5W", 196.0, 14.0), ("5I", 161.0, 10.0),
+            ("7I", 139.0, 8.0), ("9I", 115.0, 7.0), ("PW", 102.0, 6.0),
+        ]
+        let decision = try wholeHoleDecision(
+            par: 5, distanceM: 496, bag: bag,
+            options: [("stock", "1D"), ("safe", "7I"), ("attack", "3W")]
+        )
+        let carries = Dictionary(uniqueKeysWithValues: bag.map { ($0.0, $0.1) })
+        let routes = CaddiePlanSequence.sequences(from: decision)
+        XCTAssertFalse(routes.contains { $0.steps.map(\.clubName) == ["7I", "5I", "5W"] })
+        XCTAssertNotNil(routes.first { $0.id == "stock" })
+        for route in routes {
+            XCTAssertLessThanOrEqual(route.steps.count, 3, "\(route.id) goes for the green in regulation")
+            let tee = try XCTUnwrap(carries[try XCTUnwrap(route.steps.first).clubName])
+            let after = route.steps.dropFirst().compactMap { carries[$0.clubName] }
+            XCTAssertTrue(after.allSatisfy { $0 <= tee + 15 }, "\(route.id): no longer club after a short tee club")
+            XCTAssertEqual(after, after.sorted(by: >), "\(route.id): longer clubs first")
+        }
+    }
+
+    /// A bag whose driver (210 ± 20 m) cannot safely carry or lay up short of water at 190-225 m,
+    /// with a 4H (170 ± 8 m) whose whole window stays short of it.
+    private let waterBag: [(String, Double, Double)] = [
+        ("1D", 210, 20), ("3H", 180, 12), ("4H", 170, 8), ("7I", 156, 10), ("8I", 144, 10),
+        ("9I", 132, 8), ("PW", 110, 6),
+    ]
+
+    /// The response's selected option, selected sequence and option list describe one route.
+    private func assertAligned(
+        _ decision: CaddieDecisionResponse,
+        id: String,
+        firstClub: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let sequenceIds = (decision.sequences ?? []).compactMap { row -> String? in
+            if case .string(let id)? = row["id"] { return id }
+            return nil
+        }
+        let optionIds = decision.options.compactMap { row -> String? in
+            if case .string(let id)? = row["id"] { return id }
+            return nil
+        }
+        XCTAssertEqual(Set(optionIds), Set(sequenceIds), "options are exactly the viable routes", file: file, line: line)
+        XCTAssertEqual(decision.selectedOptionId, id, file: file, line: line)
+        XCTAssertEqual(decision.selectedSequence?["id"], .string(id), file: file, line: line)
+        XCTAssertEqual(decision.selectedOption?["clubName"], .string(firstClub), file: file, line: line)
+        let route = try XCTUnwrap(CaddiePlanSequence.selectedSequence(from: decision), file: file, line: line)
+        XCTAssertEqual(route.id, id, file: file, line: line)
+        XCTAssertEqual(route.steps.first?.clubName, firstClub, file: file, line: line)
+    }
+
+    func testFactualWaterCarryJustifiesALayUpWithItsReason() throws {
+        // Water across 190-225 m: the driver's window lands in it, and nothing reaches a 400 m
+        // Par 4 in two without landing in it, so the lay-up is the plan and says why.
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 400, bag: waterBag,
+            options: [("stock", "1D"), ("safe", "4H")],
+            water: [[190, 225]]
+        )
+        let rows = decision.sequences ?? []
+        XCTAssertFalse(rows.contains { $0["id"] == .string("stock") }, "no driver into the water")
+        let layup = try XCTUnwrap(rows.first { $0["id"] == .string("safe") })
+        XCTAssertEqual(layup["layupReason"], .string("water_carry"))
+        let route = try XCTUnwrap(CaddiePlanSequence.sequences(from: decision).first { $0.id == "safe" })
+        XCTAssertEqual(route.steps.first?.clubName, "4H")
+        XCTAssertGreaterThan(route.steps.count, 2)
+        for offset in route.steps.compactMap(\.routeOffsetM) {
+            XCTAssertFalse(offset > 182 && offset < 233, "landing at \(offset) m is clear of the water")
+        }
+        // The response is one route: the removed driver is neither listed nor selected, and the
+        // Watch publishes the same option, club and route as the phone.
+        try assertAligned(decision, id: "safe", firstClub: "4H")
+        let package = try fixturePackage()
+        let hole = try XCTUnwrap(package.holes.first)
+        let watch = WatchEventBridge().makeWatchRoundStatePayload(
+            package: package, hole: hole, score: 0, putts: 0, penaltyCount: 0,
+            selectedClub: nil, decision: decision
+        )
+        XCTAssertEqual(watch.offlineOptionId, "safe")
+        XCTAssertEqual(watch.suggestedClub, "4H")
+        let summary = try XCTUnwrap(watch.holePlanSummary)
+        XCTAssertFalse(summary.contains("一号木") || summary.contains("1D"), "the Watch route is the lay-up: \(summary)")
+    }
+
+    func testInstalledDriverLegInWaterIsRejectedAndTheSelectionRealigns() throws {
+        // The installed CoursePrep chain plays the driver into the water: it is not a stock route.
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 400, bag: waterBag,
+            options: [("stock", "1D"), ("safe", "4H")],
+            water: [[190, 225]],
+            canonical: [("1D", 210), ("3H", 190)]
+        )
+        XCTAssertFalse((decision.sequences ?? []).contains { $0["id"] == .string("stock") })
+        try assertAligned(decision, id: "safe", firstClub: "4H")
+    }
+
+    func testMedianClearingDriverWhoseLowerTailFindsTheWaterIsRejected() throws {
+        // Median 240 m clears water at 190-225 m, but its p10 (205 m) finishes in it.
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 400,
+            bag: [("1D", 240, 35), ("4H", 170, 8), ("7I", 156, 10), ("PW", 110, 6)],
+            options: [("stock", "1D"), ("safe", "4H")],
+            water: [[190, 225]]
+        )
+        XCTAssertFalse(CaddiePlanSequence.sequences(from: decision).contains { $0.steps.first?.clubName == "1D" })
+        try assertAligned(decision, id: "safe", firstClub: "4H")
+    }
+
+    func testSafeLayUpBeforeWaterMayBeFollowedByALongerClubThatCarriesIt() throws {
+        // Water at 180-215 m on a 360 m Par 4: the 6I lays up short of it (whole window), and the
+        // 3W then carries it from the new lie — two strokes, no artificial third.
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 360,
+            bag: [("1D", 230, 25), ("3W", 215, 12), ("6I", 150, 8), ("9I", 120, 7)],
+            options: [("stock", "1D"), ("safe", "6I")],
+            water: [[180, 215]]
+        )
+        let route = try XCTUnwrap(CaddiePlanSequence.sequences(from: decision).first { $0.id == "safe" })
+        XCTAssertEqual(route.steps.map(\.clubName), ["6I", "3W"])
+        try assertAligned(decision, id: "safe", firstClub: "6I")
+    }
+
+    /// No safe, complete local route: nothing is offered or selected, and the Watch publishes no
+    /// club, option or route.
+    private func assertNoRecommendation(
+        _ decision: CaddieDecisionResponse,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        XCTAssertTrue(decision.options.isEmpty, "no offered option", file: file, line: line)
+        XCTAssertNil(decision.selected, file: file, line: line)
+        XCTAssertNil(decision.selectedOption, file: file, line: line)
+        XCTAssertNil(decision.selectedOptionId, file: file, line: line)
+        XCTAssertTrue((decision.sequences ?? []).isEmpty, file: file, line: line)
+        XCTAssertNil(decision.selectedSequence, file: file, line: line)
+        XCTAssertNil(CaddiePlanSequence.selectedSequence(from: decision), file: file, line: line)
+        XCTAssertTrue(decision.isOfflineFallback, file: file, line: line)
+        let bridge = WatchEventBridge()
+        // The Watch option strip is only the "暂无球童方案" placeholder: no club and no route.
+        for option in bridge.makeWatchCaddieOptions(from: decision) {
+            XCTAssertNil(option.clubName, "\(option.optionId) names no club", file: file, line: line)
+            XCTAssertTrue((option.plan ?? []).isEmpty, "\(option.optionId) has no route", file: file, line: line)
+        }
+        let package = try fixturePackage()
+        let hole = try XCTUnwrap(package.holes.first, file: file, line: line)
+        let watch = bridge.makeWatchRoundStatePayload(
+            package: package, hole: hole, score: 0, putts: 0, penaltyCount: 0,
+            selectedClub: nil, decision: decision
+        )
+        XCTAssertNil(watch.suggestedClub, file: file, line: line)
+        XCTAssertNil(watch.offlineOptionId, file: file, line: line)
+        XCTAssertNil(watch.holePlanSummary, file: file, line: line)
+    }
+
+    private let outOfBounds: [[String: JSONValue]] = [[
+        "kind": .string("out_of_bounds"), "carryToFront_m": .number(180),
+        "carryToClear_m": .number(260), "side": .string("both"), "corridorWidth_m": .number(30),
+    ]]
+
+    func testTwoSidedOutOfBoundsWithholdsLocalRoutes() throws {
+        // The local fallback cannot evaluate a two-sided OB corridor: it recommends nothing.
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 375,
+            bag: [("1D", 210, 10), ("7I", 156, 10), ("8I", 144, 10), ("9I", 132, 10)],
+            options: [("stock", "1D"), ("safe", "9I")],
+            planningHazards: outOfBounds
+        )
+        try assertNoRecommendation(decision)
+        XCTAssertTrue(decision.missingData.contains { $0["label"] == .string("offline_route_hazards") })
+    }
+
+    func testTwoSidedOutOfBoundsAlsoWithholdsTheInstalledChain() throws {
+        // Production shape: the request carries the installed 1D -> 7I chain. Nothing local proves
+        // it safe against the OB corridor, so it is withheld too.
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 375,
+            bag: [("1D", 210, 10), ("7I", 156, 10), ("8I", 144, 10), ("9I", 132, 10)],
+            options: [("stock", "1D"), ("safe", "9I")],
+            canonical: [("1D", 210), ("7I", 165)],
+            planningHazards: outOfBounds
+        )
+        try assertNoRecommendation(decision)
+        XCTAssertTrue(decision.missingData.contains { $0["label"] == .string("offline_route_hazards") })
+    }
+
+    func testNoSafeRouteRecommendsNothing() throws {
+        // Water at 150-260 m that no club's window can lay up short of or carry: no route at all.
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 380,
+            bag: [("1D", 210, 20), ("3W", 195, 14), ("5I", 160, 10)],
+            options: [("stock", "1D"), ("safe", "5I")],
+            water: [[150, 260]]
+        )
+        try assertNoRecommendation(decision)
+        XCTAssertTrue(decision.missingData.contains { $0["label"] == .string("offline_route_unavailable") })
+    }
+
+    // MARK: The local no-route veto on every surface (Codex 5923321831)
+
+    private func installedDriverRoute() -> CaddiePlanSequence {
+        CaddiePlanSequence(
+            id: LiveCaddieRouteAuthority.installedRouteId,
+            label: "1D-7I",
+            expectedRemainingM: 0,
+            riskScore: nil,
+            confidence: nil,
+            coverageText: nil,
+            sourceRefs: [],
+            steps: [
+                CaddiePlanSequenceStep(
+                    id: "installed-0", role: "tee", clubName: "1D", targetCarryM: 210,
+                    expectedRemainingM: 165, sampleSize: nil, confidence: nil, sourceRefs: [],
+                    routeOffsetM: 210, planIndex: 0
+                ),
+                CaddiePlanSequenceStep(
+                    id: "installed-1", role: "scoring", clubName: "7I", targetCarryM: 165,
+                    expectedRemainingM: 0, sampleSize: nil, confidence: nil, sourceRefs: [],
+                    routeOffsetM: 375, planIndex: 1
+                ),
+            ]
+        )
+    }
+
+    private func onlineValidatedRoute() -> CaddieDecisionResponse {
+        let sequence: [String: JSONValue] = [
+            "id": .string("stock"),
+            "clubs": .array([
+                .object(["clubName": .string("3W"), "role": .string("tee"), "targetCarry_m": .number(195), "routeOffset_m": .number(195)]),
+                .object([
+                    "clubName": .string("6I"), "role": .string("scoring"), "targetCarry_m": .number(180),
+                    "routeOffset_m": .number(375), "expectedRemaining_m": .number(0),
+                ]),
+            ]),
+            "completion": .string("scoring_window"),
+        ]
+        return CaddieDecisionResponse(
+            schema: "ai-caddie-decision-v2", decisionId: "server-ob-checked", sourceRef: nil,
+            evidenceRefs: nil, shotType: "tee", phase: "Tee", context: [:],
+            options: [["id": .string("stock"), "clubName": .string("3W")]], selected: nil,
+            selectedOptionId: "stock", selectedOption: nil,
+            sequences: [sequence], selectedSequence: sequence,
+            avoidZones: [], forbiddenZones: [], acceptableMiss: [:],
+            evidence: [["kind": .string("geometry"), "text": .string("prodgeometry ready")]],
+            confidence: [:], missingData: [], auditCriteria: []
+        )
+    }
+
+    private func obNoRouteDecision() throws -> CaddieDecisionResponse {
+        try wholeHoleDecision(
+            par: 4, distanceM: 375,
+            bag: [("1D", 210, 10), ("7I", 156, 10), ("8I", 144, 10), ("9I", 132, 10)],
+            options: [("stock", "1D"), ("safe", "9I")],
+            canonical: [("1D", 210), ("7I", 165)],
+            planningHazards: outOfBounds
+        )
+    }
+
+    func testLocalNoRouteVetoesTheInstalledRouteWithoutAnOnlineRoute() throws {
+        let offline = try obNoRouteDecision()
+        XCTAssertTrue(offline.isLocalNoRoute)
+        // Without an evaluator decision the installed chain is still the first-frame route ...
+        XCTAssertEqual(
+            LiveCaddieRouteAuthority.resolve(
+                installed: installedDriverRoute(), online: nil, offline: nil, par: 4, shotType: "tee"
+            ).map(\.id),
+            [LiveCaddieRouteAuthority.installedRouteId]
+        )
+        // ... but after the evaluator rejected it nothing is shown or recommended.
+        XCTAssertTrue(LiveCaddieRouteAuthority.resolve(
+            installed: installedDriverRoute(), online: nil, offline: offline, par: 4, shotType: "tee"
+        ).isEmpty)
+        // A route already published and retained for the hole is cleared, not kept.
+        XCTAssertNil(LiveCaddieRouteAuthority.reconciled(
+            incoming: [],
+            existing: [installedDriverRoute()],
+            installed: installedDriverRoute(),
+            retained: installedDriverRoute(),
+            explicitSelectionKey: LiveCaddieRouteAuthority.routeSignature(installedDriverRoute()),
+            vetoInstalled: true
+        ))
+    }
+
+    func testLocalNoRouteKeepsOnlyAServerValidatedOnlineRoute() throws {
+        let offline = try obNoRouteDecision()
+        let routes = LiveCaddieRouteAuthority.resolve(
+            installed: installedDriverRoute(), online: onlineValidatedRoute(), offline: offline,
+            par: 4, shotType: "tee"
+        )
+        XCTAssertFalse(routes.isEmpty, "the online, server-validated route still shows")
+        XCTAssertFalse(routes.contains { $0.id == LiveCaddieRouteAuthority.installedRouteId })
+        XCTAssertEqual(routes.first?.steps.first?.clubName, "3W")
+        // The retained installed route is replaced by the online one, not kept first.
+        let reconciled = try XCTUnwrap(LiveCaddieRouteAuthority.reconciled(
+            incoming: routes,
+            existing: [installedDriverRoute()],
+            installed: installedDriverRoute(),
+            retained: installedDriverRoute(),
+            explicitSelectionKey: nil,
+            vetoInstalled: true
+        ))
+        XCTAssertEqual(reconciled.first.steps.first?.clubName, "3W")
+        XCTAssertFalse(reconciled.merged.contains { $0.id == LiveCaddieRouteAuthority.installedRouteId })
+    }
+
+    func testOutOfBoundsWithholdsTheInstalledChainWithoutABag() throws {
+        // Codex 5923557407: hard hazards do not depend on a downloaded bag. Both an empty and a
+        // missing club-profile set must still withhold the installed 1D -> 7I chain.
+        for omit in [false, true] {
+            let decision = try wholeHoleDecision(
+                par: 4, distanceM: 375, bag: [],
+                options: [("stock", "1D")],
+                canonical: [("1D", 210), ("7I", 165)],
+                planningHazards: outOfBounds,
+                omitProfiles: omit
+            )
+            XCTAssertTrue(decision.isLocalNoRoute, omit ? "missing profiles" : "empty profiles")
+            try assertNoRecommendation(decision)
+            XCTAssertTrue(LiveCaddieRouteAuthority.resolve(
+                installed: installedDriverRoute(), online: nil, offline: decision, par: 4, shotType: "tee"
+            ).isEmpty)
+        }
+    }
+
+    func testANoRouteResultClearsTheCaddieOwnedClubButKeepsTheManualOne() throws {
+        // Live state transition: a Driver auto-selected from the installed route, then a no-route
+        // result. The caddie-owned club is cleared (no chip, no map landing, nothing to the Watch);
+        // a club the player picked by hand stays.
+        let decision = try obNoRouteDecision()
+        let recommendation = LiveClubStripPolicy.recommendation(from: decision)
+        XCTAssertNil(recommendation, "a no-route decision recommends no club")
+        let cleared = LiveClubStripPolicy.caddieOwnedSelection(
+            current: "一号木", recommendation: recommendation?.name, userSelected: false, noRoute: decision.isLocalNoRoute
+        )
+        XCTAssertEqual(cleared, "")
+        XCTAssertEqual(
+            LiveClubStripPolicy.caddieOwnedSelection(
+                current: "七号铁", recommendation: nil, userSelected: true, noRoute: true
+            ),
+            "七号铁"
+        )
+        // A decision still loading (not a no-route result) keeps the current club.
+        XCTAssertEqual(
+            LiveClubStripPolicy.caddieOwnedSelection(
+                current: "一号木", recommendation: nil, userSelected: false, noRoute: false
+            ),
+            "一号木"
+        )
+        // What live play then sends the Watch: no selected or suggested club, no route.
+        let package = try fixturePackage()
+        let hole = try XCTUnwrap(package.holes.first)
+        let watch = WatchEventBridge().makeWatchRoundStatePayload(
+            package: package, hole: hole, score: 0, putts: 0, penaltyCount: 0,
+            selectedClub: cleared.isEmpty ? nil : cleared, decision: decision
+        )
+        XCTAssertNil(watch.selectedClub)
+        XCTAssertNil(watch.suggestedClub)
+        XCTAssertNil(watch.holePlanSummary)
+    }
+
+    func testATargetEditKeepsAnAutomaticClubCaddieOwnedThroughReplay() throws {
+        // Codex 5923705881: a Touch Target / flag edit persists the current club in a `.club`
+        // event. Replayed through the event log (the live snapshot update and relaunch share
+        // `restoreLiveRoundState`), an automatic pick must stay caddie-owned so a later no-route
+        // result clears it, while a club the player chose stays.
+        let package = try fixturePackage()
+        let noRoute = try obNoRouteDecision()
+        let cases: [(name: String, source: JSONValue?, manual: Bool, after: String)] = [
+            ("automatic Driver, then a target edit", .string(LiveClubStripPolicy.caddieOwnedClubSource), false, ""),
+            ("manual Driver, then a target edit", nil, true, "1D"),
+            ("Watch-picked club", .string("apple_watch"), true, "1D"),
+        ]
+        for testCase in cases {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let store = OfflineStore(directoryURL: directory)
+            var payload: [String: JSONValue] = [
+                "clubName": .string("1D"),
+                "shotType": .string("tee"),
+                "targetLatitude": .number(22.2799),
+                "targetLongitude": .number(114.162),
+                "targetKind": .string("target"),
+            ]
+            if let source = testCase.source { payload["source"] = source }
+            try store.appendEvent(LiveRoundEvent(
+                eventId: "club-\(UUID().uuidString)", roundId: package.roundId,
+                timestamp: "2026-05-25T00:01:00Z", hole: 1, kind: .club, payload: payload
+            ))
+            let snapshot = try store.restoreLiveRoundState(roundId: package.roundId, package: package)
+            let holeState = try XCTUnwrap(snapshot.holeState(for: 1))
+            XCTAssertEqual(holeState.selectedClub, "1D", testCase.name)
+            XCTAssertEqual(holeState.hasManualClubSelection, testCase.manual, testCase.name)
+            // The view restores `hasUserSelectedClub` from this snapshot, then applies the result.
+            let after = LiveClubStripPolicy.caddieOwnedSelection(
+                current: holeState.selectedClub,
+                recommendation: LiveClubStripPolicy.recommendation(from: noRoute)?.name,
+                userSelected: holeState.hasManualClubSelection,
+                noRoute: noRoute.isLocalNoRoute
+            )
+            XCTAssertEqual(after, testCase.after, testCase.name)
+        }
+    }
+
+    func testOrderedClubReplayKeepsSelectionOwnership() throws {
+        // Codex 5924201260: replay folds `.club` events in order. A caddie-owned target edit with
+        // no club (`unknown` + the caddie marker) is an explicit empty selection; a later manual
+        // pick wins; a Watch / manual club carried by an ordinary target edit stays manual.
+        let package = try fixturePackage()
+        let auto = JSONValue.string(LiveClubStripPolicy.caddieOwnedClubSource)
+        let target: [String: JSONValue] = [
+            "targetLatitude": .number(22.2799), "targetLongitude": .number(114.162), "targetKind": .string("target"),
+        ]
+        func club(_ name: String, source: JSONValue? = nil, withTarget: Bool = false) -> [String: JSONValue] {
+            var payload: [String: JSONValue] = ["clubName": .string(name), "shotType": .string("tee")]
+            if let source { payload["source"] = source }
+            if withTarget { payload.merge(target) { $1 } }
+            return payload
+        }
+        let cases: [(name: String, events: [[String: JSONValue]], club: String, manual: Bool)] = [
+            ("manual 7I, then a caddie-owned empty target",
+             [club("7I"), club("unknown", source: auto, withTarget: true)], "", false),
+            ("automatic 1D, then a caddie-owned empty target",
+             [club("1D", source: auto, withTarget: true), club("unknown", source: auto, withTarget: true)], "", false),
+            ("automatic target, then a manual pick",
+             [club("1D", source: auto, withTarget: true), club("8I")], "8I", true),
+            ("Watch pick, then an ordinary target edit carrying it",
+             [club("1D", source: .string("apple_watch")), club("1D", withTarget: true)], "1D", true),
+            ("legacy unknown keeps the older manual club",
+             [club("7I"), club("unknown", withTarget: true)], "7I", true),
+        ]
+        for testCase in cases {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let store = OfflineStore(directoryURL: directory)
+            for (index, payload) in testCase.events.enumerated() {
+                try store.appendEvent(LiveRoundEvent(
+                    eventId: "club-\(index)-\(UUID().uuidString)", roundId: package.roundId,
+                    timestamp: "2026-05-25T00:0\(index + 1):00Z", hole: 1, kind: .club, payload: payload
+                ))
+            }
+            let holeState = try XCTUnwrap(
+                try store.restoreLiveRoundState(roundId: package.roundId, package: package).holeState(for: 1)
+            )
+            XCTAssertEqual(holeState.selectedClub, testCase.club, testCase.name)
+            XCTAssertEqual(holeState.hasManualClubSelection, testCase.manual, testCase.name)
+        }
+    }
+
+    func testFirstLoadAdoptsTheRecommendationOverARestoredCaddieOwnedClub() throws {
+        // Codex 5924344422: on relaunch / first load a restored caddie-owned 1W follows the current
+        // 3W recommendation (phone, map and Watch read the same selected club); a restored manual
+        // 7I stays. The precise-map follow-up uses the same gate.
+        let package = try fixturePackage()
+        let auto = JSONValue.string(LiveClubStripPolicy.caddieOwnedClubSource)
+        let target: [String: JSONValue] = [
+            "targetLatitude": .number(22.2799), "targetLongitude": .number(114.162), "targetKind": .string("target"),
+        ]
+        let cases: [(name: String, payload: [String: JSONValue], expected: String)] = [
+            ("restored caddie-owned 1W", ["clubName": .string("1W"), "source": auto].merging(target) { $1 }, "3W"),
+            ("restored manual 7I", ["clubName": .string("7I")].merging(target) { $1 }, "7I"),
+        ]
+        for testCase in cases {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let store = OfflineStore(directoryURL: directory)
+            try store.appendEvent(LiveRoundEvent(
+                eventId: "club-\(UUID().uuidString)", roundId: package.roundId,
+                timestamp: "2026-05-25T00:01:00Z", hole: 1, kind: .club, payload: testCase.payload
+            ))
+            let holeState = try store.restoreLiveRoundState(roundId: package.roundId, package: package).holeState(for: 1)
+            let restoredClub = try XCTUnwrap(holeState).selectedClub
+            // The view's initial gate (and its precise-map follow-up).
+            let userSelected = holeState?.hasManualClubSelection == true
+            let syncClub = !LiveClubStripPolicy.restoredManualClub(holeState) && !userSelected
+            let selected = syncClub
+                ? LiveClubStripPolicy.caddieOwnedSelection(
+                    current: restoredClub, recommendation: "3W", userSelected: userSelected, noRoute: false
+                )
+                : restoredClub
+            XCTAssertEqual(selected, testCase.expected, testCase.name)
+            let watch = WatchEventBridge().makeWatchRoundStatePayload(
+                package: package, hole: try XCTUnwrap(package.holes.first), score: 0, putts: 0, penaltyCount: 0,
+                selectedClub: selected, decision: nil
+            )
+            XCTAssertEqual(watch.selectedClub, testCase.expected, testCase.name)
+        }
+        // A legacy restored club with no ownership marker stays a recorded manual choice.
+        XCTAssertFalse(LiveClubStripPolicy.restoredManualClub(nil))
+    }
+
     func testPar4LegThatFliesTheBackEdgeIsNotGIR() throws {
         // The fallback planner clamps the second landing to the 396 m route end, but the 3W
         // median lands at 412.2 m: past back (400 m) + the 8 m tolerance, so it is not a GIR.

@@ -3,6 +3,34 @@ import Foundation
 /// One policy owns the three quick club chips shown during a live shot. The backend recommendation
 /// is authoritative; distance-ranked bag clubs are only fallbacks when a decision has not arrived.
 enum LiveClubStripPolicy {
+    /// The selected club after a new caddie result. A manual player choice is always kept. A
+    /// caddie-owned club follows the recommendation, and is cleared when the result recommends
+    /// nothing because no safe route exists (`noRoute`), so a stale auto-selected Driver cannot stay
+    /// on the chip, the map's single-club landing or the Watch. Without a recommendation for any
+    /// other reason (a decision still loading) the current club stays.
+    /// The `source` a phone `.club` event carries for a club the caddie chose (an automatic pick a
+    /// target / flag edit carries along). Replay and relaunch read it back as caddie-owned, so the
+    /// edit never promotes the pick to a manual choice; every other club event stays manual.
+    static let caddieOwnedClubSource = "ios_caddie_auto"
+
+    /// Whether a restored hole already holds the player's own club choice, so the first decision
+    /// (and the precise-map follow-up) must not replace it. A caddie-owned restored club does not
+    /// count; a legacy club with no ownership marker stays manual.
+    static func restoredManualClub(_ hole: LiveHoleStateSnapshot?) -> Bool {
+        hole?.hasManualClubSelection == true
+    }
+
+    static func caddieOwnedSelection(
+        current: String,
+        recommendation: String?,
+        userSelected: Bool,
+        noRoute: Bool
+    ) -> String {
+        if userSelected { return current }
+        if let recommendation { return recommendation }
+        return noRoute ? "" : current
+    }
+
     /// The backend's answer is a display fact even when the player's downloaded bag does not yet
     /// contain a matching distance profile. Keeping the carry beside the normalized name lets the
     /// map and the quick strip consume exactly the same recommendation instead of silently falling

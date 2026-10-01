@@ -117,7 +117,8 @@ final class RealFlowUITests: XCTestCase {
 
         // The one-half start queued the canonical whole-course template in the background. Once it
         // is installed, the course is prepared: selecting it from the prep search opens the prep
-        // map directly (an incomplete selection stays in the library — Section 4 of the main flow).
+        // map directly (an incomplete selection opens it too, on degraded holes — Section 4 of the
+        // main flow and PrepDegradationUITests).
         // The unsaved synthetic round is discarded so the relaunch lands on the home.
         app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
         launchFresh()
@@ -132,8 +133,10 @@ final class RealFlowUITests: XCTestCase {
             scrollTo(acquired, maxSwipes: 12),
             "a one-half start must queue its whole course in the prep library"
         )
+        // The picker shows no download copy (README §8); the DEBUG/UITEST_MODE-only accessibility
+        // token carries the durable install state for this proof.
         XCTAssertTrue(
-            waitForValue("已完整下载到本机", on: acquired, timeout: 240),
+            waitForValue("uitest-installed", on: acquired, timeout: 240),
             "the background whole-course template must finish installing"
         )
         let readyQuery = app.textFields["course-catalog-keyword-field"]
@@ -485,17 +488,27 @@ final class RealFlowUITests: XCTestCase {
             "pre-round name search must return the approved 北京丽宫 course"
         )
         prepResult.tap()
+        // README §8 备战 (选了就进): an incomplete course opens its prep map immediately, with no
+        // "地图尚未准备完成" gate; holes that are not ready follow the map degradation contract
+        // (factual route, or the one full-screen waiting page — never an empty hole).
         XCTAssertTrue(
-            app.navigationBars["备战球场"].waitForExistence(timeout: 8),
-            "selecting a pre-round search result must stay in the download library"
+            app.navigationBars["赛前球场攻略"].waitForExistence(timeout: 10),
+            "selecting a course whose download has not finished must open 赛前球场攻略 at once"
         )
-        XCTAssertFalse(
-            app.navigationBars["赛前球场攻略"].exists,
-            "an incomplete course package must never open the prep map"
+        XCTAssertEqual(app.alerts.count, 0, "prep entry must never be gated by a map-not-ready alert")
+        let incompleteFirstHole = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier IN %@", ["prep-hole-map-1", "prep-map-waiting-1"])
+        ).firstMatch
+        XCTAssertTrue(
+            incompleteFirstHole.waitForExistence(timeout: 10),
+            "an incomplete course shows hole 1 as its factual route or the waiting page, never blank"
         )
+        settle(1); save("06a-prep-opened-before-download"); dump("06a-prep-opened-before-download")
 
-        // The course download belongs to the app, not to a detail screen. The retained row stays
-        // visible immediately, then survives a process relaunch before the player opens it.
+        // The course download belongs to the app, not to the prep screen. Going back, the retained
+        // row is still there with its durable state, and it survives a process relaunch.
+        XCTAssertTrue(tapBackButton("备战球场"), "prep must return to the course library")
+        XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 8))
         let retainedDownload = app.buttons.matching(NSPredicate(
             format: "identifier BEGINSWITH %@",
             "prep-download-row-\(approvedJourneyCourseGlobalId):"
@@ -526,21 +539,23 @@ final class RealFlowUITests: XCTestCase {
             "process relaunch must restore a visible queued, active, ready, or retryable state"
         )
         XCTAssertTrue(
-            waitForValue("已完整下载到本机", on: relaunchedDownload, timeout: 240),
-            "the prep map must remain locked until all local facts and topo assets are installed"
+            waitForValue("uitest-installed", on: relaunchedDownload, timeout: 240),
+            "the app-owned download must keep running after relaunch and install every hole's facts and topo"
+        )
+        XCTAssertFalse(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "下载")).firstMatch.exists,
+            "the prep picker shows no download/preparation copy (README §8)"
         )
         relaunchedDownload.tap()
         XCTAssertTrue(
             app.navigationBars["赛前球场攻略"].waitForExistence(timeout: 20),
             "the restored row must reopen the same course preparation"
         )
-        let loading = app.staticTexts["加载中…"]
-        _ = loading.waitForExistence(timeout: 5) // fast cache hits may finish before this appears
         let firstPrepHeader = app.descendants(matching: .any)["prep-hole-header-1"].firstMatch
         XCTAssertTrue(firstPrepHeader.waitForExistence(timeout: 60), "real course prep must load the first map header")
         XCTAssertTrue(
-            waitUntilGone(loading, timeout: 60),
-            "pre-round screenshot must wait for the live prep request to finish"
+            waitForValue("精确地图", on: firstPrepHeader, timeout: 60),
+            "once the course is installed, hole 1 shows its precise map"
         )
         // Bind readiness to the selected hole. Preparation now renders one large map at a time;
         // background batches must never substitute a different hole's readiness.
@@ -551,10 +566,8 @@ final class RealFlowUITests: XCTestCase {
             firstPrepMap.waitForExistence(timeout: 60),
             "the first visible prep card must lazily load its real single-hole map"
         )
-        XCTAssertTrue(
-            scrollTo(firstPrepMap, maxSwipes: 3),
-            "first real prep map must be fully inside the simulator safe viewport"
-        )
+        // The map is full screen (README §8): the hole badge and bottom panel float over it, so
+        // there is no framed map card to scroll into view.
         let firstPrepTopoReady = firstPrepMap.descendants(matching: .any).matching(
             NSPredicate(format: "identifier == %@", "topo-hole-base-ready")
         ).firstMatch
@@ -587,30 +600,34 @@ final class RealFlowUITests: XCTestCase {
             "reset must return the prep viewport to its fitted state"
         )
 
-        // I08 now proves the product rule directly: spatial facts stay on the map instead of being
-        // repeated as a list below it. Accessibility binds the same measured near/far obstacle to
-        // its map annotation, while additional hazards remain available through map navigation.
-        let firstMapHazard = app.descendants(matching: .any)["prep-map-hazard-1"].firstMatch
-        XCTAssertTrue(
-            firstMapHazard.waitForExistence(timeout: 10),
-            "the real prep map must expose its nearest measured 到/过 obstacle as a map overlay"
+        // I08: obstacles follow the default-none rule on 备战 — no measured obstacle annotation is
+        // drawn without an explicit selection — while every planned stroke's landing carries its
+        // "球杆 码数" label and the bottom club order lists the same strokes.
+        XCTAssertFalse(
+            app.descendants(matching: .any)["prep-map-hazard-1"].firstMatch.exists,
+            "the prep map must not draw obstacles by default"
         )
+        let prepRoute = app.descendants(matching: .any)["prep-map-route"].firstMatch
+        XCTAssertTrue(prepRoute.waitForExistence(timeout: 10), "the prep map must draw the caddie route")
+        let clubOrder = app.descendants(matching: .any)["prep-club-order"].firstMatch
+        XCTAssertTrue(clubOrder.waitForExistence(timeout: 5), "the panel must list this hole's club order")
+        XCTAssertEqual(prepRoute.label, clubOrder.label, "every landing label matches the club order")
         XCTAssertTrue(
-            firstMapHazard.label.contains("到") && firstMapHazard.label.contains("过"),
-            "the map obstacle must retain both measured near-edge and far-edge semantics"
-        )
-        let greenRange = app.descendants(matching: .any)["prep-map-green-range"].firstMatch
-        XCTAssertTrue(
-            greenRange.waitForExistence(timeout: 5),
-            "the real prep map must carry F/M/B on the green rather than in a duplicate row"
+            prepRoute.label.range(of: #"^[^→]+ \d+( → [^→]+ \d+)*$"#, options: .regularExpression) != nil,
+            "every landing is labelled 球杆 + 码数 (got \(prepRoute.label))"
         )
         settle(1)
         save("08-prep-map-overlays"); dump("08-prep-map-overlays")
 
-        // I08b independently proves that the progressive real-course response continues to hole 2
-        // and renders that hole's actual topo after explicit next-hole navigation.
-        let nextPrepHole = app.buttons["prep-next-hole"]
-        XCTAssertTrue(nextPrepHole.waitForExistence(timeout: 5), "prep must expose compact next-hole navigation")
+        // I08b independently proves that the installed course continues to hole 2 and renders that
+        // hole's actual topo after explicit navigation from the 18-hole strip.
+        let nextPrepHole = app.buttons["prep-hole-strip-2"]
+        XCTAssertTrue(nextPrepHole.waitForExistence(timeout: 5), "prep must expose the 18-hole strip")
+        XCTAssertEqual(
+            nextPrepHole.value as? String,
+            "已就绪",
+            "a completely installed course has no faded holes in the strip"
+        )
         nextPrepHole.tap()
         let secondPrepHeader = app.descendants(matching: .any)["prep-hole-header-2"].firstMatch
         XCTAssertTrue(secondPrepHeader.waitForExistence(timeout: 10), "next-hole navigation must select hole 2")

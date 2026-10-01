@@ -8,8 +8,20 @@ import subprocess
 import base64
 import math
 import struct
+import zlib
 
 from ai_caddie.core.fixtures import fixture_history_data
+
+
+def _png_chunks(data: bytes) -> dict[bytes, list[bytes]]:
+    chunks: dict[bytes, list[bytes]] = {}
+    offset = 8
+    while offset < len(data):
+        length = struct.unpack(">I", data[offset:offset + 4])[0]
+        kind = data[offset + 4:offset + 8]
+        chunks.setdefault(kind, []).append(data[offset + 8:offset + 8 + length])
+        offset += 12 + length
+    return chunks
 
 
 class CIFixtureContractTests(unittest.TestCase):
@@ -339,7 +351,7 @@ class CIFixtureContractTests(unittest.TestCase):
             hole = prep(global_id, holes=[1])["holes"][0]
             expected_tee = COURSE_COORDINATES[global_id]
             refs = hole["holeImageProjection"]["refs"]
-            projected_tee = project_from_topo_px(*hole["route"][0][:2], refs)
+            projected_tee = project_from_topo_px(*hole["map"]["overlay"]["route"][0][:2], refs)
             self.assertAlmostEqual(projected_tee[0], expected_tee[0], places=8)
             self.assertAlmostEqual(projected_tee[1], expected_tee[1], places=8)
             green = hole["greenDistances"]
@@ -427,11 +439,113 @@ class CIFixtureContractTests(unittest.TestCase):
             self.assertIn(key, hole)
         self.assertEqual(hole["map"]["overlay"]["w"], 64)
         self.assertEqual(hole["map"]["overlay"]["h"], 64)
-        self.assertEqual(hole["map"]["overlay"]["ppm"], 0.17)
+        # The prep frame is production-shaped: the hole sits inside a transparent margin and the
+        # raster's course footprint never touches an edge. It is one spatial contract: ppm is
+        # the route's pixel length over its metres, so every pixel distance measures true.
+        from server_v2.ci_fixture import PREP_GREEN_RADIUS_PX, PREP_ROUTE_LOCAL_M, PREP_ROUTE_PX, _course_png
+        overlay = hole["map"]["overlay"]
+        # Like production, the top-level route is hole-local metres; the overlay is its pixels.
+        self.assertEqual(hole["route"], PREP_ROUTE_LOCAL_M)
+        self.assertEqual(overlay["route"], PREP_ROUTE_PX)
+        (tee_x, tee_y, tee_m), (end_x, end_y, end_m) = overlay["route"]
+        self.assertTrue(all(8.0 <= value <= 56.0 for value in (tee_x, tee_y, end_x, end_y)))
+        self.assertAlmostEqual(math.hypot(end_x - tee_x, end_y - tee_y) / overlay["ppm"], end_m - tee_m, delta=0.5)
+        self.assertAlmostEqual(end_m, hole["route_len_m"], delta=0.5)
+        # The green outline surrounds the pin (the route's end) inside the raster's green disc.
+        outline = hole["greenOutline"]["pointsPx"]
+        centre = (sum(p[0] for p in outline) / len(outline), sum(p[1] for p in outline) / len(outline))
+        self.assertLess(math.hypot(centre[0] - end_x, centre[1] - end_y), 0.5)
+        for point in outline:
+            self.assertLessEqual(math.hypot(point[0] - end_x, point[1] - end_y), PREP_GREEN_RADIUS_PX)
         self.assertTrue(hole["map"]["image"].startswith("data:image/png;base64,"))
+        png = zlib.decompress(b"".join(
+            _png_chunks(_course_png(1))[b"IDAT"]
+        ))
+        stride = 1 + 64 * 4
+        for y in range(64):
+            for x in range(64):
+                alpha = png[y * stride + 1 + x * 4 + 3]
+                if x in (0, 63) or y in (0, 63):
+                    self.assertEqual(alpha, 0, f"topo edge pixel ({x}, {y}) is transparent")
         self.assertTrue(hole["greenDistances"]["available"])
         self.assertEqual(len(prep(31795, nine="front")["holes"]), 9)
         self.assertEqual(len(prep(31795, nine="all")["holes"]), 18)
+
+    def test_fixture_prep_geo_projection_is_the_pixel_frame(self) -> None:
+        """The GPS projection, route, hazards, raster green, outline and F/M/B are one frame.
+
+        Solves the affine exactly as the clients do (WatchGeoMath.projectToTopoPx: three refs,
+        latitude/longitude to pixels) and forward-projects the tee, interior stations, the route's
+        end and the green's front / middle / back.
+        """
+        try:
+            from server_v2.ci_fixture import (
+                COURSE_COORDINATES, PREP_GREEN_RADIUS_PX, _ROUTE_EAST_M, _ROUTE_LENGTH_M,
+                _ROUTE_NORTH_M, _offset_coordinate, prep,
+            )
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+
+        def solve(refs: list[dict]) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+            # px = a*lat + b*lon + c (and likewise py), exactly through the three refs.
+            (la1, lo1), (la2, lo2), (la3, lo3) = ((r["lat"], r["lon"]) for r in refs)
+            det = la1 * (lo2 - lo3) - lo1 * (la2 - la3) + (la2 * lo3 - la3 * lo2)
+            self.assertNotAlmostEqual(det, 0.0, places=18)
+
+            def plane(values: tuple[float, float, float]) -> tuple[float, float, float]:
+                v1, v2, v3 = values
+                a = (v1 * (lo2 - lo3) - lo1 * (v2 - v3) + (v2 * lo3 - v3 * lo2)) / det
+                b = (la1 * (v2 - v3) - v1 * (la2 - la3) + (la2 * v3 - la3 * v2)) / det
+                c = (la1 * (lo2 * v3 - lo3 * v2) - lo1 * (la2 * v3 - la3 * v2) + v1 * (la2 * lo3 - la3 * lo2)) / det
+                return a, b, c
+
+            return plane(tuple(r["px"] for r in refs)), plane(tuple(r["py"] for r in refs))
+
+        def project(solution, lat: float, lon: float) -> tuple[float, float]:
+            (ax, bx, cx), (ay, by, cy) = solution
+            return ax * lat + bx * lon + cx, ay * lat + by * lon + cy
+
+        for global_id in (31793, 31795, 3881, 31797):
+            hole = prep(global_id, holes=[1])["holes"][0]
+            tee = COURSE_COORDINATES[global_id]
+            overlay = hole["map"]["overlay"]
+            ppm = overlay["ppm"]
+            (tee_x, tee_y, _), (end_x, end_y, end_m) = overlay["route"]
+            solution = solve(hole["holeImageProjection"]["refs"])
+
+            def along_route(station_m: float) -> tuple[float, float]:
+                t = station_m / end_m
+                return tee_x + t * (end_x - tee_x), tee_y + t * (end_y - tee_y)
+
+            direction_east = _ROUTE_EAST_M / _ROUTE_LENGTH_M
+            direction_north = _ROUTE_NORTH_M / _ROUTE_LENGTH_M
+            for station_m in (0.0, 105.0, 187.5, 245.0, end_m):
+                point = _offset_coordinate(tee, north_m=station_m * direction_north, east_m=station_m * direction_east)
+                projected = project(solution, *point)
+                expected = along_route(station_m)
+                self.assertAlmostEqual(projected[0], expected[0], delta=0.05, msg=f"{global_id} station {station_m}")
+                self.assertAlmostEqual(projected[1], expected[1], delta=0.05, msg=f"{global_id} station {station_m}")
+            # The green's front / middle / back project onto the raster green and its outline.
+            green = hole["greenDistances"]
+            self.assertAlmostEqual(green["middleM"], end_m, delta=0.5)
+            for key in ("front", "middle", "back"):
+                point = project(solution, green[f"{key}Lat"], green[f"{key}Lon"])
+                self.assertLessEqual(math.hypot(point[0] - end_x, point[1] - end_y), PREP_GREEN_RADIUS_PX - 0.5, key)
+            outline = hole["greenOutline"]["pointsPx"]
+            middle = project(solution, green["middleLat"], green["middleLon"])
+            self.assertLessEqual(
+                max(math.hypot(p[0] - middle[0], p[1] - middle[1]) for p in outline),
+                PREP_GREEN_RADIUS_PX,
+            )
+            # One uniform scale: 100 m east and 100 m north are each 100 * ppm pixels, at right angles.
+            origin = project(solution, *tee)
+            east = project(solution, *_offset_coordinate(tee, east_m=100.0))
+            north = project(solution, *_offset_coordinate(tee, north_m=100.0))
+            east_v = (east[0] - origin[0], east[1] - origin[1])
+            north_v = (north[0] - origin[0], north[1] - origin[1])
+            self.assertAlmostEqual(math.hypot(*east_v), 100.0 * ppm, delta=0.05)
+            self.assertAlmostEqual(math.hypot(*north_v), 100.0 * ppm, delta=0.05)
+            self.assertAlmostEqual(east_v[0] * north_v[0] + east_v[1] * north_v[1], 0.0, delta=0.05)
 
     def test_fixture_prep_hazards_are_measured_ordered_and_map_bound(self) -> None:
         try:
@@ -482,6 +596,20 @@ class CIFixtureContractTests(unittest.TestCase):
                     self.assertEqual(len(pixels), 2)
                     self.assertTrue(all(math.isfinite(value) for value in pixels))
                     self.assertTrue(all(0.0 <= value <= 64.0 for value in pixels))
+                # The pixels reproduce the declared route stations and side offset in the map's
+                # own frame (ppm), so a drawn span measures what its facts say.
+                overlay = hole["map"]["overlay"]
+                (tee_x, tee_y, _), (end_x, end_y, _) = overlay["route"]
+                length = math.hypot(end_x - tee_x, end_y - tee_y)
+                ux, uy = (end_x - tee_x) / length, (end_y - tee_y) / length
+                for key, station_key in (("frontPx", "frontRouteM"), ("backPx", "backRouteM")):
+                    dx, dy = detail[key][0] - tee_x, detail[key][1] - tee_y
+                    along_m = (dx * ux + dy * uy) / overlay["ppm"]
+                    across_m = abs(dx * uy - dy * ux) / overlay["ppm"]
+                    self.assertAlmostEqual(along_m, detail[station_key], delta=1.0)
+                    self.assertAlmostEqual(across_m, detail["sideM"] or 0.0, delta=1.0)
+                    straight_m = math.hypot(dx, dy) / overlay["ppm"]
+                    self.assertAlmostEqual(straight_m, detail[key.replace("Px", "M")], delta=1.0)
             self.assertEqual(hole["geometryRevision"], FIXTURE_REVISION)
             self.assertTrue(hole["sourceRefs"])
 
@@ -673,7 +801,7 @@ class CIFixtureContractTests(unittest.TestCase):
         seed = package["caddieContextSeeds"][0]
         profiles = seed["context"]["clubProfiles"]
         self.assertIsInstance(profiles, dict)
-        self.assertEqual(set(profiles), {"9I", "8I", "7I"})
+        self.assertEqual(set(profiles), {"1D", "3W", "7I", "8I", "9I"})
 
     def test_install_status_uses_same_segment_resolver(self) -> None:
         try:
@@ -801,6 +929,99 @@ class CIFixtureContractTests(unittest.TestCase):
         fixture = Path("tests/fixtures/shots_scatter_round.json").read_text(encoding="utf-8")
         self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", fixture)
         self.assertNotIn("Authorization", fixture)
+
+    def test_degraded_course_serves_precise_factual_and_routeless_holes(self) -> None:
+        # B4c (README §8 地图降级契约): one searchable course whose holes are precise, factual-route
+        # only, or without any drawable route, so the native prep journey can prove each state.
+        try:
+            import server_v2.ci_fixture as fixture
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        fixture._DEGRADED_CLOCK["started"] = None
+        self.addCleanup(fixture._DEGRADED_CLOCK.__setitem__, "started", None)
+        gid = fixture.DEGRADED_ID
+        self.assertIn(gid, {row["globalId"] for row in fixture.course_search("Fixture")["matches"]})
+        # Search-only: never a nearby or options row, so no other journey selects it.
+        self.assertNotIn(gid, {row["globalId"] for row in fixture.nearby(40.2, 116.8, radius_km=200)["matches"]})
+        self.assertNotIn(gid, {row["globalId"] for row in fixture.options()["courses"]})
+
+        rows = {row["hole"]: row for row in fixture.prep(gid, holes=[1, 2, 3, 12, 13, 18])["holes"]}
+        self.assertEqual(rows[1]["geometryCoverage"], "ready")
+        self.assertTrue(rows[1]["map"]["image"].startswith("data:image/png;base64,"))
+        for hole in (2, 3, 12):
+            # Factual route: the overlay, green outline and obstacle facts, but no raster.
+            self.assertEqual(rows[hole]["geometryCoverage"], "partial")
+            self.assertEqual(set(rows[hole]["map"]), {"overlay"})
+            self.assertGreaterEqual(len(rows[hole]["map"]["overlay"]["route"]), 2)
+            self.assertTrue(rows[hole]["greenOutline"]["available"])
+            self.assertTrue(rows[hole]["hazards"]["details"])
+        for hole in (13, 18):
+            # Nothing drawable: no overlay, no projection and no route.
+            self.assertEqual(rows[hole]["geometryCoverage"], "missing")
+            self.assertIsNone(rows[hole]["map"])
+            self.assertIsNone(rows[hole]["holeImageProjection"])
+            self.assertEqual(rows[hole]["route"], [])
+        for row in rows.values():
+            self.assertEqual([step["clubName"] for step in row["steps"]], ["1D", "8I"])
+
+        # The package, coverage probe, install journal and topo endpoint agree on each hole.
+        package = fixture.course_package(gid, loops=f"{gid}:front,{gid}:back", round_id=f"prep-library-{gid}")
+        states = [hole["geometryCoverage"] for hole in package["holes"]]
+        self.assertEqual(states, ["ready"] + ["partial"] * 11 + ["missing"] * 6)
+        self.assertEqual(package["geometryCoverage"]["readyHoles"], 1)
+        status = fixture.install_status(gid, loops=f"{gid}:front,{gid}:back")
+        self.assertEqual(status["phase"], "running")
+        self.assertEqual([row["topo"] == "ready" for row in status["holes"]], [True] + [False] * 17)
+        coverage = fixture.coverage(gid, holes=[1, 2, 14])["holes"]
+        self.assertEqual([row["coverage"] for row in coverage], ["ready", "partial", "missing"])
+        self.assertGreater(len(fixture.topo_png(gid, 1).body), 1024)
+        from fastapi import HTTPException
+        with self.assertRaises(HTTPException) as missing_topo:
+            fixture.topo_png(gid, 2)
+        self.assertEqual(missing_topo.exception.status_code, 404)
+        # 备战 方案: a real bag, and per-hole seed tee options from it (the Driver and the 3W), so
+        # the phone's offline caddie decision offers a genuinely safer whole-hole route
+        # (PrepJourneyPlansTests pins the authority's result on this output).
+        self.assertEqual(
+            [row["clubName"] for row in package["clubProfiles"]], ["1D", "3W", "7I", "8I", "9I"]
+        )
+        self.assertEqual(
+            {option["id"]: option["clubName"] for option in package["caddieContextSeeds"][1]["offlineOptions"]},
+            {"stock": "1D", "safe": "3W"},
+        )
+        other = fixture.course_package(31793, loops="31793:front,31793:back", round_id="prep-library-31793")
+        self.assertEqual(other["clubProfiles"], package["clubProfiles"], "one fixture player on every course")
+        # Other courses keep every hole precise.
+        self.assertEqual(
+            {hole["geometryCoverage"] for hole in fixture.prep(31793, holes=[1, 2, 14])["holes"]},
+            {"ready"},
+        )
+
+    def test_degraded_course_hole_two_upgrades_in_place_after_the_install_clock(self) -> None:
+        try:
+            import server_v2.ci_fixture as fixture
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        fixture._DEGRADED_CLOCK["started"] = None
+        self.addCleanup(fixture._DEGRADED_CLOCK.__setitem__, "started", None)
+        # Before any prep request the clock has not started; the first request starts it.
+        self.assertEqual(fixture._degraded_hole_state(2), "partial")
+        fixture._start_degraded_clock(now=100.0)
+        self.assertEqual(fixture._degraded_hole_state(2, now=100.0 + fixture.DEGRADED_UPGRADE_SECONDS - 1), "partial")
+        self.assertEqual(fixture._degraded_hole_state(2, now=100.0 + fixture.DEGRADED_UPGRADE_SECONDS), "ready")
+        # Only hole 2 upgrades; the factual and routeless holes stay as they are.
+        later = 100.0 + fixture.DEGRADED_UPGRADE_SECONDS + 60
+        self.assertEqual(fixture._degraded_hole_state(3, now=later), "partial")
+        self.assertEqual(fixture._degraded_hole_state(14, now=later), "missing")
+        # A later prep request does not restart the clock; the same install's package refetch
+        # does not either, while a package fetch long afterwards begins a new install attempt.
+        fixture._start_degraded_clock(now=later)
+        self.assertEqual(fixture._DEGRADED_CLOCK["started"], 100.0)
+        fixture._restart_degraded_install(now=100.0 + 60)
+        self.assertEqual(fixture._DEGRADED_CLOCK["started"], 100.0)
+        fixture._restart_degraded_install(now=100.0 + fixture.DEGRADED_CLOCK_RESET_SECONDS)
+        self.assertIsNone(fixture._DEGRADED_CLOCK["started"])
+        self.assertEqual(fixture._degraded_hole_state(2), "partial")
 
 
 if __name__ == "__main__":

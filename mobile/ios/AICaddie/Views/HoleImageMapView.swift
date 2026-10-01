@@ -131,6 +131,12 @@ public struct HoleImageMapView: View {
     /// `teeDistanceArcPixels()`, so all labels share one collision layout. The bitmap then skips
     /// both so nothing is doubled.
     public let drawsPlannedRouteInMap: Bool
+    /// 备战 only: when the fitted map does not cover the screen, the base bitmap sits on one calm fill
+    /// of its own dominant edge colour reaching past its frame by these fractions of its width / height,
+    /// and fades into it over `baseEdgeFeather` points. Only that fill is added; the route, green and
+    /// flag are drawn once, crisp, by this view's canvas.
+    public let baseEdgeExtension: EdgeInsets
+    public let baseEdgeFeather: CGFloat
 
     public init(hole: CoursePrepHole, selectedClub: String? = nil, selectedClubMetres: Double? = nil,
                 pinOverlayPixel: CGPoint? = nil,
@@ -141,7 +147,7 @@ public struct HoleImageMapView: View {
                 showsPrepClubLabel: Bool = true, showsClubLabel: Bool = true,
                 teeDistanceArcYards: Int? = nil,
                 plannedShots: [MapPlannedShot] = [], selectedPlanIndex: Int? = nil,
-                drawsPlannedRouteInMap: Bool = true) {
+                drawsPlannedRouteInMap: Bool = true, baseEdgeExtension: EdgeInsets = EdgeInsets(), baseEdgeFeather: CGFloat = 0) {
         self.hole = hole
         self.selectedClub = selectedClub
         self.selectedClubMetres = selectedClubMetres
@@ -159,6 +165,8 @@ public struct HoleImageMapView: View {
         self.plannedShots = plannedShots
         self.selectedPlanIndex = selectedPlanIndex
         self.drawsPlannedRouteInMap = drawsPlannedRouteInMap
+        self.baseEdgeExtension = baseEdgeExtension
+        self.baseEdgeFeather = baseEdgeFeather
     }
 
     public var body: some View {
@@ -169,6 +177,7 @@ public struct HoleImageMapView: View {
                 // bitmap. Do not issue a guaranteed 404 and pin AsyncImage in its failure state;
                 // the URL appears only when the same hole later upgrades to precise geometry.
                 TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)
+                    .continuingTerrain(baseEdgeExtension, feather: baseEdgeFeather)
                 Canvas { context, size in
                     draw(&context, size: size, overlay: overlay)
                 }
