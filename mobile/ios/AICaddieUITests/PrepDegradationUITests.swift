@@ -123,8 +123,8 @@ final class PrepDegradationUITests: XCTestCase {
         // Obstacles are off by default on 备战 (the default-none rule).
         XCTAssertFalse(element("prep-map-hazard-1").exists, "no obstacle is drawn without a selection")
         // 方案: on this hole the fixture player's steady 3W -> 9I chain is a genuinely 稳妥
-        // whole-hole alternative (`server_v2/ci_fixture.py` DEGRADED_BAG; the production authority
-        // itself is pinned by PrepDegradedPlansTests on the fixture's own output). Choosing it
+        // whole-hole alternative (`server_v2/ci_fixture.py` FIXTURE_BAG; the production authority
+        // itself is pinned by PrepJourneyPlansTests on the fixture's own output). Choosing it
         // redraws the route, the landings and the whole club order.
         XCTAssertEqual(app.buttons["prep-plan-0"].label, "推荐")
         let secondPlan = app.buttons["prep-plan-1"]

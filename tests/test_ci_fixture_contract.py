@@ -801,7 +801,7 @@ class CIFixtureContractTests(unittest.TestCase):
         seed = package["caddieContextSeeds"][0]
         profiles = seed["context"]["clubProfiles"]
         self.assertIsInstance(profiles, dict)
-        self.assertEqual(set(profiles), {"9I", "8I", "7I"})
+        self.assertEqual(set(profiles), {"1D", "3W", "7I", "8I", "9I"})
 
     def test_install_status_uses_same_segment_resolver(self) -> None:
         try:
@@ -981,7 +981,7 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(missing_topo.exception.status_code, 404)
         # 备战 方案: a real bag, and per-hole seed tee options from it (the Driver and the 3W), so
         # the phone's offline caddie decision offers a genuinely safer whole-hole route
-        # (PrepDegradedPlansTests pins the authority's result on this output).
+        # (PrepJourneyPlansTests pins the authority's result on this output).
         self.assertEqual(
             [row["clubName"] for row in package["clubProfiles"]], ["1D", "3W", "7I", "8I", "9I"]
         )
@@ -990,7 +990,7 @@ class CIFixtureContractTests(unittest.TestCase):
             {"stock": "1D", "safe": "3W"},
         )
         other = fixture.course_package(31793, loops="31793:front,31793:back", round_id="prep-library-31793")
-        self.assertEqual([row["clubName"] for row in other["clubProfiles"]], ["8I"])
+        self.assertEqual(other["clubProfiles"], package["clubProfiles"], "one fixture player on every course")
         # Other courses keep every hole precise.
         self.assertEqual(
             {hole["geometryCoverage"] for hole in fixture.prep(31793, holes=[1, 2, 14])["holes"]},

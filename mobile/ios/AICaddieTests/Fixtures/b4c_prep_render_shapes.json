@@ -174,7 +174,32 @@
     "sourceRefs": [
      "900001:1"
     ],
-    "steps": [],
+    "steps": [
+     {
+      "club": "1D",
+      "clubName": "1D",
+      "expectedRemaining_m": 123.0,
+      "landing_m": 210.0,
+      "note": "开球打球道中间",
+      "planIndex": 0,
+      "planVersion": "ai-caddie-shot-plan-v1",
+      "role": "tee",
+      "routeOffset_m": 210.0,
+      "targetCarry_m": 210.0
+     },
+     {
+      "club": "8I",
+      "clubName": "8I",
+      "expectedRemaining_m": 0.0,
+      "landing_m": 333.0,
+      "note": "攻果岭中心",
+      "planIndex": 1,
+      "planVersion": "ai-caddie-shot-plan-v1",
+      "role": "approach",
+      "routeOffset_m": 333.0,
+      "targetCarry_m": 123.0
+     }
+    ],
     "tee_club": "1D"
    }
   ],
@@ -377,7 +402,32 @@
     "sourceRefs": [
      "900001:1"
     ],
-    "steps": [],
+    "steps": [
+     {
+      "club": "1D",
+      "clubName": "1D",
+      "expectedRemaining_m": 123.0,
+      "landing_m": 210.0,
+      "note": "开球打球道中间",
+      "planIndex": 0,
+      "planVersion": "ai-caddie-shot-plan-v1",
+      "role": "tee",
+      "routeOffset_m": 210.0,
+      "targetCarry_m": 210.0
+     },
+     {
+      "club": "8I",
+      "clubName": "8I",
+      "expectedRemaining_m": 0.0,
+      "landing_m": 333.0,
+      "note": "攻果岭中心",
+      "planIndex": 1,
+      "planVersion": "ai-caddie-shot-plan-v1",
+      "role": "approach",
+      "routeOffset_m": 333.0,
+      "targetCarry_m": 123.0
+     }
+    ],
     "tee_club": "1D"
    }
   ],

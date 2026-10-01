@@ -23,10 +23,12 @@ FIXTURE = (
     / "mobile/ios/AICaddieTests/Fixtures/b4c_prep_render_shapes.json"
 )
 GLOBAL_ID = 31795
-# B4c 方案 (Codex 5925193109): the degraded course's package and its factual hole-2 prep row, which
-# `PrepDegradedPlansTests.swift` feeds to the production plan authority.
-PLAN_INPUTS = FIXTURE.with_name("b4c_degraded_plan_inputs.json")
-PLAN_ROUND_ID = "home-31798"
+# B4c 方案 (Codex 5925193109 / 5925370774): each journey course's package and the prep row its
+# journey opens first, which `PrepJourneyPlansTests.swift` feeds to the production plan authority:
+# the degraded course's factual hole 2, and hole 1 of the Palace (RealFlow / offline start) and of
+# Black Knight.
+PLAN_INPUTS = FIXTURE.with_name("b4c_journey_plan_inputs.json")
+PLAN_COURSES = {"degraded": (31798, 2), "palace": (31793, 1), "blackKnight": (31795, 1)}
 
 
 def _current() -> dict:
@@ -72,19 +74,22 @@ def _resolved_map_overlay(hole: dict) -> dict | None:
 def _plan_inputs() -> dict:
     import server_v2.ci_fixture as fixture
 
-    fixture._DEGRADED_CLOCK["started"] = None
-    try:
-        package = fixture.course_package(
-            fixture.DEGRADED_ID, loops=f"{fixture.DEGRADED_ID}:front", round_id=PLAN_ROUND_ID, tee_box="blue"
-        )
-        # Within the first DEGRADED_UPGRADE_SECONDS hole 2 is the factual (partial) route.
-        prep = fixture.prep(fixture.DEGRADED_ID, holes=[2], render=False)
-    finally:
+    inputs = {}
+    for key, (global_id, hole) in PLAN_COURSES.items():
         fixture._DEGRADED_CLOCK["started"] = None
-    return {"package": package, "prep": prep}
+        try:
+            package = fixture.course_package(
+                global_id, loops=f"{global_id}:front", round_id=f"home-{global_id}", tee_box="blue"
+            )
+            # Within the first DEGRADED_UPGRADE_SECONDS degraded hole 2 is the factual (partial) route.
+            prep = fixture.prep(global_id, holes=[hole], render=False)
+        finally:
+            fixture._DEGRADED_CLOCK["started"] = None
+        inputs[key] = {"hole": hole, "package": package, "prep": prep}
+    return inputs
 
 
-class DegradedPlanInputsFixtureTests(unittest.TestCase):
+class JourneyPlanInputsFixtureTests(unittest.TestCase):
     def setUp(self) -> None:
         try:
             self.current = json.loads(json.dumps(_plan_inputs()))
@@ -96,28 +101,65 @@ class DegradedPlanInputsFixtureTests(unittest.TestCase):
             PLAN_INPUTS.write_text(json.dumps(self.current, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
         self.assertEqual(json.loads(PLAN_INPUTS.read_text()), self.current)
 
-    def test_degraded_seeds_offer_the_bags_driver_and_3w(self) -> None:
+    def test_every_journey_course_has_the_bag_tee_options_and_a_closing_installed_chain(self) -> None:
         import server_v2.ci_fixture as fixture
 
-        bag = {row["clubName"]: row for row in self.current["package"]["clubProfiles"]}
-        self.assertEqual(bag, {row["clubName"]: row for row in fixture.DEGRADED_BAG})
-        hole = self.current["prep"]["holes"][0]
-        self.assertEqual(hole["geometryCoverage"], "partial")
-        self.assertEqual([step["clubName"] for step in hole["steps"]], ["1D", "8I"])
-        self.assertEqual(hole["hazards"]["water_carry"], [[105.0, 135.0]])
-        for seed in self.current["package"]["caddieContextSeeds"]:
-            options = {option["id"]: option for option in seed["offlineOptions"]}
-            self.assertEqual(sorted(options), ["safe", "stock"])
-            self.assertEqual(seed["selectedOfflineOptionId"], "stock")
-            for option in options.values():
-                profile = bag[option["clubName"]]
-                self.assertEqual(
-                    (option["carryM"], option["p10M"], option["p90M"], option["sampleSize"]),
-                    (profile["median_m"], profile["p10_m"], profile["p90_m"], profile["sampleSize"]),
-                )
-            # Both tee clubs carry the factual water across their whole p10-p90 window.
-            for option in options.values():
-                self.assertGreaterEqual(option["p10M"], 135.0 + 8.0)
+        expected_coverage = {"degraded": "partial", "palace": "ready", "blackKnight": "ready"}
+        for key, inputs in self.current.items():
+            with self.subTest(course=key):
+                package = inputs["package"]
+                bag = {row["clubName"]: row for row in package["clubProfiles"]}
+                self.assertEqual(bag, {row["clubName"]: row for row in fixture.FIXTURE_BAG})
+                hole = inputs["prep"]["holes"][0]
+                self.assertEqual(hole["geometryCoverage"], expected_coverage[key])
+                self.assertEqual([step["clubName"] for step in hole["steps"]], ["1D", "8I"])
+                # The installed chain closes on the green: its carries sum to the route.
+                self.assertAlmostEqual(sum(step["targetCarry_m"] for step in hole["steps"]), hole["route_len_m"], delta=0.1)
+                self.assertEqual(hole["hazards"]["water_carry"], [[105.0, 135.0]])
+                for seed in package["caddieContextSeeds"]:
+                    self.assertEqual(set(seed["context"]["clubProfiles"]), set(bag))
+                    self.assertEqual(seed["context"]["yards"], hole["blue_yards"])
+                    options = {option["id"]: option for option in seed["offlineOptions"]}
+                    self.assertEqual({option_id: row["clubName"] for option_id, row in options.items()}, {"stock": "1D", "safe": "3W"})
+                    self.assertEqual(seed["selectedOfflineOptionId"], "stock")
+                    for option in options.values():
+                        profile = bag[option["clubName"]]
+                        self.assertEqual(
+                            (option["carryM"], option["p10M"], option["p90M"], option["sampleSize"]),
+                            (profile["median_m"], profile["p10_m"], profile["p90_m"], profile["sampleSize"]),
+                        )
+                        # Both tee clubs carry the factual water across their whole p10-p90 window.
+                        self.assertGreaterEqual(option["p10M"], 135.0 + 8.0)
+
+    def test_online_decision_completes_the_installed_chain(self) -> None:
+        """The fixture's online decision on the Palace's hole 1, given the request the phone builds
+        (the seed context plus the installed chain, water and green), selects that complete chain."""
+        import server_v2.ci_fixture as fixture
+
+        inputs = self.current["palace"]
+        hole = inputs["prep"]["holes"][0]
+        seed = inputs["package"]["caddieContextSeeds"][0]
+        context = dict(seed["context"])
+        context.update({
+            "distanceToPin_m": hole["greenDistances"]["middleM"],
+            "hazardWaterCarry_m": hole["hazards"]["water_carry"],
+            "canonicalShotPlan": [
+                {"clubName": step["clubName"], "targetCarryM": step["targetCarry_m"], "routeOffsetM": step["routeOffset_m"],
+                 "role": step["role"], "planIndex": step["planIndex"]}
+                for step in hole["steps"]
+            ],
+            "canonicalPlanSource": "course_prep",
+            "canonicalPlanRouteLength_m": hole["route_len_m"],
+            "greenDistances": {key: hole["greenDistances"][key] for key in ("frontM", "middleM", "backM")},
+            "candidateRoutes": [
+                {"id": option["id"], "club": option["clubName"], "carry_m": option["carryM"], "riskScore": option["riskScore"]}
+                for option in seed["offlineOptions"]
+            ],
+        })
+        decision = fixture.caddie_decision({"shotType": "tee", "context": context})
+        selected = decision["selectedSequence"]
+        self.assertEqual([club["clubName"] for club in selected["clubs"]], ["1D", "8I"])
+        self.assertLessEqual(abs(selected["expectedRemaining_m"]), 20.0)
 
 
 class PrepRenderShapesFixtureTests(unittest.TestCase):

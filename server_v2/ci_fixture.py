@@ -51,21 +51,24 @@ DEGRADED_UPGRADE_SECONDS = 25.0
 # example a retried simulator run); one install's own later passes never restart the clock.
 DEGRADED_CLOCK_RESET_SECONDS = 300.0
 _DEGRADED_CLOCK: dict[str, float | None] = {"started": None}
-# The degraded course's player: a steady 3W (183-203 m) and 9I (125-139 m), and an 8I with only six
-# measured shots. Against the factual water at 105-135 m the installed Driver -> 8I chain is the
-# stock plan, and the 3W -> 9I chain is a genuinely 稳妥 whole-hole alternative from the same
-# decision authority: both clear the water across their whole p10-p90 windows in two strokes, and
-# the 3W chain's modelled risk (7 m leave + steadier clubs) is lower than the Driver chain's (its
-# thinly-sampled 8I approach), with its tee landing 16 m short of the Driver's.
-DEGRADED_BAG = (
+# The fixture player, on every fixture course (Codex 5925193109 / 5925370774): a realistic bag with
+# a steady 3W (184-204 m) and 9I (125-139 m) and an 8I with only six measured shots. Every fixture
+# hole is the same 333 m route with water at 105-135 m and the installed CoursePrep chain
+# 1D 210 -> 8I 123, which clears the water and closes on the green; prep, the downloaded/offline
+# live round and the online decision all consume that chain through the production authority.
+# The 3W -> 9I chain is a genuinely 稳妥 whole-hole alternative from the same authority: both clear
+# the water across their whole p10-p90 windows in two strokes, and the 3W chain's modelled risk
+# (7 m leave + steadier clubs) is lower than the Driver chain's (its thinly-sampled 8I approach),
+# with its tee landing 16 m short of the Driver's.
+FIXTURE_BAG = (
     {"clubName": "1D", "sampleSize": 24, "median_m": 210.0, "p10_m": 195.0, "p90_m": 225.0},
     {"clubName": "3W", "sampleSize": 24, "median_m": 194.0, "p10_m": 184.0, "p90_m": 204.0},
     {"clubName": "7I", "sampleSize": 24, "median_m": 156.0, "p10_m": 142.0, "p90_m": 168.0},
     {"clubName": "8I", "sampleSize": 6, "median_m": 144.0, "p10_m": 132.0, "p90_m": 153.0},
     {"clubName": "9I", "sampleSize": 24, "median_m": 132.0, "p10_m": 125.0, "p90_m": 139.0},
 )
-# The degraded course's per-hole seed tee options, from that bag: the Driver (stock) and the 3W.
-DEGRADED_TEE_OPTIONS = (("stock", "Stock", "1D", 3.0), ("safe", "Safe", "3W", 1.0))
+# Every fixture seed's tee options, from that bag: the Driver (stock) and the 3W.
+FIXTURE_TEE_OPTIONS = (("stock", "Stock", "1D", 3.0), ("safe", "Safe", "3W", 1.0))
 COURSE_ALIASES = {PALACE_ID: PALACE_ID, 31795: GLOBAL_ID, 31797: 31797, 3881: 3881, 31670: 31670, 31871: 31871, DEGRADED_ID: DEGRADED_ID}
 ROUND_ALIASES = {"900001": ROUND_REF, "live-31795": ROUND_REF, "live-round-1": ROUND_REF, "fixture-round-1": ROUND_REF}
 UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
@@ -220,40 +223,27 @@ def _annotate_decision_metadata(
     return decision
 
 
-def _degraded_tee_options(seed_ref: str) -> list[dict[str, object]]:
-    bag = {row["clubName"]: row for row in DEGRADED_BAG}
+def _fixture_tee_options(seed_ref: str) -> list[dict[str, object]]:
+    bag = {row["clubName"]: row for row in FIXTURE_BAG}
     return [
         {"id": option_id, "label": label, "clubName": club, "carryM": bag[club]["median_m"],
          "p10M": bag[club]["p10_m"], "p90M": bag[club]["p90_m"], "sampleSize": bag[club]["sampleSize"],
          "confidence": "high", "coverage": {"ready": bag[club]["sampleSize"], "total": bag[club]["sampleSize"], "pct": 100.0},
          "riskScore": risk, "source": "offline_package_seed", "sourceRefs": [seed_ref],
          "sampleRefs": [f"{seed_ref}:{index + 1}"], "missingData": []}
-        for index, (option_id, label, club, risk) in enumerate(DEGRADED_TEE_OPTIONS)
+        for index, (option_id, label, club, risk) in enumerate(FIXTURE_TEE_OPTIONS)
     ]
 
 
-def _seed_club_profiles(seed: dict[str, object]) -> dict[str, dict[str, object]]:
-    profiles: dict[str, dict[str, object]] = {}
-    for option in seed.get("offlineOptions") or []:
-        if not isinstance(option, dict):
-            continue
-        club_name = str(option.get("clubName") or option.get("label") or option.get("id") or "").strip()
-        if not club_name:
-            continue
-        source_refs = []
-        for key in ("sampleRefs", "sourceRefs"):
-            value = option.get(key)
-            if isinstance(value, list):
-                source_refs.extend(str(ref) for ref in value if str(ref).strip())
-        profiles[club_name] = {
-            "clubName": club_name,
-            "median": option.get("carryM"),
-            "p10": option.get("p10M"),
-            "p90": option.get("p90M"),
-            "sampleSize": option.get("sampleSize"),
-            "sourceRefs": source_refs,
+def _fixture_seed_profiles(seed_ref: str) -> dict[str, dict[str, object]]:
+    """The seed's keyed decision profiles: the fixture player's whole bag."""
+    return {
+        row["clubName"]: {
+            "clubName": row["clubName"], "median": row["median_m"], "p10": row["p10_m"], "p90": row["p90_m"],
+            "sampleSize": row["sampleSize"], "sourceRefs": [seed_ref],
         }
-    return profiles
+        for row in FIXTURE_BAG
+    }
 
 
 COURSE_COORDINATES = {
@@ -736,12 +726,11 @@ def _package(round_id: str, global_id: int | None, loops: list[tuple[int, str]] 
         seed_ref = f"{requested_round}:{hole}"
         seed["hole"] = hole
         seed["sourceRef"] = seed_ref
-        seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": hole, "displayHole": hole, "globalId": source_course, "localHole": local_hole, "teeBox": requested_tee, "par": _hole_par(source_course, local_hole)})
+        seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": hole, "displayHole": hole, "globalId": source_course, "localHole": local_hole, "teeBox": requested_tee, "par": _hole_par(source_course, local_hole), "yards": _yd(_ROUTE_LENGTH_M)})
         seed["context"].setdefault("geometry", {}).update({"coverage": "ready", "sourceGlobalId": source_course, "sourceLocalHole": local_hole})
-        if source_course == DEGRADED_ID:
-            seed["offlineOptions"] = _degraded_tee_options(seed_ref)
-            seed["selectedOfflineOptionId"] = "stock"
-        club_profiles = _seed_club_profiles(seed)
+        seed["offlineOptions"] = _fixture_tee_options(seed_ref)
+        seed["selectedOfflineOptionId"] = "stock"
+        club_profiles = _fixture_seed_profiles(seed_ref)
         existing_profiles = seed["context"].get("clubProfiles")
         # The fixture template may carry an empty/list-shaped profile payload from an older
         # package schema.  Tee sequences require the keyed decision profile contract; preserve
@@ -750,10 +739,9 @@ def _package(round_id: str, global_id: int | None, loops: list[tuple[int, str]] 
             seed["context"]["clubProfiles"] = club_profiles
         seeds.append(seed)
     payload["caddieContextSeeds"] = seeds
-    if requested_course == DEGRADED_ID:
-        # B4c 方案: the degraded course carries a real player bag, so the phone's offline caddie
-        # decision (the live play authority) resolves distinct complete routes for 备战.
-        payload["clubProfiles"] = [dict(row) for row in DEGRADED_BAG]
+    # The fixture player's bag (FIXTURE_BAG), so prep, offline live play and the online decision
+    # resolve the same complete routes.
+    payload["clubProfiles"] = [dict(row) for row in FIXTURE_BAG]
     payload["recentHistory"]["holes"] = [{"number": hole, "sampleCount": 3, "averageToPar": 0.2, "repeatedIssues": []} for hole in segment_holes]
     payload["recentHistory"]["course"]["roundCount"] = len(segment_holes)
     payload["eventCursor"].update({"serverSequence": len(segment_holes), "pendingEventCount": 0})
@@ -896,14 +884,9 @@ def geometry_hole(global_id: int, local_hole: int, source_ref: str | None = None
     return _with_markers({"schema": "ai-caddie-geometry-evidence-v1", "globalId": requested_course, "localHole": local_hole, "coverage": "ready", "overlay": _prep_overlay(), "sourceRef": source_ref or f"geometry:{requested_course}:{local_hole}"})
 
 
-def _degrade_prep_hole(hole: dict, state: str) -> None:
-    """Shape one degraded-course prep row like production's partial / missing geometry rows.
-
-    Every state carries the same two-step caddie plan so the 备战 club order is visible.
-    ``partial`` keeps the factual overlay, green outline and obstacle facts but no raster;
-    ``missing`` has no drawable route at all (no overlay, no projection, no outline).
-    """
-    hole["steps"] = [
+def _prep_steps() -> list[dict]:
+    """The installed CoursePrep chain of every fixture hole: 1D 210 -> 8I 123, closing on the green."""
+    return [
         {"club": "1D", "clubName": "1D", "note": "开球打球道中间", "targetCarry_m": PREP_DRIVE_CARRY_M,
          "routeOffset_m": PREP_DRIVE_CARRY_M, "landing_m": PREP_DRIVE_CARRY_M,
          "expectedRemaining_m": round(_ROUTE_LENGTH_M - PREP_DRIVE_CARRY_M, 1), "role": "tee", "planIndex": 0,
@@ -912,6 +895,15 @@ def _degrade_prep_hole(hole: dict, state: str) -> None:
          "routeOffset_m": _ROUTE_LENGTH_M, "landing_m": _ROUTE_LENGTH_M, "expectedRemaining_m": 0.0,
          "role": "approach", "planIndex": 1, "planVersion": "ai-caddie-shot-plan-v1"},
     ]
+
+
+def _degrade_prep_hole(hole: dict, state: str) -> None:
+    """Shape one degraded-course prep row like production's partial / missing geometry rows.
+
+    Every state keeps the installed two-step caddie plan (`_prep_steps`) so the 备战 club order is
+    visible. ``partial`` keeps the factual overlay, green outline and obstacle facts but no raster;
+    ``missing`` has no drawable route at all (no overlay, no projection, no outline).
+    """
     if state == "ready":
         return
     hole["geometryCoverage"] = state
@@ -951,7 +943,7 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
         hole = {"hole": number, "par": _hole_par(source_course, local_hole), "par_source": "garmin", "blue_yards": _yd(_ROUTE_LENGTH_M), "route_len_m": round(_ROUTE_LENGTH_M, 1),
             "route": [list(point) for point in PREP_ROUTE_LOCAL_M], "geometryCoverage": "ready", "geometryRevision": FIXTURE_REVISION,
             "sourceRefs": ["900001:1"], "missingData": [], "candidateRoutes": [], "carryTargets": [],
-            "steps": [], "cautions": [], "landing_m": PREP_DRIVE_CARRY_M, "tee_club": "1D",
+            "steps": _prep_steps(), "cautions": [], "landing_m": PREP_DRIVE_CARRY_M, "tee_club": "1D",
             "hazards": _fixture_prep_hazards(),
             "greenDistances": green_distances, "playsLike": {"available": True, "deltaM": 0.0},
             "holeImageProjection": hole_projection,
