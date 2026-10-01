@@ -13,6 +13,13 @@ enum LiveClubStripPolicy {
     /// edit never promotes the pick to a manual choice; every other club event stays manual.
     static let caddieOwnedClubSource = "ios_caddie_auto"
 
+    /// Whether a restored hole already holds the player's own club choice, so the first decision
+    /// (and the precise-map follow-up) must not replace it. A caddie-owned restored club does not
+    /// count; a legacy club with no ownership marker stays manual.
+    static func restoredManualClub(_ hole: LiveHoleStateSnapshot?) -> Bool {
+        hole?.hasManualClubSelection == true
+    }
+
     static func caddieOwnedSelection(
         current: String,
         recommendation: String?,

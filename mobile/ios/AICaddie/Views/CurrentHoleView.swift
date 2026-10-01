@@ -2385,8 +2385,11 @@ public struct CurrentHoleView: View {
     @MainActor
     private func loadCurrentHole() async {
         // Sync the selected club to the recommendation on a fresh hole; a hole the player already
-        // recorded keeps their actual choice.
-        let alreadyRecorded = liveRoundState?.holeState(for: hole.number)?.selectedClub.isEmpty == false
+        // chose a club on keeps it. A restored caddie-owned club (one a target edit carried) is not
+        // a recorded choice and follows the current recommendation.
+        let alreadyRecorded = LiveClubStripPolicy.restoredManualClub(
+            liveRoundState?.holeState(for: hole.number)
+        )
         let syncClub = !alreadyRecorded && !hasUserSelectedClub
         if holePrep != nil {
             // The package already contains the factual route/F-M-B context. Start the refresh in

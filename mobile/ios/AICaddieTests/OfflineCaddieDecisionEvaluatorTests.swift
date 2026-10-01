@@ -911,6 +911,48 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         }
     }
 
+    func testFirstLoadAdoptsTheRecommendationOverARestoredCaddieOwnedClub() throws {
+        // Codex 5924344422: on relaunch / first load a restored caddie-owned 1W follows the current
+        // 3W recommendation (phone, map and Watch read the same selected club); a restored manual
+        // 7I stays. The precise-map follow-up uses the same gate.
+        let package = try fixturePackage()
+        let auto = JSONValue.string(LiveClubStripPolicy.caddieOwnedClubSource)
+        let target: [String: JSONValue] = [
+            "targetLatitude": .number(22.2799), "targetLongitude": .number(114.162), "targetKind": .string("target"),
+        ]
+        let cases: [(name: String, payload: [String: JSONValue], expected: String)] = [
+            ("restored caddie-owned 1W", ["clubName": .string("1W"), "source": auto].merging(target) { $1 }, "3W"),
+            ("restored manual 7I", ["clubName": .string("7I")].merging(target) { $1 }, "7I"),
+        ]
+        for testCase in cases {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let store = OfflineStore(directoryURL: directory)
+            try store.appendEvent(LiveRoundEvent(
+                eventId: "club-\(UUID().uuidString)", roundId: package.roundId,
+                timestamp: "2026-05-25T00:01:00Z", hole: 1, kind: .club, payload: testCase.payload
+            ))
+            let holeState = try store.restoreLiveRoundState(roundId: package.roundId, package: package).holeState(for: 1)
+            let restoredClub = try XCTUnwrap(holeState).selectedClub
+            // The view's initial gate (and its precise-map follow-up).
+            let userSelected = holeState?.hasManualClubSelection == true
+            let syncClub = !LiveClubStripPolicy.restoredManualClub(holeState) && !userSelected
+            let selected = syncClub
+                ? LiveClubStripPolicy.caddieOwnedSelection(
+                    current: restoredClub, recommendation: "3W", userSelected: userSelected, noRoute: false
+                )
+                : restoredClub
+            XCTAssertEqual(selected, testCase.expected, testCase.name)
+            let watch = WatchEventBridge().makeWatchRoundStatePayload(
+                package: package, hole: try XCTUnwrap(package.holes.first), score: 0, putts: 0, penaltyCount: 0,
+                selectedClub: selected, decision: nil
+            )
+            XCTAssertEqual(watch.selectedClub, testCase.expected, testCase.name)
+        }
+        // A legacy restored club with no ownership marker stays a recorded manual choice.
+        XCTAssertFalse(LiveClubStripPolicy.restoredManualClub(nil))
+    }
+
     func testPar4LegThatFliesTheBackEdgeIsNotGIR() throws {
         // The fallback planner clamps the second landing to the 396 m route end, but the 3W
         // median lands at 412.2 m: past back (400 m) + the 8 m tolerance, so it is not a GIR.
