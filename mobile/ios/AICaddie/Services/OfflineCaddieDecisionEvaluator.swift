@@ -707,7 +707,9 @@ public final class OfflineCaddieDecisionEvaluator {
     ) -> [LocalClubProfile] {
         guard remainingM > Self.scoringWindowM else { return [] }
         let playable = profiles
-            .filter { !$0.isDriver && (maximumCarryM.map { cap in $0.carryM <= cap } ?? true) }
+            .filter { profile in
+                !profile.isDriver && (maximumCarryM.map { cap in profile.carryM <= cap } ?? true)
+            }
             .sorted { $0.carryM > $1.carryM }
         guard let longest = playable.first?.carryM, longest > 0 else { return [] }
         let minimumSteps = max(1, Int(((remainingM - Self.scoringWindowM) / longest).rounded(.up)))
