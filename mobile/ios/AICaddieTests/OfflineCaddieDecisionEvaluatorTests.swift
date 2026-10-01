@@ -823,6 +823,49 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         XCTAssertNil(watch.holePlanSummary)
     }
 
+    func testATargetEditKeepsAnAutomaticClubCaddieOwnedThroughReplay() throws {
+        // Codex 5923705881: a Touch Target / flag edit persists the current club in a `.club`
+        // event. Replayed through the event log (the live snapshot update and relaunch share
+        // `restoreLiveRoundState`), an automatic pick must stay caddie-owned so a later no-route
+        // result clears it, while a club the player chose stays.
+        let package = try fixturePackage()
+        let noRoute = try obNoRouteDecision()
+        let cases: [(name: String, source: JSONValue?, manual: Bool, after: String)] = [
+            ("automatic Driver, then a target edit", .string(LiveClubStripPolicy.caddieOwnedClubSource), false, ""),
+            ("manual Driver, then a target edit", nil, true, "1D"),
+            ("Watch-picked club", .string("apple_watch"), true, "1D"),
+        ]
+        for testCase in cases {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let store = OfflineStore(directoryURL: directory)
+            var payload: [String: JSONValue] = [
+                "clubName": .string("1D"),
+                "shotType": .string("tee"),
+                "targetLatitude": .number(22.2799),
+                "targetLongitude": .number(114.162),
+                "targetKind": .string("target"),
+            ]
+            if let source = testCase.source { payload["source"] = source }
+            try store.appendEvent(LiveRoundEvent(
+                eventId: "club-\(UUID().uuidString)", roundId: package.roundId,
+                timestamp: "2026-05-25T00:01:00Z", hole: 1, kind: .club, payload: payload
+            ))
+            let snapshot = try store.restoreLiveRoundState(roundId: package.roundId, package: package)
+            let holeState = try XCTUnwrap(snapshot.holeState(for: 1))
+            XCTAssertEqual(holeState.selectedClub, "1D", testCase.name)
+            XCTAssertEqual(holeState.hasManualClubSelection, testCase.manual, testCase.name)
+            // The view restores `hasUserSelectedClub` from this snapshot, then applies the result.
+            let after = LiveClubStripPolicy.caddieOwnedSelection(
+                current: holeState.selectedClub,
+                recommendation: LiveClubStripPolicy.recommendation(from: noRoute)?.name,
+                userSelected: holeState.hasManualClubSelection,
+                noRoute: noRoute.isLocalNoRoute
+            )
+            XCTAssertEqual(after, testCase.after, testCase.name)
+        }
+    }
+
     func testPar4LegThatFliesTheBackEdgeIsNotGIR() throws {
         // The fallback planner clamps the second landing to the 396 m route end, but the 3W
         // median lands at 412.2 m: past back (400 m) + the 8 m tolerance, so it is not a GIR.

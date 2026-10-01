@@ -8,6 +8,11 @@ enum LiveClubStripPolicy {
     /// nothing because no safe route exists (`noRoute`), so a stale auto-selected Driver cannot stay
     /// on the chip, the map's single-club landing or the Watch. Without a recommendation for any
     /// other reason (a decision still loading) the current club stays.
+    /// The `source` a phone `.club` event carries for a club the caddie chose (an automatic pick a
+    /// target / flag edit carries along). Replay and relaunch read it back as caddie-owned, so the
+    /// edit never promotes the pick to a manual choice; every other club event stays manual.
+    static let caddieOwnedClubSource = "ios_caddie_auto"
+
     static func caddieOwnedSelection(
         current: String,
         recommendation: String?,

@@ -261,7 +261,7 @@ public struct CurrentHoleView: View {
         self._penaltyCount = State(initialValue: restoredHoleState?.penaltyCount ?? 0)
         let restoredClub = restoredHoleState.map { Self.normalizedSelectedClub($0.selectedClub) } ?? ""
         self._selectedClub = State(initialValue: restoredClub)
-        self._hasUserSelectedClub = State(initialValue: !restoredClub.isEmpty)
+        self._hasUserSelectedClub = State(initialValue: !restoredClub.isEmpty && restoredHoleState?.hasManualClubSelection == true)
         // A fresh hole starts from the tee even when an older seed happens to list approach first.
         // The recorded event log remains authoritative for resumed holes.
         let initialShotType = restoredHoleState?.selectedShotType
@@ -2375,6 +2375,10 @@ public struct CurrentHoleView: View {
         payload["shotType"] = .string(selectedShotType)
         payload["strategyMode"] = .string(selectedStrategyMode)
         payload["lie"] = .string(selectedLie)
+        // A target / flag edit carries the current club, but not as a new manual choice.
+        if !hasUserSelectedClub {
+            payload["source"] = .string(LiveClubStripPolicy.caddieOwnedClubSource)
+        }
         emit(kind: .club, timestamp: timestamp, payload: payload)
     }
 
@@ -3613,7 +3617,7 @@ public struct CurrentHoleView: View {
         // An empty selection is intentional while a fresh decision is loading; never turn it into a
         // stale default club just because the event log was replayed.
         selectedClub = Self.normalizedSelectedClub(restoredHoleState.selectedClub)
-        hasUserSelectedClub = !selectedClub.isEmpty
+        hasUserSelectedClub = !selectedClub.isEmpty && restoredHoleState.hasManualClubSelection
         selectedShotType = restoredHoleState.selectedShotType
         // A restored event is authoritative for the persisted legacy field, but it is never a
         // pending tap. Do not replay a stale one-shot override when a saved round is rehydrated.

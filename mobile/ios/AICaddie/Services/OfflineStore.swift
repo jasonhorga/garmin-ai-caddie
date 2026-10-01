@@ -87,6 +87,16 @@ public struct LiveHoleStateSnapshot: Codable, Equatable, Identifiable {
     /// B0c per-hole score source merged over this hole's score / putt / penalty events: `default`
     /// only while every event was a default preselection; otherwise the latest non-default source.
     public var scoreSource: String? = nil
+    /// Who chose `selectedClub`: true for the player, false for the caddie (an automatic pick a
+    /// target / flag event carried along). Nil on events before this field existed, read as manual.
+    public var selectedClubIsManual: Bool? = nil
+
+    /// The restored club is the player's own choice (a caddie-owned club may be replaced or
+    /// cleared by a later recommendation).
+    public var hasManualClubSelection: Bool {
+        let club = selectedClub.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !club.isEmpty && club.lowercased() != "unknown" && (selectedClubIsManual ?? true)
+    }
 
     public func hasSameRestorableFields(as other: LiveHoleStateSnapshot) -> Bool {
         roundId == other.roundId
@@ -97,6 +107,7 @@ public struct LiveHoleStateSnapshot: Codable, Equatable, Identifiable {
             && penaltyCount == other.penaltyCount
             && fairwayResult == other.fairwayResult
             && selectedClub == other.selectedClub
+            && selectedClubIsManual == other.selectedClubIsManual
             && selectedShotType == other.selectedShotType
             && selectedStrategyMode == other.selectedStrategyMode
             && distanceToPinM == other.distanceToPinM
@@ -1743,6 +1754,10 @@ public final class OfflineStore {
                    !clubName.isEmpty,
                    clubName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "unknown" {
                     state.selectedClub = clubName
+                    // Selection ownership travels with the club: only a phone event marked as
+                    // the caddie's own pick is caddie-owned; every other club event is manual.
+                    state.selectedClubIsManual = stringPayload("source", in: event.payload)
+                        != LiveClubStripPolicy.caddieOwnedClubSource
                 }
                 if let shotType = stringPayload("shotType", in: event.payload) {
                     state.selectedShotType = shotType
