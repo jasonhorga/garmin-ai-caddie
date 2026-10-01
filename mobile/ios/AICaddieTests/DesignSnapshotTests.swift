@@ -1817,6 +1817,7 @@ final class DesignSnapshotTests: XCTestCase {
         return violations
     }
 
+    @MainActor
     static func assertPhysicallyCoherent(
         _ row: PrepHoleRow,
         context: String,
