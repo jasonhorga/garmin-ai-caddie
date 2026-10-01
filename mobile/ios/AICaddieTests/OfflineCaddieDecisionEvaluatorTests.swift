@@ -382,7 +382,9 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         distanceM: Double,
         bag: [(String, Double, Double)],
         options: [(String, String)],
-        water: [[Double]] = []
+        water: [[Double]] = [],
+        canonical: [(String, Double)] = [],
+        planningHazards: [[String: JSONValue]] = []
     ) throws -> CaddieDecisionResponse {
         let profiles: JSONValue = .array(bag.map { name, carry, half in
             .object([
@@ -395,7 +397,13 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
             sourceRef: "round:1",
             shotTypes: ["tee"],
             requiredLiveInputs: [],
-            context: ["par": .number(Double(par)), "clubProfiles": profiles],
+            context: [
+                "par": .number(Double(par)),
+                "clubProfiles": profiles,
+                "candidateRoutes": .array(planningHazards.isEmpty ? [] : [
+                    .object(["id": .string("stock"), "planningHazards": .array(planningHazards.map(JSONValue.object))]),
+                ]),
+            ],
             selectedOfflineOptionId: "stock",
             offlineOptions: options.map { id, club in
                 OfflineCaddieOption(
@@ -412,9 +420,23 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
             seed: seed,
             input: LiveCaddieInput(shotType: "tee", distanceToPinM: distanceM)
         )
-        if !water.isEmpty {
+        if !water.isEmpty || !canonical.isEmpty {
             var context = request.context
-            context["hazardWaterCarry_m"] = .array(water.map { .array($0.map(JSONValue.number)) })
+            if !water.isEmpty {
+                context["hazardWaterCarry_m"] = .array(water.map { .array($0.map(JSONValue.number)) })
+            }
+            if !canonical.isEmpty {
+                var offset = 0.0
+                context["canonicalShotPlan"] = .array(canonical.enumerated().map { index, leg in
+                    offset += leg.1
+                    return .object([
+                        "clubName": .string(leg.0), "targetCarryM": .number(leg.1),
+                        "routeOffsetM": .number(min(distanceM, offset)), "planIndex": .number(Double(index)),
+                        "expectedRemainingM": .number(max(0, distanceM - offset)),
+                        "role": .string(index == canonical.count - 1 ? "scoring" : "tee"),
+                    ])
+                })
+            }
             request = CaddieDecisionRequest(shotType: request.shotType, context: context, includeExplanation: false)
         }
         return try XCTUnwrap(OfflineCaddieDecisionEvaluator().makeDecision(seed: seed, request: request, strategyMode: nil))
@@ -460,16 +482,44 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         }
     }
 
+    /// A bag whose driver (210 ± 20 m) cannot safely carry or lay up short of water at 190-225 m,
+    /// with a 4H (170 ± 8 m) whose whole window stays short of it.
+    private let waterBag: [(String, Double, Double)] = [
+        ("1D", 210, 20), ("3H", 180, 12), ("4H", 170, 8), ("7I", 156, 10), ("8I", 144, 10),
+        ("9I", 132, 8), ("PW", 110, 6),
+    ]
+
+    /// The response's selected option, selected sequence and option list describe one route.
+    private func assertAligned(
+        _ decision: CaddieDecisionResponse,
+        id: String,
+        firstClub: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let sequenceIds = (decision.sequences ?? []).compactMap { row -> String? in
+            if case .string(let id)? = row["id"] { return id }
+            return nil
+        }
+        let optionIds = decision.options.compactMap { row -> String? in
+            if case .string(let id)? = row["id"] { return id }
+            return nil
+        }
+        XCTAssertEqual(Set(optionIds), Set(sequenceIds), "options are exactly the viable routes", file: file, line: line)
+        XCTAssertEqual(decision.selectedOptionId, id, file: file, line: line)
+        XCTAssertEqual(decision.selectedSequence?["id"], .string(id), file: file, line: line)
+        XCTAssertEqual(decision.selectedOption?["clubName"], .string(firstClub), file: file, line: line)
+        let route = try XCTUnwrap(CaddiePlanSequence.selectedSequence(from: decision), file: file, line: line)
+        XCTAssertEqual(route.id, id, file: file, line: line)
+        XCTAssertEqual(route.steps.first?.clubName, firstClub, file: file, line: line)
+    }
+
     func testFactualWaterCarryJustifiesALayUpWithItsReason() throws {
-        // Water across 190-225 m: the driver's 210 m tee shot lands in it, and nothing else reaches
-        // a 400 m Par 4 in two without landing in it, so the lay-up is the plan and says why.
-        let bag = [
-            ("1D", 210.0, 20.0), ("3H", 180.0, 12.0), ("7I", 156.0, 10.0), ("8I", 144.0, 10.0),
-            ("9I", 132.0, 8.0), ("PW", 110.0, 6.0),
-        ]
+        // Water across 190-225 m: the driver's window lands in it, and nothing reaches a 400 m
+        // Par 4 in two without landing in it, so the lay-up is the plan and says why.
         let decision = try wholeHoleDecision(
-            par: 4, distanceM: 400, bag: bag,
-            options: [("stock", "1D"), ("safe", "3H")],
+            par: 4, distanceM: 400, bag: waterBag,
+            options: [("stock", "1D"), ("safe", "4H")],
             water: [[190, 225]]
         )
         let rows = decision.sequences ?? []
@@ -477,12 +527,78 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         let layup = try XCTUnwrap(rows.first { $0["id"] == .string("safe") })
         XCTAssertEqual(layup["layupReason"], .string("water_carry"))
         let route = try XCTUnwrap(CaddiePlanSequence.sequences(from: decision).first { $0.id == "safe" })
-        XCTAssertEqual(route.steps.first?.clubName, "3H")
+        XCTAssertEqual(route.steps.first?.clubName, "4H")
         XCTAssertGreaterThan(route.steps.count, 2)
-        // No landing of the lay-up is in the water (with the 8 m buffer).
         for offset in route.steps.compactMap(\.routeOffsetM) {
             XCTAssertFalse(offset > 182 && offset < 233, "landing at \(offset) m is clear of the water")
         }
+        // The response is one route: the removed driver is neither listed nor selected, and the
+        // Watch publishes the same option, club and route as the phone.
+        try assertAligned(decision, id: "safe", firstClub: "4H")
+        let package = try fixturePackage()
+        let hole = try XCTUnwrap(package.holes.first)
+        let watch = WatchEventBridge().makeWatchRoundStatePayload(
+            package: package, hole: hole, score: 0, putts: 0, penaltyCount: 0,
+            selectedClub: nil, decision: decision
+        )
+        XCTAssertEqual(watch.offlineOptionId, "safe")
+        XCTAssertEqual(watch.suggestedClub, "4H")
+        let summary = try XCTUnwrap(watch.holePlanSummary)
+        XCTAssertFalse(summary.contains("一号木") || summary.contains("1D"), "the Watch route is the lay-up: \(summary)")
+    }
+
+    func testInstalledDriverLegInWaterIsRejectedAndTheSelectionRealigns() throws {
+        // The installed CoursePrep chain plays the driver into the water: it is not a stock route.
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 400, bag: waterBag,
+            options: [("stock", "1D"), ("safe", "4H")],
+            water: [[190, 225]],
+            canonical: [("1D", 210), ("3H", 190)]
+        )
+        XCTAssertFalse((decision.sequences ?? []).contains { $0["id"] == .string("stock") })
+        try assertAligned(decision, id: "safe", firstClub: "4H")
+    }
+
+    func testMedianClearingDriverWhoseLowerTailFindsTheWaterIsRejected() throws {
+        // Median 240 m clears water at 190-225 m, but its p10 (205 m) finishes in it.
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 400,
+            bag: [("1D", 240, 35), ("4H", 170, 8), ("7I", 156, 10), ("PW", 110, 6)],
+            options: [("stock", "1D"), ("safe", "4H")],
+            water: [[190, 225]]
+        )
+        XCTAssertFalse(CaddiePlanSequence.sequences(from: decision).contains { $0.steps.first?.clubName == "1D" })
+        try assertAligned(decision, id: "safe", firstClub: "4H")
+    }
+
+    func testSafeLayUpBeforeWaterMayBeFollowedByALongerClubThatCarriesIt() throws {
+        // Water at 180-215 m on a 360 m Par 4: the 6I lays up short of it (whole window), and the
+        // 3W then carries it from the new lie — two strokes, no artificial third.
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 360,
+            bag: [("1D", 230, 25), ("3W", 215, 12), ("6I", 150, 8), ("9I", 120, 7)],
+            options: [("stock", "1D"), ("safe", "6I")],
+            water: [[180, 215]]
+        )
+        let route = try XCTUnwrap(CaddiePlanSequence.sequences(from: decision).first { $0.id == "safe" })
+        XCTAssertEqual(route.steps.map(\.clubName), ["6I", "3W"])
+        try assertAligned(decision, id: "safe", firstClub: "6I")
+    }
+
+    func testTwoSidedOutOfBoundsWithholdsLocalRoutes() throws {
+        // The local fallback cannot evaluate a two-sided OB corridor: it claims no complete route.
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 375,
+            bag: [("1D", 210, 10), ("7I", 156, 10), ("8I", 144, 10), ("9I", 132, 10)],
+            options: [("stock", "1D"), ("safe", "9I")],
+            planningHazards: [[
+                "kind": .string("out_of_bounds"), "carryToFront_m": .number(180),
+                "carryToClear_m": .number(260), "side": .string("both"), "corridorWidth_m": .number(30),
+            ]]
+        )
+        XCTAssertTrue((decision.sequences ?? []).isEmpty)
+        XCTAssertNil(decision.selectedSequence)
+        XCTAssertTrue(decision.missingData.contains { $0["label"] == .string("offline_route_hazards") })
     }
 
     func testPar4LegThatFliesTheBackEdgeIsNotGIR() throws {

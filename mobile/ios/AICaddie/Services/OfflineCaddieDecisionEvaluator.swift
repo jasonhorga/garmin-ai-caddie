@@ -35,7 +35,7 @@ public final class OfflineCaddieDecisionEvaluator {
             guard case .string(let raw) = request.context["requestedOptionId"] else { return nil }
             return raw
         }()
-        guard let selected = selectedOption(
+        guard let seedSelected = selectedOption(
             in: seed,
             strategyMode: strategyMode,
             requestedOptionId: requestedOptionId
@@ -54,22 +54,36 @@ public final class OfflineCaddieDecisionEvaluator {
                 par: par
             )
         }
-        let plans = routePlans(
+        let planning = routePlans(
             seed: seed,
             request: request,
             canonicalSteps: canonicalSteps,
             par: par,
             greenWindow: greenWindow
         )
-        let optionRows = seed.offlineOptions.map { option in
+        let plans = planning.plans
+        // After whole-hole filtering the response lists only options that still have a route, and
+        // the selected option and sequence are realigned together (server
+        // `_align_selected_sequence`): a removed Driver can never stay the selected club of a
+        // surviving 3H route on the phone or the Watch.
+        let viable = seed.offlineOptions.filter { !(plans[$0.optionId] ?? []).isEmpty }
+        let offeredOptions = planning.filtered && !viable.isEmpty ? viable : seed.offlineOptions
+        let selected: OfflineCaddieOption = {
+            guard planning.filtered, !viable.isEmpty,
+                  !viable.contains(where: { $0.optionId == seedSelected.optionId }) else { return seedSelected }
+            let preferred = [requestedOptionId, preferredOptionId(for: strategyMode), seed.selectedOfflineOptionId, "stock"]
+                .compactMap { $0 }
+            return preferred.lazy.compactMap { id in viable.first { $0.optionId == id } }.first ?? viable[0]
+        }()
+        let optionRows = offeredOptions.map { option in
             optionPayload(
                 option,
                 canonicalFirstStep: plans[option.optionId]?.first
             )
         }
-        let sequenceRows = seed.offlineOptions.compactMap { option -> [String: JSONValue]? in
+        let sequenceRows = offeredOptions.compactMap { option -> [String: JSONValue]? in
             guard let steps = plans[option.optionId], !steps.isEmpty else { return nil }
-            if option.optionId == "stock", canonicalSteps != nil {
+            if option.optionId == "stock", planning.stockIsCanonical {
                 return canonicalSequencePayload(steps: steps, selected: true)
             }
             return routeSequencePayload(steps: steps, option: option)
@@ -80,13 +94,19 @@ public final class OfflineCaddieDecisionEvaluator {
         )
         let selectedSequence: [String: JSONValue]? = {
             guard let steps = plans[selected.optionId], !steps.isEmpty else { return nil }
-            if selected.optionId == "stock", canonicalSteps != nil {
+            if selected.optionId == "stock", planning.stockIsCanonical {
                 return canonicalSequencePayload(steps: steps, selected: true)
             }
             return routeSequencePayload(steps: steps, option: selected)
         }()
         let evidenceRefs = uniqueRefs([seed.sourceRef] + selected.sourceRefs + (selected.sampleRefs ?? []))
-        let missingData = seed.missingData + (selected.missingData ?? [])
+        var missingData = seed.missingData + (selected.missingData ?? [])
+        if planning.withheldForHazards {
+            missingData.append([
+                "label": .string("offline_route_hazards"),
+                "reason": .string("two-sided OB / corridor limits need the server planner; no local route is claimed safe"),
+            ])
+        }
         let decisionId = offlineDecisionId(seed: seed, request: request, selected: selected)
 
         return CaddieDecisionResponse(
@@ -227,37 +247,59 @@ public final class OfflineCaddieDecisionEvaluator {
         var isDriver: Bool { key == "1w" }
     }
 
+    /// The tee planner's result: the plan per option id, whether whole-hole filtering ran (so the
+    /// response must list only the surviving options), and whether local routes were withheld
+    /// because the hole has hard constraints this fallback cannot evaluate.
+    private struct RoutePlanning {
+        var plans: [String: [[String: JSONValue]]]
+        var filtered = false
+        var withheldForHazards = false
+        /// The stock plan is the installed CoursePrep chain (not rejected for water).
+        var stockIsCanonical = false
+    }
+
     private func routePlans(
         seed: CaddieContextSeed,
         request: CaddieDecisionRequest,
         canonicalSteps: [[String: JSONValue]]?,
         par: Int,
         greenWindow: (front: Double, back: Double, routeBased: Bool)?
-    ) -> [String: [[String: JSONValue]]] {
+    ) -> RoutePlanning {
         var plans: [String: [[String: JSONValue]]] = [:]
         // Planned landings are clamped to this route end for display; GIR must not use the clamp.
         let routeEndM = targetDistanceMetres(from: request.context)
         if let canonicalSteps, !canonicalSteps.isEmpty {
             plans["stock"] = canonicalSteps
         }
+        func trimmed(_ plans: [String: [[String: JSONValue]]]) -> [String: [[String: JSONValue]]] {
+            plans.mapValues { trimAtGreenWindow($0, par: par, greenWindow: greenWindow, routeEndM: routeEndM).steps }
+        }
 
         guard request.shotType == "tee",
               let targetM = targetDistanceMetres(from: request.context),
               targetM > 0 else {
-            for (key, steps) in plans {
-                plans[key] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow, routeEndM: routeEndM).steps
-            }
-            return plans
+            return RoutePlanning(plans: trimmed(plans), stockIsCanonical: plans["stock"] != nil)
         }
         let profiles = localProfiles(from: request.context["clubProfiles"] ?? seed.context["clubProfiles"])
+        let hazards = planningHazards(seed: seed, request: request)
+        // An installed chain is a stock recommendation only while every leg is water-safe across
+        // its measured carry window (server `_canonical_sequence` / `_club_hard_hazard_safe`).
+        if let canonical = plans["stock"],
+           !canonicalIsWaterSafe(canonical, profiles: profiles, water: hazards.water) {
+            plans["stock"] = nil
+        }
+        let stockIsCanonical = plans["stock"] != nil
         guard !profiles.isEmpty else {
-            for (key, steps) in plans {
-                plans[key] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow, routeEndM: routeEndM).steps
-            }
-            return plans
+            return RoutePlanning(plans: trimmed(plans), filtered: !hazards.water.isEmpty, stockIsCanonical: stockIsCanonical)
+        }
+        // Two-sided OB / corridor limits need the server planner's typed zones from every lie.
+        // The local fallback refuses to claim a complete safe route rather than ignore them.
+        guard !hazards.unmodelled else {
+            return RoutePlanning(
+                plans: trimmed(plans), filtered: true, withheldForHazards: true, stockIsCanonical: stockIsCanonical
+            )
         }
 
-        let water = waterIntervals(from: request.context)
         for option in seed.offlineOptions {
             if option.optionId == "stock", plans["stock"] != nil { continue }
             guard let steps = fallbackSteps(
@@ -265,27 +307,74 @@ public final class OfflineCaddieDecisionEvaluator {
                 profiles: profiles,
                 targetM: targetM,
                 par: par,
-                water: water
+                water: hazards.water
             ), !steps.isEmpty else { continue }
-            plans[option.optionId] = trimAtGreenWindow(
-                steps,
-                par: par,
-                greenWindow: greenWindow,
-                routeEndM: routeEndM
-            ).steps
+            plans[option.optionId] = steps
         }
-        // A malformed/old seed can have no explicit stock option but still carry a usable bag.
-        if plans["stock"] == nil,
-           let stock = seed.offlineOptions.first(where: { $0.optionId == "stock" }),
-           let steps = fallbackSteps(for: stock, profiles: profiles, targetM: targetM, par: par, water: water) {
-            plans["stock"] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow, routeEndM: routeEndM).steps
-        }
-        if !plans.isEmpty {
-            for (key, steps) in plans {
-                plans[key] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow, routeEndM: routeEndM).steps
+        return RoutePlanning(
+            plans: materialAlternatives(trimmed(plans), profiles: profiles, targetM: targetM, par: par, water: hazards.water),
+            filtered: true,
+            stockIsCanonical: stockIsCanonical
+        )
+    }
+
+    /// Water spans (route metres from the tee) and whether any hard constraint this fallback
+    /// cannot model is present: the prep's factual water carries plus the seed routes' typed
+    /// `planningHazards`.
+    private func planningHazards(
+        seed: CaddieContextSeed,
+        request: CaddieDecisionRequest
+    ) -> (water: [(front: Double, back: Double)], unmodelled: Bool) {
+        var water = waterIntervals(from: request.context)
+        var unmodelled = false
+        let routes: [JSONValue] = {
+            if case .array(let rows)? = request.context["candidateRoutes"] ?? seed.context["candidateRoutes"] { return rows }
+            return []
+        }()
+        for route in routes {
+            guard case .object(let row) = route, case .array(let zones)? = row["planningHazards"] else { continue }
+            for zoneValue in zones {
+                guard case .object(let zone) = zoneValue else { continue }
+                let kind = (string(zone["kind"]) ?? "").lowercased()
+                if ["ob", "out_of_bounds"].contains(kind) || zone["corridorWidth_m"] != nil {
+                    unmodelled = true
+                    continue
+                }
+                guard ["water", "water_edge", "water_hazard"].contains(kind),
+                      let clear = number(zone["carryToClear_m"]) else { continue }
+                let front = number(zone["carryToFront_m"]) ?? clear - (kind == "water" ? 20 : 18)
+                water.append((max(0, min(front, clear)), max(0, max(front, clear))))
             }
         }
-        return materialAlternatives(plans, profiles: profiles, targetM: targetM, par: par, water: water)
+        return (water, unmodelled)
+    }
+
+    private func canonicalIsWaterSafe(
+        _ steps: [[String: JSONValue]],
+        profiles: [LocalClubProfile],
+        water: [(front: Double, back: Double)]
+    ) -> Bool {
+        guard !water.isEmpty else { return true }
+        var start = 0.0
+        for row in steps {
+            let carry = number(row["targetCarry_m"] ?? row["targetCarryM"]) ?? 0
+            guard carry > 0 else { continue }
+            let name = string(row["clubName"] ?? row["club"]) ?? "-"
+            let key = LocalClubProfile.clubKey(name)
+            let profile = profiles.first { $0.key == key }
+                ?? LocalClubProfile(name: name, carryM: carry, p10M: nil, p90M: nil, sampleSize: 0)
+            // The installed leg's own carry, with the player's measured spread around it.
+            let shifted = LocalClubProfile(
+                name: profile.name,
+                carryM: carry,
+                p10M: profile.p10M.map { carry - (profile.carryM - $0) },
+                p90M: profile.p90M.map { carry + ($0 - profile.carryM) },
+                sampleSize: profile.sampleSize
+            )
+            if waterSafety(shifted, fromM: start, water: water) == "risk" { return false }
+            start += carry
+        }
+        return true
     }
 
     private func targetDistanceMetres(from context: [String: JSONValue]) -> Double? {
@@ -542,8 +631,35 @@ public final class OfflineCaddieDecisionEvaluator {
         }
     }
 
-    private func landsInWater(_ offsetM: Double, water: [(front: Double, back: Double)]) -> Bool {
-        water.contains { offsetM > $0.front - Self.waterBufferM && offsetM < $0.back + Self.waterBufferM }
+    /// One stroke from `fromM` against the water spans ahead of it, by its whole p10-p90 carry
+    /// window (server `_club_water_safety`): `safe_before` / `safe_over` only when the full window
+    /// clears the buffered span; a missing spread is the server's conservative 22% of the carry.
+    private func waterSafety(
+        _ profile: LocalClubProfile,
+        fromM: Double,
+        water: [(front: Double, back: Double)]
+    ) -> String {
+        let ahead = water.filter { $0.back > fromM }
+        guard !ahead.isEmpty else { return "clear" }
+        let low: Double
+        let high: Double
+        if let p10 = profile.p10M, let p90 = profile.p90M, p90 > p10 {
+            low = p10
+            high = p90
+        } else {
+            let half = profile.carryM * 0.22 / 2
+            low = profile.carryM - half
+            high = profile.carryM + half
+        }
+        let states = ahead.map { span -> String in
+            if fromM + high <= span.front - Self.waterBufferM { return "safe_before" }
+            if fromM + low >= span.back + Self.waterBufferM { return "safe_over" }
+            return "risk"
+        }
+        if states.contains("risk") { return "risk" }
+        if states.allSatisfy({ $0 == "safe_before" }) { return "safe_before" }
+        if states.allSatisfy({ $0 == "safe_over" }) { return "safe_over" }
+        return "safe_mixed"
     }
 
     private func waterIntervals(from context: [String: JSONValue]) -> [(front: Double, back: Double)] {
@@ -561,8 +677,17 @@ public final class OfflineCaddieDecisionEvaluator {
         targetM: Double,
         water: [(front: Double, back: Double)]
     ) -> PlannedChain? {
-        guard !landsInWater(min(first.carryM, targetM), water: water) else { return nil }
-        let tail = bestTail(after: first, profiles: profiles, remainingM: targetM - first.carryM, water: water)
+        let firstSafety = waterSafety(first, fromM: 0, water: water)
+        guard firstSafety != "risk" else { return nil }
+        // A tee shot whose whole window stays short of the water may be followed by a longer
+        // club that carries it from the new lie (server: no carry cap after a safe lay-up).
+        let tail = bestTail(
+            after: first,
+            profiles: profiles,
+            remainingM: targetM - first.carryM,
+            water: water,
+            maximumCarryM: firstSafety == "safe_before" ? nil : first.carryM + Self.maxCarryIncreaseM
+        )
         let clubs = [first] + tail
         return PlannedChain(clubs: clubs, leaveM: targetM - clubs.reduce(0) { $0 + $1.carryM })
     }
@@ -571,11 +696,12 @@ public final class OfflineCaddieDecisionEvaluator {
         after first: LocalClubProfile,
         profiles: [LocalClubProfile],
         remainingM: Double,
-        water: [(front: Double, back: Double)]
+        water: [(front: Double, back: Double)],
+        maximumCarryM: Double?
     ) -> [LocalClubProfile] {
         guard remainingM > Self.scoringWindowM else { return [] }
         let playable = profiles
-            .filter { !$0.isDriver && $0.carryM <= first.carryM + Self.maxCarryIncreaseM }
+            .filter { !$0.isDriver && (maximumCarryM.map { cap in $0.carryM <= cap } ?? true) }
             .sorted { $0.carryM > $1.carryM }
         guard let longest = playable.first?.carryM, longest > 0 else { return [] }
         let minimumSteps = max(1, Int(((remainingM - Self.scoringWindowM) / longest).rounded(.up)))
@@ -588,8 +714,8 @@ public final class OfflineCaddieDecisionEvaluator {
                 let clubs = indexes.map { playable[$0] }
                 var position = first.carryM
                 for club in clubs {
+                    if waterSafety(club, fromM: position, water: water) == "risk" { return }
                     position += club.carryM
-                    if landsInWater(position, water: water) { return }
                 }
                 let leave = remainingM - clubs.reduce(0) { $0 + $1.carryM }
                 let overshoot = max(0, -leave)
@@ -696,7 +822,7 @@ public final class OfflineCaddieDecisionEvaluator {
         let summaries = plans.mapValues { chainSummary($0, profiles: profiles, targetM: targetM) }
         let girReachable = summaries.values.contains { $0.complete && $0.strokes <= girLimit }
         let layupReason: String = {
-            if let longest = profiles.first, landsInWater(min(longest.carryM, targetM), water: water) {
+            if let longest = profiles.first, waterSafety(longest, fromM: 0, water: water) == "risk" {
                 return "water_carry"
             }
             return "beyond_reach"

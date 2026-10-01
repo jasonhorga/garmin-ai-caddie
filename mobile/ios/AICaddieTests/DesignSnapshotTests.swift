@@ -967,7 +967,8 @@ final class DesignSnapshotTests: XCTestCase {
                 // The factual row carries the green outline instead of a raster.
                 greenOutlineRadius: coverage == "ready" ? nil : CGSize(width: 22, height: 18),
                 hazards: [
-                    .init(kind: "water", front: 0.467, back: 0.52, side: nil),
+                    // A crossing the tee shot carries: every tee club's window clears it.
+                    .init(kind: "water", front: 0.30, back: 0.35, side: nil),
                     .init(kind: "bunker", front: 0.56, back: 0.6, side: 18),
                 ],
                 cautions: ["果岭前缘有陡坡,落点宁长勿短"],
