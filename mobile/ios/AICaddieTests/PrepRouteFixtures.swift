@@ -1,73 +1,61 @@
 import CoreGraphics
 import Foundation
+import XCTest
 @testable import AICaddie
 
 /// Shared 备战 plan fixtures for the design snapshots and the prep layout tests.
 enum PrepRouteFixtures {
-    /// The one player bag every 备战 fixture plan is played with: each club's stock carry in metres
-    /// (Codex 5922420253). Adjacent carries are at most 14 m apart, so a remaining distance in the
-    /// bag's range always has a club within `carryToleranceM`.
-    static let bag: [(club: String, carryM: Double)] = [
-        ("1W", 220), ("3W", 210), ("5W", 196), ("3H", 184), ("4H", 172), ("5I", 161), ("6I", 150),
-        ("7I", 139), ("8I", 127), ("9I", 115), ("PW", 102), ("GW", 88), ("SW", 74), ("LW", 60),
+    /// The one player every 备战 fixture plan is played by: each club's stock carry (median) and
+    /// half its p10-p90 spread, in metres — a long, wilder driver and steadier fairway clubs.
+    static let bag: [(club: String, carryM: Double, halfSpreadM: Double)] = [
+        ("1W", 220, 30), ("3W", 210, 18), ("5W", 196, 14), ("3H", 184, 12), ("4H", 172, 11),
+        ("5I", 161, 10), ("6I", 150, 9), ("7I", 139, 8), ("8I", 127, 7), ("9I", 115, 7),
+        ("PW", 102, 6), ("GW", 88, 5), ("SW", 74, 5), ("LW", 60, 5),
     ]
-    /// How far a stroke's carry may differ from its club's stock carry: only the green-bound
-    /// stroke uses it, to finish the route exactly.
+    /// The tee clubs a Par 4/5 offers the decision authority: the driver (its stock pick) and the
+    /// steadier 3W as the 稳妥 candidate; the authority keeps the latter only when it lowers the
+    /// whole chain's modelled risk without adding strokes.
+    static let alternativeTeeClubs: [(id: String, club: String)] = [("safe", "3W")]
+    /// How far a stroke's carry may differ from its club's stock carry in any plan.
     static let carryToleranceM = 8.0
     /// Two plans with the same stroke count are the same route unless some landing differs by this.
     static let distinctLandingM = 15.0
+    /// A plan closes on its hole when its carries sum to the route within the scoring window's
+    /// overshoot bound: the green-bound stroke is the club whose stock carry is nearest the
+    /// remaining distance, never a carry stretched to fit.
+    static let closureToleranceM = 10.0
 
     static func stockCarry(_ club: String) -> Double? {
         bag.first { $0.club.caseInsensitiveCompare(club) == .orderedSame }?.carryM
     }
 
-    /// 备战 fixture plans with the real strategy identities (the installed chain → 推荐, safe → 稳妥,
-    /// attack → 进攻), played with `bag`: every stroke before the last carries its club's stock
-    /// distance; the last, green-bound stroke reaches the route's end with the club whose stock
-    /// carry is nearest the remaining distance (never the tee-only driver). A strategy whose
-    /// remaining distance no club covers within tolerance is not offered, and a plan that lands
-    /// where an earlier one does is the same physical route and is dropped.
-    static func routes(par: Int, routeLengthM: Double) -> [CaddiePlanSequence] {
-        let strategies: [(id: String, clubs: [String])]
-        switch par {
-        case 3:
-            // One stroke to the green: every club choice is the same physical route.
-            strategies = [(LiveCaddieRouteAuthority.installedRouteId, [])]
-        case 4:
-            strategies = [
-                (LiveCaddieRouteAuthority.installedRouteId, ["1W"]),
-                // An iron off the tee and a lay-up: a short wedge in, short of the trouble.
-                ("safe", ["5I", "7I"]),
-            ]
-        default:
-            strategies = [
-                (LiveCaddieRouteAuthority.installedRouteId, ["1W", "5I"]),
-                ("safe", ["7I", "5I"]),
-                ("attack", ["1W", "5W"]),
+    /// The course template the bag belongs to: the fixture package with `bag` as its club
+    /// profiles and no per-hole server seeds, so every hole's seed is synthesized from the bag and
+    /// the hole's prep exactly as on a phone without a cached seed.
+    static func package() throws -> LiveRoundPackage {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
+        var root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        root["clubProfiles"] = bag.map { row -> [String: Any] in
+            [
+                "clubName": row.club, "sampleSize": 24, "median_m": row.carryM,
+                "p10_m": row.carryM - row.halfSpreadM, "p90_m": row.carryM + row.halfSpreadM,
             ]
         }
-        let end = routeLengthM.rounded()
-        var kept: [CaddiePlanSequence] = []
-        for strategy in strategies {
-            var legs: [(club: String, carryM: Double)] = strategy.clubs.compactMap { club in
-                stockCarry(club).map { (club, $0) }
-            }
-            let laidUp = legs.reduce(0) { $0 + $1.carryM }
-            let remaining = end - laidUp
-            guard let scoring = bag.filter({ $0.club != "1W" })
-                .min(by: { abs($0.carryM - remaining) < abs($1.carryM - remaining) }),
-                  abs(scoring.carryM - remaining) <= carryToleranceM else { continue }
-            legs.append((scoring.club, remaining))
-            let route = sequence(id: strategy.id, legs: legs, routeLengthM: routeLengthM)
-            let landings = route.steps.compactMap(\.routeOffsetM)
-            let duplicate = kept.contains { other in
-                let otherLandings = other.steps.compactMap(\.routeOffsetM)
-                return otherLandings.count == landings.count
-                    && zip(otherLandings, landings).allSatisfy { abs($0 - $1) < distinctLandingM }
-            }
-            if !duplicate { kept.append(route) }
-        }
-        return kept
+        root["caddieContextSeeds"] = [] as [Any]
+        return try JSONDecoder().decode(LiveRoundPackage.self, from: JSONSerialization.data(withJSONObject: root))
+    }
+
+    /// A prep's 方案, from the production decision authority (`PrepPlanOption.options`) fed `bag`.
+    static func plans(for prep: CoursePrepHole) throws -> [PrepPlanOption] {
+        let template = try package()
+        let hole = Hole(
+            number: prep.hole, par: prep.par, yards: prep.playingYards, geometryCoverage: .ready,
+            sourceGlobalId: template.course.globalId, sourceLocalHole: prep.hole, courseHoleNumber: prep.hole
+        )
+        return PrepPlanOption.options(template: template, hole: hole, prep: prep)
     }
 
     /// One plan from explicit strokes (club, carry in metres), landing at the cumulative carries.
@@ -103,8 +91,8 @@ enum PrepRouteFixtures {
 
     /// One physically coherent 备战 hole (Codex 5921831209): the displayed Blue yardage, `route_len_m`,
     /// the overlay's `ln` and stations, its pixel geometry through one isotropic `ppm`, the green's
-    /// distances, the obstacle spans and the installed chain (the same `routes(par:routeLengthM:)`
-    /// the plans use) all describe one hole. The route metres are the ones whose production yard
+    /// distances and the obstacle spans (which the decision authority plans around) all describe
+    /// one hole. The route metres are the ones whose production yard
     /// rounding is `yards`; every station is its pixel distance along the route over `ppm`.
     struct Hazard {
         let kind: String
@@ -159,19 +147,12 @@ enum PrepRouteFixtures {
         func straightMetres(_ point: CGPoint) -> Double {
             (Double(hypot(point.x - tee.x, point.y - tee.y)) / ppm * 10).rounded() / 10
         }
-        let route = routes(par: par, routeLengthM: length)
-        let installed = route.first { $0.id == LiveCaddieRouteAuthority.installedRouteId } ?? route.first
-        let steps: [[String: Any]] = (installed?.steps ?? []).map { step in
-            var row: [String: Any] = [
-                "club": step.clubName,
-                "clubName": step.clubName,
-                "role": step.role,
-                "expectedRemaining_m": step.expectedRemainingM ?? 0,
-            ]
-            if let carry = step.targetCarryM { row["targetCarry_m"] = carry }
-            if let offset = step.routeOffsetM { row["routeOffset_m"] = offset; row["landing_m"] = offset }
-            return row
-        }
+        // No installed chain: every plan, the default included, comes from the decision authority.
+        let candidateRoutes: [[String: Any]] = par >= 4
+            ? alternativeTeeClubs.compactMap { option in
+                stockCarry(option.club).map { ["id": option.id, "club": option.club, "carryM": $0, "riskScore": 1.0] as [String: Any] }
+            }
+            : []
         var details: [[String: Any]] = []
         var water: [[Double]] = []
         var bunkers: [[Double]] = []
@@ -205,17 +186,13 @@ enum PrepRouteFixtures {
                 [Double($0.x - tee.x) / ppm, -Double($0.y - tee.y) / ppm, $1]
             },
             "geometryCoverage": coverage, "geometryRevision": revision,
-            "steps": steps, "cautions": cautions,
+            "steps": [] as [Any], "candidateRoutes": candidateRoutes, "cautions": cautions,
             "hazards": ["water_carry": water, "bunkers": bunkers, "details": details] as [String: Any],
             "map": map,
             "greenDistances": [
                 "available": true, "frontM": length - 7, "middleM": length, "backM": length + 7,
             ] as [String: Any],
         ]
-        if let first = steps.first {
-            body["tee_club"] = first["clubName"]
-            body["landing_m"] = first["routeOffset_m"]
-        }
         if let playsLike { body["playsLike"] = playsLike }
         if let radius = greenOutlineRadius, let end = pixels.last {
             body["greenOutline"] = [
@@ -231,8 +208,8 @@ enum PrepRouteFixtures {
     }
 
     /// The 备战 row a hole's prep produces, as `PrepHoleRows.build` does: the displayed yardage is
-    /// the prep's playing yardage and every plan is built on the prep's own route length.
-    static func row(number: Int, prep: CoursePrepHole, topoURL: URL?, state: LiveMapDisplayState) -> PrepHoleRow {
+    /// the prep's playing yardage and the plans are the decision authority's for that prep.
+    static func row(number: Int, prep: CoursePrepHole, topoURL: URL?, state: LiveMapDisplayState) throws -> PrepHoleRow {
         PrepHoleRow(
             number: number,
             displayNumber: number,
@@ -241,9 +218,7 @@ enum PrepRouteFixtures {
             prep: prep,
             topoURL: topoURL,
             state: state,
-            plans: routes(par: prep.par, routeLengthM: prep.routeLenM)
-                .enumerated()
-                .compactMap { index, route in PrepPlanOption.option(route: route, index: index, par: prep.par) }
+            plans: try plans(for: prep)
         )
     }
 }

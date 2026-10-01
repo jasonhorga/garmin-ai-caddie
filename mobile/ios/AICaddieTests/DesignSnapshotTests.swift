@@ -1033,9 +1033,9 @@ final class DesignSnapshotTests: XCTestCase {
             let prep = try number == 2 ? squarePrepHole
                 : number == 3 ? noisyPrepHole
                 : cardHole(number, coverage: state == .precise ? "ready" : "partial")
-            // As `PrepHoleRows.build`: the yardage is the prep's own, and the three real strategy
-            // routes (推荐 / 稳妥 / 进攻) are built on the prep's own route length.
-            return PrepRouteFixtures.row(
+            // As `PrepHoleRows.build`: the yardage is the prep's own, and the plans are the
+            // production decision authority's for that prep, played with one bag.
+            return try PrepRouteFixtures.row(
                 number: number,
                 prep: prep,
                 topoURL: state == .precise
@@ -1053,15 +1053,13 @@ final class DesignSnapshotTests: XCTestCase {
         // a shared 375 m route (543 码 over a 409 码 plan; 178 码 over a single 410 码 stroke).
         for (index, yards) in [(0, 543), (2, 178)] {
             let coherent = prepRows[index]
+            let detachedPrep = try diagonalHole(
+                coherent.number, par: prepPars[index], yards: 410, png: squarePNG, revision: "detached-r1"
+            )
             let detached = PrepHoleRow(
                 number: coherent.number, displayNumber: coherent.number, par: coherent.par,
-                yards: yards, prep: try diagonalHole(
-                    coherent.number, par: prepPars[index], yards: 410, png: squarePNG, revision: "detached-r1"
-                ),
-                topoURL: nil, state: .precise,
-                plans: PrepRouteFixtures.routes(par: prepPars[index], routeLengthM: 375).enumerated().compactMap {
-                    PrepPlanOption.option(route: $1, index: $0, par: prepPars[index])
-                }
+                yards: yards, prep: detachedPrep, topoURL: nil, state: .precise,
+                plans: try PrepRouteFixtures.plans(for: detachedPrep)
             )
             XCTAssertFalse(Self.physicalViolations(detached).isEmpty, "the coherence check fails a detached \(yards) 码 header")
         }
@@ -1106,32 +1104,22 @@ final class DesignSnapshotTests: XCTestCase {
             XCTAssertFalse(row.plans.isEmpty, "fixture: \(name) builds")
             XCTAssertFalse(Self.physicalViolations(row).isEmpty, "the plan check fails \(name)")
         }
-        XCTAssertEqual(prepRows[0].plans.map(\.title), ["推荐", "稳妥", "进攻"])
+        // The authority keeps only materially different whole-hole strategies: on this Par 5 the
+        // steadier 3W chain is 稳妥; no 进攻 shortens the green-bound stroke without adding one.
+        XCTAssertEqual(prepRows[0].plans.map(\.title), ["推荐", "稳妥"])
         // Every stroke of the Par 5 plan is in the club order: tee shot, second shot, approach.
         XCTAssertEqual(prepRows[0].plans[0].steps.count, 3)
         XCTAssertNotEqual(
             prepRows[0].plans[0].steps.map(\.label),
             prepRows[0].plans[1].steps.map(\.label)
         )
-        // 方案 2 is a visibly different path: its landings are elsewhere on the hole.
-        if let firstPrep = prepRows[0].prep {
-            let paths = prepRows[0].plans.prefix(2).map { plan in
-                HoleImageMapView(
-                    hole: firstPrep,
-                    showsCardChrome: false,
-                    plannedShots: plan.shots,
-                    drawsPlannedRouteInMap: false
-                ).plannedLegs().map(\.destination)
-            }
-            XCTAssertEqual(paths.count, 2)
-            for (lhs, rhs) in zip(paths[0].dropLast(), paths[1].dropLast()) {
-                XCTAssertGreaterThan(
-                    hypot(lhs.x - rhs.x, lhs.y - rhs.y),
-                    30,
-                    "each landing of plan 2 is at least 30 topo px from plan 1's"
-                )
-            }
-        }
+        // 方案 2 is a physically different route: some landing is elsewhere on the hole.
+        let firstLandings = prepRows[0].plans[0].shots.compactMap(\.routeOffsetM)
+        let secondLandings = prepRows[0].plans[1].shots.compactMap(\.routeOffsetM)
+        XCTAssertTrue(
+            zip(firstLandings, secondLandings).contains { abs($0 - $1) >= PrepRouteFixtures.distinctLandingM },
+            "plan 2 lands elsewhere: \(firstLandings) vs \(secondLandings)"
+        )
         // Default-none obstacles: the prep map requests neither obstacle spans nor measured labels,
         // and each landing reads 球杆 + 码数.
         if let firstPrep = prepRows[0].prep, let overlay = firstPrep.resolvedMapOverlay {
@@ -1869,14 +1857,26 @@ final class DesignSnapshotTests: XCTestCase {
             }
         }
         for plan in row.plans {
-            if let end = plan.shots.last?.routeOffsetM, abs(end - overlay.ln) > 1 {
+            // Its last landing is at the green: within the closure bound of the route end (a
+            // green-in-regulation landing stays where the ball lands, short of or past the flag).
+            if let end = plan.shots.last?.routeOffsetM, abs(end - overlay.ln) > PrepRouteFixtures.closureToleranceM {
                 violations.append("\(plan.title) ends at \(end) m, route \(overlay.ln) m")
             }
+            // The strokes close on the hole: their carries reach the route end within the scoring
+            // window's bound (the green-bound stroke is the nearest club, not a stretched carry),
+            // and the displayed yardages say the same within that bound plus rounding.
+            let carries = plan.shots.compactMap(\.carryM)
             let strokeYards = plan.steps.compactMap(\.yards)
-            if strokeYards.count != plan.steps.count {
-                violations.append("\(plan.title) has a stroke without yardage")
-            } else if let yards = row.yards, abs(strokeYards.reduce(0, +) - yards) > plan.steps.count {
-                violations.append("\(plan.title) sums to \(strokeYards.reduce(0, +)) 码, hole \(yards) 码")
+            if strokeYards.count != plan.steps.count || carries.count != plan.shots.count {
+                violations.append("\(plan.title) has a stroke without its carry")
+            } else {
+                let closureYards = CoursePrepRoute.yards(fromMetres: PrepRouteFixtures.closureToleranceM) + plan.steps.count
+                if abs(carries.reduce(0, +) - length) > PrepRouteFixtures.closureToleranceM {
+                    violations.append("\(plan.title) carries \(carries.reduce(0, +)) m on a \(length) m route")
+                }
+                if let yards = row.yards, abs(strokeYards.reduce(0, +) - yards) > closureYards {
+                    violations.append("\(plan.title) sums to \(strokeYards.reduce(0, +)) 码, hole \(yards) 码")
+                }
             }
         }
         return violations

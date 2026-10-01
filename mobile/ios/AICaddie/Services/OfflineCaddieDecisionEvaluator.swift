@@ -257,13 +257,15 @@ public final class OfflineCaddieDecisionEvaluator {
             return plans
         }
 
+        let water = waterIntervals(from: request.context)
         for option in seed.offlineOptions {
             if option.optionId == "stock", plans["stock"] != nil { continue }
             guard let steps = fallbackSteps(
                 for: option,
                 profiles: profiles,
                 targetM: targetM,
-                par: par
+                par: par,
+                water: water
             ), !steps.isEmpty else { continue }
             plans[option.optionId] = trimAtGreenWindow(
                 steps,
@@ -275,7 +277,7 @@ public final class OfflineCaddieDecisionEvaluator {
         // A malformed/old seed can have no explicit stock option but still carry a usable bag.
         if plans["stock"] == nil,
            let stock = seed.offlineOptions.first(where: { $0.optionId == "stock" }),
-           let steps = fallbackSteps(for: stock, profiles: profiles, targetM: targetM, par: par) {
+           let steps = fallbackSteps(for: stock, profiles: profiles, targetM: targetM, par: par, water: water) {
             plans["stock"] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow, routeEndM: routeEndM).steps
         }
         if !plans.isEmpty {
@@ -283,7 +285,7 @@ public final class OfflineCaddieDecisionEvaluator {
                 plans[key] = trimAtGreenWindow(steps, par: par, greenWindow: greenWindow, routeEndM: routeEndM).steps
             }
         }
-        return plans
+        return materialAlternatives(plans, profiles: profiles, targetM: targetM, par: par, water: water)
     }
 
     private func targetDistanceMetres(from context: [String: JSONValue]) -> Double? {
@@ -449,7 +451,8 @@ public final class OfflineCaddieDecisionEvaluator {
         for option: OfflineCaddieOption,
         profiles: [LocalClubProfile],
         targetM: Double,
-        par: Int
+        par: Int,
+        water: [(front: Double, back: Double)] = []
     ) -> [[String: JSONValue]]? {
         guard let first = profiles.first(where: { $0.key == LocalClubProfile.clubKey(option.clubName) })
             ?? profiles.min(by: { abs($0.carryM - option.carryM) < abs($1.carryM - option.carryM) }) else {
@@ -470,44 +473,261 @@ public final class OfflineCaddieDecisionEvaluator {
             )]
         }
 
+        guard let chain = plannedChain(first: first, profiles: profiles, targetM: targetM, water: water) else {
+            return nil
+        }
         var steps: [[String: JSONValue]] = []
-        var usedKeys: Set<String> = []
         var travelled = 0.0
-        var current = first
-        for index in 0..<5 {
+        for (index, club) in chain.clubs.enumerated() {
             let remaining = max(0, targetM - travelled)
-            let isLastWindow = remaining <= 20
-            let carry = current.carryM
-            let nextTravelled = travelled + carry
-            let reachesTarget = nextTravelled >= targetM - 20
-            let offset = min(targetM, max(travelled, nextTravelled))
+            let isLastWindow = remaining <= Self.scoringWindowM
+            travelled += club.carryM
+            let reachesTarget = travelled >= targetM - Self.scoringWindowM
+            let offset = min(targetM, travelled)
             let role = index == 0 ? "tee" : (reachesTarget || isLastWindow ? "scoring" : "position")
             steps.append(makeRouteStep(
-                current,
+                club,
                 index: index,
                 role: role,
                 routeOffsetM: offset,
                 expectedRemainingM: max(0, targetM - offset),
                 planSource: "offline_bag_fallback"
             ))
-            usedKeys.insert(current.key)
-            travelled = nextTravelled
-            if reachesTarget || travelled >= targetM { break }
-
-            let nextRemaining = targetM - travelled
-            let distinct = profiles.filter { !$0.isDriver && !usedKeys.contains($0.key) }
-            let eligible = distinct.filter { $0.carryM <= nextRemaining + 20 }
-            let pool = eligible.isEmpty ? distinct : eligible
-            let repeatPool = profiles.filter { !$0.isDriver }
-            guard let next = (pool.isEmpty ? repeatPool : pool).min(by: { lhs, rhs in
-                let leftOvershoot = max(0, lhs.carryM - nextRemaining)
-                let rightOvershoot = max(0, rhs.carryM - nextRemaining)
-                return (leftOvershoot, abs(lhs.carryM - nextRemaining), -lhs.sampleSize)
-                    < (rightOvershoot, abs(rhs.carryM - nextRemaining), -rhs.sampleSize)
-            }) else { break }
-            current = next
         }
         return steps.isEmpty ? nil : steps
+    }
+
+    // MARK: - Whole-hole sequence planning
+    //
+    // The same contract as the server planner (`decision.py` `_sequence_tail` /
+    // `_whole_hole_sequence_key`): a seed option fixes only the tee club; the rest of the hole is
+    // chosen as one complete chain scored by its leave, each club's own carry distribution
+    // (p10-p90 spread; the green-bound stroke weighs most), extra strokes and repeats. A chain never
+    // plays a club more than `maxCarryIncreaseM` longer than its tee club after it (no short iron,
+    // then wood), its longer clubs come first, and no landing is inside a factual water carry.
+
+    private static let scoringWindowM = 20.0
+    private static let maxOvershootM = 10.0
+    private static let extraStepCostM = 25.0
+    private static let repeatedClubPenaltyM = 12.0
+    private static let maxCarryIncreaseM = 15.0
+    private static let waterBufferM = 8.0
+    private static let maxTailSteps = 4
+    /// An alternative must lower the whole chain's modelled risk by at least this much to be 稳妥,
+    /// or shorten the green-bound stroke by `materialApproachGainM` to be 进攻.
+    private static let materialRiskMarginM = 2.0
+    private static let materialApproachGainM = 10.0
+    /// A Par 3 alternative is a club that actually plays to the green.
+    private static let par3CarryWindowM = 15.0
+
+    private struct PlannedChain {
+        let clubs: [LocalClubProfile]
+        let leaveM: Double
+    }
+
+    private func stabilityCost(_ profile: LocalClubProfile, scoringShot: Bool) -> Double {
+        let spread: Double = {
+            if let p10 = profile.p10M, let p90 = profile.p90M, p90 > p10 { return p90 - p10 }
+            return max(12, profile.carryM * 0.15)
+        }()
+        let evidence = min(1, Double(max(0, profile.sampleSize)) / 20)
+        return spread * (scoringShot ? 0.55 : 0.10) + (1 - evidence) * (scoringShot ? 8 : 3)
+    }
+
+    private func chainRisk(_ clubs: [LocalClubProfile], leaveM: Double) -> Double {
+        clubs.enumerated().reduce(abs(leaveM)) { total, item in
+            total + stabilityCost(item.element, scoringShot: item.offset == clubs.count - 1)
+        }
+    }
+
+    private func landsInWater(_ offsetM: Double, water: [(front: Double, back: Double)]) -> Bool {
+        water.contains { offsetM > $0.front - Self.waterBufferM && offsetM < $0.back + Self.waterBufferM }
+    }
+
+    private func waterIntervals(from context: [String: JSONValue]) -> [(front: Double, back: Double)] {
+        guard case .array(let rows)? = context["hazardWaterCarry_m"] else { return [] }
+        return rows.compactMap { row in
+            guard case .array(let pair) = row, pair.count >= 2,
+                  let a = number(pair[0]), let b = number(pair[1]), a >= 0, b >= 0 else { return nil }
+            return (min(a, b), max(a, b))
+        }
+    }
+
+    private func plannedChain(
+        first: LocalClubProfile,
+        profiles: [LocalClubProfile],
+        targetM: Double,
+        water: [(front: Double, back: Double)]
+    ) -> PlannedChain? {
+        guard !landsInWater(min(first.carryM, targetM), water: water) else { return nil }
+        let tail = bestTail(after: first, profiles: profiles, remainingM: targetM - first.carryM, water: water)
+        let clubs = [first] + tail
+        return PlannedChain(clubs: clubs, leaveM: targetM - clubs.reduce(0) { $0 + $1.carryM })
+    }
+
+    private func bestTail(
+        after first: LocalClubProfile,
+        profiles: [LocalClubProfile],
+        remainingM: Double,
+        water: [(front: Double, back: Double)]
+    ) -> [LocalClubProfile] {
+        guard remainingM > Self.scoringWindowM else { return [] }
+        let playable = profiles
+            .filter { !$0.isDriver && $0.carryM <= first.carryM + Self.maxCarryIncreaseM }
+            .sorted { $0.carryM > $1.carryM }
+        guard let longest = playable.first?.carryM, longest > 0 else { return [] }
+        let minimumSteps = max(1, Int(((remainingM - Self.scoringWindowM) / longest).rounded(.up)))
+        let maximumSteps = min(Self.maxTailSteps, minimumSteps + 1)
+        guard minimumSteps <= maximumSteps else { return [] }
+        var best: (key: [Double], clubs: [LocalClubProfile])?
+        for count in minimumSteps...maximumSteps {
+            forEachCombination(count: count, of: playable.count) { indexes in
+                // Ascending indexes are descending carries: longer clubs first.
+                let clubs = indexes.map { playable[$0] }
+                var position = first.carryM
+                for club in clubs {
+                    position += club.carryM
+                    if landsInWater(position, water: water) { return }
+                }
+                let leave = remainingM - clubs.reduce(0) { $0 + $1.carryM }
+                let overshoot = max(0, -leave)
+                let repeats = zip(clubs, clubs.dropFirst()).filter { $0.0.key == $0.1.key }.count
+                var cost = abs(leave)
+                    + Double(repeats) * Self.repeatedClubPenaltyM
+                    + Double(count - minimumSteps) * Self.extraStepCostM
+                for (index, club) in clubs.enumerated() {
+                    cost += stabilityCost(club, scoringShot: index == clubs.count - 1)
+                }
+                let samples = clubs.reduce(0) { $0 + $1.sampleSize }
+                let key: [Double] = [
+                    overshoot > Self.maxOvershootM ? 1 : 0,
+                    leave > Self.scoringWindowM ? 1 : 0,
+                    cost,
+                    overshoot,
+                    -Double(samples),
+                ]
+                if best.map({ key.lexicographicallyPrecedes($0.key) }) ?? true {
+                    best = (key, clubs)
+                }
+            }
+        }
+        return best?.clubs ?? []
+    }
+
+    /// Every multiset of `count` indexes below `n`, as non-decreasing index arrays.
+    private func forEachCombination(count: Int, of n: Int, _ body: ([Int]) -> Void) {
+        guard count > 0, n > 0 else { return }
+        var indexes = Array(repeating: 0, count: count)
+        while true {
+            body(indexes)
+            var position = count - 1
+            while position >= 0 && indexes[position] == n - 1 { position -= 1 }
+            if position < 0 { return }
+            indexes[position] += 1
+            for next in (position + 1)..<count { indexes[next] = indexes[position] }
+        }
+    }
+
+    /// One plan's whole-hole facts: strokes, whether it reaches the scoring window, the green-bound
+    /// stroke's length and the chain's modelled risk from the player's own club distributions.
+    private func chainSummary(
+        _ steps: [[String: JSONValue]],
+        profiles: [LocalClubProfile],
+        targetM: Double
+    ) -> (strokes: Int, complete: Bool, approachM: Double, risk: Double) {
+        var clubs: [LocalClubProfile] = []
+        var offsets: [Double] = []
+        var travelled = 0.0
+        for row in steps {
+            let carry = number(row["targetCarry_m"] ?? row["targetCarryM"]) ?? 0
+            travelled += carry
+            offsets.append(number(row["routeOffset_m"] ?? row["routeOffsetM"] ?? row["landing_m"] ?? row["landingM"]) ?? travelled)
+            let name = string(row["clubName"] ?? row["club"]) ?? "-"
+            let key = LocalClubProfile.clubKey(name)
+            clubs.append(profiles.first { $0.key == key }
+                ?? LocalClubProfile(name: name, carryM: carry, p10M: nil, p90M: nil, sampleSize: 0))
+        }
+        let last = steps.last
+        let leave = last.flatMap { number($0["expectedRemaining_m"] ?? $0["expectedRemainingM"]) }
+            ?? max(0, targetM - travelled)
+        let gir: Bool = {
+            if case .bool(true)? = last?["greenInRegulation"] { return true }
+            return false
+        }()
+        let previous = offsets.count >= 2 ? offsets[offsets.count - 2] : 0
+        return (
+            steps.count,
+            gir || leave <= Self.scoringWindowM,
+            max(0, targetM - previous),
+            chainRisk(clubs, leaveM: leave)
+        )
+    }
+
+    /// Keep only alternatives that are whole-hole strategies: complete; on a Par 4/5 reaching the
+    /// green in regulation whenever any plan can (a lay-up is offered only when no plan can, with
+    /// an auditable reason); 稳妥 lowering the whole chain's modelled risk without adding strokes;
+    /// 进攻 shortening the green-bound stroke without adding strokes; a Par 3 alternative playing
+    /// to the green.
+    private func materialAlternatives(
+        _ plans: [String: [[String: JSONValue]]],
+        profiles: [LocalClubProfile],
+        targetM: Double,
+        par: Int,
+        water: [(front: Double, back: Double)]
+    ) -> [String: [[String: JSONValue]]] {
+        var result = plans
+        if par == 3 {
+            for (id, steps) in plans where id != "stock" {
+                guard let carry = steps.first.flatMap({ number($0["targetCarry_m"] ?? $0["targetCarryM"]) }),
+                      abs(carry - targetM) <= Self.par3CarryWindowM else {
+                    result[id] = nil
+                    continue
+                }
+            }
+            return result
+        }
+        let girLimit = max(1, par - 2)
+        let summaries = plans.mapValues { chainSummary($0, profiles: profiles, targetM: targetM) }
+        let girReachable = summaries.values.contains { $0.complete && $0.strokes <= girLimit }
+        let layupReason: String = {
+            if let longest = profiles.first, landsInWater(min(longest.carryM, targetM), water: water) {
+                return "water_carry"
+            }
+            return "beyond_reach"
+        }()
+        let stock = summaries["stock"]
+        for (id, steps) in plans {
+            guard let summary = summaries[id] else { continue }
+            if summary.strokes > girLimit {
+                if girReachable, id != "stock" {
+                    result[id] = nil
+                    continue
+                }
+                if !girReachable {
+                    result[id] = steps.map { row in
+                        var row = row
+                        row["layupReason"] = .string(layupReason)
+                        return row
+                    }
+                }
+            }
+            guard id != "stock" else { continue }
+            guard summary.complete else {
+                result[id] = nil
+                continue
+            }
+            guard let stock, stock.complete else { continue }
+            let addsStrokes = summary.strokes > stock.strokes
+            switch id {
+            case "safe":
+                if addsStrokes || summary.risk > stock.risk - Self.materialRiskMarginM { result[id] = nil }
+            case "attack":
+                if addsStrokes || summary.approachM > stock.approachM - Self.materialApproachGainM { result[id] = nil }
+            default:
+                if addsStrokes { result[id] = nil }
+            }
+        }
+        return result
     }
 
     private func makeRouteStep(
@@ -555,6 +775,9 @@ public final class OfflineCaddieDecisionEvaluator {
             "planSource": .string("offline_bag_fallback"),
             "completion": .string(expected > 20 ? "replan_required" : "scoring_window"),
         ]
+        if let reason = steps.first?["layupReason"] {
+            payload["layupReason"] = reason
+        }
         if let final = steps.last,
            case .bool(true) = final["greenInRegulation"] {
             payload["greenInRegulation"] = .bool(true)

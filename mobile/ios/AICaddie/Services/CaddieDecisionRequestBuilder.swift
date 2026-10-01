@@ -159,23 +159,37 @@ public final class CaddieDecisionRequestBuilder {
     }
 
     /// A request whose seed predates the installed CoursePrep chain gets that chain from the prep
-    /// row as its `canonicalShotPlan` (live play and 备战 use the same request).
+    /// row as its `canonicalShotPlan` (live play and 备战 use the same request), and the prep's
+    /// factual water carries (`hazardWaterCarry_m`, route metres) so the whole-hole planner never
+    /// lands a stroke in water and can justify a lay-up.
     public static func addingCanonicalPlan(
         to request: CaddieDecisionRequest,
         prep: CoursePrepHole?
     ) -> CaddieDecisionRequest {
-        guard request.context["canonicalShotPlan"] == nil,
-              let steps = canonicalShotPlanRows(from: prep?.steps),
-              !steps.isEmpty else {
-            return request
-        }
         var context = request.context
-        context["canonicalShotPlan"] = .array(steps.map { .object($0) })
-        context["canonicalPlanSource"] = .string("course_prep")
-        context["canonicalPlanVersion"] = .string("ai-caddie-shot-plan-v1")
-        if let routeLength = prep?.routeLenM, routeLength.isFinite, routeLength > 0 {
-            context["canonicalPlanRouteLength_m"] = .number(routeLength)
+        var changed = false
+        if context["hazardWaterCarry_m"] == nil {
+            let water = (prep?.hazards.waterCarry ?? []).compactMap { pair -> JSONValue? in
+                guard pair.count >= 2, pair[0].isFinite, pair[1].isFinite, pair[0] >= 0, pair[1] >= 0 else { return nil }
+                return .array([.number(min(pair[0], pair[1])), .number(max(pair[0], pair[1]))])
+            }
+            if !water.isEmpty {
+                context["hazardWaterCarry_m"] = .array(water)
+                changed = true
+            }
         }
+        if context["canonicalShotPlan"] == nil,
+           let steps = canonicalShotPlanRows(from: prep?.steps),
+           !steps.isEmpty {
+            context["canonicalShotPlan"] = .array(steps.map { .object($0) })
+            context["canonicalPlanSource"] = .string("course_prep")
+            context["canonicalPlanVersion"] = .string("ai-caddie-shot-plan-v1")
+            if let routeLength = prep?.routeLenM, routeLength.isFinite, routeLength > 0 {
+                context["canonicalPlanRouteLength_m"] = .number(routeLength)
+            }
+            changed = true
+        }
+        guard changed else { return request }
         return CaddieDecisionRequest(
             shotType: request.shotType,
             context: context,

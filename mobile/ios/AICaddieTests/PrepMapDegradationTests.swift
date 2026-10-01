@@ -282,19 +282,33 @@ final class PrepMapDegradationTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
         var root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-        let bag: [(String, Double)] = [("1D", 210), ("7I", 156), ("8I", 144), ("9I", 132)]
-        root["clubProfiles"] = bag.map { name, carry -> [String: Any] in
-            ["clubName": name, "sampleSize": 20, "median_m": carry, "p10_m": carry - 10, "p90_m": carry + 10]
+        // (club, median m, half the p10-p90 spread m): a wild driver, a steadier 3W and hybrid.
+        let bag: [(String, Double, Double)] = [
+            ("1D", 210, 40), ("3W", 195, 10), ("4H", 180, 8), ("7I", 156, 10), ("8I", 144, 10), ("9I", 132, 10),
+        ]
+        root["clubProfiles"] = bag.map { name, carry, half -> [String: Any] in
+            ["clubName": name, "sampleSize": 20, "median_m": carry, "p10_m": carry - half, "p90_m": carry + half]
         }
         var profiles: [String: Any] = [:]
-        for (name, carry) in bag {
-            profiles[name] = ["clubName": name, "median": carry, "p10": carry - 10, "p90": carry + 10, "sampleSize": 20]
+        for (name, carry, half) in bag {
+            profiles[name] = ["clubName": name, "median": carry, "p10": carry - half, "p90": carry + half, "sampleSize": 20]
+        }
+        // Tee options: the driver, and the steadier 3W as the 稳妥 tee club.
+        let options: [[String: Any]] = [("stock", "Stock", "1D"), ("safe", "Safe", "3W")].map { id, label, club in
+            let row = bag.first { $0.0 == club }!
+            return [
+                "id": id, "label": label, "clubName": club, "carryM": row.1,
+                "p10M": row.1 - row.2, "p90M": row.1 + row.2, "sampleSize": 20, "confidence": "high",
+                "riskScore": id == "safe" ? 1.0 : 3.0, "source": "offline_package_seed", "sourceRefs": [] as [String],
+            ]
         }
         var seeds = try XCTUnwrap(root["caddieContextSeeds"] as? [[String: Any]])
         for index in seeds.indices {
             var context = seeds[index]["context"] as? [String: Any] ?? [:]
             context["clubProfiles"] = profiles
             seeds[index]["context"] = context
+            seeds[index]["offlineOptions"] = options
+            seeds[index]["selectedOfflineOptionId"] = "stock"
         }
         root["caddieContextSeeds"] = seeds
         return try JSONDecoder().decode(LiveRoundPackage.self, from: JSONSerialization.data(withJSONObject: root))
@@ -420,15 +434,17 @@ final class PrepMapDegradationTests: XCTestCase {
             XCTAssertEqual(prepDefault.id, LiveCaddieRouteAuthority.installedRouteId, "Par \(hole.par)")
             XCTAssertEqual(prepDefault.title, "推荐", "Par \(hole.par)")
 
-            // 稳妥 and 进攻 are physically distinct alternatives (from the default and each other).
-            let routesByID = Dictionary(uniqueKeysWithValues: live.routes.map { ($0.id, $0) })
-            var alternatives: [CaddiePlanSequence] = []
-            for title in ["稳妥", "进攻"] {
-                let plan = try XCTUnwrap(plans.first { $0.title == title }, "Par \(hole.par) offers \(title)")
-                alternatives.append(try XCTUnwrap(routesByID[plan.id]))
+            // Alternatives are offered only when they are materially different whole-hole
+            // strategies (Codex 5922608092): physically distinct, and on a Par 4/5 still going for
+            // the green in regulation (no factual hazard here justifies a lay-up). None is required.
+            let signatures = live.routes.map(LiveCaddieRouteAuthority.physicalSignature)
+            XCTAssertEqual(Set(signatures).count, signatures.count, "Par \(hole.par): distinct routes")
+            for route in live.routes where route.id != live.route.id {
+                XCTAssertLessThanOrEqual(
+                    route.steps.count, max(1, hole.par - 2),
+                    "Par \(hole.par): \(route.id) reaches the green in regulation"
+                )
             }
-            let signatures = ([live.route] + alternatives).map(LiveCaddieRouteAuthority.physicalSignature)
-            XCTAssertEqual(Set(signatures).count, 3, "Par \(hole.par): 推荐 / 稳妥 / 进攻 are different routes")
         }
     }
 
@@ -518,11 +534,9 @@ final class PrepMapDegradationTests: XCTestCase {
         )
     }
 
-    /// The prep's own plans, on its own route length (as `PrepHoleRows.build`).
-    private func holePlans(_ hole: CoursePrepHole) -> [PrepPlanOption] {
-        PrepRouteFixtures.routes(par: hole.par, routeLengthM: hole.routeLenM).enumerated().compactMap { index, route in
-            PrepPlanOption.option(route: route, index: index, par: hole.par)
-        }
+    /// The prep's own plans from the decision authority, played with the fixture bag.
+    private func holePlans(_ hole: CoursePrepHole) throws -> [PrepPlanOption] {
+        try PrepRouteFixtures.plans(for: hole)
     }
 
     /// An iPhone 16-sized 备战 layout: the viewport, its chrome insets and the chrome rects.
@@ -567,7 +581,7 @@ final class PrepMapDegradationTests: XCTestCase {
         var cases: [(name: String, hole: CoursePrepHole, plan: PrepPlanOption)] = []
         for par in [4, 5] {
             let hole = try squareDiagonalPrep(par: par)
-            let plans = holePlans(hole)
+            let plans = try holePlans(hole)
             XCTAssertGreaterThanOrEqual(plans.count, 2)
             for plan in plans { cases.append(("square Par \(par) \(plan.title)", hole, plan)) }
         }
@@ -578,7 +592,7 @@ final class PrepMapDegradationTests: XCTestCase {
             width: 560, height: 300, imageDataURI: nil, coverage: "ready", revision: "wide-r1"
         )
         for (name, hole) in [("tall", tall), ("wide diagonal", wide)] {
-            let plans = holePlans(hole)
+            let plans = try holePlans(hole)
             for plan in plans { cases.append(("\(name) \(plan.title)", hole, plan)) }
         }
         var sawThreeShots = false
@@ -636,7 +650,7 @@ final class PrepMapDegradationTests: XCTestCase {
         // one landing fell outside the space between the chrome.
         let square = try squareDiagonalPrep(par: 4)
         let squareOverlay = try XCTUnwrap(square.resolvedMapOverlay)
-        let squarePlan = try XCTUnwrap(holePlans(square).first)
+        let squarePlan = try XCTUnwrap(try holePlans(square).first)
         let oldFrame = try XCTUnwrap(PrepMapLayout.coverFrame(
             overlayWidth: 64, overlayHeight: 64, route: squareOverlay.route,
             viewport: layout.viewport, topInset: layout.insets.top, bottomInset: layout.insets.bottom
@@ -848,8 +862,8 @@ final class PrepMapDegradationTests: XCTestCase {
 
         let precise = try snapshotPrep(coverage: "ready")
         let factual = try snapshotPrep(coverage: "partial")
-        let plans = holePlans(precise)
-        XCTAssertEqual(plans.map(\.title), ["推荐", "稳妥", "进攻"])
+        let plans = try holePlans(precise)
+        XCTAssertEqual(plans.map(\.title), ["推荐", "稳妥"])
         let overlay = try XCTUnwrap(precise.resolvedMapOverlay)
 
         let cases: [(name: String, hole: CoursePrepHole, plan: PrepPlanOption, scale: CGFloat, offset: CGSize)] = [

@@ -373,6 +373,118 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         XCTAssertTrue(LiveCaddieDecisionUsability.hasCompleteRoute(decision, par: 3, shotType: "tee"))
     }
 
+    // MARK: Whole-hole strategies (Codex 5922608092)
+
+    /// A tee decision from a bag of `(club, median m, half p10-p90 spread m)` and seed options of
+    /// `(id, club)`, with optional factual water carries in route metres.
+    private func wholeHoleDecision(
+        par: Int,
+        distanceM: Double,
+        bag: [(String, Double, Double)],
+        options: [(String, String)],
+        water: [[Double]] = []
+    ) throws -> CaddieDecisionResponse {
+        let profiles: JSONValue = .array(bag.map { name, carry, half in
+            .object([
+                "clubName": .string(name), "sampleSize": .number(24),
+                "median_m": .number(carry), "p10_m": .number(carry - half), "p90_m": .number(carry + half),
+            ])
+        })
+        let seed = CaddieContextSeed(
+            hole: 1,
+            sourceRef: "round:1",
+            shotTypes: ["tee"],
+            requiredLiveInputs: [],
+            context: ["par": .number(Double(par)), "clubProfiles": profiles],
+            selectedOfflineOptionId: "stock",
+            offlineOptions: options.map { id, club in
+                OfflineCaddieOption(
+                    optionId: id, label: id, clubName: club,
+                    carryM: bag.first { $0.0 == club }?.1 ?? 0,
+                    sampleSize: 24, confidence: "high", riskScore: 0,
+                    source: "test", sourceRefs: ["round:1"]
+                )
+            },
+            evidence: [],
+            missingData: []
+        )
+        var request = CaddieDecisionRequestBuilder().makeDecisionRequest(
+            seed: seed,
+            input: LiveCaddieInput(shotType: "tee", distanceToPinM: distanceM)
+        )
+        if !water.isEmpty {
+            var context = request.context
+            context["hazardWaterCarry_m"] = .array(water.map { .array($0.map(JSONValue.number)) })
+            request = CaddieDecisionRequest(shotType: request.shotType, context: context, includeExplanation: false)
+        }
+        return try XCTUnwrap(OfflineCaddieDecisionEvaluator().makeDecision(seed: seed, request: request, strategyMode: nil))
+    }
+
+    func testNoHazardPar4NeverOffersTheShortFirstThreeShotRoute() throws {
+        // Codex's case: a clear 410-yard Par 4 whose seed offers 9I as the safe tee club. The old
+        // greedy remainder produced 9I 132 -> 7I 156 -> 8I 144: three strokes on a hole the driver
+        // reaches in two.
+        let bag = [("1D", 210.0, 10.0), ("7I", 156.0, 10.0), ("8I", 144.0, 10.0), ("9I", 132.0, 10.0)]
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 375, bag: bag,
+            options: [("stock", "1D"), ("safe", "9I"), ("attack", "7I")]
+        )
+        let routes = CaddiePlanSequence.sequences(from: decision)
+        XCTAssertFalse(routes.contains { $0.steps.map(\.clubName) == ["9I", "7I", "8I"] })
+        XCTAssertEqual(routes.first { $0.id == "stock" }?.steps.map(\.clubName), ["1D", "7I"])
+        for route in routes {
+            XCTAssertLessThanOrEqual(route.steps.count, 2, "\(route.id) goes for the green in regulation")
+        }
+    }
+
+    func testSafePar5NeverMovesItsLongestClubToTheGreenBoundStroke() throws {
+        // Codex's case: 7I -> 5I -> 5W as "safe" — the shortest opening and the hardest shot last.
+        let bag = [
+            ("1D", 220.0, 22.0), ("3W", 210.0, 16.0), ("5W", 196.0, 14.0), ("5I", 161.0, 10.0),
+            ("7I", 139.0, 8.0), ("9I", 115.0, 7.0), ("PW", 102.0, 6.0),
+        ]
+        let decision = try wholeHoleDecision(
+            par: 5, distanceM: 496, bag: bag,
+            options: [("stock", "1D"), ("safe", "7I"), ("attack", "3W")]
+        )
+        let carries = Dictionary(uniqueKeysWithValues: bag.map { ($0.0, $0.1) })
+        let routes = CaddiePlanSequence.sequences(from: decision)
+        XCTAssertFalse(routes.contains { $0.steps.map(\.clubName) == ["7I", "5I", "5W"] })
+        XCTAssertNotNil(routes.first { $0.id == "stock" })
+        for route in routes {
+            XCTAssertLessThanOrEqual(route.steps.count, 3, "\(route.id) goes for the green in regulation")
+            let tee = try XCTUnwrap(carries[try XCTUnwrap(route.steps.first).clubName])
+            let after = route.steps.dropFirst().compactMap { carries[$0.clubName] }
+            XCTAssertTrue(after.allSatisfy { $0 <= tee + 15 }, "\(route.id): no longer club after a short tee club")
+            XCTAssertEqual(after, after.sorted(by: >), "\(route.id): longer clubs first")
+        }
+    }
+
+    func testFactualWaterCarryJustifiesALayUpWithItsReason() throws {
+        // Water across 190-225 m: the driver's 210 m tee shot lands in it, and nothing else reaches
+        // a 400 m Par 4 in two without landing in it, so the lay-up is the plan and says why.
+        let bag = [
+            ("1D", 210.0, 20.0), ("3H", 180.0, 12.0), ("7I", 156.0, 10.0), ("8I", 144.0, 10.0),
+            ("9I", 132.0, 8.0), ("PW", 110.0, 6.0),
+        ]
+        let decision = try wholeHoleDecision(
+            par: 4, distanceM: 400, bag: bag,
+            options: [("stock", "1D"), ("safe", "3H")],
+            water: [[190, 225]]
+        )
+        let rows = decision.sequences ?? []
+        XCTAssertFalse(rows.contains { $0["id"] == .string("stock") }, "no driver into the water")
+        let layup = try XCTUnwrap(rows.first { $0["id"] == .string("safe") })
+        XCTAssertEqual(layup["layupReason"], .string("water_carry"))
+        let route = try XCTUnwrap(CaddiePlanSequence.sequences(from: decision).first { $0.id == "safe" })
+        XCTAssertEqual(route.steps.first?.clubName, "3H")
+        XCTAssertGreaterThan(route.steps.count, 2)
+        // No landing of the lay-up is in the water (with the 8 m buffer).
+        for offset in route.steps.compactMap(\.routeOffsetM) {
+            XCTAssertFalse(offset > 182 && offset < 233, "landing at \(offset) m is clear of the water")
+        }
+    }
+
     func testPar4LegThatFliesTheBackEdgeIsNotGIR() throws {
         // The fallback planner clamps the second landing to the 396 m route end, but the 3W
         // median lands at 412.2 m: past back (400 m) + the 8 m tolerance, so it is not a GIR.
