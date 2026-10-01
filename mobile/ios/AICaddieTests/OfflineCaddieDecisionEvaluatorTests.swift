@@ -384,7 +384,8 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         options: [(String, String)],
         water: [[Double]] = [],
         canonical: [(String, Double)] = [],
-        planningHazards: [[String: JSONValue]] = []
+        planningHazards: [[String: JSONValue]] = [],
+        omitProfiles: Bool = false
     ) throws -> CaddieDecisionResponse {
         let profiles: JSONValue = .array(bag.map { name, carry, half in
             .object([
@@ -399,7 +400,7 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
             requiredLiveInputs: [],
             context: [
                 "par": .number(Double(par)),
-                "clubProfiles": profiles,
+                "clubProfiles": omitProfiles ? .null : profiles,
                 "candidateRoutes": .array(planningHazards.isEmpty ? [] : [
                     .object(["id": .string("stock"), "planningHazards": .array(planningHazards.map(JSONValue.object))]),
                 ]),
@@ -765,6 +766,61 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         ))
         XCTAssertEqual(reconciled.first.steps.first?.clubName, "3W")
         XCTAssertFalse(reconciled.merged.contains { $0.id == LiveCaddieRouteAuthority.installedRouteId })
+    }
+
+    func testOutOfBoundsWithholdsTheInstalledChainWithoutABag() throws {
+        // Codex 5923557407: hard hazards do not depend on a downloaded bag. Both an empty and a
+        // missing club-profile set must still withhold the installed 1D -> 7I chain.
+        for omit in [false, true] {
+            let decision = try wholeHoleDecision(
+                par: 4, distanceM: 375, bag: [],
+                options: [("stock", "1D")],
+                canonical: [("1D", 210), ("7I", 165)],
+                planningHazards: outOfBounds,
+                omitProfiles: omit
+            )
+            XCTAssertTrue(decision.isLocalNoRoute, omit ? "missing profiles" : "empty profiles")
+            try assertNoRecommendation(decision)
+            XCTAssertTrue(LiveCaddieRouteAuthority.resolve(
+                installed: installedDriverRoute(), online: nil, offline: decision, par: 4, shotType: "tee"
+            ).isEmpty)
+        }
+    }
+
+    func testANoRouteResultClearsTheCaddieOwnedClubButKeepsTheManualOne() throws {
+        // Live state transition: a Driver auto-selected from the installed route, then a no-route
+        // result. The caddie-owned club is cleared (no chip, no map landing, nothing to the Watch);
+        // a club the player picked by hand stays.
+        let decision = try obNoRouteDecision()
+        let recommendation = LiveClubStripPolicy.recommendation(from: decision)
+        XCTAssertNil(recommendation, "a no-route decision recommends no club")
+        let cleared = LiveClubStripPolicy.caddieOwnedSelection(
+            current: "一号木", recommendation: recommendation?.name, userSelected: false, noRoute: decision.isLocalNoRoute
+        )
+        XCTAssertEqual(cleared, "")
+        XCTAssertEqual(
+            LiveClubStripPolicy.caddieOwnedSelection(
+                current: "七号铁", recommendation: nil, userSelected: true, noRoute: true
+            ),
+            "七号铁"
+        )
+        // A decision still loading (not a no-route result) keeps the current club.
+        XCTAssertEqual(
+            LiveClubStripPolicy.caddieOwnedSelection(
+                current: "一号木", recommendation: nil, userSelected: false, noRoute: false
+            ),
+            "一号木"
+        )
+        // What live play then sends the Watch: no selected or suggested club, no route.
+        let package = try fixturePackage()
+        let hole = try XCTUnwrap(package.holes.first)
+        let watch = WatchEventBridge().makeWatchRoundStatePayload(
+            package: package, hole: hole, score: 0, putts: 0, penaltyCount: 0,
+            selectedClub: cleared.isEmpty ? nil : cleared, decision: decision
+        )
+        XCTAssertNil(watch.selectedClub)
+        XCTAssertNil(watch.suggestedClub)
+        XCTAssertNil(watch.holePlanSummary)
     }
 
     func testPar4LegThatFliesTheBackEdgeIsNotGIR() throws {

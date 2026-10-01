@@ -1661,11 +1661,15 @@ public struct CurrentHoleView: View {
                 : nil,
             vetoInstalled: vetoInstalled
         ) else {
-            // No safe route remains: drop the retained club, map legs, summary and selection.
+            // No safe route remains: drop the retained club, map legs, summary and selection,
+            // and a caddie-owned (not manually chosen) selected club with them.
             caddieRoutesByHole[hole.number] = nil
             retainedCaddieRouteByHole[hole.number] = nil
             selectedCaddieRouteByHole[hole.number] = nil
             explicitlySelectedCaddieRouteHoles.remove(hole.number)
+            selectedClub = LiveClubStripPolicy.caddieOwnedSelection(
+                current: selectedClub, recommendation: nil, userSelected: hasUserSelectedClub, noRoute: true
+            )
             return
         }
         let (first, merged) = reconciled
@@ -3145,11 +3149,12 @@ public struct CurrentHoleView: View {
     /// decision carries no usable club.
     @MainActor
     private func syncSelectedClubToRecommendation() {
-        guard !hasUserSelectedClub else { return }
-        guard let club = recommendedClubChoice?.name else {
-            return
-        }
-        selectedClub = club
+        selectedClub = LiveClubStripPolicy.caddieOwnedSelection(
+            current: selectedClub,
+            recommendation: recommendedClubChoice?.name,
+            userSelected: hasUserSelectedClub,
+            noRoute: caddieDecision?.isLocalNoRoute == true
+        )
     }
 
     // MARK: - B4 turn (接着打哪个 9 洞)
@@ -3543,7 +3548,7 @@ public struct CurrentHoleView: View {
             score: score,
             putts: puttCount,
             penaltyCount: penaltyCount,
-            selectedClub: selectedClub,
+            selectedClub: selectedClub.isEmpty ? nil : selectedClub,
             decision: decision,
             offlineOption: offlineOption,
             distanceToPinM: effectiveDistanceToPinMetres,

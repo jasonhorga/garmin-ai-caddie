@@ -284,6 +284,12 @@ public final class OfflineCaddieDecisionEvaluator {
         }
         let profiles = localProfiles(from: request.context["clubProfiles"] ?? seed.context["clubProfiles"])
         let hazards = planningHazards(seed: seed, request: request)
+        // Two-sided OB / corridor limits need the server planner's typed zones from every lie.
+        // The local fallback refuses to claim a complete safe route rather than ignore them —
+        // including an installed chain, and whether or not a bag was downloaded.
+        guard !hazards.unmodelled else {
+            return RoutePlanning(plans: [:], filtered: true, withheldForHazards: true)
+        }
         // An installed chain is a stock recommendation only while every leg is water-safe across
         // its measured carry window (server `_canonical_sequence` / `_club_hard_hazard_safe`).
         if let canonical = plans["stock"],
@@ -293,12 +299,6 @@ public final class OfflineCaddieDecisionEvaluator {
         let stockIsCanonical = plans["stock"] != nil
         guard !profiles.isEmpty else {
             return RoutePlanning(plans: trimmed(plans), filtered: !hazards.water.isEmpty, stockIsCanonical: stockIsCanonical)
-        }
-        // Two-sided OB / corridor limits need the server planner's typed zones from every lie.
-        // The local fallback refuses to claim a complete safe route rather than ignore them.
-        guard !hazards.unmodelled else {
-            // Including an installed chain: nothing local proves it safe against these limits.
-            return RoutePlanning(plans: [:], filtered: true, withheldForHazards: true)
         }
 
         for option in seed.offlineOptions {
