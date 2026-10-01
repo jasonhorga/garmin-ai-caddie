@@ -866,6 +866,51 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         }
     }
 
+    func testOrderedClubReplayKeepsSelectionOwnership() throws {
+        // Codex 5924201260: replay folds `.club` events in order. A caddie-owned target edit with
+        // no club (`unknown` + the caddie marker) is an explicit empty selection; a later manual
+        // pick wins; a Watch / manual club carried by an ordinary target edit stays manual.
+        let package = try fixturePackage()
+        let auto = JSONValue.string(LiveClubStripPolicy.caddieOwnedClubSource)
+        let target: [String: JSONValue] = [
+            "targetLatitude": .number(22.2799), "targetLongitude": .number(114.162), "targetKind": .string("target"),
+        ]
+        func club(_ name: String, source: JSONValue? = nil, withTarget: Bool = false) -> [String: JSONValue] {
+            var payload: [String: JSONValue] = ["clubName": .string(name), "shotType": .string("tee")]
+            if let source { payload["source"] = source }
+            if withTarget { payload.merge(target) { $1 } }
+            return payload
+        }
+        let cases: [(name: String, events: [[String: JSONValue]], club: String, manual: Bool)] = [
+            ("manual 7I, then a caddie-owned empty target",
+             [club("7I"), club("unknown", source: auto, withTarget: true)], "", false),
+            ("automatic 1D, then a caddie-owned empty target",
+             [club("1D", source: auto, withTarget: true), club("unknown", source: auto, withTarget: true)], "", false),
+            ("automatic target, then a manual pick",
+             [club("1D", source: auto, withTarget: true), club("8I")], "8I", true),
+            ("Watch pick, then an ordinary target edit carrying it",
+             [club("1D", source: .string("apple_watch")), club("1D", withTarget: true)], "1D", true),
+            ("legacy unknown keeps the older manual club",
+             [club("7I"), club("unknown", withTarget: true)], "7I", true),
+        ]
+        for testCase in cases {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let store = OfflineStore(directoryURL: directory)
+            for (index, payload) in testCase.events.enumerated() {
+                try store.appendEvent(LiveRoundEvent(
+                    eventId: "club-\(index)-\(UUID().uuidString)", roundId: package.roundId,
+                    timestamp: "2026-05-25T00:0\(index + 1):00Z", hole: 1, kind: .club, payload: payload
+                ))
+            }
+            let holeState = try XCTUnwrap(
+                try store.restoreLiveRoundState(roundId: package.roundId, package: package).holeState(for: 1)
+            )
+            XCTAssertEqual(holeState.selectedClub, testCase.club, testCase.name)
+            XCTAssertEqual(holeState.hasManualClubSelection, testCase.manual, testCase.name)
+        }
+    }
+
     func testPar4LegThatFliesTheBackEdgeIsNotGIR() throws {
         // The fallback planner clamps the second landing to the 396 m route end, but the 3W
         // median lands at 412.2 m: past back (400 m) + the 8 m tolerance, so it is not a GIR.

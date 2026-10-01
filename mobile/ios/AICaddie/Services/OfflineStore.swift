@@ -1750,14 +1750,21 @@ public final class OfflineStore {
                     state.penaltyCount = Int(penalties)
                 }
             case .club:
-                if let clubName = stringPayload("clubName", in: event.payload),
-                   !clubName.isEmpty,
-                   clubName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "unknown" {
-                    state.selectedClub = clubName
-                    // Selection ownership travels with the club: only a phone event marked as
-                    // the caddie's own pick is caddie-owned; every other club event is manual.
-                    state.selectedClubIsManual = stringPayload("source", in: event.payload)
-                        != LiveClubStripPolicy.caddieOwnedClubSource
+                // Selection ownership travels with the club: only a phone event marked as the
+                // caddie's own pick is caddie-owned; every other club event is manual.
+                let caddieOwned = stringPayload("source", in: event.payload)
+                    == LiveClubStripPolicy.caddieOwnedClubSource
+                let rawClub = stringPayload("clubName", in: event.payload)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !rawClub.isEmpty, rawClub.lowercased() != "unknown" {
+                    state.selectedClub = rawClub
+                    state.selectedClubIsManual = !caddieOwned
+                } else if caddieOwned {
+                    // A caddie-owned event with no club (the `unknown` placeholder) is an explicit
+                    // empty selection: an older manual club must not come back on replay. A legacy
+                    // `unknown` without the marker keeps its old no-op meaning.
+                    state.selectedClub = ""
+                    state.selectedClubIsManual = false
                 }
                 if let shotType = stringPayload("shotType", in: event.payload) {
                     state.selectedShotType = shotType

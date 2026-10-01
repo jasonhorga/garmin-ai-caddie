@@ -3477,3 +3477,49 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CaddieOwnedClubReplayTests(unittest.TestCase):
+    """Codex 5924201260: the server round-state fold mirrors iOS club-selection ownership."""
+
+    def _state(self, payloads: list[dict[str, object]]) -> dict[str, object]:
+        from ai_caddie.caddie.mobile_live import build_round_state
+
+        rows = [
+            {
+                "roundId": "900001",
+                "serverSequence": index + 1,
+                "event": {
+                    "eventId": f"club-{index}",
+                    "clientId": "ios",
+                    "roundId": "900001",
+                    "hole": 1,
+                    "kind": "club",
+                    "payload": payload,
+                },
+            }
+            for index, payload in enumerate(payloads)
+        ]
+        with tempfile.TemporaryDirectory() as root:
+            with mock.patch.object(FileEventStore, "read_rows", return_value=rows):
+                state = build_round_state("900001", root=root)
+        return next(hole for hole in state["holes"] if hole["hole"] == 1)
+
+    def test_caddie_owned_unknown_clears_an_older_club(self) -> None:
+        hole = self._state([
+            {"clubName": "7I"},
+            {"clubName": "unknown", "source": "ios_caddie_auto"},
+        ])
+        self.assertEqual(hole["selectedClub"], "")
+
+    def test_legacy_unknown_keeps_the_older_club(self) -> None:
+        hole = self._state([{"clubName": "7I"}, {"clubName": "unknown"}])
+        self.assertEqual(hole["selectedClub"], "7I")
+
+    def test_a_later_manual_pick_wins_over_a_caddie_owned_target(self) -> None:
+        hole = self._state([
+            {"clubName": "1D", "source": "ios_caddie_auto"},
+            {"clubName": "unknown", "source": "ios_caddie_auto"},
+            {"clubName": "8I"},
+        ])
+        self.assertEqual(hole["selectedClub"], "8I")
