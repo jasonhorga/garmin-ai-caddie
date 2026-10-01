@@ -88,7 +88,8 @@ enum ResultsTimePresentation {
         let rounds = period.roundCount ?? 0
         func perRound(_ count: Int?) -> String {
             guard let count, rounds > 0 else { return "—" }
-            return String(format: "%.1f", Double(count) / Double(rounds))
+            // Half away from zero (9 / 4 = 2.25 reads 2.3); "%.1f" alone rounds half to even.
+            return String(format: "%.1f", (Double(count) / Double(rounds) * 10).rounded() / 10)
         }
         return PeriodCard(
             key: period.key,

@@ -42,6 +42,7 @@ final class ResultsTimePresentationTests: XCTestCase {
         XCTAssertEqual(q2.title, "2026 年第 2 季度")
         XCTAssertEqual(q2.headline, "4 场 · 均杆 87.5")
         XCTAssertEqual([q2.best, q2.worst, q2.birdiesPerRound, q2.doublesPerRound], ["82", "93", "0.8", "2.3"])
+        XCTAssertEqual(q2.doublesPerRound, "2.3", "9 / 4 = 2.25 rounds half away from zero")
         let q1 = quarters.cards[1]
         XCTAssertEqual(q1.headline, "8 场 · 均杆 —", "a missing average is —, never 0")
         XCTAssertEqual([q1.best, q1.birdiesPerRound], ["—", "—"])
