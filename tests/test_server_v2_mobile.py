@@ -2146,6 +2146,11 @@ class ServerV2MobileTests(unittest.TestCase):
             "missingData": [],
         }
 
+        # Earlier tests can leave a background course-install job queued on the single-thread
+        # worker; let it finish before `prep_nine` is patched process-wide.
+        from server_v2 import course_install
+
+        course_install._WORKER.submit(lambda: None).result(timeout=30)
         with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}), \
                 patch("ai_caddie.courses.course_prep.prep_nine") as prep_nine, \
                 patch("server_v2.mobile.first_hole_lightweight_course_prep", return_value=seed) as first_seed:
@@ -2159,7 +2164,12 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertNotIn("startMode", response.json())
         self.assertNotIn("fullCoursePending", response.json())
         self.assertGreaterEqual(len(response.json()["holes"]), 1)
-        prep_nine.assert_not_called()
+        # The package never builds this course's full prep. (A stray background job for another
+        # test's course can still hit the process-wide patch; it says nothing about this route.)
+        self.assertEqual(
+            [call for call in prep_nine.call_args_list if call.args and int(call.args[0]) == 31795],
+            [],
+        )
         first_seed.assert_called_once()
 
     def test_course_template_and_weather_are_cache_only(self) -> None:
