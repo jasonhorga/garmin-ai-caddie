@@ -1544,26 +1544,45 @@ final class DesignSnapshotTests: XCTestCase {
             dark: true
         )
 
-        // 数据统计: overview KPIs + 近场折线图 + 成绩分布 + by-par(3/4/5) + putting + trends + quarter +
-        // courses(按球场聚合,可钻取各九洞) + clubs (距离按码), from a compact mobile-stats fixture.
+        // B5 成绩 / 表现分析 / 成绩分布 (README §9) + course drill-in, from a compact mobile-stats
+        // fixture: 21 scored 18-hole rounds (the landing shows the newest 20 with the 10-round
+        // average), the B0 putting buckets and scrambling, and a whole-history analysis baseline.
         let statsJSON = """
-        {"summary":{"totalRounds":423,"average18":92.4,"median18":92,"recent10Average":94.6,"bestScore":82,"worstScore":106,"handicapEstimate":18.2},\
+        {"summary":{"totalRounds":423,"courseCount":11,"average18":92.4,"median18":92,"recent10Average":88.4,"bestScore":82,"worstScore":106,"handicapEstimate":18.2,"handicapTrend":-0.8,"handicapChangeRecent20":-1.4},\
         "trend":{"points":[\
-        {"date":"2026-05-01","score":95,"toPar":23,"birdies":1,"pars":6,"bogeys":7,"doublesPlus":4},\
-        {"date":"2026-05-10","score":91,"toPar":19,"birdies":2,"pars":7,"bogeys":7,"doublesPlus":2},\
-        {"date":"2026-05-20","score":89,"toPar":17,"birdies":1,"pars":9,"bogeys":6,"doublesPlus":2},\
-        {"date":"2026-06-01","score":86,"toPar":14,"birdies":3,"pars":9,"bogeys":5,"doublesPlus":1}]},\
+        {"date":"2026-04-01","score":95,"toPar":23,"roundId":"t-00"},\
+        {"date":"2026-04-06","score":91,"toPar":19,"roundId":"t-01"},\
+        {"date":"2026-04-11","score":97,"toPar":25,"roundId":"t-02"},\
+        {"date":"2026-04-16","score":89,"toPar":17,"roundId":"t-03"},\
+        {"date":"2026-04-21","score":93,"toPar":21,"roundId":"t-04"},\
+        {"date":"2026-04-26","score":90,"toPar":18,"roundId":"t-05"},\
+        {"date":"2026-05-01","score":94,"toPar":22,"roundId":"t-06"},\
+        {"date":"2026-05-06","score":88,"toPar":16,"roundId":"t-07"},\
+        {"date":"2026-05-11","score":92,"toPar":20,"roundId":"t-08"},\
+        {"date":"2026-05-16","score":96,"toPar":24,"roundId":"t-09"},\
+        {"date":"2026-05-21","score":86,"toPar":14,"roundId":"t-10"},\
+        {"date":"2026-05-26","score":90,"toPar":18,"roundId":"t-11"},\
+        {"date":"2026-06-01","score":87,"toPar":15,"roundId":"t-12"},\
+        {"date":"2026-06-06","score":91,"toPar":19,"roundId":"t-13"},\
+        {"date":"2026-06-11","score":85,"toPar":13,"roundId":"t-14"},\
+        {"date":"2026-06-16","score":88,"toPar":16,"roundId":"t-15"},\
+        {"date":"2026-06-21","score":84,"toPar":12,"roundId":"t-16"},\
+        {"date":"2026-06-26","score":89,"toPar":17,"roundId":"t-17"},\
+        {"date":"2026-07-01","score":86,"toPar":14,"roundId":"t-18"},\
+        {"date":"2026-07-06","score":83,"toPar":11,"roundId":"t-19"},\
+        {"date":"2026-07-11","score":82,"toPar":10,"roundId":"t-20"}]},\
         "scoring":{"outcomes":{"eagleOrBetter":1,"birdie":40,"par":300,"bogey":250,"doubleOrWorse":120},\
         "outcomeDistribution":[{"key":"eagleOrBetter","label":"Eagle+","count":1,"pct":0.5},{"key":"birdie","label":"Birdie","count":40,"pct":6.5},{"key":"par","label":"Par","count":300,"pct":43.5},{"key":"bogey","label":"Bogey","count":250,"pct":35.2},{"key":"double","label":"Double","count":70,"pct":10.2},{"key":"triple","label":"Triple","count":20,"pct":2.8},{"key":"quadPlus","label":"+4 or worse","count":10,"pct":1.4}],\
         "scoreBands":[{"label":"80s","count":42},{"label":"90s","count":171},{"label":"100+","count":93}],\
-        "byPar":[{"par":3,"averageToPar":0.62,"parOrBetterPct":38},{"par":4,"averageToPar":0.44,"parOrBetterPct":42},{"par":5,"averageToPar":0.21,"parOrBetterPct":55},{"par":6,"averageToPar":1.1,"parOrBetterPct":10}],\
+        "byPar":[{"par":3,"holeCount":4,"averageToPar":0.62,"parOrBetterPct":38},{"par":4,"holeCount":10,"averageToPar":0.44,"parOrBetterPct":42},{"par":5,"holeCount":4,"averageToPar":0.21,"parOrBetterPct":55},{"par":6,"averageToPar":1.1,"parOrBetterPct":10}],\
         "phaseStats":[{"phase":"Tee","fairwaysRecorded":180,"fairwaysHit":102,"fairwayMissLeft":46,"fairwayMissRight":32,"coverage":{"ready":180,"total":240,"pct":75}},\
         {"phase":"Approach","girRecorded":300,"gir":99,"missedGir":201,"girPct":33,"coverage":{"ready":300,"total":360,"pct":83.3}},\
         {"phase":"Short Game","roughOrBunkerShots":74,"coverage":{"ready":74,"total":520,"pct":14.2}},\
         {"phase":"Putting","totalPutts":3900,"holesWithPutts":2160,"averagePutts":1.9,"threePutts":240,"coverage":{"ready":2160,"total":2400,"pct":90}}],\
         "teeDirection":{"recorded":180,"hit":102,"left":46,"right":32,"hitPct":57,"dominantMiss":"left"},\
         "approachMiss":{"recorded":300,"gir":99,"missed":201,"short":82,"long":31,"left":51,"right":37,"girPct":33,"dominantMiss":"short"},\
-        "putting":{"averagePutts":1.9,"averagePuttsPerRound":32.5,"roundsWithPutts":120,"threePutts":240}},\
+        "putting":{"averagePutts":1.92,"averagePuttsPerRound":32.5,"roundsWithPutts":120,"threePutts":240,"holesWithPutts":2160,"zeroPutts":43,"onePutts":410,"twoPutts":1426,"threePlusPutts":281,"zeroPuttPct":2.0,"onePuttPct":19.0,"twoPuttPct":66.0,"threePlusPuttPct":13.0},\
+        "scrambling":{"chances":1340,"saves":322,"pct":24.0},"penalties":{"total":96,"holesRecorded":1800,"roundsRecorded":100,"averagePerRound":0.96}},\
         "time":{"byQuarter":[{"key":"2026-Q2","roundCount":12,"average18":92.4,"bestScore":84,"outcomes":{"birdie":14,"doubleOrWorse":31}}]},\
         "courses":[{"courseKey":"bk","courseName":"北京天竺黑骑士","roundCount":128,"average18":91.0,"bestScore":82,"worstScore":99,\
         "rounds":[{"roundId":"r-901","date":"2026-06-11","score":89,"toPar":17,"holesCompleted":18,"nine":"北京天竺黑骑士 ~ C/A"},\
@@ -1586,36 +1605,81 @@ final class DesignSnapshotTests: XCTestCase {
         "availableYears":["2026"],"availableCourses":[]}
         """
         let historyArchive = try JSONDecoder().decode(HistoryRoundsArchive.self, from: Data(archiveJSON.utf8))
+        // 表现分析 compares a window with the whole history (↑ 绿 better, ↓ 黄 worse).
+        let baselineJSON = """
+        {"scoring":{"teeDirection":{"recorded":400,"hit":196,"left":104,"right":100},\
+        "approachMiss":{"recorded":600,"gir":234,"missed":366,"short":160,"long":60,"left":70,"right":76},\
+        "scrambling":{"chances":2600,"saves":572,"pct":22.0},\
+        "putting":{"averagePutts":1.86,"holesWithPutts":4000,"onePuttPct":24,"twoPuttPct":66,"threePlusPuttPct":10}}}
+        """
+        let baselineStats = try JSONDecoder().decode(MobileStats.self, from: Data(baselineJSON.utf8))
         try captureScreen(
             NavigationStack {
                 ScrollView {
-                    StatsContent(stats: mobileStats, isLoading: false, errorText: nil)
+                    ScoreDistributionContent(stats: mobileStats)
                 }
                 .background(HubStyle.grouped)
-                .navigationTitle("成绩统计")
+                .navigationTitle("成绩分布")
             },
-            named: "stats"
+            named: "results-distribution"
         )
-        try captureScreen(
-            NavigationStack {
-                ScrollView {
-                    ResultsLandingContent(stats: mobileStats, archive: historyArchive, errorText: nil)
-                }
-                .background(HubStyle.grouped)
-                .navigationTitle("成绩")
-            },
-            named: "results-landing"
+        // 成绩 in its four load states (Codex review of #364): loaded, first load with nothing
+        // cached (no "暂无成绩", no invented 0), a cached page refreshing, a failed archive
+        // beside loaded stats, and a genuinely empty history.
+        let emptyStats = try JSONDecoder().decode(MobileStats.self, from: Data(#"{"summary":{"totalRounds":0}}"#.utf8))
+        let emptyArchive = try JSONDecoder().decode(HistoryRoundsArchive.self, from: Data(#"{"total":0,"groups":[]}"#.utf8))
+        let landingStates: [(String, MobileStats?, HistoryRoundsArchive?, String?, Bool)] = [
+            ("results-landing", mobileStats, historyArchive, nil, false),
+            ("results-landing-loading", nil, nil, nil, true),
+            ("results-landing-refreshing", mobileStats, historyArchive, nil, true),
+            ("results-landing-partial-error", mobileStats, nil, "球局档案暂时取不到", false),
+            ("results-landing-empty", emptyStats, emptyArchive, nil, false),
+        ]
+        for (name, stats, archive, error, loading) in landingStates {
+            try captureScreen(
+                NavigationStack {
+                    ScrollView {
+                        ResultsLandingContent(stats: stats, archive: archive, errorText: error, isLoading: loading)
+                    }
+                    .background(HubStyle.grouped)
+                    .navigationTitle("成绩")
+                },
+                named: name
+            )
+        }
+        // 表现分析: the real page with its window picker. Default 20 场 (↑ ↓ against the 20 before),
+        // then switched to 10 场 with that window's own numbers and comparison.
+        let analysisStats = MobileStats(
+            summary: mobileStats.summary, scoring: mobileStats.scoring,
+            previous: MobileStatsPrevious(window: "prev20", roundCount: 20, scoring: baselineStats.scoring)
         )
-        try captureScreen(
-            NavigationStack {
-                ScrollView {
-                    StatsContent(stats: mobileStats, isLoading: false, errorText: nil, mode: .analysis)
-                }
-                .background(Color.white)
-                .navigationTitle("表现分析")
-            },
-            named: "results-analysis"
-        )
+        var analysisState = AnalysisLoadState()
+        analysisState.complete(analysisState.currentRequest, stats: analysisStats)
+        XCTAssertEqual(analysisState.window, "last20")
+        let tenJSON = """
+        {"summary":{"totalRounds":10},"scoring":{"teeDirection":{"recorded":140,"hit":71,"left":40,"right":29},\
+        "approachMiss":{"recorded":180,"gir":50,"short":64,"long":20,"left":24,"right":22},\
+        "scrambling":{"chances":130,"saves":34,"pct":26.2},\
+        "putting":{"averagePutts":1.95,"holesWithPutts":180,"onePuttPct":18,"twoPuttPct":64,"threePlusPuttPct":18}},\
+        "previous":{"window":"prev10","roundCount":10,"scoring":{"teeDirection":{"recorded":140,"hit":66},\
+        "approachMiss":{"recorded":180,"gir":54},"scrambling":{"chances":130,"saves":31,"pct":23.8},\
+        "putting":{"averagePutts":1.9,"holesWithPutts":180}}}}
+        """
+        var tenState = analysisState
+        let tenRequest = tenState.select("last10")
+        tenState.complete(tenRequest, stats: try JSONDecoder().decode(MobileStats.self, from: Data(tenJSON.utf8)))
+        for (name, state) in [("results-analysis", analysisState), ("results-analysis-10", tenState)] {
+            try captureScreen(
+                NavigationStack {
+                    ScrollView {
+                        AnalysisPageContent(window: .constant(state.window), state: state)
+                    }
+                    .background(Color.white)
+                    .navigationTitle("表现分析")
+                },
+                named: name
+            )
+        }
         // 球场钻取(round-10):各九洞组合 + 所有比赛(时间·成绩,点单场看复盘)。
         if let course = mobileStats.courses.first {
             try captureScreen(NavigationStack { CourseStatsDetailView(course: course) }, named: "course-detail")

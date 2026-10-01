@@ -72,6 +72,12 @@ _QUALITY_KEYS = ("label", "state", "ready", "total")
 # still open its round.
 _DROP_KEYS = {"roundOverRoundDeltas", "outcomeRows", "scoreHistogram", "decisionAuditTrends"}
 
+# B5 payload budget (IMPLEMENTATION_PLAN "B0 新统计字段", 体积): ``scoring.roundSequences`` is one
+# per-hole row per round (~298 KB raw on real history). The mobile screens only show recent rounds'
+# hole strips, so the compact payload keeps the newest rounds; the full series stays on
+# ``/api/v2/history/stats``.
+MOBILE_ROUND_SEQUENCE_LIMIT = 20
+
 
 def _strip_refs(value: Any) -> Any:
     if isinstance(value, dict):
@@ -85,6 +91,44 @@ def _pick(row: Any, keys: tuple[str, ...]) -> dict[str, Any]:
     if not isinstance(row, dict):
         return {}
     return {key: row[key] for key in keys if key in row}
+
+
+# B5 表现分析 "和之前比": each narrow window compares with the comparable period right before it
+# (10 vs the 10 before, 20 vs the 20 before, the last year vs the year before); ``all`` has none.
+PREVIOUS_WINDOW = {"last10": "prev10", "last20": "prev20", "12m": "prev12m"}
+_PREVIOUS_SCORING_KEYS = ("teeDirection", "approachMiss", "scrambling", "putting", "phaseStats")
+
+
+# A count window compares only with a COMPLETE previous sample: "和前 10 场比" against 5 rounds would
+# be a different comparison under the same label. ``prev12m`` is a date range, so any rounds count.
+PREVIOUS_REQUIRED_ROUNDS = {"prev10": 10, "prev20": 20}
+
+
+def build_mobile_previous(stats: dict[str, Any], window: str) -> dict[str, Any] | None:
+    """The compact comparison block for ``window``'s previous period, or None when it has no
+    rounds (a delta against nothing would be invented). A count window whose previous period is
+    short of its full sample carries ``requiredRounds`` and no ``scoring``, so the phone says how
+    many rounds there are instead of comparing."""
+    summary = stats.get("summary") if isinstance(stats.get("summary"), dict) else {}
+    rounds = summary.get("totalRounds")
+    if not rounds:
+        return None
+    block: dict[str, Any] = {"window": window, "roundCount": rounds}
+    required = PREVIOUS_REQUIRED_ROUNDS.get(window)
+    if required is not None:
+        block["requiredRounds"] = required
+        if rounds < required:
+            return block
+    scoring = stats.get("scoring") if isinstance(stats.get("scoring"), dict) else {}
+    return _strip_refs({**block, "scoring": _pick(scoring, _PREVIOUS_SCORING_KEYS)})
+
+
+def _cap_round_sequences(scoring: dict[str, Any]) -> dict[str, Any]:
+    """Keep the newest ``MOBILE_ROUND_SEQUENCE_LIMIT`` rows (the server lists them newest first)."""
+    sequences = scoring.get("roundSequences")
+    if isinstance(sequences, list) and len(sequences) > MOBILE_ROUND_SEQUENCE_LIMIT:
+        return {**scoring, "roundSequences": sequences[:MOBILE_ROUND_SEQUENCE_LIMIT]}
+    return scoring
 
 
 def build_mobile_stats(stats: dict[str, Any]) -> dict[str, Any]:
@@ -102,7 +146,7 @@ def build_mobile_stats(stats: dict[str, Any]) -> dict[str, Any]:
         "summary": stats.get("summary") if isinstance(stats.get("summary"), dict) else {},
         "time": _pick(time, _TIME_KEYS),
         "trend": stats.get("trend") if isinstance(stats.get("trend"), dict) else {},
-        "scoring": _pick(scoring, _SCORING_KEYS),
+        "scoring": _cap_round_sequences(_pick(scoring, _SCORING_KEYS)),
         "records": stats.get("records") if isinstance(stats.get("records"), dict) else {},
         "courses": [_pick(course, _COURSE_KEYS) for course in courses],
         "clubs": [_pick(club, _CLUB_KEYS) for club in clubs],

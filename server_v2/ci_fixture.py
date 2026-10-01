@@ -982,10 +982,31 @@ def options() -> dict:
 def history_stats_mobile(window: str = "all") -> dict:
     return _with_markers({
         "schema": "ai-caddie-mobile-stats-v1", "dataMode": "ci_fixture",
-        "summary": {"totalRounds": 1, "eighteenHoleRounds": 1, "average18": 78.0, "bestScore": 78},
+        "summary": {"totalRounds": 1, "eighteenHoleRounds": 1, "courseCount": 1, "average18": 78.0,
+                    "recent10Average": 78.0, "bestScore": 78, "handicapEstimate": 6.2},
         "time": {"byYear": [], "byQuarter": [], "byMonth": [], "byDay": []},
-        "trend": {"points": [{"date": "2026-05-18", "score": 78, "roundId": ROUND_REF}]},
-        "scoring": {"outcomes": {"par": 10, "bogey": 6, "birdie": 2}},
+        "trend": {"points": [{"date": "2026-05-18", "score": 78, "toPar": 6, "roundId": ROUND_REF}]},
+        # B5 成绩 / 表现分析 / 成绩分布: the one fixture round's facts in the production shape.
+        "scoring": {
+            "outcomes": {"par": 10, "bogey": 6, "birdie": 2},
+            "outcomeDistribution": [
+                {"key": "birdie", "label": "Birdie", "count": 2, "pct": 11.1},
+                {"key": "par", "label": "Par", "count": 10, "pct": 55.6},
+                {"key": "bogey", "label": "Bogey", "count": 6, "pct": 33.3},
+            ],
+            "byPar": [
+                {"par": 3, "holeCount": 4, "averageToPar": 0.25, "parOrBetterPct": 75.0},
+                {"par": 4, "holeCount": 10, "averageToPar": 0.4, "parOrBetterPct": 60.0},
+                {"par": 5, "holeCount": 4, "averageToPar": 0.25, "parOrBetterPct": 75.0},
+            ],
+            "teeDirection": {"recorded": 14, "hit": 8, "left": 4, "right": 2},
+            "approachMiss": {"recorded": 18, "gir": 9, "missed": 9, "short": 4, "long": 1, "left": 2, "right": 2},
+            "scrambling": {"chances": 9, "saves": 5, "pct": 55.6},
+            "putting": {"totalPutts": 31, "holesWithPutts": 18, "averagePutts": 1.72, "averagePuttsPerRound": 31.0,
+                        "roundsWithPutts": 1, "threePutts": 1, "zeroPutts": 0, "onePutts": 6, "twoPutts": 11,
+                        "threePlusPutts": 1, "zeroPuttPct": 0.0, "onePuttPct": 33.3, "twoPuttPct": 61.1,
+                        "threePlusPuttPct": 5.6},
+        },
         "records": {}, "courses": [{"courseKey": "31795", "courseName": "Black Knight B/C", "roundCount": 1, "recentRoundId": ROUND_REF}],
         "clubs": [{"club": "1D", "sampleCount": 1, "median": 210.0}], "diagnosis": {}, "playerProfile": {}, "dataQuality": [],
     })

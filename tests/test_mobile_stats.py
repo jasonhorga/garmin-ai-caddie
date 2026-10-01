@@ -132,6 +132,57 @@ class BuildMobileStatsTests(unittest.TestCase):
         compact_size = len(json.dumps(self.out))
         self.assertLess(compact_size, full_size // 5)
 
+    def test_caps_round_sequences_to_the_newest_rounds(self) -> None:
+        from ai_caddie.history.mobile_stats import MOBILE_ROUND_SEQUENCE_LIMIT
+
+        rows = [{"roundId": f"r{index}", "holes": [1], "putts": [2], "gir": [True], "fairway": ["hit"]}
+                for index in range(MOBILE_ROUND_SEQUENCE_LIMIT + 7)]
+        full = _full_stats()
+        full["scoring"] = {**full.get("scoring", {}), "roundSequences": rows, "loops": [{"loopKey": "k"}]}
+        out = build_mobile_stats(full)
+        kept = out["scoring"]["roundSequences"]
+        # Newest first in, newest first out: the first LIMIT rows, unchanged.
+        self.assertEqual(kept, rows[:MOBILE_ROUND_SEQUENCE_LIMIT])
+        self.assertEqual(out["scoring"]["loops"], [{"loopKey": "k"}])
+        short = build_mobile_stats({"scoring": {"roundSequences": rows[:3]}})
+        self.assertEqual(short["scoring"]["roundSequences"], rows[:3])
+
+    def test_previous_block_is_the_compact_phase_scoring_or_none(self) -> None:
+        from ai_caddie.history.mobile_stats import build_mobile_previous
+
+        prev = build_mobile_previous({"summary": {"totalRounds": 10}, "scoring": {
+            "teeDirection": {"hit": 5, "holeRefs": ["x"]}, "putting": {"averagePutts": 1.9},
+            "roundSequences": [{"roundId": "r"}]}}, "prev10")
+        self.assertEqual(prev, {"window": "prev10", "roundCount": 10, "requiredRounds": 10, "scoring": {
+            "teeDirection": {"hit": 5}, "putting": {"averagePutts": 1.9}}})
+        # prev12m is a date range: any rounds compare, no required count.
+        year = build_mobile_previous({"summary": {"totalRounds": 3}, "scoring": {"putting": {}}}, "prev12m")
+        self.assertEqual(year, {"window": "prev12m", "roundCount": 3, "scoring": {"putting": {}}})
+        self.assertIsNone(build_mobile_previous({"summary": {"totalRounds": 0}}, "prev10"))
+        self.assertIsNone(build_mobile_previous({}, "prev12m"))
+
+    def test_a_short_previous_count_sample_is_reported_not_compared(self) -> None:
+        """15 rounds: prev10 holds 5 and prev20 none; 25 rounds: prev10 is complete, prev20 holds 5."""
+        from ai_caddie.history.history import HistoryData
+        from ai_caddie.history.history_stats import build_history_stats, windowed_history_data
+        from ai_caddie.history.mobile_stats import build_mobile_previous
+
+        def history(count: int) -> HistoryData:
+            rounds = [{"id": f"r{i}", "date": f"2026-{1 + i // 28:02d}-{1 + i % 28:02d}", "holesCompleted": 18,
+                       "strokes": 90, "par": 72, "holes": [], "hasShots": False} for i in range(count)]
+            return HistoryData(raw_rounds=[{"id": row["id"]} for row in rounds], rounds=rounds, shots=[])
+
+        def previous(count: int, window: str) -> dict | None:
+            data = windowed_history_data(history(count), window)
+            return build_mobile_previous(build_history_stats(data, data_mode="fixture"), window)
+
+        self.assertEqual(previous(15, "prev10"), {"window": "prev10", "roundCount": 5, "requiredRounds": 10})
+        self.assertIsNone(previous(15, "prev20"))
+        complete = previous(25, "prev10")
+        self.assertEqual((complete["roundCount"], complete["requiredRounds"]), (10, 10))
+        self.assertIn("scoring", complete)
+        self.assertEqual(previous(25, "prev20"), {"window": "prev20", "roundCount": 5, "requiredRounds": 20})
+
     def test_tolerates_missing_sections(self) -> None:
         out = build_mobile_stats({"schema": "x"})
         self.assertEqual(out["summary"], {})
@@ -159,6 +210,17 @@ class MobileStatsEndpointTests(unittest.TestCase):
                 response = client.get(f"/api/v2/history/stats/mobile?window={window}")
                 self.assertEqual(response.status_code, 200, window)
                 self.assertEqual(response.json()["schema"], "ai-caddie-mobile-stats-v1")
+            # B5 表现分析 "和之前比": a narrow window carries its previous comparable period in the
+            # same response (or null when that period has no rounds); ``all`` has none.
+            self.assertIsNone(client.get("/api/v2/history/stats/mobile?window=all").json().get("previous"))
+            for window, previous in (("last10", "prev10"), ("last20", "prev20"), ("12m", "prev12m")):
+                body = client.get(f"/api/v2/history/stats/mobile?window={window}").json()
+                self.assertIn("previous", body)
+                if body["previous"] is not None:
+                    self.assertEqual(body["previous"]["window"], previous)
+                    self.assertGreater(body["previous"]["roundCount"], 0)
+                    self.assertTrue(set(body["previous"].get("scoring", {})) <= {
+                        "teeDirection", "approachMiss", "scrambling", "putting", "phaseStats"})
             # invalid windows are rejected by the same regex the full endpoint uses
             self.assertEqual(client.get("/api/v2/history/stats/mobile?window=bogus").status_code, 422)
 

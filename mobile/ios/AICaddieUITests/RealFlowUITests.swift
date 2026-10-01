@@ -185,6 +185,8 @@ final class RealFlowUITests: XCTestCase {
             newCourseEvidence = nil
         }
         // ---- Section 1: home + the unified 成绩 destination ----
+        // B5: the 成绩 root is its 差点估算 hero, present (with "—") before the stats load.
+        let resultsRoot = app.descendants(matching: .any)["results-handicap"]
         launchFresh()
         let resultsTile = app.buttons.matching(
             NSPredicate(format: "label CONTAINS %@", "成绩")
@@ -201,19 +203,19 @@ final class RealFlowUITests: XCTestCase {
         )
         XCTAssertTrue(resultsTile.isHittable, "the loaded home results tile must be tappable")
         resultsTile.tap()
-        XCTAssertTrue(app.staticTexts["我的高尔夫生涯"].waitForExistence(timeout: 15))
+        XCTAssertTrue(resultsRoot.waitForExistence(timeout: 15))
         settle(3); save("02-results"); dump("02-results")
-        XCTAssertTrue(scrollAndTapContaining(["时间趋势", "近 10 / 20 场"]))
-        XCTAssertTrue(app.navigationBars["时间趋势"].waitForExistence(timeout: 10))
+        XCTAssertTrue(scrollAndTapContaining(["时间与频率"]))
+        XCTAssertTrue(app.navigationBars["时间与频率"].waitForExistence(timeout: 10))
         settle(4); save("02b-trends"); dump("02b-trends")
         // Performance is now a first-screen feature destination above the trend/library rows.
         // Relaunch from a known top position instead of inheriting the old trend-row scroll offset
         // and swiping in the wrong direction after Back.
         launchFresh()
         let reopenedResults = tapContaining(["成绩", "球局 · 统计"])
-            && app.staticTexts["我的高尔夫生涯"].waitForExistence(timeout: 15)
+            && resultsRoot.waitForExistence(timeout: 15)
         XCTAssertTrue(reopenedResults, "the real home must reopen the Garmin-style activity surface")
-        XCTAssertTrue(scrollAndTapContaining(["表现分析", "四阶段空间分析"]))
+        XCTAssertTrue(scrollAndTapContaining(["表现分析"]))
         XCTAssertTrue(app.navigationBars["表现分析"].waitForExistence(timeout: 10))
         settle(5); save("02c-analysis"); dump("02c-analysis")
 
@@ -224,9 +226,9 @@ final class RealFlowUITests: XCTestCase {
         // receives its tap. Do not start swiping the old home ScrollView while the results page is
         // entering; wait for the same live-data root marker already proved in Section 1.
         let resultsReady = openedResults
-            && app.staticTexts["我的高尔夫生涯"].waitForExistence(timeout: 15)
+            && resultsRoot.waitForExistence(timeout: 15)
         let enteredHistory = resultsReady
-            && scrollAndTapContaining(["全部球局", "搜索 · 年份"])
+            && scrollAndTapContaining(["场 ›", "全部球局 ›"])
         XCTAssertTrue(enteredHistory, "the real home must expose 成绩 and its complete archive")
         if enteredHistory {
             settle(6); save("03-history-list"); dump("03-history-list")

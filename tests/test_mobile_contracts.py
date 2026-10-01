@@ -4000,33 +4000,35 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn("/api/v2/history/stats/mobile", sync_client)
         self.assertIn("struct StatsView: View", stats_view)
-        self.assertIn(
-            '.fetchMobileStats(window: mode == .analysis ? window : "all")',
-            stats_view,
-        )
-        self.assertIn('resultFeatureDestination("表现分析"', results_view)
-        self.assertIn(
-            "StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken, mode: .analysis)",
-            results_view,
-        )
-        # round-9 D: trend line chart + per-course drill-in (各九洞); 得分构成 dropped, byPar filtered 3-5.
+        # B5 表现分析 (README §9): one request per window, carrying its previous comparable period
+        # (no serial whole-history request); only the current request generation writes back.
+        self.assertIn("try? await client.fetchMobileStats(window: request.window)", stats_view)
+        self.assertIn("load.complete(request, stats: stats)", stats_view)
+        self.assertNotIn('fetchMobileStats(window: "all")', stats_view)
+        self.assertIn("baseline: ResultsPresentation.baseline(stats)", stats_view)
+        self.assertIn("ResultsPresentation.analysis(stats, baseline: baseline)", stats_view)
+        self.assertNotIn("Picker(\"击球阶段\"", stats_view)
+        # B5 成绩: handicap hero, 20-round dots + 10-round average, four entries.
+        self.assertIn("ResultsPresentation.trendRows(", results_view)
+        for title in ("表现分析", "时间与频率", "成绩分布", "球场"):
+            self.assertIn(f'entry("{title}"', results_view)
+        self.assertIn("StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken)", results_view)
+        self.assertIn("ScoreDistributionView(stats: stats", results_view)
+        # round-9 D: per-course drill-in (各九洞) stays.
         self.assertIn("struct StatsTrend", mobile_stats_model)
         self.assertIn("nineBreakdown", mobile_stats_model)
-        self.assertIn("import Charts", stats_view)
-        self.assertIn("func trendCard(", stats_view)
         self.assertIn("struct CourseStatsDetailView", stats_view)
         self.assertNotIn("得分构成", stats_view)
-        # round-13 E6: iPhone consumes the GolfLive compact stats — 7-bucket 成绩构成 +
-        # 表现统计 (phaseStats). Model decodes the new sections; the view renders the cards.
+        # GolfLive compact stats sections plus the B0d-1 fields the B5 screens read.
         self.assertIn("struct StatsOutcomeBucket", mobile_stats_model)
         self.assertIn("outcomeDistribution", mobile_stats_model)
         self.assertIn("struct StatsPhase", mobile_stats_model)
         self.assertIn("phaseStats", mobile_stats_model)
         self.assertIn("teeDirection", mobile_stats_model)
         self.assertIn("approachMiss", mobile_stats_model)
-        self.assertIn("func spreadCard(", stats_view)
-        self.assertIn("func phaseCard(", stats_view)
-        self.assertIn("成绩构成", stats_view)
+        for field in ("scrambling", "penalties", "roundSequences", "loops", "nineCombos", "hardestHoles",
+                      "threePlusPuttPct"):
+            self.assertIn(field, mobile_stats_model)
         # 球杆设置(Garmin 标准球包): the live picker uses only the configured bag — no fake clubs.
         club_bag = _read_required_source(self, IOS_DIR / "Views" / "ClubBag.swift")
         club_settings = _read_required_source(self, IOS_DIR / "Views" / "ClubSettingsView.swift")

@@ -445,6 +445,8 @@ class MobileStatsResponse(BaseModel):
 
     schema_: Literal["ai-caddie-mobile-stats-v1"] = Field(alias="schema")
     dataMode: str | None = None
+    # B5 表现分析: the previous comparable period's phase stats (null for ``all`` / no rounds).
+    previous: dict[str, Any] | None = None
     summary: dict[str, Any] = Field(default_factory=dict)
     time: dict[str, Any] = Field(default_factory=dict)
     trend: dict[str, Any] = Field(default_factory=dict)

@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 
 from ai_caddie.history.history import OWNER_ID
-from ai_caddie.history.mobile_stats import build_mobile_stats
+from ai_caddie.history.mobile_stats import PREVIOUS_WINDOW, build_mobile_previous, build_mobile_stats
 from ai_caddie.history.stats_cache import cached_build_history_stats, cached_load_history_data
 
 from .data_source import load_history_data_for_mode
@@ -81,17 +81,25 @@ def load_mobile_stats_response(window: str = "all", *, player_id: str = OWNER_ID
     returns the raw dict so ``build_mobile_stats`` slices it with no second Pydantic pass.
     """
     data, mode = load_history_data_for_mode(player_id=player_id)
-    stats = cached_build_history_stats(
-        data,
-        data_mode=mode,
-        player_id=player_id,
-        annotations_root=ANNOTATION_ROOT,
-        weather_root=WEATHER_ROOT,
-        reports_root=REPORTS_ROOT,
-        decision_audit_root=DECISION_AUDIT_ROOT,
-        window=window,
-    )
-    return MobileStatsResponse(**build_mobile_stats(stats))
+
+    def build(selected: str) -> dict:
+        return cached_build_history_stats(
+            data,
+            data_mode=mode,
+            player_id=player_id,
+            annotations_root=ANNOTATION_ROOT,
+            weather_root=WEATHER_ROOT,
+            reports_root=REPORTS_ROOT,
+            decision_audit_root=DECISION_AUDIT_ROOT,
+            window=selected,
+        )
+
+    payload = build_mobile_stats(build(window))
+    # 表现分析 "和之前比": the previous comparable period rides in the same response (one RTT).
+    previous_window = PREVIOUS_WINDOW.get(window)
+    if previous_window is not None:
+        payload["previous"] = build_mobile_previous(build(previous_window), previous_window)
+    return MobileStatsResponse(**payload)
 
 
 def warm_stats_cache(player_id: str = OWNER_ID) -> None:
@@ -99,7 +107,8 @@ def warm_stats_cache(player_id: str = OWNER_ID) -> None:
 
     Calls the same cached accessors the request path uses: ``cached_load_history_data``
     (the ~2s read) and ``load_history_stats_response`` (the ~10s build, via
-    ``cached_build_history_stats``). Exactly FOUR windows are pre-warmed:
+    ``cached_build_history_stats``). Four windows are pre-warmed, plus the three previous-period
+    windows (prev10 / prev20 / prev12m) the mobile 表现分析 response compares against:
 
     * ``all``   — default for /history/stats, /caddie/context, and the mobile packages
     * ``last10`` — 趋势总览's default range; windowed build sees only 10 rounds (~0.1s extra)
@@ -119,6 +128,10 @@ def warm_stats_cache(player_id: str = OWNER_ID) -> None:
         load_history_stats_response(window="last10", player_id=player_id)
         load_history_stats_response(window="last20", player_id=player_id)
         load_history_stats_response(window="12m", player_id=player_id)
+        # B5 表现分析: each narrow window's mobile response also carries its previous comparable
+        # period (prev10 / prev20 / prev12m); build those too so the first analysis is a hit.
+        for window in PREVIOUS_WINDOW:
+            load_mobile_stats_response(window=window, player_id=player_id)
     except Exception:  # noqa: BLE001 - warming is best-effort and must not propagate
         logger.exception("stats cache warm failed")
 
