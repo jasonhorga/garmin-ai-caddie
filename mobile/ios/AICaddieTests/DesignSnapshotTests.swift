@@ -1065,6 +1065,47 @@ final class DesignSnapshotTests: XCTestCase {
             )
             XCTAssertFalse(Self.physicalViolations(detached).isEmpty, "the coherence check fails a detached \(yards) 码 header")
         }
+        // ... and the previous fraction-built plans, whose carries no one bag can play: the Par 5
+        // 稳妥 3W 152 → 5I 174 → 9I 218 码, the Par 4 稳妥 3H 164 → 7I 246 码, and one 1W carrying
+        // 223 码 in 推荐 but 282 码 in 进攻; and three club strings on one physical Par 3 route.
+        func yardPlan(_ id: String, _ legs: [(String, Int)], on hole: PrepHoleRow) -> PrepPlanOption? {
+            let length = hole.prep?.routeLenM ?? 0
+            var metres = legs.map { (club: $0.0, carryM: (Double($0.1) / 1.09361).rounded()) }
+            // Close the plan exactly so only its per-club facts can fail.
+            if let last = metres.indices.last {
+                metres[last].carryM = length.rounded() - metres.dropLast().reduce(0) { $0 + $1.carryM }
+            }
+            return PrepPlanOption.option(
+                route: PrepRouteFixtures.sequence(id: id, legs: metres, routeLengthM: length),
+                index: 0, par: hole.par ?? 4
+            )
+        }
+        func replanned(_ row: PrepHoleRow, _ plans: [PrepPlanOption?]) -> PrepHoleRow {
+            PrepHoleRow(
+                number: row.number, displayNumber: row.displayNumber, par: row.par, yards: row.yards,
+                prep: row.prep, topoURL: row.topoURL, state: row.state, plans: plans.compactMap { $0 }
+            )
+        }
+        let par5 = prepRows[0], par4 = prepRows[1], par3 = prepRows[2]
+        let impossible: [(String, PrepHoleRow)] = [
+            ("Par 5 3W 152 → 5I 174 → 9I 218", replanned(par5, [
+                yardPlan("safe", [("3W", 152), ("5I", 174), ("9I", 217)], on: par5),
+            ])),
+            ("Par 4 3H 164 → 7I 246", replanned(par4, [yardPlan("safe", [("3H", 164), ("7I", 246)], on: par4)])),
+            ("1W 223 vs 282", replanned(par5, [
+                yardPlan(LiveCaddieRouteAuthority.installedRouteId, [("1W", 223), ("3W", 206), ("SW", 114)], on: par5),
+                yardPlan("attack", [("1W", 282), ("3W", 261)], on: par5),
+            ])),
+            ("Par 3 7I / 8I / 9I on one route", replanned(par3, [
+                yardPlan(LiveCaddieRouteAuthority.installedRouteId, [("8I", 178)], on: par3),
+                yardPlan("safe", [("7I", 178)], on: par3),
+                yardPlan("attack", [("9I", 178)], on: par3),
+            ])),
+        ]
+        for (name, row) in impossible {
+            XCTAssertFalse(row.plans.isEmpty, "fixture: \(name) builds")
+            XCTAssertFalse(Self.physicalViolations(row).isEmpty, "the plan check fails \(name)")
+        }
         XCTAssertEqual(prepRows[0].plans.map(\.title), ["推荐", "稳妥", "进攻"])
         // Every stroke of the Par 5 plan is in the club order: tee shot, second shot, approach.
         XCTAssertEqual(prepRows[0].plans[0].steps.count, 3)
@@ -1802,6 +1843,30 @@ final class DesignSnapshotTests: XCTestCase {
         }
         if let middle = prep.greenDistances?.middleM, abs(middle - overlay.ln) > 0.5 {
             violations.append("green middle \(middle) m vs route end \(overlay.ln) m")
+        }
+        // One player bag (Codex 5922420253): every stroke carries its club's stock distance within
+        // tolerance, so a club carries the same in every option and a shorter club never carries
+        // a longer club's distance; and no two options are the same physical route.
+        for plan in row.plans {
+            for shot in plan.shots {
+                guard let stock = PrepRouteFixtures.stockCarry(shot.clubName) else {
+                    violations.append("\(plan.title): \(shot.clubName) is not in the bag")
+                    continue
+                }
+                if let carry = shot.carryM, abs(carry - stock) > PrepRouteFixtures.carryToleranceM {
+                    violations.append("\(plan.title): \(shot.clubName) carries \(carry) m, its stock is \(stock) m")
+                }
+            }
+        }
+        for (index, plan) in row.plans.enumerated() {
+            let landings = plan.shots.compactMap(\.routeOffsetM)
+            for other in row.plans.prefix(index) {
+                let otherLandings = other.shots.compactMap(\.routeOffsetM)
+                if otherLandings.count == landings.count,
+                   zip(otherLandings, landings).allSatisfy({ abs($0 - $1) < PrepRouteFixtures.distinctLandingM }) {
+                    violations.append("\(plan.title) is the same route as \(other.title)")
+                }
+            }
         }
         for plan in row.plans {
             if let end = plan.shots.last?.routeOffsetM, abs(end - overlay.ln) > 1 {

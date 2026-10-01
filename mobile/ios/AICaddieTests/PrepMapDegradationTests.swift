@@ -509,10 +509,10 @@ final class PrepMapDegradationTests: XCTestCase {
     /// The CI fixture's real prep hole (`server_v2/ci_fixture.py`): a 64 x 64 px square topo with
     /// the route running corner to corner, the shape Codex saw cropped in the real screenshots.
     private func squareDiagonalPrep(par: Int) throws -> CoursePrepHole {
-        // One physical hole (`PrepRouteFixtures.hole`): 410 码 whose corner-to-corner route is
-        // its pixel length over one ppm.
+        // One physical hole (`PrepRouteFixtures.hole`): a Par 4 of 410 码 or a Par 5 of 543 码 whose
+        // corner-to-corner route is its pixel length over one ppm.
         try PrepRouteFixtures.hole(
-            number: 1, par: par, yards: 410,
+            number: 1, par: par, yards: par >= 5 ? 543 : 410,
             pixels: [CGPoint(x: 0, y: 0), CGPoint(x: 64, y: 64)], width: 64, height: 64,
             imageDataURI: nil, coverage: "ready", revision: "fixture-r1"
         )

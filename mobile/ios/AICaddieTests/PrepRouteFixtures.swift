@@ -4,64 +4,101 @@ import Foundation
 
 /// Shared 备战 plan fixtures for the design snapshots and the prep layout tests.
 enum PrepRouteFixtures {
+    /// The one player bag every 备战 fixture plan is played with: each club's stock carry in metres
+    /// (Codex 5922420253). Adjacent carries are at most 14 m apart, so a remaining distance in the
+    /// bag's range always has a club within `carryToleranceM`.
+    static let bag: [(club: String, carryM: Double)] = [
+        ("1W", 220), ("3W", 210), ("5W", 196), ("3H", 184), ("4H", 172), ("5I", 161), ("6I", 150),
+        ("7I", 139), ("8I", 127), ("9I", 115), ("PW", 102), ("GW", 88), ("SW", 74), ("LW", 60),
+    ]
+    /// How far a stroke's carry may differ from its club's stock carry: only the green-bound
+    /// stroke uses it, to finish the route exactly.
+    static let carryToleranceM = 8.0
+    /// Two plans with the same stroke count are the same route unless some landing differs by this.
+    static let distinctLandingM = 15.0
+
+    static func stockCarry(_ club: String) -> Double? {
+        bag.first { $0.club.caseInsensitiveCompare(club) == .orderedSame }?.carryM
+    }
+
     /// 备战 fixture plans with the real strategy identities (the installed chain → 推荐, safe → 稳妥,
-    /// attack → 进攻) and genuinely different carries and landing stations. Stations are cumulative
-    /// fractions of the route; the last leg of each plan is its green-bound scoring leg and ends at
-    /// the route's end (1.0), so every plan is a physically complete hole. On a Par 3 the plans are
-    /// the same one-stroke route with a different club (推荐 8I, 稳妥 a smoother 7I, 进攻 9I).
+    /// attack → 进攻), played with `bag`: every stroke before the last carries its club's stock
+    /// distance; the last, green-bound stroke reaches the route's end with the club whose stock
+    /// carry is nearest the remaining distance (never the tee-only driver). A strategy whose
+    /// remaining distance no club covers within tolerance is not offered, and a plan that lands
+    /// where an earlier one does is the same physical route and is dropped.
     static func routes(par: Int, routeLengthM: Double) -> [CaddiePlanSequence] {
-        let plans: [(id: String, clubs: [String], stations: [Double])]
+        let strategies: [(id: String, clubs: [String])]
         switch par {
         case 3:
-            plans = [
-                (LiveCaddieRouteAuthority.installedRouteId, ["8I"], [1]),
-                ("safe", ["7I"], [1]),
-                ("attack", ["9I"], [1]),
-            ]
+            // One stroke to the green: every club choice is the same physical route.
+            strategies = [(LiveCaddieRouteAuthority.installedRouteId, [])]
         case 4:
-            plans = [
-                (LiveCaddieRouteAuthority.installedRouteId, ["1W", "8I"], [0.55, 1]),
-                ("safe", ["3H", "7I"], [0.4, 1]),
-                ("attack", ["1W", "PW"], [0.68, 1]),
+            strategies = [
+                (LiveCaddieRouteAuthority.installedRouteId, ["1W"]),
+                // An iron off the tee and a lay-up: a short wedge in, short of the trouble.
+                ("safe", ["5I", "7I"]),
             ]
         default:
-            plans = [
-                (LiveCaddieRouteAuthority.installedRouteId, ["1W", "3W", "SW"], [0.41, 0.79, 1]),
-                ("safe", ["3W", "5I", "9I"], [0.28, 0.6, 1]),
-                ("attack", ["1W", "3W"], [0.52, 1]),
+            strategies = [
+                (LiveCaddieRouteAuthority.installedRouteId, ["1W", "5I"]),
+                ("safe", ["7I", "5I"]),
+                ("attack", ["1W", "5W"]),
             ]
         }
-        return plans.map { plan -> CaddiePlanSequence in
-            var previous = 0.0
-            let steps = plan.stations.enumerated().map { index, station -> CaddiePlanSequenceStep in
-                let offset = (routeLengthM * station).rounded()
-                let carry = offset - previous
-                previous = offset
-                let isLast = index == plan.stations.count - 1
-                return CaddiePlanSequenceStep(
-                    id: "\(plan.id)-\(index)",
-                    role: isLast ? "scoring" : (index == 0 ? "tee" : "position"),
-                    clubName: plan.clubs[min(index, plan.clubs.count - 1)],
-                    targetCarryM: carry,
-                    expectedRemainingM: isLast ? 0 : routeLengthM - offset,
-                    sampleSize: 12,
-                    confidence: "medium",
-                    sourceRefs: [],
-                    routeOffsetM: offset,
-                    planIndex: index
-                )
+        let end = routeLengthM.rounded()
+        var kept: [CaddiePlanSequence] = []
+        for strategy in strategies {
+            var legs: [(club: String, carryM: Double)] = strategy.clubs.compactMap { club in
+                stockCarry(club).map { (club, $0) }
             }
-            return CaddiePlanSequence(
-                id: plan.id,
-                label: plan.clubs.joined(separator: "-"),
-                expectedRemainingM: 0,
-                riskScore: nil,
+            let laidUp = legs.reduce(0) { $0 + $1.carryM }
+            let remaining = end - laidUp
+            guard let scoring = bag.filter({ $0.club != "1W" })
+                .min(by: { abs($0.carryM - remaining) < abs($1.carryM - remaining) }),
+                  abs(scoring.carryM - remaining) <= carryToleranceM else { continue }
+            legs.append((scoring.club, remaining))
+            let route = sequence(id: strategy.id, legs: legs, routeLengthM: routeLengthM)
+            let landings = route.steps.compactMap(\.routeOffsetM)
+            let duplicate = kept.contains { other in
+                let otherLandings = other.steps.compactMap(\.routeOffsetM)
+                return otherLandings.count == landings.count
+                    && zip(otherLandings, landings).allSatisfy { abs($0 - $1) < distinctLandingM }
+            }
+            if !duplicate { kept.append(route) }
+        }
+        return kept
+    }
+
+    /// One plan from explicit strokes (club, carry in metres), landing at the cumulative carries.
+    static func sequence(id: String, legs: [(club: String, carryM: Double)], routeLengthM: Double) -> CaddiePlanSequence {
+        var offset = 0.0
+        let steps = legs.enumerated().map { index, leg -> CaddiePlanSequenceStep in
+            offset += leg.carryM
+            let isLast = index == legs.count - 1
+            return CaddiePlanSequenceStep(
+                id: "\(id)-\(index)",
+                role: isLast ? "scoring" : (index == 0 ? "tee" : "position"),
+                clubName: leg.club,
+                targetCarryM: leg.carryM,
+                expectedRemainingM: isLast ? 0 : routeLengthM - offset,
+                sampleSize: 12,
                 confidence: "medium",
-                coverageText: nil,
                 sourceRefs: [],
-                steps: steps
+                routeOffsetM: offset,
+                planIndex: index
             )
         }
+        return CaddiePlanSequence(
+            id: id,
+            label: legs.map(\.club).joined(separator: "-"),
+            expectedRemainingM: 0,
+            riskScore: nil,
+            confidence: "medium",
+            coverageText: nil,
+            sourceRefs: [],
+            steps: steps
+        )
     }
 
     /// One physically coherent 备战 hole (Codex 5921831209): the displayed Blue yardage, `route_len_m`,
@@ -123,8 +160,8 @@ enum PrepRouteFixtures {
             (Double(hypot(point.x - tee.x, point.y - tee.y)) / ppm * 10).rounded() / 10
         }
         let route = routes(par: par, routeLengthM: length)
-        let installed = route.first { $0.id == LiveCaddieRouteAuthority.installedRouteId } ?? route[0]
-        let steps: [[String: Any]] = installed.steps.map { step in
+        let installed = route.first { $0.id == LiveCaddieRouteAuthority.installedRouteId } ?? route.first
+        let steps: [[String: Any]] = (installed?.steps ?? []).map { step in
             var row: [String: Any] = [
                 "club": step.clubName,
                 "clubName": step.clubName,
