@@ -689,11 +689,11 @@ public struct WatchRoundContainerView: View {
         Self.planNote(caddieOption(s), stateRemainingM: s.caddieOptions.isEmpty ? s.expectedRemainingM : nil)
     }
 
-    /// The club tag's note for the current, selected plan: what its last shot leaves, so it follows
-    /// a plan switch and the shots already played. The decision's own `expectedRemainingM` (its
-    /// selected sequence as made) is only used on a hole without plans.
+    /// The club tag names the next shot's club (README §3), so its note is what that shot leaves:
+    /// the current, selected plan's first step. It follows a plan switch and the shots already
+    /// played. The decision's own `expectedRemainingM` is only used on a hole without plans.
     static func planNote(_ option: WatchCaddieOption?, stateRemainingM: Double?) -> String {
-        let remainingM = option.map { $0.plan?.last?.expectedRemainingM } ?? stateRemainingM
+        let remainingM = option.map { $0.plan?.first?.expectedRemainingM } ?? stateRemainingM
         if let remaining = remainingM, remaining.isFinite, remaining >= 0 {
             if remaining <= 10 { return "攻果岭" }
             return "留\(WatchUnits.yards(remaining))码"

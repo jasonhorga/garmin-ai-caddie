@@ -5423,7 +5423,14 @@ class WatchHolePagesContractTests(unittest.TestCase):
         self.assertIn("let shots = knownShotEventIds(for: state.hole)", model)
         # The phone's current shot set travels with every snapshot, newest wins, kept per hole.
         self.assertIn("phoneShotEventIds: recordedShotEventIds", hole_view)
-        self.assertIn("if sets[index].asOf <= incoming.asOf { sets[index] = incoming }", model)
+        # Snapshot order (a strict revision) is applied before the hole state is replaced.
+        receive = model[model.index("public func receivePhoneState("):]
+        self.assertLess(
+            receive.index("revision <= lastApplied.revision"),
+            receive.index("store.upsertHoleState(merged"),
+        )
+        self.assertIn("snapshotRevision: nextSnapshotRevision()", bridge)
+        self.assertIn("phoneShots: retainedPhoneShots", model)
         # Menu 球童 consumes the same current projection; no raw-decision fallback once plans exist.
         available = model[model.index("public var caddieDetailAvailable: Bool {"):]
         available = available[: available.index("public var hazardDetailAvailable")]
@@ -5440,6 +5447,63 @@ class WatchHolePagesContractTests(unittest.TestCase):
         ui = (Path("mobile") / "ios" / "AICaddieWatchUITests" / "WatchHolePagesUITests.swift").read_text(encoding="utf-8")
         self.assertIn("standalone-course-page-plan-after-tee", ui)
         self.assertIn("tag.tap()", ui)
+
+    def test_the_watch_state_schema_covers_every_field_the_phone_encodes(self) -> None:
+        """Strict schema vs the Swift payload: every stored property the phone encodes is declared."""
+        import re
+
+        bridge = (Path("mobile") / "ios" / "AICaddie" / "Services" / "WatchEventBridge.swift").read_text(encoding="utf-8")
+
+        def encoded(struct: str) -> set[str]:
+            match = re.search(r"public struct " + struct + r"\b[^{]*\{(.*?)\n\}", bridge, re.S)
+            self.assertIsNotNone(match, struct)
+            props = re.findall(r"^    public (?:let|var) (\w+)\s*:\s*([^\n]+)", match.group(1), re.M)
+            # Computed properties (`{ ... }`) are not encoded.
+            return {name for name, rest in props if "{" not in rest}
+
+        schema = _load_schema("watch_round_state.schema.json")
+        top = schema["properties"]
+        option = top["caddieOptions"]["items"]
+        nodes = {
+            "WatchRoundStatePayload": top,
+            "WatchCaddieOption": option["properties"],
+            "WatchCaddiePlanStep": option["properties"]["plan"]["items"]["properties"],
+            "WatchHazard": top["hazards"]["items"]["properties"],
+            "WatchRootCaddieRecommendationPayload": top["rootCaddieRecommendation"]["properties"],
+            "WatchHoleMap": top["holeMap"]["properties"],
+        }
+        for struct, properties in nodes.items():
+            self.assertEqual(set(), encoded(struct) - set(properties), f"{struct} fields missing from the schema")
+
+        # A B6-shaped payload (the new fields included) passes strict validation.
+        state = {
+            "schema": "ai-caddie-watch-round-state-v1",
+            "roundId": "round-1", "hole": 1, "par": 5, "availableClubs": [],
+            "decisionId": "d1",
+            "caddieOptions": [{
+                "optionId": "stock", "label": "标准", "clubName": "3W", "carryM": 190.0,
+                "plan": [
+                    {"clubName": "3W", "carryM": 190.0, "routeOffsetM": 190.0, "expectedRemainingM": 170.0, "role": "advance", "planIndex": 0},
+                    {"clubName": "8I", "carryM": 128.0, "routeOffsetM": 318.0, "expectedRemainingM": 12.0, "role": "scoring", "planIndex": 1},
+                ],
+                "confidence": "high", "routeOffsetBasis": "shot", "originShotEventIds": ["p1"],
+            }],
+            "hazards": [{
+                "kind": "water", "label": "前方水障碍", "startM": 330.0, "endM": 372.0, "sideM": -4.0,
+                "frontDistanceM": 330.0, "backDistanceM": 372.0, "frontPx": [522.0, 528.0], "backPx": [508.0, 468.0],
+                "outlinePx": [[522.0, 528.0], [531.0, 516.0], [508.0, 468.0]],
+            }],
+            "holeMap": {
+                "w": 1000, "h": 1000, "you": [500.0, 900.0], "pin": [500.0, 100.0], "layup": [500.0, 500.0],
+                "apex": [500.0, 700.0], "greenCtrl": [500.0, 300.0],
+                "route": [[500.0, 900.0, 0.0], [500.0, 100.0, 400.0]], "greenOutline": [[490.0, 90.0], [510.0, 90.0], [500.0, 110.0]],
+            },
+            "score": 5, "putts": 2, "penaltyCount": 0, "caddieConfidence": "high",
+            "phoneShotEventIds": ["p1"], "snapshotRevision": 1790000000000,
+        }
+        _assert_json_schema_accepts(self, schema, state)
+        bad = dict(state, caddieOptions=[dict(state["caddieOptions"][0], routeOffsetBasis="green")])
+        _assert_json_schema_rejects(self, schema, bad)
 
     def test_score_wheels_roll_inside_their_chip(self) -> None:
         score = self.read("Views/WatchScoreHoleView.swift")

@@ -870,6 +870,9 @@ public final class WatchRoundModel: ObservableObject {
                 placement.matches(hole: state.hole, globalId: state.globalId)
             }
         }
+        // The phone's shots and snapshot order are round-owned: a same-round seed never forgets
+        // them (that would bring a played plan back).
+        let retainedPhoneShots = existing?.phoneShots?.filter { holeNumbers.contains($0.hole) }
         let persisted = WatchRoundStore.PersistedRound(
             roundId: seed.roundId,
             activeHole: activeHole,
@@ -882,7 +885,8 @@ public final class WatchRoundModel: ObservableObject {
             pendingManualShot: retainedManualShot,
             pendingAutoShotCandidate: existing?.pendingAutoShotCandidate,
             scoreDraft: retainedScoreDraft,
-            greenPlacements: retainedGreenPlacements
+            greenPlacements: retainedGreenPlacements,
+            phoneShots: retainedPhoneShots
         )
         guard persisted.hasValidIdentity else { return }
         try? store.save(persisted)
@@ -917,6 +921,12 @@ public final class WatchRoundModel: ObservableObject {
               !store.isClosed(roundId: state.roundId) else {
             return
         }
+        // Order before anything is replaced: a snapshot not newer than the last one applied to this
+        // hole (a late transferUserInfo delivery, a duplicate) never rolls back its state.
+        let lastApplied = current.phoneShots?.first { $0.hole == state.hole }
+        if let revision = state.snapshotRevision, let lastApplied, revision <= lastApplied.revision {
+            return
+        }
         var merged = current.pendingEvents.reduce(state) { partial, event in
             partial.applying(event)
         }
@@ -933,20 +943,16 @@ public final class WatchRoundModel: ObservableObject {
         guard var persisted = try? store.upsertHoleState(merged, makeActive: false) else {
             return
         }
-        // The phone's current shots on this hole, newest snapshot wins (a late, older snapshot
-        // never rolls it back; a phone shot deleted later leaves the newer set).
-        if let ids = state.phoneShotEventIds {
-            let incoming = WatchPhoneShotSet(hole: state.hole, eventIds: ids, asOf: state.phoneShotsAsOf ?? "")
-            var sets = persisted.phoneShots ?? []
-            if let index = sets.firstIndex(where: { $0.hole == state.hole }) {
-                if sets[index].asOf <= incoming.asOf { sets[index] = incoming }
-            } else {
-                sets.append(incoming)
-            }
-            if sets != persisted.phoneShots {
-                persisted.phoneShots = sets
-                try? store.save(persisted)
-            }
+        // This snapshot is now the newest applied to the hole: record its revision and the phone's
+        // current shots (a phone shot deleted later leaves the newer, smaller set).
+        if let revision = state.snapshotRevision {
+            let applied = WatchPhoneShotSet(
+                hole: state.hole,
+                eventIds: state.phoneShotEventIds ?? lastApplied?.eventIds ?? [],
+                revision: revision
+            )
+            persisted.phoneShots = (persisted.phoneShots ?? []).filter { $0.hole != state.hole } + [applied]
+            try? store.save(persisted)
         }
         self.round = persisted
     }

@@ -487,10 +487,13 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let penaltyCount: Int
     public let caddieConfidence: String
     /// The hole's shots the phone holds as this snapshot is sent, by location event id (phone shots,
-    /// and Watch shots under their Watch ids), with when it was read. Separate from a decision's
-    /// origin: a shot recorded only on the phone after a decision still makes that decision stale.
+    /// and Watch shots under their Watch ids). Separate from a decision's origin: a shot recorded
+    /// only on the phone after a decision still makes that decision stale.
     public var phoneShotEventIds: [String]? = nil
-    public var phoneShotsAsOf: String? = nil
+    /// Strictly increasing per phone (`WatchEventBridge.nextSnapshotRevision`): the Watch applies a
+    /// hole snapshot only if it is newer than the last one it applied, so a late (transferUserInfo)
+    /// snapshot never rolls back a newer decision or shot set.
+    public var snapshotRevision: Int64? = nil
 }
 
 public enum WatchEventBridgeError: Error {
@@ -601,8 +604,7 @@ public final class WatchEventBridge: NSObject {
         caddieOptions: [WatchCaddieOption] = [],
         hazards: [WatchHazard] = [],
         decisionOriginShotEventIds: [String]? = nil,
-        phoneShotEventIds: [String]? = nil,
-        phoneShotsAsOf: String? = nil
+        phoneShotEventIds: [String]? = nil
     ) -> WatchRoundStatePayload {
         let selected = selectedOption(from: decision)
         let offlineSelected = selectedOfflineOption(from: offlineOption)
@@ -682,8 +684,18 @@ public final class WatchEventBridge: NSObject {
             penaltyCount: penaltyCount,
             caddieConfidence: confidenceLevel(from: decision, offlineOption: offlineSelected),
             phoneShotEventIds: phoneShotEventIds,
-            phoneShotsAsOf: phoneShotsAsOf
+            snapshotRevision: nextSnapshotRevision()
         )
+    }
+
+    private var lastSnapshotRevision: Int64 = 0
+
+    /// Milliseconds since 1970, bumped past the previous value: strictly increasing even for two
+    /// snapshots in the same millisecond, and still ahead after an app relaunch.
+    func nextSnapshotRevision(now: Date = Date()) -> Int64 {
+        let millis = Int64((now.timeIntervalSince1970 * 1000).rounded(.down))
+        lastSnapshotRevision = max(millis, lastSnapshotRevision + 1)
+        return lastSnapshotRevision
     }
 
     public func makeWatchRoundSeedPayload(

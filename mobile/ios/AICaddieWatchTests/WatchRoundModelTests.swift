@@ -830,12 +830,17 @@ final class WatchRoundModelTests: XCTestCase {
         _ plan: [WatchCaddiePlanStep],
         originShotEventIds: [String]?,
         phoneShots: [String]? = nil,
-        phoneShotsAsOf: String? = nil
+        revision: Int64? = nil,
+        roundId: String = "r1",
+        globalId: Int? = nil
     ) -> WatchRoundState {
         WatchRoundState(
-            roundId: "r1", hole: 1, par: 4, distanceM: 400,
+            roundId: roundId, hole: 1, par: 4, distanceM: 400,
             selectedClub: nil,
             decisionId: decisionId,
+            globalId: globalId,
+            sourceLocalHole: globalId == nil ? nil : 1,
+            courseHoleNumber: globalId == nil ? nil : 1,
             caddieOptions: [
                 WatchCaddieOption(
                     optionId: "stock", label: "一号木", clubName: plan.first?.clubName,
@@ -845,7 +850,7 @@ final class WatchRoundModelTests: XCTestCase {
                 ),
             ],
             score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "high",
-            phoneShotEventIds: phoneShots, phoneShotsAsOf: phoneShotsAsOf
+            phoneShotEventIds: phoneShots, snapshotRevision: revision
         )
     }
 
@@ -916,39 +921,82 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(restored.currentCaddieOptions(progressM: 380).first?.plan?.map(\.clubName), ["PW"])
     }
 
+    private let teePlan = [
+        WatchCaddiePlanStep(clubName: "1W", carryM: 220, routeOffsetM: 220, expectedRemainingM: 180),
+        WatchCaddiePlanStep(clubName: "8I", carryM: 140, routeOffsetM: 360, expectedRemainingM: 40),
+    ]
+
     func testAShotRecordedOnlyOnThePhoneRetiresTheOlderDecision() throws {
         let store = makeStore()
         let model = WatchRoundModel(store: store, makeEventId: sequentialIds(), now: { "2026-06-20T00:00:00Z" })
         model.seedRound([hole(1), hole(2)], activeHole: 1)
-        let plan = [
-            WatchCaddiePlanStep(clubName: "1W", carryM: 220, routeOffsetM: 220),
-            WatchCaddiePlanStep(clubName: "8I", carryM: 140, routeOffsetM: 360),
-        ]
-        model.receivePhoneState(liveDecisionState("d0", plan, originShotEventIds: [], phoneShots: [], phoneShotsAsOf: "2026-10-02T12:00:00Z"))
+        model.receivePhoneState(liveDecisionState("d0", teePlan, originShotEventIds: [], phoneShots: [], revision: 100))
         XCTAssertEqual(model.currentCaddieOptions(progressM: 0).first?.plan?.first?.clubName, "1W")
 
         // The tee shot is recorded on the iPhone only; its next snapshot still carries d0 (the new
         // decision has not come back) but names the phone's current shots.
-        model.receivePhoneState(liveDecisionState("d0", plan, originShotEventIds: [], phoneShots: ["p1"], phoneShotsAsOf: "2026-10-02T12:01:00Z"))
+        model.receivePhoneState(liveDecisionState("d0", teePlan, originShotEventIds: [], phoneShots: ["p1"], revision: 101))
         XCTAssertEqual(model.currentCaddieOptions(progressM: 215).first?.plan?.map(\.clubName), ["8I"], "no Driver replay")
-
-        // An older snapshot delivered late does not roll the phone's shots back.
-        model.receivePhoneState(liveDecisionState("d0", plan, originShotEventIds: [], phoneShots: [], phoneShotsAsOf: "2026-10-02T12:00:30Z"))
-        XCTAssertEqual(model.currentCaddieOptions(progressM: 215).first?.plan?.map(\.clubName), ["8I"])
 
         // Relaunch from disk: still retired.
         let restored = WatchRoundModel(store: store)
         XCTAssertEqual(restored.currentCaddieOptions(progressM: 215).first?.plan?.map(\.clubName), ["8I"])
-
-        // The phone's decision made after p1 is drawn as made.
-        restored.receivePhoneState(liveDecisionState(
-            "d1", [WatchCaddiePlanStep(clubName: "8I", carryM: 140, routeOffsetM: 140)],
-            originShotEventIds: ["p1"], phoneShots: ["p1"], phoneShotsAsOf: "2026-10-02T12:02:00Z"
-        ))
-        XCTAssertEqual(restored.currentCaddieOptions(progressM: 215).first?.plan?.first?.routeOffsetM, 140)
     }
 
-    func testTheClubTagNoteFollowsTheCurrentSelectedPlan() {
+    func testAnOlderSnapshotArrivingLastNeverRollsBackTheNewerDecision() throws {
+        let store = makeStore()
+        let model = WatchRoundModel(store: store, makeEventId: sequentialIds(), now: { "2026-06-20T00:00:00Z" })
+        model.seedRound([hole(1), hole(2)], activeHole: 1)
+        let d1 = [WatchCaddiePlanStep(clubName: "7I", carryM: 150, routeOffsetM: 150, expectedRemainingM: 30)]
+        // d1 (made after the phone shot p1) arrives first; the older d0 snapshot, queued earlier
+        // through transferUserInfo, arrives last.
+        model.receivePhoneState(liveDecisionState("d1", d1, originShotEventIds: ["p1"], phoneShots: ["p1"], revision: 201))
+        model.receivePhoneState(liveDecisionState("d0", teePlan, originShotEventIds: [], phoneShots: [], revision: 200))
+        func assertD1(_ model: WatchRoundModel, _ message: String) {
+            XCTAssertEqual(model.activeHoleState?.decisionId, "d1", message)
+            let current = model.currentCaddieOptions(progressM: 220).first
+            XCTAssertEqual(current?.clubName, "7I", message)
+            XCTAssertEqual(current?.plan?.map(\.routeOffsetM), [150], message)
+        }
+        assertD1(model, "the newer decision, club and route stay")
+        // A duplicate of the applied revision is ignored too.
+        model.receivePhoneState(liveDecisionState("d0", teePlan, originShotEventIds: [], phoneShots: [], revision: 201))
+        assertD1(model, "a same-revision snapshot does not replace it")
+        assertD1(WatchRoundModel(store: store), "after a relaunch")
+    }
+
+    func testASameRoundSeedKeepsThePhoneShotsSoAPlayedPlanStaysRetired() throws {
+        let store = makeStore()
+        let model = WatchRoundModel(store: store, makeEventId: sequentialIds(), now: { "2026-06-20T00:00:00Z" })
+        let seed = WatchRoundSeed(
+            roundId: "seed-round",
+            courseName: "北京丽宫",
+            activeHole: 1,
+            holes: courseSeedHoles("31795:all", [
+                WatchRoundSeedHole(hole: 1, par: 4, distanceM: 365, globalId: 31795, localHole: 1, courseHoleNumber: 1),
+            ]),
+            globalId: 31795,
+            loopKey: "31795:all"
+        )
+        model.applyRoundSeed(seed)
+        XCTAssertNotNil(model.round)
+        model.receivePhoneState(liveDecisionState(
+            "d0", teePlan, originShotEventIds: [], phoneShots: ["p1"], revision: 300,
+            roundId: "seed-round", globalId: 31795
+        ))
+        XCTAssertEqual(model.currentCaddieOptions(progressM: 215).first?.plan?.map(\.clubName), ["8I"])
+
+        // The phone re-sends the same round's seed (activation, an added half, a refresh).
+        model.applyRoundSeed(seed)
+        XCTAssertEqual(model.round?.phoneShots?.first?.eventIds, ["p1"], "round-owned, kept")
+        XCTAssertEqual(model.currentCaddieOptions(progressM: 215).first?.plan?.map(\.clubName), ["8I"], "no Driver revival")
+        XCTAssertEqual(
+            WatchRoundModel(store: store).currentCaddieOptions(progressM: 215).first?.plan?.map(\.clubName), ["8I"],
+            "after a relaunch"
+        )
+    }
+
+    func testTheClubTagNoteDescribesTheNextShotOfTheCurrentSelectedPlan() {
         let stock = WatchCaddieOption(
             optionId: "stock", label: "标准",
             plan: [
@@ -962,15 +1010,22 @@ final class WatchRoundModelTests: XCTestCase {
             plan: [
                 WatchCaddiePlanStep(clubName: "3W", carryM: 190, routeOffsetM: 190, expectedRemainingM: 170),
                 WatchCaddiePlanStep(clubName: "7I", carryM: 130, routeOffsetM: 320, expectedRemainingM: 40),
+                WatchCaddiePlanStep(clubName: "SW", carryM: 40, routeOffsetM: 360, expectedRemainingM: 0),
             ],
             routeOffsetBasis: .tee, originShotEventIds: []
         )
-        // After the tee shot, on the advanced plan; the decision's own remaining (0) is not used.
-        let advanced = stock.remaining(fromProgressM: 220, watchShotEventIds: ["evt-2"])
-        XCTAssertEqual(advanced.clubName, "8I")
-        XCTAssertEqual(WatchRoundContainerView.planNote(advanced, stateRemainingM: 0), "留13码")
-        // Switching plan switches the note.
-        XCTAssertEqual(WatchRoundContainerView.planNote(safe, stateRemainingM: 0), "留44码")
+        func note(_ metres: Double) -> String { "留\(WatchUnits.yards(metres))码" }
+        // Before the tee shot: the Driver's own leave, not the plan's last.
+        XCTAssertEqual(WatchRoundContainerView.planNote(stock, stateRemainingM: 0), note(140))
+        // Switching plan switches the note to that plan's next shot.
+        XCTAssertEqual(WatchRoundContainerView.planNote(safe, stateRemainingM: 0), note(170))
+        // After the tee shot: single-step and multi-step remaining plans.
+        let stockAfter = stock.remaining(fromProgressM: 220, watchShotEventIds: ["evt-2"])
+        XCTAssertEqual(stockAfter.clubName, "8I")
+        XCTAssertEqual(WatchRoundContainerView.planNote(stockAfter, stateRemainingM: 0), note(12))
+        let safeAfter = safe.remaining(fromProgressM: 190, watchShotEventIds: ["evt-2"])
+        XCTAssertEqual(safeAfter.plan?.map(\.clubName), ["7I", "SW"])
+        XCTAssertEqual(WatchRoundContainerView.planNote(safeAfter, stateRemainingM: 0), note(40))
         // Only a hole without plans uses the decision's own remaining.
         XCTAssertEqual(WatchRoundContainerView.planNote(nil, stateRemainingM: 0), "攻果岭")
     }

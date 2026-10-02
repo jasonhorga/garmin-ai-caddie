@@ -591,10 +591,11 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let putts: Int
     public let penaltyCount: Int
     public let caddieConfidence: String
-    /// The phone's current shots on this hole when it sent this snapshot (by location event id)
-    /// and when it read them. Kept per hole in `PersistedRound.phoneShots`, newest wins.
+    /// The phone's current shots on this hole when it sent this snapshot (by location event id),
+    /// and the snapshot's strictly increasing revision. Kept per hole in `PersistedRound.phoneShots`;
+    /// a snapshot not newer than the last applied one is ignored whole.
     public let phoneShotEventIds: [String]?
-    public let phoneShotsAsOf: String?
+    public let snapshotRevision: Int64?
 
     enum CodingKeys: String, CodingKey {
         case schema
@@ -652,7 +653,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case penaltyCount
         case caddieConfidence
         case phoneShotEventIds
-        case phoneShotsAsOf
+        case snapshotRevision
     }
 
     public init(
@@ -710,7 +711,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         penaltyCount: Int,
         caddieConfidence: String,
         phoneShotEventIds: [String]? = nil,
-        phoneShotsAsOf: String? = nil
+        snapshotRevision: Int64? = nil
     ) {
         self.roundId = roundId
         self.hole = hole
@@ -766,7 +767,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.penaltyCount = penaltyCount
         self.caddieConfidence = caddieConfidence
         self.phoneShotEventIds = phoneShotEventIds
-        self.phoneShotsAsOf = phoneShotsAsOf
+        self.snapshotRevision = snapshotRevision
     }
 
     public init(from decoder: Decoder) throws {
@@ -831,7 +832,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.penaltyCount = try container.decode(Int.self, forKey: .penaltyCount)
         self.caddieConfidence = try container.decode(String.self, forKey: .caddieConfidence)
         self.phoneShotEventIds = try container.decodeIfPresent([String].self, forKey: .phoneShotEventIds)
-        self.phoneShotsAsOf = try container.decodeIfPresent(String.self, forKey: .phoneShotsAsOf)
+        self.snapshotRevision = try container.decodeIfPresent(Int64.self, forKey: .snapshotRevision)
     }
 
     public func replacingRoundId(_ newRoundId: String) -> WatchRoundState {
