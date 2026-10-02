@@ -122,8 +122,9 @@ The artifact root is
 and the #367 baseline used for comparison is
 `/home/jason/codex-runs/aicaddie-pr368-aa1ade2a-baseline-20261002T2215Z`.
 All current #368 design/Watch captures are byte-identical to the accepted B6
-baseline; the new experimental setting has no screenshot coverage. No review
-comment, approval, merge, or branch deletion has occurred.
+baseline; the new experimental setting has no screenshot coverage. Blocking
+Codex review comment `5962352533` is now published; no approval, merge, or
+branch deletion has occurred.
 
 The current head is blocked pending Claude's response to four production
 findings: (P1) speed is always passed as `nil`, so riding/cart filtering never
@@ -5445,9 +5446,9 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Publish the first Codex review comment on PR #368 at exact head
-   `aa1ade2a8091c62670a06e9ad12aa93e204901a8`, citing the four blocking
-   findings and their file/line locations. Do not approve or merge this head.
+1. Keep review comment `5962352533` attached to PR #368 at exact head
+   `aa1ade2a8091c62670a06e9ad12aa93e204901a8`; do not approve or merge this
+   head while its four blocking findings remain open.
 2. Keep the single `codex-pr-monitor-20260928` tmux monitor running. When Claude
    pushes a new head or replies, rebind all evidence to that exact SHA; rerun
    the focused homeserver suites, require green Source and Native Mobile CI,
@@ -5466,8 +5467,8 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 - PR #367 / B6 is merged and fully closed; it has no remaining P1/P2 or active
   review resource. PR #368 / B7 step 1 is open at exact head `aa1ade2a` with
-  green Source/Native CI and focused tests, but Codex has not yet posted the
-  review. The four production blockers are: missing real speed propagation;
+  green Source/Native CI and focused tests. Blocking review comment
+  `5962352533` is posted. The four production blockers are: missing real speed propagation;
   silent empty/interrupted sensor-batch handling; deferred phone closure that
   prevents pending Watch-candidate upload; and the absent capability,
   permission, workout-session, and battery-budget gate required by the plan.
