@@ -167,11 +167,29 @@ public struct WatchPlanLeg: Equatable {
 }
 
 enum WatchPlanLegs {
-    /// Every leg of `plan` from `origin` (the tee before the tee shot, else the player) along the
-    /// measured cumulative-metre route. A step's `routeOffsetM` is the planner's cumulative offset
-    /// from the decision origin (`decision.py` starts `travelled_m` at 0 for every decision), so it
-    /// lands at origin progress + offset when that lies ahead; otherwise carries accumulate. The
-    /// chain stops at the route end.
+    /// The legs still to play of `option` for a player at `origin` after `playedShots` shots on this
+    /// hole, whatever its offsets are measured from (`WatchRouteOffsetBasis`).
+    static func resolve(
+        option: WatchCaddieOption,
+        route: [[Double]],
+        origin: CGPoint,
+        playedShots: Int
+    ) -> [WatchPlanLeg] {
+        guard let progress = WatchHazardMapLayout.playerProgressMetres(on: route, playerImagePoint: origin) else {
+            return []
+        }
+        return resolve(
+            plan: option.remainingPlan(fromProgressM: progress, playedShots: playedShots),
+            route: route,
+            origin: origin
+        )
+    }
+
+    /// Every leg of a shot-relative `plan` (`WatchRouteOffsetBasis.shot`, see
+    /// `WatchCaddieOption.remainingPlan`) from `origin` (the tee before the tee shot, else the
+    /// player) along the measured cumulative-metre route. A step's `routeOffsetM` counts from
+    /// `origin`, so it lands at origin progress + offset when that lies ahead; otherwise carries
+    /// accumulate. The chain stops at the route end.
     static func resolve(plan: [WatchCaddiePlanStep], route: [[Double]], origin: CGPoint) -> [WatchPlanLeg] {
         guard route.count >= 2,
               let startProgress = WatchHazardMapLayout.playerProgressMetres(on: route, playerImagePoint: origin),

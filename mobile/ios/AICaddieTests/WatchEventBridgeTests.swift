@@ -237,6 +237,7 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(stock.label, "八号铁")
         XCTAssertEqual(stock.plan?.map(\.clubName), ["1D", "5I", "54"])
         XCTAssertEqual(stock.plan?.map(\.carryM), [245, 168, 94])
+        XCTAssertEqual(stock.routeOffsetBasis, .shot, "live decision offsets count from the player")
         XCTAssertEqual(stock.carryP10M, 132)
         XCTAssertEqual(stock.carryP90M, 153)
         XCTAssertEqual(stock.sampleSize, 24)

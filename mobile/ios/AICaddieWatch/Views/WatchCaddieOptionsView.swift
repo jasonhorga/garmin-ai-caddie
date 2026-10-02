@@ -245,15 +245,16 @@ public struct WatchCaddieOptionsView: View {
         route: [[Double]],
         geometry: WatchHoleMapGeometry
     ) -> [CGPoint] {
-        guard let plan = option.plan,
-              plan.count > 1,
+        guard let progress = WatchHazardMapLayout.playerProgressMetres(
+                on: route,
+                playerImagePoint: geometry.youPx
+              ) else { return [] }
+        // Offsets re-based on the player whatever the option's basis (`WatchRouteOffsetBasis`).
+        let plan = option.remainingPlan(fromProgressM: progress, playedShots: 0)
+        guard plan.count > 1,
               let firstCarry = plan.first?.routeOffsetM ?? plan.first?.carryM ?? option.carryM,
               firstCarry.isFinite,
               firstCarry > 0,
-              let progress = WatchHazardMapLayout.playerProgressMetres(
-                on: route,
-                playerImagePoint: geometry.youPx
-              ),
               var previous = WatchHazardMapLayout.imagePoint(
                 on: route,
                 atMetres: progress + firstCarry
@@ -297,7 +298,9 @@ public struct WatchCaddieOptionsView: View {
               ),
               let target = WatchHazardMapLayout.imagePoint(
                   on: route,
-                  atMetres: progress + (option.plan?.first?.routeOffsetM ?? carry)
+                  atMetres: progress + (
+                      option.remainingPlan(fromProgressM: progress, playedShots: 0).first?.routeOffsetM ?? carry
+                  )
               )
         else { return base }
 
@@ -332,7 +335,9 @@ public struct WatchCaddieOptionsView: View {
     }
 
     private func firstCarry(_ option: WatchCaddieOption) -> Double? {
-        option.plan?.first?.routeOffsetM ?? option.plan?.first?.carryM ?? option.carryM
+        // Only a live (shot-based) offset is a distance from the player.
+        (option.resolvedRouteOffsetBasis == .shot ? option.plan?.first?.routeOffsetM : nil)
+            ?? option.plan?.first?.carryM ?? option.carryM
     }
 
     static func clubChain(_ option: WatchCaddieOption, compact: Bool) -> String {

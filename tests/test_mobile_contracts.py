@@ -5395,6 +5395,14 @@ class WatchHolePagesContractTests(unittest.TestCase):
         hole_map = self.read("Views/WatchHoleMapView.swift")
         self.assertIn("landingM = startProgress + offset", hole_map)
         self.assertNotIn("landingM = offset\n", hole_map)
+        # Each producer says what its offsets count from; the Watch never guesses.
+        ios = Path("mobile") / "ios"
+        self.assertIn("routeOffsetBasis: .tee", (ios / "AICaddieWatch" / "Services" / "WatchCourseStore.swift").read_text(encoding="utf-8"))
+        self.assertIn("routeOffsetBasis: .shot", (ios / "AICaddie" / "Services" / "WatchEventBridge.swift").read_text(encoding="utf-8"))
+        for model in (ios / "AICaddieWatch" / "Models" / "WatchRoundState.swift", ios / "AICaddie" / "Services" / "WatchEventBridge.swift"):
+            self.assertIn("public let routeOffsetBasis: WatchRouteOffsetBasis?", model.read_text(encoding="utf-8"))
+        container = self.read("Views/WatchRoundContainerView.swift")
+        self.assertIn("playedShots: model.recordedShotCount", container)
 
     def test_score_wheels_roll_inside_their_chip(self) -> None:
         score = self.read("Views/WatchScoreHoleView.swift")

@@ -123,6 +123,17 @@ public struct WatchCaddiePlanStep: Codable, Equatable {
     }
 }
 
+/// What a plan step's `routeOffsetM` is measured from. The two producers differ, so every plan
+/// says which one it carries instead of leaving a consumer to guess (Codex review on #367).
+public enum WatchRouteOffsetBasis: String, Codable, Equatable {
+    /// Metres along the whole hole route from the tee: course prep (`course_prep.py`) and the
+    /// Watch's own offline plans.
+    case tee
+    /// Metres from the decision origin, i.e. where the player stood when the live decision was
+    /// made (`decision.py` starts `travelled_m` at 0 for every decision).
+    case shot
+}
+
 /// One AI-caddie route. Longitudinal p10/p90 are measured carry facts, not a fabricated lateral
 /// ellipse. Expected strokes stay absent until the product has a calibrated scoring model.
 public struct WatchCaddieOption: Codable, Equatable, Identifiable {
@@ -137,6 +148,8 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public let sampleSize: Int?
     public let plan: [WatchCaddiePlanStep]?
     public let confidence: String?
+    /// What `plan`'s route offsets are measured from; absent in payloads older than B6.
+    public let routeOffsetBasis: WatchRouteOffsetBasis?
 
     public init(
         optionId: String,
@@ -147,7 +160,8 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         carryP90M: Double? = nil,
         sampleSize: Int? = nil,
         plan: [WatchCaddiePlanStep]? = nil,
-        confidence: String? = nil
+        confidence: String? = nil,
+        routeOffsetBasis: WatchRouteOffsetBasis? = nil
     ) {
         self.optionId = optionId
         self.label = label
@@ -158,6 +172,39 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         self.sampleSize = sampleSize
         self.plan = plan
         self.confidence = confidence
+        self.routeOffsetBasis = routeOffsetBasis
+    }
+}
+
+extension WatchCaddieOption {
+    /// Payloads older than B6 carry no basis: the Watch's own offline plans (confidence "offline")
+    /// were tee-based, and everything the phone sends is a live decision.
+    var resolvedRouteOffsetBasis: WatchRouteOffsetBasis {
+        routeOffsetBasis ?? (confidence == "offline" ? .tee : .shot)
+    }
+
+    /// The shots still to play for a player `progressM` metres along the route after `playedShots`
+    /// shots on this hole, with every `routeOffsetM` re-based on that player (the live-decision
+    /// contract `WatchPlanLegs` draws). A live plan already is that. A tee-based plan drops the
+    /// shots already played, by count and by station, and keeps each remaining landing at its
+    /// original station instead of replaying the first shot from where the player now stands.
+    func remainingPlan(fromProgressM progressM: Double, playedShots: Int) -> [WatchCaddiePlanStep] {
+        let steps = plan ?? carryM.map { [WatchCaddiePlanStep(clubName: clubName ?? "", carryM: $0)] } ?? []
+        guard resolvedRouteOffsetBasis == .tee, progressM.isFinite else { return steps }
+        let remaining = steps.dropFirst(max(0, playedShots)).drop { step in
+            guard let offset = step.routeOffsetM, offset.isFinite else { return false }
+            return offset <= progressM + 1
+        }
+        return remaining.map { step in
+            WatchCaddiePlanStep(
+                clubName: step.clubName,
+                carryM: step.carryM,
+                routeOffsetM: step.routeOffsetM.map { $0 - progressM },
+                expectedRemainingM: step.expectedRemainingM,
+                role: step.role,
+                planIndex: step.planIndex
+            )
+        }
     }
 }
 

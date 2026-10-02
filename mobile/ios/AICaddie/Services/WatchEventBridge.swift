@@ -115,6 +115,17 @@ public struct WatchCaddiePlanStep: Codable, Equatable {
     }
 }
 
+/// What a plan step's `routeOffsetM` is measured from. The two producers differ, so every plan
+/// says which one it carries instead of leaving a consumer to guess (Codex review on #367).
+public enum WatchRouteOffsetBasis: String, Codable, Equatable {
+    /// Metres along the whole hole route from the tee: course prep (`course_prep.py`) and the
+    /// Watch's own offline plans.
+    case tee
+    /// Metres from the decision origin, i.e. where the player stood when the live decision was
+    /// made (`decision.py` starts `travelled_m` at 0 for every decision).
+    case shot
+}
+
 /// One AI-caddie route on Watch. `clubName/carryM` remain the current-shot fallback; `plan` carries
 /// the complete route and p10/p90 carries measured longitudinal dispersion when available.
 public struct WatchCaddieOption: Codable, Equatable, Identifiable {
@@ -129,6 +140,8 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public let sampleSize: Int?
     public let plan: [WatchCaddiePlanStep]?
     public let confidence: String?
+    /// What `plan`'s route offsets are measured from; absent in payloads older than B6.
+    public let routeOffsetBasis: WatchRouteOffsetBasis?
 
     public init(
         optionId: String,
@@ -139,7 +152,8 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         carryP90M: Double? = nil,
         sampleSize: Int? = nil,
         plan: [WatchCaddiePlanStep]? = nil,
-        confidence: String? = nil
+        confidence: String? = nil,
+        routeOffsetBasis: WatchRouteOffsetBasis? = nil
     ) {
         self.optionId = optionId
         self.label = label
@@ -150,6 +164,7 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         self.sampleSize = sampleSize
         self.plan = plan
         self.confidence = confidence
+        self.routeOffsetBasis = routeOffsetBasis
     }
 }
 
@@ -1298,7 +1313,9 @@ public final class WatchEventBridge: NSObject {
                         planIndex: step.planIndex ?? index
                     )
                 },
-                confidence: sequence?.confidence ?? option.confidence
+                confidence: sequence?.confidence ?? option.confidence,
+                // Live decision offsets start at the player (decision.py).
+                routeOffsetBasis: .shot
             )
         }
     }

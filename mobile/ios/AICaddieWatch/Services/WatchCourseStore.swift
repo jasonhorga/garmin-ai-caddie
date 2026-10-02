@@ -396,7 +396,9 @@ public enum WatchCourseTemplateBuilder {
                 clubName: variant.first.clubName,
                 carryM: variant.first.medianM,
                 plan: plan,
-                confidence: "offline"
+                confidence: "offline",
+                // Both the course-prep steps and `preparedPlan` accumulate from the tee.
+                routeOffsetBasis: .tee
             )
         }
     }

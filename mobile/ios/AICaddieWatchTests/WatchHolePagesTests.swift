@@ -47,25 +47,69 @@ final class WatchHolePagesTests: XCTestCase {
         XCTAssertTrue(WatchPlanLegs.resolve(plan: [], route: route, origin: .zero).isEmpty)
     }
 
-    func testARouteOffsetCountsFromTheDecisionOriginNotTheTee() {
+    func testALiveDecisionOffsetCountsFromThePlayer() {
         // decision.py starts travelled_m at 0 for every decision, so a 200 m offset from a player
         // already 50 m down the route lands at 250 m, and the drawn leg is as long as its label.
         guard let origin = WatchHazardMapLayout.imagePoint(on: route, atMetres: 50),
               let expected = WatchHazardMapLayout.imagePoint(on: route, atMetres: 250) else {
             return XCTFail("route points")
         }
-        let legs = WatchPlanLegs.resolve(
+        let live = WatchCaddieOption(
+            optionId: "stock", label: "标准",
             plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 200, routeOffsetM: 200)],
-            route: route,
-            origin: origin
+            routeOffsetBasis: .shot
         )
+        let legs = WatchPlanLegs.resolve(option: live, route: route, origin: origin, playedShots: 1)
         XCTAssertEqual(legs.count, 1)
         XCTAssertEqual(legs.first?.label, "D 219")
-        XCTAssertEqual(Double(legs.first?.landing.x ?? 0), Double(expected.x), accuracy: 0.01)
-        XCTAssertEqual(Double(legs.first?.landing.y ?? 0), Double(expected.y), accuracy: 0.01)
+        assertPoint(legs.first?.landing, expected)
         let landed = WatchHazardMapLayout.playerProgressMetres(on: route, playerImagePoint: legs[0].landing) ?? 0
         let started = WatchHazardMapLayout.playerProgressMetres(on: route, playerImagePoint: legs[0].start) ?? 0
         XCTAssertEqual(landed - started, 200, accuracy: 0.5, "drawn length matches the 219-yard label")
+    }
+
+    func testAPreparedTeePlanDrawsOnlyTheRemainingShotsAtTheirOriginalStations() throws {
+        let options = WatchCourseTemplateBuilder.preparedCaddieOptions(
+            clubs: [
+                WatchClubOption(clubName: "1W", medianM: 220, source: "course-prep"),
+                WatchClubOption(clubName: "3W", medianM: 190, source: "course-prep"),
+                WatchClubOption(clubName: "5I", medianM: 160, source: "course-prep"),
+                WatchClubOption(clubName: "8I", medianM: 125, source: "course-prep"),
+            ],
+            suggestedClub: "1W",
+            routeDistanceM: 518.8,
+            landingM: nil
+        )
+        let stock = try XCTUnwrap(options.first { $0.optionId == "stock" })
+        XCTAssertTrue(options.allSatisfy { $0.routeOffsetBasis == .tee })
+        let stations = (stock.plan ?? []).compactMap(\.routeOffsetM)
+        XCTAssertEqual(stations, [220, 410, 518.8])
+
+        // At the tee the whole plan is drawn from the tee.
+        let tee = CGPoint(x: 435, y: 981)
+        let atTee = WatchPlanLegs.resolve(option: stock, route: route, origin: tee, playedShots: 0)
+        XCTAssertEqual(atTee.map(\.label), ["D 241", "3W 208", "8i 137"])
+        assertPoint(atTee.first?.landing, WatchHazardMapLayout.imagePoint(on: route, atMetres: 220))
+
+        // After the tee shot, standing on its landing: the tee shot is not replayed from here, and
+        // the next landing stays at its original 410 m station (not 220 + 410).
+        let firstLanding = try XCTUnwrap(WatchHazardMapLayout.imagePoint(on: route, atMetres: 220))
+        let afterTee = WatchPlanLegs.resolve(option: stock, route: route, origin: firstLanding, playedShots: 1)
+        XCTAssertEqual(afterTee.map(\.label), ["3W 208", "8i 137"])
+        XCTAssertEqual(afterTee.first?.start, firstLanding)
+        assertPoint(afterTee.first?.landing, WatchHazardMapLayout.imagePoint(on: route, atMetres: 410))
+        assertPoint(afterTee.last?.landing, WatchHazardMapLayout.imagePoint(on: route, atMetres: 518.8))
+
+        // Older payloads without a basis: the Watch's offline plans were tee-based.
+        let legacy = WatchCaddieOption(optionId: "stock", label: "标准", plan: stock.plan, confidence: "offline")
+        XCTAssertEqual(legacy.resolvedRouteOffsetBasis, .tee)
+        XCTAssertEqual(WatchCaddieOption(optionId: "stock", label: "标准").resolvedRouteOffsetBasis, .shot)
+    }
+
+    private func assertPoint(_ actual: CGPoint?, _ expected: CGPoint?, file: StaticString = #filePath, line: UInt = #line) {
+        guard let actual, let expected else { return XCTFail("missing point", file: file, line: line) }
+        XCTAssertEqual(Double(actual.x), Double(expected.x), accuracy: 0.01, file: file, line: line)
+        XCTAssertEqual(Double(actual.y), Double(expected.y), accuracy: 0.01, file: file, line: line)
     }
 
     func testAFlagDraggedPastTheGreenSlidesAlongItsEdge() {

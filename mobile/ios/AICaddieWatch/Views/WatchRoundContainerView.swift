@@ -811,8 +811,12 @@ public struct WatchRoundContainerView: View {
     /// Before the tee shot the plan starts at the tee.
     private func planLegs(_ s: WatchRoundState, geometry: WatchHoleMapGeometry) -> [WatchPlanLeg] {
         guard let option = caddieOption(s), let route = s.holeMap?.route else { return [] }
-        let plan = option.plan ?? option.carryM.map { [WatchCaddiePlanStep(clubName: option.clubName ?? "", carryM: $0)] } ?? []
-        return WatchPlanLegs.resolve(plan: plan, route: route, origin: teeImagePoint(s) ?? geometry.youPx)
+        return WatchPlanLegs.resolve(
+            option: option,
+            route: route,
+            origin: teeImagePoint(s) ?? geometry.youPx,
+            playedShots: model.recordedShotCount
+        )
     }
 
     /// Before the tee shot every range is measured from the tee (README §3).
