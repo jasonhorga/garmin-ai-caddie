@@ -150,10 +150,12 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public let confidence: String?
     /// What `plan`'s route offsets are measured from; absent in payloads older than B6.
     public let routeOffsetBasis: WatchRouteOffsetBasis?
-    /// How many shots had been recorded on this hole when the plan was made: 0 for a tee plan,
-    /// written by the phone when it requests a live decision. Never inferred on arrival, so a
-    /// decision that reaches the Watch late still says which shot it was made for.
-    public let originShotIndex: Int?
+    /// The hole's shots this plan was made after, by event id: every location event (phone- or
+    /// Watch-recorded; a Watch shot keeps its eventId on the phone) that existed when the decision
+    /// was requested, or [] for a plan made before any shot. Written by the producer, never by the
+    /// Watch on arrival; the Watch counts its own location events outside this set as shots played
+    /// since the plan, so the two devices never compare local queue lengths.
+    public let originShotEventIds: [String]?
 
     public init(
         optionId: String,
@@ -166,7 +168,7 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         plan: [WatchCaddiePlanStep]? = nil,
         confidence: String? = nil,
         routeOffsetBasis: WatchRouteOffsetBasis? = nil,
-        originShotIndex: Int? = nil
+        originShotEventIds: [String]? = nil
     ) {
         self.optionId = optionId
         self.label = label
@@ -178,7 +180,7 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         self.plan = plan
         self.confidence = confidence
         self.routeOffsetBasis = routeOffsetBasis
-        self.originShotIndex = originShotIndex
+        self.originShotEventIds = originShotEventIds
     }
 }
 
@@ -202,20 +204,36 @@ extension WatchCaddieOption {
         routeOffsetBasis ?? (confidence == "offline" ? .tee : .shot)
     }
 
+    /// How many of this hole's Watch location events (`eventIds`, in order) were recorded after the
+    /// plan was made: those outside its `originShotEventIds`. nil when that cannot be known: a live
+    /// plan from an older payload that does not name its origin, once any shot exists.
+    func shotsSinceOrigin(watchShotEventIds eventIds: [String]) -> Int? {
+        if let origin = originShotEventIds {
+            let made = Set(origin)
+            return eventIds.filter { !made.contains($0) }.count
+        }
+        // A tee plan was made before any shot; any plan is current while nothing is recorded.
+        return resolvedRouteOffsetBasis == .tee || eventIds.isEmpty ? eventIds.count : nil
+    }
+
     /// This option as it stands for a player `progressM` metres along the route (nil: unknown)
-    /// after `playedShots` shots on this hole: the shots already played are gone and every
-    /// remaining offset counts from the player. Every production consumer (the 方案 page's club
-    /// tag, note and legs, and the 球童 detail) reads this, so they never disagree on the next shot.
-    func remaining(fromProgressM progressM: Double?, playedShots: Int) -> WatchCaddieOption {
+    /// after the Watch shots `watchShotEventIds` on this hole: the shots played since the plan was
+    /// made are gone and every remaining offset counts from the player. Every production consumer
+    /// (the 方案 page's club tag, note and legs, and the 球童 detail) reads this, so they never
+    /// disagree on the next shot. The result is current: its origin is those same shots.
+    func remaining(fromProgressM progressM: Double?, watchShotEventIds: [String]) -> WatchCaddieOption {
         let original = plan ?? carryM.map { [WatchCaddiePlanStep(clubName: clubName ?? "", carryM: $0)] } ?? []
-        let steps = remainingPlan(fromProgressM: progressM, playedShots: playedShots)
+        let steps = remainingPlan(
+            fromProgressM: progressM,
+            shotsSinceOrigin: shotsSinceOrigin(watchShotEventIds: watchShotEventIds)
+        )
         let advanced = steps.count != original.count
         guard advanced else {
             return WatchCaddieOption(
                 optionId: optionId, label: label, clubName: clubName, carryM: carryM,
                 carryP10M: carryP10M, carryP90M: carryP90M, sampleSize: sampleSize,
                 plan: plan == nil ? nil : steps, confidence: confidence,
-                routeOffsetBasis: .shot, originShotIndex: playedShots
+                routeOffsetBasis: .shot, originShotEventIds: watchShotEventIds
             )
         }
         // The first club changed: its dispersion and sample no longer describe the next shot. A
@@ -229,24 +247,21 @@ extension WatchCaddieOption {
             plan: steps,
             confidence: confidence,
             routeOffsetBasis: .shot,
-            originShotIndex: playedShots
+            originShotEventIds: watchShotEventIds
         )
     }
 
     /// The shots still to play (see `remaining`), every `routeOffsetM` re-based on the player (the
-    /// live-decision contract `WatchPlanLegs` draws). Shots recorded since the plan was made
-    /// (`originShotIndex`) are dropped. A tee plan also drops any landing already behind the player
-    /// and keeps each remaining landing at its original station. A live plan made shots ago from a
-    /// spot this Watch no longer knows keeps its remaining clubs and carries, placed from the
-    /// player, until the phone sends a fresh decision. A live plan that does not say which shot it
-    /// was made for (older payloads) fails closed once a shot is recorded: nothing, not a replay.
-    func remainingPlan(fromProgressM progressM: Double?, playedShots: Int) -> [WatchCaddiePlanStep] {
+    /// live-decision contract `WatchPlanLegs` draws). The `shotsSinceOrigin` shots recorded since the
+    /// plan was made are dropped. A tee plan also drops any landing already behind the player and
+    /// keeps each remaining landing at its original station. A live plan made shots ago from a spot
+    /// this Watch no longer knows keeps its remaining clubs and carries, placed from the player,
+    /// until the phone sends a fresh decision. An unknown origin (nil) fails closed: nothing, not a
+    /// replay of the first shot.
+    func remainingPlan(fromProgressM progressM: Double?, shotsSinceOrigin: Int?) -> [WatchCaddiePlanStep] {
         let steps = plan ?? carryM.map { [WatchCaddiePlanStep(clubName: clubName ?? "", carryM: $0)] } ?? []
         let basis = resolvedRouteOffsetBasis
-        guard let origin = originShotIndex ?? (basis == .tee || playedShots == 0 ? 0 : nil) else {
-            return []
-        }
-        let played = max(0, playedShots - origin)
+        guard let played = shotsSinceOrigin.map({ max(0, $0) }) else { return [] }
         let remaining = steps.dropFirst(played)
         switch basis {
         case .tee:

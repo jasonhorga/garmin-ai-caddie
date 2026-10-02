@@ -142,10 +142,12 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public let confidence: String?
     /// What `plan`'s route offsets are measured from; absent in payloads older than B6.
     public let routeOffsetBasis: WatchRouteOffsetBasis?
-    /// How many shots had been recorded on this hole when the decision was requested. Written by
-    /// the producer, never by the Watch on arrival: a decision that arrives late still says which
-    /// shot it was made for.
-    public let originShotIndex: Int?
+    /// The hole's shots this plan was made after, by event id: every location event (phone- or
+    /// Watch-recorded; a Watch shot keeps its eventId on the phone) that existed when the decision
+    /// was requested, or [] for a plan made before any shot. Written by the producer, never by the
+    /// Watch on arrival; the Watch counts its own location events outside this set as shots played
+    /// since the plan, so the two devices never compare local queue lengths.
+    public let originShotEventIds: [String]?
 
     public init(
         optionId: String,
@@ -158,7 +160,7 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         plan: [WatchCaddiePlanStep]? = nil,
         confidence: String? = nil,
         routeOffsetBasis: WatchRouteOffsetBasis? = nil,
-        originShotIndex: Int? = nil
+        originShotEventIds: [String]? = nil
     ) {
         self.optionId = optionId
         self.label = label
@@ -170,7 +172,7 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         self.plan = plan
         self.confidence = confidence
         self.routeOffsetBasis = routeOffsetBasis
-        self.originShotIndex = originShotIndex
+        self.originShotEventIds = originShotEventIds
     }
 }
 
@@ -593,7 +595,7 @@ public final class WatchEventBridge: NSObject {
         geometryRevision: String? = nil,
         caddieOptions: [WatchCaddieOption] = [],
         hazards: [WatchHazard] = [],
-        decisionOriginShotIndex: Int? = nil
+        decisionOriginShotEventIds: [String]? = nil
     ) -> WatchRoundStatePayload {
         let selected = selectedOption(from: decision)
         let offlineSelected = selectedOfflineOption(from: offlineOption)
@@ -601,7 +603,7 @@ public final class WatchEventBridge: NSObject {
         let suggestedClub = clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]) ?? offlineSelected?.clubName
         let selectedSequence = selectedSequence(from: decision)
         let resolvedCaddieOptions = caddieOptions.isEmpty
-            ? makeWatchCaddieOptions(from: decision, originShotIndex: decisionOriginShotIndex)
+            ? makeWatchCaddieOptions(from: decision, originShotEventIds: decisionOriginShotEventIds)
             : caddieOptions
         let tee = Self.teeCoordinate(package: package, hole: hole.number)
         return WatchRoundStatePayload(
@@ -1294,10 +1296,10 @@ public final class WatchEventBridge: NSObject {
         return decision.sequences?.first
     }
 
-    /// `originShotIndex`: the hole's recorded shot count when `decision` was requested.
+    /// `originShotEventIds`: the hole's location event ids when `decision` was requested.
     public func makeWatchCaddieOptions(
         from decision: CaddieDecisionResponse?,
-        originShotIndex: Int? = nil
+        originShotEventIds: [String]? = nil
     ) -> [WatchCaddieOption] {
         guard let decision else { return [] }
         let sequences = CaddiePlanSequence.sequences(from: decision)
@@ -1329,7 +1331,7 @@ public final class WatchEventBridge: NSObject {
                 confidence: sequence?.confidence ?? option.confidence,
                 // Live decision offsets start at the player (decision.py).
                 routeOffsetBasis: .shot,
-                originShotIndex: originShotIndex
+                originShotEventIds: originShotEventIds
             )
         }
     }

@@ -250,7 +250,7 @@ public struct WatchCaddieOptionsView: View {
             return []
         }
         return WatchPlanLegs.resolve(
-            plan: option.remainingPlan(fromProgressM: progress, playedShots: option.originShotIndex ?? 0),
+            plan: option.remainingPlan(fromProgressM: progress, shotsSinceOrigin: 0),
             route: route,
             origin: geometry.youPx
         )
@@ -269,7 +269,7 @@ public struct WatchCaddieOptionsView: View {
                 playerImagePoint: geometry.youPx
               ) else { return [] }
         // Offsets re-based on the player whatever the option's basis (`WatchRouteOffsetBasis`).
-        let plan = option.remainingPlan(fromProgressM: progress, playedShots: 0)
+        let plan = option.remainingPlan(fromProgressM: progress, shotsSinceOrigin: 0)
         guard plan.count > 1,
               let firstCarry = plan.first?.routeOffsetM ?? plan.first?.carryM ?? option.carryM,
               firstCarry.isFinite,
@@ -318,7 +318,7 @@ public struct WatchCaddieOptionsView: View {
               let target = WatchHazardMapLayout.imagePoint(
                   on: route,
                   atMetres: progress + (
-                      option.remainingPlan(fromProgressM: progress, playedShots: 0).first?.routeOffsetM ?? carry
+                      option.remainingPlan(fromProgressM: progress, shotsSinceOrigin: 0).first?.routeOffsetM ?? carry
                   )
               )
         else { return base }

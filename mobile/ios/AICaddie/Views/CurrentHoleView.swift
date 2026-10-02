@@ -145,9 +145,9 @@ public struct CurrentHoleView: View {
     @State private var currentHorizontalAccuracyM: Double?
     @State private var note: String = ""
     @State private var caddieDecision: CaddieDecisionResponse?
-    /// The hole's recorded shot count when `caddieDecision` was requested: the plan's origin shot,
-    /// sent with it so the Watch never replays it after a later shot.
-    @State private var caddieDecisionOriginShot: Int?
+    /// The hole's shot event ids when `caddieDecision` was requested: the plan's origin, sent with
+    /// it so the Watch never replays it after a later shot recorded on either device.
+    @State private var caddieDecisionOriginShot: [String]?
     /// Per-hole route authority. The live response, installed CoursePrep row, and offline seed can
     /// arrive in different orders; retaining the resolved chain here makes refresh idempotent and
     /// keeps the map, card, and Watch on one route.
@@ -3409,7 +3409,7 @@ public struct CurrentHoleView: View {
     @MainActor
     private func loadCaddieDecision(syncClub: Bool = false) async {
         // The shot this decision is for, fixed now, before any await.
-        let originShot = recordedNonPuttShotCount
+        let originShot = recordedShotEventIds
         caddieRequestGeneration &+= 1
         let requestGeneration = caddieRequestGeneration
         isLoadingCaddieDecision = true
@@ -3606,7 +3606,7 @@ public struct CurrentHoleView: View {
             geometryRevision: holePrep?.geometryRevision ?? hole.geometryRevision,
             hazards: watchHazards(),
             // Only the decision being sent carries its origin; a nil decision has no plan.
-            decisionOriginShotIndex: decision.flatMap { $0 == caddieDecision ? caddieDecisionOriginShot : nil }
+            decisionOriginShotEventIds: decision.flatMap { $0 == caddieDecision ? caddieDecisionOriginShot : nil }
         )
         if let state {
             try? watchBridge?.sendStateToWatch(state)
@@ -3845,6 +3845,12 @@ public struct CurrentHoleView: View {
             route: route,
             par: hole.par
         ).flatMap { LiveFairwayResult(rawValue: $0.rawValue) }
+    }
+
+    /// This hole's location events (phone-recorded, and Watch-recorded ones under their Watch ids).
+    private var recordedShotEventIds: [String] {
+        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return [] }
+        return LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number).map(\.eventId)
     }
 
     private var recordedNonPuttShotCount: Int {

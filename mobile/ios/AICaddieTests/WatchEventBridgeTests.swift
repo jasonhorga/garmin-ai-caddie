@@ -238,9 +238,12 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(stock.plan?.map(\.clubName), ["1D", "5I", "54"])
         XCTAssertEqual(stock.plan?.map(\.carryM), [245, 168, 94])
         XCTAssertEqual(stock.routeOffsetBasis, .shot, "live decision offsets count from the player")
-        XCTAssertNil(stock.originShotIndex)
-        let forShotTwo = bridge.makeWatchCaddieOptions(from: decision, originShotIndex: 2)
-        XCTAssertTrue(forShotTwo.allSatisfy { $0.originShotIndex == 2 }, "the producer writes the decision's origin shot")
+        XCTAssertNil(stock.originShotEventIds)
+        let afterOneShot = bridge.makeWatchCaddieOptions(from: decision, originShotEventIds: ["phone-shot-1"])
+        XCTAssertTrue(
+            afterOneShot.allSatisfy { $0.originShotEventIds == ["phone-shot-1"] },
+            "the producer writes the shots its decision was made after"
+        )
         XCTAssertEqual(stock.carryP10M, 132)
         XCTAssertEqual(stock.carryP90M, 153)
         XCTAssertEqual(stock.sampleSize, 24)

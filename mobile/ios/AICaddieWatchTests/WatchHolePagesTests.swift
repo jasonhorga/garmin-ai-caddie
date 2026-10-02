@@ -58,9 +58,9 @@ final class WatchHolePagesTests: XCTestCase {
             optionId: "stock", label: "标准",
             plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 200, routeOffsetM: 200)],
             routeOffsetBasis: .shot,
-            originShotIndex: 1  // made for this shot, from this spot
+            originShotEventIds: ["evt-2"]  // made after this shot, from this spot
         )
-        let legs = WatchPlanLegs.resolve(option: live, route: route, origin: origin, playedShots: 1)
+        let legs = WatchPlanLegs.resolve(option: live, route: route, origin: origin, watchShotEventIds: ["evt-2"])
         XCTAssertEqual(legs.count, 1)
         XCTAssertEqual(legs.first?.label, "D 219")
         assertPoint(legs.first?.landing, expected)
@@ -88,14 +88,14 @@ final class WatchHolePagesTests: XCTestCase {
 
         // At the tee the whole plan is drawn from the tee.
         let tee = CGPoint(x: 435, y: 981)
-        let atTee = WatchPlanLegs.resolve(option: stock, route: route, origin: tee, playedShots: 0)
+        let atTee = WatchPlanLegs.resolve(option: stock, route: route, origin: tee, watchShotEventIds: [])
         XCTAssertEqual(atTee.map(\.label), ["D 241", "3W 208", "8i 137"])
         assertPoint(atTee.first?.landing, WatchHazardMapLayout.imagePoint(on: route, atMetres: 220))
 
         // After the tee shot, standing on its landing: the tee shot is not replayed from here, and
         // the next landing stays at its original 410 m station (not 220 + 410).
         let firstLanding = try XCTUnwrap(WatchHazardMapLayout.imagePoint(on: route, atMetres: 220))
-        let afterTee = WatchPlanLegs.resolve(option: stock, route: route, origin: firstLanding, playedShots: 1)
+        let afterTee = WatchPlanLegs.resolve(option: stock, route: route, origin: firstLanding, watchShotEventIds: ["evt-2"])
         XCTAssertEqual(afterTee.map(\.label), ["3W 208", "8i 137"])
         XCTAssertEqual(afterTee.first?.start, firstLanding)
         assertPoint(afterTee.first?.landing, WatchHazardMapLayout.imagePoint(on: route, atMetres: 410))

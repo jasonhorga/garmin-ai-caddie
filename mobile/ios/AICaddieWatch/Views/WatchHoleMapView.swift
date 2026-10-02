@@ -167,19 +167,19 @@ public struct WatchPlanLeg: Equatable {
 }
 
 enum WatchPlanLegs {
-    /// The legs still to play of `option` for a player at `origin` after `playedShots` shots on this
-    /// hole, whatever its offsets are measured from (`WatchRouteOffsetBasis`).
+    /// The legs still to play of `option` for a player at `origin` after the Watch shots
+    /// `watchShotEventIds` on this hole, whatever its offsets are measured from.
     static func resolve(
         option: WatchCaddieOption,
         route: [[Double]],
         origin: CGPoint,
-        playedShots: Int
+        watchShotEventIds: [String]
     ) -> [WatchPlanLeg] {
         guard let progress = WatchHazardMapLayout.playerProgressMetres(on: route, playerImagePoint: origin) else {
             return []
         }
         return resolve(
-            plan: option.remainingPlan(fromProgressM: progress, playedShots: playedShots),
+            plan: option.remaining(fromProgressM: progress, watchShotEventIds: watchShotEventIds).plan ?? [],
             route: route,
             origin: origin
         )

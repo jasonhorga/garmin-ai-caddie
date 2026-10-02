@@ -939,11 +939,11 @@ public final class WatchRoundModel: ObservableObject {
     /// these, never the raw `caddieOptions`.
     public func currentCaddieOptions(progressM: Double?) -> [WatchCaddieOption] {
         guard let state = activeHoleState else { return [] }
-        let played = recordedShotCount
+        let shots = watchShotEventIds(for: state.hole)
         // A plan with nothing left to play (finished, or a stale live plan that failed closed) is
         // not offered at all.
         return state.caddieOptions
-            .map { $0.remaining(fromProgressM: progressM, playedShots: played) }
+            .map { $0.remaining(fromProgressM: progressM, watchShotEventIds: shots) }
             .filter { $0.plan.map { !$0.isEmpty } ?? true }
     }
 
@@ -1381,6 +1381,13 @@ public final class WatchRoundModel: ObservableObject {
             shotTypeOverride: asRecovery ? "recovery" : nil,
             resumeHoleMap: pending.resumeHoleMap
         )
+    }
+
+    /// This hole's Watch-recorded location events, by id, in capture order.
+    func watchShotEventIds(for hole: Int) -> [String] {
+        round?.pendingEvents.compactMap { event in
+            event.hole == hole && event.kind == .location ? event.eventId : nil
+        } ?? []
     }
 
     private func recordedShotCount(for hole: Int) -> Int {

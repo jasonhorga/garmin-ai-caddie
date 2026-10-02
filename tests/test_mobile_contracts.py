@@ -5412,13 +5412,16 @@ class WatchHolePagesContractTests(unittest.TestCase):
         model = self.read("Models/WatchRoundModel.swift")
         receive = model[model.index("public func receivePhoneState("):]
         receive = receive[: receive.index("public func seedRound(")]
-        self.assertNotIn("originShotIndex", receive)
+        self.assertNotIn("originShotEventIds", receive)
         bridge = (ios / "AICaddie" / "Services" / "WatchEventBridge.swift").read_text(encoding="utf-8")
-        self.assertIn("originShotIndex: originShotIndex", bridge)
+        self.assertIn("originShotEventIds: originShotEventIds", bridge)
         hole_view = (ios / "AICaddie" / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8")
         load = hole_view[hole_view.index("private func loadCaddieDecision("):]
-        self.assertLess(load.index("let originShot = recordedNonPuttShotCount"), load.index("await "))
-        self.assertIn("decisionOriginShotIndex:", hole_view)
+        self.assertLess(load.index("let originShot = recordedShotEventIds"), load.index("await "))
+        self.assertIn("decisionOriginShotEventIds:", hole_view)
+        # One shot identity on both devices: Watch shots counted by event id, never a queue length.
+        self.assertIn("watchShotEventIds: shots", model)
+        self.assertNotIn("originShotIndex", bridge + model + self.read("Models/WatchRoundState.swift"))
 
     def test_a_current_plan_drives_the_club_tag_and_the_caddie_detail_draws_every_leg(self) -> None:
         container = self.read("Views/WatchRoundContainerView.swift")
