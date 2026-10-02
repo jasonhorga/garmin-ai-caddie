@@ -35,7 +35,7 @@ enum BagPresentation {
     /// distance in use; clubs without any distance last, in catalog order.
     static func rows(bag: Set<String>, profiles: [ClubProfile], manual: [String: Int]) -> [Row] {
         let built = ClubCatalog.all.map(\.zhName).filter { bag.contains($0) && $0 != "推杆" }.map { name -> Row in
-            let profile = profiles.first { zhClubName($0.clubName.trimmingCharacters(in: .whitespaces)) == name && $0.sampleSize > 0 }
+            let profile = strongestProfile(for: name, in: profiles)
             func yards(_ metres: Double?) -> Int? {
                 guard let metres, metres.isFinite, metres > 0 else { return nil }
                 return CoursePrepRoute.yards(fromMetres: metres)
@@ -53,6 +53,18 @@ enum BagPresentation {
             .sorted { ($0.element.median ?? 0, -$0.offset) > ($1.element.median ?? 0, -$1.offset) }
             .map(\.element)
         return measured + built.filter { $0.median == nil }
+    }
+
+    /// Legacy aliases of one physical club ("Aw"/"GW", "7I"/"7 Iron") can all be in the package. The
+    /// caddie keeps the one with the most shots, so does the ladder: most samples wins, the earlier
+    /// row on a tie.
+    static func strongestProfile(for name: String, in profiles: [ClubProfile]) -> ClubProfile? {
+        profiles.reduce(nil as ClubProfile?) { best, profile in
+            guard profile.sampleSize > 0,
+                  zhClubName(profile.clubName.trimmingCharacters(in: .whitespaces)) == name else { return best }
+            guard let best else { return profile }
+            return profile.sampleSize > best.sampleSize ? profile : best
+        }
     }
 
     /// The gap from `above` down to `below`, when both have a distance.
@@ -89,8 +101,10 @@ enum BagPresentation {
         return parts.joined(separator: " · ")
     }
 
-    /// Catalog clubs that can still be added ("＋ 球杆"), in catalog order.
+    /// Catalog clubs that can still be added ("＋ 球杆"), in catalog order. The putter has no row on
+    /// a distance ladder, so it is not offered here either (adding it would be invisible and could not
+    /// be undone from this screen); the Garmin bag keeps whichever putter the player carries.
     static func addable(bag: Set<String>) -> [CatalogClub] {
-        ClubCatalog.all.filter { !bag.contains($0.zhName) }
+        ClubCatalog.all.filter { !bag.contains($0.zhName) && $0.category != .putter }
     }
 }

@@ -1810,21 +1810,32 @@ final class DesignSnapshotTests: XCTestCase {
         let bagRows = BagPresentation.rows(bag: bag, profiles: bagProfiles, manual: ["七号铁": 152])
         XCTAssertEqual(bagRows.count, 13, "the putter is not on the ladder")
         XCTAssertEqual(bagRows.suffix(2).map(\.name), ["50° 挖起杆", "58° 挖起杆"], "clubs without shots last")
-        try captureScreen(
-            NavigationStack {
-                ScrollView { BagContent(rows: bagRows, onReset: {}) }
-                    .background(HubStyle.grouped)
-                    .navigationTitle("球包")
-            },
-            named: "bag"
-        )
-        let sevenIron = try XCTUnwrap(bagRows.first { $0.name == "七号铁" })
-        try captureScreen(
-            BagClubEditor(row: sevenIron, onSet: { _ in }, onRemove: {})
-                .frame(height: 380)
-                .background(Color.white),
-            named: "bag-edit"
-        )
+        // The REAL 球包 destination (toolbar ＋ 球杆, reset row) and its real sheets, with the bag in an
+        // isolated store and a sync coordinator that has no backend, so nothing leaves the test.
+        do {
+            let bagSuiteName = "DesignSnapshotBag"
+            UserDefaults().removePersistentDomain(forName: bagSuiteName)
+            ClubBagStore.defaults = try XCTUnwrap(UserDefaults(suiteName: bagSuiteName))
+            defer {
+                ClubBagStore.defaults = .standard
+                UserDefaults().removePersistentDomain(forName: bagSuiteName)
+            }
+            ClubBagStore.saveRealBag(bag)
+            ClubBagStore.save(bag)
+            ClubBagStore.saveManualDistancesYd(["七号铁": 152])
+            let bagSync = ClubBagSyncCoordinator(sleep: { _ in })
+            func bagScreen(editing: String? = nil, adding: Bool = false) -> AnyView {
+                AnyView(NavigationStack {
+                    ClubSettingsView(
+                        clubProfiles: bagProfiles, apiBaseURL: nil, adminToken: nil, sync: bagSync,
+                        editing: editing, adding: adding, fetchesRealBag: false
+                    )
+                })
+            }
+            try captureScreen(bagScreen(), named: "bag")
+            try captureScreen(bagScreen(editing: "七号铁"), named: "bag-edit", expectsPresentation: true)
+            try captureScreen(bagScreen(adding: true), named: "bag-add", expectsPresentation: true)
+        }
 
         // 复盘逐洞落点图: this round's actual shots (tee→landing→green) on the hole, dots by lie.
         let shotMapJSON = """
@@ -2454,7 +2465,8 @@ final class DesignSnapshotTests: XCTestCase {
         _ view: some View,
         named name: String,
         dark: Bool = false,
-        settle: TimeInterval = 1.0
+        settle: TimeInterval = 1.0,
+        expectsPresentation: Bool = false
     ) throws -> Data {
         let size = CGSize(width: 390, height: 844)
         let style: UIUserInterfaceStyle = dark ? .dark : .light
@@ -2472,6 +2484,10 @@ final class DesignSnapshotTests: XCTestCase {
         // a live display and renders blank in CI).
         RunLoop.main.run(until: Date(timeIntervalSinceNow: settle))
         host.view.layoutIfNeeded()
+        if expectsPresentation {
+            // The capture must contain the screen's own sheet, not a standalone copy of its content.
+            XCTAssertNotNil(host.presentedViewController, "\(name) presents the real sheet")
+        }
         let renderer = UIGraphicsImageRenderer(size: size)
         let image = renderer.image { ctx in
             window.layer.render(in: ctx.cgContext)

@@ -1,40 +1,129 @@
 import Foundation
 import SwiftUI
 
-/// 球包 (B5c, README §9, `stats.html` 3): the distance ladder that replaces 成绩 → 球杆 and the old
-/// 球杆设置 checklist. Each club is a p10–p90 bar with its median and the gap to the next club; tap a
-/// club to set the distance the caddie uses or take it out of the bag; "＋ 球杆" adds one. Every change
-/// is saved on the device at once and pushed to the backend manual bag (which the caddie reads).
-public struct ClubSettingsView: View {
-    public let clubProfiles: [ClubProfile]
-    public let apiBaseURL: URL?
-    public let adminToken: String?
-    @State private var bag: Set<String>
-    @State private var didLoadRealBag = false
-    @State private var distancesYd: [String: Int] = ClubBagStore.manualDistancesYd()
-    @State private var editing: BagPresentation.Row?
-    @State private var isAdding = false
-    /// Bumped on every change; the latest one is pushed after a short pause.
-    @State private var revision = 0
-    @State private var syncFailed = false
+/// The 球包 state and its intents, outside the view so the transitions are testable. Every intent
+/// saves on the device at once and hands the whole manual bag to the long-lived
+/// `ClubBagSyncCoordinator`, which owns the backend write — leaving the screen never drops an edit.
+@MainActor
+final class ClubBagEditorModel: ObservableObject {
+    let clubProfiles: [ClubProfile]
+    let sync: ClubBagSyncCoordinator
+    @Published private(set) var bag: Set<String>
+    @Published private(set) var distancesYd: [String: Int]
 
-    public init(clubProfiles: [ClubProfile] = [], apiBaseURL: URL? = nil, adminToken: String? = nil) {
+    init(clubProfiles: [ClubProfile], sync: ClubBagSyncCoordinator) {
         self.clubProfiles = clubProfiles
-        self.apiBaseURL = apiBaseURL
-        self.adminToken = adminToken
-        let derived = Set(clubProfiles.compactMap { profile -> String? in
+        self.sync = sync
+        // Manual override wins; else the cached real Garmin bag; else derive from shot history.
+        bag = ClubBagStore.bag() ?? ClubBagStore.realBag() ?? Self.historyBag(clubProfiles)
+        distancesYd = ClubBagStore.manualDistancesYd()
+    }
+
+    var rows: [BagPresentation.Row] {
+        BagPresentation.rows(bag: bag, profiles: clubProfiles, manual: distancesYd)
+    }
+
+    func row(named name: String) -> BagPresentation.Row? {
+        rows.first { $0.name == name }
+    }
+
+    var addable: [CatalogClub] { BagPresentation.addable(bag: bag) }
+
+    func add(_ name: String) {
+        guard ClubCatalog.names.contains(name), name != "推杆", !bag.contains(name) else { return }
+        bag.insert(name)
+        commit()
+    }
+
+    /// Taking a club out also drops its typed distance.
+    func remove(_ name: String) {
+        guard bag.contains(name) else { return }
+        bag.remove(name)
+        distancesYd[name] = nil
+        commit()
+    }
+
+    func setDistance(_ name: String, _ yards: Int?) {
+        distancesYd[name] = yards.flatMap { $0 > 0 ? $0 : nil }
+        commit()
+    }
+
+    /// − / ＋ from the distance in use; a club with none starts from 100 yards.
+    func step(_ name: String, by delta: Int) {
+        let current = row(named: name)?.median ?? 100
+        setDistance(name, max(1, current + delta))
+    }
+
+    /// 用 Garmin 球包重置, one intent: drop the manual selection AND the typed distances on the
+    /// device, show the Garmin bag, and clear the server's manual bag (`{"clubs": []}`) through the
+    /// same durable outbox as every edit — so a later edit simply supersedes it.
+    func resetToGarminBag() {
+        ClubBagStore.clearManual()
+        ClubBagStore.saveManualDistancesYd([:])
+        distancesYd = [:]
+        bag = ClubBagStore.realBag() ?? Self.historyBag(clubProfiles)
+        sync.enqueue([])
+    }
+
+    /// A freshly fetched Garmin bag is shown only while there is no manual selection.
+    func applyRealBag(_ names: Set<String>) {
+        if ClubBagStore.bag() == nil { bag = names }
+    }
+
+    private func commit() {
+        ClubBagStore.save(bag)
+        ClubBagStore.saveManualDistancesYd(distancesYd)
+        sync.enqueue(ClubBagStore.manualClubInputs(selected: bag, distancesYd: distancesYd))
+    }
+
+    private static func historyBag(_ profiles: [ClubProfile]) -> Set<String> {
+        Set(profiles.compactMap { profile -> String? in
             let name = zhClubName(profile.clubName.trimmingCharacters(in: .whitespaces))
             return ClubCatalog.names.contains(name) ? name : nil
         })
-        // Manual override wins; else the cached real Garmin bag; else derive from shot history.
-        _bag = State(initialValue: ClubBagStore.bag() ?? ClubBagStore.realBag() ?? derived)
+    }
+}
+
+/// 球包 (B5c, README §9, `stats.html` 3): the distance ladder that replaces 成绩 → 球杆 and the old
+/// 球杆设置 checklist. Each club is a p10–p90 bar with its median and the gap to the next club; tap a
+/// club to set the distance the caddie uses or take it out of the bag; "＋ 球杆" adds one.
+public struct ClubSettingsView: View {
+    public let apiBaseURL: URL?
+    public let adminToken: String?
+    @StateObject private var model: ClubBagEditorModel
+    @ObservedObject private var sync: ClubBagSyncCoordinator
+    @State private var editingName: String?
+    @State private var isAdding: Bool
+    @State private var didLoadRealBag = false
+    private let fetchesRealBag: Bool
+
+    public init(clubProfiles: [ClubProfile] = [], apiBaseURL: URL? = nil, adminToken: String? = nil) {
+        self.init(clubProfiles: clubProfiles, apiBaseURL: apiBaseURL, adminToken: adminToken, sync: .shared)
+    }
+
+    /// Injected storage/sync for tests and design snapshots; `editing`/`adding` open the real sheets.
+    init(
+        clubProfiles: [ClubProfile],
+        apiBaseURL: URL?,
+        adminToken: String?,
+        sync: ClubBagSyncCoordinator,
+        editing: String? = nil,
+        adding: Bool = false,
+        fetchesRealBag: Bool = true
+    ) {
+        self.apiBaseURL = apiBaseURL
+        self.adminToken = adminToken
+        _model = StateObject(wrappedValue: ClubBagEditorModel(clubProfiles: clubProfiles, sync: sync))
+        _sync = ObservedObject(wrappedValue: sync)
+        _editingName = State(initialValue: editing)
+        _isAdding = State(initialValue: adding)
+        self.fetchesRealBag = fetchesRealBag
     }
 
     public var body: some View {
-        let rows = BagPresentation.rows(bag: bag, profiles: clubProfiles, manual: distancesYd)
         ScrollView {
-            BagContent(rows: rows, syncFailed: syncFailed, onSelect: { editing = $0 },
-                       onReset: (apiBaseURL != nil || ClubBagStore.realBag() != nil) ? resetToGarminBag : nil)
+            BagContent(rows: model.rows, syncFailed: sync.status == .failed, onSelect: { editingName = $0.name },
+                       onReset: (apiBaseURL != nil || ClubBagStore.realBag() != nil) ? { model.resetToGarminBag() } : nil)
         }
         .background(HubStyle.grouped)
         .navigationTitle("球包")
@@ -44,86 +133,35 @@ public struct ClubSettingsView: View {
                     .accessibilityIdentifier("bag-add")
             }
         }
-        .sheet(item: $editing) { row in
-            BagClubEditor(
-                row: row,
-                onSet: { setDistance(row.name, $0) },
-                onRemove: { remove(row.name); editing = nil }
-            )
-            .presentationDetents([.medium])
+        .sheet(isPresented: Binding(get: { editingName != nil }, set: { if !$0 { editingName = nil } })) {
+            if let name = editingName, let row = model.row(named: name) {
+                BagClubEditor(
+                    row: row,
+                    onStep: { model.step(name, by: $0) },
+                    onUseHistory: { model.setDistance(name, nil) },
+                    onRemove: { model.remove(name); editingName = nil }
+                )
+                .presentationDetents([.medium])
+            }
         }
         .sheet(isPresented: $isAdding) {
-            BagAddClubSheet(clubs: BagPresentation.addable(bag: bag)) { name in
-                add(name)
+            BagAddClubSheet(clubs: model.addable) { name in
+                model.add(name)
                 isAdding = false
             }
         }
-        .task { await loadRealBag() }
-        .task(id: revision) {
-            guard revision > 0 else { return }
-            try? await Task.sleep(nanoseconds: 800_000_000)
-            guard !Task.isCancelled else { return }
-            await saveToBackend()
+        .task {
+            sync.configure(apiBaseURL: apiBaseURL, adminToken: adminToken)
+            await loadRealBag()
         }
     }
 
-    /// Fetch the real Garmin bag once. If the player hasn't changed their bag here, use the real bag
-    /// so the default reflects what they actually carry — with real names.
+    /// Fetch the real Garmin bag once; it becomes the default while the player has no manual bag.
     private func loadRealBag() async {
-        guard !didLoadRealBag else { return }
+        guard fetchesRealBag, !didLoadRealBag else { return }
         didLoadRealBag = true
         guard let names = await refreshRealClubBag(apiBaseURL: apiBaseURL, adminToken: adminToken) else { return }
-        if ClubBagStore.bag() == nil {
-            bag = names
-        }
-    }
-
-    /// Drop the manual bag and snap back to the real Garmin bag (re-fetched if possible, else the
-    /// cached copy).
-    private func resetToGarminBag() {
-        ClubBagStore.clearManual()
-        Task {
-            if let names = await refreshRealClubBag(apiBaseURL: apiBaseURL, adminToken: adminToken) {
-                bag = names
-            } else if let cached = ClubBagStore.realBag() {
-                bag = cached
-            }
-        }
-    }
-
-    private func setDistance(_ name: String, _ yards: Int?) {
-        distancesYd[name] = yards.flatMap { $0 > 0 ? $0 : nil }
-        ClubBagStore.saveManualDistancesYd(distancesYd)
-        if let row = editing, row.name == name {
-            editing = BagPresentation.rows(bag: bag, profiles: clubProfiles, manual: distancesYd).first { $0.name == name }
-        }
-        revision += 1
-    }
-
-    private func remove(_ name: String) {
-        bag.remove(name)
-        ClubBagStore.save(bag)
-        revision += 1
-    }
-
-    private func add(_ name: String) {
-        bag.insert(name)
-        ClubBagStore.save(bag)
-        revision += 1
-    }
-
-    /// PUT the bag (token + yards→metres) to `/api/v2/players/me/clubs/bag`, which the caddie reads.
-    /// The device copy is already saved; a failure is shown and retried on the next change.
-    private func saveToBackend() async {
-        guard let apiBaseURL else { return }
-        let client = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
-        let inputs = ClubBagStore.manualClubInputs(selected: bag, distancesYd: distancesYd)
-        do {
-            _ = try await client.putManualClubBag(clubs: inputs)
-            syncFailed = false
-        } catch {
-            if !Task.isCancelled { syncFailed = true }
-        }
+        model.applyRealBag(names)
     }
 }
 
@@ -142,7 +180,7 @@ struct BagContent: View {
             Text(BagPresentation.summary(rows))
                 .font(.footnote).foregroundStyle(.secondary)
             if syncFailed {
-                Text("没能同步到云端，下次改动时会再试").font(.caption).foregroundStyle(HubStyle.bogey)
+                Text("还没同步到云端，正在自动重试").font(.caption).foregroundStyle(HubStyle.bogey)
             }
             VStack(spacing: 0) {
                 if let axis {
@@ -249,7 +287,8 @@ struct BagContent: View {
 /// and 从球包拿掉.
 struct BagClubEditor: View {
     let row: BagPresentation.Row
-    var onSet: (Int?) -> Void
+    var onStep: (Int) -> Void
+    var onUseHistory: () -> Void
     var onRemove: () -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -264,18 +303,18 @@ struct BagClubEditor: View {
             HStack {
                 Text("算球童建议时用").font(.subheadline)
                 Spacer()
-                Button { step(-1) } label: { Image(systemName: "minus").frame(width: 36, height: 32) }
+                Button { onStep(-1) } label: { Image(systemName: "minus").frame(width: 36, height: 32) }
                     .accessibilityIdentifier("bag-edit-minus")
                 Text(row.median.map { "\($0) 码" } ?? "—")
                     .font(.headline.monospacedDigit())
                     .frame(minWidth: 64)
                     .accessibilityIdentifier("bag-edit-value")
-                Button { step(1) } label: { Image(systemName: "plus").frame(width: 36, height: 32) }
+                Button { onStep(1) } label: { Image(systemName: "plus").frame(width: 36, height: 32) }
                     .accessibilityIdentifier("bag-edit-plus")
             }
             .buttonStyle(.bordered)
             if row.isManual, row.historyMedian != nil {
-                Button("用历史中位数") { onSet(nil) }
+                Button("用历史中位数", action: onUseHistory)
                     .font(.subheadline)
                     .accessibilityIdentifier("bag-edit-reset")
             }
@@ -287,11 +326,6 @@ struct BagClubEditor: View {
             .accessibilityIdentifier("bag-edit-remove")
         }
         .padding(20)
-    }
-
-    /// From the distance in use; a club with none starts from 100 yards.
-    private func step(_ delta: Int) {
-        onSet(max(1, (row.median ?? 100) + delta))
     }
 }
 

@@ -100,6 +100,8 @@ public final class CaddieDecisionRequestBuilder {
            let normalizedProfiles = normalizedClubProfiles(rawProfiles) {
             context["clubProfiles"] = normalizedProfiles
         }
+        // The carries typed in 球包 win over an installed seed's history profiles (idempotent).
+        context["clubProfiles"] = ClubBagStore.effectiveProfileValue(context["clubProfiles"])
         context["source"] = .string("ios_live")
         context["sourceRef"] = .string(seed.sourceRef)
         context["hole"] = .number(Double(seed.hole))
@@ -292,7 +294,7 @@ public enum LiveCaddieSeedFactory {
         prep: CoursePrepHole?
     ) -> Bool {
         let installedProfiles = profileCount(seed.context["clubProfiles"])
-        let packageProfiles = package.clubProfiles.filter {
+        let packageProfiles = package.effectiveClubProfiles.filter {
             $0.medianM.isFinite && $0.medianM > 0
         }.count
         let profileGap = installedProfiles == 0 || (packageProfiles > installedProfiles && packageProfiles >= 2)
@@ -419,7 +421,7 @@ public enum LiveCaddieSeedFactory {
         prep: CoursePrepHole?
     ) -> CaddieContextSeed? {
         let sourceRef = "\(package.roundId):\(hole.number)"
-        let profiles = package.clubProfiles.filter {
+        let profiles = package.effectiveClubProfiles.filter {
             $0.medianM.isFinite && $0.medianM > 0
         }
         let steps = canonicalSteps(prep?.steps ?? [], profiles: profiles)

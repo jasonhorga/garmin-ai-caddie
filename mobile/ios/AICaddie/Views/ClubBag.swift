@@ -101,6 +101,8 @@ public func backendToken(forZhName zhName: String) -> String? { zhNameToBackendT
 /// a manual override (`bag()`) wins, else the auto-fetched real Garmin bag (`realBag()`); `nil` from
 /// both means not-yet-known → callers fall back to clubs that appear in the player's shot history.
 public enum ClubBagStore {
+    /// Where the bag lives. Tests and design snapshots swap in an isolated suite.
+    public static var defaults: UserDefaults = .standard
     private static let key = "ai-caddie.club-bag-v1"
     private static let realKey = "ai-caddie.club-bag-real-v1"
 
@@ -115,7 +117,7 @@ public enum ClubBagStore {
     /// Drop the manual override so the player snaps back to the auto `realBag` default. Used by the
     /// 「用 Garmin 球包重置」 action when a stale manual selection no longer matches the real bag.
     public static func clearManual() {
-        UserDefaults.standard.removeObject(forKey: key)
+        defaults.removeObject(forKey: key)
     }
 
     /// The real Garmin bag, auto-fetched from the backend and cached. Used as the default everywhere
@@ -137,25 +139,133 @@ public enum ClubBagStore {
     /// the backend manual bag. Keyed by catalog `zhName`; the UI is yards, the payload is metres.
     private static let distancesKey = "ai-caddie.club-bag-distances-v1"
     public static func manualDistancesYd() -> [String: Int] {
-        (UserDefaults.standard.dictionary(forKey: distancesKey) as? [String: Int]) ?? [:]
+        (defaults.dictionary(forKey: distancesKey) as? [String: Int]) ?? [:]
     }
 
     public static func saveManualDistancesYd(_ d: [String: Int]) {
-        UserDefaults.standard.set(d, forKey: distancesKey)
+        if d.isEmpty {
+            defaults.removeObject(forKey: distancesKey)
+        } else {
+            defaults.set(d, forKey: distancesKey)
+        }
+    }
+
+    /// The typed carry in metres, rounded exactly like the PUT payload so the phone and the server
+    /// project the same number.
+    static func carryMetres(yards: Int) -> Double {
+        (Double(yards) * 0.9144).rounded()
     }
 
     /// Build the PUT payload: backend token + yards->metres (the bag stores metres). Clubs whose name
     /// has no backend token are dropped; a club without a typed distance sends a nil `distanceM`.
+    /// In catalog order, so one bag always produces the same payload.
     public static func manualClubInputs(selected: Set<String>, distancesYd: [String: Int]) -> [ManualClubInput] {
-        selected.compactMap { zh in
+        ClubCatalog.all.map(\.zhName).filter { selected.contains($0) }.compactMap { zh in
             guard let token = backendToken(forZhName: zh) else { return nil }
-            let m = distancesYd[zh].map { Double($0) * 0.9144 }
-            return ManualClubInput(token: token, customName: nil, distanceM: m.map { $0.rounded() })
+            let m = distancesYd[zh].flatMap { $0 > 0 ? carryMetres(yards: $0) : nil }
+            return ManualClubInput(token: token, customName: nil, distanceM: m)
         }
     }
 
+    /// Typed carries (metres) for the clubs in the bag, keyed by catalog name. The putter has none.
+    static func manualCarriesM(
+        bag: Set<String>? = ClubBagStore.effectiveBag(),
+        distancesYd: [String: Int] = ClubBagStore.manualDistancesYd()
+    ) -> [String: Double] {
+        var carries: [String: Double] = [:]
+        for (name, yards) in distancesYd where yards > 0 && name != "推杆" && ClubCatalog.names.contains(name) {
+            if let bag, !bag.contains(name) { continue }
+            carries[name] = carryMetres(yards: yards)
+        }
+        return carries
+    }
+
+    /// THE effective-profile projection every caddie consumer reads (local decisions, online
+    /// requests, map distance, Watch). A distance typed in 球包 replaces the history median and the
+    /// history p10–p90 band moves with it, so the measured spread stays; aliases of one physical club
+    /// ("Aw"/"GW") all move to the same carry. A typed club without any history gets a zero-sample
+    /// row. Mirrors the server's ``club_bag.apply_manual_carries``; re-applying is a no-op.
+    public static func effectiveProfiles(
+        _ profiles: [ClubProfile],
+        carries: [String: Double]? = nil
+    ) -> [ClubProfile] {
+        let carries = carries ?? manualCarriesM()
+        guard !carries.isEmpty else { return profiles }
+        var covered = Set<String>()
+        var result = profiles.map { profile -> ClubProfile in
+            let name = zhClubName(profile.clubName.trimmingCharacters(in: .whitespaces))
+            guard let carry = carries[name] else { return profile }
+            covered.insert(name)
+            let band = shiftedBand(median: profile.medianM, p10: profile.p10M, p90: profile.p90M, to: carry)
+            return ClubProfile(clubName: profile.clubName, sampleSize: profile.sampleSize, medianM: carry, p10M: band.p10, p90M: band.p90)
+        }
+        for name in ClubCatalog.all.map(\.zhName) where !covered.contains(name) {
+            guard let carry = carries[name] else { continue }
+            result.append(ClubProfile(clubName: name, sampleSize: 0, medianM: carry, p10M: carry, p90M: carry))
+        }
+        return result
+    }
+
+    /// The same projection over a seed/request `clubProfiles` value (name-keyed object or array).
+    static func effectiveProfileValue(_ value: JSONValue?, carries: [String: Double]? = nil) -> JSONValue? {
+        let carries = carries ?? manualCarriesM()
+        guard !carries.isEmpty else { return value }
+        var covered = Set<String>()
+        func project(_ row: JSONValue) -> JSONValue {
+            guard case .object(var fields) = row,
+                  case .string(let raw)? = fields["clubName"] ?? fields["name"] else { return row }
+            let name = zhClubName(raw.trimmingCharacters(in: .whitespaces))
+            guard let carry = carries[name] else { return row }
+            covered.insert(name)
+            func number(_ keys: [String]) -> Double? {
+                for key in keys { if case .number(let v)? = fields[key] { return v } }
+                return nil
+            }
+            let median = number(["median_m", "median", "carryM"]) ?? 0
+            let band = shiftedBand(median: median, p10: number(["p10_m", "p10M", "p10"]) ?? 0, p90: number(["p90_m", "p90M", "p90"]) ?? 0, to: carry)
+            for key in ["median", "carryM"] where fields[key] != nil { fields[key] = .number(carry) }
+            for key in ["p10M", "p10"] where fields[key] != nil { fields[key] = .number(band.p10) }
+            for key in ["p90M", "p90"] where fields[key] != nil { fields[key] = .number(band.p90) }
+            fields["median_m"] = .number(carry)
+            fields["p10_m"] = .number(band.p10)
+            fields["p90_m"] = .number(band.p90)
+            return .object(fields)
+        }
+        func missingRows() -> [(String, JSONValue)] {
+            ClubCatalog.all.map(\.zhName).compactMap { name in
+                guard !covered.contains(name), let carry = carries[name] else { return nil }
+                return (name, .object([
+                    "clubName": .string(name), "sampleSize": .number(0),
+                    "median_m": .number(carry), "p10_m": .number(carry), "p90_m": .number(carry),
+                ]))
+            }
+        }
+        switch value {
+        case .object(let rows)?:
+            var projected = rows.mapValues(project)
+            for (name, row) in missingRows() where projected[name] == nil { projected[name] = row }
+            return .object(projected)
+        case .array(let rows)?:
+            let projected = rows.map(project)
+            return .array(projected + missingRows().map { $0.1 })
+        case nil:
+            let rows = missingRows()
+            return rows.isEmpty ? nil : .object(Dictionary(rows, uniquingKeysWith: { first, _ in first }))
+        default:
+            return value
+        }
+    }
+
+    /// Move a history p10–p90 band with its median to a typed carry; no history → a point band.
+    private static func shiftedBand(median: Double, p10: Double, p90: Double, to carry: Double) -> (p10: Double, p90: Double) {
+        guard median.isFinite, median > 0, p10.isFinite, p90.isFinite, p10 > 0, p90 > 0 else { return (carry, carry) }
+        let delta = carry - median
+        func shifted(_ v: Double) -> Double { (max(1, v + delta) * 10).rounded() / 10 }
+        return (shifted(p10), shifted(p90))
+    }
+
     private static func decodeBag(_ storageKey: String) -> Set<String>? {
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
+        guard let data = defaults.data(forKey: storageKey),
               let list = try? JSONDecoder().decode([String].self, from: data) else {
             return nil
         }
@@ -164,7 +274,15 @@ public enum ClubBagStore {
 
     private static func encodeBag(_ bag: Set<String>, into storageKey: String) {
         guard let data = try? JSONEncoder().encode(Array(bag).sorted()) else { return }
-        UserDefaults.standard.set(data, forKey: storageKey)
+        defaults.set(data, forKey: storageKey)
+    }
+}
+
+extension LiveRoundPackage {
+    /// The package's club profiles with the carries typed in 球包 applied — what every caddie, map and
+    /// Watch consumer reads instead of the raw history `clubProfiles`.
+    public var effectiveClubProfiles: [ClubProfile] {
+        ClubBagStore.effectiveProfiles(clubProfiles)
     }
 }
 

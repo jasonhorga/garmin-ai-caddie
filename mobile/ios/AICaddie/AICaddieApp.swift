@@ -726,6 +726,8 @@ public final class LiveRoundAppModel: ObservableObject {
             isBootstrapping = false
             resumePrepCourseDownloads(retryFailed: true)
             retryDeferredRoundFinishes()
+            // A 球包 edit still in the outbox (the app was closed before its PUT landed) resumes here.
+            ClubBagSyncCoordinator.shared.configure(apiBaseURL: apiBaseURL, adminToken: adminToken)
         }
         #if DEBUG
         // UI-test classes share one simulator installation. A previous journey may have left a
@@ -2964,6 +2966,7 @@ public final class LiveRoundAppModel: ObservableObject {
         endPrepBackgroundTask()
         resumePrepCourseDownloads(retryFailed: true)
         retryDeferredRoundFinishes()
+        ClubBagSyncCoordinator.shared.configure(apiBaseURL: apiBaseURL, adminToken: adminToken)
         // Retry local course asset preparation on the next foreground, but never block the event
         // uploader on that background work.
         if !isPreparingRound, liveRoundState != nil { beginOfflineCourseDownload() }

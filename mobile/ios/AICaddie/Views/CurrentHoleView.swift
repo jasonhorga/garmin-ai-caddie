@@ -2935,7 +2935,7 @@ public struct CurrentHoleView: View {
     /// player had hit anything.
     private func bagBest(filterTeeOnly: Bool) -> [String: ClubProfile] {
         var best: [String: ClubProfile] = [:]
-        for profile in package.clubProfiles {
+        for profile in package.effectiveClubProfiles {
             let raw = profile.clubName.trimmingCharacters(in: .whitespaces)
             guard !raw.isEmpty, raw.lowercased() != "unknown" else { continue }
             let name = zhClubName(raw)
@@ -3139,7 +3139,7 @@ public struct CurrentHoleView: View {
            let carry = recommendation.carryMetres {
             return carry
         }
-        return package.clubProfiles.first(where: { zhClubName($0.clubName) == selectedClub })?.medianM
+        return package.effectiveClubProfiles.first(where: { zhClubName($0.clubName) == selectedClub })?.medianM
     }
 
     /// The club the player will hit NOW under the caddie's decision: the first step of the selected

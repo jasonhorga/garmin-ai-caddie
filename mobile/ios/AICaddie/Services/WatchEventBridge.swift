@@ -1146,7 +1146,7 @@ public final class WatchEventBridge: NSObject {
             )
         }
 
-        for profile in package.clubProfiles {
+        for profile in package.effectiveClubProfiles {
             append(
                 WatchClubOption(
                     clubName: profile.clubName,

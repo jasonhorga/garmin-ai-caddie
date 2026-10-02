@@ -52,5 +52,26 @@ final class BagPresentationTests: XCTestCase {
         XCTAssertEqual(BagPresentation.historyText(rows[1]), "还没有击球记录")
         XCTAssertEqual(BagPresentation.summary(rows), "2 支 · 条是 80% 的击球落在的范围，白线是中位数")
         XCTAssertFalse(BagPresentation.addable(bag: ["一号木"]).map(\.zhName).contains("一号木"))
+        XCTAssertFalse(BagPresentation.addable(bag: []).map(\.zhName).contains("推杆"), "no invisible putter row")
+    }
+
+    func testAliasesOfOneClubUseTheStrongestSampleWhateverTheOrder() {
+        let weak = ClubProfile(clubName: "Aw", sampleSize: 4, medianM: 70, p10M: 60, p90M: 78)
+        let strong = ClubProfile(clubName: "GW", sampleSize: 31, medianM: 91, p10M: 80, p90M: 99)
+        let sevenLegacy = ClubProfile(clubName: "7 Iron", sampleSize: 2, medianM: 120, p10M: 115, p90M: 125)
+        let seven = ClubProfile(clubName: "7I", sampleSize: 58, medianM: 137, p10M: 124, p90M: 146)
+        for profiles in [[weak, strong, sevenLegacy, seven], [strong, weak, seven, sevenLegacy]] {
+            let rows = BagPresentation.rows(bag: ["A 杆", "七号铁"], profiles: profiles, manual: [:])
+            let wedge = rows.first { $0.name == "A 杆" }
+            XCTAssertEqual(wedge?.samples, 31)
+            XCTAssertEqual(wedge?.historyMedian, 100)
+            let iron = rows.first { $0.name == "七号铁" }
+            XCTAssertEqual(iron?.samples, 58)
+            XCTAssertEqual(iron?.historyMedian, 150)
+        }
+        // Equal samples: the earlier row, deterministically.
+        let tie = [ClubProfile(clubName: "PW", sampleSize: 9, medianM: 100, p10M: 90, p90M: 110),
+                   ClubProfile(clubName: "P", sampleSize: 9, medianM: 110, p10M: 100, p90M: 120)]
+        XCTAssertEqual(BagPresentation.strongestProfile(for: "P 杆", in: tie)?.clubName, "PW")
     }
 }

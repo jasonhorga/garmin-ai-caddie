@@ -148,6 +148,53 @@ def effective_club_bag(player_id: str = OWNER_ID) -> dict:
     return {"source": "none", "clubs": []}
 
 
+def manual_carries_m(player_id: str = OWNER_ID) -> dict[str, float]:
+    """Canonical token -> the carry (metres) the player typed in 球包, from the manual bag only.
+    The putter has no carry; an unknown token or a missing distance is skipped."""
+    bag = effective_club_bag(player_id)
+    if bag["source"] != "manual":
+        return {}
+    carries: dict[str, float] = {}
+    for club in bag["clubs"]:
+        if not isinstance(club, dict):
+            continue
+        token = str(club.get("token") or "")
+        distance = club.get("distanceM")
+        if token == "putter" or not club_catalog.is_valid_token(token):
+            continue
+        if isinstance(distance, (int, float)) and float(distance) > 0:
+            carries[token] = float(distance)
+    return carries
+
+
+def apply_manual_carries(profiles: Iterable[dict[str, Any]], *, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    """The effective-profile projection shared with iOS ``ClubBagStore.effectiveProfiles``: a typed
+    carry replaces the history median and the history p10/p90 band moves with it, so the caddie, the
+    map and the Watch use the distance the player set while keeping the measured spread. Aliases of
+    one physical club ("Aw"/"GW") all move to the same carry. Idempotent: re-applying is a no-op."""
+    carries = manual_carries_m(player_id)
+    rows = [dict(row) for row in profiles if isinstance(row, dict)]
+    if not carries:
+        return rows
+    for row in rows:
+        carry = carries.get(canonical_club_name(row.get("clubName")) or "")
+        if carry is None:
+            continue
+        try:
+            median = float(row.get("median_m") or 0)
+        except (TypeError, ValueError):
+            median = 0.0
+        delta = carry - median if median > 0 else 0.0
+        for key in ("p10_m", "p90_m"):
+            try:
+                value = float(row.get(key) or 0)
+            except (TypeError, ValueError):
+                value = 0.0
+            row[key] = round(max(1.0, value + delta), 1) if median > 0 and value > 0 else carry
+        row["median_m"] = carry
+    return rows
+
+
 def in_use_canonical_names(player_id: str = OWNER_ID) -> set[str] | None:
     """Canonical tokens for ``player_id``'s IN-USE clubs (not retired/deleted), or None when that
     player has no bag. Reads the EFFECTIVE bag (manual selection wins, else the synced Garmin bag) —

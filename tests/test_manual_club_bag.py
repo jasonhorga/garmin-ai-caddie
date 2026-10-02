@@ -105,6 +105,42 @@ class EffectiveBagTests(unittest.TestCase):
             club_bag.clear_manual_club_bag("me")
             self.assertEqual(club_bag.effective_club_bag("me")["source"], "none")
 
+    def test_manual_carry_replaces_history_median_and_moves_the_band(self) -> None:
+        profiles = [
+            {"clubName": "7I", "sampleSize": 40, "median_m": 128.0, "p10_m": 118.0, "p90_m": 136.0},
+            {"clubName": "7 Iron", "sampleSize": 3, "median_m": 120.0, "p10_m": 115.0, "p90_m": 125.0},
+            {"clubName": "Driver", "sampleSize": 50, "median_m": 210.0, "p10_m": 190.0, "p90_m": 225.0},
+        ]
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            (Path(tmp) / "data").mkdir()
+            # No manual bag: history is untouched.
+            self.assertEqual(club_bag.apply_manual_carries(profiles, player_id="me"), profiles)
+            club_bag.save_manual_club_bag(
+                "me",
+                [{"token": "iron7", "distanceM": 155}, {"token": "driver"}, {"token": "putter", "distanceM": 5}],
+            )
+            self.assertEqual(club_bag.manual_carries_m("me"), {"iron7": 155.0})
+            rows = club_bag.apply_manual_carries(profiles, player_id="me")
+            seven, alias, driver = rows
+            self.assertEqual((seven["median_m"], seven["p10_m"], seven["p90_m"]), (155.0, 145.0, 163.0))
+            # Every alias of the physical club moves to the same carry.
+            self.assertEqual((alias["median_m"], alias["p10_m"], alias["p90_m"]), (155.0, 150.0, 160.0))
+            self.assertEqual(driver, profiles[2])
+            # Idempotent, and the input rows are not mutated.
+            self.assertEqual(club_bag.apply_manual_carries(rows, player_id="me"), rows)
+            self.assertEqual(profiles[0]["median_m"], 128.0)
+            # Clearing the manual bag (PUT {"clubs": []}) restores history.
+            club_bag.clear_manual_club_bag("me")
+            self.assertEqual(club_bag.apply_manual_carries(profiles, player_id="me"), profiles)
+
+    def test_fresh_package_profiles_apply_the_manual_carry(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "ai_caddie" / "caddie" / "mobile_live.py").read_text()
+        restrict = source.index("club_profiles = restrict_to_bag(club_profiles")
+        project = source.index("club_profiles = apply_manual_carries(club_profiles, player_id=player_id)")
+        seeds = source.index("caddie_profiles = _club_performance_profiles(club_profiles")
+        self.assertLess(restrict, project)
+        self.assertLess(project, seeds)
+
 
 from ai_caddie.courses import course_prep
 from server_v2.club_bag_api import build_effective_club_bag_response
