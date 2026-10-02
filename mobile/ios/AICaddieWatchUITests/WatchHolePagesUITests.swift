@@ -14,7 +14,21 @@ final class WatchHolePagesUITests: XCTestCase {
         app.launchEnvironment["UITEST_GPS_LON"] = "116.5461531"
     }
 
+    /// The page modes draw the cached hole image, which only `standalone-course-seed` stores (the
+    /// runtime workflow seeds the same way). Seed once, wait for its 本洞 pages, then relaunch.
+    private func seedTheCourseImage() {
+        app.launchArguments = ["-uitest-screen", "standalone-course-seed"]
+        app.launch()
+        let pages = app.staticTexts["watch-hole-page-current"]
+        if !pages.waitForExistence(timeout: 30) {
+            print("WatchHolePagesUITests seed hierarchy:\n\(app.debugDescription)")
+        }
+        app.terminate()
+    }
+
     func testVerticalSwipesWalkTheThreeHolePagesAndBack() {
+        seedTheCourseImage()
+        app.launchArguments = ["-uitest-screen", "standalone-course-page-plan"]
         app.launch()
         let marker = app.staticTexts["watch-hole-page-current"]
         guard marker.waitForExistence(timeout: 20) else {
@@ -36,6 +50,7 @@ final class WatchHolePagesUITests: XCTestCase {
     /// The prepared plan after the tee shot (the production container, real prepared options): the
     /// 方案 page still shows the next club's tag, never the Driver again, and tapping it switches plan.
     func testAfterTheTeeShotThePlanTagShowsTheNextClubAndSwitchesPlans() {
+        seedTheCourseImage()
         app.launchArguments = ["-uitest-screen", "standalone-course-page-plan-after-tee"]
         app.launch()
         let tag = app.buttons["watch-plan-club-tag"]
