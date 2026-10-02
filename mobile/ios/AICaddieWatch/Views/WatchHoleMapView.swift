@@ -938,20 +938,24 @@ public struct WatchHoleMapView: View {
                 .padding(.top, size.height * 0.09)
 
                 if showTextOverlay, showCaddieRecommendation {
-                    Button(action: onOpenCaddie) {
-                        HStack(spacing: 3) {
-                            Text(WatchClubDisplay.shortCode(caddieClub))
-                                .font(.system(size: 16, weight: .black, design: .rounded))
-                                .foregroundStyle(.black)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(AICaddieDesignTokens.hudGreen, in: Capsule())
-                        .overlay(Capsule().stroke(Color.white.opacity(0.84), lineWidth: 1.1))
-                        .contentShape(Rectangle())
+                    // Its own high-priority tap, not a Button: on the 本洞 方案 page the map's
+                    // simultaneous measure tap and the page's recognizers otherwise take the touch
+                    // and the tag never switches plan.
+                    HStack(spacing: 3) {
+                        Text(WatchClubDisplay.shortCode(caddieClub))
+                            .font(.system(size: 16, weight: .black, design: .rounded))
+                            .foregroundStyle(.black)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
-                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(AICaddieDesignTokens.hudGreen, in: Capsule())
+                    .overlay(Capsule().stroke(Color.white.opacity(0.84), lineWidth: 1.1))
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(TapGesture().onEnded { onOpenCaddie() })
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { onOpenCaddie() }
                     .accessibilityLabel("球童建议 \(caddieClub) \(caddieNote)")
                     .accessibilityValue(caddiePlanName)
                     .accessibilityIdentifier("watch-plan-club-tag")
