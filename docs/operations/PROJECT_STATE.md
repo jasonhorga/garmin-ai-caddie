@@ -104,13 +104,14 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-10-02 23:05 UTC):** `B1-B7` review queue remains
+**Current slice (2026-10-02 23:10 UTC):** `B1-B7` review queue remains
 `in-progress`; B6 is complete through merged PR #367, and B7 step 1 is active
 in PR #368. Claude's current exact head is
-`4a053881cec047b2d3374d4211e13997d2d17d88` on
-`claude/code-audit-performance-17wqcv`; its Source CI `37075442375` passed,
-while Native Mobile CI `37075442381` and the frontend job remain in progress.
-No focused tests or matching artifacts have been run for this head yet.
+`bef40790911673320584a80be3ea7782ee92ad9c` on
+`claude/code-audit-performance-17wqcv`; Source CI `37075896449` passed and
+Native Mobile CI `37075896330` is pending. The source-only diff fixes the
+settle-tail timestamp issue identified in review `5962850867`; no focused
+tests or matching artifacts have been run for this head yet.
 
 The superseded exact head `8835a624599f8f6f8ad1dc8f2d68163ca545a7f5` had
 Source/Native CI `37072538093`/`37072538021`, exact-head homeserver focused
