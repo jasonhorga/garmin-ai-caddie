@@ -215,9 +215,15 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(legs.count, stock.plan?.count)
         // Every landing with its label, and the pin with its flag, sit inside the face between the
         // header and the strategy row on both the 46 mm and the 41 mm face; no labels overlap.
+        let labelSizes = legs.map { WatchPlanLegs.labelSize($0.label) }
+        for labelSize in labelSizes {
+            XCTAssertGreaterThan(labelSize.width, 20)
+            XCTAssertLessThanOrEqual(labelSize.width, 60)
+        }
         for size in [CGSize(width: 198, height: 242), CGSize(width: 176, height: 215)] {
             let viewport = try XCTUnwrap(WatchCaddieOptionsView.planViewport(
                 points: [geometry.youPx] + legs.map(\.landing) + [geometry.pinPx],
+                labelSizes: labelSizes,
                 size: size,
                 maxScale: CGFloat(WatchHoleMapView.maximumCrownScale)
             ))
@@ -232,12 +238,9 @@ final class WatchDesignSnapshotTests: XCTestCase {
             for (landing, leg) in zip(landings, legs) {
                 XCTAssertTrue(rest.contains(landing), "landing \(leg.label) at \(landing) in \(rest) for \(size)")
             }
-            // drawFullPlan lays out the measured label boxes (≤ 50 × 16 pt) the same way.
-            let labels = WatchPlanLegs.labelFrames(
-                landings: landings,
-                sizes: legs.map { _ in CGSize(width: 50, height: 16) },
-                bounds: rest
-            )
+            // The production layout drawFullPlan draws: measured boxes inside the rest frame.
+            let labels = WatchPlanLegs.labelFrames(landings: landings, sizes: labelSizes, bounds: rest)
+            XCTAssertEqual(labels.count, legs.count, "every leg keeps its label")
             for (label, leg) in zip(labels, legs) {
                 XCTAssertTrue(rest.contains(label), "label \(leg.label) \(label) in \(rest) for \(size)")
             }

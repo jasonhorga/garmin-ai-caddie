@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum WatchHoleMapViewport {
     static let flagTopClearance = 20.0
@@ -220,14 +221,29 @@ enum WatchPlanLegs {
         return legs
     }
 
+    static let labelFontSize: CGFloat = 10.5
+    /// Horizontal gap from a landing to its label's left edge.
+    static let labelGap: CGFloat = 6
+
+    /// The black box of a landing label ("5i 175"): its 10.5 pt heavy rounded text plus padding.
+    /// Both the 球童 viewport fit and `drawFullPlan` lay labels out from this one measurement.
+    static func labelSize(_ text: String) -> CGSize {
+        var font = UIFont.systemFont(ofSize: labelFontSize, weight: .heavy)
+        if let rounded = font.fontDescriptor.withDesign(.rounded) {
+            font = UIFont(descriptor: rounded, size: labelFontSize)
+        }
+        let textSize = (text as NSString).size(withAttributes: [.font: font])
+        return CGSize(width: ceil(textSize.width) + 8, height: ceil(textSize.height) + 2)
+    }
+
     /// Where each landing's label box goes: right of its landing and centred on it, stacked top to
     /// bottom so no two labels overlap when landings sit closer than a label's height, then pulled
-    /// back up from the bottom of `bounds`.
+    /// back up from the bottom of `bounds`. A label moved off its landing gets a leader line.
     static func labelFrames(
         landings: [CGPoint],
         sizes: [CGSize],
         bounds: CGRect,
-        gap: CGFloat = 6,
+        gap: CGFloat = labelGap,
         spacing: CGFloat = 1
     ) -> [CGRect] {
         let count = min(landings.count, sizes.count)
@@ -1585,23 +1601,24 @@ public struct WatchHoleMapView: View {
             context.stroke(dot, with: .color(.white.opacity(opacity)), style: StrokeStyle(lineWidth: 1))
         }
         guard !dimmed else { return }
-        let labels = planLegs.map { leg in
-            context.resolve(
-                Text(leg.label)
-                    .font(.system(size: 10.5, weight: .heavy, design: .rounded))
-                    .foregroundColor(.white)
-            )
-        }
-        let boxes = labels.map { label -> CGSize in
-            let textSize = label.measure(in: CGSize(width: 80, height: 20))
-            return CGSize(width: textSize.width + 8, height: textSize.height + 2)
-        }
+        let landings = planLegs.map { transform($0.landing) }
         let frames = WatchPlanLegs.labelFrames(
-            landings: planLegs.map { transform($0.landing) },
-            sizes: boxes,
+            landings: landings,
+            sizes: planLegs.map { WatchPlanLegs.labelSize($0.label) },
             bounds: planLabelBounds ?? safeRect
         )
-        for (label, rect) in zip(labels, frames) {
+        for (leg, (landing, rect)) in zip(planLegs, zip(landings, frames)) {
+            if abs(rect.midY - landing.y) > rect.height / 2 - 2 {
+                var leader = Path()
+                leader.move(to: landing)
+                leader.addLine(to: CGPoint(x: rect.minX, y: min(max(landing.y, rect.minY + 3), rect.maxY - 3)))
+                context.stroke(leader, with: .color(.white.opacity(0.7)), style: StrokeStyle(lineWidth: 0.8))
+            }
+            let label = context.resolve(
+                Text(leg.label)
+                    .font(.system(size: WatchPlanLegs.labelFontSize, weight: .heavy, design: .rounded))
+                    .foregroundColor(.white)
+            )
             context.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(.black.opacity(0.78)))
             context.draw(label, at: CGPoint(x: rect.midX, y: rect.midY))
         }

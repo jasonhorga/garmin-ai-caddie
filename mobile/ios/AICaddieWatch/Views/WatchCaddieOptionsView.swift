@@ -116,6 +116,7 @@ public struct WatchCaddieOptionsView: View {
         let viewport = mappedGeometry.flatMap { geometry in
             Self.planViewport(
                 points: [geometry.youPx] + legs.map(\.landing) + [geometry.pinPx],
+                labelSizes: legs.map { WatchPlanLegs.labelSize($0.label) },
                 size: size,
                 maxScale: CGFloat(WatchHoleMapView.maximumCrownScale)
             )
@@ -276,7 +277,12 @@ public struct WatchCaddieOptionsView: View {
 
     /// The scale and centre that fit every `points` (player, landings, pin) into the rest frame
     /// with room for the landing labels and the flag; never zoomed past `maxScale`.
-    static func planViewport(points: [CGPoint], size: CGSize, maxScale: CGFloat) -> PlanViewport? {
+    static func planViewport(
+        points: [CGPoint],
+        labelSizes: [CGSize] = [],
+        size: CGSize,
+        maxScale: CGFloat
+    ) -> PlanViewport? {
         guard let first = points.first, size.width > 0, size.height > 0 else { return nil }
         var minX = first.x, maxX = first.x, minY = first.y, maxY = first.y
         for point in points.dropFirst() {
@@ -284,11 +290,13 @@ public struct WatchCaddieOptionsView: View {
             minY = min(minY, point.y); maxY = max(maxY, point.y)
         }
         let rest = planRestFrame(in: size)
-        let half = planLabelReserve.height / 2
+        // The widest and tallest measured label, the same boxes drawFullPlan lays out.
+        let labelWidth = labelSizes.map(\.width).max().map { $0 + WatchPlanLegs.labelGap } ?? planLabelReserve.width
+        let half = (labelSizes.map(\.height).max() ?? planLabelReserve.height) / 2
         let fit = CGRect(
             x: rest.minX + 4,
             y: rest.minY + max(planFlagReserve, half),
-            width: rest.width - 4 - planLabelReserve.width,
+            width: rest.width - 4 - labelWidth,
             height: rest.height - max(planFlagReserve, half) - half
         )
         guard fit.width > 0, fit.height > 0 else { return nil }
