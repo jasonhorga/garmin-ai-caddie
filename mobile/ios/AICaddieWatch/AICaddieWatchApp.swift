@@ -28,6 +28,14 @@ public struct AICaddieWatchApp: App {
     /// B7 step 1 (实验): record swing candidates and their features; never changes a score.
     @AppStorage("watch.collectSwingFeatures") private var collectSwingFeatures = false
     private let swingCandidateStore = WatchSwingCandidateStore()
+    /// Which round a candidate belongs to across a closure; a late candidate joins the closed round.
+    @State private var swingRouter = WatchSwingCandidateRouter()
+    @State private var swingUploadRetry: Task<Void, Never>?
+
+    /// The capability/battery gate is a prerequisite: until it lands a stored preference is ignored.
+    private var collectingSwings: Bool {
+        WatchSwingCollectionAvailability.isCollecting(preference: collectSwingFeatures)
+    }
 
     public init() {}
 
@@ -60,6 +68,8 @@ public struct AICaddieWatchApp: App {
                             autoShotProvider.stop()
                             reconcileLocationServices()
                         }
+                        // A phone Finish/Discard hands the closed round to the candidate uploader.
+                        closeSwingRound(closure.roundId)
                     }
                 }
                 .onChange(of: roundModel.lastRoundClosure) { _, closure in
@@ -83,6 +93,7 @@ public struct AICaddieWatchApp: App {
                 .onChange(of: syncClient.phoneReachable) { _, reachable in
                     if reachable {
                         Task { await roundModel.retryDeferredFinishes() }
+                        Task { await uploadFinishedSwingCandidates() }
                     }
                 }
                 .onChange(of: roundModel.round?.roundId, initial: true) { _, _ in
@@ -96,24 +107,33 @@ public struct AICaddieWatchApp: App {
                     reconcileLocationServices()
                 }
                 .onChange(of: collectSwingFeatures) { _, _ in reconcileAutoShot() }
-                .onChange(of: roundModel.round?.roundId) { _, _ in
+                .onChange(of: roundModel.round?.roundId, initial: true) { _, roundId in
                     // A round that ended (or was replaced) uploads its candidates.
-                    Task { await uploadFinishedSwingCandidates() }
+                    if swingRouter.roundChanged(to: roundId, at: Date()) != nil {
+                        Task { await uploadFinishedSwingCandidates() }
+                    }
+                }
+                .onChange(of: watchLocation.latestFix) { _, fix in
+                    autoShotProvider.updateSpeed(fix)
                 }
                 .onChange(of: autoShotProvider.latestSwing) { _, observation in
-                    guard collectSwingFeatures, let observation, let round = roundModel.round else { return }
-                    let fix = watchLocation.latestFix
+                    guard collectingSwings, let observation,
+                          let roundId = swingRouter.roundId(forCandidateAt: observation.observedAt) else { return }
                     swingCandidateStore.append(
                         WatchSwingCandidateRecord(
-                            capturedAt: ISO8601DateFormatter().string(from: Date()),
+                            capturedAt: ISO8601DateFormatter().string(from: observation.observedAt),
                             hole: roundModel.activeHole,
                             features: observation.features,
-                            horizontalAccuracyM: fix?.horizontalAccuracyM,
-                            speedMps: nil,
+                            horizontalAccuracyM: watchLocation.latestFix?.horizontalAccuracyM,
+                            speedMps: observation.speedMps,
                             proposedShot: observation.proposedShot
                         ),
-                        roundId: round.roundId
+                        roundId: roundId
                     )
+                    if roundId != swingRouter.activeRoundId {
+                        // Settled just after its round closed: upload with that round.
+                        Task { await uploadFinishedSwingCandidates() }
+                    }
                 }
                 .onChange(of: qualifiedWatchFix?.capturedAt) { _, _ in
                     // B6 洞结束: walking off the green toward the next tee opens 本洞成绩.
@@ -154,6 +174,7 @@ public struct AICaddieWatchApp: App {
                     syncClient.requestConfigurationFromPhone()
                     reconcileLocationServices()
                     Task { await roundModel.retryDeferredFinishes() }
+                    Task { await uploadFinishedSwingCandidates() }
                 }
         }
     }
@@ -343,26 +364,38 @@ public struct AICaddieWatchApp: App {
         return "\(roundModel.round?.roundId ?? "-"):\(globalId):\(state.hole):\(state.geometryRevision ?? "-")"
     }
 
-    /// B7 step 1: candidates of rounds that are no longer active go up with their features only;
-    /// a failed upload stays on the Watch for the next try.
-    private func uploadFinishedSwingCandidates() async {
+    /// A closure the router has not seen yet (phone Finish racing the round-ID change).
+    private func closeSwingRound(_ roundId: String) {
+        if swingRouter.activeRoundId == roundId {
+            swingRouter.roundChanged(to: roundModel.round?.roundId, at: Date())
+        }
+        Task { await uploadFinishedSwingCandidates() }
+    }
+
+    /// B7 step 1: candidates of rounds that are no longer active go up with their features only. A
+    /// failed upload stays on the Watch and is retried on config, reachability, closure, launch and
+    /// a backoff while the app stays alive.
+    private func uploadFinishedSwingCandidates(attempt: Int = 0) async {
         guard let config = syncClient.config else { return }
-        let activeId = roundModel.round?.roundId
-        for roundId in swingCandidateStore.pendingRoundIds() where roundId != activeId {
-            let candidates = swingCandidateStore.load(roundId: roundId)
-            guard !candidates.isEmpty else {
-                swingCandidateStore.remove(roundId: roundId)
-                continue
-            }
-            let client = WatchBackendClient(
-                baseURL: config.baseURL,
-                adminToken: config.adminToken,
-                sessionToken: config.sessionToken,
-                sessionTokenExpiresAt: config.sessionTokenExpiresAt
-            )
-            if (try? await client.uploadSwingCandidates(roundId: roundId, candidates: candidates)) != nil {
-                swingCandidateStore.remove(roundId: roundId)
-            }
+        let client = WatchBackendClient(
+            baseURL: config.baseURL,
+            adminToken: config.adminToken,
+            sessionToken: config.sessionToken,
+            sessionTokenExpiresAt: config.sessionTokenExpiresAt
+        )
+        let outcome = await WatchSwingCandidateUploader(store: swingCandidateStore).uploadClosedRounds(
+            activeRoundId: swingRouter.activeRoundId
+        ) { roundId, candidates in
+            try await client.uploadSwingCandidates(roundId: roundId, candidates: candidates)
+        }
+        guard !outcome.failed.isEmpty else { return }
+        let delays = WatchSwingCandidateUploader.retryDelaysS
+        guard attempt < delays.count else { return }
+        swingUploadRetry?.cancel()
+        swingUploadRetry = Task {
+            try? await Task.sleep(nanoseconds: UInt64(delays[attempt] * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await uploadFinishedSwingCandidates(attempt: attempt + 1)
         }
     }
 
@@ -374,7 +407,7 @@ public struct AICaddieWatchApp: App {
             await autoShotProvider.reconcile(
                 roundActive: keepWorkoutActive,
                 autoShotEnabled: keepWorkoutActive && roundModel.autoShotEnabled,
-                collectSwingFeatures: keepWorkoutActive && collectSwingFeatures
+                collectSwingFeatures: keepWorkoutActive && collectingSwings
             )
         }
     }

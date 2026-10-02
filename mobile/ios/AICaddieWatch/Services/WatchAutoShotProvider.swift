@@ -40,11 +40,22 @@ public struct WatchSwingObservation: Equatable, Identifiable {
     public let id: UUID
     public let features: WatchSwingFeatures
     public let proposedShot: Bool
+    /// The fresh, accurate ground speed used to classify it; nil when unknown.
+    public let speedMps: Double?
+    public let observedAt: Date
 
-    public init(id: UUID = UUID(), features: WatchSwingFeatures, proposedShot: Bool) {
+    public init(
+        id: UUID = UUID(),
+        features: WatchSwingFeatures,
+        proposedShot: Bool,
+        speedMps: Double? = nil,
+        observedAt: Date = Date()
+    ) {
         self.id = id
         self.features = features
         self.proposedShot = proposedShot
+        self.speedMps = speedMps
+        self.observedAt = observedAt
     }
 }
 
@@ -68,11 +79,14 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
     private let sensorManager: CMBatchedSensorManager
     private let log = Logger(subsystem: "com.aicaddie.watch", category: "autoshot")
     private var detector = WatchAutoShotDetector()
-    private var collector = WatchSwingCandidateCollector()
+    /// B7 step 1: candidate collection, speed and interruption state for the current motion run.
+    private var swingSession = WatchSwingCollectionSession()
     private var autoShotWanted = false
     private var collectWanted = false
-    /// Motion timestamp of the detector's latest proposal, to tag the matching candidate.
-    private var lastDetectionTimestamp: TimeInterval?
+    /// A sensor interruption ends automatic detection and collection for the rest of the round;
+    /// cleared only when the round ends (`stop`).
+    private var motionInterrupted = false
+    private var latestSpeed: WatchSwingSpeedSample?
     private var workoutSession: HKWorkoutSession?
     private var roundSessionDesired = false
     private var startingWorkoutSession = false
@@ -101,6 +115,13 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
             && CMBatchedSensorManager.isDeviceMotionSupported
     }
 
+    /// The latest Core Location speed for the riding filter.
+    public func updateSpeed(_ fix: WatchLocationFix?) {
+        guard let sample = fix.flatMap(WatchSwingSpeedSample.init(fix:)) else { return }
+        latestSpeed = sample
+        swingSession.updateSpeed(sample)
+    }
+
     public func start() async {
         await reconcile(roundActive: true, autoShotEnabled: true)
     }
@@ -117,7 +138,7 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
     /// background. Motion streams are independently controlled by the player's AutoShot setting.
     public func reconcile(roundActive: Bool, autoShotEnabled: Bool) async {
         roundSessionDesired = roundActive
-        desiredActive = roundActive && autoShotEnabled
+        desiredActive = roundActive && autoShotEnabled && !motionInterrupted
         guard roundActive else {
             stop()
             return
@@ -132,7 +153,7 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
             }
         } else {
             stopMotionStreams()
-            state = isSupported ? .off : .unsupported
+            state = motionInterrupted ? .failed : (isSupported ? .off : .unsupported)
         }
 
         if let workoutSession {
@@ -184,6 +205,7 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
         workoutStartGeneration &+= 1
         roundSessionDesired = false
         desiredActive = false
+        motionInterrupted = false
         startingWorkoutSession = false
         stopMotionStreams()
         let session = workoutSession
@@ -215,34 +237,28 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
         guard desiredActive, !streamsActive else { return }
         streamsActive = true
         detector.reset()
-        collector.reset()
-        lastDetectionTimestamp = nil
+        swingSession = WatchSwingCollectionSession()
+        swingSession.updateSpeed(latestSpeed)
 
         sensorManager.startDeviceMotionUpdates { [weak self] batch, error in
             if let error {
                 Task { @MainActor [weak self] in self?.handleMotionError(error) }
                 return
             }
-            let samples = (batch ?? []).map { item in
-                let rotation = item.rotationRate
-                let gravity = item.gravity
-                return WatchAutoShotRotationSample(
-                    timestamp: item.timestamp,
-                    rotationAlongGravity: rotation.x * gravity.x
-                        + rotation.y * gravity.y
-                        + rotation.z * gravity.z
-                )
-            }
-            guard !samples.isEmpty else { return }
-            Task { @MainActor [weak self] in
-                guard let self, self.desiredActive else { return }
-                self.publish(self.detector.appendDeviceMotion(samples))
-                if self.collectWanted, let features = self.collector.appendRotation(samples) {
-                    let newest = samples.map(\.timestamp).max() ?? 0
-                    let proposed = self.lastDetectionTimestamp.map { newest - $0 <= 3 } ?? false
-                    self.latestSwing = WatchSwingObservation(features: features, proposedShot: proposed)
+            // nil without an error is an interruption, not a quiet delivery.
+            let samples = batch.map { items in
+                items.map { item in
+                    let rotation = item.rotationRate
+                    let gravity = item.gravity
+                    return WatchAutoShotRotationSample(
+                        timestamp: item.timestamp,
+                        rotationAlongGravity: rotation.x * gravity.x
+                            + rotation.y * gravity.y
+                            + rotation.z * gravity.z
+                    )
                 }
             }
+            Task { @MainActor [weak self] in self?.handleRotation(samples) }
         }
 
         sensorManager.startAccelerometerUpdates { [weak self] batch, error in
@@ -250,21 +266,50 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
                 Task { @MainActor [weak self] in self?.handleMotionError(error) }
                 return
             }
-            let samples = (batch ?? []).map { item in
-                WatchAutoShotAccelerationSample(
-                    timestamp: item.timestamp,
-                    x: item.acceleration.x,
-                    y: item.acceleration.y,
-                    z: item.acceleration.z
-                )
+            let samples = batch.map { items in
+                items.map { item in
+                    WatchAutoShotAccelerationSample(
+                        timestamp: item.timestamp,
+                        x: item.acceleration.x,
+                        y: item.acceleration.y,
+                        z: item.acceleration.z
+                    )
+                }
             }
-            guard !samples.isEmpty else { return }
-            Task { @MainActor [weak self] in
-                guard let self, self.desiredActive else { return }
-                if self.collectWanted { self.collector.appendAcceleration(samples) }
-                self.publish(self.detector.processAccelerometer(samples))
-            }
+            Task { @MainActor [weak self] in self?.handleAcceleration(samples) }
         }
+    }
+
+    private func handleRotation(_ samples: [WatchAutoShotRotationSample]?) {
+        guard desiredActive, streamsActive else { return }
+        let observation = swingSession.rotationBatch(samples, now: Date(), collect: collectWanted)
+        guard !swingSession.isInterrupted else { return interruptMotion() }
+        if let samples, !samples.isEmpty {
+            publish(detector.appendDeviceMotion(samples))
+        }
+        if collectWanted, let observation {
+            latestSwing = observation
+        }
+    }
+
+    private func handleAcceleration(_ samples: [WatchAutoShotAccelerationSample]?) {
+        guard desiredActive, streamsActive else { return }
+        swingSession.accelerationBatch(samples, collect: collectWanted)
+        guard !swingSession.isInterrupted else { return interruptMotion() }
+        if let samples, !samples.isEmpty {
+            publish(detector.processAccelerometer(samples))
+        }
+    }
+
+    /// The sensors stopped delivering: automatic detection and collection end for the rest of the
+    /// round (manual recording continues), the workout session keeps GPS alive, and candidates already
+    /// stored stay on the Watch.
+    private func interruptMotion() {
+        log.error("AutoShot motion stream interrupted; manual recording for the rest of the round")
+        motionInterrupted = true
+        desiredActive = false
+        stopMotionStreams()
+        state = .failed
     }
 
     private func stopMotionStreams() {
@@ -274,14 +319,12 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
         }
         streamsActive = false
         detector.reset()
-        collector.reset()
     }
 
     private func publish(_ detections: [WatchAutoShotDetection]) {
         for detection in detections {
-            lastDetectionTimestamp = detection.timestamp
-            // Collection alone never proposes a shot.
-            guard autoShotWanted || !collectWanted else { continue }
+            // Collection alone never proposes a shot; the detection still tags the candidate.
+            guard swingSession.detection(at: detection.timestamp, autoShotWanted: autoShotWanted) else { continue }
             latestSignal = WatchAutoShotSignal(motionTimestamp: detection.timestamp)
         }
     }
@@ -310,7 +353,7 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
             startMotionStreams()
         } else {
             stopMotionStreams()
-            state = isSupported ? .off : .unsupported
+            state = motionInterrupted ? .failed : (isSupported ? .off : .unsupported)
         }
     }
 

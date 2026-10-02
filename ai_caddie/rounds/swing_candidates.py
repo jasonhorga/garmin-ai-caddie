@@ -13,6 +13,7 @@ import math
 import os
 import re
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,28 @@ def _number(value: Any, name: str, low: float, high: float, *, optional: bool) -
     return float(value)
 
 
+_ISO_TIMESTAMP = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$"
+)
+
+
+def _is_iso_timestamp(value: Any) -> bool:
+    """The Watch's ISO8601DateFormatter output: a full date-time with a zone, e.g. 2026-10-02T08:00:00Z."""
+    if not isinstance(value, str) or not _ISO_TIMESTAMP.match(value):
+        return False
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return True
+
+
+def _boolean(value: Any, name: str) -> bool:
+    if not isinstance(value, bool):
+        raise SwingCandidateError(f"{name} must be a boolean")
+    return value
+
+
 def validate_candidates(candidates: Any) -> list[dict[str, Any]]:
     """The accepted shape, rebuilt field by field so no unknown key is stored."""
     if not isinstance(candidates, list):
@@ -62,8 +85,8 @@ def validate_candidates(candidates: Any) -> list[dict[str, Any]]:
         captured_at = item.get("capturedAt")
         if not isinstance(candidate_id, str) or not 1 <= len(candidate_id) <= 64:
             raise SwingCandidateError("candidate id must be a short string")
-        if not isinstance(captured_at, str) or not 10 <= len(captured_at) <= 40:
-            raise SwingCandidateError("capturedAt must be an ISO timestamp")
+        if not _is_iso_timestamp(captured_at):
+            raise SwingCandidateError("capturedAt must be an ISO-8601 timestamp with a time zone")
         hole = item.get("hole")
         if isinstance(hole, bool) or not isinstance(hole, int) or not 1 <= hole <= 36:
             raise SwingCandidateError("hole must be 1-36")
@@ -88,7 +111,7 @@ def validate_candidates(candidates: Any) -> list[dict[str, Any]]:
             "features": clean_features,
             "horizontalAccuracyM": _number(item.get("horizontalAccuracyM"), "horizontalAccuracyM", 0, 10_000, optional=True),
             "speedMps": _number(item.get("speedMps"), "speedMps", 0, 100, optional=True),
-            "proposedShot": bool(item.get("proposedShot", False)),
+            "proposedShot": _boolean(item.get("proposedShot", False), "proposedShot"),
         })
     return clean
 

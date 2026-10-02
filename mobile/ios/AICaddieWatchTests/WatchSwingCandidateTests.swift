@@ -110,4 +110,187 @@ final class WatchSwingCandidateTests: XCTestCase {
         store.remove(roundId: "r-1")
         XCTAssertTrue(store.load(roundId: "r-1").isEmpty)
     }
+
+    // MARK: - Codex review on #368
+
+    private func tempStore() -> WatchSwingCandidateStore {
+        WatchSwingCandidateStore(directoryURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("swing-\(UUID().uuidString)", isDirectory: true))
+    }
+
+    private func record(_ id: String) -> WatchSwingCandidateRecord {
+        WatchSwingCandidateRecord(
+            id: id, capturedAt: "2026-10-02T08:00:00Z", hole: 1,
+            features: WatchSwingFeatures(kind: .fullSwing, stillnessBeforeS: 1.2, swingDurationS: 1.0,
+                                         cumulativeRotationRad: 5, peakRotationRadS: 9, impactPeakG: 4, impactDurationMs: 6),
+            horizontalAccuracyM: 6, speedMps: nil, proposedShot: false
+        )
+    }
+
+    private func chunks<T>(_ samples: [T], size: Int = 25) -> [[T]] {
+        stride(from: 0, to: samples.count, by: size).map { Array(samples[$0..<min($0 + size, samples.count)]) }
+    }
+
+    /// Feeds a real shot through the production session as CoreMotion batches.
+    private func feedShot(_ session: inout WatchSwingCollectionSession, start: Double = 0, now: Date) -> [WatchSwingObservation] {
+        session.accelerationBatch(impact(at: start + 2.0, peakG: 4, durationMs: 6))
+        return chunks(rotation(start: start, still: 1.5, swing: 1.0, peak: 9)).compactMap {
+            session.rotationBatch($0, now: now)
+        }
+    }
+
+    func testAMovingCartIsRidingThroughTheProductionSession() throws {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var session = WatchSwingCollectionSession()
+        session.updateSpeed(WatchSwingSpeedSample(speedMps: 5.5, accuracyMps: 1, capturedAt: now.addingTimeInterval(-3)))
+        let observations = feedShot(&session, now: now)
+        let only = try XCTUnwrap(observations.first)
+        XCTAssertEqual(observations.count, 1)
+        XCTAssertEqual(only.features.kind, .riding)
+        XCTAssertEqual(only.speedMps, 5.5)
+    }
+
+    func testUnknownStaleOrInaccurateSpeedFailsClosed() throws {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let readings: [WatchSwingSpeedSample?] = [
+            nil,
+            WatchSwingSpeedSample(speedMps: 5.5, accuracyMps: 1, capturedAt: now.addingTimeInterval(-30)),
+            WatchSwingSpeedSample(speedMps: 5.5, accuracyMps: 6, capturedAt: now.addingTimeInterval(-1)),
+        ]
+        for reading in readings {
+            var session = WatchSwingCollectionSession()
+            session.updateSpeed(reading)
+            let only = try XCTUnwrap(feedShot(&session, now: now).first)
+            // Without a usable speed the riding filter cannot run: never `.riding`, recorded as unknown.
+            XCTAssertEqual(only.features.kind, .fullSwing)
+            XCTAssertNil(only.speedMps)
+        }
+        let fix = WatchLocationFix(
+            coordinate: .init(latitude: 40, longitude: 116), horizontalAccuracyM: 5,
+            capturedAt: "2026-10-02T08:00:00Z", speedMps: nil, speedAccuracyMps: nil
+        )
+        XCTAssertNil(WatchSwingSpeedSample(fix: fix), "a fix without speed gives no speed reading")
+    }
+
+    func testAnInterruptionStopsDetectionAndCollectionButKeepsStoredCandidates() throws {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let store = tempStore()
+        var session = WatchSwingCollectionSession()
+        for observation in feedShot(&session, now: now) {
+            store.append(record(observation.id.uuidString), roundId: "r1")
+        }
+        XCTAssertEqual(store.load(roundId: "r1").count, 1)
+
+        XCTAssertNil(session.rotationBatch([], now: now), "an empty delivery is a quiet batch")
+        XCTAssertFalse(session.isInterrupted)
+        XCTAssertNil(session.rotationBatch(nil, now: now))
+        XCTAssertTrue(session.isInterrupted, "a delivery without data is an interruption")
+
+        XCTAssertTrue(feedShot(&session, start: 4, now: now).isEmpty, "no later automatic candidate")
+        XCTAssertFalse(session.detection(at: 6, autoShotWanted: true), "no later automatic shot")
+        XCTAssertEqual(store.load(roundId: "r1").count, 1, "stored candidates are kept")
+
+        var gapped = WatchSwingCollectionSession()
+        _ = gapped.rotationBatch(rotation(still: 0.5, swing: 0, peak: 0), now: now)
+        XCTAssertNil(gapped.rotationBatch(rotation(start: 30, still: 0.5, swing: 0, peak: 0), now: now))
+        XCTAssertTrue(gapped.isInterrupted, "a long gap between batches is an interruption")
+    }
+
+    func testCollectionAloneNeverProposesAShotButTagsTheCandidate() throws {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        var session = WatchSwingCollectionSession()
+        XCTAssertFalse(session.detection(at: 2.0, autoShotWanted: false))
+        let tagged = try XCTUnwrap(feedShot(&session, now: now).first)
+        XCTAssertTrue(tagged.proposedShot)
+        var withAutoShot = WatchSwingCollectionSession()
+        XCTAssertTrue(withAutoShot.detection(at: 2.0, autoShotWanted: true))
+    }
+
+    func testOutOfOrderBatchesGiveTheSameCandidate() throws {
+        let rot = chunks(rotation(still: 1.5, swing: 1.0, peak: 9))
+        let acc = chunks(impact(at: 2.0, peakG: 4, durationMs: 6), size: 20)
+        var inOrder = WatchSwingCandidateCollector()
+        acc.forEach { inOrder.appendAcceleration($0) }
+        let expected = try XCTUnwrap(rot.compactMap { inOrder.appendRotation($0) }.first)
+
+        var shuffled = WatchSwingCandidateCollector()
+        acc.reversed().forEach { shuffled.appendAcceleration($0) }
+        // Swap every adjacent pair of rotation batches.
+        var swapped: [[WatchAutoShotRotationSample]] = []
+        var index = 0
+        while index < rot.count {
+            if index + 1 < rot.count { swapped.append(rot[index + 1]) }
+            swapped.append(rot[index])
+            index += 2
+        }
+        let emitted = swapped.compactMap { shuffled.appendRotation($0) }
+        XCTAssertEqual(emitted, [expected], "a partial burst is never emitted early")
+    }
+
+    func testDistinctRoundIdsNeverShareAFile() {
+        let store = tempStore()
+        store.append(record("a"), roundId: "live/1")
+        store.append(record("b"), roundId: "live_1")
+        XCTAssertEqual(store.load(roundId: "live/1").map(\.id), ["a"])
+        XCTAssertEqual(store.load(roundId: "live_1").map(\.id), ["b"])
+        XCTAssertEqual(store.pendingRoundIds(), ["live/1", "live_1"], "uploads target the original IDs")
+    }
+
+    func testAPhoneClosureUploadsItsRoundAndALateCandidateJoinsIt() async {
+        let store = tempStore()
+        var router = WatchSwingCandidateRouter()
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        router.roundChanged(to: "r1", at: start)
+        store.append(record("a"), roundId: "r1")
+
+        // Phone Finish: the round closes; a candidate settling 5 s later still belongs to it.
+        XCTAssertEqual(router.roundChanged(to: nil, at: start.addingTimeInterval(60)), "r1")
+        XCTAssertEqual(router.roundId(forCandidateAt: start.addingTimeInterval(65)), "r1")
+        XCTAssertNil(router.roundId(forCandidateAt: start.addingTimeInterval(60 + 31)), "too late for the closed round")
+        store.append(record("b"), roundId: "r1")
+
+        var sent: [String: [String]] = [:]
+        let outcome = await WatchSwingCandidateUploader(store: store).uploadClosedRounds(activeRoundId: router.activeRoundId) {
+            sent[$0] = $1.map(\.id)
+        }
+        XCTAssertEqual(outcome.uploaded, ["r1"])
+        XCTAssertEqual(sent["r1"], ["a", "b"])
+        XCTAssertTrue(store.pendingRoundIds().isEmpty)
+    }
+
+    func testAFailedUploadIsKeptAndRetriedAfterRecovery() async {
+        struct Offline: Error {}
+        let store = tempStore()
+        store.append(record("a"), roundId: "r1")
+        store.append(record("x"), roundId: "active")
+        let uploader = WatchSwingCandidateUploader(store: store)
+
+        let failed = await uploader.uploadClosedRounds(activeRoundId: "active") { _, _ in throw Offline() }
+        XCTAssertEqual(failed.failed, ["r1"])
+        XCTAssertEqual(store.load(roundId: "r1").map(\.id), ["a"], "kept for the next attempt")
+
+        var sent: [String] = []
+        let recovered = await uploader.uploadClosedRounds(activeRoundId: "active") { roundId, _ in sent.append(roundId) }
+        XCTAssertEqual(recovered.uploaded, ["r1"])
+        XCTAssertEqual(sent, ["r1"], "the active round is never uploaded")
+        XCTAssertEqual(store.pendingRoundIds(), ["active"])
+        XCTAssertFalse(WatchSwingCandidateUploader.retryDelaysS.isEmpty)
+    }
+
+    func testACandidateAddedDuringTheUploadIsKept() async {
+        let store = tempStore()
+        store.append(record("a"), roundId: "r1")
+        let outcome = await WatchSwingCandidateUploader(store: store).uploadClosedRounds(activeRoundId: nil) { roundId, _ in
+            store.append(self.record("late"), roundId: roundId)
+        }
+        XCTAssertEqual(outcome.uploaded, ["r1"])
+        XCTAssertEqual(store.load(roundId: "r1").map(\.id), ["late"])
+    }
+
+    @MainActor
+    func testCollectionStaysUnavailableUntilTheCapabilityAndBatteryGateLands() {
+        XCTAssertFalse(WatchSwingCollectionAvailability.isAvailable)
+        XCTAssertFalse(WatchSwingCollectionAvailability.isCollecting(preference: true))
+        XCTAssertFalse(WatchSettingsView.showsSwingCollectionRow, "the accepted settings screen is unchanged")
+    }
 }

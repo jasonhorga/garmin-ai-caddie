@@ -7,6 +7,9 @@ public struct WatchLocationFix: Equatable {
     public let coordinate: CLLocationCoordinate2D
     public let horizontalAccuracyM: Double
     public let capturedAt: String
+    /// Core Location ground speed and its accuracy; nil when the fix carries none (negative values).
+    public var speedMps: Double? = nil
+    public var speedAccuracyMps: Double? = nil
 
     public static func == (lhs: WatchLocationFix, rhs: WatchLocationFix) -> Bool {
         lhs.coordinate.latitude == rhs.coordinate.latitude
@@ -186,7 +189,9 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
         latestFix = WatchLocationFix(
             coordinate: location.coordinate,
             horizontalAccuracyM: location.horizontalAccuracy,
-            capturedAt: formatter.string(from: location.timestamp))
+            capturedAt: formatter.string(from: location.timestamp),
+            speedMps: location.speed >= 0 ? location.speed : nil,
+            speedAccuracyMps: location.speedAccuracy >= 0 ? location.speedAccuracy : nil)
     }
 
     static func latestUsableLocation(

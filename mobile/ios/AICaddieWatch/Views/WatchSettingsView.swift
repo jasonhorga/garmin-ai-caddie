@@ -9,6 +9,9 @@ public struct WatchSettingsView: View {
     /// B7 step 1 (实验): record swing candidates and their features for later tuning; never changes
     /// a score and never proposes a shot by itself.
     @AppStorage("watch.collectSwingFeatures") private var collectSwingFeatures = false
+    /// Hidden until B7's capability/battery gate lands (`WatchSwingCollectionAvailability`), so the
+    /// accepted settings screen is unchanged.
+    static var showsSwingCollectionRow: Bool { WatchSwingCollectionAvailability.isAvailable }
     public let autoShotSupported: Bool
     public let autoShotEnabled: Bool
     public let autoShotStatus: String
@@ -70,14 +73,16 @@ public struct WatchSettingsView: View {
                 .padding(.vertical, 7)
                 Divider()
 
-                Toggle("采集挥杆数据", isOn: $collectSwingFeatures)
-                    .font(.system(size: 17, weight: .bold))
-                    .toggleStyle(WatchApprovedToggleStyle())
-                    .disabled(!autoShotSupported)
-                    .accessibilityHint("实验：只记录挥杆特征，不改成绩")
-                    .accessibilityIdentifier("watch-settings-collect-swings")
-                    .padding(.vertical, 7)
-                Divider()
+                if Self.showsSwingCollectionRow {
+                    Toggle("采集挥杆数据", isOn: $collectSwingFeatures)
+                        .font(.system(size: 17, weight: .bold))
+                        .toggleStyle(WatchApprovedToggleStyle())
+                        .disabled(!autoShotSupported)
+                        .accessibilityHint("实验：只记录挥杆特征，不改成绩")
+                        .accessibilityIdentifier("watch-settings-collect-swings")
+                        .padding(.vertical, 7)
+                    Divider()
+                }
 
                 HStack(spacing: 6) {
                     Text("佩戴手")

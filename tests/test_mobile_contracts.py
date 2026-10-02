@@ -4879,7 +4879,16 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("WatchInputEvent", candidates)
         provider = _read_required_source(self, WATCH_DIR / "Services" / "WatchAutoShotProvider.swift")
         self.assertIn("collectSwingFeatures: Bool", provider)
-        self.assertIn("guard autoShotWanted || !collectWanted else { continue }", provider)
+        self.assertIn("swingSession.detection(at: detection.timestamp, autoShotWanted: autoShotWanted)", provider)
+        self.assertIn("return autoShotWanted && !isInterrupted", candidates)
+        # Riding needs a fresh, accurate Core Location speed; nil batches/gaps interrupt for the round.
+        self.assertIn("speedMps: location.speed >= 0 ? location.speed : nil", _read_required_source(
+            self, WATCH_DIR / "Services" / "WatchLocationProvider.swift"))
+        self.assertIn("autoShotProvider.updateSpeed(fix)", _read_required_source(self, WATCH_DIR / "AICaddieWatchApp.swift"))
+        self.assertIn("guard let samples else { interrupt(); return nil }", candidates)
+        self.assertIn("private func interruptMotion()", provider)
+        # The capability/battery gate is a prerequisite: collection stays unavailable until it lands.
+        self.assertIn("public static let isAvailable = false", candidates)
         app = _read_required_source(self, WATCH_DIR / "AICaddieWatchApp.swift")
         self.assertIn('@AppStorage("watch.collectSwingFeatures") private var collectSwingFeatures = false', app)
         handler = app[app.index(".onChange(of: autoShotProvider.latestSwing)"):]
@@ -4892,6 +4901,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('/api/v2/mobile/rounds/\\(roundId)/swing-candidates', client)
         settings = _read_required_source(self, WATCH_DIR / "Views" / "WatchSettingsView.swift")
         self.assertIn('Toggle("采集挥杆数据", isOn: $collectSwingFeatures)', settings)
+        self.assertIn("if Self.showsSwingCollectionRow {", settings)
+        self.assertIn("closeSwingRound(closure.roundId)", app)
 
     def test_watch_state_includes_next_shot_prompt_from_phone_bridge(self) -> None:
         bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")

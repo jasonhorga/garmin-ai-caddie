@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// B7 step 1 (IMPLEMENTATION_PLAN B7): every wrist motion that looks like a swing becomes a
@@ -135,6 +136,9 @@ public struct WatchSwingCandidateCollector {
     static let settleSeconds = 0.4
     /// Keep enough history for the stillness before a swing and the swing itself.
     static let historySeconds = 6.0
+    /// Batches can arrive out of order: a burst is closed only once the burst and its settle tail are
+    /// contiguous (no hole longer than this), so a later batch never closes a burst missing its middle.
+    static let maximumSampleGapSeconds = 0.1
 
     private var rotation: [WatchAutoShotRotationSample] = []
     private var acceleration: [WatchAutoShotAccelerationSample] = []
@@ -148,8 +152,13 @@ public struct WatchSwingCandidateCollector {
         trim()
     }
 
-    /// Appends a rotation batch; returns the burst that has settled, if any.
-    public mutating func appendRotation(_ samples: [WatchAutoShotRotationSample]) -> WatchSwingFeatures? {
+    /// Appends a rotation batch; returns the burst that has settled, if any. `speedMps` is the
+    /// current fresh, accurate ground speed, or nil when unknown (then the burst can never be
+    /// classified `.riding`).
+    public mutating func appendRotation(
+        _ samples: [WatchAutoShotRotationSample],
+        speedMps: Double? = nil
+    ) -> WatchSwingFeatures? {
         rotation.append(contentsOf: samples)
         rotation.sort { $0.timestamp < $1.timestamp }
         defer { trim() }
@@ -158,10 +167,18 @@ public struct WatchSwingCandidateCollector {
             $0.timestamp > emittedThrough && abs($0.rotationAlongGravity) > WatchSwingFeatureExtractor.quietRotation
         }
         guard let lastActive = active.last?.timestamp, latest - lastActive >= Self.settleSeconds else { return nil }
+        // The burst, the sample before it and its settle tail must be contiguous.
+        let firstActive = active.first?.timestamp ?? lastActive
+        let lead = rotation.last { $0.timestamp < firstActive }?.timestamp ?? firstActive
+        let burst = rotation.filter { $0.timestamp >= lead && $0.timestamp <= lastActive + Self.settleSeconds }
+        for (earlier, later) in zip(burst, burst.dropFirst())
+        where later.timestamp - earlier.timestamp > Self.maximumSampleGapSeconds {
+            return nil
+        }
         // The quiet samples before the burst stay in the window: they are its stillness.
         let window = rotation.filter { $0.timestamp > emittedThrough && $0.timestamp <= lastActive }
         emittedThrough = lastActive
-        return WatchSwingFeatureExtractor.features(rotation: window, acceleration: acceleration)
+        return WatchSwingFeatureExtractor.features(rotation: window, acceleration: acceleration, speedMps: speedMps)
     }
 
     public mutating func reset() {
@@ -171,7 +188,11 @@ public struct WatchSwingCandidateCollector {
     }
 
     private mutating func trim() {
-        let latest = max(rotation.last?.timestamp ?? -.infinity, acceleration.last?.timestamp ?? -.infinity)
+        // Batches can arrive out of order, so trim from the newest sample seen, not the last appended.
+        let latest = max(
+            rotation.map(\.timestamp).max() ?? -.infinity,
+            acceleration.map(\.timestamp).max() ?? -.infinity
+        )
         guard latest.isFinite else { return }
         let oldest = latest - Self.historySeconds
         rotation.removeAll { $0.timestamp < oldest }
@@ -202,9 +223,17 @@ public struct WatchSwingCandidateRecord: Codable, Equatable, Identifiable {
     }
 }
 
-/// Per-round candidate files, separate from the round store: nothing here is a round event.
+/// Per-round candidate files, separate from the round store: nothing here is a round event. Each
+/// file is named by a digest of the round ID and carries the original ID inside, so distinct IDs
+/// never share a file and uploads always target the round that recorded them.
 public struct WatchSwingCandidateStore {
+    public static let maximumCandidatesPerRound = 600
     public let directoryURL: URL
+
+    private struct RoundFile: Codable {
+        let roundId: String
+        var candidates: [WatchSwingCandidateRecord]
+    }
 
     public init(directoryURL: URL? = nil) {
         self.directoryURL = directoryURL ?? FileManager.default
@@ -212,23 +241,31 @@ public struct WatchSwingCandidateStore {
             .appendingPathComponent("SwingCandidates", isDirectory: true)
     }
 
+    static func fileName(for roundId: String) -> String {
+        SHA256.hash(data: Data(roundId.utf8)).map { String(format: "%02x", $0) }.joined() + ".json"
+    }
+
     private func fileURL(_ roundId: String) -> URL {
-        let safe = roundId.map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : "_" }
-        return directoryURL.appendingPathComponent(String(safe) + ".json")
+        directoryURL.appendingPathComponent(Self.fileName(for: roundId))
+    }
+
+    private func read(_ url: URL) -> RoundFile? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(RoundFile.self, from: data)
     }
 
     public func load(roundId: String) -> [WatchSwingCandidateRecord] {
-        guard let data = try? Data(contentsOf: fileURL(roundId)),
-              let records = try? JSONDecoder().decode([WatchSwingCandidateRecord].self, from: data) else { return [] }
-        return records
+        guard let file = read(fileURL(roundId)), file.roundId == roundId else { return [] }
+        return file.candidates
     }
 
     public func append(_ record: WatchSwingCandidateRecord, roundId: String) {
-        var records = load(roundId: roundId)
-        guard records.count < 600 else { return }
-        records.append(record)
+        var file = read(fileURL(roundId)).flatMap { $0.roundId == roundId ? $0 : nil }
+            ?? RoundFile(roundId: roundId, candidates: [])
+        guard file.candidates.count < Self.maximumCandidatesPerRound else { return }
+        file.candidates.append(record)
         try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(records) {
+        if let data = try? JSONEncoder().encode(file) {
             try? data.write(to: fileURL(roundId), options: .atomic)
         }
     }
@@ -237,8 +274,211 @@ public struct WatchSwingCandidateStore {
         try? FileManager.default.removeItem(at: fileURL(roundId))
     }
 
+    /// The original IDs of every round with stored candidates.
     public func pendingRoundIds() -> [String] {
         let files = (try? FileManager.default.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil)) ?? []
-        return files.filter { $0.pathExtension == "json" }.map { $0.deletingPathExtension().lastPathComponent }
+        return files.filter { $0.pathExtension == "json" }.compactMap { read($0)?.roundId }.sorted()
+    }
+}
+
+/// B7's capability and battery gate (IMPLEMENTATION_PLAN B7: runtime capability, permission,
+/// workout-session and per-round battery-budget checks with automatic shutdown) is a separate
+/// prerequisite. Until it lands, collection stays unavailable: the settings row is hidden and a
+/// stored preference is ignored.
+public enum WatchSwingCollectionAvailability {
+    public static let isAvailable = false
+
+    public static func isCollecting(preference: Bool) -> Bool {
+        isAvailable && preference
+    }
+}
+
+/// A Core Location ground-speed reading for the riding filter.
+public struct WatchSwingSpeedSample: Equatable {
+    public let speedMps: Double
+    public let accuracyMps: Double
+    public let capturedAt: Date
+
+    public init(speedMps: Double, accuracyMps: Double, capturedAt: Date) {
+        self.speedMps = speedMps
+        self.accuracyMps = accuracyMps
+        self.capturedAt = capturedAt
+    }
+
+    public init?(fix: WatchLocationFix) {
+        guard let speed = fix.speedMps, let accuracy = fix.speedAccuracyMps,
+              let capturedAt = ISO8601DateFormatter().date(from: fix.capturedAt) else { return nil }
+        self.init(speedMps: speed, accuracyMps: accuracy, capturedAt: capturedAt)
+    }
+}
+
+/// The motion side of one round's collection, driven by `WatchAutoShotProvider` with every sensor
+/// batch, detection and speed reading. Pure, so tests drive the exact production decisions.
+///
+/// - Speed: a reading is used only while fresh (`maximumSpeedAgeS`) and accurate
+///   (`maximumSpeedAccuracyMps`); otherwise speed is unknown. Unknown speed fails closed for the
+///   riding filter: the candidate is recorded with `speedMps == nil`, is never `.riding`, and step 2
+///   must not count it as either a cart ride or a confirmed walk.
+/// - Interruption: a delivery without data (`nil`) or a gap longer than `maximumBatchGapS` between
+///   batches is an interruption. Collection and automatic detection stop for the rest of the round;
+///   candidates already stored are kept. An empty batch is a normal quiet delivery.
+public struct WatchSwingCollectionSession {
+    public static let maximumSpeedAgeS: TimeInterval = 10
+    public static let maximumSpeedAccuracyMps = 2.0
+    public static let maximumBatchGapS: TimeInterval = 10
+    /// A detection this close to a candidate's end tags it `proposedShot`.
+    public static let proposalWindowS: TimeInterval = 3
+
+    public private(set) var isInterrupted = false
+    private var collector = WatchSwingCandidateCollector()
+    private var speed: WatchSwingSpeedSample?
+    private var newestMotionTimestamp: TimeInterval?
+    private var lastDetectionTimestamp: TimeInterval?
+
+    public init() {}
+
+    public mutating func updateSpeed(_ sample: WatchSwingSpeedSample?) {
+        guard let sample else { return }
+        if let speed, speed.capturedAt > sample.capturedAt { return }
+        speed = sample
+    }
+
+    public func usableSpeedMps(now: Date) -> Double? {
+        guard let speed,
+              speed.speedMps >= 0, speed.accuracyMps >= 0,
+              speed.accuracyMps <= Self.maximumSpeedAccuracyMps,
+              now.timeIntervalSince(speed.capturedAt) >= 0,
+              now.timeIntervalSince(speed.capturedAt) <= Self.maximumSpeedAgeS else { return nil }
+        return speed.speedMps
+    }
+
+    /// Whether an AutoShot detection may become a shot signal: only when AutoShot itself is on.
+    /// Collection alone never proposes a shot. The detection still tags the matching candidate.
+    public mutating func detection(at timestamp: TimeInterval, autoShotWanted: Bool) -> Bool {
+        lastDetectionTimestamp = timestamp
+        return autoShotWanted && !isInterrupted
+    }
+
+    /// One device-motion delivery. Returns the candidate whose burst settled, if any.
+    /// Every delivery goes through here, also while only AutoShot runs, so an interruption ends
+    /// automatic detection too; `collect` says whether candidates are recorded.
+    public mutating func rotationBatch(
+        _ samples: [WatchAutoShotRotationSample]?,
+        now: Date,
+        collect: Bool = true
+    ) -> WatchSwingObservation? {
+        guard !isInterrupted else { return nil }
+        guard let samples else { interrupt(); return nil }
+        guard !samples.isEmpty else { return nil }
+        guard acceptMotion(samples.map(\.timestamp)), collect else { return nil }
+        let speedMps = usableSpeedMps(now: now)
+        guard let features = collector.appendRotation(samples, speedMps: speedMps) else { return nil }
+        let newest = samples.map(\.timestamp).max() ?? 0
+        let proposed = lastDetectionTimestamp.map { abs(newest - $0) <= Self.proposalWindowS } ?? false
+        return WatchSwingObservation(features: features, proposedShot: proposed, speedMps: speedMps, observedAt: now)
+    }
+
+    /// One accelerometer delivery.
+    public mutating func accelerationBatch(_ samples: [WatchAutoShotAccelerationSample]?, collect: Bool = true) {
+        guard !isInterrupted else { return }
+        guard let samples else { interrupt(); return }
+        guard !samples.isEmpty, acceptMotion(samples.map(\.timestamp)), collect else { return }
+        collector.appendAcceleration(samples)
+    }
+
+    public mutating func interrupt() {
+        isInterrupted = true
+        collector.reset()
+    }
+
+    /// A batch whose oldest sample starts more than `maximumBatchGapS` after everything seen so far
+    /// means the stream stopped for a while: an interruption. Older (out-of-order) batches are fine.
+    private mutating func acceptMotion(_ timestamps: [TimeInterval]) -> Bool {
+        guard let oldest = timestamps.min(), let newest = timestamps.max() else { return true }
+        if let seen = newestMotionTimestamp, oldest - seen > Self.maximumBatchGapS {
+            interrupt()
+            return false
+        }
+        newestMotionTimestamp = max(newestMotionTimestamp ?? newest, newest)
+        return true
+    }
+}
+
+/// Which round a candidate belongs to, across a round closing (phone Finish, Watch Finish, a new
+/// seed). A candidate whose motion settles just after the closure still belongs to the closed round.
+public struct WatchSwingCandidateRouter {
+    public static let closureGraceS: TimeInterval = 30
+
+    public private(set) var activeRoundId: String?
+    public private(set) var lastClosedRoundId: String?
+    private var lastClosedAt: Date?
+
+    public init(activeRoundId: String? = nil) {
+        self.activeRoundId = activeRoundId
+    }
+
+    /// Returns the round that just closed, if the change closed one.
+    @discardableResult
+    public mutating func roundChanged(to roundId: String?, at date: Date) -> String? {
+        guard roundId != activeRoundId else { return nil }
+        let closed = activeRoundId
+        if let closed {
+            lastClosedRoundId = closed
+            lastClosedAt = date
+        }
+        activeRoundId = roundId
+        return closed
+    }
+
+    public func roundId(forCandidateAt date: Date) -> String? {
+        if let activeRoundId { return activeRoundId }
+        guard let lastClosedRoundId, let lastClosedAt,
+              date.timeIntervalSince(lastClosedAt) <= Self.closureGraceS else { return nil }
+        return lastClosedRoundId
+    }
+}
+
+/// Uploads the candidates of every round that is no longer active. A successful upload removes the
+/// round's file; a failed one keeps it for the next attempt (config, reachability, closure, launch or
+/// the retry backoff).
+public struct WatchSwingCandidateUploader {
+    public let store: WatchSwingCandidateStore
+    /// Retry delays after a failed attempt while the app stays alive.
+    public static let retryDelaysS: [TimeInterval] = [60, 300, 900]
+
+    public init(store: WatchSwingCandidateStore) {
+        self.store = store
+    }
+
+    public struct Outcome: Equatable {
+        public var uploaded: [String] = []
+        public var failed: [String] = []
+    }
+
+    public func uploadClosedRounds(
+        activeRoundId: String?,
+        upload: (String, [WatchSwingCandidateRecord]) async throws -> Void
+    ) async -> Outcome {
+        var outcome = Outcome()
+        for roundId in store.pendingRoundIds() where roundId != activeRoundId {
+            let candidates = store.load(roundId: roundId)
+            guard !candidates.isEmpty else {
+                store.remove(roundId: roundId)
+                continue
+            }
+            do {
+                try await upload(roundId, candidates)
+                // Only what was sent is removed: a candidate appended during the upload stays.
+                let remaining = store.load(roundId: roundId).filter { record in
+                    !candidates.contains { $0.id == record.id }
+                }
+                store.remove(roundId: roundId)
+                for record in remaining { store.append(record, roundId: roundId) }
+                outcome.uploaded.append(roundId)
+            } catch {
+                outcome.failed.append(roundId)
+            }
+        }
+        return outcome
     }
 }

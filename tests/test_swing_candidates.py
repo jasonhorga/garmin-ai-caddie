@@ -65,6 +65,19 @@ class SwingCandidateTests(unittest.TestCase):
         clean = swing_candidates.validate_candidates([{**_candidate(), "rawAccel": [9.8]}])
         self.assertNotIn("rawAccel", clean[0], "only the known fields are kept")
 
+    def test_captured_at_must_be_a_zoned_iso_timestamp_and_proposed_shot_a_boolean(self) -> None:
+        for good in ("2026-10-02T08:00:00Z", "2026-10-02T17:00:00.250+09:00"):
+            self.assertEqual(swing_candidates.validate_candidates([_candidate(capturedAt=good)])[0]["capturedAt"], good)
+        for bad in ("2026-10-02", "2026-10-02T08:00:00", "2026-13-02T08:00:00Z", "yesterday at noon!!", 1759392000):
+            with self.assertRaises(swing_candidates.SwingCandidateError):
+                swing_candidates.validate_candidates([_candidate(capturedAt=bad)])
+        for bad in ("yes", 1, 0, None, [True]):
+            with self.assertRaises(swing_candidates.SwingCandidateError):
+                swing_candidates.validate_candidates([_candidate(proposedShot=bad)])
+        missing = _candidate()
+        del missing["proposedShot"]
+        self.assertFalse(swing_candidates.validate_candidates([missing])[0]["proposedShot"])
+
     def test_the_route_is_prebody_gated_and_player_scoped(self) -> None:
         path = "/api/v2/mobile/rounds/live-1/swing-candidates"
         self.assertTrue(_requires_admin_token("POST", path, QueryParams("")))
