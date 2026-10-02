@@ -144,6 +144,9 @@ public struct WatchSwingCandidateCollector {
     private var acceleration: [WatchAutoShotAccelerationSample] = []
     /// Bursts ending at or before this were already emitted.
     private var emittedThrough: TimeInterval = -.infinity
+    /// Sensor timestamp of the last active sample of the burst most recently emitted: when the
+    /// swing itself ended, not when its quiet settle tail was delivered.
+    public private(set) var lastBurstEnd: TimeInterval?
 
     public init() {}
 
@@ -178,6 +181,7 @@ public struct WatchSwingCandidateCollector {
         // The quiet samples before the burst stay in the window: they are its stillness.
         let window = rotation.filter { $0.timestamp > emittedThrough && $0.timestamp <= lastActive }
         emittedThrough = lastActive
+        lastBurstEnd = lastActive
         return WatchSwingFeatureExtractor.features(rotation: window, acceleration: acceleration, speedMps: speedMps)
     }
 
@@ -185,6 +189,7 @@ public struct WatchSwingCandidateCollector {
         rotation.removeAll()
         acceleration.removeAll()
         emittedThrough = -.infinity
+        lastBurstEnd = nil
     }
 
     private mutating func trim() {
@@ -376,9 +381,11 @@ public struct WatchSwingCollectionSession {
         guard acceptMotion(samples.map(\.timestamp)), collect else { return nil }
         let speedMps = usableSpeedMps(now: now)
         guard let features = collector.appendRotation(samples, speedMps: speedMps) else { return nil }
-        let newest = samples.map(\.timestamp).max() ?? 0
-        let proposed = lastDetectionTimestamp.map { abs(newest - $0) <= Self.proposalWindowS } ?? false
-        let motionEndedAt = now.addingTimeInterval(min(0, newest - uptime))
+        // The swing's own end (its last active sample), not the settle tail that closed it: a swing
+        // that ended before a round closed belongs to that round even if the tail arrives after.
+        let swingEnd = collector.lastBurstEnd ?? samples.map(\.timestamp).max() ?? 0
+        let proposed = lastDetectionTimestamp.map { abs(swingEnd - $0) <= Self.proposalWindowS } ?? false
+        let motionEndedAt = now.addingTimeInterval(min(0, swingEnd - uptime))
         return WatchSwingObservation(
             features: features, proposedShot: proposed, speedMps: speedMps, observedAt: motionEndedAt
         )

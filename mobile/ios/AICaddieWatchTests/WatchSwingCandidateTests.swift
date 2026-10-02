@@ -258,6 +258,39 @@ final class WatchSwingCandidateTests: XCTestCase {
         XCTAssertEqual(router.activeRoundId, "B")
     }
 
+    /// The swing ends just before the phone closes the round; the quiet tail that completes the burst
+    /// arrives after the closure. The candidate still belongs to the closed round, on its hole.
+    func testASwingEndingBeforeClosureWithItsTailAfterStaysOnTheClosedRound() throws {
+        let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+        // Sensor clock: the round starts at uptime 100 (= t0); the swing is active 100+1.5 ... 100+2.5.
+        let base = 100.0
+        var router = WatchSwingCandidateRouter()
+        router.roundChanged(to: "A", at: t0)
+        router.holeChanged(to: 6, at: t0)
+        var session = WatchSwingCollectionSession()
+        let samples = rotation(start: base, still: 1.5, swing: 1.0, peak: 9)
+        let swingEnd = samples.filter { abs($0.rotationAlongGravity) > WatchSwingFeatureExtractor.quietRotation }
+            .map(\.timestamp).max()!
+        // Closure 0.1 s after the swing ended (wall time t0 + (swingEnd - base) + 0.1).
+        let closedAt = t0.addingTimeInterval(swingEnd - base + 0.1)
+        router.roundChanged(to: nil, at: closedAt)
+        router.roundChanged(to: "B", at: closedAt.addingTimeInterval(5))
+        router.holeChanged(to: 1, at: closedAt.addingTimeInterval(5))
+
+        var observation: WatchSwingObservation?
+        for batch in chunks(samples) {
+            let deliveredUptime = batch.map(\.timestamp).max()!
+            let deliveredAt = t0.addingTimeInterval(deliveredUptime - base)
+            if let emitted = session.rotationBatch(batch, now: deliveredAt, uptime: deliveredUptime) {
+                observation = emitted
+                XCTAssertGreaterThan(deliveredAt, closedAt, "the completing tail arrives after the closure")
+            }
+        }
+        let emitted = try XCTUnwrap(observation)
+        XCTAssertLessThan(emitted.observedAt, closedAt, "timed at the swing's end, not the tail's")
+        XCTAssertEqual(router.assignment(forMotionAt: emitted.observedAt), .init(roundId: "A", hole: 6))
+    }
+
     func testAClosedRoundsCandidatesUploadAndNeverGoToTheNextRound() async {
         let store = tempStore()
         var router = WatchSwingCandidateRouter()
