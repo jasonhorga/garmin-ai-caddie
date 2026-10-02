@@ -62,7 +62,8 @@ final class ClubBagSyncTests: XCTestCase {
     }
 
     @MainActor
-    private func makeCoordinator(_ server: FakeBagServer, sleeper: FakeSleeper = FakeSleeper()) -> ClubBagSyncCoordinator {
+    private func makeCoordinator(_ server: FakeBagServer, sleeper: FakeSleeper? = nil) -> ClubBagSyncCoordinator {
+        let sleeper = sleeper ?? FakeSleeper()
         let coordinator = ClubBagSyncCoordinator(sleep: { await sleeper.nap($0) })
         coordinator.configure(sender: { try await server.send($0) })
         return coordinator
