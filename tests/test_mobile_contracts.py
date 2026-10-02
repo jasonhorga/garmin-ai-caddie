@@ -5408,10 +5408,17 @@ class WatchHolePagesContractTests(unittest.TestCase):
         caddie_option = container[container.index("private func caddieOption("):]
         caddie_option = caddie_option[: caddie_option.index("private func currentCaddieOptions(")]
         self.assertIn("let options = currentCaddieOptions(s)", caddie_option)
+        # The producer writes the decision's origin shot; the Watch never infers it on arrival.
         model = self.read("Models/WatchRoundModel.swift")
         receive = model[model.index("public func receivePhoneState("):]
-        receive = receive[: receive.index("static func stampingCaddieOrigin(")]
-        self.assertIn("Self.stampingCaddieOrigin(", receive)
+        receive = receive[: receive.index("public func seedRound(")]
+        self.assertNotIn("originShotIndex", receive)
+        bridge = (ios / "AICaddie" / "Services" / "WatchEventBridge.swift").read_text(encoding="utf-8")
+        self.assertIn("originShotIndex: originShotIndex", bridge)
+        hole_view = (ios / "AICaddie" / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8")
+        load = hole_view[hole_view.index("private func loadCaddieDecision("):]
+        self.assertLess(load.index("let originShot = recordedNonPuttShotCount"), load.index("await "))
+        self.assertIn("decisionOriginShotIndex:", hole_view)
 
     def test_score_wheels_roll_inside_their_chip(self) -> None:
         score = self.read("Views/WatchScoreHoleView.swift")

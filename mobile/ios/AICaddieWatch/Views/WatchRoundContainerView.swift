@@ -677,8 +677,11 @@ public struct WatchRoundContainerView: View {
 
     private func caddieClub(_ s: WatchRoundState) -> String {
         let option = caddieOption(s)
+        // With plans on the hole, the club comes from the plan as it stands now; the decision's own
+        // `suggestedClub` names its first shot and would replay it once that shot is played.
+        let fallback = s.caddieOptions.isEmpty ? s.suggestedClub : nil
         return WatchClubDisplay.name(
-            option?.plan?.first?.clubName ?? option?.clubName ?? s.suggestedClub ?? "—"
+            option?.plan?.first?.clubName ?? option?.clubName ?? fallback ?? "—"
         )
     }
 
