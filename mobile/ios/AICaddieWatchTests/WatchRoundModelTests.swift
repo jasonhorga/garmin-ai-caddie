@@ -440,7 +440,8 @@ final class WatchRoundModelTests: XCTestCase {
             capturedAt: "2026-08-09T08:00:00Z"
         )
         XCTAssertEqual(model.pendingManualShot?.hole, 10)
-        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNotNil(model.undoableShotText)
 
         model.applyRoundSeed(WatchRoundSeed(
             roundId: "r1",
@@ -803,7 +804,8 @@ final class WatchRoundModelTests: XCTestCase {
             horizontalAccuracyM: 5,
             capturedAt: "2026-07-26T08:00:00Z"
         )
-        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNotNil(model.undoableShotText)
         XCTAssertEqual(model.pendingManualShot?.hole, 1)
 
         model.completePendingManualShot(clubName: "一号木")
@@ -819,6 +821,316 @@ final class WatchRoundModelTests: XCTestCase {
         model.startScoringActiveHole()
         XCTAssertEqual(model.draftScore, 3)
         XCTAssertEqual(model.draftPutts, 2)
+    }
+
+    // MARK: caddie plan lifecycle (Codex review on #367)
+
+    private func liveDecisionState(
+        _ decisionId: String,
+        _ plan: [WatchCaddiePlanStep],
+        originShotEventIds: [String]?,
+        phoneShots: [String]? = nil,
+        revision: Int64? = nil,
+        roundId: String = "r1",
+        globalId: Int? = nil,
+        shotType: String? = nil
+    ) -> WatchRoundState {
+        WatchRoundState(
+            roundId: roundId, hole: 1, par: 4, distanceM: 400,
+            selectedClub: nil,
+            shotType: shotType,
+            decisionId: decisionId,
+            globalId: globalId,
+            sourceLocalHole: globalId == nil ? nil : 1,
+            courseHoleNumber: globalId == nil ? nil : 1,
+            caddieOptions: [
+                WatchCaddieOption(
+                    optionId: "stock", label: "一号木", clubName: plan.first?.clubName,
+                    carryM: plan.first?.carryM, carryP10M: 205, carryP90M: 235, sampleSize: 20,
+                    plan: plan, confidence: "high", routeOffsetBasis: .shot,
+                    originShotEventIds: originShotEventIds
+                ),
+            ],
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "high",
+            phoneShotEventIds: phoneShots, snapshotRevision: revision
+        )
+    }
+
+    private func recordShot(_ model: WatchRoundModel, club: String) {
+        model.beginManualShot(
+            latitude: 40.0454995, longitude: 116.5461531, horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T08:00:00Z"
+        )
+        model.completePendingManualShot(clubName: club)
+    }
+
+    private func lastLocationEventId(_ model: WatchRoundModel) -> String? {
+        model.round?.pendingEvents.last { $0.kind == .location }?.eventId
+    }
+
+    func testALiveDecisionArrivingAfterTheWatchShotIsNotReplayed() throws {
+        let model = seededModel(holes: [hole(1), hole(2)])
+        let plan = [
+            WatchCaddiePlanStep(clubName: "1W", carryM: 220, routeOffsetM: 220),
+            WatchCaddiePlanStep(clubName: "8I", carryM: 140, routeOffsetM: 360),
+        ]
+        // The phone requested d1 before any shot; the Watch records the tee shot before d1 first
+        // reaches it.
+        recordShot(model, club: "一号木")
+        let teeShot = try XCTUnwrap(lastLocationEventId(model))
+        model.receivePhoneState(liveDecisionState("d1", plan, originShotEventIds: []))
+        XCTAssertEqual(model.activeHoleState?.caddieOptions.first?.originShotEventIds, [], "the producer's origin, not arrival")
+        var current = try XCTUnwrap(model.currentCaddieOptions(progressM: 215).first)
+        XCTAssertEqual(current.plan?.map(\.clubName), ["8I"], "the Driver leg is not replayed")
+        XCTAssertEqual(current.clubName, "8I")
+        XCTAssertNil(current.plan?.first?.routeOffsetM, "placed by its carry from the player")
+        XCTAssertNil(current.carryP10M, "the Driver's dispersion no longer describes the next shot")
+
+        // The same decision re-sent in a later snapshot: still the remaining plan.
+        model.receivePhoneState(liveDecisionState("d1", plan, originShotEventIds: []))
+        current = try XCTUnwrap(model.currentCaddieOptions(progressM: 215).first)
+        XCTAssertEqual(current.plan?.map(\.clubName), ["8I"])
+
+        // A decision the phone made after that Watch shot (it names it) is drawn as made.
+        model.receivePhoneState(liveDecisionState(
+            "d2", [WatchCaddiePlanStep(clubName: "9I", carryM: 130, routeOffsetM: 130)], originShotEventIds: [teeShot]
+        ))
+        current = try XCTUnwrap(model.currentCaddieOptions(progressM: 215).first)
+        XCTAssertEqual(current.plan?.map(\.clubName), ["9I"])
+        XCTAssertEqual(current.plan?.first?.routeOffsetM, 130)
+    }
+
+    func testAPhoneShotThenAWatchShotDoesNotReplayTheSecondShotsPlan() throws {
+        // Shot 1 is recorded on the iPhone (the Watch never sees it). The phone's decision for shot
+        // 2 names that phone shot as its origin. Shot 2 is then recorded on the Watch.
+        let store = makeStore()
+        let model = WatchRoundModel(store: store, makeEventId: sequentialIds(), now: { "2026-06-20T00:00:00Z" })
+        model.seedRound([hole(1), hole(2)], activeHole: 1)
+        let plan = [
+            WatchCaddiePlanStep(clubName: "5I", carryM: 160, routeOffsetM: 160),
+            WatchCaddiePlanStep(clubName: "PW", carryM: 100, routeOffsetM: 260),
+        ]
+        model.receivePhoneState(liveDecisionState("d2", plan, originShotEventIds: ["phone-shot-1"]))
+        XCTAssertEqual(model.currentCaddieOptions(progressM: 220).first?.plan?.map(\.clubName), ["5I", "PW"],
+                       "the Watch has not played since the plan was made")
+
+        recordShot(model, club: "五号铁")
+        XCTAssertEqual(model.currentCaddieOptions(progressM: 380).first?.plan?.map(\.clubName), ["PW"],
+                       "the Watch shot is played after the plan: 5I is not replayed")
+
+        // The same after a relaunch from disk.
+        let restored = WatchRoundModel(store: store)
+        XCTAssertEqual(restored.currentCaddieOptions(progressM: 380).first?.plan?.map(\.clubName), ["PW"])
+    }
+
+    private let teePlan = [
+        WatchCaddiePlanStep(clubName: "1W", carryM: 220, routeOffsetM: 220, expectedRemainingM: 180),
+        WatchCaddiePlanStep(clubName: "8I", carryM: 140, routeOffsetM: 360, expectedRemainingM: 40),
+    ]
+
+    func testAShotRecordedOnlyOnThePhoneRetiresTheOlderDecision() throws {
+        let store = makeStore()
+        let model = WatchRoundModel(store: store, makeEventId: sequentialIds(), now: { "2026-06-20T00:00:00Z" })
+        model.seedRound([hole(1), hole(2)], activeHole: 1)
+        model.receivePhoneState(liveDecisionState("d0", teePlan, originShotEventIds: [], phoneShots: [], revision: 100))
+        XCTAssertEqual(model.currentCaddieOptions(progressM: 0).first?.plan?.first?.clubName, "1W")
+
+        // The tee shot is recorded on the iPhone only; its next snapshot still carries d0 (the new
+        // decision has not come back) but names the phone's current shots.
+        model.receivePhoneState(liveDecisionState("d0", teePlan, originShotEventIds: [], phoneShots: ["p1"], revision: 101))
+        XCTAssertEqual(model.currentCaddieOptions(progressM: 215).first?.plan?.map(\.clubName), ["8I"], "no Driver replay")
+
+        // Relaunch from disk: still retired.
+        let restored = WatchRoundModel(store: store)
+        XCTAssertEqual(restored.currentCaddieOptions(progressM: 215).first?.plan?.map(\.clubName), ["8I"])
+    }
+
+    func testAnOlderSnapshotArrivingLastNeverRollsBackTheNewerDecision() throws {
+        let store = makeStore()
+        let model = WatchRoundModel(store: store, makeEventId: sequentialIds(), now: { "2026-06-20T00:00:00Z" })
+        model.seedRound([hole(1), hole(2)], activeHole: 1)
+        let d1 = [WatchCaddiePlanStep(clubName: "7I", carryM: 150, routeOffsetM: 150, expectedRemainingM: 30)]
+        // d1 (made after the phone shot p1) arrives first; the older d0 snapshot, queued earlier
+        // through transferUserInfo, arrives last.
+        model.receivePhoneState(liveDecisionState("d1", d1, originShotEventIds: ["p1"], phoneShots: ["p1"], revision: 201))
+        model.receivePhoneState(liveDecisionState("d0", teePlan, originShotEventIds: [], phoneShots: [], revision: 200))
+        func assertD1(_ model: WatchRoundModel, _ message: String) {
+            XCTAssertEqual(model.activeHoleState?.decisionId, "d1", message)
+            let current = model.currentCaddieOptions(progressM: 220).first
+            XCTAssertEqual(current?.clubName, "7I", message)
+            XCTAssertEqual(current?.plan?.map(\.routeOffsetM), [150], message)
+        }
+        assertD1(model, "the newer decision, club and route stay")
+        // A duplicate of the applied revision is ignored too.
+        model.receivePhoneState(liveDecisionState("d0", teePlan, originShotEventIds: [], phoneShots: [], revision: 201))
+        assertD1(model, "a same-revision snapshot does not replace it")
+        assertD1(WatchRoundModel(store: store), "after a relaunch")
+    }
+
+    func testASameRoundSeedKeepsThePhoneShotsSoAPlayedPlanStaysRetired() throws {
+        let store = makeStore()
+        let model = WatchRoundModel(store: store, makeEventId: sequentialIds(), now: { "2026-06-20T00:00:00Z" })
+        let seed = WatchRoundSeed(
+            roundId: "seed-round",
+            courseName: "北京丽宫",
+            activeHole: 1,
+            holes: courseSeedHoles("31795:all", [
+                WatchRoundSeedHole(hole: 1, par: 4, distanceM: 365, globalId: 31795, localHole: 1, courseHoleNumber: 1),
+            ]),
+            globalId: 31795,
+            loopKey: "31795:all"
+        )
+        model.applyRoundSeed(seed)
+        XCTAssertNotNil(model.round)
+        model.receivePhoneState(liveDecisionState(
+            "d0", teePlan, originShotEventIds: [], phoneShots: ["p1"], revision: 300,
+            roundId: "seed-round", globalId: 31795
+        ))
+        XCTAssertEqual(model.currentCaddieOptions(progressM: 215).first?.plan?.map(\.clubName), ["8I"])
+
+        // The phone re-sends the same round's seed (activation, an added half, a refresh).
+        model.applyRoundSeed(seed)
+        XCTAssertEqual(model.round?.phoneShots?.first?.eventIds, ["p1"], "round-owned, kept")
+        XCTAssertEqual(model.currentCaddieOptions(progressM: 215).first?.plan?.map(\.clubName), ["8I"], "no Driver revival")
+        XCTAssertEqual(
+            WatchRoundModel(store: store).currentCaddieOptions(progressM: 215).first?.plan?.map(\.clubName), ["8I"],
+            "after a relaunch"
+        )
+    }
+
+    func testAPhoneShotCountsForTheWatchShotNumberTypeScoreAndTeeOrigin() throws {
+        let store = makeStore()
+        let model = WatchRoundModel(store: store, makeEventId: sequentialIds(), now: { "2026-06-20T00:00:00Z" })
+        model.seedRound([hole(1, par: 4), hole(2)], activeHole: 1)
+        // The tee shot p1 was recorded on the iPhone; the Watch's own queue is empty. The phone's
+        // snapshot still carries the older tee decision (shotType "tee") while it fetches the next.
+        model.receivePhoneState(liveDecisionState(
+            "d0", teePlan, originShotEventIds: [], phoneShots: ["p1"], revision: 400, shotType: "tee"
+        ))
+        XCTAssertEqual(model.round?.pendingEvents.count, 0)
+        XCTAssertEqual(model.recordedShotCount, 1, "the phone's shot is a hole fact on the Watch")
+
+        // The next Watch shot is the second shot and not a tee shot (the tee origin is off: the
+        // 方案 page measures from the tee only while recordedShotCount == 0).
+        model.beginManualShot(
+            latitude: 40.0454995, longitude: 116.5461531, horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T08:00:00Z"
+        )
+        XCTAssertEqual(model.pendingManualShot?.shotNumber, 2)
+        XCTAssertNotEqual(model.pendingManualShot?.shotType, "tee")
+        model.completePendingManualShot(clubName: "七号铁")
+        XCTAssertEqual(model.recordedShotCount, 2)
+        XCTAssertNotEqual(model.round?.pendingEvents.first { $0.kind == .club }?.shotType, "tee")
+
+        // The score recommendation includes the phone's shot (2 shots + 2 putts).
+        model.startScoringActiveHole()
+        XCTAssertEqual(model.draftScore, 4)
+
+        let restored = WatchRoundModel(store: store)
+        XCTAssertEqual(restored.recordedShotCount, 2, "after a relaunch")
+        XCTAssertEqual(
+            restored.round?.pendingEvents.filter { $0.kind == .club }.map(\.shotType), ["approach"],
+            "the persisted shot is not written as a tee shot"
+        )
+        // A legitimate later phase from the decision is kept.
+        XCTAssertEqual(WatchRoundModel.shotType(shotNumber: 2, decisionShotType: "recovery"), "recovery")
+        XCTAssertEqual(WatchRoundModel.shotType(shotNumber: 1, decisionShotType: "approach"), "tee")
+    }
+
+    func testTheClubTagNoteDescribesTheNextShotOfTheCurrentSelectedPlan() {
+        let stock = WatchCaddieOption(
+            optionId: "stock", label: "标准",
+            plan: [
+                WatchCaddiePlanStep(clubName: "1W", carryM: 220, routeOffsetM: 220, expectedRemainingM: 140),
+                WatchCaddiePlanStep(clubName: "8I", carryM: 128, routeOffsetM: 348, expectedRemainingM: 12),
+            ],
+            routeOffsetBasis: .tee, originShotEventIds: []
+        )
+        let safe = WatchCaddieOption(
+            optionId: "safe", label: "稳妥",
+            plan: [
+                WatchCaddiePlanStep(clubName: "3W", carryM: 190, routeOffsetM: 190, expectedRemainingM: 170),
+                WatchCaddiePlanStep(clubName: "7I", carryM: 130, routeOffsetM: 320, expectedRemainingM: 40),
+                WatchCaddiePlanStep(clubName: "SW", carryM: 40, routeOffsetM: 360, expectedRemainingM: 0),
+            ],
+            routeOffsetBasis: .tee, originShotEventIds: []
+        )
+        func note(_ metres: Double) -> String { "留\(WatchUnits.yards(metres))码" }
+        // Before the tee shot: the Driver's own leave, not the plan's last.
+        XCTAssertEqual(WatchRoundContainerView.planNote(stock, stateRemainingM: 0), note(140))
+        // Switching plan switches the note to that plan's next shot.
+        XCTAssertEqual(WatchRoundContainerView.planNote(safe, stateRemainingM: 0), note(170))
+        // After the tee shot: single-step and multi-step remaining plans.
+        let stockAfter = stock.remaining(fromProgressM: 220, watchShotEventIds: ["evt-2"])
+        XCTAssertEqual(stockAfter.clubName, "8I")
+        XCTAssertEqual(WatchRoundContainerView.planNote(stockAfter, stateRemainingM: 0), note(12))
+        let safeAfter = safe.remaining(fromProgressM: 190, watchShotEventIds: ["evt-2"])
+        XCTAssertEqual(safeAfter.plan?.map(\.clubName), ["7I", "SW"])
+        XCTAssertEqual(WatchRoundContainerView.planNote(safeAfter, stateRemainingM: 0), note(40))
+        // Only a hole without plans uses the decision's own remaining.
+        XCTAssertEqual(WatchRoundContainerView.planNote(nil, stateRemainingM: 0), "攻果岭")
+    }
+
+    func testARestoredLegacyLivePlanWithoutAnOriginFailsClosedAfterAShot() throws {
+        let store = makeStore()
+        let plan = [
+            WatchCaddiePlanStep(clubName: "1W", carryM: 220, routeOffsetM: 220),
+            WatchCaddiePlanStep(clubName: "8I", carryM: 140, routeOffsetM: 360),
+        ]
+        let first = WatchRoundModel(store: store, makeEventId: sequentialIds(), now: { "2026-06-20T00:00:00Z" })
+        first.seedRound([liveDecisionState("d1", plan, originShotEventIds: nil), hole(2)], activeHole: 1)
+        XCTAssertEqual(first.currentCaddieOptions(progressM: 0).first?.plan?.first?.clubName, "1W",
+                       "before any shot an unstamped plan is still the tee plan")
+        XCTAssertTrue(first.caddieDetailAvailable)
+        recordShot(first, club: "一号木")
+
+        // Relaunch from disk: the legacy live plan does not say which shots it was made after.
+        let restored = WatchRoundModel(store: store)
+        XCTAssertEqual(restored.recordedShotCount, 1)
+        XCTAssertTrue(restored.currentCaddieOptions(progressM: 215).isEmpty, "no replayed Driver leg")
+        XCTAssertFalse(restored.caddieDetailAvailable, "the menu cannot open the stale decision either")
+        // Its same-id resend without an origin stays closed too.
+        restored.receivePhoneState(liveDecisionState("d1", plan, originShotEventIds: nil))
+        XCTAssertTrue(restored.currentCaddieOptions(progressM: 215).isEmpty)
+        XCTAssertFalse(restored.caddieDetailAvailable)
+    }
+
+    func testAPreparedPlanAdvancesForEveryConsumerAfterTheTeeShot() throws {
+        let options = WatchCourseTemplateBuilder.preparedCaddieOptions(
+            clubs: [
+                WatchClubOption(clubName: "1W", medianM: 220, source: "course-prep"),
+                WatchClubOption(clubName: "3W", medianM: 190, source: "course-prep"),
+                WatchClubOption(clubName: "5I", medianM: 160, source: "course-prep"),
+                WatchClubOption(clubName: "8I", medianM: 125, source: "course-prep"),
+            ],
+            suggestedClub: "1W",
+            routeDistanceM: 518.8,
+            landingM: nil
+        )
+        let state = WatchRoundState(
+            roundId: "r1", hole: 1, par: 5, distanceM: 518.8,
+            selectedClub: nil,
+            caddieOptions: options,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let model = seededModel(holes: [state, hole(2)])
+        let atTee = try XCTUnwrap(model.currentCaddieOptions(progressM: 0).first { $0.optionId == "stock" })
+        XCTAssertEqual(atTee.clubName, "1W")
+        XCTAssertEqual(WatchCaddieOptionsView.clubChain(atTee, compact: true), "D›3W›8i")
+
+        recordShot(model, club: "一号木")
+        let current = model.currentCaddieOptions(progressM: 220)
+        let stock = try XCTUnwrap(current.first { $0.optionId == "stock" })
+        // The club tag, the 球童 detail's chain and the legs all start from the next shot.
+        XCTAssertEqual(stock.clubName, "3W")
+        XCTAssertEqual(stock.label, "标准", "a prepared plan keeps its tier name")
+        XCTAssertEqual(WatchCaddieOptionsView.clubChain(stock, compact: true), "3W›8i")
+        XCTAssertEqual(
+            stock.plan?.compactMap(\.routeOffsetM).map { ($0 * 10).rounded() / 10 }, [190, 298.8],
+            "original 410 / 518.8 m stations, from the player at 220 m"
+        )
+        let screen = WatchCaddieScreen(state: try XCTUnwrap(model.activeHoleState), options: current)
+        XCTAssertEqual(screen.options.first { $0.optionId == "stock" }?.clubName, "3W")
     }
 
     func testSkippingClubStillRecordsTheShotLocation() {
@@ -975,7 +1287,7 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(view.distanceText, "999 码 · 等待定位")
     }
 
-    func testAutoShotIsOptInAndRejectedCandidateWritesNoShotEvent() {
+    func testAutoShotIsOptInAndAnUndoneShotWritesNoEvent() {
         var savedPreferences: [Bool] = []
         let model = seededModel(
             holes: [hole(1)],
@@ -998,14 +1310,16 @@ final class WatchRoundModelTests: XCTestCase {
             horizontalAccuracyM: 5,
             capturedAt: "2026-07-26T12:00:00Z"
         ))
-        XCTAssertEqual(model.screen, .autoShotCandidate)
-        XCTAssertNotNil(model.pendingAutoShotCandidate)
-        XCTAssertTrue(model.round?.pendingEvents.isEmpty == true)
-
-        model.rejectAutoShotCandidate()
-
+        // README §3: no per-shot confirmation page — the shot waits in the bottom undo strip.
         XCTAssertEqual(model.screen, .home)
         XCTAssertNil(model.pendingAutoShotCandidate)
+        XCTAssertEqual(model.undoableShotText, "第 1 杆")
+        XCTAssertTrue(model.round?.pendingEvents.isEmpty == true)
+
+        model.undoPendingManualShot()
+
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNil(model.undoableShotText)
         XCTAssertTrue(model.round?.pendingEvents.isEmpty == true)
     }
 
@@ -1018,10 +1332,9 @@ final class WatchRoundModelTests: XCTestCase {
             capturedAt: "2026-07-26T12:00:00Z"
         ))
 
-        model.acceptAutoShotCandidate()
-
         XCTAssertNil(model.pendingAutoShotCandidate)
-        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNotNil(model.undoableShotText)
         XCTAssertEqual(model.pendingManualShot?.hole, 1)
         XCTAssertTrue(model.round?.pendingEvents.isEmpty == true)
 
@@ -1031,9 +1344,9 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.recordedShotCount, 1)
     }
 
-    func testRejectedAutoShotCandidateRestoresOriginatingHoleMapAfterRelaunch() {
+    func testADetectedShotSurvivesARelaunchAsTheSameUndoableShot() {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("autoshot-map-reject-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("autoshot-map-restore-\(UUID().uuidString)", isDirectory: true)
         let first = WatchRoundModel(
             store: WatchRoundStore(directoryURL: directory),
             autoShotEnabled: true,
@@ -1047,16 +1360,16 @@ final class WatchRoundModelTests: XCTestCase {
             horizontalAccuracyM: 5,
             capturedAt: "2026-07-26T12:00:00Z"
         ))
+        XCTAssertEqual(first.screen, .holeMap, "no confirmation page over the map")
 
         let restored = WatchRoundModel(
             store: WatchRoundStore(directoryURL: directory),
             autoShotEnabled: true,
             persistAutoShotEnabled: { _ in }
         )
-        restored.rejectAutoShotCandidate()
 
-        XCTAssertEqual(restored.screen, .holeMap)
         XCTAssertNil(restored.pendingAutoShotCandidate)
+        XCTAssertEqual(restored.pendingManualShot?.hole, 1)
         XCTAssertTrue(restored.round?.pendingEvents.isEmpty == true)
     }
 
@@ -1070,15 +1383,15 @@ final class WatchRoundModelTests: XCTestCase {
             capturedAt: "2026-07-26T12:00:00Z"
         ))
 
-        model.acceptAutoShotCandidate()
-        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.screen, .holeMap, "B6: no club prompt; the shot waits in its undo window")
+        XCTAssertEqual(model.undoableShotText, "第 1 杆")
         model.completePendingManualShot(clubName: nil)
 
         XCTAssertEqual(model.screen, .holeMap)
         XCTAssertEqual(model.round?.pendingEvents.map(\.kind), [.location])
     }
 
-    func testAutoShotCandidateRestoresWithoutBecomingARecordedShot() {
+    func testAutoShotRestoresWithoutBecomingARecordedShotOrAPage() {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("autoshot-restore-\(UUID().uuidString)", isDirectory: true)
         let first = WatchRoundModel(
@@ -1101,11 +1414,12 @@ final class WatchRoundModelTests: XCTestCase {
         )
 
         XCTAssertEqual(restored.screen, .resume)
-        XCTAssertEqual(restored.pendingAutoShotCandidate?.capturedAt, "2026-07-26T12:00:00Z")
+        XCTAssertNil(restored.pendingAutoShotCandidate)
         XCTAssertTrue(restored.round?.pendingEvents.isEmpty == true)
 
         restored.resumeRound()
-        XCTAssertEqual(restored.screen, .autoShotCandidate)
+        XCTAssertNotEqual(restored.screen, .autoShotCandidate)
+        XCTAssertEqual(restored.undoableShotText, "第 1 杆")
     }
 
     func testAcceptedAutoShotAtNextTeeReusesPreviousHoleConfirmation() {
@@ -1132,7 +1446,63 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertTrue(model.round?.pendingEvents.isEmpty == true)
     }
 
-    func testPendingManualShotRestoresClubPromptAfterRelaunch() {
+    // MARK: B6 洞结束
+
+    func testWalkingOffTheGreenTowardTheNextTeeOpensScoringOnce() {
+        // Hole 1's green at (40.0, 116.0); hole 2's tee ~120 m east of it.
+        let east120 = 116.0 + 120 / (111_195.0 * cos(40.0 * .pi / 180))
+        let east45 = 116.0 + 45 / (111_195.0 * cos(40.0 * .pi / 180))
+        let first = WatchRoundState(
+            roundId: "r1", hole: 1, par: 4, distanceM: nil,
+            teeLatitude: 39.997, teeLongitude: 116.0, selectedClub: nil,
+            centerGreenLat: 40.0, centerGreenLon: 116.0,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let model = seededModel(holes: [first, hole(2, teeLatitude: 40.0, teeLongitude: east120)])
+        XCTAssertFalse(model.observeLocation(latitude: 39.9995, longitude: 116.0, horizontalAccuracyM: 5),
+                       "approaching the green")
+        XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 4), "on the green")
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertTrue(model.observeLocation(latitude: 40.0, longitude: east45, horizontalAccuracyM: 5))
+        XCTAssertEqual(model.screen, .scoring)
+        XCTAssertEqual(model.scoringHole, 1)
+        XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: east120, horizontalAccuracyM: 5),
+                       "the hole ends once")
+    }
+
+    func testAHoleEndReportedWhileTheMenuIsOpenIsNotLost() {
+        let east120 = 116.0 + 120 / (111_195.0 * cos(40.0 * .pi / 180))
+        let east45 = 116.0 + 45 / (111_195.0 * cos(40.0 * .pi / 180))
+        let east60 = 116.0 + 60 / (111_195.0 * cos(40.0 * .pi / 180))
+        let first = WatchRoundState(
+            roundId: "r1", hole: 1, par: 4, distanceM: nil,
+            teeLatitude: 39.997, teeLongitude: 116.0, selectedClub: nil,
+            centerGreenLat: 40.0, centerGreenLon: 116.0,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let model = seededModel(holes: [first, hole(2, teeLatitude: 40.0, teeLongitude: east120)])
+        XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 4), "on the green")
+        model.openMenu()
+        // The detector fires exactly once, while the menu is up: nothing opens over the menu…
+        XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: east45, horizontalAccuracyM: 5))
+        XCTAssertEqual(model.screen, .menu)
+        XCTAssertEqual(model.pendingHoleEnd, 1)
+        // …and the next fix after the menu closes opens 本洞成绩 instead of losing the trigger.
+        model.backToHome()
+        XCTAssertTrue(model.observeLocation(latitude: 40.0, longitude: east60, horizontalAccuracyM: 5))
+        XCTAssertEqual(model.screen, .scoring)
+        XCTAssertEqual(model.scoringHole, 1)
+        XCTAssertNil(model.pendingHoleEnd)
+        XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: east120, horizontalAccuracyM: 5), "still once")
+    }
+
+    func testAHoleWithoutGreenCoordinatesHasNoGPSHoleEnd() {
+        let model = seededModel(holes: [hole(1), hole(2)])
+        XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 4))
+        XCTAssertEqual(model.screen, .home, "no green coordinates: no GPS hole end")
+    }
+
+    func testPendingManualShotRestoresItsUndoWindowAfterRelaunch() {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("manual-shot-restore-\(UUID().uuidString)", isDirectory: true)
         let first = WatchRoundModel(
@@ -1163,7 +1533,8 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(restored.screen, .resume)
 
         restored.resumeRound()
-        XCTAssertEqual(restored.screen, .clubPrompt)
+        XCTAssertEqual(restored.screen, .home)
+        XCTAssertNotNil(restored.undoableShotText)
         restored.completePendingManualShot(clubName: nil)
         XCTAssertNil(restored.pendingManualShot)
         XCTAssertEqual(restored.round?.pendingEvents.map(\.kind), [.location])
@@ -1215,7 +1586,8 @@ final class WatchRoundModelTests: XCTestCase {
         restored.selectDraftFairway(.hit)
         restored.saveManualScore()
         XCTAssertEqual(restored.activeHole, 2)
-        XCTAssertEqual(restored.screen, .clubPrompt)
+        XCTAssertEqual(restored.screen, .home)
+        XCTAssertNotNil(restored.undoableShotText)
 
         restored.completePendingManualShot(clubName: nil)
         XCTAssertEqual(restored.round?.pendingEvents.map(\.kind), [.score, .putt, .location])
@@ -1245,7 +1617,8 @@ final class WatchRoundModelTests: XCTestCase {
         model.acceptRecommendedScore()
 
         XCTAssertEqual(model.activeHole, 2)
-        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNotNil(model.undoableShotText)
         XCTAssertEqual(model.pendingManualShot?.hole, 2)
         XCTAssertNil(model.pendingManualShot?.candidateFromHole)
 
@@ -1310,7 +1683,8 @@ final class WatchRoundModelTests: XCTestCase {
         model.cancelScoring()
 
         XCTAssertEqual(model.activeHole, 1)
-        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNotNil(model.undoableShotText)
         XCTAssertEqual(model.pendingManualShot?.hole, 1)
         XCTAssertNil(model.pendingManualShot?.candidateFromHole)
         model.completePendingManualShot(clubName: nil)
@@ -1333,9 +1707,73 @@ final class WatchRoundModelTests: XCTestCase {
             capturedAt: "2026-07-26T09:00:00Z"
         )
 
-        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNotNil(model.undoableShotText)
         XCTAssertEqual(model.pendingManualShot?.hole, 1)
         XCTAssertNil(model.pendingManualShot?.candidateFromHole)
+    }
+
+    // MARK: B6 测到挥杆 (no 刚才用哪支杆？)
+
+    func testADetectedShotCanBeUndoneBeforeItIsRecorded() {
+        let model = seededModel(holes: [hole(1), hole(2)])
+        model.beginManualShot(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 5,
+                              capturedAt: "2026-07-26T09:00:00Z")
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertEqual(model.undoableShotText, "第 1 杆")
+        model.undoPendingManualShot()
+        XCTAssertNil(model.pendingManualShot)
+        XCTAssertNil(model.undoableShotText)
+        XCTAssertTrue(model.round?.pendingEvents.isEmpty == true, "an undone shot writes nothing")
+        XCTAssertEqual(model.recordedShotCount, 0)
+    }
+
+    func testTheNextShotEndsThePreviousShotsUndoWindow() {
+        let model = seededModel(holes: [hole(1), hole(2)])
+        model.beginManualShot(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 5,
+                              capturedAt: "2026-07-26T09:00:00Z")
+        model.beginManualShot(latitude: 40.0015, longitude: 116.0, horizontalAccuracyM: 5,
+                              capturedAt: "2026-07-26T09:03:00Z")
+        XCTAssertEqual(model.round?.pendingEvents.map(\.kind), [.location], "the first shot is recorded")
+        XCTAssertEqual(model.undoableShotText, "第 2 杆")
+    }
+
+    func testTheNextTeeShotSavesAnOpenScoreDraft() {
+        let model = seededModel(holes: [
+            hole(1, par: 4, teeLatitude: 40.0, teeLongitude: 116.0),
+            hole(2, par: 5, teeLatitude: 40.001, teeLongitude: 116.0),
+        ])
+        model.startScoringActiveHole()  // as the hole-end trigger does
+        model.draftScore = 6
+        model.draftPutts = 2
+        model.beginManualShot(latitude: 40.001, longitude: 116.0, horizontalAccuracyM: 5,
+                              capturedAt: "2026-07-26T09:30:00Z")
+        XCTAssertEqual(model.activeHole, 2, "the unconfirmed hole is saved and play moves on")
+        XCTAssertEqual(model.allHoleStates.first?.score, 6)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertEqual(model.pendingManualShot?.hole, 2)
+        XCTAssertNil(model.pendingManualShot?.candidateFromHole)
+        XCTAssertEqual(model.undoableShotText, "第 1 杆")
+    }
+
+    func testOneScreenScoreRaisesTheTotalAndWrapsTheWheels() {
+        let model = seededModel(holes: [hole(1, par: 4), hole(2)])
+        model.startScoringActiveHole()
+        model.setDraftScore(3)
+        model.setDraftPutts(3)
+        XCTAssertEqual(model.draftScore, 4, "total ≥ putts + penalties + 1")
+        model.setDraftPenalty(-1)
+        XCTAssertEqual(model.draftPenalty, 4, "0 sits under 4")
+        XCTAssertEqual(model.draftScore, 8)
+        model.setDraftPutts(6)
+        XCTAssertEqual(model.draftPutts, 0, "5 rolls over to 0")
+        XCTAssertEqual(model.draftScore, 8, "lowering putts never lowers the total")
+        model.setDraftFairway(.left)
+        model.setDraftFairway(.left)
+        XCTAssertNil(model.draftFairway, "tapping the chosen cell clears it")
+        model.saveManualScore()
+        XCTAssertEqual(model.allHoleStates.first?.score, 8)
+        XCTAssertEqual(model.activeHole, 2)
     }
 
     func testAdjustDraftClampsAtLowerBounds() {

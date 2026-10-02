@@ -14,7 +14,6 @@ public enum WatchRoundScreen: Equatable {
     case resume
     case home
     case autoShotCandidate
-    case clubPrompt
     case scoring
     case finishing
     case finishConfirmation
@@ -44,6 +43,28 @@ public enum WatchFairwayResult: String, CaseIterable, Codable, Equatable {
     case hit = "HIT"
     case left = "LEFT"
     case right = "RIGHT"
+}
+
+/// B6 本洞成绩 rules (README §3): putts and penalties are wheels that wrap (0 sits under the
+/// maximum), and the total never drops below putts + penalties + 1.
+public enum WatchScoreRules {
+    public static let puttRange = 0...5
+    public static let penaltyRange = 0...4
+    public static let scoreRange = 1...15
+
+    public static func wrap(_ value: Int, in range: ClosedRange<Int>) -> Int {
+        let count = range.count
+        return range.lowerBound + ((value - range.lowerBound) % count + count) % count
+    }
+
+    public static func minimumScore(putts: Int, penalty: Int) -> Int {
+        putts + penalty + 1
+    }
+
+    /// The total for a requested value: inside `scoreRange` and never below the minimum.
+    public static func score(_ requested: Int, putts: Int, penalty: Int) -> Int {
+        min(scoreRange.upperBound, max(requested, minimumScore(putts: putts, penalty: penalty), scoreRange.lowerBound))
+    }
 }
 
 public struct WatchOutcomeSummary: Equatable {
@@ -458,8 +479,11 @@ public final class WatchRoundModel: ObservableObject {
     /// the stricter Hole Root gate below: useful detail data must not automatically become a live call.
     public var caddieDetailAvailable: Bool {
         guard let state = activeHoleState else { return false }
+        // With plans on the hole, only a current one opens the detail: a finished or stale plan
+        // (and the decision's own text about it) is never brought back from the menu.
+        guard state.caddieOptions.isEmpty else { return !currentCaddieOptions(progressM: nil).isEmpty }
         let club = state.suggestedClub?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return !club.isEmpty || !state.caddieOptions.isEmpty
+        return !club.isEmpty
     }
 
     public var hazardDetailAvailable: Bool {
@@ -846,6 +870,9 @@ public final class WatchRoundModel: ObservableObject {
                 placement.matches(hole: state.hole, globalId: state.globalId)
             }
         }
+        // The phone's shots and snapshot order are round-owned: a same-round seed never forgets
+        // them (that would bring a played plan back).
+        let retainedPhoneShots = existing?.phoneShots?.filter { holeNumbers.contains($0.hole) }
         let persisted = WatchRoundStore.PersistedRound(
             roundId: seed.roundId,
             activeHole: activeHole,
@@ -858,7 +885,8 @@ public final class WatchRoundModel: ObservableObject {
             pendingManualShot: retainedManualShot,
             pendingAutoShotCandidate: existing?.pendingAutoShotCandidate,
             scoreDraft: retainedScoreDraft,
-            greenPlacements: retainedGreenPlacements
+            greenPlacements: retainedGreenPlacements,
+            phoneShots: retainedPhoneShots
         )
         guard persisted.hasValidIdentity else { return }
         try? store.save(persisted)
@@ -893,6 +921,12 @@ public final class WatchRoundModel: ObservableObject {
               !store.isClosed(roundId: state.roundId) else {
             return
         }
+        // Order before anything is replaced: a snapshot not newer than the last one applied to this
+        // hole (a late transferUserInfo delivery, a duplicate) never rolls back its state.
+        let lastApplied = current.phoneShots?.first { $0.hole == state.hole }
+        if let revision = state.snapshotRevision, let lastApplied, revision <= lastApplied.revision {
+            return
+        }
         var merged = current.pendingEvents.reduce(state) { partial, event in
             partial.applying(event)
         }
@@ -906,10 +940,35 @@ public final class WatchRoundModel: ObservableObject {
                 courseHoleNumber: merged.courseHoleNumber ?? previous.courseHoleNumber
             )
         }
-        guard let persisted = try? store.upsertHoleState(merged, makeActive: false) else {
+        guard var persisted = try? store.upsertHoleState(merged, makeActive: false) else {
             return
         }
+        // This snapshot is now the newest applied to the hole: record its revision and the phone's
+        // current shots (a phone shot deleted later leaves the newer, smaller set).
+        if let revision = state.snapshotRevision {
+            let applied = WatchPhoneShotSet(
+                hole: state.hole,
+                eventIds: state.phoneShotEventIds ?? lastApplied?.eventIds ?? [],
+                revision: revision
+            )
+            persisted.phoneShots = (persisted.phoneShots ?? []).filter { $0.hole != state.hole } + [applied]
+            try? store.save(persisted)
+        }
         self.round = persisted
+    }
+
+    /// The active hole's caddie options as they stand now for a player `progressM` metres along
+    /// the route (nil: unknown): shots recorded since each plan was made are gone and every offset
+    /// counts from the player. The 方案 page (club tag, note, legs) and the 球童 detail all read
+    /// these, never the raw `caddieOptions`.
+    public func currentCaddieOptions(progressM: Double?) -> [WatchCaddieOption] {
+        guard let state = activeHoleState else { return [] }
+        let shots = knownShotEventIds(for: state.hole)
+        // A plan with nothing left to play (finished, or a stale live plan that failed closed) is
+        // not offered at all.
+        return state.caddieOptions
+            .map { $0.remaining(fromProgressM: progressM, watchShotEventIds: shots) }
+            .filter { $0.plan.map { !$0.isEmpty } ?? true }
     }
 
     /// Replace the active round with a fresh set of per-hole snapshots and start at the given hole.
@@ -987,13 +1046,9 @@ public final class WatchRoundModel: ObservableObject {
             draftFairway = nil
             scoreFlowStep = .recommendation
             advanceAfterScoring = true
-            if let pendingManualShot, pendingManualShot.candidateFromHole == nil {
-                screen = .clubPrompt
-            } else if pendingAutoShotCandidate != nil {
-                screen = .autoShotCandidate
-            } else {
-                screen = .home
-            }
+            screen = .home
+            // A candidate persisted by an older build becomes the same undoable shot, never a page.
+            if pendingAutoShotCandidate != nil { acceptAutoShotCandidate() }
             return
         }
 
@@ -1082,6 +1137,61 @@ public final class WatchRoundModel: ObservableObject {
         persistInteractionState()
     }
 
+    // MARK: - hole end (B6)
+
+    /// The active hole's 洞结束 detector, rebuilt whenever the active hole changes.
+    private var holeEndDetector: (hole: Int, detector: WatchHoleEndDetector)?
+    /// A hole end the detector reported (once) while the model could not open scoring yet — a menu
+    /// or a pending shot on screen. It is kept and consumed on the next fix that can take it, so
+    /// the one-shot trigger is never lost.
+    private(set) var pendingHoleEnd: Int?
+
+    /// Feed every live fix. Once the player has been on the green and walks more than 25 m off it
+    /// toward the next tee, an unscored hole opens 本洞成绩 (README §3); the other trigger is the next
+    /// hole's first shot (`beginManualShot`). Returns true when it opened scoring, so the caller can
+    /// play one haptic.
+    @discardableResult
+    public func observeLocation(latitude: Double, longitude: Double, horizontalAccuracyM: Double) -> Bool {
+        guard let hole = activeHoleState else { return false }
+        if holeEndDetector?.hole != hole.hole {
+            holeEndDetector = WatchHoleEndDetector.Green(hole: hole).map { green in
+                (hole: hole.hole, detector: WatchHoleEndDetector(green: green, nextTee: nextTeePoint(after: hole)))
+            }
+        }
+        guard var entry = holeEndDetector else { return false }
+        if entry.detector.observe(
+            latitude: latitude, longitude: longitude, horizontalAccuracyM: horizontalAccuracyM
+        ) {
+            pendingHoleEnd = hole.hole
+        }
+        holeEndDetector = entry
+        return consumePendingHoleEnd()
+    }
+
+    /// Open 本洞成绩 for a reported hole end once nothing else is on screen. A hole that was scored
+    /// meanwhile (or is no longer active) drops the trigger.
+    @discardableResult
+    func consumePendingHoleEnd() -> Bool {
+        guard let ended = pendingHoleEnd else { return false }
+        guard let hole = activeHoleState, hole.hole == ended, hole.score == 0, scoringHole == nil else {
+            pendingHoleEnd = nil
+            return false
+        }
+        guard pendingManualShot == nil, pendingAutoShotCandidate == nil,
+              screen == .home || screen == .holeMap else { return false }
+        pendingHoleEnd = nil
+        startScoringActiveHole()
+        return true
+    }
+
+    private func nextTeePoint(after hole: WatchRoundState) -> WatchHoleEndDetector.Point? {
+        guard let index = allHoleStates.firstIndex(where: { $0.hole == hole.hole }),
+              index + 1 < allHoleStates.count,
+              let lat = allHoleStates[index + 1].teeLatitude,
+              let lon = allHoleStates[index + 1].teeLongitude else { return nil }
+        return WatchHoleEndDetector.Point(latitude: lat, longitude: lon)
+    }
+
     // MARK: - manual shot
 
     public func setAutoShotEnabled(_ enabled: Bool) {
@@ -1095,8 +1205,10 @@ public final class WatchRoundModel: ObservableObject {
         }
     }
 
-    /// Stage a detector observation without creating a shot event. Returns true only when the candidate
-    /// became the active user decision, allowing the caller to play one haptic and suppress duplicates.
+    /// A detected swing (README §3): no per-shot confirmation page. It goes straight into the same
+    /// undoable pending shot as a manual one — the caller plays one haptic and the bottom strip
+    /// shows 第 N 杆 for `shotUndoSeconds`, tap to undo — and is recorded when that window ends.
+    /// Returns true when a shot was staged, so duplicates are suppressed.
     @discardableResult
     public func proposeAutoShotCandidate(
         latitude: Double,
@@ -1107,28 +1219,29 @@ public final class WatchRoundModel: ObservableObject {
         guard autoShotEnabled,
               round != nil,
               pendingAutoShotCandidate == nil,
-              pendingManualShot == nil,
-              round?.scoreDraft == nil,
-              screen == .home || screen == .holeMap,
+              pendingManualShot?.candidateFromHole == nil,
+              // B6: an open 本洞成绩 for the active hole can be saved by the next tee shot.
+              round?.scoreDraft == nil || scoringHole == activeHole,
+              screen == .home || screen == .holeMap || screen == .scoring,
               let location = WatchShotLocationValue(
                   latitude: latitude,
                   longitude: longitude,
                   horizontalAccuracyM: horizontalAccuracyM
               ) else { return false }
-        pendingAutoShotCandidate = WatchPendingAutoShotCandidate(
-            location: location,
+        beginManualShot(
+            latitude: location.latitude,
+            longitude: location.longitude,
+            horizontalAccuracyM: location.horizontalAccuracyM,
             capturedAt: capturedAt,
-            resumeHoleMap: screen == .holeMap ? true : nil
+            resumeHoleMap: screen == .holeMap
         )
-        screen = .autoShotCandidate
-        persistInteractionState()
         return true
     }
 
     public func rejectAutoShotCandidate() {
         guard let candidate = pendingAutoShotCandidate else { return }
         pendingAutoShotCandidate = nil
-        screen = candidate.resumeHoleMap == true ? .holeMap : .home
+        screen = scoringHole != nil ? .scoring : (candidate.resumeHoleMap == true ? .holeMap : .home)
         persistInteractionState()
     }
 
@@ -1157,6 +1270,10 @@ public final class WatchRoundModel: ObservableObject {
                   longitude: longitude,
                   horizontalAccuracyM: horizontalAccuracyM
               ) else { return }
+        if pendingManualShot != nil, pendingManualShot?.candidateFromHole == nil {
+            // The previous shot's undo window ends with the next shot.
+            completePendingManualShot(clubName: nil)
+        }
         if let nextHole = candidateNextHole(from: hole, location: location) {
             pendingManualShot = makePendingShot(
                 assignedTo: nextHole,
@@ -1165,8 +1282,15 @@ public final class WatchRoundModel: ObservableObject {
                 capturedAt: capturedAt,
                 resumeHoleMap: resumeHoleMap ? true : nil
             )
-            startScoringActiveHole()
+            if scoringHole == hole.hole, advanceAfterScoring {
+                // B6: 本洞成绩 was open and not confirmed; the next hole's tee shot saves it as drafted.
+                persistScoreDraft()
+            } else {
+                startScoringActiveHole()
+            }
         } else {
+            // B6: no 刚才用哪支杆？ — the shot shows as 第 N 杆 with an undo and commits after
+            // `shotUndoSeconds` (`completePendingManualShot`). The club is inferred later (B7).
             pendingManualShot = makePendingShot(
                 assignedTo: hole,
                 candidateFromHole: nil,
@@ -1174,7 +1298,9 @@ public final class WatchRoundModel: ObservableObject {
                 capturedAt: capturedAt,
                 resumeHoleMap: resumeHoleMap ? true : nil
             )
-            screen = .clubPrompt
+            if screen == .autoShotCandidate {
+                screen = scoringHole != nil ? .scoring : (resumeHoleMap ? .holeMap : .home)
+            }
             persistInteractionState()
         }
     }
@@ -1201,7 +1327,22 @@ public final class WatchRoundModel: ObservableObject {
         )
         round = latest
         self.pendingManualShot = nil
-        screen = pendingManualShot.resumeHoleMap == true ? .holeMap : .home
+        persistInteractionState()
+    }
+
+    /// How long a detected shot can be undone before it is recorded.
+    public static let shotUndoSeconds: UInt64 = 4
+
+    /// The just-detected shot awaiting its undo window ("第 2 杆"), nil otherwise.
+    public var undoableShotText: String? {
+        guard let pendingManualShot, pendingManualShot.candidateFromHole == nil else { return nil }
+        return "第 \(pendingManualShot.shotNumber) 杆"
+    }
+
+    /// Tap the 第 N 杆 strip: the detected shot is dropped without any event.
+    public func undoPendingManualShot() {
+        guard let pendingManualShot, pendingManualShot.candidateFromHole == nil else { return }
+        self.pendingManualShot = nil
         persistInteractionState()
     }
 
@@ -1245,9 +1386,18 @@ public final class WatchRoundModel: ObservableObject {
             location: location,
             capturedAt: capturedAt,
             shotNumber: shotNumber,
-            shotType: shotTypeOverride ?? (shotNumber == 1 ? "tee" : (hole.shotType ?? "approach")),
+            shotType: shotTypeOverride ?? Self.shotType(shotNumber: shotNumber, decisionShotType: hole.shotType),
             resumeHoleMap: resumeHoleMap
         )
+    }
+
+    /// The phase comes from the shot identity: shot 1 is the tee shot; after it, a decision's own
+    /// "tee" (an older decision still in place while the phone fetches the next one) is never
+    /// written, while a legitimate later phase (approach, recovery) is kept.
+    static func shotType(shotNumber: Int, decisionShotType: String?) -> String {
+        guard shotNumber > 1 else { return "tee" }
+        guard let decisionShotType, decisionShotType != "tee" else { return "approach" }
+        return decisionShotType
     }
 
     private func reassignPendingShot(
@@ -1266,12 +1416,27 @@ public final class WatchRoundModel: ObservableObject {
         )
     }
 
+    /// This hole's Watch-recorded location events, by id, in capture order.
+    func watchShotEventIds(for hole: Int) -> [String] {
+        round?.pendingEvents.compactMap { event in
+            event.hole == hole && event.kind == .location ? event.eventId : nil
+        } ?? []
+    }
+
+    /// Every shot on this hole either device knows of: the phone's newest shot set plus the Watch's
+    /// own location events (a Watch shot keeps its id on the phone, so none is counted twice).
+    func knownShotEventIds(for hole: Int) -> [String] {
+        let phone = round?.phoneShots?.first { $0.hole == hole }?.eventIds ?? []
+        var seen = Set(phone)
+        return phone + watchShotEventIds(for: hole).filter { seen.insert($0).inserted }
+    }
+
+    /// Every shot on the hole either device recorded (`knownShotEventIds`, deduplicated by event
+    /// id): the shot number and type, the score recommendation and the tee origin all read this,
+    /// so a shot recorded on the iPhone counts on the Watch too. The Watch's own upload queue is
+    /// `pendingEvents` / `watchShotEventIds`.
     private func recordedShotCount(for hole: Int) -> Int {
-        round?.pendingEvents.reduce(into: 0) { count, event in
-            if event.hole == hole, event.kind == .location {
-                count += 1
-            }
-        } ?? 0
+        knownShotEventIds(for: hole).count
     }
 
     public func adjustDraftScore(_ delta: Int) {
@@ -1286,6 +1451,33 @@ public final class WatchRoundModel: ObservableObject {
 
     public func adjustDraftPenalty(_ delta: Int) {
         draftPenalty = max(0, draftPenalty + delta)
+        persistInteractionState()
+    }
+
+    // B6 one-screen 本洞成绩.
+
+    public func setDraftScore(_ value: Int) {
+        draftScore = WatchScoreRules.score(value, putts: draftPutts, penalty: draftPenalty)
+        persistInteractionState()
+    }
+
+    /// Putts wrap 0–5; the total is raised when it would fall below putts + penalties + 1.
+    public func setDraftPutts(_ value: Int) {
+        draftPutts = WatchScoreRules.wrap(value, in: WatchScoreRules.puttRange)
+        draftScore = WatchScoreRules.score(draftScore, putts: draftPutts, penalty: draftPenalty)
+        persistInteractionState()
+    }
+
+    /// Penalties wrap 0–4; the total is raised when it would fall below putts + penalties + 1.
+    public func setDraftPenalty(_ value: Int) {
+        draftPenalty = WatchScoreRules.wrap(value, in: WatchScoreRules.penaltyRange)
+        draftScore = WatchScoreRules.score(draftScore, putts: draftPutts, penalty: draftPenalty)
+        persistInteractionState()
+    }
+
+    /// 开球三格; tapping the selected cell clears it.
+    public func setDraftFairway(_ result: WatchFairwayResult) {
+        draftFairway = draftFairway == result ? nil : result
         persistInteractionState()
     }
 
@@ -1330,7 +1522,7 @@ public final class WatchRoundModel: ObservableObject {
            ) {
             self.pendingManualShot = reassigned
             scoringHole = nil
-            screen = .clubPrompt
+            screen = scoreEntryReturnScreen
             persistInteractionState()
             return
         }
@@ -1386,7 +1578,7 @@ public final class WatchRoundModel: ObservableObject {
            activeHole == candidateShot.hole,
            let resolved = reassignPendingShot(candidateShot, to: candidateShot.hole) {
             pendingManualShot = resolved
-            screen = .clubPrompt
+            screen = resolved.resumeHoleMap == true ? .holeMap : .home
         } else if shouldAdvance, isAtTurn {
             // The last hole of the first half was saved: ask which nine comes next.
             openTurn()

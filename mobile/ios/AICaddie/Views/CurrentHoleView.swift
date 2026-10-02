@@ -145,6 +145,9 @@ public struct CurrentHoleView: View {
     @State private var currentHorizontalAccuracyM: Double?
     @State private var note: String = ""
     @State private var caddieDecision: CaddieDecisionResponse?
+    /// The hole's shot event ids when `caddieDecision` was requested: the plan's origin, sent with
+    /// it so the Watch never replays it after a later shot recorded on either device.
+    @State private var caddieDecisionOriginShot: [String]?
     /// Per-hole route authority. The live response, installed CoursePrep row, and offline seed can
     /// arrive in different orders; retaining the resolved chain here makes refresh idempotent and
     /// keeps the map, card, and Watch on one route.
@@ -407,6 +410,7 @@ public struct CurrentHoleView: View {
             explicitlySelectedCaddieRouteHoles.remove(hole.number)
             selectedPlanIndex = nil
             caddieDecision = nil
+            caddieDecisionOriginShot = nil
             Task { await loadCaddieDecision(syncClub: true) }
         }
         .task(id: hole.number) {
@@ -2858,7 +2862,8 @@ public struct CurrentHoleView: View {
                     frontDistanceM: detail.frontM,
                     backDistanceM: detail.backM,
                     frontPx: detail.frontPx,
-                    backPx: detail.backPx
+                    backPx: detail.backPx,
+                    outlinePx: WatchHazard.watchOutline(detail.outlinePx)
                 ))
             }
         } else {
@@ -2908,7 +2913,8 @@ public struct CurrentHoleView: View {
                     frontDistanceM: detail.frontM,
                     backDistanceM: detail.backM,
                     frontPx: detail.frontPx,
-                    backPx: detail.backPx
+                    backPx: detail.backPx,
+                    outlinePx: WatchHazard.watchOutline(detail.outlinePx)
                 ))
             }
         } else {
@@ -3402,6 +3408,8 @@ public struct CurrentHoleView: View {
 
     @MainActor
     private func loadCaddieDecision(syncClub: Bool = false) async {
+        // The shot this decision is for, fixed now, before any await.
+        let originShot = recordedShotEventIds
         caddieRequestGeneration &+= 1
         let requestGeneration = caddieRequestGeneration
         isLoadingCaddieDecision = true
@@ -3419,6 +3427,7 @@ public struct CurrentHoleView: View {
         #endif
         guard let effectiveClient else {
             caddieDecision = makeOfflineCaddieDecision()
+            caddieDecisionOriginShot = originShot
             syncStrategyModeToDecision(caddieDecision)
             caddieErrorMessage = caddieDecision == nil
                 ? "这一洞暂时无法给建议。"
@@ -3449,9 +3458,11 @@ public struct CurrentHoleView: View {
                 // alternatives/evidence remain available, but never let a sparse selectedSequence
                 // replace the retained CoursePrep route.
                 caddieDecision = response
+                caddieDecisionOriginShot = originShot
                 caddieErrorMessage = nil
             } else if let offlineDecision {
                 caddieDecision = offlineDecision
+                caddieDecisionOriginShot = originShot
                 // A complete local route is a usable recommendation. Transport provenance is an
                 // implementation detail and should not displace live playing information.
                 caddieErrorMessage = offlineDecision.isLocalNoRoute ? Self.localNoRouteMessage : nil
@@ -3470,6 +3481,7 @@ public struct CurrentHoleView: View {
             guard requestGeneration == caddieRequestGeneration else { return }
             if let offlineDecision = makeOfflineCaddieDecision() {
                 caddieDecision = offlineDecision
+                caddieDecisionOriginShot = originShot
                 syncStrategyModeToDecision(offlineDecision)
                 caddieErrorMessage = offlineDecision.isLocalNoRoute
                     ? Self.localNoRouteMessage
@@ -3592,7 +3604,12 @@ public struct CurrentHoleView: View {
             elevationDeltaM: slopeM,
             geometryCoverage: holePrep?.geometryCoverage ?? hole.geometryCoverage.rawValue,
             geometryRevision: holePrep?.geometryRevision ?? hole.geometryRevision,
-            hazards: watchHazards()
+            hazards: watchHazards(),
+            // Only the decision being sent carries its origin; a nil decision has no plan.
+            decisionOriginShotEventIds: decision.flatMap { $0 == caddieDecision ? caddieDecisionOriginShot : nil },
+            // The phone's current shots on this hole, so a shot recorded only here after the
+            // decision still retires it on the Watch.
+            phoneShotEventIds: recordedShotEventIds
         )
         if let state {
             try? watchBridge?.sendStateToWatch(state)
@@ -3831,6 +3848,12 @@ public struct CurrentHoleView: View {
             route: route,
             par: hole.par
         ).flatMap { LiveFairwayResult(rawValue: $0.rawValue) }
+    }
+
+    /// This hole's location events (phone-recorded, and Watch-recorded ones under their Watch ids).
+    private var recordedShotEventIds: [String] {
+        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return [] }
+        return LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number).map(\.eventId)
     }
 
     private var recordedNonPuttShotCount: Int {

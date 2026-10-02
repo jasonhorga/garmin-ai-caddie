@@ -156,6 +156,19 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.watchkitapp.tests
         GENERATE_INFOPLIST_FILE: YES
 
+  AICaddieWatchUITests:
+    type: bundle.ui-testing
+    platform: watchOS
+    sources:
+      - path: mobile/ios/AICaddieWatchUITests
+    dependencies:
+      - target: AICaddieWatch
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.watchkitapp.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: AICaddieWatch
+
 schemes:
   AICaddie:
     build:
@@ -184,6 +197,8 @@ schemes:
       targets:
         AICaddieWatch: all
         AICaddieWatchTests: [test]
+        AICaddieWatchUITests: [test]
     test:
       targets:
         - AICaddieWatchTests
+        - AICaddieWatchUITests

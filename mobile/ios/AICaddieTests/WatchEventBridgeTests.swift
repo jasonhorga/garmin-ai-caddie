@@ -237,6 +237,19 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(stock.label, "八号铁")
         XCTAssertEqual(stock.plan?.map(\.clubName), ["1D", "5I", "54"])
         XCTAssertEqual(stock.plan?.map(\.carryM), [245, 168, 94])
+        XCTAssertEqual(stock.routeOffsetBasis, .shot, "live decision offsets count from the player")
+        XCTAssertNil(stock.originShotEventIds)
+        // Snapshot revisions are strictly increasing, even within one millisecond.
+        let instant = Date(timeIntervalSince1970: 1_790_000_000)
+        let first = bridge.nextSnapshotRevision(now: instant)
+        let second = bridge.nextSnapshotRevision(now: instant)
+        XCTAssertGreaterThan(second, first)
+        XCTAssertGreaterThan(bridge.nextSnapshotRevision(now: instant.addingTimeInterval(-60)), second, "never goes back")
+        let afterOneShot = bridge.makeWatchCaddieOptions(from: decision, originShotEventIds: ["phone-shot-1"])
+        XCTAssertTrue(
+            afterOneShot.allSatisfy { $0.originShotEventIds == ["phone-shot-1"] },
+            "the producer writes the shots its decision was made after"
+        )
         XCTAssertEqual(stock.carryP10M, 132)
         XCTAssertEqual(stock.carryP90M, 153)
         XCTAssertEqual(stock.sampleSize, 24)

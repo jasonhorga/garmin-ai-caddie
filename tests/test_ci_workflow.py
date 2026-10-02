@@ -932,7 +932,7 @@ class CIWorkflowTests(unittest.TestCase):
         for mode in [
             "compact-holemap-long-copy",
             "compact-score-fairway",
-            "compact-club-prompt",
+            "compact-shot-undo",
             "compact-finish",
             "compact-home",
         ]:

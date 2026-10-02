@@ -396,7 +396,10 @@ public enum WatchCourseTemplateBuilder {
                 clubName: variant.first.clubName,
                 carryM: variant.first.medianM,
                 plan: plan,
-                confidence: "offline"
+                confidence: "offline",
+                // Both the course-prep steps and `preparedPlan` accumulate from the tee.
+                routeOffsetBasis: .tee,
+                originShotEventIds: []  // made before any shot
             )
         }
     }
@@ -694,7 +697,8 @@ public enum WatchCourseTemplateBuilder {
                     frontDistanceM: detail.frontM,
                     backDistanceM: detail.backM,
                     frontPx: detail.frontPx,
-                    backPx: detail.backPx
+                    backPx: detail.backPx,
+                    outlinePx: detail.outlinePx.flatMap { WatchHazard.watchOutline($0) }
                 ))
             }
         } else {
@@ -736,7 +740,8 @@ public enum WatchCourseTemplateBuilder {
                     frontDistanceM: detail.frontM,
                     backDistanceM: detail.backM,
                     frontPx: detail.frontPx,
-                    backPx: detail.backPx
+                    backPx: detail.backPx,
+                    outlinePx: detail.outlinePx.flatMap { WatchHazard.watchOutline($0) }
                 ))
             }
         } else {

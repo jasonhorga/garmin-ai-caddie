@@ -31,6 +31,18 @@ public struct WatchClubOption: Codable, Equatable, Identifiable {
     }
 }
 
+extension WatchHazard {
+    /// Mirrors the phone's thinning (`WatchEventBridge`): at most 40 evenly spaced vertices.
+    public static func watchOutline(_ outlinePx: [[Double]]) -> [[Double]]? {
+        let points = outlinePx.filter { $0.count >= 2 && $0[0].isFinite && $0[1].isFinite }
+        guard points.count >= 3 else { return nil }
+        let step = max(1, Int((Double(points.count) / 40.0).rounded(.up)))
+        let kept = stride(from: 0, to: points.count, by: step).map { points[$0] }
+        guard kept.count >= 3 else { return nil }
+        return kept.map { [($0[0] * 10).rounded() / 10, ($0[1] * 10).rounded() / 10] }
+    }
+}
+
 /// A measured hazard fact for the Watch. New payloads carry true front/back boundary pixels and
 /// straight-line tee distances; legacy bunker payloads may still contain only startM + sideM.
 public struct WatchHazard: Codable, Equatable, Identifiable {
@@ -47,6 +59,9 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
     public let backDistanceM: Double?
     public let frontPx: [Double]?
     public let backPx: [Double]?
+    /// The hazard's real boundary in topo pixels (README §1: the hazard page draws it as a thin red
+    /// line). Thinned on the phone; nil for legacy payloads and interval-only hazards.
+    public let outlinePx: [[Double]]?
 
     /// Older cached course packages used ordinal labels such as "沙坑 1". Keep the
     /// persisted fact untouched, but never surface that decoder-order label to a player.
@@ -67,7 +82,8 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
         frontDistanceM: Double? = nil,
         backDistanceM: Double? = nil,
         frontPx: [Double]? = nil,
-        backPx: [Double]? = nil
+        backPx: [Double]? = nil,
+        outlinePx: [[Double]]? = nil
     ) {
         self.kind = kind
         self.label = label
@@ -78,6 +94,7 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
         self.backDistanceM = backDistanceM
         self.frontPx = frontPx
         self.backPx = backPx
+        self.outlinePx = outlinePx
     }
 }
 
@@ -106,6 +123,17 @@ public struct WatchCaddiePlanStep: Codable, Equatable {
     }
 }
 
+/// What a plan step's `routeOffsetM` is measured from. The two producers differ, so every plan
+/// says which one it carries instead of leaving a consumer to guess (Codex review on #367).
+public enum WatchRouteOffsetBasis: String, Codable, Equatable {
+    /// Metres along the whole hole route from the tee: course prep (`course_prep.py`) and the
+    /// Watch's own offline plans.
+    case tee
+    /// Metres from the decision origin, i.e. where the player stood when the live decision was
+    /// made (`decision.py` starts `travelled_m` at 0 for every decision).
+    case shot
+}
+
 /// One AI-caddie route. Longitudinal p10/p90 are measured carry facts, not a fabricated lateral
 /// ellipse. Expected strokes stay absent until the product has a calibrated scoring model.
 public struct WatchCaddieOption: Codable, Equatable, Identifiable {
@@ -120,6 +148,14 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public let sampleSize: Int?
     public let plan: [WatchCaddiePlanStep]?
     public let confidence: String?
+    /// What `plan`'s route offsets are measured from; absent in payloads older than B6.
+    public let routeOffsetBasis: WatchRouteOffsetBasis?
+    /// The hole's shots this plan was made after, by event id: every location event (phone- or
+    /// Watch-recorded; a Watch shot keeps its eventId on the phone) that existed when the decision
+    /// was requested, or [] for a plan made before any shot. Written by the producer, never by the
+    /// Watch on arrival; the Watch counts its own location events outside this set as shots played
+    /// since the plan, so the two devices never compare local queue lengths.
+    public let originShotEventIds: [String]?
 
     public init(
         optionId: String,
@@ -130,7 +166,9 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         carryP90M: Double? = nil,
         sampleSize: Int? = nil,
         plan: [WatchCaddiePlanStep]? = nil,
-        confidence: String? = nil
+        confidence: String? = nil,
+        routeOffsetBasis: WatchRouteOffsetBasis? = nil,
+        originShotEventIds: [String]? = nil
     ) {
         self.optionId = optionId
         self.label = label
@@ -141,6 +179,104 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         self.sampleSize = sampleSize
         self.plan = plan
         self.confidence = confidence
+        self.routeOffsetBasis = routeOffsetBasis
+        self.originShotEventIds = originShotEventIds
+    }
+}
+
+extension WatchCaddiePlanStep {
+    func withRouteOffset(_ routeOffsetM: Double?) -> WatchCaddiePlanStep {
+        WatchCaddiePlanStep(
+            clubName: clubName,
+            carryM: carryM,
+            routeOffsetM: routeOffsetM,
+            expectedRemainingM: expectedRemainingM,
+            role: role,
+            planIndex: planIndex
+        )
+    }
+}
+
+extension WatchCaddieOption {
+    /// Payloads older than B6 carry no basis: the Watch's own offline plans (confidence "offline")
+    /// were tee-based, and everything the phone sends is a live decision.
+    var resolvedRouteOffsetBasis: WatchRouteOffsetBasis {
+        routeOffsetBasis ?? (confidence == "offline" ? .tee : .shot)
+    }
+
+    /// How many of this hole's Watch location events (`eventIds`, in order) were recorded after the
+    /// plan was made: those outside its `originShotEventIds`. nil when that cannot be known: a live
+    /// plan from an older payload that does not name its origin, once any shot exists.
+    func shotsSinceOrigin(watchShotEventIds eventIds: [String]) -> Int? {
+        if let origin = originShotEventIds {
+            let made = Set(origin)
+            return eventIds.filter { !made.contains($0) }.count
+        }
+        // A tee plan was made before any shot; any plan is current while nothing is recorded.
+        return resolvedRouteOffsetBasis == .tee || eventIds.isEmpty ? eventIds.count : nil
+    }
+
+    /// This option as it stands for a player `progressM` metres along the route (nil: unknown)
+    /// after the Watch shots `watchShotEventIds` on this hole: the shots played since the plan was
+    /// made are gone and every remaining offset counts from the player. Every production consumer
+    /// (the 方案 page's club tag, note and legs, and the 球童 detail) reads this, so they never
+    /// disagree on the next shot. The result is current: its origin is those same shots.
+    func remaining(fromProgressM progressM: Double?, watchShotEventIds: [String]) -> WatchCaddieOption {
+        let original = plan ?? carryM.map { [WatchCaddiePlanStep(clubName: clubName ?? "", carryM: $0)] } ?? []
+        let steps = remainingPlan(
+            fromProgressM: progressM,
+            shotsSinceOrigin: shotsSinceOrigin(watchShotEventIds: watchShotEventIds)
+        )
+        let advanced = steps.count != original.count
+        guard advanced else {
+            return WatchCaddieOption(
+                optionId: optionId, label: label, clubName: clubName, carryM: carryM,
+                carryP10M: carryP10M, carryP90M: carryP90M, sampleSize: sampleSize,
+                plan: plan == nil ? nil : steps, confidence: confidence,
+                routeOffsetBasis: .shot, originShotEventIds: watchShotEventIds
+            )
+        }
+        // The first club changed: its dispersion and sample no longer describe the next shot. A
+        // live option is titled by its club; a prepared one keeps its 稳妥 / 标准 / 进攻 tier.
+        let next = steps.first
+        return WatchCaddieOption(
+            optionId: optionId,
+            label: resolvedRouteOffsetBasis == .shot ? (next.map { WatchClubDisplay.name($0.clubName) } ?? label) : label,
+            clubName: next?.clubName,
+            carryM: next?.carryM,
+            plan: steps,
+            confidence: confidence,
+            routeOffsetBasis: .shot,
+            originShotEventIds: watchShotEventIds
+        )
+    }
+
+    /// The shots still to play (see `remaining`), every `routeOffsetM` re-based on the player (the
+    /// live-decision contract `WatchPlanLegs` draws). The `shotsSinceOrigin` shots recorded since the
+    /// plan was made are dropped. A tee plan also drops any landing already behind the player and
+    /// keeps each remaining landing at its original station. A live plan made shots ago from a spot
+    /// this Watch no longer knows keeps its remaining clubs and carries, placed from the player,
+    /// until the phone sends a fresh decision. An unknown origin (nil) fails closed: nothing, not a
+    /// replay of the first shot.
+    func remainingPlan(fromProgressM progressM: Double?, shotsSinceOrigin: Int?) -> [WatchCaddiePlanStep] {
+        let steps = plan ?? carryM.map { [WatchCaddiePlanStep(clubName: clubName ?? "", carryM: $0)] } ?? []
+        let basis = resolvedRouteOffsetBasis
+        guard let played = shotsSinceOrigin.map({ max(0, $0) }) else { return [] }
+        let remaining = steps.dropFirst(played)
+        switch basis {
+        case .tee:
+            guard let progressM, progressM.isFinite else {
+                return remaining.map { $0.withRouteOffset(nil) }
+            }
+            return remaining
+                .drop { step in
+                    guard let offset = step.routeOffsetM, offset.isFinite else { return false }
+                    return offset <= progressM + 1
+                }
+                .map { $0.withRouteOffset($0.routeOffsetM.map { $0 - progressM }) }
+        case .shot:
+            return played == 0 ? Array(remaining) : remaining.map { $0.withRouteOffset(nil) }
+        }
     }
 }
 
@@ -455,6 +591,11 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let putts: Int
     public let penaltyCount: Int
     public let caddieConfidence: String
+    /// The phone's current shots on this hole when it sent this snapshot (by location event id),
+    /// and the snapshot's strictly increasing revision. Kept per hole in `PersistedRound.phoneShots`;
+    /// a snapshot not newer than the last applied one is ignored whole.
+    public let phoneShotEventIds: [String]?
+    public let snapshotRevision: Int64?
 
     enum CodingKeys: String, CodingKey {
         case schema
@@ -511,6 +652,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case putts
         case penaltyCount
         case caddieConfidence
+        case phoneShotEventIds
+        case snapshotRevision
     }
 
     public init(
@@ -566,7 +709,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         score: Int,
         putts: Int,
         penaltyCount: Int,
-        caddieConfidence: String
+        caddieConfidence: String,
+        phoneShotEventIds: [String]? = nil,
+        snapshotRevision: Int64? = nil
     ) {
         self.roundId = roundId
         self.hole = hole
@@ -621,6 +766,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.putts = putts
         self.penaltyCount = penaltyCount
         self.caddieConfidence = caddieConfidence
+        self.phoneShotEventIds = phoneShotEventIds
+        self.snapshotRevision = snapshotRevision
     }
 
     public init(from decoder: Decoder) throws {
@@ -684,6 +831,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.putts = try container.decode(Int.self, forKey: .putts)
         self.penaltyCount = try container.decode(Int.self, forKey: .penaltyCount)
         self.caddieConfidence = try container.decode(String.self, forKey: .caddieConfidence)
+        self.phoneShotEventIds = try container.decodeIfPresent([String].self, forKey: .phoneShotEventIds)
+        self.snapshotRevision = try container.decodeIfPresent(Int64.self, forKey: .snapshotRevision)
     }
 
     public func replacingRoundId(_ newRoundId: String) -> WatchRoundState {

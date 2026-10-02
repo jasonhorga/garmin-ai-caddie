@@ -110,6 +110,17 @@ public struct WatchCaddieOptionsView: View {
                 topClearance: 42
             ))
         } ?? CGFloat(WatchHoleMapView.restingCrownScale)
+        let legs = mappedGeometry.map { Self.planLegs(for: option, route: route, geometry: $0) } ?? []
+        // The whole remaining plan (player, every landing and its label, the pin and its flag)
+        // fits between the header and the strategy row, with or without measured dispersion.
+        let viewport = mappedGeometry.flatMap { geometry in
+            Self.planViewport(
+                points: [geometry.youPx] + legs.map(\.landing) + [geometry.pinPx],
+                labelSizes: legs.map { WatchPlanLegs.labelSize($0.label) },
+                size: size,
+                maxScale: CGFloat(WatchHoleMapView.maximumCrownScale)
+            )
+        }
 
         return ZStack {
             if let mappedGeometry {
@@ -130,8 +141,14 @@ public struct WatchCaddieOptionsView: View {
                     showTextOverlay: false,
                     showHoleIdentity: false,
                     fullMap: true,
-                    mapScale: scale,
-                    geometry: mappedGeometry
+                    mapScale: viewport?.scale ?? scale,
+                    fullMapFocusImagePx: viewport?.focusImage,
+                    fullMapFocusCanvasFraction: viewport?.focusFraction ?? CGPoint(x: 0.5, y: 0.52),
+                    geometry: mappedGeometry,
+                    // The whole remaining plan, the same legs as the 方案 page; dispersion (live
+                    // only) is drawn on top and is not needed to show the later shots.
+                    planLegs: legs,
+                    planLabelBounds: Self.planRestFrame(in: size)
                 )
                 .allowsHitTesting(false)
             } else {
@@ -237,6 +254,76 @@ public struct WatchCaddieOptionsView: View {
         )
     }
 
+    /// How the focused plan is framed: the image scale, the image point at the frame's centre and
+    /// where that centre sits on the face (as fractions of its size).
+    struct PlanViewport: Equatable {
+        let scale: CGFloat
+        let focusImage: CGPoint
+        let focusFraction: CGPoint
+    }
+
+    /// Room each landing's label (drawn to its right, stacked by `WatchPlanLegs.labelFrames`) and the pin's flag need.
+    static let planLabelReserve = CGSize(width: 58, height: 16)
+    static let planFlagReserve: CGFloat = 16
+
+    /// The face between the header (back button + club chain) and the strategy row, left of the
+    /// plan dots.
+    static func planRestFrame(in size: CGSize) -> CGRect {
+        let inset = WatchDisplayGeometry.contentInset(for: size)
+        let top = inset + WatchDisplayGeometry.instrumentControlSize + 4
+        let bottom = size.height - inset - 22
+        return CGRect(x: inset, y: top, width: max(0, size.width - inset * 2 - 12), height: max(0, bottom - top))
+    }
+
+    /// The scale and centre that fit every `points` (player, landings, pin) into the rest frame
+    /// with room for the landing labels and the flag; never zoomed past `maxScale`.
+    static func planViewport(
+        points: [CGPoint],
+        labelSizes: [CGSize] = [],
+        size: CGSize,
+        maxScale: CGFloat
+    ) -> PlanViewport? {
+        guard let first = points.first, size.width > 0, size.height > 0 else { return nil }
+        var minX = first.x, maxX = first.x, minY = first.y, maxY = first.y
+        for point in points.dropFirst() {
+            minX = min(minX, point.x); maxX = max(maxX, point.x)
+            minY = min(minY, point.y); maxY = max(maxY, point.y)
+        }
+        let rest = planRestFrame(in: size)
+        // The widest and tallest measured label, the same boxes drawFullPlan lays out.
+        let labelWidth = labelSizes.map(\.width).max().map { $0 + WatchPlanLegs.labelGap } ?? planLabelReserve.width
+        let half = (labelSizes.map(\.height).max() ?? planLabelReserve.height) / 2
+        let fit = CGRect(
+            x: rest.minX + 4,
+            y: rest.minY + max(planFlagReserve, half),
+            width: rest.width - 4 - labelWidth,
+            height: rest.height - max(planFlagReserve, half) - half
+        )
+        guard fit.width > 0, fit.height > 0 else { return nil }
+        let scale = min(maxScale, fit.width / max(maxX - minX, 1), fit.height / max(maxY - minY, 1))
+        return PlanViewport(
+            scale: scale,
+            focusImage: CGPoint(x: (minX + maxX) / 2, y: (minY + maxY) / 2),
+            focusFraction: CGPoint(x: fit.midX / size.width, y: fit.midY / size.height)
+        )
+    }
+
+    /// Every leg still to play of `option` from the player, whatever its offset basis.
+    static func planLegs(
+        for option: WatchCaddieOption,
+        route: [[Double]],
+        geometry: WatchHoleMapGeometry
+    ) -> [WatchPlanLeg] {
+        guard let progress = WatchHazardMapLayout.playerProgressMetres(on: route, playerImagePoint: geometry.youPx) else {
+            return []
+        }
+        return WatchPlanLegs.resolve(
+            plan: option.remainingPlan(fromProgressM: progress, shotsSinceOrigin: 0),
+            route: route,
+            origin: geometry.youPx
+        )
+    }
+
     /// Convert the remaining club sequence into grounded route points. The first shot already owns
     /// `WatchCurrentShotLayout.target`; every middle shot gets its cumulative route landing and the
     /// final shot terminates at the actual pin instead of an invented extension beyond the green.
@@ -245,15 +332,16 @@ public struct WatchCaddieOptionsView: View {
         route: [[Double]],
         geometry: WatchHoleMapGeometry
     ) -> [CGPoint] {
-        guard let plan = option.plan,
-              plan.count > 1,
+        guard let progress = WatchHazardMapLayout.playerProgressMetres(
+                on: route,
+                playerImagePoint: geometry.youPx
+              ) else { return [] }
+        // Offsets re-based on the player whatever the option's basis (`WatchRouteOffsetBasis`).
+        let plan = option.remainingPlan(fromProgressM: progress, shotsSinceOrigin: 0)
+        guard plan.count > 1,
               let firstCarry = plan.first?.routeOffsetM ?? plan.first?.carryM ?? option.carryM,
               firstCarry.isFinite,
               firstCarry > 0,
-              let progress = WatchHazardMapLayout.playerProgressMetres(
-                on: route,
-                playerImagePoint: geometry.youPx
-              ),
               var previous = WatchHazardMapLayout.imagePoint(
                 on: route,
                 atMetres: progress + firstCarry
@@ -297,7 +385,9 @@ public struct WatchCaddieOptionsView: View {
               ),
               let target = WatchHazardMapLayout.imagePoint(
                   on: route,
-                  atMetres: progress + (option.plan?.first?.routeOffsetM ?? carry)
+                  atMetres: progress + (
+                      option.remainingPlan(fromProgressM: progress, shotsSinceOrigin: 0).first?.routeOffsetM ?? carry
+                  )
               )
         else { return base }
 
@@ -332,7 +422,9 @@ public struct WatchCaddieOptionsView: View {
     }
 
     private func firstCarry(_ option: WatchCaddieOption) -> Double? {
-        option.plan?.first?.routeOffsetM ?? option.plan?.first?.carryM ?? option.carryM
+        // Only a live (shot-based) offset is a distance from the player.
+        (option.resolvedRouteOffsetBasis == .shot ? option.plan?.first?.routeOffsetM : nil)
+            ?? option.plan?.first?.carryM ?? option.carryM
     }
 
     static func clubChain(_ option: WatchCaddieOption, compact: Bool) -> String {
@@ -386,6 +478,9 @@ public struct WatchCaddieOptionsView: View {
 /// with only one current-shot fact retain the honest text fallback.
 public struct WatchCaddieScreen: View {
     public let state: WatchRoundState
+    /// The options as they stand now (`WatchRoundModel.currentCaddieOptions`); defaults to the
+    /// state's own.
+    public let options: [WatchCaddieOption]
     public let geometry: WatchHoleMapGeometry?
     public let frontYd: Int?
     public let centerYd: Int?
@@ -395,6 +490,7 @@ public struct WatchCaddieScreen: View {
 
     public init(
         state: WatchRoundState,
+        options: [WatchCaddieOption]? = nil,
         geometry: WatchHoleMapGeometry? = nil,
         frontYd: Int? = nil,
         centerYd: Int? = nil,
@@ -403,6 +499,7 @@ public struct WatchCaddieScreen: View {
         onBack: @escaping () -> Void = {}
     ) {
         self.state = state
+        self.options = options ?? state.caddieOptions
         self.geometry = geometry
         self.frontYd = frontYd
         self.centerYd = centerYd
@@ -411,14 +508,17 @@ public struct WatchCaddieScreen: View {
         self.onBack = onBack
     }
 
-    var showsPlanOptionsFirst: Bool { !state.caddieOptions.isEmpty }
+    var showsPlanOptionsFirst: Bool { !options.isEmpty }
 
     public var body: some View {
-        if showsPlanOptionsFirst {
+        if !showsPlanOptionsFirst && !state.caddieOptions.isEmpty {
+            // The hole's plans are all played or stale: never fall back to the raw decision text.
+            Color.black.onAppear(perform: onBack)
+        } else if showsPlanOptionsFirst {
             WatchCaddieOptionsView(
                 hole: state.displayHoleNumber,
                 par: state.par,
-                options: state.caddieOptions,
+                options: options,
                 recommendedId: state.offlineOptionId ?? state.strategyMode,
                 geometry: geometry,
                 route: state.holeMap?.route ?? [],

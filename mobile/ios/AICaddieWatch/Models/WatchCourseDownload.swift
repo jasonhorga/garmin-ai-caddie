@@ -890,6 +890,8 @@ public struct WatchCoursePrepHazardDetail: Decodable, Equatable {
     public let backRouteM: Double
     public let frontPx: [Double]
     public let backPx: [Double]
+    /// The real boundary (server `outlinePx`); absent from older packages.
+    public let outlinePx: [[Double]]?
     public let sideM: Double?
 }
 

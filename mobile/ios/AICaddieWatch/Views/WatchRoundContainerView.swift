@@ -168,6 +168,11 @@ public struct WatchRoundContainerView: View {
     /// Map Detail owns the Crown. The resting position keeps the facts column and score ring; turning it
     /// enters the existing full-map presentation and continuously changes the real image transform.
     @State private var holeMapCrownScale: Double
+    /// B6 本洞: 方案 / 障碍 / 果岭 pages, the 方案 page's Crown zoom + pan, and the plan the player
+    /// picked by tapping the club tag (nil = the caddie's).
+    @State private var holePage = 0
+    @State private var planViewport = WatchHoleViewport()
+    @State private var selectedPlanId: String?
     /// DEBUG compatibility and deep-linking only; production opens the nearest upcoming obstacle.
     private let initialHazardID: String?
 
@@ -191,6 +196,10 @@ public struct WatchRoundContainerView: View {
     private let initialGreenZoomScaleOverride: Double
     /// DEBUG-only paper-alignment evidence. Production restores the round-scoped saved rotation.
     private let initialGreenRotationOverride: Double?
+    /// How long a detected shot can be undone (DEBUG runtime evidence holds it on screen).
+    private let shotUndoSeconds: UInt64
+    /// Review evidence of the production 本洞 pages: the hazard page's starting zoom / pan.
+    private let initialHazardViewport: WatchHoleViewport
 
     public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil,
                 watchGreenYards: (front: Int?, center: Int?, back: Int?)? = nil,
@@ -203,7 +212,11 @@ public struct WatchRoundContainerView: View {
                 measuredPxOverride: CGPoint? = nil,
                 initialGreenPinOverride: CGPoint? = nil,
                 initialGreenZoomScaleOverride: Double = 1,
-                initialGreenRotationOverride: Double? = nil) {
+                initialGreenRotationOverride: Double? = nil,
+                shotUndoSeconds: UInt64 = WatchRoundModel.shotUndoSeconds,
+                initialHolePage: Int = 0,
+                initialPlanViewport: WatchHoleViewport = WatchHoleViewport(),
+                initialHazardViewport: WatchHoleViewport = WatchHoleViewport()) {
         self.model = model
         self.holeGeometry = holeGeometry
         self.watchGreenYards = watchGreenYards
@@ -215,8 +228,12 @@ public struct WatchRoundContainerView: View {
         self.initialGreenPinOverride = initialGreenPinOverride
         self.initialGreenZoomScaleOverride = initialGreenZoomScaleOverride
         self.initialGreenRotationOverride = initialGreenRotationOverride
+        self.shotUndoSeconds = shotUndoSeconds
         self.initialHazardID = initialSelectedHazardID
         self._holeMapCrownScale = State(initialValue: initialHoleMapCrownScale)
+        self._holePage = State(initialValue: min(max(initialHolePage, 0), 2))
+        self._planViewport = State(initialValue: initialPlanViewport)
+        self.initialHazardViewport = initialHazardViewport
     }
 
     // watch P3: effective F/M/B — the watch-GPS value when available, else the phone-pushed distance.
@@ -334,6 +351,21 @@ public struct WatchRoundContainerView: View {
             )
         } else {
             activeScreen
+                .overlay(alignment: .bottom) { undoableShotStrip }
+                .task(id: model.pendingManualShot?.capturedAt) {
+                    // B6: a detected shot is recorded once its undo window passes.
+                    guard model.undoableShotText != nil else { return }
+                    try? await Task.sleep(nanoseconds: shotUndoSeconds * 1_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    model.completePendingManualShot(clubName: nil)
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var undoableShotStrip: some View {
+        if let text = model.undoableShotText {
+            WatchShotUndoStrip(text: text) { model.undoPendingManualShot() }
         }
     }
 
@@ -361,13 +393,10 @@ public struct WatchRoundContainerView: View {
                 Color.black.onAppear { model.openMenu() }
             }
         case .autoShotCandidate:
-            if model.pendingAutoShotCandidate != nil {
-                WatchAutoShotCandidateView(
-                    onAccept: { model.acceptAutoShotCandidate() },
-                    onReject: { model.rejectAutoShotCandidate() }
-                )
-            } else {
-                Color.black.onAppear { model.backToHome() }
+            // No per-shot confirmation page (README §3): a legacy candidate becomes the undoable shot.
+            Color.black.onAppear {
+                model.acceptAutoShotCandidate()
+                if model.screen == .autoShotCandidate { model.backToHome() }
             }
         case .holeMap:
             if let state = model.activeHoleState, let geometry = holeGeometry {
@@ -395,30 +424,7 @@ public struct WatchRoundContainerView: View {
             )
         case .viewGreen:
             if let state = model.activeHoleState, let geometry = holeGeometry {
-                let savedPin = selectedGreenPin(for: state, geometry: geometry)
-                WatchGreenPreviewView(
-                    geometry: geometry,
-                    centerGreenYards: canonicalCenterYd(state),
-                    rangeUnavailable: !hasQualifiedRangeFix,
-                    initialPin: initialGreenPinOverride ?? savedPin,
-                    initialZoomScale: initialGreenZoomScaleOverride,
-                    initialRotationDegrees: initialGreenRotationOverride ?? greenRotation(for: state),
-                    onPlacementChange: { pin, rotation in
-                        guard geometry.imageSize.width > 0, geometry.imageSize.height > 0 else { return }
-                        model.saveGreenPlacement(
-                            hole: state.hole,
-                            globalId: state.globalId,
-                            normalizedPinX: pin.x / geometry.imageSize.width,
-                            normalizedPinY: pin.y / geometry.imageSize.height,
-                            rotationDegrees: rotation
-                        )
-                    },
-                    onBack: { model.backToMenu() }
-                )
-                // SwiftUI may otherwise reuse Green View's local pin/zoom state for the next hole.
-                // The identity changes only when the factual instrument changes, so ordinary live
-                // GPS/score updates do not interrupt an in-progress drag.
-                .id(instrumentIdentity("green", state: state, geometry: geometry))
+                greenPage(state, geometry: geometry, onBack: { model.backToMenu() })
             } else {
                 Color.black.onAppear { model.backToMenu() }
             }
@@ -426,6 +432,7 @@ public struct WatchRoundContainerView: View {
             if let state = model.activeHoleState, model.caddieDetailAvailable {
                 WatchCaddieScreen(
                     state: state,
+                    options: currentCaddieOptions(state),
                     geometry: holeGeometry,
                     frontYd: frontYd(state),
                     centerYd: centerYd(state),
@@ -441,15 +448,7 @@ public struct WatchRoundContainerView: View {
                 if let geometry = holeGeometry,
                    let route = state.holeMap?.route,
                    !route.isEmpty {
-                    WatchHazardMapView(
-                        geometry: geometry,
-                        route: route,
-                        hazards: state.hazards,
-                        centerGreenYards: canonicalCenterYd(state),
-                        rangeUnavailable: !hasQualifiedRangeFix,
-                        initialHazardID: initialHazardID,
-                        onBack: { model.backToMenu() }
-                    )
+                    hazardPage(state, geometry: geometry, route: route, onBack: { model.backToMenu() })
                 } else {
                     // Legacy cache without a shared topo frame cannot place obstacle facts honestly.
                     // Keep its text-only degradation; geometry-capable rounds never pass through it.
@@ -509,20 +508,6 @@ public struct WatchRoundContainerView: View {
                     onBack: { model.openMenu() }
                 )
             }
-        case .clubPrompt:
-            if let pending = model.pendingManualShot {
-                WatchClubPromptView(
-                    hole: model.displayHoleNumber(pending.hole),
-                    shotNumber: pending.shotNumber,
-                    distanceToPinYards: model.activeHoleState.flatMap { centerYd($0) } ?? 999,
-                    recommendedClub: model.allHoleStates.first(where: { $0.hole == pending.hole })?.suggestedClub,
-                    clubs: model.allHoleStates.first(where: { $0.hole == pending.hole })?.availableClubs ?? [],
-                    onSelectClub: { model.completePendingManualShot(clubName: $0) },
-                    onSkipClub: { model.completePendingManualShot(clubName: nil) }
-                )
-            } else {
-                Color.black.onAppear { model.backToHome() }
-            }
         case .scoring:
             WatchScoreHoleView(
                 hole: model.displayHoleNumber(model.scoringHole ?? model.activeHole),
@@ -531,18 +516,14 @@ public struct WatchRoundContainerView: View {
                 putts: model.draftPutts,
                 penalty: model.draftPenalty,
                 courseDataPending: model.scoringHoleState?.geometryCoverage == "pending",
-                step: model.scoreFlowStep,
                 fairway: model.draftFairway,
                 candidateNextHole: model.pendingManualShot?.candidateFromHole == model.scoringHole
                     ? model.pendingManualShot.map { model.displayHoleNumber($0.hole) }
                     : nil,
-                onScoreDelta: { model.adjustDraftScore($0) },
-                onPuttsDelta: { model.adjustDraftPutts($0) },
-                onPenaltyDelta: { model.adjustDraftPenalty($0) },
-                onAcceptRecommended: { model.acceptRecommendedScore() },
-                onManualEntry: { model.startManualScoreEntry() },
-                onAdvance: { model.advanceScoreEntry() },
-                onFairway: { model.selectDraftFairway($0) },
+                onScore: { model.setDraftScore($0) },
+                onPutts: { model.setDraftPutts($0) },
+                onPenalty: { model.setDraftPenalty($0) },
+                onFairway: { model.setDraftFairway($0) },
                 onSave: { model.saveManualScore() },
                 onCancel: { model.cancelScoring() }
             )
@@ -662,28 +643,58 @@ public struct WatchRoundContainerView: View {
     // A prepared Tee plan may appear on Hole Root only while a qualified Watch fix still places the
     // player at that Tee. Away from the Tee, Root requires the stricter fresh live-decision contract.
     private func caddieOption(_ s: WatchRoundState) -> WatchCaddieOption? {
+        let options = currentCaddieOptions(s)
+        if let selectedPlanId, let picked = options.first(where: { $0.optionId == selectedPlanId }) {
+            return picked
+        }
         if let optionId = s.offlineOptionId ?? s.strategyMode,
-           let selected = s.caddieOptions.first(where: { $0.optionId == optionId }) {
+           let selected = options.first(where: { $0.optionId == optionId }) {
             return selected
         }
         if let suggested = normalizedCaddieClub(s.suggestedClub) {
-            return s.caddieOptions.first(where: {
+            // The suggestion names the plan's first club as made, so match it on the plan as made.
+            let matching = s.caddieOptions.first(where: {
                 normalizedCaddieClub($0.plan?.first?.clubName ?? $0.clubName) == suggested
             })
+            return matching.flatMap { match in options.first { $0.optionId == match.optionId } }
         }
-        return s.caddieOptions.first
+        return options.first
+    }
+
+    /// The caddie options as they stand now (`WatchRoundModel.currentCaddieOptions`): the shots
+    /// already played are gone and every offset counts from the plan's start (the tee before the
+    /// tee shot, else the player). Every caddie consumer on this container reads these.
+    private func currentCaddieOptions(_ s: WatchRoundState) -> [WatchCaddieOption] {
+        guard s.hole == model.activeHole else { return s.caddieOptions }
+        return model.currentCaddieOptions(progressM: planProgressM(s))
+    }
+
+    private func planProgressM(_ s: WatchRoundState) -> Double? {
+        guard let route = s.holeMap?.route,
+              let origin = teeImagePoint(s) ?? holeGeometry?.youPx else { return nil }
+        return WatchHazardMapLayout.playerProgressMetres(on: route, playerImagePoint: origin)
     }
 
     private func caddieClub(_ s: WatchRoundState) -> String {
         let option = caddieOption(s)
+        // With plans on the hole, the club comes from the plan as it stands now; the decision's own
+        // `suggestedClub` names its first shot and would replay it once that shot is played.
+        let fallback = s.caddieOptions.isEmpty ? s.suggestedClub : nil
         return WatchClubDisplay.name(
-            option?.plan?.first?.clubName ?? option?.clubName ?? s.suggestedClub ?? "—"
+            option?.plan?.first?.clubName ?? option?.clubName ?? fallback ?? "—"
         )
     }
 
     private func caddieNote(_ s: WatchRoundState) -> String {
-        let option = caddieOption(s)
-        if let remaining = s.expectedRemainingM, remaining.isFinite, remaining >= 0 {
+        Self.planNote(caddieOption(s), stateRemainingM: s.caddieOptions.isEmpty ? s.expectedRemainingM : nil)
+    }
+
+    /// The club tag names the next shot's club (README §3), so its note is what that shot leaves:
+    /// the current, selected plan's first step. It follows a plan switch and the shots already
+    /// played. The decision's own `expectedRemainingM` is only used on a hole without plans.
+    static func planNote(_ option: WatchCaddieOption?, stateRemainingM: Double?) -> String {
+        let remainingM = option.map { $0.plan?.first?.expectedRemainingM } ?? stateRemainingM
+        if let remaining = remainingM, remaining.isFinite, remaining >= 0 {
             if remaining <= 10 { return "攻果岭" }
             return "留\(WatchUnits.yards(remaining))码"
         }
@@ -723,6 +734,7 @@ public struct WatchRoundContainerView: View {
             : nil
         let preparedRootCaddieLayerAvailable = preparedGeometry != nil
         let renderedGeometry = preparedGeometry ?? geometry
+        let legs = planLegs(s, geometry: geometry)
         WatchHoleMapView(
             holeNumber: s.displayHoleNumber,
             par: s.par,
@@ -734,7 +746,9 @@ public struct WatchRoundContainerView: View {
             lastShot: latestShotDistanceM(s).map(WatchUnits.yards) ?? 0,
             caddieClub: caddieClub(s),
             caddieNote: caddieNote(s),
-            showCaddieRecommendation: currentShot != nil || preparedRootCaddieLayerAvailable,
+            // A non-empty current plan is what shows the club tag (and so the plan switcher); live
+            // dispersion only adds its overlay.
+            showCaddieRecommendation: currentShot != nil || preparedRootCaddieLayerAvailable || !legs.isEmpty,
             currentShotLayout: currentShot,
             showPreparedPlan: preparedRootCaddieLayerAvailable,
             driverDistanceM: model.playerAtActiveTee(at: shotLocation) ? driverDistanceM(s) : nil,
@@ -754,14 +768,147 @@ public struct WatchRoundContainerView: View {
             geometry: renderedGeometry,
             pinImagePoint: selectedPin,
             measuredPxOverride: measuredPxOverride,
-            interactionMode: .root,
-            onOpenCaddie: { model.openCaddie() },
+            interactionMode: .measure,
+            userZoom: planViewport.zoom,
+            userPan: planViewport.pan,
+            measureOriginImagePx: teeImagePoint(s),
+            planLegs: legs,
+            caddiePlanName: caddieOption(s)?.label ?? "",
+            onOpenCaddie: { cyclePlan(s) },
             onOpenMapDetail: {
                 holeMapCrownScale = WatchHoleMapView.restingCrownScale
                 model.openHoleMap()
             }
         )
         .id(instrumentIdentity("root-map", state: s, geometry: renderedGeometry))
+    }
+
+    // MARK: B6 本洞 pages (README §3)
+
+    /// 方案 / 障碍 / 果岭 as vertical pages (dots on the right). Unzoomed a vertical swipe pages; the
+    /// Crown only zooms the page in view and a drag pans it once zoomed.
+    private func holePages(_ s: WatchRoundState, _ geometry: WatchHoleMapGeometry) -> some View {
+        TabView(selection: $holePage) {
+            GeometryReader { proxy in
+                holeMapView(s, geometry)
+                    .watchZoomPan($planViewport, size: proxy.size)
+            }
+            .tag(0)
+            // Always three pages (README §3): with nothing ahead the hazard page says 前方无障碍
+            // instead of disappearing.
+            hazardPage(s, geometry: geometry, route: s.holeMap?.route ?? [], inPages: true, onBack: { holePage = 0 })
+                .tag(1)
+            greenPage(s, geometry: geometry, inPages: true, onBack: { holePage = 0 })
+                .tag(2)
+        }
+        .tabViewStyle(.verticalPage)
+        .accessibilityIdentifier("watch-hole-pages")
+        // The page in view, for the paging UI test: TabView keeps its neighbours in the hierarchy,
+        // so their own elements cannot say which page is showing.
+        // A clear Text (not Color.clear, which SwiftUI drops from the accessibility tree).
+        .overlay(alignment: .topLeading) {
+            Text(Self.holePageName(holePage))
+                .font(.system(size: 2))
+                .foregroundStyle(.clear)
+                .frame(width: 2, height: 2)
+                .allowsHitTesting(false)
+                .accessibilityIdentifier("watch-hole-page-current")
+        }
+    }
+
+    /// 方案 / 障碍 / 果岭 by page tag.
+    static func holePageName(_ page: Int) -> String {
+        switch page {
+        case 1: return "障碍"
+        case 2: return "果岭"
+        default: return "方案"
+        }
+    }
+
+    /// Tap the green club tag: the next caddie plan (wrapping).
+    private func cyclePlan(_ s: WatchRoundState) {
+        if let next = Self.nextPlanId(after: caddieOption(s)?.optionId, in: currentCaddieOptions(s).map(\.optionId)) {
+            selectedPlanId = next
+        }
+    }
+
+    /// The plan after `current` (wrapping); nil with fewer than two plans.
+    static func nextPlanId(after current: String?, in ids: [String]) -> String? {
+        guard ids.count > 1 else { return nil }
+        let index = current.flatMap { ids.firstIndex(of: $0) } ?? -1
+        return ids[(index + 1) % ids.count]
+    }
+
+    /// The selected plan as map legs: every remaining shot with its landing and label (README §3).
+    /// Before the tee shot the plan starts at the tee.
+    private func planLegs(_ s: WatchRoundState, geometry: WatchHoleMapGeometry) -> [WatchPlanLeg] {
+        // `caddieOption` is already the remaining plan, re-based on this origin.
+        guard let option = caddieOption(s), let route = s.holeMap?.route else { return [] }
+        return WatchPlanLegs.resolve(
+            plan: option.plan ?? [],
+            route: route,
+            origin: teeImagePoint(s) ?? geometry.youPx
+        )
+    }
+
+    /// Before the tee shot every range is measured from the tee (README §3).
+    private func teeImagePoint(_ s: WatchRoundState) -> CGPoint? {
+        guard model.recordedShotCount == 0,
+              let lat = s.teeLatitude, let lon = s.teeLongitude,
+              let refs = s.holeImageProjection?.refs else { return nil }
+        return WatchGeoMath.projectToTopoPx(lat: lat, lon: lon, refs: refs)
+    }
+
+    private func hazardPage(
+        _ state: WatchRoundState,
+        geometry: WatchHoleMapGeometry,
+        route: [[Double]],
+        inPages: Bool = false,
+        onBack: @escaping () -> Void
+    ) -> some View {
+        WatchHazardMapView(
+            geometry: geometry,
+            route: route,
+            hazards: state.hazards,
+            centerGreenYards: canonicalCenterYd(state),
+            rangeUnavailable: !hasQualifiedRangeFix,
+            initialHazardID: initialHazardID,
+            initialViewport: initialHazardViewport,
+            edgeBackEnabled: !inPages,
+            onBack: onBack
+        )
+        .id(instrumentIdentity("hazards", state: state, geometry: geometry))
+    }
+
+    private func greenPage(
+        _ state: WatchRoundState,
+        geometry: WatchHoleMapGeometry,
+        inPages: Bool = false,
+        onBack: @escaping () -> Void
+    ) -> some View {
+        let savedPin = selectedGreenPin(for: state, geometry: geometry)
+        return WatchGreenPreviewView(
+            geometry: geometry,
+            centerGreenYards: canonicalCenterYd(state),
+            rangeUnavailable: !hasQualifiedRangeFix,
+            initialPin: initialGreenPinOverride ?? savedPin,
+            initialZoomScale: initialGreenZoomScaleOverride,
+            initialRotationDegrees: initialGreenRotationOverride ?? greenRotation(for: state),
+            onPlacementChange: { pin, rotation in
+                guard geometry.imageSize.width > 0, geometry.imageSize.height > 0 else { return }
+                model.saveGreenPlacement(
+                    hole: state.hole,
+                    globalId: state.globalId,
+                    normalizedPinX: pin.x / geometry.imageSize.width,
+                    normalizedPinY: pin.y / geometry.imageSize.height,
+                    rotationDegrees: rotation
+                )
+            },
+            edgeBackEnabled: !inPages,
+            onBack: onBack
+        )
+        // SwiftUI may otherwise reuse Green View's local pin/zoom state for the next hole.
+        .id(instrumentIdentity("green", state: state, geometry: geometry))
     }
 
     private func holeMapDetailView(
@@ -942,7 +1089,7 @@ public struct WatchRoundContainerView: View {
                         .contentShape(Rectangle())
                         .onTapGesture { holeMapBigText = false }
                 } else if let geometry = holeGeometry {
-                    holeMapView(s, geometry)
+                    holePages(s, geometry)
                 }
             }
         case .mapPreparing:
@@ -975,14 +1122,51 @@ public struct WatchRoundContainerView: View {
             .background(Color.black)
             .ignoresSafeArea()
             .contentShape(Rectangle())
-            .onLongPressGesture(minimumDuration: 0.6) { model.openMenu() }
+            // Zoomed, a 0.5 s press measures on the map, so the menu press waits for the 1× page.
+            // Simultaneous, not `.onLongPressGesture`: a parent long-press recognizer swallows the
+            // taps of the buttons inside (the 方案 page's club tag never switched plan).
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.6).onEnded { _ in
+                    if !planViewport.isZoomed { model.openMenu() }
+                }
+            )
             .accessibilityAction(named: Text("球局工具")) { model.openMenu() }
             .onChange(of: model.activeHole) { _ in
                 holeMapCrownScale = WatchHoleMapView.restingCrownScale
+                holePage = 0
+                planViewport = WatchHoleViewport()
+                selectedPlanId = nil
             }
     }
 
+    @ViewBuilder
     private var rootControls: some View {
+        if holePage == 0 {
+            rootControlRail
+            planTagTapTarget
+        }
+    }
+
+    /// The 方案 page's club tag is drawn inside the vertical pager, where its touch never reached
+    /// it (the CI UI test tapped it repeatedly without a plan switch). Like the menu and manual
+    /// shot controls, its tap is taken here, above the pager, over the tag's own frame.
+    @ViewBuilder
+    private var planTagTapTarget: some View {
+        if holeGeometry != nil, let s = model.activeHoleState, centerYd(s) != nil,
+           caddieOption(s) != nil, currentCaddieOptions(s).count > 1 {
+            GeometryReader { proxy in
+                let frame = WatchHoleMapView.rootCaddieChipFrame(in: proxy.size)
+                Color.clear
+                    .contentShape(Rectangle())
+                    .frame(width: frame.width, height: frame.height)
+                    .position(x: frame.midX, y: frame.midY)
+                    .onTapGesture { cyclePlan(s) }
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    private var rootControlRail: some View {
         GeometryReader { proxy in
             let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
             let controlHalf = WatchDisplayGeometry.instrumentControlSize / 2

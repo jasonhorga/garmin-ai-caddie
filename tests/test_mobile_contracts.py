@@ -4689,7 +4689,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("WatchGreenMagnifierLayout.position", green_view)
         self.assertIn('watch-green-flag-magnifier', green_view)
         self.assertNotIn("onLongPressGesture", map_view)
-        self.assertIn(".onLongPressGesture(minimumDuration: 0.6) { model.openMenu() }", container)
+        self.assertIn("LongPressGesture(minimumDuration: 0.6).onEnded { _ in\n                    if !planViewport.isZoomed { model.openMenu() }", container)
         self.assertIn("let yardsPerPixel", map_view) # derived px→码, no extra payload
         self.assertIn(".onTapGesture { holeMapBigText.toggle() }", container)
 
@@ -4827,6 +4827,45 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("ringPips", _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundHomeView.swift"))
         self.assertIn("ringPips", _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapView.swift"))
         self.assertIn("WatchRingPip(", container)  # container feeds pips from allHoleStates
+
+    def test_watch_b6_score_screen_shot_undo_and_hole_end(self) -> None:
+        # B6 (README §3): no 刚才用哪支杆？ prompt; a detected shot shows 第 N 杆 with an undo and is
+        # recorded after its window; 本洞成绩 is one screen; the hole ends by GPS (green → next tee).
+        self.assertFalse((WATCH_DIR / "Views" / "WatchClubPromptView.swift").exists())
+        model = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundModel.swift")
+        self.assertNotIn("case clubPrompt", model)
+        for token in ["func undoPendingManualShot()", "var undoableShotText", "func observeLocation(",
+                      "enum WatchScoreRules", "func setDraftPutts(", "func setDraftPenalty(",
+                      "if scoringHole == hole.hole, advanceAfterScoring"]:
+            self.assertIn(token, model)
+        container = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundContainerView.swift")
+        self.assertIn("WatchShotUndoStrip(text: text) { model.undoPendingManualShot() }", container)
+        self.assertIn("model.completePendingManualShot(clubName: nil)", container)
+        self.assertIn("onPutts: { model.setDraftPutts($0) }", container)
+        detector = _read_required_source(self, WATCH_DIR / "Services" / "WatchHoleEndDetector.swift")
+        self.assertIn("static let leaveGreenM = 25.0", detector)
+        app = _read_required_source(self, WATCH_DIR / "AICaddieWatchApp.swift")
+        self.assertIn("roundModel.observeLocation(", app)
+        score = _read_required_source(self, WATCH_DIR / "Views" / "WatchScoreHoleView.swift")
+        self.assertNotIn("WatchScoreFlowStep", score)
+        self.assertIn("digitalCrownRotation", score)
+        # 本洞 = 方案 / 障碍 / 果岭 vertical pages; the Crown only zooms (1–4×), a drag pans once
+        # zoomed; tap the club tag for the next plan, tap "1 / N" for the next hazard (zoom kept).
+        for token in [".tabViewStyle(.verticalPage)", ".watchZoomPan($planViewport", "interactionMode: .measure",
+                      "onOpenCaddie: { cyclePlan(s) }", "measureOriginImagePx: teeImagePoint(s)"]:
+            self.assertIn(token, container)
+        zoom = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleZoom.swift")
+        self.assertIn("public static let range: ClosedRange<CGFloat> = 1...4", zoom)
+        hazard = _read_required_source(self, WATCH_DIR / "Views" / "WatchHazardMapView.swift")
+        self.assertIn("Button(action: selectNextHazard)", hazard)
+        self.assertIn("static func activeFrame(isZoomed: Bool, frozen: WatchHazardFrame?", hazard)
+        self.assertIn(".watchZoomPan($viewport, size: geo.size)", hazard)
+        self.assertNotIn("$crownSelection", hazard)
+        hole_map = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapView.swift")
+        self.assertIn("LongPressGesture(minimumDuration: 0.5)", hole_map)
+        self.assertIn("case measure", hole_map)
+        green = _read_required_source(self, WATCH_DIR / "Views" / "WatchGreenPreviewView.swift")
+        self.assertIn("through: Double(WatchHoleZoom.range.upperBound)", green)
 
     def test_watch_state_includes_next_shot_prompt_from_phone_bridge(self) -> None:
         bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
@@ -5302,6 +5341,189 @@ class EffectiveClubProfileContractTests(unittest.TestCase):
         for name in ("CurrentHoleView.swift", "WatchEventBridge.swift"):
             path = IOS_DIR / ("Views" if name.startswith("Current") else "Services") / name
             self.assertIn("package.effectiveClubProfiles", path.read_text(encoding="utf-8"))
+
+
+class WatchHolePagesContractTests(unittest.TestCase):
+    """B6 本洞 contract (README §3, Codex review on #367)."""
+
+    WATCH = Path("mobile") / "ios" / "AICaddieWatch"
+
+    def read(self, relative: str) -> str:
+        return (self.WATCH / relative).read_text(encoding="utf-8")
+
+    def test_three_fixed_pages_and_no_per_shot_confirmation(self) -> None:
+        container = self.read("Views/WatchRoundContainerView.swift")
+        pages = container[container.index("private func holePages("):]
+        pages = pages[: pages.index(".tabViewStyle(.verticalPage)")]
+        self.assertEqual(pages.count(".tag("), 3)
+        self.assertNotIn("hazardDetailAvailable", pages, "the hazard page never disappears")
+        self.assertIn("前方无障碍", self.read("Views/WatchHazardMapView.swift"))
+        self.assertFalse((self.WATCH / "Views" / "WatchAutoShotCandidateView.swift").exists())
+        model = self.read("Models/WatchRoundModel.swift")
+        propose = model[model.index("public func proposeAutoShotCandidate("):]
+        propose = propose[: propose.index("public func rejectAutoShotCandidate")]
+        self.assertNotIn("screen = .autoShotCandidate", propose)
+        self.assertIn("beginManualShot(", propose)
+
+    def test_whole_plan_real_outline_and_crown_only_zooms(self) -> None:
+        self.assertIn("let legs = planLegs(s, geometry: geometry)", self.read("Views/WatchRoundContainerView.swift"))
+        hazard = self.read("Views/WatchHazardMapView.swift")
+        self.assertIn("WatchHazardMapLayout.outline(hazard)", hazard)
+        self.assertNotIn("with: .color(.white.opacity(0.9))", hazard, "no white ring around the edge dots")
+        self.assertIn("outlinePx: WatchHazard.watchOutline(detail.outlinePx)",
+                      (Path("mobile") / "ios" / "AICaddie" / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8"))
+        green = self.read("Views/WatchGreenPreviewView.swift")
+        self.assertIn("rotatesGreen: false", green)
+        self.assertNotIn("rotatesGreen.toggle()", green)
+
+    def test_green_page_yields_paging_and_flag_slides_along_the_edge(self) -> None:
+        green = self.read("Views/WatchGreenPreviewView.swift")
+        self.assertIn("including: WatchHoleZoom.isZoomed(CGFloat(zoomScale)) ? .all : .subviews", green)
+        drag = green[green.index("private func flagGesture("):]
+        drag = drag[: drag.index("private func moveFlag(")]
+        self.assertIn("WatchGreenPreviewLayout.flagPoint(", drag)
+        self.assertNotIn(") else { return }\n                selectedPin = candidate", drag)
+        project = (Path("mobile") / "ios" / "project.yml").read_text(encoding="utf-8")
+        self.assertIn("AICaddieWatchUITests:", project)
+        self.assertIn("- AICaddieWatchUITests", project)
+        ui = (Path("mobile") / "ios" / "AICaddieWatchUITests" / "WatchHolePagesUITests.swift").read_text(encoding="utf-8")
+        self.assertIn("standalone-course-page-plan", ui)
+        self.assertEqual(ui.count("swipe(up: true)"), 2)
+        self.assertIn("swipe(up: false)", ui)
+
+    def test_route_offsets_count_from_the_decision_origin(self) -> None:
+        hole_map = self.read("Views/WatchHoleMapView.swift")
+        self.assertIn("landingM = startProgress + offset", hole_map)
+        self.assertNotIn("landingM = offset\n", hole_map)
+        # Each producer says what its offsets count from; the Watch never guesses.
+        ios = Path("mobile") / "ios"
+        self.assertIn("routeOffsetBasis: .tee", (ios / "AICaddieWatch" / "Services" / "WatchCourseStore.swift").read_text(encoding="utf-8"))
+        self.assertIn("routeOffsetBasis: .shot", (ios / "AICaddie" / "Services" / "WatchEventBridge.swift").read_text(encoding="utf-8"))
+        for model in (ios / "AICaddieWatch" / "Models" / "WatchRoundState.swift", ios / "AICaddie" / "Services" / "WatchEventBridge.swift"):
+            self.assertIn("public let routeOffsetBasis: WatchRouteOffsetBasis?", model.read_text(encoding="utf-8"))
+        container = self.read("Views/WatchRoundContainerView.swift")
+        # One "current remaining plan" for every caddie consumer on the round container.
+        self.assertIn("model.currentCaddieOptions(progressM:", container)
+        self.assertIn("options: currentCaddieOptions(state)", container)
+        caddie_option = container[container.index("private func caddieOption("):]
+        caddie_option = caddie_option[: caddie_option.index("private func currentCaddieOptions(")]
+        self.assertIn("let options = currentCaddieOptions(s)", caddie_option)
+        # The producer writes the decision's origin shot; the Watch never infers it on arrival.
+        model = self.read("Models/WatchRoundModel.swift")
+        receive = model[model.index("public func receivePhoneState("):]
+        receive = receive[: receive.index("public func seedRound(")]
+        self.assertNotIn("originShotEventIds", receive)
+        bridge = (ios / "AICaddie" / "Services" / "WatchEventBridge.swift").read_text(encoding="utf-8")
+        self.assertIn("originShotEventIds: originShotEventIds", bridge)
+        hole_view = (ios / "AICaddie" / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8")
+        load = hole_view[hole_view.index("private func loadCaddieDecision("):]
+        self.assertLess(load.index("let originShot = recordedShotEventIds"), load.index("await "))
+        self.assertIn("decisionOriginShotEventIds:", hole_view)
+        # One shot identity on both devices: Watch shots counted by event id, never a queue length.
+        self.assertIn("let shots = knownShotEventIds(for: state.hole)", model)
+        # The phone's current shot set travels with every snapshot, newest wins, kept per hole.
+        self.assertIn("phoneShotEventIds: recordedShotEventIds", hole_view)
+        # Snapshot order (a strict revision) is applied before the hole state is replaced.
+        receive = model[model.index("public func receivePhoneState("):]
+        self.assertLess(
+            receive.index("revision <= lastApplied.revision"),
+            receive.index("store.upsertHoleState(merged"),
+        )
+        self.assertIn("snapshotRevision: nextSnapshotRevision()", bridge)
+        self.assertIn("phoneShots: retainedPhoneShots", model)
+        # Whole-hole shot facts (shot number/type, score recommendation, tee origin) count both
+        # devices' shots, deduplicated.
+        count = model[model.index("private func recordedShotCount(for hole: Int) -> Int {"):]
+        count = count[: count.index("\n    }\n")]
+        self.assertIn("knownShotEventIds(for: hole).count", count)
+        # Menu 球童 consumes the same current projection; no raw-decision fallback once plans exist.
+        available = model[model.index("public var caddieDetailAvailable: Bool {"):]
+        available = available[: available.index("public var hazardDetailAvailable")]
+        self.assertIn("currentCaddieOptions(progressM: nil)", available)
+        container = self.read("Views/WatchRoundContainerView.swift")
+        self.assertIn("Self.planNote(caddieOption(s), stateRemainingM: s.caddieOptions.isEmpty ? s.expectedRemainingM : nil)", container)
+        self.assertNotIn("originShotIndex", bridge + model + self.read("Models/WatchRoundState.swift"))
+
+    def test_a_current_plan_drives_the_club_tag_and_the_caddie_detail_draws_every_leg(self) -> None:
+        container = self.read("Views/WatchRoundContainerView.swift")
+        self.assertIn("showCaddieRecommendation: currentShot != nil || preparedRootCaddieLayerAvailable || !legs.isEmpty", container)
+        options = self.read("Views/WatchCaddieOptionsView.swift")
+        self.assertIn("let legs = mappedGeometry.map { Self.planLegs(for: option, route: route, geometry: $0) } ?? []", options)
+        self.assertIn("planLegs: legs", options)
+        # The focused plan is framed on every landing, its label and the pin, not the first landing.
+        self.assertIn("points: [geometry.youPx] + legs.map(\\.landing) + [geometry.pinPx]", options)
+        self.assertIn("fullMapFocusImagePx: viewport?.focusImage", options)
+        ui = (Path("mobile") / "ios" / "AICaddieWatchUITests" / "WatchHolePagesUITests.swift").read_text(encoding="utf-8")
+        self.assertIn("standalone-course-page-plan-after-tee", ui)
+        self.assertIn("tag.tap()", ui)
+
+    def test_the_watch_state_schema_covers_every_field_the_phone_encodes(self) -> None:
+        """Strict schema vs the Swift payload: every stored property the phone encodes is declared."""
+        import re
+
+        bridge = (Path("mobile") / "ios" / "AICaddie" / "Services" / "WatchEventBridge.swift").read_text(encoding="utf-8")
+
+        def encoded(struct: str) -> set[str]:
+            match = re.search(r"public struct " + struct + r"\b[^{]*\{(.*?)\n\}", bridge, re.S)
+            self.assertIsNotNone(match, struct)
+            props = re.findall(r"^    public (?:let|var) (\w+)\s*:\s*([^\n]+)", match.group(1), re.M)
+            # Computed properties (`{ ... }`) are not encoded.
+            return {name for name, rest in props if "{" not in rest}
+
+        schema = _load_schema("watch_round_state.schema.json")
+        top = schema["properties"]
+        option = top["caddieOptions"]["items"]
+        nodes = {
+            "WatchRoundStatePayload": top,
+            "WatchCaddieOption": option["properties"],
+            "WatchCaddiePlanStep": option["properties"]["plan"]["items"]["properties"],
+            "WatchHazard": top["hazards"]["items"]["properties"],
+            "WatchRootCaddieRecommendationPayload": top["rootCaddieRecommendation"]["properties"],
+            "WatchHoleMap": top["holeMap"]["properties"],
+        }
+        for struct, properties in nodes.items():
+            self.assertEqual(set(), encoded(struct) - set(properties), f"{struct} fields missing from the schema")
+
+        # A B6-shaped payload (the new fields included) passes strict validation.
+        state = {
+            "schema": "ai-caddie-watch-round-state-v1",
+            "roundId": "round-1", "hole": 1, "par": 5, "availableClubs": [],
+            "decisionId": "d1",
+            "caddieOptions": [{
+                "optionId": "stock", "label": "标准", "clubName": "3W", "carryM": 190.0,
+                "plan": [
+                    {"clubName": "3W", "carryM": 190.0, "routeOffsetM": 190.0, "expectedRemainingM": 170.0, "role": "advance", "planIndex": 0},
+                    {"clubName": "8I", "carryM": 128.0, "routeOffsetM": 318.0, "expectedRemainingM": 12.0, "role": "scoring", "planIndex": 1},
+                ],
+                "confidence": "high", "routeOffsetBasis": "shot", "originShotEventIds": ["p1"],
+            }],
+            "hazards": [{
+                "kind": "water", "label": "前方水障碍", "startM": 330.0, "endM": 372.0, "sideM": -4.0,
+                "frontDistanceM": 330.0, "backDistanceM": 372.0, "frontPx": [522.0, 528.0], "backPx": [508.0, 468.0],
+                "outlinePx": [[522.0, 528.0], [531.0, 516.0], [508.0, 468.0]],
+            }],
+            "holeMap": {
+                "w": 1000, "h": 1000, "you": [500.0, 900.0], "pin": [500.0, 100.0], "layup": [500.0, 500.0],
+                "apex": [500.0, 700.0], "greenCtrl": [500.0, 300.0],
+                "route": [[500.0, 900.0, 0.0], [500.0, 100.0, 400.0]], "greenOutline": [[490.0, 90.0], [510.0, 90.0], [500.0, 110.0]],
+            },
+            "score": 5, "putts": 2, "penaltyCount": 0, "caddieConfidence": "high",
+            "phoneShotEventIds": ["p1"], "snapshotRevision": 1790000000000,
+        }
+        _assert_json_schema_accepts(self, schema, state)
+        bad = dict(state, caddieOptions=[dict(state["caddieOptions"][0], routeOffsetBasis="green")])
+        _assert_json_schema_rejects(self, schema, bad)
+
+    def test_score_wheels_roll_inside_their_chip(self) -> None:
+        score = self.read("Views/WatchScoreHoleView.swift")
+        self.assertNotIn("m.chip * 2.24", score)
+        self.assertNotIn("inlineWheel(", score)
+        self.assertIn("wheelSettled = true", score)
+        # Runtime evidence holds the open wheel (production still folds it back).
+        self.assertIn("guard openWheel != nil, !holdsOpenWheel else { return }", score)
+        self.assertIn("holdsOpenWheel: Bool = false", score)
+        root = self.read("Views/WatchUITestRoot.swift")
+        self.assertEqual(root.count("holdsOpenWheel: true"), 2)
 
 
 if __name__ == "__main__":

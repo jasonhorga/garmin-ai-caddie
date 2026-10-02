@@ -102,13 +102,6 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
     }
 
-    @MainActor
-    func testRenderAutoShotCandidateConfirmation() throws {
-        let view = WatchAutoShotCandidateView()
-            .watchSnapshotFrame(width: 198, height: 242)
-        try render(view, named: "watch-autoshot-candidate")
-    }
-
     func testCaddieGlancePrefersLiveWatchGreenDistances() {
         let state = WatchRoundState(
             roundId: "r1", hole: 4, par: 5, distanceM: 480,
@@ -196,6 +189,161 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-caddie-options")
+    }
+
+    /// The 球童 detail for a real prepared (offline) plan: no measured dispersion, yet every leg of
+    /// the plan is drawn, not only the first (Codex review on #367).
+    @MainActor
+    func testRenderWatchCaddieOptionsForAPreparedPlan() throws {
+        let route: [[Double]] = [[504, 702, 0], [506, 403, 210], [435, 279, 400]]
+        let options = WatchCourseTemplateBuilder.preparedCaddieOptions(
+            clubs: [
+                WatchClubOption(clubName: "1W", medianM: 220, source: "course-prep"),
+                WatchClubOption(clubName: "3W", medianM: 190, source: "course-prep"),
+                WatchClubOption(clubName: "5I", medianM: 160, source: "course-prep"),
+                WatchClubOption(clubName: "8I", medianM: 125, source: "course-prep"),
+            ],
+            suggestedClub: "3W",
+            routeDistanceM: 400,
+            landingM: nil
+        )
+        let stock = try XCTUnwrap(options.first { $0.optionId == "stock" })
+        XCTAssertNil(stock.carryP10M, "prepared plans carry no measured dispersion")
+        let geometry = WatchHoleMapSample.geometry
+        let legs = WatchCaddieOptionsView.planLegs(for: stock, route: route, geometry: geometry)
+        XCTAssertGreaterThan(legs.count, 1, "the later shots are drawn too")
+        XCTAssertEqual(legs.count, stock.plan?.count)
+        // Every landing with its label, and the pin with its flag, sit inside the face between the
+        // header and the strategy row on both the 46 mm and the 41 mm face; no labels overlap.
+        let labelSizes = legs.map { WatchPlanLegs.labelSize($0.label) }
+        for labelSize in labelSizes {
+            XCTAssertGreaterThan(labelSize.width, 20)
+            XCTAssertLessThanOrEqual(labelSize.width, 60)
+        }
+        for size in [CGSize(width: 198, height: 242), CGSize(width: 176, height: 215)] {
+            let viewport = try XCTUnwrap(WatchCaddieOptionsView.planViewport(
+                points: [geometry.youPx] + legs.map(\.landing) + [geometry.pinPx],
+                labelSizes: labelSizes,
+                size: size,
+                maxScale: CGFloat(WatchHoleMapView.maximumCrownScale)
+            ))
+            let rest = WatchCaddieOptionsView.planRestFrame(in: size)
+            func canvas(_ point: CGPoint) -> CGPoint {
+                CGPoint(
+                    x: (point.x - viewport.focusImage.x) * viewport.scale + viewport.focusFraction.x * size.width,
+                    y: (point.y - viewport.focusImage.y) * viewport.scale + viewport.focusFraction.y * size.height
+                )
+            }
+            let landings = legs.map { canvas($0.landing) }
+            for (landing, leg) in zip(landings, legs) {
+                XCTAssertTrue(rest.contains(landing), "landing \(leg.label) at \(landing) in \(rest) for \(size)")
+            }
+            // The production layout drawFullPlan draws: measured boxes inside the rest frame.
+            let labels = WatchPlanLegs.layoutLabels(legs.map(\.label), landings: landings, in: size, bounds: rest)
+            XCTAssertEqual(labels.count, legs.count, "every leg keeps its label")
+            for (label, leg) in zip(labels, legs) {
+                XCTAssertTrue(rest.contains(label), "label \(leg.label) \(label) in \(rest) for \(size)")
+            }
+            for i in labels.indices { for j in labels.indices where j > i {
+                XCTAssertFalse(labels[i].intersects(labels[j]), "labels \(legs[i].label) / \(legs[j].label) overlap")
+            } }
+            let pin = canvas(geometry.pinPx)
+            XCTAssertTrue(rest.contains(pin), "pin in the rest frame for \(size)")
+            XCTAssertGreaterThanOrEqual(pin.y - 13, rest.minY, "the flag clears the header for \(size)")
+        }
+
+        let view = WatchCaddieOptionsView(
+            hole: 4,
+            par: 5,
+            options: options,
+            recommendedId: "stock",
+            geometry: WatchHoleMapSample.geometry,
+            route: route,
+            onBack: {}
+        )
+        .watchSnapshotFrame(width: 198, height: 242)
+        try render(view, named: "watch-caddie-options-prepared")
+    }
+
+    /// B6 本洞 pages: the 障碍 page zoomed 2× with its "1 / N" selector, the 果岭 page at 3×, and
+    /// the 方案 page's yellow measure ring ranged from the tee before the tee shot.
+    @MainActor
+    func testRenderHolePagesZoomedAndMeasured() throws {
+        let route = [
+            [435.0, 981.0, 0.0],
+            [504.0, 702.0, 200.0],
+            [556.0, 562.0, 303.0],
+            [506.0, 403.0, 419.0],
+            [435.0, 279.0, 518.8],
+        ]
+        // Real boundaries: the 障碍 page draws one hazard's outline as a thin red line.
+        let hazards = [
+            WatchHazard(kind: "bunker", label: "沙坑", startM: 190, endM: 210,
+                        frontPx: [520, 760], backPx: [528, 728],
+                        outlinePx: [[520, 760], [531, 754], [535, 741], [528, 728], [517, 731], [512, 745]]),
+            WatchHazard(kind: "bunker", label: "沙坑", startM: 270, endM: 292,
+                        frontPx: [540, 608], backPx: [550, 578],
+                        outlinePx: [[540, 608], [553, 600], [557, 586], [550, 578], [538, 582], [534, 597]]),
+        ]
+        try render(
+            WatchHazardMapView(
+                geometry: WatchHoleMapSample.geometry,
+                route: route,
+                hazards: hazards,
+                centerGreenYards: 320,
+                initialViewport: WatchHoleViewport(zoom: 2, pan: CGSize(width: 12, height: -18))
+            )
+            .watchSnapshotFrame(width: 198, height: 242),
+            named: "watch-hole-page-hazard-zoomed"
+        )
+        // The green page with the hole's real green outline (no "无果岭轮廓" fallback).
+        let sample = WatchHoleMapSample.geometry
+        let greenGeometry = WatchHoleMapGeometry(
+            image: sample.image, imageSize: sample.imageSize, youPx: sample.youPx, pinPx: sample.pinPx,
+            layupPx: sample.layupPx, apexPx: sample.apexPx, greenCtrlPx: sample.greenCtrlPx,
+            greenOutlinePx: WatchHoleMapSample.greenOutlinePx
+        )
+        try render(
+            WatchGreenPreviewView(
+                geometry: greenGeometry,
+                centerGreenYards: 152,
+                initialZoomScale: 3
+            )
+            .watchSnapshotFrame(width: 198, height: 242),
+            named: "watch-hole-page-green-3x"
+        )
+        // 方案: the whole plan from the tee — D 224 → 7i 150 → 9i 126 — with landings and labels.
+        let geometry = WatchHoleMapSample.teeGeometry
+        let legs = WatchPlanLegs.resolve(
+            plan: [
+                WatchCaddiePlanStep(clubName: "1W", carryM: 205),
+                WatchCaddiePlanStep(clubName: "7I", carryM: 137),
+                WatchCaddiePlanStep(clubName: "9I", carryM: 115),
+            ],
+            route: route,
+            origin: geometry.youPx
+        )
+        XCTAssertEqual(legs.map(\.label), ["D 224", "7i 150", "9i 126"])
+        for (name, measured) in [("watch-hole-page-plan", nil), ("watch-hole-page-plan-measure", CGPoint(x: 520, y: 470))] as [(String, CGPoint?)] {
+            try render(
+                WatchHoleMapView(
+                    holeNumber: 7,
+                    par: 4,
+                    frontGreen: 552,
+                    centerGreen: 567,
+                    backGreen: 581,
+                    lastShot: 0,
+                    ringPips: [],
+                    geometry: geometry,
+                    measuredPxOverride: measured,
+                    interactionMode: .measure,
+                    measureOriginImagePx: geometry.youPx,
+                    planLegs: legs
+                )
+                .watchSnapshotFrame(width: 198, height: 242),
+                named: name
+            )
+        }
     }
 
     @MainActor
@@ -292,43 +440,20 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-score-hole")
     }
 
-    @MainActor
-    func testManualScoreStepLabelsFollowTheConfirmedParFlow() {
-        XCTAssertEqual(
-            WatchScoreHoleView(
-                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-                step: .score
-            ).stepLabel,
-            "1/4 · 总杆"
-        )
-        XCTAssertEqual(
-            WatchScoreHoleView(
-                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-                step: .putts
-            ).stepLabel,
-            "2/4 · 推杆"
-        )
-        XCTAssertEqual(
-            WatchScoreHoleView(
-                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-                step: .fairway
-            ).stepLabel,
-            "3/4 · 开球结果"
-        )
-        XCTAssertEqual(
-            WatchScoreHoleView(
-                hole: 7, par: 3, score: 3, putts: 2, penalty: 0,
-                step: .penalty
-            ).stepLabel,
-            "3/3 · 罚杆"
-        )
+    /// B6 本洞成绩 rules: wheels wrap, the total never drops below putts + penalties + 1.
+    func testScoreRulesWrapTheWheelsAndRaiseTheTotal() {
+        XCTAssertEqual(WatchScoreRules.wrap(6, in: WatchScoreRules.puttRange), 0, "5 rolls over to 0")
+        XCTAssertEqual(WatchScoreRules.wrap(-1, in: WatchScoreRules.puttRange), 5, "0 sits under 5")
+        XCTAssertEqual(WatchScoreRules.wrap(-1, in: WatchScoreRules.penaltyRange), 4)
+        XCTAssertEqual(WatchScoreRules.score(3, putts: 3, penalty: 1), 5, "raised to putts + penalties + 1")
+        XCTAssertEqual(WatchScoreRules.score(6, putts: 2, penalty: 0), 6)
+        XCTAssertEqual(WatchScoreRules.score(40, putts: 2, penalty: 0), 15)
     }
 
     @MainActor
     func testRenderWatchScoreTotalStep() throws {
         let view = WatchScoreHoleView(
-            hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-            step: .score
+            hole: 7, par: 4, score: 5, putts: 2, penalty: 0, fairway: .hit
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-total")
@@ -338,7 +463,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     func testRenderWatchScorePuttsStep() throws {
         let view = WatchScoreHoleView(
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-            step: .putts
+            openWheel: .putts
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-putts")
@@ -347,8 +472,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     @MainActor
     func testRenderWatchScoreFairwayStep() throws {
         let view = WatchScoreHoleView(
-            hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-            step: .fairway
+            hole: 7, par: 4, score: 5, putts: 2, penalty: 0, fairway: .left
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-fairway")
@@ -358,7 +482,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     func testRenderWatchScorePenaltyStep() throws {
         let view = WatchScoreHoleView(
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-            step: .penalty
+            openWheel: .penalty
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-penalty")
@@ -374,27 +498,17 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-score-next-tee-candidate")
     }
 
+    /// B6: no 刚才用哪支杆？ — a detected shot flashes as 第 N 杆 with an undo over the hole screen.
     @MainActor
-    func testClubPromptKeepsMeasuredCarryWhenRecommendationMovesFirst() {
-        let choices = WatchClubPromptPresentation.choices(
-            recommendedClub: "7号铁",
-            clubs: [
-                WatchClubOption(clubName: "6号铁", medianM: 150),
-                WatchClubOption(clubName: "7号铁", medianM: 139),
-            ]
+    func testRenderDetectedShotUndoStrip() throws {
+        let view = WatchRoundHomeView(
+            courseName: "北京丽宫 · 前九", hole: 8, par: 4, holeCount: 9,
+            scoredHoles: 7, toPar: 3, distanceText: "152 码", pendingUploads: 0,
+            canRecordShot: true
         )
-
-        XCTAssertEqual(choices.map(\.clubName), ["7号铁", "6号铁"])
-        XCTAssertEqual(WatchClubPromptPresentation.distanceText(for: choices[0]), "152")
-    }
-
-    @MainActor
-    func testClubPromptKeepsThreeClubsAndAUsableSkipTargetOnTheFirst45mmScreen() {
-        XCTAssertGreaterThanOrEqual(
-            WatchClubPromptLayout.firstScreenClubRows(viewportHeight: 210),
-            3
-        )
-        XCTAssertGreaterThanOrEqual(WatchClubPromptLayout.footerHeight, 40)
+        .overlay(alignment: .bottom) { WatchShotUndoStrip(text: "第 2 杆") }
+        .watchSnapshotFrame(width: 198, height: 242)
+        try render(view, named: "watch-shot-undo")
     }
 
     @MainActor
@@ -972,9 +1086,10 @@ final class WatchDesignSnapshotTests: XCTestCase {
     @MainActor
     func testRenderWatchRoundContainerScoring() throws {
         let model = makeSeededModel(scoring: true)     // hold a strong ref through render
+        // A real 45 mm face: 本洞成绩 sizes itself to the display it is given (compact below 236 pt).
         let view = WatchRoundContainerView(model: model)
-            .frame(width: 198)
             .background(Color.black)
+            .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-container-scoring")
     }
 
@@ -1364,12 +1479,23 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 score: 7,
                 putts: 3,
                 penalty: 2,
-                step: .fairway,
+                fairway: .right,
                 candidateNextHole: 1
             )
             .watchSnapshotFrame(width: 176, height: 215),
             named: "watch-compact-score-fairway"
         )
+        // The open 推 / 罚 wheels on the 41 mm face: inside their chips, nothing else covered.
+        for wheel in [WatchScoreWheel.putts, .penalty] {
+            try render(
+                WatchScoreHoleView(
+                    hole: 7, par: 4, score: 5, putts: 2, penalty: 1, fairway: .hit,
+                    openWheel: wheel
+                )
+                .watchSnapshotFrame(width: 176, height: 215),
+                named: "watch-compact-score-\(wheel.rawValue)"
+            )
+        }
         try render(
             WatchRoundHomeView(
                 courseName: "北京黑骑士国际高尔夫俱乐部 · C 场",

@@ -134,24 +134,50 @@
       "type": ["number", "null"],
       "minimum": 0
     },
-    "frontGreenLat": { "type": ["number", "null"] },
-    "frontGreenLon": { "type": ["number", "null"] },
-    "centerGreenLat": { "type": ["number", "null"] },
-    "centerGreenLon": { "type": ["number", "null"] },
-    "backGreenLat": { "type": ["number", "null"] },
-    "backGreenLon": { "type": ["number", "null"] },
+    "frontGreenLat": {
+      "type": ["number", "null"]
+    },
+    "frontGreenLon": {
+      "type": ["number", "null"]
+    },
+    "centerGreenLat": {
+      "type": ["number", "null"]
+    },
+    "centerGreenLon": {
+      "type": ["number", "null"]
+    },
+    "backGreenLat": {
+      "type": ["number", "null"]
+    },
+    "backGreenLon": {
+      "type": ["number", "null"]
+    },
     "holeImageProjection": {
       "type": ["object", "null"],
       "properties": {
-        "widthPx": { "type": ["integer", "null"] },
-        "heightPx": { "type": ["integer", "null"] },
+        "widthPx": {
+          "type": ["integer", "null"]
+        },
+        "heightPx": {
+          "type": ["integer", "null"]
+        },
         "refs": {
           "type": ["array", "null"],
           "items": {
             "type": "object",
             "properties": {
-              "lat": { "type": "number" }, "lon": { "type": "number" },
-              "px": { "type": "number" }, "py": { "type": "number" }
+              "lat": {
+                "type": "number"
+              },
+              "lon": {
+                "type": "number"
+              },
+              "px": {
+                "type": "number"
+              },
+              "py": {
+                "type": "number"
+              }
             }
           }
         }
@@ -164,13 +190,62 @@
       "type": ["object", "null"],
       "description": "watch P1b: five hole-map overlay anchors in /topo.png px space (phone-computed from the centreline route).",
       "properties": {
-        "w": { "type": "integer" },
-        "h": { "type": "integer" },
-        "you": { "type": "array", "items": { "type": "number" } },
-        "pin": { "type": "array", "items": { "type": "number" } },
-        "layup": { "type": "array", "items": { "type": "number" } },
-        "apex": { "type": "array", "items": { "type": "number" } },
-        "greenCtrl": { "type": "array", "items": { "type": "number" } }
+        "w": {
+          "type": "integer"
+        },
+        "h": {
+          "type": "integer"
+        },
+        "you": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "pin": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "layup": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "apex": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "greenCtrl": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "route": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3
+          }
+        },
+        "greenOutline": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2
+          }
+        }
       }
     },
     "playsLikeDistanceM": {
@@ -250,12 +325,40 @@
                 "carryM": {
                   "type": ["number", "null"],
                   "minimum": 0
+                },
+                "routeOffsetM": {
+                  "type": ["number", "null"],
+                  "minimum": 0
+                },
+                "expectedRemainingM": {
+                  "type": ["number", "null"],
+                  "minimum": 0
+                },
+                "role": {
+                  "type": ["string", "null"]
+                },
+                "planIndex": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
                 }
               }
             }
           },
           "confidence": {
             "type": ["string", "null"]
+          },
+          "routeOffsetBasis": {
+            "type": ["string", "null"],
+            "enum": ["tee", "shot", null],
+            "description": "B6: what the plan's routeOffsetM values count from: the tee (course prep) or the decision origin (live)."
+          },
+          "originShotEventIds": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "B6: the hole's location event ids that existed when the plan was made ([] before any shot)."
           }
         }
       }
@@ -282,6 +385,39 @@
           "endM": {
             "type": ["number", "null"],
             "minimum": 0
+          },
+          "sideM": {
+            "type": ["number", "null"]
+          },
+          "frontDistanceM": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "backDistanceM": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "frontPx": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "number"
+            }
+          },
+          "backPx": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "number"
+            }
+          },
+          "outlinePx": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2
+            }
           }
         }
       }
@@ -301,6 +437,93 @@
     "caddieConfidence": {
       "type": "string",
       "minLength": 1
+    },
+    "phoneShotEventIds": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "B6: the hole's location event ids the phone holds as it sends this snapshot (phone shots, and Watch shots under their Watch ids)."
+    },
+    "snapshotRevision": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "B6: strictly increasing per phone; the Watch applies a hole snapshot only if it is newer than the last one it applied."
+    },
+    "rootCaddieRecommendation": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "decisionId",
+        "clubName",
+        "aimCarryM",
+        "carryP10M",
+        "carryP90M",
+        "sampleSize",
+        "confidence",
+        "source",
+        "mode",
+        "generatedAt",
+        "validUntil",
+        "originLatitude",
+        "originLongitude",
+        "originAccuracyM",
+        "maximumMovementM",
+        "evidenceCount"
+      ],
+      "properties": {
+        "decisionId": {
+          "type": "string"
+        },
+        "clubName": {
+          "type": "string"
+        },
+        "aimCarryM": {
+          "type": "number"
+        },
+        "carryP10M": {
+          "type": "number"
+        },
+        "carryP90M": {
+          "type": "number"
+        },
+        "sampleSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "confidence": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "generatedAt": {
+          "type": "string"
+        },
+        "validUntil": {
+          "type": "string"
+        },
+        "originLatitude": {
+          "type": "number"
+        },
+        "originLongitude": {
+          "type": "number"
+        },
+        "originAccuracyM": {
+          "type": "number"
+        },
+        "maximumMovementM": {
+          "type": "number"
+        },
+        "evidenceCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   }
 }

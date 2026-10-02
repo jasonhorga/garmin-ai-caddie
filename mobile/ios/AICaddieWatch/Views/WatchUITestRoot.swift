@@ -49,7 +49,10 @@ public struct WatchUITestRoot: View {
              "standalone-course-pin-touch-target",
              "standalone-course-caddie", "standalone-course-hazards",
              "standalone-course-last-shot", "standalone-course-caddie-last-shot",
-             "standalone-course-live-home":
+             "standalone-course-live-home",
+             "standalone-course-page-plan", "standalone-course-page-plan-measure",
+             "standalone-course-page-hazard-zoomed", "standalone-course-page-green-zoomed",
+             "standalone-course-page-plan-after-tee":
             standaloneCourseRound
         case "real-course-download-seed", "real-course-download-restore",
              "real-course-download-caddie",
@@ -96,7 +99,7 @@ public struct WatchUITestRoot: View {
                 ensureGeometry: true,
                 onLoadTees: { _ in Self.remoteCourseTees }
             )
-        case "interaction-club-seed", "interaction-club-restore",
+        case "interaction-shot-seed", "interaction-shot-restore",
              "interaction-score-seed", "interaction-score-restore",
              "interaction-gps-acquiring",
              "interaction-club-stats", "interaction-settings",
@@ -120,6 +123,28 @@ public struct WatchUITestRoot: View {
         case "hazards":
             WatchHazardView(hazards: Self.demoHazards)
                 .padding(8)
+        case "hole-page-green-3x":
+            WatchGreenPreviewView(
+                geometry: WatchHoleMapSample.geometry,
+                centerGreenYards: 152,
+                initialZoomScale: 3
+            )
+        case "hole-page-plan-measure":
+            WatchHoleMapView(
+                holeNumber: 7,
+                par: 4,
+                frontGreen: 352,
+                centerGreen: 366,
+                backGreen: 380,
+                lastShot: 0,
+                ringPips: [],
+                measuredPxOverride: CGPoint(
+                    x: (WatchHoleMapSample.geometry.youPx.x + WatchHoleMapSample.geometry.pinPx.x) / 2,
+                    y: (WatchHoleMapSample.geometry.youPx.y + WatchHoleMapSample.geometry.pinPx.y) / 2
+                ),
+                interactionMode: .measure,
+                measureOriginImagePx: WatchHoleMapSample.geometry.youPx
+            )
         case "glance":
             WatchCaddieGlanceView(state: Self.demoState)
                 .padding(8)
@@ -154,13 +179,14 @@ public struct WatchUITestRoot: View {
             WatchScoreHoleView(hole: 7, par: 4, score: 5, putts: 2, penalty: 0)
         case "score-total":
             WatchScoreHoleView(
-                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-                step: .score
+                hole: 7, par: 4, score: 5, putts: 2, penalty: 0, fairway: .hit
             )
         case "score-putts":
             WatchScoreHoleView(
                 hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-                step: .putts
+                openWheel: .putts,
+                // The runtime capture waits seconds; the evidence must still show the open wheel.
+                holdsOpenWheel: true
             )
         case "score-next-tee-candidate":
             WatchScoreHoleView(
@@ -169,28 +195,22 @@ public struct WatchUITestRoot: View {
             )
         case "score-fairway":
             WatchScoreHoleView(
-                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-                step: .fairway
+                hole: 7, par: 4, score: 5, putts: 2, penalty: 0, fairway: .left
             )
         case "score-penalty":
             WatchScoreHoleView(
                 hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-                step: .penalty
+                openWheel: .penalty,
+                // The runtime capture waits seconds; the evidence must still show the open wheel.
+                holdsOpenWheel: true
             )
-        case "club-prompt":
-            WatchClubPromptView(
-                hole: 8,
-                shotNumber: 1,
-                recommendedClub: "一号木",
-                clubs: [
-                    WatchClubOption(clubName: "一号木", medianM: 201),
-                    WatchClubOption(clubName: "三号木", medianM: 183),
-                    WatchClubOption(clubName: "5号铁", medianM: 165),
-                    WatchClubOption(clubName: "7号铁", medianM: 139),
-                ]
+        case "shot-undo":
+            WatchRoundHomeView(
+                courseName: "北京丽宫 · 前九", hole: 8, par: 4, holeCount: 9,
+                scoredHoles: 7, toPar: 3, distanceText: "152 码", pendingUploads: 0,
+                canRecordShot: true
             )
-        case "autoshot-candidate":
-            WatchAutoShotCandidateView()
+            .overlay(alignment: .bottom) { WatchShotUndoStrip(text: "第 2 杆") }
         case "gps-acquiring":
             WatchGPSAcquiringView()
         case "finish", "finish-actions":
@@ -250,21 +270,22 @@ public struct WatchUITestRoot: View {
                 score: 7,
                 putts: 3,
                 penalty: 2,
-                step: .fairway,
+                fairway: .right,
                 candidateNextHole: 1
             )
-        case "compact-club-prompt":
-            WatchClubPromptView(
+        case "compact-shot-undo":
+            WatchRoundHomeView(
+                courseName: "北京黑骑士国际高尔夫俱乐部 · C 场",
                 hole: 18,
-                shotNumber: 4,
-                recommendedClub: "50° 挖起杆",
-                clubs: [
-                    WatchClubOption(clubName: "50° 挖起杆", medianM: 92),
-                    WatchClubOption(clubName: "九号铁", medianM: 118),
-                    WatchClubOption(clubName: "八号铁", medianM: 130),
-                    WatchClubOption(clubName: "七号铁", medianM: 142),
-                ]
+                par: 5,
+                holeCount: 18,
+                scoredHoles: 17,
+                toPar: 12,
+                distanceText: "262 码",
+                pendingUploads: 18,
+                canRecordShot: true
             )
+            .overlay(alignment: .bottom) { WatchShotUndoStrip(text: "第 4 杆") }
         case "compact-finish":
             WatchFinishRoundView(
                 courseName: "北京黑骑士国际高尔夫俱乐部 · C 场",
@@ -326,7 +347,9 @@ public struct WatchUITestRoot: View {
                     initialSelectedHazardID: screen == "standalone-course-hazards"
                         ? model.activeHoleState?.hazards.first?.id
                         : nil,
-                    measuredPxOverride: screen == "standalone-course-touch-target"
+                    measuredPxOverride: screen == "standalone-course-page-plan-measure"
+                        ? Self.standalonePlanMeasurePx
+                        : screen == "standalone-course-touch-target"
                         || screen == "standalone-course-pin-touch-target"
                         ? (screen == "standalone-course-pin-touch-target"
                             ? Self.standaloneMovedPinTouchTargetReviewPx
@@ -337,17 +360,27 @@ public struct WatchUITestRoot: View {
                         ? WatchHoleMapSample.movedPinPx
                         : nil,
                     initialGreenZoomScaleOverride: screen == "standalone-course-view-green-max"
-                        ? 2
-                        : 1,
+                        ? Double(WatchHoleZoom.range.upperBound)
+                        : (screen == "standalone-course-page-green-zoomed" ? 3 : 1),
                     initialGreenRotationOverride: screen == "standalone-course-view-green-rotated"
                         ? 35
-                        : nil
+                        : nil,
+                    // B6: the production 本洞 pages (方案 / 障碍 / 果岭) with their page dots.
+                    initialHolePage: Self.standaloneHolePage(for: screen),
+                    initialHazardViewport: screen == "standalone-course-page-hazard-zoomed"
+                        ? WatchHoleViewport(zoom: 2, pan: CGSize(width: 10, height: -14))
+                        : WatchHoleViewport()
                 )
             } else {
                 Text("offline course restore unavailable")
             }
         }
+        .environment(\.watchHazardDisplayReporter, standaloneHazardDisplayReporter)
         .onAppear {
+            // watch-runtime.yml clears the markers before launch.
+            if screen == "standalone-course-page-hazard-zoomed" {
+                Task { await failStandaloneHazardIfNotReady() }
+            }
             if screen == "standalone-course-seed" {
                 Task { await seedStandaloneCourse() }
             } else if screen == "standalone-course-restore" {
@@ -388,9 +421,29 @@ public struct WatchUITestRoot: View {
                 model.openCaddie()
             } else if screen == "standalone-course-live-home" {
                 model.backToHome()
+            } else if screen == "standalone-course-page-plan-after-tee" {
+                // The prepared (offline) plan after the tee shot: the 方案 page must still offer
+                // the next club and switch plans (Codex review on #367).
+                installStandaloneFixtureRound()
+                ensureStandaloneLastShot()
+                model.backToHome()
+            } else if screen.hasPrefix("standalone-course-page-") {
+                installStandaloneFixtureRound()
+                model.backToHome()
             }
         }
     }
+
+    private static func standaloneHolePage(for screen: String) -> Int {
+        switch screen {
+        case "standalone-course-page-hazard-zoomed": return 1
+        case "standalone-course-page-green-zoomed": return 2
+        default: return 0
+        }
+    }
+
+    /// A fairway point between the lay-up and the green for the 方案 page measure evidence.
+    private static let standalonePlanMeasurePx = CGPoint(x: 520, y: 470)
 
     /// DEBUG-only live evidence: exercise the same production Watch course library against a real
     /// backend, then prove a second process can start the exact cached selection without config.
@@ -557,7 +610,7 @@ public struct WatchUITestRoot: View {
         guard let recovered = model.pendingManualShot,
               model.round?.roundId == Self.runtimeCancelRoundId,
               model.activeHole == 1,
-              model.screen == .clubPrompt,
+              model.screen == .home,
               recovered.hole == 1,
               recovered.candidateFromHole == nil,
               recovered.shotType == "recovery",
@@ -1425,8 +1478,40 @@ public struct WatchUITestRoot: View {
         return WatchLocationFix(
             coordinate: CLLocationCoordinate2D(latitude: 40.0454995, longitude: 116.5461531),
             horizontalAccuracyM: 5,
-            capturedAt: "2026-07-27T00:01:00Z"
+            // The hazard page needs a live wrist fix (Codex runtime review on #367: a fixed July
+            // timestamp is stale on any later run and left the page on 等待定位). Stamp it at launch;
+            // the capture lands well inside the 15 s live window.
+            capturedAt: screen == "standalone-course-page-hazard-zoomed"
+                ? Self.launchFixTimestamp
+                : "2026-07-27T00:01:00Z"
         )
+    }
+
+    private static let launchFixTimestamp = ISO8601DateFormatter().string(from: Date())
+
+    /// Runtime evidence gate for the zoomed hazard page: `standalone-hazard-ready` only once the
+    /// production hazard instrument shows a selected hazard zoomed and panned; otherwise
+    /// `standalone-hazard-failed` names what it showed instead.
+    private func reportStandaloneHazardDisplay(_ display: WatchHazardDisplay) {
+        if case .hazard(_, zoomed: true, panned: true) = display {
+            writeRuntimeMarker("standalone-hazard-ready")
+        } else {
+            writeRuntimeMarker("standalone-hazard-display", contents: String(describing: display))
+        }
+    }
+
+    private var standaloneHazardDisplayReporter: ((WatchHazardDisplay) -> Void)? {
+        guard screen == "standalone-course-page-hazard-zoomed" else { return nil }
+        return { display in reportStandaloneHazardDisplay(display) }
+    }
+
+    private func failStandaloneHazardIfNotReady() async {
+        try? await Task.sleep(nanoseconds: 8_000_000_000)
+        let ready = runtimeMarkerURL("standalone-hazard-ready")
+        guard !FileManager.default.fileExists(atPath: ready.path) else { return }
+        let shown = (try? String(contentsOf: runtimeMarkerURL("standalone-hazard-display"), encoding: .utf8))
+            ?? "no hazard instrument"
+        writeRuntimeMarker("standalone-hazard-failed", contents: shown)
     }
 
     private func ensureStandaloneLastShot() {
@@ -1553,11 +1638,13 @@ public struct WatchUITestRoot: View {
             if model.round != nil {
                 WatchRoundContainerView(
                     model: model,
-                    watchGreenYards: screen == "interaction-club-seed"
+                    watchGreenYards: screen == "interaction-shot-seed"
                         ? (front: nil, center: 135, back: nil)
                         : nil,
                     shotLocation: interactionShotLocation,
-                    watchHeading: interactionHeading
+                    watchHeading: interactionHeading,
+                    // Hold the 第 N 杆 strip on screen for the runtime capture.
+                    shotUndoSeconds: screen == "interaction-shot-seed" ? 600 : WatchRoundModel.shotUndoSeconds
                 )
             } else {
                 Text("interaction restore unavailable")
@@ -1565,8 +1652,8 @@ public struct WatchUITestRoot: View {
         }
         .onAppear {
             switch screen {
-            case "interaction-club-seed":
-                seedInteractionClubPrompt()
+            case "interaction-shot-seed":
+                seedInteractionUndoableShot()
             case "interaction-score-seed":
                 replaceFixtureRound(with: Self.interactionScoreSeed)
                 model.beginManualShot(
@@ -1591,9 +1678,9 @@ public struct WatchUITestRoot: View {
         }
     }
 
-    /// Runtime visual evidence for the production model/container path. The pending location is real
-    /// model state; the four clubs mirror a downloaded bag so the first-screen density is reviewable.
-    private func seedInteractionClubPrompt() {
+    /// Runtime visual evidence for the production model/container path: a real detected shot in its
+    /// undo window (第 1 杆), and after relaunch the same pending shot behind the resume gate.
+    private func seedInteractionUndoableShot() {
         let roundId = "ci-interaction-club-round"
         model.seedRound(
             [
@@ -1956,7 +2043,15 @@ public struct WatchUITestRoot: View {
             WatchHazard(
                 kind: "bunker", label: "右侧果岭沙坑", startM: 480, endM: 500,
                 frontDistanceM: 480, backDistanceM: 500,
-                frontPx: [498, 317], backPx: [493, 296]
+                frontPx: [498, 317], backPx: [493, 296],
+                // The bunker's real boundary (thin red outline on the 障碍 page).
+                outlinePx: [[498, 317], [506, 311], [509, 302], [503, 295], [493, 296], [487, 303], [489, 312]]
+            ),
+            WatchHazard(
+                kind: "water", label: "前方水障碍", startM: 330, endM: 372,
+                frontDistanceM: 330, backDistanceM: 372,
+                frontPx: [522, 528], backPx: [508, 468],
+                outlinePx: [[522, 528], [531, 516], [528, 494], [519, 474], [508, 468], [499, 478], [501, 503], [510, 522]]
             ),
         ],
         score: 0,
@@ -2034,10 +2129,11 @@ public struct WatchUITestRoot: View {
 
     private static let demoToPars: [Int: Int] = [1: 0, 2: 1, 3: -1, 4: 2, 5: 0, 6: 1]
 
+    /// Prepared tee plans (made before any shot), like the real offline course options.
     static let demoOptions: [WatchCaddieOption] = [
-        WatchCaddieOption(optionId: "stock", label: "推荐", clubName: "1号木", carryM: 201.2, carryP10M: 187, carryP90M: 215, sampleSize: 28, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 201.2), WatchCaddiePlanStep(clubName: "3W", carryM: 183), WatchCaddiePlanStep(clubName: "8I", carryM: 134.6)], confidence: "high"),
-        WatchCaddieOption(optionId: "safe", label: "保守", clubName: "3号木", carryM: 183, carryP10M: 170, carryP90M: 195, sampleSize: 31, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 183), WatchCaddiePlanStep(clubName: "5W", carryM: 175), WatchCaddiePlanStep(clubName: "7I", carryM: 160.8)], confidence: "high"),
-        WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "1号木", carryM: 201.2, carryP10M: 187, carryP90M: 215, sampleSize: 24, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 201.2), WatchCaddiePlanStep(clubName: "3W", carryM: 190), WatchCaddiePlanStep(clubName: "9I", carryM: 127.6)], confidence: "medium"),
+        WatchCaddieOption(optionId: "stock", label: "推荐", clubName: "1号木", carryM: 201.2, carryP10M: 187, carryP90M: 215, sampleSize: 28, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 201.2), WatchCaddiePlanStep(clubName: "3W", carryM: 183), WatchCaddiePlanStep(clubName: "8I", carryM: 134.6)], confidence: "high", routeOffsetBasis: .tee, originShotEventIds: []),
+        WatchCaddieOption(optionId: "safe", label: "保守", clubName: "3号木", carryM: 183, carryP10M: 170, carryP90M: 195, sampleSize: 31, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 183), WatchCaddiePlanStep(clubName: "5W", carryM: 175), WatchCaddiePlanStep(clubName: "7I", carryM: 160.8)], confidence: "high", routeOffsetBasis: .tee, originShotEventIds: []),
+        WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "1号木", carryM: 201.2, carryP10M: 187, carryP90M: 215, sampleSize: 24, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 201.2), WatchCaddiePlanStep(clubName: "3W", carryM: 190), WatchCaddiePlanStep(clubName: "9I", carryM: 127.6)], confidence: "medium", routeOffsetBasis: .tee, originShotEventIds: []),
     ]
 
     private static let demoCaddieRoute = standaloneFullRoute

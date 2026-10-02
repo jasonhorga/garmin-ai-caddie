@@ -91,6 +91,17 @@ public struct AICaddieWatchApp: App {
                 .onChange(of: gpsPreheatEnabled, initial: true) { _, _ in
                     reconcileLocationServices()
                 }
+                .onChange(of: qualifiedWatchFix?.capturedAt) { _, _ in
+                    // B6 洞结束: walking off the green toward the next tee opens 本洞成绩.
+                    guard let fix = qualifiedWatchFix else { return }
+                    if roundModel.observeLocation(
+                        latitude: fix.coordinate.latitude,
+                        longitude: fix.coordinate.longitude,
+                        horizontalAccuracyM: fix.horizontalAccuracyM
+                    ) {
+                        WKInterfaceDevice.current().play(.notification)
+                    }
+                }
                 .onChange(of: autoShotProvider.latestSignal) { _, signal in
                     // AutoShot records a durable GPS origin, so it must obey the same live-fix
                     // contract as manual shots and F/M/B instead of accepting a cached coarse sample.

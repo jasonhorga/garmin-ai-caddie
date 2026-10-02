@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum WatchHoleMapViewport {
     static let flagTopClearance = 20.0
@@ -149,6 +150,162 @@ enum WatchTouchTargetMagnifierLayout {
     }
 }
 
+/// One leg of the selected caddie plan on the 方案 page (README §3: the AI caddie route with its
+/// landings and "D 224" / "3W 205" labels): where it starts and lands in topo pixels, the route point
+/// that bends it, and its label.
+public struct WatchPlanLeg: Equatable {
+    public let start: CGPoint
+    public let control: CGPoint
+    public let landing: CGPoint
+    public let label: String
+
+    public init(start: CGPoint, control: CGPoint, landing: CGPoint, label: String) {
+        self.start = start
+        self.control = control
+        self.landing = landing
+        self.label = label
+    }
+}
+
+enum WatchPlanLegs {
+    /// The legs still to play of `option` for a player at `origin` after the Watch shots
+    /// `watchShotEventIds` on this hole, whatever its offsets are measured from.
+    static func resolve(
+        option: WatchCaddieOption,
+        route: [[Double]],
+        origin: CGPoint,
+        watchShotEventIds: [String]
+    ) -> [WatchPlanLeg] {
+        guard let progress = WatchHazardMapLayout.playerProgressMetres(on: route, playerImagePoint: origin) else {
+            return []
+        }
+        return resolve(
+            plan: option.remaining(fromProgressM: progress, watchShotEventIds: watchShotEventIds).plan ?? [],
+            route: route,
+            origin: origin
+        )
+    }
+
+    /// Every leg of a shot-relative `plan` (`WatchRouteOffsetBasis.shot`, see
+    /// `WatchCaddieOption.remainingPlan`) from `origin` (the tee before the tee shot, else the
+    /// player) along the measured cumulative-metre route. A step's `routeOffsetM` counts from
+    /// `origin`, so it lands at origin progress + offset when that lies ahead; otherwise carries
+    /// accumulate. The chain stops at the route end.
+    static func resolve(plan: [WatchCaddiePlanStep], route: [[Double]], origin: CGPoint) -> [WatchPlanLeg] {
+        guard route.count >= 2,
+              let startProgress = WatchHazardMapLayout.playerProgressMetres(on: route, playerImagePoint: origin),
+              let routeEnd = route.last(where: { $0.count >= 3 && $0[2].isFinite })?[2] else { return [] }
+        var legs: [WatchPlanLeg] = []
+        var progress = startProgress
+        var start = origin
+        for step in plan {
+            guard let carry = step.carryM, carry.isFinite, carry > 0 else { break }
+            var landingM = progress + carry
+            if let offset = step.routeOffsetM, offset.isFinite, startProgress + offset > progress + 1 {
+                landingM = startProgress + offset
+            }
+            landingM = min(landingM, routeEnd)
+            guard landingM > progress + 1,
+                  let landing = WatchHazardMapLayout.imagePoint(on: route, atMetres: landingM) else { break }
+            let control = WatchHazardMapLayout.imagePoint(on: route, atMetres: (progress + landingM) / 2)
+                ?? CGPoint(x: (start.x + landing.x) / 2, y: (start.y + landing.y) / 2)
+            let yards = Int((carry * 1.09361).rounded())
+            legs.append(WatchPlanLeg(
+                start: start, control: control, landing: landing,
+                label: "\(WatchClubDisplay.shortCode(step.clubName)) \(yards)"
+            ))
+            progress = landingM
+            start = landing
+            if landingM >= routeEnd { break }
+        }
+        return legs
+    }
+
+    static let labelFontSize: CGFloat = 10.5
+    /// Horizontal gap from a landing to its label's left edge.
+    static let labelGap: CGFloat = 6
+
+    /// The black box of a landing label ("5i 175"): its 10.5 pt heavy rounded text plus padding.
+    /// Both the 球童 viewport fit and `drawFullPlan` lay labels out from this one measurement.
+    static func labelSize(_ text: String) -> CGSize {
+        var font = UIFont.systemFont(ofSize: labelFontSize, weight: .heavy)
+        if let rounded = font.fontDescriptor.withDesign(.rounded) {
+            font = UIFont(descriptor: rounded, size: labelFontSize)
+        }
+        let textSize = (text as NSString).size(withAttributes: [.font: font])
+        return CGSize(width: ceil(textSize.width) + 8, height: ceil(textSize.height) + 2)
+    }
+
+    /// Width of watchOS's persistent top-right clock, matching the other full-screen instruments.
+    static let clockLaneWidth: CGFloat = 56
+
+    /// The top-right lane watchOS keeps for its clock even on a full-screen map. No plan label may
+    /// sit in it.
+    static func clockLane(in size: CGSize) -> CGRect {
+        let inset = WatchDisplayGeometry.contentInset(for: size)
+        return CGRect(
+            x: size.width - inset - clockLaneWidth,
+            y: 0,
+            width: inset + clockLaneWidth,
+            height: inset + 24
+        )
+    }
+
+    /// The production label layout `drawFullPlan` draws for a face of `size`: each label measured
+    /// by `labelSize`, kept inside `bounds` (the content rect when nil) and out of the clock lane.
+    static func layoutLabels(
+        _ labels: [String],
+        landings: [CGPoint],
+        in size: CGSize,
+        bounds: CGRect? = nil
+    ) -> [CGRect] {
+        labelFrames(
+            landings: landings,
+            sizes: labels.map(labelSize),
+            bounds: bounds ?? WatchDisplayGeometry.contentRect(in: size),
+            avoiding: [clockLane(in: size)]
+        )
+    }
+
+    /// Where each landing's label box goes: right of its landing and centred on it, moved below any
+    /// `avoiding` rect it would cover, stacked top to bottom so no two labels overlap when landings
+    /// sit closer than a label's height, then pulled back up from the bottom of `bounds`. A label
+    /// moved off its landing gets a leader line.
+    static func labelFrames(
+        landings: [CGPoint],
+        sizes: [CGSize],
+        bounds: CGRect,
+        avoiding: [CGRect] = [],
+        gap: CGFloat = labelGap,
+        spacing: CGFloat = 1
+    ) -> [CGRect] {
+        let count = min(landings.count, sizes.count)
+        let order = (0..<count).sorted { landings[$0].y < landings[$1].y }
+        let xs = (0..<count).map { i in
+            min(max(landings[i].x + gap, bounds.minX), bounds.maxX - sizes[i].width)
+        }
+        func frame(_ i: Int, top: CGFloat) -> CGRect {
+            CGRect(x: xs[i], y: top, width: sizes[i].width, height: sizes[i].height)
+        }
+        var tops = [CGFloat](repeating: 0, count: count)
+        var cursor = bounds.minY
+        for i in order {
+            var top = max(landings[i].y - sizes[i].height / 2, cursor)
+            for lane in avoiding where frame(i, top: top).intersects(lane) {
+                top = max(top, lane.maxY + spacing)
+            }
+            tops[i] = top
+            cursor = top + sizes[i].height + spacing
+        }
+        var floor = bounds.maxY
+        for i in order.reversed() {
+            tops[i] = min(tops[i], floor - sizes[i].height)
+            floor = tops[i] - spacing
+        }
+        return (0..<count).map { frame($0, top: tops[$0]) }
+    }
+}
+
 enum WatchHoleMapRouteOverlay: Equatable {
     case none
     case currentShot
@@ -175,6 +332,9 @@ public enum WatchHoleMapInteractionMode: Equatable {
     case root
     case touchTarget
     case passive
+    /// B6 本洞 方案 page: measure in place. Unzoomed a tap drops the yellow ring; zoomed it takes a
+    /// 0.5 s press (a drag pans instead); tapping the ring clears it.
+    case measure
 }
 
 struct WatchRemainingDistanceMarker: Equatable {
@@ -381,6 +541,12 @@ public struct WatchHoleMapView: View {
     /// Offline Tee plan from the downloaded route/landing facts. Unlike a live decision it has no
     /// dispersion, so Hole Root draws only the grounded first shot and its prepared landing target.
     public let showPreparedPlan: Bool
+    /// The whole selected plan (方案 page); empty elsewhere.
+    public let planLegs: [WatchPlanLeg]
+    /// Where plan labels may sit (the 球童 detail's rest frame); the content rect when nil.
+    public let planLabelBounds: CGRect?
+    /// The plan the club tag shows (稳妥 / 标准 / 进攻 or its club): the tag's accessibility value.
+    public let caddiePlanName: String
     /// User-configured/measured Driver range. It renders as a fact-layer arc only when the current
     /// route can place that distance before the green.
     public let driverDistanceM: Double?
@@ -413,6 +579,12 @@ public struct WatchHoleMapView: View {
     // the real playing view builds it from the fetched /topo.png + holeImageProjection.
     public let geometry: WatchHoleMapGeometry
     public let interactionMode: WatchHoleMapInteractionMode
+    /// B6 Crown zoom (1–4×) and drag pan applied on top of the page's own framing.
+    public let userZoom: CGFloat
+    public let userPan: CGSize
+    /// Before the tee shot every range is measured from the tee (README §3); nil measures from the
+    /// player.
+    public let measureOriginImagePx: CGPoint?
     /// 选点测距: the last tapped point in IMAGE-px space (crosshair + two small route ranges).
     @State private var liveMeasuredPx: CGPoint?
     /// Transient screen-space focus used only while the Touch Target handle is being dragged.
@@ -457,6 +629,12 @@ public struct WatchHoleMapView: View {
         pinImagePoint: CGPoint? = nil,
         measuredPxOverride: CGPoint? = nil,
         interactionMode: WatchHoleMapInteractionMode = .passive,
+        userZoom: CGFloat = 1,
+        userPan: CGSize = .zero,
+        measureOriginImagePx: CGPoint? = nil,
+        planLegs: [WatchPlanLeg] = [],
+        planLabelBounds: CGRect? = nil,
+        caddiePlanName: String = "",
         onOpenCaddie: @escaping () -> Void = {},
         onOpenMapDetail: @escaping () -> Void = {},
         onBack: @escaping () -> Void = {}
@@ -474,6 +652,9 @@ public struct WatchHoleMapView: View {
         self.caddieNote = caddieNote
         self.showCaddieRecommendation = showCaddieRecommendation
         self.currentShotLayout = currentShotLayout
+        self.planLegs = planLegs
+        self.planLabelBounds = planLabelBounds
+        self.caddiePlanName = caddiePlanName
         self.showPreparedPlan = showPreparedPlan
         self.driverDistanceM = driverDistanceM
         self.showReferenceMarkers = showReferenceMarkers
@@ -492,6 +673,9 @@ public struct WatchHoleMapView: View {
         self.geometry = geometry
         _liveMeasuredPx = State(initialValue: measuredPxOverride)
         self.interactionMode = interactionMode
+        self.userZoom = WatchHoleZoom.clampedZoom(userZoom)
+        self.userPan = userPan
+        self.measureOriginImagePx = measureOriginImagePx
         self.onOpenCaddie = onOpenCaddie
         self.onOpenMapDetail = onOpenMapDetail
         self.onBack = onBack
@@ -502,6 +686,10 @@ public struct WatchHoleMapView: View {
     private let onBack: () -> Void
 
     private func currentScale(_ size: CGSize) -> CGFloat {
+        baseScale(size) * userZoom
+    }
+
+    private func baseScale(_ size: CGSize) -> CGFloat {
         if fullMap, interactionMode == .touchTarget {
             return CGFloat(WatchHoleMapViewport.touchTargetScale(
                 crownScale: Double(mapScale),
@@ -557,9 +745,43 @@ public struct WatchHoleMapView: View {
                 && location.y >= safeRect.maxY - 48
             guard !hitsBack, !hitsClear else { return }
             liveMeasuredPx = clampedImagePx(imagePx(fromCanvas: location, size: size))
+        case .measure:
+            // Zoomed, a tap must not drop the ring: the 0.5 s press does (`measureLongPress`).
+            guard userZoom <= WatchHoleZoom.unzoomedThreshold, measureTapAllowed(location, size: size) else { return }
+            if let measuredPx, Self.hitsMeasureRing(location, ring: anchors(size).t(measuredPx)) {
+                liveMeasuredPx = nil
+            } else {
+                liveMeasuredPx = clampedImagePx(imagePx(fromCanvas: location, size: size))
+            }
         case .passive:
             break
         }
+    }
+
+    /// The left data column and the bottom control rail keep their own taps.
+    private func measureTapAllowed(_ location: CGPoint, size: CGSize) -> Bool {
+        let safeRect = WatchDisplayGeometry.contentRect(in: size)
+        let mapLeft = fullMap ? 0 : size.width * columnFrac
+        // A tap on the club tag switches plan; it never also drops a measure ring under the tag.
+        let onClubTag = showTextOverlay && showCaddieRecommendation
+            && Self.rootCaddieChipFrame(in: size).insetBy(dx: -4, dy: -4).contains(location)
+        return location.x >= mapLeft && location.y < safeRect.maxY - 48 && !onClubTag
+    }
+
+    static func hitsMeasureRing(_ location: CGPoint, ring: CGPoint) -> Bool {
+        hypot(location.x - ring.x, location.y - ring.y) <= 16
+    }
+
+    /// Zoomed: hold 0.5 s to drop (or move) the ring, so a drag can pan without measuring.
+    private func measureLongPress(size: CGSize) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.5)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onEnded { value in
+                guard interactionMode == .measure, userZoom > WatchHoleZoom.unzoomedThreshold,
+                      case .second(true, let drag?) = value,
+                      measureTapAllowed(drag.location, size: size) else { return }
+                liveMeasuredPx = clampedImagePx(imagePx(fromCanvas: drag.location, size: size))
+            }
     }
 
     // MARK: - Palette
@@ -633,7 +855,16 @@ public struct WatchHoleMapView: View {
             }
             .contentShape(Rectangle())
             .simultaneousGesture(SpatialTapGesture().onEnded { handleTap($0.location, size: geo.size) })
-            .simultaneousGesture(touchTargetDragGesture(size: geo.size))
+            // Only install a drag that can act: an idle recognizer on the 本洞 方案 page would
+            // compete with the vertical page swipe.
+            .simultaneousGesture(
+                touchTargetDragGesture(size: geo.size),
+                including: interactionMode == .touchTarget ? .all : .subviews
+            )
+            .simultaneousGesture(
+                measureLongPress(size: geo.size),
+                including: interactionMode == .measure && userZoom > WatchHoleZoom.unzoomedThreshold ? .all : .subviews
+            )
         }
         .background(Color.black)
         .ignoresSafeArea()
@@ -736,8 +967,8 @@ public struct WatchHoleMapView: View {
                 y: fullMap ? fullMapPlayerAnchorFraction : 0.72
             )
         let focusCanvas = CGPoint(
-            x: mapLeft + (size.width - mapLeft) * focusFraction.x,
-            y: size.height * focusFraction.y
+            x: mapLeft + (size.width - mapLeft) * focusFraction.x + userPan.width,
+            y: size.height * focusFraction.y + userPan.height
         )
         let t: (CGPoint) -> CGPoint = { p in
             Self.safe(CGPoint(x: (p.x - focusImage.x) * scale + focusCanvas.x,
@@ -796,21 +1027,27 @@ public struct WatchHoleMapView: View {
                 .padding(.top, size.height * 0.09)
 
                 if showTextOverlay, showCaddieRecommendation {
-                    Button(action: onOpenCaddie) {
-                        HStack(spacing: 3) {
-                            Text(WatchClubDisplay.shortCode(caddieClub))
-                                .font(.system(size: 16, weight: .black, design: .rounded))
-                                .foregroundStyle(.black)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(AICaddieDesignTokens.hudGreen, in: Capsule())
-                        .overlay(Capsule().stroke(Color.white.opacity(0.84), lineWidth: 1.1))
-                        .contentShape(Rectangle())
+                    // Its own high-priority tap, not a Button: on the 本洞 方案 page the map's
+                    // simultaneous measure tap and the page's recognizers otherwise take the touch
+                    // and the tag never switches plan.
+                    HStack(spacing: 3) {
+                        Text(WatchClubDisplay.shortCode(caddieClub))
+                            .font(.system(size: 16, weight: .black, design: .rounded))
+                            .foregroundStyle(.black)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
-                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(AICaddieDesignTokens.hudGreen, in: Capsule())
+                    .overlay(Capsule().stroke(Color.white.opacity(0.84), lineWidth: 1.1))
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(TapGesture().onEnded { onOpenCaddie() })
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { onOpenCaddie() }
                     .accessibilityLabel("球童建议 \(caddieClub) \(caddieNote)")
+                    .accessibilityValue(caddiePlanName)
+                    .accessibilityIdentifier("watch-plan-club-tag")
                     .frame(width: Self.rootCaddieChipFrame(in: size).width,
                            height: Self.rootCaddieChipFrame(in: size).height)
                     .position(x: Self.rootCaddieChipFrame(in: size).midX,
@@ -969,16 +1206,26 @@ public struct WatchHoleMapView: View {
             drawReferenceFacts(&context, size: size, transform: a.t)
         }
 
+        // 方案 page: the whole plan — every leg, landing and label. It stays (dimmed) under a
+        // measurement instead of being replaced by it.
+        let drawsFullPlan = !planLegs.isEmpty
+        if drawsFullPlan {
+            drawFullPlan(&context, size: size, transform: a.t, dimmed: measuredPx != nil)
+            // Live dispersion still marks the next shot's measured depth on top of the plan.
+            if let currentShotLayout, showCaddieRecommendation, measuredPx == nil {
+                drawCurrentShot(&context, layout: currentShotLayout, transform: a.t, dispersionOnly: true)
+            }
+        }
         switch WatchHoleMapRouteOverlay.resolve(
             measuredPoint: measuredPx,
-            showCaddieRecommendation: showCaddieRecommendation,
+            showCaddieRecommendation: showCaddieRecommendation && !drawsFullPlan,
             hasCurrentShot: currentShotLayout != nil,
             showPreparedPlan: showPreparedPlan
         ) {
         case .measurement(let measuredPoint):
             drawMeasurementRoute(
                 &context,
-                player: player,
+                player: measureOriginImagePx.map(a.t) ?? player,
                 measured: a.t(measuredPoint),
                 pin: green
             )
@@ -1038,25 +1285,33 @@ public struct WatchHoleMapView: View {
         if let m = measuredPx {
             let mc = a.t(m)
             let distances = WatchTouchTargetDistanceLayout.resolve(
-                playerImagePoint: geometry.youPx,
+                playerImagePoint: measureOriginImagePx ?? geometry.youPx,
                 targetImagePoint: m,
                 pinImagePoint: pinImagePoint,
                 canonicalPinImagePoint: geometry.pinPx,
                 centerGreenYards: canonicalCenterGreen
             )
-            let r: CGFloat = 4.5
-            var cross = Path()
-            cross.move(to: CGPoint(x: mc.x - r, y: mc.y)); cross.addLine(to: CGPoint(x: mc.x + r, y: mc.y))
-            cross.move(to: CGPoint(x: mc.x, y: mc.y - r)); cross.addLine(to: CGPoint(x: mc.x, y: mc.y + r))
-            context.stroke(cross, with: .color(.white), style: StrokeStyle(lineWidth: 1.2))
-            context.stroke(Path(ellipseIn: CGRect(x: mc.x - r, y: mc.y - r, width: r * 2, height: r * 2)),
-                           with: .color(.white), style: StrokeStyle(lineWidth: 1))
+            let isRing = interactionMode == .measure
+            let r: CGFloat = isRing ? 7 : 4.5
+            if isRing {
+                // B6 测距: a yellow ring.
+                context.stroke(Path(ellipseIn: CGRect(x: mc.x - r, y: mc.y - r, width: r * 2, height: r * 2)),
+                               with: .color(golfYellow), style: StrokeStyle(lineWidth: 2))
+            } else {
+                var cross = Path()
+                cross.move(to: CGPoint(x: mc.x - r, y: mc.y)); cross.addLine(to: CGPoint(x: mc.x + r, y: mc.y))
+                cross.move(to: CGPoint(x: mc.x, y: mc.y - r)); cross.addLine(to: CGPoint(x: mc.x, y: mc.y + r))
+                context.stroke(cross, with: .color(.white), style: StrokeStyle(lineWidth: 1.2))
+                context.stroke(Path(ellipseIn: CGRect(x: mc.x - r, y: mc.y - r, width: r * 2, height: r * 2)),
+                               with: .color(.white), style: StrokeStyle(lineWidth: 1))
+            }
+            let origin = measureOriginImagePx.map(a.t) ?? player
             if let d = distances?.playerToTargetYards {
                 bareDistance(
                     &context,
                     text: "\(d)",
                     at: WatchTouchTargetDistanceLayout.segmentLabelPoint(
-                        from: player,
+                        from: origin,
                         to: mc,
                         normalOffset: 9
                     ),
@@ -1066,7 +1321,7 @@ public struct WatchHoleMapView: View {
             if let remaining = distances?.targetToPinYards {
                 bareDistance(
                     &context,
-                    text: "\(remaining)",
+                    text: isRing ? "再 \(remaining)" : "\(remaining)",
                     at: WatchTouchTargetDistanceLayout.segmentLabelPoint(
                         from: mc,
                         to: green,
@@ -1253,13 +1508,15 @@ public struct WatchHoleMapView: View {
     private func drawCurrentShot(
         _ context: inout GraphicsContext,
         layout: WatchCurrentShotLayout,
-        transform: (CGPoint) -> CGPoint
+        transform: (CGPoint) -> CGPoint,
+        dispersionOnly: Bool = false
     ) {
         let player = transform(layout.player)
         let target = transform(layout.target)
         let p10 = transform(layout.carryP10)
         let p90 = transform(layout.carryP90)
 
+        if !dispersionOnly {
         var aim = Path()
         aim.move(to: player)
         aim.addLine(to: target)
@@ -1294,6 +1551,7 @@ public struct WatchHoleMapView: View {
                     style: StrokeStyle(lineWidth: 0.8)
                 )
             }
+        }
         }
 
         var depth = Path()
@@ -1354,6 +1612,56 @@ public struct WatchHoleMapView: View {
             with: .color(touchTargetCyan.opacity(0.88)),
             style: StrokeStyle(lineWidth: 1.15, lineCap: .round, dash: [3, 3])
         )
+    }
+
+    private func drawFullPlan(
+        _ context: inout GraphicsContext,
+        size: CGSize,
+        transform: (CGPoint) -> CGPoint,
+        dimmed: Bool
+    ) {
+        let safeRect = WatchDisplayGeometry.contentRect(in: size)
+        let opacity = dimmed ? 0.45 : 1.0
+        for leg in planLegs {
+            let start = transform(leg.start)
+            let landing = transform(leg.landing)
+            var path = Path()
+            path.move(to: start)
+            path.addQuadCurve(to: landing, control: transform(leg.control))
+            context.stroke(path, with: .color(.white.opacity(0.94 * opacity)),
+                           style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
+            let radius: CGFloat = 2.8
+            let dot = Path(ellipseIn: CGRect(x: landing.x - radius, y: landing.y - radius,
+                                             width: radius * 2, height: radius * 2))
+            context.fill(dot, with: .color(caddieGreen.opacity(0.9 * opacity)))
+            context.stroke(dot, with: .color(.white.opacity(opacity)), style: StrokeStyle(lineWidth: 1))
+        }
+        guard !dimmed else { return }
+        let landings = planLegs.map { transform($0.landing) }
+        let frames = WatchPlanLegs.layoutLabels(
+            planLegs.map(\.label),
+            landings: landings,
+            in: size,
+            bounds: planLabelBounds ?? safeRect
+        )
+        for (leg, (landing, rect)) in zip(planLegs, zip(landings, frames)) {
+            if abs(rect.midY - landing.y) > rect.height / 2 - 2 {
+                var leader = Path()
+                leader.move(to: landing)
+                leader.addLine(to: CGPoint(
+                    x: min(max(landing.x, rect.minX), rect.maxX),
+                    y: landing.y < rect.minY ? rect.minY : (landing.y > rect.maxY ? rect.maxY : rect.midY)
+                ))
+                context.stroke(leader, with: .color(.white.opacity(0.7)), style: StrokeStyle(lineWidth: 0.8))
+            }
+            let label = context.resolve(
+                Text(leg.label)
+                    .font(.system(size: WatchPlanLegs.labelFontSize, weight: .heavy, design: .rounded))
+                    .foregroundColor(.white)
+            )
+            context.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(.black.opacity(0.78)))
+            context.draw(label, at: CGPoint(x: rect.midX, y: rect.midY))
+        }
     }
 
     /// The prepared route is already part of the downloaded course package. Hole Root shows only its

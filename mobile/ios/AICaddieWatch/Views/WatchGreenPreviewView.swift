@@ -103,7 +103,8 @@ enum WatchGreenPreviewLayout {
         geometry: WatchHoleMapGeometry,
         size: CGSize,
         zoom: CGFloat = 1,
-        rotationDegrees: Double = 0
+        rotationDegrees: Double = 0,
+        pan: CGSize = .zero
     ) -> WatchGreenViewport {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
         let contentRect = CGRect(
@@ -128,7 +129,8 @@ enum WatchGreenPreviewLayout {
             min(contentRect.width / max(padded.width, 1), contentRect.height / max(padded.height, 1))
         )
         let rotationRadians = CGFloat(rotationDegrees * .pi / 180)
-        let rotationCenterCanvas = CGPoint(x: contentRect.midX, y: contentRect.midY)
+        // B6: once zoomed, a drag pans the green (bounded by `WatchHoleZoom.clampedPan`).
+        let rotationCenterCanvas = CGPoint(x: contentRect.midX + pan.width, y: contentRect.midY + pan.height)
         // Use the factual boundary's centre as the shared rotation/calibration centre. The rendered
         // curve may round joins, but it must never move the map or the labels away from the source
         // geometry.
@@ -168,7 +170,7 @@ enum WatchGreenPreviewLayout {
             }
         }
         let scale = max(
-            fittedScale * min(max(zoom, 1), 2),
+            fittedScale * WatchHoleZoom.clampedZoom(zoom),
             coverageScale * 1.002
         )
         let origin = CGPoint(
@@ -222,6 +224,34 @@ enum WatchGreenPreviewLayout {
             previous = current
         }
         return inside
+    }
+
+    /// Where a dragged flag goes (README §1: a drag past the green sticks to its nearest edge): the
+    /// finger's image point when it is on the green, else its projection onto the nearest outline
+    /// segment. The segment projection (not a bounding-box clamp) is what lets a finger that has left
+    /// the right-hand arc keep moving up and down while the flag slides along that arc.
+    static func flagPoint(_ candidate: CGPoint, outline: [CGPoint]) -> CGPoint? {
+        let polygon = boundaryPolygon(outline)
+        guard polygon.count >= 3, candidate.x.isFinite, candidate.y.isFinite else { return nil }
+        if contains(candidate, polygon: polygon) { return candidate }
+        var best: CGPoint?
+        var bestDistance = CGFloat.greatestFiniteMagnitude
+        for index in polygon.indices {
+            let a = polygon[index]
+            let b = polygon[(index + 1) % polygon.count]
+            let dx = b.x - a.x
+            let dy = b.y - a.y
+            let lengthSquared = dx * dx + dy * dy
+            guard lengthSquared > 0 else { continue }
+            let fraction = min(max(((candidate.x - a.x) * dx + (candidate.y - a.y) * dy) / lengthSquared, 0), 1)
+            let point = CGPoint(x: a.x + dx * fraction, y: a.y + dy * fraction)
+            let distance = hypot(point.x - candidate.x, point.y - candidate.y)
+            if distance < bestDistance {
+                bestDistance = distance
+                best = point
+            }
+        }
+        return best
     }
 
     /// Return the factual green outline after dropping invalid and consecutive duplicate points.
@@ -530,6 +560,17 @@ enum WatchGreenMagnifierLayout {
     }
 }
 
+/// The green's pin-sheet alignment, turned by the rotate button in fixed steps (wrapping at ±180°).
+enum WatchGreenRotationStep {
+    static let degrees = 15.0
+
+    static func next(_ current: Double) -> Double {
+        var value = (current + degrees).rounded()
+        if value > 180 { value -= 360 }
+        return value
+    }
+}
+
 private struct WatchGreenCrownModifier: ViewModifier {
     @Binding var zoomScale: Double
     @Binding var rotationDegrees: Double
@@ -551,7 +592,7 @@ private struct WatchGreenCrownModifier: ViewModifier {
             content.digitalCrownRotation(
                 $zoomScale,
                 from: 1,
-                through: 2,
+                through: Double(WatchHoleZoom.range.upperBound),
                 by: 0.1,
                 sensitivity: .medium,
                 isContinuous: false,
@@ -612,12 +653,13 @@ public struct WatchGreenPreviewView: View {
     /// player-to-pin or edge distance must be replaced by an explicit acquiring state.
     public let rangeUnavailable: Bool
     public let onBack: () -> Void
+    /// Off on the 本洞 pages (see `WatchHazardMapView.edgeBackEnabled`).
+    public let edgeBackEnabled: Bool
     public let onPlacementChange: (CGPoint, Double) -> Void
 
     @State private var selectedPin: CGPoint?
     @State private var zoomScale = 1.0
     @State private var rotationDegrees = 0.0
-    @State private var rotatesGreen = false
     @State private var persistenceTask: Task<Void, Never>?
     @State private var placementChanged = false
     @State private var isDraggingFlag = false
@@ -627,8 +669,14 @@ public struct WatchGreenPreviewView: View {
     /// Screen-space finger location while moving the flag. This is transient UI state only; the
     /// persisted placement continues to use the validated image-space point below.
     @State private var flagDragLocation: CGPoint?
+    /// B6: the pan of a zoomed green, and where the current pan drag started.
+    @State private var greenPan: CGSize = .zero
+    @State private var panStart: CGSize?
 
     private static let flagLoupeDiameter: CGFloat = 92
+    /// How far from the flag a drag still grabs it (also the flag handle's radius).
+    static let flagHandleRadius: CGFloat = 36
+    private static let canvasSpace = NamedCoordinateSpace.named("watch-green-canvas")
     private static let flagLoupeMagnification: CGFloat = 2.35
 
     public init(
@@ -639,6 +687,7 @@ public struct WatchGreenPreviewView: View {
         initialZoomScale: Double = 1,
         initialRotationDegrees: Double = 0,
         onPlacementChange: @escaping (CGPoint, Double) -> Void = { _, _ in },
+        edgeBackEnabled: Bool = true,
         onBack: @escaping () -> Void = {}
     ) {
         self.geometry = geometry
@@ -646,11 +695,12 @@ public struct WatchGreenPreviewView: View {
         self.rangeUnavailable = rangeUnavailable
         self.onPlacementChange = onPlacementChange
         self.onBack = onBack
+        self.edgeBackEnabled = edgeBackEnabled
         let boundary = WatchGreenPreviewLayout.boundaryPolygon(geometry.greenOutlinePx)
         _selectedPin = State(initialValue: initialPin.flatMap {
             WatchGreenPreviewLayout.contains($0, polygon: boundary) ? $0 : nil
         })
-        _zoomScale = State(initialValue: min(max(initialZoomScale, 1), 2))
+        _zoomScale = State(initialValue: Double(WatchHoleZoom.clampedZoom(CGFloat(initialZoomScale))))
         _rotationDegrees = State(initialValue: WatchRoundModel.wrappedGreenRotation(initialRotationDegrees))
     }
 
@@ -660,7 +710,8 @@ public struct WatchGreenPreviewView: View {
                 geometry: geometry,
                 size: proxy.size,
                 zoom: CGFloat(zoomScale),
-                rotationDegrees: rotationDegrees
+                rotationDegrees: rotationDegrees,
+                pan: WatchHoleZoom.clampedPan(greenPan, zoom: CGFloat(zoomScale), viewport: proxy.size)
             )
             let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
             ZStack {
@@ -725,13 +776,24 @@ public struct WatchGreenPreviewView: View {
                         .accessibilityLabel("详细果岭图尚未下载，仅显示几何边界")
                 }
 
+                // The flag's own drag target. Unzoomed it is the only drag on this page, so every
+                // other drag reaches the vertical 本洞 pages (like `WatchZoomPanModifier`).
+                if canMoveFlag {
+                    Color.clear
+                        .frame(width: Self.flagHandleRadius * 2, height: Self.flagHandleRadius * 2)
+                        .contentShape(Circle())
+                        .position(viewport.canvasPoint(pin))
+                        .gesture(flagGesture(viewport: viewport, size: proxy.size))
+                        .accessibilityHidden(true)
+                }
+
                 WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
                     .position(
                         x: safeRect.minX + WatchDisplayGeometry.instrumentControlSize / 2,
                         y: safeRect.maxY - WatchDisplayGeometry.instrumentControlSize / 2
                     )
 
-                if !rotatesGreen, zoomScale > 1.02 {
+                if zoomScale > 1.02 {
                     ZStack(alignment: .bottom) {
                         Capsule()
                             .fill(.white.opacity(0.22))
@@ -744,18 +806,20 @@ public struct WatchGreenPreviewView: View {
                     .position(x: safeRect.maxX - 4, y: safeRect.midY)
                 }
 
+                // B6: the Crown only zooms on every 本洞 page, so the pin-sheet alignment turns in
+                // 15° steps from this button instead of re-mapping the Crown.
                 WatchGreenRotationButton(
-                    rotatesGreen: rotatesGreen,
+                    rotatesGreen: rotationDegrees != 0,
                     rotationDegrees: rotationDegrees,
                     controlSize: WatchDisplayGeometry.instrumentControlSize,
-                    action: { rotatesGreen.toggle() }
+                    action: { rotationDegrees = WatchGreenRotationStep.next(rotationDegrees) }
                 )
                 .position(
                     x: safeRect.maxX - WatchDisplayGeometry.instrumentControlSize / 2,
                     y: safeRect.maxY - WatchDisplayGeometry.instrumentControlSize / 2
                 )
-                .accessibilityLabel(rotatesGreen ? "旋转果岭，当前 \(Int(rotationDegrees.rounded())) 度" : "旋转果岭")
-                .accessibilityHint(rotatesGreen ? "转动数码表冠调整方向，再点按返回缩放" : "点按后转动数码表冠")
+                .accessibilityLabel("旋转果岭，当前 \(Int(rotationDegrees.rounded())) 度")
+                .accessibilityHint("每点一次转 15 度")
 
                 if !canMoveFlag {
                     Text("无果岭轮廓")
@@ -765,7 +829,12 @@ public struct WatchGreenPreviewView: View {
                 }
             }
             .contentShape(Rectangle())
-            .gesture(flagGesture(viewport: viewport, size: proxy.size))
+            // Zoomed, a drag anywhere pans (or moves the flag); unzoomed only the flag handle
+            // above takes a drag and the page swipe gets the rest.
+            .gesture(
+                flagGesture(viewport: viewport, size: proxy.size),
+                including: WatchHoleZoom.isZoomed(CGFloat(zoomScale)) ? .all : .subviews
+            )
             .simultaneousGesture(
                 SpatialTapGesture().onEnded { value in
                     guard !suppressFlagTap else { return }
@@ -773,16 +842,21 @@ public struct WatchGreenPreviewView: View {
                 }
             )
         }
+        // Every drag on this page (canvas pan or the moving flag handle) reads the proxy's space.
+        .coordinateSpace(Self.canvasSpace)
         .background(Color.black)
         .focusable(true)
         .modifier(
             WatchGreenCrownModifier(
                 zoomScale: $zoomScale,
                 rotationDegrees: $rotationDegrees,
-                rotatesGreen: rotatesGreen
+                rotatesGreen: false
             )
         )
         .onChange(of: rotationDegrees) { _ in schedulePlacementPersistence() }
+        .onChange(of: zoomScale) { _ in
+            if !WatchHoleZoom.isZoomed(CGFloat(zoomScale)) { greenPan = .zero }
+        }
         .onDisappear {
             persistenceTask?.cancel()
             flagDragLocation = nil
@@ -799,7 +873,8 @@ public struct WatchGreenPreviewView: View {
                         translation: value.translation
                     ) else { return }
                     onBack()
-                }
+                },
+            including: edgeBackEnabled ? .all : .subviews
         )
         .accessibilityAction(named: Text("返回菜单"), onBack)
     }
@@ -844,7 +919,7 @@ public struct WatchGreenPreviewView: View {
     }
 
     private func flagGesture(viewport: WatchGreenViewport, size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 2)
+        DragGesture(minimumDistance: 2, coordinateSpace: Self.canvasSpace)
             .onChanged { value in
                 guard canMoveFlag else { return }
                 let safeRect = WatchDisplayGeometry.contentRect(in: size)
@@ -853,23 +928,41 @@ public struct WatchGreenPreviewView: View {
                 guard value.startLocation.y < safeRect.maxY - 50 else { return }
                 if !isDraggingFlag {
                     let flagCanvas = viewport.canvasPoint(pin)
-                    guard hypot(
+                    guard panStart == nil, hypot(
                         value.startLocation.x - flagCanvas.x,
                         value.startLocation.y - flagCanvas.y
-                    ) <= 36 else { return }
+                    ) <= Self.flagHandleRadius else {
+                        // Away from the flag, a drag on a zoomed green pans it.
+                        guard WatchHoleZoom.isZoomed(CGFloat(zoomScale)) else { return }
+                        let start = panStart ?? greenPan
+                        panStart = start
+                        suppressFlagTap = true
+                        greenPan = WatchHoleZoom.clampedPan(
+                            CGSize(width: start.width + value.translation.width,
+                                   height: start.height + value.translation.height),
+                            zoom: CGFloat(zoomScale),
+                            viewport: size
+                        )
+                        return
+                    }
                     isDraggingFlag = true
                     suppressFlagTap = true
                 }
+                // The loupe keeps following the finger; past the green the flag slides along its edge.
                 flagDragLocation = value.location
-                let candidate = viewport.imagePoint(value.location)
-                guard WatchGreenPreviewLayout.contains(
-                    candidate,
-                    polygon: WatchGreenPreviewLayout.boundaryPolygon(geometry.greenOutlinePx)
+                guard let flag = WatchGreenPreviewLayout.flagPoint(
+                    viewport.imagePoint(value.location),
+                    outline: geometry.greenOutlinePx
                 ) else { return }
-                selectedPin = candidate
+                selectedPin = flag
                 placementChanged = true
             }
             .onEnded { value in
+                if panStart != nil {
+                    panStart = nil
+                    DispatchQueue.main.async { suppressFlagTap = false }
+                    return
+                }
                 guard canMoveFlag, isDraggingFlag else {
                     flagDragLocation = nil
                     isDraggingFlag = false
@@ -877,13 +970,12 @@ public struct WatchGreenPreviewView: View {
                     return
                 }
                 isDraggingFlag = false
-                let candidate = viewport.imagePoint(value.location)
-                if WatchGreenPreviewLayout.contains(
-                    candidate,
-                    polygon: WatchGreenPreviewLayout.boundaryPolygon(geometry.greenOutlinePx)
+                if let flag = WatchGreenPreviewLayout.flagPoint(
+                    viewport.imagePoint(value.location),
+                    outline: geometry.greenOutlinePx
                 ) {
-                    selectedPin = candidate
-                    persistPlacement(pin: candidate)
+                    selectedPin = flag
+                    persistPlacement(pin: flag)
                 } else {
                     persistPlacement()
                 }

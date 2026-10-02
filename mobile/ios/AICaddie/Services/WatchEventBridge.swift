@@ -45,6 +45,9 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
     public let backDistanceM: Double?
     public let frontPx: [Double]?
     public let backPx: [Double]?
+    /// The hazard's real boundary in topo pixels (README §1: the hazard page draws it as a thin red
+    /// line). Thinned on the phone; nil for legacy payloads and interval-only hazards.
+    public let outlinePx: [[Double]]?
 
     public init(
         kind: String,
@@ -55,7 +58,8 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
         frontDistanceM: Double? = nil,
         backDistanceM: Double? = nil,
         frontPx: [Double]? = nil,
-        backPx: [Double]? = nil
+        backPx: [Double]? = nil,
+        outlinePx: [[Double]]? = nil
     ) {
         self.kind = kind
         self.label = label
@@ -66,6 +70,23 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
         self.backDistanceM = backDistanceM
         self.frontPx = frontPx
         self.backPx = backPx
+        self.outlinePx = outlinePx
+    }
+}
+
+extension WatchHazard {
+    /// The most outline points sent to the Watch per hazard (WatchConnectivity payload budget).
+    public static let maximumOutlinePoints = 40
+
+    /// A real hazard boundary thinned for the Watch: at most `maximumOutlinePoints` evenly spaced
+    /// vertices, rounded to 0.1 px. Fewer than three usable points is no outline.
+    public static func watchOutline(_ outlinePx: [[Double]]) -> [[Double]]? {
+        let points = outlinePx.filter { $0.count >= 2 && $0[0].isFinite && $0[1].isFinite }
+        guard points.count >= 3 else { return nil }
+        let step = max(1, Int((Double(points.count) / Double(maximumOutlinePoints)).rounded(.up)))
+        let kept = stride(from: 0, to: points.count, by: step).map { points[$0] }
+        guard kept.count >= 3 else { return nil }
+        return kept.map { [($0[0] * 10).rounded() / 10, ($0[1] * 10).rounded() / 10] }
     }
 }
 
@@ -94,6 +115,17 @@ public struct WatchCaddiePlanStep: Codable, Equatable {
     }
 }
 
+/// What a plan step's `routeOffsetM` is measured from. The two producers differ, so every plan
+/// says which one it carries instead of leaving a consumer to guess (Codex review on #367).
+public enum WatchRouteOffsetBasis: String, Codable, Equatable {
+    /// Metres along the whole hole route from the tee: course prep (`course_prep.py`) and the
+    /// Watch's own offline plans.
+    case tee
+    /// Metres from the decision origin, i.e. where the player stood when the live decision was
+    /// made (`decision.py` starts `travelled_m` at 0 for every decision).
+    case shot
+}
+
 /// One AI-caddie route on Watch. `clubName/carryM` remain the current-shot fallback; `plan` carries
 /// the complete route and p10/p90 carries measured longitudinal dispersion when available.
 public struct WatchCaddieOption: Codable, Equatable, Identifiable {
@@ -108,6 +140,14 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public let sampleSize: Int?
     public let plan: [WatchCaddiePlanStep]?
     public let confidence: String?
+    /// What `plan`'s route offsets are measured from; absent in payloads older than B6.
+    public let routeOffsetBasis: WatchRouteOffsetBasis?
+    /// The hole's shots this plan was made after, by event id: every location event (phone- or
+    /// Watch-recorded; a Watch shot keeps its eventId on the phone) that existed when the decision
+    /// was requested, or [] for a plan made before any shot. Written by the producer, never by the
+    /// Watch on arrival; the Watch counts its own location events outside this set as shots played
+    /// since the plan, so the two devices never compare local queue lengths.
+    public let originShotEventIds: [String]?
 
     public init(
         optionId: String,
@@ -118,7 +158,9 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         carryP90M: Double? = nil,
         sampleSize: Int? = nil,
         plan: [WatchCaddiePlanStep]? = nil,
-        confidence: String? = nil
+        confidence: String? = nil,
+        routeOffsetBasis: WatchRouteOffsetBasis? = nil,
+        originShotEventIds: [String]? = nil
     ) {
         self.optionId = optionId
         self.label = label
@@ -129,6 +171,8 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         self.sampleSize = sampleSize
         self.plan = plan
         self.confidence = confidence
+        self.routeOffsetBasis = routeOffsetBasis
+        self.originShotEventIds = originShotEventIds
     }
 }
 
@@ -442,6 +486,14 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let putts: Int
     public let penaltyCount: Int
     public let caddieConfidence: String
+    /// The hole's shots the phone holds as this snapshot is sent, by location event id (phone shots,
+    /// and Watch shots under their Watch ids). Separate from a decision's origin: a shot recorded
+    /// only on the phone after a decision still makes that decision stale.
+    public var phoneShotEventIds: [String]? = nil
+    /// Strictly increasing per phone (`WatchEventBridge.nextSnapshotRevision`): the Watch applies a
+    /// hole snapshot only if it is newer than the last one it applied, so a late (transferUserInfo)
+    /// snapshot never rolls back a newer decision or shot set.
+    public var snapshotRevision: Int64? = nil
 }
 
 public enum WatchEventBridgeError: Error {
@@ -550,14 +602,18 @@ public final class WatchEventBridge: NSObject {
         geometryCoverage: String? = nil,
         geometryRevision: String? = nil,
         caddieOptions: [WatchCaddieOption] = [],
-        hazards: [WatchHazard] = []
+        hazards: [WatchHazard] = [],
+        decisionOriginShotEventIds: [String]? = nil,
+        phoneShotEventIds: [String]? = nil
     ) -> WatchRoundStatePayload {
         let selected = selectedOption(from: decision)
         let offlineSelected = selectedOfflineOption(from: offlineOption)
         let selectedOptionId = string(selected?["id"]) ?? decision?.selectedOptionId ?? offlineSelected?.optionId
         let suggestedClub = clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]) ?? offlineSelected?.clubName
         let selectedSequence = selectedSequence(from: decision)
-        let resolvedCaddieOptions = caddieOptions.isEmpty ? makeWatchCaddieOptions(from: decision) : caddieOptions
+        let resolvedCaddieOptions = caddieOptions.isEmpty
+            ? makeWatchCaddieOptions(from: decision, originShotEventIds: decisionOriginShotEventIds)
+            : caddieOptions
         let tee = Self.teeCoordinate(package: package, hole: hole.number)
         return WatchRoundStatePayload(
             roundId: package.roundId,
@@ -626,8 +682,20 @@ public final class WatchEventBridge: NSObject {
             score: score,
             putts: putts,
             penaltyCount: penaltyCount,
-            caddieConfidence: confidenceLevel(from: decision, offlineOption: offlineSelected)
+            caddieConfidence: confidenceLevel(from: decision, offlineOption: offlineSelected),
+            phoneShotEventIds: phoneShotEventIds,
+            snapshotRevision: nextSnapshotRevision()
         )
+    }
+
+    private var lastSnapshotRevision: Int64 = 0
+
+    /// Milliseconds since 1970, bumped past the previous value: strictly increasing even for two
+    /// snapshots in the same millisecond, and still ahead after an app relaunch.
+    func nextSnapshotRevision(now: Date = Date()) -> Int64 {
+        let millis = Int64((now.timeIntervalSince1970 * 1000).rounded(.down))
+        lastSnapshotRevision = max(millis, lastSnapshotRevision + 1)
+        return lastSnapshotRevision
     }
 
     public func makeWatchRoundSeedPayload(
@@ -1249,7 +1317,11 @@ public final class WatchEventBridge: NSObject {
         return decision.sequences?.first
     }
 
-    public func makeWatchCaddieOptions(from decision: CaddieDecisionResponse?) -> [WatchCaddieOption] {
+    /// `originShotEventIds`: the hole's location event ids when `decision` was requested.
+    public func makeWatchCaddieOptions(
+        from decision: CaddieDecisionResponse?,
+        originShotEventIds: [String]? = nil
+    ) -> [WatchCaddieOption] {
         guard let decision else { return [] }
         let sequences = CaddiePlanSequence.sequences(from: decision)
         return CaddiePlanOption.options(from: decision).map { option in
@@ -1277,7 +1349,10 @@ public final class WatchEventBridge: NSObject {
                         planIndex: step.planIndex ?? index
                     )
                 },
-                confidence: sequence?.confidence ?? option.confidence
+                confidence: sequence?.confidence ?? option.confidence,
+                // Live decision offsets start at the player (decision.py).
+                routeOffsetBasis: .shot,
+                originShotEventIds: originShotEventIds
             )
         }
     }

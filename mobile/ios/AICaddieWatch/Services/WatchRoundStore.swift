@@ -69,6 +69,20 @@ public struct WatchGreenPlacement: Codable, Equatable {
 /// `OfflineStore` — it persists the per-hole `WatchRoundState` snapshots + a pending-event queue (not
 /// a full event-log-replay), which is enough for the watch to keep score on its own and sync up when
 /// it reaches the backend (via `WatchBackendClient`).
+/// The last phone snapshot applied to one hole: its revision and the phone's shots on that hole,
+/// by location event id. Round-owned durable state: kept across same-round seeds and relaunches.
+public struct WatchPhoneShotSet: Codable, Equatable {
+    public let hole: Int
+    public let eventIds: [String]
+    public let revision: Int64
+
+    public init(hole: Int, eventIds: [String], revision: Int64) {
+        self.hole = hole
+        self.eventIds = eventIds
+        self.revision = revision
+    }
+}
+
 public final class WatchRoundStore {
     public struct DeferredFinish: Codable, Equatable {
         public var round: PersistedRound
@@ -100,6 +114,9 @@ public final class WatchRoundStore {
         /// Round-scoped View Green choices. Optional keeps rounds written by older builds decodable.
         /// Terminal round closure removes the containing round, so these never leak into a new game.
         public var greenPlacements: [WatchGreenPlacement]?
+        /// Per hole, the phone's newest known shot set (`WatchRoundState.phoneShotEventIds`). Kept
+        /// here, not in the hole snapshot, so recording a Watch shot never drops it.
+        public var phoneShots: [WatchPhoneShotSet]?
 
         public init(
             roundId: String,
@@ -113,7 +130,8 @@ public final class WatchRoundStore {
             pendingManualShot: WatchPendingManualShot? = nil,
             pendingAutoShotCandidate: WatchPendingAutoShotCandidate? = nil,
             scoreDraft: WatchScoreDraft? = nil,
-            greenPlacements: [WatchGreenPlacement]? = nil
+            greenPlacements: [WatchGreenPlacement]? = nil,
+            phoneShots: [WatchPhoneShotSet]? = nil
         ) {
             self.roundId = roundId
             self.activeHole = activeHole
@@ -127,6 +145,7 @@ public final class WatchRoundStore {
             self.pendingAutoShotCandidate = pendingAutoShotCandidate
             self.scoreDraft = scoreDraft
             self.greenPlacements = greenPlacements
+            self.phoneShots = phoneShots
         }
     }
 
