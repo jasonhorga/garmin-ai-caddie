@@ -31,6 +31,18 @@ public struct WatchClubOption: Codable, Equatable, Identifiable {
     }
 }
 
+extension WatchHazard {
+    /// Mirrors the phone's thinning (`WatchEventBridge`): at most 40 evenly spaced vertices.
+    public static func watchOutline(_ outlinePx: [[Double]]) -> [[Double]]? {
+        let points = outlinePx.filter { $0.count >= 2 && $0[0].isFinite && $0[1].isFinite }
+        guard points.count >= 3 else { return nil }
+        let step = max(1, Int((Double(points.count) / 40.0).rounded(.up)))
+        let kept = stride(from: 0, to: points.count, by: step).map { points[$0] }
+        guard kept.count >= 3 else { return nil }
+        return kept.map { [($0[0] * 10).rounded() / 10, ($0[1] * 10).rounded() / 10] }
+    }
+}
+
 /// A measured hazard fact for the Watch. New payloads carry true front/back boundary pixels and
 /// straight-line tee distances; legacy bunker payloads may still contain only startM + sideM.
 public struct WatchHazard: Codable, Equatable, Identifiable {
@@ -47,6 +59,9 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
     public let backDistanceM: Double?
     public let frontPx: [Double]?
     public let backPx: [Double]?
+    /// The hazard's real boundary in topo pixels (README §1: the hazard page draws it as a thin red
+    /// line). Thinned on the phone; nil for legacy payloads and interval-only hazards.
+    public let outlinePx: [[Double]]?
 
     /// Older cached course packages used ordinal labels such as "沙坑 1". Keep the
     /// persisted fact untouched, but never surface that decoder-order label to a player.
@@ -67,7 +82,8 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
         frontDistanceM: Double? = nil,
         backDistanceM: Double? = nil,
         frontPx: [Double]? = nil,
-        backPx: [Double]? = nil
+        backPx: [Double]? = nil,
+        outlinePx: [[Double]]? = nil
     ) {
         self.kind = kind
         self.label = label
@@ -78,6 +94,7 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
         self.backDistanceM = backDistanceM
         self.frontPx = frontPx
         self.backPx = backPx
+        self.outlinePx = outlinePx
     }
 }
 

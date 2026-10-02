@@ -2858,7 +2858,8 @@ public struct CurrentHoleView: View {
                     frontDistanceM: detail.frontM,
                     backDistanceM: detail.backM,
                     frontPx: detail.frontPx,
-                    backPx: detail.backPx
+                    backPx: detail.backPx,
+                    outlinePx: WatchHazard.watchOutline(detail.outlinePx)
                 ))
             }
         } else {
@@ -2908,7 +2909,8 @@ public struct CurrentHoleView: View {
                     frontDistanceM: detail.frontM,
                     backDistanceM: detail.backM,
                     frontPx: detail.frontPx,
-                    backPx: detail.backPx
+                    backPx: detail.backPx,
+                    outlinePx: WatchHazard.watchOutline(detail.outlinePx)
                 ))
             }
         } else {

@@ -977,7 +977,7 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(view.distanceText, "999 码 · 等待定位")
     }
 
-    func testAutoShotIsOptInAndRejectedCandidateWritesNoShotEvent() {
+    func testAutoShotIsOptInAndAnUndoneShotWritesNoEvent() {
         var savedPreferences: [Bool] = []
         let model = seededModel(
             holes: [hole(1)],
@@ -1000,14 +1000,16 @@ final class WatchRoundModelTests: XCTestCase {
             horizontalAccuracyM: 5,
             capturedAt: "2026-07-26T12:00:00Z"
         ))
-        XCTAssertEqual(model.screen, .autoShotCandidate)
-        XCTAssertNotNil(model.pendingAutoShotCandidate)
-        XCTAssertTrue(model.round?.pendingEvents.isEmpty == true)
-
-        model.rejectAutoShotCandidate()
-
+        // README §3: no per-shot confirmation page — the shot waits in the bottom undo strip.
         XCTAssertEqual(model.screen, .home)
         XCTAssertNil(model.pendingAutoShotCandidate)
+        XCTAssertEqual(model.undoableShotText, "第 1 杆")
+        XCTAssertTrue(model.round?.pendingEvents.isEmpty == true)
+
+        model.undoPendingManualShot()
+
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNil(model.undoableShotText)
         XCTAssertTrue(model.round?.pendingEvents.isEmpty == true)
     }
 
@@ -1019,8 +1021,6 @@ final class WatchRoundModelTests: XCTestCase {
             horizontalAccuracyM: 5,
             capturedAt: "2026-07-26T12:00:00Z"
         ))
-
-        model.acceptAutoShotCandidate()
 
         XCTAssertNil(model.pendingAutoShotCandidate)
         XCTAssertEqual(model.screen, .home)
@@ -1034,9 +1034,9 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.recordedShotCount, 1)
     }
 
-    func testRejectedAutoShotCandidateRestoresOriginatingHoleMapAfterRelaunch() {
+    func testADetectedShotSurvivesARelaunchAsTheSameUndoableShot() {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("autoshot-map-reject-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("autoshot-map-restore-\(UUID().uuidString)", isDirectory: true)
         let first = WatchRoundModel(
             store: WatchRoundStore(directoryURL: directory),
             autoShotEnabled: true,
@@ -1050,16 +1050,16 @@ final class WatchRoundModelTests: XCTestCase {
             horizontalAccuracyM: 5,
             capturedAt: "2026-07-26T12:00:00Z"
         ))
+        XCTAssertEqual(first.screen, .holeMap, "no confirmation page over the map")
 
         let restored = WatchRoundModel(
             store: WatchRoundStore(directoryURL: directory),
             autoShotEnabled: true,
             persistAutoShotEnabled: { _ in }
         )
-        restored.rejectAutoShotCandidate()
 
-        XCTAssertEqual(restored.screen, .holeMap)
         XCTAssertNil(restored.pendingAutoShotCandidate)
+        XCTAssertEqual(restored.pendingManualShot?.hole, 1)
         XCTAssertTrue(restored.round?.pendingEvents.isEmpty == true)
     }
 
@@ -1073,7 +1073,6 @@ final class WatchRoundModelTests: XCTestCase {
             capturedAt: "2026-07-26T12:00:00Z"
         ))
 
-        model.acceptAutoShotCandidate()
         XCTAssertEqual(model.screen, .holeMap, "B6: no club prompt; the shot waits in its undo window")
         XCTAssertEqual(model.undoableShotText, "第 1 杆")
         model.completePendingManualShot(clubName: nil)
@@ -1082,7 +1081,7 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.round?.pendingEvents.map(\.kind), [.location])
     }
 
-    func testAutoShotCandidateRestoresWithoutBecomingARecordedShot() {
+    func testAutoShotRestoresWithoutBecomingARecordedShotOrAPage() {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("autoshot-restore-\(UUID().uuidString)", isDirectory: true)
         let first = WatchRoundModel(
@@ -1105,11 +1104,12 @@ final class WatchRoundModelTests: XCTestCase {
         )
 
         XCTAssertEqual(restored.screen, .resume)
-        XCTAssertEqual(restored.pendingAutoShotCandidate?.capturedAt, "2026-07-26T12:00:00Z")
+        XCTAssertNil(restored.pendingAutoShotCandidate)
         XCTAssertTrue(restored.round?.pendingEvents.isEmpty == true)
 
         restored.resumeRound()
-        XCTAssertEqual(restored.screen, .autoShotCandidate)
+        XCTAssertNotEqual(restored.screen, .autoShotCandidate)
+        XCTAssertEqual(restored.undoableShotText, "第 1 杆")
     }
 
     func testAcceptedAutoShotAtNextTeeReusesPreviousHoleConfirmation() {
@@ -1158,6 +1158,32 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.scoringHole, 1)
         XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: east120, horizontalAccuracyM: 5),
                        "the hole ends once")
+    }
+
+    func testAHoleEndReportedWhileTheMenuIsOpenIsNotLost() {
+        let east120 = 116.0 + 120 / (111_195.0 * cos(40.0 * .pi / 180))
+        let east45 = 116.0 + 45 / (111_195.0 * cos(40.0 * .pi / 180))
+        let east60 = 116.0 + 60 / (111_195.0 * cos(40.0 * .pi / 180))
+        let first = WatchRoundState(
+            roundId: "r1", hole: 1, par: 4, distanceM: nil,
+            teeLatitude: 39.997, teeLongitude: 116.0, selectedClub: nil,
+            centerGreenLat: 40.0, centerGreenLon: 116.0,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let model = seededModel(holes: [first, hole(2, teeLatitude: 40.0, teeLongitude: east120)])
+        XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 4), "on the green")
+        model.openMenu()
+        // The detector fires exactly once, while the menu is up: nothing opens over the menu…
+        XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: east45, horizontalAccuracyM: 5))
+        XCTAssertEqual(model.screen, .menu)
+        XCTAssertEqual(model.pendingHoleEnd, 1)
+        // …and the next fix after the menu closes opens 本洞成绩 instead of losing the trigger.
+        model.backToHome()
+        XCTAssertTrue(model.observeLocation(latitude: 40.0, longitude: east60, horizontalAccuracyM: 5))
+        XCTAssertEqual(model.screen, .scoring)
+        XCTAssertEqual(model.scoringHole, 1)
+        XCTAssertNil(model.pendingHoleEnd)
+        XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: east120, horizontalAccuracyM: 5), "still once")
     }
 
     func testAHoleWithoutGreenCoordinatesHasNoGPSHoleEnd() {

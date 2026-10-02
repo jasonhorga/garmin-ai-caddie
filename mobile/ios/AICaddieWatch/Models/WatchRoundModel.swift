@@ -1008,11 +1008,9 @@ public final class WatchRoundModel: ObservableObject {
             draftFairway = nil
             scoreFlowStep = .recommendation
             advanceAfterScoring = true
-            if pendingAutoShotCandidate != nil {
-                screen = .autoShotCandidate
-            } else {
-                screen = .home
-            }
+            screen = .home
+            // A candidate persisted by an older build becomes the same undoable shot, never a page.
+            if pendingAutoShotCandidate != nil { acceptAutoShotCandidate() }
             return
         }
 
@@ -1105,6 +1103,10 @@ public final class WatchRoundModel: ObservableObject {
 
     /// The active hole's 洞结束 detector, rebuilt whenever the active hole changes.
     private var holeEndDetector: (hole: Int, detector: WatchHoleEndDetector)?
+    /// A hole end the detector reported (once) while the model could not open scoring yet — a menu
+    /// or a pending shot on screen. It is kept and consumed on the next fix that can take it, so
+    /// the one-shot trigger is never lost.
+    private(set) var pendingHoleEnd: Int?
 
     /// Feed every live fix. Once the player has been on the green and walks more than 25 m off it
     /// toward the next tee, an unscored hole opens 本洞成绩 (README §3); the other trigger is the next
@@ -1119,12 +1121,27 @@ public final class WatchRoundModel: ObservableObject {
             }
         }
         guard var entry = holeEndDetector else { return false }
-        let ended = entry.detector.observe(
+        if entry.detector.observe(
             latitude: latitude, longitude: longitude, horizontalAccuracyM: horizontalAccuracyM
-        )
+        ) {
+            pendingHoleEnd = hole.hole
+        }
         holeEndDetector = entry
-        guard ended, hole.score == 0, scoringHole == nil, pendingManualShot == nil,
-              pendingAutoShotCandidate == nil, screen == .home || screen == .holeMap else { return false }
+        return consumePendingHoleEnd()
+    }
+
+    /// Open 本洞成绩 for a reported hole end once nothing else is on screen. A hole that was scored
+    /// meanwhile (or is no longer active) drops the trigger.
+    @discardableResult
+    func consumePendingHoleEnd() -> Bool {
+        guard let ended = pendingHoleEnd else { return false }
+        guard let hole = activeHoleState, hole.hole == ended, hole.score == 0, scoringHole == nil else {
+            pendingHoleEnd = nil
+            return false
+        }
+        guard pendingManualShot == nil, pendingAutoShotCandidate == nil,
+              screen == .home || screen == .holeMap else { return false }
+        pendingHoleEnd = nil
         startScoringActiveHole()
         return true
     }
@@ -1150,8 +1167,10 @@ public final class WatchRoundModel: ObservableObject {
         }
     }
 
-    /// Stage a detector observation without creating a shot event. Returns true only when the candidate
-    /// became the active user decision, allowing the caller to play one haptic and suppress duplicates.
+    /// A detected swing (README §3): no per-shot confirmation page. It goes straight into the same
+    /// undoable pending shot as a manual one — the caller plays one haptic and the bottom strip
+    /// shows 第 N 杆 for `shotUndoSeconds`, tap to undo — and is recorded when that window ends.
+    /// Returns true when a shot was staged, so duplicates are suppressed.
     @discardableResult
     public func proposeAutoShotCandidate(
         latitude: Double,
@@ -1171,13 +1190,13 @@ public final class WatchRoundModel: ObservableObject {
                   longitude: longitude,
                   horizontalAccuracyM: horizontalAccuracyM
               ) else { return false }
-        pendingAutoShotCandidate = WatchPendingAutoShotCandidate(
-            location: location,
+        beginManualShot(
+            latitude: location.latitude,
+            longitude: location.longitude,
+            horizontalAccuracyM: location.horizontalAccuracyM,
             capturedAt: capturedAt,
-            resumeHoleMap: screen == .holeMap ? true : nil
+            resumeHoleMap: screen == .holeMap
         )
-        screen = .autoShotCandidate
-        persistInteractionState()
         return true
     }
 

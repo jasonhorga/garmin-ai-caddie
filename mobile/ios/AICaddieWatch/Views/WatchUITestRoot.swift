@@ -49,7 +49,9 @@ public struct WatchUITestRoot: View {
              "standalone-course-pin-touch-target",
              "standalone-course-caddie", "standalone-course-hazards",
              "standalone-course-last-shot", "standalone-course-caddie-last-shot",
-             "standalone-course-live-home":
+             "standalone-course-live-home",
+             "standalone-course-page-plan", "standalone-course-page-plan-measure",
+             "standalone-course-page-hazard-zoomed", "standalone-course-page-green-zoomed":
             standaloneCourseRound
         case "real-course-download-seed", "real-course-download-restore",
              "real-course-download-caddie",
@@ -204,8 +206,6 @@ public struct WatchUITestRoot: View {
                 canRecordShot: true
             )
             .overlay(alignment: .bottom) { WatchShotUndoStrip(text: "第 2 杆") }
-        case "autoshot-candidate":
-            WatchAutoShotCandidateView()
         case "gps-acquiring":
             WatchGPSAcquiringView()
         case "finish", "finish-actions":
@@ -342,7 +342,9 @@ public struct WatchUITestRoot: View {
                     initialSelectedHazardID: screen == "standalone-course-hazards"
                         ? model.activeHoleState?.hazards.first?.id
                         : nil,
-                    measuredPxOverride: screen == "standalone-course-touch-target"
+                    measuredPxOverride: screen == "standalone-course-page-plan-measure"
+                        ? Self.standalonePlanMeasurePx
+                        : screen == "standalone-course-touch-target"
                         || screen == "standalone-course-pin-touch-target"
                         ? (screen == "standalone-course-pin-touch-target"
                             ? Self.standaloneMovedPinTouchTargetReviewPx
@@ -354,10 +356,15 @@ public struct WatchUITestRoot: View {
                         : nil,
                     initialGreenZoomScaleOverride: screen == "standalone-course-view-green-max"
                         ? Double(WatchHoleZoom.range.upperBound)
-                        : 1,
+                        : (screen == "standalone-course-page-green-zoomed" ? 3 : 1),
                     initialGreenRotationOverride: screen == "standalone-course-view-green-rotated"
                         ? 35
-                        : nil
+                        : nil,
+                    // B6: the production 本洞 pages (方案 / 障碍 / 果岭) with their page dots.
+                    initialHolePage: Self.standaloneHolePage(for: screen),
+                    initialHazardViewport: screen == "standalone-course-page-hazard-zoomed"
+                        ? WatchHoleViewport(zoom: 2, pan: CGSize(width: 10, height: -14))
+                        : WatchHoleViewport()
                 )
             } else {
                 Text("offline course restore unavailable")
@@ -404,9 +411,23 @@ public struct WatchUITestRoot: View {
                 model.openCaddie()
             } else if screen == "standalone-course-live-home" {
                 model.backToHome()
+            } else if screen.hasPrefix("standalone-course-page-") {
+                installStandaloneFixtureRound()
+                model.backToHome()
             }
         }
     }
+
+    private static func standaloneHolePage(for screen: String) -> Int {
+        switch screen {
+        case "standalone-course-page-hazard-zoomed": return 1
+        case "standalone-course-page-green-zoomed": return 2
+        default: return 0
+        }
+    }
+
+    /// A fairway point between the lay-up and the green for the 方案 page measure evidence.
+    private static let standalonePlanMeasurePx = CGPoint(x: 520, y: 470)
 
     /// DEBUG-only live evidence: exercise the same production Watch course library against a real
     /// backend, then prove a second process can start the exact cached selection without config.
@@ -1974,7 +1995,15 @@ public struct WatchUITestRoot: View {
             WatchHazard(
                 kind: "bunker", label: "右侧果岭沙坑", startM: 480, endM: 500,
                 frontDistanceM: 480, backDistanceM: 500,
-                frontPx: [498, 317], backPx: [493, 296]
+                frontPx: [498, 317], backPx: [493, 296],
+                // The bunker's real boundary (thin red outline on the 障碍 page).
+                outlinePx: [[498, 317], [506, 311], [509, 302], [503, 295], [493, 296], [487, 303], [489, 312]]
+            ),
+            WatchHazard(
+                kind: "water", label: "前方水障碍", startM: 330, endM: 372,
+                frontDistanceM: 330, backDistanceM: 372,
+                frontPx: [522, 528], backPx: [508, 468],
+                outlinePx: [[522, 528], [531, 516], [528, 494], [519, 474], [508, 468], [499, 478], [501, 503], [510, 522]]
             ),
         ],
         score: 0,

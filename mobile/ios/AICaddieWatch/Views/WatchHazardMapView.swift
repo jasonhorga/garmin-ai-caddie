@@ -146,6 +146,22 @@ enum WatchHazardMapLayout {
         point(hazard.backPx) ?? alongRouteEndMetres(for: hazard).flatMap { imagePoint(on: route, atMetres: $0) }
     }
 
+    /// The hazard's real boundary in image pixels (empty for legacy payloads without one).
+    static func outline(_ hazard: WatchHazard) -> [CGPoint] {
+        (hazard.outlinePx ?? []).compactMap { point($0) }
+    }
+
+    /// Yards from the player to one hazard edge: straight to the boundary pixel when known, else
+    /// along the route from the player's progress. Nil outside the useful golf range.
+    static func edgeYards(
+        hazard: WatchHazard, edge: CGPoint, metres: Double,
+        player: CGPoint, progress: Double, route: [[Double]]
+    ) -> Int? {
+        let yards = distanceYards(from: player, to: edge, on: route)
+            ?? remainingYards(to: metres, after: progress)
+        return yards.flatMap { WatchGeoMath.usefulGolfYards($0) }
+    }
+
     private static func valid(_ row: [Double]) -> Bool {
         row.count >= 3 && row[0].isFinite && row[1].isFinite && row[2].isFinite
     }
@@ -331,62 +347,57 @@ public struct WatchHazardMapView: View {
             )
         }
 
-        let tint = hazard.kind == "water"
-            ? Color(red: 0.20, green: 0.68, blue: 1.0)
-            : Color(red: 1.0, green: 0.31, blue: 0.24)
-        let hasFrontBack = hazard.kind == "water" || WatchHazardMapLayout.hasMeasuredFrontBack(hazard)
+        // README §1 唯一规范 (IMG-8050 / IMG-7959): one hazard, its REAL boundary as a thin red line,
+        // the front / back as small red dots (no white ring, no thick frame) and compact black
+        // "前 N / 后 N" labels.
+        let red = Color(red: 1.0, green: 0.23, blue: 0.19)
         let frontPoint = WatchHazardMapLayout.frontImagePoint(for: hazard, on: route)
         let backPoint = WatchHazardMapLayout.backImagePoint(for: hazard, on: route)
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
 
-        // Precise packages bind both points to the real obstacle boundary. The topo already shows
-        // the bunker/water body, so mark only its near and far edges; a connecting stroke falsely
-        // reads as measured geometry running through the obstacle.
-        if WatchHazardMapLayout.point(hazard.frontPx) != nil,
-           WatchHazardMapLayout.point(hazard.backPx) != nil,
-           let frontPoint,
-           let backPoint {
-            for point in [canvas(frontPoint), canvas(backPoint)] {
-                let radius: CGFloat = 2.7
-                let marker = Path(ellipseIn: CGRect(
-                    x: point.x - radius,
-                    y: point.y - radius,
-                    width: radius * 2,
-                    height: radius * 2
-                ))
-                context.fill(marker, with: .color(tint.opacity(0.96)))
-                context.stroke(
-                    marker,
-                    with: .color(.white.opacity(0.9)),
-                    style: StrokeStyle(lineWidth: 0.65)
-                )
-            }
+        let outline = WatchHazardMapLayout.outline(hazard)
+        if outline.count >= 3 {
+            var path = Path()
+            path.addLines(outline.map(canvas))
+            path.closeSubpath()
+            context.stroke(path, with: .color(red), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
         }
 
-        let edges: [(Double, CGPoint?, CGFloat)] = hasFrontBack
-            ? [(startMetres, frontPoint, 9), (endMetres, backPoint, -9)]
-            : [(startMetres, frontPoint, 0)]
-        for (metres, imagePoint, verticalOffset) in edges {
-            guard let imagePoint else {
-                continue
-            }
-            let yards = WatchHazardMapLayout.distanceYards(
-                from: geometry.youPx, to: imagePoint, on: route
-            ) ?? WatchHazardMapLayout.remainingYards(to: metres, after: playerProgressMetres)
-            guard let yards = WatchGeoMath.usefulGolfYards(yards) else { continue }
+        let hasFrontBack = hazard.kind == "water" || WatchHazardMapLayout.hasMeasuredFrontBack(hazard)
+        let edges: [(String, Double, CGPoint?)] = hasFrontBack
+            ? [("前", startMetres, frontPoint), ("后", endMetres, backPoint)]
+            : [("前", startMetres, frontPoint)]
+        for (prefix, metres, imagePoint) in edges {
+            guard let imagePoint else { continue }
             let point = canvas(imagePoint)
-            let labelPoint = CGPoint(
-                x: min(max(point.x, safeRect.minX + 17), safeRect.maxX - 17),
-                y: min(max(point.y + verticalOffset, safeRect.minY + 30), safeRect.maxY - 12)
+            let radius: CGFloat = 2.6
+            context.fill(
+                Path(ellipseIn: CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)),
+                with: .color(red)
             )
-            context.draw(
-                context.resolve(
-                    Text("\(yards)")
-                        .font(.system(size: 16, weight: .black, design: .rounded))
-                        .foregroundColor(.white)
-                ),
-                at: labelPoint
+            guard let yards = WatchHazardMapLayout.edgeYards(
+                hazard: hazard, edge: imagePoint, metres: metres,
+                player: geometry.youPx, progress: playerProgressMetres, route: route
+            ) else { continue }
+            let label = context.resolve(
+                Text("\(prefix) \(yards)")
+                    .font(.system(size: 11, weight: .heavy, design: .rounded))
+                    .foregroundColor(.white)
             )
+            let textSize = label.measure(in: CGSize(width: 80, height: 20))
+            let box = CGSize(width: textSize.width + 8, height: textSize.height + 3)
+            // Beside the dot (front below-left, back above-right), kept inside the round display.
+            let raw = CGPoint(
+                x: point.x + (prefix == "前" ? -(box.width / 2 + 6) : box.width / 2 + 6),
+                y: point.y + (prefix == "前" ? 8 : -8)
+            )
+            let center = CGPoint(
+                x: min(max(raw.x, safeRect.minX + box.width / 2), safeRect.maxX - box.width / 2),
+                y: min(max(raw.y, safeRect.minY + 40), safeRect.maxY - box.height / 2)
+            )
+            let rect = CGRect(x: center.x - box.width / 2, y: center.y - box.height / 2, width: box.width, height: box.height)
+            context.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(.black.opacity(0.82)))
+            context.draw(label, at: center)
         }
     }
 
@@ -396,13 +407,33 @@ public struct WatchHazardMapView: View {
             VStack {
                 HStack(spacing: 4) {
                     WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
+                    // A compact black backing keeps the title readable when the player dot or the
+                    // outline sits under it.
                     Text(shortHazardTitle(hazard))
-                        .font(.system(size: 18, weight: .black))
+                        .font(.system(size: 17, weight: .black))
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 6))
                     Spacer(minLength: WatchHazardMapLayout.systemTimeTrailingClearance)
                 }
                 .padding(.leading, safeInset)
+                // 左侧大数字 = 到前沿 (README §3).
+                if let front = frontYards(hazard) {
+                    HStack {
+                        Text("\(front)")
+                            .font(.system(size: 34, weight: .black, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 8))
+                            .accessibilityLabel("到前沿 \(front) 码")
+                            .accessibilityIdentifier("watch-hazard-front-yards")
+                        Spacer()
+                    }
+                    .padding(.leading, safeInset)
+                }
                 Spacer()
                 if upcoming.count > 1 {
                     Button(action: selectNextHazard) {
@@ -425,6 +456,15 @@ public struct WatchHazardMapView: View {
         }
     }
 
+    private func frontYards(_ hazard: WatchHazard) -> Int? {
+        guard let front = WatchHazardMapLayout.frontImagePoint(for: hazard, on: route) else { return nil }
+        return WatchHazardMapLayout.edgeYards(
+            hazard: hazard, edge: front,
+            metres: hazard.startM ?? WatchHazardMapLayout.alongRouteEndMetres(for: hazard) ?? playerProgressMetres,
+            player: geometry.youPx, progress: playerProgressMetres, route: route
+        )
+    }
+
     private func shortHazardTitle(_ hazard: WatchHazard) -> String {
         if hazard.kind == "water" { return "水障碍" }
         return "沙坑"
@@ -433,7 +473,7 @@ public struct WatchHazardMapView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
-            Text("前方没有可用障碍")
+            Text("前方无障碍")
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(.secondary)
         }

@@ -1,6 +1,15 @@
 import SwiftUI
 
 enum WatchScoreHoleLayout {
+    /// The band follows the dominant drag axis: left/right, or up/down (up = more strokes).
+    static func bandTravel(_ translation: CGSize) -> CGFloat {
+        abs(translation.width) >= abs(translation.height) ? translation.width : -translation.height
+    }
+
+    static func bandSteps(_ translation: CGSize) -> Int {
+        Int((-bandTravel(translation) / bandStepPoints).rounded())
+    }
+
     /// watchOS owns the top-right corner for the system clock. Keep the score title inside the
     /// remaining glance area so it never reads as one string with the time (for example Par 42:04).
     static let systemTimeTrailingClearance: CGFloat = 48
@@ -8,6 +17,33 @@ enum WatchScoreHoleLayout {
     static let bandStepPoints: CGFloat = 28
     /// Vertical drag distance for one step on an open putts / penalties wheel.
     static let wheelStepPoints: CGFloat = 22
+    /// Below this content height (41 mm / 40 mm) the compact metrics are used so every row — the
+    /// 保存 button included — stays fully on screen and tappable.
+    static let compactHeight: CGFloat = 236
+
+    struct Metrics: Equatable {
+        let header: CGFloat
+        let bandFont: CGFloat
+        let band: CGFloat
+        let chip: CGFloat
+        let cell: CGFloat
+        let save: CGFloat
+        let spacing: CGFloat
+
+        static let regular = Metrics(header: 32, bandFont: 48, band: 54, chip: 36, cell: 28, save: 38, spacing: 4)
+        static let compact = Metrics(header: 24, bandFont: 38, band: 42, chip: 28, cell: 24, save: 32, spacing: 2)
+    }
+
+    static func metrics(forHeight height: CGFloat) -> Metrics {
+        height < compactHeight ? .compact : .regular
+    }
+
+    /// Total height the one-screen layout needs (header, band + note, chips, cells, 保存).
+    static func requiredHeight(_ m: Metrics, showsFairway: Bool) -> CGFloat {
+        let note: CGFloat = 15
+        let rows: [CGFloat] = [m.header, m.band + note, m.chip] + (showsFairway ? [m.cell] : []) + [m.save]
+        return rows.reduce(0, +) + m.spacing * CGFloat(rows.count) + 3 + 7
+    }
 }
 
 /// Which inline wheel is open on 本洞成绩.
@@ -78,28 +114,29 @@ public struct WatchScoreHoleView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 4) {
-            header
-            if let openWheel {
-                wheel(openWheel)
-            } else {
-                scoreBand
+        GeometryReader { proxy in
+            let m = WatchScoreHoleLayout.metrics(forHeight: proxy.size.height)
+            VStack(spacing: m.spacing) {
+                header(m)
+                scoreBand(m)
+                // 推 / 罚 open IN PLACE over their own chip (README §3: 原地上下滚，不弹单独页面);
+                // the band, the other chip and the tee cells stay where they are.
                 HStack(spacing: 6) {
-                    wheelChip(.putts)
-                    wheelChip(.penalty)
+                    wheelChip(.putts, m)
+                    wheelChip(.penalty, m)
                 }
+                .zIndex(1)
                 if par != 3 {
-                    fairwayCells
+                    fairwayCells(m)
                 }
+                Spacer(minLength: 0)
+                saveButton(m)
             }
-            Spacer(minLength: 0)
-            saveButton
+            .padding(.horizontal, WatchDisplayGeometry.minimumContentInset)
+            .padding(.top, 3)
+            .padding(.bottom, 7)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
         }
-        .padding(.horizontal, WatchDisplayGeometry.minimumContentInset)
-        .padding(.top, 3)
-        .padding(.bottom, 7)
-        // Padding must participate in the proposed Watch content size (see the 45 mm runtime).
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // The title already reserves the top-right clock lane.
         .ignoresSafeArea(edges: .top)
         .focusable()
@@ -138,15 +175,13 @@ public struct WatchScoreHoleView: View {
         }
     }
 
-    private var header: some View {
+    private func header(_ m: WatchScoreHoleLayout.Metrics) -> some View {
         HStack(spacing: 5) {
             Button(action: onCancel) {
                 Image(systemName: "chevron.backward")
                     .font(.system(size: 17, weight: .black))
-                    .frame(width: WatchDisplayGeometry.instrumentVisualControlSize,
-                           height: WatchDisplayGeometry.instrumentVisualControlSize)
-                    .frame(width: WatchDisplayGeometry.instrumentControlSize,
-                           height: WatchDisplayGeometry.instrumentControlSize)
+                    .frame(width: m.header, height: m.header)
+                    .contentShape(Rectangle().inset(by: -8))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("取消记分")
@@ -157,17 +192,18 @@ public struct WatchScoreHoleView: View {
                 .layoutPriority(1)
             Spacer(minLength: WatchScoreHoleLayout.systemTimeTrailingClearance)
         }
+        .frame(height: m.header)
     }
 
     // MARK: 总杆 band
 
-    private var scoreBand: some View {
+    private func scoreBand(_ m: WatchScoreHoleLayout.Metrics) -> some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 0) {
                 ForEach(-2...2, id: \.self) { offset in
                     let value = score + offset
                     Text(WatchScoreRules.scoreRange.contains(value) ? "\(value)" : "")
-                        .font(.system(size: offset == 0 ? 50 : (abs(offset) == 1 ? 24 : 16),
+                        .font(.system(size: offset == 0 ? m.bandFont : (abs(offset) == 1 ? m.bandFont * 0.48 : m.bandFont * 0.32),
                                       weight: .black, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(.white.opacity(offset == 0 ? 1 : (abs(offset) == 1 ? 0.45 : 0.2)))
@@ -176,14 +212,15 @@ public struct WatchScoreHoleView: View {
                 }
             }
             .offset(x: bandDrag)
-            .frame(height: 58)
+            .frame(height: m.band)
             .contentShape(Rectangle())
             .gesture(
+                // Left/right like the band itself, and up/down too (README §3: 上下拖也可).
                 DragGesture(minimumDistance: 6)
-                    .onChanged { bandDrag = $0.translation.width }
+                    .onChanged { bandDrag = WatchScoreHoleLayout.bandTravel($0.translation) }
                     .onEnded { value in
-                        let steps = Int((-value.translation.width / WatchScoreHoleLayout.bandStepPoints).rounded())
                         bandDrag = 0
+                        let steps = WatchScoreHoleLayout.bandSteps(value.translation)
                         if steps != 0 { onScore(score + steps) }
                     }
             )
@@ -211,48 +248,56 @@ public struct WatchScoreHoleView: View {
 
     // MARK: 推 / 罚 wheels
 
-    private func wheelChip(_ wheel: WatchScoreWheel) -> some View {
-        Button {
-            withAnimation(.easeOut(duration: 0.2)) { openWheel = wheel }
+    private func wheelChip(_ wheel: WatchScoreWheel, _ m: WatchScoreHoleLayout.Metrics) -> some View {
+        let value = wheel == .putts ? putts : penalty
+        let isOpen = openWheel == wheel
+        return Button {
+            withAnimation(.easeOut(duration: 0.2)) { openWheel = isOpen ? nil : wheel }
         } label: {
             HStack(spacing: 4) {
                 Text(wheel == .putts ? "推" : "罚")
                     .font(.system(size: 14, weight: .heavy))
                     .foregroundStyle(.secondary)
-                Text("\(wheel == .putts ? putts : penalty)")
-                    .font(.system(size: 22, weight: .black, design: .rounded))
+                Text("\(value)")
+                    .font(.system(size: m.chip * 0.58, weight: .black, design: .rounded))
                     .monospacedDigit()
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 38)
+            .frame(height: m.chip)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.2)))
+            .opacity(isOpen ? 0 : 1)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(wheel == .putts ? "推杆" : "罚杆") \(wheel == .putts ? putts : penalty)")
+        .overlay {
+            // The wheel rolls in place over its chip: the neighbours above and below spill over
+            // the band / tee cells while it is open, and it folds back once left alone.
+            if isOpen { inlineWheel(wheel, m) }
+        }
+        .accessibilityLabel("\(wheel == .putts ? "推杆" : "罚杆") \(value)")
         .accessibilityIdentifier("watch-score-\(wheel.rawValue)")
     }
 
-    private func wheel(_ wheel: WatchScoreWheel) -> some View {
+    private func inlineWheel(_ wheel: WatchScoreWheel, _ m: WatchScoreHoleLayout.Metrics) -> some View {
         let range = wheel == .putts ? WatchScoreRules.puttRange : WatchScoreRules.penaltyRange
         let value = wheel == .putts ? putts : penalty
         return VStack(spacing: 0) {
-            Text(wheel == .putts ? "推杆" : "罚杆")
-                .font(.system(size: 13, weight: .heavy))
-                .foregroundStyle(.secondary)
             ForEach(-1...1, id: \.self) { offset in
                 Text("\(WatchScoreRules.wrap(value + offset, in: range))")
-                    .font(.system(size: offset == 0 ? 44 : 22, weight: .black, design: .rounded))
+                    .font(.system(size: offset == 0 ? m.chip * 0.72 : m.chip * 0.42, weight: .black, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(.white.opacity(offset == 0 ? 1 : 0.35))
+                    .foregroundStyle(.white.opacity(offset == 0 ? 1 : 0.4))
                     .frame(maxWidth: .infinity)
-                    .frame(height: offset == 0 ? 52 : 28)
+                    .frame(height: offset == 0 ? m.chip : m.chip * 0.62)
             }
-            Text("总杆 \(score)")
-                .font(.system(size: 12, weight: .bold))
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
         }
         .offset(y: wheelDrag)
+        .frame(height: m.chip * 2.24)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(white: 0.16))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(AICaddieDesignTokens.par, lineWidth: 1.5))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 4)
@@ -273,21 +318,21 @@ public struct WatchScoreHoleView: View {
 
     // MARK: 开球三格
 
-    private var fairwayCells: some View {
+    private func fairwayCells(_ m: WatchScoreHoleLayout.Metrics) -> some View {
         HStack(spacing: 5) {
-            fairwayCell("左", .left)
-            fairwayCell("中", .hit)
-            fairwayCell("右", .right)
+            fairwayCell("左", .left, m)
+            fairwayCell("中", .hit, m)
+            fairwayCell("右", .right, m)
         }
     }
 
-    private func fairwayCell(_ label: String, _ result: WatchFairwayResult) -> some View {
+    private func fairwayCell(_ label: String, _ result: WatchFairwayResult, _ m: WatchScoreHoleLayout.Metrics) -> some View {
         Button { onFairway(result) } label: {
             Text(label)
                 .font(.system(size: 15, weight: .black))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
-                .frame(height: 30)
+                .frame(height: m.cell)
                 .background(
                     RoundedRectangle(cornerRadius: 10)
                         .fill(fairway == result ? AICaddieDesignTokens.par : Color.white.opacity(0.2))
@@ -299,7 +344,7 @@ public struct WatchScoreHoleView: View {
         .accessibilityIdentifier("watch-score-fairway-\(result.rawValue)")
     }
 
-    private var saveButton: some View {
+    private func saveButton(_ m: WatchScoreHoleLayout.Metrics) -> some View {
         Button(action: onSave) {
             Text("保存 \(score) 杆")
                 .font(.system(size: 17, weight: .black))
@@ -309,7 +354,7 @@ public struct WatchScoreHoleView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .buttonStyle(.plain)
-        .frame(height: 40)
+        .frame(height: m.save)
         .background(Capsule().fill(AICaddieDesignTokens.par))
         .accessibilityIdentifier("watch-score-save")
     }

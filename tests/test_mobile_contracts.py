@@ -5343,5 +5343,39 @@ class EffectiveClubProfileContractTests(unittest.TestCase):
             self.assertIn("package.effectiveClubProfiles", path.read_text(encoding="utf-8"))
 
 
+class WatchHolePagesContractTests(unittest.TestCase):
+    """B6 本洞 contract (README §3, Codex review on #367)."""
+
+    WATCH = Path("mobile") / "ios" / "AICaddieWatch"
+
+    def read(self, relative: str) -> str:
+        return (self.WATCH / relative).read_text(encoding="utf-8")
+
+    def test_three_fixed_pages_and_no_per_shot_confirmation(self) -> None:
+        container = self.read("Views/WatchRoundContainerView.swift")
+        pages = container[container.index("private func holePages("):]
+        pages = pages[: pages.index(".tabViewStyle(.verticalPage)")]
+        self.assertEqual(pages.count(".tag("), 3)
+        self.assertNotIn("hazardDetailAvailable", pages, "the hazard page never disappears")
+        self.assertIn("前方无障碍", self.read("Views/WatchHazardMapView.swift"))
+        self.assertFalse((self.WATCH / "Views" / "WatchAutoShotCandidateView.swift").exists())
+        model = self.read("Models/WatchRoundModel.swift")
+        propose = model[model.index("public func proposeAutoShotCandidate("):]
+        propose = propose[: propose.index("public func rejectAutoShotCandidate")]
+        self.assertNotIn("screen = .autoShotCandidate", propose)
+        self.assertIn("beginManualShot(", propose)
+
+    def test_whole_plan_real_outline_and_crown_only_zooms(self) -> None:
+        self.assertIn("planLegs: planLegs(s, geometry: geometry)", self.read("Views/WatchRoundContainerView.swift"))
+        hazard = self.read("Views/WatchHazardMapView.swift")
+        self.assertIn("WatchHazardMapLayout.outline(hazard)", hazard)
+        self.assertNotIn("with: .color(.white.opacity(0.9))", hazard, "no white ring around the edge dots")
+        self.assertIn("outlinePx: WatchHazard.watchOutline(detail.outlinePx)",
+                      (Path("mobile") / "ios" / "AICaddie" / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8"))
+        green = self.read("Views/WatchGreenPreviewView.swift")
+        self.assertIn("rotatesGreen: false", green)
+        self.assertNotIn("rotatesGreen.toggle()", green)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -238,6 +238,8 @@ jobs:
           capture_compact standalone-course-pin-touch-target compact-41mm-pin-touch-target.png
           capture_compact standalone-course-caddie compact-41mm-caddie.png
           capture_compact standalone-course-hazards compact-41mm-hazard.png
+          capture_compact standalone-course-page-plan compact-41mm-page-plan.png
+          capture_compact standalone-course-page-hazard-zoomed compact-41mm-page-hazard-zoomed.png
           capture_compact menu compact-41mm-menu.png
           capture_compact compact-score-fairway compact-41mm-score-fairway.png
           capture_compact compact-shot-undo compact-41mm-shot-undo.png
@@ -599,6 +601,12 @@ jobs:
           # The same persisted production hole state drives the shallow caddie and hazard surfaces.
           launch_and_capture standalone-course-caddie watch-standalone-course-caddie.png
           launch_and_capture standalone-course-hazards watch-standalone-course-hazards.png
+          # B6 本洞: the production three pages (page dots on the right) — the whole plan, the plan
+          # under a measurement, the hazard page zoomed on a real outline, and the green zoomed.
+          launch_and_capture standalone-course-page-plan watch-standalone-page-plan.png
+          launch_and_capture standalone-course-page-plan-measure watch-standalone-page-plan-measure.png
+          launch_and_capture standalone-course-page-hazard-zoomed watch-standalone-page-hazard-zoomed.png
+          launch_and_capture standalone-course-page-green-zoomed watch-standalone-page-green-zoomed.png
           # A recorded shot origin plus a later Watch fix drives the same live distance on both surfaces.
           launch_and_capture standalone-course-last-shot watch-standalone-course-last-shot.png
           launch_and_capture standalone-course-caddie-last-shot watch-standalone-course-caddie-last-shot.png
@@ -792,7 +800,6 @@ jobs:
           launch_and_capture hole-page-green-3x watch-hole-page-green-3x.png
           launch_and_capture hole-page-plan-measure watch-hole-page-plan-measure.png
           launch_and_capture shot-undo watch-shot-undo.png
-          launch_and_capture autoshot-candidate watch-autoshot-candidate.png
           launch_and_capture menu watch-menu-autoshot.png
 
       - name: Collect Watch runtime diagnostics

@@ -694,7 +694,8 @@ public enum WatchCourseTemplateBuilder {
                     frontDistanceM: detail.frontM,
                     backDistanceM: detail.backM,
                     frontPx: detail.frontPx,
-                    backPx: detail.backPx
+                    backPx: detail.backPx,
+                    outlinePx: detail.outlinePx.flatMap { WatchHazard.watchOutline($0) }
                 ))
             }
         } else {
@@ -736,7 +737,8 @@ public enum WatchCourseTemplateBuilder {
                     frontDistanceM: detail.frontM,
                     backDistanceM: detail.backM,
                     frontPx: detail.frontPx,
-                    backPx: detail.backPx
+                    backPx: detail.backPx,
+                    outlinePx: detail.outlinePx.flatMap { WatchHazard.watchOutline($0) }
                 ))
             }
         } else {

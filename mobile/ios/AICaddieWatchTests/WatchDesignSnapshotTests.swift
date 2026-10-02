@@ -102,13 +102,6 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
     }
 
-    @MainActor
-    func testRenderAutoShotCandidateConfirmation() throws {
-        let view = WatchAutoShotCandidateView()
-            .watchSnapshotFrame(width: 198, height: 242)
-        try render(view, named: "watch-autoshot-candidate")
-    }
-
     func testCaddieGlancePrefersLiveWatchGreenDistances() {
         let state = WatchRoundState(
             roundId: "r1", hole: 4, par: 5, distanceM: 480,
@@ -209,11 +202,14 @@ final class WatchDesignSnapshotTests: XCTestCase {
             [506.0, 403.0, 419.0],
             [435.0, 279.0, 518.8],
         ]
+        // Real boundaries: the 障碍 page draws one hazard's outline as a thin red line.
         let hazards = [
             WatchHazard(kind: "bunker", label: "沙坑", startM: 190, endM: 210,
-                        frontPx: [520, 760], backPx: [528, 728]),
+                        frontPx: [520, 760], backPx: [528, 728],
+                        outlinePx: [[520, 760], [531, 754], [535, 741], [528, 728], [517, 731], [512, 745]]),
             WatchHazard(kind: "bunker", label: "沙坑", startM: 270, endM: 292,
-                        frontPx: [540, 608], backPx: [550, 578]),
+                        frontPx: [540, 608], backPx: [550, 578],
+                        outlinePx: [[540, 608], [553, 600], [557, 586], [550, 578], [538, 582], [534, 597]]),
         ]
         try render(
             WatchHazardMapView(
@@ -226,34 +222,54 @@ final class WatchDesignSnapshotTests: XCTestCase {
             .watchSnapshotFrame(width: 198, height: 242),
             named: "watch-hole-page-hazard-zoomed"
         )
+        // The green page with the hole's real green outline (no "无果岭轮廓" fallback).
+        let sample = WatchHoleMapSample.geometry
+        let greenGeometry = WatchHoleMapGeometry(
+            image: sample.image, imageSize: sample.imageSize, youPx: sample.youPx, pinPx: sample.pinPx,
+            layupPx: sample.layupPx, apexPx: sample.apexPx, greenCtrlPx: sample.greenCtrlPx,
+            greenOutlinePx: WatchHoleMapSample.greenOutlinePx
+        )
         try render(
             WatchGreenPreviewView(
-                geometry: WatchHoleMapSample.geometry,
+                geometry: greenGeometry,
                 centerGreenYards: 152,
                 initialZoomScale: 3
             )
             .watchSnapshotFrame(width: 198, height: 242),
             named: "watch-hole-page-green-3x"
         )
-        let geometry = WatchHoleMapSample.geometry
-        try render(
-            WatchHoleMapView(
-                holeNumber: 7,
-                par: 4,
-                frontGreen: 352,
-                centerGreen: 366,
-                backGreen: 380,
-                lastShot: 0,
-                ringPips: [],
-                geometry: geometry,
-                measuredPxOverride: CGPoint(x: (geometry.youPx.x + geometry.pinPx.x) / 2,
-                                            y: (geometry.youPx.y + geometry.pinPx.y) / 2),
-                interactionMode: .measure,
-                measureOriginImagePx: geometry.youPx
-            )
-            .watchSnapshotFrame(width: 198, height: 242),
-            named: "watch-hole-page-plan-measure"
+        // 方案: the whole plan from the tee — D 224 → 7i 150 → 9i 126 — with landings and labels.
+        let geometry = WatchHoleMapSample.teeGeometry
+        let legs = WatchPlanLegs.resolve(
+            plan: [
+                WatchCaddiePlanStep(clubName: "1W", carryM: 205),
+                WatchCaddiePlanStep(clubName: "7I", carryM: 137),
+                WatchCaddiePlanStep(clubName: "9I", carryM: 115),
+            ],
+            route: route,
+            origin: geometry.youPx
         )
+        XCTAssertEqual(legs.map(\.label), ["D 224", "7i 150", "9i 126"])
+        for (name, measured) in [("watch-hole-page-plan", nil), ("watch-hole-page-plan-measure", CGPoint(x: 520, y: 470))] as [(String, CGPoint?)] {
+            try render(
+                WatchHoleMapView(
+                    holeNumber: 7,
+                    par: 4,
+                    frontGreen: 552,
+                    centerGreen: 567,
+                    backGreen: 581,
+                    lastShot: 0,
+                    ringPips: [],
+                    geometry: geometry,
+                    measuredPxOverride: measured,
+                    interactionMode: .measure,
+                    measureOriginImagePx: geometry.youPx,
+                    planLegs: legs
+                )
+                .watchSnapshotFrame(width: 198, height: 242),
+                named: name
+            )
+        }
     }
 
     @MainActor

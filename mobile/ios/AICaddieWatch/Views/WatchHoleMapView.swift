@@ -149,6 +149,58 @@ enum WatchTouchTargetMagnifierLayout {
     }
 }
 
+/// One leg of the selected caddie plan on the 方案 page (README §3: the AI caddie route with its
+/// landings and "D 224" / "3W 205" labels): where it starts and lands in topo pixels, the route point
+/// that bends it, and its label.
+public struct WatchPlanLeg: Equatable {
+    public let start: CGPoint
+    public let control: CGPoint
+    public let landing: CGPoint
+    public let label: String
+
+    public init(start: CGPoint, control: CGPoint, landing: CGPoint, label: String) {
+        self.start = start
+        self.control = control
+        self.landing = landing
+        self.label = label
+    }
+}
+
+enum WatchPlanLegs {
+    /// Every leg of `plan` from `origin` (the tee before the tee shot, else the player) along the
+    /// measured cumulative-metre route. A step's `routeOffsetM` (metres from the tee) places its
+    /// landing when it lies ahead; otherwise carries accumulate. The chain stops at the route end.
+    static func resolve(plan: [WatchCaddiePlanStep], route: [[Double]], origin: CGPoint) -> [WatchPlanLeg] {
+        guard route.count >= 2,
+              let startProgress = WatchHazardMapLayout.playerProgressMetres(on: route, playerImagePoint: origin),
+              let routeEnd = route.last(where: { $0.count >= 3 && $0[2].isFinite })?[2] else { return [] }
+        var legs: [WatchPlanLeg] = []
+        var progress = startProgress
+        var start = origin
+        for step in plan {
+            guard let carry = step.carryM, carry.isFinite, carry > 0 else { break }
+            var landingM = progress + carry
+            if let offset = step.routeOffsetM, offset.isFinite, offset > progress + 1 {
+                landingM = offset
+            }
+            landingM = min(landingM, routeEnd)
+            guard landingM > progress + 1,
+                  let landing = WatchHazardMapLayout.imagePoint(on: route, atMetres: landingM) else { break }
+            let control = WatchHazardMapLayout.imagePoint(on: route, atMetres: (progress + landingM) / 2)
+                ?? CGPoint(x: (start.x + landing.x) / 2, y: (start.y + landing.y) / 2)
+            let yards = Int((carry * 1.09361).rounded())
+            legs.append(WatchPlanLeg(
+                start: start, control: control, landing: landing,
+                label: "\(WatchClubDisplay.shortCode(step.clubName)) \(yards)"
+            ))
+            progress = landingM
+            start = landing
+            if landingM >= routeEnd { break }
+        }
+        return legs
+    }
+}
+
 enum WatchHoleMapRouteOverlay: Equatable {
     case none
     case currentShot
@@ -384,6 +436,8 @@ public struct WatchHoleMapView: View {
     /// Offline Tee plan from the downloaded route/landing facts. Unlike a live decision it has no
     /// dispersion, so Hole Root draws only the grounded first shot and its prepared landing target.
     public let showPreparedPlan: Bool
+    /// The whole selected plan (方案 page); empty elsewhere.
+    public let planLegs: [WatchPlanLeg]
     /// User-configured/measured Driver range. It renders as a fact-layer arc only when the current
     /// route can place that distance before the green.
     public let driverDistanceM: Double?
@@ -469,6 +523,7 @@ public struct WatchHoleMapView: View {
         userZoom: CGFloat = 1,
         userPan: CGSize = .zero,
         measureOriginImagePx: CGPoint? = nil,
+        planLegs: [WatchPlanLeg] = [],
         onOpenCaddie: @escaping () -> Void = {},
         onOpenMapDetail: @escaping () -> Void = {},
         onBack: @escaping () -> Void = {}
@@ -486,6 +541,7 @@ public struct WatchHoleMapView: View {
         self.caddieNote = caddieNote
         self.showCaddieRecommendation = showCaddieRecommendation
         self.currentShotLayout = currentShotLayout
+        self.planLegs = planLegs
         self.showPreparedPlan = showPreparedPlan
         self.driverDistanceM = driverDistanceM
         self.showReferenceMarkers = showReferenceMarkers
@@ -1020,9 +1076,15 @@ public struct WatchHoleMapView: View {
             drawReferenceFacts(&context, size: size, transform: a.t)
         }
 
+        // 方案 page: the whole plan — every leg, landing and label. It stays (dimmed) under a
+        // measurement instead of being replaced by it.
+        let drawsFullPlan = !planLegs.isEmpty
+        if drawsFullPlan {
+            drawFullPlan(&context, size: size, transform: a.t, dimmed: measuredPx != nil)
+        }
         switch WatchHoleMapRouteOverlay.resolve(
             measuredPoint: measuredPx,
-            showCaddieRecommendation: showCaddieRecommendation,
+            showCaddieRecommendation: showCaddieRecommendation && !drawsFullPlan,
             hasCurrentShot: currentShotLayout != nil,
             showPreparedPlan: showPreparedPlan
         ) {
@@ -1413,6 +1475,49 @@ public struct WatchHoleMapView: View {
             with: .color(touchTargetCyan.opacity(0.88)),
             style: StrokeStyle(lineWidth: 1.15, lineCap: .round, dash: [3, 3])
         )
+    }
+
+    private func drawFullPlan(
+        _ context: inout GraphicsContext,
+        size: CGSize,
+        transform: (CGPoint) -> CGPoint,
+        dimmed: Bool
+    ) {
+        let safeRect = WatchDisplayGeometry.contentRect(in: size)
+        let opacity = dimmed ? 0.45 : 1.0
+        for leg in planLegs {
+            let start = transform(leg.start)
+            let landing = transform(leg.landing)
+            var path = Path()
+            path.move(to: start)
+            path.addQuadCurve(to: landing, control: transform(leg.control))
+            context.stroke(path, with: .color(.white.opacity(0.94 * opacity)),
+                           style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
+            let radius: CGFloat = 2.8
+            let dot = Path(ellipseIn: CGRect(x: landing.x - radius, y: landing.y - radius,
+                                             width: radius * 2, height: radius * 2))
+            context.fill(dot, with: .color(caddieGreen.opacity(0.9 * opacity)))
+            context.stroke(dot, with: .color(.white.opacity(opacity)), style: StrokeStyle(lineWidth: 1))
+        }
+        guard !dimmed else { return }
+        for leg in planLegs {
+            let landing = transform(leg.landing)
+            let label = context.resolve(
+                Text(leg.label)
+                    .font(.system(size: 10.5, weight: .heavy, design: .rounded))
+                    .foregroundColor(.white)
+            )
+            let textSize = label.measure(in: CGSize(width: 80, height: 20))
+            let box = CGSize(width: textSize.width + 8, height: textSize.height + 2)
+            let center = CGPoint(
+                x: min(max(landing.x + box.width / 2 + 6, safeRect.minX + box.width / 2), safeRect.maxX - box.width / 2),
+                y: min(max(landing.y, safeRect.minY + box.height / 2), safeRect.maxY - box.height / 2)
+            )
+            let rect = CGRect(x: center.x - box.width / 2, y: center.y - box.height / 2,
+                              width: box.width, height: box.height)
+            context.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(.black.opacity(0.78)))
+            context.draw(label, at: center)
+        }
     }
 
     /// The prepared route is already part of the downloaded course package. Hole Root shows only its

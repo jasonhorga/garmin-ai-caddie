@@ -532,6 +532,17 @@ enum WatchGreenMagnifierLayout {
     }
 }
 
+/// The green's pin-sheet alignment, turned by the rotate button in fixed steps (wrapping at ±180°).
+enum WatchGreenRotationStep {
+    static let degrees = 15.0
+
+    static func next(_ current: Double) -> Double {
+        var value = (current + degrees).rounded()
+        if value > 180 { value -= 360 }
+        return value
+    }
+}
+
 private struct WatchGreenCrownModifier: ViewModifier {
     @Binding var zoomScale: Double
     @Binding var rotationDegrees: Double
@@ -619,7 +630,6 @@ public struct WatchGreenPreviewView: View {
     @State private var selectedPin: CGPoint?
     @State private var zoomScale = 1.0
     @State private var rotationDegrees = 0.0
-    @State private var rotatesGreen = false
     @State private var persistenceTask: Task<Void, Never>?
     @State private var placementChanged = false
     @State private var isDraggingFlag = false
@@ -737,7 +747,7 @@ public struct WatchGreenPreviewView: View {
                         y: safeRect.maxY - WatchDisplayGeometry.instrumentControlSize / 2
                     )
 
-                if !rotatesGreen, zoomScale > 1.02 {
+                if zoomScale > 1.02 {
                     ZStack(alignment: .bottom) {
                         Capsule()
                             .fill(.white.opacity(0.22))
@@ -750,18 +760,20 @@ public struct WatchGreenPreviewView: View {
                     .position(x: safeRect.maxX - 4, y: safeRect.midY)
                 }
 
+                // B6: the Crown only zooms on every 本洞 page, so the pin-sheet alignment turns in
+                // 15° steps from this button instead of re-mapping the Crown.
                 WatchGreenRotationButton(
-                    rotatesGreen: rotatesGreen,
+                    rotatesGreen: rotationDegrees != 0,
                     rotationDegrees: rotationDegrees,
                     controlSize: WatchDisplayGeometry.instrumentControlSize,
-                    action: { rotatesGreen.toggle() }
+                    action: { rotationDegrees = WatchGreenRotationStep.next(rotationDegrees) }
                 )
                 .position(
                     x: safeRect.maxX - WatchDisplayGeometry.instrumentControlSize / 2,
                     y: safeRect.maxY - WatchDisplayGeometry.instrumentControlSize / 2
                 )
-                .accessibilityLabel(rotatesGreen ? "旋转果岭，当前 \(Int(rotationDegrees.rounded())) 度" : "旋转果岭")
-                .accessibilityHint(rotatesGreen ? "转动数码表冠调整方向，再点按返回缩放" : "点按后转动数码表冠")
+                .accessibilityLabel("旋转果岭，当前 \(Int(rotationDegrees.rounded())) 度")
+                .accessibilityHint("每点一次转 15 度")
 
                 if !canMoveFlag {
                     Text("无果岭轮廓")
@@ -785,7 +797,7 @@ public struct WatchGreenPreviewView: View {
             WatchGreenCrownModifier(
                 zoomScale: $zoomScale,
                 rotationDegrees: $rotationDegrees,
-                rotatesGreen: rotatesGreen
+                rotatesGreen: false
             )
         )
         .onChange(of: rotationDegrees) { _ in schedulePlacementPersistence() }
