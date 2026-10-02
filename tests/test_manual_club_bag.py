@@ -170,6 +170,27 @@ class EffectiveBagTests(unittest.TestCase):
             club_bag.clear_manual_club_bag("me")
             self.assertIsNone(club_bag.manual_roster_tokens("me"))
 
+    def test_an_empty_manual_roster_is_no_manual_bag_at_every_layer(self) -> None:
+        history = [
+            {"clubName": "5I", "sampleSize": 30, "median_m": 150.0, "p10_m": 140.0, "p90_m": 160.0},
+            {"clubName": "Driver", "sampleSize": 50, "median_m": 210.0, "p10_m": 190.0, "p90_m": 225.0},
+        ]
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            (Path(tmp) / "data").mkdir()
+            club_bag.save_manual_club_bag("me", [{"token": "iron7"}])
+            # Saving an empty list clears the manual bag (the API's "reset to Garmin").
+            club_bag.save_manual_club_bag("me", [])
+            self.assertFalse(data.manual_club_bag_file("me").exists())
+            # A hand-written / legacy empty manual file reads the same way, not as "a roster of nothing".
+            data.manual_club_bag_file("me").write_text(json.dumps({"schema": club_bag.MANUAL_SCHEMA, "clubs": []}))
+            self.assertEqual(club_bag.effective_club_bag("me")["source"], "none")
+            self.assertIsNone(club_bag.manual_roster_tokens("me"))
+            self.assertIsNone(club_bag.in_use_canonical_names("me"))
+            self.assertEqual(club_bag.manual_carries_m("me"), {})
+            kept = club_bag.restrict_to_bag(history, lambda row: row["clubName"], player_id="me")
+            self.assertEqual(club_bag.apply_manual_carries(kept, player_id="me"), history,
+                             "consistently 'no manual bag': history as is, like the phone")
+
     def test_every_catalog_token_round_trips_through_its_profile_name(self) -> None:
         from ai_caddie.caddie import club_catalog
 

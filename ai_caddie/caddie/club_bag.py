@@ -111,7 +111,11 @@ class InvalidClubError(ValueError):
 
 def save_manual_club_bag(player_id: str, clubs: list[dict]) -> dict:
     """Validate + persist a player's manual bag. Each club: {token, customName?, distanceM?}.
-    Raises InvalidClubError on an unknown token or a distance outside (0, 400] m."""
+    Raises InvalidClubError on an unknown token or a distance outside (0, 400] m. An empty list is
+    not a roster: it clears the manual bag (the API's documented "reset to Garmin")."""
+    if not clubs:
+        clear_manual_club_bag(player_id)
+        return {"schema": MANUAL_SCHEMA, "clubs": []}
     cleaned: list[dict] = []
     for club in clubs:
         token = str(club.get("token") or "")
@@ -140,8 +144,10 @@ def effective_club_bag(player_id: str = OWNER_ID) -> dict:
     """The bag the caddie + the served response use: manual if set, else synced, else empty.
     Returns {"source": "manual"|"garmin"|"none", "clubs": [...raw...]}."""
     manual = load_manual_club_bag(player_id)
-    if manual:
-        return {"source": "manual", "clubs": manual.get("clubs") or []}
+    # One contract everywhere: a manual bag always has clubs. An empty manual file (written by an
+    # older build or by hand) means "no manual bag", never "a roster of nothing".
+    if manual and manual.get("clubs"):
+        return {"source": "manual", "clubs": manual["clubs"]}
     synced = load_club_bag(player_id)
     if synced:
         return {"source": "garmin", "clubs": synced.get("clubs") or []}
@@ -220,16 +226,17 @@ def apply_manual_carries(profiles: Iterable[dict[str, Any]], *, player_id: str =
 
 
 def manual_roster_tokens(player_id: str = OWNER_ID) -> set[str] | None:
-    """The canonical tokens of a manual roster (``set()`` for an explicit empty one), or None when
-    the player has no manual bag."""
+    """The canonical tokens of the manual roster (never empty), or None when the player has no
+    manual bag."""
     bag = effective_club_bag(player_id)
     if bag["source"] != "manual":
         return None
-    return {
+    tokens = {
         str(club.get("token"))
         for club in bag["clubs"]
         if isinstance(club, dict) and club_catalog.is_valid_token(str(club.get("token") or ""))
     }
+    return tokens or None
 
 
 def manual_profile_name(token: str) -> str:

@@ -1835,6 +1835,41 @@ final class DesignSnapshotTests: XCTestCase {
             try captureScreen(bagScreen(), named: "bag")
             try captureScreen(bagScreen(editing: "七号铁"), named: "bag-edit", expectsPresentation: true)
             try captureScreen(bagScreen(adding: true), named: "bag-add", expectsPresentation: true)
+
+            // A reinstall / second phone while the player's cloud bag is still being read: the
+            // same ladder, read-only (no ＋ 球杆, no reset, rows do not open the editor) and no
+            // process text on the screen — that lives in 设置 → 球包同步.
+            let restoringSync = ClubBagSyncCoordinator(sleep: { _ in })
+            restoringSync.activate(playerId: "p_snapshot", migrateLegacy: false)
+            ClubBagStore.saveRealBag(bag)
+            restoringSync.configure(sender: { _, _ in }, fetcher: { _ in
+                try await Task.sleep(nanoseconds: 3_600_000_000_000)
+                throw CancellationError()
+            })
+            let restore = Task { await restoringSync.restoreFromServer() }
+            defer {
+                restore.cancel()
+                restoringSync.activate(playerId: nil, migrateLegacy: false)
+            }
+            while restoringSync.restoreState != .restoring { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+            XCTAssertFalse(restoringSync.canEdit)
+            try captureScreen(
+                NavigationStack {
+                    ClubSettingsView(
+                        clubProfiles: bagProfiles, apiBaseURL: nil, adminToken: nil, sync: restoringSync,
+                        fetchesRealBag: false
+                    )
+                },
+                named: "bag-restoring"
+            )
+            try captureScreen(
+                NavigationStack {
+                    List { Section("账号与球包") { ClubBagSyncSettingsRow(sync: restoringSync) } }
+                        .navigationTitle("设置")
+                        .navigationBarTitleDisplayMode(.inline)
+                },
+                named: "settings-bag-sync"
+            )
         }
 
         // 复盘逐洞落点图: this round's actual shots (tee→landing→green) on the hole, dots by lie.

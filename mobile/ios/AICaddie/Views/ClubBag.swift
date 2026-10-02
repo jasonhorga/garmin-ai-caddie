@@ -170,7 +170,12 @@ public enum ClubBagStore {
         decodeBag(key(bagBase))
     }
 
+    /// An empty set is not a roster: like the server's `PUT {"clubs": []}`, it clears the manual bag.
     public static func save(_ bag: Set<String>) {
+        guard !bag.isEmpty else {
+            clearManual()
+            return
+        }
         guard bag != self.bag() else { return }
         encodeBag(bag, into: key(bagBase))
         notifyChanged()
@@ -373,8 +378,8 @@ public enum ClubBagStore {
               let list = try? JSONDecoder().decode([String].self, from: data) else {
             return nil
         }
-        // An explicit empty roster stays explicit (no clubs), distinct from "unknown" (nil).
-        return Set(list)
+        // One contract with the server: a manual roster always has clubs; empty means none.
+        return list.isEmpty ? nil : Set(list)
     }
 
     private static func encodeBag(_ bag: Set<String>, into storageKey: String) {

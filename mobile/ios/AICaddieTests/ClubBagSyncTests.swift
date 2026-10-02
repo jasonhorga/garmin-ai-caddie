@@ -516,7 +516,8 @@ final class ClubBagSyncTests: XCTestCase {
             XCTAssertEqual(coordinator.status, .rejected(code))
             XCTAssertEqual(coordinator.pendingOutbox?.rejectedStatus, code, "the intent is kept")
             XCTAssertEqual(sleeper.naps, [ClubBagSyncCoordinator.debounceNanoseconds], "no retry backoff")
-            XCTAssertNotNil(ClubSettingsView.syncNotice(coordinator.status))
+            XCTAssertTrue(ClubBagSyncSettingsRow.text(status: coordinator.status, restore: coordinator.restoreState, canEdit: true).contains("\(code)"))
+            XCTAssertTrue(ClubBagSyncSettingsRow.canRetry(status: coordinator.status, restore: coordinator.restoreState))
             // A relaunch does not resend a rejected intent by itself…
             let relaunched = ClubBagSyncCoordinator(sleep: { _ in })
             relaunched.configure(sender: { try await server.send($0, $1) })
@@ -768,7 +769,10 @@ final class ClubBagSyncTests: XCTestCase {
         let screen = Task { await coordinator.restoreFromServer() }
         while coordinator.restoreState != .restoring { await Task.yield() }
         XCTAssertFalse(model.canEdit)
-        XCTAssertNotNil(ClubSettingsView.restoreNotice(coordinator))
+        XCTAssertEqual(
+            ClubBagSyncSettingsRow.text(status: coordinator.status, restore: coordinator.restoreState, canEdit: coordinator.canEdit),
+            "正在读取云端球包", "the progress is in 设置, not on 球包"
+        )
         model.add("九号铁")
         model.setDistance("八号铁", 140)
         model.resetToGarminBag()
@@ -815,6 +819,36 @@ final class ClubBagSyncTests: XCTestCase {
         XCTAssertFalse(coordinator.canEdit)
     }
 
+    @MainActor
+    func testSettingsRetryResendsARejectedSaveAndReReadsAFailedRestore() async {
+        let server = FakeBagServer()
+        server.rejectWith = 403
+        let coordinator = makeCoordinator(server)
+        coordinator.activate(playerId: "p_alice", migrateLegacy: false)
+        ClubBagEditorModel(clubProfiles: [], sync: coordinator).add("七号铁")
+        await coordinator.flush()
+        XCTAssertEqual(coordinator.status, .rejected(403))
+        server.rejectWith = nil  // signed in again
+        coordinator.retryNow()
+        await coordinator.flush()
+        XCTAssertEqual(server.received.count, 2)
+        XCTAssertNil(coordinator.pendingClubs)
+        XCTAssertEqual(ClubBagSyncSettingsRow.text(status: coordinator.status, restore: coordinator.restoreState, canEdit: true), "已同步")
+        // A failed restore is re-read from 设置 as well.
+        var attempts = 0
+        coordinator.configure(sender: { try await server.send($0, $1) }, fetcher: { _ in
+            attempts += 1
+            if attempts == 1 { throw URLError(.notConnectedToInternet) }
+            return EffectiveClubBagResponse(schema: nil, source: "garmin", found: true, clubs: [])
+        })
+        await coordinator.restoreFromServer()
+        XCTAssertEqual(coordinator.restoreState, .failed)
+        XCTAssertTrue(ClubBagSyncSettingsRow.canRetry(status: coordinator.status, restore: coordinator.restoreState))
+        coordinator.retryNow()
+        while coordinator.restoreState != .restored { await Task.yield() }
+        XCTAssertEqual(attempts, 2)
+    }
+
     // MARK: - Total roster projection (Codex review 5947998710)
 
     func testEverySelectedClubIsProjectedAndAnEmptyOrPutterOnlyRosterHasNoHittingClub() {
@@ -827,7 +861,6 @@ final class ClubBagSyncTests: XCTestCase {
         XCTAssertEqual(names(["五号铁", "七号铁", "七号木", "推杆"]), ["5I@150/30", "七号铁@128/0"])
         XCTAssertEqual(names(["五号铁", "七号铁"], carries: ["七号铁": 140]), ["5I@150/30", "七号铁@140/0"])
         XCTAssertEqual(names(["推杆"]), [], "putter only: nothing to hit with")
-        XCTAssertEqual(names([]), [], "an explicit empty roster is not the unknown bag")
         XCTAssertEqual(names(nil), ["5I@150/30"], "no manual bag: history as is")
         // The same over a seed/request value.
         let value = JSONValue.object(["5I": .object(["clubName": .string("5I"), "median_m": .number(150)])])
@@ -839,11 +872,11 @@ final class ClubBagSyncTests: XCTestCase {
             value, authority: ClubBagAuthority(roster: ["推杆"], carriesM: [:])
         ) else { return XCTFail("projected value") }
         XCTAssertTrue(empty.isEmpty)
-        // Storage keeps an explicit empty roster explicit.
+        // One contract with the server: an empty roster is "no manual bag", never "a bag of nothing".
+        ClubBagStore.save(["七号铁"])
         ClubBagStore.save([])
-        XCTAssertEqual(ClubBagStore.bag(), [])
-        ClubBagStore.clearManual()
         XCTAssertNil(ClubBagStore.bag())
+        XCTAssertEqual(ClubBagAuthority.current.roster, nil)
     }
 
     private func median(of name: String, in value: JSONValue?) -> Double? {

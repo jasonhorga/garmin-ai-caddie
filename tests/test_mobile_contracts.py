@@ -4103,6 +4103,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func clearManual()", club_bag)
         self.assertIn("用 Garmin 球包重置", club_settings)
         self.assertIn("ClubBagStore.clearManual()", club_settings)
+        # No process status on the 球包 screen: sync/restore state is shown only in 设置.
+        bag_screen = club_settings[: club_settings.index("struct ClubBagSyncSettingsRow")]
+        for text in ("正在读取云端球包", "同步", "重试", "云端没接受"):
+            self.assertNotIn(text, bag_screen.split("public struct ClubSettingsView")[1].split("/// The ladder for given rows")[0].replace("// Sync progress", "").replace("设置 → 球包同步", ""))
+        self.assertIn("ClubBagSyncSettingsRow(sync: .shared)", round_home)
         # One reset intent: selection + typed distances + the server manual bag (PUT {"clubs": []}).
         reset = club_settings[club_settings.index("func resetToGarminBag()"):]
         reset = reset[: reset.index("\n    }\n")]

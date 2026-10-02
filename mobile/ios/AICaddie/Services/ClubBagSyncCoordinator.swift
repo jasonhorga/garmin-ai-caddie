@@ -158,6 +158,7 @@ public final class ClubBagSyncCoordinator: ObservableObject {
         let response = try? await fetcher(player ?? Self.ownerTarget)
         guard ClubBagStore.playerId == player else { return false }
         guard let response else {
+            AICaddieLog.network.error("Club bag cloud restore failed")
             restoreState = .failed
             return false
         }
@@ -167,6 +168,25 @@ public final class ClubBagSyncCoordinator: ObservableObject {
         }
         restoreState = .restored
         return true
+    }
+
+    /// 设置 → 重新同步球包: re-read a failed cloud restore and resend a rejected (e.g. after
+    /// re-login) or backing-off outbox now.
+    public func retryNow() {
+        let player = ClubBagStore.playerId
+        if var pending = outbox(for: player), pending.rejectedStatus != nil {
+            pending.rejectedStatus = nil
+            save(pending, for: player)
+            status = .pending
+        }
+        if outbox(for: player) != nil {
+            worker?.cancel()
+            worker = nil
+            startWorker(for: player, debounce: false)
+        }
+        if restoreState == .failed {
+            Task { await restoreFromServer() }
+        }
     }
 
     /// Wait until the worker is idle (the outbox is sent, rejected, or there is no backend).
@@ -214,6 +234,7 @@ public final class ClubBagSyncCoordinator: ObservableObject {
                 }
             } catch {
                 failedAttempts += 1
+                AICaddieLog.network.error("Club bag PUT failed: \(String(describing: error), privacy: .public)")
                 if let code = Self.permanentStatus(error) {
                     if var current = outbox(for: player), current.generation == pending.generation {
                         current.rejectedStatus = code

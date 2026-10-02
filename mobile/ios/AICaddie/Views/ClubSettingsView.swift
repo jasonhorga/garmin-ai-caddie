@@ -140,8 +140,11 @@ public struct ClubSettingsView: View {
 
     public var body: some View {
         ScrollView {
-            BagContent(rows: model.rows, syncNotice: Self.restoreNotice(sync) ?? Self.syncNotice(sync.status),
-                       onSelect: { editingName = $0.name },
+            // While this phone has not yet read the player's cloud bag, 球包 is a read-only ladder:
+            // no ＋, no reset, rows do not open the editor. Sync progress and recovery live in
+            // 设置 → 球包同步 (README: no process status on business screens).
+            BagContent(rows: model.rows,
+                       onSelect: sync.canEdit ? { editingName = $0.name } : nil,
                        onReset: sync.canEdit && (apiBaseURL != nil || ClubBagStore.realBag() != nil)
                            ? { model.resetToGarminBag() } : nil)
         }
@@ -152,9 +155,10 @@ public struct ClubSettingsView: View {
         .navigationTitle("球包")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("＋ 球杆") { isAdding = true }
-                    .disabled(!sync.canEdit)
-                    .accessibilityIdentifier("bag-add")
+                if sync.canEdit {
+                    Button("＋ 球杆") { isAdding = true }
+                        .accessibilityIdentifier("bag-add")
+                }
             }
         }
         .onChange(of: sync.restoreState) { _, state in
@@ -190,23 +194,6 @@ public struct ClubSettingsView: View {
         }
     }
 
-    static func restoreNotice(_ sync: ClubBagSyncCoordinator) -> String? {
-        guard !sync.canEdit else { return nil }
-        return sync.restoreState == .failed
-            ? "没连上云端，读到你的球包后才能修改（下拉重试）"
-            : "正在读取云端球包…"
-    }
-
-    static func syncNotice(_ status: ClubBagSyncCoordinator.Status) -> String? {
-        switch status {
-        case .failed: return "还没同步到云端，正在自动重试"
-        case .rejected(let code) where code == 401 || code == 403:
-            return "云端没接受这次保存（\(code)），请重新登录后再改一次"
-        case .rejected(let code): return "云端没接受这次保存（\(code)），改一下球包会再试"
-        default: return nil
-        }
-    }
-
     /// Fetch the real Garmin bag once; it becomes the default while the player has no manual bag.
     private func loadRealBag() async {
         guard fetchesRealBag, !didLoadRealBag else { return }
@@ -219,8 +206,8 @@ public struct ClubSettingsView: View {
 /// The ladder for given rows (no ScrollView, so the CI snapshots render it).
 struct BagContent: View {
     let rows: [BagPresentation.Row]
-    var syncNotice: String? = nil
-    var onSelect: (BagPresentation.Row) -> Void = { _ in }
+    /// `nil`: a read-only ladder (rows do not open the editor).
+    var onSelect: ((BagPresentation.Row) -> Void)? = { _ in }
     var onReset: (() -> Void)? = nil
 
     private static let barColor = Color(red: 92 / 255, green: 196 / 255, blue: 127 / 255)
@@ -230,9 +217,6 @@ struct BagContent: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(BagPresentation.summary(rows))
                 .font(.footnote).foregroundStyle(.secondary)
-            if let syncNotice {
-                Text(syncNotice).font(.caption).foregroundStyle(HubStyle.bogey)
-            }
             VStack(spacing: 0) {
                 if let axis {
                     axisRow(axis)
@@ -247,8 +231,9 @@ struct BagContent: View {
                             .padding(.vertical, 2)
                             .accessibilityIdentifier("bag-gap-\(row.name)")
                     }
-                    Button { onSelect(row) } label: { ladderRow(row, axis: axis) }
+                    Button { onSelect?(row) } label: { ladderRow(row, axis: axis) }
                         .buttonStyle(.plain)
+                        .disabled(onSelect == nil)
                         .accessibilityIdentifier("bag-club-\(row.name)")
                 }
             }
@@ -416,5 +401,58 @@ struct BagAddClubSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
             }
         }
+    }
+}
+
+/// 设置 → 球包同步: the only place 球包 sync state is shown (README §… no process status on
+/// business screens). Nothing pending → "已同步"; otherwise what is waiting and a retry.
+struct ClubBagSyncSettingsRow: View {
+    @ObservedObject var sync: ClubBagSyncCoordinator
+
+    var body: some View {
+        HStack {
+            Label("球包同步", systemImage: "arrow.triangle.2.circlepath")
+            Spacer()
+            Text(Self.text(status: sync.status, restore: sync.restoreState, canEdit: sync.canEdit))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+        }
+        .accessibilityIdentifier("settings-bag-sync")
+        if Self.canRetry(status: sync.status, restore: sync.restoreState) {
+            Button("重新同步球包") { sync.retryNow() }
+                .foregroundStyle(LiveHoleStyle.green)
+                .accessibilityIdentifier("settings-bag-sync-retry")
+        }
+    }
+
+    static func text(
+        status: ClubBagSyncCoordinator.Status,
+        restore: ClubBagSyncCoordinator.RestoreState,
+        canEdit: Bool
+    ) -> String {
+        switch status {
+        case .rejected(let code) where code == 401 || code == 403:
+            return "云端没接受上次保存（\(code)），重新登录后重试"
+        case .rejected(let code):
+            return "云端没接受上次保存（\(code)）"
+        case .failed:
+            return "上传失败，正在自动重试"
+        case .pending, .syncing:
+            return "等待上传"
+        case .idle:
+            break
+        }
+        switch restore {
+        case .restoring: return "正在读取云端球包"
+        case .failed where !canEdit: return "还没读到云端球包，读到后才能修改"
+        case .failed: return "读取云端球包失败"
+        case .restored, .unknown: return "已同步"
+        }
+    }
+
+    static func canRetry(status: ClubBagSyncCoordinator.Status, restore: ClubBagSyncCoordinator.RestoreState) -> Bool {
+        if case .rejected = status { return true }
+        return status == .failed || restore == .failed
     }
 }

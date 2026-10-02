@@ -785,6 +785,7 @@ public struct RoundHomeView: View {
                     } label: {
                         Label("球包", systemImage: "bag")
                     }
+                    ClubBagSyncSettingsRow(sync: .shared)
 #if DEBUG
                     NavigationLink {
                         BackendSettingsView(
