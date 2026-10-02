@@ -832,11 +832,13 @@ final class WatchRoundModelTests: XCTestCase {
         phoneShots: [String]? = nil,
         revision: Int64? = nil,
         roundId: String = "r1",
-        globalId: Int? = nil
+        globalId: Int? = nil,
+        shotType: String? = nil
     ) -> WatchRoundState {
         WatchRoundState(
             roundId: roundId, hole: 1, par: 4, distanceM: 400,
             selectedClub: nil,
+            shotType: shotType,
             decisionId: decisionId,
             globalId: globalId,
             sourceLocalHole: globalId == nil ? nil : 1,
@@ -1000,8 +1002,11 @@ final class WatchRoundModelTests: XCTestCase {
         let store = makeStore()
         let model = WatchRoundModel(store: store, makeEventId: sequentialIds(), now: { "2026-06-20T00:00:00Z" })
         model.seedRound([hole(1, par: 4), hole(2)], activeHole: 1)
-        // The tee shot p1 was recorded on the iPhone; the Watch's own queue is empty.
-        model.receivePhoneState(liveDecisionState("d1", [], originShotEventIds: ["p1"], phoneShots: ["p1"], revision: 400))
+        // The tee shot p1 was recorded on the iPhone; the Watch's own queue is empty. The phone's
+        // snapshot still carries the older tee decision (shotType "tee") while it fetches the next.
+        model.receivePhoneState(liveDecisionState(
+            "d0", teePlan, originShotEventIds: [], phoneShots: ["p1"], revision: 400, shotType: "tee"
+        ))
         XCTAssertEqual(model.round?.pendingEvents.count, 0)
         XCTAssertEqual(model.recordedShotCount, 1, "the phone's shot is a hole fact on the Watch")
 
@@ -1023,6 +1028,13 @@ final class WatchRoundModelTests: XCTestCase {
 
         let restored = WatchRoundModel(store: store)
         XCTAssertEqual(restored.recordedShotCount, 2, "after a relaunch")
+        XCTAssertEqual(
+            restored.round?.pendingEvents.filter { $0.kind == .club }.map(\.shotType), ["approach"],
+            "the persisted shot is not written as a tee shot"
+        )
+        // A legitimate later phase from the decision is kept.
+        XCTAssertEqual(WatchRoundModel.shotType(shotNumber: 2, decisionShotType: "recovery"), "recovery")
+        XCTAssertEqual(WatchRoundModel.shotType(shotNumber: 1, decisionShotType: "approach"), "tee")
     }
 
     func testTheClubTagNoteDescribesTheNextShotOfTheCurrentSelectedPlan() {

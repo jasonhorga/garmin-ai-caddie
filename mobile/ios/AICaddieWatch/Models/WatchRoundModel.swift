@@ -1386,9 +1386,18 @@ public final class WatchRoundModel: ObservableObject {
             location: location,
             capturedAt: capturedAt,
             shotNumber: shotNumber,
-            shotType: shotTypeOverride ?? (shotNumber == 1 ? "tee" : (hole.shotType ?? "approach")),
+            shotType: shotTypeOverride ?? Self.shotType(shotNumber: shotNumber, decisionShotType: hole.shotType),
             resumeHoleMap: resumeHoleMap
         )
+    }
+
+    /// The phase comes from the shot identity: shot 1 is the tee shot; after it, a decision's own
+    /// "tee" (an older decision still in place while the phone fetches the next one) is never
+    /// written, while a legitimate later phase (approach, recovery) is kept.
+    static func shotType(shotNumber: Int, decisionShotType: String?) -> String {
+        guard shotNumber > 1 else { return "tee" }
+        guard let decisionShotType, decisionShotType != "tee" else { return "approach" }
+        return decisionShotType
     }
 
     private func reassignPendingShot(
