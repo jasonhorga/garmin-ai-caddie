@@ -484,6 +484,95 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.screen, .home)
     }
 
+    /// B7 step 1 (Codex review on #368): running the whole collection path (session, router, store,
+    /// uploader) through a phone Finish leaves the round, its events and the score byte-for-byte as
+    /// they are without collection, and hands the closed round's candidates to the uploader.
+    func testSwingCandidateCollectionNeverChangesTheRoundOrItsEvents() async throws {
+        func scriptedRound(collecting: Bool) async throws -> (round: Data, deferred: Data, uploaded: [String]) {
+            let store = makeStore()
+            let model = WatchRoundModel(
+                store: store,
+                makeEventId: sequentialIds(),
+                now: { "2026-08-09T00:00:00Z" }
+            )
+            model.seedRound([hole(1)])
+            model.startScoringActiveHole()
+            model.saveActiveHole()
+            let candidates = WatchSwingCandidateStore(directoryURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("swing-e2e-\(UUID().uuidString)", isDirectory: true))
+            var router = WatchSwingCandidateRouter()
+            let start = Date(timeIntervalSince1970: 1_790_000_000)
+            router.roundChanged(to: model.round?.roundId, at: start)
+            router.holeChanged(to: model.activeHole, at: start)
+            var lateObservation: WatchSwingObservation?
+            if collecting {
+                var session = WatchSwingCollectionSession()
+                _ = session.detection(at: 2.0, autoShotWanted: false)
+                session.accelerationBatch(stride(from: 1.95, to: 2.05, by: 0.001).map {
+                    WatchAutoShotAccelerationSample(timestamp: $0, x: 0, y: 0, z: abs($0 - 2.0) < 0.003 ? 5 : 1)
+                })
+                var t = 0.0
+                var rotation: [WatchAutoShotRotationSample] = []
+                while t < 3.1 {
+                    let swinging = t >= 1.5 && t < 2.5
+                    rotation.append(WatchAutoShotRotationSample(timestamp: t, rotationAlongGravity: swinging ? 9 : 0.05))
+                    t += 0.01
+                }
+                // The swing ends 30 s into the round, but its batches are delivered only after the
+                // phone closed the round (uptime 3.1 at delivery = 90 s into the round).
+                for batchStart in stride(from: 0, to: rotation.count, by: 25) {
+                    let batch = Array(rotation[batchStart..<min(batchStart + 25, rotation.count)])
+                    if let observation = session.rotationBatch(
+                        batch, now: start.addingTimeInterval(90), uptime: 3.1 + 60
+                    ) {
+                        lateObservation = observation
+                    }
+                }
+                XCTAssertNotNil(lateObservation)
+            }
+            model.applyPhoneRoundClosure(WatchRoundClosure(
+                roundId: "r1",
+                disposition: .finished,
+                closedAt: "2026-08-09T01:00:00Z"
+            ))
+            XCTAssertEqual(model.activeHole, 0, "no round: the model's active hole is not a valid hole")
+            XCTAssertEqual(router.roundChanged(to: model.round?.roundId, at: start.addingTimeInterval(60)), "r1")
+            router.holeChanged(to: model.activeHole, at: start.addingTimeInterval(60))
+            if let observation = lateObservation {
+                // Production path: the router, not the model, gives the round and hole.
+                let assignment = try XCTUnwrap(router.assignment(forMotionAt: observation.observedAt))
+                XCTAssertEqual(assignment, .init(roundId: "r1", hole: 1))
+                candidates.append(WatchSwingCandidateRecord(
+                    capturedAt: "2026-08-09T00:00:01Z", hole: assignment.hole,
+                    features: observation.features, horizontalAccuracyM: 5,
+                    speedMps: observation.speedMps, proposedShot: observation.proposedShot
+                ), roundId: assignment.roundId)
+            }
+            var uploaded: [String] = []
+            var uploadedHoles: [Int] = []
+            _ = await WatchSwingCandidateUploader(store: candidates).uploadClosedRounds(
+                activeRoundId: router.activeRoundId
+            ) { roundId, records in
+                uploaded.append(roundId)
+                uploadedHoles += records.map(\.hole)
+            }
+            if collecting {
+                XCTAssertEqual(uploadedHoles, [1], "the late candidate uploads with the closed round's hole")
+            }
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let deferred = try XCTUnwrap(store.loadDeferredFinishes().first)
+            return (try encoder.encode(model.round), try encoder.encode(deferred.round), uploaded)
+        }
+
+        let without = try await scriptedRound(collecting: false)
+        let with = try await scriptedRound(collecting: true)
+        XCTAssertEqual(with.round, without.round)
+        XCTAssertEqual(with.deferred, without.deferred, "the archived events and score are unchanged")
+        XCTAssertEqual(without.uploaded, [])
+        XCTAssertEqual(with.uploaded, ["r1"], "the phone-closed round hands its candidates to the uploader")
+    }
+
     func testPhoneFinishArchivesPendingEventsFromTheVisibleWatchRound() throws {
         let store = makeStore()
         let model = WatchRoundModel(

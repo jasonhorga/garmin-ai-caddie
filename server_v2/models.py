@@ -1397,3 +1397,9 @@ class WeatherSnapshotResponse(BaseModel):
     precipitationMm: float | None = None
     confidence: Literal["low", "medium", "high"]
     missingData: list[dict[str, Any]]
+
+
+class SwingCandidatesRequest(BaseModel):
+    """B7 step 1: one round's Watch swing candidates (validated field by field in
+    ``ai_caddie.rounds.swing_candidates``)."""
+    candidates: list[dict[str, Any]]
