@@ -4066,14 +4066,24 @@ class MobileContractTests(unittest.TestCase):
         # The backend write belongs to the long-lived durable outbox, never to the screen's lifetime.
         bag_sync = _read_required_source(self, IOS_DIR / "Services" / "ClubBagSyncCoordinator.swift")
         self.assertIn("sync.enqueue(ClubBagStore.manualClubInputs(selected: bag, distancesYd: distancesYd))", club_settings)
-        self.assertIn("putManualClubBag(clubs: clubs)", bag_sync)
-        self.assertIn('static let outboxKey = "ai-caddie.club-bag-outbox-v1"', bag_sync)
+        self.assertIn(".putManualClubBag(playerId: playerId, clubs: clubs)", bag_sync)
+        self.assertIn('static let outboxBase = "ai-caddie.club-bag-outbox-v1"', club_bag)
+        # Per account: keys, outbox and PUT target follow the signed-in player (Codex 5947487991).
+        self.assertIn("var playerId: String", bag_sync)
+        self.assertIn("ClubBagStore.key(ClubBagStore.outboxBase, playerId: player)", bag_sync)
+        self.assertIn("static func permanentStatus(", bag_sync)
+        self.assertIn("func restoreFromServer()", bag_sync)
         self.assertNotIn(".task(id: revision)", club_settings)
         self.assertNotIn("putManualClubBag", club_settings)
         app_source = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         self.assertEqual(
             app_source.count("ClubBagSyncCoordinator.shared.configure(apiBaseURL: apiBaseURL, adminToken: adminToken)"), 2
         )
+        self.assertIn(
+            "ClubBagSyncCoordinator.shared.activate(playerId: session.playerId, migrateLegacy: migrateLegacyData)",
+            app_source,
+        )
+        self.assertEqual(app_source.count("await ClubBagSyncCoordinator.shared.restoreFromServer()"), 2)
         self.assertIn('Button("＋ 球杆")', club_settings)
         self.assertIn("从球包拿掉", club_settings)
         self.assertNotIn("struct ResultsClubsView", results_view)
@@ -5248,7 +5258,14 @@ class EffectiveClubProfileContractTests(unittest.TestCase):
     def test_seed_and_request_profiles_are_projected(self) -> None:
         builder = (IOS_DIR / "Services" / "CaddieDecisionRequestBuilder.swift").read_text(encoding="utf-8")
         evaluator = (IOS_DIR / "Services" / "OfflineCaddieDecisionEvaluator.swift").read_text(encoding="utf-8")
-        self.assertIn('context["clubProfiles"] = ClubBagStore.effectiveProfileValue(context["clubProfiles"])', builder)
+        self.assertIn("context = ClubBagAuthority.current.sanitizedContext(context)", builder)
+        self.assertEqual(builder.count("authority.sanitizedSeed("), 3)
+        self.assertIn("authority.planMatches(prepLegs) ? canonicalSteps(", builder)
+        authority = (IOS_DIR / "Services" / "LiveCaddieRouteAuthority.swift").read_text(encoding="utf-8")
+        self.assertIn("guard authority.planMatches(prepLegs) else { return nil }", authority)
+        self.assertEqual(authority.count("authority.rosterAllows($0.steps.map(\\.clubName))"), 2)
+        current_hole = (IOS_DIR / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8")
+        self.assertIn("NotificationCenter.default.publisher(for: ClubBagStore.didChange)", current_hole)
         self.assertIn(
             'ClubBagStore.effectiveProfileValue(request.context["clubProfiles"] ?? seed.context["clubProfiles"])',
             evaluator,

@@ -13,7 +13,8 @@ enum LiveCaddieRouteAuthority {
         online: CaddieDecisionResponse?,
         offline: CaddieDecisionResponse?,
         par: Int,
-        shotType: String
+        shotType: String,
+        authority: ClubBagAuthority = .current
     ) -> [CaddiePlanSequence] {
         // The installed chain is the first-frame visual authority even when it is an explicit
         // CoursePrep prefix (`completion=replan_required`). Keeping that prefix prevents a refresh
@@ -32,16 +33,17 @@ enum LiveCaddieRouteAuthority {
             }
             return installed
         }()
+        // A club taken out of 球包 never comes back through a decision made before the change.
         let onlineRoutes = completeDistinctRoutes(
             CaddiePlanPresentation.distinctSequences(from: online ?? emptyDecision),
             par: par,
             shotType: shotType
-        )
+        ).filter { authority.rosterAllows($0.steps.map(\.clubName)) }
         let offlineRoutes = completeDistinctRoutes(
             CaddiePlanPresentation.distinctSequences(from: offline ?? emptyDecision),
             par: par,
             shotType: shotType
-        )
+        ).filter { authority.rosterAllows($0.steps.map(\.clubName)) }
 
         var result: [CaddiePlanSequence] = []
         if let installedRoute {
@@ -75,9 +77,15 @@ enum LiveCaddieRouteAuthority {
         prep: CoursePrepHole?,
         par: Int,
         shotType: String,
-        fallbackRouteEndM: Double?
+        fallbackRouteEndM: Double?,
+        authority: ClubBagAuthority = .current
     ) -> CaddiePlanSequence? {
         guard shotType.caseInsensitiveCompare("tee") == .orderedSame else { return nil }
+        // A chain prepared before a 球包 change (a removed club, another typed carry) is stale: its
+        // offsets, landings and leaves were planned with the old carries. Drop it; the live
+        // decision re-plans from the effective profiles.
+        let prepLegs = (prep?.steps ?? []).map { (club: $0.clubName ?? $0.club ?? "", carryM: $0.targetCarryM) }
+        guard authority.planMatches(prepLegs) else { return nil }
         let prepSteps: [CoursePrepStep] = {
             let source = prep?.steps ?? []
             guard par >= 3,

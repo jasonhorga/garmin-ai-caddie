@@ -688,6 +688,8 @@ public final class LiveRoundAppModel: ObservableObject {
             playerId: session.playerId,
             migrateLegacyData: migrateLegacyData
         )
+        // The 球包 roster, typed carries and their pending PUT belong to this player only.
+        ClubBagSyncCoordinator.shared.activate(playerId: session.playerId, migrateLegacy: migrateLegacyData)
         boundPlayerId = session.playerId
         package = nil
         liveRoundState = nil
@@ -726,8 +728,10 @@ public final class LiveRoundAppModel: ObservableObject {
             isBootstrapping = false
             resumePrepCourseDownloads(retryFailed: true)
             retryDeferredRoundFinishes()
-            // A 球包 edit still in the outbox (the app was closed before its PUT landed) resumes here.
+            // A 球包 edit still in the outbox (the app was closed before its PUT landed) resumes here;
+            // otherwise the cloud bag (another phone, a reinstall) is restored.
             ClubBagSyncCoordinator.shared.configure(apiBaseURL: apiBaseURL, adminToken: adminToken)
+            Task { await ClubBagSyncCoordinator.shared.restoreFromServer() }
         }
         #if DEBUG
         // UI-test classes share one simulator installation. A previous journey may have left a
@@ -2967,6 +2971,7 @@ public final class LiveRoundAppModel: ObservableObject {
         resumePrepCourseDownloads(retryFailed: true)
         retryDeferredRoundFinishes()
         ClubBagSyncCoordinator.shared.configure(apiBaseURL: apiBaseURL, adminToken: adminToken)
+        Task { await ClubBagSyncCoordinator.shared.restoreFromServer() }
         // Retry local course asset preparation on the next foreground, but never block the event
         // uploader on that background work.
         if !isPreparingRound, liveRoundState != nil { beginOfflineCourseDownload() }

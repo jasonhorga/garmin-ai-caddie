@@ -70,6 +70,12 @@ final class ClubBagEditorModel: ObservableObject {
         if ClubBagStore.bag() == nil { bag = names }
     }
 
+    /// Re-read the bound player's store (after the cloud bag was restored).
+    func reloadFromStore() {
+        bag = ClubBagStore.bag() ?? ClubBagStore.realBag() ?? Self.historyBag(clubProfiles)
+        distancesYd = ClubBagStore.manualDistancesYd()
+    }
+
     private func commit() {
         ClubBagStore.save(bag)
         ClubBagStore.saveManualDistancesYd(distancesYd)
@@ -122,7 +128,7 @@ public struct ClubSettingsView: View {
 
     public var body: some View {
         ScrollView {
-            BagContent(rows: model.rows, syncFailed: sync.status == .failed, onSelect: { editingName = $0.name },
+            BagContent(rows: model.rows, syncNotice: Self.syncNotice(sync.status), onSelect: { editingName = $0.name },
                        onReset: (apiBaseURL != nil || ClubBagStore.realBag() != nil) ? { model.resetToGarminBag() } : nil)
         }
         .background(HubStyle.grouped)
@@ -152,7 +158,21 @@ public struct ClubSettingsView: View {
         }
         .task {
             sync.configure(apiBaseURL: apiBaseURL, adminToken: adminToken)
+            // Restore this player's cloud bag (another phone, a reinstall) before it is edited here.
+            if fetchesRealBag, await sync.restoreFromServer() {
+                model.reloadFromStore()
+            }
             await loadRealBag()
+        }
+    }
+
+    static func syncNotice(_ status: ClubBagSyncCoordinator.Status) -> String? {
+        switch status {
+        case .failed: return "还没同步到云端，正在自动重试"
+        case .rejected(let code) where code == 401 || code == 403:
+            return "云端没接受这次保存（\(code)），请重新登录后再改一次"
+        case .rejected(let code): return "云端没接受这次保存（\(code)），改一下球包会再试"
+        default: return nil
         }
     }
 
@@ -168,7 +188,7 @@ public struct ClubSettingsView: View {
 /// The ladder for given rows (no ScrollView, so the CI snapshots render it).
 struct BagContent: View {
     let rows: [BagPresentation.Row]
-    var syncFailed = false
+    var syncNotice: String? = nil
     var onSelect: (BagPresentation.Row) -> Void = { _ in }
     var onReset: (() -> Void)? = nil
 
@@ -179,8 +199,8 @@ struct BagContent: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(BagPresentation.summary(rows))
                 .font(.footnote).foregroundStyle(.secondary)
-            if syncFailed {
-                Text("还没同步到云端，正在自动重试").font(.caption).foregroundStyle(HubStyle.bogey)
+            if let syncNotice {
+                Text(syncNotice).font(.caption).foregroundStyle(HubStyle.bogey)
             }
             VStack(spacing: 0) {
                 if let axis {

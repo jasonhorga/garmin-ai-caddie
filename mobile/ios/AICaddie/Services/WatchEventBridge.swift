@@ -1127,9 +1127,11 @@ public final class WatchEventBridge: NSObject {
     ) -> [WatchClubOption] {
         var options: [WatchClubOption] = []
         var seen = Set<String>()
+        // The Watch offers only clubs still in 球包, at the carries set there.
+        let authority = ClubBagAuthority.current
 
         func append(_ option: WatchClubOption) {
-            guard let clubName = nonEmpty(option.clubName) else {
+            guard let clubName = nonEmpty(option.clubName), authority.allows(clubName) else {
                 return
             }
             let key = clubName.lowercased()
@@ -1157,7 +1159,8 @@ public final class WatchEventBridge: NSObject {
             )
         }
 
-        for option in package.caddieContextSeeds.first(where: { $0.hole == hole.number })?.offlineOptions ?? [] {
+        for option in package.caddieContextSeeds.first(where: { $0.hole == hole.number })?.offlineOptions ?? []
+            where authority.matches(club: option.clubName, carryM: option.carryM) {
             append(
                 WatchClubOption(
                     clubName: option.clubName,

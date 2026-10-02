@@ -176,10 +176,13 @@ def apply_manual_carries(profiles: Iterable[dict[str, Any]], *, player_id: str =
     rows = [dict(row) for row in profiles if isinstance(row, dict)]
     if not carries:
         return rows
+    covered: set[str] = set()
     for row in rows:
-        carry = carries.get(canonical_club_name(row.get("clubName")) or "")
+        token = canonical_club_name(row.get("clubName")) or ""
+        carry = carries.get(token)
         if carry is None:
             continue
+        covered.add(token)
         try:
             median = float(row.get("median_m") or 0)
         except (TypeError, ValueError):
@@ -192,7 +195,43 @@ def apply_manual_carries(profiles: Iterable[dict[str, Any]], *, player_id: str =
                 value = 0.0
             row[key] = round(max(1.0, value + delta), 1) if median > 0 and value > 0 else carry
         row["median_m"] = carry
+    # A typed club with no shot history still reaches the caddie (iOS adds the same zero-sample row).
+    for token, carry in carries.items():
+        if token in covered:
+            continue
+        rows.append({
+            "clubName": manual_profile_name(token),
+            "sampleSize": 0,
+            "median_m": carry,
+            "p10_m": carry,
+            "p90_m": carry,
+        })
     return rows
+
+
+def manual_default_profiles(player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    """Zero-sample rows from catalog defaults for a manual roster with neither history nor typed
+    carries, so the caddie never falls back to a club the player took out of the bag."""
+    bag = effective_club_bag(player_id)
+    if bag["source"] != "manual":
+        return []
+    rows: list[dict[str, Any]] = []
+    for club in bag["clubs"]:
+        token = str((club or {}).get("token") or "")
+        default = club_catalog.default_distance_m(token) if token != "putter" else None
+        if default:
+            carry = float(default)
+            rows.append({"clubName": manual_profile_name(token), "sampleSize": 0,
+                         "median_m": carry, "p10_m": carry, "p90_m": carry})
+    return rows
+
+
+def manual_profile_name(token: str) -> str:
+    """A profile name both normalizers resolve to ``token``: the server's ``canonical_club_name``
+    and iOS ``zhClubName`` ("iron7" -> 七号铁, "50" -> 50° 挖起杆)."""
+    if token.startswith("wedge") and token[5:].isdigit():
+        return token[5:]
+    return token
 
 
 def in_use_canonical_names(player_id: str = OWNER_ID) -> set[str] | None:
@@ -241,6 +280,11 @@ def restrict_to_bag(
     if not bag:
         return items
     kept = [it for it in items if canonical_club_name(name_of(it)) in bag]
+    # A roster the player chose in 球包 is authoritative: a club taken out never comes back as a
+    # "keep the caddie alive" fallback. Typed carries for the remaining clubs are added by
+    # ``apply_manual_carries``; only the synced Garmin bag keeps the full-history fallback.
+    if effective_club_bag(player_id)["source"] == "manual":
+        return kept
     return kept if len(kept) >= min_keep else items
 
 

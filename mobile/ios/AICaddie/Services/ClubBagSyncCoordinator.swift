@@ -1,32 +1,43 @@
 import Foundation
 
-/// The one writer of the backend manual bag (`PUT /api/v2/players/me/clubs/bag`). Every 球包 change
-/// (add, remove, a typed distance, 用 Garmin 球包重置 as `{"clubs": []}`) lands in a durable outbox
-/// first; a single serialized worker owned by this long-lived object — never by a screen — sends the
-/// latest outbox after a short pause, and keeps retrying with backoff until the server has it. So
-/// leaving 球包 right after a change, a newer change while a PUT is in flight, or a failed write all
-/// end with the server holding the last edit. The outbox survives relaunch and is resumed on
-/// `configure`.
+/// The one writer of the backend manual bag (`PUT /api/v2/players/{id}/clubs/bag`). Every 球包
+/// change (add, remove, a typed distance, 用 Garmin 球包重置 as `{"clubs": []}`) lands in a durable
+/// outbox first; a single serialized worker owned by this long-lived object — never by a screen —
+/// sends the latest outbox after a short pause, and keeps retrying transport / server failures with
+/// backoff until the server has it. So leaving 球包 right after a change, a newer change while a
+/// PUT is in flight, or a failed write all end with the server holding the last edit.
+///
+/// Everything is per player: the outbox lives under the signed-in player's keys and records that
+/// player, the PUT targets exactly that player's id, and an account switch stops the worker so one
+/// account's pending edit is never sent with another account's credentials. A permanent rejection
+/// (401 / 403 / 4xx validation) is not retried: the intent is kept, marked rejected, and shown.
 @MainActor
 public final class ClubBagSyncCoordinator: ObservableObject {
-    public typealias Sender = ([ManualClubInput]) async throws -> Void
+    public typealias Sender = (_ playerId: String, _ clubs: [ManualClubInput]) async throws -> Void
+    public typealias Fetcher = (_ playerId: String) async throws -> EffectiveClubBagResponse
 
     public enum Status: Equatable {
         case idle
         case pending
         case syncing
-        /// The last attempt failed; the worker is waiting to retry.
+        /// The last attempt failed with a transport/server error; the worker is waiting to retry.
         case failed
+        /// The server refused the write (HTTP status); it is kept but not retried until a new edit.
+        case rejected(Int)
     }
 
     struct Outbox: Codable, Equatable {
+        var playerId: String
         var generation: Int
         var clubs: [ManualClubInput]
+        /// The HTTP status of a permanent rejection; such an outbox is never retried by itself.
+        var rejectedStatus: Int?
     }
 
     public static let shared = ClubBagSyncCoordinator()
-    static let outboxKey = "ai-caddie.club-bag-outbox-v1"
     static let debounceNanoseconds: UInt64 = 800_000_000
+    /// The PUT target when no player is bound (the owner admin build): the owner's own bag.
+    static let ownerTarget = "me"
 
     @Published public private(set) var status: Status = .idle
     /// Every PUT attempt that failed, for tests and diagnostics.
@@ -35,7 +46,9 @@ public final class ClubBagSyncCoordinator: ObservableObject {
     private let defaults: () -> UserDefaults
     private let sleep: (UInt64) async -> Void
     private var sender: Sender?
+    private var fetcher: Fetcher?
     private var worker: Task<Void, Never>?
+    private var workerID = 0
 
     init(
         defaults: @escaping () -> UserDefaults = { ClubBagStore.defaults },
@@ -43,72 +56,133 @@ public final class ClubBagSyncCoordinator: ObservableObject {
     ) {
         self.defaults = defaults
         self.sleep = sleep
-        if pendingOutbox() != nil { status = .pending }
+        status = restingStatus()
+    }
+
+    /// Bind storage and sync to the signed-in player. A worker still running for the previous
+    /// player stops: its outbox stays under that player and resumes only when they sign in again.
+    public func activate(playerId: String?, migrateLegacy: Bool) {
+        let previous = ClubBagStore.playerId
+        ClubBagStore.bind(playerId: playerId, migrateLegacy: migrateLegacy)
+        guard ClubBagStore.playerId != previous else { return }
+        worker?.cancel()
+        worker = nil
+        status = restingStatus()
+        resumeIfPending()
     }
 
     /// Point the worker at the signed-in backend (no-op without one) and resume a saved outbox.
     public func configure(apiBaseURL: URL?, adminToken: String?) {
         guard let apiBaseURL else { return }
-        configure(sender: { clubs in
-            _ = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).putManualClubBag(clubs: clubs)
-        })
+        configure(
+            sender: { playerId, clubs in
+                _ = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
+                    .putManualClubBag(playerId: playerId, clubs: clubs)
+            },
+            fetcher: { playerId in
+                try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
+                    .fetchEffectiveClubBag(playerId: playerId)
+            }
+        )
     }
 
-    func configure(sender: @escaping Sender) {
+    func configure(sender: @escaping Sender, fetcher: Fetcher? = nil) {
         self.sender = sender
-        if pendingOutbox() != nil { startWorker(debounce: false) }
+        if let fetcher { self.fetcher = fetcher }
+        resumeIfPending()
     }
 
-    /// Queue the whole manual bag (latest wins). An empty list clears the server's manual bag.
+    /// Queue the whole manual bag of the bound player (latest wins). An empty list clears the
+    /// server's manual bag. A new intent replaces a rejected one.
     public func enqueue(_ clubs: [ManualClubInput]) {
-        let generation = (pendingOutbox()?.generation ?? defaults().integer(forKey: Self.outboxKey + ".generation")) + 1
-        defaults().set(generation, forKey: Self.outboxKey + ".generation")
-        save(Outbox(generation: generation, clubs: clubs))
+        let player = ClubBagStore.playerId
+        let generationKey = ClubBagStore.key(ClubBagStore.generationBase, playerId: player)
+        let generation = defaults().integer(forKey: generationKey) + 1
+        defaults().set(generation, forKey: generationKey)
+        save(Outbox(playerId: player ?? Self.ownerTarget, generation: generation, clubs: clubs, rejectedStatus: nil), for: player)
         if status != .failed { status = .pending }
-        startWorker(debounce: true)
+        startWorker(for: player, debounce: true)
     }
 
-    /// Wait until the worker is idle (the outbox is sent, or there is no backend to send it to).
+    /// Restore the bound player's manual bag from the server (reinstall / second phone) before it
+    /// is edited here. Skipped while a local edit is still queued: the queued edit is newer.
+    @discardableResult
+    public func restoreFromServer() async -> Bool {
+        let player = ClubBagStore.playerId
+        guard let fetcher, outbox(for: player) == nil else { return false }
+        guard let response = try? await fetcher(player ?? Self.ownerTarget) else { return false }
+        guard ClubBagStore.playerId == player, outbox(for: player) == nil else { return false }
+        ClubBagStore.hydrate(from: response)
+        return true
+    }
+
+    /// Wait until the worker is idle (the outbox is sent, rejected, or there is no backend).
     public func flush() async {
         while let worker {
             await worker.value
         }
     }
 
-    var pendingClubs: [ManualClubInput]? { pendingOutbox()?.clubs }
+    var pendingClubs: [ManualClubInput]? { outbox(for: ClubBagStore.playerId)?.clubs }
+    var pendingOutbox: Outbox? { outbox(for: ClubBagStore.playerId) }
 
-    private func startWorker(debounce: Bool) {
+    private func resumeIfPending() {
+        guard let pending = outbox(for: ClubBagStore.playerId), pending.rejectedStatus == nil else { return }
+        startWorker(for: ClubBagStore.playerId, debounce: false)
+    }
+
+    private func startWorker(for player: String?, debounce: Bool) {
         guard worker == nil else { return }
+        workerID &+= 1
+        let id = workerID
         worker = Task { [weak self] in
-            await self?.drain(debounce: debounce)
+            await self?.drain(player: player, debounce: debounce)
+            if self?.workerID == id { self?.worker = nil }
         }
     }
 
-    private func drain(debounce: Bool) async {
-        defer { worker = nil }
+    private func drain(player: String?, debounce: Bool) async {
         if debounce { await sleep(Self.debounceNanoseconds) }
         var failures = 0
-        while let pending = pendingOutbox() {
+        while !Task.isCancelled, ClubBagStore.playerId == player,
+              let pending = outbox(for: player), pending.rejectedStatus == nil {
             guard let sender else {
                 status = .pending
                 return
             }
             status = failures == 0 ? .syncing : .failed
             do {
-                try await sender(pending.clubs)
+                try await sender(pending.playerId, pending.clubs)
                 failures = 0
                 // A newer edit queued while this PUT was in flight stays for the next turn.
-                if pendingOutbox()?.generation == pending.generation {
-                    defaults().removeObject(forKey: Self.outboxKey)
+                if outbox(for: player)?.generation == pending.generation {
+                    defaults().removeObject(forKey: ClubBagStore.key(ClubBagStore.outboxBase, playerId: player))
                 }
             } catch {
-                failures += 1
                 failedAttempts += 1
-                status = .failed
+                if let code = Self.permanentStatus(error) {
+                    if var current = outbox(for: player), current.generation == pending.generation {
+                        current.rejectedStatus = code
+                        save(current, for: player)
+                        if ClubBagStore.playerId == player { status = .rejected(code) }
+                        return
+                    }
+                    continue  // a newer edit replaced the rejected one: send it
+                }
+                failures += 1
+                if ClubBagStore.playerId == player { status = .failed }
                 await sleep(Self.retryDelay(afterFailures: failures))
             }
         }
-        status = .idle
+        if ClubBagStore.playerId == player { status = restingStatus() }
+    }
+
+    /// 401 / 403 / 404 / 409 / 4xx validation will not succeed by retrying the same payload.
+    /// Timeouts (408) and rate limits (429) are transient.
+    static func permanentStatus(_ error: Error) -> Int? {
+        guard case SyncClientError.http(let status, _) = error,
+              (400..<500).contains(status), status != 408, status != 429 else { return nil }
+        return status
     }
 
     /// 2 s, 4 s, 8 s … capped at one minute.
@@ -117,13 +191,18 @@ public final class ClubBagSyncCoordinator: ObservableObject {
         return UInt64(seconds) * 1_000_000_000
     }
 
-    private func pendingOutbox() -> Outbox? {
-        guard let data = defaults().data(forKey: Self.outboxKey) else { return nil }
+    private func restingStatus() -> Status {
+        guard let pending = outbox(for: ClubBagStore.playerId) else { return .idle }
+        return pending.rejectedStatus.map(Status.rejected) ?? .pending
+    }
+
+    private func outbox(for player: String?) -> Outbox? {
+        guard let data = defaults().data(forKey: ClubBagStore.key(ClubBagStore.outboxBase, playerId: player)) else { return nil }
         return try? JSONDecoder().decode(Outbox.self, from: data)
     }
 
-    private func save(_ outbox: Outbox) {
+    private func save(_ outbox: Outbox, for player: String?) {
         guard let data = try? JSONEncoder().encode(outbox) else { return }
-        defaults().set(data, forKey: Self.outboxKey)
+        defaults().set(data, forKey: ClubBagStore.key(ClubBagStore.outboxBase, playerId: player))
     }
 }
