@@ -134,6 +134,11 @@ public final class ClubBagSyncCoordinator: ObservableObject {
     /// and is newer.
     @discardableResult
     public func restoreFromServer() async -> Bool {
+        // Decided at the call, before any suspension: an edit queued now is newer than the cloud.
+        if fetcher != nil, outbox(for: ClubBagStore.playerId) != nil {
+            restoreState = .restored
+            return false
+        }
         if let restoreTask { return await restoreTask.value }
         let task = Task { await self.performRestore() }
         restoreTask = task
