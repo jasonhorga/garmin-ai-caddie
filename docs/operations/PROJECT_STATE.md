@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-10-02 18:27 UTC
+**Updated:** 2026-10-02 19:02 UTC
 **Branch:** `main`; product canonical source revision is
 `48e0ec3754303aa605a874940140bd24f5d3d61e` (PR #366 B5c, PR #365 B5b, PR #364 B5a,
 PR #363 B4c, PR #362 B4b-2, PR #361 B4b, PR #360 B4a and PR #359 B3 are
@@ -505,6 +505,34 @@ zoom/pan at 41 mm and standard size. PR #367 must not merge and B7 must not
 start until a new exact head closes both findings and repeats the required
 exact-head CI, focused, artifact, and `setup-visual` gates.
 
+Claude then pushed current exact head
+`6ae31c3ab8f3c8a675758eaa7414130aed8bdbed`. It adds a shared production
+clock-lane exclusion to `WatchPlanLegs.layoutLabels`, exercises 41 / 45 / 49 mm
+frames, gives only the hazard runtime fixture a launch-fresh accurate location,
+and makes the runtime workflow wait for a production display report proving
+that a selected hazard is both zoomed and panned. Static incremental review and
+`git diff --check` are clean. Source CI `37048110561` is green. The exact-head
+homeserver suites `tests.test_mobile_contracts tests.test_native_visual_parity`
+passed `125/125` in 15.427s; focused-log SHA-256 is
+`26c2e70e473e0bfc70244c277cc14349bdad1e0052d49d4bbf0086da06f82200`.
+
+Native Mobile CI `37048110539` passed iOS `607/607`, Watch `417/417`, and both
+production Watch UI tests. Its complete log SHA-256 is
+`dde9a6d4c1eade85f09cf00fa7a36f2aabf114e0e0deedee60e94c172bc4bdf4`.
+Artifacts are design `11246017297`, Watch `11245828143`, and native evidence
+`11246142723`; evidence merge `4423250dc14bb188799a7eec796bfcf0340af8d7`
+has exact head `6ae31c3a` as its second parent. Against `086ea8e7`, 45 of 47
+Watch PNGs are byte-identical. The changed plan-page image moves only the
+top-right club label, and the prepared Caddie image differs by 78 pixels in a
+15 by 15 landing region; both were directly inspected and remain readable.
+Eighty of 87 iOS PNGs are byte-identical; all seven differences have the same
+`x=52..235, y=322..412` greeting-only bounds, the known unfrozen-clock
+nondeterminism. Exact-head `setup-visual` runtime run `37051328152` was
+dispatched at 19:01 UTC and is the sole remaining acceptance gate. The two P2s
+from comment `5958725422` stay open until its real 41 / 45 mm plan and hazard
+captures are inspected; do not merge or start B7 before that evidence closes
+them.
+
 The old review snapshot/artifacts/local copies were removed after preserving
 16 evidence files under
 `/home/jason/garmin-ai-caddie-data/review-evidence/pr367/fec3ebf7/`; retained
@@ -565,17 +593,27 @@ metadata and overlap screenshot were checksum-preserved under
 `/home/jason/garmin-ai-caddie-data/review-evidence/pr367/09958bc3/`. Cleanup is
 recorded in
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261002T164100Z-pr367-09958bc3-review.md`.
+The `086ea8e7` resources are closed under manifest
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261002T171230Z-pr367-086ea8e7-review.md`.
+Twelve selected logs, metadata files, and blocker screenshots (4.0 MiB) are
+preserved under
+`/home/jason/garmin-ai-caddie-data/review-evidence/pr367/086ea8e7/`; their
+`SHA256SUMS` file hash is
+`3ffdd8c1d58ff8a6d4b272c911bbaff7d80e7467442a0ff953d6a2f50f82b926`.
+The exact old snapshot and artifact root were removed, and the bounded local
+copy was moved to system trash. Production health stayed HTTP 200 / `ok` at
+`d7f69971` before and after cleanup.
+
 The sole active read-only review snapshot is now
-`/dev/shm/aicaddie-pr367-086ea8e7-review-20261002T171230Z`; its artifact root is
-`/home/jason/codex-runs/aicaddie-pr367-086ea8e7-artifacts-20261002T171230Z`,
+`/dev/shm/aicaddie-pr367-6ae31c3a-review-20261002T183900Z`; its artifact root is
+`/home/jason/codex-runs/aicaddie-pr367-6ae31c3a-artifacts-20261002T183900Z`,
 with manifest
-`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261002T171230Z-pr367-086ea8e7-review.md`
-and expiry `2026-10-03T17:12:30Z`. The bounded local screenshot target
-`/home/ubuntu/claude-web-data/data/garmin-ai-caddie/reviews/pr367-086ea8e7-20261002T171230Z`
-is populated with the inspected matching artifacts and runtime screenshots.
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261002T183900Z-pr367-6ae31c3a-review.md`
+and expiry `2026-10-03T18:39:00Z`. The bounded local screenshot target is
+`/home/ubuntu/claude-web-data/data/garmin-ai-caddie/reviews/pr367-6ae31c3a-20261002T183900Z`.
 The focused `--rm` container exited; no temporary container, service, port,
-tunnel or volume remains. Production health remained HTTP 200 with status `ok`
-and was not changed by this review.
+tunnel, volume, or dependency installation remains. The GitHub-hosted runtime
+run is external CI, not a homeserver resource.
 
 PR #365 (B5b time/frequency restyle and course detail) opened at exact head
 `863705dbeb6e3d5812e1419c9e3ce1d96791abf9`. Source CI `36864790317` passed,
