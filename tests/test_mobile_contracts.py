@@ -5448,7 +5448,11 @@ class WatchHolePagesContractTests(unittest.TestCase):
         container = self.read("Views/WatchRoundContainerView.swift")
         self.assertIn("showCaddieRecommendation: currentShot != nil || preparedRootCaddieLayerAvailable || !legs.isEmpty", container)
         options = self.read("Views/WatchCaddieOptionsView.swift")
-        self.assertIn("planLegs: Self.planLegs(for: option, route: route, geometry: mappedGeometry)", options)
+        self.assertIn("let legs = mappedGeometry.map { Self.planLegs(for: option, route: route, geometry: $0) } ?? []", options)
+        self.assertIn("planLegs: legs", options)
+        # The focused plan is framed on every landing, its label and the pin, not the first landing.
+        self.assertIn("points: [geometry.youPx] + legs.map(\\.landing) + [geometry.pinPx]", options)
+        self.assertIn("fullMapFocusImagePx: viewport?.focusImage", options)
         ui = (Path("mobile") / "ios" / "AICaddieWatchUITests" / "WatchHolePagesUITests.swift").read_text(encoding="utf-8")
         self.assertIn("standalone-course-page-plan-after-tee", ui)
         self.assertIn("tag.tap()", ui)

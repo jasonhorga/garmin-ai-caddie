@@ -209,9 +209,41 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
         let stock = try XCTUnwrap(options.first { $0.optionId == "stock" })
         XCTAssertNil(stock.carryP10M, "prepared plans carry no measured dispersion")
-        let legs = WatchCaddieOptionsView.planLegs(for: stock, route: route, geometry: WatchHoleMapSample.geometry)
+        let geometry = WatchHoleMapSample.geometry
+        let legs = WatchCaddieOptionsView.planLegs(for: stock, route: route, geometry: geometry)
         XCTAssertGreaterThan(legs.count, 1, "the later shots are drawn too")
         XCTAssertEqual(legs.count, stock.plan?.count)
+        // Every landing with its label, and the pin with its flag, sit inside the face between the
+        // header and the strategy row on both the 46 mm and the 41 mm face; no labels overlap.
+        for size in [CGSize(width: 198, height: 242), CGSize(width: 176, height: 215)] {
+            let viewport = try XCTUnwrap(WatchCaddieOptionsView.planViewport(
+                points: [geometry.youPx] + legs.map(\.landing) + [geometry.pinPx],
+                size: size,
+                maxScale: CGFloat(WatchHoleMapView.maximumCrownScale)
+            ))
+            let rest = WatchCaddieOptionsView.planRestFrame(in: size)
+            func canvas(_ point: CGPoint) -> CGPoint {
+                CGPoint(
+                    x: (point.x - viewport.focusImage.x) * viewport.scale + viewport.focusFraction.x * size.width,
+                    y: (point.y - viewport.focusImage.y) * viewport.scale + viewport.focusFraction.y * size.height
+                )
+            }
+            let labels = legs.map { leg -> CGRect in
+                let landing = canvas(leg.landing)
+                XCTAssertTrue(rest.contains(landing), "landing \(leg.label) at \(landing) in \(rest) for \(size)")
+                // drawFullPlan places a ~50 pt label 6 pt right of the landing, centred on it.
+                return CGRect(x: landing.x + 6, y: landing.y - 8, width: 50, height: 16)
+            }
+            for (label, leg) in zip(labels, legs) {
+                XCTAssertTrue(rest.contains(label), "label \(leg.label) \(label) in \(rest) for \(size)")
+            }
+            for i in labels.indices { for j in labels.indices where j > i {
+                XCTAssertFalse(labels[i].intersects(labels[j]), "labels \(legs[i].label) / \(legs[j].label) overlap")
+            } }
+            let pin = canvas(geometry.pinPx)
+            XCTAssertTrue(rest.contains(pin), "pin in the rest frame for \(size)")
+            XCTAssertGreaterThanOrEqual(pin.y - 13, rest.minY, "the flag clears the header for \(size)")
+        }
 
         let view = WatchCaddieOptionsView(
             hole: 4,

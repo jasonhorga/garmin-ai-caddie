@@ -110,6 +110,16 @@ public struct WatchCaddieOptionsView: View {
                 topClearance: 42
             ))
         } ?? CGFloat(WatchHoleMapView.restingCrownScale)
+        let legs = mappedGeometry.map { Self.planLegs(for: option, route: route, geometry: $0) } ?? []
+        // The whole remaining plan (player, every landing and its label, the pin and its flag)
+        // fits between the header and the strategy row, with or without measured dispersion.
+        let viewport = mappedGeometry.flatMap { geometry in
+            Self.planViewport(
+                points: [geometry.youPx] + legs.map(\.landing) + [geometry.pinPx],
+                size: size,
+                maxScale: CGFloat(WatchHoleMapView.maximumCrownScale)
+            )
+        }
 
         return ZStack {
             if let mappedGeometry {
@@ -130,11 +140,13 @@ public struct WatchCaddieOptionsView: View {
                     showTextOverlay: false,
                     showHoleIdentity: false,
                     fullMap: true,
-                    mapScale: scale,
+                    mapScale: viewport?.scale ?? scale,
+                    fullMapFocusImagePx: viewport?.focusImage,
+                    fullMapFocusCanvasFraction: viewport?.focusFraction ?? CGPoint(x: 0.5, y: 0.52),
                     geometry: mappedGeometry,
                     // The whole remaining plan, the same legs as the 方案 page; dispersion (live
                     // only) is drawn on top and is not needed to show the later shots.
-                    planLegs: Self.planLegs(for: option, route: route, geometry: mappedGeometry)
+                    planLegs: legs
                 )
                 .allowsHitTesting(false)
             } else {
@@ -237,6 +249,53 @@ public struct WatchCaddieOptionsView: View {
             carryP10M: p10,
             carryP90M: p90,
             continuation: continuation
+        )
+    }
+
+    /// How the focused plan is framed: the image scale, the image point at the frame's centre and
+    /// where that centre sits on the face (as fractions of its size).
+    struct PlanViewport: Equatable {
+        let scale: CGFloat
+        let focusImage: CGPoint
+        let focusFraction: CGPoint
+    }
+
+    /// Room each landing's label (drawn to its right, centred on it) and the pin's flag need.
+    static let planLabelReserve = CGSize(width: 58, height: 16)
+    static let planFlagReserve: CGFloat = 16
+
+    /// The face between the header (back button + club chain) and the strategy row, left of the
+    /// plan dots.
+    static func planRestFrame(in size: CGSize) -> CGRect {
+        let inset = WatchDisplayGeometry.contentInset(for: size)
+        let top = inset + WatchDisplayGeometry.instrumentControlSize + 4
+        let bottom = size.height - inset - 22
+        return CGRect(x: inset, y: top, width: max(0, size.width - inset * 2 - 12), height: max(0, bottom - top))
+    }
+
+    /// The scale and centre that fit every `points` (player, landings, pin) into the rest frame
+    /// with room for the landing labels and the flag; never zoomed past `maxScale`.
+    static func planViewport(points: [CGPoint], size: CGSize, maxScale: CGFloat) -> PlanViewport? {
+        guard let first = points.first, size.width > 0, size.height > 0 else { return nil }
+        var minX = first.x, maxX = first.x, minY = first.y, maxY = first.y
+        for point in points.dropFirst() {
+            minX = min(minX, point.x); maxX = max(maxX, point.x)
+            minY = min(minY, point.y); maxY = max(maxY, point.y)
+        }
+        let rest = planRestFrame(in: size)
+        let half = planLabelReserve.height / 2
+        let fit = CGRect(
+            x: rest.minX + 4,
+            y: rest.minY + max(planFlagReserve, half),
+            width: rest.width - 4 - planLabelReserve.width,
+            height: rest.height - max(planFlagReserve, half) - half
+        )
+        guard fit.width > 0, fit.height > 0 else { return nil }
+        let scale = min(maxScale, fit.width / max(maxX - minX, 1), fit.height / max(maxY - minY, 1))
+        return PlanViewport(
+            scale: scale,
+            focusImage: CGPoint(x: (minX + maxX) / 2, y: (minY + maxY) / 2),
+            focusFraction: CGPoint(x: fit.midX / size.width, y: fit.midY / size.height)
         )
     }
 
