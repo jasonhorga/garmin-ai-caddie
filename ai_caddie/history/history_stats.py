@@ -2172,6 +2172,14 @@ def _loop_identity(row: dict[str, Any], side: str, physical: int) -> tuple[str, 
     return f"{base}:{span}", ("10–18 洞" if span == "10-18" else "1–9 洞")
 
 
+def _round_side_loop_keys(row: dict[str, Any]) -> dict[str, str]:
+    """``{"frontLoopKey": ..., "backLoopKey": ...}`` for the sides a round played (B5b 球场)."""
+    keys: dict[str, str] = {}
+    for _hole, _display, physical, side in _hole_sides(row):
+        keys.setdefault(f"{side}LoopKey", _loop_identity(row, side, physical)[0])
+    return keys
+
+
 def _loop_name_evidence(row: dict[str, Any]) -> dict[str, str]:
     """Loop names a round's "Venue ~ A/C" (or single-loop "Venue ~ A") suffix asserts, by side."""
     parts = [part for part in _canonical_nine_label(str(row.get("course") or "")).split("/") if part]
@@ -2810,9 +2818,19 @@ def _courses(
                 }
             )
         nine_breakdown.sort(key=lambda r: (-r["roundCount"], r["label"]))
+        # B5b 球场: the physical nine loops played here (the same keys as scoring.loops /
+        # nineCombos), so the course page can pick its hardest holes and combinations.
+        loop_keys = sorted({
+            _loop_identity(loop_row, side, physical)[0]
+            for loop_row in rows
+            for _hole, _display, physical, side in _hole_sides(loop_row)
+        })
         # Compact per-round list for the course drill-in (date + score, tap → that round). Tiny.
+        # frontLoopKey / backLoopKey name the loops each side played, so a hardest-hole card can
+        # list the rounds that played that hole (display hole = loop hole within the side).
         course_rounds = [
             {
+                **_round_side_loop_keys(r),
                 "roundId": _round_id(r),
                 "date": str(r.get("date") or ""),
                 "score": int(r["strokes"]) if r.get("strokes") is not None else None,
@@ -2839,6 +2857,8 @@ def _courses(
                     ),
                     "roundCount": len(rows),
                     "nineBreakdown": nine_breakdown,
+                    "loopKeys": loop_keys,
+                    "nineOnlyRounds": sum(1 for loop_row in rows if loop_row.get("holesCompleted") == 9),
                     "rounds": course_rounds,
                     "average18": average(scores18),
                     "bestScore": min(scores18) if scores18 else None,

@@ -4019,6 +4019,26 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("nineBreakdown", mobile_stats_model)
         self.assertIn("struct CourseStatsDetailView", stats_view)
         self.assertNotIn("得分构成", stats_view)
+        # B5b 球场详情 (stats.html 6): the history-wide loops / combos matched by the course's own
+        # loopKeys, the topo backdrop, and the 时间与频率 page from the whole history.
+        self.assertIn("P.hardestHoles(course, loops: scoring?.loops ?? [])", stats_view)
+        self.assertIn("P.combos(course, combos: scoring?.nineCombos ?? [])", stats_view)
+        self.assertIn("SyncClient.topoImageURL(baseURL: apiBaseURL, globalId: ref.globalId", stats_view)
+        self.assertIn("if let url = topo(P.backdrop(course))", stats_view)
+        self.assertIn("if let url = topo(hole.topo)", stats_view)
+        # Codex 5946305558: one visible course title (the 28pt heading), and cached topo bitmaps
+        # draw on the first frame.
+        self.assertNotIn("navigationTitle(course.localizedCourseDisplayName)", stats_view)
+        topo = _read_required_source(self, IOS_DIR / "Views" / "TopoHoleBaseImage.swift")
+        self.assertIn("imageStore.image ?? TopoHoleImageStore.cachedImage(for: topoURL)", topo)
+        self.assertIn("CourseStatsDetailView(course: course, scoring: scoring", results_view)
+        self.assertIn("ResultsCoursesView(courses: stats?.courses ?? [], scoring: stats?.scoring", results_view)
+        self.assertIn("loopKeys", mobile_stats_model)
+        # A hardest-hole card opens each round that played it, on that round's shot map.
+        self.assertIn("ResultsCoursePresentation.visits(course, hole: hole)", stats_view)
+        self.assertIn("RoundHoleShotMapScreen(", stats_view)
+        self.assertIn("frontLoopKey", mobile_stats_model)
+        self.assertIn("ResultsTimeContent(stats: stats, grain: $grain)", results_view)
         # GolfLive compact stats sections plus the B0d-1 fields the B5 screens read.
         self.assertIn("struct StatsOutcomeBucket", mobile_stats_model)
         self.assertIn("outcomeDistribution", mobile_stats_model)

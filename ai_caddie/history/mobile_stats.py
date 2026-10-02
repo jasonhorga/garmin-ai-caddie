@@ -26,6 +26,8 @@ _COURSE_KEYS = (
     "courseKey",
     "courseName",
     "nineBreakdown",
+    "loopKeys",
+    "nineOnlyRounds",
     "rounds",
     "roundCount",
     "average18",

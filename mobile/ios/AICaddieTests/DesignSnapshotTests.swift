@@ -1680,10 +1680,111 @@ final class DesignSnapshotTests: XCTestCase {
                 named: name
             )
         }
-        // 球场钻取(round-10):各九洞组合 + 所有比赛(时间·成绩,点单场看复盘)。
-        if let course = mobileStats.courses.first {
-            try captureScreen(NavigationStack { CourseStatsDetailView(course: course) }, named: "course-detail")
+        // B5b 球场详情 (stats.html 6): average + best, one dot per round (best green), the three
+        // hardest holes of this course's own loops, the most played combinations with the rest folded,
+        // then 所有比赛. No server in snapshots, so the topo cards show their ground colour.
+        let courseJSON = """
+        {"courseKey":"bk","courseName":"北京天竺黑骑士","roundCount":12,"average18":86.9,"bestScore":78,\
+        "loopKeys":["gid:7:1-9","gid:7:10-18","gid:8:1-9"],"nineOnlyRounds":3,\
+        "rounds":[{"roundId":"c-12","date":"2026-09-21","score":85,"toPar":13,"holesCompleted":18,"nine":"B/C"},\
+        {"roundId":"c-11","date":"2026-09-02","score":88,"toPar":16,"holesCompleted":18,"nine":"C/A"},\
+        {"roundId":"c-10","date":"2026-08-15","score":44,"toPar":8,"holesCompleted":9,"nine":"A"},\
+        {"roundId":"c-09","date":"2026-08-01","score":78,"toPar":6,"holesCompleted":18,"nine":"B/C"},\
+        {"roundId":"c-08","date":"2026-07-12","score":91,"toPar":19,"holesCompleted":18,"nine":"A/B"},\
+        {"roundId":"c-07","date":"2026-06-28","score":86,"toPar":14,"holesCompleted":18,"nine":"B/C"},\
+        {"roundId":"c-06","date":"2026-06-01","score":89,"toPar":17,"holesCompleted":18,"nine":"C/A"},\
+        {"roundId":"c-05","date":"2026-05-17","score":84,"toPar":12,"holesCompleted":18,"nine":"B/C"},\
+        {"roundId":"c-04","date":"2026-05-02","score":92,"toPar":20,"holesCompleted":18,"nine":"A/B"},\
+        {"roundId":"c-03","date":"2026-04-12","score":87,"toPar":15,"holesCompleted":18,"nine":"B/C"},\
+        {"roundId":"c-02","date":"2026-03-30","score":90,"toPar":18,"holesCompleted":18,"nine":"C/B"},\
+        {"roundId":"c-01","date":"2026-03-15","score":86,"toPar":14,"holesCompleted":18,"nine":"B/C"}]}
+        """
+        let courseScoringJSON = """
+        {"loops":[{"loopKey":"gid:7:1-9","label":"北京天竺黑骑士 A","holes":[{"hole":4,"par":4,"averageToPar":0.88,"samples":5},{"hole":7,"par":3,"averageToPar":0.4,"samples":5}]},\
+        {"loopKey":"gid:7:10-18","label":"北京天竺黑骑士 B","holes":[{"hole":13,"par":4,"averageToPar":1.12,"samples":8},{"hole":16,"par":5,"averageToPar":0.6,"samples":8}]},\
+        {"loopKey":"gid:8:1-9","label":"北京天竺黑骑士 C","holes":[{"hole":6,"par":4,"averageToPar":0.95,"samples":9}]}],\
+        "nineCombos":[{"frontKey":"gid:7:10-18","backKey":"gid:8:1-9","front":"北京天竺黑骑士 B","back":"北京天竺黑骑士 C","rounds":6,"average":85.8},\
+        {"frontKey":"gid:8:1-9","backKey":"gid:7:1-9","front":"北京天竺黑骑士 C","back":"北京天竺黑骑士 A","rounds":2,"average":88.5},\
+        {"frontKey":"gid:7:1-9","backKey":"gid:7:10-18","front":"北京天竺黑骑士 A","back":"北京天竺黑骑士 B","rounds":2,"average":91.5},\
+        {"frontKey":"gid:8:1-9","backKey":"gid:7:10-18","front":"北京天竺黑骑士 C","back":"北京天竺黑骑士 B","rounds":1,"average":90.0}]}
+        """
+        let course = try JSONDecoder().decode(StatsCourse.self, from: Data(courseJSON.utf8))
+        let courseScoring = try JSONDecoder().decode(StatsScoring.self, from: Data(courseScoringJSON.utf8))
+        XCTAssertEqual(ResultsCoursePresentation.hardestHoles(course, loops: courseScoring.loops).map(\.overPar), ["+1.12", "+0.95", "+0.88"])
+        XCTAssertEqual(ResultsCoursePresentation.combos(course, combos: courseScoring.nineCombos).count, 4)
+        // The topo backdrop (hole 1 of loop gid:7) and each hard hole's map come from local topo
+        // files, as the server renders them; a distinct ground per hole tells the cards apart.
+        let topoDir = FileManager.default.temporaryDirectory.appendingPathComponent("course-detail-topo", isDirectory: true)
+        try FileManager.default.createDirectory(at: topoDir, withIntermediateDirectories: true)
+        let grounds: [UIColor?] = [nil, UIColor(red: 0.80, green: 0.88, blue: 0.74, alpha: 1),
+                                   UIColor(red: 0.74, green: 0.84, blue: 0.70, alpha: 1)]
+        var topoFiles: [String: URL] = [:]
+        for (index, ref) in [(7, 1), (7, 13), (8, 6), (7, 4)].enumerated() {
+            let file = topoDir.appendingPathComponent("\(ref.0)-\(ref.1).png")
+            let image = Self.courseImage(ground: grounds[index % grounds.count], noisyRough: false)
+            try XCTUnwrap(image.pngData()).write(to: file, options: [.atomic])
+            // Decoded up front so the first rendered frame already draws each map (no loader race).
+            TopoHoleImageStore.preload(image, for: file)
+            topoFiles["\(ref.0)-\(ref.1)"] = file
         }
+        for file in topoFiles.values {
+            XCTAssertNotNil(TopoHoleImageStore.cachedImage(for: file), "every topo is ready before capture")
+        }
+        XCTAssertEqual(ResultsCoursePresentation.backdrop(course), ResultsCoursePresentation.HoleRef(globalId: 7, localHole: 1))
+        let courseView = CourseStatsDetailView(
+            course: course,
+            scoring: courseScoring,
+            topoURL: { ref in topoFiles["\(ref.globalId)-\(ref.localHole)"] }
+        )
+        try captureScreen(NavigationStack { courseView }, named: "course-detail", settle: 2.0)
+        // Degradation: a course without any topo keeps the ground-coloured cards and no backdrop.
+        try captureScreen(
+            NavigationStack { CourseStatsDetailView(course: course, scoring: courseScoring) },
+            named: "course-detail-no-topo"
+        )
+
+        // B5b 时间与频率 (stats.html 4): the grain picker on 季, the chart, quarter cards, then the
+        // calendar with its 场数 / 月均 / 最活跃月 line.
+        let timeJSON = """
+        {"trend":{"points":[]},"time":{\
+        "byYear":[{"key":"2026","roundCount":32,"average18":88.6,"bestScore":78,"worstScore":99,"outcomes":{"birdie":30,"doubleOrWorse":96}},\
+        {"key":"2025","roundCount":41,"average18":91.2,"bestScore":82,"worstScore":104,"outcomes":{"birdie":28,"doubleOrWorse":160}}],\
+        "byQuarter":[{"key":"2026-Q3","roundCount":9,"average18":87.1,"bestScore":78,"worstScore":95,"outcomes":{"birdie":10,"doubleOrWorse":22}},\
+        {"key":"2026-Q2","roundCount":14,"average18":88.4,"bestScore":82,"worstScore":96,"outcomes":{"birdie":13,"doubleOrWorse":41}},\
+        {"key":"2026-Q1","roundCount":9,"average18":90.6,"bestScore":84,"worstScore":99,"outcomes":{"birdie":7,"doubleOrWorse":33}},\
+        {"key":"2025-Q4","roundCount":10,"average18":91.8,"bestScore":85,"worstScore":101,"outcomes":{"birdie":6,"doubleOrWorse":41}},\
+        {"key":"2025-Q3","roundCount":12,"average18":90.2,"bestScore":82,"worstScore":98,"outcomes":{"birdie":9,"doubleOrWorse":44}}],\
+        "byMonth":[],\
+        "byDay":[{"key":"2026-01-11","roundCount":1},{"key":"2026-02-08","roundCount":1},{"key":"2026-02-22","roundCount":1},\
+        {"key":"2026-03-07","roundCount":2},{"key":"2026-03-28","roundCount":1},{"key":"2026-04-04","roundCount":1},{"key":"2026-04-18","roundCount":2},\
+        {"key":"2026-05-02","roundCount":1},{"key":"2026-05-09","roundCount":2},{"key":"2026-05-16","roundCount":1},{"key":"2026-05-23","roundCount":2},\
+        {"key":"2026-05-30","roundCount":1},{"key":"2026-06-13","roundCount":2},{"key":"2026-06-27","roundCount":2},{"key":"2026-07-11","roundCount":3},\
+        {"key":"2026-08-08","roundCount":2},{"key":"2026-08-22","roundCount":2},{"key":"2026-09-05","roundCount":2},{"key":"2026-09-20","roundCount":3}]}}
+        """
+        let timeStats = try JSONDecoder().decode(MobileStats.self, from: Data(timeJSON.utf8))
+        XCTAssertEqual(ResultsTimePresentation.calendarSummary(timeStats.time)?.text, "32 场 · 月均 3.6 · 5 月最多")
+        try captureScreen(
+            NavigationStack {
+                ScrollView {
+                    ResultsTimeContent(stats: timeStats, grain: .constant(.quarter))
+                }
+                .background(HubStyle.grouped)
+                .navigationTitle("时间与频率")
+            },
+            named: "results-time"
+        )
+        // The same page scrolled to its end: the play calendar with 场数 · 月均 · 最活跃月.
+        try captureScreen(
+            NavigationStack {
+                ScrollView {
+                    ResultsTimeContent(stats: timeStats, grain: .constant(.quarter))
+                }
+                .defaultScrollAnchor(.bottom)
+                .background(HubStyle.grouped)
+                .navigationTitle("时间与频率")
+            },
+            named: "results-time-calendar"
+        )
 
         // 球杆设置: defaults to the player's REAL Garmin bag (real names, incl 自定义 50/54/58 挖起杆)
         // resolved from /club/player + /club/types, with history distances (码).

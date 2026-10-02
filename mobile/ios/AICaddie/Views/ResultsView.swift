@@ -312,7 +312,7 @@ struct ResultsLandingContent: View {
                                       initialArchive: archive)
             }
             entry("球场", "每个球场的成绩", id: "courses") {
-                ResultsCoursesView(courses: stats?.courses ?? [], apiBaseURL: apiBaseURL, adminToken: adminToken)
+                ResultsCoursesView(courses: stats?.courses ?? [], scoring: stats?.scoring, apiBaseURL: apiBaseURL, adminToken: adminToken)
             }
         }
     }
@@ -567,20 +567,7 @@ struct ResultsRoundRow: View {
     }
 }
 
-private enum ResultsTrendGrain: String, CaseIterable, Identifiable {
-    case round, month, quarter, year
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .round: return "逐场"
-        case .month: return "月"
-        case .quarter: return "季"
-        case .year: return "年"
-        }
-    }
-}
-
-private enum ResultsTrendDestination: Hashable, Identifiable {
+enum ResultsTrendDestination: Hashable, Identifiable {
     case round(String, globalId: Int?, backGlobalId: Int?, nine: String?, teeBox: String?)
     case period(String)
     var id: String {
@@ -591,35 +578,35 @@ private enum ResultsTrendDestination: Hashable, Identifiable {
     }
 }
 
-private struct ResultsTrendChartPoint: Identifiable {
-    let id: String
-    let label: String
-    let value: Double
-    let destination: ResultsTrendDestination
-}
-
+/// 时间与频率 (README §9, `stats.html` 4): one chart switched between 逐场 / 月 / 季 / 年 over the
+/// whole history, the quarter (or year) cards — 场数, 均杆, 最佳, 最差, 鸟 / 场, 双柏+ / 场 — and the
+/// play calendar. Any point, card or day opens that time's rounds.
 public struct ResultsTrendView: View {
     let apiBaseURL: URL?
     let adminToken: String?
-    @State private var window = "last10"
-    @State private var grain: ResultsTrendGrain = .round
+    @State private var grain: ResultsTimePresentation.Grain = .quarter
     @State private var stats: MobileStats?
-    @State private var allStats: MobileStats?
     @State private var isLoading = true
+    @State private var failed = false
+    /// Only the newest load writes back (a Garmin refresh can overlap the first load).
+    @State private var generation = 0
     @State private var destination: ResultsTrendDestination?
 
     public var body: some View {
         ScrollView {
-            VStack(spacing: 12) {
-                controlCard
-                if let stats { trendContent(stats) }
-                else if isLoading { ProgressView("载入趋势…").padding(.top, 40) }
-            }.padding(14)
+            if let stats {
+                ResultsTimeContent(stats: stats, grain: $grain) { destination = $0 }
+            } else if isLoading {
+                ProgressView("载入时间与频率…").frame(maxWidth: .infinity).padding(.top, 40)
+            } else {
+                Text(failed ? "时间与频率暂时取不到" : "还没有球局")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity).padding(.vertical, 40)
+            }
         }
         .background(HubStyle.grouped).navigationTitle("时间与频率")
         .navigationDestination(item: $destination) { destination in destinationView(destination) }
-        .task(id: window) { await load() }
-        .onChange(of: window) { _, value in grain = defaultGrain(for: value) }
+        .task { await load() }
         .onReceive(NotificationCenter.default.publisher(for: .garminDataDidRefresh)) { _ in
             Task { await load() }
         }
@@ -636,50 +623,69 @@ public struct ResultsTrendView: View {
         }
     }
 
-    private var controlCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("统计范围 · 哪些球局参加计算").font(.caption).foregroundStyle(.secondary)
-            Picker("统计范围", selection: $window) {
-                Text("近 10 场").tag("last10")
-                Text("近 20 场").tag("last20")
-                Text("近 12 月").tag("12m")
-                Text("全部").tag("all")
-            }.pickerStyle(.segmented)
-            Text("汇总粒度 · 同一批球局怎样分组").font(.caption).foregroundStyle(.secondary).padding(.top, 4)
-            HStack(spacing: 5) {
-                ForEach(ResultsTrendGrain.allCases) { option in
-                    Button(option.title) { grain = option }
-                        .buttonStyle(.borderedProminent)
-                        .tint(grain == option ? LiveHoleStyle.green : Color.secondary.opacity(0.18))
-                        .foregroundStyle(grain == option ? .white : .secondary)
-                        .disabled(!allowedGrains.contains(option))
-                        .frame(maxWidth: .infinity)
+    @MainActor private func load() async {
+        generation += 1
+        let current = generation
+        guard let apiBaseURL else { isLoading = false; failed = true; return }
+        isLoading = true
+        let loaded = try? await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).fetchMobileStats(window: "all")
+        guard current == generation, !Task.isCancelled else { return }
+        if let loaded { stats = loaded }
+        failed = loaded == nil
+        isLoading = false
+    }
+}
+
+/// The 时间与频率 page body for one stats payload; pure, so the design snapshots render it.
+struct ResultsTimeContent: View {
+    let stats: MobileStats
+    @Binding var grain: ResultsTimePresentation.Grain
+    var onOpen: (ResultsTrendDestination) -> Void = { _ in }
+
+    var body: some View {
+        let rows = ResultsTimePresentation.chartRows(stats, grain: grain)
+        let cards = ResultsTimePresentation.periodCards(stats.time, grain: grain)
+        VStack(alignment: .leading, spacing: 16) {
+            Picker("粒度", selection: $grain) {
+                ForEach(ResultsTimePresentation.Grain.allCases) { option in
+                    Text(option.title).tag(option)
                 }
             }
-            Text(grainHint).font(.caption2).foregroundStyle(.secondary)
-        }.hubCard()
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("time-grain")
+            chart(rows)
+            if !cards.cards.isEmpty {
+                HubSectionLabel(cards.heading)
+                VStack(spacing: 8) {
+                    ForEach(cards.cards) { card in periodCard(card) }
+                }
+            }
+            calendar
+        }
+        .padding(16)
     }
 
-    @ViewBuilder private func trendContent(_ stats: MobileStats) -> some View {
-        let points = chartPoints(stats)
-        VStack(alignment: .leading, spacing: 10) {
-            Text(rangeLabel).font(.caption).foregroundStyle(.secondary)
-            Text(stats.summary?.average18.map(oneDecimal) ?? "—")
-                .font(.system(size: 36, weight: .heavy)).monospacedDigit()
-            Text("18 洞均杆 · 最佳 \(stats.summary?.bestScore.map(String.init) ?? "—") · 中位 \(stats.summary?.median18.map(oneDecimal) ?? "—")")
-                .font(.caption).foregroundStyle(.secondary)
-            if points.count >= 2 {
-                Chart {
-                    ForEach(Array(points.enumerated()), id: \.element.id) { index, point in
-                        LineMark(x: .value("序号", index), y: .value("成绩", point.value))
-                            .foregroundStyle(LiveHoleStyle.green).interpolationMethod(.catmullRom)
-                        PointMark(x: .value("序号", index), y: .value("成绩", point.value))
-                            .foregroundStyle(LiveHoleStyle.green).symbolSize(40)
+    @ViewBuilder private func chart(_ rows: [ResultsTimePresentation.ChartRow]) -> some View {
+        if rows.count >= 2 {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(grain == .round ? "近 \(rows.count) 场 18 洞杆数" : "每\(grain == .month ? "月" : grain == .quarter ? "季" : "年")18 洞平均杆")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Chart(rows) { row in
+                    LineMark(x: .value("序号", Double(row.index)), y: .value("杆数", row.value))
+                        .foregroundStyle(LiveHoleStyle.green)
+                        .interpolationMethod(.catmullRom)
+                    PointMark(x: .value("序号", Double(row.index)), y: .value("杆数", row.value))
+                        .foregroundStyle(LiveHoleStyle.green).symbolSize(36)
+                }
+                .frame(height: 150)
+                .chartYScale(domain: resultsScoreDomain(rows.map(\.value)))
+                .chartXAxis(.hidden)
+                .chartYAxis {
+                    AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) {
+                        AxisGridLine()
+                        AxisValueLabel()
                     }
                 }
-                .frame(height: 180)
-                .chartYScale(domain: resultsScoreDomain(points.map(\.value)))
-                .chartXAxis(.hidden).chartYAxis(.hidden)
                 .chartOverlay { proxy in
                     GeometryReader { geometry in
                         Rectangle().fill(.clear).contentShape(Rectangle())
@@ -687,155 +693,82 @@ public struct ResultsTrendView: View {
                                 guard let anchor = proxy.plotFrame else { return }
                                 let frame = geometry[anchor]
                                 guard frame.contains(event.location),
-                                      let index: Int = proxy.value(atX: event.location.x - frame.origin.x),
-                                      points.indices.contains(index) else { return }
-                                destination = points[index].destination
+                                      let x: Double = proxy.value(atX: event.location.x - frame.origin.x) else { return }
+                                let index = Int(x.rounded())
+                                guard rows.indices.contains(index) else { return }
+                                open(rows[index].target)
                             })
                     }
                 }
-                HStack { Text(points.first?.label ?? ""); Spacer(); Text(points.last?.label ?? "") }
-                    .font(.caption2).foregroundStyle(.secondary)
-                Text("轻点图上点位查看对应球局").font(.caption2).foregroundStyle(LiveHoleStyle.green)
-            } else {
-                Text("当前范围不足两个有效数据点").font(.subheadline).foregroundStyle(.secondary)
+                .accessibilityIdentifier("time-chart")
+                HStack { Text(rows.first?.label ?? ""); Spacer(); Text(rows.last?.label ?? "") }
+                    .font(.caption2).foregroundStyle(.tertiary)
             }
-        }.hubCard()
-
-        let periods = periods(for: stats)
-        if grain != .round, !periods.isEmpty {
-            periodCard(title: "周期汇总 · 点击查看球局", periods: Array(periods.prefix(24)))
-        }
-
-        if let archiveTime = (allStats ?? stats).time {
-            if !archiveTime.byYear.isEmpty {
-                periodCard(title: "历年表现", periods: Array(archiveTime.byYear.prefix(12)))
-            }
-            activityCard(time: archiveTime)
-        }
-    }
-
-    private func periodCard(title: String, periods: [StatsPeriod]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title).font(.caption.weight(.bold)).foregroundStyle(.secondary).padding(.bottom, 6)
-            ForEach(periods) { period in
-                Button { destination = .period(period.key) } label: {
-                    HStack {
-                        Text(period.key).font(.subheadline.weight(.bold))
-                        Spacer()
-                        Text("\(period.roundCount ?? 0) 场 · 均杆 \(period.average18.map(oneDecimal) ?? "—") · 最佳 \(period.bestScore.map(String.init) ?? "—")")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
-                    }.padding(.vertical, 8).contentShape(Rectangle())
-                }.buttonStyle(.plain).foregroundStyle(.primary)
-                Divider()
-            }
-        }.hubCard()
-    }
-
-    @ViewBuilder private func activityCard(time: StatsTime) -> some View {
-        let year = Int(time.byYear.first?.key ?? "") ?? Calendar.current.component(.year, from: Date())
-        let days = time.byDay.filter { $0.key.hasPrefix("\(year)-") }
-        let roundCount = days.compactMap(\.roundCount).reduce(0, +)
-        let monthCount = Set(days.map { String($0.key.prefix(7)) }).count
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                VStack(alignment: .leading) {
-                    Text("打球频率 · \(year)").font(.subheadline.weight(.bold))
-                    if time.playFrequency != nil {
-                        Text("\(roundCount) 场 · 活跃 \(monthCount) 个月 · 活跃月均 \(monthCount > 0 ? oneDecimal(Double(roundCount) / Double(monthCount)) : "—") 场")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-                if let active = time.playFrequency?.mostActiveMonth {
-                    Text("生涯最活跃月 \(active.key) · \(active.roundCount ?? 0) 场")
-                        .font(.caption.weight(.semibold)).foregroundStyle(LiveHoleStyle.green)
-                }
-            }
-            ResultsActivityCalendar(periods: time.byDay, year: year) { destination = .period($0) }
-            HStack { Text("1 月"); Spacer(); Text("4 月"); Spacer(); Text("7 月"); Spacer(); Text("10 月"); Spacer(); Text("12 月") }
-                .font(.caption2).foregroundStyle(.secondary)
-        }.hubCard()
-    }
-
-    private var allowedGrains: [ResultsTrendGrain] {
-        switch window {
-        case "last10", "last20": return [.round]
-        case "12m": return [.round, .month, .quarter]
-        default: return [.month, .quarter, .year]
-        }
-    }
-
-    private func defaultGrain(for value: String) -> ResultsTrendGrain {
-        value == "12m" ? .month : value == "all" ? .year : .round
-    }
-
-    private var grainHint: String {
-        switch window {
-        case "last10", "last20": return "近场只按逐场查看"
-        case "12m": return "默认按月，也可看逐场或季度"
-        default: return "默认按年，也可按月或季度"
-        }
-    }
-
-    private var rangeLabel: String {
-        ["last10": "近 10 场", "last20": "近 20 场", "12m": "近 12 月", "all": "全部历史"][window] ?? "趋势"
-    }
-
-    private func periods(for stats: MobileStats) -> [StatsPeriod] {
-        guard let time = stats.time else { return [] }
-        switch grain {
-        case .month: return time.byMonth
-        case .quarter: return time.byQuarter
-        case .year: return time.byYear
-        case .round: return []
-        }
-    }
-
-    private func chartPoints(_ stats: MobileStats) -> [ResultsTrendChartPoint] {
-        if grain == .round {
-            return (stats.trend?.points ?? []).compactMap { point in
-                guard let score = point.score, let roundId = point.roundId else { return nil }
-                return ResultsTrendChartPoint(id: roundId, label: String(point.date.prefix(10)),
-                                              value: Double(score), destination: .round(roundId, globalId: point.globalId,
-                                                                                     backGlobalId: point.backGlobalId,
-                                                                                     nine: point.nine, teeBox: point.teeBox))
-            }
-        }
-        return periods(for: stats).reversed().compactMap { period in
-            guard period.key != "unknown", let average = period.average18 else { return nil }
-            return ResultsTrendChartPoint(id: period.key, label: period.key,
-                                          value: average, destination: .period(period.key))
-        }
-    }
-
-    @MainActor private func load() async {
-        guard let apiBaseURL else { isLoading = false; return }
-        isLoading = true
-        let client = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
-        var nextStats: MobileStats?
-        var nextAllStats: MobileStats?
-        if window == "all" {
-            let loaded = try? await client.fetchMobileStats(window: "all")
-            nextStats = loaded
-            nextAllStats = loaded
+            .hubCard(padding: 14)
         } else {
-            if allStats == nil {
-                async let selected: MobileStats? = try? await client.fetchMobileStats(window: window)
-                async let lifetime: MobileStats? = try? await client.fetchMobileStats(window: "all")
-                nextStats = await selected
-                nextAllStats = await lifetime
-            } else {
-                nextStats = try? await client.fetchMobileStats(window: window)
-            }
+            Text("这个粒度下还不到两个点").font(.subheadline).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity).padding(.vertical, 24).hubCard()
         }
-        // `.task(id:)` cancels the previous request when the range changes. Do
-        // not let a transport that completes after cancellation overwrite the
-        // newer selection.
-        guard !Task.isCancelled else { return }
-        if let nextStats { stats = nextStats }
-        if let nextAllStats { allStats = nextAllStats }
-        isLoading = false
+    }
+
+    private func periodCard(_ card: ResultsTimePresentation.PeriodCard) -> some View {
+        Button { onOpen(.period(card.key)) } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(card.title).font(.subheadline.weight(.bold))
+                    Spacer()
+                    Text(card.headline).font(.subheadline).monospacedDigit()
+                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                }
+                HStack(spacing: 0) {
+                    stat(card.best, "最佳")
+                    stat(card.worst, "最差")
+                    stat(card.birdiesPerRound, "鸟 / 场")
+                    stat(card.doublesPerRound, "双柏+ / 场")
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .hubCard(padding: 12)
+        .accessibilityIdentifier("time-period-\(card.key)")
+    }
+
+    private func stat(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value).font(.headline).monospacedDigit()
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private var calendar: some View {
+        if let time = stats.time, let summary = ResultsTimePresentation.calendarSummary(time) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("打球日历 · \(String(summary.year))").font(.footnote.weight(.bold)).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(summary.text).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
+                ResultsActivityCalendar(periods: time.byDay, year: summary.year) { onOpen(.period($0)) }
+                HStack { Text("1 月"); Spacer(); Text("4 月"); Spacer(); Text("7 月"); Spacer(); Text("10 月"); Spacer(); Text("12 月") }
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .hubCard(padding: 14)
+            .accessibilityIdentifier("time-calendar")
+        }
+    }
+
+    private func open(_ target: ResultsTimePresentation.Target) {
+        switch target {
+        case .round(let point):
+            guard let roundId = point.roundId else { return }
+            onOpen(.round(roundId, globalId: point.globalId, backGlobalId: point.backGlobalId,
+                          nine: point.nine, teeBox: point.teeBox))
+        case .period(let key):
+            onOpen(.period(key))
+        }
     }
 }
 
@@ -909,12 +842,13 @@ private struct ResultsActivityCalendar: View {
 
 struct ResultsCoursesView: View {
     let courses: [StatsCourse]
+    var scoring: StatsScoring? = nil
     let apiBaseURL: URL?
     let adminToken: String?
     var body: some View {
         List(courses) { course in
             NavigationLink {
-                CourseStatsDetailView(course: course, apiBaseURL: apiBaseURL, adminToken: adminToken)
+                CourseStatsDetailView(course: course, scoring: scoring, apiBaseURL: apiBaseURL, adminToken: adminToken)
             } label: {
                 VStack(alignment: .leading) {
                     Text(course.localizedCourseDisplayName)
