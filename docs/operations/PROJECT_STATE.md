@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-10-02 13:02 UTC
+**Updated:** 2026-10-02 13:15 UTC
 **Branch:** `main`; product canonical source revision is
 `48e0ec3754303aa605a874940140bd24f5d3d61e` (PR #366 B5c, PR #365 B5b, PR #364 B5a,
 PR #363 B4c, PR #362 B4b-2, PR #361 B4b, PR #360 B4a and PR #359 B3 are
@@ -305,6 +305,25 @@ still reads the original selected sequence's final `expectedRemainingM` before
 the current selected/advanced option, so its club and “攻果岭/留 N 码” text can
 disagree. No `0373774a` or `74e96f06` review snapshot has been created; final
 focused/artifact/runtime evidence remains held.
+
+Claude then pushed `694080acff992d5c475ab98095ed7c27454ce6b2`, followed by
+current exact head `c7587b956ecf826979c91099c18e696dc96c1693`. The first adds a
+phone-current event set plus timestamp, persists the newest set per hole, makes
+menu Caddie availability consume the current projection, blocks the raw-state
+fallback, and changes the tag note source. The second only seeds the cached
+course image before the two production Watch UI swipe tests after the preceding
+run stopped at `地图准备中`. Source CI `37011229801` is green and Native Mobile
+CI `37011229826` is running.
+
+Review `5953198078` still blocks `c7587b95`. Two P1 lifecycle gaps remain: a
+same-round `applyRoundSeed` rebuild drops `PersistedRound.phoneShots` and can
+resurrect the old Driver, and `receivePhoneState` replaces the full hole state
+before comparing `phoneShotsAsOf`, so a late old snapshot can overwrite a newer
+decision even when its shot set is rejected. The timestamp is only second
+precision and is not a strict snapshot revision. Two P2s also remain: the tag
+note reads the final plan step rather than what the current first shot leaves,
+and the strict `watch_round_state.schema.json` was not updated for the new B6
+wire fields. No `694080ac` or `c7587b95` review snapshot was created.
 
 The old review snapshot/artifacts/local copies were removed after preserving
 16 evidence files under
@@ -4378,7 +4397,7 @@ project-level task list; historical plans are reference material.
 | `CODEX-CHECKOUT-STAGED-17` | `done` | Owner decision 2026-09-28: keep the 17 staged spec files in `/home/codex/garmin-ai-caddie`, but record which are stale; migrate that checkout's local branch to `main` without resetting or unstaging. | Checkout HEAD stays `d847cf28` (behind `origin/main` by 595; no pull/merge/reset). Staged patch SHA-256 unchanged before/after: `fc152731cb5c78c83ef21b3499153280bc4f1856d1b50aab0cd4fe59ba10727d`. 15 of 17 staged blobs are byte-identical to `main@9785a0cd`; `docs/superpowers/specs/ai-caddie-spec.md` and `docs/superpowers/specs/work-board.md` are **stale** (their authority/archive paragraphs are already on `main`, while the staged copies still say `integration/v2` and would revert the 2026-09-27 `main`/TestFlight status; no remaining novel content). Full per-file classification: `/home/codex/garmin-ai-caddie/STAGED-CHANGES-README.md`. Local branch renamed `integration/v2` → `main`, upstream `origin/main`, `origin/HEAD` → `origin/main`; `stash@{0}: predeploy-wip` untouched. A prior root-run had left the `origin/main` ref and its reflog root-owned; ownership of exactly those two files was changed back to `codex` (no recursive change). Evidence: `/home/jason/garmin-ai-caddie-data/operations/pr335-review-20260928/`. |
 | `PR176-HISTORY` | `done` | Preserve the owner-approved multi-user design documents as explicitly historical material, then close the superseded PR without treating it as the current product specification. | The four documents landed unchanged apart from historical headers through PR #335 at `0256f48f`. PR #176 was closed with `landed as history in #335`; tag `archive/superpowers/multi-user-redesign-spec` points to exact former head `b5aa51ef`, and the matching remote branch was compare-and-deleted. |
 | `B0` | `done` | Implement the B0 data foundation from `docs/design/2026-09-25-ui-redesign/IMPLEMENTATION_PLAN.md`: fairway outline contract, tee-result classifier, score source, correction log, and new statistics fields. Keep Python/Swift contracts aligned; no UI batch should invent missing backend fields. | B0a merged through PR #335 at `0256f48f`; B0b merged through PR #336 at `6a8e295d` with Source CI `36369961305` and Native CI `36369961338` (iOS `365/365`, Watch `337/337`). B0c merged through PR #337 at `be3867f2`, with the test-isolation closeout in PR #339 at `556dea43` and Source CI `36375145151`. B0d-1 merged through PR #338 at `390e72ed` from exact head `24614bd2`; focused homeserver suites `36/36`, real 471-round reversal/ref checks, source CI `36377589609`, and post-merge main CI `36378361410` are green. B0d-2 merged through PR #340 at `895ea5de` from exact head `946b082b`; homeserver focused suites `101/101`, source CI `36385272588`, and post-merge main CI `36386586960` are green. Review snapshot cleanup is recorded under `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T0620Z-pr340-review-snapshot/`; the all-PR monitor is recorded under `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T0612Z-pr-feedback-monitor/`. |
-| `B1-B7-REVIEW` | `in-progress` | Review each UI-redesign PR from `claude/code-audit-performance-17wqcv` at its exact head, including relevant homeserver tests, Native Mobile CI, and matching iOS/Watch screenshots; comment findings and merge only with no P1/P2 blockers. | B1-B5c are merged through PR #366 at `48e0ec37`; exact-head pass comment `5949586325`, post-merge main CI `36992053356`, and review-resource cleanup are complete. PR #367 B6 current head `74e96f06` is blocked by review `5952953156`: the new origin event set has no authoritative phone-current set, fail-closed plans can reappear through the raw-state Caddie fallback, and the plan note remains tied to the original selected sequence. `0373774a` directionally fixed the prior post-tee selector and full prepared-detail findings. Source `37009284834` is green and Native `37009284778` is running. No homeserver snapshot/artifact/runtime review on this head; do not merge or start B7. |
+| `B1-B7-REVIEW` | `in-progress` | Review each UI-redesign PR from `claude/code-audit-performance-17wqcv` at its exact head, including relevant homeserver tests, Native Mobile CI, and matching iOS/Watch screenshots; comment findings and merge only with no P1/P2 blockers. | B1-B5c are merged through PR #366 at `48e0ec37`; exact-head pass comment `5949586325`, post-merge main CI `36992053356`, and review-resource cleanup are complete. PR #367 B6 current head `c7587b95` is blocked by review `5953198078`: same-round seed rebuild drops phone shot authority; late old snapshots can overwrite newer decisions before the set timestamp check; the tag note uses the final instead of current step; and the strict wire schema is stale. Source `37011229801` is green and Native `37011229826` is running. No homeserver snapshot/artifact/runtime review on this head; do not merge or start B7. |
 | `SYNC-RECOVERY-20260925` | `done` | Restore the Garmin cron after the API deployment, then make API-to-sync image binding and missing-image alerting part of the deployment/runtime contract. | Same-revision image built and one-shot incremental sync completed; production history overview shows round `17711803`. Remote deployment-manifest tests `17/17` pass. Installed wrapper check-only probe passes against production; prior wrapper is checksum-preserved. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
@@ -5124,13 +5143,14 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Await a corrected PR #367 head that closes review `5952953156`: transmit an
-   authoritative phone-current shot identity/revision separately from the plan
-   origin, remove the raw-state Caddie fail-closed bypass, and derive the plan
-   note from the current selected/advanced option. Re-check phone-only,
-   mixed-device, delayed-delivery and relaunch transitions plus the post-tee
-   selector/detail rendering. Only if statically clean create one read-only
-   snapshot for focused homeserver contracts, Source/Native verification,
+1. Await a corrected PR #367 head that closes review `5953198078`: preserve
+   phone shot authority across same-round seed rebuilds, order/reject the full
+   dynamic snapshot before replacement, derive the tag note from the current
+   first step, and update the strict wire schema. Re-check phone-only,
+   mixed-device, delayed/out-of-order delivery, same-round seed and relaunch
+   transitions plus the post-tee selector/detail rendering. Only if statically
+   clean create one read-only snapshot for focused homeserver contracts,
+   Source/Native verification,
    synthetic parentage and matching artifacts. Do not start B7.
 2. Only on a blocker-free final candidate, dispatch `watch-runtime.yml` with
    `runtime_scope=setup-visual` to capture the production container and prove
@@ -5139,13 +5159,13 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Open Blockers / Facts
 
-- PR #367 current head `74e96f06` is blocked by review `5952953156`. Its
-  producer-authored origin event IDs fix the prior mixed-count case, but there
-  is no phone-current event set/revision, so a phone-only shot cannot age an old
-  plan on Watch. Raw-state Caddie availability/fallback can also resurrect a
-  fail-closed plan, and the plan note can disagree with the current club. Source
-  CI is green; Native is running, while focused tests, artifacts and final
-  production-container runtime remain held for a statically viable head.
+- PR #367 current head `c7587b95` is blocked by review `5953198078`. Its
+  phone-current set closes the basic phone-only aging path and its menu fallback
+  now fails closed, but same-round seed rebuild loses that set and a late old
+  snapshot can still replace a newer decision. The tag note uses the final plan
+  step, and the strict wire schema is stale. Source CI is green; Native is
+  running, while focused tests, artifacts and final production-container
+  runtime remain held for a statically viable head.
 - Local machine is an editing/control plane; builds, Xcode, Playwright and
   other heavy work run on homeserver or GitHub Actions.
 - Production promotion and synchronization remain gated on owner approval and
@@ -5186,6 +5206,12 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## State Changes
 
+- 2026-10-02: PR #367 advanced through `694080ac` to `c7587b95`; phone-current
+  IDs and the Caddie fallback address the basic `5952953156` paths, while the
+  latter commit repairs only UI-test image setup. Review `5953198078` found
+  seed-rebuild loss, whole-state out-of-order rollback, wrong final-step note
+  semantics and stale wire schema. Source is green, Native is running, and no
+  review snapshot was created.
 - 2026-10-02: PR #367 moved through `0373774a` to `74e96f06`. The former
   restores the prepared post-tee selector and full Caddie-detail legs; the
   latter replaces numeric shot counts with decision-origin event IDs. Review
