@@ -50,6 +50,14 @@ class SwingCandidateTests(unittest.TestCase):
             path = swing_candidates.candidates_path("p1", "live-1", root=root)
             self.assertTrue(str(path).startswith(str(Path(root) / "data" / "players" / "p1")))
 
+    def test_a_late_upload_adds_to_the_round_instead_of_replacing_it(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            swing_candidates.store_candidates("p1", "r1", [_candidate(id="a")], root=root)
+            swing_candidates.store_candidates("p1", "r1", [_candidate(id="late", hole=9)], root=root)
+            swing_candidates.store_candidates("p1", "r1", [_candidate(id="late", hole=9)], root=root)
+            stored = swing_candidates.load_candidates("p1", "r1", root=root)
+            self.assertEqual(sorted(c["id"] for c in stored), ["a", "late"])
+
     def test_raw_samples_and_unknown_fields_are_refused(self) -> None:
         for bad in (
             _candidate(features={**_candidate()["features"], "samples": [1, 2, 3]}),

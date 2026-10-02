@@ -109,20 +109,28 @@ public struct AICaddieWatchApp: App {
                 .onChange(of: collectSwingFeatures) { _, _ in reconcileAutoShot() }
                 .onChange(of: roundModel.round?.roundId, initial: true) { _, roundId in
                     // A round that ended (or was replaced) uploads its candidates.
-                    if swingRouter.roundChanged(to: roundId, at: Date()) != nil {
+                    let closed = swingRouter.roundChanged(to: roundId, at: Date())
+                    swingRouter.holeChanged(to: roundModel.activeHole, at: Date())
+                    if closed != nil {
                         Task { await uploadFinishedSwingCandidates() }
                     }
+                }
+                .onChange(of: roundModel.activeHole) { _, hole in
+                    swingRouter.holeChanged(to: hole, at: Date())
                 }
                 .onChange(of: watchLocation.latestFix) { _, fix in
                     autoShotProvider.updateSpeed(fix)
                 }
                 .onChange(of: autoShotProvider.latestSwing) { _, observation in
+                    // The round and hole in play when the motion ended, even if it is delivered
+                    // after that round closed or the next one started.
                     guard collectingSwings, let observation,
-                          let roundId = swingRouter.roundId(forCandidateAt: observation.observedAt) else { return }
+                          let assignment = swingRouter.assignment(forMotionAt: observation.observedAt) else { return }
+                    let roundId = assignment.roundId
                     swingCandidateStore.append(
                         WatchSwingCandidateRecord(
                             capturedAt: ISO8601DateFormatter().string(from: observation.observedAt),
-                            hole: roundModel.activeHole,
+                            hole: assignment.hole,
                             features: observation.features,
                             horizontalAccuracyM: watchLocation.latestFix?.horizontalAccuracyM,
                             speedMps: observation.speedMps,

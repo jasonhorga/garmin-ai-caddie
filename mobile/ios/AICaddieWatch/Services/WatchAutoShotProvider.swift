@@ -42,6 +42,8 @@ public struct WatchSwingObservation: Equatable, Identifiable {
     public let proposedShot: Bool
     /// The fresh, accurate ground speed used to classify it; nil when unknown.
     public let speedMps: Double?
+    /// Wall-clock time the motion ended, from the sensor timestamps (not the batch delivery time);
+    /// it decides the round and hole the candidate belongs to.
     public let observedAt: Date
 
     public init(
@@ -329,8 +331,11 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
         }
     }
 
+    /// An explicit sensor error has the same fail-closed semantics as a nil delivery or a gap:
+    /// no automatic detection or collection again until the round ends.
     private func handleMotionError(_ error: Error) {
         guard desiredActive else { return }
+        motionInterrupted = true
         fail(error)
     }
 

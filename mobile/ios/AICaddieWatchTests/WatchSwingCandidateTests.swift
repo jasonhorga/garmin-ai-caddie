@@ -135,7 +135,8 @@ final class WatchSwingCandidateTests: XCTestCase {
     private func feedShot(_ session: inout WatchSwingCollectionSession, start: Double = 0, now: Date) -> [WatchSwingObservation] {
         session.accelerationBatch(impact(at: start + 2.0, peakG: 4, durationMs: 6))
         return chunks(rotation(start: start, still: 1.5, swing: 1.0, peak: 9)).compactMap {
-            session.rotationBatch($0, now: now)
+            // The batch is delivered as its newest sample is taken.
+            session.rotationBatch($0, now: now, uptime: $0.map(\.timestamp).max() ?? 0)
         }
     }
 
@@ -236,26 +237,49 @@ final class WatchSwingCandidateTests: XCTestCase {
         XCTAssertEqual(store.pendingRoundIds(), ["live/1", "live_1"], "uploads target the original IDs")
     }
 
-    func testAPhoneClosureUploadsItsRoundAndALateCandidateJoinsIt() async {
+    func testACandidateIsRoutedByItsMotionTimeEvenAfterTheNextRoundStarts() {
+        var router = WatchSwingCandidateRouter()
+        let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+        router.roundChanged(to: "A", at: t0)
+        router.holeChanged(to: 1, at: t0)
+        router.holeChanged(to: 7, at: t0.addingTimeInterval(600))
+        // A closes (phone Finish), then B starts; A's last swing is delivered only after that.
+        XCTAssertEqual(router.roundChanged(to: nil, at: t0.addingTimeInterval(900)), "A")
+        router.holeChanged(to: 0, at: t0.addingTimeInterval(901))
+        router.roundChanged(to: "B", at: t0.addingTimeInterval(950))
+        router.holeChanged(to: 1, at: t0.addingTimeInterval(950))
+
+        XCTAssertEqual(router.assignment(forMotionAt: t0.addingTimeInterval(895)),
+                       .init(roundId: "A", hole: 7), "a late A candidate stays on A, on the hole A was on")
+        XCTAssertEqual(router.assignment(forMotionAt: t0.addingTimeInterval(300)), .init(roundId: "A", hole: 1))
+        XCTAssertEqual(router.assignment(forMotionAt: t0.addingTimeInterval(960)), .init(roundId: "B", hole: 1))
+        XCTAssertNil(router.assignment(forMotionAt: t0.addingTimeInterval(920)), "between rounds: no candidate")
+        XCTAssertNil(router.assignment(forMotionAt: t0.addingTimeInterval(-5)), "before any round")
+        XCTAssertEqual(router.activeRoundId, "B")
+    }
+
+    func testAClosedRoundsCandidatesUploadAndNeverGoToTheNextRound() async {
         let store = tempStore()
         var router = WatchSwingCandidateRouter()
-        let start = Date(timeIntervalSince1970: 1_790_000_000)
-        router.roundChanged(to: "r1", at: start)
-        store.append(record("a"), roundId: "r1")
-
-        // Phone Finish: the round closes; a candidate settling 5 s later still belongs to it.
-        XCTAssertEqual(router.roundChanged(to: nil, at: start.addingTimeInterval(60)), "r1")
-        XCTAssertEqual(router.roundId(forCandidateAt: start.addingTimeInterval(65)), "r1")
-        XCTAssertNil(router.roundId(forCandidateAt: start.addingTimeInterval(60 + 31)), "too late for the closed round")
-        store.append(record("b"), roundId: "r1")
+        let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+        router.roundChanged(to: "A", at: t0)
+        router.holeChanged(to: 4, at: t0)
+        store.append(record("a"), roundId: "A")
+        router.roundChanged(to: nil, at: t0.addingTimeInterval(60))
+        router.roundChanged(to: "B", at: t0.addingTimeInterval(70))
+        router.holeChanged(to: 1, at: t0.addingTimeInterval(70))
+        let late = router.assignment(forMotionAt: t0.addingTimeInterval(55))
+        XCTAssertEqual(late?.roundId, "A")
+        if let late { store.append(record("late"), roundId: late.roundId) }
 
         var sent: [String: [String]] = [:]
         let outcome = await WatchSwingCandidateUploader(store: store).uploadClosedRounds(activeRoundId: router.activeRoundId) {
             sent[$0] = $1.map(\.id)
         }
-        XCTAssertEqual(outcome.uploaded, ["r1"])
-        XCTAssertEqual(sent["r1"], ["a", "b"])
-        XCTAssertTrue(store.pendingRoundIds().isEmpty)
+        XCTAssertEqual(outcome.uploaded, ["A"])
+        XCTAssertEqual(sent["A"], ["a", "late"])
+        XCTAssertNil(sent["B"], "the active round is never uploaded, and never receives A's candidates")
+        XCTAssertTrue(store.load(roundId: "B").isEmpty)
     }
 
     func testAFailedUploadIsKeptAndRetriedAfterRecovery() async {

@@ -2,8 +2,8 @@
 
 Only derived features travel: the Watch keeps raw motion samples on the wrist. A candidate never
 changes a score; this store exists so step 2 can label candidates against the round's corrections
-and measure thresholds offline. One upload per round replaces the previous one (the Watch resends
-its whole round after a retry), so the write is idempotent.
+and measure thresholds offline. Uploads for a round merge by candidate id, so a retry is
+idempotent and a candidate delivered after the round's first upload is added, not lost.
 """
 from __future__ import annotations
 
@@ -133,6 +133,13 @@ def store_candidates(
     clean = validate_candidates(candidates)
     path = candidates_path(player_id, round_id, root)
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Merge by candidate id: a retry resends the same ids (idempotent), and a late candidate
+    # uploaded after its round's first upload adds to it instead of replacing it.
+    merged = {c["id"]: c for c in load_candidates(player_id, round_id, root)}
+    merged.update({c["id"]: c for c in clean})
+    if len(merged) > MAX_CANDIDATES:
+        raise SwingCandidateError(f"at most {MAX_CANDIDATES} candidates per round")
+    clean = list(merged.values())
     payload = {"schema": "ai-caddie-swing-candidates-v1", "roundId": round_id, "candidates": clean}
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".swing-", suffix=".json")
     with os.fdopen(fd, "w", encoding="utf-8") as handle:

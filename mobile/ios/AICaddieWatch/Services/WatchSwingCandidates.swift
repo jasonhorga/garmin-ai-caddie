@@ -362,9 +362,12 @@ public struct WatchSwingCollectionSession {
     /// One device-motion delivery. Returns the candidate whose burst settled, if any.
     /// Every delivery goes through here, also while only AutoShot runs, so an interruption ends
     /// automatic detection too; `collect` says whether candidates are recorded.
+    /// `uptime` is the clock the sample timestamps use (seconds since boot), so the motion's wall
+    /// time is `now - (uptime - timestamp)`.
     public mutating func rotationBatch(
         _ samples: [WatchAutoShotRotationSample]?,
         now: Date,
+        uptime: TimeInterval = ProcessInfo.processInfo.systemUptime,
         collect: Bool = true
     ) -> WatchSwingObservation? {
         guard !isInterrupted else { return nil }
@@ -375,7 +378,10 @@ public struct WatchSwingCollectionSession {
         guard let features = collector.appendRotation(samples, speedMps: speedMps) else { return nil }
         let newest = samples.map(\.timestamp).max() ?? 0
         let proposed = lastDetectionTimestamp.map { abs(newest - $0) <= Self.proposalWindowS } ?? false
-        return WatchSwingObservation(features: features, proposedShot: proposed, speedMps: speedMps, observedAt: now)
+        let motionEndedAt = now.addingTimeInterval(min(0, newest - uptime))
+        return WatchSwingObservation(
+            features: features, proposedShot: proposed, speedMps: speedMps, observedAt: motionEndedAt
+        )
     }
 
     /// One accelerometer delivery.
@@ -404,37 +410,81 @@ public struct WatchSwingCollectionSession {
     }
 }
 
-/// Which round a candidate belongs to, across a round closing (phone Finish, Watch Finish, a new
-/// seed). A candidate whose motion settles just after the closure still belongs to the closed round.
+/// Which round and hole a candidate belongs to, decided by when its motion happened (not when its
+/// batch was delivered). Each round is a span from its start to its closure with the holes played in
+/// it, so a candidate whose motion happened in round A stays on A even if it is delivered after A
+/// closed and round B started, and carries the hole A was on at that moment.
 public struct WatchSwingCandidateRouter {
-    public static let closureGraceS: TimeInterval = 30
+    /// Closed rounds kept for late deliveries.
+    public static let retainedClosedRounds = 4
 
-    public private(set) var activeRoundId: String?
-    public private(set) var lastClosedRoundId: String?
-    private var lastClosedAt: Date?
+    public struct Assignment: Equatable {
+        public let roundId: String
+        public let hole: Int
+    }
 
-    public init(activeRoundId: String? = nil) {
-        self.activeRoundId = activeRoundId
+    private struct Span {
+        let roundId: String
+        let startedAt: Date
+        var endedAt: Date?
+        var holes: [(at: Date, hole: Int)] = []
+
+        func contains(_ date: Date) -> Bool {
+            date >= startedAt && endedAt.map { date < $0 } ?? true
+        }
+
+        func hole(at date: Date) -> Int? {
+            let valid = holes.filter { (1...36).contains($0.hole) }
+            return (valid.last { $0.at <= date } ?? valid.first)?.hole
+        }
+    }
+
+    private var spans: [Span] = []
+
+    public init() {}
+
+    public var activeRoundId: String? {
+        spans.last.flatMap { $0.endedAt == nil ? $0.roundId : nil }
     }
 
     /// Returns the round that just closed, if the change closed one.
     @discardableResult
     public mutating func roundChanged(to roundId: String?, at date: Date) -> String? {
         guard roundId != activeRoundId else { return nil }
-        let closed = activeRoundId
-        if let closed {
-            lastClosedRoundId = closed
-            lastClosedAt = date
+        var closed: String?
+        if let last = spans.indices.last, spans[last].endedAt == nil {
+            spans[last].endedAt = date
+            closed = spans[last].roundId
         }
-        activeRoundId = roundId
+        if let roundId {
+            spans.append(Span(roundId: roundId, startedAt: date))
+        }
+        let closedSpans = spans.filter { $0.endedAt != nil }
+        if closedSpans.count > Self.retainedClosedRounds {
+            let drop = closedSpans.count - Self.retainedClosedRounds
+            var dropped = 0
+            spans.removeAll { span in
+                guard span.endedAt != nil, dropped < drop else { return false }
+                dropped += 1
+                return true
+            }
+        }
         return closed
     }
 
-    public func roundId(forCandidateAt date: Date) -> String? {
-        if let activeRoundId { return activeRoundId }
-        guard let lastClosedRoundId, let lastClosedAt,
-              date.timeIntervalSince(lastClosedAt) <= Self.closureGraceS else { return nil }
-        return lastClosedRoundId
+    /// The active round moved to `hole` (1-36; other values are ignored).
+    public mutating func holeChanged(to hole: Int, at date: Date) {
+        guard let last = spans.indices.last, spans[last].endedAt == nil, (1...36).contains(hole) else { return }
+        if spans[last].holes.last?.hole != hole {
+            spans[last].holes.append((date, hole))
+        }
+    }
+
+    /// The round and hole in play when the motion ended; nil outside every known round or without
+    /// a valid hole (never an invalid candidate).
+    public func assignment(forMotionAt date: Date) -> Assignment? {
+        guard let span = spans.last(where: { $0.contains(date) }), let hole = span.hole(at: date) else { return nil }
+        return Assignment(roundId: span.roundId, hole: hole)
     }
 }
 

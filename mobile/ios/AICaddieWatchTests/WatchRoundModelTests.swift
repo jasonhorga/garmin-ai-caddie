@@ -503,6 +503,8 @@ final class WatchRoundModelTests: XCTestCase {
             var router = WatchSwingCandidateRouter()
             let start = Date(timeIntervalSince1970: 1_790_000_000)
             router.roundChanged(to: model.round?.roundId, at: start)
+            router.holeChanged(to: model.activeHole, at: start)
+            var lateObservation: WatchSwingObservation?
             if collecting {
                 var session = WatchSwingCollectionSession()
                 _ = session.detection(at: 2.0, autoShotWanted: false)
@@ -516,29 +518,47 @@ final class WatchRoundModelTests: XCTestCase {
                     rotation.append(WatchAutoShotRotationSample(timestamp: t, rotationAlongGravity: swinging ? 9 : 0.05))
                     t += 0.01
                 }
+                // The swing ends 30 s into the round, but its batches are delivered only after the
+                // phone closed the round (uptime 3.1 at delivery = 90 s into the round).
                 for batchStart in stride(from: 0, to: rotation.count, by: 25) {
                     let batch = Array(rotation[batchStart..<min(batchStart + 25, rotation.count)])
-                    if let observation = session.rotationBatch(batch, now: start),
-                       let roundId = router.roundId(forCandidateAt: observation.observedAt) {
-                        candidates.append(WatchSwingCandidateRecord(
-                            capturedAt: "2026-08-09T00:00:01Z", hole: model.activeHole,
-                            features: observation.features, horizontalAccuracyM: 5,
-                            speedMps: observation.speedMps, proposedShot: observation.proposedShot
-                        ), roundId: roundId)
+                    if let observation = session.rotationBatch(
+                        batch, now: start.addingTimeInterval(90), uptime: 3.1 + 60
+                    ) {
+                        lateObservation = observation
                     }
                 }
-                XCTAssertEqual(candidates.load(roundId: "r1").count, 1)
+                XCTAssertNotNil(lateObservation)
             }
             model.applyPhoneRoundClosure(WatchRoundClosure(
                 roundId: "r1",
                 disposition: .finished,
                 closedAt: "2026-08-09T01:00:00Z"
             ))
+            XCTAssertEqual(model.activeHole, 0, "no round: the model's active hole is not a valid hole")
             XCTAssertEqual(router.roundChanged(to: model.round?.roundId, at: start.addingTimeInterval(60)), "r1")
+            router.holeChanged(to: model.activeHole, at: start.addingTimeInterval(60))
+            if let observation = lateObservation {
+                // Production path: the router, not the model, gives the round and hole.
+                let assignment = try XCTUnwrap(router.assignment(forMotionAt: observation.observedAt))
+                XCTAssertEqual(assignment, .init(roundId: "r1", hole: 1))
+                candidates.append(WatchSwingCandidateRecord(
+                    capturedAt: "2026-08-09T00:00:01Z", hole: assignment.hole,
+                    features: observation.features, horizontalAccuracyM: 5,
+                    speedMps: observation.speedMps, proposedShot: observation.proposedShot
+                ), roundId: assignment.roundId)
+            }
             var uploaded: [String] = []
+            var uploadedHoles: [Int] = []
             _ = await WatchSwingCandidateUploader(store: candidates).uploadClosedRounds(
                 activeRoundId: router.activeRoundId
-            ) { roundId, _ in uploaded.append(roundId) }
+            ) { roundId, records in
+                uploaded.append(roundId)
+                uploadedHoles += records.map(\.hole)
+            }
+            if collecting {
+                XCTAssertEqual(uploadedHoles, [1], "the late candidate uploads with the closed round's hole")
+            }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
             let deferred = try XCTUnwrap(store.loadDeferredFinishes().first)
