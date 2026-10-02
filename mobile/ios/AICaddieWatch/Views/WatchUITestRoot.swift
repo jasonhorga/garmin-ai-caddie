@@ -51,7 +51,8 @@ public struct WatchUITestRoot: View {
              "standalone-course-last-shot", "standalone-course-caddie-last-shot",
              "standalone-course-live-home",
              "standalone-course-page-plan", "standalone-course-page-plan-measure",
-             "standalone-course-page-hazard-zoomed", "standalone-course-page-green-zoomed":
+             "standalone-course-page-hazard-zoomed", "standalone-course-page-green-zoomed",
+             "standalone-course-page-plan-after-tee":
             standaloneCourseRound
         case "real-course-download-seed", "real-course-download-restore",
              "real-course-download-caddie",
@@ -414,6 +415,12 @@ public struct WatchUITestRoot: View {
                 ensureStandaloneLastShot()
                 model.openCaddie()
             } else if screen == "standalone-course-live-home" {
+                model.backToHome()
+            } else if screen == "standalone-course-page-plan-after-tee" {
+                // The prepared (offline) plan after the tee shot: the 方案 page must still offer
+                // the next club and switch plans (Codex review on #367).
+                installStandaloneFixtureRound()
+                ensureStandaloneLastShot()
                 model.backToHome()
             } else if screen.hasPrefix("standalone-course-page-") {
                 installStandaloneFixtureRound()

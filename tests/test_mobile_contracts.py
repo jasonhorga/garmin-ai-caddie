@@ -5366,7 +5366,7 @@ class WatchHolePagesContractTests(unittest.TestCase):
         self.assertIn("beginManualShot(", propose)
 
     def test_whole_plan_real_outline_and_crown_only_zooms(self) -> None:
-        self.assertIn("planLegs: planLegs(s, geometry: geometry)", self.read("Views/WatchRoundContainerView.swift"))
+        self.assertIn("let legs = planLegs(s, geometry: geometry)", self.read("Views/WatchRoundContainerView.swift"))
         hazard = self.read("Views/WatchHazardMapView.swift")
         self.assertIn("WatchHazardMapLayout.outline(hazard)", hazard)
         self.assertNotIn("with: .color(.white.opacity(0.9))", hazard, "no white ring around the edge dots")
@@ -5419,6 +5419,15 @@ class WatchHolePagesContractTests(unittest.TestCase):
         load = hole_view[hole_view.index("private func loadCaddieDecision("):]
         self.assertLess(load.index("let originShot = recordedNonPuttShotCount"), load.index("await "))
         self.assertIn("decisionOriginShotIndex:", hole_view)
+
+    def test_a_current_plan_drives_the_club_tag_and_the_caddie_detail_draws_every_leg(self) -> None:
+        container = self.read("Views/WatchRoundContainerView.swift")
+        self.assertIn("showCaddieRecommendation: currentShot != nil || preparedRootCaddieLayerAvailable || !legs.isEmpty", container)
+        options = self.read("Views/WatchCaddieOptionsView.swift")
+        self.assertIn("planLegs: Self.planLegs(for: option, route: route, geometry: mappedGeometry)", options)
+        ui = (Path("mobile") / "ios" / "AICaddieWatchUITests" / "WatchHolePagesUITests.swift").read_text(encoding="utf-8")
+        self.assertIn("standalone-course-page-plan-after-tee", ui)
+        self.assertIn("tag.tap()", ui)
 
     def test_score_wheels_roll_inside_their_chip(self) -> None:
         score = self.read("Views/WatchScoreHoleView.swift")

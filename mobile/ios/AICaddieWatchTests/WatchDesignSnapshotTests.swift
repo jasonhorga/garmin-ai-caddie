@@ -191,6 +191,41 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-caddie-options")
     }
 
+    /// The 球童 detail for a real prepared (offline) plan: no measured dispersion, yet every leg of
+    /// the plan is drawn, not only the first (Codex review on #367).
+    @MainActor
+    func testRenderWatchCaddieOptionsForAPreparedPlan() throws {
+        let route: [[Double]] = [[504, 702, 0], [506, 403, 210], [435, 279, 400]]
+        let options = WatchCourseTemplateBuilder.preparedCaddieOptions(
+            clubs: [
+                WatchClubOption(clubName: "1W", medianM: 220, source: "course-prep"),
+                WatchClubOption(clubName: "3W", medianM: 190, source: "course-prep"),
+                WatchClubOption(clubName: "5I", medianM: 160, source: "course-prep"),
+                WatchClubOption(clubName: "8I", medianM: 125, source: "course-prep"),
+            ],
+            suggestedClub: "3W",
+            routeDistanceM: 400,
+            landingM: nil
+        )
+        let stock = try XCTUnwrap(options.first { $0.optionId == "stock" })
+        XCTAssertNil(stock.carryP10M, "prepared plans carry no measured dispersion")
+        let legs = WatchCaddieOptionsView.planLegs(for: stock, route: route, geometry: WatchHoleMapSample.geometry)
+        XCTAssertGreaterThan(legs.count, 1, "the later shots are drawn too")
+        XCTAssertEqual(legs.count, stock.plan?.count)
+
+        let view = WatchCaddieOptionsView(
+            hole: 4,
+            par: 5,
+            options: options,
+            recommendedId: "stock",
+            geometry: WatchHoleMapSample.geometry,
+            route: route,
+            onBack: {}
+        )
+        .watchSnapshotFrame(width: 198, height: 242)
+        try render(view, named: "watch-caddie-options-prepared")
+    }
+
     /// B6 本洞 pages: the 障碍 page zoomed 2× with its "1 / N" selector, the 果岭 page at 3×, and
     /// the 方案 page's yellow measure ring ranged from the tee before the tee shot.
     @MainActor

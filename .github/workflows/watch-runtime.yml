@@ -239,6 +239,7 @@ jobs:
           capture_compact standalone-course-caddie compact-41mm-caddie.png
           capture_compact standalone-course-hazards compact-41mm-hazard.png
           capture_compact standalone-course-page-plan compact-41mm-page-plan.png
+          capture_compact standalone-course-page-plan-after-tee compact-41mm-page-plan-after-tee.png
           capture_compact standalone-course-page-hazard-zoomed compact-41mm-page-hazard-zoomed.png
           capture_compact menu compact-41mm-menu.png
           capture_compact compact-score-fairway compact-41mm-score-fairway.png
@@ -606,6 +607,7 @@ jobs:
           # B6 本洞: the production three pages (page dots on the right) — the whole plan, the plan
           # under a measurement, the hazard page zoomed on a real outline, and the green zoomed.
           launch_and_capture standalone-course-page-plan watch-standalone-page-plan.png
+          launch_and_capture standalone-course-page-plan-after-tee watch-standalone-page-plan-after-tee.png
           launch_and_capture standalone-course-page-plan-measure watch-standalone-page-plan-measure.png
           launch_and_capture standalone-course-page-hazard-zoomed watch-standalone-page-hazard-zoomed.png
           launch_and_capture standalone-course-page-green-zoomed watch-standalone-page-green-zoomed.png

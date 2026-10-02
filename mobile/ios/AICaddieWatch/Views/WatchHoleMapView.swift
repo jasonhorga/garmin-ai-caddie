@@ -458,6 +458,8 @@ public struct WatchHoleMapView: View {
     public let showPreparedPlan: Bool
     /// The whole selected plan (方案 page); empty elsewhere.
     public let planLegs: [WatchPlanLeg]
+    /// The plan the club tag shows (稳妥 / 标准 / 进攻 or its club): the tag's accessibility value.
+    public let caddiePlanName: String
     /// User-configured/measured Driver range. It renders as a fact-layer arc only when the current
     /// route can place that distance before the green.
     public let driverDistanceM: Double?
@@ -544,6 +546,7 @@ public struct WatchHoleMapView: View {
         userPan: CGSize = .zero,
         measureOriginImagePx: CGPoint? = nil,
         planLegs: [WatchPlanLeg] = [],
+        caddiePlanName: String = "",
         onOpenCaddie: @escaping () -> Void = {},
         onOpenMapDetail: @escaping () -> Void = {},
         onBack: @escaping () -> Void = {}
@@ -562,6 +565,7 @@ public struct WatchHoleMapView: View {
         self.showCaddieRecommendation = showCaddieRecommendation
         self.currentShotLayout = currentShotLayout
         self.planLegs = planLegs
+        self.caddiePlanName = caddiePlanName
         self.showPreparedPlan = showPreparedPlan
         self.driverDistanceM = driverDistanceM
         self.showReferenceMarkers = showReferenceMarkers
@@ -938,6 +942,8 @@ public struct WatchHoleMapView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("球童建议 \(caddieClub) \(caddieNote)")
+                    .accessibilityValue(caddiePlanName)
+                    .accessibilityIdentifier("watch-plan-club-tag")
                     .frame(width: Self.rootCaddieChipFrame(in: size).width,
                            height: Self.rootCaddieChipFrame(in: size).height)
                     .position(x: Self.rootCaddieChipFrame(in: size).midX,
@@ -1101,6 +1107,10 @@ public struct WatchHoleMapView: View {
         let drawsFullPlan = !planLegs.isEmpty
         if drawsFullPlan {
             drawFullPlan(&context, size: size, transform: a.t, dimmed: measuredPx != nil)
+            // Live dispersion still marks the next shot's measured depth on top of the plan.
+            if let currentShotLayout, showCaddieRecommendation, measuredPx == nil {
+                drawCurrentShot(&context, layout: currentShotLayout, transform: a.t, dispersionOnly: true)
+            }
         }
         switch WatchHoleMapRouteOverlay.resolve(
             measuredPoint: measuredPx,
@@ -1394,13 +1404,15 @@ public struct WatchHoleMapView: View {
     private func drawCurrentShot(
         _ context: inout GraphicsContext,
         layout: WatchCurrentShotLayout,
-        transform: (CGPoint) -> CGPoint
+        transform: (CGPoint) -> CGPoint,
+        dispersionOnly: Bool = false
     ) {
         let player = transform(layout.player)
         let target = transform(layout.target)
         let p10 = transform(layout.carryP10)
         let p90 = transform(layout.carryP90)
 
+        if !dispersionOnly {
         var aim = Path()
         aim.move(to: player)
         aim.addLine(to: target)
@@ -1435,6 +1447,7 @@ public struct WatchHoleMapView: View {
                     style: StrokeStyle(lineWidth: 0.8)
                 )
             }
+        }
         }
 
         var depth = Path()

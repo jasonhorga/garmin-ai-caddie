@@ -33,6 +33,30 @@ final class WatchHolePagesUITests: XCTestCase {
         assertPage("障碍", marker)
     }
 
+    /// The prepared plan after the tee shot (the production container, real prepared options): the
+    /// 方案 page still shows the next club's tag, never the Driver again, and tapping it switches plan.
+    func testAfterTheTeeShotThePlanTagShowsTheNextClubAndSwitchesPlans() {
+        app.launchArguments = ["-uitest-screen", "standalone-course-page-plan-after-tee"]
+        app.launch()
+        let tag = app.buttons["watch-plan-club-tag"]
+        guard tag.waitForExistence(timeout: 20) else {
+            print("WatchHolePagesUITests hierarchy:\n\(app.debugDescription)")
+            return XCTFail("the plan page shows the next club's tag after the tee shot")
+        }
+        XCTAssertFalse(tag.label.contains("一号木"), "the tee shot is not offered again: \(tag.label)")
+        let before = String(describing: tag.value ?? "")
+        tag.tap()
+        let switched = NSPredicate(format: "value != %@", before)
+        let result = XCTWaiter().wait(
+            for: [XCTNSPredicateExpectation(predicate: switched, object: tag)],
+            timeout: 6
+        )
+        if result != .completed {
+            print("WatchHolePagesUITests hierarchy:\n\(app.debugDescription)")
+        }
+        XCTAssertEqual(result, .completed, "tapping the tag switches plan (was \(before))")
+    }
+
     private func swipe(up: Bool) {
         let left = 0.2
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: left, dy: up ? 0.72 : 0.3))

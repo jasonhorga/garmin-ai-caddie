@@ -727,6 +727,7 @@ public struct WatchRoundContainerView: View {
             : nil
         let preparedRootCaddieLayerAvailable = preparedGeometry != nil
         let renderedGeometry = preparedGeometry ?? geometry
+        let legs = planLegs(s, geometry: geometry)
         WatchHoleMapView(
             holeNumber: s.displayHoleNumber,
             par: s.par,
@@ -738,7 +739,9 @@ public struct WatchRoundContainerView: View {
             lastShot: latestShotDistanceM(s).map(WatchUnits.yards) ?? 0,
             caddieClub: caddieClub(s),
             caddieNote: caddieNote(s),
-            showCaddieRecommendation: currentShot != nil || preparedRootCaddieLayerAvailable,
+            // A non-empty current plan is what shows the club tag (and so the plan switcher); live
+            // dispersion only adds its overlay.
+            showCaddieRecommendation: currentShot != nil || preparedRootCaddieLayerAvailable || !legs.isEmpty,
             currentShotLayout: currentShot,
             showPreparedPlan: preparedRootCaddieLayerAvailable,
             driverDistanceM: model.playerAtActiveTee(at: shotLocation) ? driverDistanceM(s) : nil,
@@ -762,7 +765,8 @@ public struct WatchRoundContainerView: View {
             userZoom: planViewport.zoom,
             userPan: planViewport.pan,
             measureOriginImagePx: teeImagePoint(s),
-            planLegs: planLegs(s, geometry: geometry),
+            planLegs: legs,
+            caddiePlanName: caddieOption(s)?.label ?? "",
             onOpenCaddie: { cyclePlan(s) },
             onOpenMapDetail: {
                 holeMapCrownScale = WatchHoleMapView.restingCrownScale

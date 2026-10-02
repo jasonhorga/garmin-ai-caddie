@@ -131,7 +131,10 @@ public struct WatchCaddieOptionsView: View {
                     showHoleIdentity: false,
                     fullMap: true,
                     mapScale: scale,
-                    geometry: mappedGeometry
+                    geometry: mappedGeometry,
+                    // The whole remaining plan, the same legs as the 方案 page; dispersion (live
+                    // only) is drawn on top and is not needed to show the later shots.
+                    planLegs: Self.planLegs(for: option, route: route, geometry: mappedGeometry)
                 )
                 .allowsHitTesting(false)
             } else {
@@ -234,6 +237,22 @@ public struct WatchCaddieOptionsView: View {
             carryP10M: p10,
             carryP90M: p90,
             continuation: continuation
+        )
+    }
+
+    /// Every leg still to play of `option` from the player, whatever its offset basis.
+    static func planLegs(
+        for option: WatchCaddieOption,
+        route: [[Double]],
+        geometry: WatchHoleMapGeometry
+    ) -> [WatchPlanLeg] {
+        guard let progress = WatchHazardMapLayout.playerProgressMetres(on: route, playerImagePoint: geometry.youPx) else {
+            return []
+        }
+        return WatchPlanLegs.resolve(
+            plan: option.remainingPlan(fromProgressM: progress, playedShots: option.originShotIndex ?? 0),
+            route: route,
+            origin: geometry.youPx
         )
     }
 
