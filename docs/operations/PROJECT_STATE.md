@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-10-02 07:36 UTC
+**Updated:** 2026-10-02 08:15 UTC
 **Branch:** `main`; product canonical source revision is
 `8a99396241807399db7e33ed12dfdc6941b5dbc4` (PR #365 B5b, PR #364 B5a,
 PR #363 B4c, PR #362 B4b-2, PR #361 B4b, PR #360 B4a and PR #359 B3 are
@@ -138,53 +138,56 @@ are retained as evidence. No production container, volume, port, tunnel,
 dependency installation or background service was created or changed by this
 review. PR #365 (B5b) completed as recorded below. PR #366 (B5c ball-bag
 distance ladder) is the current open draft at exact head
-`eb8366ea464793e9e244d4f3aa1ce67e61a23090`. The substantive follow-up is
-`7b26b7a4`; `eb8366ea` only repairs a MainActor test-helper compile error.
-Source CI `36977251704` and Native Mobile CI `36977251671` pass. Matching
-artifacts are design `11213804385`, Watch `11214895646`, and native evidence
-`11214272576`; native synthetic merge `d2b6ec64` has the exact PR head as its
-second parent. Homeserver exact-head suites `tests.test_mobile_contracts`,
-`tests.test_player_club_bag_api`, `tests.test_manual_club_bag`,
-`tests.test_effective_club_ladder`, and `tests.test_prep_cache` pass `146/146`
-in 3.970s. The focused log SHA-256 is
-`00fa0d5e46f7185007278650a93eda0335b06bf37c0c7889a73efe7fd24c0233`.
+`5f884baad6cd1084d2df60c19e597a98d16c71b7`. Source CI `36980708149`
+and Native Mobile CI `36980708205` pass. Matching artifacts are design
+`11215806693` (83 PNGs), Watch `11215479138` (40 PNGs), and native evidence
+`11215454521`; native synthetic merge `2b25b85c` has the exact PR head as its
+second parent. All design and Watch files are byte-identical to the prior
+reviewed head; `bag.png`, `bag-edit.png`, and `bag-add.png` were directly
+re-inspected and remain visually acceptable. Homeserver exact-head mobile
+contracts, player/manual/effective club-bag, prep-cache, club-catalog,
+server-mobile, and player-isolation suites pass `285/285` in 11.781s. The
+focused log SHA-256 is
+`d11764f544eeea93b7a785378310a93d4698bcb38b6b3e37f81debc6879d2e58`.
 
-The six initial findings in comment `5946965531` are locally addressed: the
-durable serialized outbox and reset behavior, putter exclusion, strongest-
-sample aliases, and real destination/edit/add capture all check out. The new
-`bag.png`, `bag-edit.png`, and `bag-add.png` were inspected directly; the other
-80 iOS PNGs are byte-identical to accepted PR #365, and all 40 Watch PNGs are
-byte-identical to accepted PR #364. Follow-up review comment `5947487991` keeps
-this head blocked on three P1s: member saves incorrectly target `/players/me`
-and global bag/outbox keys permit cross-account state or writes; projected
-carries do not replace cached canonical/candidate route carries and therefore
-do not reach final decision/map landing authority; and removing a club does not
-filter it from phone/server/Watch recommendation authority. Two P2s remain:
-the backend projection drops a typed club with no shot-history row, and the
-outbox retries permanent `401/403/422` failures forever. The exact-head runtime
-reproduction confirmed manual roster `[iron7]` still yields
-`[driver, iron7, iron5]` and a typed `wedge58` without history is absent; log
-SHA-256 is
-`54d09c4e25d5cb43ce5099ebc42f8e7c6d69f0bd2bce6e67270dedd71d71365c`.
-A new exact head, fresh Source/Native artifacts, rerun focused suites, and
-replacement screenshot inspection are required before merge.
+Review comment `5947998710` keeps this head blocked on two P1s and one P2.
+First, both real request consumers call `addingCanonicalPlan` after
+`makeDecisionRequest`, reintroducing the stale CoursePrep club/carry chain that
+bag sanitation just removed; independently, the bag-change observer leaves
+`retainedCaddieRouteByHole` intact and reconciliation can return that unmatched
+stale route as the visible map/Watch route. The added test covers
+`makeDecisionRequest` without the production composition and `resolve` without
+the actual retained-route reconciliation, so neither bypass is exercised.
+Second, cloud restore is not ordered before the first edit: bootstrap launches
+it unawaited, the editor remains enabled during its own fetch, and the fetch
+deliberately skips hydration after that edit creates an outbox. A reinstall or
+second phone can therefore overwrite the cloud-only roster/carries with a
+whole-bag edit based on incomplete local state. Third, explicit roster
+projection is incomplete: an untyped/no-history club is omitted from a mixed
+roster, a putter-only roster falls through to the unrelated global 8I, and an
+empty local override decodes as unknown and revives Garmin/history fallback.
+The exact-head reproduction printed
+`mixed_roster_profiles=['iron5']` and
+`putter_only_before_global_fallback=[]`; its log SHA-256 is
+`38d4c95961dc1f012ae4c6365a8fef3b3661a646f19514c0d7598151a62b41d5`.
+A new exact head, fresh Source/Native artifacts, rerun focused suites and both
+targeted reproductions, and matching screenshot inspection are required before
+merge.
 
 The active read-only snapshot is
-`/dev/shm/aicaddie-pr366-eb8366ea-review-20261002T071224Z`; matching artifact
+`/dev/shm/aicaddie-pr366-5f884baa-review-20261002T075357Z`; matching artifact
 root is
-`/home/jason/codex-runs/aicaddie-pr366-eb8366ea-artifacts-20261002T071224Z`,
+`/home/jason/codex-runs/aicaddie-pr366-5f884baa-artifacts-20261002T075357Z`,
 and bounded local screenshot copies are under
-`/home/ubuntu/claude-web-data/data/garmin-ai-caddie/reviews/pr366-eb8366ea-20261002T071224Z`.
-They expire at 2026-10-03 07:12 UTC and are recorded in
-`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261002T071224Z-pr366-eb8366ea-review.md`.
-The prior head's source/artifact/screenshot resources are removed; its focused
-log is preserved at
-`/home/jason/garmin-ai-caddie-data/review-evidence/pr366/53e4d9e7-focused-tests.log`
-with SHA-256
-`77eab4eab6bac14907aff3d07d6ac546f8275653ab0cd509bb6a5609c4512690`.
-All temporary test containers exited under `--rm`; their writable workspaces
-were container-only tmpfs. No production service, volume, port, tunnel,
-dependency installation, or background process was created or changed.
+`/home/ubuntu/claude-web-data/data/garmin-ai-caddie/reviews/pr366-5f884baa-20261002T075357Z`.
+They expire at 2026-10-03 07:53 UTC and are recorded in
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261002T075357Z-pr366-5f884baa-review.md`.
+The superseded `eb8366ea` snapshot/artifact/screenshot resources were removed;
+its focused log and native evidence are retained under
+`/home/jason/garmin-ai-caddie-data/review-evidence/pr366/`. All temporary test
+containers exited under `--rm`; their writable workspaces were container-only
+tmpfs. No production service, volume, port, tunnel, dependency installation,
+or background process was created or changed.
 
 PR #365 (B5b time/frequency restyle and course detail) opened at exact head
 `863705dbeb6e3d5812e1419c9e3ce1d96791abf9`. Source CI `36864790317` passed,
