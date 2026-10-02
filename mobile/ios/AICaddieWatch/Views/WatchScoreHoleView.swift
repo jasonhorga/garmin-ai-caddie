@@ -18,6 +18,23 @@ enum WatchScoreHoleLayout {
     static let bandStepPoints: CGFloat = 28
     /// Vertical drag distance for one step on an open putts / penalties wheel.
     static let wheelStepPoints: CGFloat = 22
+    /// Rolling up brings the next number in.
+    static func wheelSteps(_ translationHeight: CGFloat) -> Int {
+        Int((-translationHeight / wheelStepPoints).rounded())
+    }
+
+    /// How far the digits follow the finger: a peek, never past the chip's own edge.
+    static func wheelPeek(_ translationHeight: CGFloat, chip: CGFloat) -> CGFloat {
+        let limit = chip * 0.22
+        return min(max(translationHeight / 3, -limit), limit)
+    }
+
+    /// How long an open wheel waits before folding back: briefly once a roll has settled, a little
+    /// longer while it is only open (tapped, or turned with the Crown).
+    static func wheelCloseDelayNanoseconds(settled: Bool) -> UInt64 {
+        settled ? 450_000_000 : 1_600_000_000
+    }
+
     /// Below this content height (41 mm / 40 mm) the compact metrics are used so every row — the
     /// 保存 button included — stays fully on screen and tappable.
     static let compactHeight: CGFloat = 236
@@ -79,6 +96,8 @@ public struct WatchScoreHoleView: View {
     @State private var crownBase: Double = 0
     @State private var bandDrag: CGFloat = 0
     @State private var wheelDrag: CGFloat = 0
+    /// A roll on the open wheel has ended; it folds back after a short pause.
+    @State private var wheelSettled = false
 
     public init(
         hole: Int,
@@ -120,13 +139,12 @@ public struct WatchScoreHoleView: View {
             VStack(spacing: m.spacing) {
                 header(m)
                 scoreBand(m)
-                // 推 / 罚 open IN PLACE over their own chip (README §3: 原地上下滚，不弹单独页面);
-                // the band, the other chip and the tee cells stay where they are.
+                // 推 / 罚 roll IN PLACE inside their own chip (README §3: 原地上下滚，不弹单独页面);
+                // the band, the other chip and the tee cells stay where they are and uncovered.
                 HStack(spacing: 6) {
                     wheelChip(.putts, m)
                     wheelChip(.penalty, m)
                 }
-                .zIndex(1)
                 if par != 3 {
                     fairwayCells(m)
                 }
@@ -147,12 +165,13 @@ public struct WatchScoreHoleView: View {
             let steps = Int((value - crownBase).rounded())
             guard steps != 0 else { return }
             crownBase += Double(steps)
+            wheelSettled = false
             step(steps)
         }
         .task(id: wheelIdentity) {
             // An open wheel closes once left alone ("停手即选定并收起").
             guard openWheel != nil else { return }
-            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            try? await Task.sleep(nanoseconds: WatchScoreHoleLayout.wheelCloseDelayNanoseconds(settled: wheelSettled))
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.2)) { openWheel = nil }
         }
@@ -162,8 +181,8 @@ public struct WatchScoreHoleView: View {
     /// Changes whenever the open wheel or its value changes, restarting the close timer.
     private var wheelIdentity: String {
         switch openWheel {
-        case .putts: return "putts-\(putts)"
-        case .penalty: return "penalty-\(penalty)"
+        case .putts: return "putts-\(putts)-\(wheelSettled)"
+        case .penalty: return "penalty-\(penalty)-\(wheelSettled)"
         case nil: return "closed"
         }
     }
@@ -252,69 +271,73 @@ public struct WatchScoreHoleView: View {
     private func wheelChip(_ wheel: WatchScoreWheel, _ m: WatchScoreHoleLayout.Metrics) -> some View {
         let value = wheel == .putts ? putts : penalty
         let isOpen = openWheel == wheel
-        return Button {
-            withAnimation(.easeOut(duration: 0.2)) { openWheel = isOpen ? nil : wheel }
-        } label: {
-            HStack(spacing: 4) {
-                Text(wheel == .putts ? "推" : "罚")
-                    .font(.system(size: 14, weight: .heavy))
-                    .foregroundStyle(.secondary)
+        let name = wheel == .putts ? "推杆" : "罚杆"
+        // README §3: the wheel rolls INSIDE the chip at the chip's own size — the neighbours peek
+        // above and below the value — so the band, the other chip and the tee cells stay uncovered.
+        return HStack(spacing: 4) {
+            Text(wheel == .putts ? "推" : "罚")
+                .font(.system(size: 14, weight: .heavy))
+                .foregroundStyle(.secondary)
+            if isOpen {
+                wheelDigits(wheel, value: value, m)
+            } else {
                 Text("\(value)")
                     .font(.system(size: m.chip * 0.58, weight: .black, design: .rounded))
                     .monospacedDigit()
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: m.chip)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.2)))
-            .opacity(isOpen ? 0 : 1)
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .frame(height: m.chip)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(isOpen ? 0.14 : 0.2)))
         .overlay {
-            // The wheel rolls in place over its chip: the neighbours above and below spill over
-            // the band / tee cells while it is open, and it folds back once left alone.
-            if isOpen { inlineWheel(wheel, m) }
+            if isOpen {
+                RoundedRectangle(cornerRadius: 12).strokeBorder(AICaddieDesignTokens.par, lineWidth: 1.5)
+            }
         }
-        .accessibilityLabel("\(wheel == .putts ? "推杆" : "罚杆") \(value)")
-        .accessibilityIdentifier("watch-score-\(wheel.rawValue)")
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            wheelSettled = false
+            withAnimation(.easeOut(duration: 0.2)) { openWheel = isOpen ? nil : wheel }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 4)
+                .onChanged { drag in
+                    wheelSettled = false
+                    wheelDrag = WatchScoreHoleLayout.wheelPeek(drag.translation.height, chip: m.chip)
+                }
+                .onEnded { drag in
+                    wheelDrag = 0
+                    let steps = WatchScoreHoleLayout.wheelSteps(drag.translation.height)
+                    if steps != 0 { step(steps) }
+                    // 停手即选定并收起: the settled wheel folds back shortly after the finger lifts.
+                    wheelSettled = true
+                },
+            including: isOpen ? .all : .subviews
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(name) \(value)")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAdjustableAction { direction in
+            let delta = direction == .increment ? 1 : -1
+            if wheel == .putts { onPutts(putts + delta) } else { onPenalty(penalty + delta) }
+        }
+        .accessibilityIdentifier(isOpen ? "watch-score-wheel-\(wheel.rawValue)" : "watch-score-\(wheel.rawValue)")
     }
 
-    private func inlineWheel(_ wheel: WatchScoreWheel, _ m: WatchScoreHoleLayout.Metrics) -> some View {
+    /// The value with its neighbours, all inside the chip's height.
+    private func wheelDigits(_ wheel: WatchScoreWheel, value: Int, _ m: WatchScoreHoleLayout.Metrics) -> some View {
         let range = wheel == .putts ? WatchScoreRules.puttRange : WatchScoreRules.penaltyRange
-        let value = wheel == .putts ? putts : penalty
         return VStack(spacing: 0) {
             ForEach(-1...1, id: \.self) { offset in
                 Text("\(WatchScoreRules.wrap(value + offset, in: range))")
-                    .font(.system(size: offset == 0 ? m.chip * 0.72 : m.chip * 0.42, weight: .black, design: .rounded))
+                    .font(.system(size: offset == 0 ? m.chip * 0.5 : m.chip * 0.26, weight: .black, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(offset == 0 ? 1 : 0.4))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: offset == 0 ? m.chip : m.chip * 0.62)
+                    .frame(height: offset == 0 ? m.chip * 0.56 : m.chip * 0.22)
             }
         }
         .offset(y: wheelDrag)
-        .frame(height: m.chip * 2.24)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(white: 0.16))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(AICaddieDesignTokens.par, lineWidth: 1.5))
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 4)
-                .onChanged { wheelDrag = $0.translation.height / 3 }
-                .onEnded { drag in
-                    // Rolling up brings the next number in.
-                    let steps = Int((-drag.translation.height / WatchScoreHoleLayout.wheelStepPoints).rounded())
-                    wheelDrag = 0
-                    if steps != 0 { step(steps) }
-                }
-        )
-        .onTapGesture { withAnimation(.easeOut(duration: 0.2)) { openWheel = nil } }
-        .accessibilityElement()
-        .accessibilityLabel("\(wheel == .putts ? "推杆" : "罚杆") \(value)")
-        .accessibilityAdjustableAction { direction in step(direction == .increment ? 1 : -1) }
-        .accessibilityIdentifier("watch-score-wheel-\(wheel.rawValue)")
     }
 
     // MARK: 开球三格

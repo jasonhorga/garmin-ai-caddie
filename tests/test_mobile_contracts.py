@@ -5376,6 +5376,32 @@ class WatchHolePagesContractTests(unittest.TestCase):
         self.assertIn("rotatesGreen: false", green)
         self.assertNotIn("rotatesGreen.toggle()", green)
 
+    def test_green_page_yields_paging_and_flag_slides_along_the_edge(self) -> None:
+        green = self.read("Views/WatchGreenPreviewView.swift")
+        self.assertIn("including: WatchHoleZoom.isZoomed(CGFloat(zoomScale)) ? .all : .subviews", green)
+        drag = green[green.index("private func flagGesture("):]
+        drag = drag[: drag.index("private func moveFlag(")]
+        self.assertIn("WatchGreenPreviewLayout.flagPoint(", drag)
+        self.assertNotIn(") else { return }\n                selectedPin = candidate", drag)
+        project = (Path("mobile") / "ios" / "project.yml").read_text(encoding="utf-8")
+        self.assertIn("AICaddieWatchUITests:", project)
+        self.assertIn("- AICaddieWatchUITests", project)
+        ui = (Path("mobile") / "ios" / "AICaddieWatchUITests" / "WatchHolePagesUITests.swift").read_text(encoding="utf-8")
+        self.assertIn("standalone-course-page-plan", ui)
+        self.assertEqual(ui.count("swipe(up: true)"), 2)
+        self.assertIn("swipe(up: false)", ui)
+
+    def test_route_offsets_count_from_the_decision_origin(self) -> None:
+        hole_map = self.read("Views/WatchHoleMapView.swift")
+        self.assertIn("landingM = startProgress + offset", hole_map)
+        self.assertNotIn("landingM = offset\n", hole_map)
+
+    def test_score_wheels_roll_inside_their_chip(self) -> None:
+        score = self.read("Views/WatchScoreHoleView.swift")
+        self.assertNotIn("m.chip * 2.24", score)
+        self.assertNotIn("inlineWheel(", score)
+        self.assertIn("wheelSettled = true", score)
+
 
 if __name__ == "__main__":
     unittest.main()

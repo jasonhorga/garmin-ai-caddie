@@ -242,6 +242,8 @@ jobs:
           capture_compact standalone-course-page-hazard-zoomed compact-41mm-page-hazard-zoomed.png
           capture_compact menu compact-41mm-menu.png
           capture_compact compact-score-fairway compact-41mm-score-fairway.png
+          capture_compact score-putts compact-41mm-score-putts.png
+          capture_compact score-penalty compact-41mm-score-penalty.png
           capture_compact compact-shot-undo compact-41mm-shot-undo.png
           capture_compact compact-finish compact-41mm-finish.png
           capture_compact finish-actions compact-41mm-finish-actions.png

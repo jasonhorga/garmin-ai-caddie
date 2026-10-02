@@ -1411,6 +1411,17 @@ final class WatchDesignSnapshotTests: XCTestCase {
             .watchSnapshotFrame(width: 176, height: 215),
             named: "watch-compact-score-fairway"
         )
+        // The open 推 / 罚 wheels on the 41 mm face: inside their chips, nothing else covered.
+        for wheel in [WatchScoreWheel.putts, .penalty] {
+            try render(
+                WatchScoreHoleView(
+                    hole: 7, par: 4, score: 5, putts: 2, penalty: 1, fairway: .hit,
+                    openWheel: wheel
+                )
+                .watchSnapshotFrame(width: 176, height: 215),
+                named: "watch-compact-score-\(wheel.rawValue)"
+            )
+        }
         try render(
             WatchRoundHomeView(
                 courseName: "北京黑骑士国际高尔夫俱乐部 · C 场",

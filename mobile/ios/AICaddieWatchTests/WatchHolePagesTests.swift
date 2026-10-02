@@ -47,6 +47,53 @@ final class WatchHolePagesTests: XCTestCase {
         XCTAssertTrue(WatchPlanLegs.resolve(plan: [], route: route, origin: .zero).isEmpty)
     }
 
+    func testARouteOffsetCountsFromTheDecisionOriginNotTheTee() {
+        // decision.py starts travelled_m at 0 for every decision, so a 200 m offset from a player
+        // already 50 m down the route lands at 250 m, and the drawn leg is as long as its label.
+        guard let origin = WatchHazardMapLayout.imagePoint(on: route, atMetres: 50),
+              let expected = WatchHazardMapLayout.imagePoint(on: route, atMetres: 250) else {
+            return XCTFail("route points")
+        }
+        let legs = WatchPlanLegs.resolve(
+            plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 200, routeOffsetM: 200)],
+            route: route,
+            origin: origin
+        )
+        XCTAssertEqual(legs.count, 1)
+        XCTAssertEqual(legs.first?.label, "D 219")
+        XCTAssertEqual(Double(legs.first?.landing.x ?? 0), Double(expected.x), accuracy: 0.01)
+        XCTAssertEqual(Double(legs.first?.landing.y ?? 0), Double(expected.y), accuracy: 0.01)
+        let landed = WatchHazardMapLayout.playerProgressMetres(on: route, playerImagePoint: legs[0].landing) ?? 0
+        let started = WatchHazardMapLayout.playerProgressMetres(on: route, playerImagePoint: legs[0].start) ?? 0
+        XCTAssertEqual(landed - started, 200, accuracy: 0.5, "drawn length matches the 219-yard label")
+    }
+
+    func testAFlagDraggedPastTheGreenSlidesAlongItsEdge() {
+        // A round green (centre 100,100, radius 50). The finger leaves it to the right, then keeps
+        // moving up: the flag follows the arc upwards instead of freezing at the exit point.
+        let outline = (0..<48).map { index -> CGPoint in
+            let angle = Double(index) / 48 * 2 * .pi
+            return CGPoint(x: 100 + 50 * cos(angle), y: 100 + 50 * sin(angle))
+        }
+        let inside = CGPoint(x: 120, y: 90)
+        XCTAssertEqual(WatchGreenPreviewLayout.flagPoint(inside, outline: outline), inside)
+        var previousY = CGFloat.greatestFiniteMagnitude
+        for fingerY in stride(from: 100, through: 40, by: -15) as StrideThrough<CGFloat> {
+            guard let flag = WatchGreenPreviewLayout.flagPoint(CGPoint(x: 175, y: fingerY), outline: outline) else {
+                return XCTFail("no flag for \(fingerY)")
+            }
+            XCTAssertEqual(Double(hypot(flag.x - 100, flag.y - 100)), 50, accuracy: 1.5, "on the edge")
+            XCTAssertLessThan(flag.y, previousY, "the flag slides up with the finger")
+            XCTAssertGreaterThan(flag.x, 100, "it stays on the right-hand arc")
+            previousY = flag.y
+        }
+        XCTAssertNil(WatchGreenPreviewLayout.flagPoint(inside, outline: Array(outline.prefix(2))))
+    }
+
+    func testThePageMarkerNamesEachHolePage() {
+        XCTAssertEqual((0...2).map(WatchRoundContainerView.holePageName), ["方案", "障碍", "果岭"])
+    }
+
     func testTappingTheClubTagCyclesEveryPlan() {
         let ids = ["stock", "safe", "attack"]
         XCTAssertEqual(WatchRoundContainerView.nextPlanId(after: "stock", in: ids), "safe")

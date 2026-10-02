@@ -168,8 +168,10 @@ public struct WatchPlanLeg: Equatable {
 
 enum WatchPlanLegs {
     /// Every leg of `plan` from `origin` (the tee before the tee shot, else the player) along the
-    /// measured cumulative-metre route. A step's `routeOffsetM` (metres from the tee) places its
-    /// landing when it lies ahead; otherwise carries accumulate. The chain stops at the route end.
+    /// measured cumulative-metre route. A step's `routeOffsetM` is the planner's cumulative offset
+    /// from the decision origin (`decision.py` starts `travelled_m` at 0 for every decision), so it
+    /// lands at origin progress + offset when that lies ahead; otherwise carries accumulate. The
+    /// chain stops at the route end.
     static func resolve(plan: [WatchCaddiePlanStep], route: [[Double]], origin: CGPoint) -> [WatchPlanLeg] {
         guard route.count >= 2,
               let startProgress = WatchHazardMapLayout.playerProgressMetres(on: route, playerImagePoint: origin),
@@ -180,8 +182,8 @@ enum WatchPlanLegs {
         for step in plan {
             guard let carry = step.carryM, carry.isFinite, carry > 0 else { break }
             var landingM = progress + carry
-            if let offset = step.routeOffsetM, offset.isFinite, offset > progress + 1 {
-                landingM = offset
+            if let offset = step.routeOffsetM, offset.isFinite, startProgress + offset > progress + 1 {
+                landingM = startProgress + offset
             }
             landingM = min(landingM, routeEnd)
             guard landingM > progress + 1,

@@ -26,4 +26,24 @@ final class WatchScoreHoleLayoutTests: XCTestCase {
         XCTAssertEqual(WatchScoreHoleLayout.bandSteps(CGSize(width: 2, height: -56)), 2, "上下拖也可")
         XCTAssertEqual(WatchScoreHoleLayout.bandSteps(CGSize(width: -4, height: 28)), -1)
     }
+
+    func testTheInlineWheelStaysInsideItsChipAndFoldsBackOnceSettled() {
+        // Rolling up brings the next number in.
+        XCTAssertEqual(WatchScoreHoleLayout.wheelSteps(-44), 2)
+        XCTAssertEqual(WatchScoreHoleLayout.wheelSteps(22), -1)
+        XCTAssertEqual(WatchScoreHoleLayout.wheelSteps(5), 0)
+        // The digits only peek: never past the chip's own edge on any face.
+        for metrics in [WatchScoreHoleLayout.Metrics.regular, .compact] {
+            let limit = metrics.chip * 0.22
+            XCTAssertEqual(WatchScoreHoleLayout.wheelPeek(-400, chip: metrics.chip), -limit)
+            XCTAssertEqual(WatchScoreHoleLayout.wheelPeek(400, chip: metrics.chip), limit)
+            XCTAssertEqual(WatchScoreHoleLayout.wheelPeek(3, chip: metrics.chip), 1)
+        }
+        // 停手即选定并收起: a settled roll folds back sooner than a merely open wheel.
+        XCTAssertLessThan(
+            WatchScoreHoleLayout.wheelCloseDelayNanoseconds(settled: true),
+            WatchScoreHoleLayout.wheelCloseDelayNanoseconds(settled: false)
+        )
+        XCTAssertLessThanOrEqual(WatchScoreHoleLayout.wheelCloseDelayNanoseconds(settled: true), 500_000_000)
+    }
 }

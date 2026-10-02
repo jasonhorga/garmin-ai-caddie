@@ -771,6 +771,26 @@ public struct WatchRoundContainerView: View {
         }
         .tabViewStyle(.verticalPage)
         .accessibilityIdentifier("watch-hole-pages")
+        // The page in view, for the paging UI test: TabView keeps its neighbours in the hierarchy,
+        // so their own elements cannot say which page is showing.
+        .overlay(alignment: .topLeading) {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .allowsHitTesting(false)
+                .accessibilityElement()
+                .accessibilityLabel("本洞页")
+                .accessibilityValue(Self.holePageName(holePage))
+                .accessibilityIdentifier("watch-hole-page-current")
+        }
+    }
+
+    /// 方案 / 障碍 / 果岭 by page tag.
+    static func holePageName(_ page: Int) -> String {
+        switch page {
+        case 1: return "障碍"
+        case 2: return "果岭"
+        default: return "方案"
+        }
     }
 
     /// Tap the green club tag: the next caddie plan (wrapping).
