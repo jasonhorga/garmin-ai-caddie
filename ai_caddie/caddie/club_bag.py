@@ -174,15 +174,16 @@ def apply_manual_carries(profiles: Iterable[dict[str, Any]], *, player_id: str =
     one physical club ("Aw"/"GW") all move to the same carry. Idempotent: re-applying is a no-op."""
     carries = manual_carries_m(player_id)
     rows = [dict(row) for row in profiles if isinstance(row, dict)]
-    if not carries:
+    roster = manual_roster_tokens(player_id)
+    if not carries and roster is None:
         return rows
     covered: set[str] = set()
     for row in rows:
         token = canonical_club_name(row.get("clubName")) or ""
+        covered.add(token)
         carry = carries.get(token)
         if carry is None:
             continue
-        covered.add(token)
         try:
             median = float(row.get("median_m") or 0)
         except (TypeError, ValueError):
@@ -195,10 +196,19 @@ def apply_manual_carries(profiles: Iterable[dict[str, Any]], *, player_id: str =
                 value = 0.0
             row[key] = round(max(1.0, value + delta), 1) if median > 0 and value > 0 else carry
         row["median_m"] = carry
-    # A typed club with no shot history still reaches the caddie (iOS adds the same zero-sample row).
-    for token, carry in carries.items():
-        if token in covered:
+    # Every selected club reaches the caddie (iOS adds the same zero-sample rows): a typed carry
+    # first, else the catalog default for a club with no shot history. A club with neither (no
+    # catalog default, e.g. a 7 wood) cannot be given an invented distance and stays out.
+    for token in [*carries, *sorted(roster or ())]:
+        if token in covered or token == "putter":
             continue
+        carry = carries.get(token)
+        if carry is None:
+            default = club_catalog.default_distance_m(token)
+            carry = float(default) if default else None
+        if carry is None:
+            continue
+        covered.add(token)
         rows.append({
             "clubName": manual_profile_name(token),
             "sampleSize": 0,
@@ -209,21 +219,17 @@ def apply_manual_carries(profiles: Iterable[dict[str, Any]], *, player_id: str =
     return rows
 
 
-def manual_default_profiles(player_id: str = OWNER_ID) -> list[dict[str, Any]]:
-    """Zero-sample rows from catalog defaults for a manual roster with neither history nor typed
-    carries, so the caddie never falls back to a club the player took out of the bag."""
+def manual_roster_tokens(player_id: str = OWNER_ID) -> set[str] | None:
+    """The canonical tokens of a manual roster (``set()`` for an explicit empty one), or None when
+    the player has no manual bag."""
     bag = effective_club_bag(player_id)
     if bag["source"] != "manual":
-        return []
-    rows: list[dict[str, Any]] = []
-    for club in bag["clubs"]:
-        token = str((club or {}).get("token") or "")
-        default = club_catalog.default_distance_m(token) if token != "putter" else None
-        if default:
-            carry = float(default)
-            rows.append({"clubName": manual_profile_name(token), "sampleSize": 0,
-                         "median_m": carry, "p10_m": carry, "p90_m": carry})
-    return rows
+        return None
+    return {
+        str(club.get("token"))
+        for club in bag["clubs"]
+        if isinstance(club, dict) and club_catalog.is_valid_token(str(club.get("token") or ""))
+    }
 
 
 def manual_profile_name(token: str) -> str:

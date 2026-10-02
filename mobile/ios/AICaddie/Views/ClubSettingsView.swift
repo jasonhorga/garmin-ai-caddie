@@ -29,21 +29,32 @@ final class ClubBagEditorModel: ObservableObject {
 
     var addable: [CatalogClub] { BagPresentation.addable(bag: bag) }
 
+    /// Edits wait for the cloud restore (see `ClubBagSyncCoordinator.canEdit`): a whole-bag PUT
+    /// built on a partial local bag would erase the clubs and carries saved from another phone.
+    var canEdit: Bool { sync.canEdit }
+
     func add(_ name: String) {
-        guard ClubCatalog.names.contains(name), name != "推杆", !bag.contains(name) else { return }
+        guard canEdit, ClubCatalog.names.contains(name), name != "推杆", !bag.contains(name) else { return }
         bag.insert(name)
         commit()
     }
 
+    /// The bag keeps at least one club to hit with: the server stores "no manual bag" for an empty
+    /// list, so an empty roster cannot be saved — 用 Garmin 球包重置 is the way back.
+    func canRemove(_ name: String) -> Bool {
+        bag.contains(name) && !bag.subtracting([name, "推杆"]).isEmpty
+    }
+
     /// Taking a club out also drops its typed distance.
     func remove(_ name: String) {
-        guard bag.contains(name) else { return }
+        guard canEdit, canRemove(name) else { return }
         bag.remove(name)
         distancesYd[name] = nil
         commit()
     }
 
     func setDistance(_ name: String, _ yards: Int?) {
+        guard canEdit else { return }
         distancesYd[name] = yards.flatMap { $0 > 0 ? $0 : nil }
         commit()
     }
@@ -58,6 +69,7 @@ final class ClubBagEditorModel: ObservableObject {
     /// device, show the Garmin bag, and clear the server's manual bag (`{"clubs": []}`) through the
     /// same durable outbox as every edit — so a later edit simply supersedes it.
     func resetToGarminBag() {
+        guard canEdit else { return }
         ClubBagStore.clearManual()
         ClubBagStore.saveManualDistancesYd([:])
         distancesYd = [:]
@@ -128,21 +140,33 @@ public struct ClubSettingsView: View {
 
     public var body: some View {
         ScrollView {
-            BagContent(rows: model.rows, syncNotice: Self.syncNotice(sync.status), onSelect: { editingName = $0.name },
-                       onReset: (apiBaseURL != nil || ClubBagStore.realBag() != nil) ? { model.resetToGarminBag() } : nil)
+            BagContent(rows: model.rows, syncNotice: Self.restoreNotice(sync) ?? Self.syncNotice(sync.status),
+                       onSelect: { editingName = $0.name },
+                       onReset: sync.canEdit && (apiBaseURL != nil || ClubBagStore.realBag() != nil)
+                           ? { model.resetToGarminBag() } : nil)
+        }
+        .refreshable {
+            if await sync.restoreFromServer() { model.reloadFromStore() }
         }
         .background(HubStyle.grouped)
         .navigationTitle("球包")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("＋ 球杆") { isAdding = true }
+                    .disabled(!sync.canEdit)
                     .accessibilityIdentifier("bag-add")
             }
+        }
+        .onChange(of: sync.restoreState) { _, state in
+            // A restore started elsewhere (launch, foreground) landed while this screen is open.
+            if state == .restored { model.reloadFromStore() }
         }
         .sheet(isPresented: Binding(get: { editingName != nil }, set: { if !$0 { editingName = nil } })) {
             if let name = editingName, let row = model.row(named: name) {
                 BagClubEditor(
                     row: row,
+                    canEdit: sync.canEdit,
+                    canRemove: model.canRemove(name),
                     onStep: { model.step(name, by: $0) },
                     onUseHistory: { model.setDistance(name, nil) },
                     onRemove: { model.remove(name); editingName = nil }
@@ -164,6 +188,13 @@ public struct ClubSettingsView: View {
             }
             await loadRealBag()
         }
+    }
+
+    static func restoreNotice(_ sync: ClubBagSyncCoordinator) -> String? {
+        guard !sync.canEdit else { return nil }
+        return sync.restoreState == .failed
+            ? "没连上云端，读到你的球包后才能修改（下拉重试）"
+            : "正在读取云端球包…"
     }
 
     static func syncNotice(_ status: ClubBagSyncCoordinator.Status) -> String? {
@@ -307,6 +338,8 @@ struct BagContent: View {
 /// and 从球包拿掉.
 struct BagClubEditor: View {
     let row: BagPresentation.Row
+    var canEdit = true
+    var canRemove = true
     var onStep: (Int) -> Void
     var onUseHistory: () -> Void
     var onRemove: () -> Void
@@ -333,17 +366,24 @@ struct BagClubEditor: View {
                     .accessibilityIdentifier("bag-edit-plus")
             }
             .buttonStyle(.bordered)
+            .disabled(!canEdit)
             if row.isManual, row.historyMedian != nil {
                 Button("用历史中位数", action: onUseHistory)
                     .font(.subheadline)
                     .accessibilityIdentifier("bag-edit-reset")
+                    .disabled(!canEdit)
             }
             Spacer(minLength: 0)
             Button(role: .destructive, action: onRemove) {
                 Text("从球包拿掉").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 12)
             }
             .buttonStyle(.bordered)
+            .disabled(!(canEdit && canRemove))
             .accessibilityIdentifier("bag-edit-remove")
+            if !canRemove {
+                Text("球包里至少留一支能打的球杆；要换回 Garmin 球包请用重置")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .padding(20)
     }

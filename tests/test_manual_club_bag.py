@@ -151,12 +151,24 @@ class EffectiveBagTests(unittest.TestCase):
             self.assertEqual([(r["clubName"], r["median_m"], r["sampleSize"]) for r in rows],
                              [("7I", 150.0, 40), ("58", 80.0, 0)])
             self.assertEqual(club_bag.canonical_club_name(rows[1]["clubName"]), "wedge58")
-            # A roster with neither history nor typed carries uses catalog defaults, not a stray 8I.
-            club_bag.save_manual_club_bag("me", [{"token": "iron7"}, {"token": "putter"}])
-            self.assertEqual(
-                [(r["clubName"], r["median_m"]) for r in club_bag.manual_default_profiles("me")],
-                [("iron7", 128.0)],
-            )
+            # Total projection: a mixed roster keeps the history club and adds the catalog default
+            # for the selected club that has neither history nor a typed carry (Codex 5947998710).
+            club_bag.save_manual_club_bag("me", [{"token": "iron5"}, {"token": "iron7"}, {"token": "putter"}])
+            no_seven = [row for row in history if row["clubName"] != "7I"]  # 7I: no shot history
+            kept = club_bag.restrict_to_bag(no_seven, lambda row: row["clubName"], player_id="me")
+            rows = club_bag.apply_manual_carries(kept, player_id="me")
+            self.assertEqual([(r["clubName"], r["median_m"], r["sampleSize"]) for r in rows],
+                             [("5I", 150.0, 30), ("iron7", 128.0, 0)])
+            # A club with no catalog default and nothing measured cannot get an invented distance.
+            club_bag.save_manual_club_bag("me", [{"token": "wood7"}])
+            self.assertEqual(club_bag.apply_manual_carries([], player_id="me"), [])
+            # Putter-only and explicit roster: no hitting rows at all.
+            club_bag.save_manual_club_bag("me", [{"token": "putter"}])
+            self.assertEqual(club_bag.manual_roster_tokens("me"), {"putter"})
+            kept = club_bag.restrict_to_bag(history, lambda row: row["clubName"], player_id="me")
+            self.assertEqual(club_bag.apply_manual_carries(kept, player_id="me"), [])
+            club_bag.clear_manual_club_bag("me")
+            self.assertIsNone(club_bag.manual_roster_tokens("me"))
 
     def test_every_catalog_token_round_trips_through_its_profile_name(self) -> None:
         from ai_caddie.caddie import club_catalog
@@ -202,6 +214,24 @@ class EffectiveBagTests(unittest.TestCase):
         self.assertEqual({club_bag.canonical_club_name(r["clubName"]) for r in seed_rows}, {"iron5", "iron7"})
         for option in seed["offlineOptions"]:
             self.assertIn(club_bag.canonical_club_name(option["clubName"]), {"iron5", "iron7"})
+
+        # A putter-only roster: no hitting profile, and never the placeholder 8I.
+        putter_only = {"schema": club_bag.MANUAL_SCHEMA, "clubs": [{"token": "putter", "customName": None, "distanceM": None}]}
+        with patch.object(club_bag, "load_manual_club_bag", return_value=putter_only), patch.object(
+            mobile_live, "_geometry_seed", return_value=(geometry, [], [])
+        ), patch.object(
+            mobile_live, "_route_evidence_seed",
+            return_value=({"routeLength_m": 100.0, "avoidZones": [], "sourceRefs": ["live:1"]}, [], []),
+        ):
+            package = mobile_live.build_live_round_package(
+                "900001", data=fixture_history_data(), data_mode="fixture",
+                allow_weather_fetch=False, priority_holes=[1], defer_non_priority_enrichment=True,
+            )
+        self.assertEqual(package["clubProfiles"], [])
+        for seed in package["caddieContextSeeds"]:
+            profiles = seed["context"].get("clubProfiles") or {}
+            self.assertFalse(profiles, f"hole {seed['hole']} has no hitting club")
+            self.assertEqual(seed["offlineOptions"], [])
 
     def test_fresh_package_profiles_apply_the_manual_carry(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "ai_caddie" / "caddie" / "mobile_live.py").read_text()

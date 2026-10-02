@@ -65,6 +65,15 @@ public enum ClubCatalog {
 
     /// Every catalog name — used to keep only recognised clubs when deriving a default bag.
     public static let names: Set<String> = Set(all.map(\.zhName))
+
+    /// Catalog default carries (metres) — the server's ``club_catalog`` ``defaultDistanceM``, keyed
+    /// by catalog name. A selected club with neither shot history nor a typed carry uses this; a club
+    /// without a default stays out rather than getting an invented distance.
+    public static let defaultDistanceM: [String: Double] = [
+        "一号木": 200, "三号木": 171, "三号小鸡腿": 159,
+        "五号铁": 146, "六号铁": 132, "七号铁": 128, "八号铁": 122, "九号铁": 114,
+        "P 杆": 102, "A 杆": 84, "50° 挖起杆": 53, "54° 挖起杆": 52, "58° 挖起杆": 42,
+    ]
 }
 
 /// Garmin clubType enum (the `value` from `/club/types`) → the app's Chinese catalog name.
@@ -113,7 +122,15 @@ public enum ClubBagStore {
     static let revisionBase = "ai-caddie.club-bag-revision-v1"
     static let outboxBase = "ai-caddie.club-bag-outbox-v1"
     static let generationBase = "ai-caddie.club-bag-outbox-generation-v1"
-    private static let scopedBases = [bagBase, realBase, distancesBase, revisionBase, outboxBase, generationBase]
+    static let syncedBase = "ai-caddie.club-bag-cloud-synced-v1"
+    private static let scopedBases = [bagBase, realBase, distancesBase, revisionBase, outboxBase, generationBase, syncedBase]
+
+    /// Whether this phone has ever matched the bound player's cloud bag (a restore or an accepted
+    /// PUT). Until then an edit could be based on a partial local bag and overwrite the cloud one.
+    public static var hasSyncedWithCloud: Bool {
+        get { defaults.bool(forKey: key(syncedBase)) }
+        set { defaults.set(newValue, forKey: key(syncedBase)) }
+    }
 
     /// The signed-in player every key is scoped to (`nil` before sign-in / the owner admin build).
     public private(set) static var playerId: String?
@@ -281,13 +298,13 @@ public enum ClubBagStore {
         var result = profiles.compactMap { profile -> ClubProfile? in
             let name = zhClubName(profile.clubName.trimmingCharacters(in: .whitespaces))
             guard authority.allows(name) else { return nil }
-            guard let carry = authority.carriesM[name] else { return profile }
             covered.insert(name)
+            guard let carry = authority.carriesM[name] else { return profile }
             let band = shiftedBand(median: profile.medianM, p10: profile.p10M, p90: profile.p90M, to: carry)
             return ClubProfile(clubName: profile.clubName, sampleSize: profile.sampleSize, medianM: carry, p10M: band.p10, p90M: band.p90)
         }
         for name in ClubCatalog.all.map(\.zhName) where !covered.contains(name) {
-            guard let carry = authority.carriesM[name] else { continue }
+            guard let carry = authority.missingRowCarry(name) else { continue }
             result.append(ClubProfile(clubName: name, sampleSize: 0, medianM: carry, p10M: carry, p90M: carry))
         }
         return result
@@ -302,8 +319,8 @@ public enum ClubBagStore {
                   case .string(let raw)? = fields["clubName"] ?? fields["name"] else { return row }
             let name = zhClubName(raw.trimmingCharacters(in: .whitespaces))
             guard authority.allows(name) else { return nil }
-            guard let carry = authority.carriesM[name] else { return row }
             covered.insert(name)
+            guard let carry = authority.carriesM[name] else { return row }
             func number(_ keys: [String]) -> Double? {
                 for key in keys { if case .number(let v)? = fields[key] { return v } }
                 return nil
@@ -320,7 +337,7 @@ public enum ClubBagStore {
         }
         func missingRows() -> [(String, JSONValue)] {
             ClubCatalog.all.map(\.zhName).compactMap { name in
-                guard !covered.contains(name), let carry = authority.carriesM[name] else { return nil }
+                guard !covered.contains(name), let carry = authority.missingRowCarry(name) else { return nil }
                 return (name, .object([
                     "clubName": .string(name), "sampleSize": .number(0),
                     "median_m": .number(carry), "p10_m": .number(carry), "p90_m": .number(carry),
@@ -356,7 +373,8 @@ public enum ClubBagStore {
               let list = try? JSONDecoder().decode([String].self, from: data) else {
             return nil
         }
-        return list.isEmpty ? nil : Set(list)
+        // An explicit empty roster stays explicit (no clubs), distinct from "unknown" (nil).
+        return Set(list)
     }
 
     private static func encodeBag(_ bag: Set<String>, into storageKey: String) {
@@ -388,6 +406,15 @@ public struct ClubBagAuthority: Equatable {
     }
 
     var isEmpty: Bool { roster == nil && carriesM.isEmpty }
+
+    /// The carry of a zero-sample row for a selected club that no history row covers: the typed
+    /// carry, else (for a club in a manual roster) the catalog default. The putter has none.
+    func missingRowCarry(_ name: String) -> Double? {
+        guard name != "推杆" else { return nil }
+        if let carry = carriesM[name] { return carry }
+        guard roster?.contains(name) == true else { return nil }
+        return ClubCatalog.defaultDistanceM[name]
+    }
 
     /// A club (any alias) is usable unless a manual roster leaves it out.
     func allows(_ rawName: String) -> Bool {

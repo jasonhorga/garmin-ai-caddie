@@ -240,10 +240,12 @@ enum LiveCaddieRouteAuthority {
         installed: CaddiePlanSequence?,
         retained: CaddiePlanSequence?,
         explicitSelectionKey: String?,
-        vetoInstalled: Bool
+        vetoInstalled: Bool,
+        authority: ClubBagAuthority = .current
     ) -> (first: CaddiePlanSequence, merged: [CaddiePlanSequence])? {
         func allowed(_ route: CaddiePlanSequence) -> Bool {
-            !vetoInstalled || route.id != installedRouteId
+            guard !vetoInstalled || route.id != installedRouteId else { return false }
+            return isCurrent(route, authority: authority)
         }
         let incoming = incoming.filter(allowed)
         guard !incoming.isEmpty else { return nil }
@@ -251,11 +253,20 @@ enum LiveCaddieRouteAuthority {
         let first = leadingRoute(
             incoming: incoming,
             existing: existing,
-            installed: vetoInstalled ? nil : installed,
+            installed: vetoInstalled ? nil : installed.flatMap { allowed($0) ? $0 : nil },
             retained: retained.flatMap { allowed($0) ? $0 : nil },
             explicitSelectionKey: explicitSelectionKey
         )
         return (first, mergedRoutes(first: first, existing: existing, incoming: incoming))
+    }
+
+    /// A route still valid under the 球包 authority: none of its clubs was taken out, and an
+    /// installed CoursePrep chain also still uses the typed carries (live decisions carry strategy
+    /// carries, so they are re-requested on every bag change instead of compared by value).
+    static func isCurrent(_ route: CaddiePlanSequence, authority: ClubBagAuthority) -> Bool {
+        guard authority.rosterAllows(route.steps.map(\.clubName)) else { return false }
+        guard route.id == installedRouteId else { return true }
+        return authority.planMatches(route.steps.map { (club: $0.clubName, carryM: $0.targetCarryM) })
     }
 
     static func leadingRoute(

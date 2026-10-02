@@ -167,7 +167,8 @@ public final class CaddieDecisionRequestBuilder {
     /// lands a stroke in water and can justify a lay-up.
     public static func addingCanonicalPlan(
         to request: CaddieDecisionRequest,
-        prep: CoursePrepHole?
+        prep: CoursePrepHole?,
+        authority: ClubBagAuthority = .current
     ) -> CaddieDecisionRequest {
         var context = request.context
         var changed = false
@@ -181,7 +182,9 @@ public final class CaddieDecisionRequestBuilder {
                 changed = true
             }
         }
+        // Never re-insert a chain the 球包 authority dropped (a removed club or an old carry).
         if context["canonicalShotPlan"] == nil,
+           authority.planMatches((prep?.steps ?? []).map { (club: $0.clubName ?? $0.club ?? "", carryM: $0.targetCarryM) }),
            let steps = canonicalShotPlanRows(from: prep?.steps),
            !steps.isEmpty {
             context["canonicalShotPlan"] = .array(steps.map { .object($0) })

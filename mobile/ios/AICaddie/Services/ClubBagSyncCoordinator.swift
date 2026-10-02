@@ -39,7 +39,16 @@ public final class ClubBagSyncCoordinator: ObservableObject {
     /// The PUT target when no player is bound (the owner admin build): the owner's own bag.
     static let ownerTarget = "me"
 
+    /// Where the bound player's cloud restore stands. Editing waits for it (see `canEdit`).
+    public enum RestoreState: Equatable {
+        case unknown
+        case restoring
+        case restored
+        case failed
+    }
+
     @Published public private(set) var status: Status = .idle
+    @Published public private(set) var restoreState: RestoreState = .unknown
     /// Every PUT attempt that failed, for tests and diagnostics.
     public private(set) var failedAttempts = 0
 
@@ -49,6 +58,7 @@ public final class ClubBagSyncCoordinator: ObservableObject {
     private var fetcher: Fetcher?
     private var worker: Task<Void, Never>?
     private var workerID = 0
+    private var restoreTask: Task<Bool, Never>?
 
     init(
         defaults: @escaping () -> UserDefaults = { ClubBagStore.defaults },
@@ -67,8 +77,22 @@ public final class ClubBagSyncCoordinator: ObservableObject {
         guard ClubBagStore.playerId != previous else { return }
         worker?.cancel()
         worker = nil
+        restoreTask = nil
+        restoreState = .unknown
         status = restingStatus()
         resumeIfPending()
+    }
+
+    /// An edit is built on the whole bag and PUT whole, so it must start from the cloud bag on a
+    /// reinstall / second phone: allowed once this phone has matched the cloud (now or before), or
+    /// when there is no backend to restore from. While a restore is in flight — or has failed on a
+    /// phone that never matched the cloud — the 球包 controls stay disabled.
+    public var canEdit: Bool {
+        switch restoreState {
+        case .restored: return true
+        case .restoring: return false
+        case .failed, .unknown: return fetcher == nil || ClubBagStore.hasSyncedWithCloud
+        }
     }
 
     /// Point the worker at the signed-in backend (no-op without one) and resume a saved outbox.
@@ -105,14 +129,38 @@ public final class ClubBagSyncCoordinator: ObservableObject {
     }
 
     /// Restore the bound player's manual bag from the server (reinstall / second phone) before it
-    /// is edited here. Skipped while a local edit is still queued: the queued edit is newer.
+    /// is edited here. Concurrent callers (launch, foreground, the 球包 screen) share one request.
+    /// Skipped while a local edit is still queued: that edit was made on a restored or synced bag
+    /// and is newer.
     @discardableResult
     public func restoreFromServer() async -> Bool {
+        if let restoreTask { return await restoreTask.value }
+        let task = Task { await self.performRestore() }
+        restoreTask = task
+        let restored = await task.value
+        if restoreTask == task { restoreTask = nil }
+        return restored
+    }
+
+    private func performRestore() async -> Bool {
         let player = ClubBagStore.playerId
-        guard let fetcher, outbox(for: player) == nil else { return false }
-        guard let response = try? await fetcher(player ?? Self.ownerTarget) else { return false }
-        guard ClubBagStore.playerId == player, outbox(for: player) == nil else { return false }
-        ClubBagStore.hydrate(from: response)
+        guard let fetcher else { return false }
+        guard outbox(for: player) == nil else {
+            restoreState = .restored
+            return false
+        }
+        restoreState = .restoring
+        let response = try? await fetcher(player ?? Self.ownerTarget)
+        guard ClubBagStore.playerId == player else { return false }
+        guard let response else {
+            restoreState = .failed
+            return false
+        }
+        if outbox(for: player) == nil {
+            ClubBagStore.hydrate(from: response)
+            ClubBagStore.hasSyncedWithCloud = true
+        }
+        restoreState = .restored
         return true
     }
 
@@ -154,6 +202,7 @@ public final class ClubBagSyncCoordinator: ObservableObject {
             do {
                 try await sender(pending.playerId, pending.clubs)
                 failures = 0
+                if ClubBagStore.playerId == player { ClubBagStore.hasSyncedWithCloud = true }
                 // A newer edit queued while this PUT was in flight stays for the next turn.
                 if outbox(for: player)?.generation == pending.generation {
                     defaults().removeObject(forKey: ClubBagStore.key(ClubBagStore.outboxBase, playerId: player))

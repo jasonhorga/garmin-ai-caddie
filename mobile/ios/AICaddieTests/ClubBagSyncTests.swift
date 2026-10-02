@@ -49,6 +49,24 @@ private final class FakeSleeper {
     }
 }
 
+/// Holds a cloud GET in flight until the test releases it.
+@MainActor
+private final class FetchGate {
+    private var waiter: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    func wait() async {
+        guard !released else { return }
+        await withCheckedContinuation { waiter = $0 }
+    }
+
+    func release() {
+        released = true
+        waiter?.resume()
+        waiter = nil
+    }
+}
+
 /// B5c 球包 persistence (Codex review on #366): every edit and the reset reach the server through
 /// one durable, serialized outbox that a screen cannot cancel.
 final class ClubBagSyncTests: XCTestCase {
@@ -227,15 +245,24 @@ final class ClubBagSyncTests: XCTestCase {
         let coordinator = makeCoordinator(server)
         let model = ClubBagEditorModel(clubProfiles: [], sync: coordinator)
         model.add("七号铁")
-        XCTAssertEqual(model.rows.map(\.name), ["七号铁"])
+        model.add("八号铁")
+        XCTAssertEqual(Set(model.rows.map(\.name)), ["七号铁", "八号铁"])
         XCTAssertFalse(model.addable.map(\.zhName).contains("七号铁"))
         model.setDistance("七号铁", 150)
         model.remove("七号铁")
-        XCTAssertTrue(model.rows.isEmpty)
+        XCTAssertEqual(model.rows.map(\.name), ["八号铁"])
         XCTAssertNil(model.distancesYd["七号铁"], "a removed club drops its typed distance")
         XCTAssertTrue(model.addable.map(\.zhName).contains("七号铁"))
+        // The last club to hit with stays: an empty list would mean "no manual bag" on the server.
+        XCTAssertFalse(model.canRemove("八号铁"))
+        model.remove("八号铁")
+        XCTAssertEqual(model.bag, ["八号铁"])
         await coordinator.flush()
-        XCTAssertEqual(server.received.last, [])
+        XCTAssertEqual(server.received.last, [ManualClubInput(token: "iron8")])
+        // A putter does not count as a club to hit with.
+        ClubBagStore.save(["八号铁", "推杆"])
+        let withPutter = ClubBagEditorModel(clubProfiles: [], sync: coordinator)
+        XCTAssertFalse(withPutter.canRemove("八号铁"))
     }
 
     @MainActor
@@ -576,11 +603,19 @@ final class ClubBagSyncTests: XCTestCase {
             XCTAssertEqual(median(of: "八号铁", in: seed.context["clubProfiles"]), carry)
             XCTAssertNil(median(of: "一号木", in: seed.context["clubProfiles"]))
 
-            // Online request.
-            let request = CaddieDecisionRequestBuilder().makeDecisionRequest(
+            // Online request, composed exactly like CurrentHoleView / 备战: the prep chain is added
+            // back only if the 球包 authority still accepts it.
+            let base = CaddieDecisionRequestBuilder().makeDecisionRequest(
                 seed: seed, input: LiveCaddieInput(shotType: "tee", distanceToPinM: 300)
             )
-            XCTAssertNil(request.context["canonicalShotPlan"])
+            let request = CaddieDecisionRequestBuilder.addingCanonicalPlan(to: base, prep: prep)
+            XCTAssertNil(request.context["canonicalShotPlan"], "the dropped 1W→8I@128 chain is not re-inserted")
+            XCTAssertNotNil(
+                CaddieDecisionRequestBuilder.addingCanonicalPlan(
+                    to: base, prep: prep, authority: ClubBagAuthority(roster: nil, carriesM: [:])
+                ).context["canonicalShotPlan"],
+                "with an unchanged bag the same composition keeps the chain"
+            )
             XCTAssertEqual(median(of: "八号铁", in: request.context["clubProfiles"]), carry)
             XCTAssertNil(median(of: "一号木", in: request.context["clubProfiles"]))
 
@@ -604,6 +639,28 @@ final class ClubBagSyncTests: XCTestCase {
             )
             for route in routes {
                 XCTAssertTrue(Set(clubs(route)).isDisjoint(with: removed), "\(clubs(route))")
+            }
+
+            // The live screen's reconciliation keeps a retained route across refreshes. A route
+            // retained before the edit (the old installed chain, or a Driver decision) is not kept.
+            let staleInstalled = try XCTUnwrap(LiveCaddieRouteAuthority.installedRoute(
+                prep: prep, par: 4, shotType: "tee", fallbackRouteEndM: nil,
+                authority: ClubBagAuthority(roster: nil, carriesM: [:])
+            ))
+            let fresh = CaddiePlanSequence.sequences(from: freshDecision(carry: carry))
+            XCTAssertFalse(fresh.isEmpty)
+            for retained in [staleInstalled] + CaddiePlanSequence.sequences(from: staleOnline) {
+                let reconciled = try XCTUnwrap(LiveCaddieRouteAuthority.reconciled(
+                    incoming: fresh, existing: [retained], installed: staleInstalled, retained: retained,
+                    explicitSelectionKey: nil, vetoInstalled: false
+                ))
+                // The map legs are drawn from these routes.
+                for route in [reconciled.first] + reconciled.merged {
+                    XCTAssertTrue(Set(clubs(route)).isDisjoint(with: removed), "\(clubs(route))")
+                    for step in route.steps where zhClubName(step.clubName) == "八号铁" {
+                        XCTAssertNotEqual(step.targetCarryM, 128, "no leg keeps the old 8I carry")
+                    }
+                }
             }
 
             // Watch: club list and route summary.
@@ -638,6 +695,30 @@ final class ClubBagSyncTests: XCTestCase {
         XCTAssertEqual(ClubBagStore.revision, before + 2)
     }
 
+    /// A decision made after the edit: 7I then 8I at the typed carry.
+    private func freshDecision(carry: Double) -> CaddieDecisionResponse {
+        let sequence: [String: JSONValue] = [
+            "id": .string("stock"),
+            "clubs": .array([
+                .object(["clubName": .string("7I"), "role": .string("tee"), "targetCarry_m": .number(128), "routeOffset_m": .number(128)]),
+                .object([
+                    "clubName": .string("8I"), "role": .string("scoring"), "targetCarry_m": .number(carry),
+                    "routeOffset_m": .number(128 + carry), "expectedRemaining_m": .number(0),
+                ]),
+            ]),
+            "completion": .string("scoring_window"),
+        ]
+        return CaddieDecisionResponse(
+            schema: "ai-caddie-decision-v2", decisionId: "after-the-edit", sourceRef: nil,
+            evidenceRefs: nil, shotType: "tee", phase: "Tee", context: [:],
+            options: [["id": .string("stock"), "clubName": .string("7I")]], selected: nil,
+            selectedOptionId: "stock", selectedOption: nil,
+            sequences: [sequence], selectedSequence: sequence,
+            avoidZones: [], forbiddenZones: [], acceptableMiss: [:],
+            evidence: [], confidence: [:], missingData: [], auditCriteria: []
+        )
+    }
+
     private func driverDecision() -> CaddieDecisionResponse {
         let sequence: [String: JSONValue] = [
             "id": .string("stock"),
@@ -659,6 +740,110 @@ final class ClubBagSyncTests: XCTestCase {
             avoidZones: [], forbiddenZones: [], acceptableMiss: [:],
             evidence: [], confidence: [:], missingData: [], auditCriteria: []
         )
+    }
+
+    // MARK: - Restore before the first edit (Codex review 5947998710)
+
+    @MainActor
+    func testEditsWaitForAHeldCloudRestoreAndThenBuildOnIt() async {
+        let server = FakeBagServer()
+        let gate = FetchGate()
+        let coordinator = ClubBagSyncCoordinator(sleep: { _ in })
+        coordinator.activate(playerId: "p_alice", migrateLegacy: false)
+        var fetches = 0
+        coordinator.configure(sender: { try await server.send($0, $1) }, fetcher: { _ in
+            fetches += 1
+            await gate.wait()
+            return EffectiveClubBagResponse(schema: nil, source: "manual", found: true, clubs: [
+                EffectiveClubBagClub(token: "wedge58", zhName: "58°", customName: nil, clubTypeId: nil, distanceM: 80, distanceSource: "manual"),
+                EffectiveClubBagClub(token: "iron7", zhName: "七号铁", customName: nil, clubTypeId: 16, distanceM: 139, distanceSource: "manual"),
+            ])
+        })
+        // A fresh phone: the screen opens on its local history bag while the GET is held.
+        let model = ClubBagEditorModel(
+            clubProfiles: [ClubProfile(clubName: "8I", sampleSize: 20, medianM: 122, p10M: 112, p90M: 130)],
+            sync: coordinator
+        )
+        let launch = Task { await coordinator.restoreFromServer() }
+        let screen = Task { await coordinator.restoreFromServer() }
+        while coordinator.restoreState != .restoring { await Task.yield() }
+        XCTAssertFalse(model.canEdit)
+        XCTAssertNotNil(ClubSettingsView.restoreNotice(coordinator))
+        model.add("九号铁")
+        model.setDistance("八号铁", 140)
+        model.resetToGarminBag()
+        XCTAssertNil(coordinator.pendingClubs, "nothing built on the partial bag is queued")
+        XCTAssertEqual(model.bag, ["八号铁"])
+        gate.release()
+        let restoredByLaunch = await launch.value
+        let restoredByScreen = await screen.value
+        XCTAssertTrue(restoredByLaunch && restoredByScreen)
+        XCTAssertEqual(fetches, 1, "launch and the screen share one restore")
+        model.reloadFromStore()
+        XCTAssertTrue(model.canEdit)
+        XCTAssertEqual(model.bag, ["七号铁", "58° 挖起杆"])
+        model.add("九号铁")
+        await coordinator.flush()
+        XCTAssertEqual(server.received, [[
+            ManualClubInput(token: "iron7", distanceM: 139), ManualClubInput(token: "iron9"),
+            ManualClubInput(token: "wedge58", distanceM: 80),
+        ]], "the first edit keeps the cloud-only clubs and carries")
+    }
+
+    @MainActor
+    func testAFailedRestoreBlocksEditsOnlyOnAPhoneThatNeverMatchedTheCloud() async {
+        let coordinator = ClubBagSyncCoordinator(sleep: { _ in })
+        coordinator.activate(playerId: "p_alice", migrateLegacy: false)
+        XCTAssertTrue(coordinator.canEdit, "no backend: local-only bag")
+        coordinator.configure(sender: { _, _ in }, fetcher: { _ in throw URLError(.notConnectedToInternet) })
+        let restored = await coordinator.restoreFromServer()
+        XCTAssertFalse(restored)
+        XCTAssertEqual(coordinator.restoreState, .failed)
+        XCTAssertFalse(coordinator.canEdit)
+        let model = ClubBagEditorModel(clubProfiles: [], sync: coordinator)
+        model.add("七号铁")
+        XCTAssertNil(coordinator.pendingClubs)
+        // Once this phone has matched the cloud (an earlier restore or accepted PUT), offline
+        // edits are safe: the durable outbox sends them later.
+        ClubBagStore.hasSyncedWithCloud = true
+        XCTAssertTrue(coordinator.canEdit)
+        model.add("七号铁")
+        XCTAssertEqual(tokens(coordinator.pendingClubs), ["iron7"])
+        // Bob has never synced on this phone.
+        coordinator.activate(playerId: "p_bob", migrateLegacy: false)
+        XCTAssertEqual(coordinator.restoreState, .unknown)
+        XCTAssertFalse(coordinator.canEdit)
+    }
+
+    // MARK: - Total roster projection (Codex review 5947998710)
+
+    func testEverySelectedClubIsProjectedAndAnEmptyOrPutterOnlyRosterHasNoHittingClub() {
+        let history = [ClubProfile(clubName: "5I", sampleSize: 30, medianM: 150, p10M: 140, p90M: 160)]
+        func names(_ roster: Set<String>?, carries: [String: Double] = [:]) -> [String] {
+            ClubBagStore.effectiveProfiles(history, authority: ClubBagAuthority(roster: roster, carriesM: carries))
+                .map { "\($0.clubName)@\(Int($0.medianM))/\($0.sampleSize)" }
+        }
+        // Mixed roster: 5I from history, 7I from the catalog default, 7 wood has no default.
+        XCTAssertEqual(names(["五号铁", "七号铁", "七号木", "推杆"]), ["5I@150/30", "七号铁@128/0"])
+        XCTAssertEqual(names(["五号铁", "七号铁"], carries: ["七号铁": 140]), ["5I@150/30", "七号铁@140/0"])
+        XCTAssertEqual(names(["推杆"]), [], "putter only: nothing to hit with")
+        XCTAssertEqual(names([]), [], "an explicit empty roster is not the unknown bag")
+        XCTAssertEqual(names(nil), ["5I@150/30"], "no manual bag: history as is")
+        // The same over a seed/request value.
+        let value = JSONValue.object(["5I": .object(["clubName": .string("5I"), "median_m": .number(150)])])
+        guard case .object(let rows)? = ClubBagStore.effectiveProfileValue(
+            value, authority: ClubBagAuthority(roster: ["五号铁", "七号铁"], carriesM: [:])
+        ) else { return XCTFail("projected value") }
+        XCTAssertEqual(Set(rows.keys), ["5I", "七号铁"])
+        guard case .object(let empty)? = ClubBagStore.effectiveProfileValue(
+            value, authority: ClubBagAuthority(roster: ["推杆"], carriesM: [:])
+        ) else { return XCTFail("projected value") }
+        XCTAssertTrue(empty.isEmpty)
+        // Storage keeps an explicit empty roster explicit.
+        ClubBagStore.save([])
+        XCTAssertEqual(ClubBagStore.bag(), [])
+        ClubBagStore.clearManual()
+        XCTAssertNil(ClubBagStore.bag())
     }
 
     private func median(of name: String, in value: JSONValue?) -> Double? {

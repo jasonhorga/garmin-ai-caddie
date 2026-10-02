@@ -402,7 +402,9 @@ public struct CurrentHoleView: View {
             // 球包 changed (a club removed, a carry typed): the route, landing and club list on
             // screen were planned with the old bag. Drop them and ask again with the new one.
             caddieRoutesByHole[hole.number] = nil
+            retainedCaddieRouteByHole[hole.number] = nil
             selectedCaddieRouteByHole[hole.number] = nil
+            explicitlySelectedCaddieRouteHoles.remove(hole.number)
             selectedPlanIndex = nil
             caddieDecision = nil
             Task { await loadCaddieDecision(syncClub: true) }

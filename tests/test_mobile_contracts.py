@@ -5255,6 +5255,25 @@ class EffectiveClubProfileContractTests(unittest.TestCase):
                     offenders.append(f"{relative}:{number}: {line.strip()}")
         self.assertEqual(offenders, [], "read package.effectiveClubProfiles instead")
 
+    def test_ios_catalog_defaults_match_the_server_catalog(self) -> None:
+        import re
+
+        from ai_caddie.caddie import club_catalog
+
+        club_bag = (IOS_DIR / "Views" / "ClubBag.swift").read_text(encoding="utf-8")
+        start = club_bag.index("zhNameToBackendToken: [String: String] = [") + len("zhNameToBackendToken: [String: String] = [")
+        token_map = club_bag[start: club_bag.index("]", start)]
+        tokens = dict(re.findall(r'"([^"]+)": "([^"]+)"', token_map))
+        start = club_bag.index("defaultDistanceM: [String: Double] = [") + len("defaultDistanceM: [String: Double] = [")
+        defaults = club_bag[start: club_bag.index("]", start)]
+        ios = {tokens[name]: float(value) for name, value in re.findall(r'"([^"]+)": ([0-9.]+)', defaults)}
+        server = {
+            token: float(row["defaultDistanceM"])
+            for token, row in club_catalog.CLUB_CATALOG.items()
+            if row.get("defaultDistanceM") is not None and token != "putter"
+        }
+        self.assertEqual(ios, server)
+
     def test_seed_and_request_profiles_are_projected(self) -> None:
         builder = (IOS_DIR / "Services" / "CaddieDecisionRequestBuilder.swift").read_text(encoding="utf-8")
         evaluator = (IOS_DIR / "Services" / "OfflineCaddieDecisionEvaluator.swift").read_text(encoding="utf-8")
@@ -5266,6 +5285,10 @@ class EffectiveClubProfileContractTests(unittest.TestCase):
         self.assertEqual(authority.count("authority.rosterAllows($0.steps.map(\\.clubName))"), 2)
         current_hole = (IOS_DIR / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8")
         self.assertIn("NotificationCenter.default.publisher(for: ClubBagStore.didChange)", current_hole)
+        # The real request composition and the retained live route obey the same authority.
+        self.assertIn("authority.planMatches((prep?.steps ?? []).map", builder)
+        self.assertIn("return isCurrent(route, authority: authority)", authority)
+        self.assertIn("retainedCaddieRouteByHole[hole.number] = nil\n            selectedCaddieRouteByHole", current_hole)
         self.assertIn(
             'ClubBagStore.effectiveProfileValue(request.context["clubProfiles"] ?? seed.context["clubProfiles"])',
             evaluator,
