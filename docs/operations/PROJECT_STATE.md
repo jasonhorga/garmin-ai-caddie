@@ -104,45 +104,41 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-10-02 22:57 UTC):** `B1-B7` review queue remains
+**Current slice (2026-10-02 23:05 UTC):** `B1-B7` review queue remains
 `in-progress`; B6 is complete through merged PR #367, and B7 step 1 is active
-in PR #368. Claude's corrective exact head is
-`8835a624599f8f6f8ad1dc8f2d68163ca545a7f5` on
-`claude/code-audit-performance-17wqcv`. Source CI `37072538093` and Native
-Mobile CI `37072538021` passed. The exact-head homeserver focused suites
-passed `118/118` in 3.863s; log SHA-256 is
-`dab92c09a96814a5adffc9c7edb83d60e97cc39d61630626b4bede92e9200033` at
-`/home/jason/garmin-ai-caddie-data/review-evidence/pr368-8835a624-focused-tests.log`.
-The setup-only Docker failure is retained at
-`/home/jason/garmin-ai-caddie-data/review-evidence/pr368-8835a624-focused-tests-setup-failure.log`
-with SHA-256
-`c2deffa49eb49831359b2c1539ea9ce49be8eba95838ebdfbc959d09de3baa8`.
+in PR #368. Claude's current exact head is
+`4a053881cec047b2d3374d4211e13997d2d17d88` on
+`claude/code-audit-performance-17wqcv`; its Source CI `37075442375` passed,
+while Native Mobile CI `37075442381` and the frontend job remain in progress.
+No focused tests or matching artifacts have been run for this head yet.
 
-The matching Native artifacts are Watch `11255517567`, design `11255627123`,
-and native evidence `11255462653`. The evidence JSON is live-mode and its
-synthetic merge `51c4cc198e11662477ed9eaf899537115167651c` has the exact head
-as its second parent. All 87 design and 47 Watch PNGs are byte-identical to
-the accepted PR #367 baseline; this is expected because
+The superseded exact head `8835a624599f8f6f8ad1dc8f2d68163ca545a7f5` had
+Source/Native CI `37072538093`/`37072538021`, exact-head homeserver focused
+tests `118/118` in 3.863s (log SHA-256
+`dab92c09a96814a5adffc9c7edb83d60e97cc39d61630626b4bede92e9200033` at
+`/home/jason/garmin-ai-caddie-data/review-evidence/pr368-8835a624-focused-tests.log`),
+and matching artifacts Watch `11255517567`, design `11255627123`, and native
+evidence `11255462653`. All 87 design and 47 Watch PNGs were byte-identical
+to the accepted PR #367 baseline; this was expected because
 `WatchSwingCollectionAvailability.isAvailable = false` keeps the new settings
 row hidden until the capability/battery prerequisite lands.
 
-Static review comment `5962767639` blocks this head with two P1 lifecycle
-findings: a late candidate can be routed to a newly active round because the
-router always prefers `activeRoundId`, and a phone-close race can build a late
-candidate with `hole = 0` after `WatchRoundModel` clears the visible round.
-The comment requests explicit round/closure boundaries, preservation of the
-hole context, and production-path regressions for both cases. It also records
-a non-blocking follow-up about explicit sensor errors restarting after
-`reconcile`. No approval, merge, or branch deletion has occurred.
+Review comment `5962767639` was superseded by Claude's span/hole-history fix,
+but incremental review comment `5962850867` blocks `4a053881` with a P1:
+`rotationBatch` timestamps a candidate from the newest quiet settle-tail
+sample, so a swing that happened before phone closure but settles after it can
+fall outside the closed span and be dropped. The required regression must
+separate actual active-motion end from delivery/settle-tail time and preserve
+the closed round and hole. No approval, merge, or branch deletion has
+occurred.
 
-The active exact-head review snapshot is
-`/dev/shm/aicaddie-pr368-8835a624-review`; downloaded artifact evidence is at
-`/home/jason/codex-runs/aicaddie-pr368-8835a624-artifacts-20261002`.
-The resource manifest remains
-`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261002T2235Z-pr368-8835a624-review.md`;
-the snapshot and artifact root stay open until Claude replies with a
-corrective head, then they must be closed under an updated manifest. The
-superseded head's evidence remains retained.
+The old exact-head review snapshot
+`/dev/shm/aicaddie-pr368-8835a624-review` and evidence root
+`/home/jason/codex-runs/aicaddie-pr368-8835a624-artifacts-20261002` remain
+open as retained evidence. Their resource manifest is
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261002T2235Z-pr368-8835a624-review.md`.
+After the new head is accepted or superseded, close the old snapshot and
+create the next exact-head manifest before starting new focused/artifact work.
 
 PR #364 (B5a results landing, performance analysis and score distribution) was
 reviewed at exact head
