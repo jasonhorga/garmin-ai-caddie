@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-10-01 13:17 UTC
+**Updated:** 2026-10-02 06:00 UTC
 **Branch:** `main`; product canonical source revision is
 `5fb5a4788a4e90ea1e1bb5168558cd80ffafe4c3` (PR #363 B4c, PR #362 B4b-2, PR #361 B4b,
 PR #360 B4a and PR #359 B3 are
@@ -175,6 +175,58 @@ and fresh Source/Native artifacts. The read-only snapshot, artifact root and
 temporary test container remain allow-listed until the review closes; no
 production resource, dependency installation, port or background service was
 created.
+
+Claude then pushed exact head
+`a0ca01bb972c275f63cd8eefe656b17d7497dab4`. Source CI `36872959647` and
+Native Mobile CI `36872959526` pass; Native evidence artifact `11169295317`
+records synthetic merge commit `6193fcdf68cde2659e42a1e67815a78a833e5379`, whose second parent is the exact
+PR head. Matching artifacts are design `11168597604` and Watch `11169080383`.
+The homeserver exact-head focused suites
+`tests.test_mobile_contracts tests.test_stats_breakdowns` pass `128/128` in
+11.385s; the log SHA-256 is
+`fe3e916ab9af54bfd869d5a3f1b53992f049bc468bb4c946b8ddaee640802a2f` at
+`/home/jason/codex-runs/aicaddie-pr365-a0ca01bb-artifacts-20261001T1438Z/focused-tests.log`.
+All 40 Watch PNGs are byte-identical to the accepted B5a set. The new
+`results-time-calendar.png` resolves the prior calendar-evidence blocker.
+
+Review comment `5946305558` keeps PR #365 blocked on three P2s. In
+`course-detail.png`, the backdrop and all three hardest-hole cards still show
+their loading spinners and no topo pixels, so the injected file URLs do not
+produce the promised topo-backed evidence. Both course captures duplicate the
+course name as an inline navigation title and a 28pt page heading, unlike
+`stats.html` screen 6. Finally, `calendarSummary` labels its result `月均` while
+dividing only by months that contain a played day (`perActiveMonth`), which
+inflates frequency across zero-round months; the value must use the represented
+calendar-month denominator or retain the explicit `活跃月均` label. A new exact
+head, green Source/Native gates and fresh course/calendar screenshots are
+required before merge. The current review manifest is
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261001T1438Z-pr365-a0ca01bb-review.md`;
+its source snapshot, test-data directory, artifact root and bounded local
+screenshot copies remain allow-listed while this head is active. The temporary
+test container exited under `--rm`; no production service, port, volume,
+dependency installation or background process was created or changed.
+
+Claude then pushed current exact head
+`41c80ad712665d73d055c62d1ca43da0cec0df8f`, claiming fixes for all three
+P2s. Source CI `36970514892` passes; Native Mobile CI `36970514854` is still
+running, so matching screenshots and native evidence are not yet available.
+Code inspection confirms that the snapshot now preloads decoded topo images
+and `TopoHoleBaseImage` reads that cache on its first render, the duplicate
+navigation title is removed, and `月均` now includes zero-round calendar months
+from January through the latest played month (matching the prototype's
+`32 / 9 = 3.6` example). The exact-head homeserver focused suites
+`tests.test_mobile_contracts tests.test_stats_breakdowns` pass `128/128` in
+14.600s; the log SHA-256 is
+`0c20fd95472977e260b83b25696f0b8a9ed3c6a017f7468a2ec8c73d9f8fa536` at
+`/home/jason/codex-runs/aicaddie-pr365-41c80ad7-artifacts-20261002T0553Z/focused-tests.log`.
+The temporary test container exited under `--rm`. The active review manifest is
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261002T0553Z-pr365-41c80ad7-review.md`;
+the source snapshot is read-only and no dependency, image, service, port,
+volume or background process was created. The superseded `a0ca01bb` source and
+test-data directories were removed after cwd/open-handle checks; its log and
+bounded screenshot evidence remain retained. Next action is to wait for the
+current Native gate, then inspect its exact-head design/Watch/native artifacts
+before commenting or merging.
 
 PR #357 (B1d map-degradation carry-over and screenshot cases) completed review
 and was squash-merged as `8a1180d2fbffaccf84dbb3275a34554abf03b4d9` from exact
