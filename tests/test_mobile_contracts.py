@@ -5418,6 +5418,11 @@ class WatchHolePagesContractTests(unittest.TestCase):
         self.assertNotIn("m.chip * 2.24", score)
         self.assertNotIn("inlineWheel(", score)
         self.assertIn("wheelSettled = true", score)
+        # Runtime evidence holds the open wheel (production still folds it back).
+        self.assertIn("guard openWheel != nil, !holdsOpenWheel else { return }", score)
+        self.assertIn("holdsOpenWheel: Bool = false", score)
+        root = self.read("Views/WatchUITestRoot.swift")
+        self.assertEqual(root.count("holdsOpenWheel: true"), 2)
 
 
 if __name__ == "__main__":

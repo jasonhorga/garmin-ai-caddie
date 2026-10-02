@@ -98,6 +98,9 @@ public struct WatchScoreHoleView: View {
     @State private var wheelDrag: CGFloat = 0
     /// A roll on the open wheel has ended; it folds back after a short pause.
     @State private var wheelSettled = false
+    /// DEBUG evidence only (`WatchUITestRoot` score-putts / score-penalty): keep the fixture's open
+    /// wheel open so a runtime capture shows it. Production always folds it back.
+    private let holdsOpenWheel: Bool
 
     public init(
         hole: Int,
@@ -109,6 +112,7 @@ public struct WatchScoreHoleView: View {
         fairway: WatchFairwayResult? = nil,
         candidateNextHole: Int? = nil,
         openWheel: WatchScoreWheel? = nil,
+        holdsOpenWheel: Bool = false,
         onScore: @escaping (Int) -> Void = { _ in },
         onPutts: @escaping (Int) -> Void = { _ in },
         onPenalty: @escaping (Int) -> Void = { _ in },
@@ -125,6 +129,7 @@ public struct WatchScoreHoleView: View {
         self.fairway = fairway
         self.candidateNextHole = candidateNextHole
         self._openWheel = State(initialValue: openWheel)
+        self.holdsOpenWheel = holdsOpenWheel
         self.onScore = onScore
         self.onPutts = onPutts
         self.onPenalty = onPenalty
@@ -170,7 +175,7 @@ public struct WatchScoreHoleView: View {
         }
         .task(id: wheelIdentity) {
             // An open wheel closes once left alone ("停手即选定并收起").
-            guard openWheel != nil else { return }
+            guard openWheel != nil, !holdsOpenWheel else { return }
             try? await Task.sleep(nanoseconds: WatchScoreHoleLayout.wheelCloseDelayNanoseconds(settled: wheelSettled))
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.2)) { openWheel = nil }
