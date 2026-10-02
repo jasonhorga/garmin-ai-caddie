@@ -4689,7 +4689,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("WatchGreenMagnifierLayout.position", green_view)
         self.assertIn('watch-green-flag-magnifier', green_view)
         self.assertNotIn("onLongPressGesture", map_view)
-        self.assertIn(".onLongPressGesture(minimumDuration: 0.6) { if !planViewport.isZoomed { model.openMenu() } }", container)
+        self.assertIn("LongPressGesture(minimumDuration: 0.6).onEnded { _ in\n                    if !planViewport.isZoomed { model.openMenu() }", container)
         self.assertIn("let yardsPerPixel", map_view) # derived px→码, no extra payload
         self.assertIn(".onTapGesture { holeMapBigText.toggle() }", container)
 

@@ -59,7 +59,7 @@ class NativeVisualParityTests(unittest.TestCase):
     def test_watch_round_tools_expose_a_visible_menu_and_keep_long_press_as_a_shortcut(self) -> None:
         source = (WATCH_VIEWS / "WatchRoundContainerView.swift").read_text(encoding="utf-8")
 
-        self.assertIn(".onLongPressGesture(minimumDuration: 0.6) { if !planViewport.isZoomed { model.openMenu() } }", source)
+        self.assertIn("LongPressGesture(minimumDuration: 0.6).onEnded { _ in\n                    if !planViewport.isZoomed { model.openMenu() }", source)
         self.assertIn('accessibilityAction(named: Text("球局工具"))', source)
         self.assertIn('identifier: "watch-hole-menu"', source)
         self.assertIn("private var rootControls", source)

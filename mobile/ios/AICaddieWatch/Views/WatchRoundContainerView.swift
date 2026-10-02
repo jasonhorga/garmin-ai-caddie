@@ -1123,7 +1123,13 @@ public struct WatchRoundContainerView: View {
             .ignoresSafeArea()
             .contentShape(Rectangle())
             // Zoomed, a 0.5 s press measures on the map, so the menu press waits for the 1× page.
-            .onLongPressGesture(minimumDuration: 0.6) { if !planViewport.isZoomed { model.openMenu() } }
+            // Simultaneous, not `.onLongPressGesture`: a parent long-press recognizer swallows the
+            // taps of the buttons inside (the 方案 page's club tag never switched plan).
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.6).onEnded { _ in
+                    if !planViewport.isZoomed { model.openMenu() }
+                }
+            )
             .accessibilityAction(named: Text("球局工具")) { model.openMenu() }
             .onChange(of: model.activeHole) { _ in
                 holeMapCrownScale = WatchHoleMapView.restingCrownScale
