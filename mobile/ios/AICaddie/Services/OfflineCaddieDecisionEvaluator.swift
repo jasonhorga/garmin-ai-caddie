@@ -282,7 +282,9 @@ public final class OfflineCaddieDecisionEvaluator {
               targetM > 0 else {
             return RoutePlanning(plans: trimmed(plans), stockIsCanonical: plans["stock"] != nil)
         }
-        let profiles = localProfiles(from: request.context["clubProfiles"] ?? seed.context["clubProfiles"])
+        let profiles = localProfiles(
+            from: ClubBagStore.effectiveProfileValue(request.context["clubProfiles"] ?? seed.context["clubProfiles"])
+        )
         let hazards = planningHazards(seed: seed, request: request)
         // Two-sided OB / corridor limits need the server planner's typed zones from every lie.
         // The local fallback refuses to claim a complete safe route rather than ignore them —

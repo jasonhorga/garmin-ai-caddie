@@ -3385,10 +3385,15 @@ def build_live_round_package(
     ]
     # Caddie options only from clubs the player actually carries (real Garmin bag); falls back to the
     # full list if the bag is unknown or the intersection is too small (see club_bag.restrict_to_bag).
-    from ai_caddie.caddie.club_bag import restrict_to_bag
+    from ai_caddie.caddie.club_bag import apply_manual_carries, manual_roster_tokens, restrict_to_bag
 
     club_profiles = restrict_to_bag(club_profiles, lambda c: c.get("clubName"), player_id=player_id)
-    if not club_profiles:
+    # A carry typed in 球包 is the one the caddie uses: every package consumer (seeds, phone, Watch)
+    # reads these rows, so project it here once (same rule as iOS ``ClubBagStore.effectiveProfiles``).
+    club_profiles = apply_manual_carries(club_profiles, player_id=player_id)
+    # The placeholder 8I keeps a player with no bag and no history playable; it never stands in
+    # for a roster the player chose (a putter-only roster gets no hitting recommendation).
+    if not club_profiles and manual_roster_tokens(player_id) is None:
         club_profiles = [{"clubName": "8I", "sampleSize": 0, "median_m": 140.0, "p10_m": 130.0, "p90_m": 150.0}]
     ready_holes = sum(1 for hole in holes if hole["geometryCoverage"] == "ready")
     geometry_coverage = {

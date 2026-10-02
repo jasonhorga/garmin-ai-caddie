@@ -860,37 +860,6 @@ struct ResultsCoursesView: View {
     }
 }
 
-struct ResultsClubsView: View {
-    let clubs: [StatsClub]
-    var body: some View {
-        List {
-            Section {
-                ForEach(clubs) { club in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(zhClubName(club.club)).font(.headline)
-                            Text("\(club.sampleCount ?? 0) 个有效样本").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        VStack(alignment: .trailing) {
-                            Text(club.median.map { "\(CoursePrepRoute.yards(fromMetres: $0)) 码" } ?? "—")
-                                .font(.headline.monospacedDigit())
-                            if let p10 = club.p10, let p90 = club.p90 {
-                                Text("\(CoursePrepRoute.yards(fromMetres: p10))–\(CoursePrepRoute.yards(fromMetres: p90))")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-            } header: {
-                Text("历史击球 · 不修改球包")
-            } footer: {
-                Text("这里显示实际击球距离和离散范围；球包配置与自定义杆距在首页的球包设置中修改。")
-            }
-        }.navigationTitle("球杆")
-    }
-}
-
 private func oneDecimal(_ value: Double) -> String { String(format: "%.1f", value) }
 private func resultsScoreDomain(_ values: [Double]) -> ClosedRange<Double> {
     guard let low = values.min(), let high = values.max() else { return 70...100 }

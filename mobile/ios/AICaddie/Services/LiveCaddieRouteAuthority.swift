@@ -13,7 +13,8 @@ enum LiveCaddieRouteAuthority {
         online: CaddieDecisionResponse?,
         offline: CaddieDecisionResponse?,
         par: Int,
-        shotType: String
+        shotType: String,
+        authority: ClubBagAuthority = .current
     ) -> [CaddiePlanSequence] {
         // The installed chain is the first-frame visual authority even when it is an explicit
         // CoursePrep prefix (`completion=replan_required`). Keeping that prefix prevents a refresh
@@ -32,16 +33,17 @@ enum LiveCaddieRouteAuthority {
             }
             return installed
         }()
+        // A club taken out of 球包 never comes back through a decision made before the change.
         let onlineRoutes = completeDistinctRoutes(
             CaddiePlanPresentation.distinctSequences(from: online ?? emptyDecision),
             par: par,
             shotType: shotType
-        )
+        ).filter { authority.rosterAllows($0.steps.map(\.clubName)) }
         let offlineRoutes = completeDistinctRoutes(
             CaddiePlanPresentation.distinctSequences(from: offline ?? emptyDecision),
             par: par,
             shotType: shotType
-        )
+        ).filter { authority.rosterAllows($0.steps.map(\.clubName)) }
 
         var result: [CaddiePlanSequence] = []
         if let installedRoute {
@@ -75,9 +77,15 @@ enum LiveCaddieRouteAuthority {
         prep: CoursePrepHole?,
         par: Int,
         shotType: String,
-        fallbackRouteEndM: Double?
+        fallbackRouteEndM: Double?,
+        authority: ClubBagAuthority = .current
     ) -> CaddiePlanSequence? {
         guard shotType.caseInsensitiveCompare("tee") == .orderedSame else { return nil }
+        // A chain prepared before a 球包 change (a removed club, another typed carry) is stale: its
+        // offsets, landings and leaves were planned with the old carries. Drop it; the live
+        // decision re-plans from the effective profiles.
+        let prepLegs = (prep?.steps ?? []).map { (club: $0.clubName ?? $0.club ?? "", carryM: $0.targetCarryM) }
+        guard authority.planMatches(prepLegs) else { return nil }
         let prepSteps: [CoursePrepStep] = {
             let source = prep?.steps ?? []
             guard par >= 3,
@@ -232,10 +240,12 @@ enum LiveCaddieRouteAuthority {
         installed: CaddiePlanSequence?,
         retained: CaddiePlanSequence?,
         explicitSelectionKey: String?,
-        vetoInstalled: Bool
+        vetoInstalled: Bool,
+        authority: ClubBagAuthority = .current
     ) -> (first: CaddiePlanSequence, merged: [CaddiePlanSequence])? {
         func allowed(_ route: CaddiePlanSequence) -> Bool {
-            !vetoInstalled || route.id != installedRouteId
+            guard !vetoInstalled || route.id != installedRouteId else { return false }
+            return isCurrent(route, authority: authority)
         }
         let incoming = incoming.filter(allowed)
         guard !incoming.isEmpty else { return nil }
@@ -243,11 +253,20 @@ enum LiveCaddieRouteAuthority {
         let first = leadingRoute(
             incoming: incoming,
             existing: existing,
-            installed: vetoInstalled ? nil : installed,
+            installed: vetoInstalled ? nil : installed.flatMap { allowed($0) ? $0 : nil },
             retained: retained.flatMap { allowed($0) ? $0 : nil },
             explicitSelectionKey: explicitSelectionKey
         )
         return (first, mergedRoutes(first: first, existing: existing, incoming: incoming))
+    }
+
+    /// A route still valid under the 球包 authority: none of its clubs was taken out, and an
+    /// installed CoursePrep chain also still uses the typed carries (live decisions carry strategy
+    /// carries, so they are re-requested on every bag change instead of compared by value).
+    static func isCurrent(_ route: CaddiePlanSequence, authority: ClubBagAuthority) -> Bool {
+        guard authority.rosterAllows(route.steps.map(\.clubName)) else { return false }
+        guard route.id == installedRouteId else { return true }
+        return authority.planMatches(route.steps.map { (club: $0.clubName, carryM: $0.targetCarryM) })
     }
 
     static func leadingRoute(

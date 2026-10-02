@@ -398,6 +398,17 @@ public struct CurrentHoleView: View {
                 sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: ClubBagStore.didChange)) { _ in
+            // 球包 changed (a club removed, a carry typed): the route, landing and club list on
+            // screen were planned with the old bag. Drop them and ask again with the new one.
+            caddieRoutesByHole[hole.number] = nil
+            retainedCaddieRouteByHole[hole.number] = nil
+            selectedCaddieRouteByHole[hole.number] = nil
+            explicitlySelectedCaddieRouteHoles.remove(hole.number)
+            selectedPlanIndex = nil
+            caddieDecision = nil
+            Task { await loadCaddieDecision(syncClub: true) }
+        }
         .task(id: hole.number) {
             // A navigation destination can be retained while the package publishes more prep
             // rows. Rebind the factual row for this display hole before reconciling routes; without
@@ -2935,7 +2946,7 @@ public struct CurrentHoleView: View {
     /// player had hit anything.
     private func bagBest(filterTeeOnly: Bool) -> [String: ClubProfile] {
         var best: [String: ClubProfile] = [:]
-        for profile in package.clubProfiles {
+        for profile in package.effectiveClubProfiles {
             let raw = profile.clubName.trimmingCharacters(in: .whitespaces)
             guard !raw.isEmpty, raw.lowercased() != "unknown" else { continue }
             let name = zhClubName(raw)
@@ -3139,7 +3150,7 @@ public struct CurrentHoleView: View {
            let carry = recommendation.carryMetres {
             return carry
         }
-        return package.clubProfiles.first(where: { zhClubName($0.clubName) == selectedClub })?.medianM
+        return package.effectiveClubProfiles.first(where: { zhClubName($0.clubName) == selectedClub })?.medianM
     }
 
     /// The club the player will hit NOW under the caddie's decision: the first step of the selected

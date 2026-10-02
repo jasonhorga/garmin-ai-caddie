@@ -111,7 +111,11 @@ class InvalidClubError(ValueError):
 
 def save_manual_club_bag(player_id: str, clubs: list[dict]) -> dict:
     """Validate + persist a player's manual bag. Each club: {token, customName?, distanceM?}.
-    Raises InvalidClubError on an unknown token or a distance outside (0, 400] m."""
+    Raises InvalidClubError on an unknown token or a distance outside (0, 400] m. An empty list is
+    not a roster: it clears the manual bag (the API's documented "reset to Garmin")."""
+    if not clubs:
+        clear_manual_club_bag(player_id)
+        return {"schema": MANUAL_SCHEMA, "clubs": []}
     cleaned: list[dict] = []
     for club in clubs:
         token = str(club.get("token") or "")
@@ -140,12 +144,107 @@ def effective_club_bag(player_id: str = OWNER_ID) -> dict:
     """The bag the caddie + the served response use: manual if set, else synced, else empty.
     Returns {"source": "manual"|"garmin"|"none", "clubs": [...raw...]}."""
     manual = load_manual_club_bag(player_id)
-    if manual:
-        return {"source": "manual", "clubs": manual.get("clubs") or []}
+    # One contract everywhere: a manual bag always has clubs. An empty manual file (written by an
+    # older build or by hand) means "no manual bag", never "a roster of nothing".
+    if manual and manual.get("clubs"):
+        return {"source": "manual", "clubs": manual["clubs"]}
     synced = load_club_bag(player_id)
     if synced:
         return {"source": "garmin", "clubs": synced.get("clubs") or []}
     return {"source": "none", "clubs": []}
+
+
+def manual_carries_m(player_id: str = OWNER_ID) -> dict[str, float]:
+    """Canonical token -> the carry (metres) the player typed in 球包, from the manual bag only.
+    The putter has no carry; an unknown token or a missing distance is skipped."""
+    bag = effective_club_bag(player_id)
+    if bag["source"] != "manual":
+        return {}
+    carries: dict[str, float] = {}
+    for club in bag["clubs"]:
+        if not isinstance(club, dict):
+            continue
+        token = str(club.get("token") or "")
+        distance = club.get("distanceM")
+        if token == "putter" or not club_catalog.is_valid_token(token):
+            continue
+        if isinstance(distance, (int, float)) and float(distance) > 0:
+            carries[token] = float(distance)
+    return carries
+
+
+def apply_manual_carries(profiles: Iterable[dict[str, Any]], *, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    """The effective-profile projection shared with iOS ``ClubBagStore.effectiveProfiles``: a typed
+    carry replaces the history median and the history p10/p90 band moves with it, so the caddie, the
+    map and the Watch use the distance the player set while keeping the measured spread. Aliases of
+    one physical club ("Aw"/"GW") all move to the same carry. Idempotent: re-applying is a no-op."""
+    carries = manual_carries_m(player_id)
+    rows = [dict(row) for row in profiles if isinstance(row, dict)]
+    roster = manual_roster_tokens(player_id)
+    if not carries and roster is None:
+        return rows
+    covered: set[str] = set()
+    for row in rows:
+        token = canonical_club_name(row.get("clubName")) or ""
+        covered.add(token)
+        carry = carries.get(token)
+        if carry is None:
+            continue
+        try:
+            median = float(row.get("median_m") or 0)
+        except (TypeError, ValueError):
+            median = 0.0
+        delta = carry - median if median > 0 else 0.0
+        for key in ("p10_m", "p90_m"):
+            try:
+                value = float(row.get(key) or 0)
+            except (TypeError, ValueError):
+                value = 0.0
+            row[key] = round(max(1.0, value + delta), 1) if median > 0 and value > 0 else carry
+        row["median_m"] = carry
+    # Every selected club reaches the caddie (iOS adds the same zero-sample rows): a typed carry
+    # first, else the catalog default for a club with no shot history. A club with neither (no
+    # catalog default, e.g. a 7 wood) cannot be given an invented distance and stays out.
+    for token in [*carries, *sorted(roster or ())]:
+        if token in covered or token == "putter":
+            continue
+        carry = carries.get(token)
+        if carry is None:
+            default = club_catalog.default_distance_m(token)
+            carry = float(default) if default else None
+        if carry is None:
+            continue
+        covered.add(token)
+        rows.append({
+            "clubName": manual_profile_name(token),
+            "sampleSize": 0,
+            "median_m": carry,
+            "p10_m": carry,
+            "p90_m": carry,
+        })
+    return rows
+
+
+def manual_roster_tokens(player_id: str = OWNER_ID) -> set[str] | None:
+    """The canonical tokens of the manual roster (never empty), or None when the player has no
+    manual bag."""
+    bag = effective_club_bag(player_id)
+    if bag["source"] != "manual":
+        return None
+    tokens = {
+        str(club.get("token"))
+        for club in bag["clubs"]
+        if isinstance(club, dict) and club_catalog.is_valid_token(str(club.get("token") or ""))
+    }
+    return tokens or None
+
+
+def manual_profile_name(token: str) -> str:
+    """A profile name both normalizers resolve to ``token``: the server's ``canonical_club_name``
+    and iOS ``zhClubName`` ("iron7" -> 七号铁, "50" -> 50° 挖起杆)."""
+    if token.startswith("wedge") and token[5:].isdigit():
+        return token[5:]
+    return token
 
 
 def in_use_canonical_names(player_id: str = OWNER_ID) -> set[str] | None:
@@ -194,6 +293,11 @@ def restrict_to_bag(
     if not bag:
         return items
     kept = [it for it in items if canonical_club_name(name_of(it)) in bag]
+    # A roster the player chose in 球包 is authoritative: a club taken out never comes back as a
+    # "keep the caddie alive" fallback. Typed carries for the remaining clubs are added by
+    # ``apply_manual_carries``; only the synced Garmin bag keeps the full-history fallback.
+    if effective_club_bag(player_id)["source"] == "manual":
+        return kept
     return kept if len(kept) >= min_keep else items
 
 

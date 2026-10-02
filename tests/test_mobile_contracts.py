@@ -3840,7 +3840,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("throw WatchEventBridgeError.missingClubContext", bridge)
         self.assertIn('replyHandler(rejectionReply(eventId: event.eventId, reason: "missing_club_context"))', bridge)
         self.assertIn("watchClubOptions(", bridge)
-        self.assertIn("package.clubProfiles", bridge)
+        self.assertIn("package.effectiveClubProfiles", bridge)
         self.assertIn("package.caddieContextSeeds.first(where:", bridge)
         self.assertIn("guard let parsed = Int", bridge)
         self.assertIn("guard let parsed = Double", bridge)
@@ -4059,7 +4059,34 @@ class MobileContractTests(unittest.TestCase):
         # The live picker uses the effective bag (manual override else the real Garmin bag).
         self.assertIn("if let bag = ClubBagStore.effectiveBag()", current_hole)
         self.assertIn("ClubSettingsView(clubProfiles: package.clubProfiles, apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
-        self.assertIn('Label("球杆设置"', round_home)
+        self.assertIn('Label("球包"', round_home)
+        # B5c 球包 (stats.html 3): one distance ladder replaces 成绩 → 球杆 and the checklist; every
+        # change is saved on the device and pushed to the backend manual bag the caddie reads.
+        self.assertIn("BagPresentation.rows(bag: bag, profiles: clubProfiles, manual: distancesYd)", club_settings)
+        # The backend write belongs to the long-lived durable outbox, never to the screen's lifetime.
+        bag_sync = _read_required_source(self, IOS_DIR / "Services" / "ClubBagSyncCoordinator.swift")
+        self.assertIn("sync.enqueue(ClubBagStore.manualClubInputs(selected: bag, distancesYd: distancesYd))", club_settings)
+        self.assertIn(".putManualClubBag(playerId: playerId, clubs: clubs)", bag_sync)
+        self.assertIn('static let outboxBase = "ai-caddie.club-bag-outbox-v1"', club_bag)
+        # Per account: keys, outbox and PUT target follow the signed-in player (Codex 5947487991).
+        self.assertIn("var playerId: String", bag_sync)
+        self.assertIn("ClubBagStore.key(ClubBagStore.outboxBase, playerId: player)", bag_sync)
+        self.assertIn("static func permanentStatus(", bag_sync)
+        self.assertIn("func restoreFromServer()", bag_sync)
+        self.assertNotIn(".task(id: revision)", club_settings)
+        self.assertNotIn("putManualClubBag", club_settings)
+        app_source = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        self.assertEqual(
+            app_source.count("ClubBagSyncCoordinator.shared.configure(apiBaseURL: apiBaseURL, adminToken: adminToken)"), 2
+        )
+        self.assertIn(
+            "ClubBagSyncCoordinator.shared.activate(playerId: session.playerId, migrateLegacy: migrateLegacyData)",
+            app_source,
+        )
+        self.assertEqual(app_source.count("await ClubBagSyncCoordinator.shared.restoreFromServer()"), 2)
+        self.assertIn('Button("＋ 球杆")', club_settings)
+        self.assertIn("从球包拿掉", club_settings)
+        self.assertNotIn("struct ResultsClubsView", results_view)
         # Real Garmin bag (names): backend route + client fetch + on-device clubTypeId→中文 resolution.
         club_bag_model = _read_required_source(self, IOS_DIR / "Models" / "ClubBagResponse.swift")
         self.assertIn("struct ClubBagResponse", club_bag_model)
@@ -4076,8 +4103,18 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func clearManual()", club_bag)
         self.assertIn("用 Garmin 球包重置", club_settings)
         self.assertIn("ClubBagStore.clearManual()", club_settings)
+        # No process status on the 球包 screen: sync/restore state is shown only in 设置.
+        bag_screen = club_settings[: club_settings.index("struct ClubBagSyncSettingsRow")]
+        for text in ("正在读取云端球包", "同步", "重试", "云端没接受"):
+            self.assertNotIn(text, bag_screen.split("public struct ClubSettingsView")[1].split("/// The ladder for given rows")[0].replace("// Sync progress", "").replace("设置 → 球包同步", ""))
+        self.assertIn("ClubBagSyncSettingsRow(sync: .shared)", round_home)
+        # One reset intent: selection + typed distances + the server manual bag (PUT {"clubs": []}).
+        reset = club_settings[club_settings.index("func resetToGarminBag()"):]
+        reset = reset[: reset.index("\n    }\n")]
+        for line in ("ClubBagStore.clearManual()", "ClubBagStore.saveManualDistancesYd([:])", "sync.enqueue([])"):
+            self.assertIn(line, reset)
         # Manual bag → backend (club-bag iOS slice): zhName→token map + payload builder + PUT/GET +
-        # the editable per-club distance saved via 保存到云端 (PUT /api/v2/players/me/clubs/bag).
+        # the editable per-club distance pushed after each change (PUT /api/v2/players/me/clubs/bag).
         self.assertIn("zhNameToBackendToken", club_bag)
         self.assertIn("func manualClubInputs(", club_bag)
         self.assertIn("func putManualClubBag(", sync_client)
@@ -4085,8 +4122,6 @@ class MobileContractTests(unittest.TestCase):
         effective_bag_model = _read_required_source(self, IOS_DIR / "Models" / "EffectiveClubBag.swift")
         self.assertIn("struct ManualClubInput", effective_bag_model)
         self.assertIn("struct EffectiveClubBagResponse", effective_bag_model)
-        self.assertIn("保存到云端", club_settings)
-        self.assertIn("saveToBackend(", club_settings)
         self.assertIn("struct CurrentHoleView: View", current_hole)
         self.assertIn("import CoreLocation", current_hole)
         self.assertIn("Stepper", current_hole)
@@ -5205,6 +5240,68 @@ class RoundEditContractTests(unittest.TestCase):
         screen = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
         for token in ["onEditingChange", "editingHoles"]:
             self.assertIn(token, screen)
+
+
+class EffectiveClubProfileContractTests(unittest.TestCase):
+    """B5c (Codex review on #366): the carry typed in 球包 is the one every caddie consumer uses."""
+
+    # Files that may read the raw history ``clubProfiles``: the package model itself, the projection,
+    # and the 球包 ladder (which draws history and the typed carry side by side).
+    RAW_READERS = {"Models/LiveRoundPackage.swift", "Views/ClubBag.swift", "Views/RoundHomeView.swift"}
+
+    def test_no_consumer_reads_raw_package_club_profiles(self) -> None:
+        offenders = []
+        for path in sorted(IOS_DIR.rglob("*.swift")):
+            relative = path.relative_to(IOS_DIR).as_posix()
+            if relative in self.RAW_READERS:
+                continue
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                if "package.clubProfiles" in line:
+                    offenders.append(f"{relative}:{number}: {line.strip()}")
+        self.assertEqual(offenders, [], "read package.effectiveClubProfiles instead")
+
+    def test_ios_catalog_defaults_match_the_server_catalog(self) -> None:
+        import re
+
+        from ai_caddie.caddie import club_catalog
+
+        club_bag = (IOS_DIR / "Views" / "ClubBag.swift").read_text(encoding="utf-8")
+        start = club_bag.index("zhNameToBackendToken: [String: String] = [") + len("zhNameToBackendToken: [String: String] = [")
+        token_map = club_bag[start: club_bag.index("]", start)]
+        tokens = dict(re.findall(r'"([^"]+)": "([^"]+)"', token_map))
+        start = club_bag.index("defaultDistanceM: [String: Double] = [") + len("defaultDistanceM: [String: Double] = [")
+        defaults = club_bag[start: club_bag.index("]", start)]
+        ios = {tokens[name]: float(value) for name, value in re.findall(r'"([^"]+)": ([0-9.]+)', defaults)}
+        server = {
+            token: float(row["defaultDistanceM"])
+            for token, row in club_catalog.CLUB_CATALOG.items()
+            if row.get("defaultDistanceM") is not None and token != "putter"
+        }
+        self.assertEqual(ios, server)
+
+    def test_seed_and_request_profiles_are_projected(self) -> None:
+        builder = (IOS_DIR / "Services" / "CaddieDecisionRequestBuilder.swift").read_text(encoding="utf-8")
+        evaluator = (IOS_DIR / "Services" / "OfflineCaddieDecisionEvaluator.swift").read_text(encoding="utf-8")
+        self.assertIn("context = ClubBagAuthority.current.sanitizedContext(context)", builder)
+        self.assertEqual(builder.count("authority.sanitizedSeed("), 3)
+        self.assertIn("authority.planMatches(prepLegs) ? canonicalSteps(", builder)
+        authority = (IOS_DIR / "Services" / "LiveCaddieRouteAuthority.swift").read_text(encoding="utf-8")
+        self.assertIn("guard authority.planMatches(prepLegs) else { return nil }", authority)
+        self.assertEqual(authority.count("authority.rosterAllows($0.steps.map(\\.clubName))"), 2)
+        current_hole = (IOS_DIR / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8")
+        self.assertIn("NotificationCenter.default.publisher(for: ClubBagStore.didChange)", current_hole)
+        # The real request composition and the retained live route obey the same authority.
+        self.assertIn("authority.planMatches((prep?.steps ?? []).map", builder)
+        self.assertIn("return isCurrent(route, authority: authority)", authority)
+        self.assertIn("retainedCaddieRouteByHole[hole.number] = nil\n            selectedCaddieRouteByHole", current_hole)
+        self.assertIn(
+            'ClubBagStore.effectiveProfileValue(request.context["clubProfiles"] ?? seed.context["clubProfiles"])',
+            evaluator,
+        )
+        self.assertIn("let profiles = package.effectiveClubProfiles.filter", builder)
+        for name in ("CurrentHoleView.swift", "WatchEventBridge.swift"):
+            path = IOS_DIR / ("Views" if name.startswith("Current") else "Services") / name
+            self.assertIn("package.effectiveClubProfiles", path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

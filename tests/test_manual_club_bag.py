@@ -105,6 +105,163 @@ class EffectiveBagTests(unittest.TestCase):
             club_bag.clear_manual_club_bag("me")
             self.assertEqual(club_bag.effective_club_bag("me")["source"], "none")
 
+    def test_manual_carry_replaces_history_median_and_moves_the_band(self) -> None:
+        profiles = [
+            {"clubName": "7I", "sampleSize": 40, "median_m": 128.0, "p10_m": 118.0, "p90_m": 136.0},
+            {"clubName": "7 Iron", "sampleSize": 3, "median_m": 120.0, "p10_m": 115.0, "p90_m": 125.0},
+            {"clubName": "Driver", "sampleSize": 50, "median_m": 210.0, "p10_m": 190.0, "p90_m": 225.0},
+        ]
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            (Path(tmp) / "data").mkdir()
+            # No manual bag: history is untouched.
+            self.assertEqual(club_bag.apply_manual_carries(profiles, player_id="me"), profiles)
+            club_bag.save_manual_club_bag(
+                "me",
+                [{"token": "iron7", "distanceM": 155}, {"token": "driver"}, {"token": "putter", "distanceM": 5}],
+            )
+            self.assertEqual(club_bag.manual_carries_m("me"), {"iron7": 155.0})
+            rows = club_bag.apply_manual_carries(profiles, player_id="me")
+            seven, alias, driver = rows
+            self.assertEqual((seven["median_m"], seven["p10_m"], seven["p90_m"]), (155.0, 145.0, 163.0))
+            # Every alias of the physical club moves to the same carry.
+            self.assertEqual((alias["median_m"], alias["p10_m"], alias["p90_m"]), (155.0, 150.0, 160.0))
+            self.assertEqual(driver, profiles[2])
+            # Idempotent, and the input rows are not mutated.
+            self.assertEqual(club_bag.apply_manual_carries(rows, player_id="me"), rows)
+            self.assertEqual(profiles[0]["median_m"], 128.0)
+            # Clearing the manual bag (PUT {"clubs": []}) restores history.
+            club_bag.clear_manual_club_bag("me")
+            self.assertEqual(club_bag.apply_manual_carries(profiles, player_id="me"), profiles)
+
+    def test_a_manual_roster_is_authoritative_and_typed_clubs_without_history_are_kept(self) -> None:
+        history = [
+            {"clubName": "Driver", "sampleSize": 50, "median_m": 210.0, "p10_m": 190.0, "p90_m": 225.0},
+            {"clubName": "7I", "sampleSize": 40, "median_m": 128.0, "p10_m": 118.0, "p90_m": 136.0},
+            {"clubName": "5I", "sampleSize": 30, "median_m": 150.0, "p10_m": 140.0, "p90_m": 160.0},
+        ]
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            (Path(tmp) / "data").mkdir()
+            club_bag.save_manual_club_bag(
+                "me", [{"token": "iron7", "distanceM": 150}, {"token": "wedge58", "distanceM": 80}]
+            )
+            kept = club_bag.restrict_to_bag(history, lambda row: row["clubName"], player_id="me")
+            # No "fewer than two clubs" fallback to the full history for a roster the player chose.
+            self.assertEqual([row["clubName"] for row in kept], ["7I"])
+            rows = club_bag.apply_manual_carries(kept, player_id="me")
+            self.assertEqual([(r["clubName"], r["median_m"], r["sampleSize"]) for r in rows],
+                             [("7I", 150.0, 40), ("58", 80.0, 0)])
+            self.assertEqual(club_bag.canonical_club_name(rows[1]["clubName"]), "wedge58")
+            # Total projection: a mixed roster keeps the history club and adds the catalog default
+            # for the selected club that has neither history nor a typed carry (Codex 5947998710).
+            club_bag.save_manual_club_bag("me", [{"token": "iron5"}, {"token": "iron7"}, {"token": "putter"}])
+            no_seven = [row for row in history if row["clubName"] != "7I"]  # 7I: no shot history
+            kept = club_bag.restrict_to_bag(no_seven, lambda row: row["clubName"], player_id="me")
+            rows = club_bag.apply_manual_carries(kept, player_id="me")
+            self.assertEqual([(r["clubName"], r["median_m"], r["sampleSize"]) for r in rows],
+                             [("5I", 150.0, 30), ("iron7", 128.0, 0)])
+            # A club with no catalog default and nothing measured cannot get an invented distance.
+            club_bag.save_manual_club_bag("me", [{"token": "wood7"}])
+            self.assertEqual(club_bag.apply_manual_carries([], player_id="me"), [])
+            # Putter-only and explicit roster: no hitting rows at all.
+            club_bag.save_manual_club_bag("me", [{"token": "putter"}])
+            self.assertEqual(club_bag.manual_roster_tokens("me"), {"putter"})
+            kept = club_bag.restrict_to_bag(history, lambda row: row["clubName"], player_id="me")
+            self.assertEqual(club_bag.apply_manual_carries(kept, player_id="me"), [])
+            club_bag.clear_manual_club_bag("me")
+            self.assertIsNone(club_bag.manual_roster_tokens("me"))
+
+    def test_an_empty_manual_roster_is_no_manual_bag_at_every_layer(self) -> None:
+        history = [
+            {"clubName": "5I", "sampleSize": 30, "median_m": 150.0, "p10_m": 140.0, "p90_m": 160.0},
+            {"clubName": "Driver", "sampleSize": 50, "median_m": 210.0, "p10_m": 190.0, "p90_m": 225.0},
+        ]
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            (Path(tmp) / "data").mkdir()
+            club_bag.save_manual_club_bag("me", [{"token": "iron7"}])
+            # Saving an empty list clears the manual bag (the API's "reset to Garmin").
+            club_bag.save_manual_club_bag("me", [])
+            self.assertFalse(data.manual_club_bag_file("me").exists())
+            # A hand-written / legacy empty manual file reads the same way, not as "a roster of nothing".
+            data.manual_club_bag_file("me").write_text(json.dumps({"schema": club_bag.MANUAL_SCHEMA, "clubs": []}))
+            self.assertEqual(club_bag.effective_club_bag("me")["source"], "none")
+            self.assertIsNone(club_bag.manual_roster_tokens("me"))
+            self.assertIsNone(club_bag.in_use_canonical_names("me"))
+            self.assertEqual(club_bag.manual_carries_m("me"), {})
+            kept = club_bag.restrict_to_bag(history, lambda row: row["clubName"], player_id="me")
+            self.assertEqual(club_bag.apply_manual_carries(kept, player_id="me"), history,
+                             "consistently 'no manual bag': history as is, like the phone")
+
+    def test_every_catalog_token_round_trips_through_its_profile_name(self) -> None:
+        from ai_caddie.caddie import club_catalog
+
+        for token in club_catalog.CLUB_CATALOG:
+            if token == "putter":
+                continue
+            self.assertEqual(club_bag.canonical_club_name(club_bag.manual_profile_name(token)), token)
+
+    def test_fresh_package_profiles_and_seeds_follow_the_manual_roster(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.core.fixtures import fixture_history_data
+        from tests.round_loop_authority import fixture_course_authority
+
+        authority = fixture_course_authority()
+        authority.start()
+        self.addCleanup(authority.stop)
+        manual = {"schema": club_bag.MANUAL_SCHEMA, "clubs": [
+            # The fixture history has a 5 iron (and a driver, 3 wood, 8 iron, 58°) but no 7 iron.
+            {"token": "iron5", "customName": None, "distanceM": 150},
+            {"token": "iron7", "customName": None, "distanceM": 140},
+        ]}
+        geometry = {"coverage": "ready", "hasHazards": True, "hasMeshes": True, "hazardCount": 0, "hazards": []}
+        with patch.object(club_bag, "load_manual_club_bag", return_value=manual), patch.object(
+            mobile_live, "_geometry_seed", return_value=(geometry, [], [])
+        ), patch.object(
+            mobile_live, "_route_evidence_seed",
+            return_value=({"routeLength_m": 100.0, "avoidZones": [], "sourceRefs": ["live:1"]}, [], []),
+        ):
+            package = mobile_live.build_live_round_package(
+                "900001", data=fixture_history_data(), data_mode="fixture",
+                allow_weather_fetch=False, priority_holes=[1], defer_non_priority_enrichment=True,
+            )
+        tokens = {club_bag.canonical_club_name(p["clubName"]): p for p in package["clubProfiles"]}
+        self.assertEqual(set(tokens), {"iron5", "iron7"}, "only the roster; Driver never comes back")
+        self.assertEqual(tokens["iron5"]["median_m"], 150.0)
+        self.assertGreater(tokens["iron5"]["sampleSize"], 0, "history stays attached")
+        self.assertEqual((tokens["iron7"]["median_m"], tokens["iron7"]["sampleSize"]), (140.0, 0),
+                         "a typed club with no history is in the package")
+        seed = next(row for row in package["caddieContextSeeds"] if row["hole"] == 1)
+        seed_profiles = seed["context"]["clubProfiles"]
+        seed_rows = seed_profiles.values() if isinstance(seed_profiles, dict) else seed_profiles
+        self.assertEqual({club_bag.canonical_club_name(r["clubName"]) for r in seed_rows}, {"iron5", "iron7"})
+        for option in seed["offlineOptions"]:
+            self.assertIn(club_bag.canonical_club_name(option["clubName"]), {"iron5", "iron7"})
+
+        # A putter-only roster: no hitting profile, and never the placeholder 8I.
+        putter_only = {"schema": club_bag.MANUAL_SCHEMA, "clubs": [{"token": "putter", "customName": None, "distanceM": None}]}
+        with patch.object(club_bag, "load_manual_club_bag", return_value=putter_only), patch.object(
+            mobile_live, "_geometry_seed", return_value=(geometry, [], [])
+        ), patch.object(
+            mobile_live, "_route_evidence_seed",
+            return_value=({"routeLength_m": 100.0, "avoidZones": [], "sourceRefs": ["live:1"]}, [], []),
+        ):
+            package = mobile_live.build_live_round_package(
+                "900001", data=fixture_history_data(), data_mode="fixture",
+                allow_weather_fetch=False, priority_holes=[1], defer_non_priority_enrichment=True,
+            )
+        self.assertEqual(package["clubProfiles"], [])
+        for seed in package["caddieContextSeeds"]:
+            profiles = seed["context"].get("clubProfiles") or {}
+            self.assertFalse(profiles, f"hole {seed['hole']} has no hitting club")
+            self.assertEqual(seed["offlineOptions"], [])
+
+    def test_fresh_package_profiles_apply_the_manual_carry(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "ai_caddie" / "caddie" / "mobile_live.py").read_text()
+        restrict = source.index("club_profiles = restrict_to_bag(club_profiles")
+        project = source.index("club_profiles = apply_manual_carries(club_profiles, player_id=player_id)")
+        seeds = source.index("caddie_profiles = _club_performance_profiles(club_profiles")
+        self.assertLess(restrict, project)
+        self.assertLess(project, seeds)
+
 
 from ai_caddie.courses import course_prep
 from server_v2.club_bag_api import build_effective_club_bag_response
