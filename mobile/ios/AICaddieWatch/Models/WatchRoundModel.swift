@@ -1422,12 +1422,12 @@ public final class WatchRoundModel: ObservableObject {
         return phone + watchShotEventIds(for: hole).filter { seen.insert($0).inserted }
     }
 
+    /// Every shot on the hole either device recorded (`knownShotEventIds`, deduplicated by event
+    /// id): the shot number and type, the score recommendation and the tee origin all read this,
+    /// so a shot recorded on the iPhone counts on the Watch too. The Watch's own upload queue is
+    /// `pendingEvents` / `watchShotEventIds`.
     private func recordedShotCount(for hole: Int) -> Int {
-        round?.pendingEvents.reduce(into: 0) { count, event in
-            if event.hole == hole, event.kind == .location {
-                count += 1
-            }
-        } ?? 0
+        knownShotEventIds(for: hole).count
     }
 
     public func adjustDraftScore(_ delta: Int) {

@@ -5431,6 +5431,11 @@ class WatchHolePagesContractTests(unittest.TestCase):
         )
         self.assertIn("snapshotRevision: nextSnapshotRevision()", bridge)
         self.assertIn("phoneShots: retainedPhoneShots", model)
+        # Whole-hole shot facts (shot number/type, score recommendation, tee origin) count both
+        # devices' shots, deduplicated.
+        count = model[model.index("private func recordedShotCount(for hole: Int) -> Int {"):]
+        count = count[: count.index("\n    }\n")]
+        self.assertIn("knownShotEventIds(for: hole).count", count)
         # Menu 球童 consumes the same current projection; no raw-decision fallback once plans exist.
         available = model[model.index("public var caddieDetailAvailable: Bool {"):]
         available = available[: available.index("public var hazardDetailAvailable")]

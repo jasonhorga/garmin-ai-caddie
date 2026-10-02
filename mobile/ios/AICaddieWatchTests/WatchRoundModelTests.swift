@@ -996,6 +996,35 @@ final class WatchRoundModelTests: XCTestCase {
         )
     }
 
+    func testAPhoneShotCountsForTheWatchShotNumberTypeScoreAndTeeOrigin() throws {
+        let store = makeStore()
+        let model = WatchRoundModel(store: store, makeEventId: sequentialIds(), now: { "2026-06-20T00:00:00Z" })
+        model.seedRound([hole(1, par: 4), hole(2)], activeHole: 1)
+        // The tee shot p1 was recorded on the iPhone; the Watch's own queue is empty.
+        model.receivePhoneState(liveDecisionState("d1", [], originShotEventIds: ["p1"], phoneShots: ["p1"], revision: 400))
+        XCTAssertEqual(model.round?.pendingEvents.count, 0)
+        XCTAssertEqual(model.recordedShotCount, 1, "the phone's shot is a hole fact on the Watch")
+
+        // The next Watch shot is the second shot and not a tee shot (the tee origin is off: the
+        // 方案 page measures from the tee only while recordedShotCount == 0).
+        model.beginManualShot(
+            latitude: 40.0454995, longitude: 116.5461531, horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T08:00:00Z"
+        )
+        XCTAssertEqual(model.pendingManualShot?.shotNumber, 2)
+        XCTAssertNotEqual(model.pendingManualShot?.shotType, "tee")
+        model.completePendingManualShot(clubName: "七号铁")
+        XCTAssertEqual(model.recordedShotCount, 2)
+        XCTAssertNotEqual(model.round?.pendingEvents.first { $0.kind == .club }?.shotType, "tee")
+
+        // The score recommendation includes the phone's shot (2 shots + 2 putts).
+        model.startScoringActiveHole()
+        XCTAssertEqual(model.draftScore, 4)
+
+        let restored = WatchRoundModel(store: store)
+        XCTAssertEqual(restored.recordedShotCount, 2, "after a relaunch")
+    }
+
     func testTheClubTagNoteDescribesTheNextShotOfTheCurrentSelectedPlan() {
         let stock = WatchCaddieOption(
             optionId: "stock", label: "标准",
