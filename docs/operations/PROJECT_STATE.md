@@ -104,24 +104,45 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-10-02 22:29 UTC):** `B1-B7` review queue remains
+**Current slice (2026-10-02 22:57 UTC):** `B1-B7` review queue remains
 `in-progress`; B6 is complete through merged PR #367, and B7 step 1 is active
-in PR #368. Claude pushed corrective exact head
+in PR #368. Claude's corrective exact head is
 `8835a624599f8f6f8ad1dc8f2d68163ca545a7f5` on
-`claude/code-audit-performance-17wqcv`; Source CI `37072538093` and Native
-Mobile CI `37072538021` are in progress. The prior head's focused log,
-artifacts, and cleanup manifest remain retained; its read-only snapshot was
-removed at 22:28 UTC. No new-head focused test or artifact evidence exists yet.
-The blocking review comment is `5962352533`; no approval, merge, or branch
-deletion has occurred.
+`claude/code-audit-performance-17wqcv`. Source CI `37072538093` and Native
+Mobile CI `37072538021` passed. The exact-head homeserver focused suites
+passed `118/118` in 3.863s; log SHA-256 is
+`dab92c09a96814a5adffc9c7edb83d60e97cc39d61630626b4bede92e9200033` at
+`/home/jason/garmin-ai-caddie-data/review-evidence/pr368-8835a624-focused-tests.log`.
+The setup-only Docker failure is retained at
+`/home/jason/garmin-ai-caddie-data/review-evidence/pr368-8835a624-focused-tests-setup-failure.log`
+with SHA-256
+`c2deffa49eb49831359b2c1539ea9ce49be8eba95838ebdfbc959d09de3baa8`.
 
-Claude's commit message claims fixes for all four production blockers plus the
-P2 protocol/persistence/test gaps: fresh Core Location speed, interruption
-fail-closed behavior, explicit closure upload/retry, capability/battery gate
-scoping, round-ID preservation, strict timestamp/boolean validation, and
-out-of-order/collection-only regressions. These claims are unaccepted until
-static review, exact-head focused tests, green Source/Native CI, and matching
-artifacts are re-run against `8835a624`.
+The matching Native artifacts are Watch `11255517567`, design `11255627123`,
+and native evidence `11255462653`. The evidence JSON is live-mode and its
+synthetic merge `51c4cc198e11662477ed9eaf899537115167651c` has the exact head
+as its second parent. All 87 design and 47 Watch PNGs are byte-identical to
+the accepted PR #367 baseline; this is expected because
+`WatchSwingCollectionAvailability.isAvailable = false` keeps the new settings
+row hidden until the capability/battery prerequisite lands.
+
+Static review comment `5962767639` blocks this head with two P1 lifecycle
+findings: a late candidate can be routed to a newly active round because the
+router always prefers `activeRoundId`, and a phone-close race can build a late
+candidate with `hole = 0` after `WatchRoundModel` clears the visible round.
+The comment requests explicit round/closure boundaries, preservation of the
+hole context, and production-path regressions for both cases. It also records
+a non-blocking follow-up about explicit sensor errors restarting after
+`reconcile`. No approval, merge, or branch deletion has occurred.
+
+The active exact-head review snapshot is
+`/dev/shm/aicaddie-pr368-8835a624-review`; downloaded artifact evidence is at
+`/home/jason/codex-runs/aicaddie-pr368-8835a624-artifacts-20261002`.
+The resource manifest remains
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261002T2235Z-pr368-8835a624-review.md`;
+the snapshot and artifact root stay open until Claude replies with a
+corrective head, then they must be closed under an updated manifest. The
+superseded head's evidence remains retained.
 
 PR #364 (B5a results landing, performance analysis and score distribution) was
 reviewed at exact head
