@@ -1786,52 +1786,44 @@ final class DesignSnapshotTests: XCTestCase {
             named: "results-time-calendar"
         )
 
-        // 球杆设置: defaults to the player's REAL Garmin bag (real names, incl 自定义 50/54/58 挖起杆)
-        // resolved from /club/player + /club/types, with history distances (码).
+        // B5c 球包 (stats.html 3): the bag's distance ladder long to short — p10–p90 bars, the median
+        // line (a typed distance is a dot), 差 N 码 between clubs with < 8 / > 20 flagged, and a club
+        // without shots last. Same club + distance data the bag screen loads; captured light.
         let bagProfiles = [
-            ClubProfile(clubName: "Driver", sampleSize: 120, medianM: 210, p10M: 195, p90M: 225),
-            ClubProfile(clubName: "5I", sampleSize: 60, medianM: 165, p10M: 158, p90M: 172),
-            ClubProfile(clubName: "7I", sampleSize: 90, medianM: 140, p10M: 132, p90M: 148),
-            ClubProfile(clubName: "PW", sampleSize: 70, medianM: 110, p10M: 102, p90M: 118),
+            ClubProfile(clubName: "Driver", sampleSize: 86, medianM: 211, p10M: 187, p90M: 227),
+            ClubProfile(clubName: "3W", sampleSize: 41, medianM: 192, p10M: 172, p90M: 206),
+            ClubProfile(clubName: "3H", sampleSize: 18, medianM: 166, p10M: 151, p90M: 178),
+            ClubProfile(clubName: "5I", sampleSize: 35, medianM: 155, p10M: 139, p90M: 166),
+            ClubProfile(clubName: "6I", sampleSize: 44, medianM: 146, p10M: 133, p90M: 156),
+            ClubProfile(clubName: "7I", sampleSize: 58, medianM: 137, p10M: 124, p90M: 146),
+            ClubProfile(clubName: "8I", sampleSize: 51, medianM: 128, p10M: 116, p90M: 136),
+            ClubProfile(clubName: "9I", sampleSize: 47, medianM: 117, p10M: 105, p90M: 125),
+            ClubProfile(clubName: "PW", sampleSize: 39, medianM: 105, p10M: 93, p90M: 113),
+            ClubProfile(clubName: "Aw", sampleSize: 20, medianM: 91, p10M: 80, p90M: 99),
+            ClubProfile(clubName: "54", sampleSize: 26, medianM: 78, p10M: 64, p90M: 87),
         ]
         // The owner's actual 14-club bag resolved from Garmin (clubTypeId map + custom 50/54/58 wedges).
         let bag: Set<String> = [
             "一号木", "三号木", "三号小鸡腿", "五号铁", "六号铁", "七号铁", "八号铁", "九号铁",
             "P 杆", "A 杆", "50° 挖起杆", "54° 挖起杆", "58° 挖起杆", "推杆",
         ]
+        let bagRows = BagPresentation.rows(bag: bag, profiles: bagProfiles, manual: ["七号铁": 152])
+        XCTAssertEqual(bagRows.count, 13, "the putter is not on the ladder")
+        XCTAssertEqual(bagRows.suffix(2).map(\.name), ["50° 挖起杆", "58° 挖起杆"], "clubs without shots last")
         try captureScreen(
-            ClubSettingsContent(selected: bag, clubProfiles: bagProfiles, distancesYd: .constant(["七号铁": 140, "P 杆": 110])),
-            named: "club-settings"
+            NavigationStack {
+                ScrollView { BagContent(rows: bagRows, onReset: {}) }
+                    .background(HubStyle.grouped)
+                    .navigationTitle("球包")
+            },
+            named: "bag"
         )
-
-        // 各杆距离阶梯图 (ClubGappingLadder): the whole bag ordered by distance (long→short) with a
-        // proportional bar, so the gaps between clubs read at a glance; clubs without a recorded
-        // distance still list (showing 留空, no bar). Same club + distance data the bag screen loads.
-        // The bag screen is forced light (app root .preferredColorScheme(.light)), so it's captured
-        // light. Rendered standalone as a pure VStack (ImageRenderer/window: no ScrollView needed).
+        let sevenIron = try XCTUnwrap(bagRows.first { $0.name == "七号铁" })
         try captureScreen(
-            VStack {
-                ClubGappingLadder(entries: [
-                    .init(name: "一号木", yards: 232),
-                    .init(name: "三号木", yards: 214),
-                    .init(name: "三号小鸡腿", yards: 203),
-                    .init(name: "五号铁", yards: 181),
-                    .init(name: "六号铁", yards: 170),
-                    .init(name: "七号铁", yards: 158),
-                    .init(name: "八号铁", yards: 146),
-                    .init(name: "九号铁", yards: 133),
-                    .init(name: "P 杆", yards: 118),
-                    .init(name: "A 杆", yards: 104),
-                    .init(name: "54° 挖起杆", yards: 88),
-                    .init(name: "50° 挖起杆", yards: nil),
-                    .init(name: "58° 挖起杆", yards: nil),
-                    .init(name: "推杆", yards: nil),
-                ])
-                .padding(14)
-                Spacer(minLength: 0)
-            }
-            .background(HubStyle.grouped),
-            named: "club-ladder"
+            BagClubEditor(row: sevenIron, onSet: { _ in }, onRemove: {})
+                .frame(height: 380)
+                .background(Color.white),
+            named: "bag-edit"
         )
 
         // 复盘逐洞落点图: this round's actual shots (tee→landing→green) on the hole, dots by lie.

@@ -4059,7 +4059,14 @@ class MobileContractTests(unittest.TestCase):
         # The live picker uses the effective bag (manual override else the real Garmin bag).
         self.assertIn("if let bag = ClubBagStore.effectiveBag()", current_hole)
         self.assertIn("ClubSettingsView(clubProfiles: package.clubProfiles, apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
-        self.assertIn('Label("球杆设置"', round_home)
+        self.assertIn('Label("球包"', round_home)
+        # B5c 球包 (stats.html 3): one distance ladder replaces 成绩 → 球杆 and the checklist; every
+        # change is saved on the device and pushed to the backend manual bag the caddie reads.
+        self.assertIn("BagPresentation.rows(bag: bag, profiles: clubProfiles, manual: distancesYd)", club_settings)
+        self.assertIn("client.putManualClubBag(clubs: inputs)", club_settings)
+        self.assertIn('Button("＋ 球杆")', club_settings)
+        self.assertIn("从球包拿掉", club_settings)
+        self.assertNotIn("struct ResultsClubsView", results_view)
         # Real Garmin bag (names): backend route + client fetch + on-device clubTypeId→中文 resolution.
         club_bag_model = _read_required_source(self, IOS_DIR / "Models" / "ClubBagResponse.swift")
         self.assertIn("struct ClubBagResponse", club_bag_model)
@@ -4077,7 +4084,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("用 Garmin 球包重置", club_settings)
         self.assertIn("ClubBagStore.clearManual()", club_settings)
         # Manual bag → backend (club-bag iOS slice): zhName→token map + payload builder + PUT/GET +
-        # the editable per-club distance saved via 保存到云端 (PUT /api/v2/players/me/clubs/bag).
+        # the editable per-club distance pushed after each change (PUT /api/v2/players/me/clubs/bag).
         self.assertIn("zhNameToBackendToken", club_bag)
         self.assertIn("func manualClubInputs(", club_bag)
         self.assertIn("func putManualClubBag(", sync_client)
@@ -4085,7 +4092,7 @@ class MobileContractTests(unittest.TestCase):
         effective_bag_model = _read_required_source(self, IOS_DIR / "Models" / "EffectiveClubBag.swift")
         self.assertIn("struct ManualClubInput", effective_bag_model)
         self.assertIn("struct EffectiveClubBagResponse", effective_bag_model)
-        self.assertIn("保存到云端", club_settings)
+        self.assertIn(".task(id: revision)", club_settings)
         self.assertIn("saveToBackend(", club_settings)
         self.assertIn("struct CurrentHoleView: View", current_hole)
         self.assertIn("import CoreLocation", current_hole)

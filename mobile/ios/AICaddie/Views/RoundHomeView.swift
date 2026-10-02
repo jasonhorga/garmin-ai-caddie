@@ -783,7 +783,7 @@ public struct RoundHomeView: View {
                     NavigationLink {
                         ClubSettingsView(clubProfiles: package.clubProfiles, apiBaseURL: apiBaseURL, adminToken: adminToken)
                     } label: {
-                        Label("球杆设置", systemImage: "bag")
+                        Label("球包", systemImage: "bag")
                     }
 #if DEBUG
                     NavigationLink {
