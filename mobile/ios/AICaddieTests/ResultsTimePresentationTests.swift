@@ -56,9 +56,20 @@ final class ResultsTimePresentationTests: XCTestCase {
         let summary = try XCTUnwrap(ResultsTimePresentation.calendarSummary(try stats(fixture).time))
         XCTAssertEqual(summary.year, 2026)
         XCTAssertEqual(summary.rounds, 4)
-        XCTAssertEqual(try XCTUnwrap(summary.perActiveMonth), 2.0, accuracy: 1e-9)
+        // January through June: 4 rounds over 6 calendar months, the empty ones included.
+        XCTAssertEqual(try XCTUnwrap(summary.perMonth), 4.0 / 6.0, accuracy: 1e-9)
         XCTAssertEqual(summary.busiestMonth, 5)
-        XCTAssertEqual(summary.text, "4 场 · 月均 2.0 · 5 月最多")
+        XCTAssertEqual(summary.text, "4 场 · 月均 0.7 · 5 月最多")
         XCTAssertNil(ResultsTimePresentation.calendarSummary(nil))
+    }
+
+    /// Codex 5946305558: a month without a round still counts (月均场数, not 活跃月均).
+    func testTheMonthlyAverageCountsMonthsWithoutARound() throws {
+        let time = try JSONDecoder().decode(StatsTime.self, from: Data(#"""
+        {"byDay":[{"key":"2026-01-10","roundCount":1},{"key":"2026-03-14","roundCount":1}]}
+        """#.utf8))
+        let summary = try XCTUnwrap(ResultsTimePresentation.calendarSummary(time))
+        XCTAssertEqual(try XCTUnwrap(summary.perMonth), 2.0 / 3.0, accuracy: 1e-9, "February's zero is in the denominator")
+        XCTAssertEqual(summary.text, "2 场 · 月均 0.7 · 1 月最多")
     }
 }

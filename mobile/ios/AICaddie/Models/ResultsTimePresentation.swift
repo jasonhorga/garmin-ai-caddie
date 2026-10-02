@@ -116,14 +116,15 @@ enum ResultsTimePresentation {
     struct CalendarSummary: Equatable {
         let year: Int
         let rounds: Int
-        /// Rounds per month that had a round ("月均"), nil without any.
-        let perActiveMonth: Double?
+        /// Rounds per calendar month of the represented year — January through the latest month
+        /// with a round, months without one counted as zero ("月均场数"); nil without any round.
+        let perMonth: Double?
         /// The month of `year` with the most rounds (ties: the earlier month).
         let busiestMonth: Int?
 
         var text: String {
             var parts = ["\(rounds) 场"]
-            if let perActiveMonth { parts.append("月均 \(String(format: "%.1f", perActiveMonth))") }
+            if let perMonth { parts.append("月均 \(String(format: "%.1f", (perMonth * 10).rounded() / 10))") }
             if let busiestMonth { parts.append("\(busiestMonth) 月最多") }
             return parts.joined(separator: " · ")
         }
@@ -141,10 +142,11 @@ enum ResultsTimePresentation {
         }
         let rounds = months.values.reduce(0, +)
         let busiest = months.max { $0.value < $1.value || ($0.value == $1.value && $0.key > $1.key) }?.key
+        let calendarMonths = months.keys.max()
         return CalendarSummary(
             year: year,
             rounds: rounds,
-            perActiveMonth: months.isEmpty ? nil : Double(rounds) / Double(months.count),
+            perMonth: calendarMonths.map { Double(rounds) / Double($0) },
             busiestMonth: busiest
         )
     }

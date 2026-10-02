@@ -1723,7 +1723,12 @@ final class DesignSnapshotTests: XCTestCase {
             let file = topoDir.appendingPathComponent("\(ref.0)-\(ref.1).png")
             let image = Self.courseImage(ground: grounds[index % grounds.count], noisyRough: false)
             try XCTUnwrap(image.pngData()).write(to: file, options: [.atomic])
+            // Decoded up front so the first rendered frame already draws each map (no loader race).
+            TopoHoleImageStore.preload(image, for: file)
             topoFiles["\(ref.0)-\(ref.1)"] = file
+        }
+        for file in topoFiles.values {
+            XCTAssertNotNil(TopoHoleImageStore.cachedImage(for: file), "every topo is ready before capture")
         }
         XCTAssertEqual(ResultsCoursePresentation.backdrop(course), ResultsCoursePresentation.HoleRef(globalId: 7, localHole: 1))
         let courseView = CourseStatsDetailView(

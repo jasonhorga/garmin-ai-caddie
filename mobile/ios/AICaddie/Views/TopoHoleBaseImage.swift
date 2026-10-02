@@ -44,6 +44,18 @@ final class TopoHoleImageStore: ObservableObject {
         isLoading = false
     }
 
+    /// The decoded image already in memory for `url`, so a view can draw it on its first frame
+    /// instead of flashing the loading state.
+    static func cachedImage(for url: URL?) -> UIImage? {
+        url.flatMap { imageCache.object(forKey: $0 as NSURL) }
+    }
+
+    /// Put an already-decoded image in memory for `url` (design snapshots render deterministically).
+    static func preload(_ image: UIImage, for url: URL) {
+        let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
+        imageCache.setObject(image, forKey: url as NSURL, cost: cost)
+    }
+
     /// Warm a topo without creating a view. The round pager calls this while fetching all 18 shot
     /// maps, so page changes normally hit decoded memory instead of showing another network wait.
     static func prefetch(_ url: URL?) {
@@ -166,7 +178,7 @@ struct TopoHoleBaseImage: View {
     var body: some View {
         Group {
             if let topoURL {
-                if let image = imageStore.image {
+                if let image = imageStore.image ?? TopoHoleImageStore.cachedImage(for: topoURL) {
                     extended(image) { readyImage(Image(uiImage: image)) }
                 } else if imageStore.failedURL == topoURL {
                     fallbackImage

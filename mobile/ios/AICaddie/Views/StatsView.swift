@@ -232,7 +232,7 @@ struct CourseStatsDetailView: View {
         }
         .background(alignment: .top) { backdrop }
         .background(HubStyle.grouped)
-        .navigationTitle(course.localizedCourseDisplayName)
+        // stats.html 6: the back control, then one 28pt course heading (no second nav title).
         .navigationBarTitleDisplayMode(.inline)
     }
 
