@@ -197,9 +197,29 @@ jobs:
           capture_compact() {
             local mode="$1"
             local screenshot="$2"
+            local hazard_container=""
+            if [[ "$mode" == "standalone-course-page-hazard-zoomed" ]]; then
+              hazard_container=$(xcrun simctl get_app_container "$COMPACT_DEVICE" "$BID" data)
+              rm -f "$hazard_container/Documents/standalone-hazard-ready" \
+                "$hazard_container/Documents/standalone-hazard-failed" \
+                "$hazard_container/Documents/standalone-hazard-display"
+            fi
             xcrun simctl launch "$COMPACT_DEVICE" "$BID" -uitest-screen "$mode" \
               | tee "watch-runtime-artifacts/launch-$mode-41mm.txt"
-            if [[ "$mode" == "standalone-course-seed" ]]; then
+            if [[ -n "$hazard_container" ]]; then
+              # The production hazard instrument must report a selected hazard, zoomed and panned,
+              # before the capture; a waiting-for-location page fails here instead of passing on size.
+              for _ in $(seq 1 24); do
+                if test -f "$hazard_container/Documents/standalone-hazard-failed"; then
+                  echo "::error::41mm hazard page not ready: $(cat "$hazard_container/Documents/standalone-hazard-failed")"
+                  exit 1
+                fi
+                test -f "$hazard_container/Documents/standalone-hazard-ready" && break
+                sleep 0.5
+              done
+              test -f "$hazard_container/Documents/standalone-hazard-ready"
+              sleep 1
+            elif [[ "$mode" == "standalone-course-seed" ]]; then
               local app_container=""
               for _ in $(seq 1 30); do
                 app_container=$(xcrun simctl get_app_container "$COMPACT_DEVICE" "$BID" data 2>/dev/null || true)
@@ -428,6 +448,9 @@ jobs:
               elif [[ "$mode" == real-course-journey-* ]]; then
                 marker="real-course-journey-ready"
                 failed_marker="real-course-journey-failed"
+              elif [[ "$mode" == "standalone-course-page-hazard-zoomed" ]]; then
+                marker="standalone-hazard-ready"
+                failed_marker="standalone-hazard-failed"
               elif [[ "$mode" == "runtime-cancel-seed" || "$mode" == "runtime-cancel-recovery" ]]; then
                 marker="runtime-cancel-ready"
                 failed_marker="runtime-harness-failed"

@@ -375,7 +375,12 @@ public struct WatchUITestRoot: View {
                 Text("offline course restore unavailable")
             }
         }
+        .environment(\.watchHazardDisplayReporter, standaloneHazardDisplayReporter)
         .onAppear {
+            // watch-runtime.yml clears the markers before launch.
+            if screen == "standalone-course-page-hazard-zoomed" {
+                Task { await failStandaloneHazardIfNotReady() }
+            }
             if screen == "standalone-course-seed" {
                 Task { await seedStandaloneCourse() }
             } else if screen == "standalone-course-restore" {
@@ -1473,8 +1478,40 @@ public struct WatchUITestRoot: View {
         return WatchLocationFix(
             coordinate: CLLocationCoordinate2D(latitude: 40.0454995, longitude: 116.5461531),
             horizontalAccuracyM: 5,
-            capturedAt: "2026-07-27T00:01:00Z"
+            // The hazard page needs a live wrist fix (Codex runtime review on #367: a fixed July
+            // timestamp is stale on any later run and left the page on 等待定位). Stamp it at launch;
+            // the capture lands well inside the 15 s live window.
+            capturedAt: screen == "standalone-course-page-hazard-zoomed"
+                ? Self.launchFixTimestamp
+                : "2026-07-27T00:01:00Z"
         )
+    }
+
+    private static let launchFixTimestamp = ISO8601DateFormatter().string(from: Date())
+
+    /// Runtime evidence gate for the zoomed hazard page: `standalone-hazard-ready` only once the
+    /// production hazard instrument shows a selected hazard zoomed and panned; otherwise
+    /// `standalone-hazard-failed` names what it showed instead.
+    private func reportStandaloneHazardDisplay(_ display: WatchHazardDisplay) {
+        if case .hazard(_, zoomed: true, panned: true) = display {
+            writeRuntimeMarker("standalone-hazard-ready")
+        } else {
+            writeRuntimeMarker("standalone-hazard-display", contents: String(describing: display))
+        }
+    }
+
+    private var standaloneHazardDisplayReporter: ((WatchHazardDisplay) -> Void)? {
+        guard screen == "standalone-course-page-hazard-zoomed" else { return nil }
+        return { display in reportStandaloneHazardDisplay(display) }
+    }
+
+    private func failStandaloneHazardIfNotReady() async {
+        try? await Task.sleep(nanoseconds: 8_000_000_000)
+        let ready = runtimeMarkerURL("standalone-hazard-ready")
+        guard !FileManager.default.fileExists(atPath: ready.path) else { return }
+        let shown = (try? String(contentsOf: runtimeMarkerURL("standalone-hazard-display"), encoding: .utf8))
+            ?? "no hazard instrument"
+        writeRuntimeMarker("standalone-hazard-failed", contents: shown)
     }
 
     private func ensureStandaloneLastShot() {

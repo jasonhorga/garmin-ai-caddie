@@ -12,6 +12,34 @@ final class WatchHolePagesTests: XCTestCase {
         [435, 279, 518.8],
     ]
 
+    /// The root 方案 page draws its labels over a full-screen canvas on which watchOS still draws its
+    /// clock (Codex runtime review on #367: `8i 147` sat on the time). The production layout keeps
+    /// every label out of that lane on the 41, 45 and 49 mm faces, apart and inside the face.
+    func testRootPlanLabelsKeepTheClockLaneClear() {
+        for size in [CGSize(width: 176, height: 215), CGSize(width: 198, height: 242), CGSize(width: 205, height: 251)] {
+            let safe = WatchDisplayGeometry.contentRect(in: size)
+            let lane = WatchPlanLegs.clockLane(in: size)
+            XCTAssertGreaterThan(lane.width, 50)
+            XCTAssertGreaterThanOrEqual(lane.maxX, size.width)
+            // A green landing right under the clock, an approach just below it and a tee shot.
+            let landings = [
+                CGPoint(x: safe.midX, y: safe.midY + 20),
+                CGPoint(x: safe.maxX - 70, y: safe.minY + 16),
+                CGPoint(x: safe.maxX - 64, y: safe.minY + 4),
+            ]
+            let labels = ["D 224", "5i 175", "8i 147"]
+            let frames = WatchPlanLegs.layoutLabels(labels, landings: landings, in: size)
+            XCTAssertEqual(frames.count, labels.count, "every leg keeps its label")
+            for (frame, label) in zip(frames, labels) {
+                XCTAssertFalse(frame.intersects(lane), "\(label) \(frame) under the clock \(lane) for \(size)")
+                XCTAssertTrue(safe.contains(frame), "\(label) \(frame) inside \(safe) for \(size)")
+            }
+            for i in frames.indices { for j in frames.indices where j > i {
+                XCTAssertFalse(frames[i].intersects(frames[j]), "\(labels[i]) / \(labels[j]) overlap for \(size)")
+            } }
+        }
+    }
+
     func testThePlanPageDrawsEveryLegWithItsLandingAndLabel() {
         let tee = CGPoint(x: 435, y: 981)
         let legs = WatchPlanLegs.resolve(

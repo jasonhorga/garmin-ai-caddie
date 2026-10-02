@@ -239,7 +239,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 XCTAssertTrue(rest.contains(landing), "landing \(leg.label) at \(landing) in \(rest) for \(size)")
             }
             // The production layout drawFullPlan draws: measured boxes inside the rest frame.
-            let labels = WatchPlanLegs.labelFrames(landings: landings, sizes: labelSizes, bounds: rest)
+            let labels = WatchPlanLegs.layoutLabels(legs.map(\.label), landings: landings, in: size, bounds: rest)
             XCTAssertEqual(labels.count, legs.count, "every leg keeps its label")
             for (label, leg) in zip(labels, legs) {
                 XCTAssertTrue(rest.contains(label), "label \(leg.label) \(label) in \(rest) for \(size)")

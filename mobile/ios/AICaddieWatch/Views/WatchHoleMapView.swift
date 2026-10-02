@@ -236,37 +236,73 @@ enum WatchPlanLegs {
         return CGSize(width: ceil(textSize.width) + 8, height: ceil(textSize.height) + 2)
     }
 
-    /// Where each landing's label box goes: right of its landing and centred on it, stacked top to
-    /// bottom so no two labels overlap when landings sit closer than a label's height, then pulled
-    /// back up from the bottom of `bounds`. A label moved off its landing gets a leader line.
+    /// Width of watchOS's persistent top-right clock, matching the other full-screen instruments.
+    static let clockLaneWidth: CGFloat = 56
+
+    /// The top-right lane watchOS keeps for its clock even on a full-screen map. No plan label may
+    /// sit in it.
+    static func clockLane(in size: CGSize) -> CGRect {
+        let inset = WatchDisplayGeometry.contentInset(for: size)
+        return CGRect(
+            x: size.width - inset - clockLaneWidth,
+            y: 0,
+            width: inset + clockLaneWidth,
+            height: inset + 24
+        )
+    }
+
+    /// The production label layout `drawFullPlan` draws for a face of `size`: each label measured
+    /// by `labelSize`, kept inside `bounds` (the content rect when nil) and out of the clock lane.
+    static func layoutLabels(
+        _ labels: [String],
+        landings: [CGPoint],
+        in size: CGSize,
+        bounds: CGRect? = nil
+    ) -> [CGRect] {
+        labelFrames(
+            landings: landings,
+            sizes: labels.map(labelSize),
+            bounds: bounds ?? WatchDisplayGeometry.contentRect(in: size),
+            avoiding: [clockLane(in: size)]
+        )
+    }
+
+    /// Where each landing's label box goes: right of its landing and centred on it, moved below any
+    /// `avoiding` rect it would cover, stacked top to bottom so no two labels overlap when landings
+    /// sit closer than a label's height, then pulled back up from the bottom of `bounds`. A label
+    /// moved off its landing gets a leader line.
     static func labelFrames(
         landings: [CGPoint],
         sizes: [CGSize],
         bounds: CGRect,
+        avoiding: [CGRect] = [],
         gap: CGFloat = labelGap,
         spacing: CGFloat = 1
     ) -> [CGRect] {
         let count = min(landings.count, sizes.count)
         let order = (0..<count).sorted { landings[$0].y < landings[$1].y }
+        let xs = (0..<count).map { i in
+            min(max(landings[i].x + gap, bounds.minX), bounds.maxX - sizes[i].width)
+        }
+        func frame(_ i: Int, top: CGFloat) -> CGRect {
+            CGRect(x: xs[i], y: top, width: sizes[i].width, height: sizes[i].height)
+        }
         var tops = [CGFloat](repeating: 0, count: count)
         var cursor = bounds.minY
         for i in order {
-            tops[i] = max(landings[i].y - sizes[i].height / 2, cursor)
-            cursor = tops[i] + sizes[i].height + spacing
+            var top = max(landings[i].y - sizes[i].height / 2, cursor)
+            for lane in avoiding where frame(i, top: top).intersects(lane) {
+                top = max(top, lane.maxY + spacing)
+            }
+            tops[i] = top
+            cursor = top + sizes[i].height + spacing
         }
         var floor = bounds.maxY
         for i in order.reversed() {
             tops[i] = min(tops[i], floor - sizes[i].height)
             floor = tops[i] - spacing
         }
-        return (0..<count).map { i in
-            CGRect(
-                x: min(max(landings[i].x + gap, bounds.minX), bounds.maxX - sizes[i].width),
-                y: tops[i],
-                width: sizes[i].width,
-                height: sizes[i].height
-            )
-        }
+        return (0..<count).map { frame($0, top: tops[$0]) }
     }
 }
 
@@ -1602,16 +1638,20 @@ public struct WatchHoleMapView: View {
         }
         guard !dimmed else { return }
         let landings = planLegs.map { transform($0.landing) }
-        let frames = WatchPlanLegs.labelFrames(
+        let frames = WatchPlanLegs.layoutLabels(
+            planLegs.map(\.label),
             landings: landings,
-            sizes: planLegs.map { WatchPlanLegs.labelSize($0.label) },
+            in: size,
             bounds: planLabelBounds ?? safeRect
         )
         for (leg, (landing, rect)) in zip(planLegs, zip(landings, frames)) {
             if abs(rect.midY - landing.y) > rect.height / 2 - 2 {
                 var leader = Path()
                 leader.move(to: landing)
-                leader.addLine(to: CGPoint(x: rect.minX, y: min(max(landing.y, rect.minY + 3), rect.maxY - 3)))
+                leader.addLine(to: CGPoint(
+                    x: min(max(landing.x, rect.minX), rect.maxX),
+                    y: landing.y < rect.minY ? rect.minY : (landing.y > rect.maxY ? rect.maxY : rect.midY)
+                ))
                 context.stroke(leader, with: .color(.white.opacity(0.7)), style: StrokeStyle(lineWidth: 0.8))
             }
             let label = context.resolve(

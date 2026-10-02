@@ -167,6 +167,39 @@ enum WatchHazardMapLayout {
     }
 }
 
+/// What the hazard instrument is showing. Runtime evidence reads it (via
+/// `watchHazardDisplayReporter`) to prove a capture shows a selected hazard, not a waiting state.
+public enum WatchHazardDisplay: Equatable {
+    case rangeUnavailable
+    case offCourse
+    case empty
+    case hazard(id: String, zoomed: Bool, panned: Bool)
+
+    static func resolve(
+        rangeUnavailable: Bool,
+        centerGreenYards: Int?,
+        selected: WatchHazard?,
+        viewport: WatchHoleViewport
+    ) -> WatchHazardDisplay {
+        if rangeUnavailable { return .rangeUnavailable }
+        if WatchGeoMath.isBeyondUsefulGreenRange(centerGreenYards) { return .offCourse }
+        guard let selected else { return .empty }
+        return .hazard(id: selected.id, zoomed: viewport.isZoomed, panned: viewport.pan != .zero)
+    }
+}
+
+private struct WatchHazardDisplayReporterKey: EnvironmentKey {
+    static let defaultValue: ((WatchHazardDisplay) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    /// Set only by the DEBUG runtime-evidence root; production leaves it nil.
+    var watchHazardDisplayReporter: ((WatchHazardDisplay) -> Void)? {
+        get { self[WatchHazardDisplayReporterKey.self] }
+        set { self[WatchHazardDisplayReporterKey.self] = newValue }
+    }
+}
+
 /// Map detail for one measured hazard. New payloads place both dots on the real geometry boundary and
 /// range straight to them; old caches fall back to their retained route facts. B6 (README §3): the
 /// Crown zooms (1–4×) and a drag pans once zoomed; tapping "1 / N" selects the next upcoming hazard,
@@ -188,6 +221,16 @@ public struct WatchHazardMapView: View {
     @State private var viewport: WatchHoleViewport
     /// The framing in use when zooming began; held while zoomed so switching hazards never re-fits.
     @State private var frozenFrame: WatchHazardFrame?
+    @Environment(\.watchHazardDisplayReporter) private var displayReporter
+
+    private var display: WatchHazardDisplay {
+        WatchHazardDisplay.resolve(
+            rangeUnavailable: rangeUnavailable,
+            centerGreenYards: centerGreenYards,
+            selected: upcoming.isEmpty ? nil : upcoming[selectedIndex],
+            viewport: viewport
+        )
+    }
 
     public init(
         geometry: WatchHoleMapGeometry,
@@ -254,18 +297,20 @@ public struct WatchHazardMapView: View {
 
     public var body: some View {
         GeometryReader { geo in
-            if rangeUnavailable {
+            switch display {
+            case .rangeUnavailable:
                 rangeUnavailableState
-            } else if centerGreenYards.map { WatchGeoMath.isBeyondUsefulGreenRange($0) } == true {
+            case .offCourse:
                 offCourseState
-            } else if upcoming.isEmpty {
+            case .empty:
                 emptyState
-            } else {
+            case .hazard:
                 hazardMap(upcoming[selectedIndex], index: selectedIndex, size: geo.size)
                     .watchZoomPan($viewport, size: geo.size)
             }
         }
         .background(Color.black)
+        .task(id: display) { displayReporter?(display) }
         .onChange(of: viewport.isZoomed) { _, zoomed in
             frozenFrame = zoomed && !upcoming.isEmpty ? frame(for: upcoming[selectedIndex]) : nil
         }
