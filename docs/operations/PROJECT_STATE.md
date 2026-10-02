@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-10-02 12:13 UTC
+**Updated:** 2026-10-02 12:18 UTC
 **Branch:** `main`; product canonical source revision is
 `48e0ec3754303aa605a874940140bd24f5d3d61e` (PR #366 B5c, PR #365 B5b, PR #364 B5a,
 PR #363 B4c, PR #362 B4b-2, PR #361 B4b, PR #360 B4a and PR #359 B3 are
@@ -250,18 +250,17 @@ The superseded `9723836d` resources are removed. The `bc7df609` snapshot,
 artifact root, and local screenshot copy are also removed after preserving its
 focused log, native evidence, resource manifest, and two wheel screenshots
 under `/home/jason/garmin-ai-caddie-data/review-evidence/pr367/bc7df609/`.
-Superseded-head review resources remain allow-listed in
+The superseded `9799034a` review resources are closed under
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261002T114654Z-pr367-9799034a-review.md`:
-read-only snapshot
-`/dev/shm/aicaddie-pr367-9799034a-review-20261002T114654Z`, artifact root
-`/home/jason/codex-runs/aicaddie-pr367-9799034a-artifacts-20261002T114654Z`,
-and reserved bounded local screenshot target
-`/home/ubuntu/claude-web-data/data/garmin-ai-caddie/reviews/pr367-9799034a-20261002T114654Z`.
-Before the current-head snapshot is created, the three test logs and manifest
-will be preserved under
-`/home/jason/garmin-ai-caddie-data/review-evidence/pr367/9799034a/`, then only
-the exact old snapshot and artifact-root paths will be deleted. No
-`82443c94` review snapshot has been created yet.
+the exact read-only snapshot and artifact root were removed after their
+manifest and all three test logs were checksum-preserved under
+`/home/jason/garmin-ai-caddie-data/review-evidence/pr367/9799034a/`. The green
+test log SHA-256 remains
+`36451999b157f0c67490cdcee538b7fac3be5871a1ac6c722e8e195b4e948ffe`;
+the two setup-only failures and original resource manifest are retained beside
+it. The reserved local screenshot target was never created. Production health
+stayed `ok` at `d7f69971` before and after cleanup. No `82443c94` review
+snapshot was created because static review already blocked that head.
 No persistent container, service, port, volume, dependency installation or
 background process was created by this review.
 
@@ -5060,13 +5059,11 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Preserve the existing `9799034a` test logs/manifest as evidence and remove
-   only its exact superseded snapshot and artifact-root paths.
-2. Await Claude's correction for review `5952059811`. At that new exact head,
+1. Await Claude's correction for review `5952059811`. At that new exact head,
    verify live-plan lifecycle plus every remaining-plan consumer, then create
    one read-only snapshot and repeat homeserver contracts, Source/Native,
    synthetic-parent and changed-artifact review. Do not start B7 or another PR.
-3. Only on a blocker-free final candidate, dispatch `watch-runtime.yml` with
+2. Only on a blocker-free final candidate, dispatch `watch-runtime.yml` with
    `runtime_scope=setup-visual` to capture the production container and prove
    real three-page swipes, boundary dragging, zoom/pan persistence and compact
    score interaction. Then comment a pass and merge/delete the branch.
@@ -5118,6 +5115,10 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## State Changes
 
+- 2026-10-02: The superseded `9799034a` snapshot and artifact root were removed
+  after preserving their manifest and all three logs under persistent review
+  evidence. The reserved local screenshot path never existed; production health
+  remained `ok`; no review container, port, service or dependency was left.
 - 2026-10-02: Review `5952059811` blocked PR #367 head `82443c94`: explicit
   offset basis alone cannot age a live decision after Watch records a shot, and
   reachable club/detail consumers still use the untrimmed plan. Final runtime
