@@ -219,6 +219,39 @@ enum WatchPlanLegs {
         }
         return legs
     }
+
+    /// Where each landing's label box goes: right of its landing and centred on it, stacked top to
+    /// bottom so no two labels overlap when landings sit closer than a label's height, then pulled
+    /// back up from the bottom of `bounds`.
+    static func labelFrames(
+        landings: [CGPoint],
+        sizes: [CGSize],
+        bounds: CGRect,
+        gap: CGFloat = 6,
+        spacing: CGFloat = 1
+    ) -> [CGRect] {
+        let count = min(landings.count, sizes.count)
+        let order = (0..<count).sorted { landings[$0].y < landings[$1].y }
+        var tops = [CGFloat](repeating: 0, count: count)
+        var cursor = bounds.minY
+        for i in order {
+            tops[i] = max(landings[i].y - sizes[i].height / 2, cursor)
+            cursor = tops[i] + sizes[i].height + spacing
+        }
+        var floor = bounds.maxY
+        for i in order.reversed() {
+            tops[i] = min(tops[i], floor - sizes[i].height)
+            floor = tops[i] - spacing
+        }
+        return (0..<count).map { i in
+            CGRect(
+                x: min(max(landings[i].x + gap, bounds.minX), bounds.maxX - sizes[i].width),
+                y: tops[i],
+                width: sizes[i].width,
+                height: sizes[i].height
+            )
+        }
+    }
 }
 
 enum WatchHoleMapRouteOverlay: Equatable {
@@ -458,6 +491,8 @@ public struct WatchHoleMapView: View {
     public let showPreparedPlan: Bool
     /// The whole selected plan (方案 page); empty elsewhere.
     public let planLegs: [WatchPlanLeg]
+    /// Where plan labels may sit (the 球童 detail's rest frame); the content rect when nil.
+    public let planLabelBounds: CGRect?
     /// The plan the club tag shows (稳妥 / 标准 / 进攻 or its club): the tag's accessibility value.
     public let caddiePlanName: String
     /// User-configured/measured Driver range. It renders as a fact-layer arc only when the current
@@ -546,6 +581,7 @@ public struct WatchHoleMapView: View {
         userPan: CGSize = .zero,
         measureOriginImagePx: CGPoint? = nil,
         planLegs: [WatchPlanLeg] = [],
+        planLabelBounds: CGRect? = nil,
         caddiePlanName: String = "",
         onOpenCaddie: @escaping () -> Void = {},
         onOpenMapDetail: @escaping () -> Void = {},
@@ -565,6 +601,7 @@ public struct WatchHoleMapView: View {
         self.showCaddieRecommendation = showCaddieRecommendation
         self.currentShotLayout = currentShotLayout
         self.planLegs = planLegs
+        self.planLabelBounds = planLabelBounds
         self.caddiePlanName = caddiePlanName
         self.showPreparedPlan = showPreparedPlan
         self.driverDistanceM = driverDistanceM
@@ -1548,23 +1585,25 @@ public struct WatchHoleMapView: View {
             context.stroke(dot, with: .color(.white.opacity(opacity)), style: StrokeStyle(lineWidth: 1))
         }
         guard !dimmed else { return }
-        for leg in planLegs {
-            let landing = transform(leg.landing)
-            let label = context.resolve(
+        let labels = planLegs.map { leg in
+            context.resolve(
                 Text(leg.label)
                     .font(.system(size: 10.5, weight: .heavy, design: .rounded))
                     .foregroundColor(.white)
             )
+        }
+        let boxes = labels.map { label -> CGSize in
             let textSize = label.measure(in: CGSize(width: 80, height: 20))
-            let box = CGSize(width: textSize.width + 8, height: textSize.height + 2)
-            let center = CGPoint(
-                x: min(max(landing.x + box.width / 2 + 6, safeRect.minX + box.width / 2), safeRect.maxX - box.width / 2),
-                y: min(max(landing.y, safeRect.minY + box.height / 2), safeRect.maxY - box.height / 2)
-            )
-            let rect = CGRect(x: center.x - box.width / 2, y: center.y - box.height / 2,
-                              width: box.width, height: box.height)
+            return CGSize(width: textSize.width + 8, height: textSize.height + 2)
+        }
+        let frames = WatchPlanLegs.labelFrames(
+            landings: planLegs.map { transform($0.landing) },
+            sizes: boxes,
+            bounds: planLabelBounds ?? safeRect
+        )
+        for (label, rect) in zip(labels, frames) {
             context.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(.black.opacity(0.78)))
-            context.draw(label, at: center)
+            context.draw(label, at: CGPoint(x: rect.midX, y: rect.midY))
         }
     }
 

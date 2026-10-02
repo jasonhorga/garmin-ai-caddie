@@ -146,7 +146,8 @@ public struct WatchCaddieOptionsView: View {
                     geometry: mappedGeometry,
                     // The whole remaining plan, the same legs as the 方案 page; dispersion (live
                     // only) is drawn on top and is not needed to show the later shots.
-                    planLegs: legs
+                    planLegs: legs,
+                    planLabelBounds: Self.planRestFrame(in: size)
                 )
                 .allowsHitTesting(false)
             } else {
@@ -260,7 +261,7 @@ public struct WatchCaddieOptionsView: View {
         let focusFraction: CGPoint
     }
 
-    /// Room each landing's label (drawn to its right, centred on it) and the pin's flag need.
+    /// Room each landing's label (drawn to its right, stacked by `WatchPlanLegs.labelFrames`) and the pin's flag need.
     static let planLabelReserve = CGSize(width: 58, height: 16)
     static let planFlagReserve: CGFloat = 16
 

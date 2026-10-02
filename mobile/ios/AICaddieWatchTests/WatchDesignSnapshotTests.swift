@@ -228,12 +228,16 @@ final class WatchDesignSnapshotTests: XCTestCase {
                     y: (point.y - viewport.focusImage.y) * viewport.scale + viewport.focusFraction.y * size.height
                 )
             }
-            let labels = legs.map { leg -> CGRect in
-                let landing = canvas(leg.landing)
+            let landings = legs.map { canvas($0.landing) }
+            for (landing, leg) in zip(landings, legs) {
                 XCTAssertTrue(rest.contains(landing), "landing \(leg.label) at \(landing) in \(rest) for \(size)")
-                // drawFullPlan places a ~50 pt label 6 pt right of the landing, centred on it.
-                return CGRect(x: landing.x + 6, y: landing.y - 8, width: 50, height: 16)
             }
+            // drawFullPlan lays out the measured label boxes (≤ 50 × 16 pt) the same way.
+            let labels = WatchPlanLegs.labelFrames(
+                landings: landings,
+                sizes: legs.map { _ in CGSize(width: 50, height: 16) },
+                bounds: rest
+            )
             for (label, leg) in zip(labels, legs) {
                 XCTAssertTrue(rest.contains(label), "label \(leg.label) \(label) in \(rest) for \(size)")
             }
