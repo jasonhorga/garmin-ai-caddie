@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-10-02 17:13 UTC
+**Updated:** 2026-10-02 18:27 UTC
 **Branch:** `main`; product canonical source revision is
 `48e0ec3754303aa605a874940140bd24f5d3d61e` (PR #366 B5c, PR #365 B5b, PR #364 B5a,
 PR #363 B4c, PR #362 B4b-2, PR #361 B4b, PR #360 B4a and PR #359 B3 are
@@ -476,8 +476,34 @@ instead of approximating 50-point boxes. Static diff review and
 homeserver suites `tests.test_mobile_contracts tests.test_native_visual_parity`
 passed `125/125` in 10.760s; focused-log SHA-256 is
 `bda33bd1f786ae763dfc02ac8f653fb70271ddb62161b533b11a8a90236334d4`.
-Native Mobile CI `37038398168` is running; matching artifact inspection and
-final runtime remain held until it passes.
+Native Mobile CI `37038398168` passed iOS `607/607`, Watch `416/416`, and the
+two production Watch UI tests; its complete log SHA-256 is
+`6d2a00144c6bd9332f994aff85c6a14ae32dc0ff3f933a31caa770178feeccec`.
+Matching artifacts are design `11242112311`, Watch `11242222891`, and native
+evidence `11242646993`; synthetic merge
+`9a48aa6d57bd490465ea8b2aaecfa7af214a68f2` has the exact head as its second
+parent. The prepared Caddie screenshot now contains the complete three-shot
+route and pin with collision-free `3W 208`, `5i 175`, and `8i 137` labels; only
+three Watch PNGs changed from `09958bc3`, with the other 44 byte-identical.
+
+Final `setup-visual` runtime run `37043165341` passed at the exact head on 41,
+45, and 49 mm in 24m03s. Runtime artifact `11243639204` has ZIP SHA-256
+`4e297b65390a34f566211c1c3337ab7b54e85c985ff9cb256a2d097611790294`;
+runtime design artifact is `11243057073`, and the complete runtime log SHA-256
+is `9f6124d71937e2534e1fa76584d4448f1b83f3069d5c97dfd2c2d4812cc97b26`.
+Score wheels, Caddie detail, moved flag, maximum green zoom, and the remaining
+green states look correct. Review comment `5958725422` nevertheless keeps two
+P2s open. First, `compact-41mm-page-plan.png` and
+`watch-standalone-page-plan.png` draw `8i 147` beneath the persistent watchOS
+clock because the root map supplies no clock-safe `planLabelBounds`. Second,
+both hazard-zoomed runtime captures show only `999 / 等待定位`: the fixture
+hard-codes a July 2026 location timestamp, which is stale in the October 2026
+run, while the workflow only validates PNG dimensions. Claude must reserve the
+clock lane in the production layout, add runtime-aware assertions, supply a
+fresh accurate location fixture, and recapture a real selected hazard with
+zoom/pan at 41 mm and standard size. PR #367 must not merge and B7 must not
+start until a new exact head closes both findings and repeats the required
+exact-head CI, focused, artifact, and `setup-visual` gates.
 
 The old review snapshot/artifacts/local copies were removed after preserving
 16 evidence files under
@@ -546,9 +572,10 @@ with manifest
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261002T171230Z-pr367-086ea8e7-review.md`
 and expiry `2026-10-03T17:12:30Z`. The bounded local screenshot target
 `/home/ubuntu/claude-web-data/data/garmin-ai-caddie/reviews/pr367-086ea8e7-20261002T171230Z`
-is reserved but not yet created. The focused `--rm` container exited; no temporary container,
-service, port, tunnel or volume remains. Production health remained HTTP 200
-with status `ok` and was not changed by this review.
+is populated with the inspected matching artifacts and runtime screenshots.
+The focused `--rm` container exited; no temporary container, service, port,
+tunnel or volume remains. Production health remained HTTP 200 with status `ok`
+and was not changed by this review.
 
 PR #365 (B5b time/frequency restyle and course detail) opened at exact head
 `863705dbeb6e3d5812e1419c9e3ce1d96791abf9`. Source CI `36864790317` passed,
