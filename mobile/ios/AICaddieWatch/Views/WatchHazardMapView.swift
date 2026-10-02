@@ -180,6 +180,9 @@ public struct WatchHazardMapView: View {
     /// is unavailable instead of measuring from the cached Tee/phone anchor.
     public let rangeUnavailable: Bool
     public let onBack: () -> Void
+    /// Off on the 本洞 pages: there the vertical page swipe and the Back button navigate, and an
+    /// edge-back drag recognizer would compete with the page swipe.
+    public let edgeBackEnabled: Bool
 
     @State private var selection: Int
     @State private var viewport: WatchHoleViewport
@@ -194,6 +197,7 @@ public struct WatchHazardMapView: View {
         rangeUnavailable: Bool = false,
         initialHazardID: String? = nil,
         initialViewport: WatchHoleViewport = WatchHoleViewport(),
+        edgeBackEnabled: Bool = true,
         onBack: @escaping () -> Void = {}
     ) {
         self.geometry = geometry
@@ -202,6 +206,7 @@ public struct WatchHazardMapView: View {
         self.centerGreenYards = centerGreenYards
         self.rangeUnavailable = rangeUnavailable
         self.onBack = onBack
+        self.edgeBackEnabled = edgeBackEnabled
 
         let progress = WatchHazardMapLayout.playerProgressMetres(
             on: route,
@@ -275,7 +280,8 @@ public struct WatchHazardMapView: View {
                         translation: value.translation
                     ) else { return }
                     onBack()
-                }
+                },
+            including: edgeBackEnabled ? .all : .subviews
         )
         .accessibilityAction(named: Text("返回菜单"), onBack)
         .ignoresSafeArea()

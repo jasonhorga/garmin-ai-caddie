@@ -796,9 +796,9 @@ public struct WatchRoundContainerView: View {
             .tag(0)
             // Always three pages (README §3): with nothing ahead the hazard page says 前方无障碍
             // instead of disappearing.
-            hazardPage(s, geometry: geometry, route: s.holeMap?.route ?? [], onBack: { holePage = 0 })
+            hazardPage(s, geometry: geometry, route: s.holeMap?.route ?? [], inPages: true, onBack: { holePage = 0 })
                 .tag(1)
-            greenPage(s, geometry: geometry, onBack: { holePage = 0 })
+            greenPage(s, geometry: geometry, inPages: true, onBack: { holePage = 0 })
                 .tag(2)
         }
         .tabViewStyle(.verticalPage)
@@ -863,6 +863,7 @@ public struct WatchRoundContainerView: View {
         _ state: WatchRoundState,
         geometry: WatchHoleMapGeometry,
         route: [[Double]],
+        inPages: Bool = false,
         onBack: @escaping () -> Void
     ) -> some View {
         WatchHazardMapView(
@@ -873,6 +874,7 @@ public struct WatchRoundContainerView: View {
             rangeUnavailable: !hasQualifiedRangeFix,
             initialHazardID: initialHazardID,
             initialViewport: initialHazardViewport,
+            edgeBackEnabled: !inPages,
             onBack: onBack
         )
         .id(instrumentIdentity("hazards", state: state, geometry: geometry))
@@ -881,6 +883,7 @@ public struct WatchRoundContainerView: View {
     private func greenPage(
         _ state: WatchRoundState,
         geometry: WatchHoleMapGeometry,
+        inPages: Bool = false,
         onBack: @escaping () -> Void
     ) -> some View {
         let savedPin = selectedGreenPin(for: state, geometry: geometry)
@@ -901,6 +904,7 @@ public struct WatchRoundContainerView: View {
                     rotationDegrees: rotation
                 )
             },
+            edgeBackEnabled: !inPages,
             onBack: onBack
         )
         // SwiftUI may otherwise reuse Green View's local pin/zoom state for the next hole.

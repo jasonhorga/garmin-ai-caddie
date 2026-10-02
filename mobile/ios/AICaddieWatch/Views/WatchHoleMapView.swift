@@ -763,8 +763,16 @@ public struct WatchHoleMapView: View {
             }
             .contentShape(Rectangle())
             .simultaneousGesture(SpatialTapGesture().onEnded { handleTap($0.location, size: geo.size) })
-            .simultaneousGesture(touchTargetDragGesture(size: geo.size))
-            .simultaneousGesture(measureLongPress(size: geo.size))
+            // Only install a drag that can act: an idle recognizer on the 本洞 方案 page would
+            // compete with the vertical page swipe.
+            .simultaneousGesture(
+                touchTargetDragGesture(size: geo.size),
+                including: interactionMode == .touchTarget ? .all : .subviews
+            )
+            .simultaneousGesture(
+                measureLongPress(size: geo.size),
+                including: interactionMode == .measure && userZoom > WatchHoleZoom.unzoomedThreshold ? .all : .subviews
+            )
         }
         .background(Color.black)
         .ignoresSafeArea()

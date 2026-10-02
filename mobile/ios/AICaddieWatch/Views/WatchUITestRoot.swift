@@ -2092,10 +2092,11 @@ public struct WatchUITestRoot: View {
 
     private static let demoToPars: [Int: Int] = [1: 0, 2: 1, 3: -1, 4: 2, 5: 0, 6: 1]
 
+    /// Prepared tee plans (made before any shot), like the real offline course options.
     static let demoOptions: [WatchCaddieOption] = [
-        WatchCaddieOption(optionId: "stock", label: "推荐", clubName: "1号木", carryM: 201.2, carryP10M: 187, carryP90M: 215, sampleSize: 28, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 201.2), WatchCaddiePlanStep(clubName: "3W", carryM: 183), WatchCaddiePlanStep(clubName: "8I", carryM: 134.6)], confidence: "high"),
-        WatchCaddieOption(optionId: "safe", label: "保守", clubName: "3号木", carryM: 183, carryP10M: 170, carryP90M: 195, sampleSize: 31, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 183), WatchCaddiePlanStep(clubName: "5W", carryM: 175), WatchCaddiePlanStep(clubName: "7I", carryM: 160.8)], confidence: "high"),
-        WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "1号木", carryM: 201.2, carryP10M: 187, carryP90M: 215, sampleSize: 24, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 201.2), WatchCaddiePlanStep(clubName: "3W", carryM: 190), WatchCaddiePlanStep(clubName: "9I", carryM: 127.6)], confidence: "medium"),
+        WatchCaddieOption(optionId: "stock", label: "推荐", clubName: "1号木", carryM: 201.2, carryP10M: 187, carryP90M: 215, sampleSize: 28, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 201.2), WatchCaddiePlanStep(clubName: "3W", carryM: 183), WatchCaddiePlanStep(clubName: "8I", carryM: 134.6)], confidence: "high", routeOffsetBasis: .tee, originShotEventIds: []),
+        WatchCaddieOption(optionId: "safe", label: "保守", clubName: "3号木", carryM: 183, carryP10M: 170, carryP90M: 195, sampleSize: 31, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 183), WatchCaddiePlanStep(clubName: "5W", carryM: 175), WatchCaddiePlanStep(clubName: "7I", carryM: 160.8)], confidence: "high", routeOffsetBasis: .tee, originShotEventIds: []),
+        WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "1号木", carryM: 201.2, carryP10M: 187, carryP90M: 215, sampleSize: 24, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 201.2), WatchCaddiePlanStep(clubName: "3W", carryM: 190), WatchCaddiePlanStep(clubName: "9I", carryM: 127.6)], confidence: "medium", routeOffsetBasis: .tee, originShotEventIds: []),
     ]
 
     private static let demoCaddieRoute = standaloneFullRoute

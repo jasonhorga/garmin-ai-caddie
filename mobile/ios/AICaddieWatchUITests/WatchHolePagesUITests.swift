@@ -38,7 +38,6 @@ final class WatchHolePagesUITests: XCTestCase {
         }
         assertPage("方案", marker)
 
-        // Swipes start away from the screen centre so none of them begins on the green's flag.
         swipe(up: true)
         assertPage("障碍", marker)
         swipe(up: true)
@@ -72,11 +71,11 @@ final class WatchHolePagesUITests: XCTestCase {
         XCTAssertEqual(result, .completed, "tapping the tag switches plan (was \(before))")
     }
 
+    /// A flick on the system page view (the vertical TabView), the way a wrist swipe reaches it.
     private func swipe(up: Bool) {
-        let left = 0.2
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: left, dy: up ? 0.72 : 0.3))
-        let end = app.coordinate(withNormalizedOffset: CGVector(dx: left, dy: up ? 0.2 : 0.85))
-        start.press(forDuration: 0.05, thenDragTo: end)
+        let pager = app.collectionViews["PUICPageViewController_collectionView"]
+        XCTAssertTrue(pager.waitForExistence(timeout: 5), "the 本洞 pager is on screen")
+        if up { pager.swipeUp() } else { pager.swipeDown() }
     }
 
     private func assertPage(_ name: String, _ marker: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {

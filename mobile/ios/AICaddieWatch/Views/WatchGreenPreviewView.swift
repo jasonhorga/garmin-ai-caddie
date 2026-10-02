@@ -653,6 +653,8 @@ public struct WatchGreenPreviewView: View {
     /// player-to-pin or edge distance must be replaced by an explicit acquiring state.
     public let rangeUnavailable: Bool
     public let onBack: () -> Void
+    /// Off on the 本洞 pages (see `WatchHazardMapView.edgeBackEnabled`).
+    public let edgeBackEnabled: Bool
     public let onPlacementChange: (CGPoint, Double) -> Void
 
     @State private var selectedPin: CGPoint?
@@ -685,6 +687,7 @@ public struct WatchGreenPreviewView: View {
         initialZoomScale: Double = 1,
         initialRotationDegrees: Double = 0,
         onPlacementChange: @escaping (CGPoint, Double) -> Void = { _, _ in },
+        edgeBackEnabled: Bool = true,
         onBack: @escaping () -> Void = {}
     ) {
         self.geometry = geometry
@@ -692,6 +695,7 @@ public struct WatchGreenPreviewView: View {
         self.rangeUnavailable = rangeUnavailable
         self.onPlacementChange = onPlacementChange
         self.onBack = onBack
+        self.edgeBackEnabled = edgeBackEnabled
         let boundary = WatchGreenPreviewLayout.boundaryPolygon(geometry.greenOutlinePx)
         _selectedPin = State(initialValue: initialPin.flatMap {
             WatchGreenPreviewLayout.contains($0, polygon: boundary) ? $0 : nil
@@ -869,7 +873,8 @@ public struct WatchGreenPreviewView: View {
                         translation: value.translation
                     ) else { return }
                     onBack()
-                }
+                },
+            including: edgeBackEnabled ? .all : .subviews
         )
         .accessibilityAction(named: Text("返回菜单"), onBack)
     }
