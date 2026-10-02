@@ -1143,6 +1143,26 @@ public struct WatchRoundContainerView: View {
     private var rootControls: some View {
         if holePage == 0 {
             rootControlRail
+            planTagTapTarget
+        }
+    }
+
+    /// The 方案 page's club tag is drawn inside the vertical pager, where its touch never reached
+    /// it (the CI UI test tapped it repeatedly without a plan switch). Like the menu and manual
+    /// shot controls, its tap is taken here, above the pager, over the tag's own frame.
+    @ViewBuilder
+    private var planTagTapTarget: some View {
+        if holeGeometry != nil, let s = model.activeHoleState, centerYd(s) != nil,
+           caddieOption(s) != nil, currentCaddieOptions(s).count > 1 {
+            GeometryReader { proxy in
+                let frame = WatchHoleMapView.rootCaddieChipFrame(in: proxy.size)
+                Color.clear
+                    .contentShape(Rectangle())
+                    .frame(width: frame.width, height: frame.height)
+                    .position(x: frame.midX, y: frame.midY)
+                    .onTapGesture { cyclePlan(s) }
+                    .accessibilityHidden(true)
+            }
         }
     }
 
