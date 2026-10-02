@@ -59,16 +59,26 @@ final class WatchHolePagesUITests: XCTestCase {
         }
         XCTAssertFalse(tag.label.contains("一号木"), "the tee shot is not offered again: \(tag.label)")
         let before = String(describing: tag.value ?? "")
-        tag.tap()
         let switched = NSPredicate(format: "value != %@", before)
-        let result = XCTWaiter().wait(
+        tag.tap()
+        var result = XCTWaiter().wait(
             for: [XCTNSPredicateExpectation(predicate: switched, object: tag)],
-            timeout: 6
+            timeout: 4
         )
+        if result != .completed {
+            // A system alert (the simulator's location prompt) can swallow the first tap while
+            // XCTest dismisses it; tap once more on the now-unobstructed tag.
+            tag.tap()
+            result = XCTWaiter().wait(
+                for: [XCTNSPredicateExpectation(predicate: switched, object: tag)],
+                timeout: 6
+            )
+        }
         if result != .completed {
             print("WatchHolePagesUITests hierarchy:\n\(app.debugDescription)")
         }
         XCTAssertEqual(result, .completed, "tapping the tag switches plan (was \(before))")
+        XCTAssertFalse(tag.label.contains("一号木"), "the switched plan does not offer the tee shot either: \(tag.label)")
     }
 
     /// A flick on the system page view (the vertical TabView), the way a wrist swipe reaches it.

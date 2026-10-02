@@ -673,7 +673,10 @@ public struct WatchHoleMapView: View {
     private func measureTapAllowed(_ location: CGPoint, size: CGSize) -> Bool {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
         let mapLeft = fullMap ? 0 : size.width * columnFrac
-        return location.x >= mapLeft && location.y < safeRect.maxY - 48
+        // A tap on the club tag switches plan; it never also drops a measure ring under the tag.
+        let onClubTag = showTextOverlay && showCaddieRecommendation
+            && Self.rootCaddieChipFrame(in: size).insetBy(dx: -4, dy: -4).contains(location)
+        return location.x >= mapLeft && location.y < safeRect.maxY - 48 && !onClubTag
     }
 
     static func hitsMeasureRing(_ location: CGPoint, ring: CGPoint) -> Bool {
