@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-10-02 14:27 UTC
+**Updated:** 2026-10-02 14:41 UTC
 **Branch:** `main`; product canonical source revision is
 `48e0ec3754303aa605a874940140bd24f5d3d61e` (PR #366 B5c, PR #365 B5b, PR #364 B5a,
 PR #363 B4c, PR #362 B4b-2, PR #361 B4b, PR #360 B4a and PR #359 B3 are
@@ -103,7 +103,7 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-10-02 13:48 UTC):** `B1-B7` review queue remains
+**Current slice (2026-10-02 14:41 UTC):** `B1-B7` review queue remains
 `in-progress`; Codex is the review owner for PRs opened from
 `claude/code-audit-performance-17wqcv`. Each PR is checked at its exact head
 against `docs/design/2026-09-25-ui-redesign/README.md` and
@@ -373,16 +373,31 @@ options, so the corrected production fail-closed behavior rejected it. The
 three-page swipe test also stayed on `方案`; watchOS Identity Binding interrupted
 the broad coordinate swipe before the page controller completed it.
 
-Current exact head `e9f08b1e1d9a28684fe551957b97b32ec8ec5d37` gives the demo
+Exact head `e9f08b1e1d9a28684fe551957b97b32ec8ec5d37` gives the demo
 options explicit tee-basis/offline provenance, disables idle map drag
 recognizers unless they are actionable, disables hazard/green edge-back
 gestures inside the three-page container, and drives the UI swipe through the
-actual `PUICPageViewController_collectionView`. Static review has found no new
-P1/P2 blocker. Source CI `37018360869` is green. Exact-head homeserver suites
+actual `PUICPageViewController_collectionView`. Source CI `37018360869` and
+exact-head homeserver suites
 `tests.test_mobile_contracts tests.test_native_visual_parity` passed `125/125`
 in 5.777s; log SHA-256 is
 `bb590d092cbfe92552b77ca3d9a1a829bd39f550616e35b63e4647d22db63305`.
-Native Mobile CI `37018360445` is running. Matching artifacts, synthetic merge
+Native Mobile CI `37018360445` passed iOS `607/607`, Watch unit `416/416`, and
+the real `方案 -> 障碍 -> 果岭 -> 障碍` swipe test. Its remaining post-tee UI
+test failed only because watchOS `Identity Binding` intercepted the club-tag
+tap while XCTest dismissed the location prompt; the visible tag was already
+the correct post-tee `三号木`, but its value remained `推荐`. The complete Native
+failure log SHA-256 is
+`af37a8aa8546e7c4a09b7492ca121a29a0f47417c65d32867a0ffa886a5acb2f`.
+
+Current exact head `e687a45c6c6dbdb7fe561a3be64929b2d246ee49` retries the real
+club-tag tap once after a swallowed system-alert interaction, retains the
+plan-value transition assertion, verifies the switched plan also does not
+offer Driver, and excludes the club-tag frame from the simultaneous measure
+tap. Static review finds no new P1/P2 blocker. Source CI `37020618516` is green.
+Exact-head homeserver suites passed `125/125` in 11.251s; log SHA-256 is
+`788be473f1eccb5d70b5d05f47269af6bd8464ca6a5f3cdf4815a18fce0f77ba`.
+Native Mobile CI `37020618633` is running. Matching artifacts, synthetic merge
 parentage and production-container runtime evidence remain required; do not
 merge or start B7 yet.
 
@@ -408,18 +423,21 @@ stayed `ok` at `d7f69971` before and after cleanup. No `82443c94` review
 snapshot was created because static review already blocked that head.
 The superseded `b077b5ae` snapshot and artifact root were removed after its
 failure evidence was retained under
-`/home/jason/garmin-ai-caddie-data/review-evidence/pr367/b077b5ae/`. The sole
-active read-only review snapshot is
-`/dev/shm/aicaddie-pr367-e9f08b1e-review-20261002T141908Z`; its artifact root is
-`/home/jason/codex-runs/aicaddie-pr367-e9f08b1e-artifacts-20261002T141908Z`,
+`/home/jason/garmin-ai-caddie-data/review-evidence/pr367/b077b5ae/`. The
+superseded `e9f08b1e` snapshot and artifact root are also removed after its
+focused logs, complete failed Native log, run metadata and closed manifest were
+checksum-preserved under
+`/home/jason/garmin-ai-caddie-data/review-evidence/pr367/e9f08b1e/`; cleanup is
+recorded in
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261002T141908Z-pr367-e9f08b1e-review.md`.
+The sole active read-only review snapshot is
+`/dev/shm/aicaddie-pr367-e687a45c-review-20261002T143757Z`; its artifact root is
+`/home/jason/codex-runs/aicaddie-pr367-e687a45c-artifacts-20261002T143757Z`,
 with manifest
-`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261002T141908Z-pr367-e9f08b1e-review.md`
-and expiry `2026-10-03T14:19:08Z`. The reserved local screenshot target has not
-been created. The first exact-head Docker attempt stopped during setup because
-the source archive omitted the empty `data/` mountpoint; after supplying that
-empty mountpoint, the source remained read-only and the focused rerun passed.
-No temporary container, service, port, tunnel or volume remains. Production
-health remained HTTP 200 and was not changed by this review.
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261002T143757Z-pr367-e687a45c-review.md`
+and expiry `2026-10-03T14:37:57Z`. The reserved local screenshot target has not
+been created. No temporary container, service, port, tunnel or volume remains.
+Production health remained HTTP 200 and was not changed by this review.
 
 PR #365 (B5b time/frequency restyle and course detail) opened at exact head
 `863705dbeb6e3d5812e1419c9e3ce1d96791abf9`. Source CI `36864790317` passed,
@@ -4470,7 +4488,7 @@ project-level task list; historical plans are reference material.
 | `CODEX-CHECKOUT-STAGED-17` | `done` | Owner decision 2026-09-28: keep the 17 staged spec files in `/home/codex/garmin-ai-caddie`, but record which are stale; migrate that checkout's local branch to `main` without resetting or unstaging. | Checkout HEAD stays `d847cf28` (behind `origin/main` by 595; no pull/merge/reset). Staged patch SHA-256 unchanged before/after: `fc152731cb5c78c83ef21b3499153280bc4f1856d1b50aab0cd4fe59ba10727d`. 15 of 17 staged blobs are byte-identical to `main@9785a0cd`; `docs/superpowers/specs/ai-caddie-spec.md` and `docs/superpowers/specs/work-board.md` are **stale** (their authority/archive paragraphs are already on `main`, while the staged copies still say `integration/v2` and would revert the 2026-09-27 `main`/TestFlight status; no remaining novel content). Full per-file classification: `/home/codex/garmin-ai-caddie/STAGED-CHANGES-README.md`. Local branch renamed `integration/v2` → `main`, upstream `origin/main`, `origin/HEAD` → `origin/main`; `stash@{0}: predeploy-wip` untouched. A prior root-run had left the `origin/main` ref and its reflog root-owned; ownership of exactly those two files was changed back to `codex` (no recursive change). Evidence: `/home/jason/garmin-ai-caddie-data/operations/pr335-review-20260928/`. |
 | `PR176-HISTORY` | `done` | Preserve the owner-approved multi-user design documents as explicitly historical material, then close the superseded PR without treating it as the current product specification. | The four documents landed unchanged apart from historical headers through PR #335 at `0256f48f`. PR #176 was closed with `landed as history in #335`; tag `archive/superpowers/multi-user-redesign-spec` points to exact former head `b5aa51ef`, and the matching remote branch was compare-and-deleted. |
 | `B0` | `done` | Implement the B0 data foundation from `docs/design/2026-09-25-ui-redesign/IMPLEMENTATION_PLAN.md`: fairway outline contract, tee-result classifier, score source, correction log, and new statistics fields. Keep Python/Swift contracts aligned; no UI batch should invent missing backend fields. | B0a merged through PR #335 at `0256f48f`; B0b merged through PR #336 at `6a8e295d` with Source CI `36369961305` and Native CI `36369961338` (iOS `365/365`, Watch `337/337`). B0c merged through PR #337 at `be3867f2`, with the test-isolation closeout in PR #339 at `556dea43` and Source CI `36375145151`. B0d-1 merged through PR #338 at `390e72ed` from exact head `24614bd2`; focused homeserver suites `36/36`, real 471-round reversal/ref checks, source CI `36377589609`, and post-merge main CI `36378361410` are green. B0d-2 merged through PR #340 at `895ea5de` from exact head `946b082b`; homeserver focused suites `101/101`, source CI `36385272588`, and post-merge main CI `36386586960` are green. Review snapshot cleanup is recorded under `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T0620Z-pr340-review-snapshot/`; the all-PR monitor is recorded under `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260928T0612Z-pr-feedback-monitor/`. |
-| `B1-B7-REVIEW` | `in-progress` | Review each UI-redesign PR from `claude/code-audit-performance-17wqcv` at its exact head, including relevant homeserver tests, Native Mobile CI, and matching iOS/Watch screenshots; comment findings and merge only with no P1/P2 blockers. | B1-B5c are merged through PR #366 at `48e0ec37`; exact-head pass comment `5949586325`, post-merge main CI `36992053356`, and review-resource cleanup are complete. PR #367 B6 current head `e9f08b1e` follows the two Watch UI failures on `b077b5ae`; static review is clean, Source `37018360869` is green and exact-head focused suites pass `125/125`. Native `37018360445`, matching artifacts, synthetic parentage and final runtime evidence remain open. The superseded `b077b5ae` resources are closed with evidence retained; `e9f08b1e` owns the sole active review snapshot. Do not merge or start B7. |
+| `B1-B7-REVIEW` | `in-progress` | Review each UI-redesign PR from `claude/code-audit-performance-17wqcv` at its exact head, including relevant homeserver tests, Native Mobile CI, and matching iOS/Watch screenshots; comment findings and merge only with no P1/P2 blockers. | B1-B5c are merged through PR #366 at `48e0ec37`; exact-head pass comment `5949586325`, post-merge main CI `36992053356`, and review-resource cleanup are complete. PR #367 B6 current head `e687a45c` follows the single system-alert-intercepted UI failure on `e9f08b1e`; static review is clean, Source `37020618516` is green and exact-head focused suites pass `125/125`. Native `37020618633`, matching artifacts, synthetic parentage and final runtime evidence remain open. The superseded `e9f08b1e` resources are closed with evidence retained; `e687a45c` owns the sole active review snapshot. Do not merge or start B7. |
 | `SYNC-RECOVERY-20260925` | `done` | Restore the Garmin cron after the API deployment, then make API-to-sync image binding and missing-image alerting part of the deployment/runtime contract. | Same-revision image built and one-shot incremental sync completed; production history overview shows round `17711803`. Remote deployment-manifest tests `17/17` pass. Installed wrapper check-only probe passes against production; prior wrapper is checksum-preserved. |
 | `NET-PRIORITY` | `evidence-open` | Rebuild iOS/Web/Watch and backend network lifecycles so P0 local/current-hole content is available first, Garmin sync/history/package work is independently cancellable and cacheable, and non-critical work cannot block startup; verify Garmin-authoritative localized venue names. | Network-lifecycle commit `fc5152ab77ef0566c66d5dda601a194b72fee55f` with backend parity at `41eb8e1ae237490b88757669bcde845640bb5e42`, followed by localized-name source/backend `7ef3fcc833790bc49b02c94e7685f11f5d624d2b`; Source CI `35267621896`; Native Mobile CI `35270792248` attempt 2; Opus 5 report `/home/jason/garmin-ai-caddie-data/operations/opus5-net-priority-20260916.report.md`; TestFlight CD `35279960708` uploaded Build 65; ASC check `35281034084`; IPA diagnostic `35281036748`. Physical iPhone/Watch interaction, GPS-based venue/name parity, and fresh Garmin reconnect remain evidence-open. |
 | `PHONE-UX5` | `evidence-open` | Verify Garmin's localized-name authority and make iPhone, Apple Watch, and Web consume one backend-owned canonical ball-course identity; keep layout labels separate, reject `ABC/AC/AF/AB` as venue names, and use `球场` rather than `课程` in every user-facing Chinese string. | Commit `7ef3fcc833790bc49b02c94e7685f11f5d624d2b` completes the `zh_CHS` OMT contract and removes the user-facing manual course-name entry. Source CI `35267621896`, Native Mobile CI `35270792248` attempt 2, TestFlight CD `35279960708`, Apple read-only check `35281034084`, and exact IPA/Watch diagnostic `35281036748` are green; Build 65 is `VALID`/`IN_BETA_TESTING` and visible in the existing internal group. Physical iPhone/Watch name parity, Garmin reconnect, and final hardware interaction remain open. |
@@ -5216,8 +5234,8 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Exact Next Actions
 
-1. Finish exact PR #367 head `e9f08b1e`: require Native Mobile CI
-   `37018360445` to pass both iOS and Watch, verify synthetic parentage, and
+1. Finish exact PR #367 head `e687a45c`: require Native Mobile CI
+   `37020618633` to pass both iOS and Watch, verify synthetic parentage, and
    inspect its matching design/Watch/native artifacts against the B6 README,
    implementation plan and accepted PR #366 baseline. Re-check the real
    three-page swipe, post-tee plan selector/detail and all changed Watch states.
@@ -5229,9 +5247,9 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## Open Blockers / Facts
 
-- PR #367 current head `e9f08b1e` has no known static P1/P2 blocker. Source CI
-  `37018360869` and exact-head focused suites (`125/125`) are green. Native
-  `37018360445`, matching artifacts, synthetic parentage and final
+- PR #367 current head `e687a45c` has no known static P1/P2 blocker. Source CI
+  `37020618516` and exact-head focused suites (`125/125`) are green. Native
+  `37020618633`, matching artifacts, synthetic parentage and final
   production-container runtime are still required before approval or merge.
 - Local machine is an editing/control plane; builds, Xcode, Playwright and
   other heavy work run on homeserver or GitHub Actions.
@@ -5273,7 +5291,16 @@ Native runs recorded above; it is retained only as historical diagnosis.
 
 ## State Changes
 
-- 2026-10-02: PR #367 advanced from `b077b5ae` to current exact head
+- 2026-10-02: PR #367 advanced from `e9f08b1e` to current exact head
+  `e687a45c`. Native `37018360445` passed iOS `607/607`, Watch unit `416/416`
+  and real three-page navigation; only the post-tee plan-switch tap was
+  intercepted by the simulator's location prompt. The new head retries the
+  actual production button after that interruption and excludes its frame from
+  measure placement without weakening the assertions. Source `37020618516` and
+  homeserver focused suites `125/125` are green; Native `37020618633` is
+  running. The old resources are evidence-preserved and closed; the new exact
+  head owns the sole read-only snapshot. No approval, merge or B7 work started.
+- 2026-10-02: PR #367 advanced from `b077b5ae` to exact head
   `e9f08b1e`. Native `37015157560` passed iOS and `416/416` Watch unit tests but
   failed the post-tee provenance and real three-page swipe UI tests. The new
   head corrects those fixtures/gesture owners; Source `37018360869` and
