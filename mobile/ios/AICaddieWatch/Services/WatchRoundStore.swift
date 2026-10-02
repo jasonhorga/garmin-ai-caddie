@@ -69,6 +69,19 @@ public struct WatchGreenPlacement: Codable, Equatable {
 /// `OfflineStore` — it persists the per-hole `WatchRoundState` snapshots + a pending-event queue (not
 /// a full event-log-replay), which is enough for the watch to keep score on its own and sync up when
 /// it reaches the backend (via `WatchBackendClient`).
+/// The phone's shots on one hole, by location event id, as of the phone's own clock.
+public struct WatchPhoneShotSet: Codable, Equatable {
+    public let hole: Int
+    public let eventIds: [String]
+    public let asOf: String
+
+    public init(hole: Int, eventIds: [String], asOf: String) {
+        self.hole = hole
+        self.eventIds = eventIds
+        self.asOf = asOf
+    }
+}
+
 public final class WatchRoundStore {
     public struct DeferredFinish: Codable, Equatable {
         public var round: PersistedRound
@@ -100,6 +113,9 @@ public final class WatchRoundStore {
         /// Round-scoped View Green choices. Optional keeps rounds written by older builds decodable.
         /// Terminal round closure removes the containing round, so these never leak into a new game.
         public var greenPlacements: [WatchGreenPlacement]?
+        /// Per hole, the phone's newest known shot set (`WatchRoundState.phoneShotEventIds`). Kept
+        /// here, not in the hole snapshot, so recording a Watch shot never drops it.
+        public var phoneShots: [WatchPhoneShotSet]?
 
         public init(
             roundId: String,

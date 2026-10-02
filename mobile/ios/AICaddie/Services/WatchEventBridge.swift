@@ -486,6 +486,11 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let putts: Int
     public let penaltyCount: Int
     public let caddieConfidence: String
+    /// The hole's shots the phone holds as this snapshot is sent, by location event id (phone shots,
+    /// and Watch shots under their Watch ids), with when it was read. Separate from a decision's
+    /// origin: a shot recorded only on the phone after a decision still makes that decision stale.
+    public var phoneShotEventIds: [String]? = nil
+    public var phoneShotsAsOf: String? = nil
 }
 
 public enum WatchEventBridgeError: Error {
@@ -595,7 +600,9 @@ public final class WatchEventBridge: NSObject {
         geometryRevision: String? = nil,
         caddieOptions: [WatchCaddieOption] = [],
         hazards: [WatchHazard] = [],
-        decisionOriginShotEventIds: [String]? = nil
+        decisionOriginShotEventIds: [String]? = nil,
+        phoneShotEventIds: [String]? = nil,
+        phoneShotsAsOf: String? = nil
     ) -> WatchRoundStatePayload {
         let selected = selectedOption(from: decision)
         let offlineSelected = selectedOfflineOption(from: offlineOption)
@@ -673,7 +680,9 @@ public final class WatchEventBridge: NSObject {
             score: score,
             putts: putts,
             penaltyCount: penaltyCount,
-            caddieConfidence: confidenceLevel(from: decision, offlineOption: offlineSelected)
+            caddieConfidence: confidenceLevel(from: decision, offlineOption: offlineSelected),
+            phoneShotEventIds: phoneShotEventIds,
+            phoneShotsAsOf: phoneShotsAsOf
         )
     }
 

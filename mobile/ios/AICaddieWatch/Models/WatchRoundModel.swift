@@ -479,8 +479,11 @@ public final class WatchRoundModel: ObservableObject {
     /// the stricter Hole Root gate below: useful detail data must not automatically become a live call.
     public var caddieDetailAvailable: Bool {
         guard let state = activeHoleState else { return false }
+        // With plans on the hole, only a current one opens the detail: a finished or stale plan
+        // (and the decision's own text about it) is never brought back from the menu.
+        guard state.caddieOptions.isEmpty else { return !currentCaddieOptions(progressM: nil).isEmpty }
         let club = state.suggestedClub?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return !club.isEmpty || !state.caddieOptions.isEmpty
+        return !club.isEmpty
     }
 
     public var hazardDetailAvailable: Bool {
@@ -927,8 +930,23 @@ public final class WatchRoundModel: ObservableObject {
                 courseHoleNumber: merged.courseHoleNumber ?? previous.courseHoleNumber
             )
         }
-        guard let persisted = try? store.upsertHoleState(merged, makeActive: false) else {
+        guard var persisted = try? store.upsertHoleState(merged, makeActive: false) else {
             return
+        }
+        // The phone's current shots on this hole, newest snapshot wins (a late, older snapshot
+        // never rolls it back; a phone shot deleted later leaves the newer set).
+        if let ids = state.phoneShotEventIds {
+            let incoming = WatchPhoneShotSet(hole: state.hole, eventIds: ids, asOf: state.phoneShotsAsOf ?? "")
+            var sets = persisted.phoneShots ?? []
+            if let index = sets.firstIndex(where: { $0.hole == state.hole }) {
+                if sets[index].asOf <= incoming.asOf { sets[index] = incoming }
+            } else {
+                sets.append(incoming)
+            }
+            if sets != persisted.phoneShots {
+                persisted.phoneShots = sets
+                try? store.save(persisted)
+            }
         }
         self.round = persisted
     }
@@ -939,7 +957,7 @@ public final class WatchRoundModel: ObservableObject {
     /// these, never the raw `caddieOptions`.
     public func currentCaddieOptions(progressM: Double?) -> [WatchCaddieOption] {
         guard let state = activeHoleState else { return [] }
-        let shots = watchShotEventIds(for: state.hole)
+        let shots = knownShotEventIds(for: state.hole)
         // A plan with nothing left to play (finished, or a stale live plan that failed closed) is
         // not offered at all.
         return state.caddieOptions
@@ -1388,6 +1406,14 @@ public final class WatchRoundModel: ObservableObject {
         round?.pendingEvents.compactMap { event in
             event.hole == hole && event.kind == .location ? event.eventId : nil
         } ?? []
+    }
+
+    /// Every shot on this hole either device knows of: the phone's newest shot set plus the Watch's
+    /// own location events (a Watch shot keeps its id on the phone, so none is counted twice).
+    func knownShotEventIds(for hole: Int) -> [String] {
+        let phone = round?.phoneShots?.first { $0.hole == hole }?.eventIds ?? []
+        var seen = Set(phone)
+        return phone + watchShotEventIds(for: hole).filter { seen.insert($0).inserted }
     }
 
     private func recordedShotCount(for hole: Int) -> Int {

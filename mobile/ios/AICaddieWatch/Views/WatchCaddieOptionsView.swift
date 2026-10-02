@@ -443,7 +443,10 @@ public struct WatchCaddieScreen: View {
     var showsPlanOptionsFirst: Bool { !options.isEmpty }
 
     public var body: some View {
-        if showsPlanOptionsFirst {
+        if !showsPlanOptionsFirst && !state.caddieOptions.isEmpty {
+            // The hole's plans are all played or stale: never fall back to the raw decision text.
+            Color.black.onAppear(perform: onBack)
+        } else if showsPlanOptionsFirst {
             WatchCaddieOptionsView(
                 hole: state.displayHoleNumber,
                 par: state.par,

@@ -591,6 +591,10 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let putts: Int
     public let penaltyCount: Int
     public let caddieConfidence: String
+    /// The phone's current shots on this hole when it sent this snapshot (by location event id)
+    /// and when it read them. Kept per hole in `PersistedRound.phoneShots`, newest wins.
+    public let phoneShotEventIds: [String]?
+    public let phoneShotsAsOf: String?
 
     enum CodingKeys: String, CodingKey {
         case schema
@@ -647,6 +651,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case putts
         case penaltyCount
         case caddieConfidence
+        case phoneShotEventIds
+        case phoneShotsAsOf
     }
 
     public init(
@@ -702,7 +708,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         score: Int,
         putts: Int,
         penaltyCount: Int,
-        caddieConfidence: String
+        caddieConfidence: String,
+        phoneShotEventIds: [String]? = nil,
+        phoneShotsAsOf: String? = nil
     ) {
         self.roundId = roundId
         self.hole = hole
@@ -757,6 +765,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.putts = putts
         self.penaltyCount = penaltyCount
         self.caddieConfidence = caddieConfidence
+        self.phoneShotEventIds = phoneShotEventIds
+        self.phoneShotsAsOf = phoneShotsAsOf
     }
 
     public init(from decoder: Decoder) throws {
@@ -820,6 +830,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.putts = try container.decode(Int.self, forKey: .putts)
         self.penaltyCount = try container.decode(Int.self, forKey: .penaltyCount)
         self.caddieConfidence = try container.decode(String.self, forKey: .caddieConfidence)
+        self.phoneShotEventIds = try container.decodeIfPresent([String].self, forKey: .phoneShotEventIds)
+        self.phoneShotsAsOf = try container.decodeIfPresent(String.self, forKey: .phoneShotsAsOf)
     }
 
     public func replacingRoundId(_ newRoundId: String) -> WatchRoundState {

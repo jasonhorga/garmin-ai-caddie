@@ -3606,7 +3606,11 @@ public struct CurrentHoleView: View {
             geometryRevision: holePrep?.geometryRevision ?? hole.geometryRevision,
             hazards: watchHazards(),
             // Only the decision being sent carries its origin; a nil decision has no plan.
-            decisionOriginShotEventIds: decision.flatMap { $0 == caddieDecision ? caddieDecisionOriginShot : nil }
+            decisionOriginShotEventIds: decision.flatMap { $0 == caddieDecision ? caddieDecisionOriginShot : nil },
+            // The phone's current shots on this hole, so a shot recorded only here after the
+            // decision still retires it on the Watch.
+            phoneShotEventIds: recordedShotEventIds,
+            phoneShotsAsOf: ISO8601DateFormatter().string(from: Date())
         )
         if let state {
             try? watchBridge?.sendStateToWatch(state)

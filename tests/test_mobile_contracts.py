@@ -5420,7 +5420,16 @@ class WatchHolePagesContractTests(unittest.TestCase):
         self.assertLess(load.index("let originShot = recordedShotEventIds"), load.index("await "))
         self.assertIn("decisionOriginShotEventIds:", hole_view)
         # One shot identity on both devices: Watch shots counted by event id, never a queue length.
-        self.assertIn("watchShotEventIds: shots", model)
+        self.assertIn("let shots = knownShotEventIds(for: state.hole)", model)
+        # The phone's current shot set travels with every snapshot, newest wins, kept per hole.
+        self.assertIn("phoneShotEventIds: recordedShotEventIds", hole_view)
+        self.assertIn("if sets[index].asOf <= incoming.asOf { sets[index] = incoming }", model)
+        # Menu 球童 consumes the same current projection; no raw-decision fallback once plans exist.
+        available = model[model.index("public var caddieDetailAvailable: Bool {"):]
+        available = available[: available.index("public var hazardDetailAvailable")]
+        self.assertIn("currentCaddieOptions(progressM: nil)", available)
+        container = self.read("Views/WatchRoundContainerView.swift")
+        self.assertIn("Self.planNote(caddieOption(s), stateRemainingM: s.caddieOptions.isEmpty ? s.expectedRemainingM : nil)", container)
         self.assertNotIn("originShotIndex", bridge + model + self.read("Models/WatchRoundState.swift"))
 
     def test_a_current_plan_drives_the_club_tag_and_the_caddie_detail_draws_every_leg(self) -> None:
