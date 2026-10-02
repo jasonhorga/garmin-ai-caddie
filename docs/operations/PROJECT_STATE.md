@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-10-02 19:33 UTC
+**Updated:** 2026-10-02 22:26 UTC
 **Branch:** `main`; product canonical source revision is
 `670497227dca50f0740dd5df594357279e438dca` (PR #367 B6, PR #366 B5c,
 PR #365 B5b, PR #364 B5a, PR #363 B4c, PR #362 B4b-2, PR #361 B4b,
