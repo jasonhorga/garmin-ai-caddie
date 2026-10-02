@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-10-02 10:51 UTC
+**Updated:** 2026-10-02 11:11 UTC
 **Branch:** `main`; product canonical source revision is
 `48e0ec3754303aa605a874940140bd24f5d3d61e` (PR #366 B5c, PR #365 B5b, PR #364 B5a,
 PR #363 B4c, PR #362 B4b-2, PR #361 B4b, PR #360 B4a and PR #359 B3 are
@@ -163,14 +163,20 @@ under `/home/jason/garmin-ai-caddie-data/review-evidence/pr366/`. No production
 service, volume, port, tunnel, dependency installation, or background process
 was created or changed.
 
-PR #367 (B6 Watch UI) is the current open ready-for-review PR at corrected
-exact head `9723836dc266d4fea6aeb2f2e2974d0ccbce7cd9`. Corrective commit
-`9723836d` claims to resolve every finding in blocking review comment
-`5950290683`. Source CI `36996510975` has passed all three jobs; Native Mobile
-CI `36996510919` remains in progress. Static delta review is in progress, and
-no merge decision has been made. Fresh exact-head focused tests, matching
-design/Watch/native artifacts, synthetic-merge parentage, and the new
-production-container Watch captures are still required.
+PR #367 (B6 Watch UI) is the current open ready-for-review PR at latest exact
+head `bc7df609bfb6b9af75959771b24b162eaf65f70b`. Corrective commit `9723836d`
+claimed to resolve every finding in blocking review comment `5950290683`, but
+its Native Mobile CI `36996510919` failed with three Watch failures: the
+container-scoring snapshot collapsed to 20 px height and the vertical score
+band assertions returned `-2` / `1` instead of `2` / `-1`. Failure log
+SHA-256 is
+`2c099536037ddbb729519aee5e8197e26f250dd70661193001340c3729eade55`.
+Follow-up commit `bc7df609` fixes those two causes. Its Source CI
+`36998157089` and Native Mobile CI `36998157090` have passed. Static delta
+review remains in progress, and no merge decision has been made. Fresh
+exact-head focused tests, matching design/Watch/native artifacts,
+synthetic-merge parentage, and production-container Watch captures are still
+required.
 
 Review comment `5950290683` blocks this head. P1 findings: the plan page reads
 and draws only `plan.first` instead of every remaining shot and label; the
@@ -201,6 +207,9 @@ read-only snapshot
 `/home/jason/codex-runs/aicaddie-pr367-9723836d-artifacts-20261002T104255Z`,
 and bounded local screenshot target
 `/home/ubuntu/claude-web-data/data/garmin-ai-caddie/reviews/pr367-9723836d-20261002T104255Z`.
+The exact-head Python contract suites passed `120/120` in 5.250s; focused-log
+SHA-256 is
+`9d45a1e110f694dea6597adb31ac0b608a640c22a0d28633a7b3d0b29706a210`.
 No persistent container, service, port, volume, dependency installation or
 background process was created by this review.
 
