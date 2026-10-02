@@ -25,6 +25,9 @@ public struct AICaddieWatchApp: App {
     @StateObject private var watchLocation = WatchLocationProvider()
     @StateObject private var autoShotProvider = WatchAutoShotProvider()
     @AppStorage("watch.gpsPreheatEnabled") private var gpsPreheatEnabled = true
+    /// B7 step 1 (实验): record swing candidates and their features; never changes a score.
+    @AppStorage("watch.collectSwingFeatures") private var collectSwingFeatures = false
+    private let swingCandidateStore = WatchSwingCandidateStore()
 
     public init() {}
 
@@ -36,6 +39,7 @@ public struct AICaddieWatchApp: App {
                     roundModel.config = newConfig
                     if newConfig != nil {
                         Task { await roundModel.retryDeferredFinishes() }
+                        Task { await uploadFinishedSwingCandidates() }
                     }
                 }
                 .onChange(of: syncClient.roundSeed, initial: true) { _, seed in
@@ -90,6 +94,26 @@ public struct AICaddieWatchApp: App {
                 }
                 .onChange(of: gpsPreheatEnabled, initial: true) { _, _ in
                     reconcileLocationServices()
+                }
+                .onChange(of: collectSwingFeatures) { _, _ in reconcileAutoShot() }
+                .onChange(of: roundModel.round?.roundId) { _, _ in
+                    // A round that ended (or was replaced) uploads its candidates.
+                    Task { await uploadFinishedSwingCandidates() }
+                }
+                .onChange(of: autoShotProvider.latestSwing) { _, observation in
+                    guard collectSwingFeatures, let observation, let round = roundModel.round else { return }
+                    let fix = watchLocation.latestFix
+                    swingCandidateStore.append(
+                        WatchSwingCandidateRecord(
+                            capturedAt: ISO8601DateFormatter().string(from: Date()),
+                            hole: roundModel.activeHole,
+                            features: observation.features,
+                            horizontalAccuracyM: fix?.horizontalAccuracyM,
+                            speedMps: nil,
+                            proposedShot: observation.proposedShot
+                        ),
+                        roundId: round.roundId
+                    )
                 }
                 .onChange(of: qualifiedWatchFix?.capturedAt) { _, _ in
                     // B6 洞结束: walking off the green toward the next tee opens 本洞成绩.
@@ -319,6 +343,29 @@ public struct AICaddieWatchApp: App {
         return "\(roundModel.round?.roundId ?? "-"):\(globalId):\(state.hole):\(state.geometryRevision ?? "-")"
     }
 
+    /// B7 step 1: candidates of rounds that are no longer active go up with their features only;
+    /// a failed upload stays on the Watch for the next try.
+    private func uploadFinishedSwingCandidates() async {
+        guard let config = syncClient.config else { return }
+        let activeId = roundModel.round?.roundId
+        for roundId in swingCandidateStore.pendingRoundIds() where roundId != activeId {
+            let candidates = swingCandidateStore.load(roundId: roundId)
+            guard !candidates.isEmpty else {
+                swingCandidateStore.remove(roundId: roundId)
+                continue
+            }
+            let client = WatchBackendClient(
+                baseURL: config.baseURL,
+                adminToken: config.adminToken,
+                sessionToken: config.sessionToken,
+                sessionTokenExpiresAt: config.sessionTokenExpiresAt
+            )
+            if (try? await client.uploadSwingCandidates(roundId: roundId, candidates: candidates)) != nil {
+                swingCandidateStore.remove(roundId: roundId)
+            }
+        }
+    }
+
     private func reconcileAutoShot() {
         let keepWorkoutActive = WatchLocationLaunchPolicy.shouldKeepRoundWorkoutSession(
             hasActiveRound: roundModel.round != nil && roundModel.screen != .resume
@@ -326,7 +373,8 @@ public struct AICaddieWatchApp: App {
         Task {
             await autoShotProvider.reconcile(
                 roundActive: keepWorkoutActive,
-                autoShotEnabled: keepWorkoutActive && roundModel.autoShotEnabled
+                autoShotEnabled: keepWorkoutActive && roundModel.autoShotEnabled,
+                collectSwingFeatures: keepWorkoutActive && collectSwingFeatures
             )
         }
     }

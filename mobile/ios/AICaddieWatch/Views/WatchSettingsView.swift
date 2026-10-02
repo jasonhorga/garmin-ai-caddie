@@ -6,6 +6,9 @@ import WatchKit
 public struct WatchSettingsView: View {
     @Binding public var gpsPreheatEnabled: Bool
     @Binding public var bigTextMode: Bool
+    /// B7 step 1 (实验): record swing candidates and their features for later tuning; never changes
+    /// a score and never proposes a shot by itself.
+    @AppStorage("watch.collectSwingFeatures") private var collectSwingFeatures = false
     public let autoShotSupported: Bool
     public let autoShotEnabled: Bool
     public let autoShotStatus: String
@@ -65,6 +68,15 @@ public struct WatchSettingsView: View {
                 .disabled(!autoShotSupported)
                 .accessibilityHint(autoShotSupported ? autoShotStatus : "本机不支持")
                 .padding(.vertical, 7)
+                Divider()
+
+                Toggle("采集挥杆数据", isOn: $collectSwingFeatures)
+                    .font(.system(size: 17, weight: .bold))
+                    .toggleStyle(WatchApprovedToggleStyle())
+                    .disabled(!autoShotSupported)
+                    .accessibilityHint("实验：只记录挥杆特征，不改成绩")
+                    .accessibilityIdentifier("watch-settings-collect-swings")
+                    .padding(.vertical, 7)
                 Divider()
 
                 HStack(spacing: 6) {

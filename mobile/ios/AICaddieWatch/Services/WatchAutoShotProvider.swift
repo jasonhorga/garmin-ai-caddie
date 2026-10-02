@@ -34,6 +34,20 @@ public struct WatchAutoShotSignal: Equatable, Identifiable {
     }
 }
 
+/// B7 step 1: one settled swing-like motion with its features. `proposedShot` says whether the
+/// AutoShot detector also proposed it.
+public struct WatchSwingObservation: Equatable, Identifiable {
+    public let id: UUID
+    public let features: WatchSwingFeatures
+    public let proposedShot: Bool
+
+    public init(id: UUID = UUID(), features: WatchSwingFeatures, proposedShot: Bool) {
+        self.id = id
+        self.features = features
+        self.proposedShot = proposedShot
+    }
+}
+
 private enum WatchAutoShotProviderError: Error {
     case unsupported
     case authorizationFailed
@@ -47,11 +61,18 @@ private enum WatchAutoShotProviderError: Error {
 public final class WatchAutoShotProvider: NSObject, ObservableObject {
     @Published public private(set) var state: WatchAutoShotRuntimeState
     @Published public private(set) var latestSignal: WatchAutoShotSignal?
+    /// B7 step 1: the latest settled swing candidate while collection is on.
+    @Published public private(set) var latestSwing: WatchSwingObservation?
 
     private let healthStore: HKHealthStore
     private let sensorManager: CMBatchedSensorManager
     private let log = Logger(subsystem: "com.aicaddie.watch", category: "autoshot")
     private var detector = WatchAutoShotDetector()
+    private var collector = WatchSwingCandidateCollector()
+    private var autoShotWanted = false
+    private var collectWanted = false
+    /// Motion timestamp of the detector's latest proposal, to tag the matching candidate.
+    private var lastDetectionTimestamp: TimeInterval?
     private var workoutSession: HKWorkoutSession?
     private var roundSessionDesired = false
     private var startingWorkoutSession = false
@@ -82,6 +103,14 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
 
     public func start() async {
         await reconcile(roundActive: true, autoShotEnabled: true)
+    }
+
+    /// B7 step 1: motion streams run while AutoShot or swing-candidate collection is on. Collection
+    /// only records candidates and never proposes a shot.
+    public func reconcile(roundActive: Bool, autoShotEnabled: Bool, collectSwingFeatures: Bool) async {
+        autoShotWanted = autoShotEnabled
+        collectWanted = collectSwingFeatures
+        await reconcile(roundActive: roundActive, autoShotEnabled: autoShotEnabled || collectSwingFeatures)
     }
 
     /// A round always owns a golf workout session so Core Location remains eligible in the
@@ -186,6 +215,8 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
         guard desiredActive, !streamsActive else { return }
         streamsActive = true
         detector.reset()
+        collector.reset()
+        lastDetectionTimestamp = nil
 
         sensorManager.startDeviceMotionUpdates { [weak self] batch, error in
             if let error {
@@ -206,6 +237,11 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self, self.desiredActive else { return }
                 self.publish(self.detector.appendDeviceMotion(samples))
+                if self.collectWanted, let features = self.collector.appendRotation(samples) {
+                    let newest = samples.map(\.timestamp).max() ?? 0
+                    let proposed = self.lastDetectionTimestamp.map { newest - $0 <= 3 } ?? false
+                    self.latestSwing = WatchSwingObservation(features: features, proposedShot: proposed)
+                }
             }
         }
 
@@ -225,6 +261,7 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
             guard !samples.isEmpty else { return }
             Task { @MainActor [weak self] in
                 guard let self, self.desiredActive else { return }
+                if self.collectWanted { self.collector.appendAcceleration(samples) }
                 self.publish(self.detector.processAccelerometer(samples))
             }
         }
@@ -237,10 +274,14 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
         }
         streamsActive = false
         detector.reset()
+        collector.reset()
     }
 
     private func publish(_ detections: [WatchAutoShotDetection]) {
         for detection in detections {
+            lastDetectionTimestamp = detection.timestamp
+            // Collection alone never proposes a shot.
+            guard autoShotWanted || !collectWanted else { continue }
             latestSignal = WatchAutoShotSignal(motionTimestamp: detection.timestamp)
         }
     }

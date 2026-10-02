@@ -24,7 +24,7 @@ from ai_caddie.courses import course_reconciliation, course_search
 from ai_caddie.courses.course_reference import record_courseview_catalogue_names
 from ai_caddie.history import stats_cache
 from ai_caddie.history.stats_cache import cached_load_history_data
-from ai_caddie.rounds import correction_audit, round_corrections, round_ingest
+from ai_caddie.rounds import correction_audit, round_corrections, round_ingest, swing_candidates
 from ai_caddie.rounds.players import OWNER_ID
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error, sanitize_safe_meta
 from ai_caddie.connectors.snapshot import snapshot_to_payload, write_connector_status
@@ -98,6 +98,7 @@ from .players_api import (
 from .prep_tips import load_prep_tips_response
 from .weather import load_weather_snapshot_response
 from .models import (
+    SwingCandidatesRequest,
     AnnotationCreateRequest,
     AnnotationCreateResponse,
     AnnotationListResponse,
@@ -441,6 +442,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
         ("/api/v2/mobile/rounds/", "/events"),
         ("/api/v2/mobile/rounds/", "/events/ack"),
         ("/api/v2/mobile/rounds/", "/finish"),
+        ("/api/v2/mobile/rounds/", "/swing-candidates"),
         ("/api/v2/mobile/rounds/", "/reconciliation/apply"),
         ("/api/v2/reports/round/", "/generate"),
         ("/api/v2/reports/trend/", "/generate"),
@@ -2391,6 +2393,20 @@ def mobile_round_finish(
     acting_player_id: str = Depends(current_player_id),
 ) -> RoundIngestResponse:
     return finish_mobile_round_response(round_id, request, player_id=acting_player_id)
+
+
+@app.post("/api/v2/mobile/rounds/{round_id}/swing-candidates", status_code=201)
+def mobile_round_swing_candidates(
+    round_id: str,
+    body: SwingCandidatesRequest,
+    acting_player_id: str = Depends(current_player_id),
+) -> dict:
+    """B7 step 1: the Watch's swing candidates for one round — derived features only, never raw
+    motion, and never a score change. The whole round's set replaces any earlier upload."""
+    try:
+        return swing_candidates.store_candidates(acting_player_id, round_id, body.candidates)
+    except swing_candidates.SwingCandidateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/api/v2/mobile/rounds/{round_id}/events/replay", response_model=LiveRoundEventReplayResponse)

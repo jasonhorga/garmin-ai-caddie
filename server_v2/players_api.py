@@ -295,6 +295,8 @@ def is_player_scoped_route(method: str, path: str) -> bool:
             (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events/ack"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/finish"))
+            # B7 step 1: swing-candidate features land in the caller's own partition.
+            or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/swing-candidates"))
             # Media WRITES — the media store is per-player partitioned, so a member writes ONLY to
             # their own media (the handlers thread current_player_id).
             or path == "/api/v2/media"

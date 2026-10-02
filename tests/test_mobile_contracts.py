@@ -4867,6 +4867,32 @@ class MobileContractTests(unittest.TestCase):
         green = _read_required_source(self, WATCH_DIR / "Views" / "WatchGreenPreviewView.swift")
         self.assertIn("through: Double(WatchHoleZoom.range.upperBound)", green)
 
+    def test_watch_b7_step1_collects_swing_candidates_without_touching_scores(self) -> None:
+        # B7 step 1: behind an experimental switch the Watch records swing candidates with derived
+        # features only (raw motion stays on the wrist), stores them outside the round, and uploads
+        # them per finished round. Collection alone never proposes a shot or writes a round event.
+        candidates = _read_required_source(self, WATCH_DIR / "Services" / "WatchSwingCandidates.swift")
+        for token in ["enum WatchSwingKind", "struct WatchSwingFeatures", "enum WatchSwingFeatureExtractor",
+                      "struct WatchSwingCandidateCollector", "struct WatchSwingCandidateStore",
+                      "static let ridingSpeedMps = 2.5"]:
+            self.assertIn(token, candidates)
+        self.assertNotIn("WatchInputEvent", candidates)
+        provider = _read_required_source(self, WATCH_DIR / "Services" / "WatchAutoShotProvider.swift")
+        self.assertIn("collectSwingFeatures: Bool", provider)
+        self.assertIn("guard autoShotWanted || !collectWanted else { continue }", provider)
+        app = _read_required_source(self, WATCH_DIR / "AICaddieWatchApp.swift")
+        self.assertIn('@AppStorage("watch.collectSwingFeatures") private var collectSwingFeatures = false', app)
+        handler = app[app.index(".onChange(of: autoShotProvider.latestSwing)"):]
+        handler = handler[: handler.index(".onChange(of: qualifiedWatchFix?.capturedAt)")]
+        self.assertIn("swingCandidateStore.append(", handler)
+        self.assertNotIn("roundModel.begin", handler)
+        self.assertNotIn("roundModel.propose", handler)
+        self.assertIn("uploadSwingCandidates(roundId: roundId, candidates: candidates)", app)
+        client = _read_required_source(self, WATCH_DIR / "Services" / "WatchBackendClient.swift")
+        self.assertIn('/api/v2/mobile/rounds/\\(roundId)/swing-candidates', client)
+        settings = _read_required_source(self, WATCH_DIR / "Views" / "WatchSettingsView.swift")
+        self.assertIn('Toggle("采集挥杆数据", isOn: $collectSwingFeatures)', settings)
+
     def test_watch_state_includes_next_shot_prompt_from_phone_bridge(self) -> None:
         bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
         state_swift = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundState.swift")

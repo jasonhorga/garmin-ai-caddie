@@ -729,6 +729,21 @@ public final class WatchBackendClient {
         return request
     }
 
+    /// B7 step 1: one round's swing candidates (features only) to the player's own partition.
+    public func makeSwingCandidatesRequest(roundId: String, candidates: [WatchSwingCandidateRecord]) throws -> URLRequest {
+        var request = URLRequest(url: endpointURL("/api/v2/mobile/rounds/\(roundId)/swing-candidates"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+        struct Body: Encodable { let candidates: [WatchSwingCandidateRecord] }
+        request.httpBody = try JSONEncoder().encode(Body(candidates: candidates))
+        return request
+    }
+
+    public func uploadSwingCandidates(roundId: String, candidates: [WatchSwingCandidateRecord]) async throws {
+        _ = try await sendForJSON(try makeSwingCandidatesRequest(roundId: roundId, candidates: candidates))
+    }
+
     public func parseEventResult(_ data: Data) -> WatchBackendEventResult {
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         return WatchBackendEventResult(
