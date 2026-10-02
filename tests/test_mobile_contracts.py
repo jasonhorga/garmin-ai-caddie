@@ -4689,7 +4689,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("WatchGreenMagnifierLayout.position", green_view)
         self.assertIn('watch-green-flag-magnifier', green_view)
         self.assertNotIn("onLongPressGesture", map_view)
-        self.assertIn(".onLongPressGesture(minimumDuration: 0.6) { model.openMenu() }", container)
+        self.assertIn(".onLongPressGesture(minimumDuration: 0.6) { if !planViewport.isZoomed { model.openMenu() } }", container)
         self.assertIn("let yardsPerPixel", map_view) # derived px→码, no extra payload
         self.assertIn(".onTapGesture { holeMapBigText.toggle() }", container)
 
@@ -4827,6 +4827,45 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("ringPips", _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundHomeView.swift"))
         self.assertIn("ringPips", _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapView.swift"))
         self.assertIn("WatchRingPip(", container)  # container feeds pips from allHoleStates
+
+    def test_watch_b6_score_screen_shot_undo_and_hole_end(self) -> None:
+        # B6 (README §3): no 刚才用哪支杆？ prompt; a detected shot shows 第 N 杆 with an undo and is
+        # recorded after its window; 本洞成绩 is one screen; the hole ends by GPS (green → next tee).
+        self.assertFalse((WATCH_DIR / "Views" / "WatchClubPromptView.swift").exists())
+        model = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundModel.swift")
+        self.assertNotIn("case clubPrompt", model)
+        for token in ["func undoPendingManualShot()", "var undoableShotText", "func observeLocation(",
+                      "enum WatchScoreRules", "func setDraftPutts(", "func setDraftPenalty(",
+                      "if scoringHole == hole.hole, advanceAfterScoring"]:
+            self.assertIn(token, model)
+        container = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundContainerView.swift")
+        self.assertIn("WatchShotUndoStrip(text: text) { model.undoPendingManualShot() }", container)
+        self.assertIn("model.completePendingManualShot(clubName: nil)", container)
+        self.assertIn("onPutts: { model.setDraftPutts($0) }", container)
+        detector = _read_required_source(self, WATCH_DIR / "Services" / "WatchHoleEndDetector.swift")
+        self.assertIn("static let leaveGreenM = 25.0", detector)
+        app = _read_required_source(self, WATCH_DIR / "AICaddieWatchApp.swift")
+        self.assertIn("roundModel.observeLocation(", app)
+        score = _read_required_source(self, WATCH_DIR / "Views" / "WatchScoreHoleView.swift")
+        self.assertNotIn("WatchScoreFlowStep", score)
+        self.assertIn("digitalCrownRotation", score)
+        # 本洞 = 方案 / 障碍 / 果岭 vertical pages; the Crown only zooms (1–4×), a drag pans once
+        # zoomed; tap the club tag for the next plan, tap "1 / N" for the next hazard (zoom kept).
+        for token in [".tabViewStyle(.verticalPage)", ".watchZoomPan($planViewport", "interactionMode: .measure",
+                      "onOpenCaddie: { cyclePlan(s) }", "measureOriginImagePx: teeImagePoint(s)"]:
+            self.assertIn(token, container)
+        zoom = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleZoom.swift")
+        self.assertIn("public static let range: ClosedRange<CGFloat> = 1...4", zoom)
+        hazard = _read_required_source(self, WATCH_DIR / "Views" / "WatchHazardMapView.swift")
+        self.assertIn("Button(action: selectNextHazard)", hazard)
+        self.assertIn("static func activeFrame(isZoomed: Bool, frozen: WatchHazardFrame?", hazard)
+        self.assertIn(".watchZoomPan($viewport, size: geo.size)", hazard)
+        self.assertNotIn("$crownSelection", hazard)
+        hole_map = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapView.swift")
+        self.assertIn("LongPressGesture(minimumDuration: 0.5)", hole_map)
+        self.assertIn("case measure", hole_map)
+        green = _read_required_source(self, WATCH_DIR / "Views" / "WatchGreenPreviewView.swift")
+        self.assertIn("through: Double(WatchHoleZoom.range.upperBound)", green)
 
     def test_watch_state_includes_next_shot_prompt_from_phone_bridge(self) -> None:
         bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")

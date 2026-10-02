@@ -175,6 +175,9 @@ public enum WatchHoleMapInteractionMode: Equatable {
     case root
     case touchTarget
     case passive
+    /// B6 本洞 方案 page: measure in place. Unzoomed a tap drops the yellow ring; zoomed it takes a
+    /// 0.5 s press (a drag pans instead); tapping the ring clears it.
+    case measure
 }
 
 struct WatchRemainingDistanceMarker: Equatable {
@@ -413,6 +416,12 @@ public struct WatchHoleMapView: View {
     // the real playing view builds it from the fetched /topo.png + holeImageProjection.
     public let geometry: WatchHoleMapGeometry
     public let interactionMode: WatchHoleMapInteractionMode
+    /// B6 Crown zoom (1–4×) and drag pan applied on top of the page's own framing.
+    public let userZoom: CGFloat
+    public let userPan: CGSize
+    /// Before the tee shot every range is measured from the tee (README §3); nil measures from the
+    /// player.
+    public let measureOriginImagePx: CGPoint?
     /// 选点测距: the last tapped point in IMAGE-px space (crosshair + two small route ranges).
     @State private var liveMeasuredPx: CGPoint?
     /// Transient screen-space focus used only while the Touch Target handle is being dragged.
@@ -457,6 +466,9 @@ public struct WatchHoleMapView: View {
         pinImagePoint: CGPoint? = nil,
         measuredPxOverride: CGPoint? = nil,
         interactionMode: WatchHoleMapInteractionMode = .passive,
+        userZoom: CGFloat = 1,
+        userPan: CGSize = .zero,
+        measureOriginImagePx: CGPoint? = nil,
         onOpenCaddie: @escaping () -> Void = {},
         onOpenMapDetail: @escaping () -> Void = {},
         onBack: @escaping () -> Void = {}
@@ -492,6 +504,9 @@ public struct WatchHoleMapView: View {
         self.geometry = geometry
         _liveMeasuredPx = State(initialValue: measuredPxOverride)
         self.interactionMode = interactionMode
+        self.userZoom = WatchHoleZoom.clampedZoom(userZoom)
+        self.userPan = userPan
+        self.measureOriginImagePx = measureOriginImagePx
         self.onOpenCaddie = onOpenCaddie
         self.onOpenMapDetail = onOpenMapDetail
         self.onBack = onBack
@@ -502,6 +517,10 @@ public struct WatchHoleMapView: View {
     private let onBack: () -> Void
 
     private func currentScale(_ size: CGSize) -> CGFloat {
+        baseScale(size) * userZoom
+    }
+
+    private func baseScale(_ size: CGSize) -> CGFloat {
         if fullMap, interactionMode == .touchTarget {
             return CGFloat(WatchHoleMapViewport.touchTargetScale(
                 crownScale: Double(mapScale),
@@ -557,9 +576,40 @@ public struct WatchHoleMapView: View {
                 && location.y >= safeRect.maxY - 48
             guard !hitsBack, !hitsClear else { return }
             liveMeasuredPx = clampedImagePx(imagePx(fromCanvas: location, size: size))
+        case .measure:
+            // Zoomed, a tap must not drop the ring: the 0.5 s press does (`measureLongPress`).
+            guard userZoom <= WatchHoleZoom.unzoomedThreshold, measureTapAllowed(location, size: size) else { return }
+            if let measuredPx, Self.hitsMeasureRing(location, ring: anchors(size).t(measuredPx)) {
+                liveMeasuredPx = nil
+            } else {
+                liveMeasuredPx = clampedImagePx(imagePx(fromCanvas: location, size: size))
+            }
         case .passive:
             break
         }
+    }
+
+    /// The left data column and the bottom control rail keep their own taps.
+    private func measureTapAllowed(_ location: CGPoint, size: CGSize) -> Bool {
+        let safeRect = WatchDisplayGeometry.contentRect(in: size)
+        let mapLeft = fullMap ? 0 : size.width * columnFrac
+        return location.x >= mapLeft && location.y < safeRect.maxY - 48
+    }
+
+    static func hitsMeasureRing(_ location: CGPoint, ring: CGPoint) -> Bool {
+        hypot(location.x - ring.x, location.y - ring.y) <= 16
+    }
+
+    /// Zoomed: hold 0.5 s to drop (or move) the ring, so a drag can pan without measuring.
+    private func measureLongPress(size: CGSize) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.5)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onEnded { value in
+                guard interactionMode == .measure, userZoom > WatchHoleZoom.unzoomedThreshold,
+                      case .second(true, let drag?) = value,
+                      measureTapAllowed(drag.location, size: size) else { return }
+                liveMeasuredPx = clampedImagePx(imagePx(fromCanvas: drag.location, size: size))
+            }
     }
 
     // MARK: - Palette
@@ -634,6 +684,7 @@ public struct WatchHoleMapView: View {
             .contentShape(Rectangle())
             .simultaneousGesture(SpatialTapGesture().onEnded { handleTap($0.location, size: geo.size) })
             .simultaneousGesture(touchTargetDragGesture(size: geo.size))
+            .simultaneousGesture(measureLongPress(size: geo.size))
         }
         .background(Color.black)
         .ignoresSafeArea()
@@ -736,8 +787,8 @@ public struct WatchHoleMapView: View {
                 y: fullMap ? fullMapPlayerAnchorFraction : 0.72
             )
         let focusCanvas = CGPoint(
-            x: mapLeft + (size.width - mapLeft) * focusFraction.x,
-            y: size.height * focusFraction.y
+            x: mapLeft + (size.width - mapLeft) * focusFraction.x + userPan.width,
+            y: size.height * focusFraction.y + userPan.height
         )
         let t: (CGPoint) -> CGPoint = { p in
             Self.safe(CGPoint(x: (p.x - focusImage.x) * scale + focusCanvas.x,
@@ -978,7 +1029,7 @@ public struct WatchHoleMapView: View {
         case .measurement(let measuredPoint):
             drawMeasurementRoute(
                 &context,
-                player: player,
+                player: measureOriginImagePx.map(a.t) ?? player,
                 measured: a.t(measuredPoint),
                 pin: green
             )
@@ -1038,25 +1089,33 @@ public struct WatchHoleMapView: View {
         if let m = measuredPx {
             let mc = a.t(m)
             let distances = WatchTouchTargetDistanceLayout.resolve(
-                playerImagePoint: geometry.youPx,
+                playerImagePoint: measureOriginImagePx ?? geometry.youPx,
                 targetImagePoint: m,
                 pinImagePoint: pinImagePoint,
                 canonicalPinImagePoint: geometry.pinPx,
                 centerGreenYards: canonicalCenterGreen
             )
-            let r: CGFloat = 4.5
-            var cross = Path()
-            cross.move(to: CGPoint(x: mc.x - r, y: mc.y)); cross.addLine(to: CGPoint(x: mc.x + r, y: mc.y))
-            cross.move(to: CGPoint(x: mc.x, y: mc.y - r)); cross.addLine(to: CGPoint(x: mc.x, y: mc.y + r))
-            context.stroke(cross, with: .color(.white), style: StrokeStyle(lineWidth: 1.2))
-            context.stroke(Path(ellipseIn: CGRect(x: mc.x - r, y: mc.y - r, width: r * 2, height: r * 2)),
-                           with: .color(.white), style: StrokeStyle(lineWidth: 1))
+            let isRing = interactionMode == .measure
+            let r: CGFloat = isRing ? 7 : 4.5
+            if isRing {
+                // B6 测距: a yellow ring.
+                context.stroke(Path(ellipseIn: CGRect(x: mc.x - r, y: mc.y - r, width: r * 2, height: r * 2)),
+                               with: .color(golfYellow), style: StrokeStyle(lineWidth: 2))
+            } else {
+                var cross = Path()
+                cross.move(to: CGPoint(x: mc.x - r, y: mc.y)); cross.addLine(to: CGPoint(x: mc.x + r, y: mc.y))
+                cross.move(to: CGPoint(x: mc.x, y: mc.y - r)); cross.addLine(to: CGPoint(x: mc.x, y: mc.y + r))
+                context.stroke(cross, with: .color(.white), style: StrokeStyle(lineWidth: 1.2))
+                context.stroke(Path(ellipseIn: CGRect(x: mc.x - r, y: mc.y - r, width: r * 2, height: r * 2)),
+                               with: .color(.white), style: StrokeStyle(lineWidth: 1))
+            }
+            let origin = measureOriginImagePx.map(a.t) ?? player
             if let d = distances?.playerToTargetYards {
                 bareDistance(
                     &context,
                     text: "\(d)",
                     at: WatchTouchTargetDistanceLayout.segmentLabelPoint(
-                        from: player,
+                        from: origin,
                         to: mc,
                         normalOffset: 9
                     ),
@@ -1066,7 +1125,7 @@ public struct WatchHoleMapView: View {
             if let remaining = distances?.targetToPinYards {
                 bareDistance(
                     &context,
-                    text: "\(remaining)",
+                    text: isRing ? "再 \(remaining)" : "\(remaining)",
                     at: WatchTouchTargetDistanceLayout.segmentLabelPoint(
                         from: mc,
                         to: green,

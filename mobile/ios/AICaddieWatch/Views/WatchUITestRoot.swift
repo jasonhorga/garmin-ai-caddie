@@ -96,7 +96,7 @@ public struct WatchUITestRoot: View {
                 ensureGeometry: true,
                 onLoadTees: { _ in Self.remoteCourseTees }
             )
-        case "interaction-club-seed", "interaction-club-restore",
+        case "interaction-shot-seed", "interaction-shot-restore",
              "interaction-score-seed", "interaction-score-restore",
              "interaction-gps-acquiring",
              "interaction-club-stats", "interaction-settings",
@@ -120,6 +120,28 @@ public struct WatchUITestRoot: View {
         case "hazards":
             WatchHazardView(hazards: Self.demoHazards)
                 .padding(8)
+        case "hole-page-green-3x":
+            WatchGreenPreviewView(
+                geometry: WatchHoleMapSample.geometry,
+                centerGreenYards: 152,
+                initialZoomScale: 3
+            )
+        case "hole-page-plan-measure":
+            WatchHoleMapView(
+                holeNumber: 7,
+                par: 4,
+                frontGreen: 352,
+                centerGreen: 366,
+                backGreen: 380,
+                lastShot: 0,
+                ringPips: [],
+                measuredPxOverride: CGPoint(
+                    x: (WatchHoleMapSample.geometry.youPx.x + WatchHoleMapSample.geometry.pinPx.x) / 2,
+                    y: (WatchHoleMapSample.geometry.youPx.y + WatchHoleMapSample.geometry.pinPx.y) / 2
+                ),
+                interactionMode: .measure,
+                measureOriginImagePx: WatchHoleMapSample.geometry.youPx
+            )
         case "glance":
             WatchCaddieGlanceView(state: Self.demoState)
                 .padding(8)
@@ -154,13 +176,12 @@ public struct WatchUITestRoot: View {
             WatchScoreHoleView(hole: 7, par: 4, score: 5, putts: 2, penalty: 0)
         case "score-total":
             WatchScoreHoleView(
-                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-                step: .score
+                hole: 7, par: 4, score: 5, putts: 2, penalty: 0, fairway: .hit
             )
         case "score-putts":
             WatchScoreHoleView(
                 hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-                step: .putts
+                openWheel: .putts
             )
         case "score-next-tee-candidate":
             WatchScoreHoleView(
@@ -169,26 +190,20 @@ public struct WatchUITestRoot: View {
             )
         case "score-fairway":
             WatchScoreHoleView(
-                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-                step: .fairway
+                hole: 7, par: 4, score: 5, putts: 2, penalty: 0, fairway: .left
             )
         case "score-penalty":
             WatchScoreHoleView(
                 hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-                step: .penalty
+                openWheel: .penalty
             )
-        case "club-prompt":
-            WatchClubPromptView(
-                hole: 8,
-                shotNumber: 1,
-                recommendedClub: "一号木",
-                clubs: [
-                    WatchClubOption(clubName: "一号木", medianM: 201),
-                    WatchClubOption(clubName: "三号木", medianM: 183),
-                    WatchClubOption(clubName: "5号铁", medianM: 165),
-                    WatchClubOption(clubName: "7号铁", medianM: 139),
-                ]
+        case "shot-undo":
+            WatchRoundHomeView(
+                courseName: "北京丽宫 · 前九", hole: 8, par: 4, holeCount: 9,
+                scoredHoles: 7, toPar: 3, distanceText: "152 码", pendingUploads: 0,
+                canRecordShot: true
             )
+            .overlay(alignment: .bottom) { WatchShotUndoStrip(text: "第 2 杆") }
         case "autoshot-candidate":
             WatchAutoShotCandidateView()
         case "gps-acquiring":
@@ -250,21 +265,22 @@ public struct WatchUITestRoot: View {
                 score: 7,
                 putts: 3,
                 penalty: 2,
-                step: .fairway,
+                fairway: .right,
                 candidateNextHole: 1
             )
-        case "compact-club-prompt":
-            WatchClubPromptView(
+        case "compact-shot-undo":
+            WatchRoundHomeView(
+                courseName: "北京黑骑士国际高尔夫俱乐部 · C 场",
                 hole: 18,
-                shotNumber: 4,
-                recommendedClub: "50° 挖起杆",
-                clubs: [
-                    WatchClubOption(clubName: "50° 挖起杆", medianM: 92),
-                    WatchClubOption(clubName: "九号铁", medianM: 118),
-                    WatchClubOption(clubName: "八号铁", medianM: 130),
-                    WatchClubOption(clubName: "七号铁", medianM: 142),
-                ]
+                par: 5,
+                holeCount: 18,
+                scoredHoles: 17,
+                toPar: 12,
+                distanceText: "262 码",
+                pendingUploads: 18,
+                canRecordShot: true
             )
+            .overlay(alignment: .bottom) { WatchShotUndoStrip(text: "第 4 杆") }
         case "compact-finish":
             WatchFinishRoundView(
                 courseName: "北京黑骑士国际高尔夫俱乐部 · C 场",
@@ -337,7 +353,7 @@ public struct WatchUITestRoot: View {
                         ? WatchHoleMapSample.movedPinPx
                         : nil,
                     initialGreenZoomScaleOverride: screen == "standalone-course-view-green-max"
-                        ? 2
+                        ? Double(WatchHoleZoom.range.upperBound)
                         : 1,
                     initialGreenRotationOverride: screen == "standalone-course-view-green-rotated"
                         ? 35
@@ -557,7 +573,7 @@ public struct WatchUITestRoot: View {
         guard let recovered = model.pendingManualShot,
               model.round?.roundId == Self.runtimeCancelRoundId,
               model.activeHole == 1,
-              model.screen == .clubPrompt,
+              model.screen == .home,
               recovered.hole == 1,
               recovered.candidateFromHole == nil,
               recovered.shotType == "recovery",
@@ -1553,11 +1569,13 @@ public struct WatchUITestRoot: View {
             if model.round != nil {
                 WatchRoundContainerView(
                     model: model,
-                    watchGreenYards: screen == "interaction-club-seed"
+                    watchGreenYards: screen == "interaction-shot-seed"
                         ? (front: nil, center: 135, back: nil)
                         : nil,
                     shotLocation: interactionShotLocation,
-                    watchHeading: interactionHeading
+                    watchHeading: interactionHeading,
+                    // Hold the 第 N 杆 strip on screen for the runtime capture.
+                    shotUndoSeconds: screen == "interaction-shot-seed" ? 600 : WatchRoundModel.shotUndoSeconds
                 )
             } else {
                 Text("interaction restore unavailable")
@@ -1565,8 +1583,8 @@ public struct WatchUITestRoot: View {
         }
         .onAppear {
             switch screen {
-            case "interaction-club-seed":
-                seedInteractionClubPrompt()
+            case "interaction-shot-seed":
+                seedInteractionUndoableShot()
             case "interaction-score-seed":
                 replaceFixtureRound(with: Self.interactionScoreSeed)
                 model.beginManualShot(
@@ -1591,9 +1609,9 @@ public struct WatchUITestRoot: View {
         }
     }
 
-    /// Runtime visual evidence for the production model/container path. The pending location is real
-    /// model state; the four clubs mirror a downloaded bag so the first-screen density is reviewable.
-    private func seedInteractionClubPrompt() {
+    /// Runtime visual evidence for the production model/container path: a real detected shot in its
+    /// undo window (第 1 杆), and after relaunch the same pending shot behind the resume gate.
+    private func seedInteractionUndoableShot() {
         let roundId = "ci-interaction-club-round"
         model.seedRound(
             [

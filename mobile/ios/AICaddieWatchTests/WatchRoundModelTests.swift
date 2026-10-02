@@ -440,7 +440,8 @@ final class WatchRoundModelTests: XCTestCase {
             capturedAt: "2026-08-09T08:00:00Z"
         )
         XCTAssertEqual(model.pendingManualShot?.hole, 10)
-        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNotNil(model.undoableShotText)
 
         model.applyRoundSeed(WatchRoundSeed(
             roundId: "r1",
@@ -803,7 +804,8 @@ final class WatchRoundModelTests: XCTestCase {
             horizontalAccuracyM: 5,
             capturedAt: "2026-07-26T08:00:00Z"
         )
-        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNotNil(model.undoableShotText)
         XCTAssertEqual(model.pendingManualShot?.hole, 1)
 
         model.completePendingManualShot(clubName: "一号木")
@@ -1021,7 +1023,8 @@ final class WatchRoundModelTests: XCTestCase {
         model.acceptAutoShotCandidate()
 
         XCTAssertNil(model.pendingAutoShotCandidate)
-        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNotNil(model.undoableShotText)
         XCTAssertEqual(model.pendingManualShot?.hole, 1)
         XCTAssertTrue(model.round?.pendingEvents.isEmpty == true)
 
@@ -1071,7 +1074,8 @@ final class WatchRoundModelTests: XCTestCase {
         ))
 
         model.acceptAutoShotCandidate()
-        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.screen, .holeMap, "B6: no club prompt; the shot waits in its undo window")
+        XCTAssertEqual(model.undoableShotText, "第 1 杆")
         model.completePendingManualShot(clubName: nil)
 
         XCTAssertEqual(model.screen, .holeMap)
@@ -1132,7 +1136,37 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertTrue(model.round?.pendingEvents.isEmpty == true)
     }
 
-    func testPendingManualShotRestoresClubPromptAfterRelaunch() {
+    // MARK: B6 洞结束
+
+    func testWalkingOffTheGreenTowardTheNextTeeOpensScoringOnce() {
+        // Hole 1's green at (40.0, 116.0); hole 2's tee ~120 m east of it.
+        let east120 = 116.0 + 120 / (111_195.0 * cos(40.0 * .pi / 180))
+        let east45 = 116.0 + 45 / (111_195.0 * cos(40.0 * .pi / 180))
+        let first = WatchRoundState(
+            roundId: "r1", hole: 1, par: 4, distanceM: nil,
+            teeLatitude: 39.997, teeLongitude: 116.0, selectedClub: nil,
+            centerGreenLat: 40.0, centerGreenLon: 116.0,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let model = seededModel(holes: [first, hole(2, teeLatitude: 40.0, teeLongitude: east120)])
+        XCTAssertFalse(model.observeLocation(latitude: 39.9995, longitude: 116.0, horizontalAccuracyM: 5),
+                       "approaching the green")
+        XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 4), "on the green")
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertTrue(model.observeLocation(latitude: 40.0, longitude: east45, horizontalAccuracyM: 5))
+        XCTAssertEqual(model.screen, .scoring)
+        XCTAssertEqual(model.scoringHole, 1)
+        XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: east120, horizontalAccuracyM: 5),
+                       "the hole ends once")
+    }
+
+    func testAHoleWithoutGreenCoordinatesHasNoGPSHoleEnd() {
+        let model = seededModel(holes: [hole(1), hole(2)])
+        XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 4))
+        XCTAssertEqual(model.screen, .home, "no green coordinates: no GPS hole end")
+    }
+
+    func testPendingManualShotRestoresItsUndoWindowAfterRelaunch() {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("manual-shot-restore-\(UUID().uuidString)", isDirectory: true)
         let first = WatchRoundModel(
@@ -1163,7 +1197,8 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(restored.screen, .resume)
 
         restored.resumeRound()
-        XCTAssertEqual(restored.screen, .clubPrompt)
+        XCTAssertEqual(restored.screen, .home)
+        XCTAssertNotNil(restored.undoableShotText)
         restored.completePendingManualShot(clubName: nil)
         XCTAssertNil(restored.pendingManualShot)
         XCTAssertEqual(restored.round?.pendingEvents.map(\.kind), [.location])
@@ -1215,7 +1250,8 @@ final class WatchRoundModelTests: XCTestCase {
         restored.selectDraftFairway(.hit)
         restored.saveManualScore()
         XCTAssertEqual(restored.activeHole, 2)
-        XCTAssertEqual(restored.screen, .clubPrompt)
+        XCTAssertEqual(restored.screen, .home)
+        XCTAssertNotNil(restored.undoableShotText)
 
         restored.completePendingManualShot(clubName: nil)
         XCTAssertEqual(restored.round?.pendingEvents.map(\.kind), [.score, .putt, .location])
@@ -1245,7 +1281,8 @@ final class WatchRoundModelTests: XCTestCase {
         model.acceptRecommendedScore()
 
         XCTAssertEqual(model.activeHole, 2)
-        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNotNil(model.undoableShotText)
         XCTAssertEqual(model.pendingManualShot?.hole, 2)
         XCTAssertNil(model.pendingManualShot?.candidateFromHole)
 
@@ -1310,7 +1347,8 @@ final class WatchRoundModelTests: XCTestCase {
         model.cancelScoring()
 
         XCTAssertEqual(model.activeHole, 1)
-        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNotNil(model.undoableShotText)
         XCTAssertEqual(model.pendingManualShot?.hole, 1)
         XCTAssertNil(model.pendingManualShot?.candidateFromHole)
         model.completePendingManualShot(clubName: nil)
@@ -1333,9 +1371,73 @@ final class WatchRoundModelTests: XCTestCase {
             capturedAt: "2026-07-26T09:00:00Z"
         )
 
-        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNotNil(model.undoableShotText)
         XCTAssertEqual(model.pendingManualShot?.hole, 1)
         XCTAssertNil(model.pendingManualShot?.candidateFromHole)
+    }
+
+    // MARK: B6 测到挥杆 (no 刚才用哪支杆？)
+
+    func testADetectedShotCanBeUndoneBeforeItIsRecorded() {
+        let model = seededModel(holes: [hole(1), hole(2)])
+        model.beginManualShot(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 5,
+                              capturedAt: "2026-07-26T09:00:00Z")
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertEqual(model.undoableShotText, "第 1 杆")
+        model.undoPendingManualShot()
+        XCTAssertNil(model.pendingManualShot)
+        XCTAssertNil(model.undoableShotText)
+        XCTAssertTrue(model.round?.pendingEvents.isEmpty == true, "an undone shot writes nothing")
+        XCTAssertEqual(model.recordedShotCount, 0)
+    }
+
+    func testTheNextShotEndsThePreviousShotsUndoWindow() {
+        let model = seededModel(holes: [hole(1), hole(2)])
+        model.beginManualShot(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 5,
+                              capturedAt: "2026-07-26T09:00:00Z")
+        model.beginManualShot(latitude: 40.0015, longitude: 116.0, horizontalAccuracyM: 5,
+                              capturedAt: "2026-07-26T09:03:00Z")
+        XCTAssertEqual(model.round?.pendingEvents.map(\.kind), [.location], "the first shot is recorded")
+        XCTAssertEqual(model.undoableShotText, "第 2 杆")
+    }
+
+    func testTheNextTeeShotSavesAnOpenScoreDraft() {
+        let model = seededModel(holes: [
+            hole(1, par: 4, teeLatitude: 40.0, teeLongitude: 116.0),
+            hole(2, par: 5, teeLatitude: 40.001, teeLongitude: 116.0),
+        ])
+        model.startScoringActiveHole()  // as the hole-end trigger does
+        model.draftScore = 6
+        model.draftPutts = 2
+        model.beginManualShot(latitude: 40.001, longitude: 116.0, horizontalAccuracyM: 5,
+                              capturedAt: "2026-07-26T09:30:00Z")
+        XCTAssertEqual(model.activeHole, 2, "the unconfirmed hole is saved and play moves on")
+        XCTAssertEqual(model.allHoleStates.first?.score, 6)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertEqual(model.pendingManualShot?.hole, 2)
+        XCTAssertNil(model.pendingManualShot?.candidateFromHole)
+        XCTAssertEqual(model.undoableShotText, "第 1 杆")
+    }
+
+    func testOneScreenScoreRaisesTheTotalAndWrapsTheWheels() {
+        let model = seededModel(holes: [hole(1, par: 4), hole(2)])
+        model.startScoringActiveHole()
+        model.setDraftScore(3)
+        model.setDraftPutts(3)
+        XCTAssertEqual(model.draftScore, 4, "total ≥ putts + penalties + 1")
+        model.setDraftPenalty(-1)
+        XCTAssertEqual(model.draftPenalty, 4, "0 sits under 4")
+        XCTAssertEqual(model.draftScore, 8)
+        model.setDraftPutts(6)
+        XCTAssertEqual(model.draftPutts, 0, "5 rolls over to 0")
+        XCTAssertEqual(model.draftScore, 8, "lowering putts never lowers the total")
+        model.setDraftFairway(.left)
+        model.setDraftFairway(.left)
+        XCTAssertNil(model.draftFairway, "tapping the chosen cell clears it")
+        model.saveManualScore()
+        XCTAssertEqual(model.allHoleStates.first?.score, 8)
+        XCTAssertEqual(model.activeHole, 2)
     }
 
     func testAdjustDraftClampsAtLowerBounds() {

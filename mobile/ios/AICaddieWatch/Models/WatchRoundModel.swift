@@ -14,7 +14,6 @@ public enum WatchRoundScreen: Equatable {
     case resume
     case home
     case autoShotCandidate
-    case clubPrompt
     case scoring
     case finishing
     case finishConfirmation
@@ -44,6 +43,28 @@ public enum WatchFairwayResult: String, CaseIterable, Codable, Equatable {
     case hit = "HIT"
     case left = "LEFT"
     case right = "RIGHT"
+}
+
+/// B6 本洞成绩 rules (README §3): putts and penalties are wheels that wrap (0 sits under the
+/// maximum), and the total never drops below putts + penalties + 1.
+public enum WatchScoreRules {
+    public static let puttRange = 0...5
+    public static let penaltyRange = 0...4
+    public static let scoreRange = 1...15
+
+    public static func wrap(_ value: Int, in range: ClosedRange<Int>) -> Int {
+        let count = range.count
+        return range.lowerBound + ((value - range.lowerBound) % count + count) % count
+    }
+
+    public static func minimumScore(putts: Int, penalty: Int) -> Int {
+        putts + penalty + 1
+    }
+
+    /// The total for a requested value: inside `scoreRange` and never below the minimum.
+    public static func score(_ requested: Int, putts: Int, penalty: Int) -> Int {
+        min(scoreRange.upperBound, max(requested, minimumScore(putts: putts, penalty: penalty), scoreRange.lowerBound))
+    }
 }
 
 public struct WatchOutcomeSummary: Equatable {
@@ -987,9 +1008,7 @@ public final class WatchRoundModel: ObservableObject {
             draftFairway = nil
             scoreFlowStep = .recommendation
             advanceAfterScoring = true
-            if let pendingManualShot, pendingManualShot.candidateFromHole == nil {
-                screen = .clubPrompt
-            } else if pendingAutoShotCandidate != nil {
+            if pendingAutoShotCandidate != nil {
                 screen = .autoShotCandidate
             } else {
                 screen = .home
@@ -1082,6 +1101,42 @@ public final class WatchRoundModel: ObservableObject {
         persistInteractionState()
     }
 
+    // MARK: - hole end (B6)
+
+    /// The active hole's 洞结束 detector, rebuilt whenever the active hole changes.
+    private var holeEndDetector: (hole: Int, detector: WatchHoleEndDetector)?
+
+    /// Feed every live fix. Once the player has been on the green and walks more than 25 m off it
+    /// toward the next tee, an unscored hole opens 本洞成绩 (README §3); the other trigger is the next
+    /// hole's first shot (`beginManualShot`). Returns true when it opened scoring, so the caller can
+    /// play one haptic.
+    @discardableResult
+    public func observeLocation(latitude: Double, longitude: Double, horizontalAccuracyM: Double) -> Bool {
+        guard let hole = activeHoleState else { return false }
+        if holeEndDetector?.hole != hole.hole {
+            holeEndDetector = WatchHoleEndDetector.Green(hole: hole).map { green in
+                (hole: hole.hole, detector: WatchHoleEndDetector(green: green, nextTee: nextTeePoint(after: hole)))
+            }
+        }
+        guard var entry = holeEndDetector else { return false }
+        let ended = entry.detector.observe(
+            latitude: latitude, longitude: longitude, horizontalAccuracyM: horizontalAccuracyM
+        )
+        holeEndDetector = entry
+        guard ended, hole.score == 0, scoringHole == nil, pendingManualShot == nil,
+              pendingAutoShotCandidate == nil, screen == .home || screen == .holeMap else { return false }
+        startScoringActiveHole()
+        return true
+    }
+
+    private func nextTeePoint(after hole: WatchRoundState) -> WatchHoleEndDetector.Point? {
+        guard let index = allHoleStates.firstIndex(where: { $0.hole == hole.hole }),
+              index + 1 < allHoleStates.count,
+              let lat = allHoleStates[index + 1].teeLatitude,
+              let lon = allHoleStates[index + 1].teeLongitude else { return nil }
+        return WatchHoleEndDetector.Point(latitude: lat, longitude: lon)
+    }
+
     // MARK: - manual shot
 
     public func setAutoShotEnabled(_ enabled: Bool) {
@@ -1107,9 +1162,10 @@ public final class WatchRoundModel: ObservableObject {
         guard autoShotEnabled,
               round != nil,
               pendingAutoShotCandidate == nil,
-              pendingManualShot == nil,
-              round?.scoreDraft == nil,
-              screen == .home || screen == .holeMap,
+              pendingManualShot?.candidateFromHole == nil,
+              // B6: an open 本洞成绩 for the active hole can be saved by the next tee shot.
+              round?.scoreDraft == nil || scoringHole == activeHole,
+              screen == .home || screen == .holeMap || screen == .scoring,
               let location = WatchShotLocationValue(
                   latitude: latitude,
                   longitude: longitude,
@@ -1128,7 +1184,7 @@ public final class WatchRoundModel: ObservableObject {
     public func rejectAutoShotCandidate() {
         guard let candidate = pendingAutoShotCandidate else { return }
         pendingAutoShotCandidate = nil
-        screen = candidate.resumeHoleMap == true ? .holeMap : .home
+        screen = scoringHole != nil ? .scoring : (candidate.resumeHoleMap == true ? .holeMap : .home)
         persistInteractionState()
     }
 
@@ -1157,6 +1213,10 @@ public final class WatchRoundModel: ObservableObject {
                   longitude: longitude,
                   horizontalAccuracyM: horizontalAccuracyM
               ) else { return }
+        if pendingManualShot != nil, pendingManualShot?.candidateFromHole == nil {
+            // The previous shot's undo window ends with the next shot.
+            completePendingManualShot(clubName: nil)
+        }
         if let nextHole = candidateNextHole(from: hole, location: location) {
             pendingManualShot = makePendingShot(
                 assignedTo: nextHole,
@@ -1165,8 +1225,15 @@ public final class WatchRoundModel: ObservableObject {
                 capturedAt: capturedAt,
                 resumeHoleMap: resumeHoleMap ? true : nil
             )
-            startScoringActiveHole()
+            if scoringHole == hole.hole, advanceAfterScoring {
+                // B6: 本洞成绩 was open and not confirmed; the next hole's tee shot saves it as drafted.
+                persistScoreDraft()
+            } else {
+                startScoringActiveHole()
+            }
         } else {
+            // B6: no 刚才用哪支杆？ — the shot shows as 第 N 杆 with an undo and commits after
+            // `shotUndoSeconds` (`completePendingManualShot`). The club is inferred later (B7).
             pendingManualShot = makePendingShot(
                 assignedTo: hole,
                 candidateFromHole: nil,
@@ -1174,7 +1241,9 @@ public final class WatchRoundModel: ObservableObject {
                 capturedAt: capturedAt,
                 resumeHoleMap: resumeHoleMap ? true : nil
             )
-            screen = .clubPrompt
+            if screen == .autoShotCandidate {
+                screen = scoringHole != nil ? .scoring : (resumeHoleMap ? .holeMap : .home)
+            }
             persistInteractionState()
         }
     }
@@ -1201,7 +1270,22 @@ public final class WatchRoundModel: ObservableObject {
         )
         round = latest
         self.pendingManualShot = nil
-        screen = pendingManualShot.resumeHoleMap == true ? .holeMap : .home
+        persistInteractionState()
+    }
+
+    /// How long a detected shot can be undone before it is recorded.
+    public static let shotUndoSeconds: UInt64 = 4
+
+    /// The just-detected shot awaiting its undo window ("第 2 杆"), nil otherwise.
+    public var undoableShotText: String? {
+        guard let pendingManualShot, pendingManualShot.candidateFromHole == nil else { return nil }
+        return "第 \(pendingManualShot.shotNumber) 杆"
+    }
+
+    /// Tap the 第 N 杆 strip: the detected shot is dropped without any event.
+    public func undoPendingManualShot() {
+        guard let pendingManualShot, pendingManualShot.candidateFromHole == nil else { return }
+        self.pendingManualShot = nil
         persistInteractionState()
     }
 
@@ -1289,6 +1373,33 @@ public final class WatchRoundModel: ObservableObject {
         persistInteractionState()
     }
 
+    // B6 one-screen 本洞成绩.
+
+    public func setDraftScore(_ value: Int) {
+        draftScore = WatchScoreRules.score(value, putts: draftPutts, penalty: draftPenalty)
+        persistInteractionState()
+    }
+
+    /// Putts wrap 0–5; the total is raised when it would fall below putts + penalties + 1.
+    public func setDraftPutts(_ value: Int) {
+        draftPutts = WatchScoreRules.wrap(value, in: WatchScoreRules.puttRange)
+        draftScore = WatchScoreRules.score(draftScore, putts: draftPutts, penalty: draftPenalty)
+        persistInteractionState()
+    }
+
+    /// Penalties wrap 0–4; the total is raised when it would fall below putts + penalties + 1.
+    public func setDraftPenalty(_ value: Int) {
+        draftPenalty = WatchScoreRules.wrap(value, in: WatchScoreRules.penaltyRange)
+        draftScore = WatchScoreRules.score(draftScore, putts: draftPutts, penalty: draftPenalty)
+        persistInteractionState()
+    }
+
+    /// 开球三格; tapping the selected cell clears it.
+    public func setDraftFairway(_ result: WatchFairwayResult) {
+        draftFairway = draftFairway == result ? nil : result
+        persistInteractionState()
+    }
+
     public func startManualScoreEntry() {
         guard screen == .scoring else { return }
         scoreFlowStep = .score
@@ -1330,7 +1441,7 @@ public final class WatchRoundModel: ObservableObject {
            ) {
             self.pendingManualShot = reassigned
             scoringHole = nil
-            screen = .clubPrompt
+            screen = scoreEntryReturnScreen
             persistInteractionState()
             return
         }
@@ -1386,7 +1497,7 @@ public final class WatchRoundModel: ObservableObject {
            activeHole == candidateShot.hole,
            let resolved = reassignPendingShot(candidateShot, to: candidateShot.hole) {
             pendingManualShot = resolved
-            screen = .clubPrompt
+            screen = resolved.resumeHoleMap == true ? .holeMap : .home
         } else if shouldAdvance, isAtTurn {
             // The last hole of the first half was saved: ask which nine comes next.
             openTurn()

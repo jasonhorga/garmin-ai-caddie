@@ -198,6 +198,64 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-caddie-options")
     }
 
+    /// B6 本洞 pages: the 障碍 page zoomed 2× with its "1 / N" selector, the 果岭 page at 3×, and
+    /// the 方案 page's yellow measure ring ranged from the tee before the tee shot.
+    @MainActor
+    func testRenderHolePagesZoomedAndMeasured() throws {
+        let route = [
+            [435.0, 981.0, 0.0],
+            [504.0, 702.0, 200.0],
+            [556.0, 562.0, 303.0],
+            [506.0, 403.0, 419.0],
+            [435.0, 279.0, 518.8],
+        ]
+        let hazards = [
+            WatchHazard(kind: "bunker", label: "沙坑", startM: 190, endM: 210,
+                        frontPx: [520, 760], backPx: [528, 728]),
+            WatchHazard(kind: "bunker", label: "沙坑", startM: 270, endM: 292,
+                        frontPx: [540, 608], backPx: [550, 578]),
+        ]
+        try render(
+            WatchHazardMapView(
+                geometry: WatchHoleMapSample.geometry,
+                route: route,
+                hazards: hazards,
+                centerGreenYards: 320,
+                initialViewport: WatchHoleViewport(zoom: 2, pan: CGSize(width: 12, height: -18))
+            )
+            .watchSnapshotFrame(width: 198, height: 242),
+            named: "watch-hole-page-hazard-zoomed"
+        )
+        try render(
+            WatchGreenPreviewView(
+                geometry: WatchHoleMapSample.geometry,
+                centerGreenYards: 152,
+                initialZoomScale: 3
+            )
+            .watchSnapshotFrame(width: 198, height: 242),
+            named: "watch-hole-page-green-3x"
+        )
+        let geometry = WatchHoleMapSample.geometry
+        try render(
+            WatchHoleMapView(
+                holeNumber: 7,
+                par: 4,
+                frontGreen: 352,
+                centerGreen: 366,
+                backGreen: 380,
+                lastShot: 0,
+                ringPips: [],
+                geometry: geometry,
+                measuredPxOverride: CGPoint(x: (geometry.youPx.x + geometry.pinPx.x) / 2,
+                                            y: (geometry.youPx.y + geometry.pinPx.y) / 2),
+                interactionMode: .measure,
+                measureOriginImagePx: geometry.youPx
+            )
+            .watchSnapshotFrame(width: 198, height: 242),
+            named: "watch-hole-page-plan-measure"
+        )
+    }
+
     @MainActor
     func testRenderWatchHazards() throws {
         // Both sand and water use the locked S70-facing 到/过 front/back semantics.
@@ -292,43 +350,20 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-score-hole")
     }
 
-    @MainActor
-    func testManualScoreStepLabelsFollowTheConfirmedParFlow() {
-        XCTAssertEqual(
-            WatchScoreHoleView(
-                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-                step: .score
-            ).stepLabel,
-            "1/4 · 总杆"
-        )
-        XCTAssertEqual(
-            WatchScoreHoleView(
-                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-                step: .putts
-            ).stepLabel,
-            "2/4 · 推杆"
-        )
-        XCTAssertEqual(
-            WatchScoreHoleView(
-                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-                step: .fairway
-            ).stepLabel,
-            "3/4 · 开球结果"
-        )
-        XCTAssertEqual(
-            WatchScoreHoleView(
-                hole: 7, par: 3, score: 3, putts: 2, penalty: 0,
-                step: .penalty
-            ).stepLabel,
-            "3/3 · 罚杆"
-        )
+    /// B6 本洞成绩 rules: wheels wrap, the total never drops below putts + penalties + 1.
+    func testScoreRulesWrapTheWheelsAndRaiseTheTotal() {
+        XCTAssertEqual(WatchScoreRules.wrap(6, in: WatchScoreRules.puttRange), 0, "5 rolls over to 0")
+        XCTAssertEqual(WatchScoreRules.wrap(-1, in: WatchScoreRules.puttRange), 5, "0 sits under 5")
+        XCTAssertEqual(WatchScoreRules.wrap(-1, in: WatchScoreRules.penaltyRange), 4)
+        XCTAssertEqual(WatchScoreRules.score(3, putts: 3, penalty: 1), 5, "raised to putts + penalties + 1")
+        XCTAssertEqual(WatchScoreRules.score(6, putts: 2, penalty: 0), 6)
+        XCTAssertEqual(WatchScoreRules.score(40, putts: 2, penalty: 0), 15)
     }
 
     @MainActor
     func testRenderWatchScoreTotalStep() throws {
         let view = WatchScoreHoleView(
-            hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-            step: .score
+            hole: 7, par: 4, score: 5, putts: 2, penalty: 0, fairway: .hit
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-total")
@@ -338,7 +373,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     func testRenderWatchScorePuttsStep() throws {
         let view = WatchScoreHoleView(
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-            step: .putts
+            openWheel: .putts
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-putts")
@@ -347,8 +382,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     @MainActor
     func testRenderWatchScoreFairwayStep() throws {
         let view = WatchScoreHoleView(
-            hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-            step: .fairway
+            hole: 7, par: 4, score: 5, putts: 2, penalty: 0, fairway: .left
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-fairway")
@@ -358,7 +392,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     func testRenderWatchScorePenaltyStep() throws {
         let view = WatchScoreHoleView(
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-            step: .penalty
+            openWheel: .penalty
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-penalty")
@@ -374,27 +408,17 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-score-next-tee-candidate")
     }
 
+    /// B6: no 刚才用哪支杆？ — a detected shot flashes as 第 N 杆 with an undo over the hole screen.
     @MainActor
-    func testClubPromptKeepsMeasuredCarryWhenRecommendationMovesFirst() {
-        let choices = WatchClubPromptPresentation.choices(
-            recommendedClub: "7号铁",
-            clubs: [
-                WatchClubOption(clubName: "6号铁", medianM: 150),
-                WatchClubOption(clubName: "7号铁", medianM: 139),
-            ]
+    func testRenderDetectedShotUndoStrip() throws {
+        let view = WatchRoundHomeView(
+            courseName: "北京丽宫 · 前九", hole: 8, par: 4, holeCount: 9,
+            scoredHoles: 7, toPar: 3, distanceText: "152 码", pendingUploads: 0,
+            canRecordShot: true
         )
-
-        XCTAssertEqual(choices.map(\.clubName), ["7号铁", "6号铁"])
-        XCTAssertEqual(WatchClubPromptPresentation.distanceText(for: choices[0]), "152")
-    }
-
-    @MainActor
-    func testClubPromptKeepsThreeClubsAndAUsableSkipTargetOnTheFirst45mmScreen() {
-        XCTAssertGreaterThanOrEqual(
-            WatchClubPromptLayout.firstScreenClubRows(viewportHeight: 210),
-            3
-        )
-        XCTAssertGreaterThanOrEqual(WatchClubPromptLayout.footerHeight, 40)
+        .overlay(alignment: .bottom) { WatchShotUndoStrip(text: "第 2 杆") }
+        .watchSnapshotFrame(width: 198, height: 242)
+        try render(view, named: "watch-shot-undo")
     }
 
     @MainActor
@@ -1364,7 +1388,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 score: 7,
                 putts: 3,
                 penalty: 2,
-                step: .fairway,
+                fairway: .right,
                 candidateNextHole: 1
             )
             .watchSnapshotFrame(width: 176, height: 215),

@@ -103,7 +103,8 @@ enum WatchGreenPreviewLayout {
         geometry: WatchHoleMapGeometry,
         size: CGSize,
         zoom: CGFloat = 1,
-        rotationDegrees: Double = 0
+        rotationDegrees: Double = 0,
+        pan: CGSize = .zero
     ) -> WatchGreenViewport {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
         let contentRect = CGRect(
@@ -128,7 +129,8 @@ enum WatchGreenPreviewLayout {
             min(contentRect.width / max(padded.width, 1), contentRect.height / max(padded.height, 1))
         )
         let rotationRadians = CGFloat(rotationDegrees * .pi / 180)
-        let rotationCenterCanvas = CGPoint(x: contentRect.midX, y: contentRect.midY)
+        // B6: once zoomed, a drag pans the green (bounded by `WatchHoleZoom.clampedPan`).
+        let rotationCenterCanvas = CGPoint(x: contentRect.midX + pan.width, y: contentRect.midY + pan.height)
         // Use the factual boundary's centre as the shared rotation/calibration centre. The rendered
         // curve may round joins, but it must never move the map or the labels away from the source
         // geometry.
@@ -168,7 +170,7 @@ enum WatchGreenPreviewLayout {
             }
         }
         let scale = max(
-            fittedScale * min(max(zoom, 1), 2),
+            fittedScale * WatchHoleZoom.clampedZoom(zoom),
             coverageScale * 1.002
         )
         let origin = CGPoint(
@@ -551,7 +553,7 @@ private struct WatchGreenCrownModifier: ViewModifier {
             content.digitalCrownRotation(
                 $zoomScale,
                 from: 1,
-                through: 2,
+                through: Double(WatchHoleZoom.range.upperBound),
                 by: 0.1,
                 sensitivity: .medium,
                 isContinuous: false,
@@ -627,6 +629,9 @@ public struct WatchGreenPreviewView: View {
     /// Screen-space finger location while moving the flag. This is transient UI state only; the
     /// persisted placement continues to use the validated image-space point below.
     @State private var flagDragLocation: CGPoint?
+    /// B6: the pan of a zoomed green, and where the current pan drag started.
+    @State private var greenPan: CGSize = .zero
+    @State private var panStart: CGSize?
 
     private static let flagLoupeDiameter: CGFloat = 92
     private static let flagLoupeMagnification: CGFloat = 2.35
@@ -650,7 +655,7 @@ public struct WatchGreenPreviewView: View {
         _selectedPin = State(initialValue: initialPin.flatMap {
             WatchGreenPreviewLayout.contains($0, polygon: boundary) ? $0 : nil
         })
-        _zoomScale = State(initialValue: min(max(initialZoomScale, 1), 2))
+        _zoomScale = State(initialValue: Double(WatchHoleZoom.clampedZoom(CGFloat(initialZoomScale))))
         _rotationDegrees = State(initialValue: WatchRoundModel.wrappedGreenRotation(initialRotationDegrees))
     }
 
@@ -660,7 +665,8 @@ public struct WatchGreenPreviewView: View {
                 geometry: geometry,
                 size: proxy.size,
                 zoom: CGFloat(zoomScale),
-                rotationDegrees: rotationDegrees
+                rotationDegrees: rotationDegrees,
+                pan: WatchHoleZoom.clampedPan(greenPan, zoom: CGFloat(zoomScale), viewport: proxy.size)
             )
             let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
             ZStack {
@@ -783,6 +789,9 @@ public struct WatchGreenPreviewView: View {
             )
         )
         .onChange(of: rotationDegrees) { _ in schedulePlacementPersistence() }
+        .onChange(of: zoomScale) { _ in
+            if !WatchHoleZoom.isZoomed(CGFloat(zoomScale)) { greenPan = .zero }
+        }
         .onDisappear {
             persistenceTask?.cancel()
             flagDragLocation = nil
@@ -853,10 +862,23 @@ public struct WatchGreenPreviewView: View {
                 guard value.startLocation.y < safeRect.maxY - 50 else { return }
                 if !isDraggingFlag {
                     let flagCanvas = viewport.canvasPoint(pin)
-                    guard hypot(
+                    guard panStart == nil, hypot(
                         value.startLocation.x - flagCanvas.x,
                         value.startLocation.y - flagCanvas.y
-                    ) <= 36 else { return }
+                    ) <= 36 else {
+                        // Away from the flag, a drag on a zoomed green pans it.
+                        guard WatchHoleZoom.isZoomed(CGFloat(zoomScale)) else { return }
+                        let start = panStart ?? greenPan
+                        panStart = start
+                        suppressFlagTap = true
+                        greenPan = WatchHoleZoom.clampedPan(
+                            CGSize(width: start.width + value.translation.width,
+                                   height: start.height + value.translation.height),
+                            zoom: CGFloat(zoomScale),
+                            viewport: size
+                        )
+                        return
+                    }
                     isDraggingFlag = true
                     suppressFlagTap = true
                 }
@@ -870,6 +892,11 @@ public struct WatchGreenPreviewView: View {
                 placementChanged = true
             }
             .onEnded { value in
+                if panStart != nil {
+                    panStart = nil
+                    DispatchQueue.main.async { suppressFlagTap = false }
+                    return
+                }
                 guard canMoveFlag, isDraggingFlag else {
                     flagDragLocation = nil
                     isDraggingFlag = false

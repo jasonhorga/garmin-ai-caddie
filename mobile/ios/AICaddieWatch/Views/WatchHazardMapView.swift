@@ -152,8 +152,9 @@ enum WatchHazardMapLayout {
 }
 
 /// Map detail for one measured hazard. New payloads place both dots on the real geometry boundary and
-/// range straight to them; old caches fall back to their retained route facts. Turning the Crown selects
-/// the next upcoming hazard.
+/// range straight to them; old caches fall back to their retained route facts. B6 (README §3): the
+/// Crown zooms (1–4×) and a drag pans once zoomed; tapping "1 / N" selects the next upcoming hazard,
+/// and while zoomed that keeps the current zoom and pan instead of re-framing (IMG-8050).
 public struct WatchHazardMapView: View {
     public let geometry: WatchHoleMapGeometry
     public let route: [[Double]]
@@ -164,7 +165,10 @@ public struct WatchHazardMapView: View {
     public let rangeUnavailable: Bool
     public let onBack: () -> Void
 
-    @State private var crownSelection: Double
+    @State private var selection: Int
+    @State private var viewport: WatchHoleViewport
+    /// The framing in use when zooming began; held while zoomed so switching hazards never re-fits.
+    @State private var frozenFrame: WatchHazardFrame?
 
     public init(
         geometry: WatchHoleMapGeometry,
@@ -173,6 +177,7 @@ public struct WatchHazardMapView: View {
         centerGreenYards: Int?,
         rangeUnavailable: Bool = false,
         initialHazardID: String? = nil,
+        initialViewport: WatchHoleViewport = WatchHoleViewport(),
         onBack: @escaping () -> Void = {}
     ) {
         self.geometry = geometry
@@ -188,7 +193,8 @@ public struct WatchHazardMapView: View {
         ) ?? 0
         let upcoming = Self.upcomingHazards(hazards, after: progress)
         let initialIndex = initialHazardID.flatMap { id in upcoming.firstIndex { $0.id == id } } ?? 0
-        _crownSelection = State(initialValue: Double(initialIndex))
+        _selection = State(initialValue: initialIndex)
+        _viewport = State(initialValue: initialViewport)
     }
 
     private var playerProgressMetres: Double {
@@ -200,10 +206,30 @@ public struct WatchHazardMapView: View {
     }
 
     private var selectedIndex: Int {
-        min(max(Int(crownSelection.rounded()), 0), max(upcoming.count - 1, 0))
+        min(max(selection, 0), max(upcoming.count - 1, 0))
     }
 
-    private var crownUpperBound: Double { Double(max(upcoming.count - 1, 1)) }
+    /// The selected hazard's own framing (both edges in view).
+    private func frame(for hazard: WatchHazard) -> WatchHazardFrame {
+        let front = WatchHazardMapLayout.frontImagePoint(for: hazard, on: route)
+        let back = WatchHazardMapLayout.backImagePoint(for: hazard, on: route)
+        return WatchHazardFrame(
+            focus: WatchHazardMapLayout.focusPoint(front: front, back: back, fallback: geometry.pinPx),
+            scale: WatchHazardMapLayout.focusedScale(front: front, back: back)
+        )
+    }
+
+    /// Unzoomed the selected hazard frames itself; zoomed, the framing from when zooming began stays,
+    /// so "1 / N" never changes the zoom or pan the player set up (IMG-8050).
+    static func activeFrame(isZoomed: Bool, frozen: WatchHazardFrame?, current: WatchHazardFrame) -> WatchHazardFrame {
+        isZoomed ? (frozen ?? current) : current
+    }
+
+    /// "1 / N": the next upcoming hazard (wrapping).
+    private func selectNextHazard() {
+        guard upcoming.count > 1 else { return }
+        selection = (selectedIndex + 1) % upcoming.count
+    }
 
     public var body: some View {
         GeometryReader { geo in
@@ -215,21 +241,15 @@ public struct WatchHazardMapView: View {
                 emptyState
             } else {
                 hazardMap(upcoming[selectedIndex], index: selectedIndex, size: geo.size)
+                    .watchZoomPan($viewport, size: geo.size)
             }
         }
         .background(Color.black)
-        .focusable(true)
-        .digitalCrownRotation(
-            $crownSelection,
-            from: 0,
-            through: crownUpperBound,
-            by: 1,
-            sensitivity: .medium,
-            isContinuous: false,
-            isHapticFeedbackEnabled: true
-        )
-        .onChange(of: upcoming.count) { count in
-            crownSelection = min(crownSelection, Double(max(count - 1, 0)))
+        .onChange(of: viewport.isZoomed) { _, zoomed in
+            frozenFrame = zoomed && !upcoming.isEmpty ? frame(for: upcoming[selectedIndex]) : nil
+        }
+        .onChange(of: upcoming.count) { _, count in
+            selection = min(selection, max(count - 1, 0))
         }
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
@@ -251,12 +271,11 @@ public struct WatchHazardMapView: View {
         let endMetres = WatchHazardMapLayout.alongRouteEndMetres(for: hazard) ?? startMetres
         let startPoint = WatchHazardMapLayout.frontImagePoint(for: hazard, on: route)
         let endPoint = WatchHazardMapLayout.backImagePoint(for: hazard, on: route)
-        let focusPoint = WatchHazardMapLayout.focusPoint(
-            front: startPoint,
-            back: endPoint,
-            fallback: geometry.pinPx
-        )
-        let scale = WatchHazardMapLayout.focusedScale(front: startPoint, back: endPoint)
+        _ = (startPoint, endPoint)
+        // Unzoomed each hazard frames itself; zoomed, the framing from when zooming began is kept.
+        let base = Self.activeFrame(isZoomed: viewport.isZoomed, frozen: frozenFrame, current: frame(for: hazard))
+        let focusPoint = base.focus
+        let scale = base.scale
 
         return ZStack {
             WatchHoleMapView(
@@ -271,7 +290,9 @@ public struct WatchHazardMapView: View {
                 mapScale: scale,
                 fullMapFocusImagePx: focusPoint,
                 fullMapFocusCanvasFraction: CGPoint(x: 0.52, y: 0.52),
-                geometry: geometry
+                geometry: geometry,
+                userZoom: viewport.zoom,
+                userPan: viewport.pan
             )
             .allowsHitTesting(false)
 
@@ -282,10 +303,11 @@ public struct WatchHazardMapView: View {
                     hazard: hazard,
                     startMetres: startMetres,
                     endMetres: endMetres,
-                    scale: scale,
+                    scale: scale * viewport.zoom,
                     focusPoint: focusPoint
                 )
             }
+            .allowsHitTesting(false)
 
             controls(hazard: hazard, index: index, size: size)
         }
@@ -300,7 +322,8 @@ public struct WatchHazardMapView: View {
         scale: CGFloat,
         focusPoint: CGPoint
     ) {
-        let focusCanvas = CGPoint(x: size.width * 0.52, y: size.height * 0.52)
+        let focusCanvas = CGPoint(x: size.width * 0.52 + viewport.pan.width,
+                                  y: size.height * 0.52 + viewport.pan.height)
         func canvas(_ point: CGPoint) -> CGPoint {
             CGPoint(
                 x: (point.x - focusPoint.x) * scale + focusCanvas.x,
@@ -369,11 +392,6 @@ public struct WatchHazardMapView: View {
 
     private func controls(hazard: WatchHazard, index: Int, size: CGSize) -> some View {
         let safeInset = WatchDisplayGeometry.contentInset(for: size)
-        let trackHeight = min(size.height * 0.55, 104)
-        let thumbHeight = min(40, max(18, trackHeight * 0.28))
-        let thumbOffset = CGFloat(index) * (trackHeight - thumbHeight)
-            / CGFloat(max(upcoming.count - 1, 1))
-
         return ZStack {
             VStack {
                 HStack(spacing: 4) {
@@ -387,29 +405,23 @@ public struct WatchHazardMapView: View {
                 .padding(.leading, safeInset)
                 Spacer()
                 if upcoming.count > 1 {
-                    Text("\(index + 1)/\(upcoming.count)")
-                        .font(.system(size: 13, weight: .black, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.72))
+                    Button(action: selectNextHazard) {
+                        Text("\(index + 1) / \(upcoming.count)")
+                            .font(.system(size: 15, weight: .black, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 32)
+                            .background(Color.black.opacity(0.6), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("下一个障碍，第 \(index + 1) 个，共 \(upcoming.count) 个")
+                    .accessibilityIdentifier("watch-hazard-next")
                 }
             }
             .padding(.top, safeInset)
             .padding(.bottom, safeInset)
 
-            if upcoming.count > 1 {
-                HStack {
-                    Spacer()
-                    ZStack(alignment: .top) {
-                        Capsule()
-                            .fill(Color.white.opacity(0.22))
-                            .frame(width: 5, height: trackHeight)
-                        Capsule()
-                            .fill(AICaddieDesignTokens.hudGreen)
-                            .frame(width: 5, height: thumbHeight)
-                            .offset(y: thumbOffset)
-                    }
-                    .padding(.trailing, safeInset)
-                }
-            }
         }
     }
 
@@ -472,4 +484,10 @@ public struct WatchHazardMapView: View {
             .sorted { ($0.startM ?? $0.endM ?? Double.greatestFiniteMagnitude)
                 < ($1.startM ?? $1.endM ?? Double.greatestFiniteMagnitude) }
     }
+}
+
+/// One hazard's map framing: the image point centred and its scale.
+struct WatchHazardFrame: Equatable {
+    let focus: CGPoint
+    let scale: CGFloat
 }
