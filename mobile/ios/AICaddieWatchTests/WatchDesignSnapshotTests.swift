@@ -1012,9 +1012,10 @@ final class WatchDesignSnapshotTests: XCTestCase {
     @MainActor
     func testRenderWatchRoundContainerScoring() throws {
         let model = makeSeededModel(scoring: true)     // hold a strong ref through render
+        // A real 45 mm face: 本洞成绩 sizes itself to the display it is given (compact below 236 pt).
         let view = WatchRoundContainerView(model: model)
-            .frame(width: 198)
             .background(Color.black)
+            .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-container-scoring")
     }
 

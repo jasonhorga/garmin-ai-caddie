@@ -1,9 +1,10 @@
 import SwiftUI
 
 enum WatchScoreHoleLayout {
-    /// The band follows the dominant drag axis: left/right, or up/down (up = more strokes).
+    /// The band follows the dominant drag axis: left/right, or up/down. Up behaves like left:
+    /// it brings the bigger numbers to the middle.
     static func bandTravel(_ translation: CGSize) -> CGFloat {
-        abs(translation.width) >= abs(translation.height) ? translation.width : -translation.height
+        abs(translation.width) >= abs(translation.height) ? translation.width : translation.height
     }
 
     static func bandSteps(_ translation: CGSize) -> Int {
