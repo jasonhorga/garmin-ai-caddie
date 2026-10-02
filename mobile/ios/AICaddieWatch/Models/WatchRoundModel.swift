@@ -927,10 +927,46 @@ public final class WatchRoundModel: ObservableObject {
                 courseHoleNumber: merged.courseHoleNumber ?? previous.courseHoleNumber
             )
         }
+        merged = Self.stampingCaddieOrigin(
+            merged,
+            previous: current.holeStates.first { $0.hole == merged.hole },
+            recordedShots: recordedShotCount(for: merged.hole)
+        )
         guard let persisted = try? store.upsertHoleState(merged, makeActive: false) else {
             return
         }
         self.round = persisted
+    }
+
+    /// A live decision's plan counts from the shot it was made for, so stamp that shot count once,
+    /// on arrival. The same decision re-sent later (a phone snapshot after a Watch shot) keeps its
+    /// first stamp and is never mistaken for a fresh plan from the new spot.
+    static func stampingCaddieOrigin(
+        _ state: WatchRoundState,
+        previous: WatchRoundState?,
+        recordedShots: Int
+    ) -> WatchRoundState {
+        guard state.caddieOptions.contains(where: { $0.originShotIndex == nil }) else { return state }
+        let sameDecision = state.decisionId != nil && previous?.decisionId == state.decisionId
+        return state.replacingCaddieOptions(state.caddieOptions.map { option in
+            guard option.originShotIndex == nil else { return option }
+            let earlier = sameDecision
+                ? previous?.caddieOptions.first(where: { $0.optionId == option.optionId })?.originShotIndex
+                : nil
+            return option.stamped(
+                originShotIndex: earlier ?? (option.resolvedRouteOffsetBasis == .tee ? 0 : recordedShots)
+            )
+        })
+    }
+
+    /// The active hole's caddie options as they stand now for a player `progressM` metres along
+    /// the route (nil: unknown): shots recorded since each plan was made are gone and every offset
+    /// counts from the player. The 方案 page (club tag, note, legs) and the 球童 detail all read
+    /// these, never the raw `caddieOptions`.
+    public func currentCaddieOptions(progressM: Double?) -> [WatchCaddieOption] {
+        guard let state = activeHoleState else { return [] }
+        let played = recordedShotCount
+        return state.caddieOptions.map { $0.remaining(fromProgressM: progressM, playedShots: played) }
     }
 
     /// Replace the active round with a fresh set of per-hole snapshots and start at the given hole.
@@ -944,7 +980,10 @@ public final class WatchRoundModel: ObservableObject {
     ) {
         guard let first = states.first else { return }
         var persisted = WatchRoundStore.PersistedRound(roundId: first.roundId)
-        persisted.holeStates = states.sorted { $0.hole < $1.hole }
+        // A fresh round has no shots yet: every plan it carries is made for shot 0.
+        persisted.holeStates = states
+            .map { Self.stampingCaddieOrigin($0, previous: nil, recordedShots: 0) }
+            .sorted { $0.hole < $1.hole }
         persisted.activeHole = activeHole ?? persisted.holeStates.first?.hole ?? 0
         persisted.courseName = courseName
         persisted.courseGlobalId = courseGlobalId

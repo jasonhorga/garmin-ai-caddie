@@ -16,8 +16,12 @@ final class WatchHolePagesUITests: XCTestCase {
 
     func testVerticalSwipesWalkTheThreeHolePagesAndBack() {
         app.launch()
-        let marker = app.descendants(matching: .any)["watch-hole-page-current"]
-        XCTAssertTrue(marker.waitForExistence(timeout: 20), "the production 本洞 pages are showing")
+        let marker = app.staticTexts["watch-hole-page-current"]
+        guard marker.waitForExistence(timeout: 20) else {
+            // Into the job log: what the app is showing instead.
+            print("WatchHolePagesUITests hierarchy:\n\(app.debugDescription)")
+            return XCTFail("the production 本洞 pages are showing")
+        }
         assertPage("方案", marker)
 
         // Swipes start away from the screen centre so none of them begins on the green's flag.
@@ -37,9 +41,12 @@ final class WatchHolePagesUITests: XCTestCase {
     }
 
     private func assertPage(_ name: String, _ marker: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
-        let shown = NSPredicate(format: "value == %@", name)
+        let shown = NSPredicate(format: "label == %@", name)
         let expectation = XCTNSPredicateExpectation(predicate: shown, object: marker)
         let result = XCTWaiter().wait(for: [expectation], timeout: 6)
-        XCTAssertEqual(result, .completed, "expected the \(name) page, saw \(String(describing: marker.value))", file: file, line: line)
+        if result != .completed {
+            print("WatchHolePagesUITests hierarchy:\n\(app.debugDescription)")
+        }
+        XCTAssertEqual(result, .completed, "expected the \(name) page, saw \(marker.label)", file: file, line: line)
     }
 }

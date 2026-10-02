@@ -432,6 +432,7 @@ public struct WatchRoundContainerView: View {
             if let state = model.activeHoleState, model.caddieDetailAvailable {
                 WatchCaddieScreen(
                     state: state,
+                    options: currentCaddieOptions(state),
                     geometry: holeGeometry,
                     frontYd: frontYd(state),
                     centerYd: centerYd(state),
@@ -642,19 +643,36 @@ public struct WatchRoundContainerView: View {
     // A prepared Tee plan may appear on Hole Root only while a qualified Watch fix still places the
     // player at that Tee. Away from the Tee, Root requires the stricter fresh live-decision contract.
     private func caddieOption(_ s: WatchRoundState) -> WatchCaddieOption? {
-        if let selectedPlanId, let picked = s.caddieOptions.first(where: { $0.optionId == selectedPlanId }) {
+        let options = currentCaddieOptions(s)
+        if let selectedPlanId, let picked = options.first(where: { $0.optionId == selectedPlanId }) {
             return picked
         }
         if let optionId = s.offlineOptionId ?? s.strategyMode,
-           let selected = s.caddieOptions.first(where: { $0.optionId == optionId }) {
+           let selected = options.first(where: { $0.optionId == optionId }) {
             return selected
         }
         if let suggested = normalizedCaddieClub(s.suggestedClub) {
-            return s.caddieOptions.first(where: {
+            // The suggestion names the plan's first club as made, so match it on the plan as made.
+            let matching = s.caddieOptions.first(where: {
                 normalizedCaddieClub($0.plan?.first?.clubName ?? $0.clubName) == suggested
             })
+            return matching.flatMap { match in options.first { $0.optionId == match.optionId } }
         }
-        return s.caddieOptions.first
+        return options.first
+    }
+
+    /// The caddie options as they stand now (`WatchRoundModel.currentCaddieOptions`): the shots
+    /// already played are gone and every offset counts from the plan's start (the tee before the
+    /// tee shot, else the player). Every caddie consumer on this container reads these.
+    private func currentCaddieOptions(_ s: WatchRoundState) -> [WatchCaddieOption] {
+        guard s.hole == model.activeHole else { return s.caddieOptions }
+        return model.currentCaddieOptions(progressM: planProgressM(s))
+    }
+
+    private func planProgressM(_ s: WatchRoundState) -> Double? {
+        guard let route = s.holeMap?.route,
+              let origin = teeImagePoint(s) ?? holeGeometry?.youPx else { return nil }
+        return WatchHazardMapLayout.playerProgressMetres(on: route, playerImagePoint: origin)
     }
 
     private func caddieClub(_ s: WatchRoundState) -> String {
@@ -773,13 +791,13 @@ public struct WatchRoundContainerView: View {
         .accessibilityIdentifier("watch-hole-pages")
         // The page in view, for the paging UI test: TabView keeps its neighbours in the hierarchy,
         // so their own elements cannot say which page is showing.
+        // A clear Text (not Color.clear, which SwiftUI drops from the accessibility tree).
         .overlay(alignment: .topLeading) {
-            Color.clear
-                .frame(width: 1, height: 1)
+            Text(Self.holePageName(holePage))
+                .font(.system(size: 2))
+                .foregroundStyle(.clear)
+                .frame(width: 2, height: 2)
                 .allowsHitTesting(false)
-                .accessibilityElement()
-                .accessibilityLabel("本洞页")
-                .accessibilityValue(Self.holePageName(holePage))
                 .accessibilityIdentifier("watch-hole-page-current")
         }
     }
@@ -795,7 +813,7 @@ public struct WatchRoundContainerView: View {
 
     /// Tap the green club tag: the next caddie plan (wrapping).
     private func cyclePlan(_ s: WatchRoundState) {
-        if let next = Self.nextPlanId(after: caddieOption(s)?.optionId, in: s.caddieOptions.map(\.optionId)) {
+        if let next = Self.nextPlanId(after: caddieOption(s)?.optionId, in: currentCaddieOptions(s).map(\.optionId)) {
             selectedPlanId = next
         }
     }
@@ -810,12 +828,12 @@ public struct WatchRoundContainerView: View {
     /// The selected plan as map legs: every remaining shot with its landing and label (README §3).
     /// Before the tee shot the plan starts at the tee.
     private func planLegs(_ s: WatchRoundState, geometry: WatchHoleMapGeometry) -> [WatchPlanLeg] {
+        // `caddieOption` is already the remaining plan, re-based on this origin.
         guard let option = caddieOption(s), let route = s.holeMap?.route else { return [] }
         return WatchPlanLegs.resolve(
-            option: option,
+            plan: option.plan ?? [],
             route: route,
-            origin: teeImagePoint(s) ?? geometry.youPx,
-            playedShots: model.recordedShotCount
+            origin: teeImagePoint(s) ?? geometry.youPx
         )
     }
 

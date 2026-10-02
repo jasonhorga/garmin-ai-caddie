@@ -391,6 +391,9 @@ public struct WatchCaddieOptionsView: View {
 /// with only one current-shot fact retain the honest text fallback.
 public struct WatchCaddieScreen: View {
     public let state: WatchRoundState
+    /// The options as they stand now (`WatchRoundModel.currentCaddieOptions`); defaults to the
+    /// state's own.
+    public let options: [WatchCaddieOption]
     public let geometry: WatchHoleMapGeometry?
     public let frontYd: Int?
     public let centerYd: Int?
@@ -400,6 +403,7 @@ public struct WatchCaddieScreen: View {
 
     public init(
         state: WatchRoundState,
+        options: [WatchCaddieOption]? = nil,
         geometry: WatchHoleMapGeometry? = nil,
         frontYd: Int? = nil,
         centerYd: Int? = nil,
@@ -408,6 +412,7 @@ public struct WatchCaddieScreen: View {
         onBack: @escaping () -> Void = {}
     ) {
         self.state = state
+        self.options = options ?? state.caddieOptions
         self.geometry = geometry
         self.frontYd = frontYd
         self.centerYd = centerYd
@@ -416,14 +421,14 @@ public struct WatchCaddieScreen: View {
         self.onBack = onBack
     }
 
-    var showsPlanOptionsFirst: Bool { !state.caddieOptions.isEmpty }
+    var showsPlanOptionsFirst: Bool { !options.isEmpty }
 
     public var body: some View {
         if showsPlanOptionsFirst {
             WatchCaddieOptionsView(
                 hole: state.displayHoleNumber,
                 par: state.par,
-                options: state.caddieOptions,
+                options: options,
                 recommendedId: state.offlineOptionId ?? state.strategyMode,
                 geometry: geometry,
                 route: state.holeMap?.route ?? [],

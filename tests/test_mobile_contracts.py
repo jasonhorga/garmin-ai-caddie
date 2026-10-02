@@ -5402,7 +5402,16 @@ class WatchHolePagesContractTests(unittest.TestCase):
         for model in (ios / "AICaddieWatch" / "Models" / "WatchRoundState.swift", ios / "AICaddie" / "Services" / "WatchEventBridge.swift"):
             self.assertIn("public let routeOffsetBasis: WatchRouteOffsetBasis?", model.read_text(encoding="utf-8"))
         container = self.read("Views/WatchRoundContainerView.swift")
-        self.assertIn("playedShots: model.recordedShotCount", container)
+        # One "current remaining plan" for every caddie consumer on the round container.
+        self.assertIn("model.currentCaddieOptions(progressM:", container)
+        self.assertIn("options: currentCaddieOptions(state)", container)
+        caddie_option = container[container.index("private func caddieOption("):]
+        caddie_option = caddie_option[: caddie_option.index("private func currentCaddieOptions(")]
+        self.assertIn("let options = currentCaddieOptions(s)", caddie_option)
+        model = self.read("Models/WatchRoundModel.swift")
+        receive = model[model.index("public func receivePhoneState("):]
+        receive = receive[: receive.index("static func stampingCaddieOrigin(")]
+        self.assertIn("Self.stampingCaddieOrigin(", receive)
 
     def test_score_wheels_roll_inside_their_chip(self) -> None:
         score = self.read("Views/WatchScoreHoleView.swift")

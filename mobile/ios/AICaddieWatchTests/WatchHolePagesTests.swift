@@ -57,7 +57,8 @@ final class WatchHolePagesTests: XCTestCase {
         let live = WatchCaddieOption(
             optionId: "stock", label: "标准",
             plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 200, routeOffsetM: 200)],
-            routeOffsetBasis: .shot
+            routeOffsetBasis: .shot,
+            originShotIndex: 1  // made for this shot, from this spot
         )
         let legs = WatchPlanLegs.resolve(option: live, route: route, origin: origin, playedShots: 1)
         XCTAssertEqual(legs.count, 1)

@@ -150,6 +150,9 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public let confidence: String?
     /// What `plan`'s route offsets are measured from; absent in payloads older than B6.
     public let routeOffsetBasis: WatchRouteOffsetBasis?
+    /// How many shots had been recorded on this hole when this plan was made: 0 for a tee plan;
+    /// stamped by the Watch when a live decision arrives (`WatchRoundModel.receivePhoneState`).
+    public let originShotIndex: Int?
 
     public init(
         optionId: String,
@@ -161,7 +164,8 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         sampleSize: Int? = nil,
         plan: [WatchCaddiePlanStep]? = nil,
         confidence: String? = nil,
-        routeOffsetBasis: WatchRouteOffsetBasis? = nil
+        routeOffsetBasis: WatchRouteOffsetBasis? = nil,
+        originShotIndex: Int? = nil
     ) {
         self.optionId = optionId
         self.label = label
@@ -173,6 +177,20 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         self.plan = plan
         self.confidence = confidence
         self.routeOffsetBasis = routeOffsetBasis
+        self.originShotIndex = originShotIndex
+    }
+}
+
+extension WatchCaddiePlanStep {
+    func withRouteOffset(_ routeOffsetM: Double?) -> WatchCaddiePlanStep {
+        WatchCaddiePlanStep(
+            clubName: clubName,
+            carryM: carryM,
+            routeOffsetM: routeOffsetM,
+            expectedRemainingM: expectedRemainingM,
+            role: role,
+            planIndex: planIndex
+        )
     }
 }
 
@@ -183,27 +201,70 @@ extension WatchCaddieOption {
         routeOffsetBasis ?? (confidence == "offline" ? .tee : .shot)
     }
 
-    /// The shots still to play for a player `progressM` metres along the route after `playedShots`
-    /// shots on this hole, with every `routeOffsetM` re-based on that player (the live-decision
-    /// contract `WatchPlanLegs` draws). A live plan already is that. A tee-based plan drops the
-    /// shots already played, by count and by station, and keeps each remaining landing at its
-    /// original station instead of replaying the first shot from where the player now stands.
-    func remainingPlan(fromProgressM progressM: Double, playedShots: Int) -> [WatchCaddiePlanStep] {
-        let steps = plan ?? carryM.map { [WatchCaddiePlanStep(clubName: clubName ?? "", carryM: $0)] } ?? []
-        guard resolvedRouteOffsetBasis == .tee, progressM.isFinite else { return steps }
-        let remaining = steps.dropFirst(max(0, playedShots)).drop { step in
-            guard let offset = step.routeOffsetM, offset.isFinite else { return false }
-            return offset <= progressM + 1
-        }
-        return remaining.map { step in
-            WatchCaddiePlanStep(
-                clubName: step.clubName,
-                carryM: step.carryM,
-                routeOffsetM: step.routeOffsetM.map { $0 - progressM },
-                expectedRemainingM: step.expectedRemainingM,
-                role: step.role,
-                planIndex: step.planIndex
+    func stamped(originShotIndex: Int) -> WatchCaddieOption {
+        WatchCaddieOption(
+            optionId: optionId, label: label, clubName: clubName, carryM: carryM,
+            carryP10M: carryP10M, carryP90M: carryP90M, sampleSize: sampleSize, plan: plan,
+            confidence: confidence, routeOffsetBasis: routeOffsetBasis, originShotIndex: originShotIndex
+        )
+    }
+
+    /// This option as it stands for a player `progressM` metres along the route (nil: unknown)
+    /// after `playedShots` shots on this hole: the shots already played are gone and every
+    /// remaining offset counts from the player. Every production consumer (the 方案 page's club
+    /// tag, note and legs, and the 球童 detail) reads this, so they never disagree on the next shot.
+    func remaining(fromProgressM progressM: Double?, playedShots: Int) -> WatchCaddieOption {
+        let original = plan ?? carryM.map { [WatchCaddiePlanStep(clubName: clubName ?? "", carryM: $0)] } ?? []
+        let steps = remainingPlan(fromProgressM: progressM, playedShots: playedShots)
+        let advanced = steps.count != original.count
+        guard advanced else {
+            return WatchCaddieOption(
+                optionId: optionId, label: label, clubName: clubName, carryM: carryM,
+                carryP10M: carryP10M, carryP90M: carryP90M, sampleSize: sampleSize,
+                plan: plan == nil ? nil : steps, confidence: confidence,
+                routeOffsetBasis: .shot, originShotIndex: playedShots
             )
+        }
+        // The first club changed: its dispersion and sample no longer describe the next shot. A
+        // live option is titled by its club; a prepared one keeps its 稳妥 / 标准 / 进攻 tier.
+        let next = steps.first
+        return WatchCaddieOption(
+            optionId: optionId,
+            label: resolvedRouteOffsetBasis == .shot ? (next.map { WatchClubDisplay.name($0.clubName) } ?? label) : label,
+            clubName: next?.clubName,
+            carryM: next?.carryM,
+            plan: steps,
+            confidence: confidence,
+            routeOffsetBasis: .shot,
+            originShotIndex: playedShots
+        )
+    }
+
+    /// The shots still to play (see `remaining`), every `routeOffsetM` re-based on the player (the
+    /// live-decision contract `WatchPlanLegs` draws). Shots recorded since the plan was made
+    /// (`originShotIndex`) are dropped. A tee plan also drops any landing already behind the player
+    /// and keeps each remaining landing at its original station. A live plan made shots ago from a
+    /// spot this Watch no longer knows keeps its remaining clubs and carries, placed from the
+    /// player, until the phone sends a fresh decision.
+    func remainingPlan(fromProgressM progressM: Double?, playedShots: Int) -> [WatchCaddiePlanStep] {
+        let steps = plan ?? carryM.map { [WatchCaddiePlanStep(clubName: clubName ?? "", carryM: $0)] } ?? []
+        let basis = resolvedRouteOffsetBasis
+        let origin = originShotIndex ?? (basis == .tee ? 0 : playedShots)
+        let played = max(0, playedShots - origin)
+        let remaining = steps.dropFirst(played)
+        switch basis {
+        case .tee:
+            guard let progressM, progressM.isFinite else {
+                return remaining.map { $0.withRouteOffset(nil) }
+            }
+            return remaining
+                .drop { step in
+                    guard let offset = step.routeOffsetM, offset.isFinite else { return false }
+                    return offset <= progressM + 1
+                }
+                .map { $0.withRouteOffset($0.routeOffsetM.map { $0 - progressM }) }
+        case .shot:
+            return played == 0 ? Array(remaining) : remaining.map { $0.withRouteOffset(nil) }
         }
     }
 }
@@ -748,6 +809,65 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.putts = try container.decode(Int.self, forKey: .putts)
         self.penaltyCount = try container.decode(Int.self, forKey: .penaltyCount)
         self.caddieConfidence = try container.decode(String.self, forKey: .caddieConfidence)
+    }
+
+    /// The same snapshot with other caddie options (the Watch's live-decision origin stamp).
+    public func replacingCaddieOptions(_ newCaddieOptions: [WatchCaddieOption]) -> WatchRoundState {
+        WatchRoundState(
+            roundId: roundId,
+            hole: hole,
+            par: par,
+            distanceM: distanceM,
+            teeLatitude: teeLatitude,
+            teeLongitude: teeLongitude,
+            targetNote: targetNote,
+            targetLatitude: targetLatitude,
+            targetLongitude: targetLongitude,
+            targetKind: targetKind,
+            suggestedClub: suggestedClub,
+            selectedClub: selectedClub,
+            availableClubs: availableClubs,
+            shotType: shotType,
+            strategyMode: strategyMode,
+            lie: lie,
+            offlineOptionId: offlineOptionId,
+            decisionId: decisionId,
+            nextShotPrompt: nextShotPrompt,
+            holePlanSummary: holePlanSummary,
+            expectedRemainingM: expectedRemainingM,
+            evidenceSummary: evidenceSummary,
+            missingDataSummary: missingDataSummary,
+            frontGreenM: frontGreenM,
+            centerGreenM: centerGreenM,
+            backGreenM: backGreenM,
+            frontGreenLat: frontGreenLat,
+            frontGreenLon: frontGreenLon,
+            centerGreenLat: centerGreenLat,
+            centerGreenLon: centerGreenLon,
+            backGreenLat: backGreenLat,
+            backGreenLon: backGreenLon,
+            holeImageProjection: holeImageProjection,
+            globalId: globalId,
+            sourceLocalHole: sourceLocalHole,
+            courseHoleNumber: courseHoleNumber,
+            holeMap: holeMap,
+            fairwayOutline: fairwayOutline,
+            playsLikeDistanceM: playsLikeDistanceM,
+            elevationDeltaM: elevationDeltaM,
+            lastShotDistanceM: lastShotDistanceM,
+            distanceFromLastShotM: distanceFromLastShotM,
+            greenInRegulation: greenInRegulation,
+            fairwayResult: fairwayResult,
+            geometryCoverage: geometryCoverage,
+            geometryRevision: geometryRevision,
+            caddieOptions: newCaddieOptions,
+            hazards: hazards,
+            rootCaddieRecommendation: rootCaddieRecommendation,
+            score: score,
+            putts: putts,
+            penaltyCount: penaltyCount,
+            caddieConfidence: caddieConfidence
+        )
     }
 
     public func replacingRoundId(_ newRoundId: String) -> WatchRoundState {

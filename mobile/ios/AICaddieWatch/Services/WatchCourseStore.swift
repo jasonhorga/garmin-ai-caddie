@@ -398,7 +398,8 @@ public enum WatchCourseTemplateBuilder {
                 plan: plan,
                 confidence: "offline",
                 // Both the course-prep steps and `preparedPlan` accumulate from the tee.
-                routeOffsetBasis: .tee
+                routeOffsetBasis: .tee,
+                originShotIndex: 0
             )
         }
     }
