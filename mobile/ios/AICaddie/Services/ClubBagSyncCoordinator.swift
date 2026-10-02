@@ -58,6 +58,12 @@ public final class ClubBagSyncCoordinator: ObservableObject {
     private var fetcher: Fetcher?
     private var worker: Task<Void, Never>?
     private var workerID = 0
+    /// The previous worker, which may still be inside `sender` after it was cancelled (an account
+    /// switch). A new worker awaits it first, so there is never more than one PUT writer.
+    private var fence: Task<Void, Never>?
+    /// Wakes the worker from its retry backoff (设置 → 重新同步球包) without replacing it.
+    private var backoffWake: CheckedContinuation<Void, Never>?
+    private var backoffID = 0
     private var restoreTask: Task<Bool, Never>?
 
     init(
@@ -75,7 +81,9 @@ public final class ClubBagSyncCoordinator: ObservableObject {
         let previous = ClubBagStore.playerId
         ClubBagStore.bind(playerId: playerId, migrateLegacy: migrateLegacy)
         guard ClubBagStore.playerId != previous else { return }
+        wakeBackoff()
         worker?.cancel()
+        fence = worker ?? fence
         worker = nil
         restoreTask = nil
         restoreState = .unknown
@@ -87,6 +95,9 @@ public final class ClubBagSyncCoordinator: ObservableObject {
     /// reinstall / second phone: allowed once this phone has matched the cloud (now or before), or
     /// when there is no backend to restore from. While a restore is in flight — or has failed on a
     /// phone that never matched the cloud — the 球包 controls stay disabled.
+    /// Whether there is a backend to restore from and save to.
+    public var hasBackend: Bool { fetcher != nil }
+
     public var canEdit: Bool {
         switch restoreState {
         case .restored: return true
@@ -179,9 +190,11 @@ public final class ClubBagSyncCoordinator: ObservableObject {
             save(pending, for: player)
             status = .pending
         }
-        if outbox(for: player) != nil {
-            worker?.cancel()
-            worker = nil
+        // Never a second writer: a running worker is only woken from its backoff (a PUT it has
+        // already handed to `sender` finishes first); a new one starts only when none runs.
+        if worker != nil {
+            wakeBackoff()
+        } else if outbox(for: player) != nil {
             startWorker(for: player, debounce: false)
         }
         if restoreState == .failed {
@@ -208,10 +221,30 @@ public final class ClubBagSyncCoordinator: ObservableObject {
         guard worker == nil else { return }
         workerID &+= 1
         let id = workerID
+        let prior = fence
         worker = Task { [weak self] in
+            await prior?.value
             await self?.drain(player: player, debounce: debounce)
             if self?.workerID == id { self?.worker = nil }
         }
+    }
+
+    /// The retry backoff, cut short by `wakeBackoff()`.
+    private func pauseForRetry(_ nanoseconds: UInt64) async {
+        backoffID &+= 1
+        let id = backoffID
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            backoffWake = continuation
+            Task { [weak self] in
+                await self?.sleep(nanoseconds)
+                if self?.backoffID == id { self?.wakeBackoff() }
+            }
+        }
+    }
+
+    private func wakeBackoff() {
+        backoffWake?.resume()
+        backoffWake = nil
     }
 
     private func drain(player: String?, debounce: Bool) async {
@@ -246,7 +279,7 @@ public final class ClubBagSyncCoordinator: ObservableObject {
                 }
                 failures += 1
                 if ClubBagStore.playerId == player { status = .failed }
-                await sleep(Self.retryDelay(afterFailures: failures))
+                await pauseForRetry(Self.retryDelay(afterFailures: failures))
             }
         }
         if ClubBagStore.playerId == player { status = restingStatus() }

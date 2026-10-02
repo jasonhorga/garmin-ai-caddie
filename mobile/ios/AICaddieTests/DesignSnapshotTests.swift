@@ -1870,6 +1870,35 @@ final class DesignSnapshotTests: XCTestCase {
                 },
                 named: "settings-bag-sync"
             )
+
+            // The first cloud read failed on a phone that never had this player's bag: 球包 stays
+            // view-only with its 重新读取 action; 设置 says what happened and offers the retry.
+            let failedSync = ClubBagSyncCoordinator(sleep: { _ in })
+            failedSync.activate(playerId: "p_snapshot_failed", migrateLegacy: false)
+            ClubBagStore.saveRealBag(bag)
+            failedSync.configure(sender: { _, _ in }, fetcher: { _ in throw URLError(.notConnectedToInternet) })
+            let failedRestore = Task { await failedSync.restoreFromServer() }
+            while failedSync.restoreState != .failed { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+            _ = failedRestore
+            XCTAssertFalse(failedSync.canEdit)
+            try captureScreen(
+                NavigationStack {
+                    ClubSettingsView(
+                        clubProfiles: bagProfiles, apiBaseURL: nil, adminToken: nil, sync: failedSync,
+                        fetchesRealBag: false
+                    )
+                },
+                named: "bag-restore-failed"
+            )
+            try captureScreen(
+                NavigationStack {
+                    List { Section("账号与球包") { ClubBagSyncSettingsRow(sync: failedSync) } }
+                        .navigationTitle("设置")
+                        .navigationBarTitleDisplayMode(.inline)
+                },
+                named: "settings-bag-sync-failed"
+            )
+            failedSync.activate(playerId: nil, migrateLegacy: false)
         }
 
         // 复盘逐洞落点图: this round's actual shots (tee→landing→green) on the hole, dots by lie.

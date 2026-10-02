@@ -11,13 +11,23 @@ private final class FakeBagServer {
     /// An HTTP status every request is refused with (401 / 403 / 422 …).
     var rejectWith: Int?
     var holdNext = false
+    /// Hold exactly this (1-based) call; the hold ignores task cancellation, like a request
+    /// already on the wire.
+    var holdCall: Int?
     private var gate: CheckedContinuation<Void, Never>?
     var isHolding: Bool { gate != nil }
+    private(set) var inFlight = 0
+    private(set) var maxInFlight = 0
+    /// What the server holds, in completion order (an unversioned endpoint: last write wins).
+    private(set) var committed: [[ManualClubInput]] = []
 
     func send(_ player: String, _ clubs: [ManualClubInput]) async throws {
         received.append(clubs)
         players.append(player)
-        if holdNext {
+        inFlight += 1
+        maxInFlight = max(maxInFlight, inFlight)
+        defer { inFlight -= 1 }
+        if holdNext || holdCall == received.count {
             holdNext = false
             await withCheckedContinuation { gate = $0 }
         }
@@ -28,6 +38,7 @@ private final class FakeBagServer {
             failuresLeft -= 1
             throw URLError(.notConnectedToInternet)
         }
+        committed.append(clubs)
     }
 
     func release() {
@@ -847,6 +858,60 @@ final class ClubBagSyncTests: XCTestCase {
         coordinator.retryNow()
         while coordinator.restoreState != .restored { await Task.yield() }
         XCTAssertEqual(attempts, 2)
+    }
+
+    @MainActor
+    func testSettingsRetryDuringAnInFlightRetryNeverStartsASecondWriter() async {
+        let server = FakeBagServer()
+        let coordinator = makeCoordinator(server)
+        server.failuresLeft = 1  // generation G fails once…
+        server.holdCall = 2      // …and its automatic retry is held on the wire
+        let model = ClubBagEditorModel(clubProfiles: [], sync: coordinator)
+        model.add("七号铁")
+        while !server.isHolding { await Task.yield() }
+        XCTAssertEqual(coordinator.status, .failed, "设置 offers 重新同步球包 in exactly this window")
+        coordinator.retryNow()
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(server.received.count, 2, "the tap does not start a replacement writer")
+        model.add("八号铁")  // generation G+1 while G is still on the wire
+        coordinator.retryNow()
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(server.received.count, 2)
+        server.release()  // the old G request completes
+        await coordinator.flush()
+        XCTAssertEqual(server.maxInFlight, 1, "one PUT writer at a time")
+        XCTAssertEqual(server.committed.map(tokens), [["iron7"], ["iron7", "iron8"]])
+        XCTAssertEqual(server.committed.last.map(tokens), ["iron7", "iron8"], "the server ends on G+1")
+        XCTAssertNil(coordinator.pendingClubs)
+    }
+
+    @MainActor
+    func testAnAccountSwitchWaitsForTheOldWritersPutBeforeTheNextOne() async {
+        let server = FakeBagServer()
+        let coordinator = makeCoordinator(server)
+        coordinator.activate(playerId: "p_alice", migrateLegacy: false)
+        server.holdNext = true
+        ClubBagEditorModel(clubProfiles: [], sync: coordinator).add("七号铁")
+        while !server.isHolding { await Task.yield() }
+        coordinator.activate(playerId: "p_bob", migrateLegacy: false)
+        coordinator.activate(playerId: "p_alice", migrateLegacy: false)  // back before it lands
+        ClubBagEditorModel(clubProfiles: [], sync: coordinator).add("八号铁")
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(server.received.count, 1, "the new Alice worker waits for the old Alice PUT")
+        server.release()
+        await coordinator.flush()
+        XCTAssertEqual(server.maxInFlight, 1)
+        XCTAssertEqual(server.committed.last.map(tokens), ["iron7", "iron8"])
+    }
+
+    func testSettingsNeverClaimsAnUnreadBagIsSynced() {
+        typealias Row = ClubBagSyncSettingsRow
+        XCTAssertEqual(Row.text(status: .idle, restore: .unknown, canEdit: false, hasBackend: true, synced: false), "还没读取云端球包")
+        XCTAssertEqual(Row.text(status: .idle, restore: .unknown, canEdit: true, hasBackend: true, synced: true), "已同步")
+        XCTAssertEqual(Row.text(status: .idle, restore: .unknown, canEdit: true, hasBackend: false, synced: false), "只保存在这台手机上")
+        XCTAssertEqual(Row.text(status: .idle, restore: .restored, canEdit: true, hasBackend: true, synced: true), "已同步")
+        XCTAssertEqual(Row.text(status: .idle, restore: .failed, canEdit: false, hasBackend: true, synced: false), "还没读到云端球包，读到后才能修改")
+        XCTAssertTrue(Row.canRetry(status: .idle, restore: .failed))
     }
 
     // MARK: - Total roster projection (Codex review 5947998710)

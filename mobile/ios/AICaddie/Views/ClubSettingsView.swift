@@ -140,9 +140,15 @@ public struct ClubSettingsView: View {
 
     public var body: some View {
         ScrollView {
-            // While this phone has not yet read the player's cloud bag, 球包 is a read-only ladder:
-            // no ＋, no reset, rows do not open the editor. Sync progress and recovery live in
-            // 设置 → 球包同步 (README: no process status on business screens).
+            // While this phone has not yet read the player's cloud bag, 球包 is an explicitly
+            // view-only ladder: a 只能查看 card says so (and offers 重新读取 after a failed read),
+            // there is no ＋, no reset, and rows do not open the editor. Sync progress itself lives
+            // in 设置 → 球包同步 (README: no process status on business screens).
+            if !sync.canEdit {
+                BagViewOnlyCard(onReload: sync.restoreState == .failed ? { sync.retryNow() } : nil)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 14)
+            }
             BagContent(rows: model.rows,
                        onSelect: sync.canEdit ? { editingName = $0.name } : nil,
                        onReset: sync.canEdit && (apiBaseURL != nil || ClubBagStore.realBag() != nil)
@@ -404,6 +410,39 @@ struct BagAddClubSheet: View {
     }
 }
 
+/// The view-only state of 球包 as a product state, not a progress message: what the player can do
+/// now (look, not change) and, after a failed read, the one action that changes it.
+struct BagViewOnlyCard: View {
+    var onReload: (() -> Void)?
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "lock.fill")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("暂时只能查看").font(.subheadline.weight(.semibold))
+                Text("拿到你账号里的球包后就能改距离、加减球杆")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            if let onReload {
+                Button("重新读取", action: onReload)
+                    .font(.subheadline.weight(.semibold))
+                    .buttonStyle(.bordered)
+                    .tint(LiveHoleStyle.green)
+                    .accessibilityIdentifier("bag-reload")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hubCard(padding: 12)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("bag-view-only")
+    }
+}
+
 /// 设置 → 球包同步: the only place 球包 sync state is shown (README §… no process status on
 /// business screens). Nothing pending → "已同步"; otherwise what is waiting and a retry.
 struct ClubBagSyncSettingsRow: View {
@@ -413,7 +452,10 @@ struct ClubBagSyncSettingsRow: View {
         HStack {
             Label("球包同步", systemImage: "arrow.triangle.2.circlepath")
             Spacer()
-            Text(Self.text(status: sync.status, restore: sync.restoreState, canEdit: sync.canEdit))
+            Text(Self.text(
+                status: sync.status, restore: sync.restoreState, canEdit: sync.canEdit,
+                hasBackend: sync.hasBackend, synced: ClubBagStore.hasSyncedWithCloud
+            ))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.trailing)
@@ -429,7 +471,9 @@ struct ClubBagSyncSettingsRow: View {
     static func text(
         status: ClubBagSyncCoordinator.Status,
         restore: ClubBagSyncCoordinator.RestoreState,
-        canEdit: Bool
+        canEdit: Bool,
+        hasBackend: Bool = true,
+        synced: Bool = true
     ) -> String {
         switch status {
         case .rejected(let code) where code == 401 || code == 403:
@@ -447,7 +491,11 @@ struct ClubBagSyncSettingsRow: View {
         case .restoring: return "正在读取云端球包"
         case .failed where !canEdit: return "还没读到云端球包，读到后才能修改"
         case .failed: return "读取云端球包失败"
-        case .restored, .unknown: return "已同步"
+        case .restored: return "已同步"
+        // Nothing has been read this session: only claim 已同步 when this phone has matched the
+        // cloud before.
+        case .unknown where !hasBackend: return "只保存在这台手机上"
+        case .unknown: return synced ? "已同步" : "还没读取云端球包"
         }
     }
 
