@@ -3,7 +3,7 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-03 14:50 UTC
+**Updated:** 2026-10-03 16:18 UTC
 **Canonical branch:** `main` (this ledger is updated by docs-only commits)
 **Product tip under release:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
 **Current slice:** `RELEASE-EBE48637` — `in-progress`
@@ -34,6 +34,15 @@ exact-SHA Native run.
 The release-gate evidence was posted on #370 in
 [comment 5970371512](https://github.com/jasonhorga/garmin-ai-caddie/pull/370#issuecomment-5970371512).
 
+The release rerun at the current main fix `892290f3eb577576d91cf6bd469cbf1a8e261638`
+is [37132952118](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/37132952118).
+At this update its iOS real-simulator step had failed and Watch target
+verification was still running; no result is treated as a passing release gate.
+PR #372 (`dbc8ba9f7bc30a65594acb6a0afae7518142277d`) is open on the same base,
+with Source CI `37133639063` and Native CI `37133639086` green. It is queued for
+exact-head focused tests and Native design/Watch artifact review; it has not been
+commented on or merged.
+
 Candidate preflight for `a907d1b5` passed: local/public health returned the
 exact revision, authenticated mobile stats and round `15043724` package passed,
 geometry was `18/18 ready`, and the B7 swing-candidates probe returned 201.
@@ -43,13 +52,15 @@ PR #371 focused homeserver suites passed `230/230` in `13.490s`; log hash is
 
 ## Unfinished work
 
-1. Diagnose the two live iOS failures above, determine whether a product fix or
-   live-data/test flake is responsible, and record evidence on the relevant PR
-   before dispatching one new exact-SHA Native gate.
-2. Only after that gate is green, run the automatic internal-only TestFlight
+1. Finish and inspect Native run `37132952118`; diagnose its iOS failure from
+   artifacts before treating the speculative main fix as effective.
+2. Review PR #372 at its exact head, including focused homeserver tests and its
+   design/Watch snapshots against the redesign docs; post a deduplicated P1/P2
+   verdict before any merge.
+3. Only after that gate is green, run the automatic internal-only TestFlight
    upload and Apple validity/internal-group read-only check. Keep
    `external_distribution=false`; physical iPhone/Watch evidence remains open.
-3. Continue the existing PR comment monitor, deduplicating feedback against
+4. Continue the existing PR comment monitor, deduplicating feedback against
    this ledger. No open B1–B7 PR is currently known.
 
 ## Live verification baseline
@@ -71,8 +82,11 @@ PR #371 focused homeserver suites passed `230/230` in `13.490s`; log hash is
 ## Owned temporary resources and cleanup
 
 - Review snapshot `/dev/shm/codex-pr371-cfc4c3a3-20261003`; read-only,
-  expires 2026-10-04 12:33 UTC; manifest
+  closed/removed at 2026-10-03 16:17 UTC; manifest
   `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261003T123300Z-pr371-cfc4c3a3-review.md`.
+- PR #372 review snapshot is not yet created; create exactly one under
+  `/dev/shm`, record its owner/head/expiry in a dated allow-list manifest, and
+  remove it after the verdict.
 - Release source above: created 2026-10-03, seven-day expiry 2026-10-10 unless
   explicitly renewed. Old `ebe48637` source is retained only for audit until
   the release gate cleanup is recorded.
@@ -100,6 +114,17 @@ Stop the release slice on any failed required Native/Apple gate, revision or
 provenance mismatch, candidate health failure, or request for production or
 external distribution. Escalate only a genuine product/release decision; do not
 pause for routine CI polling or internal TestFlight execution.
+
+## Stable evidence-open queue
+
+These established task IDs remain open for physical or empirical evidence; they
+are not additional implementation slices: `REL`, `MAP1`, `GARMIN-AUTH`,
+`PHONE-REGRESSION`, `PHONE-UX2`, `PHONE-UX3`, `PERF-STARTUP`, `NET-AUDIT`,
+`NET-TASKS-P0`, `DIRECT-CADDIE-VALIDATION`, `CADDIE-P0`, `PHONE-UX5`,
+`PHONE-UX6`, `PHONE-UX7`, `PR332`, and `PR333`. Their completed evidence and
+historical baselines remain verbatim in
+`docs/archive/PROJECT_STATE-2026-10-03.historical.md`; do not reopen them while
+`RELEASE-EBE48637` is the current slice unless new owner feedback changes scope.
 
 ## Continuity rule
 
