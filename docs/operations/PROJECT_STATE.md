@@ -162,7 +162,7 @@ passed. Static review found no visual or diff-check issue, but the gate's
 durable lifecycle is still under review: its latch/samples live only in
 process `@State`, and deferred phone-side closure can leave the visible round
 ID unchanged so the battery report is never closed. A blocking review comment
-is required before merge. Cleanup manifest:
+`5965532609` records P1/P2 blockers; merge is held. Cleanup manifest:
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261003T0415Z-pr370-62ecd53-review.md`.
 This is the only `in-progress` task; do not start B7 step 2/3 work until this
 review is closed.
