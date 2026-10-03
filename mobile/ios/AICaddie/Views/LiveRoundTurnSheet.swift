@@ -5,6 +5,7 @@ import SwiftUI
 /// usual pairing is preselected; any loop, the same loop again, or 只打 9 洞 can be chosen. 稍后
 /// closes the sheet without deciding; the choice stays open until the second loop's first hole.
 struct LiveRoundTurnSheet: View {
+    @Environment(\.dismiss) private var dismiss
     @State var plan: NineLoopPlan
     let isPreparing: Bool
     /// Shown when the last continuation could not add the loop; the choice stays actionable.
@@ -51,6 +52,11 @@ struct LiveRoundTurnSheet: View {
             }
             Button {
                 guard Self.acceptsInput(isPreparing: isPreparing) else { return }
+                // Ask the presentation system to close the sheet before the parent replaces the
+                // live-hole destination. The parent still keeps the selected loop in its queue and
+                // consumes it from `onDismiss`; the explicit dismissal avoids SwiftUI coalescing
+                // the binding change with the navigation-stack replacement on real devices.
+                dismiss()
                 if let loop = plan.secondLoop { onContinue(loop) } else { onStop() }
             } label: {
                 HStack(spacing: 8) {
