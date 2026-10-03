@@ -42,8 +42,21 @@ simulator suite had four failures, corrected in `33937329`:
 The fixes are pushed as `3393732974ad5f165dd34a7e51bdd0b661b34b73`. Full live
 Native run [37149544727](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/37149544727)
 was dispatched at that exact SHA with the candidate tunnel and backend revision
-`a907d1b5`; it is currently queued. Remote Python compile-only verification
+`a907d1b5`; it was later cancelled as a QUIC-tunnel diagnostic. Remote Python compile-only verification
 passed; no local/remote Swift compiler is available.
+
+The run was later found to be using the QUIC candidate tunnel; its cloudflared
+log showed 3–15 KB/s body throughput and another connection timeout. Cancellation
+was requested after preserving the diagnostic evidence. A session-owned HTTP/2
+candidate tunnel is now `https://bee-famous-payments-household.trycloudflare.com`
+(tmux `codex-release-http2-20261003`, origin `39087`). A 214 KB topo probe
+returned HTTP 200 with TTFB 0.70 s and total 0.91 s; repeated probes ranged
+120–236 KB/s, so the preflight evidence remains recorded and will be repeated
+before the next live gate.
+
+PR #373 is under review at exact head `eb63590c58ee687b1b298403fc34b66e899547aa`;
+its source/native checks are in progress. Its test isolation, post-turn wait,
+and visible continuation progress complement the already pushed `33937329` fixes.
 
 Direct candidate probes for the shotmap returned HTTP 200 in about 0.6–1.1 s;
 the failure is therefore not yet attributable to the endpoint alone. Evidence
@@ -88,6 +101,10 @@ PR #371 focused homeserver suites passed `230/230` in `13.490s`; log hash is
   `/home/jason/codex-runs/garmin-ai-caddie-nativefix-20261003`, created
   2026-10-03 with seven-day expiry 2026-10-10; ownership manifest is
   `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261003T1948Z-nativefix.md`.
+- HTTP/2 candidate ingress manifest:
+  `.codex-release-http2-20261003-manifest.md` locally and
+  `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261003T2023Z-release-http2.md`
+  remotely; cleanup is pending the next gate.
 - Focused-test log:
   `/home/jason/garmin-ai-caddie-data/operations/release-ebe48637-20261003/pr371-cfc4c3a3-focused-tests.log`.
 
@@ -119,11 +136,13 @@ PR #371 focused homeserver suites passed `230/230` in `13.490s`; log hash is
 
 ## Next action and stop conditions
 
-Next: monitor Native run `37149544727`; inspect its design/Watch/real-simulator
-artifacts, then continue only according to the result. Complete the release
-only after Native is fully green, TestFlight Apple checks are recorded, and
-physical-device evidence is handed off. Close resources only through
-allow-listed manifests; do not broad-clean shared homeserver state.
+Next: finish the exact-head review of PR #373 and wait for its required CI;
+then merge only if its tests and artifact evidence are clean, close the
+cancelled QUIC diagnostic run, and dispatch the full live gate at the merged
+SHA through the measured HTTP/2 tunnel. Complete the release only after Native
+is fully green, TestFlight Apple checks are recorded, and physical-device
+evidence is handed off. Close resources only through allow-listed manifests;
+do not broad-clean shared homeserver state.
 
 Stop the release slice on any failed required Native/Apple gate, revision or
 provenance mismatch, candidate health failure, or request for production or
