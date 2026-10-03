@@ -31,6 +31,8 @@ Evidence is retained at
 and `native-37126990984-artifacts/`; the 127 MB real-video artifact was not
 downloaded. TestFlight upload has **not** started and remains gated on a green
 exact-SHA Native run.
+The release-gate evidence was posted on #370 in
+[comment 5970371512](https://github.com/jasonhorga/garmin-ai-caddie/pull/370#issuecomment-5970371512).
 
 Candidate preflight for `a907d1b5` passed: local/public health returned the
 exact revision, authenticated mobile stats and round `15043724` package passed,
