@@ -78,6 +78,21 @@ After compaction, follow this recovery sequence exactly:
 There must be at most one `in-progress` task in the ledger. A task is either
 `queued`, `in-progress`, `blocked`, `evidence-open`, `done`, or `cancelled`.
 
+### Short continuity ledger and dated archives
+
+Keep `docs/operations/PROJECT_STATE.md` at **200 lines or fewer**. It may
+contain only the current state, unfinished work, live verification baselines,
+temporary resources owned by this session, the next action, and stop
+conditions. This is the one continuity record used by the compression-recovery
+steps above; do not create a competing plan or handoff file.
+
+When a state update makes detail completed or historical, preserve that detail
+verbatim in `docs/archive/PROJECT_STATE-YYYY-MM-DD*.md`, preceded by an explicit
+`HISTORICAL ARCHIVE — NON-AUTHORITATIVE` marker. Do not delete information.
+Archives are audit references, not startup reading. Keep the short ledger and
+the dated archive synchronized whenever the current slice, evidence, blocker,
+or owned-resource state changes.
+
 ## 6. Required handoff
 
 Every delegated session must report:
