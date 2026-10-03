@@ -3,10 +3,11 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-03 22:22 UTC
+**Updated:** 2026-10-03 22:54 UTC
 **Canonical branch:** `main`
 **Product app tip:** `1d3bca3d94fc60b17440bd5110bb6c35be04cd14`
 **Product backend tip:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
+**Release pipeline tip:** `3890c2e09db119b2fddea45a4c7b948caf726ed4`
 **Current slice:** `RELEASE-EBE48637` — `blocked`
 
 ## Current status
@@ -17,6 +18,11 @@ its source branch is deleted. The exact-SHA live Native gate
 is green, including iOS, Watch, real-simulator flows, design snapshots,
 Watch snapshots, secret scan, and build evidence. The accepted app/backend
 provenance is `1d3bca3d` / `a907d1b5`.
+
+The build-number safeguard from PR #370 feedback is merged as PR #374 at
+`3890c2e0`; Source CI `37159235915` and post-merge main CI `37159674238` are
+green. It now fails closed when App Store Connect build lookup fails, so the
+Apple agreement blocker cannot silently select build 1.
 
 The internal-only TestFlight workflow
 `37157174440` built, signed, produced the IPA and provenance, then failed
