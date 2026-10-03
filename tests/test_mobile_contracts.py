@@ -4887,8 +4887,16 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("autoShotProvider.updateSpeed(fix)", _read_required_source(self, WATCH_DIR / "AICaddieWatchApp.swift"))
         self.assertIn("guard let samples else { interrupt(); return nil }", candidates)
         self.assertIn("private func interruptMotion()", provider)
-        # The capability/battery gate is a prerequisite: collection stays unavailable until it lands.
-        self.assertIn("public static let isAvailable = false", candidates)
+        # B7 capability/battery gate: collection runs only while the round's gate allows it.
+        gate = _read_required_source(self, WATCH_DIR / "Services" / "WatchSwingCollectionGate.swift")
+        for token in ["public static let extraDrainPerHour = 0.05", "case noBatteryBaseline",
+                      "case batteryOverBudget", "case workoutSessionFailed", "case motionPermissionDenied",
+                      "func baselinePerHour()", "latchedBlocker = blocker"]:
+            self.assertIn(token, gate)
+        gated_app = _read_required_source(self, WATCH_DIR / "AICaddieWatchApp.swift")
+        self.assertIn("private var collectingSwings: Bool { swingCollectionAllowed }", gated_app)
+        self.assertIn("swingGate?.allowsCollection(preference: collectSwingFeatures, capability: capability)", gated_app)
+        self.assertIn("device.isBatteryMonitoringEnabled = true", gated_app)
         app = _read_required_source(self, WATCH_DIR / "AICaddieWatchApp.swift")
         self.assertIn('@AppStorage("watch.collectSwingFeatures") private var collectSwingFeatures = false', app)
         handler = app[app.index(".onChange(of: autoShotProvider.latestSwing)"):]
@@ -4901,7 +4909,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('/api/v2/mobile/rounds/\\(roundId)/swing-candidates', client)
         settings = _read_required_source(self, WATCH_DIR / "Views" / "WatchSettingsView.swift")
         self.assertIn('Toggle("采集挥杆数据", isOn: $collectSwingFeatures)', settings)
-        self.assertIn("if Self.showsSwingCollectionRow {", settings)
+        self.assertIn("if Self.showsSwingCollectionRow(autoShotSupported: autoShotSupported, status: swingCollectionStatus) {", settings)
         self.assertIn("closeSwingRound(closure.roundId)", app)
 
     def test_watch_state_includes_next_shot_prompt_from_phone_bridge(self) -> None:
