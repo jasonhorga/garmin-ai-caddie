@@ -2473,7 +2473,7 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// B4 turn: add the chosen second loop to this round, then open its first hole. The model owns
     /// the navigation so it survives the live destination being rebuilt for the new hole set
-    /// (RoundHomeView keys that view by `holeSetIdentity`): `pendingLiveHole` is consumed by
+    /// (RoundHomeView keys it by round hole + physical hole): `pendingLiveHole` is consumed by
     /// RoundHomeView, and the saved cursor moves with it.
     public func continueIntoSecondLoop(_ entry: RoundLoopEntry, roundId: String) async {
         await setSecondLoop(entry, roundId: roundId)

@@ -2680,6 +2680,15 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("guard let loop = queuedTurnLoop else { return }", dismissed)
         self.assertIn("onContinueIntoSecondLoop(entry, package.roundId)", dismissed)
         self.assertIn("turnPlan = turnRetryPlan", current_hole)
+        # The live destination is keyed by round hole + physical hole: appending the second loop
+        # must not re-identify the outgoing hole while the path is replaced (live Native
+        # 37126990984), and a successful continuation is observed on the kept view.
+        self.assertIn(
+            '.id("\\(package.roundId):\\(hole.number):\\(hole.sourceGlobalId):\\(hole.sourceLocalHole)")',
+            round_home,
+        )
+        self.assertNotIn(".id(\"\\(package.roundId):\\(hole.number):\\(package.holeSetIdentity)\")", round_home)
+        self.assertIn(".onChange(of: package.secondLoop?.entry)", current_hole)
         # B4c: the Touch Target works on the factual map while the precise map is pending.
         tap = current_hole.split("SpatialTapGesture().onEnded { value in", 1)[1].split("handleHeroMapTap(", 1)[0]
         self.assertNotIn("isPreciseHoleMapPending", tap)
