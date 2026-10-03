@@ -145,24 +145,22 @@ Its exact-head snapshot, temporary artifacts, and temporary containers were
 removed; no review resource remains open. The 87 design and 47 Watch images
 were byte-identical to the accepted PR #367 baseline, with representative
 settings, fairway, caddie-plan, and enlarged-hazard states inspected.
-PR #370 is now the sole queued review item. Its exact head is
-`62ecd53d2bcf916dc2e1848f1052f421309b487c` on the shared Claude branch
-`claude/code-audit-performance-17wqcv`; it implements the B7 capability and
-battery gate for swing-candidate collection. Source CI `37091628259` and
-Native Mobile CI `37091628243` passed, with design artifact `11263171165`,
-Watch artifact `11262926026`, and native evidence `11263260663`. The exact
-head snapshot is `/dev/shm/aicaddie-pr370-62ecd53-review`; the homeserver
-focused suites `tests.test_mobile_contracts tests.test_native_visual_parity`
-passed `126/126` in 13.987s, log SHA-256
-`cc6167cf9115ed12610633ad6595c8f43c8c01298c41d2bbe2a1ff90f8909e3a`, retained
+PR #370 is now the sole queued review item. Its current exact head is
+`4c660ffe2e401ee326274ba20b5c7eb7aa15f854` on the shared Claude branch
+`claude/code-audit-performance-17wqcv`; it adds Codable gate persistence,
+logical-closure finalization, and relaunch/closure regressions for the B7
+capability and battery gate. Source CI `37096684615` passed; Native Mobile CI
+`37096684611` is still running. The exact-head snapshot is
+`/dev/shm/aicaddie-pr370-62ecd53-review`; the homeserver focused suites
+`tests.test_mobile_contracts tests.test_native_visual_parity` passed `126/126`
+in 10.423s, log SHA-256
+`db48ce81c6bd636bfc46fe6e9754a481a716f94e8f216d7cebc9f883d64bbe1a`, retained
 at `/home/jason/garmin-ai-caddie-data/review-evidence/pr370/62ecd53/`.
-All 87 iOS PNGs and all 47 Watch PNGs are byte-identical to the accepted
-PR #369/full-fixture baseline; the native evidence reports iOS and Watch
-passed. Static review found no visual or diff-check issue, but the gate's
-durable lifecycle is still under review: its latch/samples live only in
-process `@State`, and deferred phone-side closure can leave the visible round
-ID unchanged so the battery report is never closed. A blocking review comment
-`5965532609` records P1/P2 blockers; merge is held. Cleanup manifest:
+The prior head's 87 iOS/47 Watch artifact comparison remains superseded
+evidence; no artifact review is accepted for `4c660ffe` until its Native run
+uploads fresh design/Watch/native artifacts. Static review is pending that
+run and a second exact-head artifact comparison; comment `5965532609` records
+the prior-head P1/P2 blockers. Cleanup manifest:
 `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261003T0415Z-pr370-62ecd53-review.md`.
 This is the only `in-progress` task; do not start B7 step 2/3 work until this
 review is closed.
