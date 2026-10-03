@@ -113,6 +113,9 @@ public struct RoundHomeView: View {
     /// Archived rounds, newest first: each venue's last first loop and tee.
     @State private var heroHistory: [HistoryRoundCard] = []
 
+    /// The clock the greeting reads; design snapshots pin it so the title never depends on when CI ran.
+    @Environment(\.homeGreetingDate) private var greetingDate
+
     public init(
         package: LiveRoundPackage,
         pendingEventCount: Int = 0,
@@ -250,7 +253,11 @@ public struct RoundHomeView: View {
 
     /// Nameless, time-of-day greeting (早上好 / 中午好 / 下午好 / 晚上好) — the home's large title.
     private var greeting: String {
-        switch Calendar.current.component(.hour, from: Date()) {
+        Self.greeting(at: greetingDate ?? Date())
+    }
+
+    static func greeting(at date: Date, calendar: Calendar = .current) -> String {
+        switch calendar.component(.hour, from: date) {
         case 5..<11: return "早上好"
         case 11..<13: return "中午好"
         case 13..<18: return "下午好"
@@ -1197,5 +1204,17 @@ struct HubScoreStrip: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("逐洞成绩")
         .accessibilityIdentifier("home-last-round-strip")
+    }
+}
+
+private struct HomeGreetingDateKey: EnvironmentKey {
+    static let defaultValue: Date? = nil
+}
+
+extension EnvironmentValues {
+    /// Overrides "now" for the home greeting; nil (production) uses the real clock.
+    var homeGreetingDate: Date? {
+        get { self[HomeGreetingDateKey.self] }
+        set { self[HomeGreetingDateKey.self] = newValue }
     }
 }

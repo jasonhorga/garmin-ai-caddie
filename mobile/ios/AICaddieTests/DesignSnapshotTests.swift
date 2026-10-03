@@ -2525,6 +2525,29 @@ final class DesignSnapshotTests: XCTestCase {
     }
 
     @discardableResult
+    func testTheHomeGreetingFollowsTheHourAndSnapshotsUseAFixedMorning() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        func at(_ hour: Int) -> Date {
+            calendar.date(from: DateComponents(year: 2026, month: 9, day: 25, hour: hour))!
+        }
+        XCTAssertEqual(RoundHomeView.greeting(at: at(9), calendar: calendar), "早上好")
+        XCTAssertEqual(RoundHomeView.greeting(at: at(12), calendar: calendar), "中午好")
+        XCTAssertEqual(RoundHomeView.greeting(at: at(15), calendar: calendar), "下午好")
+        XCTAssertEqual(RoundHomeView.greeting(at: at(21), calendar: calendar), "晚上好")
+        XCTAssertEqual(RoundHomeView.greeting(at: Self.snapshotMorning), "早上好")
+    }
+
+    /// 09:00 local time on a fixed day, whatever the runner's time zone.
+    static let snapshotMorning: Date = {
+        var components = DateComponents()
+        components.year = 2026
+        components.month = 9
+        components.day = 25
+        components.hour = 9
+        return Calendar.current.date(from: components) ?? Date(timeIntervalSince1970: 0)
+    }()
+
     private func captureScreen(
         _ view: some View,
         named name: String,
@@ -2534,7 +2557,8 @@ final class DesignSnapshotTests: XCTestCase {
     ) throws -> Data {
         let size = CGSize(width: 390, height: 844)
         let style: UIUserInterfaceStyle = dark ? .dark : .light
-        let host = UIHostingController(rootView: view)
+        // A fixed morning, so the home greeting (早上好 …) never depends on when CI ran.
+        let host = UIHostingController(rootView: view.environment(\.homeGreetingDate, Self.snapshotMorning))
         host.overrideUserInterfaceStyle = style
         host.view.frame = CGRect(origin: .zero, size: size)
         let window = UIWindow(frame: host.view.frame)
