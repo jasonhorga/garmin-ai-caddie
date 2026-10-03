@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-10-03 04:10 UTC
+**Updated:** 2026-10-03 04:52 UTC
 **Branch:** `main`; product canonical source revision is
 `ef8d1f5c730c3ab314d43b4101b53b4560469abb` (PR #369 B7.1 snapshot clock
 pin, PR #368 B7 step 1, PR #367 B6,
@@ -105,7 +105,7 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-10-03 04:10 UTC):** `B1-B7` review queue remains
+**Current slice (2026-10-03 04:52 UTC):** `B1-B7` review queue remains
 `in-progress`; B6, B7 step 1, and B7.1 snapshot determinism are complete
 through merged PRs #367, #368, and #369. PR #369 was reviewed at exact head
 `bd948848f6f36eed827ddd59350a6a6e5724aba9`; Source CI `37087872728`, Native
@@ -145,25 +145,28 @@ Its exact-head snapshot, temporary artifacts, and temporary containers were
 removed; no review resource remains open. The 87 design and 47 Watch images
 were byte-identical to the accepted PR #367 baseline, with representative
 settings, fairway, caddie-plan, and enlarged-hazard states inspected.
-PR #370 is now the sole queued review item. Its current exact head is
-`4c660ffe2e401ee326274ba20b5c7eb7aa15f854` on the shared Claude branch
-`claude/code-audit-performance-17wqcv`; it adds Codable gate persistence,
-logical-closure finalization, and relaunch/closure regressions for the B7
-capability and battery gate. Source CI `37096684615` passed; Native Mobile CI
-`37096684611` is still running. The exact-head snapshot is
-`/dev/shm/aicaddie-pr370-62ecd53-review`; the homeserver focused suites
-`tests.test_mobile_contracts tests.test_native_visual_parity` passed `126/126`
-in 10.423s, log SHA-256
-`db48ce81c6bd636bfc46fe6e9754a481a716f94e8f216d7cebc9f883d64bbe1a`, retained
-at `/home/jason/garmin-ai-caddie-data/review-evidence/pr370/62ecd53/`.
-The prior head's 87 iOS/47 Watch artifact comparison remains superseded
-evidence; no artifact review is accepted for `4c660ffe` until its Native run
-uploads fresh design/Watch/native artifacts. Static review is pending that
-run and a second exact-head artifact comparison; comment `5965532609` records
-the prior-head P1/P2 blockers. Cleanup manifest:
-`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261003T0415Z-pr370-62ecd53-review.md`.
-This is the only `in-progress` task; do not start B7 step 2/3 work until this
-review is closed.
+PR #370 is now the sole queued review item. Its exact head
+`4c660ffe2e401ee326274ba20b5c7eb7aa15f854` was checked with Source CI
+`37096684615` and homeserver focused suites
+`tests.test_mobile_contracts tests.test_native_visual_parity` passing `126/126`
+in 10.423s (log SHA-256
+`db48ce81c6bd636bfc46fe6e9754a481a716f94e8f216d7cebc9f883d64bbe1a`). Native
+Mobile CI `37096684611` then failed one Watch test out of 448:
+`WatchSwingCollectionGateTests.testACapabilityFailureSurvivesARelaunch`.
+The fixture had no battery baseline while asserting `.workoutSessionFailed`,
+so `blocker()` returned `.noBatteryBaseline` first. This is recorded as a
+review-gate failure, not accepted evidence. Claude pushed corrective head
+`28425944858890266405b2541048b0f6b070e432` ("report capability failures
+before battery checks"). Source CI `37097697930` is green and exact-head
+Native Mobile CI `37097697949` is in progress; focused suites and fresh
+artifacts must be rerun only after that Native run completes. The old exact
+head snapshot is superseded/closed; retained focused evidence remains under
+`/home/jason/garmin-ai-caddie-data/review-evidence/pr370/62ecd53/` and cleanup
+manifest `20261003T0415Z-pr370-62ecd53-review.md`. No artifact review is
+accepted for either PR #370 head until the corrective head's Native run
+uploads fresh design/Watch/native artifacts. Comment `5965532609` records the
+original P1/P2 blockers. This is the only `in-progress` task; do not start B7
+step 2/3 work until this review is closed.
 
 PR #364 (B5a results landing, performance analysis and score distribution) was
 reviewed at exact head
