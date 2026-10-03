@@ -3,7 +3,7 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-03 16:18 UTC
+**Updated:** 2026-10-03 17:18 UTC
 **Canonical branch:** `main` (this ledger is updated by docs-only commits)
 **Product tip under release:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
 **Current slice:** `RELEASE-EBE48637` — `in-progress`
@@ -36,12 +36,16 @@ The release-gate evidence was posted on #370 in
 
 The release rerun at the current main fix `892290f3eb577576d91cf6bd469cbf1a8e261638`
 is [37132952118](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/37132952118).
-At this update its iOS real-simulator step had failed and Watch target
-verification was still running; no result is treated as a passing release gate.
-PR #372 (`dbc8ba9f7bc30a65594acb6a0afae7518142277d`) is open on the same base,
-with Source CI `37133639063` and Native CI `37133639086` green. It is queued for
-exact-head focused tests and Native design/Watch artifact review; it has not been
-commented on or merged.
+It completed `failure`: iOS live flow timed out on the back-nine transition,
+shot-map loading timed out, review-edit shot-map resolution timed out, and the
+tee-selector capture did not observe the tapped tee. Watch stages and artifact
+collection completed, but this is not a passing release gate.
+PR #372 (`dbc8ba9f7bc30a65594acb6a0afae7518142277d`) was reviewed and merged as
+`9acc451c065718dd896f07624ee105ebe06ee08b`; Source CI `37133639063`, Native
+CI `37133639086`, focused tests `114/114` plus identity/native evidence checks
+`22/22`, and manual phone/Watch snapshot review passed. The Claude branch was
+deleted; review comment is
+[5971431847](https://github.com/jasonhorga/garmin-ai-caddie/pull/372#issuecomment-5971431847).
 
 Candidate preflight for `a907d1b5` passed: local/public health returned the
 exact revision, authenticated mobile stats and round `15043724` package passed,
@@ -52,11 +56,10 @@ PR #371 focused homeserver suites passed `230/230` in `13.490s`; log hash is
 
 ## Unfinished work
 
-1. Finish and inspect Native run `37132952118`; diagnose its iOS failure from
-   artifacts before treating the speculative main fix as effective.
-2. Review PR #372 at its exact head, including focused homeserver tests and its
-   design/Watch snapshots against the redesign docs; post a deduplicated P1/P2
-   verdict before any merge.
+1. Diagnose the four failures in Native run `37132952118` against the integrated
+   PR #372 source and candidate/tunnel evidence; do not call the release green.
+2. Dispatch one new exact-SHA Native gate for main `9acc451c` after the failure
+   cause is bounded and candidate provenance is recorded.
 3. Only after that gate is green, run the automatic internal-only TestFlight
    upload and Apple validity/internal-group read-only check. Keep
    `external_distribution=false`; physical iPhone/Watch evidence remains open.
@@ -84,9 +87,10 @@ PR #371 focused homeserver suites passed `230/230` in `13.490s`; log hash is
 - Review snapshot `/dev/shm/codex-pr371-cfc4c3a3-20261003`; read-only,
   closed/removed at 2026-10-03 16:17 UTC; manifest
   `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261003T123300Z-pr371-cfc4c3a3-review.md`.
-- PR #372 review snapshot is not yet created; create exactly one under
-  `/dev/shm`, record its owner/head/expiry in a dated allow-list manifest, and
-  remove it after the verdict.
+- PR #372 review snapshot `/dev/shm/codex-pr372-dbc8ba9f-20261003` was created
+  read-only, then closed/removed at 2026-10-03 17:12 UTC after the verdict;
+  evidence is retained under
+  `/home/jason/garmin-ai-caddie-data/operations/pr372-dbc8ba9f-20261003/`.
 - Release source above: created 2026-10-03, seven-day expiry 2026-10-10 unless
   explicitly renewed. Old `ebe48637` source is retained only for audit until
   the release gate cleanup is recorded.
