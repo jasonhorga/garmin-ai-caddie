@@ -19,7 +19,10 @@ final class TopoHoleImageStore: ObservableObject {
         return cache
     }()
 
-    private static var inFlight: [URL: Task<UIImage?, Never>] = [:]
+    /// Shared network producers return bytes rather than decoded images. They are deliberately
+    /// detached from a SwiftUI view task: changing holes or dismissing a surface may cancel the
+    /// waiter, but must not cancel the one download shared by the next view that needs the bitmap.
+    private static var inFlight: [URL: Task<Data?, Never>] = [:]
 
     @Published private(set) var image: UIImage?
     @Published private(set) var isLoading = false
@@ -78,13 +81,13 @@ final class TopoHoleImageStore: ObservableObject {
             return diskImage
         }
 
-        let task: Task<UIImage?, Never>
+        let task: Task<Data?, Never>
         if let existing = inFlight[url] {
             task = existing
         } else {
-            task = Task {
+            task = Task.detached(priority: .userInitiated) {
                 if url.isFileURL {
-                    return UIImage(contentsOfFile: url.path)
+                    return try? Data(contentsOf: url)
                 }
                 var request = URLRequest(
                     url: url,
@@ -94,19 +97,23 @@ final class TopoHoleImageStore: ObservableObject {
                 request.setValue("image/png,image/*;q=0.9", forHTTPHeaderField: "Accept")
                 guard let (data, response) = try? await URLSession.shared.data(for: request),
                       (response as? HTTPURLResponse).map({ 200..<300 ~= $0.statusCode }) != false,
-                      let image = UIImage(data: data) else { return nil }
-                saveImageData(data, for: url)
-                return image
+                      !data.isEmpty else { return nil }
+                return data
             }
             inFlight[url] = task
         }
 
-        let resolved = await task.value
-        inFlight[url] = nil
-        if let resolved {
-            let cost = Int(resolved.size.width * resolved.size.height * resolved.scale * resolved.scale * 4)
-            imageCache.setObject(resolved, forKey: key, cost: cost)
+        guard let data = await task.value,
+              let resolved = UIImage(data: data) else {
+            inFlight[url] = nil
+            return nil
         }
+        if !url.isFileURL {
+            saveImageData(data, for: url)
+        }
+        inFlight[url] = nil
+        let cost = Int(resolved.size.width * resolved.size.height * resolved.scale * resolved.scale * 4)
+        imageCache.setObject(resolved, forKey: key, cost: cost)
         return resolved
     }
 

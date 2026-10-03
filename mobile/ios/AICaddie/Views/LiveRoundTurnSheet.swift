@@ -52,12 +52,15 @@ struct LiveRoundTurnSheet: View {
             }
             Button {
                 guard Self.acceptsInput(isPreparing: isPreparing) else { return }
-                // Ask the presentation system to close the sheet before the parent replaces the
-                // live-hole destination. The parent still keeps the selected loop in its queue and
-                // consumes it from `onDismiss`; the explicit dismissal avoids SwiftUI coalescing
-                // the binding change with the navigation-stack replacement on real devices.
+                // Queue the continuation before dismissing. `onDismiss` consumes that queue to
+                // replace the live-hole destination; dismissing first can let SwiftUI run
+                // `onDismiss` while the queue is still empty on a real device.
+                if let loop = plan.secondLoop {
+                    onContinue(loop)
+                } else {
+                    onStop()
+                }
                 dismiss()
-                if let loop = plan.secondLoop { onContinue(loop) } else { onStop() }
             } label: {
                 HStack(spacing: 8) {
                     if isPreparing { ProgressView().tint(LiveScoreStyle.primaryInk) }
