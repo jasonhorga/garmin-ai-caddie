@@ -9,9 +9,13 @@ public struct WatchSettingsView: View {
     /// B7 step 1 (实验): record swing candidates and their features for later tuning; never changes
     /// a score and never proposes a shot by itself.
     @AppStorage("watch.collectSwingFeatures") private var collectSwingFeatures = false
-    /// Hidden until B7's capability/battery gate lands (`WatchSwingCollectionAvailability`), so the
-    /// accepted settings screen is unchanged.
-    static var showsSwingCollectionRow: Bool { WatchSwingCollectionAvailability.isAvailable }
+    /// The B7 gate's state for the collection row (`WatchSwingCollectionStatus`); nil hides the row.
+    @Environment(\.watchSwingCollectionStatus) private var swingCollectionStatus
+
+    /// The row shows only on a device that can collect at all.
+    static func showsSwingCollectionRow(autoShotSupported: Bool, status: String?) -> Bool {
+        autoShotSupported && status != nil
+    }
     public let autoShotSupported: Bool
     public let autoShotEnabled: Bool
     public let autoShotStatus: String
@@ -73,14 +77,21 @@ public struct WatchSettingsView: View {
                 .padding(.vertical, 7)
                 Divider()
 
-                if Self.showsSwingCollectionRow {
-                    Toggle("采集挥杆数据", isOn: $collectSwingFeatures)
-                        .font(.system(size: 17, weight: .bold))
-                        .toggleStyle(WatchApprovedToggleStyle())
-                        .disabled(!autoShotSupported)
-                        .accessibilityHint("实验：只记录挥杆特征，不改成绩")
-                        .accessibilityIdentifier("watch-settings-collect-swings")
-                        .padding(.vertical, 7)
+                if Self.showsSwingCollectionRow(autoShotSupported: autoShotSupported, status: swingCollectionStatus) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Toggle("采集挥杆数据", isOn: $collectSwingFeatures)
+                            .font(.system(size: 17, weight: .bold))
+                            .toggleStyle(WatchApprovedToggleStyle())
+                            .accessibilityHint("实验：只记录挥杆特征，不改成绩")
+                            .accessibilityValue(swingCollectionStatus ?? "")
+                            .accessibilityIdentifier("watch-settings-collect-swings")
+                        // Why it is (not) collecting: no baseline yet, over budget, unsupported …
+                        Text(swingCollectionStatus ?? "")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.vertical, 7)
                     Divider()
                 }
 

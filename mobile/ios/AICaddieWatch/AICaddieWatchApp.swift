@@ -1,3 +1,4 @@
+import CoreMotion
 import SwiftUI
 import WatchKit
 
@@ -32,9 +33,31 @@ public struct AICaddieWatchApp: App {
     @State private var swingRouter = WatchSwingCandidateRouter()
     @State private var swingUploadRetry: Task<Void, Never>?
 
-    /// The capability/battery gate is a prerequisite: until it lands a stored preference is ignored.
-    private var collectingSwings: Bool {
-        WatchSwingCollectionAvailability.isCollecting(preference: collectSwingFeatures)
+    /// B7 capability/battery gate for the current round, and its battery reports (the baseline).
+    @State private var swingGate: WatchSwingCollectionGate?
+    @State private var swingCollectionAllowed = false
+    private let batteryReports = WatchRoundBatteryReportStore()
+
+    /// Collection runs only while the player wants it and the round's gate allows it.
+    private var collectingSwings: Bool { swingCollectionAllowed }
+
+    private var swingCapability: WatchSwingCapability {
+        WatchSwingCapability(
+            provider: autoShotProvider.state,
+            sensorsSupported: autoShotProvider.isSupported,
+            motionPermissionDenied: CMBatchedSensorManager.authorizationStatus == .denied
+                || CMBatchedSensorManager.authorizationStatus == .restricted
+        )
+    }
+
+    /// The settings row's status; nil hides the row on a device that cannot collect at all.
+    private var swingCollectionStatus: String? {
+        guard autoShotProvider.isSupported else { return nil }
+        return WatchSwingCollectionStatus.text(
+            preference: collectSwingFeatures,
+            roundActive: swingGate != nil,
+            blocker: swingGate?.blocker(capability: swingCapability)
+        )
     }
 
     public init() {}
@@ -106,8 +129,29 @@ public struct AICaddieWatchApp: App {
                 .onChange(of: gpsPreheatEnabled, initial: true) { _, _ in
                     reconcileLocationServices()
                 }
-                .onChange(of: collectSwingFeatures) { _, _ in reconcileAutoShot() }
+                .onChange(of: collectSwingFeatures) { _, _ in
+                    refreshSwingGate()
+                    reconcileAutoShot()
+                }
+                .onChange(of: autoShotProvider.state) { _, _ in refreshSwingGate() }
+                .environment(\.watchSwingCollectionStatus, swingCollectionStatus)
+                .task(id: roundModel.round?.roundId) {
+                    // B7 battery budget: one reading a minute while a round is active.
+                    guard roundModel.round != nil else { return }
+                    let device = WKInterfaceDevice.current()
+                    device.isBatteryMonitoringEnabled = true
+                    while !Task.isCancelled {
+                        swingGate?.record(WatchBatterySample(
+                            at: Date(),
+                            level: Double(device.batteryLevel),
+                            charging: device.batteryState == .charging || device.batteryState == .full
+                        ))
+                        refreshSwingGate()
+                        try? await Task.sleep(nanoseconds: 60_000_000_000)
+                    }
+                }
                 .onChange(of: roundModel.round?.roundId, initial: true) { _, roundId in
+                    rollSwingGate(to: roundId)
                     // A round that ended (or was replaced) uploads its candidates.
                     let closed = swingRouter.roundChanged(to: roundId, at: Date())
                     swingRouter.holeChanged(to: roundModel.activeHole, at: Date())
@@ -405,6 +449,33 @@ public struct AICaddieWatchApp: App {
             guard !Task.isCancelled else { return }
             await uploadFinishedSwingCandidates(attempt: attempt + 1)
         }
+    }
+
+    /// A round change closes the previous round's gate (its battery report becomes evidence, and the
+    /// baseline when it did not collect) and opens one for the new round.
+    private func rollSwingGate(to roundId: String?) {
+        let now = Date()
+        if let gate = swingGate, gate.roundId != roundId {
+            batteryReports.append(gate.report(endedAt: now))
+            swingGate = nil
+        }
+        if let roundId, swingGate == nil {
+            swingGate = WatchSwingCollectionGate(
+                roundId: roundId,
+                startedAt: now,
+                baselinePerHour: batteryReports.baselinePerHour()
+            )
+        }
+        refreshSwingGate()
+    }
+
+    /// Re-evaluates the gate; a change turns the motion collection on or off.
+    private func refreshSwingGate() {
+        let capability = swingCapability
+        let allowed = swingGate?.allowsCollection(preference: collectSwingFeatures, capability: capability) ?? false
+        guard allowed != swingCollectionAllowed else { return }
+        swingCollectionAllowed = allowed
+        reconcileAutoShot()
     }
 
     private func reconcileAutoShot() {

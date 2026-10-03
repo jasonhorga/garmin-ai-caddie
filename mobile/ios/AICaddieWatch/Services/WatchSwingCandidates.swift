@@ -286,18 +286,6 @@ public struct WatchSwingCandidateStore {
     }
 }
 
-/// B7's capability and battery gate (IMPLEMENTATION_PLAN B7: runtime capability, permission,
-/// workout-session and per-round battery-budget checks with automatic shutdown) is a separate
-/// prerequisite. Until it lands, collection stays unavailable: the settings row is hidden and a
-/// stored preference is ignored.
-public enum WatchSwingCollectionAvailability {
-    public static let isAvailable = false
-
-    public static func isCollecting(preference: Bool) -> Bool {
-        isAvailable && preference
-    }
-}
-
 /// A Core Location ground-speed reading for the riding filter.
 public struct WatchSwingSpeedSample: Equatable {
     public let speedMps: Double

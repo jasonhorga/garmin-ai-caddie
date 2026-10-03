@@ -344,10 +344,9 @@ final class WatchSwingCandidateTests: XCTestCase {
         XCTAssertEqual(store.load(roundId: "r1").map(\.id), ["late"])
     }
 
-    @MainActor
-    func testCollectionStaysUnavailableUntilTheCapabilityAndBatteryGateLands() {
-        XCTAssertFalse(WatchSwingCollectionAvailability.isAvailable)
-        XCTAssertFalse(WatchSwingCollectionAvailability.isCollecting(preference: true))
-        XCTAssertFalse(WatchSettingsView.showsSwingCollectionRow, "the accepted settings screen is unchanged")
+    func testTheCollectionRowShowsOnlyOnACapableDeviceWithItsGateStatus() {
+        XCTAssertTrue(WatchSettingsView.showsSwingCollectionRow(autoShotSupported: true, status: "采集中"))
+        XCTAssertFalse(WatchSettingsView.showsSwingCollectionRow(autoShotSupported: false, status: "本机不支持"))
+        XCTAssertFalse(WatchSettingsView.showsSwingCollectionRow(autoShotSupported: true, status: nil))
     }
 }
