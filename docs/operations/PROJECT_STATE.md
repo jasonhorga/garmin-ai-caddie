@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-10-03 10:05 UTC
+**Updated:** 2026-10-03 11:20 UTC
 **Branch:** `main`; product canonical source revision is
 `ae52735b37a39d3519f5e24626ecdb510c6d6549` (PR #370 B7 capability/battery
 gate, PR #369 B7.1 snapshot clock pin, PR #368 B7 step 1, PR #367 B6,
@@ -131,8 +131,34 @@ The candidate Quick Tunnel is
 tmux `codex-release-ebe48637-tunnel-20261003`; its public health also returned
 the exact revision. Evidence and the resource manifest live under
 `/home/jason/garmin-ai-caddie-data/operations/release-ebe48637-20261003/`.
-Next action is dispatching the exact-SHA live Native Mobile CI against this
-origin; no TestFlight upload has started.
+
+Exact-SHA live Native Mobile CI run `37115276317`
+([run](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/37115276317))
+used this tunnel, `capture_scope=full`, `fixture_mode=false`,
+`review_round_ref=15043724`, and `require_live_preflight=true`. XcodeGen, iOS
+and Watch targets, design snapshots, Watch real screenshots, secret scans and
+evidence upload all passed. The iOS live UI suite ended with five failures:
+`RealFlowUITests.testCaptureRealAppFlow` and
+`ReviewEditUITests.testCaptureReviewEditFlow` rejected the preferred package
+with `noEligibleRound`; `TeeSelectionUITests.testCaptureTeeSelector` could not
+find a white Tee in the real 31793 authority;
+`RealFlowUITests.testBackNineThenFrontNineJourney` did not observe course hole
+1 after the turn; and
+`TeeSelectionUITests.testAuthorizedGPSWithoutFixStillOffersCompleteCatalogueFallback`
+did not observe a local map Touch Target. The run still completed the Watch
+stages. Artifacts retained on homeserver are design `11271053754`, Watch
+`11271808163`, real iOS `11271507738`, Watch real `11271669287`, and native
+evidence `11272615068`; the 73.6 MB real-video artifact `11271467923` was not
+downloaded. No TestFlight upload has started.
+
+Candidate inspection shows Garmin round `17711803` (北京天竺黑骑士, 18 holes)
+has scored holes with two labelled shots and usable 678x1060 PNG geometry (for
+example hole 3: Driver → 7I), whereas the preferred `15043724` package has no
+club-labelled shots in its detail. The next action is therefore a read-only
+candidate-data check of round `17711803` and the 31793 Tee/turn/touch-target
+paths, followed by one fresh exact-SHA Native run with that real round only if
+the remaining four failures are confirmed as data/flow issues. TestFlight
+remains gated on a green Native run.
 
 The `B1-B7` review queue remains `done`;
 the Claude UI-redesign PR sequence through B7 is merged and no open PR remains.
