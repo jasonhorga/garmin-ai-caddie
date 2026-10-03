@@ -28,7 +28,7 @@ final class WatchSwingCollectionGateTests: XCTestCase {
         let drain = try XCTUnwrap(WatchBatteryBudget.drainPerHour(readings(perHour: 0.12, minutes: 40)))
         XCTAssertEqual(drain, 0.12, accuracy: 0.001)
         let charging = readings(perHour: -0.3, minutes: 30, charging: true)
-            + readings(start: 0.9, perHour: 0.12, minutes: 30, offsetMinutes: 31)
+            + readings(from: 0.9, perHour: 0.12, minutes: 30, offsetMinutes: 31)
         XCTAssertEqual(try XCTUnwrap(WatchBatteryBudget.drainPerHour(charging)), 0.12, accuracy: 0.001,
                        "charging time never counts")
     }
@@ -40,7 +40,7 @@ final class WatchSwingCollectionGateTests: XCTestCase {
         readings(perHour: 0.14, minutes: 30).forEach { gate.record($0) }
         XCTAssertTrue(gate.allowsCollection(preference: true, capability: capable))
         // Then it drains at 25 %/h: over budget, and off for the rest of the round.
-        readings(start: 0.83, perHour: 0.25, minutes: 60, offsetMinutes: 31).forEach { gate.record($0) }
+        readings(from: 0.83, perHour: 0.25, minutes: 60, offsetMinutes: 31).forEach { gate.record($0) }
         XCTAssertFalse(gate.allowsCollection(preference: true, capability: capable))
         XCTAssertEqual(gate.latchedBlocker, .batteryOverBudget)
         XCTAssertFalse(gate.allowsCollection(preference: true, capability: capable), "latched")
