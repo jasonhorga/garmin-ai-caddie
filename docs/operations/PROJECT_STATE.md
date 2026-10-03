@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-10-03 11:20 UTC
+**Updated:** 2026-10-03 12:28 UTC
 **Branch:** `main`; product canonical source revision is
 `ae52735b37a39d3519f5e24626ecdb510c6d6549` (PR #370 B7 capability/battery
 gate, PR #369 B7.1 snapshot clock pin, PR #368 B7 step 1, PR #367 B6,
@@ -105,7 +105,7 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-10-03 10:05 UTC):** `RELEASE-EBE48637` is `in-progress`
+**Current slice (2026-10-03 12:28 UTC):** `RELEASE-EBE48637` remains `in-progress`
 under the owner's PR #370 instruction `5967684237`: deploy exact `main`
 `ebe486372ea3956ae784f3af9a58e7843c481208` to a homeserver candidate, run the
 exact-SHA live Native Mobile CI, upload an internal TestFlight build, and run
@@ -154,11 +154,22 @@ downloaded. No TestFlight upload has started.
 Candidate inspection shows Garmin round `17711803` (北京天竺黑骑士, 18 holes)
 has scored holes with two labelled shots and usable 678x1060 PNG geometry (for
 example hole 3: Driver → 7I), whereas the preferred `15043724` package has no
-club-labelled shots in its detail. The next action is therefore a read-only
-candidate-data check of round `17711803` and the 31793 Tee/turn/touch-target
-paths, followed by one fresh exact-SHA Native run with that real round only if
-the remaining four failures are confirmed as data/flow issues. TestFlight
-remains gated on a green Native run.
+club-labelled shots in its detail. A fresh exact-SHA full Native run
+`37120164245` used `17711803` and completed the Watch stages, but iOS still
+failed the B4b-2 turn journey, and the Tee selector test still failed because
+the white Tee was off-screen (the backend returned it and the accessibility
+tree contained it). The full-flow resolver also timed out on the public
+shotmap request even though the edit flow resolved the same round and the
+endpoint returned HTTP 200 in direct candidate probes. The clean first run's
+partial-map Touch Target P1 remains open because this rerun was warm-cache and
+passed that test. Run artifacts are design `11272888274`, real iOS
+`11273671336`, Watch `11273951217`, Watch real `11273716962`, and native
+evidence `11273338036`; persistent evidence is under
+`/home/jason/garmin-ai-caddie-data/operations/release-ebe48637-20261003/native-37120164245/`.
+Release findings were posted to PR #370 in comment `5969155702`. The next
+action is to review Claude's corrective PR for the turn-sheet/navigation P1,
+clean partial-map Touch Target coverage, and bounded real-evidence/Tee-test
+handling. TestFlight remains gated on a green Native run.
 
 The `B1-B7` review queue remains `done`;
 the Claude UI-redesign PR sequence through B7 is merged and no open PR remains.
