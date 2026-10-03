@@ -111,17 +111,17 @@ final class TeeSelectionUITests: XCTestCase {
         // The 发球台 row: colour dots with this course's yardages from GET /courses/{id}/tees.
         let teeRow = app.descendants(matching: .any)["start-round-tee-selector"]
         XCTAssertTrue(teeRow.waitForExistence(timeout: 10), "the selected course must show its tee dots")
-        settle(2)
-        save("03-tee-row"); dump("03-tee-row")
         // Change from the real default to the real white Tee and prove the selection is reflected in
-        // the primary action while the course remains startable.
+        // the primary action while the course remains startable. The Tee row follows the whole
+        // course list, which a real GPS fix can fill with dozens of nearby venues (41 in live
+        // Native 37115276317), so it is scrolled into view before the screenshot and the tap.
         let whiteTee = app.buttons.matching(
             NSPredicate(format: "identifier ==[c] %@", "start-round-tee-white")
         ).firstMatch
-        XCTAssertTrue(
-            whiteTee.waitForExistence(timeout: 5) && whiteTee.isHittable,
-            "the real Beijing Palace Tee authority must expose its white Tee"
-        )
+        XCTAssertTrue(whiteTee.waitForExistence(timeout: 5), "the real Beijing Palace Tee authority must expose its white Tee")
+        XCTAssertTrue(bringIntoView(whiteTee, maxSwipes: 20), "the white Tee must scroll into the usable viewport")
+        settle(2)
+        save("03-tee-row"); dump("03-tee-row")
         XCTAssertTrue(whiteTee.label.hasPrefix("白 T"), "a tee dot is labelled with its colour and yards")
         whiteTee.tap()
         XCTAssertTrue(waitForValue("已选择", on: whiteTee, timeout: 5), "the tapped tee must become selected")
@@ -332,6 +332,7 @@ final class TeeSelectionUITests: XCTestCase {
             .matching(identifier: "live-map-target-marker")
             .firstMatch
         XCTAssertFalse(targetMarker.exists)
+        dump("no-fix-02-before-target-tap")
         // The interaction layer is one gesture surface; a normalized coordinate is the closest
         // representation of the player's tap on the real map.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.45)).tap()
