@@ -7859,3 +7859,32 @@ Native runs recorded above; it is retained only as historical diagnosis.
   through the existing internal all-builds group. `CADDIE-P0` therefore moved
   to `evidence-open`; only physical iPhone/Watch validation remains. No external
   distribution, tester mutation, or production promotion occurred.
+
+<!-- HISTORICAL ARCHIVE — NON-AUTHORITATIVE. Superseded live-ledger details
+     from the 2026-10-03 17:26 UTC snapshot; the short ledger is authoritative. -->
+
+The exact-SHA full live Native run [37126990984](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/37126990984)
+completed `failure` at `a907d1b5`. Source/app target, design snapshots, Watch
+target/snapshots, Watch real screenshots, secret scans and evidence uploads
+passed. The only failing step was iOS real-simulator screenshots:
+
+- `RealFlowUITests.testBackNineThenFrontNineJourney`: after the turn it still
+  observed the wrong course hole (`course hole 1` assertion failed).
+- `RealFlowUITests.testCaptureRealAppFlow`: live
+  `/api/v2/history/rounds/17711803/holes/3/shotmap` timed out.
+
+Evidence is retained at
+`/home/jason/garmin-ai-caddie-data/operations/release-ebe48637-20261003/native-37126990984.log`
+and `native-37126990984-artifacts/`; the 127 MB real-video artifact was not
+downloaded. TestFlight upload had **not** started and remained gated on a green
+exact-SHA Native run. The release-gate evidence was posted on #370 in
+[comment 5970371512](https://github.com/jasonhorga/garmin-ai-caddie/pull/370#issuecomment-5970371512).
+
+The release rerun at the current main fix `892290f3eb577576d91cf6bd469cbf1a8e261638`
+was [37132952118](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/37132952118).
+It completed `failure`: iOS live flow timed out on the back-nine transition,
+shot-map loading timed out, review-edit shot-map resolution timed out, and the
+tee-selector capture did not observe the tapped tee. Watch stages and artifact
+collection completed, but this was not a passing release gate. At that snapshot,
+run [37140400883](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/37140400883)
+was queued at docs tip `e1f3effc` and explicitly not counted green.

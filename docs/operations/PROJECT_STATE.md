@@ -3,7 +3,7 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-03 17:26 UTC
+**Updated:** 2026-10-03 18:40 UTC
 **Canonical branch:** `main` (this ledger is updated by docs-only commits)
 **Product tip under release:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
 **App tip under next Native gate:** `e1f3effcabb7e67e36d88e384ec0d5b1f020c21f`
@@ -17,36 +17,34 @@ exact head `cfc4c3a3f6a473562cc290bf4b3b8a76bf9de054` and squash-merged as
 on loopback `39055`. No production switch or external distribution is allowed
 by this slice.
 
-The exact-SHA full live Native run [37126990984](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/37126990984)
-completed `failure` at `a907d1b5`. Source/app target, design snapshots, Watch
-target/snapshots, Watch real screenshots, secret scans and evidence uploads
-passed. The only failing step was iOS real-simulator screenshots:
-
-- `RealFlowUITests.testBackNineThenFrontNineJourney`: after the turn it still
-  observed the wrong course hole (`course hole 1` assertion failed).
-- `RealFlowUITests.testCaptureRealAppFlow`: live
-  `/api/v2/history/rounds/17711803/holes/3/shotmap` timed out.
-
-Evidence is retained at
-`/home/jason/garmin-ai-caddie-data/operations/release-ebe48637-20261003/native-37126990984.log`
-and `native-37126990984-artifacts/`; the 127 MB real-video artifact was not
-downloaded. TestFlight upload has **not** started and remains gated on a green
-exact-SHA Native run.
-The release-gate evidence was posted on #370 in
-[comment 5970371512](https://github.com/jasonhorga/garmin-ai-caddie/pull/370#issuecomment-5970371512).
-
-The release rerun at the current main fix `892290f3eb577576d91cf6bd469cbf1a8e261638`
-is [37132952118](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/37132952118).
-It completed `failure`: iOS live flow timed out on the back-nine transition,
-shot-map loading timed out, review-edit shot-map resolution timed out, and the
-tee-selector capture did not observe the tapped tee. Watch stages and artifact
-collection completed, but this is not a passing release gate.
 PR #372 (`dbc8ba9f7bc30a65594acb6a0afae7518142277d`) was reviewed and merged as
 `9acc451c065718dd896f07624ee105ebe06ee08b`; Source CI `37133639063`, Native
 CI `37133639086`, focused tests `114/114` plus identity/native evidence checks
 `22/22`, and manual phone/Watch snapshot review passed. The Claude branch was
 deleted; review comment is
 [5971431847](https://github.com/jasonhorga/garmin-ai-caddie/pull/372#issuecomment-5971431847).
+
+The exact-SHA live Native run [37140400883](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/37140400883)
+at `e1f3effcabb7e67e36d88e384ec0d5b1f020c21f` completed `failure` on
+2026-10-03. Source/app target, design snapshots, Watch target/snapshots, Watch
+real screenshots, secret scans and evidence uploads passed. The iOS real
+simulator suite had four failures:
+
+- `RealFlowUITests.testBackNineThenFrontNineJourney`: after the turn the UI
+  still exposed the old course-hole identity instead of course hole 1.
+- `RealFlowUITests.testCaptureRealAppFlow`: real topo never reached
+  `topo-hole-base-ready` within the capture window.
+- `ReviewEditUITests.testCaptureReviewEditFlow`: resolver timed out on
+  `/api/v2/history/rounds/17711803/holes/3/shotmap`.
+- `TeeSelectionUITests.testAuthorizedGPSWithoutFixStillOffersCompleteCatalogueFallback`:
+  `live-green-distance-panel` was not observed after opening the green view.
+
+Direct candidate probes for the shotmap returned HTTP 200 in about 0.6–1.1 s;
+the failure is therefore not yet attributable to the endpoint alone. Evidence
+is retained at
+`/home/jason/garmin-ai-caddie-data/operations/release-ebe48637-20261003/native-37140400883-failed.log`
+and `native-37140400883-artifacts/`. TestFlight upload has **not** started and
+remains gated on a green exact-SHA Native run.
 
 Candidate preflight for `a907d1b5` passed: local/public health returned the
 exact revision, authenticated mobile stats and round `15043724` package passed,
@@ -57,13 +55,11 @@ PR #371 focused homeserver suites passed `230/230` in `13.490s`; log hash is
 
 ## Unfinished work
 
-1. Diagnose the four failures in Native run `37132952118` against the integrated
-   PR #372 source and candidate/tunnel evidence; do not call the release green.
-2. Dispatch one new exact-SHA Native gate for current main `e1f3effc` (product
-   files are the merged `9acc451c` tree) after the failure
-   cause is bounded and candidate provenance is recorded. Run
-   [37140400883](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/37140400883)
-   is queued at docs tip `e1f3effc`; do not count it green until completion.
+1. Diagnose and correct the four failures in Native run `37140400883` against
+   the integrated PR #372 source and candidate/tunnel evidence; do not call the
+   release green.
+2. Run focused remote tests for the corrections, then dispatch a new exact-SHA
+   full live Native gate at the resulting product SHA.
 3. Only after that gate is green, run the automatic internal-only TestFlight
    upload and Apple validity/internal-group read-only check. Keep
    `external_distribution=false`; physical iPhone/Watch evidence remains open.
@@ -100,6 +96,8 @@ PR #371 focused homeserver suites passed `230/230` in `13.490s`; log hash is
   the release gate cleanup is recorded.
 - Evidence root:
   `/home/jason/garmin-ai-caddie-data/operations/release-ebe48637-20261003/`.
+  Native failure log/artifacts are under
+  `native-37140400883-failed.log` and `native-37140400883-artifacts/`.
   Release manifest
   `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261003T1318Z-release-a907d1b5.md`
   still needs its complete ownership/expiry/cleanup entries.
@@ -112,8 +110,8 @@ PR #371 focused homeserver suites passed `230/230` in `13.490s`; log hash is
 
 ## Next action and stop conditions
 
-Next: post/track the exact failure evidence, then make or request the smallest
-in-scope correction and rerun the Native gate at the resulting exact SHA.
+Next: make the smallest in-scope corrections for the four failed iOS flows,
+run focused remote tests, and rerun the Native gate at the resulting exact SHA.
 Complete the release only after Native is fully green, TestFlight Apple checks
 are recorded, and physical-device evidence is handed off. Close resources only
 through allow-listed manifests; do not broad-clean shared homeserver state.
