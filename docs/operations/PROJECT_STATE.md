@@ -3,9 +3,10 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-03 17:18 UTC
+**Updated:** 2026-10-03 17:26 UTC
 **Canonical branch:** `main` (this ledger is updated by docs-only commits)
 **Product tip under release:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
+**App tip under next Native gate:** `e1f3effcabb7e67e36d88e384ec0d5b1f020c21f`
 **Current slice:** `RELEASE-EBE48637` — `in-progress`
 
 ## Current status
@@ -58,8 +59,11 @@ PR #371 focused homeserver suites passed `230/230` in `13.490s`; log hash is
 
 1. Diagnose the four failures in Native run `37132952118` against the integrated
    PR #372 source and candidate/tunnel evidence; do not call the release green.
-2. Dispatch one new exact-SHA Native gate for main `9acc451c` after the failure
-   cause is bounded and candidate provenance is recorded.
+2. Dispatch one new exact-SHA Native gate for current main `e1f3effc` (product
+   files are the merged `9acc451c` tree) after the failure
+   cause is bounded and candidate provenance is recorded. Run
+   [37140400883](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/37140400883)
+   is queued at docs tip `e1f3effc`; do not count it green until completion.
 3. Only after that gate is green, run the automatic internal-only TestFlight
    upload and Apple validity/internal-group read-only check. Keep
    `external_distribution=false`; physical iPhone/Watch evidence remains open.
