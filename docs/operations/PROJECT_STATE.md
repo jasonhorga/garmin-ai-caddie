@@ -9,9 +9,10 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-10-03 00:16 UTC
+**Updated:** 2026-10-03 04:10 UTC
 **Branch:** `main`; product canonical source revision is
-`a56ca432067e6f5c7c0cb871feb9e39c795522de` (PR #368 B7 step 1, PR #367 B6,
+`ef8d1f5c730c3ab314d43b4101b53b4560469abb` (PR #369 B7.1 snapshot clock
+pin, PR #368 B7 step 1, PR #367 B6,
 PR #365 B5b, PR #364 B5a, PR #363 B4c, PR #362 B4b-2, PR #361 B4b,
 PR #360 B4a and PR #359 B3 are
 merged after exact-head review; PR #357 B1d is merged after
@@ -104,8 +105,30 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-10-03 00:16 UTC):** `B1-B7` review queue remains
-`in-progress`; B6 and B7 step 1 are complete through merged PRs #367 and #368.
+**Current slice (2026-10-03 04:10 UTC):** `B1-B7` review queue remains
+`in-progress`; B6, B7 step 1, and B7.1 snapshot determinism are complete
+through merged PRs #367, #368, and #369. PR #369 was reviewed at exact head
+`bd948848f6f36eed827ddd59350a6a6e5724aba9`; Source CI `37087872728`, Native
+Mobile CI `37087872608`, and homeserver focused tests `126/126` in 12.722s
+passed. The final pass comment is `5964725399`, squash merge commit is
+`ef8d1f5c730c3ab314d43b4101b53b4560469abb`, and the Claude source branch was
+deleted. Design artifact `11261014172` was compared with the #368 baseline:
+80/87 iOS PNGs were byte-identical and the seven expected home images now show
+fixed-morning `早上好`; Watch artifact `11260809747` was 47/47 byte-identical.
+The persistent evidence is under
+`/home/jason/garmin-ai-caddie-data/review-evidence/pr369/bd948848/`; the
+allow-list cleanup record is
+`/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261003T0212Z-pr369-bd948848-review.md`.
+
+The held post-merge full fixture Native run `37090671724` completed
+successfully on `main` at `ef8d1f5c` (`capture_scope=full`, `fixture_mode=true`,
+`review_round_ref=900001`, `require_live_preflight=false`). Its evidence is
+`11263434927`; design `11262009900`, Watch `11262703642`, iOS real
+`11263528455`, and Watch real `11263599775` all uploaded and passed. The
+185 MB real-video artifact `11263403611` was intentionally not downloaded;
+the retained fixture evidence is about 152 MB. No product or deployment
+resource from that run remains open.
+
 PR #368 was reviewed at exact head
 `bef40790911673320584a80be3ea7782ee92ad9c`; Source CI `37075896449`, Native
 Mobile CI `37075896330`, homeserver focused tests `126/126` in 8.579s, and
@@ -122,8 +145,15 @@ Its exact-head snapshot, temporary artifacts, and temporary containers were
 removed; no review resource remains open. The 87 design and 47 Watch images
 were byte-identical to the accepted PR #367 baseline, with representative
 settings, fairway, caddie-plan, and enlarged-hazard states inspected.
-`gh pr list --state open` is currently empty; wait for Claude's next B7 PR or
-comment before starting another exact-head review.
+PR #370 is now the sole queued review item. Its exact head is
+`62ecd53d2bcf916dc2e1848f1052f421309b487c` on the shared Claude branch
+`claude/code-audit-performance-17wqcv`; it implements the B7 capability and
+battery gate for swing-candidate collection. Source CI `37091628259` and
+Native Mobile CI `37091628243` passed, with design artifact `11263171165`,
+Watch artifact `11262926026`, and native evidence `11263260663`. No exact-head
+snapshot, homeserver focused test, artifact download/inspection, review
+comment, merge, or branch deletion has been done yet. This is the only
+`in-progress` task; do not start B7 step 2/3 work until this review is closed.
 
 PR #364 (B5a results landing, performance analysis and score distribution) was
 reviewed at exact head
