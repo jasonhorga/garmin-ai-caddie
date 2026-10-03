@@ -22,6 +22,13 @@ final class ReviewEditUITests: XCTestCase {
 
     private var allowWrites: Bool { (cfg("UITEST_ALLOW_EDIT_WRITES") ?? "0") == "1" }
 
+    /// Live UI tests share one simulator and one candidate tunnel. An app left running by a test
+    /// keeps downloading its round's course and starves the next test's requests (live Native
+    /// 37140400883), so every test stops it.
+    override func tearDownWithError() throws {
+        if app.state != .notRunning { app.terminate() }
+    }
+
     override func setUpWithError() throws {
         // Every later coordinate depends on the prior real screen. Stop at the first missing product
         // prerequisite instead of letting taps on a different screen create misleading evidence.
@@ -43,6 +50,8 @@ final class ReviewEditUITests: XCTestCase {
     }
 
     func testCaptureReviewEditFlow() throws {
+        // Resolve evidence with no app competing for the tunnel (the app is launched below).
+        if app.state != .notRunning { app.terminate() }
         let reviewEvidence = try resolveReviewEvidence()
         // ---- Navigate to a round review, then into one hole's 落点图 ----
         launchFresh()

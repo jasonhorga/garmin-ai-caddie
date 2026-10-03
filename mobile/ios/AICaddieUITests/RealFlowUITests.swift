@@ -26,6 +26,13 @@ final class RealFlowUITests: XCTestCase {
         return env[key] ?? env["TEST_RUNNER_\(key)"]
     }
 
+    /// Live UI tests share one simulator and one candidate tunnel. An app left running by a test
+    /// keeps downloading its round's course and starves the next test's requests (live Native
+    /// 37140400883), so every test stops it.
+    override func tearDownWithError() throws {
+        if app.state != .notRunning { app.terminate() }
+    }
+
     override func setUpWithError() throws {
         // A failed prerequisite makes every later screenshot untrustworthy. Stop at the first
         // product assertion instead of tapping through the wrong screen and reporting a cascade.
@@ -93,7 +100,10 @@ final class RealFlowUITests: XCTestCase {
         // Round holes 10–18 are course holes 1–9.
         for roundHole in 10...18 {
             let shown = roundHole - 9
-            let reached = app.staticTexts["第 \(shown) 洞"].waitForExistence(timeout: 30)
+            // Round hole 10 may need the second loop's package from the network (no whole-course
+            // template installed yet): the app's own budget for that request is 120 s, and it
+            // shows `live-turn-continuing` meanwhile.
+            let reached = app.staticTexts["第 \(shown) 洞"].waitForExistence(timeout: roundHole == 10 ? 125 : 30)
             if !reached { save("b4b2-03b-after-turn-go"); dump("b4b2-03b-after-turn-go") }
             XCTAssertTrue(reached, "round hole \(roundHole) after the turn is course hole \(shown)")
             if roundHole == 10 {
@@ -189,7 +199,11 @@ final class RealFlowUITests: XCTestCase {
         // ---- Section 1: home + the unified 成绩 destination ----
         // B5: the 成绩 root is its 差点估算 hero, present (with "—") before the stats load.
         let resultsRoot = app.descendants(matching: .any)["results-handicap"]
+        // A journey that failed before Save & End leaves its round in progress; resuming it would
+        // download a whole course over the tunnel during this capture.
+        app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
         launchFresh()
+        app.launchEnvironment.removeValue(forKey: "UITEST_RESET_ACTIVE_ROUND")
         let resultsTile = app.buttons.matching(
             NSPredicate(format: "label CONTAINS %@", "成绩")
         ).firstMatch
