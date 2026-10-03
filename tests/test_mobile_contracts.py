@@ -2689,6 +2689,10 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertNotIn(".id(\"\\(package.roundId):\\(hole.number):\\(package.holeSetIdentity)\")", round_home)
         self.assertIn(".onChange(of: package.secondLoop?.entry)", current_hole)
+        # While the model prepares the loop (a network package can take its 120 s budget) the hole
+        # shows progress, and the overlay can never outlive that budget.
+        self.assertIn('.accessibilityIdentifier("live-turn-continuing")', current_hole)
+        self.assertIn("guard turnContinuationPending, turnContinuationToken == token else { return }", current_hole)
         # B4c: the Touch Target works on the factual map while the precise map is pending.
         tap = current_hole.split("SpatialTapGesture().onEnded { value in", 1)[1].split("handleHeroMapTap(", 1)[0]
         self.assertNotIn("isPreciseHoleMapPending", tap)

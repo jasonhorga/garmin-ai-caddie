@@ -19,6 +19,13 @@ final class TeeSelectionUITests: XCTestCase {
         return env[key] ?? env["TEST_RUNNER_\(key)"]
     }
 
+    /// Live UI tests share one simulator and one candidate tunnel. An app left running by a test
+    /// keeps downloading its round's course and starves the next test's requests (live Native
+    /// 37140400883), so every test stops it.
+    override func tearDownWithError() throws {
+        if app.state != .notRunning { app.terminate() }
+    }
+
     override func setUpWithError() throws {
         continueAfterFailure = false
         shouldResetActiveRoundOnNextLaunch = true

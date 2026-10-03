@@ -178,6 +178,12 @@ public struct CurrentHoleView: View {
     /// The loop chosen on the turn sheet, handed to the model once the sheet has dismissed, and the
     /// plan to re-present if that preparation fails.
     @State private var queuedTurnLoop: NineLoop?
+    /// The loop being continued into, named on the progress shown over this hole while the model
+    /// prepares it (a network package can take up to its 120 s request budget).
+    @State private var continuingLoopName: String?
+    /// Identifies the in-flight continuation so a retry is never failed by an earlier attempt's
+    /// timeout.
+    @State private var turnContinuationToken = UUID()
     @State private var turnRetryPlan: NineLoopPlan?
     @State private var showDiscardConfirmation = false
     /// B1c Touch Target on the main map: screen point of the finger while the target is dragged
@@ -373,6 +379,11 @@ public struct CurrentHoleView: View {
 
     public var body: some View {
         liveHoleContent
+        .overlay {
+            if turnContinuationPending, queuedTurnLoop == nil, let continuingLoopName {
+                turnContinuingOverlay(loopName: continuingLoopName)
+            }
+        }
         // The app shell is intentionally light, but this approved live-play surface is dark.
         // Request dark system chrome here so the status-bar time, network, and battery stay visible.
         .preferredColorScheme(.dark)
@@ -541,9 +552,7 @@ public struct CurrentHoleView: View {
             // installed template, request failed). Keep the sheet and offer a retry.
             guard wasPreparing, !preparing, turnContinuationPending, queuedTurnLoop == nil,
                   package.secondLoop == nil else { return }
-            turnContinuationPending = false
-            turnContinuationFailed = true
-            turnPlan = turnRetryPlan
+            failTurnContinuation()
         }
         .onChange(of: package.secondLoop?.entry) { _, entry in
             // The destination keeps its identity when the loop is appended, so a successful
@@ -3228,9 +3237,28 @@ public struct CurrentHoleView: View {
         // navigation to its first hole cannot race an empty queue (see `turnContinuationPending`).
         turnContinuationFailed = false
         turnContinuationPending = true
+        continuingLoopName = loop.name
+        turnContinuationToken = UUID()
         queuedTurnLoop = loop
         turnRetryPlan = turnPlan
         turnPlan = nil
+    }
+
+    /// The sheet is already gone while the model prepares the chosen loop: without this the player
+    /// would see the finished hole with nothing happening for as long as the package takes.
+    private func turnContinuingOverlay(loopName: String) -> some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .tint(.white)
+            Text("正在接上 \(loopName)…")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(Color.black.opacity(0.78), in: Capsule())
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("live-turn-continuing")
     }
 
     private func handleTurnSheetDismissed() {
@@ -3245,6 +3273,20 @@ public struct CurrentHoleView: View {
         // The model adds the loop and opens its first hole: this view is rebuilt for the new hole
         // set, so it cannot own that navigation.
         onContinueIntoSecondLoop(entry, package.roundId)
+        // The progress overlay must never outlive the model's request budget (120 s) when no
+        // preparation is observed at all; a success clears `turnContinuationPending` first.
+        let token = turnContinuationToken
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 130 * 1_000_000_000)
+            guard turnContinuationPending, turnContinuationToken == token else { return }
+            failTurnContinuation()
+        }
+    }
+
+    private func failTurnContinuation() {
+        turnContinuationPending = false
+        turnContinuationFailed = true
+        turnPlan = turnRetryPlan
     }
 
     /// The second loop can still be changed until its first hole has anything recorded: the lock
