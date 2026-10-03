@@ -93,10 +93,9 @@ final class RealFlowUITests: XCTestCase {
         // Round holes 10–18 are course holes 1–9.
         for roundHole in 10...18 {
             let shown = roundHole - 9
-            XCTAssertTrue(
-                app.staticTexts["第 \(shown) 洞"].waitForExistence(timeout: 30),
-                "round hole \(roundHole) after the turn is course hole \(shown)"
-            )
+            let reached = app.staticTexts["第 \(shown) 洞"].waitForExistence(timeout: 30)
+            if !reached { save("b4b2-03b-after-turn-go"); dump("b4b2-03b-after-turn-go") }
+            XCTAssertTrue(reached, "round hole \(roundHole) after the turn is course hole \(shown)")
             if roundHole == 10 {
                 settle(1); save("b4b2-04-front-nine-round-hole-10"); dump("b4b2-04-front-nine-round-hole-10")
             }
@@ -175,6 +174,9 @@ final class RealFlowUITests: XCTestCase {
         // Read every screen from the live backend, but keep the synthetic simulator round local.
         // This lets the score flow use real 北京丽宫 data without polluting the owner's history.
         app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
+        // A previous test's app can still be downloading a live round's course over the same
+        // tunnel; stop it so the evidence requests do not compete with it.
+        if app.state != .notRunning { app.terminate() }
         writeDiagnostics()
         let reviewEvidence = try resolveReviewEvidence()
         let captureScope = cfg("UITEST_CAPTURE_SCOPE") ?? "full"

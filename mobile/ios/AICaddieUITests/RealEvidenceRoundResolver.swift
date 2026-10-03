@@ -46,6 +46,16 @@ enum RealEvidenceRoundResolverError: LocalizedError {
     case malformed(String)
     case noEligibleRound
 
+    /// A stalled or failed transport and a server error are worth one more attempt; a 4xx, a
+    /// malformed body or a data verdict are not.
+    var isRetryable: Bool {
+        switch self {
+        case .timedOut, .transport: return true
+        case .status(let code, _): return code >= 500
+        case .invalidBaseURL, .malformed, .noEligibleRound: return false
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case .invalidBaseURL:
@@ -272,22 +282,46 @@ final class RealEvidenceRoundResolver {
             throw RealEvidenceRoundResolverError.invalidBaseURL
         }
 
+        // A read-only GET is retried on a fresh connection: through the Quick Tunnel a response the
+        // origin finished in ~1 s once never reached the runner within 80 s (live Native
+        // 37126990984), and reusing that wedged connection would stall every retry as well.
+        let attempts = 3
+        let attemptTimeout = min(requestTimeout, 30)
+        var responseData: Data?
+        for attempt in 1...attempts {
+            do {
+                responseData = try fetchOnce(url: url, path: path, timeout: attemptTimeout)
+                break
+            } catch let error as RealEvidenceRoundResolverError where attempt < attempts && error.isRetryable {
+                continue
+            }
+        }
+        guard let responseData,
+              let root = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            throw RealEvidenceRoundResolverError.malformed(path)
+        }
+        return root
+    }
+
+    private func fetchOnce(url: URL, path: String, timeout: TimeInterval) throws -> Data? {
         var request = URLRequest(url: url)
-        request.timeoutInterval = requestTimeout
+        request.timeoutInterval = timeout
         request.setValue(adminToken, forHTTPHeaderField: "x-ai-caddie-admin-token")
 
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
         let semaphore = DispatchSemaphore(value: 0)
         var responseData: Data?
         var responseCode = -1
         var responseError: Error?
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        session.dataTask(with: request) { data, response, error in
             responseData = data
             responseCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             responseError = error
             semaphore.signal()
         }.resume()
 
-        guard semaphore.wait(timeout: .now() + requestTimeout + 5) == .success else {
+        guard semaphore.wait(timeout: .now() + timeout + 5) == .success else {
             throw RealEvidenceRoundResolverError.timedOut(path)
         }
         if let responseError {
@@ -296,11 +330,7 @@ final class RealEvidenceRoundResolver {
         guard responseCode == 200 else {
             throw RealEvidenceRoundResolverError.status(responseCode, path)
         }
-        guard let responseData,
-              let root = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
-            throw RealEvidenceRoundResolverError.malformed(path)
-        }
-        return root
+        return responseData
     }
 
     private func evidenceCardPrecedes(_ lhs: [String: Any], _ rhs: [String: Any]) -> Bool {

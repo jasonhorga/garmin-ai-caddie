@@ -539,10 +539,18 @@ public struct CurrentHoleView: View {
         .onChange(of: isPreparingRound) { wasPreparing, preparing in
             // Still here after the preparation ended: the package did not grow (offline, no
             // installed template, request failed). Keep the sheet and offer a retry.
-            guard wasPreparing, !preparing, turnContinuationPending, queuedTurnLoop == nil else { return }
+            guard wasPreparing, !preparing, turnContinuationPending, queuedTurnLoop == nil,
+                  package.secondLoop == nil else { return }
             turnContinuationPending = false
             turnContinuationFailed = true
             turnPlan = turnRetryPlan
+        }
+        .onChange(of: package.secondLoop?.entry) { _, entry in
+            // The destination keeps its identity when the loop is appended, so a successful
+            // continuation is observed here rather than by a rebuild.
+            guard entry != nil, turnContinuationPending else { return }
+            turnContinuationPending = false
+            turnRetryPlan = nil
         }
         .confirmationDialog(
             "放弃这场球局？",

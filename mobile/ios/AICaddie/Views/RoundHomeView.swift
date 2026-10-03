@@ -438,7 +438,11 @@ public struct RoundHomeView: View {
             // the background. Keep the live destination identity stable across that handoff so its
             // precise map, zoom and pole-drag state are not discarded; the value update still gives
             // the surface the new adjacent-hole navigation metadata.
-            .id("\(package.roundId):\(hole.number):\(package.holeSetIdentity)")
+            // The identity is the round hole's physical hole, not the whole hole set: the turn
+            // appends the second loop and replaces the path in the same update, and re-identifying
+            // the outgoing destination then left NavigationStack on the old hole (live Native
+            // 37126990984). Changing or removing the second loop still re-identifies holes 10–18.
+            .id("\(package.roundId):\(hole.number):\(hole.sourceGlobalId):\(hole.sourceLocalHole)")
         }
     }
 
