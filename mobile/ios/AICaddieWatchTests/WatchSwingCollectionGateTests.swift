@@ -94,6 +94,85 @@ final class WatchSwingCollectionGateTests: XCTestCase {
         XCTAssertFalse(WatchSwingCapability(provider: .unsupported, sensorsSupported: true, motionPermissionDenied: false).sensorsSupported)
     }
 
+    private func lifecycle(_ dir: URL) -> WatchSwingGateLifecycle {
+        WatchSwingGateLifecycle(
+            gates: WatchSwingGateStore(fileURL: dir.appendingPathComponent("active-gate.json")),
+            reports: WatchRoundBatteryReportStore(fileURL: dir.appendingPathComponent("battery-reports.json"))
+        )
+    }
+
+    private func tempDir() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("gate-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    /// Codex review on #370: the latch and the battery window survive a Watch app relaunch.
+    func testAnOverBudgetLatchSurvivesARelaunchWithItsBatteryWindow() throws {
+        let dir = tempDir()
+        // A baseline round first.
+        let before = lifecycle(dir)
+        var baselineRound = try XCTUnwrap(before.open(roundId: "r0", at: t0))
+        readings(perHour: 0.10, minutes: 60).forEach { baselineRound.record($0) }
+        before.close(roundId: "r0", gate: baselineRound, at: t0.addingTimeInterval(3600))
+
+        var gate = try XCTUnwrap(before.open(roundId: "r1", at: t0))
+        XCTAssertTrue(gate.allowsCollection(preference: true, capability: capable))
+        readings(perHour: 0.30, minutes: 40).forEach { gate.record($0) }
+        XCTAssertFalse(gate.allowsCollection(preference: true, capability: capable))
+        XCTAssertEqual(gate.latchedBlocker, .batteryOverBudget)
+        before.save(gate)
+
+        // The app is terminated and relaunched mid-round: a fresh lifecycle on the same files.
+        let after = lifecycle(dir)
+        var restored = try XCTUnwrap(after.open(roundId: "r1", at: t0.addingTimeInterval(2500)))
+        XCTAssertEqual(restored.latchedBlocker, .batteryOverBudget)
+        XCTAssertFalse(restored.allowsCollection(preference: true, capability: capable), "still off after relaunch")
+        XCTAssertEqual(restored.startedAt, t0)
+        XCTAssertEqual(try XCTUnwrap(restored.report(endedAt: t0.addingTimeInterval(2500)).drainPerHour), 0.30,
+                       accuracy: 0.001, "the spent battery window is kept")
+    }
+
+    func testACapabilityFailureSurvivesARelaunch() throws {
+        let dir = tempDir()
+        let before = lifecycle(dir)
+        var gate = try XCTUnwrap(before.open(roundId: "r1", at: t0))
+        let failed = WatchSwingCapability(sensorsSupported: true, motionPermissionDenied: false, workoutFailed: true)
+        XCTAssertFalse(gate.allowsCollection(preference: true, capability: failed))
+        before.save(gate)
+
+        var restored = try XCTUnwrap(lifecycle(dir).open(roundId: "r1", at: t0.addingTimeInterval(60)))
+        XCTAssertEqual(restored.latchedBlocker, .workoutSessionFailed)
+        XCTAssertFalse(restored.allowsCollection(preference: true, capability: capable), "a healthy relaunch does not re-enable it")
+    }
+
+    /// A phone Finish keeps the round visible for a deferred upload: the gate still closes, once, and
+    /// the next round gets the resulting baseline.
+    func testALogicalClosureWritesTheReportOnceAndFeedsTheNextBaseline() throws {
+        let dir = tempDir()
+        let life = lifecycle(dir)
+        var gate = try XCTUnwrap(life.open(roundId: "r1", at: t0))
+        readings(perHour: 0.11, minutes: 90).forEach { gate.record($0) }
+        life.save(gate)
+
+        XCTAssertTrue(life.close(roundId: "r1", gate: gate, at: t0.addingTimeInterval(5400)))
+        XCTAssertFalse(life.close(roundId: "r1", gate: gate, at: t0.addingTimeInterval(5500)), "the deferred-finish completion")
+        XCTAssertNil(life.open(roundId: "r1", at: t0.addingTimeInterval(5600)), "the still-visible round gets no new gate")
+        XCTAssertEqual(life.reports.load().filter { $0.roundId == "r1" }.count, 1, "written exactly once")
+
+        let next = try XCTUnwrap(life.open(roundId: "r2", at: t0.addingTimeInterval(7200)))
+        XCTAssertEqual(try XCTUnwrap(next.baselinePerHour), 0.11, accuracy: 0.001)
+    }
+
+    func testAnUnclosedGateOfAnotherRoundIsClosedWhenTheNextRoundOpens() throws {
+        let dir = tempDir()
+        let life = lifecycle(dir)
+        var gate = try XCTUnwrap(life.open(roundId: "r1", at: t0))
+        readings(perHour: 0.12, minutes: 30).forEach { gate.record($0) }
+        life.save(gate)
+        // The app died before r1 closed; the next launch starts r2.
+        _ = try XCTUnwrap(lifecycle(dir).open(roundId: "r2", at: t0.addingTimeInterval(9000)))
+        XCTAssertEqual(life.reports.load().map(\.roundId), ["r1"])
+    }
+
     func testTheSettingsStatusExplainsTheGate() {
         XCTAssertEqual(WatchSwingCollectionStatus.text(preference: true, roundActive: true, blocker: .noBatteryBaseline),
                        "先打一场不采集的球，测出耗电基准")

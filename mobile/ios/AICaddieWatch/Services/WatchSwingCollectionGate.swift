@@ -150,7 +150,8 @@ public struct WatchRoundBatteryReportStore {
 }
 
 /// One round's gate. Every failure is latched for the rest of the round; recording stays manual.
-public struct WatchSwingCollectionGate {
+/// Codable so the whole state (latch, collected, battery readings) survives a Watch app relaunch.
+public struct WatchSwingCollectionGate: Codable, Equatable {
     public let roundId: String
     public let startedAt: Date
     public let baselinePerHour: Double?
@@ -204,6 +205,90 @@ public struct WatchSwingCollectionGate {
             drainPerHour: WatchBatteryBudget.drainPerHour(samples),
             disabledReason: latchedBlocker
         )
+    }
+}
+
+/// The active round's gate, persisted on every change so a relaunch restores it by round ID.
+public struct WatchSwingGateStore {
+    public let fileURL: URL
+
+    public init(fileURL: URL? = nil) {
+        self.fileURL = fileURL ?? FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("SwingCandidates", isDirectory: true)
+            .appendingPathComponent("active-gate.json")
+    }
+
+    public func load() -> WatchSwingCollectionGate? {
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(WatchSwingCollectionGate.self, from: data)
+    }
+
+    public func save(_ gate: WatchSwingCollectionGate) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try? FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        if let data = try? encoder.encode(gate) {
+            try? data.write(to: fileURL, options: .atomic)
+        }
+    }
+
+    public func clear() {
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+}
+
+/// Opens, persists and closes the per-round gate. A round is closed exactly once (its battery report
+/// is written once), whether it ends by a round change, a Watch Finish or a phone Finish that keeps
+/// the round visible for a deferred upload; a closed round never gets a new gate.
+public struct WatchSwingGateLifecycle {
+    public let gates: WatchSwingGateStore
+    public let reports: WatchRoundBatteryReportStore
+
+    public init(gates: WatchSwingGateStore = WatchSwingGateStore(),
+                reports: WatchRoundBatteryReportStore = WatchRoundBatteryReportStore()) {
+        self.gates = gates
+        self.reports = reports
+    }
+
+    public func isClosed(_ roundId: String) -> Bool {
+        reports.load().contains { $0.roundId == roundId }
+    }
+
+    /// The gate for `roundId`: the persisted one after a relaunch, nil for a round already closed,
+    /// otherwise a new gate with the current baseline. A persisted gate of another round (one that
+    /// never closed) is closed first.
+    public func open(roundId: String, at date: Date) -> WatchSwingCollectionGate? {
+        guard !isClosed(roundId) else { return nil }
+        if let stored = gates.load() {
+            if stored.roundId == roundId { return stored }
+            close(roundId: stored.roundId, gate: stored, at: date)
+        }
+        let gate = WatchSwingCollectionGate(roundId: roundId, startedAt: date, baselinePerHour: reports.baselinePerHour())
+        gates.save(gate)
+        return gate
+    }
+
+    public func save(_ gate: WatchSwingCollectionGate) {
+        guard !isClosed(gate.roundId) else { return }
+        gates.save(gate)
+    }
+
+    /// Writes `roundId`'s battery report once and clears its persisted gate. Returns whether it closed
+    /// the round now.
+    @discardableResult
+    public func close(roundId: String, gate: WatchSwingCollectionGate?, at date: Date) -> Bool {
+        let stored = gates.load()
+        let current = gate.flatMap { $0.roundId == roundId ? $0 : nil }
+            ?? stored.flatMap { $0.roundId == roundId ? $0 : nil }
+        if stored?.roundId == roundId { gates.clear() }
+        guard let current, !isClosed(roundId) else { return false }
+        reports.append(current.report(endedAt: date))
+        return true
     }
 }
 

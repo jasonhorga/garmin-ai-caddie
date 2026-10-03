@@ -36,7 +36,8 @@ public struct AICaddieWatchApp: App {
     /// B7 capability/battery gate for the current round, and its battery reports (the baseline).
     @State private var swingGate: WatchSwingCollectionGate?
     @State private var swingCollectionAllowed = false
-    private let batteryReports = WatchRoundBatteryReportStore()
+    /// Persists the gate across relaunches and closes each round's gate exactly once.
+    private let swingGateLifecycle = WatchSwingGateLifecycle()
 
     /// Collection runs only while the player wants it and the round's gate allows it.
     private var collectingSwings: Bool { swingCollectionAllowed }
@@ -93,10 +94,12 @@ public struct AICaddieWatchApp: App {
                         }
                         // A phone Finish/Discard hands the closed round to the candidate uploader.
                         closeSwingRound(closure.roundId)
+                        closeSwingGate(roundId: closure.roundId)
                     }
                 }
                 .onChange(of: roundModel.lastRoundClosure) { _, closure in
                     guard let closure else { return }
+                    closeSwingGate(roundId: closure.roundId)
                     try? syncClient.forgetRound(
                         roundId: closure.roundId,
                         // Standalone Finish proves only the standalone event store reached the
@@ -141,12 +144,14 @@ public struct AICaddieWatchApp: App {
                     let device = WKInterfaceDevice.current()
                     device.isBatteryMonitoringEnabled = true
                     while !Task.isCancelled {
-                        swingGate?.record(WatchBatterySample(
-                            at: Date(),
-                            level: Double(device.batteryLevel),
-                            charging: device.batteryState == .charging || device.batteryState == .full
-                        ))
-                        refreshSwingGate()
+                        if swingGate != nil {
+                            swingGate?.record(WatchBatterySample(
+                                at: Date(),
+                                level: Double(device.batteryLevel),
+                                charging: device.batteryState == .charging || device.batteryState == .full
+                            ))
+                            refreshSwingGate()
+                        }
                         try? await Task.sleep(nanoseconds: 60_000_000_000)
                     }
                 }
@@ -452,20 +457,24 @@ public struct AICaddieWatchApp: App {
     }
 
     /// A round change closes the previous round's gate (its battery report becomes evidence, and the
-    /// baseline when it did not collect) and opens one for the new round.
+    /// baseline when it did not collect) and opens or restores one for the new round.
     private func rollSwingGate(to roundId: String?) {
         let now = Date()
         if let gate = swingGate, gate.roundId != roundId {
-            batteryReports.append(gate.report(endedAt: now))
+            swingGateLifecycle.close(roundId: gate.roundId, gate: gate, at: now)
             swingGate = nil
         }
         if let roundId, swingGate == nil {
-            swingGate = WatchSwingCollectionGate(
-                roundId: roundId,
-                startedAt: now,
-                baselinePerHour: batteryReports.baselinePerHour()
-            )
+            swingGate = swingGateLifecycle.open(roundId: roundId, at: now)
         }
+        refreshSwingGate()
+    }
+
+    /// A logical closure (Watch or phone Finish/Discard) closes the gate even when the round stays
+    /// visible for a deferred upload.
+    private func closeSwingGate(roundId: String) {
+        swingGateLifecycle.close(roundId: roundId, gate: swingGate, at: Date())
+        if swingGate?.roundId == roundId { swingGate = nil }
         refreshSwingGate()
     }
 
@@ -473,6 +482,7 @@ public struct AICaddieWatchApp: App {
     private func refreshSwingGate() {
         let capability = swingCapability
         let allowed = swingGate?.allowsCollection(preference: collectSwingFeatures, capability: capability) ?? false
+        if let swingGate { swingGateLifecycle.save(swingGate) }
         guard allowed != swingCollectionAllowed else { return }
         swingCollectionAllowed = allowed
         reconcileAutoShot()
