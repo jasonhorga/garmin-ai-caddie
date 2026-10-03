@@ -120,6 +120,10 @@ final class RealEvidenceRoundResolver {
         let cards = requestedRef.map { ref in
             allCards.filter { nonEmptyString($0["id"]) == ref }
         } ?? allCards
+        if let requestedRef, cards.isEmpty {
+            // Otherwise nothing is inspected and the rejection log says nothing at all.
+            record(requestedRef, nil, "preferred round not in the recent hasShots window")
+        }
 
         var shotMapRequests = 0
         // This is a screenshot precondition, not a history crawler. Inspect a bounded recent set;

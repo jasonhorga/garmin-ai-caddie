@@ -2665,12 +2665,26 @@ class MobileContractTests(unittest.TestCase):
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
         self.assertIn("onContinueIntoSecondLoop: onContinueIntoSecondLoop", round_home)
         self.assertIn("await model.continueIntoSecondLoop(", app)
-        # The turn sheet stays up while the continuation prepares; the model's package replacement
-        # rebuilds the destination (dismissing it), and a preparation that ends without that keeps
-        # the choice on screen with a retry message.
+        # Dismiss first, continue second: the model's package replacement moves the NavigationStack
+        # to the new loop's first hole, which SwiftUI does not complete behind a sheet presented
+        # from inside the stack (live Native 37115276317). The continuation therefore starts from
+        # the sheet's onDismiss, and a preparation that ends without the new package re-presents
+        # the choice with a retry message.
         cont = current_hole.split("    private func continueIntoSecondLoop(_ loop: NineLoop) {", 1)[1].split("\n    }\n", 1)[0]
-        self.assertNotIn("turnPlan = nil", cont)
+        self.assertIn("queuedTurnLoop = loop", cont)
+        self.assertIn("turnPlan = nil", cont)
+        self.assertNotIn("onContinueIntoSecondLoop(", cont)
         self.assertIn("turnContinuationPending = true", cont)
+        self.assertIn("), onDismiss: handleTurnSheetDismissed) {", current_hole)
+        dismissed = current_hole.split("    private func handleTurnSheetDismissed() {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("guard let loop = queuedTurnLoop else { return }", dismissed)
+        self.assertIn("onContinueIntoSecondLoop(entry, package.roundId)", dismissed)
+        self.assertIn("turnPlan = turnRetryPlan", current_hole)
+        # B4c: the Touch Target works on the factual map while the precise map is pending.
+        tap = current_hole.split("SpatialTapGesture().onEnded { value in", 1)[1].split("handleHeroMapTap(", 1)[0]
+        self.assertNotIn("isPreciseHoleMapPending", tap)
+        drag = current_hole.split("private func heroTargetDragGesture(", 1)[1].split("\n    }\n", 1)[0]
+        self.assertNotIn("isPreciseHoleMapPending", drag)
         self.assertIn("isPreparing: isPreparingRound || turnContinuationPending", current_hole)
         self.assertIn('failureText: turnContinuationFailed ? "没能接上这个 9 洞，请重试" : nil', current_hole)
         self.assertIn('.accessibilityIdentifier("turn-failure")', sheet)

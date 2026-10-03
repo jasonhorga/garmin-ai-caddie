@@ -168,11 +168,17 @@ public struct CurrentHoleView: View {
     @State private var showRoundSummary = false
     /// B4 turn: after the last hole of a single first loop, ask which nine comes next.
     @State private var turnPlan: NineLoopPlan?
-    /// A turn continuation is in flight. The sheet stays up (spinner, disabled) until the model
-    /// replaces the package — which rebuilds this destination for the new hole set — so a failed
-    /// or offline preparation leaves the choice on screen with a retry message.
+    /// A turn continuation is in flight. The sheet is dismissed first and the model is asked for
+    /// the second loop only from `onDismiss`: the model then replaces the package — which rebuilds
+    /// this destination for the new hole set — and moves the NavigationStack to its first hole,
+    /// and SwiftUI does not complete that path replacement behind a sheet presented from inside
+    /// the stack. A failed or offline preparation re-presents the choice with a retry message.
     @State private var turnContinuationPending = false
     @State private var turnContinuationFailed = false
+    /// The loop chosen on the turn sheet, handed to the model once the sheet has dismissed, and the
+    /// plan to re-present if that preparation fails.
+    @State private var queuedTurnLoop: NineLoop?
+    @State private var turnRetryPlan: NineLoopPlan?
     @State private var showDiscardConfirmation = false
     /// B1c Touch Target on the main map: screen point of the finger while the target is dragged
     /// (drives the loupe), whether that drag owns the gesture, and a one-runloop tap suppressor.
@@ -515,7 +521,7 @@ public struct CurrentHoleView: View {
         .sheet(isPresented: Binding(
             get: { turnPlan != nil },
             set: { if !$0 { turnPlan = nil } }
-        )) {
+        ), onDismiss: handleTurnSheetDismissed) {
             if let turnPlan {
                 LiveRoundTurnSheet(
                     plan: turnPlan,
@@ -533,9 +539,10 @@ public struct CurrentHoleView: View {
         .onChange(of: isPreparingRound) { wasPreparing, preparing in
             // Still here after the preparation ended: the package did not grow (offline, no
             // installed template, request failed). Keep the sheet and offer a retry.
-            guard wasPreparing, !preparing, turnContinuationPending else { return }
+            guard wasPreparing, !preparing, turnContinuationPending, queuedTurnLoop == nil else { return }
             turnContinuationPending = false
             turnContinuationFailed = true
+            turnPlan = turnRetryPlan
         }
         .confirmationDialog(
             "放弃这场球局？",
@@ -1100,9 +1107,10 @@ public struct CurrentHoleView: View {
             // B1c: a tap on the map places the Touch Target (a tap on the target clears it); the
             // green keeps its own button above. Holding the target drags it with the loupe.
             .simultaneousGesture(
+                // The Touch Target works on the factual map while the precise one is pending
+                // (B4c): `carryOverMapInteraction` keeps the target on the same spot when it lands.
                 SpatialTapGesture().onEnded { value in
-                    guard !isPreciseHoleMapPending,
-                          !heroTargetDidDrag,
+                    guard !heroTargetDidDrag,
                           value.location.y >= LivePlayMapOverlayLayout.liveMapTopInset,
                           greenPath?.contains(value.location) != true else { return }
                     handleHeroMapTap(at: value.location, in: geometry.size)
@@ -1238,7 +1246,6 @@ public struct CurrentHoleView: View {
     private func heroTargetDragGesture(in viewport: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
-                guard !isPreciseHoleMapPending else { return }
                 if !heroTargetDragging {
                     guard heroTargetHit(at: value.startLocation, in: viewport) else { return }
                     heroTargetDragging = true
@@ -3201,13 +3208,27 @@ public struct CurrentHoleView: View {
     }
 
     private func continueIntoSecondLoop(_ loop: NineLoop) {
-        guard let entry = NineLoopTurn.entry(loop.id),
-              let first = package.roundLoops.first else { return }
-        try? offlineStore?.rememberNineLoopPairing(first: NineLoopTurn.loopId(first.entry), second: loop.id)
-        // The model adds the loop and opens its first hole: this view is rebuilt for the new hole
-        // set, so it cannot own that navigation. The sheet stays until then.
+        guard NineLoopTurn.entry(loop.id) != nil, package.roundLoops.first != nil else { return }
+        // Dismiss first, continue in `onDismiss`: the model's navigation to the new loop's first
+        // hole must not race the sheet's dismissal (see `turnContinuationPending`).
         turnContinuationFailed = false
         turnContinuationPending = true
+        queuedTurnLoop = loop
+        turnRetryPlan = turnPlan
+        turnPlan = nil
+    }
+
+    private func handleTurnSheetDismissed() {
+        guard let loop = queuedTurnLoop else { return }
+        queuedTurnLoop = nil
+        guard let entry = NineLoopTurn.entry(loop.id),
+              let first = package.roundLoops.first else {
+            turnContinuationPending = false
+            return
+        }
+        try? offlineStore?.rememberNineLoopPairing(first: NineLoopTurn.loopId(first.entry), second: loop.id)
+        // The model adds the loop and opens its first hole: this view is rebuilt for the new hole
+        // set, so it cannot own that navigation.
         onContinueIntoSecondLoop(entry, package.roundId)
     }
 
