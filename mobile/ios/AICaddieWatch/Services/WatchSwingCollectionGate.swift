@@ -187,12 +187,13 @@ public struct WatchSwingCollectionGate: Codable, Equatable {
         if let latchedBlocker { return latchedBlocker }
         if !capability.sensorsSupported { return .unsupportedDevice }
         if capability.motionPermissionDenied { return .motionPermissionDenied }
+        // Capability failures come before the battery checks: they are the more basic reason.
+        if capability.workoutFailed { return .workoutSessionFailed }
         guard let baselinePerHour else { return .noBatteryBaseline }
         if collected, let drain = WatchBatteryBudget.drainPerHour(samples),
            WatchBatteryBudget.isOverBudget(drainPerHour: drain, baselinePerHour: baselinePerHour) {
             return .batteryOverBudget
         }
-        if capability.workoutFailed { return .workoutSessionFailed }
         return nil
     }
 
