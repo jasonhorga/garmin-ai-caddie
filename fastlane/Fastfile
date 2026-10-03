@@ -114,6 +114,22 @@ platform :ios do
     value.downcase
   end
 
+  def next_testflight_build_number!(api_key:)
+    # `initial_build_number` is the only legitimate zero-build fallback. Do
+    # not rescue this action broadly: an ASC agreement, auth, network, or
+    # service error must stop the lane instead of silently selecting build 1.
+    latest = latest_testflight_build_number(
+      api_key: api_key,
+      app_identifier: APP_BUNDLE_ID,
+      initial_build_number: 0
+    )
+    latest = Integer(latest)
+    UI.user_error!("App Store Connect returned a negative latest TestFlight build number") if latest.negative?
+    latest + 1
+  rescue ArgumentError, TypeError
+    UI.user_error!("App Store Connect returned an invalid latest TestFlight build number: #{latest.inspect}")
+  end
+
   def preflight_backend!(allow_degraded_readiness: false)
     origin = ENV["AI_CADDIE_API_BASE_URL"].to_s.strip
     UI.user_error!("AI_CADDIE_API_BASE_URL must be a public HTTPS origin for upload") if origin.empty?
@@ -252,13 +268,9 @@ platform :ios do
       keychain_name: KEYCHAIN, keychain_password: match_keychain_password
     )
 
-    begin
-      latest = latest_testflight_build_number(api_key: api_key, app_identifier: APP_BUNDLE_ID)
-    rescue => e
-      UI.important("No prior TestFlight build (#{e.message}); starting at 0")
-      latest = 0
-    end
-    increment_build_number(build_number: latest + 1, xcodeproj: XCODE_PROJECT)
+    next_build_number = next_testflight_build_number!(api_key: api_key)
+    UI.message("Using next App Store Connect TestFlight build number #{next_build_number}.")
+    increment_build_number(build_number: next_build_number, xcodeproj: XCODE_PROJECT)
 
     app_profile = "match AppStore #{APP_BUNDLE_ID}"
     watch_profile = "match AppStore #{WATCH_BUNDLE_ID}"

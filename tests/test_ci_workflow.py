@@ -1241,6 +1241,11 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("runtime_readiness_complete", text)
         self.assertIn("Test-environment upload opt-in", text)
         self.assertIn('UI.success("Signed IPA built; TestFlight upload was not requested.")', text)
+        self.assertIn("def next_testflight_build_number!(api_key:)", text)
+        self.assertIn("initial_build_number: 0", text)
+        self.assertIn("Using next App Store Connect TestFlight build number", text)
+        self.assertNotIn('rescue => e\n      UI.important("No prior TestFlight build', text)
+        self.assertNotIn("latest = 0", text)
         self.assertNotIn("create_app_online", text)
 
         # Optional provenance flags must be appended conditionally. Keeping them
