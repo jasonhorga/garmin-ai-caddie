@@ -42,16 +42,17 @@ simulator suite had four failures, corrected in `33937329`:
 The fixes are pushed as `3393732974ad5f165dd34a7e51bdd0b661b34b73`. Full live
 Native run [37149544727](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/37149544727)
 was dispatched at that exact SHA with the candidate tunnel and backend revision
-`a907d1b5`; it was later cancelled as a QUIC-tunnel diagnostic. Remote Python compile-only verification
-passed; no local/remote Swift compiler is available.
+`a907d1b5`; it was later cancelled as a QUIC-tunnel diagnostic. Remote Python
+compile-only verification passed; no local/remote Swift compiler is available.
 
 The run was later found to be using the QUIC candidate tunnel; its cloudflared
 log showed 3–15 KB/s body throughput and another connection timeout. Cancellation
-was requested after preserving the diagnostic evidence. A session-owned HTTP/2
+was requested after preserving the diagnostic evidence; the run is now cancelled
+and its old tunnel was closed. A session-owned HTTP/2
 candidate tunnel is now `https://bee-famous-payments-household.trycloudflare.com`
 (tmux `codex-release-http2-20261003`, origin `39087`). A 214 KB topo probe
 returned HTTP 200 with TTFB 0.70 s and total 0.91 s; repeated probes ranged
-120–236 KB/s, so the preflight evidence remains recorded and will be repeated
+120–266 KB/s, so the preflight evidence remains recorded and will be repeated
 before the next live gate.
 
 PR #373 is under review at exact head `eb63590c58ee687b1b298403fc34b66e899547aa`;
@@ -92,9 +93,9 @@ PR #371 focused homeserver suites passed `230/230` in `13.490s`; log hash is
   digest `sha256:1878966396b4cf757371757abda09391d8a5abf7b614192a501e148a40becd00`.
 - Candidate container: `aicaddie-release-a907d1b5-candidate-20261003`,
   `127.0.0.1:39087`; its private data volume and database network are protected.
-- Candidate tunnel:
-  `https://refine-registration-collector-wednesday.trycloudflare.com`, tmux
-  `codex-release-ebe48637-tunnel-20261003`, forwarding `39087`.
+- Candidate tunnel for the next gate:
+  `https://bee-famous-payments-household.trycloudflare.com`, tmux
+  `codex-release-http2-20261003`, forwarding `39087`.
 - Exact source archive:
   `/home/jason/codex-runs/garmin-ai-caddie-release-a907d1b5-20261003`.
 - Native-fix scratch source:
@@ -104,7 +105,8 @@ PR #371 focused homeserver suites passed `230/230` in `13.490s`; log hash is
 - HTTP/2 candidate ingress manifest:
   `.codex-release-http2-20261003-manifest.md` locally and
   `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261003T2023Z-release-http2.md`
-  remotely; cleanup is pending the next gate.
+  remotely; cleanup is pending the next gate. The old QUIC tunnel/session is
+  closed after diagnostic run cancellation.
 - Focused-test log:
   `/home/jason/garmin-ai-caddie-data/operations/release-ebe48637-20261003/pr371-cfc4c3a3-focused-tests.log`.
 
