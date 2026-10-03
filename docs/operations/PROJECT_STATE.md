@@ -9,7 +9,7 @@
 > a convenience, not durable state; after context compression, read this file
 > before taking any action.
 
-**Updated:** 2026-10-03 06:01 UTC
+**Updated:** 2026-10-03 10:05 UTC
 **Branch:** `main`; product canonical source revision is
 `ae52735b37a39d3519f5e24626ecdb510c6d6549` (PR #370 B7 capability/battery
 gate, PR #369 B7.1 snapshot clock pin, PR #368 B7 step 1, PR #367 B6,
@@ -105,13 +105,34 @@ Mobile gates pass, Codex should start the internal TestFlight build/upload and
 Apple processing check automatically. Pause only for a genuine product or
 release-scope decision; do not pause for routine TestFlight execution.
 
-**Current slice (2026-10-03 09:30 UTC):** `RELEASE-EBE48637` is `in-progress`
+**Current slice (2026-10-03 10:05 UTC):** `RELEASE-EBE48637` is `in-progress`
 under the owner's PR #370 instruction `5967684237`: deploy exact `main`
 `ebe486372ea3956ae784f3af9a58e7843c481208` to a homeserver candidate, run the
 exact-SHA live Native Mobile CI, upload an internal TestFlight build, and run
 the read-only Apple validity/group check. The candidate and all release
 evidence must be revision-bound; no production switch or external distribution
 is implied by this task.
+
+The exact source snapshot is `/home/jason/codex-runs/garmin-ai-caddie-release-ebe48637-20261003`;
+the current `main` commits after `ebe48637` only update this operations ledger
+and release manifest, so product files are content-equivalent. Candidate image
+`garmin-ai-caddie-api:ebe486372ea3956ae784f3af9a58e7843c481208-candidate-20261003`
+has digest `sha256:bbc3d506e8909f008f4a1d94ce044b51fa8d7d0b6a8df5f21a06cfa7c6e24e5c`
+and runs as `aicaddie-release-ebe48637-candidate-20261003` on loopback
+`127.0.0.1:39087`, using the protected private data volume and the existing
+database network without changing production `39055`. Local and public health
+return the exact source revision. Authenticated candidate probes passed:
+readiness HTTP 200 (`degraded` only for pre-existing evidence gaps), B5 mobile
+stats (`106,300` bytes), B4b-2 round package for `15043724` (18 holes,
+`31776:all+31776:all`, geometry 18/18), and B7 swing-candidates POST (201;
+the synthetic candidate file was checksum-recorded and removed immediately).
+The candidate Quick Tunnel is
+`https://refine-registration-collector-wednesday.trycloudflare.com`, owned by
+tmux `codex-release-ebe48637-tunnel-20261003`; its public health also returned
+the exact revision. Evidence and the resource manifest live under
+`/home/jason/garmin-ai-caddie-data/operations/release-ebe48637-20261003/`.
+Next action is dispatching the exact-SHA live Native Mobile CI against this
+origin; no TestFlight upload has started.
 
 The `B1-B7` review queue remains `done`;
 the Claude UI-redesign PR sequence through B7 is merged and no open PR remains.
