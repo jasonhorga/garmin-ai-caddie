@@ -767,7 +767,10 @@ public struct CurrentHoleView: View {
 
     @ViewBuilder
     private var greenDetailSurface: some View {
-        if let holePrep, !isPreciseHoleMapPending {
+        // A factual route/green overlay is enough to open View Green. The precise topo can keep
+        // upgrading in the background; gating this surface on that upgrade left no-GPS players
+        // staring at a spinner even though the usable green geometry was already present.
+        if let holePrep, holePrep.resolvedMapOverlay != nil {
             LiveGreenDetailView(
                 hole: holePrep,
                 detailURL: greenDetailURL,
@@ -798,6 +801,10 @@ public struct CurrentHoleView: View {
                     .foregroundStyle(.white)
             }
         }
+    }
+
+    private var canOpenGreenDetail: Bool {
+        holePrep?.resolvedMapOverlay != nil
     }
 
     private func scoreConfirmationSurface(for presentedDraft: LiveScoreDraft) -> some View {
@@ -1072,7 +1079,7 @@ public struct CurrentHoleView: View {
                         )
                     )
                     Button {
-                        guard !isPreciseHoleMapPending else { return }
+                        guard canOpenGreenDetail else { return }
                         showGreenDetail = true
                     } label: {
                         Color.white.opacity(0.001)
@@ -1103,7 +1110,7 @@ public struct CurrentHoleView: View {
                     .zIndex(1)
                 } else if let greenTarget = liveGreenTarget(in: geometry.size) {
                     Button {
-                        guard !isPreciseHoleMapPending else { return }
+                        guard canOpenGreenDetail else { return }
                         showGreenDetail = true
                     } label: {
                         Circle()
@@ -3226,8 +3233,8 @@ public struct CurrentHoleView: View {
 
     private func continueIntoSecondLoop(_ loop: NineLoop) {
         guard NineLoopTurn.entry(loop.id) != nil, package.roundLoops.first != nil else { return }
-        // Dismiss first, continue in `onDismiss`: the model's navigation to the new loop's first
-        // hole must not race the sheet's dismissal (see `turnContinuationPending`).
+        // Queue first, then dismiss: `onDismiss` continues with the queued loop and the model's
+        // navigation to its first hole cannot race an empty queue (see `turnContinuationPending`).
         turnContinuationFailed = false
         turnContinuationPending = true
         continuingLoopName = loop.name

@@ -284,9 +284,11 @@ final class RealEvidenceRoundResolver {
 
         // A read-only GET is retried on a fresh connection: through the Quick Tunnel a response the
         // origin finished in ~1 s once never reached the runner within 80 s (live Native
-        // 37126990984), and reusing that wedged connection would stall every retry as well.
+        // 37126990984), and reusing that wedged connection would stall every retry as well. Keep
+        // the per-attempt budget bounded so one bad tunnel connection cannot consume the whole UI
+        // test window before a fresh attempt is made.
         let attempts = 3
-        let attemptTimeout = min(requestTimeout, 30)
+        let attemptTimeout = min(max(requestTimeout / Double(attempts), 5), 20)
         var responseData: Data?
         for attempt in 1...attempts {
             do {
@@ -304,11 +306,15 @@ final class RealEvidenceRoundResolver {
     }
 
     private func fetchOnce(url: URL, path: String, timeout: TimeInterval) throws -> Data? {
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.timeoutInterval = timeout
         request.setValue(adminToken, forHTTPHeaderField: "x-ai-caddie-admin-token")
 
-        let session = URLSession(configuration: .ephemeral)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.waitsForConnectivity = false
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = timeout
+        let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
         let semaphore = DispatchSemaphore(value: 0)
         var responseData: Data?
@@ -321,7 +327,7 @@ final class RealEvidenceRoundResolver {
             semaphore.signal()
         }.resume()
 
-        guard semaphore.wait(timeout: .now() + timeout + 5) == .success else {
+        guard semaphore.wait(timeout: .now() + timeout + 1) == .success else {
             throw RealEvidenceRoundResolverError.timedOut(path)
         }
         if let responseError {
