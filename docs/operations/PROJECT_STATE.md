@@ -3,9 +3,9 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-04 09:55 UTC
+**Updated:** 2026-10-04 11:15 UTC
 **Canonical branch:** `main`
-**Product app tip:** `1387e30d90b2e219a7fadd23cbcbc42a58bc13a2`
+**Product app tip:** `ab0d859a9a8d3887082c771327d42be578222f64`
 **Product backend tip:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
 **Release pipeline tip:** `3890c2e09db119b2fddea45a4c7b948caf726ed4`
 **Current slice:** `FEEDBACK-TRACKING` — `in-progress`
@@ -23,6 +23,15 @@ Source CI `37191213933`, Native CI `37191213999`, and post-merge main CI
 87 prior iOS and all 47 Watch images were byte-identical, with only the expected
 `full-home-no-package.png` added. Review conclusion:
 [5978632335](https://github.com/jasonhorga/garmin-ai-caddie/pull/376#issuecomment-5978632335).
+
+PR #377 is reviewed and merged at exact head `4d23e042c0e3013685b88d8cd382cf10de23f6c7`,
+merge `ab0d859a9a8d3887082c771327d42be578222f64`; its source branch is deleted.
+Source CI `37195932538`, Native CI `37195932557`, and post-merge main CI
+`37197802271` are green. The exact Native artifact has 89 iOS and 47 Watch
+snapshots; only `full-home-active-no-package.png` was added versus the prior
+head. The active-round/no-package P2 is resolved by `HubInProgressLoadingCard`
+and its snapshot/contract coverage. Review conclusion:
+[5979316749](https://github.com/jasonhorga/garmin-ai-caddie/pull/377#issuecomment-5979316749).
 
 Feedback deduplication: PR #375 P1 comment `5976330290` (stale labels at
 `999770ae`) is resolved by `a8c6d627` / `9de2c7f9`, Claude reply
@@ -47,64 +56,10 @@ the owner-directed stop remains recorded below.
 Each return atomically replaces `latest-result.txt`; a local timeout test and
 remote SHA check passed.
 
-Post-merge main CI `37177482710` is terminal-success for merge `9f445745`;
-the deduplicating monitor recorded it before the new feedback waiter started.
-State-record commit `e6d01cec` CI `37177808382` also completed successfully
-with no failed jobs; its waiter log is
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T044505Z-3228056.log`.
-The following state commit `ee5cadbc` CI `37177962031` completed successfully
-with no failed jobs; its exact-run waiter log is
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37177962031-20261004T045226Z-3266067.log`.
-State-record commit `b72f5bad` CI `37178222591` also completed successfully
-with no failed jobs; its feedback-wait log is
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T045453Z-3285054.log`.
-State-record commit `020863d7` CI `37178921114` completed successfully with
-no failed jobs; its feedback-wait log is
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T051329Z-3392078.log`.
-Documentation commit `f609809a` CI `37179532145` completed successfully with
-no failed jobs; its feedback-wait log is
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T052303Z-3450495.log`.
-Waiter-state commit `93b07304` CI `37179793477` completed successfully with
-no failed jobs; its feedback-wait log is
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T053203Z-3496637.log`.
-Attribution-rule commit `b0327a3a` CI `37180150501` completed successfully
-with no failed jobs; its feedback-wait log is
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T053603Z-3523956.log`.
-Waiter-record commit `3be1c2f2` CI `37180351545` completed successfully with
-no failed jobs; its feedback-wait log is
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T054150Z-3556377.log`.
-Documentation commit `8ea02dd6` CI `37180614551` completed successfully with
-no failed jobs; its feedback-wait log is
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T054649Z-3587215.log`.
-Documentation commit `2a0350a5` CI `37180851379` completed successfully with
-no failed jobs; its feedback-wait log is
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T055218Z-3619718.log`.
-Documentation commit `03bc6f43` CI `37181109291` completed successfully with
-no failed jobs; its feedback-wait log is
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T055817Z-3652767.log`.
-Documentation commit `c05e06bf` CI `37181389348` completed successfully with
-no failed jobs; its feedback-wait log is
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T060411Z-3684919.log`.
-Documentation commit `ae581d9a` CI `37181697647` completed successfully with
-no failed jobs; its feedback-wait log is
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T061038Z-3719441.log`.
-Documentation commit `be81223b` CI `37182016314` completed successfully with
-no failed jobs; its feedback-wait log is
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T061531Z-3748956.log`.
-Documentation commit `dca35bee` CI `37182257018` completed successfully with
-no failed jobs; its feedback-wait log is
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T062153Z-3781834.log`.
-Main CI `37182569027` for head `47e2a0905f80e09f1949d0302f97c7ceb6ee3f1f`
-completed successfully with frontend/backend/docker green; no PR event or
-actionable feedback was returned. Wait log:
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T062810Z-3816248.log`.
 Owner-requested live release gate `37185535082` at exact head `2417948a` failed
 in real iOS flow (start-round path assertion and round `17711803` hole-3
 shotmap timeouts); no TestFlight upload was started. Failure comment:
 `5978304683`; waiter log `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37185535082-20261004T072243Z-4113818.log`.
-Waiter implementation commit `ea0cee78` CI `37178724632` completed
-successfully; the script atomically updates `latest-result.txt`.
-
 Production is unchanged: `aicaddie-release-d7f69971-production-20260925`
 on loopback `39055`. Do not switch production or distribute externally in
 this slice.
@@ -112,7 +67,8 @@ this slice.
 ## Unfinished work
 
 1. Keep Codex's blocking waiter stopped for self-generated docs/state-only CI;
-   use it only for an external or real-work PR/release conclusion.
+   use it only for an external or real-work PR/release conclusion. Do not make
+   a commit solely to record a CI result; record it only with real work.
 2. Keep the existing PR feedback monitor running and deduplicate any new
    repository feedback against this ledger; do not start a second monitor.
 3. Physical iPhone/Watch evidence remains open now that build 77 is available.
@@ -139,6 +95,12 @@ this slice.
   `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37191213999-20261004T092059Z-548197.log`;
   post-merge CI log:
   `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T094734Z-684277.log`.
+- PR #377 exact-head artifacts and evidence:
+  `/home/jason/garmin-ai-caddie-data/operations/pr377-native-4d23e042-20261004/`;
+  Native waiter log:
+  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37195932557-20261004T104546Z-978246.log`;
+  post-merge CI log:
+  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37197802271-20261004T111113Z-1096361.log`.
 - Candidate image/container for the accepted backend:
   `garmin-ai-caddie-api:a907d1b5bea056a08335fed4955eff12fbf50a9e-candidate-20261003`,
   `aicaddie-release-a907d1b5-candidate-20261003`, loopback `39087`.
@@ -161,9 +123,15 @@ this slice.
 - Local inspection directories
   `.codex-release-37153025859-inspect/` and
   `.codex-release-ebe48637-inspect/`, `.codex-pr375-999770ae-inspect/`,
-  `.codex-pr375-9de2c7f9-inspect/`, `.codex-pr376-b73d98c1-inspect/`, plus
-  dirty review manifests and `ops/pr_feedback_monitor.sh`, are preserved as
-  session-owned evidence. Review manifest: `.codex-pr376-b73d98c1-review-manifest.md`.
+  `.codex-pr375-9de2c7f9-inspect/`, `.codex-pr376-b73d98c1-inspect/`,
+  `.codex-pr377-4d23e042-inspect/`, plus dirty review manifests and
+  `ops/pr_feedback_monitor.sh`, are preserved as session-owned evidence.
+  Review manifests: `.codex-pr376-b73d98c1-review-manifest.md`,
+  `.codex-pr377-4d23e042-review-manifest.md`.
+- PR #377 Native artifact is retained under
+  `/home/jason/garmin-ai-caddie-data/operations/pr377-native-4d23e042-20261004/`;
+  its cleanup manifest is
+  `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261004T1115Z-pr377-native-4d23e042.md`.
 - Persistent monitor: systemd user timer
   `gh-feedback@garmin-ai-caddie.timer` is active; its single writer is
   `/home/jason/gh-feedback/gh-feedback.sh`. State and events remain under
