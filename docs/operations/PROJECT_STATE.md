@@ -3,7 +3,7 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-04 05:12 UTC
+**Updated:** 2026-10-04 05:15 UTC
 **Canonical branch:** `main`
 **Product app tip:** `9f44574556084ee9a57f43a44424c770e0a76338`
 **Product backend tip:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
@@ -134,6 +134,10 @@ this slice.
 Next action is to block on the existing monitor's next PR feedback or CI
 conclusion, then handle only the returned actionable event. Keep
 external distribution disabled and do not change production.
+
+Owner end condition: end this goal no later than **2026-10-09 23:59 UTC**;
+it may end earlier after **48 consecutive hours with no new PR event and no
+open PR**. Record the final state here before ending the goal.
 
 Stop this slice on any failed required Native/Apple gate, provenance or
 revision mismatch, candidate health failure, or request for production or
