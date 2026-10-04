@@ -131,7 +131,16 @@ final class TeeSelectionUITests: XCTestCase {
         save("03-tee-row"); dump("03-tee-row")
         XCTAssertTrue(whiteTee.label.hasPrefix("白 T"), "a tee dot is labelled with its colour and yards")
         whiteTee.tap()
-        XCTAssertTrue(waitForValue("已选择", on: whiteTee, timeout: 5), "the tapped tee must become selected")
+        // SwiftUI rebuilds the tee row after changing the @State teeBox. Re-resolve the
+        // identifier instead of reading the pre-tap XCUIElement, which can point at a stale
+        // accessibility snapshot and fail with "No matches found" even though the chip exists.
+        let selectedWhiteTee = app.buttons.matching(
+            NSPredicate(format: "identifier ==[c] %@", "start-round-tee-white")
+        ).firstMatch
+        XCTAssertTrue(
+            waitForValue("已选择", on: selectedWhiteTee, timeout: 5),
+            "the tapped tee must become selected"
+        )
         XCTAssertTrue(
             startAction.label.hasSuffix("· 白 T"),
             "the primary action must name the newly selected white Tee"
