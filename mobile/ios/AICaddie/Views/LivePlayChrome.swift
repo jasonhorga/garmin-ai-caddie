@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
@@ -127,6 +128,42 @@ struct LivePlayRoundButtons: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+    }
+}
+
+/// 洞位图: photograph the day's hole-location sheet; each hole's flag is then placed from it.
+struct LivePlayPinSheetButton: View {
+    @Binding var items: [PhotosPickerItem]
+    let title: String
+    let message: String?
+    let isReading: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            PhotosPicker(selection: $items, maxSelectionCount: 3, matching: .images) {
+                Label(title, systemImage: isReading ? "hourglass" : "mappin.and.ellipse")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .frame(height: 32)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .environment(\.colorScheme, .dark)
+                    .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
+            }
+            .buttonStyle(.plain)
+            .disabled(isReading)
+            .accessibilityLabel(title)
+            .accessibilityIdentifier("live-pin-sheet")
+            if let message {
+                Text(message)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.black.opacity(0.55), in: Capsule())
+                    .accessibilityIdentifier("live-pin-sheet-message")
+            }
+        }
     }
 }
 
