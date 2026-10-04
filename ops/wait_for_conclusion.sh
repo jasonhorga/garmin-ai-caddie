@@ -45,7 +45,7 @@ Options:
   --timeout-seconds N     0 means wait forever (default: 0).
   --log PATH              Exact log path; otherwise one is created in data-root.
   WAIT_SELF_COMMIT_LOGIN / WAIT_SELF_COMMIT_EMAIL identify Codex's commit
-                         identity for ignoring self-generated docs-only runs.
+                         identity for ignoring self-generated main-branch runs.
   -h, --help              Show this help.
 
 Output is one line:
@@ -200,8 +200,8 @@ summarize_run() {
   status="$(jq -r '.status // "unknown"' "$run_json" 2>>"$LOG_FILE")"
   conclusion="$(jq -r '.conclusion // "unknown"' "$run_json" 2>>"$LOG_FILE")"
 
-  if run_is_self_docs_only "$run_json"; then
-    log "ignoring self-generated docs-only CI run=$summarize_run_id head=$(jq -r '.headSha // empty' "$run_json")"
+  if run_is_self_generated "$run_json"; then
+    log "ignoring self-generated main CI run=$summarize_run_id head=$(jq -r '.headSha // empty' "$run_json")"
     rm -f "$run_json"
     return 42
   fi
@@ -235,7 +235,7 @@ summarize_run() {
   finish "$status" "$conclusion" "$failed_jobs" 1
 }
 
-commit_is_self_docs_only() {
+commit_is_self_generated() {
   local commit_sha="$1"
   local commit_json="$LOG_FILE.commit-${commit_sha}.json"
   [[ "$commit_sha" =~ ^[0-9a-fA-F]{7,64}$ ]] || return 1
@@ -249,24 +249,21 @@ commit_is_self_docs_only() {
       (.committer.login // "") == $login or
       (.commit.author.email // "") == $email or
       (.commit.committer.email // "") == $email) and
-    ((.files // []) | length > 0) and
-    all(.files[]?.filename;
-      . == "AGENTS.md" or startswith("docs/") or
-      test("^\\.codex-[^/]+\\.md$"))
+    ((.files // []) | length > 0)
   ' "$commit_json" >/dev/null 2>>"$LOG_FILE"
   local result=$?
   rm -f "$commit_json"
   return "$result"
 }
 
-run_is_self_docs_only() {
+run_is_self_generated() {
   local run_json="$1"
   local head_branch head_sha
   head_branch="$(jq -r '.headBranch // empty' "$run_json" 2>>"$LOG_FILE")"
   head_sha="$(jq -r '.headSha // empty' "$run_json" 2>>"$LOG_FILE")"
   [[ "$head_branch" == "main" ]] || return 1
   [[ -n "$head_sha" ]] || return 1
-  commit_is_self_docs_only "$head_sha"
+  commit_is_self_generated "$head_sha"
 }
 
 wait_for_run() {
@@ -278,7 +275,7 @@ wait_for_run() {
   summarize_run "$RUN_ID"
   summary_rc=$?
   if (( summary_rc == 42 )); then
-    finish ignored self_docs_only none 0
+    finish ignored self_generated_main none 0
   fi
   return "$summary_rc"
 }
@@ -348,8 +345,8 @@ wait_for_pr_event() {
           event_head_branch="$(jq -r '.headBranch // empty' <<<"$event_line" 2>>"$LOG_FILE")"
           event_head_sha="$(jq -r '.headSha // empty' <<<"$event_line" 2>>"$LOG_FILE")"
           event_pr_count="$(jq -r '((.pullRequests // []) | length)' <<<"$event_line" 2>>"$LOG_FILE")"
-          if [[ "$event_head_branch" == "main" && "$event_pr_count" == "0" && -n "$event_head_sha" ]] && commit_is_self_docs_only "$event_head_sha"; then
-            log "ignored self-generated docs-only CI event run=$event_run_id head=$event_head_sha"
+          if [[ "$event_head_branch" == "main" && "$event_pr_count" == "0" && -n "$event_head_sha" ]] && commit_is_self_generated "$event_head_sha"; then
+            log "ignored self-generated main CI event run=$event_run_id head=$event_head_sha"
             continue
           fi
           # A terminal Actions event is a run conclusion. Reuse the same

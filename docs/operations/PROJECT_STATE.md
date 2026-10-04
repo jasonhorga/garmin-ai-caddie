@@ -51,8 +51,7 @@ The blocking waiter and rule are pushed (`a7657f76`, follow-ups through
 `b11b2dba`, rule clarification `51c7d608`, result persistence `ea0cee78`). It owns the wait, ignores
 non-terminal CI events, and returns one summary line; do not interleave
 main-thread `gh run view`, `ps`, state reads or sleep loops. The waiter now
-checks run head/provenance and ignores Codex's own docs/state-only CI events
-(including root `.codex-*.md` review manifests);
+checks run head/provenance and ignores Codex's own main-branch CI events;
 the owner-directed stop remains recorded below.
 Each return atomically replaces `latest-result.txt`; a local timeout test and
 remote SHA check passed.
@@ -67,7 +66,7 @@ this slice.
 
 ## Unfinished work
 
-1. Keep Codex's blocking waiter stopped for self-generated docs/state-only CI;
+1. Keep Codex's blocking waiter stopped for self-generated main-branch CI;
    use it only for an external or real-work PR/release conclusion. Do not make
    a commit solely to record a CI result; record it only with real work.
 2. Keep the existing PR feedback monitor running and deduplicate any new
