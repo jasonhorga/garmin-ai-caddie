@@ -51,7 +51,8 @@ The blocking waiter and rule are pushed (`a7657f76`, follow-ups through
 `b11b2dba`, rule clarification `51c7d608`, result persistence `ea0cee78`). It owns the wait, ignores
 non-terminal CI events, and returns one summary line; do not interleave
 main-thread `gh run view`, `ps`, state reads or sleep loops. The waiter now
-checks run head/provenance and ignores Codex's own docs/state-only CI events;
+checks run head/provenance and ignores Codex's own docs/state-only CI events
+(including root `.codex-*.md` review manifests);
 the owner-directed stop remains recorded below.
 Each return atomically replaces `latest-result.txt`; a local timeout test and
 remote SHA check passed.

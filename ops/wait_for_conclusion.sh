@@ -251,7 +251,8 @@ commit_is_self_docs_only() {
       (.commit.committer.email // "") == $email) and
     ((.files // []) | length > 0) and
     all(.files[]?.filename;
-      . == "AGENTS.md" or startswith("docs/"))
+      . == "AGENTS.md" or startswith("docs/") or
+      test("^\\.codex-[^/]+\\.md$"))
   ' "$commit_json" >/dev/null 2>>"$LOG_FILE"
   local result=$?
   rm -f "$commit_json"
