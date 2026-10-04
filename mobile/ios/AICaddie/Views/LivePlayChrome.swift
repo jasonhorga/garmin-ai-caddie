@@ -407,28 +407,39 @@ enum LivePlannedRouteRenderer {
         let rect: CGRect
     }
 
-    /// "一号木 224": the club and that leg's planned carry (the caddie's number). A leg the map
-    /// cuts short — the last shot onto the green — shows the distance actually played, and a
-    /// pitch well short of the club's full carry reads 切杆 (`PlannedShotLabel`).
-    static func labelText(for leg: MapPlannedLeg, pixelsPerMetre: Double) -> String {
+    /// "一号木 224": the club and that leg's planned carry (the caddie's number). Given the previous
+    /// landing (only for the plan's last shot, the one onto the green) it shows the distance
+    /// actually played along the route, and a pitch well short of the club's full carry reads 切杆
+    /// (`PlannedShotLabel`). Without a carry (an older plan) the drawn leg length is the fallback.
+    static func labelText(for leg: MapPlannedLeg, previousRouteOffsetM: Double? = nil, pixelsPerMetre: Double) -> String {
         let label = PlannedShotLabel.resolve(
             clubName: leg.shot.clubName,
             carryM: leg.shot.carryM,
-            playedM: drawnMetres(leg, pixelsPerMetre: pixelsPerMetre)
+            playedM: playedMetres(leg, previousRouteOffsetM: previousRouteOffsetM, pixelsPerMetre: pixelsPerMetre)
         )
         guard let yards = label.yards else { return label.club }
         return "\(label.club) \(yards)"
     }
 
-    static func legYards(_ leg: MapPlannedLeg, pixelsPerMetre: Double) -> Int? {
-        PlannedShotLabel.resolve(
-            clubName: leg.shot.clubName,
-            carryM: leg.shot.carryM,
-            playedM: drawnMetres(leg, pixelsPerMetre: pixelsPerMetre)
-        ).yards
+    /// Every leg's label, in route order. The last leg's played distance runs from the previous
+    /// landing (the same rule as the plan chips, `PrepPlanOption`).
+    static func labelTexts(legs: [MapPlannedLeg], pixelsPerMetre: Double) -> [String] {
+        var previous = 0.0
+        return legs.enumerated().map { index, leg in
+            defer { if let offset = leg.shot.routeOffsetM { previous = offset } }
+            return labelText(
+                for: leg,
+                previousRouteOffsetM: index == legs.count - 1 ? previous : nil,
+                pixelsPerMetre: pixelsPerMetre
+            )
+        }
     }
 
-    private static func drawnMetres(_ leg: MapPlannedLeg, pixelsPerMetre: Double) -> Double? {
+    private static func playedMetres(_ leg: MapPlannedLeg, previousRouteOffsetM: Double?, pixelsPerMetre: Double) -> Double? {
+        if leg.shot.carryM != nil {
+            guard let offset = leg.shot.routeOffsetM, let previousRouteOffsetM else { return nil }
+            return offset - previousRouteOffsetM
+        }
         guard pixelsPerMetre.isFinite, pixelsPerMetre > 0 else { return nil }
         let pixels = Double(hypot(leg.destination.x - leg.origin.x, leg.destination.y - leg.origin.y))
         guard pixels > 1 else { return nil }
@@ -520,7 +531,7 @@ enum LivePlannedRouteRenderer {
 
     /// Label strings in layout order: one per leg, then the tee-distance "N码".
     static func labelTexts(_ geometry: ScreenGeometry, pixelsPerMetre: Double) -> [String] {
-        var texts = geometry.legs.map { labelText(for: $0.leg, pixelsPerMetre: pixelsPerMetre) }
+        var texts = labelTexts(legs: geometry.legs.map(\.leg), pixelsPerMetre: pixelsPerMetre)
         if let yards = geometry.teeArcYards { texts.append("\(yards)码") }
         return texts
     }

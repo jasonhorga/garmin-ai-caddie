@@ -767,7 +767,7 @@ struct PrepHoleMapHero: View {
 
     /// "一号木 224" for every leg, exactly as `LivePlannedRouteRenderer` draws them.
     static func landingLabels(legs: [MapPlannedLeg], overlay: CoursePrepOverlay) -> [String] {
-        legs.map { LivePlannedRouteRenderer.labelText(for: $0, pixelsPerMetre: overlay.ppm) }
+        LivePlannedRouteRenderer.labelTexts(legs: legs, pixelsPerMetre: overlay.ppm)
     }
 
     private var displayedScale: CGFloat {
@@ -871,8 +871,8 @@ extension PrepMapLayout {
         if let tee = legs.first?.origin {
             anchors.append(Anchor(point: tee, clearance: CGSize(width: routeMargin, height: routeMargin)))
         }
-        for leg in legs {
-            let text = LivePlannedRouteRenderer.labelText(for: leg, pixelsPerMetre: overlay.ppm)
+        let texts = LivePlannedRouteRenderer.labelTexts(legs: legs, pixelsPerMetre: overlay.ppm)
+        for (leg, text) in zip(legs, texts) {
             anchors.append(Anchor(point: leg.destination, clearance: labelClearance(for: text)))
         }
         var frame: CGRect?

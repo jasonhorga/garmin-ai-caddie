@@ -534,7 +534,7 @@ final class PrepMapDegradationTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(plans.count, 2, "备战 offers at least two caddie plans")
         // The first plan is the installed CoursePrep chain (the decision engine's stock route).
         XCTAssertEqual(plans[0].title, "推荐")
-        XCTAssertEqual(plans[0].steps.map(\.label), ["一号木 230", "八号铁 164"])
+        XCTAssertEqual(plans[0].steps.map(\.label), ["一号木 230", "切杆 98"])
         XCTAssertEqual(Set(plans.map(\.title)).count, plans.count, "every plan has its own name")
         XCTAssertEqual(Set(plans.map { $0.steps.map(\.label) }).count, plans.count, "no two plans share a club order")
         // Exactly the routes live play resolves for this hole before any network or GPS.
@@ -583,7 +583,9 @@ final class PrepMapDegradationTests: XCTestCase {
         let first = try XCTUnwrap(package.holes.min { $0.number < $1.number })
         let hole = try prep(hole: first.number, coverage: "ready", withMap: true, steps: planSteps)
         let installed = try XCTUnwrap(PrepPlanOption.installedOption(prep: hole, par: 4))
-        XCTAssertEqual(installed.steps.map(\.label), ["一号木 230", "八号铁 164"])
+        // The 8-iron carries 150 m but the green is 90 m from the drive: the finish is a 切杆
+        // (device review, build 77).
+        XCTAssertEqual(installed.steps.map(\.label), ["一号木 230", "切杆 98"])
         XCTAssertEqual(installed.shots.map(\.clubName), ["1D", "8I"])
         XCTAssertNil(PrepPlanOption.installedOption(prep: try prep(coverage: "ready", withMap: true), par: 4))
         XCTAssertTrue(PrepPlanOption.options(template: package, hole: first, prep: nil).isEmpty)

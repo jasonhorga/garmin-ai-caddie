@@ -177,11 +177,15 @@ struct PrepPlanOption: Equatable, Identifiable {
         var steps: [Step] = []
         var shots: [MapPlannedShot] = []
         var previousOffsetM = 0.0
+        let lastIndex = route.steps.lastIndex { !$0.clubName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         for (stepIndex, step) in route.steps.enumerated() {
             let name = step.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty, name != "-" else { continue }
             let offset = step.routeOffsetM ?? step.landingM
-            steps.append(chip(id: stepIndex, name: name, carryM: step.targetCarryM, offsetM: offset, previousOffsetM: previousOffsetM))
+            steps.append(chip(
+                id: stepIndex, name: name, carryM: step.targetCarryM,
+                offsetM: stepIndex == lastIndex ? offset : nil, previousOffsetM: previousOffsetM
+            ))
             if let offset { previousOffsetM = offset }
             shots.append(MapPlannedShot(
                 id: "prep-\(route.id)-\(step.id)",
@@ -205,11 +209,15 @@ struct PrepPlanOption: Equatable, Identifiable {
         var steps: [Step] = []
         var shots: [MapPlannedShot] = []
         var previousOffsetM = 0.0
+        let lastIndex = prep.steps.lastIndex { !(($0.clubName ?? $0.club ?? "").trimmingCharacters(in: .whitespacesAndNewlines)).isEmpty }
         for (index, step) in prep.steps.enumerated() {
             let name = (step.clubName ?? step.club ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty, name != "-" else { continue }
             let offset = step.routeOffsetM ?? step.landingM
-            steps.append(chip(id: index, name: name, carryM: step.targetCarryM, offsetM: offset, previousOffsetM: previousOffsetM))
+            steps.append(chip(
+                id: index, name: name, carryM: step.targetCarryM,
+                offsetM: index == lastIndex ? offset : nil, previousOffsetM: previousOffsetM
+            ))
             if let offset { previousOffsetM = offset }
             shots.append(MapPlannedShot(
                 id: "prep-installed-\(index)-\(name)",
@@ -237,8 +245,8 @@ struct PrepPlanOption: Equatable, Identifiable {
         }
     }
 
-    /// The chip names the shot as the map label does (`PlannedShotLabel`): the leg actually played
-    /// along the route, not the club's full carry, when the route cuts it short at the green.
+    /// The chip names the shot as the map label does (`PlannedShotLabel`): the last shot onto the
+    /// green is the leg actually played along the route, not the club's full carry.
     private static func chip(id: Int, name: String, carryM: Double?, offsetM: Double?, previousOffsetM: Double) -> Step {
         let played = offsetM.map { $0 - previousOffsetM }
         let label = PlannedShotLabel.resolve(clubName: name, carryM: carryM, playedM: played)
