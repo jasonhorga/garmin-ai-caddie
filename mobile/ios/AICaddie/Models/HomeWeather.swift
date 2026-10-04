@@ -127,8 +127,8 @@ enum HomeWeatherClient {
         var request = URLRequest(url: url)
         request.timeoutInterval = 12
         applyAICaddieAuth(to: &request, adminToken: adminToken)
-        guard let (data, response) = try? await session.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-        return try? JSONDecoder().decode(HomeWeather.self, from: data)
+        guard let reply = try? await session.data(for: request),
+              (reply.1 as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return try? JSONDecoder().decode(HomeWeather.self, from: reply.0)
     }
 }

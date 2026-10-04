@@ -55,8 +55,8 @@ final class HomeBentoTests: XCTestCase {
             let json = #"{"id":"\#(id)","courseName":"球场","holesCompleted":\#(holes),"score":\#(score),"scoreStrip":[],"badges":[]}"#
             return try JSONDecoder().decode(HistoryRoundCard.self, from: Data(json.utf8))
         }
-        let newestFirst = [try card("a", holes: 18, score: 85), try card("b", holes: 9, score: 44),
-                           try card("c", holes: 18, score: 90), try card("d", holes: 18, score: 88)]
+        let newestFirst = try [card("a", holes: 18, score: 85), card("b", holes: 9, score: 44),
+                               card("c", holes: 18, score: 90), card("d", holes: 18, score: 88)]
         XCTAssertEqual(HubScoresTile.recentScores(history: newestFirst), [88, 90, 85])
         XCTAssertEqual(HubScoresTile.recentScores(history: newestFirst, limit: 2), [90, 85])
     }
@@ -68,7 +68,7 @@ final class HomeBentoTests: XCTestCase {
             ClubProfile(clubName: "推杆", sampleSize: 4, medianM: 0, p10M: 0, p90M: 0),
         ]
         let carries = HubBagTile.carries(from: profiles)
-        XCTAssertEqual(carries.map(\.club), ["一号木", "七号铁"])
-        XCTAssertEqual(carries.map(\.yards), [230, 150])
+        XCTAssertEqual(carries.map { $0.club }, ["一号木", "七号铁"])
+        XCTAssertEqual(carries.map { $0.yards }, [230, 150])
     }
 }
