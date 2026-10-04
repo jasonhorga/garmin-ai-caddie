@@ -105,6 +105,11 @@ non-terminal CI events and must not start a second GitHub monitor. If genuinely
 parallel waits are needed, delegate them to no more than two subagents and
 collect only their final conclusions.
 
+Do not create a commit solely to record a CI conclusion. Record CI evidence in
+`PROJECT_STATE.md` only when it accompanies real code, review, operations, or
+policy work. Ignore CI events caused only by Codex's own docs/state bookkeeping;
+they must not wake a feedback loop or reset the owner's 48-hour quiet interval.
+
 ### GitHub comment attribution
 
 Every GitHub issue comment, inline review comment, review, or reply posted by

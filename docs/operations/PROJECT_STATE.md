@@ -3,7 +3,7 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-04 06:35 UTC
+**Updated:** 2026-10-04 06:48 UTC
 **Canonical branch:** `main`
 **Product app tip:** `9f44574556084ee9a57f43a44424c770e0a76338`
 **Product backend tip:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
@@ -37,8 +37,9 @@ distribution remains disabled.
 The blocking waiter and rule are pushed (`a7657f76`, follow-ups through
 `b11b2dba`, rule clarification `51c7d608`, result persistence `ea0cee78`). It owns the wait, ignores
 non-terminal CI events, and returns one summary line; do not interleave
-main-thread `gh run view`, `ps`, state reads or sleep loops. Next terminal
-feedback wait is the only in-progress slice.
+main-thread `gh run view`, `ps`, state reads or sleep loops. The owner-directed
+feedback waiter stop is recorded below; do not restart it for Codex's own
+docs/state-only CI events.
 Each return atomically replaces `latest-result.txt`; a local timeout test and
 remote SHA check passed.
 
@@ -104,8 +105,8 @@ this slice.
 
 ## Unfinished work
 
-1. Use `ops/wait_for_conclusion.sh` for the next CI/release or PR-feedback
-   wait; do not resume main-thread polling loops.
+1. Keep Codex's blocking waiter stopped for self-generated docs/state-only CI;
+   use it only for an external or real-work PR/release conclusion.
 2. Keep the existing PR feedback monitor running and deduplicate any new
    repository feedback against this ledger; do not start a second monitor.
 3. Review new actionable feedback or the next PR on its exact head; require
@@ -163,18 +164,16 @@ this slice.
   `/home/jason/gh-feedback/gh-feedback.sh`. State and events remain under
   `/home/jason/garmin-ai-caddie-data/operations/pr-feedback-monitor/`.
   Do not start the retired tmux loop or a second writer.
-- Blocking feedback waiter: reuse tmux `codex-pr-feedback-wait-20261004`, using
-  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait_for_conclusion.sh`
-  and the existing event stream; it is active and owns the next wait. It
-  was restarted at 2026-10-04 05:23 UTC after the prior session exited. It
-  expires 2026-10-11 or after its next conclusion is consumed. Its one-line result is written to
-  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/latest-result.txt`.
+- Blocking feedback waiter `codex-pr-feedback-wait-20261004` was stopped at the
+  owner's direction after the docs-only CI loop; no Codex waiter is active.
+  Reuse it only for an external or real-work conclusion. Its one-line result
+  remains `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/latest-result.txt`.
 
 ## Next action and stop conditions
 
-Next action is to block on the existing monitor's next PR feedback or CI
-conclusion, then handle only the returned actionable event. Keep
-external distribution disabled and do not change production.
+Next action is to let the existing monitor observe external PR feedback; handle
+only actionable events or CI attached to real work. Keep external distribution
+disabled and do not change production.
 
 Owner end condition: end this goal no later than **2026-10-09 23:59 UTC**;
 it may end earlier after **48 consecutive hours with no new PR event and no
