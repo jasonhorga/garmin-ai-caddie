@@ -6,14 +6,6 @@ import AICaddieDomain
 import UIKit
 #endif
 
-/// Round actions chosen on the scorecard sheet (the live screen's 返回 destination) run after the
-/// sheet has closed.
-enum LiveScorecardFollowUp: Equatable {
-    case finishRound
-    case leaveToHome
-    case discardRound
-}
-
 private struct PendingPhoneShot: Identifiable {
     let locationEvent: LiveRoundEvent
     let shotOrder: Int
@@ -198,9 +190,7 @@ public struct CurrentHoleView: View {
     @State private var showScorecard = false
     @State private var gpsHoleCandidate: LiveHoleGPSCandidate?
     @State private var pendingHistoricalScoreHole: Int?
-    /// What to do after the scorecard sheet (the 返回 destination) closes: its round actions need the
-    /// sheet gone before presenting the summary or leaving the live round.
-    @State private var pendingScorecardAction: LiveScorecardFollowUp?
+    /// The finish page's 放弃本场 asks for its confirmation only after that sheet has closed.
     @State private var pendingSummaryDiscard = false
     @State private var pendingPhoneShot: PendingPhoneShot?
     @State private var heroMapScale: CGFloat = 1
@@ -602,13 +592,22 @@ public struct CurrentHoleView: View {
         ZStack {
             VStack(spacing: 0) {
                 HStack(alignment: .top, spacing: 8) {
-                    LivePlayTopInfo(
-                        holeNumber: hole.courseHoleNumber,
-                        par: hole.par,
-                        yards: hole.yards,
-                        roundLine: liveRoundLine,
-                        onBack: { showScorecard = true }
-                    )
+                    VStack(alignment: .leading, spacing: 10) {
+                        // 返回 goes straight home and keeps the round (device review, build 77);
+                        // the hole facts open the 计分卡, and 结束本场 opens the finish page.
+                        LivePlayTopInfo(
+                            holeNumber: hole.courseHoleNumber,
+                            par: hole.par,
+                            yards: hole.yards,
+                            roundLine: liveRoundLine,
+                            onBack: { dismiss() }
+                        )
+                        LivePlayRoundButtons(
+                            onOpenScorecard: { showScorecard = true },
+                            onEndRound: { showRoundSummary = true }
+                        )
+                        .padding(.leading, 52)
+                    }
                     Spacer(minLength: 8)
                     LivePlayGreenLadder(
                         frontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
@@ -740,24 +739,6 @@ public struct CurrentHoleView: View {
 
     private func handleScorecardDismissed() {
         presentPendingHistoricalScoreEdit()
-        let followUp = pendingScorecardAction
-        pendingScorecardAction = nil
-        switch followUp {
-        case .finishRound:
-            // 结束本场 on the scorecard is the decision itself: save and end without a second
-            // chooser. Only a failed save brings up the summary, with its error and retry.
-            Task {
-                if await onFinishRound() == false {
-                    showRoundSummary = true
-                }
-            }
-        case .leaveToHome:
-            dismiss()
-        case .discardRound:
-            showDiscardConfirmation = true
-        case nil:
-            break
-        }
     }
 
     /// The summary's 放弃本场 asks for the confirmation once the summary sheet is gone; presenting
@@ -866,18 +847,6 @@ public struct CurrentHoleView: View {
             },
             onEdit: { selectedHole in
                 pendingHistoricalScoreHole = selectedHole
-                showScorecard = false
-            },
-            onFinishRound: {
-                pendingScorecardAction = .finishRound
-                showScorecard = false
-            },
-            onLeaveToHome: {
-                pendingScorecardAction = .leaveToHome
-                showScorecard = false
-            },
-            onDiscardRound: {
-                pendingScorecardAction = .discardRound
                 showScorecard = false
             },
             roundAdjustments: AnyView(
@@ -3893,17 +3862,11 @@ public struct CurrentHoleView: View {
     }
 
     private var completedHoleScores: [Int: LiveHoleScore] {
-        Dictionary(uniqueKeysWithValues: completedHoleStates.map { entry in
-            (entry.hole.number, LiveHoleScore(
-                hole: entry.hole.number,
-                par: entry.hole.par,
-                score: entry.state.score,
-                putts: entry.state.putts,
-                penalties: entry.state.penaltyCount,
-                fairway: entry.state.fairwayResult,
-                source: entry.state.scoreSource
-            ))
-        })
+        LiveRoundFinishSummaryView.completedScores(
+            holes: package.holes,
+            liveRoundState: liveRoundState,
+            recordedScoreHoles: recordedScoreHoles
+        )
     }
 
     private func presentPendingHistoricalScoreEdit() {

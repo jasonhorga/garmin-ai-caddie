@@ -5,6 +5,28 @@ import SwiftUI
 /// the review. No sync status: saving lands locally first and uploads in the background. Nothing
 /// is deleted by opening or dismissing it; 放弃本场 asks first.
 struct LiveRoundFinishSummaryView: View {
+    /// The scored holes of a live round, for the summary on the live map or on the home.
+    static func completedScores(
+        holes: [Hole],
+        liveRoundState: LiveRoundStateSnapshot?,
+        recordedScoreHoles: Set<Int>
+    ) -> [Int: LiveHoleScore] {
+        var scores: [Int: LiveHoleScore] = [:]
+        for hole in holes where recordedScoreHoles.contains(hole.number) {
+            guard let state = liveRoundState?.holeState(for: hole.number) else { continue }
+            scores[hole.number] = LiveHoleScore(
+                hole: hole.number,
+                par: hole.par,
+                score: state.score,
+                putts: state.putts,
+                penalties: state.penaltyCount,
+                fairway: state.fairwayResult,
+                source: state.scoreSource
+            )
+        }
+        return scores
+    }
+
     let courseName: String
     let holes: [Hole]
     /// One title per loop in play order (B4b-2), e.g. "第一环 · 后九".

@@ -47,7 +47,8 @@ struct LivePlayControlCaption: View {
     }
 }
 
-/// Top-left: back, then the hole number, par and yards, and the round line underneath.
+/// Top-left: back (straight to the home, the round is kept), then the hole number, par and yards,
+/// and the round line underneath.
 struct LivePlayTopInfo: View {
     let holeNumber: Int
     let par: Int
@@ -64,9 +65,9 @@ struct LivePlayTopInfo: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("计分卡")
-            .accessibilityHint("查看每洞成绩，也可以结束本场或回到首页")
-            .accessibilityIdentifier("live-back-to-scorecard")
+            .accessibilityLabel("回到首页")
+            .accessibilityHint("本场保留，可以随时继续")
+            .accessibilityIdentifier("live-back-home")
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -95,6 +96,37 @@ struct LivePlayTopInfo: View {
         var parts = ["Par \(par)"]
         if let yards { parts.append("\(yards) 码") }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// Under the hole facts: 计分卡 (every hole's score, edit or go to a hole) and 结束本场, which
+/// opens the finish page directly (保存并结束 / 继续打球 / 放弃本场).
+struct LivePlayRoundButtons: View {
+    let onOpenScorecard: () -> Void
+    let onEndRound: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            pill("计分卡", systemImage: "list.number", action: onOpenScorecard)
+                .accessibilityIdentifier("live-open-scorecard")
+            pill("结束本场", systemImage: "flag.checkered", action: onEndRound)
+                .accessibilityIdentifier("live-end-round")
+        }
+    }
+
+    private func pill(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .frame(height: 32)
+                .background(.ultraThinMaterial, in: Capsule())
+                .environment(\.colorScheme, .dark)
+                .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 }
 

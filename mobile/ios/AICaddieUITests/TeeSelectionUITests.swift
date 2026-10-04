@@ -520,13 +520,10 @@ final class TeeSelectionUITests: XCTestCase {
             "the selected course must retain every drawable hole and available topo before offline acceptance"
         )
         save("offline-cache-01-online-ready"); dump("offline-cache-01-online-ready")
-        // B1: 返回 opens the scorecard; 回到首页 there keeps the round.
-        let back = app.buttons["计分卡"]
+        // 返回 goes straight home and keeps the round.
+        let back = app.buttons["live-back-home"]
         XCTAssertTrue(back.waitForExistence(timeout: 5))
         back.tap()
-        let leaveHome = app.buttons["live-scorecard-leave-home"]
-        XCTAssertTrue(leaveHome.waitForExistence(timeout: 5))
-        leaveHome.tap()
         XCTAssertTrue(
             app.buttons["home-in-progress-round"].waitForExistence(timeout: 8),
             "returning from the cache warm-up must preserve the active round card"
@@ -846,10 +843,11 @@ final class TeeSelectionUITests: XCTestCase {
         if greenClose.exists, greenClose.isHittable { greenClose.tap() }
         let mapClose = app.buttons["关闭详细地图"]
         if mapClose.exists, mapClose.isHittable { mapClose.tap() }
-        // 放弃本场 lives on the scorecard, opened by the live screen's top-left 返回, and asks once.
-        let scorecard = app.buttons["计分卡"]
-        if scorecard.waitForExistence(timeout: 5), scorecard.isHittable { scorecard.tap() }
-        let discard = app.buttons["live-scorecard-discard"]
+        // 结束本场 on the live map opens the finish page; its 放弃本场 asks once.
+        let endRound = app.buttons["live-end-round"]
+        guard endRound.waitForExistence(timeout: 5), endRound.isHittable else { return }
+        endRound.tap()
+        let discard = app.buttons["live-finish-discard"]
         guard discard.waitForExistence(timeout: 8), discard.isHittable else { return }
         discard.tap()
         let confirm = app.buttons["放弃本场"]

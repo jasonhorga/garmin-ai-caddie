@@ -1982,12 +1982,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('Button("放弃本场", role: .destructive)', current_hole)
         self.assertIn("onDiscardRound()", current_hole)
         self.assertIn(".sheet(isPresented: $showRoundSummary, onDismiss: handleRoundSummaryDismissed)", current_hole)
-        # The scorecard is the one round chooser: 结束本场 saves directly (no second chooser) and
-        # 放弃本场 sits beside it.
-        followup = current_hole.split("    private func handleScorecardDismissed() {", 1)[1].split("\n    }\n", 1)[0]
-        self.assertIn("if await onFinishRound() == false", followup)
-        self.assertIn("case .discardRound:", followup)
-        self.assertIn("onDiscardRound: {", current_hole)
+        # The scorecard carries no round actions any more (返回 goes home, 结束本场 is on the map).
+        self.assertNotIn("LiveScorecardFollowUp", current_hole)
+        self.assertNotIn("onFinishRound: {\n                pendingScorecardAction", current_hole)
+        # The home's in-progress card has 结束 beside 继续, opening the same finish page.
+        self.assertIn('.accessibilityIdentifier("home-end-round")', round_home)
+        self.assertIn(".sheet(isPresented: $showFinishSummary", round_home)
+        self.assertIn("LiveRoundFinishSummaryView.completedScores(", round_home)
+        self.assertIn('Button("放弃本场", role: .destructive) { onDiscardRound() }', round_home)
 
         self.assertIn("isFinishingRound: model.isFinishingRound", app_swift)
         self.assertIn("finishErrorMessage: model.finishErrorMessage", app_swift)
@@ -4242,7 +4244,15 @@ class MobileContractTests(unittest.TestCase):
         )[0]
         # 记分 bottom-left and the single white 记一杆 bottom-right, on opposite sides of the screen.
         self.assertLess(chrome.index("LivePlayScoreButton("), chrome.index("LivePlayRecordShotButton("))
-        self.assertIn("onBack: { showScorecard = true }", chrome)
+        # Device review (build 77): 返回 goes straight home; 计分卡 and 结束本场 are their own buttons
+        # under the hole facts, and 结束本场 opens the finish page directly.
+        self.assertIn("onBack: { dismiss() }", chrome)
+        self.assertIn("onOpenScorecard: { showScorecard = true }", chrome)
+        self.assertIn("onEndRound: { showRoundSummary = true }", chrome)
+        live_chrome_src = _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift")
+        self.assertIn('.accessibilityIdentifier("live-back-home")', live_chrome_src)
+        self.assertIn('.accessibilityIdentifier("live-end-round")', live_chrome_src)
+        self.assertIn('.accessibilityIdentifier("live-open-scorecard")', live_chrome_src)
         self.assertNotIn("在线方案尚未完成", current_hole)
         self.assertIn('.accessibilityValue(Text(subtitle ?? ""))', live_components)
         # A container identifier propagates through SwiftUI and overwrites the route/leg

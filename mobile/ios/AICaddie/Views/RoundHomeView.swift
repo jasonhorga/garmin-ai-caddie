@@ -102,6 +102,10 @@ public struct RoundHomeView: View {
     public let onLiveAppearanceChanged: (Bool) -> Void
 
     @State private var showSettings = false
+    /// The in-progress card's 结束: the same finish page as the live map's 结束本场.
+    @State private var showFinishSummary = false
+    @State private var pendingHomeDiscard = false
+    @State private var showHomeDiscardConfirmation = false
     @State private var path: [HubRoute] = []
     /// The last round's 18-hole symbol strip, from the cached round archive (empty when unknown).
     @State private var lastRoundStrip: [HistoryScoreCell] = []
@@ -335,6 +339,51 @@ public struct RoundHomeView: View {
         // The NavigationStack owns the system status bar, so the immersive hole destination cannot
         // hide it reliably from inside CurrentHoleView. Keep normal chrome on every non-live route.
         .statusBarHidden(Self.isLiveHoleRoute(path.last))
+        .sheet(isPresented: $showFinishSummary, onDismiss: {
+            // 放弃本场 asks once, after the finish page has closed (a dialog requested while the
+            // sheet is still dismissing is dropped).
+            guard pendingHomeDiscard else { return }
+            pendingHomeDiscard = false
+            showHomeDiscardConfirmation = true
+        }) {
+            LiveRoundFinishSummaryView(
+                courseName: package.course.venueDisplayName,
+                holes: package.holes,
+                loopTitles: LiveScorecardLoops.titles(
+                    package: package,
+                    catalogue: NineLoopTurn.loopCatalogue(network: courseOptions, downloaded: downloadedCourseOptions)
+                ),
+                scores: LiveRoundFinishSummaryView.completedScores(
+                    holes: package.holes,
+                    liveRoundState: liveRoundState,
+                    recordedScoreHoles: recordedScoreHoles
+                ),
+                isFinishingRound: isFinishingRound,
+                finishErrorMessage: finishErrorMessage,
+                onFinish: {
+                    Task {
+                        if await onFinishRound() {
+                            showFinishSummary = false
+                        }
+                    }
+                },
+                onContinue: { showFinishSummary = false },
+                onDiscard: {
+                    pendingHomeDiscard = true
+                    showFinishSummary = false
+                }
+            )
+        }
+        .confirmationDialog(
+            "确定放弃本场？",
+            isPresented: $showHomeDiscardConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("放弃本场", role: .destructive) { onDiscardRound() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("放弃后这一场不会保存，已记的成绩、落点和待上传媒体会删除。")
+        }
         .onChange(of: pendingLiveHole) { _, hole in
             #if DEBUG
             UITestEventLatencyTrace.record("round-home.pending-change hole=\(hole ?? -1)")
@@ -548,11 +597,19 @@ public struct RoundHomeView: View {
                         // "继续第 N 洞" names the course's own hole (B4b-2 courseHoleNumber).
                         activeHole: package.courseHoleNumber(forRoundHole: activeHole),
                         recorded: scored.count,
-                        toPar: liveToPar(scoredHoles: scored)
+                        toPar: liveToPar(scoredHoles: scored),
+                        reservesEndAction: true
                     )
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("home-in-progress-round")
+                .overlay(alignment: .bottomTrailing) {
+                    Button { showFinishSummary = true } label: { HubEndRoundPill() }
+                        .buttonStyle(.plain)
+                        .padding(18)
+                        .accessibilityLabel("结束本场")
+                        .accessibilityIdentifier("home-end-round")
+                }
             }
         case .pendingWatch:
             if let pendingWatchRoundStart {
@@ -844,6 +901,9 @@ struct HubInProgressCard: View {
     let recorded: Int
     /// Score to par over the recorded holes; nil → omitted, never guessed.
     var toPar: Int? = nil
+    /// Leaves room on the right of 继续 for the home's 结束 button, which the app lays over the
+    /// card (a button cannot live inside the card's NavigationLink).
+    var reservesEndAction = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -870,6 +930,7 @@ struct HubInProgressCard: View {
                     .foregroundStyle(.secondary)
             }
             HubPrimaryPill(title: "继续第 \(activeHole) 洞", fullWidth: true)
+                .padding(.trailing, reservesEndAction ? HubEndRoundPill.reservedWidth : 0)
                 .padding(.top, 6)
         }
         .hubHeroCard()
@@ -953,6 +1014,22 @@ struct HubPrimaryPill: View {
             .padding(.vertical, 12)
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .background(LiveHoleStyle.green)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+/// 结束 beside 继续 on the in-progress card: opens the finish page (保存并结束 / 继续打球 / 放弃本场).
+struct HubEndRoundPill: View {
+    static let width: CGFloat = 76
+    static let reservedWidth: CGFloat = width + 10
+
+    var body: some View {
+        Text("结束")
+            .font(.headline)
+            .foregroundStyle(LiveHoleStyle.green)
+            .frame(width: Self.width)
+            .padding(.vertical, 12)
+            .background(HubStyle.iconTint)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }

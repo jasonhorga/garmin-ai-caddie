@@ -1032,18 +1032,32 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["live-scorecard-score-chip-1"].exists)
         settle(1); save("17-scorecard-after-edit"); dump("17-scorecard-after-edit")
 
-        // The scorecard is the one round chooser: 回到首页 keeps it, 结束本场 saves and ends it,
-        // 放弃本场 asks once. This journey keeps playing, so it only checks the three choices.
-        let endMenu = app.buttons["live-round-end-menu"]
-        XCTAssertTrue(scrollTo(endMenu, maxSwipes: 6), "the scorecard must expose 结束本场")
-        XCTAssertEqual(endMenu.label, "结束本场")
-        XCTAssertTrue(app.buttons["live-scorecard-leave-home"].exists)
-        XCTAssertTrue(app.buttons["live-scorecard-discard"].exists, "放弃本场 must sit beside 结束本场")
-        settle(1); save("18-scorecard-round-actions"); dump("18-scorecard-round-actions")
+        // The scorecard is only scores now: 返回 goes home and 结束本场 sits on the live map.
+        XCTAssertFalse(app.buttons["live-round-end-menu"].exists, "the scorecard carries no round chooser")
         app.buttons["关闭计分卡"].tap()
         XCTAssertTrue(
             app.staticTexts["第 2 洞"].waitForExistence(timeout: 5),
             "closing the scorecard must preserve the active round and playing hole"
+        )
+        // 结束本场 on the map opens the finish page directly.
+        let endRound = app.buttons["live-end-round"]
+        XCTAssertTrue(endRound.waitForExistence(timeout: 5) && endRound.isHittable, "the live map must expose 结束本场")
+        endRound.tap()
+        XCTAssertTrue(
+            app.buttons["live-finish-save"].waitForExistence(timeout: 5),
+            "结束本场 must open the same non-destructive summary used after the final hole"
+        )
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "· 1/9 洞")).firstMatch.exists,
+            "the summary must count the one completed hole of the 前九 being played (B4b-2)"
+        )
+        XCTAssertTrue(app.buttons["保存并结束"].exists)
+        XCTAssertTrue(app.buttons["live-finish-discard"].exists)
+        settle(1); save("18-round-summary"); dump("18-round-summary")
+        app.buttons["继续打球"].tap()
+        XCTAssertTrue(
+            app.staticTexts["第 2 洞"].waitForExistence(timeout: 5),
+            "continuing from the summary must preserve the active round and playing hole"
         )
         settle(1); save("19-journey-02-after-summary"); dump("19-journey-02-after-summary")
 
@@ -1535,14 +1549,13 @@ final class RealFlowUITests: XCTestCase {
             "cancelling the scorecard edit must return to the live second hole"
         )
 
-        // B1: 结束本场 lives on the scorecard (the live screen's 返回 destination).
-        let reopenScorecard = app.buttons["计分卡"]
-        XCTAssertTrue(reopenScorecard.waitForExistence(timeout: 5), "the live hole must expose 计分卡")
-        reopenScorecard.tap()
-        let endMenu = app.buttons["live-round-end-menu"]
-        XCTAssertTrue(scrollTo(endMenu, maxSwipes: 6), "the scorecard must expose 结束本场")
-        // 结束本场 is the decision itself: it saves and ends without a second chooser.
-        endMenu.tap()
+        // 结束本场 on the live map opens the finish page; 保存并结束 saves and ends.
+        let endRound = app.buttons["live-end-round"]
+        XCTAssertTrue(endRound.waitForExistence(timeout: 5), "the live hole must expose 结束本场")
+        endRound.tap()
+        let saveAndEnd = app.buttons["live-finish-save"]
+        XCTAssertTrue(saveAndEnd.waitForExistence(timeout: 5), "结束本场 must open the finish page")
+        saveAndEnd.tap()
         XCTAssertTrue(
             waitForHomeNewRoundEntry(timeout: 10),
             "saving the finish summary must return to the home start entry"
