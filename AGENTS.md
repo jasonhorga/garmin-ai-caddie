@@ -94,9 +94,10 @@ ops/wait_for_conclusion.sh --feedback
 The waiter owns its internal wait, writes detailed output under the project
 operations data directory, and returns one line containing `status`,
 `conclusion`, failed job names, and the log path. The `--pr` mode follows the
-existing deduplicating `pr-feedback-monitor` event stream; it must not start a
-second GitHub monitor. If genuinely parallel waits are needed, delegate them
-to no more than two subagents and collect only their final conclusions.
+existing deduplicating `pr-feedback-monitor` event stream; it ignores
+non-terminal CI events and must not start a second GitHub monitor. If genuinely
+parallel waits are needed, delegate them to no more than two subagents and
+collect only their final conclusions.
 
 ### Short continuity ledger and dated archives
 

@@ -237,6 +237,26 @@ event_matches_pr() {
   ' <<<"$event" >/dev/null 2>>"$LOG_FILE"
 }
 
+event_is_conclusive() {
+  local event="$1"
+  jq -e '
+    (.kind // "") as $kind |
+    if ($kind == "ci_run_added" or $kind == "ci_run_changed") then
+      (((.conclusion // "") | length) > 0 or (.status // "") == "completed")
+    elif $kind == "ci_changed" then
+      ((.checks // []) | length) > 0 and
+      all(.checks[]?;
+        ((.state // "") | ascii_upcase) as $state |
+        ($state != "IN_PROGRESS" and $state != "QUEUED" and
+         $state != "PENDING" and $state != "WAITING" and
+         $state != "EXPECTED")
+      )
+    else
+      true
+    end
+  ' <<<"$event" >/dev/null 2>>"$LOG_FILE"
+}
+
 wait_for_pr_event() {
   event_parent="${EVENT_FILE%/*}"
   [[ "$event_parent" == "$EVENT_FILE" ]] && event_parent="."
@@ -258,7 +278,7 @@ wait_for_pr_event() {
     fi
     if IFS= read -r -t "$POLL_SECONDS" -u "$event_fd" event_line; then
       printf '%s\n' "$event_line" >>"$LOG_FILE"
-      if event_matches_pr "$event_line"; then
+      if event_matches_pr "$event_line" && event_is_conclusive "$event_line"; then
         event_kind="$(jq -r '.kind // "pr_feedback"' <<<"$event_line" 2>>"$LOG_FILE")"
         event_pr="$(jq -r 'if .pr? then (.pr|tostring) elif (.pullRequests? // []) | length > 0 then (.pullRequests[0]|tostring) else "all" end' <<<"$event_line" 2>>"$LOG_FILE")"
         log "matched PR event kind=$event_kind"
