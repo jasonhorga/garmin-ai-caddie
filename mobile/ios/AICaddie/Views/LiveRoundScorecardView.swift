@@ -16,6 +16,7 @@ struct LiveRoundScorecardView: View {
     /// B1: the live screen's 返回 opens this sheet, so the round-level actions live here.
     let onFinishRound: (() -> Void)?
     let onLeaveToHome: (() -> Void)?
+    let onDiscardRound: (() -> Void)?
     let roundAdjustments: AnyView?
     /// One title per loop in play order ("第一环 · 后九", "第二环 · 前九"), B4b-2.
     let loopTitles: [String]
@@ -32,6 +33,7 @@ struct LiveRoundScorecardView: View {
         onEdit: @escaping (Int) -> Void,
         onFinishRound: (() -> Void)? = nil,
         onLeaveToHome: (() -> Void)? = nil,
+        onDiscardRound: (() -> Void)? = nil,
         roundAdjustments: AnyView? = nil,
         loopTitles: [String] = []
     ) {
@@ -45,6 +47,7 @@ struct LiveRoundScorecardView: View {
         self.onEdit = onEdit
         self.onFinishRound = onFinishRound
         self.onLeaveToHome = onLeaveToHome
+        self.onDiscardRound = onDiscardRound
         self.roundAdjustments = roundAdjustments
         _selectedHole = State(
             initialValue: liveRoundState?.activeHole
@@ -64,8 +67,6 @@ struct LiveRoundScorecardView: View {
                         gpsSuggestion(gpsCandidate)
                     }
                     scoreHero
-                    LiveCumulativeTrend(values: summary.cumulativeToPar, holeCount: holes.count)
-                        .frame(height: 84)
                     LiveNineCard(
                         title: LiveScorecardLoops.title(loopTitles, index: 0),
                         holes: Array(holes.prefix(9)),
@@ -244,7 +245,8 @@ struct LiveRoundScorecardView: View {
         return selectedHole == liveRoundState?.activeHole ? "正在打这一洞" : "还没记成绩"
     }
 
-    /// 回到首页 keeps the round; 结束本场… opens the round summary (README §2).
+    /// The one round chooser: 回到首页 keeps the round, 结束本场 saves and ends it, 放弃本场 asks
+    /// once and discards it (README §2).
     private var roundActions: some View {
         HStack(spacing: 28) {
             if let onLeaveToHome {
@@ -256,12 +258,19 @@ struct LiveRoundScorecardView: View {
                     .accessibilityIdentifier("live-scorecard-leave-home")
             }
             if let onFinishRound {
-                Button("结束本场…", action: onFinishRound)
+                Button("结束本场", action: onFinishRound)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(LivePlayStyle.ink60)
                     .buttonStyle(.plain)
-                    .accessibilityLabel("结束或放弃本场")
+                    .accessibilityHint("保存本场成绩并结束")
                     .accessibilityIdentifier("live-round-end-menu")
+            }
+            if let onDiscardRound {
+                Button("放弃本场", action: onDiscardRound)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(LiveScoreStyle.bad)
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("live-scorecard-discard")
             }
         }
         .frame(maxWidth: .infinity)

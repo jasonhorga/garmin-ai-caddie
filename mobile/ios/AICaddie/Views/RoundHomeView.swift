@@ -380,7 +380,10 @@ public struct RoundHomeView: View {
     /// round. Keep the current hole when it still exists; otherwise move immediately to the restored
     /// active hole (or the first retained hole) instead of leaving an empty NavigationStack page.
     private func reconcileLiveHoleRouteWithPackage() {
-        guard case .hole(let routedHole) = path.last,
+        // A discarded or finished round swaps in the home package; the round's own route is
+        // cleared by the roundId change, never re-pointed at the home package's holes.
+        guard liveRoundState != nil,
+              case .hole(let routedHole) = path.last,
               let target = LiveHoleRouteReconciliation.target(
                   routedHole: routedHole,
                   packageHoles: package.holes.map(\.number),

@@ -846,16 +846,13 @@ final class TeeSelectionUITests: XCTestCase {
         if greenClose.exists, greenClose.isHittable { greenClose.tap() }
         let mapClose = app.buttons["关闭详细地图"]
         if mapClose.exists, mapClose.isHittable { mapClose.tap() }
-        // B1: 结束本场 lives on the scorecard, opened by the live screen's top-left 返回.
+        // 放弃本场 lives on the scorecard, opened by the live screen's top-left 返回, and asks once.
         let scorecard = app.buttons["计分卡"]
         if scorecard.waitForExistence(timeout: 5), scorecard.isHittable { scorecard.tap() }
-        let endMenu = app.buttons["live-round-end-menu"]
-        guard endMenu.waitForExistence(timeout: 8), endMenu.isHittable else { return }
-        endMenu.tap()
-        let discard = app.buttons["live-finish-discard"]
+        let discard = app.buttons["live-scorecard-discard"]
         guard discard.waitForExistence(timeout: 8), discard.isHittable else { return }
         discard.tap()
-        let confirm = app.buttons["放弃并删除本场记录"]
+        let confirm = app.buttons["放弃本场"]
         if confirm.waitForExistence(timeout: 5), confirm.isHittable { confirm.tap() }
         _ = app.buttons["home-new-round"].waitForExistence(timeout: 10)
     }

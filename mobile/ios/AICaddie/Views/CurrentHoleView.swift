@@ -11,6 +11,7 @@ import UIKit
 enum LiveScorecardFollowUp: Equatable {
     case finishRound
     case leaveToHome
+    case discardRound
 }
 
 private struct PendingPhoneShot: Identifiable {
@@ -200,6 +201,7 @@ public struct CurrentHoleView: View {
     /// What to do after the scorecard sheet (the 返回 destination) closes: its round actions need the
     /// sheet gone before presenting the summary or leaving the live round.
     @State private var pendingScorecardAction: LiveScorecardFollowUp?
+    @State private var pendingSummaryDiscard = false
     @State private var pendingPhoneShot: PendingPhoneShot?
     @State private var heroMapScale: CGFloat = 1
     @State private var heroMapOffset: CGSize = .zero
@@ -526,7 +528,7 @@ public struct CurrentHoleView: View {
         .sheet(isPresented: $showScorecard, onDismiss: handleScorecardDismissed) {
             scorecardSurface
         }
-        .sheet(isPresented: $showRoundSummary) {
+        .sheet(isPresented: $showRoundSummary, onDismiss: handleRoundSummaryDismissed) {
             roundSummarySurface
         }
         .sheet(isPresented: Binding(
@@ -561,16 +563,17 @@ public struct CurrentHoleView: View {
             turnContinuationPending = false
             turnRetryPlan = nil
         }
+        // One confirmation, presented only after the sheet that asked for it has closed. Discarding
+        // clears the live round, which returns the NavigationStack to the home by itself.
         .confirmationDialog(
-            "放弃这场球局？",
+            "确定放弃本场？",
             isPresented: $showDiscardConfirmation,
             titleVisibility: .visible
         ) {
-            Button("放弃并删除本场记录", role: .destructive) {
+            Button("放弃本场", role: .destructive) {
                 onDiscardRound()
-                dismiss()
             }
-            Button("继续打球", role: .cancel) {}
+            Button("取消", role: .cancel) {}
         } message: {
             Text("放弃后这一场不会保存，已记的 \(completedHoleStates.count) 洞成绩、落点和待上传媒体会删除。")
         }
@@ -741,12 +744,28 @@ public struct CurrentHoleView: View {
         pendingScorecardAction = nil
         switch followUp {
         case .finishRound:
-            showRoundSummary = true
+            // 结束本场 on the scorecard is the decision itself: save and end without a second
+            // chooser. Only a failed save brings up the summary, with its error and retry.
+            Task {
+                if await onFinishRound() == false {
+                    showRoundSummary = true
+                }
+            }
         case .leaveToHome:
             dismiss()
+        case .discardRound:
+            showDiscardConfirmation = true
         case nil:
             break
         }
+    }
+
+    /// The summary's 放弃本场 asks for the confirmation once the summary sheet is gone; presenting
+    /// it while the sheet is still dismissing drops it and leaves the player on the map.
+    private func handleRoundSummaryDismissed() {
+        guard pendingSummaryDiscard else { return }
+        pendingSummaryDiscard = false
+        showDiscardConfirmation = true
     }
 
     #if DEBUG
@@ -857,6 +876,10 @@ public struct CurrentHoleView: View {
                 pendingScorecardAction = .leaveToHome
                 showScorecard = false
             },
+            onDiscardRound: {
+                pendingScorecardAction = .discardRound
+                showScorecard = false
+            },
             roundAdjustments: AnyView(
                 VStack(spacing: 12) {
                     if Self.showsMediaCaptureCard {
@@ -886,8 +909,8 @@ public struct CurrentHoleView: View {
             },
             onContinue: { showRoundSummary = false },
             onDiscard: {
+                pendingSummaryDiscard = true
                 showRoundSummary = false
-                showDiscardConfirmation = true
             }
         )
     }

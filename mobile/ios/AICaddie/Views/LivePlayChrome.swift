@@ -329,6 +329,36 @@ struct LivePlayRecordShotButton: View {
     }
 }
 
+/// What a planned shot is called and how far it goes. The plan's `carryM` is the club's full stock
+/// carry; when the leg actually played is clearly shorter (the final shot onto the green, clamped
+/// to the flag) the label shows the played distance, and a shot under three quarters of the
+/// club's carry is a 切杆 rather than a full swing (device review, build 77: 「九号铁 66」 for a
+/// 44 y finish).
+enum PlannedShotLabel {
+    static let shortLegToleranceM = 5.0
+    static let pitchFraction = 0.75
+
+    static func resolve(clubName: String, carryM: Double?, playedM: Double?) -> (club: String, yards: Int?) {
+        let club = zhClubDisplayName(zhClubName(clubName))
+        let carry = carryM.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        let played = playedM.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        switch (carry, played) {
+        case let (carry?, played?) where played < carry - shortLegToleranceM:
+            return (played < carry * pitchFraction ? "切杆" : club, yards(played))
+        case let (carry?, _):
+            return (club, yards(carry))
+        case let (nil, played?):
+            return (club, yards(played))
+        default:
+            return (club, nil)
+        }
+    }
+
+    static func yards(_ metres: Double) -> Int {
+        Int((metres * LivePlannedRouteRenderer.yardsPerMetre).rounded())
+    }
+}
+
 /// The caddie route on the live map (`live-play.html`): a 3 pt flight arc per leg, a landing dot and
 /// a 13 pt "杆名 码数" label bound to every landing, including the final leg onto the green.
 ///
@@ -345,22 +375,32 @@ enum LivePlannedRouteRenderer {
         let rect: CGRect
     }
 
-    /// "一号木 224": the club and that leg's planned carry (the caddie's number); the drawn leg
-    /// length is the fallback for an older plan without a carry.
+    /// "一号木 224": the club and that leg's planned carry (the caddie's number). A leg the map
+    /// cuts short — the last shot onto the green — shows the distance actually played, and a
+    /// pitch well short of the club's full carry reads 切杆 (`PlannedShotLabel`).
     static func labelText(for leg: MapPlannedLeg, pixelsPerMetre: Double) -> String {
-        let club = zhClubDisplayName(zhClubName(leg.shot.clubName))
-        guard let yards = legYards(leg, pixelsPerMetre: pixelsPerMetre) else { return club }
-        return "\(club) \(yards)"
+        let label = PlannedShotLabel.resolve(
+            clubName: leg.shot.clubName,
+            carryM: leg.shot.carryM,
+            playedM: drawnMetres(leg, pixelsPerMetre: pixelsPerMetre)
+        )
+        guard let yards = label.yards else { return label.club }
+        return "\(label.club) \(yards)"
     }
 
     static func legYards(_ leg: MapPlannedLeg, pixelsPerMetre: Double) -> Int? {
-        if let carry = leg.shot.carryM, carry.isFinite, carry > 0 {
-            return Int((carry * yardsPerMetre).rounded())
-        }
+        PlannedShotLabel.resolve(
+            clubName: leg.shot.clubName,
+            carryM: leg.shot.carryM,
+            playedM: drawnMetres(leg, pixelsPerMetre: pixelsPerMetre)
+        ).yards
+    }
+
+    private static func drawnMetres(_ leg: MapPlannedLeg, pixelsPerMetre: Double) -> Double? {
         guard pixelsPerMetre.isFinite, pixelsPerMetre > 0 else { return nil }
         let pixels = Double(hypot(leg.destination.x - leg.origin.x, leg.destination.y - leg.origin.y))
         guard pixels > 1 else { return nil }
-        return Int((pixels / pixelsPerMetre * yardsPerMetre).rounded())
+        return pixels / pixelsPerMetre
     }
 
     /// The route and tee arc transformed into the viewport (pan/zoom applied).

@@ -1974,12 +1974,20 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("LiveHoleAdvanceResolution.resolve(after: accepted.hole, package: package)", current_hole)
         self.assertNotIn("未保存的记录会被丢弃", current_hole)
         # The former Save/Continue-only sheet could trap an invalid round. Keep a deliberate
-        # destructive exit, but require a second confirmation before deleting local data.
+        # destructive exit with exactly one confirmation, presented after the asking sheet closed.
         self.assertIn("onDiscard:", current_hole)
         self.assertIn("showDiscardConfirmation = true", current_hole)
         self.assertIn(".confirmationDialog(", current_hole)
-        self.assertIn('Button("放弃并删除本场记录", role: .destructive)', current_hole)
+        self.assertIn('"确定放弃本场？"', current_hole)
+        self.assertIn('Button("放弃本场", role: .destructive)', current_hole)
         self.assertIn("onDiscardRound()", current_hole)
+        self.assertIn(".sheet(isPresented: $showRoundSummary, onDismiss: handleRoundSummaryDismissed)", current_hole)
+        # The scorecard is the one round chooser: 结束本场 saves directly (no second chooser) and
+        # 放弃本场 sits beside it.
+        followup = current_hole.split("    private func handleScorecardDismissed() {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("if await onFinishRound() == false", followup)
+        self.assertIn("case .discardRound:", followup)
+        self.assertIn("onDiscardRound: {", current_hole)
 
         self.assertIn("isFinishingRound: model.isFinishingRound", app_swift)
         self.assertIn("finishErrorMessage: model.finishErrorMessage", app_swift)
@@ -2523,20 +2531,15 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let showsFactualRoute: Bool", hole_map_view)
         self.assertIn("showsFactualRoute: Bool = true", hole_map_view)
         self.assertIn("showsRoute: showsFactualRoute", hole_map_view)
-        self.assertIn("if showsFactualRoute, routePoints.count >= 2", hole_map_view)
+        # Device review (build 77): no thin centreline over the map, only the caddie's white route.
+        self.assertNotIn("drawFactualRoute", hole_map_view)
         self.assertNotIn("showsRoute: showsRecommendedRoute", hole_map_view)
         # The selected obstacle is drawn by the route renderer's shared label layout.
         self.assertIn("hazard: selectedLiveHazard.map { (hole: holePrep, row: $0) }", current_hole)
         # B1: obstacles stay hidden until the explicit 障碍 control (left column) selects one.
         self.assertIn("LivePlaySideControls(", current_hole)
         self.assertIn("toggleHazardDisplay", current_hole)
-        self.assertIn("drawFactualRoute", hole_map_view)
         self.assertIn("_ = drawPlannedRoute(", hole_map_view)
-        self.assertLess(
-            hole_map_view.index("drawFactualRoute(&context, points: routePoints)"),
-            hole_map_view.index("_ = drawPlannedRoute("),
-            "the factual centreline must be drawn independently before any caddie overlay",
-        )
         self.assertIn("row[0].isFinite", hole_map_view)
         self.assertIn(") -> Bool", hole_map_view[hole_map_view.index("private func drawPlannedRoute"):])
         # B1 live-play.html: every leg carries a "杆名 码数" label at its landing. Live play draws the
@@ -2554,7 +2557,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("LivePlannedRouteRenderer.draw(", current_hole)
         self.assertIn("enum LivePlannedRouteRenderer", live_chrome)
         self.assertIn("static let labelFontSize: CGFloat = 13", live_chrome)
-        self.assertIn('return "\\(club) \\(yards)"', live_chrome)
+        self.assertIn('return "\\(label.club) \\(yards)"', live_chrome)
+        # A leg the route cuts short (the finish onto the green) shows the distance played, and a
+        # shot under 3/4 of the club's carry is a 切杆 (device review, build 77: 「九号铁 66」).
+        self.assertIn("enum PlannedShotLabel", live_chrome)
+        self.assertIn('return (played < carry * pitchFraction ? "切杆" : club, yards(played))', live_chrome)
         self.assertIn("lineWidth: 3, lineCap: .round", live_chrome)
         self.assertIn("obstacles.append(flagRect(foot: pinLeg.destination, scale: flagScale))", live_chrome)
         # README 地图降级契约: live play and 备战 share the one full-screen waiting page (hole · Par · yards).
@@ -2775,20 +2782,22 @@ class MobileContractTests(unittest.TestCase):
         components = _read_required_source(self, IOS_DIR / "Views" / "LiveScorecardComponents.swift")
         summary_model = _read_required_source(self, IOS_DIR / "Models" / "LiveRoundScoreSummary.swift")
 
-        # B2 计分卡: big to-par, cumulative trend, OUT / IN nine cards, 结束本场… at the bottom.
+        # B2 计分卡: big to-par, OUT / IN nine cards, 结束本场 / 放弃本场 at the bottom. The
+        # cumulative trend line was removed after device review (it added nothing).
         self.assertIn('accessibilityIdentifier("live-scorecard-total-score")', scorecard)
         self.assertIn('accessibilityIdentifier("live-scorecard-total-summary")', scorecard)
-        self.assertIn("LiveCumulativeTrend(values: summary.cumulativeToPar", scorecard)
+        self.assertNotIn("LiveCumulativeTrend(", scorecard)
         # B4b-2: one card per loop in play order ("第一环 · 后九"), never relabelled OUT / IN.
         self.assertIn("title: LiveScorecardLoops.title(loopTitles, index: 0)", scorecard)
         self.assertIn("title: LiveScorecardLoops.title(loopTitles, index: 1)", scorecard)
         self.assertNotIn('label: "OUT"', scorecard)
         self.assertIn('static let ordinals = ["第一环", "第二环"]', components)
-        self.assertIn('Button("结束本场…", action: onFinishRound)', scorecard)
+        self.assertIn('Button("结束本场", action: onFinishRound)', scorecard)
+        self.assertIn('accessibilityIdentifier("live-scorecard-discard")', scorecard)
         self.assertIn('accessibilityIdentifier("live-round-end-menu")', scorecard)
         self.assertIn("for hole in holes where recordedScoreHoles.contains(hole.number)", scorecard)
         self.assertIn("struct LiveNineCard: View", components)
-        self.assertIn("struct LiveCumulativeTrend: View", components)
+        self.assertNotIn("struct LiveCumulativeTrend", components)
         # GIR is estimated from strokes and putts; untouched default holes are skipped (B0c).
         self.assertIn("var estimatedGIR: Bool { score - putts <= par - 2 }", summary_model)
         self.assertIn("holes.filter { !$0.isUntouchedDefault }", summary_model)
@@ -3919,8 +3928,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let card = RoundReviewScorecard(detail.scorecard)", round_review)
         self.assertIn("LiveNineCard(", round_review)
         self.assertIn('cellIdentifier: { "round-review-hole-\\($0)" }', round_review)
-        self.assertIn("LiveCumulativeTrend(values: card.cumulativeToPar", round_review)
-        self.assertIn('.accessibilityIdentifier("round-review-trend")', round_review)
+        self.assertNotIn("LiveCumulativeTrend(", round_review)
+        self.assertNotIn("round-review-trend", round_review)
         self.assertIn('identifier: "round-review-metric-\\(metric.id)"', round_review)
         self.assertIn("ShareLink(item: Self.shareText(", round_review)
         self.assertIn('.accessibilityIdentifier("round-review-share")', round_review)

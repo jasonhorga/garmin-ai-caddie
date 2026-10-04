@@ -161,10 +161,13 @@ struct PrepPlanOption: Equatable, Identifiable {
     static func option(route: CaddiePlanSequence, index: Int, par: Int) -> PrepPlanOption? {
         var steps: [Step] = []
         var shots: [MapPlannedShot] = []
+        var previousOffsetM = 0.0
         for (stepIndex, step) in route.steps.enumerated() {
             let name = step.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty, name != "-" else { continue }
-            steps.append(Step(id: stepIndex, club: displayClub(name), yards: yards(step.targetCarryM)))
+            let offset = step.routeOffsetM ?? step.landingM
+            steps.append(chip(id: stepIndex, name: name, carryM: step.targetCarryM, offsetM: offset, previousOffsetM: previousOffsetM))
+            if let offset { previousOffsetM = offset }
             shots.append(MapPlannedShot(
                 id: "prep-\(route.id)-\(step.id)",
                 clubName: name,
@@ -186,10 +189,13 @@ struct PrepPlanOption: Equatable, Identifiable {
     static func installedOption(prep: CoursePrepHole, par: Int) -> PrepPlanOption? {
         var steps: [Step] = []
         var shots: [MapPlannedShot] = []
+        var previousOffsetM = 0.0
         for (index, step) in prep.steps.enumerated() {
             let name = (step.clubName ?? step.club ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty, name != "-" else { continue }
-            steps.append(Step(id: index, club: displayClub(name), yards: yards(step.targetCarryM)))
+            let offset = step.routeOffsetM ?? step.landingM
+            steps.append(chip(id: index, name: name, carryM: step.targetCarryM, offsetM: offset, previousOffsetM: previousOffsetM))
+            if let offset { previousOffsetM = offset }
             shots.append(MapPlannedShot(
                 id: "prep-installed-\(index)-\(name)",
                 clubName: name,
@@ -214,6 +220,14 @@ struct PrepPlanOption: Equatable, Identifiable {
         case "attack": return "进攻"
         default: return "方案 \(index + 1)"
         }
+    }
+
+    /// The chip names the shot as the map label does (`PlannedShotLabel`): the leg actually played
+    /// along the route, not the club's full carry, when the route cuts it short at the green.
+    private static func chip(id: Int, name: String, carryM: Double?, offsetM: Double?, previousOffsetM: Double) -> Step {
+        let played = offsetM.map { $0 - previousOffsetM }
+        let label = PlannedShotLabel.resolve(clubName: name, carryM: carryM, playedM: played)
+        return Step(id: id, club: label.club, yards: label.yards)
     }
 
     /// The same club name the map labels draw (`LivePlannedRouteRenderer.labelText`).

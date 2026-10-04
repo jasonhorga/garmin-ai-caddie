@@ -248,49 +248,6 @@ private extension Text {
     }
 }
 
-/// Cumulative to-par after every hole: a line from level par, one dot per recorded hole.
-struct LiveCumulativeTrend: View {
-    let values: [Int]
-    let holeCount: Int
-
-    var body: some View {
-        Canvas { context, size in
-            guard !values.isEmpty else { return }
-            let count = max(holeCount, values.count, 1)
-            let low = min(0, values.min() ?? 0)
-            let high = max(0, values.max() ?? 0)
-            let span = CGFloat(max(high - low, 2))
-            let inset: CGFloat = 6
-            func point(_ index: Int, _ value: Int) -> CGPoint {
-                let x: CGFloat = inset + (size.width - inset * 2) * CGFloat(index + 1) / CGFloat(count)
-                let y: CGFloat = inset + (size.height - inset * 2) * CGFloat(high - value) / span
-                return CGPoint(x: x, y: y)
-            }
-            var level = Path()
-            level.move(to: CGPoint(x: inset, y: point(0, 0).y))
-            level.addLine(to: CGPoint(x: size.width - inset, y: point(0, 0).y))
-            context.stroke(level, with: .color(LivePlayStyle.stroke14), style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
-            var line = Path()
-            line.move(to: CGPoint(x: inset, y: point(0, 0).y))
-            for (index, value) in values.enumerated() {
-                line.addLine(to: point(index, value))
-            }
-            context.stroke(line, with: .color(LivePlayStyle.ink78), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-            for (index, value) in values.enumerated() {
-                let p = point(index, value)
-                context.fill(
-                    Path(ellipseIn: CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6)),
-                    with: .color(LiveScoreStyle.toParColor(value))
-                )
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("每洞累计成绩走势")
-        .accessibilityValue(values.last.map { "现在 \(LiveRoundScoreSummary.toParText($0))" } ?? "还没有成绩")
-        .accessibilityIdentifier("live-scorecard-trend")
-    }
-}
-
 /// `score.html` status colours on the dark live surfaces.
 enum LiveScoreStyle {
     static let good = Color(red: 0.361, green: 0.769, blue: 0.498)
