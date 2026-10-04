@@ -12,6 +12,8 @@ DATA_ROOT="${WAIT_DATA_ROOT:-/home/jason/garmin-ai-caddie-data/operations/blocki
 EVENT_FILE="${WAIT_EVENT_FILE:-/home/jason/garmin-ai-caddie-data/operations/pr-feedback-monitor/events.jsonl}"
 POLL_SECONDS="${WAIT_POLL_SECONDS:-15}"
 TIMEOUT_SECONDS="${WAIT_TIMEOUT_SECONDS:-0}"
+SELF_COMMIT_LOGIN="${WAIT_SELF_COMMIT_LOGIN:-jasonhorga}"
+SELF_COMMIT_EMAIL="${WAIT_SELF_COMMIT_EMAIL:-jasonhe@gmail.com}"
 MODE=""
 RUN_ID=""
 PR_NUMBER=""
@@ -36,10 +38,14 @@ Modes:
 Options:
   --repo OWNER/REPO       Repository (default: $WAIT_REPO or this project).
   --data-root PATH        Durable log directory (default: $WAIT_DATA_ROOT).
+  WAIT_LATEST_RESULT_FILE Environment override for the atomically replaced
+                          one-line latest-result file (default: data-root).
   --event-file PATH       PR monitor JSONL stream (default: $WAIT_EVENT_FILE).
   --poll-seconds N        Internal wait/read interval (default: 15).
   --timeout-seconds N     0 means wait forever (default: 0).
   --log PATH              Exact log path; otherwise one is created in data-root.
+  WAIT_SELF_COMMIT_LOGIN / WAIT_SELF_COMMIT_EMAIL identify Codex's commit
+                         identity for ignoring self-generated docs-only runs.
   -h, --help              Show this help.
 
 Output is one line:
@@ -133,6 +139,9 @@ is_uint "$TIMEOUT_SECONDS" || die_usage "timeout must be an integer"
 
 umask 077
 mkdir -p "$DATA_ROOT"
+LATEST_RESULT_FILE="${WAIT_LATEST_RESULT_FILE:-$DATA_ROOT/latest-result.txt}"
+latest_result_parent="${LATEST_RESULT_FILE%/*}"
+[[ "$latest_result_parent" != "$LATEST_RESULT_FILE" ]] && mkdir -p "$latest_result_parent"
 if [[ -z "$LOG_FILE" ]]; then
   subject="${MODE}-${RUN_ID:-pr-${PR_NUMBER}}"
   subject="${subject//[^A-Za-z0-9_.-]/_}"
@@ -158,9 +167,13 @@ timed_out() {
 
 finish() {
   local status="$1" conclusion="$2" failed_jobs="$3" exit_code="${4:-0}"
-  # The only normal stdout emitted by this command is this summary line.
-  printf 'status=%s conclusion=%s failed_jobs=%s log=%s\n' \
-    "$status" "$conclusion" "$failed_jobs" "$LOG_FILE"
+  # The only normal stdout emitted by this command is this summary line. Keep
+  # the same line in a durable, atomically replaced file for tmux callers.
+  local summary="status=$status conclusion=$conclusion failed_jobs=$failed_jobs log=$LOG_FILE"
+  local result_tmp="${LATEST_RESULT_FILE}.tmp.$$"
+  printf '%s\n' "$summary" >"$result_tmp"
+  mv -f "$result_tmp" "$LATEST_RESULT_FILE"
+  printf '%s\n' "$summary"
   exit "$exit_code"
 }
 
@@ -177,9 +190,8 @@ summarize_run() {
   log "reading terminal run summary run=$summarize_run_id"
   run_json="$LOG_FILE.run-${summarize_run_id}.json"
   set +e
-  gh run view "$summarize_run_id" --repo "$REPO" --json status,conclusion,jobs,url,headSha >"$run_json" 2>>"$LOG_FILE"
+  gh run view "$summarize_run_id" --repo "$REPO" --json status,conclusion,jobs,url,headBranch,headSha >"$run_json" 2>>"$LOG_FILE"
   view_rc=$?
-  set -e
   if (( view_rc != 0 )) || ! jq -e . "$run_json" >/dev/null 2>>"$LOG_FILE"; then
     log "unable to read final run state (gh run view exit=$view_rc)"
     finish error gh_error unknown 1
@@ -187,6 +199,13 @@ summarize_run() {
 
   status="$(jq -r '.status // "unknown"' "$run_json" 2>>"$LOG_FILE")"
   conclusion="$(jq -r '.conclusion // "unknown"' "$run_json" 2>>"$LOG_FILE")"
+
+  if run_is_self_docs_only "$run_json"; then
+    log "ignoring self-generated docs-only CI run=$summarize_run_id head=$(jq -r '.headSha // empty' "$run_json")"
+    rm -f "$run_json"
+    return 42
+  fi
+
   failed_jobs="$(jq -r '
     if (.jobs | type) != "array" then "unknown"
     else
@@ -207,7 +226,6 @@ summarize_run() {
   set +e
   gh run view "$summarize_run_id" --repo "$REPO" --log >>"$LOG_FILE" 2>&1
   log_rc=$?
-  set -e
   log "complete run log exit=$log_rc"
   rm -f "$run_json"
 
@@ -217,14 +235,51 @@ summarize_run() {
   finish "$status" "$conclusion" "$failed_jobs" 1
 }
 
+commit_is_self_docs_only() {
+  local commit_sha="$1"
+  local commit_json="$LOG_FILE.commit-${commit_sha}.json"
+  [[ "$commit_sha" =~ ^[0-9a-fA-F]{7,64}$ ]] || return 1
+  if ! gh api "repos/$REPO/commits/$commit_sha" >"$commit_json" 2>>"$LOG_FILE"; then
+    log "unable to inspect commit for self-run filtering sha=$commit_sha"
+    rm -f "$commit_json"
+    return 1
+  fi
+  jq -e --arg login "$SELF_COMMIT_LOGIN" --arg email "$SELF_COMMIT_EMAIL" '
+    ((.author.login // "") == $login or
+      (.committer.login // "") == $login or
+      (.commit.author.email // "") == $email or
+      (.commit.committer.email // "") == $email) and
+    ((.files // []) | length > 0) and
+    all(.files[]?.filename;
+      . == "AGENTS.md" or startswith("docs/"))
+  ' "$commit_json" >/dev/null 2>>"$LOG_FILE"
+  local result=$?
+  rm -f "$commit_json"
+  return "$result"
+}
+
+run_is_self_docs_only() {
+  local run_json="$1"
+  local head_branch head_sha
+  head_branch="$(jq -r '.headBranch // empty' "$run_json" 2>>"$LOG_FILE")"
+  head_sha="$(jq -r '.headSha // empty' "$run_json" 2>>"$LOG_FILE")"
+  [[ "$head_branch" == "main" ]] || return 1
+  [[ -n "$head_sha" ]] || return 1
+  commit_is_self_docs_only "$head_sha"
+}
+
 wait_for_run() {
   log "waiting mode=$MODE repo=$REPO run=$RUN_ID"
   set +e
   gh run watch "$RUN_ID" --repo "$REPO" --interval "$POLL_SECONDS" --exit-status >>"$LOG_FILE" 2>&1
   watch_rc=$?
-  set -e
   log "gh run watch exit=$watch_rc"
   summarize_run "$RUN_ID"
+  summary_rc=$?
+  if (( summary_rc == 42 )); then
+    finish ignored self_docs_only none 0
+  fi
+  return "$summary_rc"
 }
 
 event_matches_pr() {
@@ -289,6 +344,13 @@ wait_for_pr_event() {
         log "matched PR event kind=$event_kind"
         event_run_id="$(jq -r '.runId // empty' <<<"$event_line" 2>>"$LOG_FILE")"
         if [[ "$event_kind" == "ci_run_added" || "$event_kind" == "ci_run_changed" ]] && [[ -n "$event_run_id" ]]; then
+          event_head_branch="$(jq -r '.headBranch // empty' <<<"$event_line" 2>>"$LOG_FILE")"
+          event_head_sha="$(jq -r '.headSha // empty' <<<"$event_line" 2>>"$LOG_FILE")"
+          event_pr_count="$(jq -r '((.pullRequests // []) | length)' <<<"$event_line" 2>>"$LOG_FILE")"
+          if [[ "$event_head_branch" == "main" && "$event_pr_count" == "0" && -n "$event_head_sha" ]] && commit_is_self_docs_only "$event_head_sha"; then
+            log "ignored self-generated docs-only CI event run=$event_run_id head=$event_head_sha"
+            continue
+          fi
           # A terminal Actions event is a run conclusion. Reuse the same
           # summary path as --run so failed job names and the full run log are
           # available in the one-line result.
