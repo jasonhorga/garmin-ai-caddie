@@ -1691,7 +1691,13 @@ class MobileContractTests(unittest.TestCase):
             begin_round_preparation,
             "starting live play must not pause the independent durable prep download",
         )
-        self.assertIn("StartRoundView(", app_swift)
+        # One home with or without a cached home package: 开始一场 lives in RoundHomeView, and the
+        # legacy no-package list (打球 / 备战 / 成绩) that flashed on launch is gone.
+        self.assertIn("package: model.package,", app_swift)
+        self.assertNotIn("NoPackageHubView", app_swift)
+        round_home_swift = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        self.assertIn("public let package: LiveRoundPackage?", round_home_swift)
+        self.assertIn("StartRoundView(", round_home_swift)
         self.assertIn("await model.prepareRound(roundId: roundId)", app_swift)
         self.assertIn("await model.prepareCourseRound(roundId: roundId, teeBox: teeBox, loops: loops)", app_swift)
         # 1d: 开始记分后直接进实战屏(pendingLiveHole → Hub 路径导航到该洞),不弹回 Hub。
@@ -4101,7 +4107,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("ClubBagStore.save(", club_settings)
         # The live picker uses the effective bag (manual override else the real Garmin bag).
         self.assertIn("if let bag = ClubBagStore.effectiveBag()", current_hole)
-        self.assertIn("ClubSettingsView(clubProfiles: package.clubProfiles, apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
+        self.assertIn("ClubSettingsView(clubProfiles: package?.clubProfiles ?? [], apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
         self.assertIn('Label("球包"', round_home)
         # B5c 球包 (stats.html 3): one distance ladder replaces 成绩 → 球杆 and the checklist; every
         # change is saved on the device and pushed to the backend manual bag the caddie reads.

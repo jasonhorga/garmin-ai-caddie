@@ -33,7 +33,10 @@ enum LiveHoleRouteReconciliation {
 }
 
 public struct RoundHomeView: View {
-    public let package: LiveRoundPackage
+    /// The active round's package, or the home package (most-played course). Nil until the first
+    /// one is cached or fetched (first launch, a slow backend): the home still renders and offers
+    /// 开始一场, instead of a separate legacy list.
+    public let package: LiveRoundPackage?
     public let pendingEventCount: Int
     public let syncStatus: String
     public let localEventUploadStatus: String
@@ -121,7 +124,7 @@ public struct RoundHomeView: View {
     @Environment(\.homeGreetingDate) private var greetingDate
 
     public init(
-        package: LiveRoundPackage,
+        package: LiveRoundPackage?,
         pendingEventCount: Int = 0,
         syncStatus: String = "Offline ready",
         localEventUploadStatus: String = "自动上传已开启",
@@ -294,11 +297,13 @@ public struct RoundHomeView: View {
                 case .hole(let number):
                     currentHoleView(number)
                 case .history:
-                    RecentRoundReviewView(
-                        package: package,
-                        apiBaseURL: apiBaseURL,
-                        adminToken: adminToken
-                    )
+                    if let package {
+                        RecentRoundReviewView(
+                            package: package,
+                            apiBaseURL: apiBaseURL,
+                            adminToken: adminToken
+                        )
+                    }
                 case .roundReview(let roundRef, let courseName, let globalId, let backGlobalId, let nine, let teeBox):
                     RoundReviewView(
                         roundRef: roundRef,
@@ -328,7 +333,7 @@ public struct RoundHomeView: View {
             .task {
                 await refreshRealClubBag(apiBaseURL: apiBaseURL, adminToken: adminToken)
             }
-            .task(id: package.recentHistory.rounds.first?.roundId) {
+            .task(id: package?.recentHistory.rounds.first?.roundId) {
                 loadLastRoundStrip()
             }
             .onAppear(perform: startHeroLocation)
@@ -346,6 +351,7 @@ public struct RoundHomeView: View {
             pendingHomeDiscard = false
             showHomeDiscardConfirmation = true
         }) {
+            if let package {
             LiveRoundFinishSummaryView(
                 courseName: package.course.venueDisplayName,
                 holes: package.holes,
@@ -373,6 +379,7 @@ public struct RoundHomeView: View {
                     showFinishSummary = false
                 }
             )
+            }
         }
         .confirmationDialog(
             "确定放弃本场？",
@@ -395,7 +402,7 @@ public struct RoundHomeView: View {
                 path = []
             }
         }
-        .onChange(of: package.holeSetIdentity) { _, _ in
+        .onChange(of: package?.holeSetIdentity) { _, _ in
             reconcileLiveHoleRouteWithPackage()
         }
         .onChange(of: liveRoundState?.activeHole) { _, _ in
@@ -407,7 +414,7 @@ public struct RoundHomeView: View {
         .onAppear {
             #if DEBUG
             UITestEventLatencyTrace.record(
-                "round-home.appear pending=\(pendingLiveHole ?? -1) course=\(package.course.globalId)"
+                "round-home.appear pending=\(pendingLiveHole ?? -1) course=\(package?.course.globalId ?? -1)"
             )
             #endif
             // Replacing the home package can create this view with the pending hole already set.
@@ -431,7 +438,8 @@ public struct RoundHomeView: View {
     private func reconcileLiveHoleRouteWithPackage() {
         // A discarded or finished round swaps in the home package; the round's own route is
         // cleared by the roundId change, never re-pointed at the home package's holes.
-        guard liveRoundState != nil,
+        guard let package,
+              liveRoundState != nil,
               case .hole(let routedHole) = path.last,
               let target = LiveHoleRouteReconciliation.target(
                   routedHole: routedHole,
@@ -446,20 +454,20 @@ public struct RoundHomeView: View {
         guard let hole else { return }
         #if DEBUG
         UITestEventLatencyTrace.record(
-            "round-home.enter.begin hole=\(hole) course=\(package.course.globalId)"
+            "round-home.enter.begin hole=\(hole) course=\(package?.course.globalId ?? -1)"
         )
         #endif
         path = [.hole(hole)]
         onConsumePendingLiveHole()
         #if DEBUG
         UITestEventLatencyTrace.record(
-            "round-home.enter.end hole=\(hole) course=\(package.course.globalId)"
+            "round-home.enter.end hole=\(hole) course=\(package?.course.globalId ?? -1)"
         )
         #endif
     }
 
     @ViewBuilder private func currentHoleView(_ number: Int) -> some View {
-        if let hole = package.holes.first(where: { $0.number == number }) {
+        if let package, let hole = package.holes.first(where: { $0.number == number }) {
             // round-11: forward the round-management closures so 球局调整(加打/减九洞/结束本场)lives
             // inside the in-progress screen instead of the Hub.
             CurrentHoleView(
@@ -583,7 +591,7 @@ public struct RoundHomeView: View {
     @ViewBuilder private var playSection: some View {
         switch heroState {
         case .inProgress:
-            if let liveRoundState {
+            if let liveRoundState, let package {
                 let activeHole = package.holes.contains(where: { $0.number == liveRoundState.activeHole })
                     ? liveRoundState.activeHole
                     : (package.holes.first?.number ?? liveRoundState.activeHole)
@@ -662,7 +670,7 @@ public struct RoundHomeView: View {
     /// player has not scored. Home progress therefore comes from the durable score events, matching
     /// the in-round scorecard, rather than from `liveRoundState.holes.count`.
     private var recordedScoreHoles: Set<Int> {
-        guard let offlineStore, let events = try? offlineStore.loadEvents() else {
+        guard let package, let offlineStore, let events = try? offlineStore.loadEvents() else {
             return Set(liveRoundState?.scoredHoles ?? [])
         }
         let displayedHoles = Set(package.holes.map(\.number))
@@ -728,7 +736,7 @@ public struct RoundHomeView: View {
     // MARK: - 上一场速览
 
     @ViewBuilder private var lastRoundSection: some View {
-        if let last = package.recentHistory.rounds.first {
+        if let package, let last = package.recentHistory.rounds.first {
             VStack(alignment: .leading, spacing: 9) {
                 HubSectionLabel("上一场")
                 NavigationLink(
@@ -768,7 +776,7 @@ public struct RoundHomeView: View {
     /// `RecentRoundSummary` has no per-hole scores; the cached round archive does. Use its newest
     /// card only when it is this same round, otherwise show no strip.
     private func loadLastRoundStrip() {
-        guard let last = package.recentHistory.rounds.first else {
+        guard let last = package?.recentHistory.rounds.first else {
             lastRoundStrip = []
             return
         }
@@ -852,7 +860,7 @@ public struct RoundHomeView: View {
                         Label("Garmin 账号", systemImage: "link")
                     }
                     NavigationLink {
-                        ClubSettingsView(clubProfiles: package.clubProfiles, apiBaseURL: apiBaseURL, adminToken: adminToken)
+                        ClubSettingsView(clubProfiles: package?.clubProfiles ?? [], apiBaseURL: apiBaseURL, adminToken: adminToken)
                     } label: {
                         Label("球包", systemImage: "bag")
                     }
