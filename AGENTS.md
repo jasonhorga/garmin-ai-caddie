@@ -88,6 +88,7 @@ blocking waiter on the homeserver instead:
 ops/wait_for_conclusion.sh --run <run-id>
 ops/wait_for_conclusion.sh --release <run-id>
 ops/wait_for_conclusion.sh --pr <number>
+ops/wait_for_conclusion.sh --feedback
 ```
 
 The waiter owns its internal wait, writes detailed output under the project

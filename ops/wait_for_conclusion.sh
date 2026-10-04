@@ -24,12 +24,14 @@ Usage:
   ops/wait_for_conclusion.sh --run RUN_ID [options]
   ops/wait_for_conclusion.sh --release RUN_ID [options]
   ops/wait_for_conclusion.sh --pr PR_NUMBER [options]
+  ops/wait_for_conclusion.sh --feedback [options]
 
 Modes:
   --run ID       Block on a GitHub Actions run.
   --release ID   Alias for --run, labelled as a release wait.
   --pr NUMBER    Block on the next event for a PR in the existing monitor
                  JSONL stream (comments, reviews, commits, heads, or CI).
+  --feedback     Block on the next event for any PR in that stream.
 
 Options:
   --repo OWNER/REPO       Repository (default: $WAIT_REPO or this project).
@@ -75,6 +77,10 @@ while (($#)); do
       PR_NUMBER="$2"
       shift 2
       ;;
+    --feedback|--all-prs)
+      MODE="feedback"
+      shift
+      ;;
     --repo)
       (($# >= 2)) || die_usage "--repo needs OWNER/REPO"
       REPO="$2"
@@ -118,7 +124,7 @@ done
 [[ -n "$MODE" ]] || die_usage "one of --run, --release, or --pr is required"
 if [[ "$MODE" == "pr" ]]; then
   is_uint "$PR_NUMBER" || die_usage "PR number must be an integer"
-else
+elif [[ "$MODE" != "feedback" ]]; then
   is_uint "$RUN_ID" || die_usage "run id must be an integer"
 fi
 is_uint "$POLL_SECONDS" || die_usage "poll interval must be an integer"
@@ -218,6 +224,10 @@ wait_for_run() {
 
 event_matches_pr() {
   local event="$1"
+  if [[ "$MODE" == "feedback" ]]; then
+    jq -e '((.kind? // "") | length > 0)' <<<"$event" >/dev/null 2>>"$LOG_FILE"
+    return
+  fi
   jq -e --argjson pr "$PR_NUMBER" '
     ((.pr? == $pr) or
       (((.pullRequests? // []) |
@@ -233,7 +243,7 @@ wait_for_pr_event() {
   mkdir -p "$event_parent"
   touch "$EVENT_FILE"
   start_line=$(( $(wc -l <"$EVENT_FILE") + 1 ))
-  log "waiting mode=pr repo=$REPO pr=$PR_NUMBER event_file=$EVENT_FILE start_line=$start_line"
+  log "waiting mode=$MODE repo=$REPO pr=${PR_NUMBER:-all} event_file=$EVENT_FILE start_line=$start_line"
 
   # The existing monitor owns GitHub polling and appends deduplicated events.
   # This waiter only follows that durable stream, so it does not create a
@@ -250,8 +260,9 @@ wait_for_pr_event() {
       printf '%s\n' "$event_line" >>"$LOG_FILE"
       if event_matches_pr "$event_line"; then
         event_kind="$(jq -r '.kind // "pr_feedback"' <<<"$event_line" 2>>"$LOG_FILE")"
+        event_pr="$(jq -r 'if .pr? then (.pr|tostring) elif (.pullRequests? // []) | length > 0 then (.pullRequests[0]|tostring) else "all" end' <<<"$event_line" 2>>"$LOG_FILE")"
         log "matched PR event kind=$event_kind"
-        finish observed "pr_feedback:$event_kind" none 0
+        finish observed "pr_feedback:${event_kind}:pr${event_pr}" none 0
       fi
     elif ! kill -0 "$EVENT_TAIL_PID" 2>/dev/null; then
       log "event stream exited before a matching event"
@@ -260,7 +271,7 @@ wait_for_pr_event() {
   done
 }
 
-if [[ "$MODE" == "pr" ]]; then
+if [[ "$MODE" == "pr" || "$MODE" == "feedback" ]]; then
   wait_for_pr_event
 else
   wait_for_run
