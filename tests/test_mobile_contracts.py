@@ -4489,6 +4489,9 @@ class MobileContractTests(unittest.TestCase):
             self, Path("mobile") / "ios" / "AICaddieUITests" / "ReviewEditUITests.swift"
         )
 
+        # A hole whose shot map times out is skipped, not fatal (live Native 37185535082).
+        self.assertIn('record(roundRef, hole, "shotmap request did not complete', resolver)
+        self.assertIn("where error.isRetryable", resolver)
         self.assertIn('.accessibilityIdentifier("home-last-round")', round_home)
         self.assertIn('.accessibilityIdentifier("history-round-row")', recent_review)
         # B3 reuses the live nine card; the review keeps the stable per-hole cell identifier.
