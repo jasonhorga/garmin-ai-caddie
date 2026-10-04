@@ -3,7 +3,7 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-04 18:38 UTC
+**Updated:** 2026-10-04 20:22 UTC
 **Canonical branch:** `main`
 **Product app tip:** `1e1f40a017904ab1f0df22e682c8b089489f5e56`
 **Product backend tip:** `048ab6a4b02e9b8d2d81d0d1098cc7cb696f7252` (internal candidate only)
@@ -37,8 +37,8 @@ The package points at the candidate origin below; production was not switched.
 The existing PR feedback monitor remains the only feedback writer. Do not
 start a second monitor or a main-thread polling loop. Do not create a commit
 solely to record a CI result; record CI only with real work. The blocking
-waiter ignores Codex-generated main-branch events and is stopped unless an
-external or real-work conclusion is required.
+waiter ignores Codex-generated main-branch events and is active in the
+allow-listed tmux session below, waiting only for future events.
 
 ## Unfinished work
 
@@ -80,7 +80,10 @@ external or real-work conclusion is required.
   `/home/jason/garmin-ai-caddie-data/operations/release-main-048ab6a4-20261004-r2/resource-manifest.md`.
   It allow-lists only the named candidate container and HTTP/2 tmux for cleanup.
 - The candidate container and HTTP/2 tmux are intentionally retained because
-  build 78 uses that origin. No Codex Native/download waiter tmux is active.
+  build 78 uses that origin. The PR-feedback waiter is active in tmux
+  `codex-pr-feedback-wait-20261004`, with log
+  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T202208Z-3851321.log`;
+  the two older orphan waiters were stopped after this one was verified.
 - Systemd user timer `gh-feedback@garmin-ai-caddie.timer` is active; its sole
   writer is `/home/jason/gh-feedback/gh-feedback.sh`. Do not stop or duplicate it.
 - Existing local `.codex-*` evidence, manifests and the modified
