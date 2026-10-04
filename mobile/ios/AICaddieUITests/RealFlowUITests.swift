@@ -729,11 +729,12 @@ final class RealFlowUITests: XCTestCase {
             liveTopoReady.waitForExistence(timeout: 75),
             "live-hole evidence must wait for the real topo bitmap, never capture the loading fallback as complete"
         )
-        // B1: the top-left circle opens the round scorecard (which also holds 回到首页 / 结束本场).
-        let liveBackButton = app.buttons["计分卡"]
+        // B1: the top-left circle returns home and keeps the active round. The separate 计分卡
+        // action remains below the hole facts and is checked as a visible scorecard action below.
+        let liveBackButton = app.buttons["live-back-home"]
         XCTAssertTrue(
             liveBackButton.waitForExistence(timeout: 5),
-            "immersive live play must retain an explicit way back through the scorecard"
+            "immersive live play must retain an explicit circular way back to the home"
         )
         let liveHoleHeading = app.staticTexts["第 1 洞"]
         XCTAssertTrue(liveHoleHeading.waitForExistence(timeout: 5))
