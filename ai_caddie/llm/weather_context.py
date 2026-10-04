@@ -21,7 +21,32 @@ OPEN_METEO_CURRENT_FIELDS = (
     "wind_speed_10m",
     "wind_direction_10m",
     "precipitation",
+    "weather_code",
+    "precipitation_probability",
 )
+
+# WMO weather interpretation codes (Open-Meteo ``weather_code``) → one coarse condition the app
+# names in Chinese (晴 / 多云 / 阴 / 雾 / 毛毛雨 / 雨 / 雪 / 雷雨).
+_WMO_CONDITIONS: tuple[tuple[frozenset[int], str], ...] = (
+    (frozenset({0}), "clear"),
+    (frozenset({1, 2}), "partly_cloudy"),
+    (frozenset({3}), "overcast"),
+    (frozenset({45, 48}), "fog"),
+    (frozenset({51, 53, 55, 56, 57}), "drizzle"),
+    (frozenset({61, 63, 65, 66, 67, 80, 81, 82}), "rain"),
+    (frozenset({71, 73, 75, 77, 85, 86}), "snow"),
+    (frozenset({95, 96, 99}), "thunderstorm"),
+)
+
+
+def weather_condition(code: int | None) -> str | None:
+    """The coarse condition for a WMO weather code, or None when the code is unknown."""
+    if code is None:
+        return None
+    for codes, condition in _WMO_CONDITIONS:
+        if code in codes:
+            return condition
+    return None
 OPEN_METEO_HOURLY_FIELDS = OPEN_METEO_CURRENT_FIELDS
 
 
@@ -88,6 +113,12 @@ def build_weather_snapshot(
     wind_direction = _int_or_none(values.get("windDirectionDeg"))
     temperature = _float_or_none(values.get("temperatureC"))
     precipitation = _float_or_none(values.get("precipitationMm"))
+    weather_code = _int_or_none(values.get("weatherCode"))
+    if weather_code is not None and weather_condition(weather_code) is None:
+        weather_code = None
+    rain_chance = _int_or_none(values.get("precipitationProbabilityPct"))
+    if rain_chance is not None and not 0 <= rain_chance <= 100:
+        rain_chance = None
     missing = []
     if latitude is None or longitude is None:
         missing.append({"label": "location", "reason": "weather lookup needs latitude and longitude"})
@@ -109,6 +140,9 @@ def build_weather_snapshot(
         "windDirectionDeg": wind_direction,
         "temperatureC": temperature,
         "precipitationMm": precipitation,
+        "weatherCode": weather_code,
+        "condition": weather_condition(weather_code),
+        "precipitationProbabilityPct": rain_chance,
         "confidence": "medium" if state == "ready" and resolved_source == "manual" else "high" if state == "ready" else "low",
         "missingData": missing,
     }
@@ -164,6 +198,8 @@ def _observed_from_hourly(payload: dict[str, Any], captured_at: str | None) -> t
         "windDirectionDeg": _hourly_value(hourly, "wind_direction_10m", index),
         "temperatureC": _hourly_value(hourly, "temperature_2m", index),
         "precipitationMm": _hourly_value(hourly, "precipitation", index),
+        "weatherCode": _hourly_value(hourly, "weather_code", index),
+        "precipitationProbabilityPct": _hourly_value(hourly, "precipitation_probability", index),
     }
     return observed, str(times[index])
 
@@ -177,6 +213,8 @@ def _observed_from_current(payload: dict[str, Any]) -> tuple[dict[str, Any], str
         "windDirectionDeg": current.get("wind_direction_10m"),
         "temperatureC": current.get("temperature_2m"),
         "precipitationMm": current.get("precipitation"),
+        "weatherCode": current.get("weather_code"),
+        "precipitationProbabilityPct": current.get("precipitation_probability"),
     }
     return observed, str(current.get("time") or "")
 

@@ -1395,6 +1395,12 @@ class WeatherSnapshotResponse(BaseModel):
     windDirectionDeg: int | None = None
     temperatureC: float | None = None
     precipitationMm: float | None = None
+    # WMO weather code (Open-Meteo) and its coarse condition; null for a manual snapshot.
+    weatherCode: int | None = None
+    condition: Literal[
+        "clear", "partly_cloudy", "overcast", "fog", "drizzle", "rain", "snow", "thunderstorm"
+    ] | None = None
+    precipitationProbabilityPct: int | None = None
     confidence: Literal["low", "medium", "high"]
     missingData: list[dict[str, Any]]
 

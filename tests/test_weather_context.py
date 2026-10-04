@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlparse
 import ai_caddie.llm.weather_context as weather_context
 from ai_caddie.llm.weather_context import (
     build_weather_snapshot,
+    weather_condition,
     fetch_open_meteo_weather_snapshot,
     latest_weather_snapshot,
     list_weather_snapshots,
@@ -88,6 +89,43 @@ class WeatherContextTests(unittest.TestCase):
         self.assertEqual(snapshot["temperatureC"], 28.5)
         self.assertEqual(snapshot["precipitationMm"], 0.2)
         self.assertEqual(snapshot["confidence"], "high")
+
+    def test_open_meteo_reports_the_condition_and_rain_chance_for_the_home_tile(self) -> None:
+        def fake_transport(url: str) -> dict[str, object]:
+            params = parse_qs(urlparse(url).query)
+            self.assertIn("weather_code", params["current"][0])
+            self.assertIn("precipitation_probability", params["current"][0])
+            return {
+                "current": {
+                    "time": "2026-10-04T08:00",
+                    "temperature_2m": 19.0,
+                    "wind_speed_10m": 5.0,
+                    "wind_direction_10m": 90,
+                    "precipitation": 0.4,
+                    "weather_code": 61,
+                    "precipitation_probability": 70,
+                }
+            }
+
+        snapshot = fetch_open_meteo_weather_snapshot(latitude=40.0, longitude=116.5, transport=fake_transport)
+        self.assertEqual(snapshot["weatherCode"], 61)
+        self.assertEqual(snapshot["condition"], "rain")
+        self.assertEqual(snapshot["precipitationProbabilityPct"], 70)
+
+    def test_unknown_codes_and_bad_rain_chances_are_dropped_not_guessed(self) -> None:
+        self.assertEqual(
+            [weather_condition(code) for code in (0, 2, 3, 45, 53, 81, 75, 95)],
+            ["clear", "partly_cloudy", "overcast", "fog", "drizzle", "rain", "snow", "thunderstorm"],
+        )
+        self.assertIsNone(weather_condition(42))
+        self.assertIsNone(weather_condition(None))
+        snapshot = build_weather_snapshot(
+            captured_at="2026-10-04T08:00:00Z", latitude=40.0, longitude=116.5, source="manual",
+            observed={"temperatureC": 20.0, "weatherCode": 42, "precipitationProbabilityPct": 140},
+        )
+        self.assertIsNone(snapshot["weatherCode"])
+        self.assertIsNone(snapshot["condition"])
+        self.assertIsNone(snapshot["precipitationProbabilityPct"])
 
     def test_open_meteo_provider_selects_hourly_weather_for_requested_round_time(self) -> None:
         captured_urls: list[str] = []

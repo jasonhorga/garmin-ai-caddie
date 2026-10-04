@@ -267,17 +267,30 @@ final class DesignSnapshotTests: XCTestCase {
         let strip: [HistoryScoreCell] = deltas.enumerated().map { index, delta in
             HistoryScoreCell(hole: index + 1, par: 4, score: 4 + delta, toPar: delta, className: nil)
         }
-        let view = VStack(spacing: 14) {
-            HubInProgressCard(courseName: "北京丽宫", activeHole: 7, recorded: 6, toPar: 2)
+        // 首页 C (2026-10-04): green course cards, then the bento tiles.
+        let dots = (1...9).map { hole in
+            HubHoleDot(hole: hole, toPar: hole < 7 ? [0, 1, 0, -1, 1, 1][hole - 1] : nil, isCurrent: hole == 7)
+        }
+        let weather = HomeWeather(
+            temperatureC: 19.4, windSpeedMps: 5.2, windDirectionDeg: 90, condition: "rain",
+            precipitationProbabilityPct: 70
+        ).presentation
+        let view = VStack(spacing: 10) {
+            HubInProgressCard(courseName: "北京丽宫", activeHole: 7, recorded: 6, toPar: 2, dots: dots)
             HubSuggestedCourseCard(courseName: "北京天竺黑骑士球员俱乐部", startTitle: "从 B 场 开始 · 蓝 T") {
-                HubPrimaryPill(title: "开始")
-                HubSecondaryLinkLabel(title: "换球场或组合")
+                HubBentoPrimaryButtonLabel(title: "开球")
+                HubSecondaryLinkLabel(title: "换球场或组合", onDark: true)
             }
             HubSearchHeroCard()
             HubReplayLastCard(courseName: "北京天竺黑骑士球员俱乐部", startTitle: "从 B 场 开始 · 蓝 T")
-            HStack(spacing: 11) {
-                HubTile(icon: "scope", title: "备战", subtitle: "搜索 · 球童试算")
-                HubTile(icon: "chart.line.uptrend.xyaxis", title: "成绩", subtitle: "球局 · 统计")
+            HStack(spacing: 10) {
+                HubScoresTile(scores: [92, 89, 91, 88, 90, 86, 87, 85])
+                HubPrepTile(downloadedCount: 3)
+            }
+            HStack(spacing: 10) {
+                HubBagTile(carries: [("一号木", 230), ("三号木", 205), ("五号铁", 172), ("七号铁", 150),
+                                     ("九号铁", 128), ("P杆", 110), ("S杆", 85)])
+                HubWeatherTile(weather: weather)
             }
             VStack(alignment: .leading, spacing: 9) {
                 HubSectionLabel("上一场")
@@ -290,7 +303,7 @@ final class DesignSnapshotTests: XCTestCase {
         }
         .padding(16)
         .frame(width: 390)
-        .background(HubStyle.grouped)
+        .background(HubBentoStyle.ground)
         try render(view, named: "round-home")
     }
 

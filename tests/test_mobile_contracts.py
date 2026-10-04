@@ -1935,7 +1935,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("case startCourse(globalId: Int, teeBox: String?)", round_home)
         self.assertIn("defaultCourseGlobalId: globalId,", round_home)
         self.assertIn('.accessibilityIdentifier("home-change-course")', round_home)
-        self.assertIn('HubSecondaryLinkLabel(title: "换球场或组合")', round_home)
+        self.assertIn('HubSecondaryLinkLabel(title: "换球场或组合", onDark: true)', round_home)
 
         # B4b-2: the old `nine` view filter (加打另外 9 洞 / startingNine / setActiveNine) is gone;
         # an 18-hole course is two halves chosen like any other loops.
@@ -2299,7 +2299,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("StartRoundView.freshLiveRoundId(globalId: suggestion.globalId)", start)
         self_location = round_home.split("private func startHeroLocation() {", 1)[1].split("\n    }\n", 1)[0]
         self.assertNotIn("requestAuthorization", self_location)
-        self.assertIn('HubPrimaryPill(title: "继续第 \\(activeHole) 洞", fullWidth: true)', round_home)
+        self.assertIn('HubBentoPrimaryButtonLabel(title: "继续第 \\(activeHole) 洞", fullWidth: true)', round_home)
         self.assertIn('Text("已打 \\(recorded) 洞")', round_home)
         self.assertIn('Text("进行中")', round_home)
         self.assertIn("toPar: liveToPar(scoredHoles: scored)", round_home)
@@ -2953,8 +2953,10 @@ class MobileContractTests(unittest.TestCase):
 
         # 备战支持明确的城市/名称搜索和附近球场；README §8 选了就进：选择加入下载库（后台继续下载），
         # 同时立即进入攻略，未就绪的洞按地图降级契约显示。
-        self.assertIn('title: "备战"', round_home)
-        self.assertIn('subtitle: "搜索 · 球童试算"', round_home)
+        # 首页 C: 备战 is a bento tile (the deep-green one with the downloaded count).
+        self.assertIn("HubPrepTile(downloadedCount: downloadedCourseOptions.count)", round_home)
+        bento = _read_required_source(self, IOS_DIR / "Views" / "HubBento.swift")
+        self.assertIn('Text("备战")', bento)
         self.assertIn("PrepCoursePickerView(", round_home)
         self.assertIn("downloadedCourseOptions: downloadedCourseOptions", round_home)
         self.assertIn("struct PrepCoursePickerView", prep_picker)
@@ -3913,7 +3915,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("CurrentHoleView(", round_home)
         self.assertIn("liveRoundState: liveRoundState,", round_home)
         self.assertIn("ResultsView(apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
-        self.assertIn('title: "成绩"', round_home)
+        self.assertIn("HubScoresTile(scores: HubScoresTile.recentScores(history: heroHistory))", round_home)
         self.assertIn("struct RecentRoundReviewView: View", recent_review)
         self.assertIn("package.recentHistory.rounds", recent_review)
         self.assertIn("round.toPar", recent_review)
