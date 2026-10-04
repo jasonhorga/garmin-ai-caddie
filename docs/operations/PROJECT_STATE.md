@@ -3,22 +3,26 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-04 08:59 UTC
+**Updated:** 2026-10-04 09:55 UTC
 **Canonical branch:** `main`
-**Product app tip:** `9f44574556084ee9a57f43a44424c770e0a76338`
+**Product app tip:** `1387e30d90b2e219a7fadd23cbcbc42a58bc13a2`
 **Product backend tip:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
 **Release pipeline tip:** `3890c2e09db119b2fddea45a4c7b948caf726ed4`
 **Current slice:** `FEEDBACK-TRACKING` — `in-progress`
 
 ## Current status
 
-PR #375 is reviewed and merged at exact head
-`9de2c7f9300dbef85223eaaaafe9cd928f46ff03`, merge `9f445745`; its source
-branch is deleted. Source CI `37175590533` and Native Mobile CI `37175590478`
-are green. All 87 design snapshots and 44 Watch snapshots were inspected
-against the design README and implementation plan with no P1/P2. Review
-[5976613647](https://github.com/jasonhorga/garmin-ai-caddie/pull/375#issuecomment-5976613647)
-is the authoritative approval.
+PR #375 is reviewed and merged at exact head `9de2c7f9`, merge `9f445745`; its
+source branch is deleted. Source/Native CI `37175590533`/`37175590478` are
+green; 87 iOS and 44 Watch snapshots had no P1/P2.
+
+PR #376 is reviewed and merged at exact head `b73d98c1341fdf09584d49bb976201738a536d53`,
+merge `1387e30d90b2e219a7fadd23cbcbc42a58bc13a2`; source branch is deleted.
+Source CI `37191213933`, Native CI `37191213999`, and post-merge main CI
+`37193169603` are green. Exact artifacts contained 88 iOS and 47 Watch images;
+87 prior iOS and all 47 Watch images were byte-identical, with only the expected
+`full-home-no-package.png` added. Review conclusion:
+[5978632335](https://github.com/jasonhorga/garmin-ai-caddie/pull/376#issuecomment-5978632335).
 
 Feedback deduplication: PR #375 P1 comment `5976330290` (stale labels at
 `999770ae`) is resolved by `a8c6d627` / `9de2c7f9`, Claude reply
@@ -99,9 +103,7 @@ in real iOS flow (start-round path assertion and round `17711803` hole-3
 shotmap timeouts); no TestFlight upload was started. Failure comment:
 `5978304683`; waiter log `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37185535082-20261004T072243Z-4113818.log`.
 Waiter implementation commit `ea0cee78` CI `37178724632` completed
-successfully with no failed jobs. The new script atomically updated
-`latest-result.txt`; log:
-`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T050332Z-3333013.log`.
+successfully; the script atomically updates `latest-result.txt`.
 
 Production is unchanged: `aicaddie-release-d7f69971-production-20260925`
 on loopback `39055`. Do not switch production or distribute externally in
@@ -113,10 +115,7 @@ this slice.
    use it only for an external or real-work PR/release conclusion.
 2. Keep the existing PR feedback monitor running and deduplicate any new
    repository feedback against this ledger; do not start a second monitor.
-3. PR #376 exact head `ef787ca5` has review comment `5977866424` with three
-   P2 merge blockers; do not merge until addressed. Review later feedback on
-   its exact head with required tests and Native/design artifact evidence.
-4. Physical iPhone/Watch evidence remains open now that build 77 is available.
+3. Physical iPhone/Watch evidence remains open now that build 77 is available.
 
 ## Live verification baseline
 
@@ -132,13 +131,14 @@ this slice.
   exercised on homeserver with synthetic PR-event, timeout, and failed-run
   cases; each returned one summary line and kept details in its log directory.
 - PR #375 exact-head Native `37175590478` and Source CI `37175590533` passed.
-  Logs:
-  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37175590478-20261004T040813Z-3003026.log`,
-  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37175590533-20261004T042825Z-3128761.log`.
-  Native artifacts and remote contact sheets:
-  `/home/jason/garmin-ai-caddie-data/operations/pr375-9de2c7f9-native-37175590478/`.
-  Build evidence records the synthetic PR merge `a351364a` for that run;
-  GitHub run head is the reviewed `9de2c7f9`.
+  Native artifacts: `/home/jason/garmin-ai-caddie-data/operations/pr375-9de2c7f9-native-37175590478/`.
+  Waiter logs are retained under `operations/blocking-waits/`.
+- PR #376 exact-head artifacts and evidence:
+  `/home/jason/garmin-ai-caddie-data/operations/pr376-native-b73d98c1-20261004/`;
+  Native waiter log:
+  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37191213999-20261004T092059Z-548197.log`;
+  post-merge CI log:
+  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T094734Z-684277.log`.
 - Candidate image/container for the accepted backend:
   `garmin-ai-caddie-api:a907d1b5bea056a08335fed4955eff12fbf50a9e-candidate-20261003`,
   `aicaddie-release-a907d1b5-candidate-20261003`, loopback `39087`.
@@ -161,8 +161,9 @@ this slice.
 - Local inspection directories
   `.codex-release-37153025859-inspect/` and
   `.codex-release-ebe48637-inspect/`, `.codex-pr375-999770ae-inspect/`,
-  `.codex-pr375-9de2c7f9-inspect/`, plus dirty review manifests and
-  `ops/pr_feedback_monitor.sh`, are preserved as session-owned evidence.
+  `.codex-pr375-9de2c7f9-inspect/`, `.codex-pr376-b73d98c1-inspect/`, plus
+  dirty review manifests and `ops/pr_feedback_monitor.sh`, are preserved as
+  session-owned evidence. Review manifest: `.codex-pr376-b73d98c1-review-manifest.md`.
 - Persistent monitor: systemd user timer
   `gh-feedback@garmin-ai-caddie.timer` is active; its single writer is
   `/home/jason/gh-feedback/gh-feedback.sh`. State and events remain under
@@ -188,7 +189,6 @@ Stop this slice on any failed required Native/Apple gate, provenance or
 revision mismatch, candidate health failure, or request for production or
 external distribution. Close temporary resources only through their
 allow-listed manifests; never broad-clean shared homeserver state.
-
 ## Continuity rule
 
 Keep this file at **200 lines or fewer** and limited to current state,
@@ -196,5 +196,5 @@ unfinished work, live verification baselines, owned temporary resources, next
 action, and stop conditions. Preserve completed or historical detail
 verbatim in a dated file under `docs/archive/` marked
 `HISTORICAL ARCHIVE — NON-AUTHORITATIVE`; the archive is not startup
-reading. After compaction, follow the recovery sequence in `AGENTS.md` and
-do not create a competing plan or continuity file.
+reading. After compaction, follow `AGENTS.md` recovery; do not create a
+competing plan or continuity file.
