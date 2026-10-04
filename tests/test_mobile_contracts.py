@@ -3125,7 +3125,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("plannedShots: plan?.shots ?? [],", course_review)
         self.assertIn("drawsPlannedRouteInMap: false", course_review)
         self.assertIn("LivePlannedRouteRenderer.draw(", course_review)
-        self.assertIn("LivePlannedRouteRenderer.labelText(for: $0, pixelsPerMetre: overlay.ppm)", course_review)
+        # Labels are computed for the whole leg sequence: the last shot's played distance starts at
+        # the previous landing (the same rule as the plan chips).
+        self.assertIn("LivePlannedRouteRenderer.labelTexts(legs: legs, pixelsPerMetre: overlay.ppm)", course_review)
         self.assertIn('accessibilityIdentifier("prep-map-route")', course_review)
         self.assertIn('accessibilityIdentifier("prep-plan-\\(index)")', course_review)
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
