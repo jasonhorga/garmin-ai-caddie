@@ -172,17 +172,12 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-wait_for_run() {
-  log "waiting mode=$MODE repo=$REPO run=$RUN_ID"
+summarize_run() {
+  local summarize_run_id="$1"
+  log "reading terminal run summary run=$summarize_run_id"
+  run_json="$LOG_FILE.run-${summarize_run_id}.json"
   set +e
-  gh run watch "$RUN_ID" --repo "$REPO" --interval "$POLL_SECONDS" --exit-status >>"$LOG_FILE" 2>&1
-  watch_rc=$?
-  set -e
-  log "gh run watch exit=$watch_rc"
-
-  run_json="$LOG_FILE.run.json"
-  set +e
-  gh run view "$RUN_ID" --repo "$REPO" --json status,conclusion,jobs,url,headSha >"$run_json" 2>>"$LOG_FILE"
+  gh run view "$summarize_run_id" --repo "$REPO" --json status,conclusion,jobs,url,headSha >"$run_json" 2>>"$LOG_FILE"
   view_rc=$?
   set -e
   if (( view_rc != 0 )) || ! jq -e . "$run_json" >/dev/null 2>>"$LOG_FILE"; then
@@ -210,7 +205,7 @@ wait_for_run() {
     printf '\n--- complete run log ---\n'
   } >>"$LOG_FILE"
   set +e
-  gh run view "$RUN_ID" --repo "$REPO" --log >>"$LOG_FILE" 2>&1
+  gh run view "$summarize_run_id" --repo "$REPO" --log >>"$LOG_FILE" 2>&1
   log_rc=$?
   set -e
   log "complete run log exit=$log_rc"
@@ -220,6 +215,16 @@ wait_for_run() {
     finish "$status" "$conclusion" "$failed_jobs" 0
   fi
   finish "$status" "$conclusion" "$failed_jobs" 1
+}
+
+wait_for_run() {
+  log "waiting mode=$MODE repo=$REPO run=$RUN_ID"
+  set +e
+  gh run watch "$RUN_ID" --repo "$REPO" --interval "$POLL_SECONDS" --exit-status >>"$LOG_FILE" 2>&1
+  watch_rc=$?
+  set -e
+  log "gh run watch exit=$watch_rc"
+  summarize_run "$RUN_ID"
 }
 
 event_matches_pr() {
@@ -282,7 +287,23 @@ wait_for_pr_event() {
         event_kind="$(jq -r '.kind // "pr_feedback"' <<<"$event_line" 2>>"$LOG_FILE")"
         event_pr="$(jq -r 'if .pr? then (.pr|tostring) elif (.pullRequests? // []) | length > 0 then (.pullRequests[0]|tostring) else "all" end' <<<"$event_line" 2>>"$LOG_FILE")"
         log "matched PR event kind=$event_kind"
-        finish observed "pr_feedback:${event_kind}:pr${event_pr}" none 0
+        event_run_id="$(jq -r '.runId // empty' <<<"$event_line" 2>>"$LOG_FILE")"
+        if [[ "$event_kind" == "ci_run_added" || "$event_kind" == "ci_run_changed" ]] && [[ -n "$event_run_id" ]]; then
+          # A terminal Actions event is a run conclusion. Reuse the same
+          # summary path as --run so failed job names and the full run log are
+          # available in the one-line result.
+          summarize_run "$event_run_id"
+        elif [[ "$event_kind" == "ci_changed" ]]; then
+          event_failed_jobs="$(jq -r '
+            [.checks[]? | select(((.state // "") | ascii_upcase) as $state |
+              ($state != "SUCCESS" and $state != "SKIPPED" and $state != "NEUTRAL")) | .name]
+            | unique | if length == 0 then "none" else join(",") end
+          ' <<<"$event_line" 2>>"$LOG_FILE")"
+          [[ -n "$event_failed_jobs" ]] || event_failed_jobs="unknown"
+          finish completed ci_checks_terminal "$event_failed_jobs" 0
+        else
+          finish observed "pr_feedback:${event_kind}:pr${event_pr}" none 0
+        fi
       fi
     elif ! kill -0 "$EVENT_TAIL_PID" 2>/dev/null; then
       log "event stream exited before a matching event"
