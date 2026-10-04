@@ -42,6 +42,9 @@ feedback wait is the only in-progress slice.
 
 Post-merge main CI `37177482710` is terminal-success for merge `9f445745`;
 the deduplicating monitor recorded it before the new feedback waiter started.
+State-record commit `e6d01cec` CI `37177808382` also completed successfully
+with no failed jobs; its waiter log is
+`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T044505Z-3228056.log`.
 
 Production is unchanged: `aicaddie-release-d7f69971-production-20260925`
 on loopback `39055`. Do not switch production or distribute externally in
