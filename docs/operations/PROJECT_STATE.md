@@ -3,7 +3,7 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-04 03:13 UTC
+**Updated:** 2026-10-04 03:20 UTC
 **Canonical branch:** `main`
 **Product app tip:** `1d3bca3d94fc60b17440bd5110bb6c35be04cd14`
 **Product backend tip:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
@@ -35,9 +35,9 @@ The main CI run `37172764204` completed successfully at `e66a7a41`, including
 the blocking-wait command changes. Its blocking-wait log is
 `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37172764204-20261004T030656Z-2664764.log`.
 
-The terminal-feedback waiter has been refreshed for the current operations
-tip `b3a5211b`; it ignores in-progress CI events and will return at the next
-terminal conclusion or actionable PR feedback.
+The terminal-feedback waiter is active with terminal-only CI semantics; it
+ignores in-progress CI events and returns the next terminal conclusion or
+actionable PR feedback with the complete run summary.
 
 Production is unchanged: `aicaddie-release-d7f69971-production-20260925`
 on loopback `39055`. Do not switch production or distribute externally in
