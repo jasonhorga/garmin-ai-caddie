@@ -36,6 +36,8 @@ Modes:
 Options:
   --repo OWNER/REPO       Repository (default: $WAIT_REPO or this project).
   --data-root PATH        Durable log directory (default: $WAIT_DATA_ROOT).
+  WAIT_LATEST_RESULT_FILE Environment override for the atomically replaced
+                          one-line latest-result file (default: data-root).
   --event-file PATH       PR monitor JSONL stream (default: $WAIT_EVENT_FILE).
   --poll-seconds N        Internal wait/read interval (default: 15).
   --timeout-seconds N     0 means wait forever (default: 0).
@@ -133,6 +135,9 @@ is_uint "$TIMEOUT_SECONDS" || die_usage "timeout must be an integer"
 
 umask 077
 mkdir -p "$DATA_ROOT"
+LATEST_RESULT_FILE="${WAIT_LATEST_RESULT_FILE:-$DATA_ROOT/latest-result.txt}"
+latest_result_parent="${LATEST_RESULT_FILE%/*}"
+[[ "$latest_result_parent" != "$LATEST_RESULT_FILE" ]] && mkdir -p "$latest_result_parent"
 if [[ -z "$LOG_FILE" ]]; then
   subject="${MODE}-${RUN_ID:-pr-${PR_NUMBER}}"
   subject="${subject//[^A-Za-z0-9_.-]/_}"
@@ -158,9 +163,13 @@ timed_out() {
 
 finish() {
   local status="$1" conclusion="$2" failed_jobs="$3" exit_code="${4:-0}"
-  # The only normal stdout emitted by this command is this summary line.
-  printf 'status=%s conclusion=%s failed_jobs=%s log=%s\n' \
-    "$status" "$conclusion" "$failed_jobs" "$LOG_FILE"
+  # The only normal stdout emitted by this command is this summary line. Keep
+  # the same line in a durable, atomically replaced file for tmux callers.
+  local summary="status=$status conclusion=$conclusion failed_jobs=$failed_jobs log=$LOG_FILE"
+  local result_tmp="${LATEST_RESULT_FILE}.tmp.$$"
+  printf '%s\n' "$summary" >"$result_tmp"
+  mv -f "$result_tmp" "$LATEST_RESULT_FILE"
+  printf '%s\n' "$summary"
   exit "$exit_code"
 }
 
