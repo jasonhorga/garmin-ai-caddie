@@ -267,30 +267,57 @@ final class DesignSnapshotTests: XCTestCase {
         let strip: [HistoryScoreCell] = deltas.enumerated().map { index, delta in
             HistoryScoreCell(hole: index + 1, par: 4, score: 4 + delta, toPar: delta, className: nil)
         }
-        let view = VStack(spacing: 14) {
-            HubInProgressCard(courseName: "北京丽宫", activeHole: 7, recorded: 6, toPar: 2)
+        // 首页 C (2026-10-04): green course cards, then the bento tiles.
+        let playedToPar: [Int] = [0, 1, 0, -1, 1, 1]
+        var dots: [HubHoleDot] = []
+        for hole in 1...9 {
+            let toPar: Int? = hole <= playedToPar.count ? playedToPar[hole - 1] : nil
+            dots.append(HubHoleDot(hole: hole, toPar: toPar, isCurrent: hole == 7))
+        }
+        let weather = HomeWeather(
+            temperatureC: 19.4, windSpeedMps: 5.2, windDirectionDeg: 90, condition: "rain",
+            precipitationProbabilityPct: 70
+        ).presentation
+        let carries: [(club: String, yards: Int)] = [
+            (club: "一号木", yards: 230), (club: "三号木", yards: 205), (club: "五号铁", yards: 172),
+            (club: "七号铁", yards: 150), (club: "九号铁", yards: 128), (club: "P杆", yards: 110),
+            (club: "S杆", yards: 85),
+        ]
+        let scores: [Int] = [92, 89, 91, 88, 90, 86, 87, 85]
+        let topoURL = SyncClient.topoImageURL(
+            baseURL: URL(string: "https://caddie.example")!, globalId: 3881, localHole: 1)
+        let heroes = VStack(spacing: 10) {
+            HubInProgressCard(courseName: "北京丽宫", activeHole: 7, recorded: 6, toPar: 2, dots: dots)
             HubSuggestedCourseCard(courseName: "北京天竺黑骑士球员俱乐部", startTitle: "从 B 场 开始 · 蓝 T") {
-                HubPrimaryPill(title: "开始")
-                HubSecondaryLinkLabel(title: "换球场或组合")
+                HubBentoPrimaryButtonLabel(title: "开球")
+                HubSecondaryLinkLabel(title: "换球场或组合", onDark: true)
             }
             HubSearchHeroCard()
             HubReplayLastCard(courseName: "北京天竺黑骑士球员俱乐部", startTitle: "从 B 场 开始 · 蓝 T")
-            HStack(spacing: 11) {
-                HubTile(icon: "scope", title: "备战", subtitle: "搜索 · 球童试算")
-                HubTile(icon: "chart.line.uptrend.xyaxis", title: "成绩", subtitle: "球局 · 统计")
+        }
+        let tiles = VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                HubScoresTile(scores: scores)
+                HubPrepTile(downloadedCount: 3)
             }
-            VStack(alignment: .leading, spacing: 9) {
-                HubSectionLabel("上一场")
-                HubLastRoundCard(courseName: "Cypress Point Club", date: "2026-07-30", score: 82, toPar: 10,
-                                 holesCompleted: 18, par: 72,
-                                 topoURL: SyncClient.topoImageURL(
-                                     baseURL: URL(string: "https://caddie.example")!, globalId: 3881, localHole: 1),
-                                 scoreStrip: strip)
+            HStack(spacing: 10) {
+                HubBagTile(carries: carries)
+                HubWeatherTile(weather: weather)
             }
+        }
+        let lastRound = VStack(alignment: .leading, spacing: 9) {
+            HubSectionLabel("上一场")
+            HubLastRoundCard(courseName: "Cypress Point Club", date: "2026-07-30", score: 82, toPar: 10,
+                             holesCompleted: 18, par: 72, topoURL: topoURL, scoreStrip: strip)
+        }
+        let view = VStack(spacing: 10) {
+            heroes
+            tiles
+            lastRound
         }
         .padding(16)
         .frame(width: 390)
-        .background(HubStyle.grouped)
+        .background(HubBentoStyle.ground)
         try render(view, named: "round-home")
     }
 
@@ -686,6 +713,11 @@ final class DesignSnapshotTests: XCTestCase {
         try captureScreen(
             RoundHomeView(package: package, apiBaseURL: apiBaseURL, liveRoundState: activeState, courseOptions: courses),
             named: "full-home-active"
+        )
+        // An active round before its package has loaded: the 进行中 loading card, never a blank top.
+        try captureScreen(
+            RoundHomeView(package: nil, apiBaseURL: apiBaseURL, liveRoundState: activeState),
+            named: "full-home-active-no-package"
         )
         try captureScreen(NavigationStack { StartRoundView(courseOptions: courses) }, named: "full-start")
         // 开始一场 with 黑骑士 B preselected (the home "开始"): one list row, A/B/C tiles, tee dots,

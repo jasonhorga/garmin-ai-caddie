@@ -119,6 +119,8 @@ public struct RoundHomeView: View {
     @State private var heroNearbyOptions: [MobileCourseOption] = []
     /// Archived rounds, newest first: each venue's last first loop and tee.
     @State private var heroHistory: [HistoryRoundCard] = []
+    /// 今天 tile: current weather at the player's fix (else the round's first Tee); nil until read.
+    @State private var homeWeather: HomeWeather?
 
     /// The clock the greeting reads; design snapshots pin it so the title never depends on when CI ran.
     @Environment(\.homeGreetingDate) private var greetingDate
@@ -275,16 +277,16 @@ public struct RoundHomeView: View {
     public var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
-                VStack(spacing: 14) {
+                VStack(spacing: 10) {
                     playSection
-                    tilesRow
+                    tilesGrid
                     lastRoundSection
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 4)
                 .padding(.bottom, 22)
             }
-            .background(HubStyle.grouped)
+            .background(HubBentoStyle.ground)
             // A nameless, time-of-day greeting stands in for the app-name title (no personal name).
             .navigationTitle(greeting)
             .navigationBarTitleDisplayMode(.large)
@@ -339,6 +341,9 @@ public struct RoundHomeView: View {
             .onAppear(perform: startHeroLocation)
             .task(id: heroNearbyKey) {
                 await refreshHeroNearby()
+            }
+            .task(id: weatherKey) {
+                await refreshHomeWeather()
             }
         }
         // The NavigationStack owns the system status bar, so the immersive hole destination cannot
@@ -606,7 +611,15 @@ public struct RoundHomeView: View {
                         activeHole: package.courseHoleNumber(forRoundHole: activeHole),
                         recorded: scored.count,
                         toPar: liveToPar(scoredHoles: scored),
-                        reservesEndAction: true
+                        reservesEndAction: true,
+                        dots: HubHoleDot.loopDots(
+                            roundHoles: package.holes.map(\.number),
+                            activeHole: activeHole
+                        ) { hole in
+                            guard scored.contains(hole),
+                                  let state = liveRoundState.holeState(for: hole) else { return nil }
+                            return state.score - state.par
+                        }
                     )
                 }
                 .buttonStyle(.plain)
@@ -618,6 +631,10 @@ public struct RoundHomeView: View {
                         .accessibilityLabel("结束本场")
                         .accessibilityIdentifier("home-end-round")
                 }
+            } else if liveRoundState != nil {
+                // An active round whose package has not loaded yet (first launch, slow backend):
+                // keep the card and say so; the round's own card replaces it when the package lands.
+                HubInProgressLoadingCard()
             }
         case .pendingWatch:
             if let pendingWatchRoundStart {
@@ -629,18 +646,24 @@ public struct RoundHomeView: View {
         case .nearby(let suggestion):
             // At this course: "开始" starts its last first loop + tee directly; "换球场或组合" opens
             // 开始一场.
-            HubSuggestedCourseCard(courseName: suggestion.courseName, startTitle: suggestion.startTitle) {
+            HubSuggestedCourseCard(
+                courseName: suggestion.courseName,
+                startTitle: suggestion.startTitle,
+                topoURL: apiBaseURL.flatMap {
+                    SyncClient.topoImageURL(baseURL: $0, globalId: suggestion.globalId, localHole: 1)
+                }
+            ) {
                 Button {
                     startSuggested(suggestion)
                 } label: {
-                    HubPrimaryPill(title: "开始")
+                    HubBentoPrimaryButtonLabel(title: "开球")
                 }
                 .buttonStyle(.plain)
                 .disabled(isPreparingRound)
                 .accessibilityIdentifier("home-start-nearby")
                 // 开始一场 opens with the course here (its loop and tee) already selected.
                 NavigationLink(value: HubRoute.startCourse(globalId: suggestion.globalId, teeBox: suggestion.teeBox)) {
-                    HubSecondaryLinkLabel(title: "换球场或组合")
+                    HubSecondaryLinkLabel(title: "换球场或组合", onDark: true)
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("home-change-course")
@@ -692,44 +715,91 @@ public struct RoundHomeView: View {
         }
     }
 
-    // MARK: - 备战 · 成绩（球局与统计统一入口）
+    // MARK: - 拼块:成绩 · 备战 · 球包 · 今天
 
-    @ViewBuilder private var tilesRow: some View {
-        HStack(spacing: 11) {
-            if let apiBaseURL {
+    @ViewBuilder private var tilesGrid: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
                 NavigationLink {
-                    // 备战者已有目的地：直接名称搜索，不走现场 GPS 选场。
-                    PrepCoursePickerView(
-                        courseOptions: courseOptions,
-                        downloadedCourseOptions: downloadedCourseOptions,
-                        downloadedCourseKeys: downloadedCourseKeys,
-                        downloads: prepCourseDownloads,
-                        downloadPresentation: prepCourseDownloadPresentation,
+                    // Public compatibility entry remains ResultsView(apiBaseURL: apiBaseURL, adminToken: adminToken);
+                    // the injected OfflineStore below enables stale-while-refresh without changing that API.
+                    ResultsView(
                         apiBaseURL: apiBaseURL,
                         adminToken: adminToken,
-                        offlineStore: offlineStore,
-                        onDownload: onDownloadPrepCourse,
-                        onRetryDownload: onRetryPrepCourseDownload,
-                        onValidateReadyDownload: onValidateReadyPrepCourse,
-                        onLoadCourseTees: onLoadCourseTees
+                        offlineStore: offlineStore
                     )
                 } label: {
-                    HubTile(icon: "scope", title: "备战", subtitle: "搜索 · 球童试算")
+                    HubScoresTile(scores: HubScoresTile.recentScores(history: heroHistory))
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("home-tile-scores")
+                if let apiBaseURL {
+                    NavigationLink {
+                        // 备战者已有目的地：直接名称搜索，不走现场 GPS 选场。
+                        PrepCoursePickerView(
+                            courseOptions: courseOptions,
+                            downloadedCourseOptions: downloadedCourseOptions,
+                            downloadedCourseKeys: downloadedCourseKeys,
+                            downloads: prepCourseDownloads,
+                            downloadPresentation: prepCourseDownloadPresentation,
+                            apiBaseURL: apiBaseURL,
+                            adminToken: adminToken,
+                            offlineStore: offlineStore,
+                            onDownload: onDownloadPrepCourse,
+                            onRetryDownload: onRetryPrepCourseDownload,
+                            onValidateReadyDownload: onValidateReadyPrepCourse,
+                            onLoadCourseTees: onLoadCourseTees
+                        )
+                    } label: {
+                        HubPrepTile(downloadedCount: downloadedCourseOptions.count)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("home-tile-prep")
+                }
             }
-            NavigationLink {
-                // Public compatibility entry remains ResultsView(apiBaseURL: apiBaseURL, adminToken: adminToken);
-                // the injected OfflineStore below enables stale-while-refresh without changing that API.
-                ResultsView(
-                    apiBaseURL: apiBaseURL,
-                    adminToken: adminToken,
-                    offlineStore: offlineStore
-                )
-            } label: {
-                HubTile(icon: "chart.line.uptrend.xyaxis", title: "成绩", subtitle: "球局 · 统计")
+            HStack(spacing: 10) {
+                NavigationLink {
+                    ClubSettingsView(clubProfiles: package?.clubProfiles ?? [], apiBaseURL: apiBaseURL, adminToken: adminToken)
+                } label: {
+                    HubBagTile(carries: HubBagTile.carries(from: package?.effectiveClubProfiles ?? []))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("home-tile-bag")
+                HubWeatherTile(weather: homeWeather?.presentation)
             }
-            .buttonStyle(.plain)
+        }
+    }
+
+    /// Where the 今天 tile reads the weather: the home's own fix, else the round's first Tee.
+    private var weatherCoordinate: (latitude: Double, longitude: Double)? {
+        if let fix = heroLocation.latestFix {
+            return (fix.coordinate.latitude, fix.coordinate.longitude)
+        }
+        if let hole = package?.holes.first, let latitude = hole.teeLatitude, let longitude = hole.teeLongitude {
+            return (latitude, longitude)
+        }
+        return nil
+    }
+
+    /// Re-read only when the place moves ≈5 km; the hour bucket refreshes a long-open home.
+    private var weatherKey: String {
+        guard apiBaseURL != nil, let place = weatherCoordinate else { return "none" }
+        let lat = (place.latitude * 20).rounded() / 20
+        let lon = (place.longitude * 20).rounded() / 20
+        let hour = Int(Date().timeIntervalSince1970 / 3600)
+        return "\(lat),\(lon),\(hour)"
+    }
+
+    @MainActor
+    private func refreshHomeWeather() async {
+        guard let apiBaseURL, let place = weatherCoordinate else { return }
+        if let weather = await HomeWeatherClient.fetch(
+            baseURL: apiBaseURL,
+            adminToken: adminToken,
+            latitude: place.latitude,
+            longitude: place.longitude
+        ) {
+            homeWeather = weather
         }
     }
 
@@ -901,8 +971,9 @@ public struct RoundHomeView: View {
 
 // MARK: - 表现型卡片(纯输入 → CI 设计快照可复用)
 
-/// 主卡 · 进行中(`pre-round.html` live):“进行中”、球场、大号累计成绩(已知时)、“已打 N 洞”、
-/// “继续第 N 洞”。白卡 + 淡绿描边。Progress shows recorded holes only.
+/// 主卡 · 进行中 (首页 C): deep-green card — 进行中, the course, 已打 N 洞, the big to-par (when
+/// known), this loop's holes as dots (scored = colour by result, current = ring), 继续第 N 洞.
+/// Progress shows recorded holes only.
 struct HubInProgressCard: View {
     let courseName: String
     let activeHole: Int
@@ -912,36 +983,63 @@ struct HubInProgressCard: View {
     /// Leaves room on the right of 继续 for the home's 结束 button, which the app lays over the
     /// card (a button cannot live inside the card's NavigationLink).
     var reservesEndAction = false
+    /// The loop holding the active hole; empty → no dot row.
+    var dots: [HubHoleDot] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 7) {
-                Circle().fill(HubStyle.liveDot).frame(width: 8, height: 8)
-                Text("进行中")
-                    .font(.caption.weight(.heavy))
-                    .foregroundStyle(LiveHoleStyle.green)
-            }
-            Text(courseName)
-                .font(.title2.weight(.bold))
-                .foregroundStyle(.primary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                if let toPar {
-                    Text(Self.toParText(toPar))
-                        .font(.system(size: 34, weight: .heavy))
-                        .monospacedDigit()
-                        .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Circle().fill(HubBentoStyle.lightGreen).frame(width: 8, height: 8)
+                        Text("进行中")
+                            .font(.caption.weight(.heavy))
+                            .foregroundStyle(HubBentoStyle.lightGreen)
+                    }
+                    Text(courseName)
+                        .font(.title2.weight(.heavy))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("已打 \(recorded) 洞")
+                        .font(.subheadline)
+                        .foregroundStyle(HubBentoStyle.onGreenSecondary)
                 }
-                Text("已打 \(recorded) 洞")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                if let toPar {
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text(Self.toParText(toPar))
+                            .font(.system(size: 40, weight: .heavy, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+                        Text("对标准杆")
+                            .font(.caption)
+                            .foregroundStyle(HubBentoStyle.onGreenSecondary)
+                    }
+                    .fixedSize()
+                }
             }
-            HubPrimaryPill(title: "继续第 \(activeHole) 洞", fullWidth: true)
+            Spacer(minLength: 14)
+            if !dots.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(dots) { dot in
+                        Capsule()
+                            .fill(dot.fill)
+                            .overlay(Capsule().stroke(Color.white, lineWidth: dot.isCurrent ? 2 : 0))
+                            .frame(height: 16)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("本圈逐洞")
+                .accessibilityIdentifier("home-in-progress-dots")
+                Spacer(minLength: 14)
+            }
+            HubBentoPrimaryButtonLabel(title: "继续第 \(activeHole) 洞", fullWidth: true)
                 .padding(.trailing, reservesEndAction ? HubEndRoundPill.reservedWidth : 0)
-                .padding(.top, 6)
         }
-        .hubHeroCard()
+        .padding(18)
+        .hubBentoHero { HubBentoStyle.deepGreen }
     }
 
     static func toParText(_ toPar: Int) -> String {
@@ -950,47 +1048,68 @@ struct HubInProgressCard: View {
     }
 }
 
-/// 主卡 · 上次的球场(`pre-round.html` near):球场名 + “从 B 场 开始 · 蓝 T” + 开始 / 换球场或组合。
-/// The actions are injected so the app wraps them in navigation links while the CI snapshot can
-/// render plain labels.
+/// 主卡 · 在球场附近 / 上次的球场 (首页 C): the course's real first-hole topo (else a drawn hole)
+/// under a scrim, the course name, "从 B 场 开始 · 蓝 T", then 开球 / 换组合. The actions are injected
+/// so the app wraps them in navigation links while the CI snapshot can render plain labels.
 struct HubSuggestedCourseCard<Actions: View>: View {
     let courseName: String
     let startTitle: String
+    let topoURL: URL?
     let actions: Actions
 
-    init(courseName: String, startTitle: String, @ViewBuilder actions: () -> Actions) {
+    init(courseName: String, startTitle: String, topoURL: URL? = nil, @ViewBuilder actions: () -> Actions) {
         self.courseName = courseName
         self.startTitle = startTitle
+        self.topoURL = topoURL
         self.actions = actions()
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(courseName)
-                .font(.title2.weight(.bold))
-                .foregroundStyle(.primary)
+                .font(.title2.weight(.heavy))
+                .foregroundStyle(.white)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
             Text(startTitle)
                 .font(.subheadline.weight(.semibold))
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
-            HStack(spacing: 18) {
+                .foregroundStyle(HubBentoStyle.onGreenSecondary)
+            Spacer(minLength: 18)
+            HStack(spacing: 16) {
                 actions
             }
-            .padding(.top, 12)
         }
-        .hubHeroCard()
+        .padding(18)
+        .hubBentoHero {
+            ZStack {
+                HubDrawnHole()
+                if let topoURL {
+                    AsyncImage(url: topoURL) { phase in
+                        if case .success(let image) = phase {
+                            image.resizable().scaledToFill()
+                        }
+                    }
+                    .accessibilityHidden(true)
+                    // Keeps the white text legible over a bright topo.
+                    Color.black.opacity(0.28)
+                }
+            }
+        }
     }
 }
 
-/// 主卡 · 没有已知球场:“今天去哪打？” + 搜索入口(整卡打开开始一场)。
+/// 主卡 · 不在球场 (首页 C): green card, "今天去哪打？" and a search field (the whole card opens
+/// 开始一场).
 struct HubSearchHeroCard: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             Text("今天去哪打？")
-                .font(.title2.weight(.bold))
-                .foregroundStyle(.primary)
+                .font(.title2.weight(.heavy))
+                .foregroundStyle(.white)
+            Text("搜球场名，或看附近")
+                .font(.subheadline)
+                .foregroundStyle(HubBentoStyle.onGreenSecondary)
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                 Text("搜索球场或城市")
@@ -998,13 +1117,16 @@ struct HubSearchHeroCard: View {
             }
             .font(.body)
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
-            .background(Color.black.opacity(0.05))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .padding(.top, 10)
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(.top, 14)
         }
-        .hubHeroCard()
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(HubBentoStyle.leaf)
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
     }
 }
 
@@ -1032,13 +1154,7 @@ struct HubEndRoundPill: View {
     static let reservedWidth: CGFloat = width + 10
 
     var body: some View {
-        Text("结束")
-            .font(.headline)
-            .foregroundStyle(LiveHoleStyle.green)
-            .frame(width: Self.width)
-            .padding(.vertical, 12)
-            .background(HubStyle.iconTint)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        HubBentoOutlineButtonLabel(title: "结束", width: Self.width)
     }
 }
 
@@ -1081,29 +1197,18 @@ struct HubReplayLastCard: View {
     }
 }
 
-/// The hero's secondary text link ("换球场或组合").
+/// The hero's secondary text link ("换组合"); white on a green card.
 struct HubSecondaryLinkLabel: View {
     let title: String
+    var onDark = false
 
     var body: some View {
         Text(title)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(LiveHoleStyle.green)
-            .padding(.vertical, 12)
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(onDark ? Color.white : LiveHoleStyle.green)
+            .padding(.vertical, 14)
+            .padding(.horizontal, 4)
             .contentShape(Rectangle())
-    }
-}
-
-private extension View {
-    /// The hero surface: white card, faint green ring, soft green shadow.
-    func hubHeroCard() -> some View {
-        self
-            .padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(HubStyle.heroBorder, lineWidth: 1))
-            .shadow(color: LiveHoleStyle.green.opacity(0.12), radius: 10, x: 0, y: 4)
     }
 }
 
