@@ -1,5 +1,6 @@
 import CoreLocation
 import Foundation
+import PhotosUI
 import SwiftUI
 import AICaddieDomain
 #if canImport(UIKit)
@@ -130,6 +131,11 @@ public struct CurrentHoleView: View {
     /// Full-hole topo pixel for a manually moved flag. This remains usable when the map has no
     /// affine geo anchors; it is session-local and never becomes a GPS/event coordinate by itself.
     @State private var greenPinPixel: CGPoint?
+    /// 洞位图: today's sheet (the day's flags). A flag the player moves still wins over it.
+    @State private var dailyPinSheet: DailyPinSheet?
+    @State private var pinSheetItems: [PhotosPickerItem] = []
+    @State private var isReadingPinSheet = false
+    @State private var pinSheetMessage: String?
     @State private var targetKind: String?
     /// The legacy wire contract has one target tuple.  Keep track of which instrument was edited
     /// last so a Watch/old server receives the tuple the golfer is looking at, without making the
@@ -300,6 +306,7 @@ public struct CurrentHoleView: View {
         self._targetPixel = State(initialValue: nil)
         self._greenPinCoordinate = State(initialValue: restoredGreenPin)
         self._greenPinPixel = State(initialValue: nil)
+        self._dailyPinSheet = State(initialValue: offlineStore?.loadDailyPinSheet())
         self._targetKind = State(initialValue: restoredManualTarget?.kind)
         self._lastTargetEditKind = State(initialValue: restoredTarget?.kind)
     }
@@ -448,6 +455,7 @@ public struct CurrentHoleView: View {
             selectedPlanIndex = nil
             selectedHazardID = nil
             preciseMapTimedOut = false
+            pinSheetMessage = nil
             heroMapScale = 1
             heroMapOffset = .zero
             heroMapTransientDragOffset = .zero
@@ -505,6 +513,10 @@ public struct CurrentHoleView: View {
         }
         .onChange(of: holePrep) { previous, next in
             carryOverMapInteraction(from: previous, to: next)
+        }
+        .onChange(of: pinSheetItems) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await importPinSheet(items) }
         }
         .fullScreenCover(isPresented: $showGreenDetail) {
             greenDetailSurface
@@ -607,6 +619,13 @@ public struct CurrentHoleView: View {
                             onEndRound: { showRoundSummary = true }
                         )
                         .padding(.leading, 52)
+                        LivePlayPinSheetButton(
+                            items: $pinSheetItems,
+                            title: pinSheetButtonTitle,
+                            message: pinSheetMessage,
+                            isReading: isReadingPinSheet
+                        )
+                        .padding(.leading, 52)
                     }
                     Spacer(minLength: 8)
                     LivePlayGreenLadder(
@@ -700,7 +719,7 @@ public struct CurrentHoleView: View {
 
     /// "旗 N" appears in the ladder only once the player has placed today's flag.
     private var placedFlagYards: Int? {
-        guard greenPinCoordinate != nil || greenPinPixel != nil else { return nil }
+        guard greenPinCoordinate != nil || greenPinPixel != nil || sheetPinPixel != nil else { return nil }
         return effectiveDistanceToPinMetres.flatMap { greenYards($0) }
     }
 
@@ -2085,6 +2104,9 @@ public struct CurrentHoleView: View {
     }
 
     private var mapPinCoordinate: CLLocationCoordinate2D? {
+        if let sheetPin = sheetPinPixel, let coordinate = liveCoordinate(forOverlayPixel: sheetPin) {
+            return coordinate
+        }
         if let prep = holePrep,
            let last = prep.resolvedMapOverlay?.route.last,
            last.count >= 2,
@@ -2124,9 +2146,91 @@ public struct CurrentHoleView: View {
            let valid = validMapPixel(CGPoint(x: projected[0], y: projected[1])) {
             return valid
         }
+        if let sheetPin = sheetPinPixel {
+            return sheetPin
+        }
         guard let last = holePrep?.resolvedMapOverlay?.route.last,
               last.count >= 2 else { return nil }
         return validMapPixel(CGPoint(x: last[0], y: last[1]))
+    }
+
+    /// 洞位图: today's flag for this physical hole, placed on our green so its 前/后/左/右 reads
+    /// back as the sheet. The approach (not the Tee) faces the sheet's "front".
+    private var sheetPinPixel: CGPoint? {
+        guard let prep = holePrep,
+              let sheetHole = dailyPinSheet?.pin(
+                  globalId: hole.sourceGlobalId,
+                  localHole: hole.sourceLocalHole,
+                  on: DailyPinSheet.day(Date())
+              ),
+              let outline = prep.greenOutline,
+              outline.available,
+              let overlay = prep.resolvedMapOverlay,
+              let flag = PinSheetPlacement.flagPx(
+                  for: sheetHole,
+                  outlinePx: outline.pointsPx,
+                  referencePx: PinSheetPlacement.approachReferencePx(
+                      route: overlay.route,
+                      pixelsPerMetre: overlay.ppm
+                  ),
+                  pixelsPerMetre: overlay.ppm
+              ) else { return nil }
+        return validMapPixel(CGPoint(x: flag[0], y: flag[1]))
+    }
+
+    private var pinSheetButtonTitle: String {
+        if isReadingPinSheet { return "读取洞位图…" }
+        if let sheet = dailyPinSheet, sheet.date == DailyPinSheet.day(Date()), !sheet.pins.isEmpty {
+            return "洞位图 · 今日 \(sheet.pins.count) 洞"
+        }
+        return "洞位图"
+    }
+
+    /// Today's sheet holes → this venue's physical holes: its nine-hole loops in label order
+    /// (1–9, 10–18, 19–27), or the round's own course.
+    private func importPinSheet(_ items: [PhotosPickerItem]) async {
+        pinSheetItems = []
+        guard let mediaUploadClient else {
+            pinSheetMessage = "需要联网才能读取洞位图"
+            return
+        }
+        isReadingPinSheet = true
+        pinSheetMessage = nil
+        defer { isReadingPinSheet = false }
+        var images: [Data] = []
+        for item in items.prefix(3) {
+            if let data = try? await item.loadTransferable(type: Data.self),
+               let jpeg = PinSheetPhoto.jpeg(data) {
+                images.append(jpeg)
+            }
+        }
+        guard !images.isEmpty else {
+            pinSheetMessage = "没能打开这张照片"
+            return
+        }
+        let firstGlobalId = package.roundLoops.first?.globalId ?? package.course.globalId
+        var loops: [(label: String, globalId: Int)] = []
+        if let active = courseOptions.first(where: { $0.globalId == firstGlobalId }),
+           active.resolvedHoles == 9 {
+            loops = NineLoopTurn.siblings(of: active, in: courseOptions).compactMap { option in
+                option.resolvedSegmentLabel.map { (label: $0, globalId: option.globalId) }
+            }
+        }
+        let store = offlineStore
+        let importer = PinSheetImporter(
+            read: { try await mediaUploadClient.readPinSheet(jpegImages: $0) },
+            save: { sheet in _ = try store?.saveDailyPinSheet(sheet) }
+        )
+        let outcome = await importer.run(
+            jpegImages: images,
+            loops: loops,
+            singleCourseGlobalId: firstGlobalId,
+            today: DailyPinSheet.day(Date())
+        )
+        if case .applied(let sheet) = outcome {
+            dailyPinSheet = sheet
+        }
+        pinSheetMessage = outcome.message
     }
 
     /// The legacy Watch/event payload has one coordinate tuple. Until that contract grows a second
@@ -2211,7 +2315,12 @@ public struct CurrentHoleView: View {
         if let coordinateDistance = distanceFromMapReference(to: greenPinCoordinate) {
             return coordinateDistance
         }
-        return pixelDistanceMetres(from: mapReferencePixel, to: validMapPixel(greenPinPixel))
+        if let manual = pixelDistanceMetres(from: mapReferencePixel, to: validMapPixel(greenPinPixel)) {
+            return manual
+        }
+        guard greenPinCoordinate == nil, greenPinPixel == nil, let sheetPin = sheetPinPixel else { return nil }
+        return distanceFromMapReference(to: liveCoordinate(forOverlayPixel: sheetPin))
+            ?? pixelDistanceMetres(from: mapReferencePixel, to: sheetPin)
     }
 
     private func distanceFromMapReference(to endpoint: CLLocationCoordinate2D?) -> Double? {

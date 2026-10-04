@@ -206,7 +206,17 @@ final class RealEvidenceRoundResolver {
                     throw RealEvidenceRoundResolverError.noEligibleRound
                 }
                 let shotMapPath = "\(detailPath)/holes/\(hole)/shotmap"
-                let shotMap = try getJSON(path: shotMapPath)
+                // One hole whose embedded topo renders cold on the candidate (live Native
+                // 37185535082: hole 3 timed out on all three attempts) is an ineligible hole, not
+                // a dead backend: record it and try the next scored hole. Status and malformed
+                // replies still fail the resolver.
+                let shotMap: [String: Any]
+                do {
+                    shotMap = try getJSON(path: shotMapPath)
+                } catch let error as RealEvidenceRoundResolverError where error.isRetryable {
+                    record(roundRef, hole, "shotmap request did not complete: \(error)")
+                    continue
+                }
                 guard shotMap["found"] as? Bool == true,
                       let globalId = integer(shotMap["globalId"]), globalId > 0,
                       let localHole = integer(shotMap["localHole"]), localHole > 0,

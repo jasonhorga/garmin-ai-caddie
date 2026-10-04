@@ -1399,6 +1399,16 @@ class WeatherSnapshotResponse(BaseModel):
     missingData: list[dict[str, Any]]
 
 
+class PinSheetImageIn(BaseModel):
+    contentBase64: str = Field(min_length=1)
+    mimeType: str | None = None
+
+
+class PinSheetRequest(BaseModel):
+    """A photographed daily hole-location sheet (one or two photos for a 27-hole venue)."""
+    images: list[PinSheetImageIn] = Field(min_length=1, max_length=3)
+
+
 class SwingCandidatesRequest(BaseModel):
     """B7 step 1: one round's Watch swing candidates (validated field by field in
     ``ai_caddie.rounds.swing_candidates``)."""

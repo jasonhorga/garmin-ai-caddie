@@ -366,6 +366,26 @@ class GeminiCliOAuthProvider:
         )
         return _extract_code_assist_text(response)
 
+    def chat_multimodal(
+        self,
+        messages: Iterable[LLMMessage],
+        media_parts: Iterable[LLMMediaPart],
+        max_tokens: int | None = None,
+    ) -> str:
+        self._ensure_code_assist_loaded()
+        response = self._post_json(
+            "generateContent",
+            _to_code_assist_generate_content_request(
+                model=self.model,
+                project=self._get_resolved_project(),
+                messages=messages,
+                max_tokens=max_tokens,
+                session_id=self._session_id,
+                media_parts=media_parts,
+            ),
+        )
+        return _extract_code_assist_text(response)
+
     def _ensure_code_assist_loaded(self) -> None:
         if self._code_assist_loaded:
             return
@@ -581,19 +601,37 @@ def _to_code_assist_generate_content_request(
     messages: Iterable[LLMMessage],
     max_tokens: int | None,
     session_id: str,
+    media_parts: Iterable[LLMMediaPart] = (),
 ) -> dict[str, Any]:
     system_instruction: str | None = None
     contents: list[dict[str, Any]] = []
+    inline_parts = [
+        {
+            "inlineData": {
+                "mimeType": part.mime_type,
+                "data": base64.b64encode(part.data).decode("ascii"),
+            }
+        }
+        for part in media_parts
+    ]
+    media_attached = not inline_parts
     for message in messages:
         if message.role == "system":
             system_instruction = message.content if system_instruction is None else f"{system_instruction}\n\n{message.content}"
             continue
+        parts: list[dict[str, Any]] = [{"text": message.content}]
+        if message.role == "user" and not media_attached:
+            # Images ride with the first user turn, as in the API-key provider.
+            parts.extend(inline_parts)
+            media_attached = True
         contents.append(
             {
                 "role": "model" if message.role == "assistant" else "user",
-                "parts": [{"text": message.content}],
+                "parts": parts,
             }
         )
+    if not media_attached:
+        contents.append({"role": "user", "parts": inline_parts})
     request: dict[str, Any] = {
         "contents": contents,
         "session_id": session_id,

@@ -678,6 +678,9 @@ final class DesignSnapshotTests: XCTestCase {
         XCTAssertNotEqual(nearPNG, replayPNG, "the course-here card and the search + replay state are different screens")
         // No known course → "今天去哪打？" + search.
         try captureScreen(RoundHomeView(package: package, apiBaseURL: apiBaseURL), named: "full-home-search")
+        // First launch / slow backend: no home package yet. The same Hub (今天去哪打？ + 备战 · 成绩)
+        // shows, never the legacy 打球 / 备战 / 成绩 list.
+        try captureScreen(RoundHomeView(package: nil, apiBaseURL: apiBaseURL), named: "full-home-no-package")
         // Hub WITH an in-progress round → shows the 进行中 card + 「结束本场」(cancel) button.
         let activeState = LiveRoundStateSnapshot(roundId: package.roundId, activeHole: package.holes.first?.number ?? 1, holes: [])
         try captureScreen(

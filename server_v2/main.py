@@ -57,6 +57,7 @@ from .geometry import (
     load_hole_geometry_evidence_response,
     load_hole_map_response,
 )
+from .pin_sheet import read_pin_sheet_response
 from .media import (
     analyze_media_response,
     confirm_vision_finding_response,
@@ -98,6 +99,7 @@ from .players_api import (
 from .prep_tips import load_prep_tips_response
 from .weather import load_weather_snapshot_response
 from .models import (
+    PinSheetRequest,
     SwingCandidatesRequest,
     AnnotationCreateRequest,
     AnnotationCreateResponse,
@@ -423,6 +425,8 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
         "/api/v2/sync/garmin/session",
         # owner-bootstrap: links an Apple Sign-in subject to the owner user.
         "/api/v2/auth/apple/link",
+        # Reads a photographed pin sheet with the configured vision model (may cost a model call).
+        "/api/v2/mobile/pin-sheet",
     }
     if path in exact_paths:
         return True
@@ -2393,6 +2397,16 @@ def mobile_round_finish(
     acting_player_id: str = Depends(current_player_id),
 ) -> RoundIngestResponse:
     return finish_mobile_round_response(round_id, request, player_id=acting_player_id)
+
+
+@app.post("/api/v2/mobile/pin-sheet")
+def mobile_pin_sheet(
+    body: PinSheetRequest,
+    acting_player_id: str = Depends(current_player_id),
+) -> dict:
+    """Read a photographed daily hole-location sheet into per-hole pin facts (no geometry: the
+    app places each flag on its own green outline)."""
+    return read_pin_sheet_response(body)
 
 
 @app.post("/api/v2/mobile/rounds/{round_id}/swing-candidates", status_code=201)

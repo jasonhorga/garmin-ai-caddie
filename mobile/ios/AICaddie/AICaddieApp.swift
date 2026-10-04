@@ -60,9 +60,11 @@ public struct AICaddieApp: App {
                             ProgressView()
                         }
                     }
-                } else if let package = model.package {
+                } else {
+                    // One home whether or not a home package is cached yet: a first launch or a
+                    // slow backend shows the same Hub (开始一场 included), never a legacy list.
                     RoundHomeView(
-                        package: package,
+                        package: model.package,
                         pendingEventCount: model.pendingEventCount,
                         syncStatus: model.syncStatus,
                         localEventUploadStatus: model.localEventUploadStatus,
@@ -189,8 +191,6 @@ public struct AICaddieApp: App {
                             usesDarkLiveChrome = isLive
                         }
                     )
-                } else {
-                    NoPackageHubView(model: model)
                 }
             }
             // Product chrome is light except for the immersive live-hole instrument. Drive the
@@ -220,142 +220,6 @@ public struct AICaddieApp: App {
         }
     }
 
-}
-
-/// Stable signed-in landing surface used when no package is available yet (first launch, offline,
-/// or Garmin data has not been imported). It keeps all primary destinations reachable without
-/// manufacturing a fake course package.
-private struct NoPackageHubView: View {
-    @ObservedObject var model: LiveRoundAppModel
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    NavigationLink {
-                        startRoundView
-                    } label: {
-                        Label("打球", systemImage: "flag.checkered")
-                    }
-                } header: {
-                    Text("打球")
-                } footer: {
-                    Text(model.syncStatus)
-                }
-
-                Section {
-                    NavigationLink {
-                        prepCourseView
-                    } label: {
-                        Label("备战", systemImage: "scope")
-                    }
-                    NavigationLink {
-                        ResultsView(
-                            apiBaseURL: model.apiBaseURL,
-                            adminToken: model.adminToken,
-                            offlineStore: model.offlineStore
-                        )
-                    } label: {
-                        Label("成绩", systemImage: "chart.line.uptrend.xyaxis")
-                    }
-                } header: {
-                    Text("球局")
-                }
-
-                Section {
-                    NavigationLink {
-                        GarminSessionView(
-                            apiBaseURL: model.apiBaseURL,
-                            adminToken: model.adminToken,
-                            sessionStore: model.garminSessionStore,
-                            onSessionImported: { await model.syncGarminDataAfterSessionImport() == .completed },
-                            onSessionImportedOutcome: { await model.syncGarminDataAfterSessionImport() },
-                            connectionState: model.garminConnectionState,
-                            onSessionForgot: { model.didForgetGarminSession() }
-                        )
-                    } label: {
-                        Label("连接 Garmin", systemImage: "link")
-                    }
-#if DEBUG
-                    NavigationLink {
-                        BackendSettingsView(
-                            apiBaseURL: model.apiBaseURL,
-                            adminTokenConfigured: model.adminTokenConfigured,
-                            syncStatus: model.syncStatus,
-                            onSave: { baseURL, token in
-                                Task { await model.saveBackendConfiguration(apiBaseURLText: baseURL, adminTokenText: token) }
-                            },
-                            onClear: {
-                                Task { await model.clearBackendConfiguration() }
-                            }
-                        )
-                    } label: {
-                        Label("开发者连接", systemImage: "gearshape")
-                    }
-#endif
-                } header: {
-                    Text("账号与连接")
-                }
-            }
-            .navigationTitle("AI Caddie")
-            .background(HubStyle.grouped)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if let pending = model.pendingWatchRoundStart {
-                    HubPendingWatchCard(courseName: pending.courseName, activeHole: pending.activeHole)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
-                        .background(HubStyle.grouped)
-                        .accessibilityIdentifier("no-package-watch-round-pending")
-                }
-            }
-        }
-    }
-
-    private var startRoundView: some View {
-        StartRoundView(
-            courseOptions: model.courseOptions,
-            downloadedCourseOptions: model.downloadedCourseOptions,
-            recentCourseOption: model.recentCourseOption,
-            syncStatus: model.syncStatus,
-            isPreparing: model.isPreparingRound,
-            apiBaseURL: model.apiBaseURL,
-            adminTokenConfigured: model.adminTokenConfigured,
-            onPrepareRound: { roundId in Task { await model.prepareRound(roundId: roundId) } },
-            onPrepareCourseRound: { roundId, teeBox, loops in
-                Task { await model.prepareCourseRound(roundId: roundId, teeBox: teeBox, loops: loops) }
-            },
-            onSaveBackendConfiguration: { baseURL, token in
-                Task { await model.saveBackendConfiguration(apiBaseURLText: baseURL, adminTokenText: token) }
-            },
-            onClearBackendConfiguration: { Task { await model.clearBackendConfiguration() } },
-            onConnectGarmin: {},
-            onLoadCourseTees: { await model.loadCourseTees(globalId: $0) },
-            onSearchCourses: { name, city, lat, lon in
-                try await model.searchCourses(name: name, city: city, latitude: lat, longitude: lon)
-            },
-            onNearbyCourses: { lat, lon, radius in
-                try await model.nearbyCourses(latitude: lat, longitude: lon, radiusKm: radius)
-            }
-        )
-    }
-
-    private var prepCourseView: some View {
-        PrepCoursePickerView(
-            courseOptions: model.courseOptions,
-            downloadedCourseOptions: model.downloadedCourseOptions,
-            downloadedCourseKeys: model.downloadedCourseKeys,
-            downloads: model.prepCourseDownloads,
-            downloadPresentation: model.prepCourseDownloadPresentation,
-            apiBaseURL: model.apiBaseURL,
-            adminToken: model.adminToken,
-            offlineStore: model.offlineStore,
-            onDownload: { model.downloadPrepCourse($0) },
-            onRetryDownload: { model.retryPrepCourseDownload(id: $0) },
-            onValidateReadyDownload: { await model.validateReadyPrepCourse($0) },
-            onLoadCourseTees: { await model.loadCourseTees(globalId: $0) }
-        )
-    }
 }
 
 private enum LiveRoundFinishError: Error {

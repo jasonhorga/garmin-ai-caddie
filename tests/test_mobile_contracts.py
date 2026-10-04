@@ -1691,7 +1691,13 @@ class MobileContractTests(unittest.TestCase):
             begin_round_preparation,
             "starting live play must not pause the independent durable prep download",
         )
-        self.assertIn("StartRoundView(", app_swift)
+        # One home with or without a cached home package: 开始一场 lives in RoundHomeView, and the
+        # legacy no-package list (打球 / 备战 / 成绩) that flashed on launch is gone.
+        self.assertIn("package: model.package,", app_swift)
+        self.assertNotIn("NoPackageHubView", app_swift)
+        round_home_swift = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        self.assertIn("public let package: LiveRoundPackage?", round_home_swift)
+        self.assertIn("StartRoundView(", round_home_swift)
         self.assertIn("await model.prepareRound(roundId: roundId)", app_swift)
         self.assertIn("await model.prepareCourseRound(roundId: roundId, teeBox: teeBox, loops: loops)", app_swift)
         # 1d: 开始记分后直接进实战屏(pendingLiveHole → Hub 路径导航到该洞),不弹回 Hub。
@@ -4101,7 +4107,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("ClubBagStore.save(", club_settings)
         # The live picker uses the effective bag (manual override else the real Garmin bag).
         self.assertIn("if let bag = ClubBagStore.effectiveBag()", current_hole)
-        self.assertIn("ClubSettingsView(clubProfiles: package.clubProfiles, apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
+        self.assertIn("ClubSettingsView(clubProfiles: package?.clubProfiles ?? [], apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
         self.assertIn('Label("球包"', round_home)
         # B5c 球包 (stats.html 3): one distance ladder replaces 成绩 → 球杆 and the checklist; every
         # change is saved on the device and pushed to the backend manual bag the caddie reads.
@@ -4420,6 +4426,26 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("didUpdateLocations", location_provider)
         self.assertIn("horizontalAccuracyM", location_provider)
 
+    def test_pin_sheet_flag_sits_under_a_moved_flag_and_above_the_route_end(self) -> None:
+        # 洞位图: the day's sheet places the flag; a flag the player moves still wins, and the
+        # provider's route end is only the fallback. The server only reads the photo.
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        pixel = current_hole.split("private var effectiveMapPinPixel: CGPoint? {", 1)[1].split(
+            "private var sheetPinPixel: CGPoint? {", 1
+        )[0]
+        self.assertLess(pixel.index("validMapPixel(greenPinPixel)"), pixel.index("sheetPinPixel"))
+        self.assertLess(pixel.index("sheetPinPixel"), pixel.index("route.last"))
+        coordinate = current_hole.split("private var mapPinCoordinate: CLLocationCoordinate2D? {", 1)[1].split(
+            "private var effectiveMapPinCoordinate", 1
+        )[0]
+        self.assertLess(coordinate.index("sheetPinPixel"), coordinate.index("route.last"))
+        self.assertIn("PinSheetPlacement.approachReferencePx(", current_hole)
+        self.assertIn("on: DailyPinSheet.day(Date())", current_hole)
+        client = _read_required_source(self, IOS_DIR / "Services" / "MediaUploadClient.swift")
+        self.assertIn('endpointURL("/api/v2/mobile/pin-sheet")', client)
+        chrome = _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift")
+        self.assertIn('.accessibilityIdentifier("live-pin-sheet")', chrome)
+
     def test_live_hazard_detail_owns_one_selected_outline_without_shared_duplicates(self) -> None:
         hazard_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveHazardDetailView.swift")
         self.assertIn("showsRecommendedRoute: false", hazard_detail)
@@ -4463,6 +4489,9 @@ class MobileContractTests(unittest.TestCase):
             self, Path("mobile") / "ios" / "AICaddieUITests" / "ReviewEditUITests.swift"
         )
 
+        # A hole whose shot map times out is skipped, not fatal (live Native 37185535082).
+        self.assertIn('record(roundRef, hole, "shotmap request did not complete', resolver)
+        self.assertIn("where error.isRetryable", resolver)
         self.assertIn('.accessibilityIdentifier("home-last-round")', round_home)
         self.assertIn('.accessibilityIdentifier("history-round-row")', recent_review)
         # B3 reuses the live nine card; the review keeps the stable per-hole cell identifier.
