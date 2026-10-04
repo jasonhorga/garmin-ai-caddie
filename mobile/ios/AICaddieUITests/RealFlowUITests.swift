@@ -729,11 +729,12 @@ final class RealFlowUITests: XCTestCase {
             liveTopoReady.waitForExistence(timeout: 75),
             "live-hole evidence must wait for the real topo bitmap, never capture the loading fallback as complete"
         )
-        // B1: the top-left circle opens the round scorecard (which also holds 回到首页 / 结束本场).
-        let liveBackButton = app.buttons["计分卡"]
+        // Device review of build 77 (#375): the top-left circle is 返回 (straight home, the round
+        // kept); 计分卡 and 结束本场 are pills under the hole heading.
+        let liveBackButton = app.buttons["live-back-home"]
         XCTAssertTrue(
             liveBackButton.waitForExistence(timeout: 5),
-            "immersive live play must retain an explicit way back through the scorecard"
+            "immersive live play must retain an explicit way back home"
         )
         let liveHoleHeading = app.staticTexts["第 1 洞"]
         XCTAssertTrue(liveHoleHeading.waitForExistence(timeout: 5))
@@ -788,8 +789,8 @@ final class RealFlowUITests: XCTestCase {
             "score confirmation must remain fully visible beside the shot action"
         )
         XCTAssertTrue(
-            fullyVisible(app.buttons["计分卡"]),
-            "the real scorecard action must be fully visible in the top-left corner"
+            fullyVisible(app.buttons["live-open-scorecard"]),
+            "the real scorecard action must be fully visible under the hole heading"
         )
         let liveCaddieLoading = app.activityIndicators["正在更新球童建议"]
         _ = liveCaddieLoading.waitForExistence(timeout: 2) // a warm backend may finish before this appears
