@@ -78,6 +78,25 @@ After compaction, follow this recovery sequence exactly:
 There must be at most one `in-progress` task in the ledger. A task is either
 `queued`, `in-progress`, `blocked`, `evidence-open`, `done`, or `cancelled`.
 
+### Blocking waits and feedback monitoring
+
+Do not poll CI, releases, or PR feedback from the main control thread with
+repeated `gh run view`, `ps`, monitor-state reads, or `sleep` loops. Run the
+blocking waiter on the homeserver instead:
+
+```bash
+ops/wait_for_conclusion.sh --run <run-id>
+ops/wait_for_conclusion.sh --release <run-id>
+ops/wait_for_conclusion.sh --pr <number>
+```
+
+The waiter owns its internal wait, writes detailed output under the project
+operations data directory, and returns one line containing `status`,
+`conclusion`, failed job names, and the log path. The `--pr` mode follows the
+existing deduplicating `pr-feedback-monitor` event stream; it must not start a
+second GitHub monitor. If genuinely parallel waits are needed, delegate them
+to no more than two subagents and collect only their final conclusions.
+
 ### Short continuity ledger and dated archives
 
 Keep `docs/operations/PROJECT_STATE.md` at **200 lines or fewer**. It may

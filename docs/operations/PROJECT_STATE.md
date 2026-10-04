@@ -3,12 +3,12 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-03 22:54 UTC
+**Updated:** 2026-10-04 02:42 UTC
 **Canonical branch:** `main`
 **Product app tip:** `1d3bca3d94fc60b17440bd5110bb6c35be04cd14`
 **Product backend tip:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
 **Release pipeline tip:** `3890c2e09db119b2fddea45a4c7b948caf726ed4`
-**Current slice:** `RELEASE-EBE48637` — `blocked`
+**Current slice:** `WAIT-BLOCKING-COMMAND` — `in-progress`
 
 ## Current status
 
@@ -24,13 +24,12 @@ The build-number safeguard from PR #370 feedback is merged as PR #374 at
 green. It now fails closed when App Store Connect build lookup fails, so the
 Apple agreement blocker cannot silently select build 1.
 
-The internal-only TestFlight workflow
-`37157174440` built, signed, produced the IPA and provenance, then failed
-at Apple upload with `ProgramLicenseAgreementUpdated`: the Apple Developer
-program agreement is missing or expired. Read-only build/group query
-`37157774570` failed for the same account condition. The IPA and provenance
-are retained; no upload completed, no tester was changed, and
-`external_distribution=false` remains enforced.
+The internal-only TestFlight workflow `37170793965` succeeded at exact head
+`e0e884af`; App Store Connect resolved build **77 before build**, uploaded
+`0.1.0 (77)`, and wrote provenance. The read-only Apple check `37171317368`
+also succeeded: its log reports build 77 `state=VALID`, and the existing
+internal TestFlight group (`internal=true`) lists build 77. External
+distribution remains disabled.
 
 Production is unchanged: `aicaddie-release-d7f69971-production-20260925`
 on loopback `39055`. Do not switch production or distribute externally in
@@ -38,14 +37,14 @@ this slice.
 
 ## Unfinished work
 
-1. Owner/account action: accept or update the missing Apple program agreement.
-2. After that external blocker is cleared, rerun the internal-only TestFlight
-   workflow at the already green app/backend revisions, then run the
-   read-only Apple validity and existing internal-group check.
+1. Implement and verify the reusable blocking wait command for CI/release
+   runs and PR feedback; it must return one summary line and keep details in
+   homeserver logs.
+2. Add the blocking-wait/no-main-thread-polling rule to `AGENTS.md`, commit,
+   and push it with the command.
 3. Keep the existing PR feedback monitor running and deduplicate any new
    repository feedback against this ledger; do not start a second monitor.
-4. Physical iPhone/Watch evidence remains open after TestFlight becomes
-   available.
+4. Physical iPhone/Watch evidence remains open now that build 77 is available.
 
 ## Live verification baseline
 
@@ -53,9 +52,10 @@ this slice.
 - Native artifacts:
   `/home/jason/garmin-ai-caddie-data/operations/release-ebe48637-20261003/native-37153025859-artifacts/`.
 - TestFlight artifact:
-  `/home/jason/garmin-ai-caddie-data/operations/release-ebe48637-20261003/testflight-37157174440/artifact/`.
+  `/home/jason/garmin-ai-caddie-data/operations/release-ebe48637-20261003/testflight-37170793965/artifact/`.
   IPA SHA-256:
-  `c303371db58e090cb7a3e8628adee449845cc4426f561a9f4d08adac019272dd`.
+  `9c960c6d57b9d44b337d0ecac02722507cc580c2d833d6e07c68ca09cba35633`.
+- TestFlight CD: `37170793965`; Apple validity/group check: `37171317368`.
 - Candidate image/container for the accepted backend:
   `garmin-ai-caddie-api:a907d1b5bea056a08335fed4955eff12fbf50a9e-candidate-20261003`,
   `aicaddie-release-a907d1b5-candidate-20261003`, loopback `39087`.
@@ -85,10 +85,11 @@ this slice.
 
 ## Next action and stop conditions
 
-Next action is external: clear the Apple agreement blocker. Do not retry
-TestFlight or mutate product code while that condition remains. Once cleared,
-run the internal-only upload and read-only Apple checks automatically; keep
-external distribution disabled and do not change production.
+Next action is to add the blocking wait command and its AGENTS rule, verify it
+on homeserver, and push the scoped commit. Then use it for future CI/release
+and PR-feedback waits instead of main-thread `gh run view`, `ps`, state checks,
+or sleep loops. Keep external distribution disabled and do not change
+production.
 
 Stop this slice on any failed required Native/Apple gate, provenance or
 revision mismatch, candidate health failure, or request for production or
