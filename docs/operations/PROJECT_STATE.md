@@ -3,7 +3,7 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-04 04:40 UTC
+**Updated:** 2026-10-04 05:02 UTC
 **Canonical branch:** `main`
 **Product app tip:** `9f44574556084ee9a57f43a44424c770e0a76338`
 **Product backend tip:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
@@ -35,10 +35,12 @@ internal TestFlight group (`internal=true`) lists build 77. External
 distribution remains disabled.
 
 The blocking waiter and rule are pushed (`a7657f76`, follow-ups through
-`b11b2dba`, rule clarification `51c7d608`). It owns the wait, ignores
+`b11b2dba`, rule clarification `51c7d608`, result persistence `ea0cee78`). It owns the wait, ignores
 non-terminal CI events, and returns one summary line; do not interleave
 main-thread `gh run view`, `ps`, state reads or sleep loops. Next terminal
 feedback wait is the only in-progress slice.
+Each return atomically replaces `latest-result.txt`; a local timeout test and
+remote SHA check passed.
 
 Post-merge main CI `37177482710` is terminal-success for merge `9f445745`;
 the deduplicating monitor recorded it before the new feedback waiter started.
@@ -48,6 +50,9 @@ with no failed jobs; its waiter log is
 The following state commit `ee5cadbc` CI `37177962031` completed successfully
 with no failed jobs; its exact-run waiter log is
 `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37177962031-20261004T045226Z-3266067.log`.
+State-record commit `b72f5bad` CI `37178222591` also completed successfully
+with no failed jobs; its feedback-wait log is
+`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T045453Z-3285054.log`.
 
 Production is unchanged: `aicaddie-release-d7f69971-production-20260925`
 on loopback `39055`. Do not switch production or distribute externally in
