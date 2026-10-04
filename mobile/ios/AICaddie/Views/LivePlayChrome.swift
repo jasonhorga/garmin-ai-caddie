@@ -47,7 +47,8 @@ struct LivePlayControlCaption: View {
     }
 }
 
-/// Top-left: back, then the hole number, par and yards, and the round line underneath.
+/// Top-left: back (straight to the home, the round is kept), then the hole number, par and yards,
+/// and the round line underneath.
 struct LivePlayTopInfo: View {
     let holeNumber: Int
     let par: Int
@@ -64,9 +65,9 @@ struct LivePlayTopInfo: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("计分卡")
-            .accessibilityHint("查看每洞成绩，也可以结束本场或回到首页")
-            .accessibilityIdentifier("live-back-to-scorecard")
+            .accessibilityLabel("回到首页")
+            .accessibilityHint("本场保留，可以随时继续")
+            .accessibilityIdentifier("live-back-home")
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -95,6 +96,37 @@ struct LivePlayTopInfo: View {
         var parts = ["Par \(par)"]
         if let yards { parts.append("\(yards) 码") }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// Under the hole facts: 计分卡 (every hole's score, edit or go to a hole) and 结束本场, which
+/// opens the finish page directly (保存并结束 / 继续打球 / 放弃本场).
+struct LivePlayRoundButtons: View {
+    let onOpenScorecard: () -> Void
+    let onEndRound: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            pill("计分卡", systemImage: "list.number", action: onOpenScorecard)
+                .accessibilityIdentifier("live-open-scorecard")
+            pill("结束本场", systemImage: "flag.checkered", action: onEndRound)
+                .accessibilityIdentifier("live-end-round")
+        }
+    }
+
+    private func pill(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .frame(height: 32)
+                .background(.ultraThinMaterial, in: Capsule())
+                .environment(\.colorScheme, .dark)
+                .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 }
 
@@ -329,6 +361,36 @@ struct LivePlayRecordShotButton: View {
     }
 }
 
+/// What a planned shot is called and how far it goes. The plan's `carryM` is the club's full stock
+/// carry; when the leg actually played is clearly shorter (the final shot onto the green, clamped
+/// to the flag) the label shows the played distance, and a shot under three quarters of the
+/// club's carry is a 切杆 rather than a full swing (device review, build 77: 「九号铁 66」 for a
+/// 44 y finish).
+enum PlannedShotLabel {
+    static let shortLegToleranceM = 5.0
+    static let pitchFraction = 0.75
+
+    static func resolve(clubName: String, carryM: Double?, playedM: Double?) -> (club: String, yards: Int?) {
+        let club = zhClubDisplayName(zhClubName(clubName))
+        let carry = carryM.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        let played = playedM.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        switch (carry, played) {
+        case let (carry?, played?) where played < carry - shortLegToleranceM:
+            return (played < carry * pitchFraction ? "切杆" : club, yards(played))
+        case let (carry?, _):
+            return (club, yards(carry))
+        case let (nil, played?):
+            return (club, yards(played))
+        default:
+            return (club, nil)
+        }
+    }
+
+    static func yards(_ metres: Double) -> Int {
+        Int((metres * LivePlannedRouteRenderer.yardsPerMetre).rounded())
+    }
+}
+
 /// The caddie route on the live map (`live-play.html`): a 3 pt flight arc per leg, a landing dot and
 /// a 13 pt "杆名 码数" label bound to every landing, including the final leg onto the green.
 ///
@@ -345,22 +407,43 @@ enum LivePlannedRouteRenderer {
         let rect: CGRect
     }
 
-    /// "一号木 224": the club and that leg's planned carry (the caddie's number); the drawn leg
-    /// length is the fallback for an older plan without a carry.
-    static func labelText(for leg: MapPlannedLeg, pixelsPerMetre: Double) -> String {
-        let club = zhClubDisplayName(zhClubName(leg.shot.clubName))
-        guard let yards = legYards(leg, pixelsPerMetre: pixelsPerMetre) else { return club }
-        return "\(club) \(yards)"
+    /// "一号木 224": the club and that leg's planned carry (the caddie's number). Given the previous
+    /// landing (only for the plan's last shot, the one onto the green) it shows the distance
+    /// actually played along the route, and a pitch well short of the club's full carry reads 切杆
+    /// (`PlannedShotLabel`). Without a carry (an older plan) the drawn leg length is the fallback.
+    static func labelText(for leg: MapPlannedLeg, previousRouteOffsetM: Double? = nil, pixelsPerMetre: Double) -> String {
+        let label = PlannedShotLabel.resolve(
+            clubName: leg.shot.clubName,
+            carryM: leg.shot.carryM,
+            playedM: playedMetres(leg, previousRouteOffsetM: previousRouteOffsetM, pixelsPerMetre: pixelsPerMetre)
+        )
+        guard let yards = label.yards else { return label.club }
+        return "\(label.club) \(yards)"
     }
 
-    static func legYards(_ leg: MapPlannedLeg, pixelsPerMetre: Double) -> Int? {
-        if let carry = leg.shot.carryM, carry.isFinite, carry > 0 {
-            return Int((carry * yardsPerMetre).rounded())
+    /// Every leg's label, in route order. The last leg's played distance runs from the previous
+    /// landing (the same rule as the plan chips, `PrepPlanOption`).
+    static func labelTexts(legs: [MapPlannedLeg], pixelsPerMetre: Double) -> [String] {
+        var previous = 0.0
+        return legs.enumerated().map { index, leg in
+            defer { if let offset = leg.shot.routeOffsetM { previous = offset } }
+            return labelText(
+                for: leg,
+                previousRouteOffsetM: index == legs.count - 1 ? previous : nil,
+                pixelsPerMetre: pixelsPerMetre
+            )
+        }
+    }
+
+    private static func playedMetres(_ leg: MapPlannedLeg, previousRouteOffsetM: Double?, pixelsPerMetre: Double) -> Double? {
+        if leg.shot.carryM != nil {
+            guard let offset = leg.shot.routeOffsetM, let previousRouteOffsetM else { return nil }
+            return offset - previousRouteOffsetM
         }
         guard pixelsPerMetre.isFinite, pixelsPerMetre > 0 else { return nil }
         let pixels = Double(hypot(leg.destination.x - leg.origin.x, leg.destination.y - leg.origin.y))
         guard pixels > 1 else { return nil }
-        return Int((pixels / pixelsPerMetre * yardsPerMetre).rounded())
+        return pixels / pixelsPerMetre
     }
 
     /// The route and tee arc transformed into the viewport (pan/zoom applied).
@@ -448,7 +531,7 @@ enum LivePlannedRouteRenderer {
 
     /// Label strings in layout order: one per leg, then the tee-distance "N码".
     static func labelTexts(_ geometry: ScreenGeometry, pixelsPerMetre: Double) -> [String] {
-        var texts = geometry.legs.map { labelText(for: $0.leg, pixelsPerMetre: pixelsPerMetre) }
+        var texts = labelTexts(legs: geometry.legs.map(\.leg), pixelsPerMetre: pixelsPerMetre)
         if let yards = geometry.teeArcYards { texts.append("\(yards)码") }
         return texts
     }

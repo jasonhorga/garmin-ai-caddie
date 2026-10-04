@@ -31,7 +31,7 @@ func roundReviewFairwayLabel(_ raw: String?) -> String {
 }
 
 /// 单场复盘 (B3, `review.html` screen 1): the saved round summary in the same layout as 本场汇总 —
-/// the big to-par, the cumulative trend, the OUT / IN scorecard (tap a score to open that hole's
+/// the big to-par, the OUT / IN scorecard (tap a score to open that hole's
 /// shots), the four tiles, then 分享. Missing data is not called out: a tile without data is simply
 /// not shown. Data comes from /api/v2/history/rounds/{ref}.
 public struct RoundReviewView: View {
@@ -190,11 +190,6 @@ struct RoundReviewContent: View {
                 let card = RoundReviewScorecard(detail.scorecard)
                 header(detail.round)
                 hero(detail.round, card: card)
-                if !card.cumulativeToPar.isEmpty {
-                    LiveCumulativeTrend(values: card.cumulativeToPar, holeCount: max(card.holes.count, card.cumulativeToPar.count))
-                        .frame(height: 70)
-                        .accessibilityIdentifier("round-review-trend")
-                }
                 if !card.holes.isEmpty {
                     scorecard(card)
                 }

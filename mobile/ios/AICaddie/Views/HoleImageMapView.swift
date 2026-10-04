@@ -100,8 +100,8 @@ public struct HoleImageMapView: View {
     /// the shared map must not add a second rounded card boundary around the instrument backdrop.
     public let showsCardChrome: Bool
     /// Live map-layer controls. Prep/review callers retain the full factual rendering by default.
-    /// The installed tee-to-green centreline is factual map data, not a caddie choice. Keep it
-    /// independent so a detail instrument can hide recommendation arcs without blanking the hole.
+    /// Gates the lightweight fairway band drawn from the installed tee-to-green route while the
+    /// precise map is pending, so a hole is never blank; no centreline is drawn over a real map.
     public let showsFactualRoute: Bool
     public let showsRecommendedRoute: Bool
     public let showsHazards: Bool
@@ -260,12 +260,9 @@ public struct HoleImageMapView: View {
                 showsHazards: showsHazards
             )
         }
-        // The factual route is independent from the caddie response. Draw it first whenever the
-        // map has two projectable points, so a stale/degenerate recommendation can never make an
-        // otherwise usable hole look blank. A valid recommendation is layered above this line.
-        if showsFactualRoute, routePoints.count >= 2 {
-            drawFactualRoute(&context, points: routePoints)
-        }
+        // No thin centreline over the map: the hole's own art (or, before the precise map, the
+        // lightweight fairway band above) already shows the hole, and a second tee-to-green line
+        // read as a competing route next to the caddie's white one (device review, build 77).
         // A recommendation is a flight plan, not the course centreline. Draw one independent arc
         // from Tee/current origin to the selected club's landing and another from landing to flag.
         // Until an authoritative landing distance exists, leave the flight plan absent instead of
@@ -561,20 +558,6 @@ public struct HoleImageMapView: View {
             path,
             with: .color(.white.opacity(0.96)),
             style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
-        )
-    }
-
-    private func drawFactualRoute(_ context: inout GraphicsContext, points: [CGPoint]) {
-        let path = Self.smoothPath(through: points)
-        context.stroke(
-            path,
-            with: .color(.black.opacity(0.42)),
-            style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
-        )
-        context.stroke(
-            path,
-            with: .color(LiveHoleStyle.green.opacity(0.88)),
-            style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
         )
     }
 

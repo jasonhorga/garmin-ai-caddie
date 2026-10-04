@@ -1027,19 +1027,23 @@ public final class OfflineStore {
         guard source.course.globalId > 0,
               source.dataMode != "fixture",
               !source.holes.isEmpty,
-              let package = source.wholeCourseTemplate() else { return }
+              var package = source.wholeCourseTemplate() else { return }
         try package.validatedRoundIdentity()
         try FileManager.default.createDirectory(
             at: courseTemplatesDirectoryURL,
             withIntermediateDirectories: true
         )
         let url = courseTemplateURL(globalId: package.course.globalId, teeBox: package.course.teeBox)
-        if !replacingExisting,
-           FileManager.default.fileExists(atPath: url.path),
+        if FileManager.default.fileExists(atPath: url.path),
            let data = try? Data(contentsOf: url),
-           let existing = try? decoder.decode(LiveRoundPackage.self, from: data).validatedRoundIdentity(),
-           !Self.shouldReplaceCourseTemplate(existing, with: package) {
-            return
+           let existing = try? decoder.decode(LiveRoundPackage.self, from: data).validatedRoundIdentity() {
+            // Per hole, a precise row of the same geometry revision is never downgraded to the
+            // lightweight row a round start or prep request carries; a changed revision still
+            // takes the new row.
+            package = package.carryingPrecisePrep(from: existing)
+            if !replacingExisting, !Self.shouldReplaceCourseTemplate(existing, with: package) {
+                return
+            }
         }
         try encoder.encode(package).write(to: url, options: [.atomic])
     }
@@ -1271,6 +1275,13 @@ public final class OfflineStore {
     ) -> Bool {
         if candidate.holes.count != existing.holes.count {
             return candidate.holes.count > existing.holes.count
+        }
+        // Precise (ready, overlay-bearing) rows first: a lightweight row also has an overlay, so
+        // counting overlays alone let a partial package replace a precise template.
+        let candidatePreciseCount = candidate.coursePrep?.holes.filter(\.isPreciseOfflineMap).count ?? 0
+        let existingPreciseCount = existing.coursePrep?.holes.filter(\.isPreciseOfflineMap).count ?? 0
+        if candidatePreciseCount != existingPreciseCount {
+            return candidatePreciseCount > existingPreciseCount
         }
         let candidatePrepCount = candidate.coursePrep?.holes.filter {
             $0.resolvedMapOverlay != nil

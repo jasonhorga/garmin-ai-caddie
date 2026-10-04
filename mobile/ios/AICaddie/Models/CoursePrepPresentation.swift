@@ -50,7 +50,12 @@ enum PrepHoleRows {
             let prep = template.coursePrep?.holes.first { $0.hole == hole.number }
             let revision = prep?.geometryRevision ?? hole.geometryRevision
             let stale = isStale(hole: hole, installedRevision: revision, required: requiredRevisions)
-            let topo = prep == nil || stale ? nil : topoURL(hole, revision)
+            // The topo bitmap is keyed by the hole's geometry revision, not the Tee, so a Tee whose
+            // prep is still lightweight shows the same downloaded map (device review, build 77:
+            // switching 蓝 T → 白 T dropped the map).
+            let topo = prep == nil || stale
+                ? nil
+                : (topoURL(hole, revision) ?? holeRevisionTopo(hole, revision: revision, topoURL: topoURL))
             let state = LiveMapDisplayState.resolvePrep(
                 prep: prep,
                 hasLocalTopo: topo != nil,
@@ -68,6 +73,16 @@ enum PrepHoleRows {
                 plans: state == .waiting ? [] : PrepPlanOption.options(template: template, hole: hole, prep: prep)
             )
         }
+    }
+
+    /// The hole's own revision, when it names a different bitmap than the prep row's token.
+    private static func holeRevisionTopo(
+        _ hole: Hole,
+        revision: String?,
+        topoURL: (Hole, String?) -> URL?
+    ) -> URL? {
+        guard let holeRevision = hole.geometryRevision, holeRevision != revision else { return nil }
+        return topoURL(hole, holeRevision)
     }
 
     /// A revision the server positively replaced (`PrepCourseDownloadRecord.requiredGeometryRevisions`,
@@ -161,10 +176,17 @@ struct PrepPlanOption: Equatable, Identifiable {
     static func option(route: CaddiePlanSequence, index: Int, par: Int) -> PrepPlanOption? {
         var steps: [Step] = []
         var shots: [MapPlannedShot] = []
+        var previousOffsetM = 0.0
+        let lastIndex = route.steps.lastIndex { !$0.clubName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         for (stepIndex, step) in route.steps.enumerated() {
             let name = step.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty, name != "-" else { continue }
-            steps.append(Step(id: stepIndex, club: displayClub(name), yards: yards(step.targetCarryM)))
+            let offset = step.routeOffsetM ?? step.landingM
+            steps.append(chip(
+                id: stepIndex, name: name, carryM: step.targetCarryM,
+                offsetM: stepIndex == lastIndex ? offset : nil, previousOffsetM: previousOffsetM
+            ))
+            if let offset { previousOffsetM = offset }
             shots.append(MapPlannedShot(
                 id: "prep-\(route.id)-\(step.id)",
                 clubName: name,
@@ -186,10 +208,17 @@ struct PrepPlanOption: Equatable, Identifiable {
     static func installedOption(prep: CoursePrepHole, par: Int) -> PrepPlanOption? {
         var steps: [Step] = []
         var shots: [MapPlannedShot] = []
+        var previousOffsetM = 0.0
+        let lastIndex = prep.steps.lastIndex { !(($0.clubName ?? $0.club ?? "").trimmingCharacters(in: .whitespacesAndNewlines)).isEmpty }
         for (index, step) in prep.steps.enumerated() {
             let name = (step.clubName ?? step.club ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty, name != "-" else { continue }
-            steps.append(Step(id: index, club: displayClub(name), yards: yards(step.targetCarryM)))
+            let offset = step.routeOffsetM ?? step.landingM
+            steps.append(chip(
+                id: index, name: name, carryM: step.targetCarryM,
+                offsetM: index == lastIndex ? offset : nil, previousOffsetM: previousOffsetM
+            ))
+            if let offset { previousOffsetM = offset }
             shots.append(MapPlannedShot(
                 id: "prep-installed-\(index)-\(name)",
                 clubName: name,
@@ -214,6 +243,14 @@ struct PrepPlanOption: Equatable, Identifiable {
         case "attack": return "进攻"
         default: return "方案 \(index + 1)"
         }
+    }
+
+    /// The chip names the shot as the map label does (`PlannedShotLabel`): the last shot onto the
+    /// green is the leg actually played along the route, not the club's full carry.
+    private static func chip(id: Int, name: String, carryM: Double?, offsetM: Double?, previousOffsetM: Double) -> Step {
+        let played = offsetM.map { $0 - previousOffsetM }
+        let label = PlannedShotLabel.resolve(clubName: name, carryM: carryM, playedM: played)
+        return Step(id: id, club: label.club, yards: label.yards)
     }
 
     /// The same club name the map labels draw (`LivePlannedRouteRenderer.labelText`).

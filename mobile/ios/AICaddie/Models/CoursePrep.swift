@@ -859,6 +859,12 @@ public struct CoursePrepHole: Codable, Equatable {
             }
     }
 
+    /// A downloaded precise hole: its own revision-bound overlay with ready geometry.
+    public var isPreciseOfflineMap: Bool {
+        resolvedMapOverlay != nil
+            && geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
+    }
+
     /// Composite rounds renumber the second CourseView loop from local holes 1...9 to round holes
     /// 10...18. Retain every factual prep field while moving only that display/event identity.
     public func renumbered(to roundHole: Int) -> CoursePrepHole {

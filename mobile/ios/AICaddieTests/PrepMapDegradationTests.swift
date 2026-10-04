@@ -156,6 +156,59 @@ final class PrepMapDegradationTests: XCTestCase {
         XCTAssertEqual(rows[3].yards, holes[3].yards)
     }
 
+    /// Device review (build 77): switching 蓝 T → 白 T dropped the map. The topo is keyed by the
+    /// hole's geometry revision, not the Tee, so a lightweight row still gets the downloaded bitmap.
+    func testLightweightRowStillShowsTheDownloadedTopo() throws {
+        let package = try fixturePackage()
+        let first = try XCTUnwrap(package.holes.min { $0.number < $1.number })
+        let template = package.replacingCoursePrep(CoursePrepPackage(
+            schema: "ai-caddie-course-prep-v1",
+            globalId: package.course.globalId,
+            holes: [try prep(hole: first.number, coverage: "partial", withMap: true, revision: "r1")],
+            missingData: nil
+        ))
+        let topo = URL(fileURLWithPath: "/tmp/topo-1.png")
+        let rows = PrepHoleRows.build(
+            template: template, fallbackHoleCount: 9, downloadActive: false,
+            requiredRevisions: nil, topoURL: { _, _ in topo }
+        )
+        XCTAssertEqual(rows[0].state, .factual, "the row's precision is unchanged")
+        XCTAssertEqual(rows[0].topoURL, topo, "but the downloaded bitmap is shown")
+    }
+
+    /// Device review (build 77): a second start of an already-downloaded course re-waited on every
+    /// hole because the network package's lightweight rows replaced the precise ones.
+    func testPrecisePrepIsCarriedIntoALightweightPackageOfTheSameRevisionAndTee() throws {
+        let package = try fixturePackage()
+        let holes = package.holes.sorted { $0.number < $1.number }
+        let installed = package.replacingCoursePrep(CoursePrepPackage(
+            schema: "ai-caddie-course-prep-v1",
+            globalId: package.course.globalId,
+            holes: [
+                try prep(hole: holes[0].number, coverage: "ready", withMap: true, revision: "r1"),
+                try prep(hole: holes[1].number, coverage: "ready", withMap: true, revision: "r1"),
+            ],
+            missingData: nil
+        ))
+        let remote = package.replacingCoursePrep(CoursePrepPackage(
+            schema: "ai-caddie-course-prep-v1",
+            globalId: package.course.globalId,
+            holes: [
+                try prep(hole: holes[0].number, coverage: "partial", withMap: true, revision: "r1"),
+                // A new Garmin release for this hole: the old precise row must not come back.
+                try prep(hole: holes[1].number, coverage: "partial", withMap: true, revision: "r2"),
+            ],
+            missingData: nil
+        ))
+        let merged = remote.carryingPrecisePrep(from: installed)
+        let rows = Dictionary(uniqueKeysWithValues: (merged.coursePrep?.holes ?? []).map { ($0.hole, $0) })
+        XCTAssertEqual(rows[holes[0].number]?.geometryCoverage, "ready")
+        XCTAssertEqual(rows[holes[1].number]?.geometryCoverage, "partial")
+        XCTAssertEqual(rows[holes[1].number]?.geometryRevision, "r2")
+        // Nothing to carry: the package is returned as is.
+        XCTAssertEqual(remote.carryingPrecisePrep(from: nil), remote)
+    }
+
     func testPositivelyReplacedRevisionShowsTheFactualRouteUntilTheNewMapInstalls() throws {
         let package = try fixturePackage()
         let first = try XCTUnwrap(package.holes.min { $0.number < $1.number })
@@ -481,7 +534,7 @@ final class PrepMapDegradationTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(plans.count, 2, "备战 offers at least two caddie plans")
         // The first plan is the installed CoursePrep chain (the decision engine's stock route).
         XCTAssertEqual(plans[0].title, "推荐")
-        XCTAssertEqual(plans[0].steps.map(\.label), ["一号木 230", "八号铁 164"])
+        XCTAssertEqual(plans[0].steps.map(\.label), ["一号木 230", "切杆 98"])
         XCTAssertEqual(Set(plans.map(\.title)).count, plans.count, "every plan has its own name")
         XCTAssertEqual(Set(plans.map { $0.steps.map(\.label) }).count, plans.count, "no two plans share a club order")
         // Exactly the routes live play resolves for this hole before any network or GPS.
@@ -530,7 +583,9 @@ final class PrepMapDegradationTests: XCTestCase {
         let first = try XCTUnwrap(package.holes.min { $0.number < $1.number })
         let hole = try prep(hole: first.number, coverage: "ready", withMap: true, steps: planSteps)
         let installed = try XCTUnwrap(PrepPlanOption.installedOption(prep: hole, par: 4))
-        XCTAssertEqual(installed.steps.map(\.label), ["一号木 230", "八号铁 164"])
+        // The 8-iron carries 150 m but the green is 90 m from the drive: the finish is a 切杆
+        // (device review, build 77).
+        XCTAssertEqual(installed.steps.map(\.label), ["一号木 230", "切杆 98"])
         XCTAssertEqual(installed.shots.map(\.clubName), ["1D", "8I"])
         XCTAssertNil(PrepPlanOption.installedOption(prep: try prep(coverage: "ready", withMap: true), par: 4))
         XCTAssertTrue(PrepPlanOption.options(template: package, hole: first, prep: nil).isEmpty)

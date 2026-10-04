@@ -1077,7 +1077,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 preparationToken: preparationToken
             )
             guard isCurrentRoundPreparation(preparationToken) else { return }
-            if let remotePackage = fetched {
+            if let remotePackage = fetched.map(carryingInstalledPrecisePrep) {
                 let persisted = try offlineStore.saveRoundPackage(remotePackage)
                 try activatePackage(persisted, status: "已下载离线")
                 rememberRecentCourseSelection(from: persisted)
@@ -1175,7 +1175,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 "course-start.fetch.end globalId=\(globalId) found=\(fetched != nil)"
             )
             guard isCurrentRoundPreparation(preparationToken) else { return }
-            if let remotePackage = fetched {
+            if let remotePackage = fetched.map(carryingInstalledPrecisePrep) {
                 // Warm only the first playable topo while the package is being persisted and the
                 // live view is entering. This shares TopoHoleImageStore's in-flight request with
                 // CurrentHoleView; it is a transient cache, not a full-course offline download.
@@ -1450,6 +1450,19 @@ public final class LiveRoundAppModel: ObservableObject {
             && liveRoundState?.roundId == snapshot.roundId
             && package?.roundId == snapshot.roundId
             && package?.loopKey == snapshot.loopKey
+    }
+
+    /// A network round package carries lightweight prep rows. Where this course and Tee is already
+    /// downloaded, its precise rows of the same geometry revision are the same facts, complete:
+    /// start on them instead of re-waiting for every hole's prep and map (device review, build 77).
+    private func carryingInstalledPrecisePrep(_ remote: LiveRoundPackage) -> LiveRoundPackage {
+        let teeBox = remote.course.teeBox
+        var merged = remote
+        for globalId in Set(remote.holes.map(\.sourceGlobalId)) {
+            let template = (try? offlineStore.loadCourseTemplate(globalId: globalId, teeBox: teeBox)) ?? nil
+            merged = merged.carryingPrecisePrep(from: template)
+        }
+        return merged
     }
 
     private func offlinePrepIsPrecise(_ prep: CoursePrepHole?) -> Bool {

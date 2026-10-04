@@ -748,7 +748,9 @@ struct PrepHoleMapHero: View {
     private func mapView(extension terrain: EdgeInsets, feather: CGFloat) -> HoleImageMapView {
         HoleImageMapView(
             hole: prep,
-            topoURL: row.state == .precise ? row.topoURL : nil,
+            // A downloaded bitmap is shown whatever the row's precision, as live play does; the
+            // state only drives the hole strip and the waiting page.
+            topoURL: row.topoURL,
             showsCardChrome: false,
             showsRecommendedRoute: true,
             // Default-none obstacles (README §1): no spans, no measured labels on 备战.
@@ -765,7 +767,7 @@ struct PrepHoleMapHero: View {
 
     /// "一号木 224" for every leg, exactly as `LivePlannedRouteRenderer` draws them.
     static func landingLabels(legs: [MapPlannedLeg], overlay: CoursePrepOverlay) -> [String] {
-        legs.map { LivePlannedRouteRenderer.labelText(for: $0, pixelsPerMetre: overlay.ppm) }
+        LivePlannedRouteRenderer.labelTexts(legs: legs, pixelsPerMetre: overlay.ppm)
     }
 
     private var displayedScale: CGFloat {
@@ -869,8 +871,8 @@ extension PrepMapLayout {
         if let tee = legs.first?.origin {
             anchors.append(Anchor(point: tee, clearance: CGSize(width: routeMargin, height: routeMargin)))
         }
-        for leg in legs {
-            let text = LivePlannedRouteRenderer.labelText(for: leg, pixelsPerMetre: overlay.ppm)
+        let texts = LivePlannedRouteRenderer.labelTexts(legs: legs, pixelsPerMetre: overlay.ppm)
+        for (leg, text) in zip(legs, texts) {
             anchors.append(Anchor(point: leg.destination, clearance: labelClearance(for: text)))
         }
         var frame: CGRect?

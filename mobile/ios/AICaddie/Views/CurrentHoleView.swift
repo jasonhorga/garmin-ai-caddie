@@ -6,13 +6,6 @@ import AICaddieDomain
 import UIKit
 #endif
 
-/// Round actions chosen on the scorecard sheet (the live screen's 返回 destination) run after the
-/// sheet has closed.
-enum LiveScorecardFollowUp: Equatable {
-    case finishRound
-    case leaveToHome
-}
-
 private struct PendingPhoneShot: Identifiable {
     let locationEvent: LiveRoundEvent
     let shotOrder: Int
@@ -197,9 +190,8 @@ public struct CurrentHoleView: View {
     @State private var showScorecard = false
     @State private var gpsHoleCandidate: LiveHoleGPSCandidate?
     @State private var pendingHistoricalScoreHole: Int?
-    /// What to do after the scorecard sheet (the 返回 destination) closes: its round actions need the
-    /// sheet gone before presenting the summary or leaving the live round.
-    @State private var pendingScorecardAction: LiveScorecardFollowUp?
+    /// The finish page's 放弃本场 asks for its confirmation only after that sheet has closed.
+    @State private var pendingSummaryDiscard = false
     @State private var pendingPhoneShot: PendingPhoneShot?
     @State private var heroMapScale: CGFloat = 1
     @State private var heroMapOffset: CGSize = .zero
@@ -526,7 +518,7 @@ public struct CurrentHoleView: View {
         .sheet(isPresented: $showScorecard, onDismiss: handleScorecardDismissed) {
             scorecardSurface
         }
-        .sheet(isPresented: $showRoundSummary) {
+        .sheet(isPresented: $showRoundSummary, onDismiss: handleRoundSummaryDismissed) {
             roundSummarySurface
         }
         .sheet(isPresented: Binding(
@@ -561,16 +553,17 @@ public struct CurrentHoleView: View {
             turnContinuationPending = false
             turnRetryPlan = nil
         }
+        // One confirmation, presented only after the sheet that asked for it has closed. Discarding
+        // clears the live round, which returns the NavigationStack to the home by itself.
         .confirmationDialog(
-            "放弃这场球局？",
+            "确定放弃本场？",
             isPresented: $showDiscardConfirmation,
             titleVisibility: .visible
         ) {
-            Button("放弃并删除本场记录", role: .destructive) {
+            Button("放弃本场", role: .destructive) {
                 onDiscardRound()
-                dismiss()
             }
-            Button("继续打球", role: .cancel) {}
+            Button("取消", role: .cancel) {}
         } message: {
             Text("放弃后这一场不会保存，已记的 \(completedHoleStates.count) 洞成绩、落点和待上传媒体会删除。")
         }
@@ -599,13 +592,22 @@ public struct CurrentHoleView: View {
         ZStack {
             VStack(spacing: 0) {
                 HStack(alignment: .top, spacing: 8) {
-                    LivePlayTopInfo(
-                        holeNumber: hole.courseHoleNumber,
-                        par: hole.par,
-                        yards: hole.yards,
-                        roundLine: liveRoundLine,
-                        onBack: { showScorecard = true }
-                    )
+                    VStack(alignment: .leading, spacing: 10) {
+                        // 返回 goes straight home and keeps the round (device review, build 77);
+                        // the hole facts open the 计分卡, and 结束本场 opens the finish page.
+                        LivePlayTopInfo(
+                            holeNumber: hole.courseHoleNumber,
+                            par: hole.par,
+                            yards: hole.yards,
+                            roundLine: liveRoundLine,
+                            onBack: { dismiss() }
+                        )
+                        LivePlayRoundButtons(
+                            onOpenScorecard: { showScorecard = true },
+                            onEndRound: { showRoundSummary = true }
+                        )
+                        .padding(.leading, 52)
+                    }
                     Spacer(minLength: 8)
                     LivePlayGreenLadder(
                         frontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
@@ -737,16 +739,14 @@ public struct CurrentHoleView: View {
 
     private func handleScorecardDismissed() {
         presentPendingHistoricalScoreEdit()
-        let followUp = pendingScorecardAction
-        pendingScorecardAction = nil
-        switch followUp {
-        case .finishRound:
-            showRoundSummary = true
-        case .leaveToHome:
-            dismiss()
-        case nil:
-            break
-        }
+    }
+
+    /// The summary's 放弃本场 asks for the confirmation once the summary sheet is gone; presenting
+    /// it while the sheet is still dismissing drops it and leaves the player on the map.
+    private func handleRoundSummaryDismissed() {
+        guard pendingSummaryDiscard else { return }
+        pendingSummaryDiscard = false
+        showDiscardConfirmation = true
     }
 
     #if DEBUG
@@ -849,14 +849,6 @@ public struct CurrentHoleView: View {
                 pendingHistoricalScoreHole = selectedHole
                 showScorecard = false
             },
-            onFinishRound: {
-                pendingScorecardAction = .finishRound
-                showScorecard = false
-            },
-            onLeaveToHome: {
-                pendingScorecardAction = .leaveToHome
-                showScorecard = false
-            },
             roundAdjustments: AnyView(
                 VStack(spacing: 12) {
                     if Self.showsMediaCaptureCard {
@@ -886,8 +878,8 @@ public struct CurrentHoleView: View {
             },
             onContinue: { showRoundSummary = false },
             onDiscard: {
+                pendingSummaryDiscard = true
                 showRoundSummary = false
-                showDiscardConfirmation = true
             }
         )
     }
@@ -1838,15 +1830,28 @@ public struct CurrentHoleView: View {
     }
 
     private var hasCachedTopoForCurrentHole: Bool {
-        guard let holePrep,
-              let offlineStore else { return false }
-        let mapGlobalId = hole.sourceGlobalId
-        let mapLocalHole = hole.sourceLocalHole
+        holePrep != nil && localTopoURL != nil
+    }
+
+    /// The downloaded topo of this physical hole. The bitmap is keyed by the hole's geometry
+    /// revision; a lightweight prep row may carry its own token, so the hole's revision is the
+    /// fallback before treating the map as missing (and waiting on the network for it).
+    private var localTopoURL: URL? {
+        guard let offlineStore else { return nil }
+        let prepRevision = holePrep?.geometryRevision ?? hole.geometryRevision
+        if let url = offlineStore.loadCourseTopoImageURL(
+            globalId: hole.sourceGlobalId,
+            localHole: hole.sourceLocalHole,
+            geometryRevision: prepRevision
+        ) {
+            return url
+        }
+        guard let holeRevision = hole.geometryRevision, holeRevision != prepRevision else { return nil }
         return offlineStore.loadCourseTopoImageURL(
-            globalId: mapGlobalId,
-            localHole: mapLocalHole,
-            geometryRevision: holePrep.geometryRevision ?? hole.geometryRevision
-        ) != nil
+            globalId: hole.sourceGlobalId,
+            localHole: hole.sourceLocalHole,
+            geometryRevision: holeRevision
+        )
     }
 
     /// 本洞真实地形底图 URL(与 `loadHoleMap` 用同一 source 球场 + 本地洞号:组合局后九在第二个环的
@@ -1855,11 +1860,7 @@ public struct CurrentHoleView: View {
         let mapGlobalId = hole.sourceGlobalId
         let mapLocalHole = hole.sourceLocalHole
         let geometryRevision = holePrep?.geometryRevision ?? hole.geometryRevision
-        if let local = offlineStore?.loadCourseTopoImageURL(
-            globalId: mapGlobalId,
-            localHole: mapLocalHole,
-            geometryRevision: geometryRevision
-        ) {
+        if let local = localTopoURL {
             return local
         }
         guard holePrep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
@@ -3523,6 +3524,16 @@ public struct CurrentHoleView: View {
         }
 
         let requestedBeforePrep = holePrep == nil
+        // Show the saved plan while the online caddie answers: a hole whose facts are on disk is
+        // playable at once, and the online response replaces this seed when it arrives.
+        if caddieDecision == nil,
+           let seeded = makeOfflineCaddieDecision(),
+           !seeded.isLocalNoRoute,
+           LiveCaddieDecisionUsability.hasRecommendation(seeded) {
+            caddieDecision = seeded
+            caddieDecisionOriginShot = originShot
+            syncStrategyModeToDecision(seeded)
+        }
         do {
             let response = try await effectiveClient.fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)
             guard !Task.isCancelled, requestGeneration == caddieRequestGeneration else { return }
@@ -3851,17 +3862,11 @@ public struct CurrentHoleView: View {
     }
 
     private var completedHoleScores: [Int: LiveHoleScore] {
-        Dictionary(uniqueKeysWithValues: completedHoleStates.map { entry in
-            (entry.hole.number, LiveHoleScore(
-                hole: entry.hole.number,
-                par: entry.hole.par,
-                score: entry.state.score,
-                putts: entry.state.putts,
-                penalties: entry.state.penaltyCount,
-                fairway: entry.state.fairwayResult,
-                source: entry.state.scoreSource
-            ))
-        })
+        LiveRoundFinishSummaryView.completedScores(
+            holes: package.holes,
+            liveRoundState: liveRoundState,
+            recordedScoreHoles: recordedScoreHoles
+        )
     }
 
     private func presentPendingHistoricalScoreEdit() {
