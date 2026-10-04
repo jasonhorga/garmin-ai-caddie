@@ -2200,7 +2200,7 @@ public struct CurrentHoleView: View {
         var images: [Data] = []
         for item in items.prefix(3) {
             if let data = try? await item.loadTransferable(type: Data.self),
-               let jpeg = Self.pinSheetJPEG(data) {
+               let jpeg = PinSheetPhoto.jpeg(data) {
                 images.append(jpeg)
             }
         }
@@ -2208,48 +2208,29 @@ public struct CurrentHoleView: View {
             pinSheetMessage = "没能打开这张照片"
             return
         }
-        do {
-            let reply = try await mediaUploadClient.readPinSheet(jpegImages: images)
-            let firstGlobalId = package.roundLoops.first?.globalId ?? package.course.globalId
-            var loops: [(label: String, globalId: Int)] = []
-            if let active = courseOptions.first(where: { $0.globalId == firstGlobalId }),
-               active.resolvedHoles == 9 {
-                loops = NineLoopTurn.siblings(of: active, in: courseOptions).compactMap { option in
-                    option.resolvedSegmentLabel.map { (label: $0, globalId: option.globalId) }
-                }
+        let firstGlobalId = package.roundLoops.first?.globalId ?? package.course.globalId
+        var loops: [(label: String, globalId: Int)] = []
+        if let active = courseOptions.first(where: { $0.globalId == firstGlobalId }),
+           active.resolvedHoles == 9 {
+            loops = NineLoopTurn.siblings(of: active, in: courseOptions).compactMap { option in
+                option.resolvedSegmentLabel.map { (label: $0, globalId: option.globalId) }
             }
-            let pins = DailyPinSheet.mapping(holes: reply.holes, loops: loops, singleCourseGlobalId: firstGlobalId)
-            guard !pins.isEmpty else {
-                pinSheetMessage = "没读到旗位，换一张更清楚的照片试试"
-                return
-            }
-            // The sheet is for today; a printed date only labels it.
-            let sheet = DailyPinSheet(date: DailyPinSheet.day(Date()), pins: pins)
-            try? offlineStore?.saveDailyPinSheet(sheet)
+        }
+        let store = offlineStore
+        let importer = PinSheetImporter(
+            read: { try await mediaUploadClient.readPinSheet(jpegImages: $0) },
+            save: { sheet in _ = try store?.saveDailyPinSheet(sheet) }
+        )
+        let outcome = await importer.run(
+            jpegImages: images,
+            loops: loops,
+            singleCourseGlobalId: firstGlobalId,
+            today: DailyPinSheet.day(Date())
+        )
+        if case .applied(let sheet) = outcome {
             dailyPinSheet = sheet
-            pinSheetMessage = "已读到 \(pins.count) 洞旗位" + (reply.date.map { "（\($0)）" } ?? "")
-        } catch {
-            pinSheetMessage = "洞位图读取失败，请重试"
         }
-    }
-
-    /// The long side capped at 2000 px: the printed numbers stay legible, the upload stays small.
-    private static func pinSheetJPEG(_ data: Data) -> Data? {
-        #if canImport(UIKit)
-        guard let image = UIImage(data: data) else { return nil }
-        let longest = max(image.size.width, image.size.height)
-        guard longest > 0 else { return nil }
-        let scale = min(1, 2000 / longest)
-        let size = CGSize(width: (image.size.width * scale).rounded(), height: (image.size.height * scale).rounded())
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 1
-        let resized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            image.draw(in: CGRect(origin: .zero, size: size))
-        }
-        return resized.jpegData(compressionQuality: 0.8)
-        #else
-        return data
-        #endif
+        pinSheetMessage = outcome.message
     }
 
     /// The legacy Watch/event payload has one coordinate tuple. Until that contract grows a second

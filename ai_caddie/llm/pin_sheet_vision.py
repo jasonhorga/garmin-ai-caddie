@@ -10,6 +10,10 @@ printed on the sheet are returned; the app places the flag on its own green geom
 * the drawn flag dot as fractions of the drawn green (``dotU`` front→back, ``dotV`` left→right),
   which also disambiguates a concave green;
 * a front / middle / back ``zone`` when that is all the sheet says.
+
+A venue of nine-hole loops may number its sheet straight through (1–27) or per loop (A1…A9, or an
+"A" section with holes 1–9). A per-loop sheet carries the printed loop label (``loop``) with the
+hole number inside that loop, so the app never maps a later loop's 1–9 onto the first loop.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Iterable, cast
 
 from ai_caddie.llm.llm_providers import LLMMediaPart, LLMMessage, MultimodalProvider
@@ -24,6 +29,7 @@ from ai_caddie.llm.llm_providers import LLMMediaPart, LLMMessage, MultimodalProv
 PIN_SHEET_SCHEMA = "ai-caddie-pin-sheet-v1"
 MAX_SHEET_HOLE = 36
 MAX_YARDS = 80
+MAX_LOOP_LABEL = 12
 
 _SYSTEM = (
     "You read golf hole-location sheets (pin sheets). Report only what is printed; never guess a "
@@ -39,9 +45,17 @@ Conventions of the header pair "A,B<side>":
 - B = yards from the flag to the green edge on <side> (L = left edge, R = right edge), measured
   straight across at the flag's depth. "22C" means 22 yards deep on the centre line.
 
+Hole numbering: if the sheet numbers holes straight through (1, 2, … 27), give that number and
+"loop": null. If it numbers per loop or course (A1…A9, B1…, or a section titled "A" / "A场" /
+"East" with holes 1–9), give the loop label as printed in "loop" (e.g. "A") and the hole number
+inside that loop in "hole".
+
+Give "date" only when a full date (with the year) is printed; otherwise null.
+
 Return JSON exactly in this shape:
 {"date": "YYYY-MM-DD" or null,
- "holes": [{"hole": <int as printed>,
+ "holes": [{"loop": <string or null>,
+            "hole": <int as printed>,
             "fromFrontYd": <int or null>,
             "side": "L" | "R" | "C" | null,
             "fromSideYd": <int or null>,
@@ -86,17 +100,27 @@ def parse_pin_sheet_reply(reply: str) -> dict[str, Any]:
     rows = root.get("holes")
     if not isinstance(rows, list):
         raise PinSheetReadError("the reply has no holes")
-    holes: dict[int, dict[str, Any]] = {}
+    # One row per (loop, hole): the same box seen in two overlapping photos keeps its first read,
+    # while A1 and B1 stay distinct holes.
+    holes: dict[tuple[str, int], dict[str, Any]] = {}
     for row in rows:
         normalised = _hole(row)
-        if normalised is not None and normalised["hole"] not in holes:
-            holes[normalised["hole"]] = normalised
+        if normalised is None:
+            continue
+        key = (normalised["loop"] or "", normalised["hole"])
+        if key not in holes:
+            holes[key] = normalised
     if not holes:
         raise PinSheetReadError("no hole on the sheet has a usable flag position")
+    labelled = {loop for loop, _ in holes if loop}
+    if labelled and any(not loop for loop, _ in holes):
+        raise PinSheetReadError("the sheet mixes per-loop and straight-through hole numbers")
+    if labelled and any(number > 18 for _, number in holes):
+        raise PinSheetReadError("a per-loop hole number is out of range")
     return {
         "schema": PIN_SHEET_SCHEMA,
         "date": _date(root.get("date")),
-        "holes": [holes[number] for number in sorted(holes)],
+        "holes": [holes[key] for key in sorted(holes)],
     }
 
 
@@ -141,6 +165,7 @@ def _hole(row: object) -> dict[str, Any] | None:
     if not (has_numbers or has_dot or zone):
         return None
     return {
+        "loop": _loop(row.get("loop")),
         "hole": number,
         "fromFrontYd": from_front if has_numbers else None,
         "side": side if has_numbers else None,
@@ -150,6 +175,15 @@ def _hole(row: object) -> dict[str, Any] | None:
         "dotV": dot_v if has_dot else None,
         "zone": zone,
     }
+
+
+def _loop(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    label = value.strip().upper()
+    if not label or len(label) > MAX_LOOP_LABEL or label in {"NULL", "NONE"}:
+        return None
+    return label
 
 
 def _int(value: object, low: int, high: int) -> int | None:
@@ -174,6 +208,9 @@ def _fraction(value: object) -> float | None:
 
 
 def _date(value: object) -> str | None:
-    if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value.strip()):
-        return value.strip()
-    return None
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value.strip()):
+        return None
+    try:
+        return date.fromisoformat(value.strip()).isoformat()
+    except ValueError:
+        return None

@@ -5,6 +5,8 @@ import Foundation
 /// the right edge at that depth; "22C" = on the centre line), the drawn flag dot as fractions of the
 /// drawn green, or only a front / middle / back zone.
 public struct PinSheetHole: Codable, Equatable, Sendable {
+    /// The printed loop label of a per-loop sheet ("A" for A1…A9); nil when numbered straight through.
+    public let loop: String?
     public let hole: Int
     public let fromFrontYd: Int?
     public let side: String?
@@ -15,6 +17,7 @@ public struct PinSheetHole: Codable, Equatable, Sendable {
     public let zone: String?
 
     public init(
+        loop: String? = nil,
         hole: Int,
         fromFrontYd: Int? = nil,
         side: String? = nil,
@@ -24,6 +27,7 @@ public struct PinSheetHole: Codable, Equatable, Sendable {
         dotV: Double? = nil,
         zone: String? = nil
     ) {
+        self.loop = loop
         self.hole = hole
         self.fromFrontYd = fromFrontYd
         self.side = side

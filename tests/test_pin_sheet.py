@@ -4,8 +4,10 @@ from __future__ import annotations
 import base64
 import json
 import unittest
+from unittest.mock import patch
 
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from starlette.datastructures import QueryParams
 
 from ai_caddie.llm.pin_sheet_vision import (
@@ -14,7 +16,7 @@ from ai_caddie.llm.pin_sheet_vision import (
     parse_pin_sheet_reply,
     read_pin_sheet,
 )
-from server_v2.main import _requires_admin_token
+from server_v2.main import _requires_admin_token, app
 from server_v2.models import PinSheetImageIn, PinSheetRequest
 from server_v2.players_api import is_player_scoped_route
 from server_v2 import pin_sheet as pin_sheet_api
@@ -71,6 +73,83 @@ class PinSheetParseTests(unittest.TestCase):
         self.assertEqual(len(media), 2)
         with self.assertRaises(PinSheetReadError):
             read_pin_sheet([PinSheetImage("image/jpeg", JPEG)], object())
+
+
+class PinSheetNumberingTests(unittest.TestCase):
+    def test_per_loop_numbering_keeps_each_loop_and_straight_through_has_no_loop(self) -> None:
+        per_loop = parse_pin_sheet_reply(json.dumps({"holes": [
+            {"loop": "b", "hole": 1, "zone": "front"},
+            {"loop": "A", "hole": 1, "zone": "back"},
+            {"loop": "A", "hole": 1, "zone": "middle"},
+            {"loop": "A", "hole": 9, "zone": "middle"},
+        ]}))
+        self.assertEqual(
+            [(row["loop"], row["hole"], row["zone"]) for row in per_loop["holes"]],
+            [("A", 1, "back"), ("A", 9, "middle"), ("B", 1, "front")],
+            "A1 and B1 are different holes; a repeated A1 (overlapping photos) keeps its first read",
+        )
+        straight = parse_pin_sheet_reply(json.dumps({"holes": [
+            {"loop": None, "hole": 19, "zone": "front"}, {"hole": 1, "zone": "back"},
+        ]}))
+        self.assertEqual([(row["loop"], row["hole"]) for row in straight["holes"]], [(None, 1), (None, 19)])
+
+    def test_unsupported_numbering_is_rejected_not_guessed(self) -> None:
+        for holes in (
+            [{"loop": "A", "hole": 1, "zone": "front"}, {"hole": 10, "zone": "front"}],
+            [{"loop": "A", "hole": 27, "zone": "front"}],
+        ):
+            with self.assertRaises(PinSheetReadError):
+                parse_pin_sheet_reply(json.dumps({"holes": holes}))
+
+    def test_only_a_real_calendar_date_is_passed_on(self) -> None:
+        row = [{"hole": 1, "zone": "front"}]
+        self.assertEqual(parse_pin_sheet_reply(json.dumps({"date": "2026-10-04", "holes": row}))["date"], "2026-10-04")
+        for printed in ("2026-02-30", "10-04", "Oct 4", None):
+            self.assertIsNone(parse_pin_sheet_reply(json.dumps({"date": printed, "holes": row}))["date"])
+
+
+class PinSheetEndpointTests(unittest.TestCase):
+    """The whole server path: auth gate → body → image checks → provider → normalised reply."""
+
+    ADMIN_ENV = {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}
+    ADMIN_HEADER = {"X-AI-Caddie-Admin-Token": "admin-secret"}
+
+    def _post(self, client: TestClient, headers: dict, images: list[bytes]):
+        return client.post(
+            "/api/v2/mobile/pin-sheet",
+            headers=headers,
+            json={"images": [{"contentBase64": base64.b64encode(data).decode(), "mimeType": "image/jpeg"} for data in images]},
+        )
+
+    def test_authenticated_post_returns_the_read_sheet_and_failures_map_to_statuses(self) -> None:
+        client = TestClient(app)
+        reply = json.dumps({"date": "2026-10-04", "holes": [
+            {"hole": 20, "fromFrontYd": 40, "side": "R", "fromSideYd": 6, "depthYd": 45},
+        ]})
+        with patch.dict("os.environ", self.ADMIN_ENV):
+            unauthenticated = self._post(client, {}, [JPEG])
+            with patch("server_v2.pin_sheet.build_media_vision_provider", return_value=_Provider(reply)) as built:
+                ok = self._post(client, self.ADMIN_HEADER, [JPEG, JPEG])
+            with patch("server_v2.pin_sheet.build_media_vision_provider", return_value=_Provider("no json")):
+                unreadable = self._post(client, self.ADMIN_HEADER, [JPEG])
+            with patch("server_v2.pin_sheet.build_media_vision_provider", side_effect=RuntimeError("boom key=sk-secret")):
+                broken = self._post(client, self.ADMIN_HEADER, [JPEG])
+            not_image = self._post(client, self.ADMIN_HEADER, [b"hello"])
+            too_many = self._post(client, self.ADMIN_HEADER, [JPEG] * 4)
+
+        self.assertEqual(unauthenticated.status_code, 401)
+        self.assertEqual(ok.status_code, 200, ok.text)
+        self.assertEqual(ok.json(), {
+            "schema": "ai-caddie-pin-sheet-v1",
+            "date": "2026-10-04",
+            "holes": [{"loop": None, "hole": 20, "fromFrontYd": 40, "side": "R", "fromSideYd": 6,
+                       "depthYd": 45, "dotU": None, "dotV": None, "zone": None}],
+        })
+        self.assertEqual(built.call_count, 1)
+        self.assertEqual(unreadable.status_code, 422)
+        self.assertEqual(broken.status_code, 502)
+        self.assertEqual(not_image.status_code, 415)
+        self.assertEqual(too_many.status_code, 422)
 
 
 class PinSheetRouteTests(unittest.TestCase):
