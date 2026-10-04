@@ -3,7 +3,7 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-04 07:03 UTC
+**Updated:** 2026-10-04 08:59 UTC
 **Canonical branch:** `main`
 **Product app tip:** `9f44574556084ee9a57f43a44424c770e0a76338`
 **Product backend tip:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
@@ -94,6 +94,10 @@ Main CI `37182569027` for head `47e2a0905f80e09f1949d0302f97c7ceb6ee3f1f`
 completed successfully with frontend/backend/docker green; no PR event or
 actionable feedback was returned. Wait log:
 `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T062810Z-3816248.log`.
+Owner-requested live release gate `37185535082` at exact head `2417948a` failed
+in real iOS flow (start-round path assertion and round `17711803` hole-3
+shotmap timeouts); no TestFlight upload was started. Failure comment:
+`5978304683`; waiter log `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37185535082-20261004T072243Z-4113818.log`.
 Waiter implementation commit `ea0cee78` CI `37178724632` completed
 successfully with no failed jobs. The new script atomically updated
 `latest-result.txt`; log:
@@ -109,9 +113,9 @@ this slice.
    use it only for an external or real-work PR/release conclusion.
 2. Keep the existing PR feedback monitor running and deduplicate any new
    repository feedback against this ledger; do not start a second monitor.
-3. Review new actionable feedback or the next PR on its exact head; require
-   relevant tests and successful Native CI with design/Watch artifact review
-   for iOS/Watch changes. No pending PR #375 blocker remains.
+3. PR #376 exact head `ef787ca5` has review comment `5977866424` with three
+   P2 merge blockers; do not merge until addressed. Review later feedback on
+   its exact head with required tests and Native/design artifact evidence.
 4. Physical iPhone/Watch evidence remains open now that build 77 is available.
 
 ## Live verification baseline
@@ -166,14 +170,15 @@ this slice.
   Do not start the retired tmux loop or a second writer.
 - Blocking feedback waiter `codex-pr-feedback-wait-20261004` was stopped at the
   owner's direction after the docs-only CI loop; no Codex waiter is active.
-  Reuse it only for an external or real-work conclusion. Its one-line result
-  remains `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/latest-result.txt`.
+  Reuse it only for an external or real-work conclusion. Native gate
+  `codex-native-2417948a-20261004` also ended after run `37185535082` failed;
+  its one-line result is retained under `native-2417948a-result.txt`.
 
 ## Next action and stop conditions
 
-Next action is to let the existing monitor observe external PR feedback; handle
-only actionable events or CI attached to real work. Keep external distribution
-disabled and do not change production.
+Next action is to keep release stopped pending the owner/Claude fix for the
+Native live-flow failures, while the existing monitor observes external PR
+feedback. Keep TestFlight/external distribution disabled and do not change production.
 
 Owner end condition: end this goal no later than **2026-10-09 23:59 UTC**;
 it may end earlier after **48 consecutive hours with no new PR event and no
