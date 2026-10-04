@@ -3,7 +3,7 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-04 06:48 UTC
+**Updated:** 2026-10-04 07:03 UTC
 **Canonical branch:** `main`
 **Product app tip:** `9f44574556084ee9a57f43a44424c770e0a76338`
 **Product backend tip:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
@@ -37,9 +37,9 @@ distribution remains disabled.
 The blocking waiter and rule are pushed (`a7657f76`, follow-ups through
 `b11b2dba`, rule clarification `51c7d608`, result persistence `ea0cee78`). It owns the wait, ignores
 non-terminal CI events, and returns one summary line; do not interleave
-main-thread `gh run view`, `ps`, state reads or sleep loops. The owner-directed
-feedback waiter stop is recorded below; do not restart it for Codex's own
-docs/state-only CI events.
+main-thread `gh run view`, `ps`, state reads or sleep loops. The waiter now
+checks run head/provenance and ignores Codex's own docs/state-only CI events;
+the owner-directed stop remains recorded below.
 Each return atomically replaces `latest-result.txt`; a local timeout test and
 remote SHA check passed.
 

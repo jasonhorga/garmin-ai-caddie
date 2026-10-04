@@ -109,6 +109,8 @@ Do not create a commit solely to record a CI conclusion. Record CI evidence in
 `PROJECT_STATE.md` only when it accompanies real code, review, operations, or
 policy work. Ignore CI events caused only by Codex's own docs/state bookkeeping;
 they must not wake a feedback loop or reset the owner's 48-hour quiet interval.
+The waiter implementation must inspect the run head and commit provenance
+before accepting a repository-wide CI event; real code or PR CI remains actionable.
 
 ### GitHub comment attribution
 
