@@ -247,6 +247,53 @@ public struct LiveRoundPackage: Codable, Equatable {
         return holes.allSatisfy { seededHoles.contains($0.number) }
     }
 
+    /// Carry precise prep rows from `retained` (the same course and Tee) into this package wherever
+    /// this package's row for the same physical hole is not precise and the hole's geometry
+    /// revision is unchanged. A network package's lightweight rows therefore never displace an
+    /// already-downloaded precise map: the precise row is the same fact, just complete (device
+    /// review, build 77: a second start of the same course re-waited on every hole).
+    public func carryingPrecisePrep(from retained: LiveRoundPackage?) -> LiveRoundPackage {
+        guard let retained,
+              retained.course.teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                == course.teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            return self
+        }
+        var retainedByPhysicalHole: [String: CoursePrepHole] = [:]
+        for hole in retained.holes {
+            guard let row = retained.coursePrep?.holes.first(where: { $0.hole == hole.number }),
+                  row.isPreciseOfflineMap else { continue }
+            retainedByPhysicalHole["\(hole.sourceGlobalId):\(hole.sourceLocalHole)"] = row
+        }
+        guard !retainedByPhysicalHole.isEmpty else { return self }
+        var rows = Dictionary(uniqueKeysWithValues: (coursePrep?.holes ?? []).map { ($0.hole, $0) })
+        var changed = false
+        for hole in holes {
+            let current = rows[hole.number]
+            guard current?.isPreciseOfflineMap != true,
+                  let precise = retainedByPhysicalHole["\(hole.sourceGlobalId):\(hole.sourceLocalHole)"] else {
+                continue
+            }
+            let expected = hole.geometryRevision ?? current?.geometryRevision
+            guard Self.sameRevision(expected, precise.geometryRevision) else { continue }
+            rows[hole.number] = precise.renumbered(to: hole.number)
+            changed = true
+        }
+        guard changed else { return self }
+        return replacingCoursePrep(CoursePrepPackage(
+            schema: coursePrep?.schema ?? "ai-caddie-course-prep-v1",
+            globalId: coursePrep?.globalId ?? course.globalId,
+            holes: rows.values.sorted { $0.hole < $1.hole },
+            missingData: coursePrep?.missingData
+        ))
+    }
+
+    private static func sameRevision(_ lhs: String?, _ rhs: String?) -> Bool {
+        guard let lhs = lhs?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              let rhs = rhs?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !lhs.isEmpty, !rhs.isEmpty else { return false }
+        return lhs == rhs
+    }
+
     public func replacingCoursePrep(_ nextCoursePrep: CoursePrepPackage?) -> LiveRoundPackage {
         LiveRoundPackage(
             schema: schema,

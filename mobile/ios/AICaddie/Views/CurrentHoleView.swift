@@ -1861,15 +1861,28 @@ public struct CurrentHoleView: View {
     }
 
     private var hasCachedTopoForCurrentHole: Bool {
-        guard let holePrep,
-              let offlineStore else { return false }
-        let mapGlobalId = hole.sourceGlobalId
-        let mapLocalHole = hole.sourceLocalHole
+        holePrep != nil && localTopoURL != nil
+    }
+
+    /// The downloaded topo of this physical hole. The bitmap is keyed by the hole's geometry
+    /// revision; a lightweight prep row may carry its own token, so the hole's revision is the
+    /// fallback before treating the map as missing (and waiting on the network for it).
+    private var localTopoURL: URL? {
+        guard let offlineStore else { return nil }
+        let prepRevision = holePrep?.geometryRevision ?? hole.geometryRevision
+        if let url = offlineStore.loadCourseTopoImageURL(
+            globalId: hole.sourceGlobalId,
+            localHole: hole.sourceLocalHole,
+            geometryRevision: prepRevision
+        ) {
+            return url
+        }
+        guard let holeRevision = hole.geometryRevision, holeRevision != prepRevision else { return nil }
         return offlineStore.loadCourseTopoImageURL(
-            globalId: mapGlobalId,
-            localHole: mapLocalHole,
-            geometryRevision: holePrep.geometryRevision ?? hole.geometryRevision
-        ) != nil
+            globalId: hole.sourceGlobalId,
+            localHole: hole.sourceLocalHole,
+            geometryRevision: holeRevision
+        )
     }
 
     /// 本洞真实地形底图 URL(与 `loadHoleMap` 用同一 source 球场 + 本地洞号:组合局后九在第二个环的
@@ -1878,11 +1891,7 @@ public struct CurrentHoleView: View {
         let mapGlobalId = hole.sourceGlobalId
         let mapLocalHole = hole.sourceLocalHole
         let geometryRevision = holePrep?.geometryRevision ?? hole.geometryRevision
-        if let local = offlineStore?.loadCourseTopoImageURL(
-            globalId: mapGlobalId,
-            localHole: mapLocalHole,
-            geometryRevision: geometryRevision
-        ) {
+        if let local = localTopoURL {
             return local
         }
         guard holePrep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
@@ -3546,6 +3555,16 @@ public struct CurrentHoleView: View {
         }
 
         let requestedBeforePrep = holePrep == nil
+        // Show the saved plan while the online caddie answers: a hole whose facts are on disk is
+        // playable at once, and the online response replaces this seed when it arrives.
+        if caddieDecision == nil,
+           let seeded = makeOfflineCaddieDecision(),
+           !seeded.isLocalNoRoute,
+           LiveCaddieDecisionUsability.hasRecommendation(seeded) {
+            caddieDecision = seeded
+            caddieDecisionOriginShot = originShot
+            syncStrategyModeToDecision(seeded)
+        }
         do {
             let response = try await effectiveClient.fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)
             guard !Task.isCancelled, requestGeneration == caddieRequestGeneration else { return }

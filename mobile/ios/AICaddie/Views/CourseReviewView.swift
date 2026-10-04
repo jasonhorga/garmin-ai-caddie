@@ -748,7 +748,9 @@ struct PrepHoleMapHero: View {
     private func mapView(extension terrain: EdgeInsets, feather: CGFloat) -> HoleImageMapView {
         HoleImageMapView(
             hole: prep,
-            topoURL: row.state == .precise ? row.topoURL : nil,
+            // A downloaded bitmap is shown whatever the row's precision, as live play does; the
+            // state only drives the hole strip and the waiting page.
+            topoURL: row.topoURL,
             showsCardChrome: false,
             showsRecommendedRoute: true,
             // Default-none obstacles (README §1): no spans, no measured labels on 备战.

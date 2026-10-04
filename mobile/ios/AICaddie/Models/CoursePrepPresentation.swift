@@ -50,7 +50,12 @@ enum PrepHoleRows {
             let prep = template.coursePrep?.holes.first { $0.hole == hole.number }
             let revision = prep?.geometryRevision ?? hole.geometryRevision
             let stale = isStale(hole: hole, installedRevision: revision, required: requiredRevisions)
-            let topo = prep == nil || stale ? nil : topoURL(hole, revision)
+            // The topo bitmap is keyed by the hole's geometry revision, not the Tee, so a Tee whose
+            // prep is still lightweight shows the same downloaded map (device review, build 77:
+            // switching 蓝 T → 白 T dropped the map).
+            let topo = prep == nil || stale
+                ? nil
+                : (topoURL(hole, revision) ?? holeRevisionTopo(hole, revision: revision, topoURL: topoURL))
             let state = LiveMapDisplayState.resolvePrep(
                 prep: prep,
                 hasLocalTopo: topo != nil,
@@ -68,6 +73,16 @@ enum PrepHoleRows {
                 plans: state == .waiting ? [] : PrepPlanOption.options(template: template, hole: hole, prep: prep)
             )
         }
+    }
+
+    /// The hole's own revision, when it names a different bitmap than the prep row's token.
+    private static func holeRevisionTopo(
+        _ hole: Hole,
+        revision: String?,
+        topoURL: (Hole, String?) -> URL?
+    ) -> URL? {
+        guard let holeRevision = hole.geometryRevision, holeRevision != revision else { return nil }
+        return topoURL(hole, holeRevision)
     }
 
     /// A revision the server positively replaced (`PrepCourseDownloadRecord.requiredGeometryRevisions`,

@@ -156,6 +156,59 @@ final class PrepMapDegradationTests: XCTestCase {
         XCTAssertEqual(rows[3].yards, holes[3].yards)
     }
 
+    /// Device review (build 77): switching 蓝 T → 白 T dropped the map. The topo is keyed by the
+    /// hole's geometry revision, not the Tee, so a lightweight row still gets the downloaded bitmap.
+    func testLightweightRowStillShowsTheDownloadedTopo() throws {
+        let package = try fixturePackage()
+        let first = try XCTUnwrap(package.holes.min { $0.number < $1.number })
+        let template = package.replacingCoursePrep(CoursePrepPackage(
+            schema: "ai-caddie-course-prep-v1",
+            globalId: package.course.globalId,
+            holes: [try prep(hole: first.number, coverage: "partial", withMap: true, revision: "r1")],
+            missingData: nil
+        ))
+        let topo = URL(fileURLWithPath: "/tmp/topo-1.png")
+        let rows = PrepHoleRows.build(
+            template: template, fallbackHoleCount: 9, downloadActive: false,
+            requiredRevisions: nil, topoURL: { _, _ in topo }
+        )
+        XCTAssertEqual(rows[0].state, .factual, "the row's precision is unchanged")
+        XCTAssertEqual(rows[0].topoURL, topo, "but the downloaded bitmap is shown")
+    }
+
+    /// Device review (build 77): a second start of an already-downloaded course re-waited on every
+    /// hole because the network package's lightweight rows replaced the precise ones.
+    func testPrecisePrepIsCarriedIntoALightweightPackageOfTheSameRevisionAndTee() throws {
+        let package = try fixturePackage()
+        let holes = package.holes.sorted { $0.number < $1.number }
+        let installed = package.replacingCoursePrep(CoursePrepPackage(
+            schema: "ai-caddie-course-prep-v1",
+            globalId: package.course.globalId,
+            holes: [
+                try prep(hole: holes[0].number, coverage: "ready", withMap: true, revision: "r1"),
+                try prep(hole: holes[1].number, coverage: "ready", withMap: true, revision: "r1"),
+            ],
+            missingData: nil
+        ))
+        let remote = package.replacingCoursePrep(CoursePrepPackage(
+            schema: "ai-caddie-course-prep-v1",
+            globalId: package.course.globalId,
+            holes: [
+                try prep(hole: holes[0].number, coverage: "partial", withMap: true, revision: "r1"),
+                // A new Garmin release for this hole: the old precise row must not come back.
+                try prep(hole: holes[1].number, coverage: "partial", withMap: true, revision: "r2"),
+            ],
+            missingData: nil
+        ))
+        let merged = remote.carryingPrecisePrep(from: installed)
+        let rows = Dictionary(uniqueKeysWithValues: (merged.coursePrep?.holes ?? []).map { ($0.hole, $0) })
+        XCTAssertEqual(rows[holes[0].number]?.geometryCoverage, "ready")
+        XCTAssertEqual(rows[holes[1].number]?.geometryCoverage, "partial")
+        XCTAssertEqual(rows[holes[1].number]?.geometryRevision, "r2")
+        // Nothing to carry: the package is returned as is.
+        XCTAssertEqual(remote.carryingPrecisePrep(from: nil), remote)
+    }
+
     func testPositivelyReplacedRevisionShowsTheFactualRouteUntilTheNewMapInstalls() throws {
         let package = try fixturePackage()
         let first = try XCTUnwrap(package.holes.min { $0.number < $1.number })

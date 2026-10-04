@@ -2440,8 +2440,11 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn("HoleImageMapView(", course_review)
         self.assertIn("hole: prep,", course_review)
-        # B4c: only an installed, current topo is the precise map; otherwise the factual route.
-        self.assertIn("topoURL: row.state == .precise ? row.topoURL : nil,", course_review)
+        # B4c: a stale (positively replaced) topo is never shown (`PrepHoleRows` withholds it), but a
+        # downloaded current bitmap is shown whatever the row's precision — the topo is keyed by the
+        # hole's geometry revision, not the Tee (device review, build 77: 白 T lost the map).
+        self.assertIn("topoURL: row.topoURL,", course_review)
+        self.assertNotIn("row.state == .precise ? row.topoURL : nil", course_review)
         # Default-none obstacles on 备战: no obstacle spans and no measured obstacle labels.
         self.assertIn("showsHazards: false,", course_review)
         self.assertIn("showsPrepFactOverlays: false,", course_review)
