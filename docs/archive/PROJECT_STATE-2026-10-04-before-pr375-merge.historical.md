@@ -1,31 +1,33 @@
+# HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
+Archived verbatim before PR #375 was merged on 2026-10-04. Startup recovery
+must use `docs/operations/PROJECT_STATE.md`, not this file.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-04 04:40 UTC
+**Updated:** 2026-10-04 04:00 UTC
 **Canonical branch:** `main`
-**Product app tip:** `9f44574556084ee9a57f43a44424c770e0a76338`
+**Product app tip:** `1d3bca3d94fc60b17440bd5110bb6c35be04cd14`
 **Product backend tip:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
 **Release pipeline tip:** `3890c2e09db119b2fddea45a4c7b948caf726ed4`
 **Current slice:** `FEEDBACK-TRACKING` — `in-progress`
 
 ## Current status
 
-PR #375 is reviewed and merged at exact head
-`9de2c7f9300dbef85223eaaaafe9cd928f46ff03`, merge `9f445745`; its source
-branch is deleted. Source CI `37175590533` and Native Mobile CI `37175590478`
-are green. All 87 design snapshots and 44 Watch snapshots were inspected
-against the design README and implementation plan with no P1/P2. Review
-[5976613647](https://github.com/jasonhorga/garmin-ai-caddie/pull/375#issuecomment-5976613647)
-is the authoritative approval.
+PR #373 is reviewed and merged at exact head `eb63590c58ee687b1b298403fc34b66e899547aa`;
+its source branch is deleted. The exact-SHA live Native gate
+[37153025859](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/37153025859)
+is green, including iOS, Watch, real-simulator flows, design snapshots,
+Watch snapshots, secret scan, and build evidence. The accepted app/backend
+provenance is `1d3bca3d` / `a907d1b5`.
 
-Feedback deduplication: PR #375 P1 comment `5976330290` (stale labels at
-`999770ae`) is resolved by `a8c6d627` / `9de2c7f9`, Claude reply
-`5976556856`, and the successful exact-head Native gate. Do not reopen that
-failure or treat the superseded `a8c6d627` CI failure as current feedback.
-The accepted deployed/release app/backend provenance remains
-`1d3bca3d` / `a907d1b5`; the new app tip has not been released.
+The build-number safeguard from PR #370 feedback is merged as PR #374 at
+`3890c2e0`; Source CI `37159235915` and post-merge main CI `37159674238` are
+green. It now fails closed when App Store Connect build lookup fails, so the
+Apple agreement blocker cannot silently select build 1.
 
 The internal-only TestFlight workflow `37170793965` succeeded at exact head
 `e0e884af`; App Store Connect resolved build **77 before build**, uploaded
@@ -34,11 +36,26 @@ also succeeded: its log reports build 77 `state=VALID`, and the existing
 internal TestFlight group (`internal=true`) lists build 77. External
 distribution remains disabled.
 
-The blocking waiter and rule are pushed (`a7657f76`, follow-ups through
-`b11b2dba`, rule clarification `51c7d608`). It owns the wait, ignores
-non-terminal CI events, and returns one summary line; do not interleave
-main-thread `gh run view`, `ps`, state reads or sleep loops. Next terminal
-feedback wait is the only in-progress slice.
+The main CI run `37172764204` completed successfully at `e66a7a41`, including
+the blocking-wait command changes. Its blocking-wait log is
+`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37172764204-20261004T030656Z-2664764.log`.
+
+The latest operations CI run `37173836309` completed successfully at
+`ff2c3108`; its blocking-wait log is
+`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37173836309-20261004T032629Z-2774352.log`.
+
+PR #375 is open at exact head `999770ae782ee70a93f8eb62e330157a79db5111`.
+Ordinary CI `37174659969` is green. Native Mobile CI `37174659947` failed
+only in the iOS app target: three deterministic label assertions still expect
+full carry after `PlannedShotLabel` changed labels to actual played distance /
+切杆. Watch target passed. Review comment
+[5976330290](https://github.com/jasonhorga/garmin-ai-caddie/pull/375#issuecomment-5976330290)
+is the authoritative P1 request; no approval or merge is allowed until a new
+exact-head Native gate is green.
+
+The terminal-feedback waiter is active with terminal-only CI semantics; it
+ignores in-progress CI events and returns the next terminal conclusion or
+actionable PR feedback with the complete run summary.
 
 Production is unchanged: `aicaddie-release-d7f69971-production-20260925`
 on loopback `39055`. Do not switch production or distribute externally in
@@ -50,9 +67,9 @@ this slice.
    wait; do not resume main-thread polling loops.
 2. Keep the existing PR feedback monitor running and deduplicate any new
    repository feedback against this ledger; do not start a second monitor.
-3. Review new actionable feedback or the next PR on its exact head; require
-   relevant tests and successful Native CI with design/Watch artifact review
-   for iOS/Watch changes. No pending PR #375 blocker remains.
+3. Consume Claude's response/new head for PR #375, re-review the exact SHA,
+   and require the Native iOS gate plus its design/Watch artifacts before any
+   merge decision.
 4. Physical iPhone/Watch evidence remains open now that build 77 is available.
 
 ## Live verification baseline
@@ -68,14 +85,11 @@ this slice.
 - Blocking waiter `ops/wait_for_conclusion.sh` was syntax-checked locally and
   exercised on homeserver with synthetic PR-event, timeout, and failed-run
   cases; each returned one summary line and kept details in its log directory.
-- PR #375 exact-head Native `37175590478` and Source CI `37175590533` passed.
-  Logs:
-  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37175590478-20261004T040813Z-3003026.log`,
-  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37175590533-20261004T042825Z-3128761.log`.
-  Native artifacts and remote contact sheets:
-  `/home/jason/garmin-ai-caddie-data/operations/pr375-9de2c7f9-native-37175590478/`.
-  Build evidence records the synthetic PR merge `a351364a` for that run;
-  GitHub run head is the reviewed `9de2c7f9`.
+- PR #375 Native failure log:
+  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37174659947-20261004T035053Z-2904031.log`.
+  Downloaded design and Watch snapshots are under
+  `/home/jason/garmin-ai-caddie-data/operations/pr375-999770ae-native-37174659947/`;
+  local inspection copies are `.codex-pr375-999770ae-inspect/`.
 - Candidate image/container for the accepted backend:
   `garmin-ai-caddie-api:a907d1b5bea056a08335fed4955eff12fbf50a9e-candidate-20261003`,
   `aicaddie-release-a907d1b5-candidate-20261003`, loopback `39087`.
@@ -97,24 +111,23 @@ this slice.
   `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20261003T2023Z-release-http2.md`.
 - Local inspection directories
   `.codex-release-37153025859-inspect/` and
-  `.codex-release-ebe48637-inspect/`, `.codex-pr375-999770ae-inspect/`,
-  `.codex-pr375-9de2c7f9-inspect/`, plus dirty review manifests and
+  `.codex-release-ebe48637-inspect/`, plus dirty review manifests and
   `ops/pr_feedback_monitor.sh`, are preserved as session-owned evidence.
 - Persistent monitor: systemd user timer
   `gh-feedback@garmin-ai-caddie.timer` is active; its single writer is
   `/home/jason/gh-feedback/gh-feedback.sh`. State and events remain under
   `/home/jason/garmin-ai-caddie-data/operations/pr-feedback-monitor/`.
   Do not start the retired tmux loop or a second writer.
-- Blocking feedback waiter: reuse tmux `codex-pr-feedback-wait-20261004`, using
+- Blocking feedback waiter: tmux `codex-pr-feedback-wait-20261004`, using
   `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait_for_conclusion.sh`
-  and the existing event stream; previous CI waits have completed. It expires
-  2026-10-11 or after its next conclusion is consumed. Its one-line result is written to
+  and the existing event stream; it expires 2026-10-11 or after its next
+  conclusion is consumed. Its one-line result is written to
   `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/latest-result.txt`.
 
 ## Next action and stop conditions
 
-Next action is to block on the existing monitor's next PR feedback or CI
-conclusion, then handle only the returned actionable event. Keep
+Next action is to use the pushed blocking waiter for the next PR #375 feedback
+or CI conclusion, then handle only the returned actionable event. Keep
 external distribution disabled and do not change production.
 
 Stop this slice on any failed required Native/Apple gate, provenance or
