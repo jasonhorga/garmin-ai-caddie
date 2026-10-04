@@ -3,12 +3,12 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-04 11:15 UTC
+**Updated:** 2026-10-04 14:45 UTC
 **Canonical branch:** `main`
-**Product app tip:** `ab0d859a9a8d3887082c771327d42be578222f64`
-**Product backend tip:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
-**Release pipeline tip:** `3890c2e09db119b2fddea45a4c7b948caf726ed4`
-**Current slice:** `FEEDBACK-TRACKING` — `in-progress`
+**Product app tip:** `048ab6a4b02e9b8d2d81d0d1098cc7cb696f7252`
+**Product backend tip:** `048ab6a4b02e9b8d2d81d0d1098cc7cb696f7252` (candidate only)
+**Release pipeline tip:** `048ab6a4b02e9b8d2d81d0d1098cc7cb696f7252`
+**Current slice:** `RELEASE-MAIN-048AB6A4` — `blocked`
 
 ## Current status
 
@@ -39,6 +39,23 @@ Feedback deduplication: PR #375 P1 comment `5976330290` (stale labels at
 failure or treat the superseded `a8c6d627` CI failure as current feedback.
 The accepted deployed/release app/backend provenance remains
 `1d3bca3d` / `a907d1b5`; the new app tip has not been released.
+
+The 2026-10-04 internal release attempt used exact `main` head
+`048ab6a4b02e9b8d2d81d0d1098cc7cb696f7252` (including PRs #375–#377). The
+candidate backend reported that revision and passed health; authenticated
+readiness returned 200 with degraded operational evidence, which is allowed
+only by the internal test-environment upload path. HTTP/2 tunnel throughput was
+measured on the 214,475-byte hole-topology response: loopback 18 ms, tunnel
+0.66–0.89 s total / 0.24–0.33 MB/s across eight requests.
+
+Live Native run `37206850435` was run from that exact head with
+`fixture_mode=false`, `capture_scope=full`, the candidate HTTPS origin and
+matching backend revision. It failed only the iOS real-flow job at
+`RealFlowUITests/testCaptureRealAppFlow()`:
+`XCTAssertLessThan(153.91665649414062, 66.0)` because the approved circular
+return control was left of the hole heading. Watch tests, artifacts and secret
+scans completed. No TestFlight workflow or Apple check was dispatched, so this
+attempt has no package/build number. Production remains unchanged.
 
 The internal-only TestFlight workflow `37170793965` succeeded at exact head
 `e0e884af`; App Store Connect resolved build **77 before build**, uploaded
@@ -72,6 +89,9 @@ this slice.
 2. Keep the existing PR feedback monitor running and deduplicate any new
    repository feedback against this ledger; do not start a second monitor.
 3. Physical iPhone/Watch evidence remains open now that build 77 is available.
+4. The current release is blocked until the real-flow return-control assertion
+   is fixed and the exact-head live Native gate is green; do not upload this
+   failed candidate.
 
 ## Live verification baseline
 
@@ -108,6 +128,10 @@ this slice.
   `https://bee-famous-payments-household.trycloudflare.com`,
   tmux `codex-release-http2-20261003`; the HTTP/2 tunnel is retained for
   the next gate and is not production traffic.
+- Current release evidence:
+  `/home/jason/garmin-ai-caddie-data/operations/release-main-048ab6a4-20261004/`.
+  Candidate health was 200 with revision `048ab6a4…`; Native waiter result:
+  `/home/jason/garmin-ai-caddie-data/operations/release-main-048ab6a4-20261004/native-wait-final-verified.log`.
 
 ## Owned temporary resources and cleanup
 
@@ -142,12 +166,20 @@ this slice.
   Reuse it only for an external or real-work conclusion. Native gate
   `codex-native-2417948a-20261004` also ended after run `37185535082` failed;
   its one-line result is retained under `native-2417948a-result.txt`.
+- The current candidate source snapshot is
+  `/home/jason/codex-runs/garmin-ai-caddie-release-048ab6a4-20261004` and its
+  labeled image is retained for diagnosis. Candidate container
+  `aicaddie-release-048ab6a4-candidate-20261004`, port `39088`, and HTTP/2 tmux
+  `codex-release-http2-main-048ab6a4-20261004` were stopped and removed after
+  the failed gate; production `39055` stayed healthy.
 
 ## Next action and stop conditions
 
 Next action is to keep release stopped pending the owner/Claude fix for the
-Native live-flow failures, while the existing monitor observes external PR
-feedback. Keep TestFlight/external distribution disabled and do not change production.
+Native live-flow return-control failure, while the existing monitor observes
+external PR feedback. Keep TestFlight/Apple/external distribution disabled and
+do not change production; rerun the exact-head live Native gate before any
+future TestFlight dispatch.
 
 Owner end condition: end this goal no later than **2026-10-09 23:59 UTC**;
 it may end earlier after **48 consecutive hours with no new PR event and no
