@@ -362,3 +362,31 @@ struct HubWeatherTile: View {
         .accessibilityIdentifier("home-tile-weather")
     }
 }
+
+/// 主卡 · 进行中, before the round's package has loaded: the same deep-green card, 进行中 and a
+/// spinner instead of a blank top. Informational only; the full card replaces it.
+struct HubInProgressLoadingCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Circle().fill(HubBentoStyle.lightGreen).frame(width: 8, height: 8)
+                Text("进行中")
+                    .font(.caption.weight(.heavy))
+                    .foregroundStyle(HubBentoStyle.lightGreen)
+            }
+            Text("正在载入这场的球场数据")
+                .font(.title3.weight(.heavy))
+                .foregroundStyle(.white)
+            Text("载入后可继续记分")
+                .font(.subheadline)
+                .foregroundStyle(HubBentoStyle.onGreenSecondary)
+            Spacer(minLength: 12)
+            ProgressView()
+                .tint(.white)
+        }
+        .padding(18)
+        .hubBentoHero { HubBentoStyle.deepGreen }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("home-in-progress-loading")
+    }
+}

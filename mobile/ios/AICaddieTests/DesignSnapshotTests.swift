@@ -714,6 +714,11 @@ final class DesignSnapshotTests: XCTestCase {
             RoundHomeView(package: package, apiBaseURL: apiBaseURL, liveRoundState: activeState, courseOptions: courses),
             named: "full-home-active"
         )
+        // An active round before its package has loaded: the 进行中 loading card, never a blank top.
+        try captureScreen(
+            RoundHomeView(package: nil, apiBaseURL: apiBaseURL, liveRoundState: activeState),
+            named: "full-home-active-no-package"
+        )
         try captureScreen(NavigationStack { StartRoundView(courseOptions: courses) }, named: "full-start")
         // 开始一场 with 黑骑士 B preselected (the home "开始"): one list row, A/B/C tiles, tee dots,
         // "从 B 场 开始 · 蓝 T".

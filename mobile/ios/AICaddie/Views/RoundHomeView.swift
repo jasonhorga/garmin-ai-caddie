@@ -631,6 +631,10 @@ public struct RoundHomeView: View {
                         .accessibilityLabel("结束本场")
                         .accessibilityIdentifier("home-end-round")
                 }
+            } else if liveRoundState != nil {
+                // An active round whose package has not loaded yet (first launch, slow backend):
+                // keep the card and say so; the round's own card replaces it when the package lands.
+                HubInProgressLoadingCard()
             }
         case .pendingWatch:
             if let pendingWatchRoundStart {

@@ -1697,6 +1697,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("NoPackageHubView", app_swift)
         round_home_swift = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
         self.assertIn("public let package: LiveRoundPackage?", round_home_swift)
+        # An active round without its package keeps a 进行中 card (never a blank top).
+        self.assertIn("} else if liveRoundState != nil {\n", round_home_swift)
+        self.assertIn("HubInProgressLoadingCard()", round_home_swift)
         self.assertIn("StartRoundView(", round_home_swift)
         self.assertIn("await model.prepareRound(roundId: roundId)", app_swift)
         self.assertIn("await model.prepareCourseRound(roundId: roundId, teeBox: teeBox, loops: loops)", app_swift)
