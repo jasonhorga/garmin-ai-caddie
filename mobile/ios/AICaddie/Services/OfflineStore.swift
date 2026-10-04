@@ -982,6 +982,21 @@ public final class OfflineStore {
         return try decoder.decode([String: String].self, from: Data(contentsOf: nineLoopPairingsURL))
     }
 
+    /// 洞位图: today's sheet flags (one sheet at a time; a sheet from another day is ignored).
+    public func saveDailyPinSheet(_ sheet: DailyPinSheet) throws {
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try encoder.encode(sheet).write(to: dailyPinSheetURL, options: [.atomic])
+    }
+
+    public func loadDailyPinSheet() -> DailyPinSheet? {
+        guard let data = try? Data(contentsOf: dailyPinSheetURL) else { return nil }
+        return try? decoder.decode(DailyPinSheet.self, from: data)
+    }
+
+    private var dailyPinSheetURL: URL {
+        directoryURL.appendingPathComponent("daily_pin_sheet_v1.json")
+    }
+
     /// v2: keyed by loop id. The v1 file (course id → course id) is simply no longer read.
     private var nineLoopPairingsURL: URL {
         directoryURL.appendingPathComponent("nine_loop_pairings_v2.json")

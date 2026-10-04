@@ -174,6 +174,19 @@ public final class MediaUploadClient {
         return try decoder.decode(MediaCreateResponse.self, from: data)
     }
 
+    /// 洞位图: the server reads the photographed sheet (vision model) and returns the printed facts.
+    public func readPinSheet(jpegImages: [Data]) async throws -> PinSheetReadResponse {
+        var request = URLRequest(url: endpointURL("/api/v2/mobile/pin-sheet"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 90
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAICaddieAuth(to: &request, adminToken: adminToken)
+        request.httpBody = try encoder.encode(PinSheetReadRequest(jpegImages: jpegImages))
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(PinSheetReadResponse.self, from: data)
+    }
+
     public func uploadMediaWithRetry(_ requestBody: MediaCreateRequest, attempts: Int = 3) async throws -> MediaCreateResponse {
         var lastError: Error?
         for attempt in 1...max(1, attempts) {

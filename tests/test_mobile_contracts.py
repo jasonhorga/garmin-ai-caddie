@@ -4420,6 +4420,26 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("didUpdateLocations", location_provider)
         self.assertIn("horizontalAccuracyM", location_provider)
 
+    def test_pin_sheet_flag_sits_under_a_moved_flag_and_above_the_route_end(self) -> None:
+        # 洞位图: the day's sheet places the flag; a flag the player moves still wins, and the
+        # provider's route end is only the fallback. The server only reads the photo.
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        pixel = current_hole.split("private var effectiveMapPinPixel: CGPoint? {", 1)[1].split(
+            "private var sheetPinPixel: CGPoint? {", 1
+        )[0]
+        self.assertLess(pixel.index("validMapPixel(greenPinPixel)"), pixel.index("sheetPinPixel"))
+        self.assertLess(pixel.index("sheetPinPixel"), pixel.index("route.last"))
+        coordinate = current_hole.split("private var mapPinCoordinate: CLLocationCoordinate2D? {", 1)[1].split(
+            "private var effectiveMapPinCoordinate", 1
+        )[0]
+        self.assertLess(coordinate.index("sheetPinPixel"), coordinate.index("route.last"))
+        self.assertIn("PinSheetPlacement.approachReferencePx(", current_hole)
+        self.assertIn("on: DailyPinSheet.day(Date())", current_hole)
+        client = _read_required_source(self, IOS_DIR / "Services" / "MediaUploadClient.swift")
+        self.assertIn('endpointURL("/api/v2/mobile/pin-sheet")', client)
+        chrome = _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift")
+        self.assertIn('.accessibilityIdentifier("live-pin-sheet")', chrome)
+
     def test_live_hazard_detail_owns_one_selected_outline_without_shared_duplicates(self) -> None:
         hazard_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveHazardDetailView.swift")
         self.assertIn("showsRecommendedRoute: false", hazard_detail)
