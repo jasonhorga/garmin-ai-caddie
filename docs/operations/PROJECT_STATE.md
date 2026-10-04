@@ -40,6 +40,9 @@ non-terminal CI events, and returns one summary line; do not interleave
 main-thread `gh run view`, `ps`, state reads or sleep loops. Next terminal
 feedback wait is the only in-progress slice.
 
+Post-merge main CI `37177482710` is terminal-success for merge `9f445745`;
+the deduplicating monitor recorded it before the new feedback waiter started.
+
 Production is unchanged: `aicaddie-release-d7f69971-production-20260925`
 on loopback `39055`. Do not switch production or distribute externally in
 this slice.
@@ -107,8 +110,8 @@ this slice.
   Do not start the retired tmux loop or a second writer.
 - Blocking feedback waiter: reuse tmux `codex-pr-feedback-wait-20261004`, using
   `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait_for_conclusion.sh`
-  and the existing event stream; previous CI waits have completed. It expires
-  2026-10-11 or after its next conclusion is consumed. Its one-line result is written to
+  and the existing event stream; it is active and owns the next wait. It
+  expires 2026-10-11 or after its next conclusion is consumed. Its one-line result is written to
   `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/latest-result.txt`.
 
 ## Next action and stop conditions
