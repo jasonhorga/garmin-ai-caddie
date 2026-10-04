@@ -3,7 +3,7 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-04 05:35 UTC
+**Updated:** 2026-10-04 05:40 UTC
 **Canonical branch:** `main`
 **Product app tip:** `9f44574556084ee9a57f43a44424c770e0a76338`
 **Product backend tip:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
@@ -62,6 +62,9 @@ no failed jobs; its feedback-wait log is
 Waiter-state commit `93b07304` CI `37179793477` completed successfully with
 no failed jobs; its feedback-wait log is
 `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T053203Z-3496637.log`.
+Attribution-rule commit `b0327a3a` CI `37180150501` completed successfully
+with no failed jobs; its feedback-wait log is
+`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T053603Z-3523956.log`.
 Waiter implementation commit `ea0cee78` CI `37178724632` completed
 successfully with no failed jobs. The new script atomically updated
 `latest-result.txt`; log:
