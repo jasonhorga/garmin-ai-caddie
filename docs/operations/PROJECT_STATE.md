@@ -45,6 +45,9 @@ the deduplicating monitor recorded it before the new feedback waiter started.
 State-record commit `e6d01cec` CI `37177808382` also completed successfully
 with no failed jobs; its waiter log is
 `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T044505Z-3228056.log`.
+The following state commit `ee5cadbc` CI `37177962031` completed successfully
+with no failed jobs; its exact-run waiter log is
+`/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37177962031-20261004T045226Z-3266067.log`.
 
 Production is unchanged: `aicaddie-release-d7f69971-production-20260925`
 on loopback `39055`. Do not switch production or distribute externally in
