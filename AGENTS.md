@@ -84,6 +84,12 @@ Do not poll CI, releases, or PR feedback from the main control thread with
 repeated `gh run view`, `ps`, monitor-state reads, or `sleep` loops. Run the
 blocking waiter on the homeserver instead:
 
+The blocking waiter is the required control-plane boundary: after starting a
+wait, leave the main thread blocked (or hand genuinely parallel waits to at
+most two subagents) until a terminal CI/release result or a new actionable PR
+feedback event exists. Do not interleave ad-hoc status checks to make progress
+while it waits.
+
 ```bash
 ops/wait_for_conclusion.sh --run <run-id>
 ops/wait_for_conclusion.sh --release <run-id>
