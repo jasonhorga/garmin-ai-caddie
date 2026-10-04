@@ -3,7 +3,7 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-04 02:54 UTC
+**Updated:** 2026-10-04 03:00 UTC
 **Canonical branch:** `main`
 **Product app tip:** `1d3bca3d94fc60b17440bd5110bb6c35be04cd14`
 **Product backend tip:** `a907d1b5bea056a08335fed4955eff12fbf50a9e`
@@ -82,6 +82,11 @@ this slice.
 - Persistent monitor: tmux `codex-pr-monitor-20260928`; state and logs are
   under `/home/jason/garmin-ai-caddie-data/operations/pr-feedback-monitor/`.
   No second monitor may be started.
+- Blocking feedback waiter: tmux `codex-pr-feedback-wait-20261004`, using
+  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait_for_conclusion.sh`
+  and the existing event stream; expiry 2026-10-11 or the first consumed
+  conclusion. Its one-line result is written to
+  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/latest-result.txt`.
 
 ## Next action and stop conditions
 
