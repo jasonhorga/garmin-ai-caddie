@@ -3,7 +3,7 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-05 04:21 UTC
+**Updated:** 2026-10-05 05:00 UTC
 **Canonical branch:** `main`
 **Product app tip:** `3f05ca689b0ca4988bfcc404f9fe3ba446d6727c` (requested release source)
 **Product backend tip:** `048ab6a4b02e9b8d2d81d0d1098cc7cb696f7252` (internal candidate only)
@@ -41,9 +41,11 @@ The package points at the candidate origin below; production was not switched.
 
 The existing PR feedback monitor remains the only feedback writer. Do not
 start a second monitor or a main-thread polling loop. Do not create a commit
-solely to record a CI result; record CI only with real work. The blocking
-waiter ignores Codex-generated main-branch events and is active in the
-allow-listed tmux session below, waiting only for future events.
+solely to record a CI result; record CI only with real work. Feedback waits
+must run in the same control turn through one background-terminal handle and
+be observed in five-minute cycles until the waiter prints its one-line result;
+the old independent tmux waiter is no longer used. The waiter ignores
+Codex-generated main-branch events.
 
 ## Unfinished work
 
@@ -85,10 +87,11 @@ allow-listed tmux session below, waiting only for future events.
   `/home/jason/garmin-ai-caddie-data/operations/release-main-048ab6a4-20261004-r2/resource-manifest.md`.
   It allow-lists only the named candidate container and HTTP/2 tmux for cleanup.
 - The candidate container and HTTP/2 tmux are intentionally retained because
-  build 79 uses that origin. The PR-feedback waiter is active in tmux
-  `codex-pr-feedback-wait-20261004`, with log
-  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T202208Z-3851321.log`;
-  the two older orphan waiters were stopped after this one was verified.
+  build 79 uses that origin. The independent PR-feedback tmux waiter
+  `codex-pr-feedback-wait-20261004` was stopped; its log remains at
+  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T202208Z-3851321.log`
+  for audit history. Future feedback waits are same-turn resources and must
+  be closed when their result is consumed.
 - Systemd user timer `gh-feedback@garmin-ai-caddie.timer` is active; its sole
   writer is `/home/jason/gh-feedback/gh-feedback.sh`. Do not stop or duplicate it.
 - Existing local `.codex-*` evidence, manifests and the modified
@@ -98,11 +101,9 @@ allow-listed tmux session below, waiting only for future events.
 ## Next action and stop conditions
 
 Next action: owner performs physical iPhone/Watch validation of internal build
-79. Keep the candidate origin available until that handoff closes; no
-production switch, external distribution, or tester mutation is authorized.
-The waiter scope fix is in the working tree and must be committed with this
-release evidence (it keeps explicit run waits authoritative while filtering
-self-generated broad feedback events).
+79; when PR feedback arrives, launch the same-turn blocking waiter described
+in `AGENTS.md`. Keep the candidate origin available until that handoff closes;
+no production switch, external distribution, or tester mutation is authorized.
 
 Owner end condition: end this goal no later than **2026-10-09 23:59 UTC**;
 it may end earlier after **48 consecutive hours with no new PR event and no

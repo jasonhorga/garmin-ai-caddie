@@ -81,14 +81,14 @@ There must be at most one `in-progress` task in the ledger. A task is either
 ### Blocking waits and feedback monitoring
 
 Do not poll CI, releases, or PR feedback from the main control thread with
-repeated `gh run view`, `ps`, monitor-state reads, or `sleep` loops. Run the
+repeated `gh run view`, `ps`, monitor-state reads, or ad-hoc loops. Run the
 blocking waiter on the homeserver instead:
 
 The blocking waiter is the required control-plane boundary: after starting a
-wait, leave the main thread blocked (or hand genuinely parallel waits to at
-most two subagents) until a terminal CI/release result or a new actionable PR
-feedback event exists. Do not interleave ad-hoc status checks to make progress
-while it waits.
+wait, leave the same control turn blocked (or hand genuinely parallel waits to
+at most two subagents) until a terminal CI/release result or a new actionable
+PR feedback event exists. Do not interleave ad-hoc status checks to make
+progress while it waits.
 
 ```bash
 ops/wait_for_conclusion.sh --run <run-id>
@@ -104,6 +104,21 @@ existing deduplicating `pr-feedback-monitor` event stream; it ignores
 non-terminal CI events and must not start a second GitHub monitor. If genuinely
 parallel waits are needed, delegate them to no more than two subagents and
 collect only their final conclusions.
+
+For `--feedback`, launch one waiter in a background terminal on the
+homeserver, retain that terminal handle in the same control turn, and wait on
+that handle until it prints its one-line summary. Repeat the observation cycle
+in the same turn: wait five minutes (`sleep`/clock duration `300000` ms), then
+call `write_stdin` once to read the handle's output. The outer tool may return
+after about 30 seconds even when a longer `yield_time_ms` is requested; that is
+only an observation slice, so continue the same cycle. Do not inspect tmux,
+processes, monitor state, or logs to decide whether the waiter is alive, and do
+not start a replacement while this wait is pending. The waiter's one-line
+`status=... conclusion=... failed_jobs=... log=...` result is the only signal
+to begin event processing. Do not put the feedback waiter in a persistent
+independent tmux session; the `gh-feedback` systemd timer remains unchanged.
+Keep this same-turn waiting method through 2026-10-09 unless the owner gives a
+new instruction.
 
 Do not create a commit solely to record a CI conclusion. Record CI evidence in
 `PROJECT_STATE.md` only when it accompanies real code, review, operations, or
