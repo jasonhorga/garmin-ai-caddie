@@ -84,11 +84,18 @@ Claude and Codex collaborate under the shared contract in
 https://github.com/jasonhorga/agent-collab/blob/main/AGENT-COLLAB.md (event
 stream, waiting without polling, attribution, pull-request handling, goal
 lifecycle, unattended authority). The gh-feedback instance for this repository
-is `garmin-ai-caddie`; Codex waits with
+is `garmin-ai-caddie`. The shared waiter is
 `~/gh-feedback/wait --instance garmin-ai-caddie --feedback` on the homeserver
-(`--pr <number>` for one PR, `--run <run-id>` for one Actions run), in the same
-control turn, exactly as the contract describes. `ops/wait_for_conclusion.sh`
-is the superseded project-local waiter; do not start it for new waits.
+(`--pr <number>` for one PR, `--run <run-id>` for one Actions run), used in the
+same control turn exactly as the contract describes.
+
+Transition: the goal running on 2026-10-05 keeps the waiting method the owner
+fixed for it, `ops/wait_for_conclusion.sh --feedback` from the homeserver copy
+synchronised at #381, unchanged through 2026-10-09. Any goal or thread started
+or renewed after that date uses the shared waiter and nothing else;
+`ops/wait_for_conclusion.sh` is then superseded and may be removed. Both
+waiters follow the same event stream with the same cursor and provenance rules,
+so nothing is lost at the switch.
 
 Project supplements (only stricter than the contract):
 
