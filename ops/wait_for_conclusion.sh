@@ -187,6 +187,11 @@ trap cleanup EXIT INT TERM
 
 summarize_run() {
   local summarize_run_id="$1"
+  # Explicit --run/--release waits are authoritative requests for that exact
+  # run, even when the commit has Codex's identity.  Self-generated filtering
+  # is only for broad PR-feedback/event waits, where a docs-only main push
+  # must not wake the loop or reset the quiet-period clock.
+  local ignore_self_generated="${2:-1}"
   log "reading terminal run summary run=$summarize_run_id"
   run_json="$LOG_FILE.run-${summarize_run_id}.json"
   set +e
@@ -200,7 +205,7 @@ summarize_run() {
   status="$(jq -r '.status // "unknown"' "$run_json" 2>>"$LOG_FILE")"
   conclusion="$(jq -r '.conclusion // "unknown"' "$run_json" 2>>"$LOG_FILE")"
 
-  if run_is_self_generated "$run_json"; then
+  if [[ "$ignore_self_generated" == "1" ]] && run_is_self_generated "$run_json"; then
     log "ignoring self-generated main CI run=$summarize_run_id head=$(jq -r '.headSha // empty' "$run_json")"
     rm -f "$run_json"
     return 42
@@ -272,7 +277,7 @@ wait_for_run() {
   gh run watch "$RUN_ID" --repo "$REPO" --interval "$POLL_SECONDS" --exit-status >>"$LOG_FILE" 2>&1
   watch_rc=$?
   log "gh run watch exit=$watch_rc"
-  summarize_run "$RUN_ID"
+  summarize_run "$RUN_ID" 0
   summary_rc=$?
   if (( summary_rc == 42 )); then
     finish ignored self_generated_main none 0
