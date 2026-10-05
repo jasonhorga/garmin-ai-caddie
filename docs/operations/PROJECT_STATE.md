@@ -3,12 +3,12 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-05 06:59 UTC
+**Updated:** 2026-10-05 08:07 UTC
 **Canonical branch:** `main`
-**Latest main tip:** `7f2d3764` (PR #381 review evidence recorded)
+**Latest main tip:** `9ebc8cbac4f7da0cf9da6d4de61a32988c29dfdd` (PR #382 merged)
 **Product app tip:** `3f05ca689b0ca4988bfcc404f9fe3ba446d6727c` (requested release source)
 **Product backend tip:** `048ab6a4b02e9b8d2d81d0d1098cc7cb696f7252` (internal candidate only)
-**Current slice:** `PR-382-REVIEW` — `evidence-open`
+**Current slice:** `PR-383-WAIT-POLICY` — `blocked`
 
 ## Current status
 
@@ -40,22 +40,23 @@ homeserver. The review comment is
 It merged at `1b709a815b7a79d9bb8e9763f914c88d0ed26629` and its remote branch
 was deleted.
 
-PR #382 is open at exact head `df69ca9ebd1fd74f99c89aa71669193e79861f3c`.
-Source CI `37271834177` and Native Mobile CI `37271834164` passed. The Native
-artifact contains 89 iOS and 47 Watch snapshots; all 136 PNG hashes match the
-corresponding #380 snapshots (the two prior contact sheets are the only extra
-files). Review evidence is retained at
-`/home/jason/garmin-ai-caddie-data/operations/pr382-native-37271834164-20261005/`.
-The review found one P2 blocker: `recentRows` deduplicates by localized display
-strings instead of stable `course.globalId`, so distinct courses can collapse
-or localization changes can duplicate a course. Review and clarification are
-posted at
-`https://github.com/jasonhorga/garmin-ai-caddie/pull/382#issuecomment-5989666689`;
-do not merge until the fix and regression test are reviewed.
+PR #382 was reviewed first at exact head `df69ca9e`, where a P2 found that
+recent prep deduplicated by localized display strings. Codex fixed it on the
+branch with `beb0a829` (stable `course.globalId` plus a same-name/different-id
+regression test). Source CI `37279043417` and Native Mobile CI `37279043304`
+passed at that exact head. The Native artifact contains 89 iOS and 47 Watch
+snapshots; all 136 PNG hashes match both the prior #382 run and the approved
+#380 baseline. Evidence is retained at
+`/home/jason/garmin-ai-caddie-data/operations/pr382-native-37279043304-20261005/`.
+The final review comment is on PR #382; it merged at
+`9ebc8cbac4f7da0cf9da6d4de61a32988c29dfdd` and the implementation branch was
+deleted.
 
-PR #383 remains open and blocked by the owner decision not to change the
-same-turn feedback-wait method before 2026-10-09; its P1 comment is
-`https://github.com/jasonhorga/garmin-ai-caddie/pull/383#issuecomment-5989315293`.
+PR #383 remains open at head `8f34ce5`; Source CI `37274617002` passed, but its
+attempt to replace the detailed Blocking waits section with the shared waiter
+remains a P1 until after 2026-10-09. The re-review comment is
+`https://github.com/jasonhorga/garmin-ai-caddie/pull/383#pullrequestreview-5411035398`;
+do not merge or delete its branch before the owner permits the transition.
 
 The release sequence for this exact main was completed:
 
@@ -109,8 +110,8 @@ Codex-generated main-branch events.
   `/home/jason/garmin-ai-caddie-data/operations/pr380-native-37267563159-20261005/`;
   review snapshot expiry is 2026-10-06 05:48 UTC.
 - PR #382 Native review artifacts and visual-audit evidence:
-  `/home/jason/garmin-ai-caddie-data/operations/pr382-native-37271834164-20261005/`;
-  review snapshot expiry is 2026-10-06 06:59 UTC.
+  `/home/jason/garmin-ai-caddie-data/operations/pr382-native-37279043304-20261005/`;
+  review snapshot expiry is 2026-10-06 07:40 UTC.
 - Production remains `aicaddie-release-d7f69971-production-20260925` on
   loopback `39055`.
 - The blocking waiter `ops/wait_for_conclusion.sh` has passed local syntax and
@@ -140,13 +141,17 @@ Codex-generated main-branch events.
 - Existing local `.codex-*` evidence, manifests and the modified
   `ops/pr_feedback_monitor.sh` are pre-existing session artifacts and remain
   outside this state-only commit.
+- PR #382 Codex coding worktree `/home/ubuntu/claude-web-data/repo/garmin-ai-caddie-pr382-fix-20261005`
+  and its manifest were removed after merge; no containers, volumes, ports,
+  tunnels, or dependency installs were created by that work.
 
 ## Next action and stop conditions
 
-Next action: owner performs physical iPhone/Watch validation of internal build
-79; when PR feedback arrives, launch the same-turn blocking waiter described
-in `AGENTS.md`. Keep the candidate origin available until that handoff closes;
-no production switch, external distribution, or tester mutation is authorized.
+Next action: keep PR #383 open with its P1 wait-policy block until the owner
+allows a post-2026-10-09 transition; process any new PR event with the
+same-turn waiter described in `AGENTS.md`. Owner physical iPhone/Watch
+validation of internal build 79 remains open; keep the candidate origin
+available until that handoff closes.
 
 Owner end condition: end this goal no later than **2026-10-09 23:59 UTC**;
 it may end earlier after **48 consecutive hours with no new PR event and no
