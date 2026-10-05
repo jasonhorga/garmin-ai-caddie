@@ -284,9 +284,9 @@ public struct MobileCourseSearchView: View {
     /// same 9 holes prepared with 蓝 T and later 白 T read as two identical "黑骑士 · A 场" rows;
     /// only the most recent one (the input is newest first) is shown.
     static func recentRows(_ downloads: [PrepCourseDownloadRecord]) -> [PrepCourseDownloadRecord] {
-        var seen = Set<String>()
+        var seen = Set<Int>()
         return downloads.filter { download in
-            seen.insert("\(download.course.localizedName)|\(download.course.segmentDisplayTitle)").inserted
+            seen.insert(download.course.globalId).inserted
         }
     }
 
