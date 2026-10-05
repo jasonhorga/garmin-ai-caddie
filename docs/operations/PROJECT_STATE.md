@@ -3,9 +3,9 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-05 06:00 UTC
+**Updated:** 2026-10-05 06:13 UTC
 **Canonical branch:** `main`
-**Latest main tip:** `bb7c8565ce7877023a23bd7a4ff5985ba11dc021` (PR #380 merged)
+**Latest main tip:** `1b709a815b7a79d9bb8e9763f914c88d0ed26629` (PR #381 merged)
 **Product app tip:** `3f05ca689b0ca4988bfcc404f9fe3ba446d6727c` (requested release source)
 **Product backend tip:** `048ab6a4b02e9b8d2d81d0d1098cc7cb696f7252` (internal candidate only)
 **Current slice:** `RELEASE-MAIN-3F05CA68` — `done`
@@ -29,6 +29,14 @@ and 47 Watch snapshot artifacts were downloaded and checked against the UI
 redesign README/plan. The review comment is
 `https://github.com/jasonhorga/garmin-ai-caddie/pull/380#issuecomment-5988944913`.
 It merged at `bb7c8565ce7877023a23bd7a4ff5985ba11dc021` and its remote branch
+was deleted.
+PR #381 fixed two real feedback-wait gaps: `--feedback` now resumes from an
+atomic line cursor, and provenance filtering distinguishes Codex trailers from
+Claude's shared GitHub identity. Exact head `ddf5406bf4d76c0c24da60ce590292042a65af1`
+passed Source CI; real-stream cursor and commit-provenance tests passed on the
+homeserver. The review comment is
+`https://github.com/jasonhorga/garmin-ai-caddie/pull/381#issuecomment-5989088276`.
+It merged at `1b709a815b7a79d9bb8e9763f914c88d0ed26629` and its remote branch
 was deleted.
 
 The release sequence for this exact main was completed:
@@ -87,6 +95,9 @@ Codex-generated main-branch events.
 - The blocking waiter `ops/wait_for_conclusion.sh` has passed local syntax and
   remote synthetic PR-event, timeout and failed-run checks; it returns one
   summary line and stores details in its log directory.
+- The homeserver waiter copy is synced to the merged main script, SHA-256
+  `5b3846c9ff7b4ad6a5297f5571fa162c8e0be5a50ee63da024d6ef11be038c6d`;
+  feedback cursor: `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/feedback-cursor`.
 
 ## Owned temporary resources and cleanup
 
