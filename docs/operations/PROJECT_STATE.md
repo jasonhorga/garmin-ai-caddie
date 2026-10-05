@@ -3,18 +3,19 @@
 > Short durable continuity ledger. This is the only authoritative operational
 > state file; dated material in `docs/archive/` is historical and non-authoritative.
 
-**Updated:** 2026-10-05 06:13 UTC
+**Updated:** 2026-10-05 06:59 UTC
 **Canonical branch:** `main`
-**Latest main tip:** `1b709a815b7a79d9bb8e9763f914c88d0ed26629` (PR #381 merged)
+**Latest main tip:** `7f2d3764` (PR #381 review evidence recorded)
 **Product app tip:** `3f05ca689b0ca4988bfcc404f9fe3ba446d6727c` (requested release source)
 **Product backend tip:** `048ab6a4b02e9b8d2d81d0d1098cc7cb696f7252` (internal candidate only)
-**Current slice:** `RELEASE-MAIN-3F05CA68` — `done`
+**Current slice:** `PR-382-REVIEW` — `evidence-open`
 
 ## Current status
 
 The owner requested an internal-only release from latest `main` including
 #375/#376/#377, in order: HTTP/2 speed, live Native, TestFlight, Apple read-only.
-Main is `3f05ca689b0ca4988bfcc404f9fe3ba446d6727c`; the healthy `048ab6a4`
+The release source was app tip `3f05ca689b0ca4988bfcc404f9fe3ba446d6727c`;
+the healthy `048ab6a4`
 candidate and tunnel were reused. All required gates passed and build 79 was
 uploaded to the existing internal TestFlight group. Production and external
 distribution were unchanged.
@@ -38,6 +39,23 @@ homeserver. The review comment is
 `https://github.com/jasonhorga/garmin-ai-caddie/pull/381#issuecomment-5989088276`.
 It merged at `1b709a815b7a79d9bb8e9763f914c88d0ed26629` and its remote branch
 was deleted.
+
+PR #382 is open at exact head `df69ca9ebd1fd74f99c89aa71669193e79861f3c`.
+Source CI `37271834177` and Native Mobile CI `37271834164` passed. The Native
+artifact contains 89 iOS and 47 Watch snapshots; all 136 PNG hashes match the
+corresponding #380 snapshots (the two prior contact sheets are the only extra
+files). Review evidence is retained at
+`/home/jason/garmin-ai-caddie-data/operations/pr382-native-37271834164-20261005/`.
+The review found one P2 blocker: `recentRows` deduplicates by localized display
+strings instead of stable `course.globalId`, so distinct courses can collapse
+or localization changes can duplicate a course. Review and clarification are
+posted at
+`https://github.com/jasonhorga/garmin-ai-caddie/pull/382#issuecomment-5989666689`;
+do not merge until the fix and regression test are reviewed.
+
+PR #383 remains open and blocked by the owner decision not to change the
+same-turn feedback-wait method before 2026-10-09; its P1 comment is
+`https://github.com/jasonhorga/garmin-ai-caddie/pull/383#issuecomment-5989315293`.
 
 The release sequence for this exact main was completed:
 
@@ -90,6 +108,9 @@ Codex-generated main-branch events.
 - PR #380 Native review artifacts and visual-audit evidence:
   `/home/jason/garmin-ai-caddie-data/operations/pr380-native-37267563159-20261005/`;
   review snapshot expiry is 2026-10-06 05:48 UTC.
+- PR #382 Native review artifacts and visual-audit evidence:
+  `/home/jason/garmin-ai-caddie-data/operations/pr382-native-37271834164-20261005/`;
+  review snapshot expiry is 2026-10-06 06:59 UTC.
 - Production remains `aicaddie-release-d7f69971-production-20260925` on
   loopback `39055`.
 - The blocking waiter `ops/wait_for_conclusion.sh` has passed local syntax and
