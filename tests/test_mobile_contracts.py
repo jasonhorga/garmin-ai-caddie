@@ -4431,6 +4431,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("didUpdateLocations", location_provider)
         self.assertIn("horizontalAccuracyM", location_provider)
 
+    def test_a_half_start_lists_an_already_installed_whole_course_in_the_prep_library(self) -> None:
+        # The B4b-2 template acquisition must not silently skip a course that is already installed:
+        # like `downloadPrepCourse`, it lists it as ready so 备战 shows it (live Native 37247820045).
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        enqueue = app_swift.split("private func enqueueWholeCourseTemplates(for snapshot: LiveRoundPackage) {", 1)[1].split(
+            "\n    }\n", 1
+        )[0]
+        self.assertIn("if let installed = readyPrepTemplate(for: candidate) {", enqueue)
+        self.assertIn("ready.phase = .ready", enqueue)
+        self.assertNotIn("guard readyPrepTemplate(for: candidate) == nil else { continue }", enqueue)
+
     def test_pin_sheet_flag_sits_under_a_moved_flag_and_above_the_route_end(self) -> None:
         # 洞位图: the day's sheet places the flag; a flag the player moves still wins, and the
         # provider's route end is only the fallback. The server only reads the photo.

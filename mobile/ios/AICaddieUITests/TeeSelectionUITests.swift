@@ -137,8 +137,10 @@ final class TeeSelectionUITests: XCTestCase {
         let selectedWhiteTee = app.buttons.matching(
             NSPredicate(format: "identifier ==[c] %@", "start-round-tee-white")
         ).firstMatch
+        // A real GPS fix can finish nearby discovery right after the tap and re-lay out the list,
+        // taking the row out of the hierarchy for a moment (live Native 37252432578).
         XCTAssertTrue(
-            waitForValue("已选择", on: selectedWhiteTee, timeout: 5),
+            waitForValue("已选择", on: selectedWhiteTee, timeout: 15),
             "the tapped tee must become selected"
         )
         XCTAssertTrue(
@@ -631,13 +633,16 @@ final class TeeSelectionUITests: XCTestCase {
 
     private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
 
+    /// Reading `.value` of an element that is momentarily absent (SwiftUI rebuilding a row after a
+    /// state change) fails the test on the spot with "Failed to get matching snapshot". Poll
+    /// `exists` first so a brief redraw is waited out; a value that never arrives still fails.
     private func waitForValue(_ expected: String, on element: XCUIElement, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            if (element.value as? String) == expected { return true }
+            if element.exists, (element.value as? String) == expected { return true }
             Thread.sleep(forTimeInterval: 0.2)
         } while Date() < deadline
-        return (element.value as? String) == expected
+        return element.exists && (element.value as? String) == expected
     }
 
     private func waitUntilEnabled(_ element: XCUIElement, timeout: TimeInterval) -> Bool {

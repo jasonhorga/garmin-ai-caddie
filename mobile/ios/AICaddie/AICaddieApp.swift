@@ -1265,7 +1265,19 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
                 continue
             }
-            guard readyPrepTemplate(for: candidate) == nil else { continue }
+            if let installed = readyPrepTemplate(for: candidate) {
+                // Already installed by another path (an earlier prep, a whole-course round): list it
+                // in the library as ready, exactly like `downloadPrepCourse` does. Skipping it left
+                // an installed course missing from 备战 (live Native 37247820045).
+                var ready = candidate
+                ready.phase = .ready
+                ready.totalHoles = max(1, installed.holes.count)
+                ready.preparedHoles = ready.totalHoles
+                ready.downloadedHoles = ready.totalHoles
+                prepCourseDownloads.append(ready)
+                changed = true
+                continue
+            }
             prepCourseDownloads.append(candidate)
             changed = true
             recordUITestLatency(
