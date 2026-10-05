@@ -126,6 +126,17 @@ final class PinSheetTests: XCTestCase {
                        "a sheet without a printed date is today's sheet")
     }
 
+    func testAReadFailureSaysWhy() {
+        XCTAssertEqual(PinSheetReadFailure(URLError(.timedOut)), .timedOut)
+        XCTAssertEqual(PinSheetReadFailure(URLError(.notConnectedToInternet)), .offline)
+        XCTAssertEqual(PinSheetReadFailure(SyncClientError.http(status: 422, body: nil)), .unreadable)
+        XCTAssertEqual(PinSheetReadFailure(SyncClientError.http(status: 413, body: nil)), .tooLarge)
+        XCTAssertEqual(PinSheetReadFailure(SyncClientError.http(status: 503, body: nil)), .notConfigured)
+        XCTAssertEqual(PinSheetReadFailure(SyncClientError.http(status: 502, body: nil)), .server(status: 502))
+        XCTAssertEqual(PinSheetImportOutcome.readFailed(.unreadable).message, "没从照片里认出洞位表。拍正、拍全、对好焦再试")
+        XCTAssertFalse(PinSheetImportOutcome.readFailed(.timedOut).isSuccess)
+    }
+
     func testAnotherDaysSheetAndFailuresAreNeverSaved() async {
         var saved: [DailyPinSheet] = []
         let yesterday = await importer(reply: .success(PinSheetReadResponse(date: "2026-10-03", holes: [row(1)]))) { saved.append($0) }
@@ -135,7 +146,7 @@ final class PinSheetTests: XCTestCase {
 
         let failed = await importer(reply: .failure(URLError(.badServerResponse))) { saved.append($0) }
             .run(jpegImages: [Data([1]), Data([2])], loops: venue, singleCourseGlobalId: 10, today: "2026-10-04")
-        XCTAssertEqual(failed, .readFailed)
+        XCTAssertEqual(failed, .readFailed(.server(status: nil)))
 
         let elsewhere = await importer(reply: .success(PinSheetReadResponse(date: nil, holes: [row(28)]))) { saved.append($0) }
             .run(jpegImages: [Data([1]), Data([2])], loops: venue, singleCourseGlobalId: 10, today: "2026-10-04")

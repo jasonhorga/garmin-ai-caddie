@@ -10,7 +10,7 @@ public enum MobileCourseSearchMode: Equatable {
 
 /// Which contract the shared catalogue sheet renders for (README §8).
 public enum MobileCourseSearchPresentation: Equatable {
-    /// 备战: shows positioning progress and the retained 最近选择 courses (no download state).
+    /// 备战: shows positioning progress and the retained 最近备战 courses (no download state).
     case prep
     /// 开始一场: no positioning, download or offline status copy; a course that is not downloaded
     /// is still selectable and prepared in the background. A nearby failure shows only a retry icon.
@@ -192,11 +192,11 @@ public struct MobileCourseSearchView: View {
 
             if presentation == .prep && !retainedDownloads.isEmpty {
                 Section {
-                    ForEach(retainedDownloads) { download in
+                    ForEach(Self.recentRows(retainedDownloads)) { download in
                         retainedDownloadRow(download)
                     }
                 } header: {
-                    Text("最近选择")
+                    Text("最近备战")
                 }
             }
 
@@ -280,7 +280,25 @@ public struct MobileCourseSearchView: View {
         }
     }
 
-    /// A retained 最近选择 row is just the course: the player taps it and enters 备战 (README §8
+    /// 最近备战 lists each course once. The library keeps one install per course and tee, so the
+    /// same 9 holes prepared with 蓝 T and later 白 T read as two identical "黑骑士 · A 场" rows;
+    /// only the most recent one (the input is newest first) is shown.
+    static func recentRows(_ downloads: [PrepCourseDownloadRecord]) -> [PrepCourseDownloadRecord] {
+        var seen = Set<String>()
+        return downloads.filter { download in
+            seen.insert("\(download.course.localizedName)|\(download.course.segmentDisplayTitle)").inserted
+        }
+    }
+
+    /// "A 场 · 蓝 T": the nine and the tee it was prepared for.
+    static func recentRowSubtitle(_ download: PrepCourseDownloadRecord) -> String {
+        guard let tee = StartRoundPresentation.teeShortLabel(download.teeBox) else {
+            return download.course.segmentDisplayTitle
+        }
+        return "\(download.course.segmentDisplayTitle) · \(tee)"
+    }
+
+    /// A retained 最近备战 row is just the course: the player taps it and enters 备战 (README §8
     /// 选了就进). Its download keeps running in the app-owned library without any status copy,
     /// progress bar or spinner here. The only visible states are the actionable ones: a failed
     /// download offers 重试, and a course that can never be prepared says so and is disabled.
@@ -301,8 +319,8 @@ public struct MobileCourseSearchView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
                         Text(isTerminalFailure
-                            ? "\(download.course.segmentDisplayTitle) · 暂不支持备战"
-                            : download.course.segmentDisplayTitle)
+                            ? "\(Self.recentRowSubtitle(download)) · 暂不支持备战"
+                            : Self.recentRowSubtitle(download))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .accessibilityHidden(true)

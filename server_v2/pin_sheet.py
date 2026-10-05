@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
 
 from fastapi import HTTPException
 
@@ -20,6 +21,8 @@ from .media import build_media_vision_provider
 from .models import PinSheetRequest
 
 ACCEPTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+
+logger = logging.getLogger(__name__)
 
 
 def read_pin_sheet_response(request: PinSheetRequest) -> dict:
@@ -41,12 +44,24 @@ def read_pin_sheet_response(request: PinSheetRequest) -> dict:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         images.append(PinSheetImage(mime_type=sniffed, data=data))
+    total_bytes = sum(len(image.data) for image in images)
     try:
         provider = build_media_vision_provider()
-        return read_pin_sheet(images, provider)
+        result = read_pin_sheet(images, provider)
     except ProviderConfigurationError as exc:
+        logger.warning("pin_sheet not_configured images=%s bytes=%s error=%s", len(images), total_bytes, redact_secret_text(exc))
         raise HTTPException(status_code=503, detail=f"pin sheet reading is not configured: {redact_secret_text(exc)}")
     except PinSheetReadError as exc:
+        logger.warning("pin_sheet unreadable images=%s bytes=%s error=%s", len(images), total_bytes, exc)
         raise HTTPException(status_code=422, detail=f"could not read the sheet: {exc}")
     except Exception as exc:  # provider transport / runtime failure
+        logger.warning(
+            "pin_sheet provider_failed images=%s bytes=%s error=%s: %s",
+            len(images), total_bytes, type(exc).__name__, redact_secret_text(exc),
+        )
         raise HTTPException(status_code=502, detail=f"pin sheet reading failed: {redact_secret_text(exc)}")
+    logger.info(
+        "pin_sheet read images=%s bytes=%s holes=%s dated=%s",
+        len(images), total_bytes, len(result.get("holes") or []), bool(result.get("date")),
+    )
+    return result

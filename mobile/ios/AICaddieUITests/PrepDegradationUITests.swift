@@ -205,7 +205,7 @@ final class PrepDegradationUITests: XCTestCase {
             format: "identifier BEGINSWITH %@",
             "prep-download-row-\(degradedCourseGlobalId):"
         )).firstMatch
-        XCTAssertTrue(scrollIntoView(retained, maxSwipes: 12), "the selection stays in 最近选择")
+        XCTAssertTrue(scrollIntoView(retained, maxSwipes: 12), "the selection stays in 最近备战")
         // The row shows no download copy; the DEBUG/UITEST_MODE-only token proves the durable,
         // still-running download behind it.
         let retainedState = (retained.value as? String) ?? ""

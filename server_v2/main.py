@@ -1507,8 +1507,26 @@ def _course_match_payload(match: course_search.CourseMatch) -> dict:
     return payload
 
 
+# 开始一场 lists nearby courses; the tap then waits on the course's Tee list. On a course whose
+# CourseView release is not cached yet that wait is a cold Garmin fetch (device: 华彬 B 场 spun
+# for a long time). Warm the nearest rows' releases while the player is still reading the list.
+NEARBY_TEE_PREWARM_LIMIT = 8
+
+
+def _prewarm_course_tees(global_ids: list[int]) -> None:
+    from ai_caddie.courses.course_reference import courseview_tees
+
+    for gid in global_ids:
+        try:
+            if not courseview_tees(gid, allow_fetch=False):
+                courseview_tees(gid, allow_fetch=True)
+        except Exception as exc:  # best effort: the tap still fetches on demand
+            logger.warning("nearby_tee_prewarm failed gid=%s error=%s", gid, type(exc).__name__)
+
+
 @app.get("/api/v2/courses/nearby")
 def course_nearby_endpoint(
+    background_tasks: BackgroundTasks,
     latitude: float = Query(ge=-90, le=90),
     longitude: float = Query(ge=-180, le=180),
     radius_km: int = Query(default=50, ge=1, le=200),
@@ -1550,6 +1568,9 @@ def course_nearby_endpoint(
         overlay_coordinates=False,
         append_history=False,
     )
+    prewarm_ids = list(dict.fromkeys(int(match.global_id) for match in matches if int(match.global_id) > 0))
+    if prewarm_ids:
+        background_tasks.add_task(_prewarm_course_tees, prewarm_ids[:NEARBY_TEE_PREWARM_LIMIT])
     return {
         "schema": "ai-caddie-course-nearby-v1",
         "radiusKm": radius_km,

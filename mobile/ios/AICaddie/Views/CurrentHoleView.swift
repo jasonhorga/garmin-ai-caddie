@@ -136,6 +136,7 @@ public struct CurrentHoleView: View {
     @State private var pinSheetItems: [PhotosPickerItem] = []
     @State private var isReadingPinSheet = false
     @State private var pinSheetMessage: String?
+    @State private var pinSheetMessageIsSuccess = false
     @State private var targetKind: String?
     /// The legacy wire contract has one target tuple.  Keep track of which instrument was edited
     /// last so a Watch/old server receives the tuple the golfer is looking at, without making the
@@ -623,7 +624,9 @@ public struct CurrentHoleView: View {
                             items: $pinSheetItems,
                             title: pinSheetButtonTitle,
                             message: pinSheetMessage,
-                            isReading: isReadingPinSheet
+                            messageIsSuccess: pinSheetMessageIsSuccess,
+                            isReading: isReadingPinSheet,
+                            onDismissMessage: { pinSheetMessage = nil }
                         )
                         .padding(.leading, 52)
                     }
@@ -2190,6 +2193,7 @@ public struct CurrentHoleView: View {
     /// (1–9, 10–18, 19–27), or the round's own course.
     private func importPinSheet(_ items: [PhotosPickerItem]) async {
         pinSheetItems = []
+        pinSheetMessageIsSuccess = false
         guard let mediaUploadClient else {
             pinSheetMessage = "需要联网才能读取洞位图"
             return
@@ -2230,7 +2234,14 @@ public struct CurrentHoleView: View {
         if case .applied(let sheet) = outcome {
             dailyPinSheet = sheet
         }
+        pinSheetMessageIsSuccess = outcome.isSuccess
         pinSheetMessage = outcome.message
+        if outcome.isSuccess {
+            // A success is a confirmation, not something to keep over the map.
+            let shown = outcome.message
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if pinSheetMessage == shown { pinSheetMessage = nil }
+        }
     }
 
     /// The legacy Watch/event payload has one coordinate tuple. Until that contract grows a second
