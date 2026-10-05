@@ -12,6 +12,7 @@ import UIKit
 enum LivePlayChromeStyle {
     static let captionShadow = Color.black.opacity(0.7)
     static let flagRed = Color(red: 1, green: 0.54, blue: 0.5)
+    static let successGreen = Color(red: 0.55, green: 0.8, blue: 0.49)
 }
 
 /// Frosted circle used by every secondary map control.
@@ -136,12 +137,15 @@ struct LivePlayPinSheetButton: View {
     @Binding var items: [PhotosPickerItem]
     let title: String
     let message: String?
+    /// The last import worked (green check) or did not (orange, and the text says why).
+    let messageIsSuccess: Bool
     let isReading: Bool
+    let onDismissMessage: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             PhotosPicker(selection: $items, maxSelectionCount: 3, matching: .images) {
-                Label(title, systemImage: isReading ? "hourglass" : "mappin.and.ellipse")
+                Label(title, systemImage: "mappin.and.ellipse")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
@@ -154,16 +158,61 @@ struct LivePlayPinSheetButton: View {
             .disabled(isReading)
             .accessibilityLabel(title)
             .accessibilityIdentifier("live-pin-sheet")
-            if let message {
-                Text(message)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color.black.opacity(0.55), in: Capsule())
-                    .accessibilityIdentifier("live-pin-sheet-message")
+            if isReading {
+                card(icon: nil, tint: .white) {
+                    Text("正在读取洞位图…")
+                }
+                .accessibilityIdentifier("live-pin-sheet-reading")
+            } else if let message {
+                card(
+                    icon: messageIsSuccess ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+                    tint: messageIsSuccess ? LivePlayChromeStyle.successGreen : .orange
+                ) {
+                    HStack(alignment: .top, spacing: 6) {
+                        Text(message)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button(action: onDismissMessage) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.7))
+                                .frame(width: 22, height: 22)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("关闭")
+                    }
+                }
+                .accessibilityIdentifier("live-pin-sheet-message")
             }
         }
+    }
+
+    private func card<Content: View>(
+        icon: String?,
+        tint: Color,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(tint)
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+            }
+            content()
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: 250, alignment: .leading)
+        .background(Color(red: 0.07, green: 0.09, blue: 0.08).opacity(0.92), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
     }
 }
 

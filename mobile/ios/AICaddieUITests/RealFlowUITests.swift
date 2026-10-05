@@ -533,7 +533,7 @@ final class RealFlowUITests: XCTestCase {
         )).firstMatch
         XCTAssertTrue(
             scrollTo(retainedDownload, maxSwipes: 12),
-            "leaving course prep must retain the selected course in 最近选择"
+            "leaving course prep must retain the selected course in 最近备战"
         )
         XCTAssertTrue(
             nonEmptyAccessibilityValue(retainedDownload),

@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Iterable, cast
 
-from ai_caddie.llm.llm_providers import LLMMediaPart, LLMMessage, MultimodalProvider
+from ai_caddie.llm.llm_providers import LLMMediaPart, LLMMessage, MultimodalProvider, ProviderConfigurationError
 
 PIN_SHEET_SCHEMA = "ai-caddie-pin-sheet-v1"
 MAX_SHEET_HOLE = 36
@@ -82,7 +82,8 @@ def read_pin_sheet(images: Iterable[PinSheetImage], provider: object) -> dict[st
     """Ask the multimodal provider to read the sheet and return the normalised payload."""
     chat_multimodal = getattr(provider, "chat_multimodal", None)
     if not callable(chat_multimodal):
-        raise PinSheetReadError("the configured model cannot read images")
+        # A deployment problem, not a bad photo: the player must not be told to retake it.
+        raise ProviderConfigurationError("the configured model cannot read images")
     media = [LLMMediaPart(media_type="image", mime_type=image.mime_type, data=image.data) for image in images]
     if not media:
         raise PinSheetReadError("no image")

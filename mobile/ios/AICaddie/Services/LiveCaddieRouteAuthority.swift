@@ -399,13 +399,20 @@ enum LiveCaddieRouteAuthority {
     /// the route tabs. Treating those hidden values as identity produced duplicate choices such as
     /// two separate `3H -> 3W` tabs after a refresh. Physical values remain available on the
     /// selected route and `samePhysicalRoute` still handles refresh retention; they must not create
-    /// another player-facing strategy by themselves.
+    /// another player-facing strategy by themselves. A different last-leg role only splits the
+    /// same clubs when the landings are also `minDistinctEndpointM` or more apart.
     static func sameVisibleRoute(_ lhs: CaddiePlanSequence, _ rhs: CaddiePlanSequence) -> Bool {
         guard lhs.steps.count == rhs.steps.count, !lhs.steps.isEmpty else { return false }
         for (index, pair) in zip(lhs.steps, rhs.steps).enumerated() {
             let (left, right) = pair
             guard normalizedClub(left.clubName) == normalizedClub(right.clubName) else { return false }
             if index == lhs.steps.count - 1 {
+                // The same clubs ending within a few yards of each other are one plan to the
+                // player, whatever the planner called the last leg (a Par-3 三号木 175 vs 184).
+                if let leftEnd = endpointM(left), let rightEnd = endpointM(right),
+                   abs(leftEnd - rightEnd) < minDistinctEndpointM {
+                    return true
+                }
                 // A role/green marker change moves the map endpoint from a layup prefix to the
                 // green. Keep those routes separate even when their club labels match.
                 if endpointClass(left.role) != endpointClass(right.role) { return false }
@@ -457,6 +464,13 @@ enum LiveCaddieRouteAuthority {
                 guard !result.contains(where: { sameVisibleRoute($0, route) }) else { return }
                 result.append(route)
             }
+    }
+
+    /// Two same-club routes whose final landings are closer than this are not two choices.
+    static let minDistinctEndpointM: Double = 20
+
+    private static func endpointM(_ step: CaddiePlanSequenceStep) -> Double? {
+        step.routeOffsetM ?? step.landingM ?? step.targetCarryM
     }
 
     private static func deduplicated(_ routes: [CaddiePlanSequence]) -> [CaddiePlanSequence] {

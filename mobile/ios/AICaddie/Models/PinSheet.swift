@@ -115,16 +115,67 @@ public enum PinSheetImportOutcome: Equatable {
     /// The sheet prints another day's date: yesterday's flags must never become today's.
     case otherDay(String)
     case nothingMapped
-    case readFailed
+    case readFailed(PinSheetReadFailure)
     case saveFailed
+
+    public var isSuccess: Bool {
+        if case .applied = self { return true }
+        return false
+    }
 
     public var message: String {
         switch self {
         case .applied(let sheet): return "已读到 \(sheet.pins.count) 洞旗位"
         case .otherDay(let printed): return "这张洞位图是 \(printed) 的，不是今天的，未使用"
         case .nothingMapped: return "没读到这个球场的旗位，换一张更清楚的照片试试"
-        case .readFailed: return "洞位图读取失败，请重试"
+        case .readFailed(let failure): return failure.message
         case .saveFailed: return "洞位图保存失败，请重试"
+        }
+    }
+}
+
+/// Why a read failed, so the player knows whether to retake the photo, wait, or get a network.
+public enum PinSheetReadFailure: Equatable {
+    case offline
+    case timedOut
+    /// The model found no hole-location table in the photo (HTTP 422, or a photo it cannot open).
+    case unreadable
+    case tooLarge
+    case notConfigured
+    case server(status: Int?)
+
+    public init(_ error: Error) {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut: self = .timedOut
+            case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost,
+                 .cannotFindHost, .dataNotAllowed, .internationalRoamingOff:
+                self = .offline
+            default: self = .server(status: nil)
+            }
+            return
+        }
+        if let syncError = error as? SyncClientError, case .http(let status, _) = syncError {
+            switch status {
+            case 413: self = .tooLarge
+            case 415, 422: self = .unreadable
+            case 503: self = .notConfigured
+            default: self = .server(status: status)
+            }
+            return
+        }
+        self = .server(status: nil)
+    }
+
+    public var message: String {
+        switch self {
+        case .offline: return "没有网络，洞位图没读成。有信号后再试"
+        case .timedOut: return "读取超时，网络慢或识图服务忙，稍后再试"
+        case .unreadable: return "没从照片里认出洞位表。拍正、拍全、对好焦再试"
+        case .tooLarge: return "照片太大，少选几张再试"
+        case .notConfigured: return "服务器还没开通洞位图识别"
+        case .server(let status?): return "识图服务出错（\(status)），稍后再试"
+        case .server(nil): return "识图服务出错，稍后再试"
         }
     }
 }
@@ -153,7 +204,8 @@ public struct PinSheetImporter {
         do {
             reply = try await read(jpegImages)
         } catch {
-            return .readFailed
+            AICaddieLog.network.error("Pin sheet read failed: \(String(describing: error), privacy: .public)")
+            return .readFailed(PinSheetReadFailure(error))
         }
         if let printed = reply.date, printed != today {
             return .otherDay(printed)

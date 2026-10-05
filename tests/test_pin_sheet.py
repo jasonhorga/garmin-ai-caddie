@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.datastructures import QueryParams
 
+from ai_caddie.llm.llm_providers import ProviderConfigurationError
 from ai_caddie.llm.pin_sheet_vision import (
     PinSheetImage,
     PinSheetReadError,
@@ -71,7 +72,7 @@ class PinSheetParseTests(unittest.TestCase):
         self.assertEqual(sheet["holes"][0]["hole"], 1)
         _, media, _ = provider.calls[0]
         self.assertEqual(len(media), 2)
-        with self.assertRaises(PinSheetReadError):
+        with self.assertRaises(ProviderConfigurationError):
             read_pin_sheet([PinSheetImage("image/jpeg", JPEG)], object())
 
 
@@ -134,6 +135,8 @@ class PinSheetEndpointTests(unittest.TestCase):
                 unreadable = self._post(client, self.ADMIN_HEADER, [JPEG])
             with patch("server_v2.pin_sheet.build_media_vision_provider", side_effect=RuntimeError("boom key=sk-secret")):
                 broken = self._post(client, self.ADMIN_HEADER, [JPEG])
+            with patch("server_v2.pin_sheet.build_media_vision_provider", return_value=object()):
+                text_only = self._post(client, self.ADMIN_HEADER, [JPEG])
             not_image = self._post(client, self.ADMIN_HEADER, [b"hello"])
             too_many = self._post(client, self.ADMIN_HEADER, [JPEG] * 4)
 
@@ -148,6 +151,8 @@ class PinSheetEndpointTests(unittest.TestCase):
         self.assertEqual(built.call_count, 1)
         self.assertEqual(unreadable.status_code, 422)
         self.assertEqual(broken.status_code, 502)
+        # A model that cannot read images is a deployment problem, not a bad photo.
+        self.assertEqual(text_only.status_code, 503)
         self.assertEqual(not_image.status_code, 415)
         self.assertEqual(too_many.status_code, 422)
 

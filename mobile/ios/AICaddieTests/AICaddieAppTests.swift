@@ -64,6 +64,29 @@ final class AICaddieAppTests: XCTestCase {
         )
     }
 
+    /// Device feedback: the same 黑骑士 A 场 prepared with two tees showed as two identical rows.
+    func testRecentPrepListsEachCourseOnceWithItsTee() {
+        let a = MobileCourseOption(globalId: 31794, name: "黑骑士 ~ A", holes: 9, venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9)
+        let b = MobileCourseOption(globalId: 31795, name: "黑骑士 ~ B", holes: 9, venueName: "黑骑士", segmentLabel: "B", segmentHoles: 9)
+        let sameDisplayDifferentCourse = MobileCourseOption(
+            globalId: 31796,
+            name: "黑骑士 ~ A",
+            holes: 9,
+            venueName: "黑骑士",
+            segmentLabel: "A",
+            segmentHoles: 9
+        )
+        let newestFirst = [
+            PrepCourseDownloadRecord(course: a, teeBox: "white"),
+            PrepCourseDownloadRecord(course: b, teeBox: "blue"),
+            PrepCourseDownloadRecord(course: a, teeBox: "blue"),
+            PrepCourseDownloadRecord(course: sameDisplayDifferentCourse, teeBox: "red"),
+        ]
+        let rows = MobileCourseSearchView.recentRows(newestFirst)
+        XCTAssertEqual(rows.map(\.id), [newestFirst[0].id, newestFirst[1].id, newestFirst[3].id])
+        XCTAssertEqual(MobileCourseSearchView.recentRowSubtitle(rows[0]), "A 场 · 白 T")
+    }
+
     func testCourseSearchDoesNotShowEmptyStateWhileRequestIsStillRunning() {
         XCTAssertFalse(
             MobileCourseSearchView.shouldShowEmptyState(
