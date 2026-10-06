@@ -688,6 +688,7 @@ jobs:
             local mode="$1"
             local screenshot="$2"
             local launch_output
+            bash .github/scripts/watch_screen_ready.sh reset "$WATCH_UDID" "$BID"
             if ! launch_output=$(env \
               SIMCTL_CHILD_UITEST_GPS_LAT=40.0454995 \
               SIMCTL_CHILD_UITEST_GPS_LON=116.5461531 \
@@ -696,7 +697,8 @@ jobs:
               exit 1
             fi
             printf '%s\n' "$launch_output" | tee "watch-real-screenshots/launch-$mode.txt"
-            sleep 5
+            # Bounded wait for the routed view instead of a fixed sleep (a launch logo must fail).
+            bash .github/scripts/watch_screen_ready.sh wait "$WATCH_UDID" "$BID" "$mode" 30
             xcrun simctl io "$WATCH_UDID" screenshot "watch-real-screenshots/$screenshot"
             xcrun simctl terminate "$WATCH_UDID" "$BID"
           }
