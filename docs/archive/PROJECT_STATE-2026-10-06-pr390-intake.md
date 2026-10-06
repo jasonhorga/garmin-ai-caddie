@@ -1,26 +1,22 @@
+# HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
+Verbatim ledger before intake of independent PR #390 selection diagnostics.
+Use docs/operations/PROJECT_STATE.md for the current slice.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated files in docs/archive/ are historical and non-authoritative.
 
-**Updated:** 2026-10-06 23:25 UTC
+**Updated:** 2026-10-06 22:50 UTC
 **Canonical branch:** `main`
-**Latest integrated code:** `469f0d5de2977985cc5ff1749a62bb2cf9b1fd5a` (#390)
+**Latest integrated code:** `9f56c35b61809069537d8c3f09c28a6e3347d8d5` (#388)
 **Internal app/API/sync source:** `3614bf6f3805479f8d13de65eeec4f0ad7871f22`
-**Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
+**Current slice:** `PR-389-HALF-START-ENROLLMENT-REVIEW` — `in-progress`
 
 ## Current status and deduplication
 
-Claude is restored. #389 open; #387/#388/#390 merged, branches deleted.
-#390 reviewed at `dbd23b6a7c9b3c463cd6dc444357416b546fa405`; independent
-**129 tests / 11.478 s / OK**. Source `37534418658` / Native `37534418849`
-green; all three ZIPs verified, 89 iOS/47 Watch PNGs equal approved baseline.
-Compiled merge `4e8d9016…` has no mobile/ios diff from head. Review comment
-**6027263370** posted; merged **23:22:49 UTC**, merge `469f0d5d…`, branch
-deleted. Snapshot/container/helpers closed; evidence retained. Failure branch
-not executed by automatic Native; #389 viewport P2 remains open.
-Queued old #389 head/runs/comments deduplicated through reply 6025783925.
-Observed review/cleanup pushed as `91eebbf1`; no CI-bookkeeping commit.
+Claude is restored. Only #389 is open; #387/#388 merged, branches deleted.
 Reviewed #389 head `56022d326edf7b4cc789f9ecea818ceb6da50805`;
 branch `claude/half-start-queue-whole-course-20261006`.
 Four request-lifetime P2 paths resolved: shared eligibility, generation check
@@ -61,9 +57,10 @@ duplicates never reset quiet time. Preserve dirty `ops/pr_feedback_monitor.sh`.
 
 ## Unfinished work
 
-- `PR-389-HALF-START-ENROLLMENT-REVIEW` — `blocked`: author viewport P2 fix;
-  review corrected head/tests/Native/targeted live White before approval/merge.
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: all repo PR events; required CI,
+- `PR-389-HALF-START-ENROLLMENT-REVIEW` — `in-progress`: resume feedback
+  cursor for viewport P2 fix; review corrected exact head, relevant tests,
+  Native artifacts and targeted live White selection before approval/merge.
+- `PR-FEEDBACK-CONTINUOUS` — `queued`: all repo PR events; required CI,
   source and screenshots before P1/P2/nonblocking verdict; merge/delete if clear.
 - `PR-387-IOS-JOURNEY-REGRESSION` — `blocked`: live proof passed on #389;
   integration waits for #389 approval/merge.
@@ -102,9 +99,6 @@ duplicates never reset quiet time. Preserve dirty `ops/pr_feedback_monitor.sh`.
   artifact downloader, observer, health sampler or CI waiter.
   Final observed-run terminal **94095** closed; downloads/render/copy
   **97479 / 25530 / 41033** finished. New 324 MB video not needed/downloaded.
-- #390 snapshot/container closed **23:21:30 UTC**; all five helpers removed
-  after backup/hash/use checks. Evidence and cleanup manifest/receipts retained
-  in `operations/pr390-dbd23b6a-20261006`; no worktree/deps/service/port/volume.
 - Sixteen exact local helpers removed after byte-identical remote backup and
   fuser no-open-handle checks. Persistent allow-list/receipt:
   `pr389-56022d32-20261006/.codex-pr389-56022d32-local-cleanup.json`.
@@ -133,11 +127,12 @@ duplicates never reset quiet time. Preserve dirty `ops/pr_feedback_monitor.sh`.
 
 ## Next action and stop conditions
 
-Resume existing same-turn feedback cursor for #389 viewport correction and
-other new PRs. #390 is integrated; no new run is justified solely to merge it.
+Commit/push completed observed-run review and local-helper closure, then resume
+same-turn feedback wait. Review Claude's corrected exact head/targeted Native
+tee selection; if clear approve/merge #389 and delete branch.
 No unchanged full-live rerun; no CI-only bookkeeping commits.
 
-Quiet interval suspended while any PR is open. Once none remain establish a fresh
+Quiet interval suspended while #389 open. Once none remain establish a fresh
 conservative baseline; stop after **48 quiet hours/no open PRs** or absolute
 **2026-10-09 23:59 UTC**, with owned-resource handoff. Own events never reset it.
 Keep ledger ≤200 lines/current-only; archive superseded text verbatim.
