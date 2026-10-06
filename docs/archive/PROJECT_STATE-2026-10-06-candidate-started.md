@@ -1,9 +1,12 @@
+> HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+> Verbatim ledger before consuming preparation terminal 33811 and starting release preflight.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated files in docs/archive/ are historical and non-authoritative.
 
-**Updated:** 2026-10-06 06:56 UTC
+**Updated:** 2026-10-06 06:20 UTC
 **Canonical branch:** `main`
 **Latest integrated code:** `3bf38b0c4ed9c7d3b6b73bf77452d25c8dbc31e4` (#386)
 **Internal app source:** `3f05ca689b0ca4988bfcc404f9fe3ba446d6727c`
@@ -45,9 +48,7 @@ confirm no open PRs. Never count own bookkeeping/CI as activity.
 
 - `INTERNAL-RELEASE-NEXT-MAIN` — `in-progress`: pinned latest main
   `3614bf6f3805479f8d13de65eeec4f0ad7871f22`; API, sync and app bind
-  to this SHA. Includes #382/#384/#385/#386. API and sync built; isolated
-  candidate revision/health passed. HTTP/2 + vision passed; current phase:
-  live Native `37426762320` at exact SHA, fixture=false/full/live preflight.
+  to this SHA. Includes #382/#384/#385/#386. Candidate preparation started.
 - Build a new isolated candidate API plus `aicaddie-sync:<same-full-SHA>`.
   Explicitly set API_IMAGE for sync; the default targets production 39055.
 - Keep text provider static; Gemini is for vision only. Read the existing
@@ -56,9 +57,6 @@ confirm no open PRs. Never count own bookkeeping/CI as activity.
 - Gates: HTTP/2 tunnel/throughput → exact-SHA live Native (fixture=false,
   full capture) → internal TestFlight → Apple read-only. Also require
   synthetic pin-sheet API HTTP 200 with sensible extracted facts.
-- New preflight: pin-sheet HTTP 200/18.901 s; three holes and date/numbers
-  match the synthetic image. Package 203,928 raw / ~17,855 wire bytes;
-  loopback 1.72–2.78 s, four tunnel requests 2.10–2.34 s, all HTTP2/200.
 - Physical-device testing is owner evidence; live Native is simulator
   validation and must not be described as an actual paired-device test.
 - Do not switch production or enable external distribution.
@@ -108,19 +106,8 @@ confirm no open PRs. Never count own bookkeeping/CI as activity.
   release-main-3614bf6f-20261006`, both under the documented homeserver roots.
   Its resource-manifest.md allow-lists candidate 3614bf6f, port 39089,
   HTTP/2 tmux, private copy and isolated DB; source expiry Oct 13.
-  Preparation terminal 33811 and HTTP/2 terminal 77096 succeeded/consumed.
-  Preflight 74281 ended before vision on an overly strict formal-readiness
-  assertion. Existing authorized internal test-environment contract restored;
-  core service/mobile/security/history/sync/catalogue remain mandatory ready.
-  Retry terminal 53098 succeeded/consumed. Native run `37426762320`
-  is dispatched at pinned SHA; blocking --run terminal 71921 is pending
-  in this turn. Its one-line result is the only CI completion signal.
-  Release progress comment `6011111141` is posted; do not repeat it.
-  New origin: `https://developments-deputy-joined-logged.trycloudflare.com`.
-  Candidate `aicaddie-release-3614bf6f-candidate-20261006` is on 39089;
-  database `aicaddie_candidate_3614bf6f_20261006` and private copy are isolated.
-  API image uses full-SHA candidate tag; sync is `aicaddie-sync:<same SHA>`.
-  Immutable workflow branch is `codex/internal-release-3614bf6f-20261006`.
+  Preparation terminal handle 33811 is pending in this same turn; read
+  its one-line conclusion before starting gates. Do not start a duplicate.
 - Old candidate shares production volume/DB; new candidate clones both,
   so Native tests must only target the new origin. No production writes.
 - #386 local review inputs are copied/checksummed into persistent evidence
@@ -142,8 +129,7 @@ confirm no open PRs. Never count own bookkeeping/CI as activity.
 
 ## Next action and stop conditions
 
-Wait for Native 37426762320; on success download/review design/watch/live
-artifacts, then run internal TestFlight and Apple read-only verification.
+Complete candidate preparation at pinned 3614bf6f, then perform release gates.
 If a required gate fails, diagnose and fix only within the authorized release
 scope; do not claim a passing gate or upload an unverified candidate.
 
