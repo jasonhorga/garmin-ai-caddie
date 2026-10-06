@@ -1,13 +1,18 @@
-# Garmin AI Caddie Project State
+# HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
+Preserved verbatim before returning the #388 aggregate CI P2 and closing its review resources.
+Live authority remains docs/operations/PROJECT_STATE.md.
+
++# Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated files in docs/archive/ are historical and non-authoritative.
 
-**Updated:** 2026-10-06 14:36 UTC
+**Updated:** 2026-10-06 14:26 UTC
 **Canonical branch:** `main`
 **Latest integrated code:** `3bf38b0c4ed9c7d3b6b73bf77452d25c8dbc31e4` (#386)
 **Internal app/API/sync source:** `3614bf6f3805479f8d13de65eeec4f0ad7871f22`
-**Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
+**Current slice:** `PR-388-WAIT-OWN-CI-REVIEW` — `in-progress`
 
 ## Current status and deduplication
 
@@ -30,11 +35,7 @@ subagents are required; old review_pr376 is complete and resources closed.
   reply `6009204457` resolved; final review `5423787418`.
 - #385 head `b6b8c858`, merge `8099df3e`; review `5423738591`.
 - #383 head `1589265f`, merge `78bfbfd6`; review `5422610831`.
-  Own-branch CI P2 `6014454163` is now handled by pending #388.
-- #388 head `a8ec945b0568c57bda1233d8e7023568f2d4ca9b`, Source
-  `37451538889` green; original 6 tests pass, boundary suite 9/10 passes.
-  P2 `6018586650`: aggregate ci_changed still wakes for the same self CI;
-  isolated replay confirms cursor=2 instead of reaching true comment at 3.
+  Own-branch CI P2 `6014454163` remains awaiting a fix PR.
 - #382 head `beb0a829`, merge `9ebc8cba`; 136 snapshots reviewed.
 
 Deduplicate these heads/comments and the release/Native run IDs below.
@@ -43,11 +44,10 @@ verbatim in dated archives; own comments/commits/CI never reset quiet time.
 
 ## Unfinished work
 
-- `PR-388-WAIT-OWN-CI-REVIEW` — `blocked`: P2 6018586650 asks matching
-  provenance filtering for ci_changed and run→summary→real-comment tests
-  in feedback/pr modes. Claude/mixed markers and explicit release results
-  already pass. Await author fix; keep current waiter until a verified merge.
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: resume the existing cursor
+- `PR-388-WAIT-OWN-CI-REVIEW` — `in-progress`: head a8ec945b0568c57bda1233d8e7023568f2d4ca9b;
+  Source 37451538889 green; inspect/run fake-gh provenance tests and independent
+  event boundary cases before review/merge/sync. No mobile files/Native gate.
+- `PR-FEEDBACK-CONTINUOUS` — `queued`: resume the existing cursor
   and same-turn feedback waiter; process Claude's root cause/fix for #387.
   Review each actionable PR on exact head, required CI and native artifacts;
   comment P1/P2/non-blocking; with no blockers merge/delete source branch.
@@ -64,9 +64,9 @@ verbatim in dated archives; own comments/commits/CI never reset quiet time.
   not a logo. Close after the fix is integrated.
 - `IOS-STATUS-CONTRAST` — `queued`, non-blocking: existing dark system
   status-bar text on dark iOS map/review screens; no new rendering change.
-- `WAIT-OWN-BRANCH-CI` — `blocked`: skip Codex-provenance feedback CI
+- `WAIT-OWN-BRANCH-CI` — `queued`: skip Codex-provenance feedback CI
   across branches, preserve Claude under shared identity, keep explicit
-  --run/--release results. #383 P2 `6014454163`; #388 aggregate P2 pending.
+  --run/--release results. #383 P2 `6014454163`; await fix PR.
 - `OWNER-DEVICE-BUILD80` — `evidence-open`: Jason's paired iPhone/Watch
   testing; Native proof is simulator testing, not physical-device testing.
 
@@ -112,15 +112,12 @@ verbatim in dated archives; own comments/commits/CI never reset quiet time.
 - Build79 old candidate/image tag/source retired; all 1,131 source files
   backed up/checksum-verified. Original production volume/database protected;
   old tunnel absent; retirement manifest/capacity/health retained.
-- No implementation worktree or active review snapshot. #388 snapshot
-  `/dev/shm/garmin-ai-caddie-pr388-a8ec945b-20261006` and empty test temp
-  removed after backup/use checks. Host verification **60511** consumed;
-  fake gh/isolated events/cursor only, production stream/cursor untouched.
-  Evidence project `operations/pr388-a8ec945b-20261006` retains source tar,
-  6-test/10-case logs, raw aggregate CI POC, cleanup manifest/receipt.
-  Five local helpers plus checksum metadata removed after remote verification;
-  production/build80 health both 200. Capacity gate 67 GiB root/4.1 GiB RAM.
-  #387 snapshot
+- No implementation worktree. #388 read-only snapshot registered before creation:
+  `/dev/shm/garmin-ai-caddie-pr388-a8ec945b-20261006`, expires Oct 7 14:26 UTC;
+  evidence project `operations/pr388-a8ec945b-20261006`; host stdlib Python/bash/jq,
+  fake gh/isolated events/cursor; no installs/services/production cursor writes.
+  Capacity 67 GiB root, 3.3 GiB shm, 4.1 GiB available RAM. #387 snapshot
+  #388 preparation/verification terminal **60511** active; consume before verdict.
   `/dev/shm/garmin-ai-caddie-pr387-4504b299-20261006` removed after source
   tar checksum and /proc/container use checks. Test/renderer --rm containers
   closed. Production/build80 health both 200 on /api/v2/health.
@@ -148,12 +145,11 @@ verbatim in dated archives; own comments/commits/CI never reset quiet time.
 
 ## Next action and stop conditions
 
-Earlier review/resource closure pushed as **4d74f20f**. Push #388 P2/resource
-closure with dated archives, then resume the feedback cursor in this same
-turn. Await Claude's #387 iOS root cause/fix and #388 aggregate filtering fix;
-merge/sync only after required verification. Keep waiting method/cursor.
+Review/resource closure and archives pushed as **4d74f20f**. Review #388 at
+head a8ec945b, then resolve findings/merge and sync the existing waiter if clear.
+Keep waiting method/cursor; #387 stays blocked on Claude's iOS root cause/fix.
 
-Quiet interval suspended while #387/#388 are open; previous Oct 8 09:23 deadline
+Quiet interval suspended while #387 is open; previous Oct 8 09:23 deadline
 is invalid. Once reviews close and there are no open PRs, establish a fresh
 conservative baseline. End after 48 quiet hours/no open PRs, or at absolute
 end **2026-10-09 23:59 UTC**, with final resource/condition handoff.
