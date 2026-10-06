@@ -55,3 +55,53 @@ Eleven bounded frames, two sheets and approximate wall-time index are retained
 in `video-evidence/failed-selection`; original video remains unchanged.
 The temporary renderer container was automatically removed. Local review
 copies expire October 7 21:15 UTC; persistent originals remain on homeserver.
+
+## Observed-run enrollment success and remaining tap evidence
+
+[37534118109](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/37534118109)
+ran the unchanged head and original assertions. The back-nine→front-nine /
+relaunch / complete prep-course journey passed in 253.888 s; the main full
+flow passed in 1,065.894 s. All five evidence ZIP digests passed verification.
+The observer's 105 origin health samples all returned 200; tunnel health
+returned 200 in 103/105, with two connection timeouts away from the tee tap.
+The observer, sampler and waiter closed at 22:24:57 UTC with a closure receipt.
+
+Native's sole failure was `TeeSelectionUITests.swift:142`, White not selected.
+`03-tee-row.png` visibly has half the tee dots behind the fixed Start band.
+Its tree gives White y=730.7–787.0 and Start y=759.7–810.0, yet the test's
+viewport excludes only the home-indicator lane. After the 22:06:33 White tap,
+the API responds to a new Blue/前九 round package at 22:06:38. The selection
+assertion then cannot find White. The tunnel health at 22:06:32 was 200/0.388 s.
+This is a different failure from the first empty catalogue.
+
+P2 verification correction: exclude the entire fixed action band/padding
+from the scroll viewport, recheck before tap, retain White/action-label
+assertions and verify the start page remains until an explicit Start tap.
+Inspect the same RealFlow helper and save screenshot/tree on prerequisites
+failing. Final merge remains pending this concrete failure's correction.
+
+## Completed observed-run visual review
+
+All 91 iOS and 13 Watch runtime PNGs in run 37534118109 have now been
+visually inspected, including the final iOS nearby-GPS capture and both Watch
+contact sheets. All 89 iOS / 47 Watch design PNGs remain byte-identical to the
+approved baseline. The remaining tee-tap P2 is not cleared by that equality.
+
+A separate nonblocking layout follow-up appears in
+`09d-new-course-lightweight-map.png`, `b4b2-02-back-nine-first-hole.png` and
+`b4b2-04-front-nine-round-hole-10.png`: the facts-only hole hugs the left edge
+while most of the canvas is empty, and its upper club label overlaps the
+fixed `洞位图` control. Fit the available map bounds with margins and place
+labels outside fixed-control bounds. These runtime frames are not visually
+clear merely because the fixture design frames have not changed.
+
+The final GPS capture shows populated nearby Chinese course names and
+distances; it is simulator location evidence. Watch route and waiting-state
+limitations above still apply, as does the existing status-bar contrast
+follow-up. Original enrollment acceptance stays passed; approval still waits
+for the usable-viewport correction and targeted live White selection.
+
+The source snapshot and all temporary test/render containers are closed;
+the observer, sampler, artifact downloaders and CI waiter have completed.
+Persistent originals are retained on homeserver. Local review copies remain
+available for comparison until their recorded October 7 21:15 UTC expiry.
