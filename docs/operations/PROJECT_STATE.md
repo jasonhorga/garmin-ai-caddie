@@ -1,68 +1,81 @@
 # Garmin AI Caddie Project State
 
-> Short durable continuity ledger. This is the only authoritative operational
-> state file; dated material in `docs/archive/` is historical and non-authoritative.
+> Short durable continuity ledger. Only this file is authoritative.
+> Dated files in docs/archive/ are historical and non-authoritative.
 
-**Updated:** 2026-10-06 01:06 UTC
+**Updated:** 2026-10-06 04:30 UTC
 **Canonical branch:** `main`
-**Latest integrated main:** `78bfbfd688bbadcbc3abc9b5fb483e09256203de` (#383)
+**Latest integrated main:** `95eb822485d74b5299e1eb011d33acfac3e2170a` (#384/#385)
 **Internal app source:** `3f05ca689b0ca4988bfcc404f9fe3ba446d6727c`
 **Internal backend source:** `048ab6a4b02e9b8d2d81d0d1098cc7cb696f7252`
 **Current slice:** `PR-FEEDBACK-WAIT` — `in-progress`
 
-## Current status and feedback deduplication
+## Current status and handled feedback
 
-Claude is unavailable. Codex owns remaining in-scope implementation, review
-and integration; do not start Claude/Fable sessions.
+The original cloud Claude session is gone. A replacement homeserver Claude
+session submitted #384/#385; handover comment `6009080503` confirms it.
+Codex remains review/integration owner; no new delegated session is needed.
 
-No open PRs remained after #383 merged at **2026-10-06 01:02:32 UTC**.
-The quiet interval starts at that time; its provisional 48-hour deadline is
-**2026-10-08 01:02:32 UTC**. A genuinely new PR event resets it. Own main CI,
-replayed events and already-handled feedback do not reset it.
+No open PRs remained after #384 merged at **2026-10-06 04:27:52 UTC**.
+Quiet interval starts then; provisional 48-hour deadline:
+**2026-10-08 04:27:52 UTC**. New substantive PR events reset it; own main CI,
+replayed events and handled feedback do not. The earlier 01:02 interval is void.
 
-- `PR-383-WAIT-POLICY` — `done`. Exact reviewed head:
-  `1589265f52e6d83ef701f5e3dd2a83b4b86f3524`; merge:
-  `78bfbfd688bbadcbc3abc9b5fb483e09256203de`. The final change adds only a
-  nine-line shared collaboration reference to AGENTS.md. Existing Blocking
-  waits, cursor, PR handling and attribution rules remain byte-identical.
-  Source CI `37396121559` passed backend/frontend/docker. No Native changes.
-  P1 and Claude follow-ups `5989584637` / `5989587106` are resolved by review
-  `https://github.com/jasonhorga/garmin-ai-caddie/pull/383#pullrequestreview-5422610831`.
-  The remote branch, clean local worktree and local branch are removed.
-- `PR-382-DEVICE-FEEDBACK` — `done`. Exact head `beb0a829`; merge `9ebc8cba`.
-  The recent-prep P2 was fixed using `course.globalId` plus a regression test.
-  Source CI `37279043417` and Native CI `37279043304` passed; all 136
-  snapshots match the approved #380 baseline. Its branch/worktree are removed.
-- Closed PRs at these handled heads require no repeated review or reply.
-  A new head or substantive new feedback is actionable. Older reviews and
-  release detail are archived in
-  `docs/archive/PROJECT_STATE-2026-10-06-pr383-resolved.md`.
+- `PR-384-LAYUP-REVIEW` — `done`. Exact head
+  `b8c1d5f01ceb4cbd88d6e26c8d401abe6d8efa52`; merge `95eb8224`.
+  First head `f4ad0e3b` failed the independent water test: 8I at 318 m in
+  [250,330] m water. P1 review `5423698557` and Claude reply `6009204457`
+  are resolved by actual-origin water checks and eight-metre edge buffers.
+  Source CI `37412801028`, 51 prep tests (2 skips), 12 goldens and the
+  unchanged independent regression passed. Final review:
+  `https://github.com/jasonhorga/garmin-ai-caddie/pull/384#pullrequestreview-5423787418`.
+  Branch and both review snapshots/containers removed.
+- `PR-385-PIN-SHEET-REVIEW` — `done`. Exact head
+  `b6b8c8582500a63f18cb170f00113152d580526a`; merge `8099df3e`.
+  Static fixture provider now maps to configuration failure/503.
+  Source CI `37411847028` and 42 focused tests passed. Review:
+  `https://github.com/jasonhorga/garmin-ai-caddie/pull/385#pullrequestreview-5423738591`.
+  Source branch, snapshot and containers removed.
+- `PR-383-WAIT-POLICY` — `done`, head `1589265f`, merge `78bfbfd6`.
+  Complete waiter/cursor/PR/attribution rules retained; no migration scheduled.
+  P1 resolved by review `5422610831`; Source CI `37396121559` passed.
+- `PR-382-DEVICE-FEEDBACK` — `done`, head `beb0a829`, merge `9ebc8cba`.
+  Source `37279043417` / Native `37279043304` passed; 136 snapshots match
+  approved #380. Course-identity P2 fixed; branch/worktree removed.
 
-Continue the same-turn five-minute sleep/write_stdin wait with one existing
-feedback writer. No independent waiter tmux, idle status checks or replacement
-while a handle is pending. Do not change the method before 2026-10-09.
+Do not repeat review/reply for these closed heads or recorded feedback IDs.
+A new head or substantive new comment is actionable. Prior ledgers are
+preserved verbatim in the dated `PROJECT_STATE-2026-10-06-*` archives.
+
+Continue the same-turn five-minute sleep/write_stdin wait with the existing
+single writer. No independent waiter tmux, idle status checks or replacement
+while a handle is pending. Method stays fixed through 2026-10-09.
 No CI-only bookkeeping commits; own main CI is ignored using provenance.
-All comments end `_Generated by Codex_`; commits end `Generated-by: Codex`.
+Comments end `_Generated by Codex_`; commits end `Generated-by: Codex`.
 
-## Unfinished work
+## Unfinished work and release boundaries
 
 - `PR-FEEDBACK-WAIT` — `in-progress`: process genuine new PR feedback until
-  the owner's end condition; use the persistent event cursor for delivery.
-- `RELEASE-B79-PHYSICAL` — `evidence-open`: owner iPhone/Watch testing remains
-  open. TestFlight **0.1.0 (79)** is `VALID / IN_BETA_TESTING` in the existing
-  internal group. Keep its candidate origin available.
+  the owner's end condition, using the durable event cursor.
+- `RELEASE-B79-PHYSICAL` — `evidence-open`: owner iPhone/Watch testing of
+  TestFlight **0.1.0 (79)** remains open. It is `VALID / IN_BETA_TESTING` in
+  the existing internal group; keep the candidate origin available.
+- #384/#385 are source merges. Actual new prep needs backend release and
+  a course re-preparation/refresh. Build 79 predates #382's error classifier;
+  it shows a generic pin-sheet failure, while main maps 503 to not-configured.
+  Enabling Gemini/credential handling is separate owner/deployment work.
 - Candidate cleanup remains pending until the owner closes build 79 testing.
   Do not switch production or enable external distribution.
 
 ## Live verification baseline
 
-- Internal release gates: live Native `37257466397`, TestFlight `37262234670`,
-  Apple read-only `37262917624`: success. HTTP/2 topology response 214,475
-  bytes; loopback ~0.18 s, tunnel 1.28–2.19 s, all eight requests HTTP/2/200.
+- Internal gates: live Native `37257466397`, TestFlight `37262234670`,
+  Apple read-only `37262917624`: success. HTTP/2 response 214,475 bytes;
+  loopback ~0.18 s, tunnel 1.28–2.19 s, all eight requests HTTP/2/200.
 - IPA SHA-256:
   `82d7077351a8eb079026469ef068d9f8d3929022a486371d0ecacbe61427cdb8`.
-- Candidate: `aicaddie-release-048ab6a4-candidate-20261004-r2`,
-  loopback `39088`; verified health HTTP 200, revision `048ab6a4…`.
+- Candidate: `aicaddie-release-048ab6a4-candidate-20261004-r2`, loopback
+  `39088`; last verified health HTTP 200, revision `048ab6a4…`.
 - Candidate image:
   `garmin-ai-caddie-api:048ab6a4b02e9b8d2d81d0d1098cc7cb696f7252-candidate-20261004`.
 - Internal origin:
@@ -71,71 +84,69 @@ All comments end `_Generated by Codex_`; commits end `Generated-by: Codex`.
   `aicaddie-release-d7f69971-production-20260925`, loopback `39055`.
 - Release evidence:
   `/home/jason/garmin-ai-caddie-data/operations/release-main-3f05ca68-20261005/`.
-- #382 Native evidence:
+- Approved Native / recent-prep regression evidence:
+  `/home/jason/garmin-ai-caddie-data/operations/pr380-native-37267563159-20261005/`;
   `/home/jason/garmin-ai-caddie-data/operations/pr382-native-37279043304-20261005/`.
-- #380 approved Native baseline:
-  `/home/jason/garmin-ai-caddie-data/operations/pr380-native-37267563159-20261005/`.
-- #383 invariant checks, review inputs and cleanup manifest:
+- #383 evidence/cleanup manifest:
   `/home/jason/garmin-ai-caddie-data/operations/pr383-policy-1589265f-20261006/`.
-- #383 Source wait log:
-  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-37396121559-20261006T005317Z-108271.log`.
-- Homeserver waiter:
+- #384 initial P1 and independent regression:
+  `/home/jason/garmin-ai-caddie-data/operations/pr384-f4ad0e3b-20261006/`.
+- #384 fixed-head verification and cleanup:
+  `/home/jason/garmin-ai-caddie-data/operations/pr384-b8c1d5f0-20261006/`.
+- #385 endpoint/provider/media verification and cleanup:
+  `/home/jason/garmin-ai-caddie-data/operations/pr385-b6b8c858-20261006/`.
+- Existing homeserver waiter:
   `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait_for_conclusion.sh`.
-  SHA-256 unchanged:
+  SHA-256 remains:
   `5b3846c9ff7b4ad6a5297f5571fa162c8e0be5a50ee63da024d6ef11be038c6d`.
-- Feedback cursor:
+- Cursor:
   `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/feedback-cursor`.
-  Do not edit/delete it; deduplicate stale delivery against handled heads and
-  feedback IDs above without creating bookkeeping commits.
+  Never edit/delete it. Deduplicate replay against the handled heads/IDs above.
 
 ## Owned temporary resources and cleanup
 
-- Retained candidate source:
+- Candidate source:
   `/home/jason/codex-runs/garmin-ai-caddie-release-048ab6a4-20261004`.
 - Retained HTTP/2 tmux: `codex-release-http2-main-048ab6a4-r2`.
-  The candidate container and tunnel are retained specifically for build 79.
-- Candidate evidence/allow-list:
+  Candidate container/tunnel are retained specifically for build 79.
+- Candidate allow-list:
   `/home/jason/garmin-ai-caddie-data/operations/release-main-048ab6a4-20261004-r2/resource-manifest.md`.
-- The independent `codex-pr-feedback-wait-20261004` tmux is closed.
-  Retained historical log:
+- Independent `codex-pr-feedback-wait-20261004` tmux is closed.
+  Historical log:
   `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-feedback-pr--20261004T202208Z-3851321.log`.
-- Shared `gh-feedback@garmin-ai-caddie.timer` remains unchanged; its writer is
+- Shared `gh-feedback@garmin-ai-caddie.timer` is unchanged; its writer is
   `/home/jason/gh-feedback/gh-feedback.sh`. Do not stop or duplicate it.
-- No active implementation worktree remains. #383's exact clean worktree was
-  removed using Git; its branch was deleted after confirming it merged.
-  The persistent resource manifest is in the #383 evidence directory above.
-- SSH recovery stopped owned orphan waiter parents `2825385`/`3950465`
-  and tail children `2825398`/`3950478`. Logs/cursor/timer retained;
-  manifest:
+- No active implementation worktree or review snapshot from this slice remains.
+  #383 worktree/branch, both #384 snapshots and #385 snapshot are removed.
+  All verification containers used --rm; exact-name absence checks passed.
+  No ports, tunnels, persistent volumes or dependency installs were created.
+- Owned #384/#385 local review inputs were copied to persistent evidence,
+  checksum verified and removed. Keep all other pre-existing `.codex-*`
+  files and the modified `ops/pr_feedback_monitor.sh` outside this commit.
+- SSH-recovery manifest:
   `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/ssh-recovery-20261006-manifest.md`.
-  Use SSH `-tt` and keepalive for new handles; script/method unchanged.
-- #383 created no containers, volumes, ports, tunnels or dependencies.
-  Its small local review inputs were copied to persistent evidence, checksum
-  verified and removed. All other pre-existing `.codex-*` files and modified
-  `ops/pr_feedback_monitor.sh` remain outside this commit.
+  Orphan waiters/tails are closed; logs/cursor/timer retained. Use SSH -tt and
+  keepalive for new handles; the waiter script/method is unchanged.
 
 ## Next action and stop conditions
 
-Commit/push this real review, policy integration and cleanup record, then
-resume one same-turn `--feedback` handle. Give it a timeout no later than the
-current quiet deadline or hard deadline, whichever is earlier. Read its
-one-line conclusion before processing events; do not inspect its process or
-state during idle waits. On quiet timeout, verify no new PR event and no open
-PR before closing the goal and recording the final state.
+Commit/push this real review, handover and cleanup record, then resume one
+same-turn `--feedback` handle. Bound it by the quiet deadline or hard deadline,
+whichever is earlier. Read only its returned conclusion during idle waits;
+do not inspect processes, monitor state or CI separately.
 
 End no later than **2026-10-09 23:59 UTC**, or earlier after **48 consecutive
-hours with no new PR event and no open PR**. Record the final state before
-ending. Candidate retention for physical testing remains separate.
+hours with no new PR event and no open PR**. On quiet timeout verify the
+condition, record final state, and close the goal. Build 79 retention is separate.
 
-Stop release work on a required Native/Apple failure, provenance/revision
+Stop release work on required Native/Apple failure, provenance/revision
 mismatch, candidate failure or production/external distribution request.
-Use allow-listed manifests for cleanup; never broad-clean shared resources.
+Cleanup must follow exact allow-listed manifests.
 
 ## Continuity rule
 
 Keep this file at **200 lines or fewer**, limited to current state, unfinished
-work, verification baselines, owned temporary resources, next action and stop
-conditions. Archive superseded detail verbatim under dated `docs/archive/`
-files marked `HISTORICAL ARCHIVE — NON-AUTHORITATIVE`. After compaction,
-follow AGENTS.md recovery and resume the current slice; do not start a new
-master plan or repeat completed review.
+work, verification baselines, owned resources, next action and stop conditions.
+Preserve superseded text verbatim in dated `docs/archive/` files marked
+`HISTORICAL ARCHIVE — NON-AUTHORITATIVE`. After compaction, follow AGENTS.md
+recovery and resume this slice without repeating completed review.
