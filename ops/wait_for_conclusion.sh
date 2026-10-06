@@ -230,7 +230,7 @@ summarize_run() {
   conclusion="$(jq -r '.conclusion // "unknown"' "$run_json" 2>>"$LOG_FILE")"
 
   if [[ "$ignore_self_generated" == "1" ]] && run_is_self_generated "$run_json"; then
-    log "ignoring self-generated main CI run=$summarize_run_id head=$(jq -r '.headSha // empty' "$run_json")"
+    log "ignoring self-generated CI run=$summarize_run_id branch=$(jq -r '.headBranch // empty' "$run_json") head=$(jq -r '.headSha // empty' "$run_json")"
     rm -f "$run_json"
     return 42
   fi
@@ -266,6 +266,9 @@ summarize_run() {
 
 commit_is_self_generated() {
   local commit_sha="$1"
+  # marker_only=1: only Codex's explicit trailer counts. Used off main, where an
+  # unmarked docs-only commit may be anyone's PR and must still wake the loop.
+  local marker_only="${2:-0}"
   local commit_json="$LOG_FILE.commit-${commit_sha}.json"
   [[ "$commit_sha" =~ ^[0-9a-fA-F]{7,64}$ ]] || return 1
   if ! gh api "repos/$REPO/commits/$commit_sha" >"$commit_json" 2>>"$LOG_FILE"; then
@@ -278,7 +281,8 @@ commit_is_self_generated() {
   # carrying another agent's trailer is never self-generated, whatever its
   # files: the shared GitHub account cannot tell the agents apart by itself.
   jq -e --arg login "$SELF_COMMIT_LOGIN" --arg email "$SELF_COMMIT_EMAIL" \
-    --arg codex "$CODEX_COMMIT_MARKER" --arg other "$OTHER_AGENT_COMMIT_MARKER" '
+    --arg codex "$CODEX_COMMIT_MARKER" --arg other "$OTHER_AGENT_COMMIT_MARKER" \
+    --argjson marker_only "$marker_only" '
     (.commit.message // "") as $message
     | ($message | test($codex; "i")) as $codex_marked
     | ($message | test($other; "i")) as $other_marked
@@ -290,7 +294,8 @@ commit_is_self_generated() {
     | ((.files // []) | all(.[]?.filename // "";
         . == "AGENTS.md" or startswith("docs/"))) as $bookkeeping_only
     | ($other_marked | not) and
-      ($codex_marked or ($shared_identity and $has_files and $bookkeeping_only))
+      ($codex_marked or
+        ($marker_only == 0 and $shared_identity and $has_files and $bookkeeping_only))
   ' "$commit_json" >/dev/null 2>>"$LOG_FILE"
   local result=$?
   rm -f "$commit_json"
@@ -302,9 +307,20 @@ run_is_self_generated() {
   local head_branch head_sha
   head_branch="$(jq -r '.headBranch // empty' "$run_json" 2>>"$LOG_FILE")"
   head_sha="$(jq -r '.headSha // empty' "$run_json" 2>>"$LOG_FILE")"
-  [[ "$head_branch" == "main" ]] || return 1
+  ci_head_is_self_generated "$head_branch" "$head_sha"
+}
+
+# Codex's own CI on any branch: main keeps the unmarked docs/state bookkeeping
+# rule; every other branch (internal release branches such as
+# codex/internal-release-*, or a Codex fix pushed to a PR) needs the trailer.
+ci_head_is_self_generated() {
+  local head_branch="$1" head_sha="$2"
   [[ -n "$head_sha" ]] || return 1
-  commit_is_self_generated "$head_sha"
+  if [[ "$head_branch" == "main" ]]; then
+    commit_is_self_generated "$head_sha"
+  else
+    commit_is_self_generated "$head_sha" 1
+  fi
 }
 
 wait_for_run() {
@@ -400,8 +416,9 @@ wait_for_pr_event() {
           event_head_branch="$(jq -r '.headBranch // empty' <<<"$event_line" 2>>"$LOG_FILE")"
           event_head_sha="$(jq -r '.headSha // empty' <<<"$event_line" 2>>"$LOG_FILE")"
           event_pr_count="$(jq -r '((.pullRequests // []) | length)' <<<"$event_line" 2>>"$LOG_FILE")"
-          if [[ "$event_head_branch" == "main" && "$event_pr_count" == "0" && -n "$event_head_sha" ]] && commit_is_self_generated "$event_head_sha"; then
-            log "ignored self-generated main CI event run=$event_run_id head=$event_head_sha"
+          if [[ -n "$event_head_sha" ]] && { [[ "$event_head_branch" != "main" || "$event_pr_count" == "0" ]]; } \
+              && ci_head_is_self_generated "$event_head_branch" "$event_head_sha"; then
+            log "ignored self-generated CI event run=$event_run_id branch=$event_head_branch head=$event_head_sha"
             advance_cursor "$line_no"
             continue
           fi
@@ -409,6 +426,11 @@ wait_for_pr_event() {
           # summary path as --run so failed job names and the full run log are
           # available in the one-line result.
           summarize_run "$event_run_id"
+          if (( $? == 42 )); then
+            # The final run state named a self-generated head the event did not.
+            advance_cursor "$line_no"
+            continue
+          fi
         elif [[ "$event_kind" == "ci_changed" ]]; then
           event_failed_jobs="$(jq -r '
             [.checks[]? | select(((.state // "") | ascii_upcase) as $state |
