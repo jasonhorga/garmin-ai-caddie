@@ -36,7 +36,21 @@ public struct WatchUITestRoot: View {
         return args[index + 1]
     }
 
+    /// Written when the routed screen first appears, so `simctl io screenshot` waits for the real view
+    /// instead of a fixed sleep. Live Native 37426762320: after 5 s `score-recommendation` was still
+    /// the launch logo. CI deletes the file before each launch and checks it names its own mode.
+    public static let renderedMarkerName = "uitest-screen-rendered"
+    public static let unknownScreenMarkerName = "uitest-screen-unknown"
+
     public var body: some View {
+        routedScreen
+            .onAppear {
+                writeRuntimeMarker(Self.renderedMarkerName, contents: "screen=\(screen)\n")
+            }
+    }
+
+    @ViewBuilder
+    private var routedScreen: some View {
         switch screen {
         case "milestone-seed", "milestone-restore":
             milestoneRound
@@ -314,6 +328,9 @@ public struct WatchUITestRoot: View {
             WatchStartView(phoneReachable: false)
         default:
             Text("unknown uitest screen: \(screen)")
+                .onAppear {
+                    writeRuntimeMarker(Self.unknownScreenMarkerName, contents: "screen=\(screen)\n")
+                }
         }
     }
 

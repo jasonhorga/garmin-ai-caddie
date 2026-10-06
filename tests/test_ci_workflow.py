@@ -822,6 +822,68 @@ class CIWorkflowTests(unittest.TestCase):
             list(watch_steps).index("Seed and restore a real Watch round"),
         )
 
+    def test_native_watch_screenshots_wait_for_the_routed_screen_not_a_fixed_sleep(self) -> None:
+        # Live Native 37426762320: after a fixed 5 s, score-recommendation was still the launch logo.
+        workflow = yaml.safe_load(Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8"))
+        script = {
+            step.get("name"): step for step in workflow["jobs"]["native-mobile"]["steps"]
+        }["Real Watch round seed and restore screenshots"]["run"]
+        capture = script[script.index("launch_and_capture() {"):script.index("launch_and_capture milestone-seed")]
+        self.assertNotIn("sleep 5", capture)
+        reset = capture.index('watch_screen_ready.sh reset "$WATCH_UDID" "$BID"')
+        launch = capture.index('xcrun simctl launch "$WATCH_UDID"')
+        wait = capture.index('watch_screen_ready.sh wait "$WATCH_UDID" "$BID" "$mode"')
+        shot = capture.index("xcrun simctl io")
+        self.assertLess(reset, launch)
+        self.assertLess(launch, wait)
+        self.assertLess(wait, shot)
+
+        root = Path("mobile/ios/AICaddieWatch/Views/WatchUITestRoot.swift").read_text(encoding="utf-8")
+        self.assertIn('renderedMarkerName = "uitest-screen-rendered"', root)
+        self.assertIn('unknownScreenMarkerName = "uitest-screen-unknown"', root)
+        self.assertIn('writeRuntimeMarker(Self.renderedMarkerName, contents: "screen=\\(screen)\\n")', root)
+
+    def test_watch_screen_ready_helper_fails_on_timeout_unknown_and_wrong_screen(self) -> None:
+        helper = Path(".github/scripts/watch_screen_ready.sh").resolve()
+        with tempfile.TemporaryDirectory() as tmp:
+            container = Path(tmp) / "container"
+            documents = container / "Documents"
+            documents.mkdir(parents=True)
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            fake_xcrun = bin_dir / "xcrun"
+            fake_xcrun.write_text(f"#!/bin/sh\necho '{container}'\n", encoding="utf-8")
+            fake_xcrun.chmod(0o755)
+            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+            rendered = documents / "uitest-screen-rendered"
+            unknown = documents / "uitest-screen-unknown"
+
+            def run(*args: str) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    ["bash", str(helper), *args], env=env, capture_output=True, text=True, timeout=30
+                )
+
+            rendered.write_text("screen=old\n", encoding="utf-8")
+            unknown.write_text("screen=old\n", encoding="utf-8")
+            self.assertEqual(run("reset", "UDID", "BID").returncode, 0)
+            self.assertFalse(rendered.exists())
+            self.assertFalse(unknown.exists())
+
+            timed_out = run("wait", "UDID", "BID", "score-recommendation", "1")
+            self.assertEqual(timed_out.returncode, 1)
+            self.assertIn("did not render", timed_out.stdout)
+
+            rendered.write_text("screen=home\n", encoding="utf-8")
+            self.assertEqual(run("wait", "UDID", "BID", "score-recommendation", "1").returncode, 1)
+
+            rendered.write_text("screen=score-recommendation\n", encoding="utf-8")
+            self.assertEqual(run("wait", "UDID", "BID", "score-recommendation", "5").returncode, 0)
+
+            unknown.write_text("screen=typo\n", encoding="utf-8")
+            not_routed = run("wait", "UDID", "BID", "typo", "5")
+            self.assertEqual(not_routed.returncode, 1)
+            self.assertIn("not routed", not_routed.stdout)
+
     def test_watch_runtime_uses_an_isolated_player_bearer_instead_of_the_owner_admin_token(self) -> None:
         workflow_path = Path(".github/workflows/watch-runtime.yml")
         workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
