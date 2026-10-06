@@ -369,6 +369,66 @@ final class TemplateAcquisitionTests: XCTestCase {
         )
     }
 
+    /// A requested 备战 job paused in the background during the entry hole resumes on the real
+    /// foreground hook — making another request — without releasing the gate; the round's own
+    /// row still waits.
+    func testARequestedJobPausedAndResumedDuringTheEntryHoleKeepsItsExemption() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let requests = LoopRequests()
+        serveOracle(oracle, into: requests)
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        let model = acquisitionModel(directory: freshDirectory())
+        await model.prepareCourseRound(roundId: oracle.roundId, teeBox: "blue", loops: [RoundLoopEntry(globalId: gid, half: "back")])
+        model.consumePendingLiveHole()
+        model.setActiveHole(1)
+        let pending = try XCTUnwrap(model.freshEntryReleaseGenerationForTesting)
+
+        model.downloadPrepCourse(MobileCourseOption(globalId: gid, name: "Prep white", holes: 18, teeBox: "white"))
+        let requested = try XCTUnwrap(model.prepCourseDownloads.first { $0.teeBox == "white" })
+        // The background grace period expires before the worker gets to run.
+        await model.cancelPrepCourseDownloadForTesting()
+        XCTAssertEqual(model.prepCourseDownloads.first { $0.id == requested.id }?.phase, .queued)
+        XCTAssertTrue(model.userRequestedPrepDownloadIDsForTesting.contains(requested.id))
+        XCTAssertFalse(requests.contains(tee: "white"))
+
+        model.syncOnForeground()
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertTrue(requests.contains(tee: "white"), "the resumed requested job makes its request")
+        XCTAssertEqual(model.freshEntryReleaseGenerationForTesting, pending, "without releasing the gate")
+        XCTAssertFalse(
+            requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"),
+            "the round's automatic row still waits"
+        )
+    }
+
+    /// Requested-job intent is account-scoped: a rebind drops it with the previous library.
+    func testAccountRebindDropsRequestedJobIntent() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let requests = LoopRequests()
+        serveOracle(oracle, into: requests)
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        let model = acquisitionModel(directory: freshDirectory())
+        await model.prepareCourseRound(roundId: oracle.roundId, teeBox: "blue", loops: [RoundLoopEntry(globalId: gid, half: "back")])
+        model.downloadPrepCourse(MobileCourseOption(globalId: gid, name: "Prep white", holes: 18, teeBox: "white"))
+        await model.cancelPrepCourseDownloadForTesting()
+        XCTAssertFalse(model.userRequestedPrepDownloadIDsForTesting.isEmpty)
+
+        // The rebind also binds the process-wide club-bag store; restore it for later tests.
+        let previousClubBagPlayer = ClubBagStore.playerId
+        defer { ClubBagSyncCoordinator.shared.activate(playerId: previousClubBagPlayer, migrateLegacy: false) }
+        model.activateSession(
+            AppSession(token: "token", playerId: "another-player", expiresAt: Date().addingTimeInterval(600)),
+            migrateLegacyData: false
+        )
+        XCTAssertTrue(model.userRequestedPrepDownloadIDsForTesting.isEmpty)
+        XCTAssertNil(model.freshEntryReleaseGenerationForTesting)
+        await model.waitForPrepCourseDownloadForTesting()
+    }
+
     /// A fallback armed for an earlier round can never release a later round's deferral.
     func testAStaleFallbackCannotReleaseANewRound() async throws {
         let oracle = try oracle()

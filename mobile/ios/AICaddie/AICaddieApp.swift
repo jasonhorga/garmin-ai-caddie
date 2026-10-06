@@ -553,6 +553,8 @@ public final class LiveRoundAppModel: ObservableObject {
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
         pausePrepCourseDownload()
+        // Requested 备战 jobs belong to the previous player's library.
+        userRequestedPrepDownloadIDs.removeAll()
         watchFinishedRoundReconciliationTask?.cancel()
         watchFinishedRoundReconciliationTask = nil
         watchRoundStartRetryTasks.values.forEach { $0.cancel() }
@@ -1269,6 +1271,8 @@ public final class LiveRoundAppModel: ObservableObject {
     func waitForFreshEntryReleaseFallbackForTesting() async {
         await freshEntryReleaseTask?.value
     }
+
+    var userRequestedPrepDownloadIDsForTesting: Set<String> { userRequestedPrepDownloadIDs }
 
     #endif
 
@@ -3776,6 +3780,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             if existing.id == activePrepCourseDownloadID {
+                // Already running: keep its progress, but it is now the player's request, so a
+                // pause/requeue during a fresh entry does not hold it behind the gate.
+                userRequestedPrepDownloadIDs.insert(id)
                 return
             }
             if existing.phase == .queued {
@@ -3941,7 +3948,9 @@ public final class LiveRoundAppModel: ObservableObject {
         if let id { userRequestedPrepDownloadIDs.insert(id) }
         guard prepCourseDownloadTask == nil, syncClient != nil,
               prepCourseDownloads.contains(where: { $0.phase == .queued }) else { return }
-        guard id != nil || deferredOfflineCourseDownloadRevalidation == nil else {
+        // The worker's own dequeue rule: with a fresh entry pending, only a queued job the player
+        // asked for may start it — including one paused in the background and resumed here.
+        guard nextPrepCourseDownloadJob() != nil else {
             recordUITestLatency("prep-queue.start-deferred fresh-entry-pending")
             return
         }
@@ -3957,12 +3966,13 @@ public final class LiveRoundAppModel: ObservableObject {
               let next = nextPrepCourseDownloadJob() {
             activePrepCourseDownloadID = next.id
             await runPrepCourseDownload(id: next.id, generation: generation)
+            // A cancelled worker must not touch the intent a restarted worker now owns.
+            guard prepCourseDownloadGeneration == generation else { return }
             // A requested job the server is still preparing returns to `.queued`; it stays the
             // player's until it is ready or failed.
             if prepCourseDownloads.first(where: { $0.id == next.id })?.phase != .queued {
                 userRequestedPrepDownloadIDs.remove(next.id)
             }
-            guard prepCourseDownloadGeneration == generation else { return }
             activePrepCourseDownloadID = nil
         }
         if deferredOfflineCourseDownloadRevalidation != nil,

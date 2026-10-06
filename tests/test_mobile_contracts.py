@@ -4500,12 +4500,22 @@ class MobileContractTests(unittest.TestCase):
         # One gate for every automatic installer start and every next job; the player's own 备战
         # actions are never held, and the foreground hook cannot bypass it.
         start = body("private func startPrepCourseDownloadQueueIfNeeded(userRequested id: String? = nil) {")
-        self.assertIn("guard id != nil || deferredOfflineCourseDownloadRevalidation == nil else {", start)
+        # Start and dequeue share one eligibility rule, so a paused requested job resumes.
+        self.assertIn("guard nextPrepCourseDownloadJob() != nil else {", start)
         self.assertNotIn("userRequested:", body("private func resumePrepCourseDownloads(retryFailed: Bool) {"))
         self.assertIn("startPrepCourseDownloadQueueIfNeeded(userRequested: id)", body("public func downloadPrepCourse(_ course: MobileCourseOption) {"))
         self.assertIn("startPrepCourseDownloadQueueIfNeeded(userRequested: id)", body("public func retryPrepCourseDownload(id: String) {"))
         worker = body("private func processPrepCourseDownloadQueue(generation: UUID) async {")
         self.assertIn("let next = nextPrepCourseDownloadJob()", worker)
+        # A cancelled worker never touches the intent a restarted worker owns.
+        self.assertLess(
+            worker.index("guard prepCourseDownloadGeneration == generation else { return }"),
+            worker.index("userRequestedPrepDownloadIDs.remove(next.id)"),
+        )
+        self.assertIn("userRequestedPrepDownloadIDs.removeAll()", body("public func activateSession(_ session: AppSession, migrateLegacyData: Bool) {"))
+        download = body("public func downloadPrepCourse(_ course: MobileCourseOption) {")
+        active = download.split("if existing.id == activePrepCourseDownloadID {", 1)[1].split("return", 1)[0]
+        self.assertIn("userRequestedPrepDownloadIDs.insert(id)", active)
         next_job = body("private func nextPrepCourseDownloadJob() -> PrepCourseDownloadRecord? {")
         self.assertIn("!freshEntryPending || userRequestedPrepDownloadIDs.contains($0.id)", next_job)
         foreground = body("public func syncOnForeground() {")
