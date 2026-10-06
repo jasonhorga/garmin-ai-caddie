@@ -616,6 +616,57 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(offsets, sorted(offsets))
         self.assertTrue(all(step["planVersion"] == "ai-caddie-shot-plan-v1" for step in steps))
 
+    _NO_HAZARDS = {"water_carry": [], "bunkers": [], "details": []}
+
+    def test_par4_lays_up_to_a_full_wedge_instead_of_a_maximum_wood(self) -> None:
+        # Build 77 device review: 433 y Par 4, Driver then a maximum 3-wood left 44 y.
+        ladder = [
+            ("Driver", 196), ("3W", 160), ("5I", 140), ("7I", 120), ("9I", 105), ("PW", 95), ("SW", 80),
+        ]
+        steps, _c, _landing, _tee = cp._strategy(4, 396, self._NO_HAZARDS, ladder)
+
+        self.assertEqual([step["club"] for step in steps], ["Driver", "7I", "SW"])
+        self.assertEqual(steps[1]["role"], "position")
+        self.assertGreaterEqual(steps[1]["expectedRemaining_m"], cp.LAYUP_LEAVE_MIN_M)
+        self.assertEqual(steps[2]["role"], "scoring")
+
+    def test_owner_bag_lay_up_leaves_the_dedicated_wedge(self) -> None:
+        # The owner's effective ladder on 2026-10-06: the old chain was Driver -> 3W -> 58 for 32 y.
+        ladder = [
+            ("Driver", 197), ("3W", 170), ("3H", 158), ("5I", 142), ("6I", 132), ("7I", 128), ("8I", 121),
+            ("9I", 109), ("Pw", 107), ("Aw", 102), ("50", 84), ("54", 48), ("58", 35),
+        ]
+        steps, _c, _landing, _tee = cp._strategy(4, 396, self._NO_HAZARDS, ladder)
+
+        self.assertEqual([step["club"] for step in steps], ["Driver", "8I", "50"])
+        self.assertAlmostEqual(steps[1]["expectedRemaining_m"], 78.0, delta=0.1)
+
+    def test_par5_lay_up_applies_to_the_last_advance(self) -> None:
+        ladder = [
+            ("Driver", 196), ("3W", 160), ("5I", 140), ("7I", 120), ("9I", 105), ("PW", 95), ("SW", 80),
+        ]
+        # Driver 196, 3W 160 leaves 210: another 3W would leave 50, so the third shot lays up.
+        # 5I (leave 70) and 7I (leave 90) are equally close to the 80 m wedge; the longer club wins.
+        steps, _c, _landing, _tee = cp._strategy(5, 566, self._NO_HAZARDS, ladder)
+
+        self.assertEqual([step["club"] for step in steps], ["Driver", "3W", "5I", "SW"])
+        self.assertGreaterEqual(steps[2]["expectedRemaining_m"], cp.LAYUP_LEAVE_MIN_M)
+
+    def test_a_bag_without_a_full_wedge_keeps_the_longest_advance(self) -> None:
+        ladder = [("Driver", 196), ("3W", 160), ("9I", 60)]
+        steps, _c, _landing, _tee = cp._strategy(4, 396, self._NO_HAZARDS, ladder)
+
+        self.assertEqual([step["club"] for step in steps], ["Driver", "3W", "9I"])
+
+    def test_a_long_leave_keeps_the_longest_advance(self) -> None:
+        ladder = [
+            ("Driver", 196), ("3W", 160), ("5I", 140), ("7I", 120), ("9I", 105), ("PW", 95), ("SW", 80),
+        ]
+        # 3W leaves 94 m, already a full wedge: no lay-up.
+        steps, _c, _landing, _tee = cp._strategy(4, 450, self._NO_HAZARDS, ladder)
+
+        self.assertEqual([step["club"] for step in steps], ["Driver", "3W", "PW"])
+
     def test_in_triangle(self) -> None:
         a, b, c = (0, 0), (10, 0), (0, 10)
         self.assertTrue(cp._in_tri((2, 2), a, b, c))

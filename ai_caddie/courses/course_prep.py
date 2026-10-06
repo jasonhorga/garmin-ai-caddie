@@ -1574,6 +1574,42 @@ def _hole_image_projection(by: dict, route, md: dict | None = None, *, frame=Non
 
 TEE_WATER_LAYUP_BUFFER_M = 8.0
 TEE_WATER_CLEARANCE_BUFFER_M = 8.0
+# Full-wedge leave window for a lay-up; the same window as ``decision.LAYUP_WEDGE_MIN_M/MAX_M``.
+LAYUP_LEAVE_MIN_M = 70.0
+LAYUP_LEAVE_MAX_M = 115.0
+LAYUP_LEAVE_MAX_ERROR_M = 15.0
+
+
+def _layup_position_club(remaining_m: float, approach_ladder):
+    """The lay-up club when the longest approach would leave a part-swing pitch.
+
+    Build 77 device review: 433 y Par 4, Driver then a maximum 3-wood left 44 y. A lay-up should
+    leave a full wedge instead. The target leave is the shortest club whose carry sits in the
+    full-wedge window (the player's dedicated wedge); among clubs that keep the leave at or above
+    the window, pick the one whose leave is closest to it, longer club first on a tie. Returns
+    ``None`` when the bag has no full wedge or no club gets within ``LAYUP_LEAVE_MAX_ERROR_M``,
+    so a sparse bag keeps the longest-club advance.
+    """
+    wedge_carries = [
+        float(distance)
+        for _name, distance in approach_ladder
+        if LAYUP_LEAVE_MIN_M <= float(distance) <= LAYUP_LEAVE_MAX_M
+    ]
+    if not wedge_carries:
+        return None
+    target_leave = min(wedge_carries)
+    best = None
+    best_error = None
+    for name, distance in approach_ladder:
+        leave = remaining_m - float(distance)
+        if leave < LAYUP_LEAVE_MIN_M:
+            continue
+        error = abs(leave - target_leave)
+        if best_error is None or error < best_error:
+            best, best_error = (name, distance), error
+    if best is None or best_error is None or best_error > LAYUP_LEAVE_MAX_ERROR_M:
+        return None
+    return best
 
 
 def _strategy_water_safe(carry_m: float, hazards: dict) -> bool:
@@ -1752,6 +1788,10 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
             longest_approach = approach_ladder[0][1]
             if remaining > longest_approach + 15:
                 approach_club, approach_distance = approach_ladder[0]
+                if remaining - longest_approach < LAYUP_LEAVE_MIN_M:
+                    approach_club, approach_distance = (
+                        _layup_position_club(remaining, approach_ladder) or approach_ladder[0]
+                    )
             else:
                 approach_club, approach_distance = club_for(
                     remaining,
