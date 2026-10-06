@@ -91,9 +91,11 @@ def read_pin_sheet(images: Iterable[PinSheetImage], provider: object) -> dict[st
         # A deployment problem, not a bad photo: the player must not be told to retake it.
         raise ProviderConfigurationError("the configured model cannot read images")
     if isinstance(provider, StaticProvider):
-        # AI_CADDIE_LLM_PROVIDER=static answers every image with a fixed fixture string, which then
-        # failed as "the reply is not JSON" (422, "retake the photo"). Build 79: both owner reads.
-        raise ProviderConfigurationError("no image model is configured (AI_CADDIE_LLM_PROVIDER=static)")
+        # The static provider answers every image with a fixed fixture string, which then failed
+        # as "the reply is not JSON" (422, "retake the photo"). Build 79: both owner reads.
+        raise ProviderConfigurationError(
+            "no image model is configured (static provider; set AI_CADDIE_VISION_PROVIDER)"
+        )
     media =[LLMMediaPart(media_type="image", mime_type=image.mime_type, data=image.data) for image in images]
     if not media:
         raise PinSheetReadError("no image")

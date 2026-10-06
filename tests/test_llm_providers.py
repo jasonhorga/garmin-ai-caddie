@@ -22,6 +22,7 @@ from ai_caddie.llm.llm_providers import (
     ProviderConfigurationError,
     StaticProvider,
     build_text_provider,
+    build_vision_provider,
     redact_secret_text,
 )
 
@@ -566,6 +567,60 @@ class LLMProviderTests(unittest.TestCase):
 
         self.assertIsNone(text)
         self.assertIn("ANTHROPIC_API_KEY is not configured", error or "")
+
+    def _settings_from(self, env: dict[str, str]):
+        self.addCleanup(get_settings.cache_clear)
+        with patch.dict(os.environ, env, clear=True):
+            get_settings.cache_clear()
+            return get_settings()
+
+    def test_vision_provider_follows_the_text_provider_when_unset_or_empty(self) -> None:
+        for env in (
+            {"AI_CADDIE_LLM_PROVIDER": "static"},
+            {"AI_CADDIE_LLM_PROVIDER": "static", "AI_CADDIE_VISION_PROVIDER": ""},
+        ):
+            settings = self._settings_from(env)
+            self.assertEqual(settings.vision_provider, "static")
+            self.assertIsInstance(build_vision_provider(settings), StaticProvider)
+
+    def test_vision_provider_overrides_only_image_reading(self) -> None:
+        settings = self._settings_from({
+            "AI_CADDIE_LLM_PROVIDER": "static",
+            "AI_CADDIE_VISION_PROVIDER": "gemini_api_key",
+            "GEMINI_API_KEY": "test-key",
+            "GEMINI_API_BASE_URL": "http://relay.invalid:7861/v1beta/",
+            "GEMINI_MODEL": "gemini-2.5-flash",
+        })
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=True):
+            vision = build_vision_provider(settings)
+        text = build_text_provider(settings)
+
+        self.assertIsInstance(vision, GeminiApiKeyProvider)
+        self.assertEqual(vision.base_url, "http://relay.invalid:7861/v1beta")
+        self.assertEqual(vision.model, "gemini-2.5-flash")
+        # Decision explanations and reports keep the text provider.
+        self.assertIsInstance(text, StaticProvider)
+
+    def test_media_and_pin_sheet_use_the_vision_provider(self) -> None:
+        from server_v2.media import build_media_vision_provider
+
+        settings = SimpleNamespace(
+            llm_provider="static",
+            vision_provider="gemini_api_key",
+            gemini_api_key_present=True,
+            gemini_api_base_url="http://relay.invalid:7861/v1beta",
+            gemini_model="gemini-2.5-flash",
+        )
+        with (
+            patch("ai_caddie.llm.llm_providers.get_settings", return_value=settings),
+            patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=True),
+        ):
+            self.assertIsInstance(build_media_vision_provider(), GeminiApiKeyProvider)
+            self.assertIsInstance(build_text_provider(), StaticProvider)
+
+    def test_an_unknown_vision_provider_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            self._settings_from({"AI_CADDIE_LLM_PROVIDER": "static", "AI_CADDIE_VISION_PROVIDER": "gpt"})
 
 
 if __name__ == "__main__":

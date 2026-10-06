@@ -22,6 +22,12 @@ class Settings:
         self.llm_provider: LLMProviderName = _llm_provider(
             os.getenv("AI_CADDIE_LLM_PROVIDER", "static")
         )
+        # Image reading (pin sheet, media analysis) can use a real multimodal model while the
+        # decision explanations and reports stay on AI_CADDIE_LLM_PROVIDER. Unset or empty
+        # follows the text provider, so existing deployments are unchanged.
+        self.vision_provider: LLMProviderName = _llm_provider(
+            os.getenv("AI_CADDIE_VISION_PROVIDER") or self.llm_provider
+        )
         self.static_llm_reply = os.getenv(
             "AI_CADDIE_STATIC_LLM_REPLY", "AI Caddie fixture response"
         )

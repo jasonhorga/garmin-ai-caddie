@@ -715,9 +715,15 @@ class AnthropicProvider:
             raise ProviderRuntimeError("Anthropic response did not include content[0].text") from exc
 
 
-def build_text_provider(settings: object | None = None) -> TextProvider:
+def build_vision_provider(settings: object | None = None) -> TextProvider:
+    """The image-reading provider: ``AI_CADDIE_VISION_PROVIDER``, else the text provider."""
     resolved = settings or get_settings()
-    provider_name = getattr(resolved, "llm_provider", "static")
+    return build_text_provider(resolved, provider_name=getattr(resolved, "vision_provider", None))
+
+
+def build_text_provider(settings: object | None = None, *, provider_name: str | None = None) -> TextProvider:
+    resolved = settings or get_settings()
+    provider_name = provider_name or getattr(resolved, "llm_provider", "static")
 
     if provider_name == "static":
         return StaticProvider(reply=getattr(resolved, "static_llm_reply", "AI Caddie fixture response"))
