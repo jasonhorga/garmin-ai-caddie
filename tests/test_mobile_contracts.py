@@ -4462,6 +4462,20 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("ready.phase = .ready", enqueue)
         self.assertNotIn("guard readyPrepTemplate(for: candidate) == nil else { continue }", enqueue)
 
+    def test_a_half_start_queues_its_whole_course_without_waiting_for_the_first_hole(self) -> None:
+        # Live Native 37456686597 / 37247820045: `liveHoleInitialLoadDidFinish` is skipped whenever
+        # the player leaves a hole before its first load settles, so the whole-course job must be
+        # recorded when the fresh round is published — only its download waits for the first hole.
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        signal = app_swift.split("private func signalFreshRoundEntry(", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("enqueueWholeCourseTemplates(for: package)", signal)
+        self.assertNotIn("startPrepCourseDownloadQueueIfNeeded()", signal)
+        self.assertNotIn("beginOfflineCourseDownload(", signal)
+        release = app_swift.split("func liveHoleInitialLoadDidFinish() {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("beginOfflineCourseDownload(revalidatePackage: revalidatePackage)", release)
+        finish = app_swift.split("private func finishRoundPreparation(_ token: UUID) {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("if deferredOfflineCourseDownloadRevalidation == nil,", finish)
+
     def test_pin_sheet_flag_sits_under_a_moved_flag_and_above_the_route_end(self) -> None:
         # 洞位图: the day's sheet places the flag; a flag the player moves still wins, and the
         # provider's route end is only the fallback. The server only reads the photo.

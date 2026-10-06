@@ -101,6 +101,97 @@ final class TemplateAcquisitionTests: XCTestCase {
         try await assertOneHalfAcquisition(serverEchoesRequestedRoundId: false)
     }
 
+    /// Live Native 37456686597 / 37247820045: the player left every hole before its first load
+    /// settled, so `liveHoleInitialLoadDidFinish` never ran and the whole-course job was never
+    /// queued — after a relaunch 备战 had no row for the course. The job must be durable as soon as
+    /// the one-half round is published, while its download still waits for the first live hole.
+    func testOneHalfStartQueuesTheWholeCourseDurablyWithoutTheFirstHoleCallback() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let lock = NSLock()
+        var requestedLoops: [String] = []
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            guard url.path == "/api/v2/mobile/courses/\(gid)/package" else {
+                return try Self.response(request, status: 404, body: Data(#"{"detail":"not found"}"#.utf8))
+            }
+            let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let loops = queryItems.first { $0.name == "loops" }?.value ?? ""
+            lock.withLock { requestedLoops.append(loops) }
+            guard let body = oracle.responses[loops] else {
+                return try Self.response(request, status: 422, body: Data(#"{"detail":"loops"}"#.utf8))
+            }
+            guard let requestedRoundId = queryItems.first(where: { $0.name == "round_id" })?.value,
+                  !requestedRoundId.isEmpty else {
+                return try Self.response(request, status: 200, body: body)
+            }
+            var object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            object["roundId"] = requestedRoundId
+            return try Self.response(request, status: 200, body: try JSONSerialization.data(withJSONObject: object))
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        func model(preferredRoundId: String? = nil) -> LiveRoundAppModel {
+            LiveRoundAppModel(
+                offlineStore: OfflineStore(directoryURL: directory),
+                apiBaseURL: nil,
+                watchBridge: nil,
+                garminSessionStore: nil,
+                preferredRoundId: preferredRoundId,
+                syncClient: SyncClient(
+                    baseURL: URL(string: "https://acquisition.example.test")!,
+                    session: session,
+                    retrySleep: { _ in }
+                ),
+                offlineGeometryRetryDelaysNanoseconds: []
+            )
+        }
+
+        let online = model()
+        await online.prepareCourseRound(
+            roundId: oracle.roundId,
+            teeBox: "blue",
+            loops: [RoundLoopEntry(globalId: gid, half: "back")]
+        )
+        XCTAssertEqual(online.package?.loopKey, "\(gid):back")
+        // No `liveHoleInitialLoadDidFinish()`: every hole was left before its first load settled.
+        let queued = try XCTUnwrap(
+            online.prepCourseDownloads.first { $0.course.globalId == gid },
+            "the one-half start must list its whole course in the prep library at once"
+        )
+        XCTAssertEqual(queued.phase, .queued)
+        XCTAssertEqual(queued.totalHoles, 18)
+        XCTAssertTrue(
+            try store.loadPrepCourseDownloads().contains { $0.id == queued.id },
+            "the queued whole-course job is durable before the first hole settles"
+        )
+        XCTAssertFalse(
+            lock.withLock { requestedLoops }.contains("\(gid):front,\(gid):back"),
+            "the whole-course download still waits behind the first live hole"
+        )
+
+        // The app is terminated mid-round and relaunched: the job resumes and installs.
+        let relaunched = model(preferredRoundId: oracle.roundId)
+        await relaunched.bootstrap()
+        await relaunched.waitForPrepCourseDownloadForTesting()
+        XCTAssertTrue(lock.withLock { requestedLoops }.contains("\(gid):front,\(gid):back"))
+        XCTAssertEqual(
+            relaunched.prepCourseDownloads.first { $0.id == queued.id }?.phase,
+            .ready,
+            "备战 lists the course, ready, after the relaunch"
+        )
+        XCTAssertEqual(
+            try OfflineStore(directoryURL: directory).loadCourseTemplate(globalId: gid, teeBox: "blue")?.loopKey,
+            "\(gid):front+\(gid):back"
+        )
+        XCTAssertEqual(relaunched.package?.loopKey, "\(gid):back", "the live round keeps its own identity")
+    }
+
     private func assertOneHalfAcquisition(serverEchoesRequestedRoundId: Bool) async throws {
         let oracle = try oracle()
         let gid = oracle.globalId

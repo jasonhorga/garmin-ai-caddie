@@ -1140,6 +1140,16 @@ public final class LiveRoundAppModel: ObservableObject {
             "course-start.pending-published hole=\(pendingLiveHole ?? -1) "
                 + "cache=\(cacheOfflineAssets) revalidate=\(revalidatePackage)"
         )
+        // Record the whole-course template job now, durably. Only its download waits for the first
+        // live hole: `liveHoleInitialLoadDidFinish` is skipped whenever the player leaves a hole
+        // before its first load settles, and the job used to exist only after that callback — so a
+        // slow start never queued the course at all (live Native 37456686597 and 37247820045).
+        // Nothing here starts the prep queue; `finishRoundPreparation` keeps it paused while the
+        // fresh entry is pending, and `beginOfflineCourseDownload` starts it after the round's
+        // own assets.
+        if let package {
+            enqueueWholeCourseTemplates(for: package)
+        }
     }
 
     /// Start the first-hole bitmap as soon as the complete package arrives. The package already

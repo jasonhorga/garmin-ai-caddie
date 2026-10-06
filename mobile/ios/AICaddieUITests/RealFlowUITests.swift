@@ -142,10 +142,12 @@ final class RealFlowUITests: XCTestCase {
             format: "identifier BEGINSWITH %@",
             "prep-download-row-\(approvedJourneyCourseGlobalId):"
         )).firstMatch
-        XCTAssertTrue(
-            scrollTo(acquired, maxSwipes: 12),
-            "a one-half start must queue its whole course in the prep library"
-        )
+        let acquiredFound = scrollTo(acquired, maxSwipes: 12)
+        if !acquiredFound {
+            // Evidence for a missing row (live Native 37456686597 had none at this point).
+            save("b4b2-06-prep-library-missing-whole-course"); dump("b4b2-06-prep-library-missing-whole-course")
+        }
+        XCTAssertTrue(acquiredFound, "a one-half start must queue its whole course in the prep library")
         // The picker shows no download copy (README §8); the DEBUG/UITEST_MODE-only accessibility
         // token carries the durable install state for this proof.
         XCTAssertTrue(
