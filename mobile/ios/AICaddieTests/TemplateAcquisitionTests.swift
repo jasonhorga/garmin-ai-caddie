@@ -1,12 +1,16 @@
 @testable import AICaddie
 import XCTest
 
-/// Every `loops=` the package route is asked for, in order (filled from the URLProtocol thread).
+/// Every package request (`loops=` and `tee_box=`), in order (filled from the URLProtocol thread).
 private final class LoopRequests: @unchecked Sendable {
     private let lock = NSLock()
-    private var loops: [String] = []
-    func append(_ value: String) { lock.withLock { loops.append(value) } }
-    var all: [String] { lock.withLock { loops } }
+    private var entries: [(loops: String, tee: String)] = []
+    func append(loops: String, tee: String) { lock.withLock { entries.append((loops, tee)) } }
+    var all: [String] { lock.withLock { entries.map(\.loops) } }
+    func contains(loops: String, tee: String) -> Bool {
+        lock.withLock { entries.contains { $0.loops == loops && $0.tee == tee } }
+    }
+    func contains(tee: String) -> Bool { lock.withLock { entries.contains { $0.tee == tee } } }
 }
 
 /// B4b-2 offline acquisition acceptance. Not pre-seeded: the store starts with no v2 cache, the
@@ -121,7 +125,8 @@ final class TemplateAcquisitionTests: XCTestCase {
             }
             let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
             let loops = queryItems.first { $0.name == "loops" }?.value ?? ""
-            requests.append(loops)
+            let tee = queryItems.first { $0.name == "tee_box" }?.value ?? ""
+            requests.append(loops: loops, tee: tee)
             guard let body = oracle.responses[loops] else {
                 return try Self.response(request, status: 422, body: Data(#"{"detail":"loops"}"#.utf8))
             }
@@ -144,7 +149,9 @@ final class TemplateAcquisitionTests: XCTestCase {
         configuration.protocolClasses = [CapturingURLProtocol.self]
         return LiveRoundAppModel(
             offlineStore: OfflineStore(directoryURL: directory),
-            apiBaseURL: nil,
+            // A test host, not a bundle default: `syncOnForeground` configures the club-bag sync
+            // with it, and nothing here may reach a real backend.
+            apiBaseURL: URL(string: "https://acquisition.example.test")!,
             watchBridge: nil,
             garminSessionStore: nil,
             preferredRoundId: preferredRoundId,
@@ -299,9 +306,9 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertEqual(model.package?.loopKey, "\(gid):back")
     }
 
-    /// While the entry hole is still loading, re-selecting it and the automatic resume (foreground,
-    /// bootstrap) do not start the whole-course download; its first load finishing does.
-    func testTheEntryHoleKeepsPriorityOverAutomaticQueueStarts() async throws {
+    /// While the entry hole is still loading, re-selecting it and the real foreground hook do not
+    /// start the all-hole pipeline or the durable whole-course row; its first load finishing does.
+    func testTheEntryHoleKeepsPriorityOverTheRealForegroundHook() async throws {
         let oracle = try oracle()
         let gid = oracle.globalId
         let requests = LoopRequests()
@@ -312,18 +319,54 @@ final class TemplateAcquisitionTests: XCTestCase {
         await model.prepareCourseRound(roundId: oracle.roundId, teeBox: "blue", loops: [RoundLoopEntry(globalId: gid, half: "back")])
         model.consumePendingLiveHole()
         model.setActiveHole(1)
-        model.resumePrepCourseDownloadsForTesting()
-        await model.waitForPrepCourseDownloadForTesting()
-        XCTAssertNotNil(model.freshEntryReleaseGenerationForTesting)
+        let pending = try XCTUnwrap(model.freshEntryReleaseGenerationForTesting)
+        model.syncOnForeground()
+        await settleDownloads(model)
+        XCTAssertEqual(model.freshEntryReleaseGenerationForTesting, pending, "the foreground hook keeps the gate")
         XCTAssertFalse(
-            requests.all.contains("\(gid):front,\(gid):back"),
-            "an automatic resume must not take the durable row ahead of the entry hole"
+            requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"),
+            "a foreground return must not take the durable row ahead of the entry hole"
         )
 
         model.liveHoleInitialLoadDidFinish()
         XCTAssertNil(model.freshEntryReleaseGenerationForTesting)
         await settleDownloads(model)
-        XCTAssertTrue(requests.all.contains("\(gid):front,\(gid):back"))
+        XCTAssertTrue(requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"))
+    }
+
+    /// A 备战 download the player starts during the entry hole runs at once; when that job finishes,
+    /// the worker takes no further automatic job — not the round's whole-course row — until the
+    /// fresh entry is released, and then continues. (The worker re-checks the gate before every
+    /// job, so a worker that was already running when the round started behaves the same.)
+    func testAPrepWorkerTakesOnlyThePlayersJobUntilTheFreshEntryIsReleased() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let requests = LoopRequests()
+        serveOracle(oracle, into: requests)
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        let model = acquisitionModel(directory: freshDirectory())
+        await model.prepareCourseRound(roundId: oracle.roundId, teeBox: "blue", loops: [RoundLoopEntry(globalId: gid, half: "back")])
+        let pending = try XCTUnwrap(model.freshEntryReleaseGenerationForTesting)
+        let roundRow = try XCTUnwrap(model.prepCourseDownloads.first { $0.course.globalId == gid && $0.teeBox == "blue" })
+
+        model.downloadPrepCourse(MobileCourseOption(globalId: gid, name: "Prep white", holes: 18, teeBox: "white"))
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertTrue(requests.contains(tee: "white"), "the player's own 备战 job is never held behind the gate")
+        XCTAssertEqual(model.freshEntryReleaseGenerationForTesting, pending)
+        XCTAssertFalse(
+            requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"),
+            "after the player's job the worker must not take the fresh entry's whole-course job"
+        )
+        XCTAssertEqual(model.prepCourseDownloads.first { $0.id == roundRow.id }?.phase, .queued)
+
+        model.consumePendingLiveHole()
+        model.setActiveHole(2)
+        await settleDownloads(model)
+        XCTAssertTrue(
+            requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"),
+            "after the release the queue continues with the whole-course job"
+        )
     }
 
     /// A fallback armed for an earlier round can never release a later round's deferral.

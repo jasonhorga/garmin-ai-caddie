@@ -4497,12 +4497,22 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("gate.entryHole != hole", active)
         self.assertIn('releaseFreshEntry(reason: "left-entry-hole")', active)
         self.assertIn("clearFreshEntryRelease()", body("private func beginRoundPreparation() -> UUID {"))
-        # One gate for automatic queue starts; the player's own 备战 actions are never held.
-        start = body("private func startPrepCourseDownloadQueueIfNeeded(userInitiated: Bool = false) {")
-        self.assertIn("guard userInitiated || deferredOfflineCourseDownloadRevalidation == nil else {", start)
-        self.assertNotIn("userInitiated: true", body("private func resumePrepCourseDownloads(retryFailed: Bool) {"))
-        self.assertIn("startPrepCourseDownloadQueueIfNeeded(userInitiated: true)", body("public func downloadPrepCourse(_ course: MobileCourseOption) {"))
-        self.assertIn("startPrepCourseDownloadQueueIfNeeded(userInitiated: true)", body("public func retryPrepCourseDownload(id: String) {"))
+        # One gate for every automatic installer start and every next job; the player's own 备战
+        # actions are never held, and the foreground hook cannot bypass it.
+        start = body("private func startPrepCourseDownloadQueueIfNeeded(userRequested id: String? = nil) {")
+        self.assertIn("guard id != nil || deferredOfflineCourseDownloadRevalidation == nil else {", start)
+        self.assertNotIn("userRequested:", body("private func resumePrepCourseDownloads(retryFailed: Bool) {"))
+        self.assertIn("startPrepCourseDownloadQueueIfNeeded(userRequested: id)", body("public func downloadPrepCourse(_ course: MobileCourseOption) {"))
+        self.assertIn("startPrepCourseDownloadQueueIfNeeded(userRequested: id)", body("public func retryPrepCourseDownload(id: String) {"))
+        worker = body("private func processPrepCourseDownloadQueue(generation: UUID) async {")
+        self.assertIn("let next = nextPrepCourseDownloadJob()", worker)
+        next_job = body("private func nextPrepCourseDownloadJob() -> PrepCourseDownloadRecord? {")
+        self.assertIn("!freshEntryPending || userRequestedPrepDownloadIDs.contains($0.id)", next_job)
+        foreground = body("public func syncOnForeground() {")
+        self.assertIn(
+            "if !isPreparingRound, liveRoundState != nil, deferredOfflineCourseDownloadRevalidation == nil {",
+            foreground,
+        )
 
     def test_pin_sheet_flag_sits_under_a_moved_flag_and_above_the_route_end(self) -> None:
         # 洞位图: the day's sheet places the flag; a flag the player moves still wins, and the

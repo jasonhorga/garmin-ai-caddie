@@ -392,6 +392,9 @@ public final class LiveRoundAppModel: ObservableObject {
     private var freshEntryRelease: FreshEntryRelease?
     private var freshEntryReleaseTask: Task<Void, Never>?
     private let freshEntryReleaseFallbackNanoseconds: UInt64
+    /// 备战 jobs the player asked for (download, retry, opening a ready course). Only these run
+    /// while a fresh entry is pending; every automatic job waits for the release.
+    private var userRequestedPrepDownloadIDs = Set<String>()
     private var roundPreparationToken: UUID?
     private var courseOptionsRefreshSucceeded = false
     private var boundPlayerId: String?
@@ -913,8 +916,9 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// Start owns the live-round preparation generation. A previous live course's long package
     /// request may finish after the player has chosen another course; it must neither replace the new
-    /// selection nor turn off the new request's spinner. The durable prep-library queue is independent
-    /// and continues in the background when the player leaves prep or starts a round.
+    /// selection nor turn off the new request's spinner. The durable prep-library queue keeps the job
+    /// it is running (its progress is durable), but while the new round's first hole has priority it
+    /// takes no further automatic job (`nextPrepCourseDownloadJob`).
     private func beginRoundPreparation() -> UUID {
         let token = UUID()
         roundPreparationToken = token
@@ -1266,10 +1270,6 @@ public final class LiveRoundAppModel: ObservableObject {
         await freshEntryReleaseTask?.value
     }
 
-    /// The automatic resume `bootstrap` and `syncOnForeground` run, without their other work.
-    func resumePrepCourseDownloadsForTesting() {
-        resumePrepCourseDownloads(retryFailed: true)
-    }
     #endif
 
     /// Keep start latency low, then make the selected course genuinely reusable without a network:
@@ -2953,8 +2953,11 @@ public final class LiveRoundAppModel: ObservableObject {
         ClubBagSyncCoordinator.shared.configure(apiBaseURL: apiBaseURL, adminToken: adminToken)
         Task { await ClubBagSyncCoordinator.shared.restoreFromServer() }
         // Retry local course asset preparation on the next foreground, but never block the event
-        // uploader on that background work.
-        if !isPreparingRound, liveRoundState != nil { beginOfflineCourseDownload() }
+        // uploader on that background work. A fresh entry still owns its release: going to the
+        // background on the first hole and back must not start the all-hole pipeline early.
+        if !isPreparingRound, liveRoundState != nil, deferredOfflineCourseDownloadRevalidation == nil {
+            beginOfflineCourseDownload()
+        }
         Task { @MainActor [weak self] in
             await self?.autoSyncGarminIfNeeded()
         }
@@ -3776,7 +3779,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             if existing.phase == .queued {
-                startPrepCourseDownloadQueueIfNeeded(userInitiated: true)
+                startPrepCourseDownloadQueueIfNeeded(userRequested: id)
                 return
             }
             updatePrepCourseDownload(id: id) { record in
@@ -3799,7 +3802,7 @@ public final class LiveRoundAppModel: ObservableObject {
             persistPrepCourseDownloads()
             refreshDownloadedCourseOptions()
         }
-        startPrepCourseDownloadQueueIfNeeded(userInitiated: true)
+        startPrepCourseDownloadQueueIfNeeded(userRequested: id)
     }
 
     public func retryPrepCourseDownload(id: String) {
@@ -3810,7 +3813,7 @@ public final class LiveRoundAppModel: ObservableObject {
             record.errorText = nil
         }
         refreshDownloadedCourseOptions()
-        startPrepCourseDownloadQueueIfNeeded(userInitiated: true)
+        startPrepCourseDownloadQueueIfNeeded(userRequested: id)
     }
 
     /// Verify a locally complete prep package against the server's release-bound install journal.
@@ -3828,7 +3831,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 state.errorText = "本机地图文件不完整，正在重新下载。"
             }
             refreshDownloadedCourseOptions()
-            startPrepCourseDownloadQueueIfNeeded(userInitiated: true)
+            startPrepCourseDownloadQueueIfNeeded(userRequested: record.id)
             return false
         }
         guard let syncClient else { return true }
@@ -3881,7 +3884,7 @@ public final class LiveRoundAppModel: ObservableObject {
             state.requiredGeometryRevisions = requiredRevisions
         }
         refreshDownloadedCourseOptions()
-        startPrepCourseDownloadQueueIfNeeded(userInitiated: true)
+        startPrepCourseDownloadQueueIfNeeded(userRequested: record.id)
         return false
     }
 
@@ -3932,11 +3935,13 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// Automatic starts (foreground resume, configuration, preparation end) wait for a pending
     /// fresh-entry release, so a durable row queued at round start never competes with the first
-    /// live hole. A 备战 action the player takes (`userInitiated`) is never held behind it.
-    private func startPrepCourseDownloadQueueIfNeeded(userInitiated: Bool = false) {
+    /// live hole. A 备战 action the player takes (`userRequested`) is never held behind it; the
+    /// worker then runs only the jobs the player asked for until the release.
+    private func startPrepCourseDownloadQueueIfNeeded(userRequested id: String? = nil) {
+        if let id { userRequestedPrepDownloadIDs.insert(id) }
         guard prepCourseDownloadTask == nil, syncClient != nil,
               prepCourseDownloads.contains(where: { $0.phase == .queued }) else { return }
-        guard userInitiated || deferredOfflineCourseDownloadRevalidation == nil else {
+        guard id != nil || deferredOfflineCourseDownloadRevalidation == nil else {
             recordUITestLatency("prep-queue.start-deferred fresh-entry-pending")
             return
         }
@@ -3949,19 +3954,37 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private func processPrepCourseDownloadQueue(generation: UUID) async {
         while !Task.isCancelled, prepCourseDownloadGeneration == generation,
-              let next = prepCourseDownloads
-                .filter({ $0.phase == .queued })
-                .sorted(by: { $0.updatedAt > $1.updatedAt })
-                .first {
+              let next = nextPrepCourseDownloadJob() {
             activePrepCourseDownloadID = next.id
             await runPrepCourseDownload(id: next.id, generation: generation)
+            // A requested job the server is still preparing returns to `.queued`; it stays the
+            // player's until it is ready or failed.
+            if prepCourseDownloads.first(where: { $0.id == next.id })?.phase != .queued {
+                userRequestedPrepDownloadIDs.remove(next.id)
+            }
             guard prepCourseDownloadGeneration == generation else { return }
             activePrepCourseDownloadID = nil
+        }
+        if deferredOfflineCourseDownloadRevalidation != nil,
+           prepCourseDownloads.contains(where: { $0.phase == .queued }) {
+            recordUITestLatency("prep-queue.paused fresh-entry-pending")
         }
         guard prepCourseDownloadGeneration == generation else { return }
         prepCourseDownloadGeneration = nil
         prepCourseDownloadTask = nil
         endPrepBackgroundTask()
+    }
+
+    /// The next queued job the worker may take. While a fresh entry is pending only jobs the player
+    /// asked for run; the round's own durable rows and other automatic jobs wait for the release,
+    /// which restarts the worker (`beginOfflineCourseDownload` → `startPrepCourseDownloadQueueIfNeeded`).
+    private func nextPrepCourseDownloadJob() -> PrepCourseDownloadRecord? {
+        let freshEntryPending = deferredOfflineCourseDownloadRevalidation != nil
+        return prepCourseDownloads
+            .filter { $0.phase == .queued }
+            .filter { !freshEntryPending || userRequestedPrepDownloadIDs.contains($0.id) }
+            .sorted(by: { $0.updatedAt > $1.updatedAt })
+            .first
     }
 
     /// iOS grants a bounded grace period after the app enters the background. Use it to finish the
